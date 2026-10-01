@@ -1,0 +1,2 @@
+import{a as o}from"https://app.framerstatic.com/chunk-QBOY5CLR.mjs";function n(r){if(r===0)return o.settingsTertiary;let t=`analyticsAbTestVariant${r%5+1}`;return o[t]}function a(r){if(r===0)return`color-mix(in srgb, ${o.settingsTertiary} 10%, transparent)`;let t=`analyticsAbTestVariant${r%5+1}Dimmed`;return o[t]}export{n as a,a as b};
+//# sourceMappingURL=https://app.framerstatic.com/chunk-MKHCKDIL.mjs.map

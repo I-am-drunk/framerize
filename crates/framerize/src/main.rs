@@ -2,6 +2,10 @@
 //! REST/SSE API + web UI; CLI subcommands for account management.
 
 use clap::{Parser, Subcommand};
+use framer_core::ids::AccountId;
+use framer_host::CdpBridge;
+use framer_server::AppState;
+use std::sync::Arc;
 
 #[derive(Parser)]
 #[command(name = "framerize", about = "Multi-account Framer AI service")]
@@ -12,7 +16,7 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Cmd {
-    /// Run the daemon (REST + SSE + web UI).
+    /// Run the daemon (REST + SSE + web UI + /anthropic + /openai compat).
     Daemon {
         #[arg(long, default_value = "127.0.0.1:8787")]
         listen: String,
@@ -20,6 +24,12 @@ enum Cmd {
         web_dir: String,
         #[arg(long, default_value = "framerize.db")]
         db: String,
+        /// Path to a Chrome/Chromium binary (the Castle engine per account).
+        #[arg(long, env = "CHROME_PATH", default_value = "chrome")]
+        chrome: String,
+        /// One browser profile directory per account lives under here.
+        #[arg(long, default_value = "profiles")]
+        profiles: String,
     },
     /// Add an account: sends the Framer magic-link email, then prompts for the
     /// #token from the emailed link.
@@ -28,21 +38,45 @@ enum Cmd {
     Accounts,
 }
 
+fn build_state(db: &str, chrome: &str, profiles: &str) -> Result<AppState, String> {
+    let state = Arc::new(framer_store::SqliteStateStore::open(db)?);
+    let sessions = Arc::new(framer_store::KeyringSessionStore);
+    let client = Arc::new(framer_api::HttpFramerClient::new());
+    let browser = Arc::new(CdpBridge::new(chrome, profiles));
+    Ok(AppState { client, browser, sessions, state })
+}
+
 #[tokio::main]
 async fn main() {
     let cli = Cli::parse();
     match cli.cmd {
-        Cmd::Daemon { listen, web_dir, db } => {
-            // Wiring: SqliteStateStore + KeyringSessionStore + HttpFramerClient +
-            // the WebKit session host (BrowserBridge). The webview host is the one
-            // piece not yet implemented — see docs/adr/ADR-002-castle-bridge.md.
-            eprintln!("daemon wiring pending BrowserBridge host ({listen}, {web_dir}, {db})");
+        Cmd::Daemon { listen, web_dir, db, chrome, profiles } => {
+            let state = match build_state(&db, &chrome, &profiles) {
+                Ok(s) => s,
+                Err(e) => {
+                    eprintln!("failed to initialize: {e}");
+                    std::process::exit(1);
+                }
+            };
+            let addr = match listen.parse() {
+                Ok(a) => a,
+                Err(e) => {
+                    eprintln!("bad --listen {listen}: {e}");
+                    std::process::exit(1);
+                }
+            };
+            eprintln!("framerize daemon on {listen} (web: {web_dir}, db: {db})");
+            if let Err(e) = framer_server::serve(state, &web_dir, addr).await {
+                eprintln!("server error: {e}");
+                std::process::exit(1);
+            }
         }
         Cmd::AccountAdd { email } => {
-            eprintln!("account add for {email}: pending BrowserBridge host (Castle)");
+            let account = AccountId::new();
+            eprintln!("account add for {email} (id {account:?}): use POST /api/accounts/begin-login then /api/accounts/complete-login against the daemon");
         }
         Cmd::Accounts => {
-            eprintln!("accounts: pending daemon store wiring");
+            eprintln!("accounts: query GET /api/accounts on the running daemon");
         }
     }
 }

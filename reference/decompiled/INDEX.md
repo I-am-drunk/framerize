@@ -14,3 +14,11 @@ Raw client code, organized by subsystem. Hashes are per-deploy; see
 - `models/chunk-DM5CYKH3.mjs` — model registry, routing tiers, context windows
 - `models/chunk-WELZ4GZF.mjs` — model id conventions / display names
 - `desktop/` — extracted app source from Framer desktop (Electron) v2026.39.0
+
+## full-chunk-set/
+
+`app/full-chunk-set/` — all 321 modules referenced by the editor entry
+(web.7Y7XBBXE), plus `projects.IF4CUXBH.mjs` (the dashboard entry — workspace
+switcher, "Add workspace" flow). Captured 2026-10-01. Key finds mined so far:
+`chunk-TC7CTTY5` = account/team API client (createTeam → POST /account/teams);
+`chunk-PUXTRHWK` = subscription sync; dashboard chunks hold the workspace UI.

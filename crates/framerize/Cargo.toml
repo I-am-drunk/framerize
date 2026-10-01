@@ -5,5 +5,10 @@ edition.workspace = true
 license.workspace = true
 
 [dependencies]
-clap = { version = "4", features = ["derive"] }
+framer-core = { path = "../framer-core" }
+framer-api = { path = "../framer-api" }
+framer-store = { path = "../framer-store" }
+framer-server = { path = "../framer-server" }
+framer-host = { path = "../framer-host" }
+clap = { version = "4", features = ["derive", "env"] }
 tokio = { version = "1", features = ["full"] }

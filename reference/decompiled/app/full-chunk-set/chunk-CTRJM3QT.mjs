@@ -1,0 +1,2 @@
+import{a as t}from"https://app.framerstatic.com/chunk-QFU6OGL3.mjs";import{a as e}from"https://app.framerstatic.com/chunk-2FCXHKEL.mjs";import{e as o}from"https://app.framerstatic.com/chunk-WLHSDIGQ.mjs";var a="s1b648c0",s="apnozu3";var p=o(e(),1);function d({height:r,variant:n="default"}){return(0,p.jsx)("div",{className:t(a,n==="agent"&&s),style:{height:r,top:-((r-1)/2)}})}export{d as a};
+//# sourceMappingURL=https://app.framerstatic.com/chunk-CTRJM3QT.mjs.map
