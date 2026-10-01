@@ -18,9 +18,24 @@ pub async fn ensure_workspace(
     account: &mut ManagedAccount,
     session: &Session,
 ) -> Result<TeamId, CoreError> {
-    if let (Some(team), Some(credit)) = (&account.current_team, &account.credit) {
-        if !credit.looks_exhausted() {
-            return Ok(team.clone());
+    if let Some(team) = account.current_team.clone() {
+        match &account.credit {
+            Some(credit) if !credit.looks_exhausted() => return Ok(team),
+            _ => {
+                // Missing (freshly imported account) or maybe-stale snapshot:
+                // refresh the CURRENT team's ledger before rotating away from it.
+                // (rotate_workspace deliberately skips the current team, so an
+                // unrefreshed None used to fall straight into rotation and then
+                // the create-team stub even when the current team had credits.)
+                if let Ok(snap) = deps.client.usage(session, &team).await {
+                    let ok = !snap.looks_exhausted();
+                    account.credit = Some(snap);
+                    deps.state.upsert(account).await.map_err(CoreError::Store)?;
+                    if ok {
+                        return Ok(team);
+                    }
+                }
+            }
         }
     }
     rotate_workspace(deps, account, session).await
