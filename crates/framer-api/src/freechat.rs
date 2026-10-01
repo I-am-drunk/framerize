@@ -19,11 +19,68 @@
 
 use crate::proxy::{self, Dialect};
 use crate::transport::Transport;
+use futures::StreamExt;
 use crate::auth::AiToken;
 use framer_core::ids::{AccountId, ProjectId};
 use framer_core::port::{BrowserBridge, ChainResult, Session};
 use serde_json::{json, Value};
 use std::sync::Mutex;
+
+/// The never-fail rung: run ONE chunk as a metered SSE stream (bytes flow →
+/// the idle-kill can never fire). Consumes anthropic (`content_block_delta`)
+/// and chat (`choices[0].delta.content`) SSE shapes; returns (text, in, out).
+#[allow(clippy::too_many_arguments)]
+async fn stream_chunk(
+    t: &Transport,
+    token_cache: &Mutex<Option<(AccountId, AiToken)>>,
+    session: &Session,
+    browser: &dyn BrowserBridge,
+    account: &AccountId,
+    project: &ProjectId,
+    upstream: Dialect,
+    mut payload: Value,
+    chat_session: &str,
+) -> Result<(String, u64, u64), String> {
+    payload["stream"] = json!(true);
+    let resp = proxy::forward(
+        t, token_cache, session, browser, account, project,
+        upstream, payload, chat_session,
+    ).await?;
+    let mut stream = resp.bytes_stream();
+    let mut buf = String::new();
+    let mut text = String::new();
+    let (mut ptok, mut ctok) = (0u64, 0u64);
+    while let Some(chunk) = stream.next().await {
+        let chunk = chunk.map_err(|e| format!("stream read: {e}"))?;
+        buf.push_str(&String::from_utf8_lossy(&chunk));
+        while let Some(pos) = buf.find("\n\n") {
+            let frame = buf[..pos].to_string();
+            buf = buf[pos + 2..].to_string();
+            for line in frame.lines() {
+                let Some(data) = line.strip_prefix("data:") else { continue };
+                let data = data.trim();
+                if data == "[DONE]" { break; }
+                let Ok(v) = serde_json::from_str::<Value>(data) else { continue };
+                // anthropic: content_block_delta → delta.text
+                if v.get("type").and_then(Value::as_str) == Some("content_block_delta") {
+                    if let Some(t) = v.pointer("/delta/text").and_then(Value::as_str) {
+                        text.push_str(t);
+                    }
+                }
+                // anthropic usage: message_start (input) / message_delta (output)
+                if let Some(u) = v.pointer("/message/usage/input_tokens").and_then(Value::as_u64) { ptok = u; }
+                if let Some(u) = v.pointer("/usage/output_tokens").and_then(Value::as_u64) { ctok = u; }
+                // openai chat: choices[0].delta.content + final usage
+                if let Some(t) = v.pointer("/choices/0/delta/content").and_then(Value::as_str) {
+                    text.push_str(t);
+                }
+                if let Some(u) = v.pointer("/usage/prompt_tokens").and_then(Value::as_u64) { ptok = u; }
+                if let Some(u) = v.pointer("/usage/completion_tokens").and_then(Value::as_u64) { ctok = u; }
+            }
+        }
+    }
+    Ok((text, ptok, ctok))
+}
 
 /// Run a chat/completions request as a chain of free non-streaming calls.
 /// `messages` is the OpenAI-style messages array; `model` a PREFIXED OpenRouter
@@ -82,6 +139,7 @@ pub async fn complete_long(
     let mut messages = messages;
     let mut text = String::new();
     let (mut ptok, mut ctok) = (0u64, 0u64);
+    let mut metered_chunks = 0u32;
     // Adaptive window safety: the upstream kills connections idle >~21.5s.
     // Measure the model's live tokens/sec from each completed chunk and size
     // the next one to finish inside ~12s (≈60% of the window) — slow models
@@ -130,10 +188,40 @@ pub async fn complete_long(
                     );
                     let retry_payload = build_payload(&messages, chunk_tokens);
                     let t1 = std::time::Instant::now();
-                    let r = proxy::forward(
+                    let r = match proxy::forward(
                         t, token_cache, session, browser, account, project,
                         upstream, retry_payload, chat_session,
-                    ).await?;
+                    ).await {
+                        Ok(r) => r,
+                        Err(e2) if cfg.metered_fallback => {
+                            // Second death on the same chunk — the window or a
+                            // provider stall is winning. Metered streaming
+                            // cannot idle-die (bytes flow): finish THIS chunk
+                            // streamed, then resume the free chain. This is the
+                            // rung that makes a long request NEVER fail.
+                            eprintln!("[freechat] chunk {i} retry died ({e2}) — metered stream fallback for this chunk");
+                            let stream_payload = build_payload(&messages, chunk_tokens);
+                            let (piece, pt, ct) = stream_chunk(
+                                t, token_cache, session, browser, account, project,
+                                upstream, stream_payload, chat_session,
+                            ).await?;
+                            metered_chunks += 1;
+                            ptok += pt;
+                            ctok += ct;
+                            text.push_str(&piece);
+                            let budget_left = cfg.max_total_tokens.map(|cap| cap.saturating_sub(ctok as u32));
+                            // streamed chunk ran to its natural stop or filled
+                            // the chunk budget — either way the chain continues
+                            // if budget remains and the piece filled the chunk.
+                            if budget_left == Some(0) || piece.is_empty() {
+                                return Ok(ChainResult { text, chunks: i + 1, prompt_tokens: ptok, completion_tokens: ctok, finish_reason: "stop".into(), metered_chunks });
+                            }
+                            messages.push(json!({"role": "assistant", "content": piece}));
+                            messages.push(json!({"role": "user", "content": cfg.continue_prompt}));
+                            continue;
+                        }
+                        Err(e2) => return Err(format!("chunk {i} retry died (fallback off): {e2}")),
+                    };
                     let el = t1.elapsed().as_secs_f32();
                     if let Ok(v) = r.json::<Value>().await {
                         let (piece, is_length, pt, ct) = extract(&v, i)?;
@@ -147,7 +235,7 @@ pub async fn complete_long(
                         text.push_str(&piece);
                         let budget_left = cfg.max_total_tokens.map(|cap| cap.saturating_sub(ctok as u32));
                         if !is_length || budget_left == Some(0) {
-                            return Ok(ChainResult { text, chunks: i + 1, prompt_tokens: ptok, completion_tokens: ctok, finish_reason: if is_length { "length".into() } else { "stop".into() } });
+                            return Ok(ChainResult { text, chunks: i + 1, prompt_tokens: ptok, completion_tokens: ctok, finish_reason: if is_length { "length".into() } else { "stop".into() }, metered_chunks });
                         }
                         messages.push(json!({"role": "assistant", "content": piece}));
                         messages.push(json!({"role": "user", "content": cfg.continue_prompt}));
@@ -171,10 +259,10 @@ pub async fn complete_long(
         text.push_str(&piece);
         let budget_left = cfg.max_total_tokens.map(|cap| cap.saturating_sub(ctok as u32));
         if !is_length || budget_left == Some(0) {
-            return Ok(ChainResult { text, chunks: i + 1, prompt_tokens: ptok, completion_tokens: ctok, finish_reason: if is_length { "length".into() } else { "stop".into() } });
+            return Ok(ChainResult { text, chunks: i + 1, prompt_tokens: ptok, completion_tokens: ctok, finish_reason: if is_length { "length".into() } else { "stop".into() }, metered_chunks });
         }
         messages.push(json!({"role": "assistant", "content": piece}));
         messages.push(json!({"role": "user", "content": cfg.continue_prompt}));
     }
-    Ok(ChainResult { text, chunks: cfg.max_chunks, prompt_tokens: ptok, completion_tokens: ctok, finish_reason: "length(chunk_cap)".into() })
+    Ok(ChainResult { text, chunks: cfg.max_chunks, prompt_tokens: ptok, completion_tokens: ctok, finish_reason: "length(chunk_cap)".into(), metered_chunks })
 }
