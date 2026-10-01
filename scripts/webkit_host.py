@@ -70,13 +70,17 @@ class Host:
         self.accounts = {}  # account -> (context, page)
         self.lock = threading.Lock()
 
-    def _page(self, account):
+    def _page(self, account, proxy=None):
         if account in self.accounts:
             return self.accounts[account][1]
         state_path = os.path.join(ROOT, f"{account}.json")
         kwargs = {}
         if os.path.exists(state_path):
             kwargs["storage_state"] = state_path
+        # Per-account egress: Castle binds tokens to egress IP (verified live:
+        # clean token + flagged IP = 403 on /ai/*). Accounts are networks.
+        if proxy:
+            kwargs["proxy"] = {"server": proxy}
         ctx = self.browser.new_context(**kwargs)
         page = ctx.new_page()
         trace(f"{account[:8]}: goto login page")
@@ -95,7 +99,7 @@ class Host:
         cmd = req.get("cmd")
         account = req.get("account", "")
         if cmd == "begin":
-            page = self._page(account)
+            page = self._page(account, req.get("proxy"))
             trace(f"{account[:8]}: mint+signin eval start")
             r = page.evaluate(auth_post_js("/auth/v4/signin", {"email": req["email"], "origin": "web"}))
             trace(f"{account[:8]}: signin -> status {r['status']}")

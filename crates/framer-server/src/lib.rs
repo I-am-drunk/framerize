@@ -32,6 +32,7 @@ pub fn router(state: AppState, web_dir: &str) -> Router {
         .route("/accounts", get(accounts))
         .route("/accounts/begin", post(begin_login))
         .route("/accounts/complete", post(complete_login))
+        .route("/accounts/import", post(import_account))
         .route("/run", post(run))
         .with_state(state.clone());
 
@@ -481,6 +482,7 @@ async fn complete_login(
             alias: body.alias.clone().unwrap_or_else(|| "account".into()),
             framer_user_id: session.active_user.clone(),
             castle_device_id: uuid::Uuid::new_v4().to_string(),
+            proxy: None,
             current_team: None,
             current_project: None,
             state: framer_core::account::AccountState::Ready,
@@ -503,6 +505,102 @@ async fn complete_login(
 
     Ok(Json(serde_json::json!({
         "status": "signed-in",
+        "account_id": account.id.0,
+        "framer_user_id": account.framer_user_id.0,
+        "team": account.current_team.map(|t| t.0),
+        "project": account.current_project.map(|p| p.0),
+    })))
+}
+
+#[derive(Deserialize)]
+struct ImportBody {
+    account_id: AccountId,
+    /// Optional per-account egress proxy (residential etc.) — applied to the
+    /// account's browser immediately.
+    proxy: Option<String>,
+    /// A live `session=…` cookie value (or full `session=…` header) captured
+    /// from any browser already logged into the account. Login is the only
+    /// IP-reputation-sensitive step; importing a session minted elsewhere
+    /// lets a daemon on a flagged/blocked network operate the account.
+    session_cookie: String,
+    alias: Option<String>,
+    project_id: Option<String>,
+}
+
+/// Import an externally-minted session cookie: verify it against
+/// /web/users/me, then register the account exactly like complete_login.
+async fn import_account(
+    State(s): State<AppState>,
+    Json(body): Json<ImportBody>,
+) -> Result<Json<serde_json::Value>, ApiError> {
+    let cookie_header = if body.session_cookie.starts_with("session=") {
+        body.session_cookie.clone()
+    } else {
+        format!("session={}", body.session_cookie)
+    };
+    // Probe with the cookie to learn the user id (transport-level; /web/*
+    // reads are cookie-only and not Castle-gated).
+    let probe = framer_core::port::Session {
+        active_user: framer_core::ids::FramerUserId(String::new()),
+        cookie_header: cookie_header.clone(),
+    };
+    let me = s.client.me(&probe).await.map_err(ApiError)?;
+    let user_id = me["id"]
+        .as_str()
+        .ok_or_else(|| ApiError("bad /web/users/me response (cookie invalid?)".into()))?;
+    let session = framer_core::port::Session {
+        active_user: framer_core::ids::FramerUserId(user_id.to_string()),
+        cookie_header,
+    };
+    s.sessions.save(&session).await.map_err(ApiError)?;
+
+    let spaces = me["spaces"].as_array().cloned().unwrap_or_default();
+    let first_org = spaces
+        .iter()
+        .find(|sp| sp["scope"].as_str() == Some("organization"))
+        .cloned();
+    let team = first_org
+        .as_ref()
+        .and_then(|sp| sp["ownerId"].as_str())
+        .map(|t| framer_core::ids::TeamId(t.to_string()));
+
+    let mut account = s
+        .state
+        .get(body.account_id)
+        .await
+        .map_err(ApiError)?
+        .unwrap_or_else(|| ManagedAccount {
+            id: body.account_id,
+            alias: body.alias.clone().unwrap_or_else(|| "imported".into()),
+            framer_user_id: session.active_user.clone(),
+            castle_device_id: uuid::Uuid::new_v4().to_string(),
+            proxy: None,
+            current_team: None,
+            current_project: None,
+            state: framer_core::account::AccountState::Ready,
+            credit: None,
+            consecutive_failures: 0,
+            cooldown_step: 0,
+        });
+    account.framer_user_id = session.active_user.clone();
+    account.state = framer_core::account::AccountState::Ready;
+    if let Some(a) = &body.alias {
+        account.alias = a.clone();
+    }
+    if team.is_some() {
+        account.current_team = team;
+    }
+    if let Some(pid) = &body.project_id {
+        account.current_project = Some(framer_core::ids::ProjectId(pid.clone()));
+    }
+    if let Some(px) = &body.proxy {
+        account.proxy = Some(px.clone());
+        s.browser.set_proxy(&body.account_id, Some(px.clone())).await.map_err(ApiError)?;
+    }
+    s.state.upsert(&account).await.map_err(ApiError)?;
+
+    Ok(Json(serde_json::json!({
+        "status": "imported",
         "account_id": account.id.0,
         "framer_user_id": account.framer_user_id.0,
         "team": account.current_team.map(|t| t.0),

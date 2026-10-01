@@ -47,6 +47,15 @@ fn build_state(db: &str, chrome: &str, profiles: &str) -> Result<AppState, Strin
     )?);
     let client = Arc::new(framer_api::HttpFramerClient::new());
     let browser = Arc::new(CdpBridge::new(chrome, profiles));
+    // Per-account egress proxies from persisted account records (Castle binds
+    // tokens to egress IP — each account needs its own clean network).
+    if let Ok(accounts) = state.list().await {
+        let map: std::collections::HashMap<String, String> = accounts
+            .into_iter()
+            .filter_map(|a| a.proxy.map(|p| (a.id.0.to_string(), p)))
+            .collect();
+        browser.set_proxies(map).await;
+    }
     Ok(AppState { client, browser, sessions, state })
 }
 
