@@ -145,6 +145,45 @@ pub fn render_stream(d: ClientDialect, r: &CanonicalResponse) -> Vec<String> {
 // ---------------------------------------------------------------------------
 
 /// IR → upstream chat payload for the free route (always stream:false).
+/// IR -> Anthropic Messages payload for the OTHER unmetered passthrough
+/// (/ai/v3/messages/). That route has a far wider idle window than the chat
+/// route (≥45s vs ~21.5s — measured live §8), so OpenAI-dialect clients ride
+/// it too: chat request -> IR -> anthropic payload -> chain -> render back.
+pub fn to_anthropic_payload(req: &CanonicalRequest, max_tokens: u32) -> Value {
+    let mut messages = Vec::new();
+    for m in &req.messages {
+        let role = match m.role.as_str() {
+            "assistant" => "assistant",
+            _ => "user", // system handled separately; tool results flatten to user
+        };
+        // Anthropic requires alternating roles; merge consecutive same-role.
+        if let Some(Value::String(last)) = messages.last_mut() {
+            let _ = last; // handled below via objects
+        }
+        messages.push(json!({"role": role, "content": m.content}));
+    }
+    // Anthropic rejects empty/leading-assistant sequences; ensure first is user.
+    if messages.first().and_then(|m| m["role"].as_str()) == Some("assistant") {
+        messages.insert(0, json!({"role": "user", "content": "(continuing)"}));
+    }
+    let mut out = json!({
+        "model": to_openrouter_id(&req.model),
+        "max_tokens": max_tokens.max(1),
+        "messages": messages,
+        "stream": false,
+    });
+    if let Some(sys) = &req.instructions {
+        out["system"] = json!(sys);
+    }
+    if let Some(t) = req.temperature {
+        out["temperature"] = json!(t);
+    }
+    if !req.stop.is_empty() {
+        out["stop_sequences"] = json!(req.stop);
+    }
+    out
+}
+
 pub fn to_chat_payload(req: &CanonicalRequest, chunk_tokens: u32) -> Value {
     let mut messages = Vec::new();
     if let Some(sys) = &req.instructions {

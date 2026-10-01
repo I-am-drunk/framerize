@@ -339,3 +339,26 @@ one connection. freechat v2 does both natively:
    after >8s of silence — the idle killer's signature, distinct from Castle's
    instant refusals) halves its max_tokens and retries once;
 4. stop at finish_reason "stop" or the client's token budget.
+
+## §9 The wide window: /ai/v3/messages/ — the native limit bypass (2026-10-01 ~21:00 UTC)
+
+Idle-kill windows are PER ROUTE (same client, same network, same account):
+
+| route | upstream | non-streaming survival |
+|---|---|---|
+| `/ai/v3/chat/` | OpenRouter (chat format) | dies ~21.5s |
+| `/ai/v3/anthropic/messages/` | Anthropic direct | died at 60.2s |
+| `/ai/v3/messages/` | OpenRouter (anthropic format) | **survived 44.9s; died at 109s** — window ≈ 60-109s |
+
+AND the messages route is model-agnostic: `openai/gpt-4.1` through it → 200,
+native anthropic-format response, 0.9s. AND still unmetered at duration:
+44.9s call and the 109s probe both left the ledger untouched (475.721137
+before/after; only the deliberate streaming probe debited 0.0327).
+
+**Consequence (implemented):** ALL free traffic now rides `/ai/v3/messages/`
+non-streaming. Anthropic clients pass through natively; OpenAI/Responses
+clients convert at the boundary (IR → anthropic payload → chain → render).
+freechat's window budget is per-dialect: 12s/600-token chunks on chat,
+45s/2500-token chunks on messages — so most real generations complete in a
+SINGLE free call, and chaining only engages for >~60s monsters. The 21.5s
+"WAF limit" is simply not on the path anymore.

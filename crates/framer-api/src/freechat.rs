@@ -89,8 +89,19 @@ pub async fn complete_long(
     // "risk-refused" 403 that only arrives after a long silence — the idle
     // killer's signature, distinct from Castle's instant refusals) halves the
     // size and retries once.
-    let mut chunk_tokens = cfg.chunk_tokens;
-    const WINDOW_BUDGET_S: f32 = 12.0;
+    // Window budgets from live measurement (verified-captures §8): the chat
+    // route's upstream idle-kills at ~21.5s; the messages route survived 44.9s+
+    // (its window is the anthropic-path ~60s config). Size chunks to ~60% of
+    // the route's window, and let the messages route use far bigger chunks —
+    // most real generations fit in ONE free call there, no chaining at all.
+    let (window_budget_s, chunk_cap) = match dialect {
+        framer_core::port::ChainDialect::OpenAiChat => (12.0, cfg.chunk_tokens),
+        framer_core::port::ChainDialect::AnthropicMessages => (45.0, cfg.chunk_tokens.max(2500)),
+    };
+    let mut chunk_tokens = match dialect {
+        framer_core::port::ChainDialect::OpenAiChat => cfg.chunk_tokens,
+        framer_core::port::ChainDialect::AnthropicMessages => chunk_cap,
+    };
 
     for i in 0..cfg.max_chunks {
         let budget = cfg
@@ -128,7 +139,7 @@ pub async fn complete_long(
                         let (piece, is_length, pt, ct) = extract(&v, i)?;
                         let tps = ct as f32 / el.max(0.5);
                         if tps > 1.0 {
-                            chunk_tokens = ((tps * WINDOW_BUDGET_S) as u32)
+                            chunk_tokens = ((tps * window_budget_s) as u32)
                                 .clamp(150, cfg.chunk_tokens);
                         }
                         ptok += pt;
@@ -155,7 +166,7 @@ pub async fn complete_long(
         ctok += ct;
         let tps = ct as f32 / elapsed.max(0.5);
         if tps > 1.0 {
-            chunk_tokens = ((tps * WINDOW_BUDGET_S) as u32).clamp(150, cfg.chunk_tokens);
+            chunk_tokens = ((tps * window_budget_s) as u32).clamp(150, cfg.chunk_tokens);
         }
         text.push_str(&piece);
         let budget_left = cfg.max_total_tokens.map(|cap| cap.saturating_sub(ctok as u32));
