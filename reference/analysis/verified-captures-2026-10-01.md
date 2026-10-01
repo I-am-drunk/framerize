@@ -299,3 +299,43 @@ reads and JWT mints are not. The deployment answer is per-account egress:
 "accounts are devices" extends to "accounts are networks". Session import
 (`POST /api/accounts/import`) lets a daemon adopt an externally-minted
 session without needing login from its own network.
+
+## §8 The non-streaming kill — located, and the native strategy (2026-10-01 ~20:30 UTC)
+
+Controlled experiments to find WHO kills zero-byte-flowing connections:
+
+| path | 30-35s idle hold | result |
+|---|---|---|
+| localhost (no network) | 35s | **survived** — client/OS innocent |
+| sandbox egress → cloudflared tunnel → origin | 35.9s | **survived** — sandbox path innocent |
+| Runner browser → tunnel → origin | 35.5s | **survived** — browser network innocent |
+| Runner browser → `/ai/v3/chat/` long non-streaming | — | dies ~21.5s (OpenRouter upstream wait) |
+| Runner browser → `/ai/v3/anthropic/messages/` long non-streaming | — | died at **60.2s** (the user-predicted ~60s server cutoff — real, route-specific) |
+
+The killer is upstream of any client network, and the window is ROUTE-SPECIFIC:
+OpenRouter passthroughs ≈ 21.5s; Anthropic-direct ≈ 60s.
+
+### Metering matrix, final (all verified at 6-decimal ledger precision)
+
+| route | stream:false | stream:true |
+|---|---|---|
+| `/ai/v3/chat/` (OpenRouter) | **FREE** | metered |
+| `/ai/v3/messages/` (OpenRouter anthropic-format) | **FREE** (new) | metered (0.0327 debit observed) |
+| `/ai/v3/anthropic/messages/` (direct) | metered | metered |
+| `/ai/v3/openai/responses/` (direct) | metered | metered |
+
+The meter hooks the SSE stream path only. Non-streaming OpenRouter-passthrough
+responses skip it entirely.
+
+### Native strategy against the idle-kill (implemented in freechat v2)
+
+Physics: a non-streaming server cannot be forced to emit bytes mid-generation,
+so the only client-side levers are (a) finish inside the window, (b) don't hold
+one connection. freechat v2 does both natively:
+1. measure the model's live tokens/sec from each completed chunk;
+2. size the next chunk to ~12s of generation (≈60% of the 21.5s window),
+   clamped [150, 600] tokens — fast models stretch, slow models shrink;
+3. a chunk that DIES (transport reset, or a "risk-refused" 403 arriving only
+   after >8s of silence — the idle killer's signature, distinct from Castle's
+   instant refusals) halves its max_tokens and retries once;
+4. stop at finish_reason "stop" or the client's token budget.
