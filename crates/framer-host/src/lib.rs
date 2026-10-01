@@ -141,6 +141,12 @@ impl CdpBridge {
         tokio::fs::create_dir_all(&profile).await.map_err(|e| e.to_string())?;
         let device_id = DeviceRecord::load_or_create(&profile).await?;
 
+        // The profile persists between launches, so a STALE DevToolsActivePort
+        // from a previous (dead) chrome can be sitting there. Reading it wins
+        // the race against the new chrome's write and sends every devtools
+        // call to a dead port ("Connection refused" forever — observed live).
+        let _ = tokio::fs::remove_file(profile.join("DevToolsActivePort")).await;
+
         let mut child = Command::new(&self.chrome)
             .arg("--headless=new")
             .arg("--remote-debugging-port=0")
