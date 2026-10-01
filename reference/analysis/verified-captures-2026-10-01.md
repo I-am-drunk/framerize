@@ -245,3 +245,28 @@ cost/latency policy flag.
 - Model id normalization is part of the layer: anthropic dashed ids
   (`claude-opus-5-5`) → OpenRouter dotted prefixed (`anthropic/claude-opus-5.5`);
   `gpt-6-sol` → `openai/gpt-6-sol`; already-prefixed ids pass through.
+
+## §6 Full E2E login + inference (clean environment, 2026-10-01 ~18:55 UTC)
+
+Driven in a real Chrome browser, the EXACT code the daemon/sidecar runs:
+
+1. `POST /auth/v4/signin` `{email, origin:"web", castleToken}` + `X-Requested-By: Framer`
+   → **200** `{"next":"check-email"}` (magic link emailed)
+2. `POST /auth/v4/continue` `{token, castleToken}` (token from the emailed link)
+   → **200** `{"next":"redirect","extra":{"url":"https://framer.com/projects/?reason=web-login&id=1e7adbdb-…"}}`
+   + httpOnly `session` cookie set. (Credentials:'include' used; cookie lands in jar.)
+3. `GET /web/users/me` (cookie) → **200** — id `1e7adbdb-71bb-464a-a618-acbc8775cc5b`,
+   email hydrogen_amusing770@8alias.com, 3 spaces (user + orgs `4713db54…`, `fd5029ba…`)
+4. `GET /auth/ai/access-token` (cookie) → **200** `{accessToken, expiresAt, expiresInSeconds}`
+5. `GET /web/teams/4713db54-ff6e-4698-863f-8fcbbd94d3d8/ai-credits` → **200** `availableCredits 475.753864`
+6. `POST /ai/v3/chat/` Bearer JWT + universal envelope `{projectId, featureCategory:"agents",
+   featureName:"agents", step:"message", sessionId, castleToken, request:{model:"openai/gpt-4.1",
+   messages:[…], stream:false, max_tokens:20}}`
+   → **200** `chat.completion`, content = "LOGIN-E2E-OK" (exact). Credits unchanged (free route).
+
+Notes:
+- OpenRouter chat responses may carry leading blank lines before the JSON — trim before parse.
+- The account's second workspace (`fd5029ba…`, created via POST /account/teams) is visible in
+  /web/users/me spaces — workspace creation captured earlier holds.
+- Sandbox egress IP is Castle-flagged for signin (403 invalid-token); clean residential
+  egress passes with identical code. Deployment requirement, not a code defect.
