@@ -1,0 +1,131 @@
+//! Ports: the seams between stable core and the swappable adapters.
+//! `FramerClient` is implemented by `framer-api` (the fragile layer);
+//! `SessionStore` + `StateStore` by `framer-store`. `BrowserBridge` is supplied by
+//! the per-account isolated WebKit session — Castle tokens cannot be minted in Rust.
+
+use crate::account::ManagedAccount;
+use crate::ids::{AccountId, FramerUserId, ProjectId, TeamId};
+use crate::pipeline::{InferenceRequest, InferenceResult};
+use crate::workspace::CreditSnapshot;
+use async_trait::async_trait;
+use bytes::Bytes;
+use futures::Stream;
+use std::pin::Pin;
+
+/// An in-memory, resolved session for one account: the single httpOnly `session`
+/// cookie on .framer.com. Never persisted through `StateStore`, never logged.
+#[derive(Clone)]
+pub struct Session {
+    pub active_user: FramerUserId,
+    /// Raw `Cookie:` header value — just `session=<value>`.
+    pub cookie_header: String,
+}
+
+impl std::fmt::Debug for Session {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Session")
+            .field("active_user", &self.active_user)
+            .field("cookie_header", &"<redacted>")
+            .finish()
+    }
+}
+
+/// A Castle request token minted inside the account's own webview. Single-shot:
+/// mint one per upstream request, never cache.
+pub struct CastleToken(pub String);
+
+#[derive(Debug, Clone)]
+pub struct WorkspaceSpec {
+    pub name: String,
+}
+
+/// Bridge to the account's isolated browser engine. Accounts are devices: Castle
+/// binds trust to the engine fingerprint, so each account's tokens come from ITS
+/// webview only.
+#[async_trait]
+pub trait BrowserBridge: Send + Sync {
+    async fn castle_token(&self, account: &AccountId) -> Result<CastleToken, String>;
+}
+
+/// Raw upstream response for compat pass-through: status, content type, and the
+/// body as a byte stream (SSE responses stream through untouched).
+pub struct ProxyResponse {
+    pub status: u16,
+    pub content_type: String,
+    pub stream: Pin<Box<dyn Stream<Item = Result<Bytes, String>> + Send>>,
+}
+
+/// The one port that talks to Framer. Everything undocumented/fragile is behind this.
+#[async_trait]
+pub trait FramerClient: Send + Sync {
+    /// POST /auth/v4/signin — sends the magic-link email. Needs a Castle token
+    /// from the account's (not yet authed) webview.
+    async fn request_magic_link(&self, email: &str, castle: &CastleToken) -> Result<(), String>;
+
+    /// POST /auth/v4/continue — exchange the emailed #token (+ a second Castle
+    /// token) for the `session` cookie. Links expire after 1 hour, single-use.
+    async fn complete_magic_link(
+        &self,
+        email_token: &str,
+        castle: &CastleToken,
+    ) -> Result<Session, String>;
+
+    /// GET /web/users/me — account profile + workspace list (spaces with ownerId
+    /// = credit-bearing team).
+    async fn me(&self, session: &Session) -> Result<serde_json::Value, String>;
+
+    /// Run one agent inference turn, scoped to `project` (which determines the
+    /// workspace whose credits pay for it). `Err("credits-exhausted")` on HTTP
+    /// 402 — the pipeline rotates on it. `Err("risk-refused")` on 403.
+    async fn run_inference(
+        &self,
+        session: &Session,
+        browser: &dyn BrowserBridge,
+        account: &AccountId,
+        project: &ProjectId,
+        req: &InferenceRequest,
+    ) -> Result<InferenceResult, String>;
+
+    /// Compat passthrough: forward one native payload through the gateway dialect
+    /// routes. `dialect` is a path selector (see framer-api::proxy::Dialect);
+    /// keeping it a string here avoids leaking the fragile enum into core.
+    #[allow(clippy::too_many_arguments)] // boundary; all args required
+    async fn proxy(
+        &self,
+        session: &Session,
+        browser: &dyn BrowserBridge,
+        account: &AccountId,
+        project: &ProjectId,
+        dialect: &str,
+        payload: serde_json::Value,
+        chat_session: &str,
+    ) -> Result<ProxyResponse, String>;
+
+    /// GET /web/teams/{teamId}/ai-credits.
+    async fn usage(&self, session: &Session, team: &TeamId) -> Result<CreditSnapshot, String>;
+
+    /// TODO(unmapped): the create-team endpoint is not yet captured
+    /// (TeamCreationModal receives `api.createTeam` from its host). Until captured,
+    /// workspace rotation uses pre-existing teams from `me()`.
+    async fn create_workspace(
+        &self,
+        session: &Session,
+        spec: &WorkspaceSpec,
+    ) -> Result<TeamId, String>;
+}
+
+/// Secret storage (keychain). Separate from `StateStore` by design (ADR-001).
+#[async_trait]
+pub trait SessionStore: Send + Sync {
+    async fn load(&self, user: &FramerUserId) -> Result<Option<Session>, String>;
+    async fn save(&self, session: &Session) -> Result<(), String>;
+    async fn delete(&self, user: &FramerUserId) -> Result<(), String>;
+}
+
+/// Non-secret state (SQLite). Never stores cookies/tokens.
+#[async_trait]
+pub trait StateStore: Send + Sync {
+    async fn get(&self, id: AccountId) -> Result<Option<ManagedAccount>, String>;
+    async fn list(&self) -> Result<Vec<ManagedAccount>, String>;
+    async fn upsert(&self, account: &ManagedAccount) -> Result<(), String>;
+}

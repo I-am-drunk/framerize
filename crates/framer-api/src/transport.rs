@@ -1,0 +1,80 @@
+//! Shared transport for api.framer.com. Cookie auth for session calls, Bearer for
+//! AI/web calls, and the status policy from lib.rs.
+
+use framer_core::port::Session;
+use serde_json::Value;
+
+pub const API: &str = "https://api.framer.com";
+
+pub struct Transport {
+    http: reqwest::Client,
+    base: String,
+}
+
+pub enum Auth<'a> {
+    Cookie(&'a Session),
+    Bearer(&'a str),
+    None,
+}
+
+impl Transport {
+    pub fn new() -> Self {
+        Self::with_base(API.to_string())
+    }
+
+    /// Used by tests to point at the mock server.
+    pub fn with_base(base: String) -> Self {
+        let http = reqwest::Client::builder()
+            .user_agent("Framerize/0.1")
+            .build()
+            .expect("reqwest client");
+        Self { http, base }
+    }
+
+    fn apply(&self, req: reqwest::RequestBuilder, auth: Auth) -> reqwest::RequestBuilder {
+        match auth {
+            Auth::Cookie(s) => req.header("cookie", &s.cookie_header),
+            Auth::Bearer(t) => req.bearer_auth(t),
+            Auth::None => req,
+        }
+    }
+
+    pub async fn get(&self, path: &str, auth: Auth<'_>) -> Result<reqwest::Response, String> {
+        let req = self.http.get(format!("{}{}", self.base, path));
+        check(path, self.apply(req, auth).send().await.map_err(|e| e.to_string())?)
+    }
+
+    pub async fn post(
+        &self,
+        path: &str,
+        auth: Auth<'_>,
+        body: Value,
+    ) -> Result<reqwest::Response, String> {
+        let req = self
+            .http
+            .post(format!("{}{}", self.base, path))
+            .header("content-type", "application/json")
+            .json(&body);
+        check(path, self.apply(req, auth).send().await.map_err(|e| e.to_string())?)
+    }
+
+    pub async fn post_json(&self, path: &str, auth: Auth<'_>, body: Value) -> Result<Value, String> {
+        self.post(path, auth, body)
+            .await?
+            .json()
+            .await
+            .map_err(|e| format!("decode {path}: {e}"))
+    }
+}
+
+/// Status policy — see AGENTS.md. Returns the response on success.
+/// 401/402/403 map to machine-readable strings the pipeline matches on.
+fn check(path: &str, resp: reqwest::Response) -> Result<reqwest::Response, String> {
+    match resp.status().as_u16() {
+        200..=299 => Ok(resp),
+        401 => Err("unauthorized".into()),
+        402 => Err("credits-exhausted".into()),
+        403 => Err("risk-refused".into()),
+        s => Err(format!("retryable {s} on {path}")),
+    }
+}

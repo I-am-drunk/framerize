@@ -1,0 +1,46 @@
+:root {
+  font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, sans-serif;
+  font-size: 13px;
+  color: #1c1c1e;
+  background: #f5f5f7;
+}
+* { box-sizing: border-box; margin: 0; }
+body { height: 100vh; }
+.app { display: grid; grid-template-columns: 264px 1fr; height: 100vh; }
+
+.sidebar { border-right: 1px solid #d1d1d6; padding: 12px; display: flex; flex-direction: column; gap: 12px; }
+.pages { display: flex; gap: 4px; }
+.pages button { flex: 1; padding: 6px; border: none; border-radius: 6px; background: transparent; font: inherit; color: inherit; }
+.pages button.active { background: #e5e5ea; font-weight: 600; }
+
+.pool { list-style: none; display: flex; flex-direction: column; gap: 2px; }
+.pool li { display: flex; align-items: center; gap: 8px; padding: 6px 8px; border-radius: 6px; cursor: default; }
+.pool li.active { background: #d8e6ff; }
+.pool li.empty { color: #8e8e93; }
+.dot { width: 9px; height: 9px; border-radius: 50%; flex: none; }
+
+.detail { padding: 24px; overflow: auto; }
+.form { max-width: 560px; display: flex; flex-direction: column; gap: 12px; }
+.form header { display: flex; align-items: center; gap: 12px; }
+.avatar { width: 44px; height: 44px; border-radius: 10px; background: #d1d1d6; display: grid; place-items: center; font-weight: 600; font-size: 18px; }
+.badge { padding: 2px 10px; border-radius: 999px; font-size: 12px; font-weight: 600; }
+dl { border: 1px solid #d1d1d6; border-radius: 8px; overflow: hidden; background: #fff; }
+.row { display: flex; justify-content: space-between; padding: 10px 14px; border-top: 1px solid #ececec; }
+.row:first-child { border-top: none; }
+dt { color: #8e8e93; }
+dd { font-variant-numeric: tabular-nums; }
+
+select, textarea { font: inherit; padding: 8px; border: 1px solid #d1d1d6; border-radius: 8px; background: #fff; }
+button { cursor: default; }
+.form > button { align-self: flex-start; padding: 8px 16px; border: none; border-radius: 8px; background: #0a84ff; color: #fff; font: inherit; }
+.out { background: #1c1c1e; color: #f5f5f7; padding: 12px; border-radius: 8px; white-space: pre-wrap; }
+.muted { color: #8e8e93; }
+
+@media (prefers-color-scheme: dark) {
+  :root { color: #f5f5f7; background: #1c1c1e; }
+  .sidebar { border-color: #38383a; }
+  .pages button.active, .pool li.active { background: #2c2c2e; }
+  dl { background: #2c2c2e; border-color: #38383a; }
+  .row { border-color: #38383a; }
+  select, textarea { background: #2c2c2e; border-color: #38383a; color: inherit; }
+}

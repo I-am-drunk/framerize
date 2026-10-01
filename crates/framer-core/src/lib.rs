@@ -1,0 +1,18 @@
+//! Stable domain + orchestration. No HTTP, no SQL, no Framer quirks — those live
+//! behind the ports in `port.rs` and are implemented in `framer-api` / `framer-store`.
+
+pub mod account;
+pub mod credits;
+pub mod error;
+pub mod ids;
+pub mod pipeline;
+pub mod port;
+pub mod rotation;
+pub mod workspace;
+
+pub use account::{AccountState, ManagedAccount, SessionHealth};
+pub use error::CoreError;
+pub use ids::{AccountId, FramerUserId, ProjectId, TeamId};
+pub use pipeline::{InferenceOutcome, InferenceRequest, InferenceResult, Usage};
+pub use port::{BrowserBridge, CastleToken, FramerClient, Session, SessionStore, StateStore, WorkspaceSpec};
+pub use workspace::{CreditSnapshot, Workspace};

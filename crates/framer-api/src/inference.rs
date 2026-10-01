@@ -1,0 +1,223 @@
+//! Agent inference: POST /ai/v3/openai/responses/ — the editor Agent panel's
+//! message call. One user turn per call; conversation state is server-side keyed
+//! by sessionId (client-minted). Response: SSE stream of OpenAI Responses-API
+//! events; remaining credits in the X-Framer-AI-Usage header.
+//!
+//! Wire body (VERIFIED 200 on 2026-10-01 — the `request` field is REQUIRED;
+//! the server 400s "request is required" without it and 400s "model pricing is
+//! not configured" for unknown model ids). Model ids have NO provider prefix here:
+//! "gpt-6-sol", not "openai/gpt-6-sol".
+//!   {projectId, featureCategory:"agents", featureName:"agents", step:"message",
+//!    sessionId, stepIndex, turnId, userPrompt, castleToken,
+//!    request: {model, input, stream: true}}
+//! Verified SSE vocabulary: response.created, response.in_progress,
+//! response.output_item.added, response.content_part.added,
+//! response.output_text.delta, response.output_text.done, response.content_part.done,
+//! response.output_item.done, response.completed (full response object incl. usage).
+//! Verified header: X-Framer-AI-Usage: remaining=484 (credits decrement per run).
+//!
+//! The generic proxy envelope for the OTHER dialect routes is Gq's shape:
+//!   {projectId, ...meta, castleToken, request: <native payload>}
+//! See reference/analysis/framer-ai-endpoints.md for the full route table.
+
+use crate::auth::{self, AiToken};
+use crate::castle;
+use crate::credits;
+use crate::transport::{Auth, Transport};
+use framer_core::ids::{AccountId, ProjectId};
+use framer_core::pipeline::{InferenceOutcome, InferenceRequest, InferenceResult, Usage};
+use framer_core::port::{BrowserBridge, Session};
+use serde_json::json;
+use std::sync::Mutex;
+
+/// Mint a chat-session / turn id in the app's style (~10 chars, mixed-case alnum).
+/// pub(crate) wrapper used by proxy.rs.
+pub fn mint_id_pub() -> String {
+    mint_id()
+}
+
+fn mint_id() -> String {
+    use std::sync::atomic::{AtomicU64, Ordering};
+    use std::time::{SystemTime, UNIX_EPOCH};
+    static C: AtomicU64 = AtomicU64::new(0);
+    let mut n = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_nanos())
+        .unwrap_or(0)
+        ^ (std::process::id() as u128) << 64
+        ^ (C.fetch_add(1, Ordering::Relaxed) as u128) << 96;
+    const ALPHA: &[u8] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
+    let mut out = String::with_capacity(10);
+    for _ in 0..10 {
+        out.push(ALPHA[(n % 62) as usize] as char);
+        n /= 62;
+    }
+    out
+}
+
+fn build_body(req: &InferenceRequest, chat_session: &str, castle: &str, project: &str) -> serde_json::Value {
+    let model = req.model.as_deref().unwrap_or(crate::models::DEFAULT_AGENT_MODEL);
+    json!({
+        "projectId": project,
+        "featureCategory": "agents",
+        "featureName": "agents",
+        "step": "message",
+        "sessionId": chat_session,
+        "stepIndex": 0, // TODO: increments per turn within a session; 0 accepted on turn 1
+        "turnId": mint_id(),
+        "userPrompt": req.prompt,
+        "castleToken": castle,
+        // The actual Responses payload — REQUIRED (server 400s without it).
+        "request": {
+            "model": model,
+            "input": req.prompt,
+            "stream": true,
+        },
+    })
+}
+
+#[allow(clippy::too_many_arguments)]
+pub async fn run(
+    t: &Transport,
+    token_cache: &Mutex<Option<(AccountId, AiToken)>>,
+    session: &Session,
+    browser: &dyn BrowserBridge,
+    account: &AccountId,
+    project: &ProjectId,
+    req: &InferenceRequest,
+) -> Result<InferenceResult, String> {
+    let token = cached_token(t, token_cache, session, account).await?;
+    let castle = castle::mint(browser, account).await?;
+    let chat_session = req.chat_session.clone().unwrap_or_else(mint_id);
+
+    match send(t, &token, &castle.0, req, &chat_session, project).await? {
+        Send::Done(outcome) => Ok(InferenceResult::Completed(outcome)),
+        Send::Exhausted => Ok(InferenceResult::Exhausted {
+            reason: "http-402".into(),
+        }),
+        // 401 = the cached JWT died mid-flight: drop it, remint, retry exactly once.
+        Send::Unauthorized => {
+            if let Ok(mut guard) = token_cache.lock() {
+                *guard = None;
+            }
+            let fresh = cached_token(t, token_cache, session, account).await?;
+            let castle = castle::mint(browser, account).await?; // single-shot: remint
+            match send(t, &fresh, &castle.0, req, &chat_session, project).await? {
+                Send::Done(outcome) => Ok(InferenceResult::Completed(outcome)),
+                Send::Exhausted => Ok(InferenceResult::Exhausted {
+                    reason: "http-402".into(),
+                }),
+                Send::Unauthorized => Err("unauthorized after token refresh".into()),
+            }
+        }
+    }
+}
+
+enum Send {
+    Done(InferenceOutcome),
+    Exhausted,
+    Unauthorized,
+}
+
+async fn cached_token(
+    t: &Transport,
+    cache: &Mutex<Option<(AccountId, AiToken)>>,
+    session: &Session,
+    account: &AccountId,
+) -> Result<AiToken, String> {
+    if let Ok(guard) = cache.lock() {
+        if let Some((id, tok)) = guard.as_ref() {
+            if id == account && tok.usable() {
+                return Ok(tok.clone());
+            }
+        }
+    }
+    let tok = auth::ai_access_token(t, session).await?;
+    if let Ok(mut guard) = cache.lock() {
+        *guard = Some((*account, tok.clone()));
+    }
+    Ok(tok)
+}
+
+async fn send(
+    t: &Transport,
+    token: &AiToken,
+    castle: &str,
+    req: &InferenceRequest,
+    chat_session: &str,
+    project: &ProjectId,
+) -> Result<Send, String> {
+    let resp = match t
+        .post(
+            "/ai/v3/openai/responses/",
+            Auth::Bearer(&token.bearer),
+            build_body(req, chat_session, castle, &project.0),
+        )
+        .await
+    {
+        Ok(r) => r,
+        Err(e) if e == "unauthorized" => return Ok(Send::Unauthorized),
+        Err(e) if e == "credits-exhausted" => return Ok(Send::Exhausted),
+        Err(e) => return Err(e),
+    };
+
+    let remaining = resp
+        .headers()
+        .get("x-framer-ai-usage")
+        .and_then(|h| h.to_str().ok())
+        .and_then(credits::parse_usage_header);
+
+    let text = resp.text().await.map_err(|e| e.to_string())?;
+    let (answer, usage) = parse_sse(&text);
+
+    Ok(Send::Done(InferenceOutcome {
+        text: answer,
+        usage,
+        chat_session: chat_session.to_string(),
+        credits_remaining: remaining,
+    }))
+}
+
+/// Parse the SSE stream (multi-line `data:` safe). Verified event vocabulary
+/// (2026-10-01): response.created, response.in_progress, response.output_item.added,
+/// response.content_part.added, response.output_text.delta, response.output_text.done,
+/// response.content_part.done, response.output_item.done, response.completed.
+/// `response.completed` carries the full response object including
+/// usage.{input_tokens,output_tokens,total_tokens}.
+fn parse_sse(body: &str) -> (String, Usage) {
+    let mut out = String::new();
+    let mut usage = Usage::default();
+    let mut data_lines: Vec<String> = Vec::new();
+    for line in body.lines().chain(std::iter::once("")) {
+        match line.strip_prefix("data:") {
+            Some(d) => data_lines.push(d.trim_start_matches(' ').to_string()),
+            None if line.is_empty() => {
+                if data_lines.is_empty() {
+                    continue;
+                }
+                let joined = data_lines.join("\n");
+                data_lines.clear();
+                if joined == "[DONE]" {
+                    continue;
+                }
+                if let Ok(ev) = serde_json::from_str::<serde_json::Value>(&joined) {
+                    match ev["type"].as_str() {
+                        Some("response.output_text.delta") => {
+                            if let Some(d) = ev["delta"].as_str() {
+                                out.push_str(d);
+                            }
+                        }
+                        Some("response.completed") => {
+                            let u = &ev["response"]["usage"];
+                            usage.input_tokens = u["input_tokens"].as_u64().unwrap_or(0);
+                            usage.output_tokens = u["output_tokens"].as_u64().unwrap_or(0);
+                        }
+                        _ => {}
+                    }
+                }
+            }
+            None => {}
+        }
+    }
+    (out, usage)
+}

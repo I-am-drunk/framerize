@@ -1,0 +1,13 @@
+[workspace]
+resolver = "2"
+members = [
+    "crates/framer-core",
+    "crates/framer-api",
+    "crates/framer-store",
+    "crates/framer-server",
+    "crates/framerize",
+]
+
+[workspace.package]
+edition = "2021"
+license = "MIT"
