@@ -30,6 +30,9 @@ pub struct AppState {
 pub fn router(state: AppState, web_dir: &str) -> Router {
     let api = Router::new()
         .route("/health", get(|| async { "ok" }))
+        // Claude Code connection-warming probe (gateway protocol: safe to
+        // answer or reject; we answer 200).
+        .route("/hello", get(|| async { "ok" }).head(|| async { "ok" }))
         .route("/accounts", get(accounts))
         .route("/accounts/begin", post(begin_login))
         .route("/accounts/complete", post(complete_login))
@@ -41,16 +44,36 @@ pub fn router(state: AppState, web_dir: &str) -> Router {
     // routes. See reference/analysis/compat-mapping.md.
     let anthropic = Router::new()
         .route("/v1/messages", post(anthropic_messages))
+        // Claude Code gateway protocol: token counting is optional (the client
+        // falls back to a character estimate when absent), but cheap to serve.
+        .route("/v1/messages/count_tokens", post(count_tokens))
         .with_state(state.clone());
     let openai = Router::new()
         .route("/v1/responses", post(openai_responses))
         .route("/v1/chat/completions", post(openai_chat))
         .with_state(state.clone());
 
+    // Path-routed free mode: Claude Code / Codex can't send custom headers,
+    // so the mode lives in the base URL instead. Point ANTHROPIC_BASE_URL at
+    // http://host:8787/free/anthropic (or Codex model_providers base_url at
+    // /free/openai/v1) and every request takes the unmetered chain path.
+    let anthropic_free = Router::new()
+        .route("/v1/messages", post(anthropic_messages_free))
+        .route("/v1/messages/count_tokens", post(count_tokens))
+        .with_state(state.clone());
+    let openai_free = Router::new()
+        .route("/v1/responses", post(openai_responses_free))
+        .route("/v1/chat/completions", post(openai_chat_free))
+        .with_state(state.clone());
+    let free = Router::new()
+        .nest("/anthropic", anthropic_free)
+        .nest("/openai", openai_free);
+
     Router::new()
         .nest("/api", api)
         .nest("/anthropic", anthropic)
         .nest("/openai", openai)
+        .nest("/free", free)
         .fallback_service(ServeDir::new(web_dir))
 }
 
@@ -534,6 +557,60 @@ async fn free_complete(
             .unwrap_or(axum::http::HeaderValue::from_static("")),
     );
     Ok(resp)
+}
+
+/// Anthropic count_tokens shape; character-based estimate (≈4 chars/token) —
+/// the same fallback Claude Code applies when the endpoint is absent.
+async fn count_tokens(Json(body): Json<serde_json::Value>) -> Json<serde_json::Value> {
+    let chars: usize = body["messages"]
+        .as_array()
+        .map(|ms| {
+            ms.iter()
+                .map(|m| {
+                    m["content"]
+                        .as_str()
+                        .map(|s| s.len())
+                        .or_else(|| {
+                            m["content"].as_array().map(|bs| {
+                                bs.iter()
+                                    .map(|b| b["text"].as_str().map(|s| s.len()).unwrap_or(0))
+                                    .sum()
+                            })
+                        })
+                        .unwrap_or(0)
+                })
+                .sum::<usize>()
+        })
+        .unwrap_or(0)
+        + body["system"].as_str().map(|s| s.len()).unwrap_or(0);
+    Json(serde_json::json!({ "input_tokens": (chars / 4).max(1) }))
+}
+
+/// Free-path wrappers: identical to the header-selected handlers with the
+/// mode forced, for clients that cannot set x-framerize-mode (Claude Code,
+/// Codex) — they select the mode by base-URL path instead.
+async fn anthropic_messages_free(
+    State(s): State<AppState>,
+    headers: axum::http::HeaderMap,
+    Json(payload): Json<serde_json::Value>,
+) -> Result<axum::response::Response, ApiError> {
+    free_complete(s, &headers, ClientDialect::AnthropicMessages, payload).await
+}
+
+async fn openai_responses_free(
+    State(s): State<AppState>,
+    headers: axum::http::HeaderMap,
+    Json(payload): Json<serde_json::Value>,
+) -> Result<axum::response::Response, ApiError> {
+    free_complete(s, &headers, ClientDialect::OpenAiResponses, payload).await
+}
+
+async fn openai_chat_free(
+    State(s): State<AppState>,
+    headers: axum::http::HeaderMap,
+    Json(payload): Json<serde_json::Value>,
+) -> Result<axum::response::Response, ApiError> {
+    free_complete(s, &headers, ClientDialect::OpenAiChat, payload).await
 }
 
 fn hdr(headers: &axum::http::HeaderMap, name: &str) -> Option<String> {
