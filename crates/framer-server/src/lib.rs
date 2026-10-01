@@ -416,13 +416,11 @@ async fn begin_login(
     State(s): State<AppState>,
     Json(body): Json<BeginLoginBody>,
 ) -> Result<&'static str, ApiError> {
-    let castle = s
-        .browser
-        .castle_token(&body.account_id)
-        .await
-        .map_err(ApiError)?;
-    s.client
-        .request_magic_link(&body.email, &castle)
+    // Mint + signin happen INSIDE the account's browser: api.framer.com
+    // validates request/environment consistency (Origin/UA/TLS vs the Castle
+    // token's fingerprint) and 400s the bare-HTTP-client variant — observed.
+    s.browser
+        .auth_begin(&body.account_id, &body.email)
         .await
         .map_err(ApiError)?;
     Ok("sent")
@@ -448,20 +446,21 @@ async fn complete_login(
     State(s): State<AppState>,
     Json(body): Json<CompleteLoginBody>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
-    let castle = s
+    // In-page token exchange; returns the session cookie read out of the
+    // browser jar via CDP plus the in-page /web/users/me payload.
+    let (cookie_header, me) = s
         .browser
-        .castle_token(&body.account_id)
+        .auth_complete(&body.account_id, &body.email_token)
         .await
         .map_err(ApiError)?;
-    let session = s
-        .client
-        .complete_magic_link(&body.email_token, &castle)
-        .await
-        .map_err(ApiError)?;
+    let user_id = me["id"]
+        .as_str()
+        .ok_or_else(|| ApiError("bad /web/users/me response".into()))?;
+    let session = framer_core::port::Session {
+        active_user: framer_core::ids::FramerUserId(user_id.to_string()),
+        cookie_header,
+    };
     s.sessions.save(&session).await.map_err(ApiError)?;
-
-    // Register the account record (idempotent upsert).
-    let me = s.client.me(&session).await.map_err(ApiError)?;
     let spaces = me["spaces"].as_array().cloned().unwrap_or_default();
     let first_org = spaces
         .iter()
