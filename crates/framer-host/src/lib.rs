@@ -196,8 +196,6 @@ impl CdpInstance {
             .await?;
         Ok(r["result"]["value"].clone())
     }
-        }
-    }
 }
 
 pub struct CdpBridge {
