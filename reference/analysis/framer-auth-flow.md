@@ -22,11 +22,20 @@ Every framer.com page sets `window.bootstrap.services` (from `/bootstrap.<hash>.
 - All sign-in calls carry a **Castle token** (`castleToken` field) — anti-abuse is
   enforced at login too: HTTP 403 → UI error `VERIFICATION_FAILURE`.
 
+## Global API header — REQUIRED on every call
+
+`chunk-3MN6NPEY.mjs` exports `Object.freeze({"X-Requested-By": "Framer"})`
+(export `s`), which the shared fetch wrapper spreads into **every** request to
+`api.framer.com`. It is the API's CSRF marker. Omitting it gets a bare
+`400 {"error":{"message":"Invalid request"}}` on `/auth/v4/*` — observed live
+2026-10-01 from the framerize daemon; adding it fixed the request shape.
+framer-api's Transport sends it on every call.
+
 ## Endpoints (login bundle)
 
 | Method | Path | Purpose |
 |---|---|---|
-| POST | `/auth/v4/signin` | body `{email, redirect, inviteId, origin, useFallback, forceMagic, castleToken}` → sends magic-link email |
+| POST | `/auth/v4/signin` | body fields `{email, redirect, inviteId, origin, useFallback, forceMagic, castleToken}` — but see the exact plain-login body below |
 | POST | `/auth/v4/continue` | completes sign-in; the magic-link token is posted here |
 | POST | `/auth/v4/signin/google` | Google OAuth exchange |
 | POST | `/auth/v4/signin/passkey` | passkey (WebAuthn) |
@@ -34,6 +43,23 @@ Every framer.com page sets `window.bootstrap.services` (from `/bootstrap.<hash>.
 | GET  | `/auth/v3/check/{email}` | account-exists probe |
 | GET  | `/auth/signin` | current session info |
 | GET  | `/auth/teams/domain` | domain config (Bearer) |
+
+### Exact plain-login body (verified against the bundle + live 400s)
+
+The signin helper rebuilds the body as
+`{email, redirect, inviteId, origin, useFallback, forceMagic, castleToken}` and
+`JSON.stringify` drops `undefined` fields. For the normal web login:
+
+- `redirect`, `inviteId` — from URL params → `undefined` → **omitted**
+- `useFallbackEmail`, `forceMagic` — only set by the resend/fallback flow
+  (`forceMagic: true` there) → **omitted** on first sign-in
+- `origin` — **always set**: `Qr()` returns `"web"` on desktop UA,
+  `"web-mobile"` on mobile UA, `"web-onpage"` for the `?close=true` flow
+- `castleToken` — fresh mint, required
+
+So the wire body is exactly: `{"email": "...", "origin": "web", "castleToken": "..."}`.
+Sending `origin: "framer-app"`, null fields, or `forceMagic` on the first call
+→ 400 "Invalid request" (both mistakes observed live).
 
 ## Magic-link sequence (observed live)
 
