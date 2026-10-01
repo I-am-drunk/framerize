@@ -122,8 +122,10 @@ catalog ids (`openai/gpt-4.1`); `/ai/v3/openai/responses/` and
 The agent panel pins the model as server-side session state; direct `request`
 calls set it per request.
 
-## Metering (verified 2026-10-01)
+## Metering (observed 2026-10-01 — see verified-captures for the ledger timeline)
 
 - `/ai/v3/openai/responses/` and `/ai/v3/anthropic/messages/`: metered.
-- `/ai/v3/chat/` (OpenRouter passthrough): **NOT metered** — no credit consumption
-  observed across calls, streaming or not. Likely a gap; treat as temporary.
+- `/ai/v3/chat/` (OpenRouter passthrough): UNCERTAIN. Tiny calls showed zero debit
+  at 6-decimal precision, but a 7.7-credit debit landed during a window of
+  long chat-route generations. Debits can lag ≥1 h (grant.updatedAt proves it).
+  Treat as metered until an isolated retest says otherwise.

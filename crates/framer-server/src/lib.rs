@@ -69,8 +69,16 @@ async fn compat_forward(
     dialect: &'static str,
     account_hdr: Option<String>,
     session_hdr: Option<String>,
-    payload: serde_json::Value,
+    mut payload: serde_json::Value,
 ) -> Result<axum::response::Response, ApiError> {
+    // Long non-streaming generations hit idle cutoffs (observed ~21.6 s in one
+    // environment; a ~60 s server cutoff is plausible). ALWAYS stream upstream
+    // and aggregate for clients that asked for stream:false.
+    let client_wants_stream = payload["stream"].as_bool().unwrap_or(false);
+    if !client_wants_stream {
+        payload["stream"] = serde_json::Value::Bool(true);
+    }
+
     let pool = s.state.list().await.map_err(ApiError)?;
     let account = match account_hdr {
         Some(id) => pool
@@ -109,6 +117,31 @@ async fn compat_forward(
 
     let status = StatusCode::from_u16(upstream.status)
         .unwrap_or(StatusCode::BAD_GATEWAY);
+
+    if !client_wants_stream && upstream.content_type.contains("event-stream") {
+        // Aggregate the SSE stream into the dialect's non-streaming JSON shape.
+        use futures::StreamExt;
+        let mut buf = Vec::new();
+        let mut stream = upstream.stream;
+        while let Some(chunk) = stream.next().await {
+            buf.extend_from_slice(&chunk.map_err(ApiError)?);
+        }
+        let aggregated = aggregate_sse(dialect, &String::from_utf8_lossy(&buf));
+        let mut resp = axum::response::Response::new(axum::body::Body::from(
+            serde_json::to_string(&aggregated).map_err(|e| ApiError(e.to_string()))?,
+        ));
+        *resp.status_mut() = status;
+        resp.headers_mut().insert(
+            axum::http::header::CONTENT_TYPE,
+            axum::http::HeaderValue::from_static("application/json"),
+        );
+        resp.headers_mut().insert(
+            "x-framerize-session",
+            chat_session.parse().unwrap_or(axum::http::HeaderValue::from_static("")),
+        );
+        return Ok(resp);
+    }
+
     let body = axum::body::Body::from_stream(upstream.stream);
     let mut resp = axum::response::Response::new(body);
     *resp.status_mut() = status;
@@ -121,6 +154,70 @@ async fn compat_forward(
         chat_session.parse().unwrap_or(axum::http::HeaderValue::from_static("")),
     );
     Ok(resp)
+}
+
+/// Fold an upstream SSE stream into the dialect's non-streaming JSON response.
+/// Verified event shapes in reference/analysis/verified-captures-2026-10-01.md.
+fn aggregate_sse(dialect: &str, body: &str) -> serde_json::Value {
+    let events: Vec<serde_json::Value> = body
+        .split("\n\n")
+        .filter_map(|block| {
+            let data: String = block
+                .lines()
+                .filter_map(|l| l.strip_prefix("data:").map(|d| d.trim_start()))
+                .collect::<Vec<_>>()
+                .join("\n");
+            if data.is_empty() || data == "[DONE]" {
+                return None;
+            }
+            serde_json::from_str(&data).ok()
+        })
+        .collect();
+
+    match dialect {
+        // response.completed carries the entire final Responses object — use it.
+        "openai-responses" => events
+            .iter()
+            .find(|e| e["type"] == "response.completed")
+            .map(|e| e["response"].clone())
+            .unwrap_or(serde_json::json!({"error": "stream ended without response.completed"})),
+        // chat.completion.chunk deltas → one chat.completion.
+        "openrouter-chat" => {
+            let text: String = events
+                .iter()
+                .filter_map(|e| e["choices"][0]["delta"]["content"].as_str())
+                .collect();
+            let last = events.last().cloned().unwrap_or_default();
+            let first = events.first().cloned().unwrap_or_default();
+            let finish = events
+                .iter()
+                .find_map(|e| e["choices"][0]["finish_reason"].as_str())
+                .unwrap_or("stop");
+            serde_json::json!({
+                "id": first["id"], "object": "chat.completion",
+                "created": first["created"], "model": first["model"],
+                "choices": [{"index": 0, "finish_reason": finish,
+                             "message": {"role": "assistant", "content": text}}],
+                "usage": last["usage"],
+            })
+        }
+        // Anthropic: content_block_delta text + message_delta usage.
+        _ => {
+            let text: String = events
+                .iter()
+                .filter(|e| e["type"] == "content_block_delta")
+                .filter_map(|e| e["delta"]["text"].as_str())
+                .collect();
+            let start = events
+                .iter()
+                .find(|e| e["type"] == "message_start")
+                .cloned()
+                .unwrap_or_default();
+            let mut msg = start["message"].clone();
+            msg["content"] = serde_json::json!([{"type": "text", "text": text}]);
+            msg
+        }
+    }
 }
 
 fn rand_u32() -> u32 {
@@ -167,7 +264,7 @@ async fn openai_chat(
     headers: axum::http::HeaderMap,
     Json(payload): Json<serde_json::Value>,
 ) -> Result<axum::response::Response, ApiError> {
-    // OpenRouter chat route — observed UNMETERED (2026-10-01). Preferred.
+    // OpenRouter chat route (metering uncertain — see verified-captures).
     compat_forward(
         s,
         "openrouter-chat",

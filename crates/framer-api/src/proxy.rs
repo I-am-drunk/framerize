@@ -4,8 +4,9 @@
 //! payload forwarded nearly verbatim. Verified live 2026-10-01, see
 //! reference/analysis/verified-captures-2026-10-01.md.
 //!
-//! Metering (observed): responses + anthropic are metered; the OpenRouter chat
-//! route is NOT (zero credits consumed). Prefer Chat for compat while that lasts.
+//! Metering (observed 2026-10-01): responses + anthropic are metered; the
+//! OpenRouter chat route is UNCERTAIN (tiny calls showed no debit; long ones
+//! coincided with a credit drop). Do not rely on it being free.
 
 use crate::auth::{self, AiToken};
 use crate::castle;
@@ -19,7 +20,7 @@ use std::sync::Mutex;
 pub enum Dialect {
     /// /ai/v3/openai/responses/ — unprefixed model ids ("gpt-6-sol"). Metered.
     OpenAiResponses,
-    /// /ai/v3/chat/ — OpenRouter catalog ids ("openai/gpt-4.1"). UNMETERED (observed).
+    /// /ai/v3/chat/ — OpenRouter catalog ids ("openai/gpt-4.1"). Metering uncertain.
     OpenRouterChat,
     /// /ai/v3/anthropic/messages/ — Anthropic ids ("claude-sonnet-4-5"). Metered.
     AnthropicMessages,

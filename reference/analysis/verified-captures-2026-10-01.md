@@ -22,22 +22,31 @@ userPrompt, castleToken, request}`.
 - Header `X-Framer-AI-Usage: remaining=484` (integer floor).
 - Credits: availableCredits 484.875 → 484.77 after two tiny calls. METERED.
 
-## 2. POST /ai/v3/chat/ — OpenRouter chat/completions (UNMETERED)
+## 2. POST /ai/v3/chat/ — OpenRouter chat/completions (metering UNCERTAIN)
 
 - `request`: `{"model":"openai/gpt-4.1","messages":[…],"stream":false|true}` —
   model ids are PREFIXED OpenRouter catalog ids (`openai/gpt-4.1`,
-  `google/gemini-2.5-flash`, …). Unprefixed `gpt-6-sol` → 404 with OpenRouter's
-  own guardrail error bubbling up verbatim ("0 endpoints out of 2 … Model blocked
-  by guardrail … openrouter.ai/workspaces/default/guardrails") — proving this route
-  is a raw OpenRouter passthrough keyed to a Framer-owned OpenRouter workspace.
+  `google/gemini-2.5-flash`, `anthropic/claude-fable-5.1`, …). Unprefixed
+  `gpt-6-sol` → 404 with OpenRouter's own guardrail error bubbling up verbatim
+  ("0 endpoints out of 2 … Model blocked by guardrail") — proving this route is a
+  raw passthrough keyed to a Framer-owned OpenRouter org (`org_2vB2…` leaks in
+  OpenRouter error bodies).
 - Non-streaming 200: full `chat.completion` (`id:"gen-…"`, `provider:"OpenAI"`,
   `native_finish_reason`, usage.prompt_tokens/completion_tokens).
-- Streaming 200: `text/event-stream` of `chat.completion.chunk` with
-  `choices[].delta.content` and a final usage chunk.
-- **Credits: NOT consumed.** availableCredits identical before, immediately after,
-  and 10 s after two calls (484.740530 throughout). The usage header freezes at
-  `remaining=484`. Observed 2026-10-01; may be a metering gap Framer closes later.
-- This makes `/ai/v3/chat/` the preferred compat route while it lasts.
+- Streaming 200: `text/event-stream` of `chat.completion.chunk`; long generations
+  are robust (2500-word story: first byte 0.8 s, done in 31 s, 736 chunks).
+- **Metering — inconclusive, do not assume free.** Tiny calls (~15 tokens) showed
+  ZERO debit at 6-decimal ledger precision (484.769621 unchanged before/after/+10s,
+  twice). But during the long-generation window the ledger dropped 7.665
+  (484.602348 → 476.9375) with only chat-route calls in flight — either the big
+  chat calls were billed, or dropped non-streaming connections were billed
+  server-side, or earlier small debits landed >1 h late. The grant's `updatedAt`
+  proves debits can lag. Treat the chat route as metered until an isolated
+  retest (single medium call, watch ledger for 2 h) says otherwise.
+- **Model gating exists per workspace plan**: `anthropic/claude-fable-5.1` → 403
+  `{"error":{"message":"Upgrade your workspace to use this model","data":
+  {"reason":"paid_plan_only_model"}}}` on the free workspace, while gpt-4.1 /
+  gemini-2.5-flash / claude-sonnet-4.5 pass.
 
 ## 3. POST /ai/v3/anthropic/messages/ — Anthropic Messages (METERED)
 
@@ -59,6 +68,20 @@ userPrompt, castleToken, request}`.
 
 - `stream:false` → 200 `application/json` with the complete Responses object
   (includes `billing: {payer: "developer"}`). Both modes work on every route.
+
+## Timeout findings (2026-10-01)
+
+- Streaming is robust: a 2500-word generation ran 31 s, first byte <1 s, 736
+  chunks, no cutoff.
+- Non-streaming long generations died with connection resets at ~21.6 s — TWICE,
+  identically — in the capture environment (datacenter browser + proxy). Whether
+  the limit is Framer's, OpenRouter's, or the capture sandbox's network is
+  unresolved; the user's anticipated ~60 s server-side cutoff is plausible for
+  the real limit.
+- **Design decision (both cases): always request `stream:true` upstream, and
+  aggregate deltas for clients that asked for non-streaming.** This is immune to
+  any idle timeout on long generations. The compat translators in framer-server
+  do this for non-streaming requests.
 
 ## Notes
 

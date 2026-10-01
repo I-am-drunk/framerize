@@ -64,8 +64,9 @@ response    = same dialect the client sent (SSE if stream:true)
 ## VERIFIED 2026-10-01 (see verified-captures-2026-10-01.md)
 
 - All three dialect routes work from a logged-in session with JWT + Castle token.
-- `/ai/v3/chat/` (OpenRouter) is **unmetered** — no credits consumed, non-streaming
-  or streaming. Preferred compat route while the gap lasts.
+- `/ai/v3/chat/` (OpenRouter): tiny calls showed zero ledger debit, but long
+  generations coincided with a 7.7-credit drop and debits lag ≥1 h — metering
+  UNCERTAIN, treat as metered.
 - `/ai/v3/anthropic/messages/` accepts `claude-sonnet-4-5` and returns native
   Messages JSON. Metered.
 - `/ai/v3/openai/responses/` requires `request` and unprefixed model ids. Metered.
