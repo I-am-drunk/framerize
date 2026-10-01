@@ -270,3 +270,32 @@ Notes:
   /web/users/me spaces — workspace creation captured earlier holds.
 - Sandbox egress IP is Castle-flagged for signin (403 invalid-token); clean residential
   egress passes with identical code. Deployment requirement, not a code defect.
+
+## §7 Environment binding is TOTAL — the relay test (2026-10-01 ~19:50 UTC)
+
+Question: can a Castle token minted in a CLEAN environment (real Chrome, clean
+egress) be used by a request sent from a FLAGGED environment (sandbox curl)?
+
+Method: clean browser minted a v3 token (5,653 chars, `cNz8rPYH|…`), posted it
+to a webhook.site bin, sandbox pulled it, and within ~90s fired
+`POST /ai/v3/chat/` with it (valid session cookie + fresh AI JWT).
+
+Result: **403 Forbidden** (ref xqHJs). The relay architecture is dead:
+token and transport must share the clean environment. Castle's binding covers
+egress IP (and likely TLS/headers) for /ai/* as well as /auth/*.
+
+### Complete boundary map (all live-verified today)
+
+| call | clean browser | flagged sandbox |
+|---|---|---|
+| `/auth/v4/signin` + `/auth/v4/continue` | 200 | 403 policy / invalid-token |
+| `/ai/v3/*` (any dialect, any token origin) | 200 | 403 |
+| `/web/users/me`, `/web/teams/{id}/ai-credits` (cookie only) | 200 | **200** |
+| `/auth/ai/access-token` (cookie → JWT) | 200 | **200** |
+
+Conclusion: only fresh-login and AI inference are environment-gated; session
+reads and JWT mints are not. The deployment answer is per-account egress:
+`ManagedAccount.proxy` → chrome `--proxy-server` / WebKit context proxy —
+"accounts are devices" extends to "accounts are networks". Session import
+(`POST /api/accounts/import`) lets a daemon adopt an externally-minted
+session without needing login from its own network.

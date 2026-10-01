@@ -201,6 +201,10 @@ impl CdpInstance {
 pub struct CdpBridge {
     chrome: PathBuf,
     profiles_dir: PathBuf,
+    /// Per-account proxy override: account uuid → proxy URL. Populated by the
+    /// daemon from account records (and reloadable); applied as
+    /// `--proxy-server` at chrome launch for that account's profile.
+    proxies: std::sync::Arc<tokio::sync::RwLock<std::collections::HashMap<String, String>>>,
     instances: Mutex<HashMap<AccountId, Arc<Mutex<CdpInstance>>>>,
 }
 
@@ -211,8 +215,16 @@ impl CdpBridge {
         Self {
             chrome: chrome.into(),
             profiles_dir: profiles_dir.into(),
+            proxies: std::sync::Arc::new(tokio::sync::RwLock::new(HashMap::new())),
             instances: Mutex::new(HashMap::new()),
         }
+    }
+
+    /// Set/replace the proxy map (account uuid string → proxy URL). Takes
+    /// effect on the NEXT chrome launch for that account; a running instance
+    /// keeps its current egress until rotated/dropped.
+    pub async fn set_proxies(&self, map: HashMap<String, String>) {
+        *self.proxies.write().await = map;
     }
 
     fn profile_dir(&self, account: &AccountId) -> PathBuf {
@@ -233,7 +245,13 @@ impl CdpBridge {
         // call to a dead port ("Connection refused" forever — observed live).
         let _ = tokio::fs::remove_file(profile.join("DevToolsActivePort")).await;
 
-        let mut child = Command::new(&self.chrome)
+        let proxy = self.proxies.read().await.get(&account.0.to_string()).cloned();
+        let mut cmd = Command::new(&self.chrome);
+        if let Some(p) = &proxy {
+            cmd.arg(format!("--proxy-server={p}"));
+            eprintln!("[host] account {} launching with per-account proxy", &account.0.to_string()[..8]);
+        }
+        let mut child = cmd
             .arg("--headless=new")
             .arg("--remote-debugging-port=0")
             .arg(format!("--user-data-dir={}", profile.display()))
@@ -373,6 +391,17 @@ impl BrowserBridge for CdpBridge {
             .map_err(|e| format!("me json: {e}"))?;
         eprintln!("[auth] login complete for account {}", account.0);
         Ok((cookie_header, me))
+    }
+
+    async fn set_proxy(&self, account: &AccountId, proxy: Option<String>) -> Result<(), String> {
+        let key = account.0.to_string();
+        match proxy {
+            Some(p) => self.proxies.write().await.insert(key, p),
+            None => self.proxies.write().await.remove(&key),
+        };
+        // Drop any live instance: the next use relaunches on the new egress.
+        self.instances.lock().await.remove(account);
+        Ok(())
     }
 
     async fn castle_token(&self, account: &AccountId) -> Result<CastleToken, String> {

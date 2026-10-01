@@ -61,6 +61,13 @@ pub trait BrowserBridge: Send + Sync {
         account: &AccountId,
         email_token: &str,
     ) -> Result<(String, serde_json::Value), String>;
+
+    /// Per-account egress proxy (Castle binds tokens to egress IP — verified:
+    /// clean token + flagged IP = 403 on /ai/*). Default no-op for bridges
+    /// without proxy support; CdpBridge applies it on next launch.
+    async fn set_proxy(&self, _account: &AccountId, _proxy: Option<String>) -> Result<(), String> {
+        Ok(())
+    }
 }
 
 /// Raw upstream response for compat pass-through: status, content type, and the

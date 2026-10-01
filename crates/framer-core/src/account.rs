@@ -23,6 +23,15 @@ pub struct ManagedAccount {
     /// (that is exactly the "rotate session" remediation).
     #[serde(default = "default_castle_device_id")]
     pub castle_device_id: String,
+    /// Per-account egress proxy (e.g. `http://user:pass@residential.example:8080`
+    /// or `socks5://…`). Castle binds request tokens to the minting
+    /// environment INCLUDING its egress IP (verified 2026-10-01: a clean-
+    /// browser-minted token fired from a flagged IP gets 403 on /ai/*).
+    /// "Accounts are devices" extends to "accounts are networks": each
+    /// account's browser runs with its own proxy so a daemon on any host can
+    /// operate accounts whose login/inference only pass from clean egress.
+    #[serde(default)]
+    pub proxy: Option<String>,
     /// The workspace (team) this account is currently pointed at. Rotated on 402.
     pub current_team: Option<TeamId>,
     /// The project inside `current_team` that inference calls are scoped to.
