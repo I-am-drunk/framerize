@@ -43,6 +43,21 @@ inside a real browser context. **This is the reason Framerize needs one embedded
 WebKit/WebView session per account** — not just for cookies, but because Castle
 binds the account's risk profile to that engine's fingerprint.
 
+## The device id: `__cuid` (critical for account stability)
+
+Castle keys every request token to a stable visitor id stored as `__cuid` in BOTH
+a `.framer.com` cookie AND localStorage (observed live: one UUIDv4, same value in
+both stores). The token's 8-char prefix is stable per device; the payload is
+unique per mint. If a webview's storage is wiped, Castle mints a NEW device id
+and the account suddenly looks like a brand-new device — repeated regeneration
+is exactly the pattern risk engines punish.
+
+Framerize rule: generate `ManagedAccount.castle_device_id` ONCE at account
+creation, persist it with the account record, and seed it into the webview
+(cookie + localStorage) before the first token mint of every session
+(`castle::SEED_DEVICE_SNIPPET`). Rotate it only as the deliberate
+fresh-identity remediation for env-sticky 403s.
+
 ## "Accounts are like different devices"
 
 Each Framerize account gets its own isolated WebKit session (own cookie jar, own

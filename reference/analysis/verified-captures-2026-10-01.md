@@ -131,3 +131,53 @@ userPrompt, castleToken, request}`.
   rotate to a fresh isolated browser session for that account. This is
   exactly what the per-account WebKit session design enables; add
   session-rotation as the 403 remediation path.
+
+## 6. DEFINITIVE: non-streaming chat is unmetered, streaming chat is metered (2026-10-01 ~13:00 UTC)
+
+Method: full-precision ledger snapshots (6 decimals) around isolated calls, with a
+same-window METERED control call to prove the ledger was posting normally (debits
+post within ~1 minute; `grants[].updatedAt` is the post timestamp).
+
+| Call | Route / stream | Upstream cost | Debit | Posted |
+|---|---|---|---|---|
+| gpt-4.1 "ok" (16+4 tok) | chat, stream:false | $0.00004 | none | — |
+| opus-5.5 "ok" (16+4 tok) | chat, stream:false | $0.000144 | none | — |
+| gpt-4.1 150 words (195 tok) | chat, stream:false | $0.001592 | **none after 15+ min** | — |
+| sonnet-4.5 control (9+4 tok) | anthropic route | $0.000087 | 0.026364 | ~1 min |
+| gpt-4.1 150 words (179 tok) | chat, stream:**true** | $0.001464 | **0.443636** | seconds |
+| gpt-4.1 3000-word long gen | chat, stream:false | — (killed) | none (no zombie billing) | — |
+
+**Rule: the meter hooks the SSE stream only. `stream:false` on `/ai/v3/chat/`
+never debits; `stream:true` debits within ~1 min.** This resolves the earlier
+"uncertain" window: the 7.665-credit drop was the completed 2500-word STREAMING
+chat call (≈$0.025 upstream at the ratio below), not non-streaming calls.
+
+**Credit pricing ratio: 303.03 credits per $1 of upstream inference**
+(1 credit ≈ $0.0033). Exact match across three independent calls
+(0.001464→0.443636; 0.000087→0.026364; 0.000144→0.043636 via anthropic opus).
+So: 500 free credits ≈ $1.65 upstream; Basic 1,000/mo ≈ $3.30; Pro 3,000/mo ≈ $9.90.
+
+### Long non-streaming requests get WAF-killed (the user's "eventually waf")
+
+- A 3000-word non-streaming chat request was killed with a generic 403 after
+  ~12 s (earlier sessions: connection reset at ~21.6 s, twice). The session is
+  NOT poisoned by this — a tiny call immediately after returned 200. The block
+  targets the long-held connection, not the account.
+- Streaming is immune (bytes flow): 31 s / 736 chunks completed fine.
+- Framerize's "always stream upstream, aggregate for non-streaming clients"
+  design avoids the kill — but NOTE the tradeoff: streaming upstream is METERED.
+  Using stream:false upstream is free but capped to short generations by the WAF.
+  Design implication: free-tier usage via chat route works for short completions;
+  long generations will be killed (non-streaming) or billed (streaming).
+
+### Castle device identity — `__cuid` (the "castle token id")
+
+- Castle's visitor/device id is stored as `__cuid` in BOTH a `.framer.com` cookie
+  and localStorage (observed: UUIDv4, same value in both). The request token's
+  8-char prefix (`cNz8rPYH`) is stable per device; the ~5.7 KB payload is unique
+  per mint (first divergence at char ~46).
+- Tokens: 2 pipe-separated segments; second is nested base64 (binary/protobuf-ish).
+- Framerize fix (implemented): `ManagedAccount.castle_device_id` generated once
+  per account; webview host seeds `__cuid` (cookie + localStorage) via
+  `castle::SEED_DEVICE_SNIPPET` before the first mint. An account must look like
+  ONE stable device forever.

@@ -26,6 +26,25 @@ pub const CASTLE_SDK_V3: &str = "https://app.framerstatic.com/castleSDKV3-LNGA36
 #[allow(dead_code)]
 pub const MINT_SNIPPET: &str = r#"import("{chunk}").then(m => m.a())"#;
 
+/// Device identity: Castle keys every request token to a stable visitor id it
+/// stores as `__cuid` in BOTH a cookie (`.framer.com`) and localStorage
+/// (observed live: a UUIDv4, identical value in both stores; the token's
+/// 8-char prefix stays constant per device while the payload is unique per
+/// mint). If the webview's storage is ephemeral, Castle mints a NEW device id
+/// every run -> the account looks like a new device each time -> bad risk
+/// score. The host MUST eval this snippet once per page load BEFORE the first
+/// MINT_SNIPPET call, with the account's persisted `castle_device_id`
+/// (ManagedAccount::castle_device_id). `{device_id}` = the UUID.
+#[allow(dead_code)]
+pub const SEED_DEVICE_SNIPPET: &str = r#"(() => {
+  const id = "{device_id}";
+  if (localStorage.getItem("__cuid") !== id) localStorage.setItem("__cuid", id);
+  if (!document.cookie.includes("__cuid=" + id)) {
+    document.cookie = "__cuid=" + id + "; domain=.framer.com; path=/; max-age=31536000; SameSite=Lax";
+  }
+  return id;
+})()"#;
+
 pub async fn mint(bridge: &dyn BrowserBridge, account: &AccountId) -> Result<CastleToken, String> {
     bridge.castle_token(account).await
 }

@@ -1,6 +1,11 @@
 use crate::ids::{AccountId, FramerUserId, ProjectId, TeamId};
 use crate::workspace::CreditSnapshot;
 use serde::{Deserialize, Serialize};
+use uuid::Uuid;
+
+fn default_castle_device_id() -> String {
+    Uuid::new_v4().to_string()
+}
 
 /// Persisted, non-secret account record. The session cookie is NOT here — it lives
 /// in the keychain, referenced by `framer_user_id`. See ADR-001.
@@ -9,6 +14,15 @@ pub struct ManagedAccount {
     pub id: AccountId,
     pub alias: String,
     pub framer_user_id: FramerUserId,
+    /// Stable Castle device identity (`__cuid`), generated once at account
+    /// creation and seeded into the account's webview before the first token
+    /// mint (see framer-api::castle::SEED_DEVICE_SNIPPET). Castle embeds this
+    /// in every request token; regenerating it makes the account look like a
+    /// brand-new device each run and tanks its risk score. Never rotate except
+    /// when the account gets env-sticky 403s AND a fresh identity is wanted
+    /// (that is exactly the "rotate session" remediation).
+    #[serde(default = "default_castle_device_id")]
+    pub castle_device_id: String,
     /// The workspace (team) this account is currently pointed at. Rotated on 402.
     pub current_team: Option<TeamId>,
     /// The project inside `current_team` that inference calls are scoped to.

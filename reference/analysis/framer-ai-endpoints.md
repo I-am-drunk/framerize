@@ -137,7 +137,10 @@ maps are OpenRouter routing tiers ("fast"/"priority"), not plan gates.
 ## Metering (observed 2026-10-01 — see verified-captures for the ledger timeline)
 
 - `/ai/v3/openai/responses/` and `/ai/v3/anthropic/messages/`: metered.
-- `/ai/v3/chat/` (OpenRouter passthrough): UNCERTAIN. Tiny calls showed zero debit
-  at 6-decimal precision, but a 7.7-credit debit landed during a window of
-  long chat-route generations. Debits can lag ≥1 h (grant.updatedAt proves it).
-  Treat as metered until an isolated retest says otherwise.
+- `/ai/v3/chat/` (OpenRouter passthrough): **`stream:false` is UNMETERED,
+  `stream:true` is METERED** — resolved 2026-10-01 with control-call methodology
+  (see verified-captures §6). The meter hooks the SSE path only. Debits post
+  within ~1 minute (grants[].updatedAt), priced at 303.03 credits per $1 of
+  upstream inference cost. Long non-streaming requests are WAF-killed
+  (~12-21 s) with no zombie billing, so free non-streaming is limited to
+  short generations.
