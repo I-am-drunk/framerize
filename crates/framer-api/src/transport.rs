@@ -41,7 +41,7 @@ impl Transport {
 
     pub async fn get(&self, path: &str, auth: Auth<'_>) -> Result<reqwest::Response, String> {
         let req = self.http.get(format!("{}{}", self.base, path));
-        check(path, self.apply(req, auth).send().await.map_err(|e| e.to_string())?)
+        check(path, self.apply(req, auth).send().await.map_err(|e| e.to_string())?).await
     }
 
     pub async fn post(
@@ -55,7 +55,7 @@ impl Transport {
             .post(format!("{}{}", self.base, path))
             .header("content-type", "application/json")
             .json(&body);
-        check(path, self.apply(req, auth).send().await.map_err(|e| e.to_string())?)
+        check(path, self.apply(req, auth).send().await.map_err(|e| e.to_string())?).await
     }
 
     pub async fn post_json(&self, path: &str, auth: Auth<'_>, body: Value) -> Result<Value, String> {
@@ -69,12 +69,19 @@ impl Transport {
 
 /// Status policy — see AGENTS.md. Returns the response on success.
 /// 401/402/403 map to machine-readable strings the pipeline matches on.
-fn check(path: &str, resp: reqwest::Response) -> Result<reqwest::Response, String> {
+async fn check(path: &str, resp: reqwest::Response) -> Result<reqwest::Response, String> {
     match resp.status().as_u16() {
         200..=299 => Ok(resp),
+        // Exact-match sentinels the pipeline matches on — do not append to these.
         401 => Err("unauthorized".into()),
         402 => Err("credits-exhausted".into()),
         403 => Err("risk-refused".into()),
-        s => Err(format!("retryable {s} on {path}")),
+        // Everything else: the response body is the only debugging signal we get
+        // (a bare "retryable 400" hid why /auth/v4/signin rejected us once).
+        s => {
+            let body = resp.text().await.unwrap_or_default();
+            let clipped = &body[..body.len().min(500)];
+            Err(format!("retryable {s} on {path}: {clipped}"))
+        }
     }
 }
