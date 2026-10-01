@@ -1,5 +1,6 @@
 //! Login = email magic link. Verified against login.36HT4Q4D.mjs:
 //!
+//! ```text
 //!     1. POST /auth/v4/signin   {email, redirect, inviteId, origin, useFallback,
 //!                              forceMagic, castleToken} → emails the link.
 //!      403 here = "VERIFICATION_FAILURE" (Castle refused the sign-in attempt).
@@ -9,6 +10,7 @@
 //!
 //! Links expire after 1 hour and are single-use. Both Castle tokens must be fresh,
 //! minted in the account's own webview (castle.rs).
+//! ```
 
 use crate::transport::{Auth, Transport};
 use framer_core::ids::FramerUserId;

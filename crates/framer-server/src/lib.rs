@@ -7,6 +7,7 @@ use axum::http::StatusCode;
 use axum::routing::{get, post};
 use axum::{Json, Router};
 use framer_core::account::ManagedAccount;
+use framer_core::convert::{self, ClientDialect, CanonicalResponse};
 use framer_core::ids::AccountId;
 use framer_core::pipeline::{self, Deps, InferenceOutcome, InferenceRequest};
 use framer_core::port::{BrowserBridge, FramerClient, SessionStore, StateStore};
@@ -234,6 +235,9 @@ async fn anthropic_messages(
     headers: axum::http::HeaderMap,
     Json(payload): Json<serde_json::Value>,
 ) -> Result<axum::response::Response, ApiError> {
+    if hdr(&headers, "x-framerize-mode").as_deref() == Some("free") {
+        return free_complete(s, &headers, ClientDialect::AnthropicMessages, payload).await;
+    }
     compat_forward(
         s,
         "anthropic-messages",
@@ -249,6 +253,9 @@ async fn openai_responses(
     headers: axum::http::HeaderMap,
     Json(payload): Json<serde_json::Value>,
 ) -> Result<axum::response::Response, ApiError> {
+    if hdr(&headers, "x-framerize-mode").as_deref() == Some("free") {
+        return free_complete(s, &headers, ClientDialect::OpenAiResponses, payload).await;
+    }
     compat_forward(
         s,
         "openai-responses",
@@ -264,15 +271,8 @@ async fn openai_chat(
     headers: axum::http::HeaderMap,
     Json(payload): Json<serde_json::Value>,
 ) -> Result<axum::response::Response, ApiError> {
-    // Mode selection (x-framerize-mode):
-    //   "free"  — continuation chaining on stream:false chunks. UNMETERED
-    //             (the upstream meter only hooks SSE — verified-captures §6-7),
-    //             survives the ~21.5 s idle-kill on long held connections.
-    //             Non-streaming response regardless of the client's `stream`.
-    //   default — stream upstream and aggregate if needed (metered, robust).
-    let free_mode = hdr(&headers, "x-framerize-mode").as_deref() == Some("free");
-    if free_mode {
-        return openai_chat_free(s, headers, payload).await;
+    if hdr(&headers, "x-framerize-mode").as_deref() == Some("free") {
+        return free_complete(s, &headers, ClientDialect::OpenAiChat, payload).await;
     }
     compat_forward(
         s,
@@ -284,23 +284,22 @@ async fn openai_chat(
     .await
 }
 
-/// Free mode: chain windowed non-streaming calls (see framer_api::freechat).
-async fn openai_chat_free(
+/// Free mode, ANY client dialect: parse the client's request into the canonical
+/// IR, run the unmetered continuation chain on the OpenRouter chat route
+/// (stream:false chunks — the upstream meter only hooks SSE; verified-captures
+/// §6-8), then render the answer back into the client's dialect — as JSON, or
+/// as a synthesized SSE stream when the client asked to stream. Adding a client
+/// dialect = one module in framer_core::convert, never a change here.
+async fn free_complete(
     s: AppState,
-    headers: axum::http::HeaderMap,
+    headers: &axum::http::HeaderMap,
+    dialect: ClientDialect,
     payload: serde_json::Value,
 ) -> Result<axum::response::Response, ApiError> {
-    let model = payload["model"]
-        .as_str()
-        .ok_or_else(|| ApiError("model is required".into()))?
-        .to_string();
-    let messages = payload["messages"]
-        .as_array()
-        .ok_or_else(|| ApiError("messages array is required".into()))?
-        .clone();
+    let req = convert::parse_request(dialect, &payload).map_err(ApiError)?;
 
     let pool = s.state.list().await.map_err(ApiError)?;
-    let account = match hdr(&headers, "x-framerize-account") {
+    let account = match hdr(headers, "x-framerize-account") {
         Some(id) => pool
             .into_iter()
             .find(|a| a.id.0.to_string() == id)
@@ -320,9 +319,18 @@ async fn openai_chat_free(
         .clone()
         .ok_or_else(|| ApiError("account has no current project".into()))?;
     let chat_session =
-        hdr(&headers, "x-framerize-session").unwrap_or_else(|| format!("s{:08x}", rand_u32()));
+        hdr(headers, "x-framerize-session").unwrap_or_else(|| format!("s{:08x}", rand_u32()));
 
-    let cfg = framer_core::port::ChainConfig::default();
+    let cfg = framer_core::port::ChainConfig {
+        max_total_tokens: Some(req.max_tokens),
+        ..Default::default()
+    };
+    // Build the upstream chat payload (system-first messages, OpenRouter-prefixed
+    // model id), then hand model+messages to the chainer — it owns chunking.
+    let first = convert::to_chat_payload(&req, cfg.chunk_tokens);
+    let model = first["model"].as_str().unwrap_or_default().to_string();
+    let messages = first["messages"].as_array().cloned().unwrap_or_default();
+
     let result = s
         .client
         .freechat_long(
@@ -338,26 +346,40 @@ async fn openai_chat_free(
         .await
         .map_err(ApiError)?;
 
-    let body = serde_json::json!({
-        "id": format!("frz-{}", rand_u32()),
-        "object": "chat.completion",
-        "created": std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .map(|d| d.as_secs())
-            .unwrap_or(0),
-        "model": model,
-        "choices": [{
-            "index": 0,
-            "message": { "role": "assistant", "content": result.text },
-            "finish_reason": result.finish_reason,
-        }],
-        "usage": {
-            "prompt_tokens": result.prompt_tokens,
-            "completion_tokens": result.completion_tokens,
-            "total_tokens": result.prompt_tokens + result.completion_tokens,
-        },
-        "framerize": { "mode": "free", "chunks": result.chunks, "metered": false },
-    });
+    let finish = if result.finish_reason.starts_with("length") {
+        "length"
+    } else {
+        "stop"
+    };
+    let ir = CanonicalResponse {
+        text: result.text,
+        finish_reason: finish.into(),
+        model: req.model.clone(), // echo the client's model id, not the upstream one
+        prompt_tokens: result.prompt_tokens,
+        completion_tokens: result.completion_tokens,
+    };
+
+    if req.stream {
+        let frames = convert::render_stream(dialect, &ir);
+        let body = frames
+            .into_iter()
+            .map(|f| format!("{f}\n\n"))
+            .collect::<String>();
+        let mut resp = axum::response::Response::new(axum::body::Body::from(body));
+        resp.headers_mut().insert(
+            axum::http::header::CONTENT_TYPE,
+            axum::http::HeaderValue::from_static("text/event-stream"),
+        );
+        resp.headers_mut().insert(
+            "x-framerize-session",
+            chat_session
+                .parse()
+                .unwrap_or(axum::http::HeaderValue::from_static("")),
+        );
+        return Ok(resp);
+    }
+
+    let body = convert::render_response(dialect, &ir);
     let mut resp = axum::response::Response::new(axum::body::Body::from(
         serde_json::to_string(&body).map_err(|e| ApiError(e.to_string()))?,
     ));

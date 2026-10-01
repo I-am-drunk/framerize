@@ -140,7 +140,8 @@ maps are OpenRouter routing tiers ("fast"/"priority"), not plan gates.
 
 ## Metering (observed 2026-10-01 — see verified-captures for the ledger timeline)
 
-- `/ai/v3/openai/responses/` and `/ai/v3/anthropic/messages/`: metered.
+- `/ai/v3/openai/responses/` and `/ai/v3/anthropic/messages/`: metered in BOTH
+  modes (anthropic non-streaming confirmed instant-debit 2026-10-01 §8).
 - `/ai/v3/chat/` (OpenRouter passthrough): **`stream:false` is UNMETERED,
   `stream:true` is METERED** — resolved 2026-10-01 with control-call methodology
   (see verified-captures §6). The meter hooks the SSE path only. Debits post

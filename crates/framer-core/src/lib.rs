@@ -2,6 +2,7 @@
 //! behind the ports in `port.rs` and are implemented in `framer-api` / `framer-store`.
 
 pub mod account;
+pub mod convert;
 pub mod credits;
 pub mod error;
 pub mod ids;

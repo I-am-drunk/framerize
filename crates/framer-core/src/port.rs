@@ -64,6 +64,10 @@ pub struct ChainConfig {
     /// Runaway protection.
     pub max_chunks: u32,
     pub continue_prompt: String,
+    /// Client-requested total cap (anthropic max_tokens etc.); each chunk's
+    /// upstream max_tokens is min(chunk_tokens, remaining). None = chain until
+    /// finish_reason == "stop".
+    pub max_total_tokens: Option<u32>,
 }
 
 impl Default for ChainConfig {
@@ -72,6 +76,7 @@ impl Default for ChainConfig {
             chunk_tokens: 600,
             max_chunks: 16,
             continue_prompt: "Continue exactly where you stopped. No preamble, no recap.".into(),
+            max_total_tokens: None,
         }
     }
 }

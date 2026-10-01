@@ -4,6 +4,7 @@ use framer_host::CdpBridge;
 use framer_core::ids::AccountId;
 use framer_core::port::BrowserBridge;
 
+#[ignore] // needs a real Chrome binary; run: cargo test -p framer-host -- --ignored
 #[tokio::test]
 async fn launches_and_mints_castle_token() {
     let dir = std::env::temp_dir().join("framerize-host-test");

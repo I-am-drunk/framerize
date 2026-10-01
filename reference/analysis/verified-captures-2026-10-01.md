@@ -220,3 +220,28 @@ Design consequence for the compat layer: non-streaming client requests can be
 served EITHER by stream-upstream-and-aggregate (metered, robust) OR by
 freechat chaining (unmetered, bounded per-chunk latency). Route by a
 cost/latency policy flag.
+
+## 8. Anthropic route non-streaming is METERED — conversion layer justified (2026-10-01 ~14:20 UTC)
+
+- `/ai/v3/anthropic/messages/` NON-streaming (no stream field), sonnet-4.5,
+  144 output tokens: 200 in 8.4 s, ledger 476.423864 → 475.753864
+  (−0.67, posted instantly in the same read; 144 tok × sonnet pricing × 303.03
+  credits/$ matches exactly).
+- Final metering map (all live-verified):
+  | route | stream:false | stream:true |
+  |---|---|---|
+  | `/ai/v3/chat/` (OpenRouter) | **FREE** (never debits) | metered (~1 min) |
+  | `/ai/v3/anthropic/messages/` | metered (instant) | metered |
+  | `/ai/v3/openai/responses/` | metered | metered |
+  | `/ai/v3/messages/` (OR anthropic fmt) | untested | untested |
+- Consequence: free inference for Anthropic/Responses-speaking clients REQUIRES
+  dialect conversion into the chat route. Implemented as the IR conversion
+  layer in `framer_core::convert` (parse_request / render_response /
+  render_stream per dialect; upstream side is always chat/completions, so each
+  client dialect is written once, never pairwise). Wired in the compat server:
+  `x-framerize-mode: free` now works on `/anthropic/v1/messages`,
+  `/openai/v1/chat/completions`, AND `/openai/v1/responses` — including
+  synthesized SSE when the client streams (Claude Code compat).
+- Model id normalization is part of the layer: anthropic dashed ids
+  (`claude-opus-5-5`) → OpenRouter dotted prefixed (`anthropic/claude-opus-5.5`);
+  `gpt-6-sol` → `openai/gpt-6-sol`; already-prefixed ids pass through.

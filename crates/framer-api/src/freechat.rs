@@ -46,10 +46,15 @@ pub async fn complete_long(
     let (mut ptok, mut ctok) = (0u64, 0u64);
 
     for i in 0..cfg.max_chunks {
+        let budget = cfg
+            .max_total_tokens
+            .map(|cap| cap.saturating_sub(ctok as u32).max(1))
+            .unwrap_or(cfg.chunk_tokens);
+        let chunk = budget.min(cfg.chunk_tokens);
         let payload = json!({
             "model": model,
             "messages": messages,
-            "max_tokens": cfg.chunk_tokens,
+            "max_tokens": chunk,
             "stream": false,
         });
         let resp = proxy::forward(
@@ -68,7 +73,8 @@ pub async fn complete_long(
             ctok += u.get("completion_tokens").and_then(Value::as_u64).unwrap_or(0);
         }
         text.push_str(&piece);
-        if finish != "length" {
+        let budget_left = cfg.max_total_tokens.map(|cap| cap.saturating_sub(ctok as u32));
+        if finish != "length" || budget_left == Some(0) {
             return Ok(ChainResult { text, chunks: i + 1, prompt_tokens: ptok, completion_tokens: ctok, finish_reason: finish });
         }
         messages.push(json!({"role": "assistant", "content": piece}));
