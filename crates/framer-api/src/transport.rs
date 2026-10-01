@@ -32,6 +32,11 @@ impl Transport {
     }
 
     fn apply(&self, req: reqwest::RequestBuilder, auth: Auth) -> reqwest::RequestBuilder {
+        // Every API call in Framer's own client carries this constant header
+        // (chunk-3MN6NPEY: Object.freeze({"X-Requested-By":"Framer"}), spread
+        // into the shared fetch wrapper). It's the API's CSRF marker — omitting
+        // it gets a bare 400 on /auth/v4/* (observed live on signin).
+        let req = req.header("x-requested-by", "Framer");
         match auth {
             Auth::Cookie(s) => req.header("cookie", &s.cookie_header),
             Auth::Bearer(t) => req.bearer_auth(t),

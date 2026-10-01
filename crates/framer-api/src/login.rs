@@ -23,14 +23,19 @@ pub async fn request_magic_link(
     email: &str,
     castle: &CastleToken,
 ) -> Result<(), String> {
-    // Matches the web login bundle exactly: the SPA passes redirect/inviteId/
-    // origin as undefined for a plain login and JSON.stringify drops them.
-    // Sending nulls (or forceMagic/origin) gets a 400 — observed live.
+    // Matches the web login bundle exactly (login.36HT4Q4D.mjs):
+    //   Je({email, redirect: U, inviteId: f, origin: W, castleToken})
+    // redirect/inviteId come from URL params → undefined → dropped by
+    // JSON.stringify. origin is NEVER undefined: Qr() → "web" on desktop
+    // ("web-mobile" on mobile UA, "web-onpage" for the ?close=true flow).
+    // And every API call needs the X-Requested-By: Framer header
+    // (transport adds it). Bare {email, castleToken} or null fields → 400.
     t.post_json(
         "/auth/v4/signin",
         Auth::None,
         json!({
             "email": email,
+            "origin": "web",
             "castleToken": castle.0,
         }),
     )
