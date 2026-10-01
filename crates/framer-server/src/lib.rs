@@ -12,6 +12,7 @@ use framer_core::ids::AccountId;
 use framer_core::pipeline::{self, Deps, InferenceOutcome, InferenceRequest};
 use framer_core::port::{BrowserBridge, FramerClient, SessionStore, StateStore};
 use serde::Deserialize;
+use serde_json::Value;
 use std::net::SocketAddr;
 use std::sync::Arc;
 use tower_http::services::ServeDir;
@@ -459,11 +460,14 @@ async fn free_complete(
         max_total_tokens: Some(req.max_tokens),
         ..Default::default()
     };
-    // Build the upstream chat payload (system-first messages, OpenRouter-prefixed
-    // model id), then hand model+messages to the chainer — it owns chunking.
-    let first = convert::to_chat_payload(&req, cfg.chunk_tokens);
+    // ALL free traffic rides /ai/v3/messages/ — the Anthropic-format OpenRouter
+    // passthrough has a ~60s window (measured ≥44.9s survival) vs the chat
+    // route's ~21.5s, so most generations complete in ONE free call without
+    // chaining. OpenAI/Responses dialects convert via IR at the boundary only.
+    let first = convert::to_anthropic_payload(&req, cfg.chunk_tokens);
     let model = first["model"].as_str().unwrap_or_default().to_string();
     let messages = first["messages"].as_array().cloned().unwrap_or_default();
+    let system = first.get("system").and_then(Value::as_str).map(String::from);
 
     let result = s
         .client
@@ -473,11 +477,11 @@ async fn free_complete(
             &account.id,
             &project,
             &model,
-            req.instructions.clone(),
+            system,
             messages,
             &cfg,
             &chat_session,
-            framer_core::port::ChainDialect::OpenAiChat,
+            framer_core::port::ChainDialect::AnthropicMessages,
         )
         .await
         .map_err(ApiError)?;
