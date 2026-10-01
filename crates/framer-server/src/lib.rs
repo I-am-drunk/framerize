@@ -635,9 +635,15 @@ async fn run(
         sessions: s.sessions.as_ref(),
         state: s.state.as_ref(),
     };
+    // The agent route (/ai/v3/openai/responses/) takes UNPREFIXED model ids —
+    // "openai/gpt-4.1" gets 400 "model pricing is not configured" (observed).
+    // The chat/compat routes are the prefixed ones; strip here.
+    let model = body
+        .model
+        .map(|m| m.rsplit_once('/').map(|(_, id)| id.to_string()).unwrap_or(m));
     let req = InferenceRequest {
         prompt: body.prompt,
-        model: body.model,
+        model,
         chat_session: body.chat_session,
     };
     let outcome = pipeline::run(&deps, &mut account, &req)
