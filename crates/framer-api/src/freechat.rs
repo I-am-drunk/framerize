@@ -21,38 +21,9 @@ use crate::proxy::{self, Dialect};
 use crate::transport::Transport;
 use crate::auth::AiToken;
 use framer_core::ids::{AccountId, ProjectId};
-use framer_core::port::{BrowserBridge, Session};
+use framer_core::port::{BrowserBridge, ChainResult, Session};
 use serde_json::{json, Value};
 use std::sync::Mutex;
-
-pub struct ChainConfig {
-    /// Tokens per chunk. 600 ≈ 6-10 s on gpt-4.1 — comfortably under the ~21.5 s
-    /// idle kill. Halve for slower models (opus-class) if chunks approach 15 s.
-    pub chunk_tokens: u32,
-    /// Hard cap on chained calls (runaway protection).
-    pub max_chunks: u32,
-    /// The continuation instruction sent after each partial chunk.
-    pub continue_prompt: String,
-}
-
-impl Default for ChainConfig {
-    fn default() -> Self {
-        Self {
-            chunk_tokens: 600,
-            max_chunks: 16,
-            continue_prompt: "Continue exactly where you stopped. No preamble, no recap.".into(),
-        }
-    }
-}
-
-#[derive(Debug)]
-pub struct ChainResult {
-    pub text: String,
-    pub chunks: u32,
-    pub prompt_tokens: u64,
-    pub completion_tokens: u64,
-    pub finish_reason: String,
-}
 
 /// Run a chat/completions request as a chain of free non-streaming calls.
 /// `messages` is the OpenAI-style messages array; `model` a PREFIXED OpenRouter
@@ -67,7 +38,7 @@ pub async fn complete_long(
     project: &ProjectId,
     model: &str,
     messages: Vec<Value>,
-    cfg: &ChainConfig,
+    cfg: &framer_core::port::ChainConfig,
     chat_session: &str,
 ) -> Result<ChainResult, String> {
     let mut messages = messages;

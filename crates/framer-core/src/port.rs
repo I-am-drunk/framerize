@@ -55,6 +55,36 @@ pub struct ProxyResponse {
     pub stream: Pin<Box<dyn Stream<Item = Result<Bytes, String>> + Send>>,
 }
 
+/// Config for free continuation-chained chat (unmetered stream:false chunks —
+/// see framer-api::freechat for the live evidence).
+#[derive(Debug, Clone)]
+pub struct ChainConfig {
+    /// Tokens per chunk (~6-10 s each on gpt-4.1; under the ~21.5 s idle kill).
+    pub chunk_tokens: u32,
+    /// Runaway protection.
+    pub max_chunks: u32,
+    pub continue_prompt: String,
+}
+
+impl Default for ChainConfig {
+    fn default() -> Self {
+        Self {
+            chunk_tokens: 600,
+            max_chunks: 16,
+            continue_prompt: "Continue exactly where you stopped. No preamble, no recap.".into(),
+        }
+    }
+}
+
+#[derive(Debug)]
+pub struct ChainResult {
+    pub text: String,
+    pub chunks: u32,
+    pub prompt_tokens: u64,
+    pub completion_tokens: u64,
+    pub finish_reason: String,
+}
+
 /// The one port that talks to Framer. Everything undocumented/fragile is behind this.
 #[async_trait]
 pub trait FramerClient: Send + Sync {
@@ -100,6 +130,22 @@ pub trait FramerClient: Send + Sync {
         payload: serde_json::Value,
         chat_session: &str,
     ) -> Result<ProxyResponse, String>;
+
+    /// Free unmetered long-form chat: chain windowed non-streaming calls on the
+    /// OpenRouter chat route (meter hooks SSE only). `model` is a PREFIXED
+    /// OpenRouter catalog id.
+    #[allow(clippy::too_many_arguments)]
+    async fn freechat_long(
+        &self,
+        session: &Session,
+        browser: &dyn BrowserBridge,
+        account: &AccountId,
+        project: &ProjectId,
+        model: &str,
+        messages: Vec<serde_json::Value>,
+        cfg: &ChainConfig,
+        chat_session: &str,
+    ) -> Result<ChainResult, String>;
 
     /// GET /web/teams/{teamId}/ai-credits.
     async fn usage(&self, session: &Session, team: &TeamId) -> Result<CreditSnapshot, String>;

@@ -103,3 +103,36 @@ rotation design — run it before building `create_workspace`.
   editors, but workspace *count* per account needs a live probe.
 - Unlike Notionize (workspace-per-exhaustion with `premium-feature-unavailable` in a
   200 stream), Framer fails with a hard 402 — simpler to detect.
+
+## Workspace creation + the "which workspaces get free credits" experiment (2026-10-01)
+
+**Endpoint (finally captured — statically from `chunk-TC7CTTY5.mjs`, then executed live):**
+
+```
+POST https://api.framer.com/account/teams
+Headers: content-type: application/json, x-requested-by: Framer   (REQUIRED —
+         constant "Framer"; missing → 403 "Missing x-requested-by header")
+Body:    { "teamName": "Workspace Two" }        (field is teamName, not name)
+→ 201 { teamId, teamName, license: { type: "free", featureFlags… } }
+```
+
+(The "Add workspace" UI stays inert under automation — React state modal — but the
+API itself is trivially callable. Related: `PUT /account/teams/{teamId}`,
+`POST /web/v3/teams/{teamId}/subscription/sync/preview`.)
+
+**Experiment: does a NEW workspace on an existing account get the 500-credit
+free-intro grant?** Created "Workspace Two" (`fd5029ba-f67b-4d4f-b6a8-e879e9e2b80b`)
+on the test account (which already had workspace #1 "hghg's Workspace" with the
+grant, plus the default personal space):
+
+```
+GET /web/teams/fd5029ba…/ai-credits
+→ 200 { "availableCredits": 0, "funds": [] }     (still 0 after 2+ min — no async grant)
+```
+
+**A newly created workspace gets ZERO AI credits.** This kills the "rotate across
+workspaces on one account" design — rotation must be across ACCOUNTS. The user's
+"first two workspaces get credits, never again" claim is half-confirmed: later
+workspaces get nothing. Whether the free-intro grant lands on the first one or
+the first two workspaces at signup is indistinguishable on this account (the
+personal space has no team ledger); a fresh-account experiment would settle it.

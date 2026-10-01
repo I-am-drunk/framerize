@@ -264,7 +264,16 @@ async fn openai_chat(
     headers: axum::http::HeaderMap,
     Json(payload): Json<serde_json::Value>,
 ) -> Result<axum::response::Response, ApiError> {
-    // OpenRouter chat route (metering uncertain — see verified-captures).
+    // Mode selection (x-framerize-mode):
+    //   "free"  — continuation chaining on stream:false chunks. UNMETERED
+    //             (the upstream meter only hooks SSE — verified-captures §6-7),
+    //             survives the ~21.5 s idle-kill on long held connections.
+    //             Non-streaming response regardless of the client's `stream`.
+    //   default — stream upstream and aggregate if needed (metered, robust).
+    let free_mode = hdr(&headers, "x-framerize-mode").as_deref() == Some("free");
+    if free_mode {
+        return openai_chat_free(s, headers, payload).await;
+    }
     compat_forward(
         s,
         "openrouter-chat",
@@ -273,6 +282,96 @@ async fn openai_chat(
         payload,
     )
     .await
+}
+
+/// Free mode: chain windowed non-streaming calls (see framer_api::freechat).
+async fn openai_chat_free(
+    s: AppState,
+    headers: axum::http::HeaderMap,
+    payload: serde_json::Value,
+) -> Result<axum::response::Response, ApiError> {
+    let model = payload["model"]
+        .as_str()
+        .ok_or_else(|| ApiError("model is required".into()))?
+        .to_string();
+    let messages = payload["messages"]
+        .as_array()
+        .ok_or_else(|| ApiError("messages array is required".into()))?
+        .clone();
+
+    let pool = s.state.list().await.map_err(ApiError)?;
+    let account = match hdr(&headers, "x-framerize-account") {
+        Some(id) => pool
+            .into_iter()
+            .find(|a| a.id.0.to_string() == id)
+            .ok_or_else(|| ApiError("unknown account id".into()))?,
+        None => framer_core::rotation::pick(&pool)
+            .cloned()
+            .ok_or_else(|| ApiError("no eligible account".into()))?,
+    };
+    let session = s
+        .sessions
+        .load(&account.framer_user_id)
+        .await
+        .map_err(ApiError)?
+        .ok_or_else(|| ApiError("account has no session".into()))?;
+    let project = account
+        .current_project
+        .clone()
+        .ok_or_else(|| ApiError("account has no current project".into()))?;
+    let chat_session =
+        hdr(&headers, "x-framerize-session").unwrap_or_else(|| format!("s{:08x}", rand_u32()));
+
+    let cfg = framer_core::port::ChainConfig::default();
+    let result = s
+        .client
+        .freechat_long(
+            &session,
+            s.browser.as_ref(),
+            &account.id,
+            &project,
+            &model,
+            messages,
+            &cfg,
+            &chat_session,
+        )
+        .await
+        .map_err(ApiError)?;
+
+    let body = serde_json::json!({
+        "id": format!("frz-{}", rand_u32()),
+        "object": "chat.completion",
+        "created": std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_secs())
+            .unwrap_or(0),
+        "model": model,
+        "choices": [{
+            "index": 0,
+            "message": { "role": "assistant", "content": result.text },
+            "finish_reason": result.finish_reason,
+        }],
+        "usage": {
+            "prompt_tokens": result.prompt_tokens,
+            "completion_tokens": result.completion_tokens,
+            "total_tokens": result.prompt_tokens + result.completion_tokens,
+        },
+        "framerize": { "mode": "free", "chunks": result.chunks, "metered": false },
+    });
+    let mut resp = axum::response::Response::new(axum::body::Body::from(
+        serde_json::to_string(&body).map_err(|e| ApiError(e.to_string()))?,
+    ));
+    resp.headers_mut().insert(
+        axum::http::header::CONTENT_TYPE,
+        axum::http::HeaderValue::from_static("application/json"),
+    );
+    resp.headers_mut().insert(
+        "x-framerize-session",
+        chat_session
+            .parse()
+            .unwrap_or(axum::http::HeaderValue::from_static("")),
+    );
+    Ok(resp)
 }
 
 fn hdr(headers: &axum::http::HeaderMap, name: &str) -> Option<String> {

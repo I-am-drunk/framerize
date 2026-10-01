@@ -104,6 +104,10 @@ create-team call remains UNCAPTURED; capture from a real browser.
 
 ## Status & headers policy
 
+- Mutating account/web APIs (`POST /account/teams`, etc.) require the constant
+  header `x-requested-by: Framer` (CSRF); missing → 403 "Missing x-requested-by
+  header".
+
 - 401 on `/ai/v3/*` → JWT expired; remint (cheap cookie GET) and retry once.
 - 401 minting a JWT → session cookie dead; account needs re-login.
 - 402 → workspace credits exhausted (`reason` in JSON body); rotate workspace.

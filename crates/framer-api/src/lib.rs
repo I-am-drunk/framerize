@@ -82,6 +82,7 @@ impl HttpFramerClient {
         )
         .await
     }
+
 }
 
 fn parse_dialect(d: &str) -> Result<proxy::Dialect, String> {
@@ -161,5 +162,31 @@ impl FramerClient for HttpFramerClient {
         spec: &WorkspaceSpec,
     ) -> Result<TeamId, String> {
         workspace::create(&self.transport, session, spec).await
+    }
+
+    async fn freechat_long(
+        &self,
+        session: &Session,
+        browser: &dyn BrowserBridge,
+        account: &AccountId,
+        project: &framer_core::ids::ProjectId,
+        model: &str,
+        messages: Vec<serde_json::Value>,
+        cfg: &framer_core::port::ChainConfig,
+        chat_session: &str,
+    ) -> Result<framer_core::port::ChainResult, String> {
+        freechat::complete_long(
+            &self.transport,
+            &self.ai_token,
+            session,
+            browser,
+            account,
+            project,
+            model,
+            messages,
+            cfg,
+            chat_session,
+        )
+        .await
     }
 }
