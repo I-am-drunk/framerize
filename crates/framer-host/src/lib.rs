@@ -311,8 +311,72 @@ impl CdpBridge {
     }
 }
 
+fn body_preview(v: &Value) -> String {
+    let b = v["body"].as_str().unwrap_or("");
+    b[..b.len().min(400)].to_string()
+}
+
 #[async_trait]
 impl BrowserBridge for CdpBridge {
+    async fn auth_begin(&self, account: &AccountId, email: &str) -> Result<(), String> {
+        let inst = self.instance(account).await?;
+        let mut guard = inst.lock().await;
+        let v = guard
+            .eval(auth_post_expr("/auth/v4/signin", &json!({"email": email, "origin": "web"})))
+            .await?;
+        let status = v["status"].as_i64().unwrap_or(-1);
+        match status {
+            s if (200..300).contains(&s) => {
+                eprintln!("[auth] signin accepted for account {}", account.0);
+                Ok(())
+            }
+            0 => Err("castle v3 unavailable during signin (no token minted)".into()),
+            s => Err(format!("signin {s}: {}", body_preview(&v))),
+        }
+    }
+
+    async fn auth_complete(
+        &self,
+        account: &AccountId,
+        email_token: &str,
+    ) -> Result<(String, Value), String> {
+        let inst = self.instance(account).await?;
+        let mut guard = inst.lock().await;
+
+        let v = guard
+            .eval(auth_post_expr("/auth/v4/continue", &json!({"token": email_token})))
+            .await?;
+        let status = v["status"].as_i64().unwrap_or(-1);
+        if !(200..300).contains(&status) {
+            return Err(format!("continue {status}: {}", body_preview(&v)));
+        }
+
+        // The session cookie is httpOnly — only CDP can read it.
+        let cookies = guard
+            .cmd(
+                "Network.getCookies",
+                json!({"urls": ["https://framer.com", "https://api.framer.com", "https://framer.com/login"]}),
+            )
+            .await?;
+        let session_value = cookies["cookies"]
+            .as_array()
+            .and_then(|a| a.iter().find(|c| c["name"].as_str() == Some("session")))
+            .and_then(|c| c["value"].as_str())
+            .ok_or_else(|| format!("no session cookie in browser jar after continue: {}", body_preview(&v)))?;
+        let cookie_header = format!("session={session_value}");
+
+        // /web/users/me in-page (cookie jar is live in this context).
+        let v = guard.eval(page_get_expr("/web/users/me")).await?;
+        let status = v["status"].as_i64().unwrap_or(-1);
+        if !(200..300).contains(&status) {
+            return Err(format!("me {status}: {}", body_preview(&v)));
+        }
+        let me: Value = serde_json::from_str(v["body"].as_str().unwrap_or("{}"))
+            .map_err(|e| format!("me json: {e}"))?;
+        eprintln!("[auth] login complete for account {}", account.0);
+        Ok((cookie_header, me))
+    }
+
     async fn castle_token(&self, account: &AccountId) -> Result<CastleToken, String> {
         let inst = self.instance(account).await?;
         let mut guard = inst.lock().await;
