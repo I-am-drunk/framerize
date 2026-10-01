@@ -4,9 +4,11 @@
 //! payload forwarded nearly verbatim. Verified live 2026-10-01, see
 //! reference/analysis/verified-captures-2026-10-01.md.
 //!
-//! Metering (observed 2026-10-01): responses + anthropic are metered; the
-//! OpenRouter chat route is UNCERTAIN (tiny calls showed no debit; long ones
-//! coincided with a credit drop). Do not rely on it being free.
+//! Metering (RESOLVED 2026-10-01, verified-captures §6): responses + anthropic
+//! routes are metered. The OpenRouter chat route is metered ONLY when
+//! `stream:true` — `stream:false` never debits (the meter hooks the SSE path).
+//! Free long-form generation: see freechat.rs (continuation chaining around the
+//! ~21.5 s idle-connection kill on held non-streaming requests).
 
 use crate::auth::{self, AiToken};
 use crate::castle;

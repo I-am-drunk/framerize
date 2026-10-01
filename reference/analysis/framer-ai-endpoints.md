@@ -141,6 +141,9 @@ maps are OpenRouter routing tiers ("fast"/"priority"), not plan gates.
   `stream:true` is METERED** — resolved 2026-10-01 with control-call methodology
   (see verified-captures §6). The meter hooks the SSE path only. Debits post
   within ~1 minute (grants[].updatedAt), priced at 303.03 credits per $1 of
-  upstream inference cost. Long non-streaming requests are WAF-killed
-  (~12-21 s) with no zombie billing, so free non-streaming is limited to
-  short generations.
+  upstream inference cost. Long non-streaming requests are killed by an
+  idle-connection cutoff (~21.5 s reset; rarely Castle 403 at ~12 s; a
+  zero-byte-held control connection to an unrelated host died too, so it is a
+  path-level idle kill) with no zombie billing and no session poisoning.
+  Workaround: continuation chaining — see framer-api/src/freechat.rs
+  (verified: 1,893 words over 4 free chunks, zero credits).

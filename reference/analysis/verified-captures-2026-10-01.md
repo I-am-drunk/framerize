@@ -181,3 +181,42 @@ So: 500 free credits ≈ $1.65 upstream; Basic 1,000/mo ≈ $3.30; Pro 3,000/mo 
   per account; webview host seeds `__cuid` (cookie + localStorage) via
   `castle::SEED_DEVICE_SNIPPET` before the first mint. An account must look like
   ONE stable device forever.
+
+## 7. The non-streaming kill, characterized — and the workaround (2026-10-01 ~13:30 UTC)
+
+### What the kill is
+
+- Long non-streaming `/ai/v3/chat/` calls die as **connection reset at ~21.5 s**
+  (twice: 21.50 s, 21.60 s) or, more rarely, a generic Castle 403 at ~12 s.
+- Control experiment: a ZERO-byte-held HTTP response to an unrelated host
+  (controlled server via Cloudflare tunnel) through the same network path also
+  died (~11 s idle). So the dominant kill is an **idle-connection cutoff on the
+  network path** (bytes must flow or the connection dies); a slower server-side
+  cutoff may exist above it but is unreachable from this environment.
+- Streaming is immune because bytes flow continuously (31 s generation fine).
+- The kill does NOT poison the session (tiny call immediately after → 200) and
+  produces NO zombie debit.
+
+### The workaround: continuation chaining (VERIFIED, FREE)
+
+Chunk the generation into windowed non-streaming calls that each finish under
+the idle threshold, then continue:
+
+1. `request: {model, messages, max_tokens: 600, stream: false}`
+2. if `finish_reason == "length"`: append the assistant chunk + a bare
+   "Continue exactly where you stopped" user message; call again
+3. stop on `finish_reason == "stop"` (or chunk cap)
+
+Live result: 4 chunks x 600 tokens, each 6.5-10.3 s, all 200 → **1,893-word
+continuous story; ledger availableCredits 476.423864 before AND after
+(updatedAt unchanged 5+ min later): ZERO credits.** A single equivalent
+non-streaming call (~25 s) dies at 21.5 s; the streaming equivalent would have
+cost ~0.8 credits.
+
+Implemented in `crates/framer-api/src/freechat.rs` (`complete_long`), chunk
+size 600 tokens default (halve for slower opus-class models), cap 16 chunks.
+
+Design consequence for the compat layer: non-streaming client requests can be
+served EITHER by stream-upstream-and-aggregate (metered, robust) OR by
+freechat chaining (unmetered, bounded per-chunk latency). Route by a
+cost/latency policy flag.

@@ -15,6 +15,7 @@
 mod auth;
 mod castle;
 mod credits;
+pub mod freechat;
 pub mod inference;
 mod login;
 mod models;
