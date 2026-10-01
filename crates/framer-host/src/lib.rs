@@ -75,9 +75,7 @@ impl DeviceRecord {
 struct CdpInstance {
     #[allow(dead_code)]
     child: Child, // kept alive; kill on drop
-    ws: tokio_tungstenite::WebSocketStream<
-        tokio_tungstenite::MaybeTlsStream<tokio::net::TcpStream>,
-    >,
+    ws: WsStream,
     next_id: u64,
 }
 
@@ -143,50 +141,34 @@ impl CdpBridge {
         tokio::fs::create_dir_all(&profile).await.map_err(|e| e.to_string())?;
         let device_id = DeviceRecord::load_or_create(&profile).await?;
 
-        let child = Command::new(&self.chrome)
+        let mut child = Command::new(&self.chrome)
             .arg("--headless=new")
             .arg("--remote-debugging-port=0")
             .arg(format!("--user-data-dir={}", profile.display()))
             .arg("--no-first-run")
             .arg("--no-default-browser-check")
+            // Containers run as root (chrome refuses without this) and mount a
+            // tiny /dev/shm (chrome crashes rendering without this).
+            .arg("--no-sandbox")
+            .arg("--disable-dev-shm-usage")
+            .arg("--disable-gpu")
+            .arg("--mute-audio")
             .arg(FRAMER_HOME)
             .stdout(Stdio::null())
             .stderr(Stdio::null())
             .spawn()
             .map_err(|e| format!("launch chrome: {e}"))?;
 
-        // Chrome writes DevToolsActivePort (port\nws-path) into the profile dir.
-        let port_file = profile.join("DevToolsActivePort");
-        let mut port = None;
-        for _ in 0..100 {
-            if let Ok(raw) = tokio::fs::read_to_string(&port_file).await {
-                if let Some(line) = raw.lines().next() {
-                    if let Ok(p) = line.trim().parse::<u16>() {
-                        port = Some(p);
-                        break;
-                    }
-                }
+        // Everything from here to a constructed CdpInstance must kill the
+        // child on error — a leaked chrome is ~300MB and a few of them OOM
+        // the host (this bit us repeatedly in live testing).
+        let ws = match bring_up_ws(&profile).await {
+            Ok(ws) => ws,
+            Err(e) => {
+                let _ = child.start_kill();
+                return Err(e);
             }
-            tokio::time::sleep(std::time::Duration::from_millis(100)).await;
-        }
-        let port = port.ok_or("chrome did not write DevToolsActivePort")?;
-
-        // Find the page target's websocket URL.
-        let list: Value = serde_json::from_slice(
-            &reqwest_get(&format!("http://127.0.0.1:{port}/json/list")).await?,
-        )
-        .map_err(|e| e.to_string())?;
-        let ws_url = list
-            .as_array()
-            .and_then(|a| {
-                a.iter()
-                    .find(|t| t["type"].as_str() == Some("page"))
-                    .and_then(|t| t["webSocketDebuggerUrl"].as_str())
-            })
-            .ok_or("no page target")?
-            .to_string();
-
-        let (ws, _) = connect_async(&ws_url).await.map_err(|e| e.to_string())?;
+        };
         let mut inst = CdpInstance { child, ws, next_id: 0 };
 
         // Wait for framer.com to be ready (window.castlePublishableAPIKey set).
@@ -204,7 +186,10 @@ impl CdpBridge {
         }
 
         // Backstop: seed the stable Castle device id before any mint.
-        inst.eval(seed_device_snippet(&device_id)).await?;
+        if let Err(e) = inst.eval(seed_device_snippet(&device_id)).await {
+            let _ = inst.child.start_kill();
+            return Err(e);
+        }
 
         let inst = Arc::new(Mutex::new(inst));
         self.instances
@@ -241,6 +226,63 @@ impl BrowserBridge for CdpBridge {
     }
 }
 
+type WsStream = tokio_tungstenite::WebSocketStream<
+    tokio_tungstenite::MaybeTlsStream<tokio::net::TcpStream>,
+>;
+
+fn find_subslice(haystack: &[u8], needle: &[u8]) -> Option<usize> {
+    haystack.windows(needle.len()).position(|w| w == needle)
+}
+
+/// Waits for DevToolsActivePort, then for the HTTP endpoint behind it.
+/// The port FILE appears before the socket accepts connections — hence retry.
+async fn bring_up_ws(profile: &std::path::Path) -> Result<WsStream, String> {
+    let port_file = profile.join("DevToolsActivePort");
+    let mut port = None;
+    for _ in 0..100 {
+        if let Ok(raw) = tokio::fs::read_to_string(&port_file).await {
+            if let Some(line) = raw.lines().next() {
+                if let Ok(p) = line.trim().parse::<u16>() {
+                    port = Some(p);
+                    break;
+                }
+            }
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+    }
+    let port = port.ok_or("chrome did not write DevToolsActivePort (chrome died? run with --no-sandbox on root containers)")?;
+
+    let mut list_raw = None;
+    let mut last_err = String::new();
+    for _ in 0..60 {
+        match reqwest_get(&format!("http://127.0.0.1:{port}/json/list")).await {
+            Ok(b) => {
+                list_raw = Some(b);
+                break;
+            }
+            Err(e) => {
+                last_err = e;
+                tokio::time::sleep(std::time::Duration::from_millis(250)).await;
+            }
+        }
+    }
+    let list: Value = serde_json::from_slice(
+        &list_raw.ok_or_else(|| format!("devtools http never came up: {last_err}"))?,
+    )
+    .map_err(|e| e.to_string())?;
+    let ws_url = list
+        .as_array()
+        .and_then(|a| {
+            a.iter()
+                .find(|t| t["type"].as_str() == Some("page"))
+                .and_then(|t| t["webSocketDebuggerUrl"].as_str())
+        })
+        .ok_or("no page target")?
+        .to_string();
+    let (ws, _) = connect_async(&ws_url).await.map_err(|e| e.to_string())?;
+    Ok(ws)
+}
+
 /// Minimal GET helper (avoids pulling reqwest into this crate).
 async fn reqwest_get(url: &str) -> Result<Vec<u8>, String> {
     let resp = tokio::time::timeout(
@@ -258,13 +300,47 @@ async fn reqwest_get(url: &str) -> Result<Vec<u8>, String> {
                     .to_string();
                 let path = url.split_once(&host).map(|(_, p)| p.to_string()).unwrap_or_default();
                 let mut s = std::net::TcpStream::connect(&host).map_err(|e| e.to_string())?;
-                s.write_all(format!("GET {path} HTTP/1.1\r\nHost: {host}\r\nConnection: close\r\n\r\n").as_bytes())
+                s.set_read_timeout(Some(std::time::Duration::from_secs(4))).map_err(|e| e.to_string())?;
+                s.write_all(format!("GET {path} HTTP/1.1\r\nHost: {host}\r\n\r\n").as_bytes())
                     .map_err(|e| e.to_string())?;
+                // Chrome's devtools HTTP server keeps the socket OPEN
+                // (keep-alive) — read_to_end blocks forever. Read headers,
+                // take Content-Length, read exactly that many body bytes.
                 let mut buf = Vec::new();
-                s.read_to_end(&mut buf).map_err(|e| e.to_string())?;
-                let text = String::from_utf8_lossy(&buf);
-                let body = text.split("\r\n\r\n").nth(1).unwrap_or("").as_bytes().to_vec();
-                Ok::<Vec<u8>, String>(body)
+                let mut tmp = [0u8; 4096];
+                let body_start = loop {
+                    let n = s.read(&mut tmp).map_err(|e| e.to_string())?;
+                    if n == 0 { return Err("devtools http closed".into()); }
+                    buf.extend_from_slice(&tmp[..n]);
+                    if let Some(pos) = find_subslice(&buf, b"\r\n\r\n") { break pos + 4; }
+                    if buf.len() > 16384 { return Err("devtools http headers too large".into()); }
+                };
+                let headers = String::from_utf8_lossy(&buf[..body_start]).to_lowercase();
+                let len: Option<usize> = headers.lines()
+                    .find_map(|l| l.strip_prefix("content-length:").and_then(|v| v.trim().parse().ok()));
+                match len {
+                    Some(len) => {
+                        while buf.len() < body_start + len {
+                            let n = s.read(&mut tmp).map_err(|e| e.to_string())?;
+                            if n == 0 { break; }
+                            buf.extend_from_slice(&tmp[..n]);
+                        }
+                        Ok::<Vec<u8>, String>(buf[body_start..(body_start + len).min(buf.len())].to_vec())
+                    }
+                    None => {
+                        // No Content-Length (chunked/close-delimited): drain
+                        // until the server goes quiet, take what arrived.
+                        s.set_read_timeout(Some(std::time::Duration::from_millis(800))).ok();
+                        loop {
+                            match s.read(&mut tmp) {
+                                Ok(0) => break,
+                                Ok(n) => buf.extend_from_slice(&tmp[..n]),
+                                Err(_) => break, // timeout = done
+                            }
+                        }
+                        Ok::<Vec<u8>, String>(buf[body_start..].to_vec())
+                    }
+                }
             }
         }),
     )

@@ -1,8 +1,9 @@
 //! Login = email magic link. Verified against login.36HT4Q4D.mjs:
 //!
 //! ```text
-//!     1. POST /auth/v4/signin   {email, redirect, inviteId, origin, useFallback,
-//!                              forceMagic, castleToken} → emails the link.
+//!     1. POST /auth/v4/signin   {email, castleToken} → emails the link.
+//!      (redirect/inviteId/origin are omitted by the SPA for a plain login —
+//!      sending them as null plus forceMagic gets a 400. Observed live.)
 //!      403 here = "VERIFICATION_FAILURE" (Castle refused the sign-in attempt).
 //!     2. User clicks the emailed link: /login#token=<uuid>. The SPA strips the hash
 //!      and posts {token, castleToken} — BOTH fields required — to:
@@ -22,16 +23,14 @@ pub async fn request_magic_link(
     email: &str,
     castle: &CastleToken,
 ) -> Result<(), String> {
+    // Matches the web login bundle exactly: the SPA passes redirect/inviteId/
+    // origin as undefined for a plain login and JSON.stringify drops them.
+    // Sending nulls (or forceMagic/origin) gets a 400 — observed live.
     t.post_json(
         "/auth/v4/signin",
         Auth::None,
         json!({
             "email": email,
-            "redirect": null,
-            "inviteId": null,
-            "origin": "framer-app", // same value the desktop app sends
-            "useFallback": null,
-            "forceMagic": true,
             "castleToken": castle.0,
         }),
     )
