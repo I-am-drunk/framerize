@@ -171,9 +171,11 @@ impl FramerClient for HttpFramerClient {
         account: &AccountId,
         project: &framer_core::ids::ProjectId,
         model: &str,
+        system: Option<String>,
         messages: Vec<serde_json::Value>,
         cfg: &framer_core::port::ChainConfig,
         chat_session: &str,
+        dialect: framer_core::port::ChainDialect,
     ) -> Result<framer_core::port::ChainResult, String> {
         freechat::complete_long(
             &self.transport,
@@ -183,9 +185,11 @@ impl FramerClient for HttpFramerClient {
             account,
             project,
             model,
+            system,
             messages,
             cfg,
             chat_session,
+            dialect,
         )
         .await
     }

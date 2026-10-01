@@ -78,6 +78,17 @@ pub struct ProxyResponse {
     pub stream: Pin<Box<dyn Stream<Item = Result<Bytes, String>> + Send>>,
 }
 
+/// Which unmetered OpenRouter passthrough the chain runs on. Both skip the
+/// meter when stream:false; pick by which wire format the CLIENT speaks so no
+/// dialect conversion is needed (Anthropic clients chain natively).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ChainDialect {
+    /// /ai/v3/chat/ — OpenAI chat/completions wire format.
+    OpenAiChat,
+    /// /ai/v3/messages/ — Anthropic Messages wire format (via OpenRouter).
+    AnthropicMessages,
+}
+
 /// Config for free continuation-chained chat (unmetered stream:false chunks —
 /// see framer-api::freechat for the live evidence).
 #[derive(Debug, Clone)]
@@ -159,9 +170,11 @@ pub trait FramerClient: Send + Sync {
         chat_session: &str,
     ) -> Result<ProxyResponse, String>;
 
-    /// Free unmetered long-form chat: chain windowed non-streaming calls on the
-    /// OpenRouter chat route (meter hooks SSE only). `model` is a PREFIXED
-    /// OpenRouter catalog id.
+    /// Free unmetered long-form chat: chain windowed non-streaming calls on an
+    /// OpenRouter passthrough route (meter hooks SSE only — verified for BOTH
+    /// passthroughs 2026-10-01). `model` is a PREFIXED OpenRouter catalog id.
+    /// `dialect` picks the upstream wire format; `system` is only used by the
+    /// Anthropic dialect (its API keeps system outside messages).
     #[allow(clippy::too_many_arguments)]
     async fn freechat_long(
         &self,
@@ -170,9 +183,11 @@ pub trait FramerClient: Send + Sync {
         account: &AccountId,
         project: &ProjectId,
         model: &str,
+        system: Option<String>,
         messages: Vec<serde_json::Value>,
         cfg: &ChainConfig,
         chat_session: &str,
+        dialect: ChainDialect,
     ) -> Result<ChainResult, String>;
 
     /// GET /web/teams/{teamId}/ai-credits.
