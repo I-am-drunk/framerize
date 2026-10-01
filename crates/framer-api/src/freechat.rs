@@ -37,10 +37,48 @@ pub async fn complete_long(
     account: &AccountId,
     project: &ProjectId,
     model: &str,
+    system: Option<String>,
     messages: Vec<Value>,
     cfg: &framer_core::port::ChainConfig,
     chat_session: &str,
+    dialect: framer_core::port::ChainDialect,
 ) -> Result<ChainResult, String> {
+    let upstream = match dialect {
+        framer_core::port::ChainDialect::OpenAiChat => Dialect::OpenRouterChat,
+        framer_core::port::ChainDialect::AnthropicMessages => Dialect::OpenRouterMessages,
+    };
+    let build_payload = |messages: &Vec<Value>, chunk: u32| {
+        let mut p = json!({"model": model, "messages": messages, "max_tokens": chunk, "stream": false});
+        if let (framer_core::port::ChainDialect::AnthropicMessages, Some(sys)) = (dialect, &system) {
+            p["system"] = json!(sys);
+        }
+        p
+    };
+    // -> (piece_text, is_length_finish, input_tokens, output_tokens)
+    let extract = |body: &Value, i: u32| -> Result<(String, bool, u64, u64), String> {
+        match dialect {
+            framer_core::port::ChainDialect::OpenAiChat => {
+                let choice = body.get("choices").and_then(|c| c.get(0))
+                    .ok_or_else(|| format!("chunk {i}: no choices: {}", &body.to_string()[..200.min(body.to_string().len())]))?;
+                let piece = choice.pointer("/message/content").and_then(Value::as_str).unwrap_or_default().to_string();
+                let finish = choice.get("finish_reason").and_then(Value::as_str).unwrap_or("stop");
+                let u = body.get("usage");
+                Ok((piece, finish == "length",
+                    u.and_then(|u| u.get("prompt_tokens")).and_then(Value::as_u64).unwrap_or(0),
+                    u.and_then(|u| u.get("completion_tokens")).and_then(Value::as_u64).unwrap_or(0)))
+            }
+            framer_core::port::ChainDialect::AnthropicMessages => {
+                let piece: String = body.get("content").and_then(Value::as_array)
+                    .map(|blocks| blocks.iter().filter_map(|b| b.get("text").and_then(Value::as_str)).collect::<Vec<_>>().join(""))
+                    .unwrap_or_default();
+                let stop = body.get("stop_reason").and_then(Value::as_str).unwrap_or("end_turn");
+                let u = body.get("usage");
+                Ok((piece, stop == "max_tokens",
+                    u.and_then(|u| u.get("input_tokens")).and_then(Value::as_u64).unwrap_or(0),
+                    u.and_then(|u| u.get("output_tokens")).and_then(Value::as_u64).unwrap_or(0)))
+            }
+        }
+    };
     let mut messages = messages;
     let mut text = String::new();
     let (mut ptok, mut ctok) = (0u64, 0u64);
@@ -60,16 +98,11 @@ pub async fn complete_long(
             .map(|cap| cap.saturating_sub(ctok as u32).max(1))
             .unwrap_or(chunk_tokens);
         let chunk = budget.min(chunk_tokens);
-        let payload = json!({
-            "model": model,
-            "messages": messages,
-            "max_tokens": chunk,
-            "stream": false,
-        });
+        let payload = build_payload(&messages, chunk);
         let t0 = std::time::Instant::now();
         let resp = match proxy::forward(
             t, token_cache, session, browser, account, project,
-            Dialect::OpenRouterChat, payload.clone(), chat_session,
+            upstream, payload.clone(), chat_session,
         ).await {
             Ok(r) => r,
             Err(e) => {
@@ -84,38 +117,26 @@ pub async fn complete_long(
                     eprintln!(
                         "[freechat] chunk {i} died at {elapsed:.1}s ({e}) — retrying with max_tokens={chunk_tokens}"
                     );
-                    let retry_payload = json!({
-                        "model": model, "messages": messages,
-                        "max_tokens": chunk_tokens, "stream": false,
-                    });
+                    let retry_payload = build_payload(&messages, chunk_tokens);
                     let t1 = std::time::Instant::now();
                     let r = proxy::forward(
                         t, token_cache, session, browser, account, project,
-                        Dialect::OpenRouterChat, retry_payload, chat_session,
+                        upstream, retry_payload, chat_session,
                     ).await?;
                     let el = t1.elapsed().as_secs_f32();
                     if let Ok(v) = r.json::<Value>().await {
-                        let tps = v.pointer("/usage/completion_tokens")
-                            .and_then(Value::as_u64).unwrap_or(0) as f32 / el.max(0.5);
+                        let (piece, is_length, pt, ct) = extract(&v, i)?;
+                        let tps = ct as f32 / el.max(0.5);
                         if tps > 1.0 {
                             chunk_tokens = ((tps * WINDOW_BUDGET_S) as u32)
                                 .clamp(150, cfg.chunk_tokens);
                         }
-                        // fall through to normal handling with this body
-                        let choice = v.get("choices").and_then(|c| c.get(0))
-                            .ok_or_else(|| format!("chunk {i}: no choices"))?;
-                        let piece = choice.pointer("/message/content")
-                            .and_then(Value::as_str).unwrap_or_default().to_string();
-                        let finish = choice.get("finish_reason")
-                            .and_then(Value::as_str).unwrap_or("stop").to_string();
-                        if let Some(u) = v.get("usage") {
-                            ptok += u.get("prompt_tokens").and_then(Value::as_u64).unwrap_or(0);
-                            ctok += u.get("completion_tokens").and_then(Value::as_u64).unwrap_or(0);
-                        }
+                        ptok += pt;
+                        ctok += ct;
                         text.push_str(&piece);
                         let budget_left = cfg.max_total_tokens.map(|cap| cap.saturating_sub(ctok as u32));
-                        if finish != "length" || budget_left == Some(0) {
-                            return Ok(ChainResult { text, chunks: i + 1, prompt_tokens: ptok, completion_tokens: ctok, finish_reason: finish });
+                        if !is_length || budget_left == Some(0) {
+                            return Ok(ChainResult { text, chunks: i + 1, prompt_tokens: ptok, completion_tokens: ctok, finish_reason: if is_length { "length".into() } else { "stop".into() } });
                         }
                         messages.push(json!({"role": "assistant", "content": piece}));
                         messages.push(json!({"role": "user", "content": cfg.continue_prompt}));
@@ -129,25 +150,17 @@ pub async fn complete_long(
         // success path: adapt chunk size from measured throughput
         let elapsed = t0.elapsed().as_secs_f32();
         let body: Value = resp.json().await.map_err(|e| format!("chunk {i} not json: {e}"))?;
-        let choice = body
-            .get("choices").and_then(|c| c.get(0))
-            .ok_or_else(|| format!("chunk {i}: no choices: {}", &body.to_string()[..200.min(body.to_string().len())]))?;
-        let piece = choice
-            .pointer("/message/content").and_then(Value::as_str).unwrap_or_default().to_string();
-        let finish = choice.get("finish_reason").and_then(Value::as_str).unwrap_or("stop").to_string();
-        if let Some(u) = body.get("usage") {
-            ptok += u.get("prompt_tokens").and_then(Value::as_u64).unwrap_or(0);
-            let out = u.get("completion_tokens").and_then(Value::as_u64).unwrap_or(0);
-            ctok += out;
-            let tps = out as f32 / elapsed.max(0.5);
-            if tps > 1.0 {
-                chunk_tokens = ((tps * WINDOW_BUDGET_S) as u32).clamp(150, cfg.chunk_tokens);
-            }
+        let (piece, is_length, pt, ct) = extract(&body, i)?;
+        ptok += pt;
+        ctok += ct;
+        let tps = ct as f32 / elapsed.max(0.5);
+        if tps > 1.0 {
+            chunk_tokens = ((tps * WINDOW_BUDGET_S) as u32).clamp(150, cfg.chunk_tokens);
         }
         text.push_str(&piece);
         let budget_left = cfg.max_total_tokens.map(|cap| cap.saturating_sub(ctok as u32));
-        if finish != "length" || budget_left == Some(0) {
-            return Ok(ChainResult { text, chunks: i + 1, prompt_tokens: ptok, completion_tokens: ctok, finish_reason: finish });
+        if !is_length || budget_left == Some(0) {
+            return Ok(ChainResult { text, chunks: i + 1, prompt_tokens: ptok, completion_tokens: ctok, finish_reason: if is_length { "length".into() } else { "stop".into() } });
         }
         messages.push(json!({"role": "assistant", "content": piece}));
         messages.push(json!({"role": "user", "content": cfg.continue_prompt}));
