@@ -362,3 +362,30 @@ freechat's window budget is per-dialect: 12s/600-token chunks on chat,
 45s/2500-token chunks on messages — so most real generations complete in a
 SINGLE free call, and chaining only engages for >~60s monsters. The 21.5s
 "WAF limit" is simply not on the path anymore.
+
+## §10 Closing the meter question + final window map (2026-10-01 ~21:20 UTC)
+
+**Side-task tags do NOT dodge the meter.** `step:"generate-session-title"` with
+`stream:true` on the chat route: 200, streamed fine, **debited -0.0617**.
+(Also: `google/gemini-3-flash-preview` 403s on the free tier — the title task's
+model is gated; `google/gemini-2.5-flash` passes.) The metering rule is final
+and simple: **SSE = metered, on every route, under any step/feature tag.
+Non-streaming OpenRouter passthrough = free, of any length that fits the window.**
+
+**Window map (same client, same network, measured):**
+
+| route | window |
+|---|---|
+| `/ai/v3/chat/` | ~21.5s |
+| `/ai/v3/anthropic/messages/` | ~60s |
+| `/ai/v3/messages/` | ~60-109s (completed a 44.9s call; died at 109s mid-generation) |
+
+The kill is a server-side per-route upstream timeout (connection reset, never a
+CF 524 page). No client-side mechanism can extend it — but at ~100s on the free
+messages route, a single call covers ~5,000-7,000 tokens, and the adaptive chain
+(45s/2500-token chunks, well under the floor of the window) extends arbitrarily.
+The limit is architecturally irrelevant: free + effectively unbounded length.
+
+(Rapid token minting (>10/hour from one environment) eventually gets the
+environment Castle-flagged — instant 403s on /ai/* until it cools. Operationally:
+mint sparingly, reuse nothing, rotate identity on sticky 403s.)
