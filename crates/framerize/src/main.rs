@@ -40,7 +40,11 @@ enum Cmd {
 
 fn build_state(db: &str, chrome: &str, profiles: &str) -> Result<AppState, String> {
     let state = Arc::new(framer_store::SqliteStateStore::open(db)?);
-    let sessions = Arc::new(framer_store::KeyringSessionStore);
+    // File-based session store: daemons run headless (no dbus/keychain).
+    // Sessions live 0600 under <profiles>/.sessions/.
+    let sessions = Arc::new(framer_store::FileSessionStore::new(
+        std::path::Path::new(profiles).join(".sessions"),
+    )?);
     let client = Arc::new(framer_api::HttpFramerClient::new());
     let browser = Arc::new(CdpBridge::new(chrome, profiles));
     Ok(AppState { client, browser, sessions, state })

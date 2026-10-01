@@ -433,14 +433,21 @@ struct CompleteLoginBody {
     account_id: AccountId,
     /// The uuid from the emailed link's #token fragment.
     email_token: String,
+    /// Display alias for the account record (e.g. the email).
+    alias: Option<String>,
+    /// Project to scope inference to (20-char base62 id from the project URL).
+    /// Can also be set later.
+    project_id: Option<String>,
 }
 
-/// Step 2: exchange the emailed token for the `session` cookie, store it in the
-/// keychain. Links expire after 1 hour and are single-use.
+/// Step 2: exchange the emailed token for the `session` cookie, store it, then
+/// register the account: /web/users/me gives the user id + workspaces, and the
+/// ManagedAccount upsert makes inference routes work immediately after login.
+/// Links expire after 1 hour and are single-use.
 async fn complete_login(
     State(s): State<AppState>,
     Json(body): Json<CompleteLoginBody>,
-) -> Result<&'static str, ApiError> {
+) -> Result<Json<serde_json::Value>, ApiError> {
     let castle = s
         .browser
         .castle_token(&body.account_id)
@@ -452,7 +459,56 @@ async fn complete_login(
         .await
         .map_err(ApiError)?;
     s.sessions.save(&session).await.map_err(ApiError)?;
-    Ok("signed-in")
+
+    // Register the account record (idempotent upsert).
+    let me = s.client.me(&session).await.map_err(ApiError)?;
+    let spaces = me["spaces"].as_array().cloned().unwrap_or_default();
+    let first_org = spaces
+        .iter()
+        .find(|sp| sp["scope"].as_str() == Some("organization"))
+        .cloned();
+    let team = first_org
+        .as_ref()
+        .and_then(|sp| sp["ownerId"].as_str())
+        .map(|t| framer_core::ids::TeamId(t.to_string()));
+
+    let mut account = s
+        .state
+        .get(body.account_id)
+        .await
+        .map_err(ApiError)?
+        .unwrap_or_else(|| ManagedAccount {
+            id: body.account_id,
+            alias: body.alias.clone().unwrap_or_else(|| "account".into()),
+            framer_user_id: session.active_user.clone(),
+            castle_device_id: uuid::Uuid::new_v4().to_string(),
+            current_team: None,
+            current_project: None,
+            state: framer_core::account::AccountState::Ready,
+            credit: None,
+            consecutive_failures: 0,
+            cooldown_step: 0,
+        });
+    account.framer_user_id = session.active_user.clone();
+    account.state = framer_core::account::AccountState::Ready;
+    if let Some(a) = &body.alias {
+        account.alias = a.clone();
+    }
+    if team.is_some() {
+        account.current_team = team;
+    }
+    if let Some(pid) = &body.project_id {
+        account.current_project = Some(framer_core::ids::ProjectId(pid.clone()));
+    }
+    s.state.upsert(&account).await.map_err(ApiError)?;
+
+    Ok(Json(serde_json::json!({
+        "status": "signed-in",
+        "account_id": account.id.0,
+        "framer_user_id": account.framer_user_id.0,
+        "team": account.current_team.map(|t| t.0),
+        "project": account.current_project.map(|p| p.0),
+    })))
 }
 
 #[derive(Deserialize)]
