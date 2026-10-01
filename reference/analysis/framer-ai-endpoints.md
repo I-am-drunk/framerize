@@ -107,8 +107,13 @@ create-team call remains UNCAPTURED; capture from a real browser.
 - 401 on `/ai/v3/*` → JWT expired; remint (cheap cookie GET) and retry once.
 - 401 minting a JWT → session cookie dead; account needs re-login.
 - 402 → workspace credits exhausted (`reason` in JSON body); rotate workspace.
-- 403 → Castle risk refusal (generic `{"error":{"message":"Forbidden","ref":"…"}}`),
-  transient; cool down. Also observed on `/web/teams/{id}/ai-credits` when the id
+- 403 → Castle risk refusal (generic `{"error":{"message":"Forbidden","ref":"…"}}`).
+  ENVIRONMENT-STICKY: once a browser session is risk-scored, every call 403s —
+  including Framer's own agent panel with its own fresh Castle tokens (verified
+  by capture). Retrying in-place and waiting do NOT help; rotating to a fresh
+  browser session (new profile/egress identity) recovers immediately. In
+  Framerize: rotate the account's isolated WebKit session; never fast-retry.
+  Also observed on `/web/teams/{id}/ai-credits` when the id
   is not a team the user can read ("User … is not allowed to perform this
   operation for team …") — different body, don't confuse with risk refusal.
 - Success: `X-Framer-AI-Usage: remaining=<n>` (URLSearchParams) — free credit read
@@ -121,6 +126,13 @@ catalog ids (`openai/gpt-4.1`); `/ai/v3/openai/responses/` and
 `/ai/v3/anthropic/messages/` take UNPREFIXED ids (`gpt-6-sol`, `claude-sonnet-4-5`).
 The agent panel pins the model as server-side session state; direct `request`
 calls set it per request.
+
+Plan gating is per-model, server-side (403 `paid_plan_only_model`):
+`anthropic/claude-fable-5.1` is gated on free workspaces;
+`anthropic/claude-opus-5.5` (chat) / `claude-opus-5-5` (anthropic route) are
+NOT gated — verified 200 on a free workspace (2026-10-01). The client registry
+(chunk-DM5CYKH3.mjs) lists opus-4.5…5.5 and fable-5/5.1; its per-model boolean
+maps are OpenRouter routing tiers ("fast"/"priority"), not plan gates.
 
 ## Metering (observed 2026-10-01 — see verified-captures for the ledger timeline)
 

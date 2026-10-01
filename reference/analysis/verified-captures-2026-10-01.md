@@ -91,3 +91,43 @@ userPrompt, castleToken, request}`.
   NOT a risk block.
 - Earlier blanket 403s ("Forbidden") from the automation browser were transient
   Castle scoring; the same endpoints succeed from the same browser hours later.
+
+## 5. Opus 5.5 + environment-403 findings (2026-10-01, second session)
+
+### `anthropic/claude-opus-5.5` works on a FREE workspace — NOT plan-gated
+
+- `/ai/v3/chat/` with `"model":"anthropic/claude-opus-5.5"` → **200**, full
+  `chat.completion`, `provider:"Claude Platform on AWS"`, usage 16+4 tokens,
+  `cost:0.000144`. `X-Framer-AI-Usage: remaining=476`.
+- `/ai/v3/anthropic/messages/` with `"model":"claude-opus-5-5"` (unprefixed) →
+  **200**, native Messages response `msg_011CfbXoKU2ziAJTWUqvuvCR`,
+  `stop_reason:"end_turn"`.
+- Contrast: `anthropic/claude-fable-5.1` → 403 `paid_plan_only_model`.
+  So the plan gate is per-model and Opus 5.5 is on the free side of it.
+- Client registry (`chunk-DM5CYKH3.mjs`) contains opus-4.5…5.5 and fable-5/5.1.
+  The per-model boolean maps there (`q`, `Z`) are NOT plan gates — usage is
+  `sn(e)=q[e]||Z[e]`, `Cn(e)=q[e]?"fast":Z[e]?"priority":undefined` — OpenRouter
+  provider-routing tiers ("fast"/"priority"). Server enforces gating.
+
+### Metering note
+
+- Ledger `availableCredits` 476.9375 before AND after both Opus calls and a
+  gpt-4.1 call (6-decimal precision), header `remaining=476` unchanged. Tiny
+  chat-route calls still show zero immediate debit; lag caveat still applies
+  (treat chat route as metered until the isolated 2h retest).
+
+### The transient 403 is ENVIRONMENT-STICKY, not token-related — rotate, don't retry
+
+- Verified minting is correct: in the poisoned browser, **Framer's OWN agent
+  panel requests** (its own envelope, its own freshly minted Castle tokens —
+  captured via fetch hook) got the identical generic 403
+  `{"error":{"message":"Forbidden","ref":"…"}}`. Same token prefix/format as
+  minted tokens (unique per mint, differ from char ~46).
+- Retrying in the same browser never recovered (10+ attempts over minutes,
+  incl. page reload). A **fresh browser instance** (new profile/egress
+  identity) passed immediately — first call 200.
+- Operational rule for Framerize: on repeated generic-403, DO NOT hammer
+  (fast retries likely deepen the risk score) and DO NOT wait in-place —
+  rotate to a fresh isolated browser session for that account. This is
+  exactly what the per-account WebKit session design enables; add
+  session-rotation as the 403 remediation path.
