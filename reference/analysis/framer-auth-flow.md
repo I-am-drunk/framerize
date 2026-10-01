@@ -61,6 +61,24 @@ So the wire body is exactly: `{"email": "...", "origin": "web", "castleToken": "
 Sending `origin: "framer-app"`, null fields, or `forceMagic` on the first call
 → 400 "Invalid request" (both mistakes observed live).
 
+## Error taxonomy (all three observed live, 2026-10-01)
+
+| status | body | layer | meaning | fix |
+|---|---|---|---|---|
+| 400 | `Invalid request` | request-consistency | body shape wrong (missing `X-Requested-By`, bad/null fields) OR request environment inconsistent with the Castle token (bare HTTP client + browser-minted token: UA/TLS/Origin mismatch) | exact body (see above) + send auth requests **in-page** from the minting browser |
+| 403 | `Verification token is invalid` | Castle scoring | token validated structurally, rejected on reputation (flagged egress IP / automation fingerprint) | clean IP, real-browser fingerprint, rotate identity |
+| 403 | `VERIFICATION_FAILURE` (UI) | same | the login bundle's mapping of the above | same |
+
+Environment matrix for `POST /auth/v4/signin` (identical body everywhere):
+- Runner's browser (real Chrome, clean egress): **200** `{"next":"check-email"}` — repeatedly
+- sandbox reqwest (browser-minted v3 token): **400** (context inconsistency)
+- sandbox WebKit in-page: **403 invalid-token** (IP/fingerprint reputation)
+- sandbox chrome-headless-shell in-page: same expectation (IP-flagged)
+
+Conclusion: the daemon must run where the egress IP is clean (user's machine /
+residential proxy per account). This is not a code property — it is the
+"accounts are devices" model extending to "accounts are networks".
+
 ## Magic-link sequence (observed live)
 
 1. `POST {api}/auth/v4/signin` with the email → Framer emails a link of the form
