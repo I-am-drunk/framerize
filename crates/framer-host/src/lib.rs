@@ -29,6 +29,66 @@ use tokio::sync::Mutex;
 use tokio_tungstenite::{connect_async, tungstenite::Message};
 
 const FRAMER_HOME: &str = "https://framer.com/login";
+const API_BASE: &str = "https://api.framer.com";
+
+/// A current ordinary desktop Chrome UA (matches what real framer.com
+/// visitors send; keep roughly in sync with the chrome binary's version).
+const DESKTOP_UA: &str = "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/141.0.0.0 Safari/537.36";
+
+/// Combined warm-mint + authenticated POST, evaluated inside the account's
+/// page on framer.com. Sending auth requests from the page (not reqwest) is
+/// what makes Origin / User-Agent / TLS / fingerprint consistent with the
+/// minted Castle token — the server rejects the bare-HTTP-client variant of
+/// the exact same body with a 400 (verified live).
+/// Placeholders: %CHUNK%, %PATH%, %BODY% (JSON object literal WITHOUT the
+/// castleToken field — it is added from the fresh mint).
+const AUTH_POST_SNIPPET: &str = r#"(async () => {
+  let tok = null;
+  for (let i = 0; i < 3 && !tok; i++) {
+    try {
+      const m = await import("%CHUNK%?cb=" + Date.now() + "_" + i);
+      const t = await m.a();
+      if (typeof t === "string" && t.length > 4000 && t.charAt(8) === "|") tok = t;
+    } catch (e) {}
+    if (!tok) await new Promise(r => setTimeout(r, 1200));
+  }
+  if (!tok) return { status: 0, body: "castle-v3-unavailable" };
+  const body = %BODY%;
+  body.castleToken = tok;
+  try {
+    const r = await fetch("%API%%PATH%", {
+      method: "POST",
+      credentials: "include",
+      headers: { "content-type": "application/json; charset=utf-8", "x-requested-by": "Framer" },
+      body: JSON.stringify(body),
+    });
+    return { status: r.status, body: await r.text() };
+  } catch (e) {
+    return { status: -1, body: String(e) };
+  }
+})()"#;
+
+fn auth_post_expr(path: &str, body: &Value) -> String {
+    AUTH_POST_SNIPPET
+        .replace("%CHUNK%", CASTLE_CHUNK_PINNED)
+        .replace("%API%", API_BASE)
+        .replace("%PATH%", path)
+        .replace("%BODY%", &body.to_string())
+}
+
+/// In-page GET (cookies ride along via credentials:include).
+const PAGE_GET_SNIPPET: &str = r#"(async () => {
+  try {
+    const r = await fetch("%API%%PATH%", { headers: { "x-requested-by": "Framer" }, credentials: "include" });
+    return { status: r.status, body: await r.text() };
+  } catch (e) {
+    return { status: -1, body: String(e) };
+  }
+})()"#;
+
+fn page_get_expr(path: &str) -> String {
+    PAGE_GET_SNIPPET.replace("%API%", API_BASE).replace("%PATH%", path)
+}
 const CASTLE_CHUNK_PINNED: &str = "https://app.framerstatic.com/chunk-5LKSDTQ5.mjs";
 
 /// JS: seed __cuid (cookie + localStorage) — must run before the first mint.
@@ -45,7 +105,27 @@ fn seed_device_snippet(device_id: &str) -> String {
     )
 }
 
-const MINT_SNIPPET: &str = r#"import("%CHUNK%").then(m => m.a())"#;
+/// The wrapper's export a() is a FALLBACK CHAIN: Castle v3 first, legacy v2
+/// if v3 fails — and the v3 failure flag (Rh) latches forever inside that
+/// module instance. Cold headless chrome can't beat the 5s internal timeouts
+/// (IX = 5e3), so the first import often locks in v2 (a ~2.1KB pipeless
+/// string the API rejects with a bare 400 — observed live).
+///
+/// Strategy: cache-busted imports (?cb=) re-run the module scope = fresh Rh,
+/// while the underlying castleSDKV3 module stays warm after first load. Only
+/// accept a v3-shaped token: ~5.6KB with an 8-char device prefix + '|' at
+/// index 8. Return null after a few attempts so the caller can retry.
+const MINT_SNIPPET: &str = r#"(async () => {
+  for (let i = 0; i < 3; i++) {
+    try {
+      const m = await import("%CHUNK%?cb=" + Date.now() + "_" + i); // fresh module = un-latched Rh
+      const t = await m.a();
+      if (typeof t === "string" && t.length > 4000 && t.charAt(8) === "|") return t;
+    } catch (e) {}
+    await new Promise(r => setTimeout(r, 1200));
+  }
+  return null;
+})()"#;
 
 /// Per-account persisted device record (lives in the profile dir, survives restarts).
 struct DeviceRecord;
@@ -80,14 +160,10 @@ struct CdpInstance {
 }
 
 impl CdpInstance {
-    async fn eval(&mut self, expression: String) -> Result<Value, String> {
+    async fn cmd(&mut self, method: &str, params: Value) -> Result<Value, String> {
         self.next_id += 1;
         let id = self.next_id;
-        let msg = json!({
-            "id": id,
-            "method": "Runtime.evaluate",
-            "params": { "expression": expression, "awaitPromise": true, "returnByValue": true }
-        });
+        let msg = json!({ "id": id, "method": method, "params": params });
         self.ws
             .send(Message::Text(msg.to_string().into()))
             .await
@@ -105,9 +181,21 @@ impl CdpInstance {
                     if let Some(err) = v.get("error") {
                         return Err(format!("cdp error: {err}"));
                     }
-                    return Ok(v["result"]["result"]["value"].clone());
+                    return Ok(v["result"].clone());
                 }
             }
+        }
+    }
+
+    async fn eval(&mut self, expression: String) -> Result<Value, String> {
+        let r = self
+            .cmd(
+                "Runtime.evaluate",
+                json!({ "expression": expression, "awaitPromise": true, "returnByValue": true }),
+            )
+            .await?;
+        Ok(r["result"]["value"].clone())
+    }
         }
     }
 }
@@ -159,6 +247,10 @@ impl CdpBridge {
             .arg("--disable-dev-shm-usage")
             .arg("--disable-gpu")
             .arg("--mute-audio")
+            // headless-shell's default UA says "HeadlessChrome" — a Castle
+            // bot signal, and inconsistent with any token minted as a normal
+            // browser. Present as ordinary desktop Chrome.
+            .arg(format!("--user-agent={DESKTOP_UA}"))
             .arg(FRAMER_HOME)
             .stdout(Stdio::null())
             .stderr(Stdio::null())
@@ -225,10 +317,37 @@ impl BrowserBridge for CdpBridge {
         let inst = self.instance(account).await?;
         let mut guard = inst.lock().await;
         let expr = MINT_SNIPPET.replace("%CHUNK%", CASTLE_CHUNK_PINNED);
-        let v = guard.eval(expr).await?;
-        v.as_str()
-            .map(|s| CastleToken(s.to_string()))
-            .ok_or_else(|| format!("castle mint returned non-string: {v}"))
+        // Up to 3 whole-eval retries: the first cold mint pays the SDK
+        // download; later ones reuse the warm castleSDKV3 module.
+        let mut last = String::new();
+        for attempt in 1..=3u32 {
+            let v = match guard.eval(expr.clone()).await {
+                Ok(v) => v,
+                Err(e) => {
+                    eprintln!("[castle] attempt {attempt}: eval failed: {e}");
+                    tokio::time::sleep(std::time::Duration::from_secs(2)).await;
+                    continue;
+                }
+            };
+            match v.as_str() {
+                Some(s) => {
+                    eprintln!(
+                        "[castle] attempt {attempt}: v3 token minted, {} chars, device prefix {:?}",
+                        s.len(),
+                        &s[..8]
+                    );
+                    return Ok(CastleToken(s.to_string()));
+                }
+                _ => {
+                    last = format!("{v}");
+                    eprintln!("[castle] attempt {attempt}: no v3 token yet (got {last})");
+                    tokio::time::sleep(std::time::Duration::from_secs(2)).await;
+                }
+            }
+        }
+        Err(format!(
+            "castle v3 unavailable after retries (last: {last}) — refusing to send a v2 token the API will 400"
+        ))
     }
 }
 

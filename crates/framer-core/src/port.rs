@@ -45,6 +45,22 @@ pub struct WorkspaceSpec {
 #[async_trait]
 pub trait BrowserBridge: Send + Sync {
     async fn castle_token(&self, account: &AccountId) -> Result<CastleToken, String>;
+
+    /// In-page `POST /auth/v4/signin` from the account's own browser. Auth
+    /// requests MUST originate from the same browser context that minted the
+    /// Castle token: api.framer.com validates request/environment consistency
+    /// (Origin, User-Agent, TLS/fingerprint). The same body via a bare HTTP
+    /// client gets a bare 400 — observed live 2026-10-01.
+    async fn auth_begin(&self, account: &AccountId, email: &str) -> Result<(), String>;
+
+    /// In-page `POST /auth/v4/continue`: exchanges the emailed token, then
+    /// reads the httpOnly `session` cookie out of the browser's cookie jar via
+    /// CDP and fetches /web/users/me in-page. Returns (cookie_header, me_json).
+    async fn auth_complete(
+        &self,
+        account: &AccountId,
+        email_token: &str,
+    ) -> Result<(String, serde_json::Value), String>;
 }
 
 /// Raw upstream response for compat pass-through: status, content type, and the
