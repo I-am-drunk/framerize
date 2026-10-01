@@ -1,7 +1,7 @@
 # Framerize
 
 Always-on service that automates Framer AI: hold multiple Framer accounts, run agent
-inference through them, and rotate workspaces when one runs out of credits. Forked
+inference through them. Forked
 from [Notionize](https://github.com/I-am-drunk/notionize); the core is replaced with
 the Framer web internals mapped in [`reference/analysis/`](./reference/analysis).
 
