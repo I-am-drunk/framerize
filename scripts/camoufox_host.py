@@ -26,9 +26,27 @@ v3 AND v2 (Framer ships the v2 fallback itself; Firefox mints v2).
 """
 import asyncio, json, os, shutil, sys, time
 
+LOG_DIR = os.environ.get("FRAMERIZE_LOG_DIR")
+
 def trace(msg):
     sys.stderr.write(f"[camoufox {time.strftime('%H:%M:%S')}] {msg}\n")
     sys.stderr.flush()
+
+def emit(event, level="info", **fields):
+    """Structured event — same NDJSON schema as the daemon (docs/logging.md).
+    One line per event at $FRAMERIZE_LOG_DIR/events-<date>.ndjson."""
+    if not LOG_DIR:
+        return
+    try:
+        os.makedirs(LOG_DIR, exist_ok=True)
+        rec = {"ts": time.strftime("%Y-%m-%dT%H:%M:%S.000Z", time.gmtime()),
+               "level": level, "event": event, "source": "sidecar"}
+        rec.update(fields)
+        day = time.strftime("%Y-%m-%d", time.gmtime())
+        with open(os.path.join(LOG_DIR, f"events-{day}.ndjson"), "a") as f:
+            f.write(json.dumps(rec) + "\n")
+    except Exception:
+        pass  # logging must never break the sidecar
 
 try:
     from camoufox.async_api import AsyncCamoufox
@@ -113,8 +131,10 @@ class Host:
         if px:
             kwargs["proxy"] = {"server": px}
         trace(f"{account[:8]}: launching camoufox (profile {profile})")
+        t0 = time.monotonic()
         mgr = AsyncCamoufox(**kwargs)
         ctx = await mgr.__aenter__()
+        emit("camoufox.launch", account=account[:8], duration_ms=int((time.monotonic()-t0)*1000), outcome="ok")
         page = await ctx.new_page()
         trace(f"{account[:8]}: goto login page")
         await page.goto(LOGIN_URL, wait_until="domcontentloaded", timeout=90000)
@@ -154,9 +174,14 @@ class Host:
         if cmd == "begin":
             page = await self._page(account, req.get("proxy"))
             trace(f"{account[:8]}: mint+signin eval start")
+            t0 = time.monotonic()
             r = await page.evaluate(post_js("/auth/v4/signin", {"email": req["email"], "origin": "web"}))
             trace(f"{account[:8]}: signin -> status {r['status']}")
-            if not (200 <= r["status"] < 300):
+            ok = 200 <= r["status"] < 300
+            emit("auth.signin", account=account[:8], status=r["status"],
+                 duration_ms=int((time.monotonic()-t0)*1000), outcome="ok" if ok else "error",
+                 **({} if ok else {"error": r["body"][:300]}))
+            if not ok:
                 raise RuntimeError("signin %s: %s" % (r["status"], r["body"][:400]))
             return {"status": r["status"]}
         if cmd == "complete":
@@ -173,17 +198,30 @@ class Host:
             cookies = await self._ctx(account).cookies("https://framer.com")
             session = next((c["value"] for c in cookies if c["name"] == "session"), None)
             if not session:
+                emit("auth.complete", account=account[:8], level="error", outcome="error", error="no session cookie after continue")
                 raise RuntimeError("no session cookie after continue")
+            emit("auth.complete", account=account[:8], outcome="ok")
             return {"cookie_header": "session=" + session, "me": json.loads(me["body"])}
         if cmd == "mint":
             page = await self._page(account)
+            t0 = time.monotonic()
             tok = await page.evaluate(MINT_JS)
             if not tok:
+                emit("castle.mint", account=account[:8], level="error", outcome="error", error="castle-unavailable")
                 raise RuntimeError("castle-unavailable")
+            # kind by shape: v3 = >4000 chars with '|' at 8; else v2. NEVER log the value.
+            kind = "v3" if (len(tok) > 4000 and tok[8:9] == "|") else "v2"
+            emit("castle.mint", account=account[:8], kind=kind, token_len=len(tok),
+                 duration_ms=int((time.monotonic()-t0)*1000), outcome="ok")
             return tok
         if cmd == "ai_post":
             page = await self._page(account)
-            return await page.evaluate(post_js(req["path"], req["body"], req.get("bearer")))
+            t0 = time.monotonic()
+            r = await page.evaluate(post_js(req["path"], req["body"], req.get("bearer")))
+            emit("ai.post", account=account[:8], path=req["path"], status=r["status"],
+                 duration_ms=int((time.monotonic()-t0)*1000),
+                 outcome="ok" if 200 <= r["status"] < 300 else "error")
+            return r
         if cmd == "set_cookie":
             await self._page(account)
             await self._ctx(account).add_cookies([{

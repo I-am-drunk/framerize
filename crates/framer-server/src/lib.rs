@@ -656,10 +656,21 @@ async fn begin_login(
     // Mint + signin happen INSIDE the account's browser: api.framer.com
     // validates request/environment consistency (Origin/UA/TLS vs the Castle
     // token's fingerprint) and 400s the bare-HTTP-client variant — observed.
-    s.browser
-        .auth_begin(&body.account_id, &body.email)
-        .await
-        .map_err(ApiError)?;
+    use framer_core::observability as obs;
+    let t0 = std::time::Instant::now();
+    let req_id = uuid::Uuid::new_v4().to_string();
+    let r = s.browser.auth_begin(&body.account_id, &body.email).await;
+    let mut ev = obs::Event::new("login.begin")
+        .request_id(&req_id)
+        .account(&body.account_id)
+        .field("email", obs::mask_email(&body.email))
+        .duration_ms(obs::elapsed_ms(t0));
+    ev = match &r {
+        Ok(()) => ev.outcome("ok"),
+        Err(e) => ev.error(e),
+    };
+    ev.emit();
+    r.map_err(ApiError)?;
     Ok("sent")
 }
 
@@ -685,11 +696,23 @@ async fn complete_login(
 ) -> Result<Json<serde_json::Value>, ApiError> {
     // In-page token exchange; returns the session cookie read out of the
     // browser jar via CDP plus the in-page /web/users/me payload.
-    let (cookie_header, me) = s
+    use framer_core::observability as obs;
+    let t0 = std::time::Instant::now();
+    let req_id = uuid::Uuid::new_v4().to_string();
+    let r = s
         .browser
         .auth_complete(&body.account_id, &body.email_token)
-        .await
-        .map_err(ApiError)?;
+        .await;
+    let mut ev = obs::Event::new("login.complete")
+        .request_id(&req_id)
+        .account(&body.account_id)
+        .duration_ms(obs::elapsed_ms(t0));
+    ev = match &r {
+        Ok(_) => ev.outcome("ok"),
+        Err(e) => ev.error(e),
+    };
+    ev.emit();
+    let (cookie_header, me) = r.map_err(ApiError)?;
     let user_id = me["id"]
         .as_str()
         .ok_or_else(|| ApiError("bad /web/users/me response".into()))?;

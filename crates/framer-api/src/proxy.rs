@@ -17,6 +17,7 @@ use framer_core::port::{BrowserBridge, Session};
 use serde_json::{json, Value};
 use std::sync::Mutex;
 
+
 #[derive(Clone, Copy, Debug)]
 pub enum Dialect {
     /// /ai/v3/openai/responses/ — unprefixed model ids ("gpt-6-sol"). Metered.
@@ -59,9 +60,22 @@ pub async fn forward(
     payload: Value,
     chat_session: &str,
 ) -> Result<framer_core::port::ProxyResponse, String> {
+    let t0 = std::time::Instant::now();
+    let req_id = uuid::Uuid::new_v4().to_string();
     let token = cached_token(t, token_cache, session, account).await?;
     match attempt(browser, session, account, &token, project, dialect, &payload, chat_session).await {
-        Ok(resp) => Ok(resp),
+        Ok(resp) => {
+            framer_core::observability::Event::new("ai.request")
+                .request_id(&req_id)
+                .account(account)
+                .field("dialect", format!("{dialect:?}"))
+                .field("streaming", payload["stream"].as_bool() == Some(true))
+                .field("status", resp.status)
+                .duration_ms(framer_core::observability::elapsed_ms(t0))
+                .outcome("ok")
+                .emit();
+            Ok(resp)
+        }
         Err(e) if e == "unauthorized" => {
             if let Ok(mut guard) = token_cache.lock() {
                 *guard = None;
@@ -69,7 +83,17 @@ pub async fn forward(
             let fresh = cached_token(t, token_cache, session, account).await?;
             attempt(browser, session, account, &fresh, project, dialect, &payload, chat_session).await
         }
-        Err(e) => Err(e),
+        Err(e) => {
+            framer_core::observability::Event::new("ai.request")
+                .request_id(&req_id)
+                .account(account)
+                .field("dialect", format!("{dialect:?}"))
+                .field("streaming", payload["stream"].as_bool() == Some(true))
+                .duration_ms(framer_core::observability::elapsed_ms(t0))
+                .error(&e)
+                .emit();
+            Err(e)
+        }
     }
 }
 

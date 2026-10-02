@@ -82,6 +82,34 @@ async fn stream_chunk(
     Ok((text, ptok, ctok))
 }
 
+/// Canonical-logging wrapper: every chain exits through exactly one
+/// `ai.chain` event (see emit_chain). Public entry point.
+#[allow(clippy::too_many_arguments)]
+pub async fn complete_long(
+    t: &Transport,
+    token_cache: &Mutex<Option<(AccountId, AiToken)>>,
+    session: &Session,
+    browser: &dyn BrowserBridge,
+    account: &AccountId,
+    project: &ProjectId,
+    model: &str,
+    system: Option<String>,
+    messages: Vec<Value>,
+    cfg: &framer_core::port::ChainConfig,
+    chat_session: &str,
+    dialect: framer_core::port::ChainDialect,
+) -> Result<ChainResult, String> {
+    let t0 = std::time::Instant::now();
+    let req_id = uuid::Uuid::new_v4().to_string();
+    let r = complete_long_inner(
+        t, token_cache, session, browser, account, project, model, system, messages, cfg,
+        chat_session, dialect,
+    )
+    .await;
+    emit_chain(t0, &req_id, account, model, dialect, &r);
+    r
+}
+
 /// Drain a ProxyResponse body into a String (in-page transport buffers the
 /// upstream body whole — one chunk — but keep this generic).
 async fn body_text(resp: framer_core::port::ProxyResponse) -> Result<String, String> {
@@ -93,11 +121,42 @@ async fn body_text(resp: framer_core::port::ProxyResponse) -> Result<String, Str
     Ok(String::from_utf8_lossy(&buf).to_string())
 }
 
+/// Canonical one-line-per-chain event (docs/logging.md): chunks, metered
+/// chunks (the credit-touching count), tokens, wall time, outcome.
+fn emit_chain(
+    t0: std::time::Instant,
+    req_id: &str,
+    account: &AccountId,
+    model: &str,
+    dialect: framer_core::port::ChainDialect,
+    r: &Result<framer_core::port::ChainResult, String>,
+) {
+    use framer_core::observability::{elapsed_ms, Event};
+    let mut ev = Event::new("ai.chain")
+        .request_id(req_id)
+        .account(account)
+        .field("model", model.to_string())
+        .field("dialect", format!("{dialect:?}"))
+        .duration_ms(elapsed_ms(t0));
+    ev = match r {
+        Ok(res) => ev
+            .field("chunks", res.chunks)
+            .field("metered_chunks", res.metered_chunks)
+            .field("prompt_tokens", res.prompt_tokens)
+            .field("completion_tokens", res.completion_tokens)
+            .field("finish_reason", res.finish_reason.clone())
+            .outcome("ok"),
+        Err(e) => ev.error(e),
+    };
+    ev.emit();
+}
+
 /// Run a chat/completions request as a chain of free non-streaming calls.
 /// `messages` is the OpenAI-style messages array; `model` a PREFIXED OpenRouter
 /// catalog id (e.g. "openai/gpt-4.1", "anthropic/claude-opus-5.5").
 #[allow(clippy::too_many_arguments)]
-pub async fn complete_long(
+#[allow(clippy::too_many_arguments)]
+async fn complete_long_inner(
     t: &Transport,
     token_cache: &Mutex<Option<(AccountId, AiToken)>>,
     session: &Session,
