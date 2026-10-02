@@ -435,6 +435,7 @@ dependencies = [
  "futures",
  "reqwest",
  "serde_json",
+ "uuid",
 ]
 
 [[package]]

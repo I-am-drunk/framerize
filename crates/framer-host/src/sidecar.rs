@@ -111,6 +111,15 @@ impl SidecarBridge {
         let mut child = Command::new(&python)
             .arg(&script)
             .env("FRAMERIZE_STATE", self.state_root.join("camoufox"))
+            // Structured sidecar events land in the SAME NDJSON stream as the
+            // daemon's (docs/logging.md).
+            .env(
+                "FRAMERIZE_LOG_DIR",
+                self.state_root
+                    .parent()
+                    .map(|p| p.join(".logs"))
+                    .unwrap_or_else(|| self.state_root.join(".logs")),
+            )
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .stderr(Stdio::inherit()) // sidecar traces land in the daemon log

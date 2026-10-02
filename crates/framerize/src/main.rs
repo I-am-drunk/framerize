@@ -48,6 +48,27 @@ enum Cmd {
         #[arg(long, env = "FRAMERIZE_URL", default_value = "http://127.0.0.1:8787")]
         daemon: String,
     },
+    /// Query the structured event log (docs/logging.md).
+    Logs {
+        /// How many matching events to show (newest last).
+        #[arg(long, default_value = "50")]
+        tail: usize,
+        /// Filter: event name contains this (e.g. ai.chain, login, castle).
+        #[arg(long)]
+        event: Option<String>,
+        /// Filter: account id prefix.
+        #[arg(long)]
+        account: Option<String>,
+        /// Aggregate counts + avg durations by event/outcome.
+        #[arg(long)]
+        stats: bool,
+        /// Credit accounting view: AI events with metered_chunks + credits fields.
+        #[arg(long)]
+        credits: bool,
+        /// Event log directory.
+        #[arg(long, env = "FRAMERIZE_LOG_DIR", default_value = "~/.framerize/profiles/.logs")]
+        log_dir: String,
+    },
     /// List accounts and their state.
     Accounts {
         /// Daemon base URL.
@@ -70,6 +91,7 @@ fn build_state(db: &str, chrome: &str, profiles: &str, engine: &str) -> Result<A
         std::path::Path::new(profiles).join(".sessions"),
     )?);
     let client = Arc::new(framer_api::HttpFramerClient::new());
+    framer_core::observability::init(profiles);
     let browser: Arc<dyn framer_core::port::BrowserBridge> = match engine {
         "full-chrome" => Arc::new(CdpBridge::with_engine(chrome, profiles, framer_host::EngineKind::FullChrome)),
         "headless-shell" => Arc::new(CdpBridge::with_engine(chrome, profiles, framer_host::EngineKind::HeadlessShell)),
@@ -115,6 +137,10 @@ async fn main() {
                 }
             };
             eprintln!("framerize daemon on {listen} (web: {web_dir}, db: {db})");
+            framer_core::observability::Event::new("daemon.start")
+                .field("listen", listen.clone())
+                .field("engine", engine.clone())
+                .emit();
             if let Err(e) = framer_server::serve(state, &web_dir, addr).await {
                 eprintln!("server error: {e}");
                 std::process::exit(1);
@@ -125,6 +151,9 @@ async fn main() {
                 eprintln!("\x1b[31m✗\x1b[0m {e}");
                 std::process::exit(1);
             }
+        }
+        Cmd::Logs { tail, event, account, stats, credits, log_dir } => {
+            cli_logs(&log_dir, tail, event.as_deref(), account.as_deref(), stats, credits);
         }
         Cmd::Accounts { daemon } => {
             if let Err(e) = cli_accounts(&daemon).await {
@@ -209,10 +238,12 @@ async fn cli_login(daemon: &str, email: Option<String>) -> Result<(), String> {
         .await
         .map_err(|e| format!("complete request failed: {e}"))?;
     let status = r.status();
-    let body: serde_json::Value = r.json().await.map_err(|e| e.to_string())?;
+    let text = r.text().await.unwrap_or_default();
     if !status.is_success() {
-        return Err(format!("complete → HTTP {status}: {body}"));
+        // The daemon returns plain text on failure — show it verbatim.
+        return Err(format!("complete → HTTP {status}: {text}"));
     }
+    let body: serde_json::Value = serde_json::from_str(&text).unwrap_or(serde_json::json!({"raw": text}));
     eprintln!("\x1b[32m✓ signed in\x1b[0m  {}", serde_json::to_string_pretty(&body).unwrap_or_default());
     eprintln!("\x1b[90m\x1b[0m");
     eprintln!("next: \x1b[1mfcd\x1b[0m  (Claude Code on the free route) — or framerize accounts");
@@ -252,3 +283,90 @@ async fn cli_accounts(daemon: &str) -> Result<(), String> {
     Ok(())
 }
 
+
+
+// ---------- structured log query (docs/logging.md) ----------
+
+fn cli_logs(log_dir: &str, tail: usize, event: Option<&str>, account: Option<&str>, stats: bool, credits: bool) {
+    let dir = std::path::PathBuf::from(log_dir.replace('~', &std::env::var("HOME").unwrap_or_default()));
+    let mut files: Vec<_> = std::fs::read_dir(&dir)
+        .map(|rd| {
+            rd.flatten()
+                .map(|e| e.path())
+                .filter(|p| p.extension().and_then(|s| s.to_str()) == Some("ndjson"))
+                .collect()
+        })
+        .unwrap_or_default();
+    files.sort();
+    let mut events: Vec<serde_json::Value> = Vec::new();
+    for f in files.iter().rev().take(3) {
+        // newest files first, but collect then re-sort by ts
+        if let Ok(text) = std::fs::read_to_string(f) {
+            for line in text.lines() {
+                if let Ok(v) = serde_json::from_str::<serde_json::Value>(line) {
+                    events.push(v);
+                }
+            }
+        }
+    }
+    if events.is_empty() {
+        eprintln!("no events in {dir:?} yet — the daemon logs there as it works");
+        return;
+    }
+    events.sort_by_key(|v| v["ts"].as_str().unwrap_or("").to_string());
+    let matches = |v: &&serde_json::Value| -> bool {
+        if let Some(e) = event {
+            if !v["event"].as_str().unwrap_or("").contains(e) {
+                return false;
+            }
+        }
+        if let Some(a) = account {
+            if !v["account"].as_str().unwrap_or("").starts_with(a) {
+                return false;
+            }
+        }
+        if credits && !v["event"].as_str().unwrap_or("").starts_with("ai.") {
+            return false;
+        }
+        true
+    };
+    let filtered: Vec<&serde_json::Value> = events.iter().filter(matches).collect();
+
+    if stats {
+        use std::collections::BTreeMap;
+        let mut by: BTreeMap<String, (u64, u64, u128)> = BTreeMap::new(); // (ok, err, total_ms)
+        for v in &filtered {
+            let key = format!("{}", v["event"].as_str().unwrap_or("?"));
+            let e = by.entry(key).or_default();
+            if v["outcome"].as_str() == Some("ok") { e.0 += 1; } else { e.1 += 1; }
+            e.2 += v["duration_ms"].as_u64().unwrap_or(0) as u128;
+        }
+        eprintln!("\x1b[1m{:24} {:>6} {:>6} {:>10}\x1b[0m", "event", "ok", "err", "avg_ms");
+        for (k, (ok, err, ms)) in by {
+            let n = (ok + err).max(1) as u128;
+            eprintln!("{k:24} {ok:>6} {err:>6} {:>10}", ms / n);
+        }
+        return;
+    }
+
+    for v in filtered.iter().rev().take(tail).rev() {
+        let ts = &v["ts"].as_str().unwrap_or("")[11..19.min(v["ts"].as_str().unwrap_or("").len())];
+        let outcome = v["outcome"].as_str().unwrap_or("-");
+        let color = match outcome { "ok" => "32", "error" => "31", _ => "33" };
+        let dur = v["duration_ms"].as_u64().map(|d| format!(" {:.1}s", d as f64 / 1000.0)).unwrap_or_default();
+        let mut extras = String::new();
+        if let Some(obj) = v.as_object() {
+            for (k, val) in obj {
+                if matches!(k.as_str(), "ts" | "level" | "event" | "request_id" | "outcome" | "duration_ms" | "source") {
+                    continue;
+                }
+                let sval = match val {
+                    serde_json::Value::String(s) => s.clone(),
+                    other => other.to_string(),
+                };
+                extras.push_str(&format!(" {k}={sval}"));
+            }
+        }
+        eprintln!("{ts} \x1b[{color}m{outcome:>7}\x1b[0m \x1b[1m{}\x1b[0m{dur}{extras}", v["event"].as_str().unwrap_or("?"));
+    }
+}

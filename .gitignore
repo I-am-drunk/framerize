@@ -1,3 +1,7 @@
 /target
 node_modules/
 web/dist/
+
+# python artifacts
+__pycache__/
+*.pyc

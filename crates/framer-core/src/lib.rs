@@ -1,6 +1,7 @@
 //! Stable domain + orchestration. No HTTP, no SQL, no Framer quirks — those live
 //! behind the ports in `port.rs` and are implemented in `framer-api` / `framer-store`.
 
+pub mod observability;
 pub mod account;
 pub mod convert;
 pub mod credits;
