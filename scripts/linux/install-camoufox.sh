@@ -17,7 +17,21 @@ fi
 say "installing camoufox + playwright (~40MB pip, ~663MB browser fetch, ~2.5GB peak disk)"
 ~/.framerize/venv/bin/pip install -q --upgrade pip
 ~/.framerize/venv/bin/pip install -q camoufox playwright
+
+# A previous ENOSPC leaves a broken partial extraction that poisons reruns.
+if ! find ~/.cache/camoufox/browsers -name camoufox -type f 2>/dev/null | grep -q .; then
+  rm -rf ~/.cache/camoufox/browsers/official/* 2>/dev/null || true
+fi
 ~/.framerize/venv/bin/python -m camoufox fetch
+
+# camoufox fetch exits 0 even when it fails — verify the binary actually landed.
+if ! find ~/.cache/camoufox/browsers -name camoufox -type f 2>/dev/null | grep -q .; then
+  echo "" >&2
+  echo "ERROR: camoufox fetch failed (see above — usually disk space)." >&2
+  echo "  Free ~1GB and re-run this script. Biggest wins:" >&2
+  echo "    rm -rf ~/framerize/target ~/.framerize/chrome-headless-shell-linux64; sudo apt-get clean" >&2
+  exit 1
+fi
 
 say "done. Run the daemon with: framerize daemon --engine camoufox ..."
 echo "  (or make it the default: export FRAMERIZE_ENGINE=camoufox)"
