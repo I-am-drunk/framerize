@@ -5,6 +5,16 @@ cd "$(dirname "$0")/../.."   # repo root
 ROOT="$(pwd)"
 STATE_DIR="${FRAMERIZE_HOME:-$HOME/.framerize}"
 
+echo "==> cleanup pass (space-constrained machines)"
+# Accidental nested clone (running install from inside an existing clone
+# produced framerize/framerize with its own multi-hundred-MB target/ — real
+# failure observed). Delete it; the outer repo is the real one.
+if [ -d framerize/.git ]; then
+  echo "    removing nested accidental clone: framerize/framerize"
+  rm -rf framerize
+fi
+rm -f /tmp/chs.zip nohup.out 2>/dev/null || true
+
 echo "==> system deps"
 if command -v apt-get >/dev/null; then
   sudo apt-get update -qq
