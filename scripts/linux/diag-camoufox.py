@@ -1,45 +1,54 @@
 #!/usr/bin/env python3
-"""diag-camoufox.py — does the Castle mint itself work inside Camoufox?
-The page-global `castlePublishableAPIKey` never appears in Firefox (Framer's
-config path differs), so the sidecar's gate was wrong. What actually matters:
-can we import the wrapper chunk and mint a v3-shaped token?
+"""diag-camoufox.py — v4: dissect the Castle V3 failure inside Camoufox.
+v2 minting works (Framer's own fallback). v3 doesn't. Drive the v3 SDK
+manually — import, configure, createRequestToken — with NO timeouts and
+capture the exact failure point.
 Run:  ~/.framerize/venv/bin/python scripts/linux/diag-camoufox.py
 """
 from camoufox.sync_api import Camoufox
 
-CHUNK = "https://app.framerstatic.com/chunk-5LKSDTQ5.mjs"
+PK = "pk_xYqGbB61EcFiSh4LUshpT4DGoEQMKQMB"
+SDK = "https://app.framerstatic.com/castleSDKV3-LNGA36I3.mjs"
 
-MINT = """(async () => {
-  const out = { keyBefore: typeof window.castlePublishableAPIKey, tries: [] };
-  // THE FIX: Framer only serves the castle config inline to some UAs (never
-  // Firefox). Publishable keys are public — inject when missing.
+V3_PROBE = """(async () => {
+  const out = { phase: "start" };
   if (!window.castlePublishableAPIKey) {
-    Object.defineProperty(window, "castlePublishableAPIKey", { value: Object.freeze("pk_xYqGbB61EcFiSh4LUshpT4DGoEQMKQMB") });
+    Object.defineProperty(window, "castlePublishableAPIKey", { value: Object.freeze("%s") });
   }
-  out.keyAfter = typeof window.castlePublishableAPIKey;
-  for (let i = 0; i < 4; i++) {
-    try {
-      const m = await import("%s?cb=" + Date.now() + "_" + i);
-      const t = await m.a();
-      out.tries.push(typeof t + " len=" + (t ? t.length : 0) + " pipeAt=" + (t ? t.indexOf("|") : -1));
-      if (typeof t === "string" && t.length > 4000) break;
-    } catch (e) {
-      out.tries.push("ERR " + String(e).slice(0, 150));
-    }
-    await new Promise(r => setTimeout(r, 1500));
+  try {
+    out.phase = "module-load";
+    const m = await import("%s?cb=" + Date.now());
+    out.moduleLoaded = true;
+    out.exports = Object.keys(m).slice(0, 12);
+    out.phase = "configure";
+    const inst = await m.configure({ pk: window.castlePublishableAPIKey, onError: (e) => { out.sdkOnError = String(e && e.message || e).slice(0, 300); } });
+    out.configured = !!inst;
+    out.instMethods = inst ? Object.keys(inst).slice(0, 12) : [];
+    out.phase = "token-generation";
+    const t0 = performance.now();
+    const tok = await inst.createRequestToken();
+    out.genMs = Math.round(performance.now() - t0);
+    out.token = typeof tok + " len=" + (tok ? tok.length : 0) + " pipeAt=" + (tok ? tok.indexOf("|") : -1) + " head=" + (tok ? tok.slice(0, 12) : "");
+    out.phase = "done";
+  } catch (e) {
+    out.error = String(e && e.message || e).slice(0, 300);
+    out.errorName = e && e.name;
+    out.stackHead = String(e && e.stack || "").slice(0, 400);
   }
   return out;
-})()""" % CHUNK
+})()""" % (PK, SDK)
 
 with Camoufox(headless=True) as b:
     p = b.new_page()
-    p.on("pageerror", lambda e: print("PAGEERROR:", str(e)[:200], flush=True))
+    p.on("pageerror", lambda e: print("PAGEERROR:", str(e)[:250], flush=True))
     p.goto("https://framer.com/login", wait_until="domcontentloaded", timeout=90000)
-    p.wait_for_timeout(5000)
-    print("page state:", p.evaluate("({scripts: document.scripts.length, hasForm: !!document.querySelector('input[type=email], input[name=email]')})"), flush=True)
-    print("minting...", flush=True)
-    r = p.evaluate(MINT)
-    print("RESULT:", r, flush=True)
-    good = any("len=5" in t or "len=4" in t for t in r["tries"])
-    ok = any("len=" in t and not t.startswith("ERR") and not t.startswith("undefined") for t in r["tries"])
-    print("VERDICT:", "MINT WORKS IN CAMOUFOX (v3 or v2 — both backend-accepted)" if ok else "mint fails in camoufox — report this output")
+    p.wait_for_timeout(4000)
+    print("probing v3 SDK directly (no timeouts)...", flush=True)
+    r = p.evaluate(V3_PROBE)
+    for k, v in r.items():
+        print(f"  {k}: {v}", flush=True)
+    phase = r.get("phase")
+    if phase == "done":
+        print("VERDICT: v3 works when driven manually — the wrapper's 5s race is the problem")
+    else:
+        print(f"VERDICT: v3 fails at phase '{phase}' — see error fields above")
