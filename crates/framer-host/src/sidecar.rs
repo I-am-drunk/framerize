@@ -54,23 +54,48 @@ impl SidecarBridge {
     }
 
     fn script_path(&self) -> PathBuf {
+        // External override wins: sidecar fixes ship via `git pull` + a copy to
+        // ~/.framerize/camoufox_host.py instead of a full binary rebuild.
+        // (Learned the hard way: include_str! alone makes every python tweak
+        // a 20-minute release cycle.)
+        let ext = dirs_home().join(".framerize/camoufox_host.py");
+        if ext.exists() {
+            return ext;
+        }
         self.state_root.join(".bin").join("camoufox_host.py")
     }
 
-    /// Spawn the sidecar if needed; restart if it died.
+    /// Spawn the sidecar if needed; RESPAWN if it died. A dead python still
+    /// has a Some(child.id()) — id() is not a liveness check (a silent
+    /// sidecar death on a constrained box hung every later call for 300s).
     async fn sidecar(&self) -> Result<(), String> {
         let mut guard = self.inner.lock().await;
-        if let Some(s) = guard.as_ref() {
-            if s.child.id().is_some() {
-                return Ok(());
+        let mut dead = false;
+        if let Some(s) = guard.as_mut() {
+            match s.child.try_wait() {
+                Ok(None) => return Ok(()), // alive
+                _ => {
+                    eprintln!("[sidecar] python exited — respawning on next request");
+                    dead = true;
+                }
             }
         }
-        // (Re)extract the script every spawn — upgrades ride the binary.
-        let script = self.script_path();
-        if let Some(parent) = script.parent() {
-            std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
+        if dead {
+            if let Some(s) = guard.take() {
+                // fail every waiter; the caller's error surfaces immediately
+                let mut pend = s.pending.lock().await;
+                for (_, tx) in pend.drain() {
+                    let _ = tx.send(Err("sidecar died — retry the request".into()));
+                }
+            }
         }
-        std::fs::write(&script, SCRIPT).map_err(|e| e.to_string())?;
+        let script = self.script_path();
+        if !script.exists() {
+            if let Some(parent) = script.parent() {
+                std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
+            }
+            std::fs::write(&script, SCRIPT).map_err(|e| e.to_string())?;
+        }
 
         // Python resolution: explicit override, then the installer's venv,
         // then PATH. The venv is where install-camoufox.sh puts everything.

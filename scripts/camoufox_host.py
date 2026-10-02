@@ -44,13 +44,13 @@ CASTLE_CHUNK = "https://app.framerstatic.com/chunk-5LKSDTQ5.mjs"
 # Warm-mint loop: cache-busted imports (fresh module => un-latched Rh flag),
 # accept only v3-shaped tokens. Returns null when v3 stays unavailable.
 MINT_JS = """(async () => {
-  for (let i = 0; i < 4; i++) {
+  for (let i = 0; i < 8; i++) {
     try {
       const m = await import("%s?cb=" + Date.now() + "_" + i);
       const t = await m.a();
       if (typeof t === "string" && t.length > 4000 && t.charAt(8) === "|") return t;
     } catch (e) {}
-    await new Promise(r => setTimeout(r, 1200));
+    await new Promise(r => setTimeout(r, 2000));
   }
   return null;
 })()""" % CASTLE_CHUNK
@@ -106,8 +106,15 @@ class Host:
         trace(f"{account[:8]}: goto login page")
         page.goto(LOGIN_URL, wait_until="domcontentloaded", timeout=90000)
         trace(f"{account[:8]}: dom loaded, waiting for castle key")
-        page.wait_for_function("typeof window.castlePublishableAPIKey !== 'undefined'", timeout=60000)
-        trace(f"{account[:8]}: page ready")
+        # SOFT wait: on slow/filtered routes the Castle SDK can take >60s to
+        # land. Never hard-fail here — the mint loop's own retries handle a
+        # late SDK better than an exception that kills the attempt.
+        try:
+            page.wait_for_function("typeof window.castlePublishableAPIKey !== 'undefined'", timeout=120000)
+            trace(f"{account[:8]}: page ready")
+        except Exception as e:
+            trace(f"{account[:8]}: castle-key wait gave up ({type(e).__name__}) — continuing anyway")
+        page.wait_for_timeout(1500)
         self.accounts[account] = (mgr, ctx, page)
         return page
 
