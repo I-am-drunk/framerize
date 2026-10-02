@@ -10,7 +10,13 @@ from camoufox.sync_api import Camoufox
 CHUNK = "https://app.framerstatic.com/chunk-5LKSDTQ5.mjs"
 
 MINT = """(async () => {
-  const out = { key: typeof window.castlePublishableAPIKey, tries: [] };
+  const out = { keyBefore: typeof window.castlePublishableAPIKey, tries: [] };
+  // THE FIX: Framer only serves the castle config inline to some UAs (never
+  // Firefox). Publishable keys are public — inject when missing.
+  if (!window.castlePublishableAPIKey) {
+    Object.defineProperty(window, "castlePublishableAPIKey", { value: Object.freeze("pk_xYqGbB61EcFiSh4LUshpT4DGoEQMKQMB") });
+  }
+  out.keyAfter = typeof window.castlePublishableAPIKey;
   for (let i = 0; i < 4; i++) {
     try {
       const m = await import("%s?cb=" + Date.now() + "_" + i);
