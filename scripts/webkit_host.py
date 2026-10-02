@@ -60,7 +60,7 @@ MINT_JS = """(async () => {
     if (typeof t === "string" && t.length > 500) { window.__fzCastleM = fresh; return t; }
   } catch (e) {}
   return null;
-})()""" % (CASTLE_CHUNK, CASTLE_CHUNK) % CASTLE_CHUNK
+})()""" % (CASTLE_CHUNK, CASTLE_CHUNK)
 
 
 def auth_post_js(path, body):
