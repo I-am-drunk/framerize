@@ -27,10 +27,11 @@ enum Cmd {
         /// Path to a Chrome/Chromium binary (the Castle engine per account).
         #[arg(long, env = "CHROME_PATH", default_value = "chrome")]
         chrome: String,
-        /// Engine for account sessions: full-chrome (default, full desktop
-        /// Chrome + stealth flags), headless-shell (minimal build — known-bad
-        /// Castle fingerprint, fallback only), attach (drive your own Chrome
-        /// at --chrome host:port; the best possible Castle score).
+        /// Engine for account sessions: camoufox (stealth Firefox sidecar —
+        /// the engine that passed Castle in production), full-chrome (default;
+        /// desktop Chrome + stealth flags), headless-shell (known-bad Castle
+        /// fingerprint, fallback only), attach (drive your own Chrome at
+        /// --chrome host:port; the best possible Castle score).
         #[arg(long, env = "FRAMERIZE_ENGINE", default_value = "full-chrome")]
         engine: String,
         /// One browser profile directory per account lives under here.
@@ -69,13 +70,15 @@ fn build_state(db: &str, chrome: &str, profiles: &str, engine: &str) -> Result<A
         std::path::Path::new(profiles).join(".sessions"),
     )?);
     let client = Arc::new(framer_api::HttpFramerClient::new());
-    let kind = match engine {
-        "full-chrome" => framer_host::EngineKind::FullChrome,
-        "headless-shell" => framer_host::EngineKind::HeadlessShell,
-        "attach" => framer_host::EngineKind::Attach,
-        other => return Err(format!("unknown --engine {other} (full-chrome|headless-shell|attach)")),
+    let browser: Arc<dyn framer_core::port::BrowserBridge> = match engine {
+        "full-chrome" => Arc::new(CdpBridge::with_engine(chrome, profiles, framer_host::EngineKind::FullChrome)),
+        "headless-shell" => Arc::new(CdpBridge::with_engine(chrome, profiles, framer_host::EngineKind::HeadlessShell)),
+        "attach" => Arc::new(CdpBridge::with_engine(chrome, profiles, framer_host::EngineKind::Attach)),
+        "camoufox" => Arc::new(framer_host::sidecar::SidecarBridge::new(
+            framer_host::sidecar::default_sidecar_root(profiles),
+        )),
+        other => return Err(format!("unknown --engine {other} (full-chrome|headless-shell|attach|camoufox)")),
     };
-    let browser = Arc::new(CdpBridge::with_engine(chrome, profiles, kind));
     Ok(AppState { client, browser, sessions, state })
 }
 
