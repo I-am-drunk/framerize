@@ -129,6 +129,26 @@ async fn main() {
                 }
             };
             load_proxies(&state).await;
+            // Pre-warm every account's engine in the BACKGROUND: browser
+            // launch + page load + castle warm-up happen here, once — not
+            // inside the first user-visible request. Sequential (the sidecar
+            // serializes anyway, and engines are heavy).
+            {
+                let state = state.clone();
+                tokio::spawn(async move {
+                    if let Ok(accounts) = state.state.list().await {
+                        for a in accounts {
+                            let t0 = std::time::Instant::now();
+                            let r = state.browser.castle_token(&a.id).await;
+                            framer_core::observability::Event::new("account.prewarm")
+                                .account(&a.id)
+                                .duration_ms(framer_core::observability::elapsed_ms(t0))
+                                .outcome(if r.is_ok() { "ok" } else { "error" })
+                                .emit();
+                        }
+                    }
+                });
+            }
             let addr = match listen.parse() {
                 Ok(a) => a,
                 Err(e) => {

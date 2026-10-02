@@ -858,6 +858,20 @@ async fn import_account(
     }
     s.state.upsert(&account).await.map_err(ApiError)?;
 
+    // Kick a background engine pre-warm so the first inference is instant.
+    {
+        let browser = s.browser.clone();
+        let id = body.account_id;
+        tokio::spawn(async move {
+            let t0 = std::time::Instant::now();
+            let r = browser.castle_token(&id).await;
+            framer_core::observability::Event::new("account.prewarm")
+                .account(&id)
+                .duration_ms(framer_core::observability::elapsed_ms(t0))
+                .outcome(if r.is_ok() { "ok" } else { "error" })
+                .emit();
+        });
+    }
     Ok(Json(serde_json::json!({
         "status": "imported",
         "account_id": account.id.0,
