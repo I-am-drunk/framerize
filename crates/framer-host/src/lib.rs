@@ -142,7 +142,9 @@ if (!window.castlePublishableAPIKey) {
     try {
       const m = await import("%CHUNK%?cb=" + Date.now() + "_" + i);
       const t = await m.a();
-      if (typeof t === "string" && t.length > 4000 && t.charAt(8) === "|") tok = t;
+      // accept v3 (preferred) AND v2 — Framer ships the v2 fallback itself,
+    // so the backend accepts both; the app sends whatever m.a() returns
+    if (typeof t === "string" && t.length > 500) tok = t;
     } catch (e) {}
     if (!tok) await new Promise(r => setTimeout(r, 1200));
   }
@@ -184,7 +186,9 @@ if (!window.castlePublishableAPIKey) {
     try {
       const m = await import("%CHUNK%?cb=" + Date.now() + "_" + i);
       const t = await m.a();
-      if (typeof t === "string" && t.length > 4000 && t.charAt(8) === "|") tok = t;
+      // accept v3 (preferred) AND v2 — Framer ships the v2 fallback itself,
+    // so the backend accepts both; the app sends whatever m.a() returns
+    if (typeof t === "string" && t.length > 500) tok = t;
     } catch (e) {}
     if (!tok) await new Promise(r => setTimeout(r, 1200));
   }
@@ -269,7 +273,9 @@ const MINT_SNIPPET: &str = r#"(async () => {
     try {
       const m = await import("%CHUNK%?cb=" + Date.now() + "_" + i); // fresh module = un-latched Rh
       const t = await m.a();
-      if (typeof t === "string" && t.length > 4000 && t.charAt(8) === "|") return t;
+      // accept v3 (preferred) AND v2 — Framer ships the v2 fallback itself,
+    // so the backend accepts both; the app sends whatever m.a() returns
+    if (typeof t === "string" && t.length > 500) return t;
     } catch (e) {}
     await new Promise(r => setTimeout(r, 1200));
   }

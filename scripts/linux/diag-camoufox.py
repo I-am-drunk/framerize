@@ -41,4 +41,5 @@ with Camoufox(headless=True) as b:
     r = p.evaluate(MINT)
     print("RESULT:", r, flush=True)
     good = any("len=5" in t or "len=4" in t for t in r["tries"])
-    print("VERDICT:", "MINT WORKS IN CAMOUFOX — daemon gate was the only bug" if any("pipeAt=8" in t and ("len=4" in t or "len=5" in t) for t in r["tries"]) else "mint fails in camoufox — report this output")
+    ok = any("len=" in t and not t.startswith("ERR") and not t.startswith("undefined") for t in r["tries"])
+    print("VERDICT:", "MINT WORKS IN CAMOUFOX (v3 or v2 — both backend-accepted)" if ok else "mint fails in camoufox — report this output")
