@@ -212,7 +212,7 @@ async fn cli_login(daemon: &str, email: Option<String>) -> Result<(), String> {
     }
     eprintln!("\x1b[32m✓ signed in\x1b[0m  {}", serde_json::to_string_pretty(&body).unwrap_or_default());
     eprintln!("\x1b[90m\x1b[0m");
-    eprintln!("next: \x1b[1mfc\x1b[0m  (Claude Code on the free route) — or framerize accounts");
+    eprintln!("next: \x1b[1mfcd\x1b[0m  (Claude Code on the free route) — or framerize accounts");
     Ok(())
 }
 

@@ -48,4 +48,4 @@ echo
 echo "Done. Next:"
 echo "  $ROOT/scripts/linux/start-daemon.sh"
 echo "  $ROOT/scripts/linux/add-account.sh you@example.com"
-echo "  $ROOT/scripts/fc          # Claude Code on the free route"
+echo "  $ROOT/scripts/fcd          # Claude Code on the free route"
