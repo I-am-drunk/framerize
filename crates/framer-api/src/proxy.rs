@@ -11,8 +11,7 @@
 //! ~21.5 s idle-connection kill on held non-streaming requests).
 
 use crate::auth::{self, AiToken};
-use crate::castle;
-use crate::transport::{Auth, Transport};
+use crate::transport::Transport;
 use framer_core::ids::{AccountId, ProjectId};
 use framer_core::port::{BrowserBridge, Session};
 use serde_json::{json, Value};
@@ -41,9 +40,13 @@ impl Dialect {
     }
 }
 
-/// Forward one native payload through the gateway. Returns the raw upstream
-/// response (SSE stream or JSON) for the caller to pass through. One 401
-/// retry with a fresh JWT, mirroring inference.rs.
+/// Forward one native payload through the gateway. The request is sent
+/// IN-PAGE from the account's own browser (`BrowserBridge::ai_post`), which
+/// also mints the Castle token there: the verified rule (2026-10-02 quadrant
+/// matrix) is that token and transport must share one environment — the same
+/// envelope via reqwest gets risk-refused even with a perfect token.
+/// Returns the upstream response buffered (SSE consumed whole in-page) as a
+/// ProxyResponse. One 401 retry with a fresh JWT, mirroring inference.rs.
 #[allow(clippy::too_many_arguments)]
 pub async fn forward(
     t: &Transport,
@@ -55,37 +58,32 @@ pub async fn forward(
     dialect: Dialect,
     payload: Value,
     chat_session: &str,
-) -> Result<reqwest::Response, String> {
+) -> Result<framer_core::port::ProxyResponse, String> {
     let token = cached_token(t, token_cache, session, account).await?;
-    let castle = castle::mint(browser, account).await?;
-    match attempt(t, &token, &castle.0, project, dialect, &payload, chat_session).await? {
+    match attempt(browser, session, account, &token, project, dialect, &payload, chat_session).await {
         Ok(resp) => Ok(resp),
         Err(e) if e == "unauthorized" => {
             if let Ok(mut guard) = token_cache.lock() {
                 *guard = None;
             }
             let fresh = cached_token(t, token_cache, session, account).await?;
-            let castle = castle::mint(browser, account).await?;
-            match attempt(t, &fresh, &castle.0, project, dialect, &payload, chat_session).await? {
-                Ok(resp) => Ok(resp),
-                Err(e) => Err(e),
-            }
+            attempt(browser, session, account, &fresh, project, dialect, &payload, chat_session).await
         }
         Err(e) => Err(e),
     }
 }
 
-type Attempt = Result<reqwest::Response, String>;
-
+#[allow(clippy::too_many_arguments)]
 async fn attempt(
-    t: &Transport,
+    browser: &dyn BrowserBridge,
+    session: &Session,
+    account: &AccountId,
     token: &AiToken,
-    castle: &str,
     project: &ProjectId,
     dialect: Dialect,
     payload: &Value,
     chat_session: &str,
-) -> Result<Attempt, String> {
+) -> Result<framer_core::port::ProxyResponse, String> {
     let body = json!({
         "projectId": project.0,
         "featureCategory": "agents",
@@ -95,14 +93,34 @@ async fn attempt(
         "stepIndex": 0,
         "turnId": crate::inference::mint_id_pub(),
         "userPrompt": "", // proxy calls carry their content in `request`
-        "castleToken": castle,
+        // castleToken is added in-page at fetch time (fresh mint, same env).
         "request": payload,
     });
-    match t.post(dialect.path(), Auth::Bearer(&token.bearer), body).await {
-        Ok(resp) => Ok(Ok(resp)),
-        Err(e) if e == "unauthorized" => Ok(Err(e)),
-        Err(e) => Err(e),
+    // Imported accounts have an empty browser cookie jar — seed the session.
+    browser.seed_session(account, &session.cookie_header).await?;
+    let (status, _usage, text) = browser
+        .ai_post(account, dialect.path(), &token.bearer, &body)
+        .await?;
+    let streaming = payload["stream"].as_bool() == Some(true);
+    // Status policy mirrors transport::check (in-page fetch bypasses it).
+    match status {
+        200..=299 => {}
+        401 => return Err("unauthorized".into()),
+        402 => return Err("credits-exhausted".into()),
+        403 => return Err("risk-refused".into()),
+        s => {
+            let clipped = &text[..text.len().min(500)];
+            return Err(format!("retryable {s} on {}: {clipped}", dialect.path()));
+        }
     }
+    let content_type = if streaming { "text/event-stream" } else { "application/json" }.to_string();
+    Ok(framer_core::port::ProxyResponse {
+        status,
+        content_type,
+        stream: Box::pin(futures::stream::once(async move {
+            Ok::<bytes::Bytes, String>(bytes::Bytes::from(text))
+        })),
+    })
 }
 
 async fn cached_token(

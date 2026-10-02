@@ -68,6 +68,41 @@ pub trait BrowserBridge: Send + Sync {
     async fn set_proxy(&self, _account: &AccountId, _proxy: Option<String>) -> Result<(), String> {
         Ok(())
     }
+
+    /// Ensure the account's browser cookie jar holds the session cookie.
+    /// Imported accounts start with an empty jar (the session lives in the
+    /// session store); in-page fetches authenticate from the jar, so the
+    /// bridge seeds it over CDP. Idempotent — called before every AI call.
+    async fn seed_session(&self, _account: &AccountId, _cookie_header: &str) -> Result<(), String> {
+        Ok(())
+    }
+
+    /// In-page authenticated AI POST to api.framer.com from the account's own
+    /// browser: mints a fresh Castle token and sends in the same environment.
+    /// THE rule (verified quadrant matrix 2026-10-02): a Castle token is only
+    /// accepted when token+transport share one environment — same TLS stack,
+    /// same UA, same Origin. The identical envelope via a bare HTTP client
+    /// gets risk-refused even with a perfect token.
+    /// Returns (status, x-framer-ai-usage header, body); SSE bodies are
+    /// consumed to completion in-page and returned whole.
+    async fn ai_post(
+        &self,
+        _account: &AccountId,
+        _path: &str,
+        _bearer: &str,
+        _body: &serde_json::Value,
+    ) -> Result<(u16, Option<String>, String), String> {
+        Err("bridge has no in-page AI transport".into())
+    }
+
+    /// Fresh-device escape hatch: drop the account's browser, wipe its profile
+    /// (cookies/storage/fingerprint surface). The daemon's stored session is
+    /// unaffected — the browser is only the Castle minting device. Pair with a
+    /// new castle_device_id on the account record. This is the remediation for
+    /// a device id that has accumulated Castle refusals — never fast-retry.
+    async fn rotate_identity(&self, _account: &AccountId) -> Result<(), String> {
+        Ok(())
+    }
 }
 
 /// Raw upstream response for compat pass-through: status, content type, and the

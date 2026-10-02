@@ -154,6 +154,54 @@ const AUTH_POST_SNIPPET: &str = r#"(async () => {
   }
 })()"#;
 
+/// In-page authenticated AI POST: warm-mint a Castle v3 token, attach it to
+/// the envelope, and send from the account's own page with the AI JWT.
+/// THE rule (verified quadrant matrix 2026-10-02): a Castle token is only
+/// accepted when the request shares the minting environment — same TLS stack,
+/// same UA, same Origin. The exact same envelope via reqwest gets risk-refused
+/// even with a perfect token. SSE bodies are consumed to completion in-page
+/// (r.text() waits out the stream) and returned whole.
+/// Returns { status, usage (x-framer-ai-usage header, may be null when CORS
+/// hides it), body }. Placeholders: %CHUNK%, %API%, %PATH%, %BEARER%, %BODY%.
+const AI_POST_SNIPPET: &str = r#"(async () => {
+  let tok = null;
+  for (let i = 0; i < 3 && !tok; i++) {
+    try {
+      const m = await import("%CHUNK%?cb=" + Date.now() + "_" + i);
+      const t = await m.a();
+      if (typeof t === "string" && t.length > 4000 && t.charAt(8) === "|") tok = t;
+    } catch (e) {}
+    if (!tok) await new Promise(r => setTimeout(r, 1200));
+  }
+  if (!tok) return { status: 0, usage: null, body: "castle-v3-unavailable" };
+  const body = %BODY%;
+  body.castleToken = tok;
+  try {
+    const r = await fetch("%API%%PATH%", {
+      method: "POST",
+      credentials: "include",
+      headers: {
+        "content-type": "application/json; charset=utf-8",
+        "x-requested-by": "Framer",
+        "authorization": "Bearer %BEARER%",
+      },
+      body: JSON.stringify(body),
+    });
+    return { status: r.status, usage: r.headers.get("x-framer-ai-usage"), body: await r.text() };
+  } catch (e) {
+    return { status: -1, usage: null, body: String(e) };
+  }
+})()"#;
+
+fn ai_post_expr(path: &str, bearer: &str, body: &Value) -> String {
+    AI_POST_SNIPPET
+        .replace("%CHUNK%", CASTLE_CHUNK_PINNED)
+        .replace("%API%", API_BASE)
+        .replace("%PATH%", path)
+        .replace("%BEARER%", bearer)
+        .replace("%BODY%", &body.to_string())
+}
+
 fn auth_post_expr(path: &str, body: &Value) -> String {
     AUTH_POST_SNIPPET
         .replace("%CHUNK%", CASTLE_CHUNK_PINNED)
@@ -247,6 +295,10 @@ struct CdpInstance {
 
 impl CdpInstance {
     async fn cmd(&mut self, method: &str, params: Value) -> Result<Value, String> {
+        self.cmd_deadline(method, params, std::time::Duration::from_secs(30)).await
+    }
+
+    async fn cmd_deadline(&mut self, method: &str, params: Value, wait: std::time::Duration) -> Result<Value, String> {
         self.next_id += 1;
         let id = self.next_id;
         let msg = json!({ "id": id, "method": method, "params": params });
@@ -254,7 +306,7 @@ impl CdpInstance {
             .send(Message::Text(msg.to_string().into()))
             .await
             .map_err(|e| e.to_string())?;
-        let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(30);
+        let deadline = tokio::time::Instant::now() + wait;
         loop {
             let next = tokio::time::timeout_at(deadline, self.ws.next())
                 .await
@@ -278,6 +330,19 @@ impl CdpInstance {
             .cmd(
                 "Runtime.evaluate",
                 json!({ "expression": expression, "awaitPromise": true, "returnByValue": true }),
+            )
+            .await?;
+        Ok(r["result"]["value"].clone())
+    }
+
+    /// Eval with a long deadline — in-page AI calls wait out a full generation
+    /// (window-mapped ceiling ~109 s on the wide route; give it room).
+    async fn eval_long(&mut self, expression: String) -> Result<Value, String> {
+        let r = self
+            .cmd_deadline(
+                "Runtime.evaluate",
+                json!({ "expression": expression, "awaitPromise": true, "returnByValue": true }),
+                std::time::Duration::from_secs(300),
             )
             .await?;
         Ok(r["result"]["value"].clone())
@@ -462,18 +527,6 @@ impl CdpBridge {
         Ok(inst)
     }
 
-    /// The 403 remediation: drop the instance, wipe the profile (cookies,
-    /// storage, fingerprint surface), regenerate the device id. The account
-    /// will need to log in again — this is the "fresh device" escape hatch.
-    pub async fn rotate_identity(&self, account: &AccountId) -> Result<(), String> {
-        self.instances.lock().await.remove(account);
-        let profile = self.profile_dir(account);
-        if profile.exists() {
-            tokio::fs::remove_dir_all(&profile).await.map_err(|e| e.to_string())?;
-        }
-        // Next castle_token() recreates the profile with a fresh device id.
-        Ok(())
-    }
 }
 
 fn body_preview(v: &Value) -> String {
@@ -483,6 +536,72 @@ fn body_preview(v: &Value) -> String {
 
 #[async_trait]
 impl BrowserBridge for CdpBridge {
+    async fn seed_session(&self, account: &AccountId, cookie_header: &str) -> Result<(), String> {
+        // Imported accounts: the browser profile never saw the login flow, so
+        // its cookie jar is empty. In-page fetches authenticate via that jar —
+        // seed the httpOnly session cookie over CDP (document.cookie can't
+        // write httpOnly). Cheap and idempotent: set it before every AI call.
+        let Some((name, value)) = cookie_header.split_once('=') else {
+            return Err(format!("bad cookie header: {cookie_header:?}"));
+        };
+        let inst = self.instance(account).await?;
+        let mut g = inst.lock().await;
+        g.cmd(
+            "Network.setCookie",
+            json!({
+                "name": name.trim(),
+                "value": value.trim(),
+                "domain": ".framer.com",
+                "path": "/",
+                "secure": true,
+                "httpOnly": true,
+                "sameSite": "None",
+            }),
+        )
+        .await?;
+        Ok(())
+    }
+
+    async fn ai_post(
+        &self,
+        account: &AccountId,
+        path: &str,
+        bearer: &str,
+        body: &Value,
+    ) -> Result<(u16, Option<String>, String), String> {
+        let inst = self.instance(account).await?;
+        let mut g = inst.lock().await;
+        let v = g.eval_long(ai_post_expr(path, bearer, body)).await?;
+        let status = v["status"].as_i64().unwrap_or(-1);
+        let usage = v["usage"].as_str().map(|s| s.to_string());
+        let text = v["body"].as_str().unwrap_or("").to_string();
+        if status == 0 {
+            return Err("castle-v3-unavailable".into());
+        }
+        if status == -1 {
+            return Err(format!("in-page fetch failed: {text}"));
+        }
+        Ok((status as u16, usage, text))
+    }
+
+    async fn rotate_identity(&self, account: &AccountId) -> Result<(), String> {
+        // Drop the live instance (kills chrome), wipe the profile. Next mint
+        // recreates the profile; the caller pairs this with a fresh
+        // castle_device_id. The stored session survives — the browser is only
+        // the minting device.
+        if let Some(inst) = self.instances.lock().await.remove(account) {
+            let mut g = inst.lock().await;
+            if let Some(c) = g.child.as_mut() {
+                let _ = c.start_kill();
+            }
+        }
+        let profile = self.profile_dir(account);
+        if profile.exists() {
+            tokio::fs::remove_dir_all(&profile).await.map_err(|e| e.to_string())?;
+        }
+        Ok(())
+    }
+
     async fn auth_begin(&self, account: &AccountId, email: &str) -> Result<(), String> {
         let inst = self.instance(account).await?;
         let mut guard = inst.lock().await;
