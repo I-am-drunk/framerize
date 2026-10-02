@@ -21,10 +21,38 @@ just the cookie. **Accounts are devices.**
 - `compat/` — consumer adapters: Anthropic `/v1/messages` (Claude Code), OpenAI
   `/v1/responses` (Codex).
 
+## Engines (`--engine`)
+
+Castle scores the browser fingerprint itself (verified 2026-10-02 by diffing
+against a known-good environment: headless containers present SwiftShader
+WebGL, 800x600 screens, hardwareConcurrency=1 — all container tells). The
+engine is therefore swappable:
+
+| engine | what it is | when |
+|---|---|---|
+| `camoufox` | stealth Firefox sidecar (C++-level spoofing, no CDP artifacts) — the configuration that passed Castle in production | **recommended** — `scripts/linux/install-camoufox.sh` |
+| `full-chrome` | default; desktop Chrome headless=new + stealth flags | works when the fingerprint is good enough |
+| `attach` | drive your own already-trusted Chrome over CDP | best possible score, you keep Chrome running |
+| `headless-shell` | minimal build | known-bad fingerprint; fallback only |
+
+All AI traffic is sent **in-page** from the account's own browser: Castle
+tokens are only accepted when mint and transport share one environment
+(verified quadrant matrix in `reference/analysis/verified-captures-2026-10-01.md`).
+
+## Quick start (Linux)
+
+```bash
+./scripts/linux/install-camoufox.sh   # stealth engine (recommended)
+./scripts/linux/start-daemon.sh       # picks camoufox when installed
+framerize login                       # magic-link, interactive
+fcd                                   # Claude Code on the free route
+```
+
 ## Status
 
-Research + skeleton. The endpoint map is live-captured and the in-browser client
-works; the Rust core is being built out module by module. See
+Working: in-page auth + inference transport, free long-form chain (unmetered
+OpenRouter passthroughs, ~100s window, never-fail ladder), account import,
+per-account proxies, rotate-identity. See
 [`reference/analysis/framer-ai-endpoints.md`](./reference/analysis/framer-ai-endpoints.md).
 
 ## Legal note
