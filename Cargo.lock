@@ -429,6 +429,7 @@ name = "framer-api"
 version = "0.1.0"
 dependencies = [
  "async-trait",
+ "bytes",
  "chrono",
  "framer-core",
  "futures",

@@ -21,9 +21,8 @@
 //! See reference/analysis/framer-ai-endpoints.md for the full route table.
 
 use crate::auth::{self, AiToken};
-use crate::castle;
 use crate::credits;
-use crate::transport::{Auth, Transport};
+use crate::transport::Transport;
 use framer_core::ids::{AccountId, ProjectId};
 use framer_core::pipeline::{InferenceOutcome, InferenceRequest, InferenceResult, Usage};
 use framer_core::port::{BrowserBridge, Session};
@@ -55,7 +54,7 @@ fn mint_id() -> String {
     out
 }
 
-fn build_body(req: &InferenceRequest, chat_session: &str, castle: &str, project: &str) -> serde_json::Value {
+fn build_body(req: &InferenceRequest, chat_session: &str, project: &str) -> serde_json::Value {
     let model = req.model.as_deref().unwrap_or(crate::models::DEFAULT_AGENT_MODEL);
     json!({
         "projectId": project,
@@ -66,7 +65,7 @@ fn build_body(req: &InferenceRequest, chat_session: &str, castle: &str, project:
         "stepIndex": 0, // TODO: increments per turn within a session; 0 accepted on turn 1
         "turnId": mint_id(),
         "userPrompt": req.prompt,
-        "castleToken": castle,
+        // castleToken is added in-page at fetch time (fresh mint, same env).
         // The actual Responses payload — REQUIRED (server 400s without it).
         "request": {
             "model": model,
@@ -87,10 +86,9 @@ pub async fn run(
     req: &InferenceRequest,
 ) -> Result<InferenceResult, String> {
     let token = cached_token(t, token_cache, session, account).await?;
-    let castle = castle::mint(browser, account).await?;
     let chat_session = req.chat_session.clone().unwrap_or_else(mint_id);
 
-    match send(t, &token, &castle.0, req, &chat_session, project).await? {
+    match send(browser, session, account, &token, req, &chat_session, project).await? {
         Send::Done(outcome) => Ok(InferenceResult::Completed(outcome)),
         Send::Exhausted => Ok(InferenceResult::Exhausted {
             reason: "http-402".into(),
@@ -101,8 +99,7 @@ pub async fn run(
                 *guard = None;
             }
             let fresh = cached_token(t, token_cache, session, account).await?;
-            let castle = castle::mint(browser, account).await?; // single-shot: remint
-            match send(t, &fresh, &castle.0, req, &chat_session, project).await? {
+            match send(browser, session, account, &fresh, req, &chat_session, project).await? {
                 Send::Done(outcome) => Ok(InferenceResult::Completed(outcome)),
                 Send::Exhausted => Ok(InferenceResult::Exhausted {
                     reason: "http-402".into(),
@@ -139,35 +136,42 @@ async fn cached_token(
     Ok(tok)
 }
 
+/// Send one agent turn IN-PAGE from the account's browser (transport must
+/// share the Castle mint's environment — verified quadrant matrix 2026-10-02;
+/// the reqwest variant of this exact envelope gets risk-refused).
 async fn send(
-    t: &Transport,
+    browser: &dyn BrowserBridge,
+    session: &Session,
+    account: &AccountId,
     token: &AiToken,
-    castle: &str,
     req: &InferenceRequest,
     chat_session: &str,
     project: &ProjectId,
 ) -> Result<Send, String> {
-    let resp = match t
-        .post(
+    browser.seed_session(account, &session.cookie_header).await?;
+    let (status, usage_hdr, text) = browser
+        .ai_post(
+            account,
             "/ai/v3/openai/responses/",
-            Auth::Bearer(&token.bearer),
-            build_body(req, chat_session, castle, &project.0),
+            &token.bearer,
+            &build_body(req, chat_session, &project.0),
         )
-        .await
-    {
-        Ok(r) => r,
-        Err(e) if e == "unauthorized" => return Ok(Send::Unauthorized),
-        Err(e) if e == "credits-exhausted" => return Ok(Send::Exhausted),
-        Err(e) => return Err(e),
-    };
+        .await?;
+    match status {
+        200..=299 => {}
+        401 => return Ok(Send::Unauthorized),
+        402 => return Ok(Send::Exhausted),
+        403 => return Err("risk-refused".into()),
+        s => {
+            let clipped = &text[..text.len().min(500)];
+            return Err(format!("retryable {s} on /ai/v3/openai/responses/: {clipped}"));
+        }
+    }
 
-    let remaining = resp
-        .headers()
-        .get("x-framer-ai-usage")
-        .and_then(|h| h.to_str().ok())
+    let remaining = usage_hdr
+        .as_deref()
         .and_then(credits::parse_usage_header);
 
-    let text = resp.text().await.map_err(|e| e.to_string())?;
     let (answer, usage) = parse_sse(&text);
 
     Ok(Send::Done(InferenceOutcome {

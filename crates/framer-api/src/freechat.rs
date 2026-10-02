@@ -46,7 +46,7 @@ async fn stream_chunk(
         t, token_cache, session, browser, account, project,
         upstream, payload, chat_session,
     ).await?;
-    let mut stream = resp.bytes_stream();
+    let mut stream = resp.stream;
     let mut buf = String::new();
     let mut text = String::new();
     let (mut ptok, mut ctok) = (0u64, 0u64);
@@ -80,6 +80,17 @@ async fn stream_chunk(
         }
     }
     Ok((text, ptok, ctok))
+}
+
+/// Drain a ProxyResponse body into a String (in-page transport buffers the
+/// upstream body whole — one chunk — but keep this generic).
+async fn body_text(resp: framer_core::port::ProxyResponse) -> Result<String, String> {
+    let mut buf = Vec::new();
+    let mut s = resp.stream;
+    while let Some(c) = s.next().await {
+        buf.extend_from_slice(&c?);
+    }
+    Ok(String::from_utf8_lossy(&buf).to_string())
 }
 
 /// Run a chat/completions request as a chain of free non-streaming calls.
@@ -223,7 +234,7 @@ pub async fn complete_long(
                         Err(e2) => return Err(format!("chunk {i} retry died (fallback off): {e2}")),
                     };
                     let el = t1.elapsed().as_secs_f32();
-                    if let Ok(v) = r.json::<Value>().await {
+                    if let Ok(v) = body_text(r).await.and_then(|t| serde_json::from_str::<Value>(&t).map_err(|e| e.to_string())) {
                         let (piece, is_length, pt, ct) = extract(&v, i)?;
                         let tps = ct as f32 / el.max(0.5);
                         if tps > 1.0 {
@@ -248,7 +259,7 @@ pub async fn complete_long(
         };
         // success path: adapt chunk size from measured throughput
         let elapsed = t0.elapsed().as_secs_f32();
-        let body: Value = resp.json().await.map_err(|e| format!("chunk {i} not json: {e}"))?;
+        let body: Value = serde_json::from_str(&body_text(resp).await?).map_err(|e| format!("chunk {i} not json: {e}"))?;
         let (piece, is_length, pt, ct) = extract(&body, i)?;
         ptok += pt;
         ctok += ct;

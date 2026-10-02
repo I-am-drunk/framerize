@@ -57,7 +57,9 @@ impl Default for HttpFramerClient {
 
 impl HttpFramerClient {
     /// Compat-layer passthrough: forward one native payload (OpenAI Responses,
-    /// OpenAI chat/completions, or Anthropic Messages) through the gateway.
+    /// OpenAI chat/completions, or Anthropic Messages) through the gateway,
+    /// sent in-page from the account's browser (transport-consistent with the
+    /// Castle mint — the only configuration the gateway accepts).
     #[allow(clippy::too_many_arguments)] // boundary fn; args are all required
     pub async fn proxy_raw(
         &self,
@@ -68,7 +70,7 @@ impl HttpFramerClient {
         dialect: proxy::Dialect,
         payload: serde_json::Value,
         chat_session: &str,
-    ) -> Result<reqwest::Response, String> {
+    ) -> Result<framer_core::port::ProxyResponse, String> {
         proxy::forward(
             &self.transport,
             &self.ai_token,
@@ -138,22 +140,8 @@ impl FramerClient for HttpFramerClient {
         payload: serde_json::Value,
         chat_session: &str,
     ) -> Result<framer_core::port::ProxyResponse, String> {
-        let resp = self
-            .proxy_raw(session, browser, account, project, parse_dialect(dialect)?, payload, chat_session)
-            .await?;
-        let status = resp.status().as_u16();
-        let content_type = resp
-            .headers()
-            .get("content-type")
-            .and_then(|h| h.to_str().ok())
-            .unwrap_or("application/json")
-            .to_string();
-        let stream = resp.bytes_stream().map(|r| r.map_err(|e| e.to_string()));
-        Ok(framer_core::port::ProxyResponse {
-            status,
-            content_type,
-            stream: Box::pin(stream),
-        })
+        self.proxy_raw(session, browser, account, project, parse_dialect(dialect)?, payload, chat_session)
+            .await
     }
 
     async fn create_workspace(
