@@ -103,9 +103,24 @@ class Host:
         page = ctx.new_page()
         trace(f"{account[:8]}: goto login page")
         page.goto(LOGIN_URL, wait_until="domcontentloaded", timeout=60000)
-        trace(f"{account[:8]}: dom loaded, waiting for castle key")
-        page.wait_for_function("typeof window.castlePublishableAPIKey !== 'undefined'", timeout=30000)
-        trace(f"{account[:8]}: page ready")
+        trace(f"{account[:8]}: dom loaded, waiting for app boot")
+        # Gate on the APP being up, not window.castlePublishableAPIKey (the
+        # server only sends that global to some UAs; we inject it in MINT_JS).
+        try:
+            page.wait_for_selector("input[type=email], input[name=email], form", timeout=30000)
+            trace(f"{account[:8]}: page ready")
+        except Exception as e:
+            trace(f"{account[:8]}: app-boot wait gave up ({type(e).__name__}) — continuing anyway")
+        page.wait_for_timeout(1500)
+        # Warm the Castle wrapper once: the first m.a() pays the v3-failure
+        # (~45s in WebKit); the wrapper's internal latch then sends every
+        # later mint straight down the fast v2 fallback (~1s).
+        trace(f"{account[:8]}: warming castle wrapper (v3-failure latch, once)")
+        try:
+            warm = page.evaluate(MINT_JS)
+            trace(f"{account[:8]}: castle warm {'ok, later mints ~1s' if isinstance(warm, str) and len(warm) > 500 else 'weak token — continuing'}")
+        except Exception as e:
+            trace(f"{account[:8]}: castle warm failed ({type(e).__name__}) — first real mint will pay it instead")
         self.accounts[account] = (ctx, page)
         return page
 

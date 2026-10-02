@@ -127,6 +127,21 @@ class Host:
         except Exception as e:
             trace(f"{account[:8]}: app-boot wait gave up ({type(e).__name__}) — continuing anyway")
         await page.wait_for_timeout(1500)
+        # Warm the Castle wrapper: the FIRST m.a() pays the v3 attempt —
+        # measured 27-81s in Camoufox/Firefox (the v3 SDK's token-generation
+        # can never complete in this engine; verified with module pre-warming
+        # on 2026-10-02). That failure latches the wrapper's internal v3-off
+        # flag, so every LATER m.a() on this page goes straight to the v2
+        # fallback (~1s — Framer's own designed fallback, accepted server-side;
+        # Firefox framer.com visitors get v2 too). Pay it ONCE here, hidden in
+        # page setup — never inside a real mint (login + every freechat chunk).
+        trace(f"{account[:8]}: warming castle wrapper (v3-failure latch; takes up to ~90s on a slow box, once)")
+        try:
+            warm = await page.evaluate(MINT_JS)
+            ok = isinstance(warm, str) and len(warm) > 500
+            trace(f"{account[:8]}: castle warm {'ok, later mints ~1s' if ok else 'returned weak token — continuing'}")
+        except Exception as e:
+            trace(f"{account[:8]}: castle warm failed ({type(e).__name__}) — first real mint will pay it instead")
         self.accounts[account] = (mgr, ctx, page)
         return page
 

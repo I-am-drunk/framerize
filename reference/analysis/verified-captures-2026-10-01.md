@@ -389,3 +389,19 @@ The limit is architecturally irrelevant: free + effectively unbounded length.
 (Rapid token minting (>10/hour from one environment) eventually gets the
 environment Castle-flagged — instant 403s on /ai/* until it cools. Operationally:
 mint sparingly, reuse nothing, rotate identity on sticky 403s.)
+
+## 11. Castle v3 is unachievable outside Chromium — the v2+latch architecture (2026-10-02)
+
+Measured in Camoufox 152 (Firefox engine), framer.com/login, key injected:
+
+| experiment | result |
+|---|---|
+| cold mint (fresh module) | **81.0s** → v2 token (2,075 chars) |
+| v3 SDK import alone | 30.8s (661KB module) |
+| pre-warmed import(wrapper)+import(v3sdk), settled, then mint | 27.4s → **still v2** (2,032) |
+| latch test: 4 sequential mints, same page/module | **56.1s, then 318ms, 489ms, 392ms** |
+
+Conclusions:
+1. **The v3 SDK's token-generation cannot complete in a non-Chromium engine** — even fully pre-loaded and configured it burns its internal timeout chain (~27-81s depending on box) and the wrapper falls back to its legacy v2 path. CORS is not the blocker (`ACAO: *` on the module). Firefox signals in the SDK (`navigator.oscpu`, Gecko regex) are fingerprint collectors, not the gate — the gate is deeper in the obfuscated generation.
+2. **The wrapper latches v3-off after the first failure** (`Rh` flag): every subsequent `m.a()` on the same page/module goes straight to v2 in **~0.3-0.5s**. This is Framer's own production fallback chain — v2 tokens are accepted server-side (login 200 verified on a residential box), and Firefox framer.com visitors are served v2 the same way.
+3. **Architecture**: pay the v3-failure ONCE per page, hidden in page setup ("castle warm"); never cache-bust the wrapper import (a fresh module resets the latch and re-pays the failure — this was the "login takes a minute" bug, up to 8×(5s+2s) retries). After warm: login mints ~1s, freechat per-chunk mints ~1s.
