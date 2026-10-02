@@ -111,7 +111,6 @@ pub struct ChainConfig {
     pub metered_fallback: bool,
 }
 
-fn default_true() -> bool { true }
 
 impl Default for ChainConfig {
     fn default() -> Self {
