@@ -22,4 +22,4 @@ echo
 echo "Done. Next:"
 echo "  $ROOT/scripts/macos/start-daemon.sh"
 echo "  $ROOT/scripts/macos/add-account.sh you@example.com"
-echo "  $ROOT/scripts/fclaude"
+echo "  $ROOT/scripts/fc"
