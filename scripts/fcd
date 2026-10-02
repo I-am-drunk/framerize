@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# fc — Claude Code backed by framerize's free chain.
+# fcd — Claude Code backed by framerize's free chain.
 # Bare /anthropic = free (unmetered); /paid/anthropic = metered passthrough.
 BASE="${FRAMERIZE_URL:-http://127.0.0.1:8787}"
 export ANTHROPIC_BASE_URL="$BASE/anthropic"

@@ -2,7 +2,7 @@
 # framerize bootstrap — ONE command, run once, on any state of mess.
 # Reuses an existing build (never rebuilds when a binary exists), cleans up
 # nested accidental clones, fetches the Castle engine, starts the daemon,
-# adds your Framer account, and prints the fc command.
+# adds your Framer account, and prints the fcd command.
 set -euo pipefail
 
 say() { printf '\n\033[1m==> %s\033[0m\n' "$*"; }
@@ -33,8 +33,8 @@ echo "using binary: $BIN"
 mkdir -p "$HOME/.local/bin"
 cp "$BIN" "$BIN_DEST"
 echo "installed to $BIN_DEST"
-install -m755 "$ROOT/scripts/fc" "$HOME/.local/bin/fc"
-echo "installed fc to $HOME/.local/bin/fc"
+install -m755 "$ROOT/scripts/fcd" "$HOME/.local/bin/fcd"
+echo "installed fcd to $HOME/.local/bin/fcd"
 
 # ---------- 2. clean up the nested-clone mess ----------
 say "cleaning up nested clones"
@@ -50,10 +50,6 @@ for d in "$HOME"/framerize; do
 done
 # make sure ~/.local/bin is on PATH for later
 case ":$PATH:" in *":$HOME/.local/bin:"*) ;; *) echo 'export PATH="$HOME/.local/bin:$PATH"' >> "$HOME/.bashrc";; esac
-# bash has an `fc` BUILTIN (history fix-command) that shadows any fc on PATH —
-# disable it so `fc` reaches our launcher (idempotent).
-grep -q 'enable -n fc' "$HOME/.bashrc" 2>/dev/null || echo 'enable -n fc 2>/dev/null  # framerize: free the fc name' >> "$HOME/.bashrc"
-enable -n fc 2>/dev/null || true
 
 # ---------- 3. Castle engine (chrome-headless-shell) ----------
 if [ -x "$CHS" ]; then
@@ -116,7 +112,7 @@ cat <<MSG
 
 All set. From now on:
 
-  fc                # Claude Code on the FREE route (unmetered, never-fail chain)
+  fcd                # Claude Code on the FREE route (unmetered, never-fail chain)
                    #   (or: ANTHROPIC_BASE_URL=$BASE/anthropic ANTHROPIC_AUTH_TOKEN=local claude)
 
 Paid/metered passthrough if ever needed:
