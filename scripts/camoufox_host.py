@@ -62,6 +62,21 @@ CASTLE_CHUNK = "https://app.framerstatic.com/chunk-5LKSDTQ5.mjs"
 # Framer serves window.castlePublishableAPIKey inline only to some UAs (never
 # Firefox — verified 2026-10-02). Publishable keys are public; inject it.
 # Accept v3 (preferred) AND v2 (Framer's own fallback) shaped tokens.
+# The warm: exactly ONE m.a() — enough to run the v3 attempt once (~5s race,
+# always fails in Firefox) and latch the wrapper's internal v3-off flag.
+# After that, every later m.a() goes straight to v2 (~1s). Do NOT use the
+# full MINT_JS retry loop here — that's what made warm-up cost 27-81s.
+WARM_JS = """(async () => {
+  if (!window.castlePublishableAPIKey) {
+    Object.defineProperty(window, "castlePublishableAPIKey", { value: Object.freeze("pk_xYqGbB61EcFiSh4LUshpT4DGoEQMKQMB") });
+  }
+  try {
+    if (!window.__fzCastleM) window.__fzCastleM = await import("%s");
+    const t = await window.__fzCastleM.a();
+    return typeof t === "string" && t.length > 500;
+  } catch (e) { return false; }
+})()""" % CASTLE_CHUNK
+
 MINT_JS = """(async () => {
   if (!window.castlePublishableAPIKey) {
     Object.defineProperty(window, "castlePublishableAPIKey", { value: Object.freeze("pk_xYqGbB61EcFiSh4LUshpT4DGoEQMKQMB") });
@@ -155,11 +170,13 @@ class Host:
         # fallback (~1s — Framer's own designed fallback, accepted server-side;
         # Firefox framer.com visitors get v2 too). Pay it ONCE here, hidden in
         # page setup — never inside a real mint (login + every freechat chunk).
-        trace(f"{account[:8]}: warming castle wrapper (v3-failure latch; takes up to ~90s on a slow box, once)")
+        trace(f"{account[:8]}: warming castle wrapper (one v3-race ~6s, latches v3-off)")
+        t0 = time.monotonic()
         try:
-            warm = await page.evaluate(MINT_JS)
-            ok = isinstance(warm, str) and len(warm) > 500
-            trace(f"{account[:8]}: castle warm {'ok, later mints ~1s' if ok else 'returned weak token — continuing'}")
+            warm_ok = await page.evaluate(WARM_JS)
+            emit("castle.warm", account=account[:8], latched=bool(warm_ok),
+                 duration_ms=int((time.monotonic()-t0)*1000), outcome="ok")
+            trace(f"{account[:8]}: castle warm {'latched — mints now ~1s' if warm_ok else 'no token yet, latch set anyway'}")
         except Exception as e:
             trace(f"{account[:8]}: castle warm failed ({type(e).__name__}) — first real mint will pay it instead")
         self.accounts[account] = (mgr, ctx, page)
