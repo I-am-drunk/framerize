@@ -90,7 +90,12 @@ impl SidecarBridge {
             }
         }
         let script = self.script_path();
-        if !script.exists() {
+        // The MANAGED path is always refreshed (a "don't overwrite" here kept
+        // v0.4.0's script alive under v0.4.1's binary — upgrades must win).
+        // The external override (~/.framerize/camoufox_host.py) is never
+        // written by us — it's the user's escape hatch.
+        let is_override = script == dirs_home().join(".framerize/camoufox_host.py");
+        if !is_override {
             if let Some(parent) = script.parent() {
                 std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
             }

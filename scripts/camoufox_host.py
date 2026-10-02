@@ -105,15 +105,16 @@ class Host:
         page = ctx.new_page()
         trace(f"{account[:8]}: goto login page")
         page.goto(LOGIN_URL, wait_until="domcontentloaded", timeout=90000)
-        trace(f"{account[:8]}: dom loaded, waiting for castle key")
-        # SOFT wait: on slow/filtered routes the Castle SDK can take >60s to
-        # land. Never hard-fail here — the mint loop's own retries handle a
-        # late SDK better than an exception that kills the attempt.
+        trace(f"{account[:8]}: dom loaded, waiting for app boot")
+        # Gate on the APP being up (the login form renders), NOT on
+        # window.castlePublishableAPIKey — that global is set by a code path
+        # that never fires in Firefox (verified 2026-10-02: page boots fine,
+        # global stays undefined). The mint loop is the real readiness probe.
         try:
-            page.wait_for_function("typeof window.castlePublishableAPIKey !== 'undefined'", timeout=120000)
+            page.wait_for_selector("input[type=email], input[name=email], form", timeout=30000)
             trace(f"{account[:8]}: page ready")
         except Exception as e:
-            trace(f"{account[:8]}: castle-key wait gave up ({type(e).__name__}) — continuing anyway")
+            trace(f"{account[:8]}: app-boot wait gave up ({type(e).__name__}) — continuing anyway")
         page.wait_for_timeout(1500)
         self.accounts[account] = (mgr, ctx, page)
         return page
