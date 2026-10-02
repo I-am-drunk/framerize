@@ -9,23 +9,24 @@ gateway, claude-code-router). Framerize IS the gateway — no extra proxy layer.
 ## Claude Code
 
 ```bash
-export ANTHROPIC_BASE_URL=http://127.0.0.1:8787/free/anthropic   # /free/ = unmetered chain
-export ANTHROPIC_AUTH_TOKEN=local                                 # any non-empty value
+export ANTHROPIC_BASE_URL=http://127.0.0.1:8787/anthropic   # bare path = FREE (unmetered chain)
+export ANTHROPIC_AUTH_TOKEN=local                           # any non-empty value
 claude
 ```
 
 - Setting `ANTHROPIC_AUTH_TOKEN` replaces subscription login for the session
   (official behavior) — exactly what we want: Claude Code treats the daemon as
   the provider.
-- Metered passthrough instead: `ANTHROPIC_BASE_URL=http://127.0.0.1:8787/anthropic`.
-- **Why the mode is in the PATH**: Claude Code cannot send custom headers, so
-  header-based mode selection (`x-framerize-mode`) is unreachable for it.
+- **Convention: the bare routes are free.** The metered streaming passthroughs
+  live under `/paid/`: `ANTHROPIC_BASE_URL=http://127.0.0.1:8787/paid/anthropic`.
+  Claude Code cannot send custom headers, so the free path is the default at
+  the normal URL; `x-framerize-mode: paid` remains as a header override.
 
 ### Protocol conformance checklist (from the official spec)
 
 | requirement | framerize status |
 |---|---|
-| `POST /v1/messages` | ✓ `/anthropic/v1/messages` (+ `/free/` twin) |
+| `POST /v1/messages` | ✓ `/anthropic/v1/messages` (free by default; `/paid/` twin is metered) |
 | `POST /v1/messages/count_tokens` (optional) | ✓ char-based estimate (same fallback the client uses) |
 | `HEAD /api/hello` warming probe | ✓ answered 200 at `/api/hello` |
 | streamed responses, full event sequence, ordered | ✓ synthesized SSE (free path) / raw passthrough (metered) |
@@ -55,7 +56,7 @@ model_provider = "framerize"
 
 [model_providers.framerize]
 name = "Framerize"
-base_url = "http://127.0.0.1:8787/free/openai/v1"   # Responses API lives at /v1/responses
+base_url = "http://127.0.0.1:8787/openai/v1"   # free by default; /paid/openai/v1 = metered
 env_key = "FRAMERIZE_LOCAL"                          # any non-empty string
 wire_api = "responses"          # the ONLY supported value since Feb 2026
 ```
