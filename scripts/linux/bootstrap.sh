@@ -51,7 +51,21 @@ done
 # make sure ~/.local/bin is on PATH for later
 case ":$PATH:" in *":$HOME/.local/bin:"*) ;; *) echo 'export PATH="$HOME/.local/bin:$PATH"' >> "$HOME/.bashrc";; esac
 
-# ---------- 3. Castle engine (chrome-headless-shell) ----------
+# ---------- 3. Castle engine ----------
+# Camoufox (stealth Firefox) is the recommended engine — it's the config that
+# passed Castle in production. It needs ~2.5GB disk (663MB download + extract).
+# Skip with --engine full-chrome to use installed Chrome instead.
+ENGINE="${FRAMERIZE_ENGINE:-camoufox}"
+for arg in "$@"; do case "$arg" in --engine=*) ENGINE="${arg#--engine=}";; esac; done
+if [ "$ENGINE" = "camoufox" ]; then
+  if [ -x "$HOME/.framerize/venv/bin/python3" ] && ls "$HOME/.framerize"/venv/lib/python*/site-packages/camoufox >/dev/null 2>&1; then
+    say "camoufox engine already installed"
+  else
+    bash "$ROOT/scripts/linux/install-camoufox.sh"
+  fi
+fi
+if false; then
+# ---------- legacy: chrome-headless-shell (known-bad Castle fingerprint) ----------
 if [ -x "$CHS" ]; then
   say "castle engine already present"
 else
@@ -67,13 +81,21 @@ if command -v apt-get >/dev/null; then
     libnss3 libnspr4 libx11-6 libxcb1 libxext6 libexpat1 >/dev/null 2>&1 || true
 fi
 
+fi
+
 # ---------- 4. (re)start the daemon ----------
 say "starting the daemon"
 pkill -x framerize 2>/dev/null || true        # stop any running daemon
 pkill -x chrome-headless 2>/dev/null || true  # and orphaned engines
 sleep 1
 mkdir -p "$STATE/profiles"
-nohup "$BIN_DEST" daemon --listen 127.0.0.1:8787 --chrome "$CHS" \
+if [ "$ENGINE" = "camoufox" ]; then
+  ENGINE_ARGS=(--engine camoufox)
+else
+  CHROME_BIN="$(command -v google-chrome || echo "$CHS")"
+  ENGINE_ARGS=(--engine "${ENGINE:-full-chrome}" --chrome "$CHROME_BIN")
+fi
+nohup "$BIN_DEST" daemon --listen 127.0.0.1:8787 "${ENGINE_ARGS[@]}" \
   --profiles "$STATE/profiles" --db "$STATE/framerize.db" \
   > "$STATE/daemon.log" 2>&1 &
 for i in $(seq 1 20); do
