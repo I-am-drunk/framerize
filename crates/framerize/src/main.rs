@@ -27,6 +27,12 @@ enum Cmd {
         /// Path to a Chrome/Chromium binary (the Castle engine per account).
         #[arg(long, env = "CHROME_PATH", default_value = "chrome")]
         chrome: String,
+        /// Engine for account sessions: full-chrome (default, full desktop
+        /// Chrome + stealth flags), headless-shell (minimal build — known-bad
+        /// Castle fingerprint, fallback only), attach (drive your own Chrome
+        /// at --chrome host:port; the best possible Castle score).
+        #[arg(long, env = "FRAMERIZE_ENGINE", default_value = "full-chrome")]
+        engine: String,
         /// One browser profile directory per account lives under here.
         #[arg(long, default_value = "profiles")]
         profiles: String,
@@ -38,7 +44,7 @@ enum Cmd {
     Accounts,
 }
 
-fn build_state(db: &str, chrome: &str, profiles: &str) -> Result<AppState, String> {
+fn build_state(db: &str, chrome: &str, profiles: &str, engine: &str) -> Result<AppState, String> {
     // Create our own dirs — a first run must not fail because
     // ~/.framerize doesn't exist yet (observed on a fresh Linux install).
     if let Some(parent) = std::path::Path::new(db).parent() {
@@ -52,7 +58,13 @@ fn build_state(db: &str, chrome: &str, profiles: &str) -> Result<AppState, Strin
         std::path::Path::new(profiles).join(".sessions"),
     )?);
     let client = Arc::new(framer_api::HttpFramerClient::new());
-    let browser = Arc::new(CdpBridge::new(chrome, profiles));
+    let kind = match engine {
+        "full-chrome" => framer_host::EngineKind::FullChrome,
+        "headless-shell" => framer_host::EngineKind::HeadlessShell,
+        "attach" => framer_host::EngineKind::Attach,
+        other => return Err(format!("unknown --engine {other} (full-chrome|headless-shell|attach)")),
+    };
+    let browser = Arc::new(CdpBridge::with_engine(chrome, profiles, kind));
     Ok(AppState { client, browser, sessions, state })
 }
 
@@ -72,8 +84,8 @@ async fn load_proxies(state: &AppState) {
 async fn main() {
     let cli = Cli::parse();
     match cli.cmd {
-        Cmd::Daemon { listen, web_dir, db, chrome, profiles } => {
-            let state = match build_state(&db, &chrome, &profiles) {
+        Cmd::Daemon { listen, web_dir, db, chrome, engine, profiles } => {
+            let state = match build_state(&db, &chrome, &profiles, &engine) {
                 Ok(s) => s,
                 Err(e) => {
                     eprintln!("failed to initialize: {e}");

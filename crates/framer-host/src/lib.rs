@@ -35,6 +35,92 @@ const API_BASE: &str = "https://api.framer.com";
 /// visitors send; keep roughly in sync with the chrome binary's version).
 const DESKTOP_UA: &str = "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/141.0.0.0 Safari/537.36";
 
+/// Derive the desktop UA from the actual chrome binary (so it always matches
+/// the engine's real version — a UA/version mismatch is itself a bot signal).
+async fn desktop_ua(chrome: &Path) -> String {
+    let out = Command::new(chrome).arg("--version").output().await;
+    let ver = out.ok().and_then(|o| {
+        let s = String::from_utf8_lossy(&o.stdout).to_string();
+        s.split_whitespace()
+            .find(|w| w.chars().next().map(|c| c.is_ascii_digit()).unwrap_or(false))
+            .map(|v| v.to_string())
+    });
+    match ver {
+        Some(v) => format!(
+            "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/{v} Safari/537.36"
+        ),
+        None => DESKTOP_UA.to_string(),
+    }
+}
+
+/// Attach mode: connect to a user-launched Chrome (host:port in `addr`),
+/// find its framer.com tab (or open one), return the page websocket.
+async fn attach_ws(addr: &Path, account: &AccountId) -> Result<WsStream, String> {
+    let addr = addr.to_string_lossy().to_string();
+    let base = format!("http://{addr}");
+    // find an existing framer.com page tab
+    let list: Value = serde_json::from_slice(
+        &reqwest_get(&format!("{base}/json/list")).await?,
+    )
+    .map_err(|e| e.to_string())?;
+    let ws_url = list
+        .as_array()
+        .and_then(|a| {
+            a.iter()
+                .find(|t| t["type"].as_str() == Some("page")
+                    && t["url"].as_str().map(|u| u.contains("framer.com")).unwrap_or(false))
+                .and_then(|t| t["webSocketDebuggerUrl"].as_str())
+        })
+        .map(|s| s.to_string());
+    let ws_url = match ws_url {
+        Some(u) => u,
+        None => {
+            // open a framer.com tab (newer Chrome requires PUT for /json/new)
+            let created = reqwest_put(&format!("{base}/json/new?{}", urlencoding(FRAMER_HOME))).await?;
+            let v: Value = serde_json::from_slice(&created).map_err(|e| e.to_string())?;
+            v["webSocketDebuggerUrl"]
+                .as_str()
+                .ok_or("attach: /json/new returned no ws url")?
+                .to_string()
+        }
+    };
+    let (ws, _) = connect_async(&ws_url).await.map_err(|e| e.to_string())?;
+    eprintln!("[host] attach mode: driving user Chrome tab for account {}", &account.0.to_string()[..8]);
+    Ok(ws)
+}
+
+fn urlencoding(u: &str) -> String {
+    u.replace(':', "%3A").replace('/', "%2F")
+}
+
+/// Minimal PUT helper (Chrome's /json/new requires PUT in recent versions).
+async fn reqwest_put(url: &str) -> Result<Vec<u8>, String> {
+    let resp = tokio::task::spawn_blocking({
+        let url = url.to_string();
+        move || {
+            use std::io::{Read, Write};
+            let host = url.trim_start_matches("http://").split('/').next().unwrap_or("").to_string();
+            let path = url.split_once(&host).map(|(_, p)| p.to_string()).unwrap_or_default();
+            let mut s = std::net::TcpStream::connect(&host).map_err(|e| e.to_string())?;
+            s.write_all(format!("PUT {path} HTTP/1.1
+Host: {host}
+Content-Length: 0
+
+").as_bytes())
+                .map_err(|e| e.to_string())?;
+            let mut buf = Vec::new();
+            s.read_to_end(&mut buf).map_err(|e| e.to_string())?;
+            let text = String::from_utf8_lossy(&buf);
+            Ok::<Vec<u8>, String>(text.split("
+
+").nth(1).unwrap_or("").as_bytes().to_vec())
+        }
+    })
+    .await
+    .map_err(|e| e.to_string())??;
+    Ok(resp)
+}
+
 /// Combined warm-mint + authenticated POST, evaluated inside the account's
 /// page on framer.com. Sending auth requests from the page (not reqwest) is
 /// what makes Origin / User-Agent / TLS / fingerprint consistent with the
@@ -154,7 +240,7 @@ impl DeviceRecord {
 
 struct CdpInstance {
     #[allow(dead_code)]
-    child: Child, // kept alive; kill on drop
+    child: Option<Child>, // kept alive; kill on drop. None in Attach mode.
     ws: WsStream,
     next_id: u64,
 }
@@ -198,9 +284,30 @@ impl CdpInstance {
     }
 }
 
+/// Which browser engine backs account sessions — a config choice, not a code
+/// change. Motivation (verified live 2026-10-02): chrome-headless-shell's
+/// fingerprint is Castle-scored (its minted tokens get 403 even from a clean
+/// environment), while a full Chrome's pass. The engine is therefore
+/// swappable per daemon, and attach mode removes the launch question
+/// entirely by driving a real browser the user already trusts.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum EngineKind {
+    /// Full desktop Chrome, headless=new + stealth flags (default).
+    FullChrome,
+    /// The stripped headless build — known-bad Castle fingerprint, kept only
+    /// as a fallback for minimal environments.
+    HeadlessShell,
+    /// Drive a REAL Chrome the user launched themselves
+    /// (`--remote-debugging-port=9222`): their actual profile, history, GPU
+    /// and trust state. The best Castle score possible — the "working browser"
+    /// mode. Daemon never launches anything in this mode.
+    Attach,
+}
+
 pub struct CdpBridge {
     chrome: PathBuf,
     profiles_dir: PathBuf,
+    engine: EngineKind,
     /// Per-account proxy override: account uuid → proxy URL. Populated by the
     /// daemon from account records (and reloadable); applied as
     /// `--proxy-server` at chrome launch for that account's profile.
@@ -212,9 +319,14 @@ impl CdpBridge {
     /// `chrome` = path to a Chrome/Chromium binary; `profiles_dir` holds one
     /// subdirectory per account (the account's whole browser identity).
     pub fn new(chrome: impl Into<PathBuf>, profiles_dir: impl Into<PathBuf>) -> Self {
+        Self::with_engine(chrome, profiles_dir, EngineKind::FullChrome)
+    }
+
+    pub fn with_engine(chrome: impl Into<PathBuf>, profiles_dir: impl Into<PathBuf>, engine: EngineKind) -> Self {
         Self {
             chrome: chrome.into(),
             profiles_dir: profiles_dir.into(),
+            engine,
             proxies: std::sync::Arc::new(tokio::sync::RwLock::new(HashMap::new())),
             instances: Mutex::new(HashMap::new()),
         }
@@ -245,15 +357,35 @@ impl CdpBridge {
         // call to a dead port ("Connection refused" forever — observed live).
         let _ = tokio::fs::remove_file(profile.join("DevToolsActivePort")).await;
 
+        // ATTACH MODE: no launch, no profile management. The user runs their
+        // own real Chrome with --remote-debugging-port=<port>; we drive a
+        // framer.com tab in it. `chrome` path field is reused as "host:port".
+        if self.engine == EngineKind::Attach {
+            let ws = attach_ws(&self.chrome, account).await?;
+            let mut inst = CdpInstance { child: None, ws, next_id: 0 };
+            for _ in 0..50 {
+                let ready = inst
+                    .eval("typeof window.castlePublishableAPIKey !== 'undefined' && document.readyState === 'complete'".into())
+                    .await
+                    .ok()
+                    .and_then(|v| v.as_bool())
+                    .unwrap_or(false);
+                if ready { break; }
+                tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+            }
+            inst.eval(seed_device_snippet(&device_id)).await?;
+            let inst = Arc::new(Mutex::new(inst));
+            self.instances.lock().await.insert(*account, inst.clone());
+            return Ok(inst);
+        }
+
         let proxy = self.proxies.read().await.get(&account.0.to_string()).cloned();
         let mut cmd = Command::new(&self.chrome);
         if let Some(p) = &proxy {
             cmd.arg(format!("--proxy-server={p}"));
             eprintln!("[host] account {} launching with per-account proxy", &account.0.to_string()[..8]);
         }
-        let mut child = cmd
-            .arg("--headless=new")
-            .arg("--remote-debugging-port=0")
+        cmd.arg("--remote-debugging-port=0")
             .arg(format!("--user-data-dir={}", profile.display()))
             .arg("--no-first-run")
             .arg("--no-default-browser-check")
@@ -261,12 +393,29 @@ impl CdpBridge {
             // tiny /dev/shm (chrome crashes rendering without this).
             .arg("--no-sandbox")
             .arg("--disable-dev-shm-usage")
-            .arg("--disable-gpu")
-            .arg("--mute-audio")
-            // headless-shell's default UA says "HeadlessChrome" — a Castle
-            // bot signal, and inconsistent with any token minted as a normal
-            // browser. Present as ordinary desktop Chrome.
-            .arg(format!("--user-agent={DESKTOP_UA}"))
+            .arg("--mute-audio");
+        let ua = desktop_ua(&self.chrome).await;
+        match self.engine {
+            EngineKind::FullChrome => {
+                // Stealth: present as an ordinary desktop browser. The two
+                // signals that most betray automation: the headless UA string
+                // and the webdriver flag. headless=new shares the real
+                // renderer; headless-shell is a different, detectable build.
+                cmd.arg("--headless=new")
+                    .arg("--disable-blink-features=AutomationControlled")
+                    .arg(format!("--user-agent={ua}"))
+                    .arg("--lang=en-US,en")
+                    .arg("--window-size=1920,1080")
+                    .arg("--disable-features=TranslateUI");
+            }
+            EngineKind::HeadlessShell => {
+                cmd.arg("--headless=new")
+                    .arg("--disable-gpu")
+                    .arg(format!("--user-agent={DESKTOP_UA}"));
+            }
+            EngineKind::Attach => unreachable!(),
+        }
+        let mut child = cmd
             .arg(FRAMER_HOME)
             .stdout(Stdio::null())
             .stderr(Stdio::null())
@@ -283,7 +432,7 @@ impl CdpBridge {
                 return Err(e);
             }
         };
-        let mut inst = CdpInstance { child, ws, next_id: 0 };
+        let mut inst = CdpInstance { child: Some(child), ws, next_id: 0 };
 
         // Wait for framer.com to be ready (window.castlePublishableAPIKey set).
         for _ in 0..50 {
@@ -301,7 +450,7 @@ impl CdpBridge {
 
         // Backstop: seed the stable Castle device id before any mint.
         if let Err(e) = inst.eval(seed_device_snippet(&device_id)).await {
-            let _ = inst.child.start_kill();
+            if let Some(c) = inst.child.as_mut() { let _ = c.start_kill(); }
             return Err(e);
         }
 
