@@ -1,0 +1,7 @@
+#!/usr/bin/env bash
+# fclaude — Claude Code backed by framerize's free chain.
+# Bare /anthropic = free (unmetered); /paid/anthropic = metered passthrough.
+BASE="${FRAMERIZE_URL:-http://127.0.0.1:8787}"
+export ANTHROPIC_BASE_URL="$BASE/anthropic"
+export ANTHROPIC_AUTH_TOKEN="${ANTHROPIC_AUTH_TOKEN:-framerize-local}"
+exec claude "$@"

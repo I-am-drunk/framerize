@@ -39,6 +39,12 @@ enum Cmd {
 }
 
 fn build_state(db: &str, chrome: &str, profiles: &str) -> Result<AppState, String> {
+    // Create our own dirs — a first run must not fail because
+    // ~/.framerize doesn't exist yet (observed on a fresh Linux install).
+    if let Some(parent) = std::path::Path::new(db).parent() {
+        std::fs::create_dir_all(parent).map_err(|e| format!("create db dir: {e}"))?;
+    }
+    std::fs::create_dir_all(profiles).map_err(|e| format!("create profiles dir: {e}"))?;
     let state = Arc::new(framer_store::SqliteStateStore::open(db)?);
     // File-based session store: daemons run headless (no dbus/keychain).
     // Sessions live 0600 under <profiles>/.sessions/.
@@ -53,7 +59,6 @@ fn build_state(db: &str, chrome: &str, profiles: &str) -> Result<AppState, Strin
 /// Per-account egress proxies from persisted account records into the bridge
 /// (Castle binds tokens to egress IP — each account needs its own network).
 async fn load_proxies(state: &AppState) {
-    use framer_core::port::StateStore;
     if let Ok(accounts) = state.state.list().await {
         for a in accounts.into_iter().filter(|a| a.proxy.is_some()) {
             // set_proxy drops any live browser instance so it relaunches on
