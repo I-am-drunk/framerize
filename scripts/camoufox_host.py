@@ -48,16 +48,31 @@ MINT_JS = """(async () => {
   if (!window.castlePublishableAPIKey) {
     Object.defineProperty(window, "castlePublishableAPIKey", { value: Object.freeze("pk_xYqGbB61EcFiSh4LUshpT4DGoEQMKQMB") });
   }
-  for (let i = 0; i < 8; i++) {
+  // Import the wrapper ONCE per page and cache it. Cache-busting per retry
+  // was a 5s-per-attempt mistake: each fresh module pays the wrapper's 5s v3
+  // race again (v3 always loses it in Firefox, then latches off — but the
+  // latch only persists within one module instance). With a cached module,
+  // the first mint pays the race once; every later mint is ~1s (v2 path).
+  if (!window.__fzCastleM) {
+    window.__fzCastleM = await import("%s");
+  }
+  const m = window.__fzCastleM;
+  for (let i = 0; i < 3; i++) {
     try {
-      const m = await import("%s?cb=" + Date.now() + "_" + i);
       const t = await m.a();
       if (typeof t === "string" && t.length > 500) return t;
     } catch (e) {}
-    await new Promise(r => setTimeout(r, 2000));
+    await new Promise(r => setTimeout(r, 1500));
   }
+  // Recovery path only: one fresh module (fresh Rh latch) for transient
+  // cold-load races (the original reason for cache-busting).
+  try {
+    const fresh = await import("%s?cb=" + Date.now());
+    const t = await fresh.a();
+    if (typeof t === "string" && t.length > 500) { window.__fzCastleM = fresh; return t; }
+  } catch (e) {}
   return null;
-})()""" % CASTLE_CHUNK
+})()""" % (CASTLE_CHUNK, CASTLE_CHUNK) % CASTLE_CHUNK
 
 
 def post_js(path, body, bearer=None):

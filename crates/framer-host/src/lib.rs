@@ -138,15 +138,26 @@ if (!window.castlePublishableAPIKey) {
 }
 
   let tok = null;
-  for (let i = 0; i < 3 && !tok; i++) {
+  // Import the wrapper ONCE per page (cached on window): a fresh module per
+  // attempt pays the wrapper's 5s v3 race every time (~56s worst case); the
+  // cached instance latches v3 off after the first loss, making later mints
+  // ~1s. Recovery: one fresh module only if every same-module attempt fails.
+  if (!window.__fzCastleM) { try { window.__fzCastleM = await import("%CHUNK%"); } catch (e) {} }
+  if (window.__fzCastleM) {
+    for (let i = 0; i < 3 && !tok; i++) {
+      try {
+        const t = await window.__fzCastleM.a();
+        if (typeof t === "string" && t.length > 500) tok = t;
+      } catch (e) {}
+      if (!tok) await new Promise(r => setTimeout(r, 1200));
+    }
+  }
+  if (!tok) {
     try {
-      const m = await import("%CHUNK%?cb=" + Date.now() + "_" + i);
-      const t = await m.a();
-      // accept v3 (preferred) AND v2 — Framer ships the v2 fallback itself,
-    // so the backend accepts both; the app sends whatever m.a() returns
-    if (typeof t === "string" && t.length > 500) tok = t;
+      const fresh = await import("%CHUNK%?cb=" + Date.now());
+      const t = await fresh.a();
+      if (typeof t === "string" && t.length > 500) { window.__fzCastleM = fresh; tok = t; }
     } catch (e) {}
-    if (!tok) await new Promise(r => setTimeout(r, 1200));
   }
   if (!tok) return { status: 0, body: "castle-v3-unavailable" };
   const body = %BODY%;
@@ -182,15 +193,26 @@ if (!window.castlePublishableAPIKey) {
 }
 
   let tok = null;
-  for (let i = 0; i < 3 && !tok; i++) {
+  // Import the wrapper ONCE per page (cached on window): a fresh module per
+  // attempt pays the wrapper's 5s v3 race every time (~56s worst case); the
+  // cached instance latches v3 off after the first loss, making later mints
+  // ~1s. Recovery: one fresh module only if every same-module attempt fails.
+  if (!window.__fzCastleM) { try { window.__fzCastleM = await import("%CHUNK%"); } catch (e) {} }
+  if (window.__fzCastleM) {
+    for (let i = 0; i < 3 && !tok; i++) {
+      try {
+        const t = await window.__fzCastleM.a();
+        if (typeof t === "string" && t.length > 500) tok = t;
+      } catch (e) {}
+      if (!tok) await new Promise(r => setTimeout(r, 1200));
+    }
+  }
+  if (!tok) {
     try {
-      const m = await import("%CHUNK%?cb=" + Date.now() + "_" + i);
-      const t = await m.a();
-      // accept v3 (preferred) AND v2 — Framer ships the v2 fallback itself,
-    // so the backend accepts both; the app sends whatever m.a() returns
-    if (typeof t === "string" && t.length > 500) tok = t;
+      const fresh = await import("%CHUNK%?cb=" + Date.now());
+      const t = await fresh.a();
+      if (typeof t === "string" && t.length > 500) { window.__fzCastleM = fresh; tok = t; }
     } catch (e) {}
-    if (!tok) await new Promise(r => setTimeout(r, 1200));
   }
   if (!tok) return { status: 0, usage: null, body: "castle-v3-unavailable" };
   const body = %BODY%;
