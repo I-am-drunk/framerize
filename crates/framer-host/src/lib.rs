@@ -15,6 +15,7 @@
 //! `--remote-debugging-port=0`, read `DevToolsActivePort` from the profile dir,
 //! attach to the page target, `Runtime.evaluate` with awaitPromise.
 
+pub mod sidecar;
 use async_trait::async_trait;
 use framer_core::ids::AccountId;
 use framer_core::port::{BrowserBridge, CastleToken};
@@ -362,6 +363,10 @@ pub enum EngineKind {
     /// The stripped headless build — known-bad Castle fingerprint, kept only
     /// as a fallback for minimal environments.
     HeadlessShell,
+    /// Camoufox stealth Firefox via the Python sidecar (scripts/camoufox_host.py).
+    /// The engine that passed Castle in the user's previous program: C++-level
+    /// spoofing, no CDP artifacts, no headless tells.
+    Camoufox,
     /// Drive a REAL Chrome the user launched themselves
     /// (`--remote-debugging-port=9222`): their actual profile, history, GPU
     /// and trust state. The best Castle score possible — the "working browser"
@@ -471,14 +476,25 @@ impl CdpBridge {
                     .arg(format!("--user-agent={ua}"))
                     .arg("--lang=en-US,en")
                     .arg("--window-size=1920,1080")
+                    // headless=new otherwise overrides the screen to 800x600
+                    // (ozone default) — a 1920 window on a 800x600 screen is
+                    // an automation-shaped contradiction.
+                    .arg("--ozone-override-screen-size=1920,1080")
+                    .arg("--force-device-scale-factor=1")
                     .arg("--disable-features=TranslateUI");
+                // Opt-in real GPU (Crostini/virgl, GPUs on servers with
+                // displays): a SwiftShader WebGL renderer is a container tell.
+                // Default off — WebGL failing entirely scores worse.
+                if std::env::var("FRAMERIZE_GPU").is_ok() {
+                    cmd.arg("--enable-gpu").arg("--use-angle=gl-egl");
+                }
             }
             EngineKind::HeadlessShell => {
                 cmd.arg("--headless=new")
                     .arg("--disable-gpu")
                     .arg(format!("--user-agent={DESKTOP_UA}"));
             }
-            EngineKind::Attach => unreachable!(),
+            EngineKind::Attach | EngineKind::Camoufox => unreachable!(),
         }
         let mut child = cmd
             .arg(FRAMER_HOME)
@@ -518,6 +534,11 @@ impl CdpBridge {
             if let Some(c) = inst.child.as_mut() { let _ = c.start_kill(); }
             return Err(e);
         }
+        // Containers report hardwareConcurrency=1 / tiny screens — automation
+        // tells. Level what CDP can (CPU count; memory has no override).
+        let _ = inst
+            .cmd("Emulation.setHardwareConcurrencyOverride", json!({"hardwareConcurrency": 4}))
+            .await;
 
         let inst = Arc::new(Mutex::new(inst));
         self.instances

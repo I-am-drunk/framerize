@@ -45,6 +45,8 @@ pub const SEED_DEVICE_SNIPPET: &str = r#"(() => {
   return id;
 })()"#;
 
+#[allow(dead_code)] // kept as the documented mint contract; AI calls now mint
+// in-page inside ai_post (token+transport must share one environment).
 pub async fn mint(bridge: &dyn BrowserBridge, account: &AccountId) -> Result<CastleToken, String> {
     bridge.castle_token(account).await
 }
