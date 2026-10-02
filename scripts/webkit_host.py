@@ -33,7 +33,13 @@ CASTLE_CHUNK = "https://app.framerstatic.com/chunk-5LKSDTQ5.mjs"
 # Warm-mint loop: cache-busted imports (fresh module => un-latched Rh flag),
 # accept only v3-shaped tokens. Returns null when v3 stays unavailable.
 MINT_JS = """(async () => {
-  for (let i = 0; i < 4; i++) {
+  // Framer serves window.castlePublishableAPIKey inline only to some UAs
+// (verified 2026-10-02: absent in Firefox → wrapper configure fails → m.a()
+// returns undefined). Publishable keys are public; inject when missing.
+if (!window.castlePublishableAPIKey) {
+  Object.defineProperty(window, "castlePublishableAPIKey", { value: Object.freeze("pk_xYqGbB61EcFiSh4LUshpT4DGoEQMKQMB") });
+}
+for (let i = 0; i < 4; i++) {
     try {
       const m = await import("%s?cb=" + Date.now() + "_" + i);
       const t = await m.a();

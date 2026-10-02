@@ -130,6 +130,13 @@ Content-Length: 0
 /// Placeholders: %CHUNK%, %PATH%, %BODY% (JSON object literal WITHOUT the
 /// castleToken field — it is added from the fresh mint).
 const AUTH_POST_SNIPPET: &str = r#"(async () => {
+// Framer serves window.castlePublishableAPIKey inline only to some UAs
+// (verified 2026-10-02: absent in Firefox → wrapper configure fails → m.a()
+// returns undefined). Publishable keys are public; inject when missing.
+if (!window.castlePublishableAPIKey) {
+  Object.defineProperty(window, "castlePublishableAPIKey", { value: Object.freeze("pk_xYqGbB61EcFiSh4LUshpT4DGoEQMKQMB") });
+}
+
   let tok = null;
   for (let i = 0; i < 3 && !tok; i++) {
     try {
@@ -165,6 +172,13 @@ const AUTH_POST_SNIPPET: &str = r#"(async () => {
 /// Returns { status, usage (x-framer-ai-usage header, may be null when CORS
 /// hides it), body }. Placeholders: %CHUNK%, %API%, %PATH%, %BEARER%, %BODY%.
 const AI_POST_SNIPPET: &str = r#"(async () => {
+// Framer serves window.castlePublishableAPIKey inline only to some UAs
+// (verified 2026-10-02: absent in Firefox → wrapper configure fails → m.a()
+// returns undefined). Publishable keys are public; inject when missing.
+if (!window.castlePublishableAPIKey) {
+  Object.defineProperty(window, "castlePublishableAPIKey", { value: Object.freeze("pk_xYqGbB61EcFiSh4LUshpT4DGoEQMKQMB") });
+}
+
   let tok = null;
   for (let i = 0; i < 3 && !tok; i++) {
     try {
