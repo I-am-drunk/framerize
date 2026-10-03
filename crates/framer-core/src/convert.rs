@@ -1120,3 +1120,23 @@ fn merge_blocks_local(acc: &mut Vec<Value>, new: Vec<Value>) {
         acc.push(b);
     }
 }
+
+/// Mid-stream failure frames: a REAL error event per dialect so clients retry
+/// loudly instead of accepting error text as the answer (anthropic `error`
+/// event, responses `response.failed`, chat error object then [DONE]).
+pub fn error_frames(d: ClientDialect, msg: &str) -> Vec<String> {
+    match d {
+        ClientDialect::AnthropicMessages => vec![sse("error", json!({
+            "type": "error",
+            "error": {"type": "api_error", "message": msg},
+        }))],
+        ClientDialect::OpenAiResponses => vec![sse("response.failed", json!({
+            "type": "response.failed",
+            "response": {"status": "failed", "error": {"message": msg}},
+        }))],
+        ClientDialect::OpenAiChat => vec![
+            format!("data: {}", json!({"error": {"message": msg, "type": "server_error"}})),
+            "data: [DONE]".into(),
+        ],
+    }
+}

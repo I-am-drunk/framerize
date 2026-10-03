@@ -449,20 +449,7 @@ async fn free_complete(
                         }
                         let tail = match r {
                             Ok(Ok(assembled)) => composer.finish(&assembled, &client_model, include_usage),
-                            Ok(Err(e)) => {
-                                let err_resp = convert::AssembledResponse {
-                                    id: "msg_err".into(),
-                                    content: vec![serde_json::json!({"type":"text","text":format!("[framerize] {e}")})],
-                                    stop_reason: "end_turn".into(),
-                                    stop_sequence: None,
-                                    usage: serde_json::json!({}),
-                                    input_tokens: 0, output_tokens: 0, chunks: 0, metered_chunks: 0,
-                                };
-                                composer.push_chunk(&err_resp.content.clone())
-                                    .into_iter()
-                                    .chain(composer.finish(&err_resp, &client_model, false))
-                                    .collect()
-                            }
+                            Ok(Err(e)) => convert::error_frames(dialect, &e),
                             Err(je) => vec![convert::ping_frame(dialect), format!(": join error {je}")],
                         };
                         drained.into_iter().chain(tail).collect()
