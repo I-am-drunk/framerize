@@ -67,12 +67,14 @@ pub async fn complete_long(
 
     // Window sizing from live measurement (§8 + 2026-10-03 storm analysis):
     // the messages route's deaths cluster at ~60-67s under load, and upstream
-    // throughput COLLAPSES under repeated attempts (67 → 12 tok/s measured).
-    // The budget must track the model's LIVE speed with a hard floor — five
-    // small completed chunks beat five deaths. 45s budget ≈ 75% of the window.
+    // throughput oscillates 10-67 tok/s WITHIN minutes. Budgets must track
+    // the model's LIVE speed — and crucially, START SMALL: a 2500-token first
+    // chunk at a degraded 10 tok/s takes 250s of total silence (looks hung).
+    // Ramp UP from 600 with measured speed instead of ramping down after
+    // deaths: first content lands in ~10-60s regardless of upstream mood.
     let window_budget_s = 45.0f32;
     let chunk_cap = cfg.chunk_tokens.max(2500);
-    let mut chunk_tokens = chunk_cap;
+    let mut chunk_tokens = cfg.chunk_tokens.min(600);
     let budget_for = |tps: f32| -> u32 { ((tps * window_budget_s) as u32).clamp(400, 3000) };
 
     let chain_started = std::time::Instant::now();
@@ -89,6 +91,7 @@ pub async fn complete_long(
         let chunk = budget.min(chunk_tokens);
         let payload = build_payload(&messages, chunk);
         let t0 = std::time::Instant::now();
+        eprintln!("[freechat] chunk {i} start (max_tokens={chunk})");
         let resp = match proxy::forward(
             t, token_cache, session, browser, account, project,
             upstream, payload.clone(), chat_session,
@@ -163,6 +166,7 @@ pub async fn complete_long(
         // Adapt chunk size from measured throughput (floor 400: completes even
         // when the upstream degrades to a crawl; ceiling 3000 ≈ 75% window).
         let tps = out_t as f32 / elapsed.max(0.5);
+        eprintln!("[freechat] chunk {i} done in {elapsed:.1}s ({out_t} tok, {tps:.0} tok/s)");
         if tps > 1.0 {
             chunk_tokens = budget_for(tps);
         }
