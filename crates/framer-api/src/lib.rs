@@ -160,6 +160,7 @@ impl FramerClient for HttpFramerClient {
         anthro_payload: serde_json::Value,
         cfg: &framer_core::port::ChainConfig,
         chat_session: &str,
+        events: Option<&(dyn Fn(framer_core::convert::ChainEvent) + Send + Sync)>,
     ) -> Result<framer_core::convert::AssembledResponse, String> {
         freechat::complete_long(
             &self.transport,
