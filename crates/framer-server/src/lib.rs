@@ -7,7 +7,7 @@ use axum::http::StatusCode;
 use axum::routing::{get, post};
 use axum::{Json, Router};
 use framer_core::account::ManagedAccount;
-use framer_core::convert::{self, ClientDialect, CanonicalResponse};
+use framer_core::convert::{self, ClientDialect};
 use framer_core::ids::AccountId;
 use framer_core::pipeline::{self, Deps, InferenceOutcome, InferenceRequest};
 use framer_core::port::{BrowserBridge, FramerClient, SessionStore, StateStore};
@@ -313,27 +313,28 @@ async fn openai_chat(
 /// Free mode for Anthropic-dialect clients: chain on the OpenRouter
 /// Anthropic-format passthrough (/ai/v3/messages/, unmetered non-streaming)
 /// with the client's own payload — zero conversion.
-async fn free_complete_anthropic_native(
+/// Free mode, ANY client dialect, LOSSLESS: convert the client's request to
+/// Anthropic Messages shape with full fidelity (tools, system, tool_choice,
+/// content blocks — convert::to_anthropic_request), run the unmetered
+/// continuation chain on /ai/v3/messages/ (block-aware), then render the
+/// assembled response back into the client's dialect — as JSON, or as a
+/// synthesized SSE stream when the client asked to stream.
+async fn free_complete(
     s: AppState,
     headers: &axum::http::HeaderMap,
+    dialect: ClientDialect,
     payload: serde_json::Value,
 ) -> Result<axum::response::Response, ApiError> {
     let client_model = payload["model"].as_str().unwrap_or_default().to_string();
-    let model = convert::to_openrouter_id(&client_model);
-    let system = match &payload["system"] {
-        serde_json::Value::String(t) => Some(t.clone()),
-        serde_json::Value::Array(blocks) => Some(
-            blocks
-                .iter()
-                .filter_map(|b| b["text"].as_str())
-                .collect::<Vec<_>>()
-                .join("\n"),
-        ),
-        _ => None,
-    };
-    let messages = payload["messages"].as_array().cloned().unwrap_or_default();
-    let max_tokens = payload["max_tokens"].as_u64().unwrap_or(1024) as u32;
     let wants_stream = payload["stream"].as_bool().unwrap_or(false);
+    let include_usage = payload["stream_options"]["include_usage"].as_bool().unwrap_or(false);
+    let max_tokens = payload["max_tokens"].as_u64()
+        .or_else(|| payload["max_completion_tokens"].as_u64())
+        .or_else(|| payload["max_output_tokens"].as_u64())
+        .unwrap_or(4096) as u32;
+
+    // Client request → faithful Anthropic Messages payload (model normalized).
+    let anthro = convert::to_anthropic_request(dialect, &payload).map_err(ApiError)?;
 
     let pool = s.state.list().await.map_err(ApiError)?;
     let account = match hdr(headers, "x-framerize-account") {
@@ -362,6 +363,7 @@ async fn free_complete_anthropic_native(
         max_total_tokens: Some(max_tokens),
         ..Default::default()
     };
+    let t0 = std::time::Instant::now();
     let result = s
         .client
         .freechat_long(
@@ -369,33 +371,36 @@ async fn free_complete_anthropic_native(
             s.browser.as_ref(),
             &account.id,
             &project,
-            &model,
-            system,
-            messages,
+            anthro,
             &cfg,
             &chat_session,
-            framer_core::port::ChainDialect::AnthropicMessages,
         )
-        .await
-        .map_err(ApiError)?;
+        .await;
 
-    let stop_reason = if result.finish_reason.starts_with("length") {
-        "max_tokens"
-    } else {
-        "end_turn"
-    };
+    // canonical ai.chain event (credit-use proof lives here: metered_chunks)
+    {
+        use framer_core::observability::Event;
+        let mut ev = Event::new("ai.chain")
+            .account(&account.id)
+            .field("model", anthro_model_for_log(dialect, &payload))
+            .field("dialect", format!("{dialect:?}"))
+            .duration_ms(t0.elapsed().as_millis());
+        ev = match &result {
+            Ok(r) => ev
+                .field("chunks", r.chunks)
+                .field("metered_chunks", r.metered_chunks)
+                .field("prompt_tokens", r.input_tokens)
+                .field("completion_tokens", r.output_tokens)
+                .field("finish_reason", r.stop_reason.clone())
+                .outcome("ok"),
+            Err(e) => ev.error(e),
+        };
+        ev.emit();
+    }
+    let result = result.map_err(ApiError)?;
 
     if wants_stream {
-        // Synthesize the Anthropic SSE event sequence from the chained result
-        // (same renderer the IR path uses).
-        let ir = CanonicalResponse {
-            text: result.text,
-            finish_reason: if stop_reason == "max_tokens" { "length".into() } else { "stop".into() },
-            model: client_model.clone(),
-            prompt_tokens: result.prompt_tokens,
-            completion_tokens: result.completion_tokens,
-        };
-        let frames = convert::render_stream(ClientDialect::AnthropicMessages, &ir);
+        let frames = convert::render_sse(dialect, &result, &client_model, include_usage);
         let body = frames.into_iter().map(|f| format!("{f}\n\n")).collect::<String>();
         let mut resp = axum::response::Response::new(axum::body::Body::from(body));
         resp.headers_mut().insert(
@@ -409,20 +414,7 @@ async fn free_complete_anthropic_native(
         return Ok(resp);
     }
 
-    let msg_id = format!("msg_{:08x}{:08x}{:08x}", rand_u32(), rand_u32(), rand_u32());
-    let body = serde_json::json!({
-        "id": msg_id,
-        "type": "message",
-        "role": "assistant",
-        "content": [{ "type": "text", "text": result.text }],
-        "model": client_model,
-        "stop_reason": stop_reason,
-        "stop_sequence": null,
-        "usage": {
-            "input_tokens": result.prompt_tokens,
-            "output_tokens": result.completion_tokens,
-        },
-    });
+    let body = convert::render_json(dialect, &result, &client_model);
     let mut resp = axum::response::Response::new(axum::body::Body::from(
         serde_json::to_string(&body).map_err(|e| ApiError(e.to_string()))?,
     ));
@@ -437,127 +429,9 @@ async fn free_complete_anthropic_native(
     Ok(resp)
 }
 
-/// Free mode, ANY client dialect: parse the client's request into the canonical
-/// IR, run the unmetered continuation chain on the OpenRouter chat route
-/// (stream:false chunks — the upstream meter only hooks SSE; verified-captures
-/// §6-8), then render the answer back into the client's dialect — as JSON, or
-/// as a synthesized SSE stream when the client asked to stream. Adding a client
-/// dialect = one module in framer_core::convert, never a change here.
-async fn free_complete(
-    s: AppState,
-    headers: &axum::http::HeaderMap,
-    dialect: ClientDialect,
-    payload: serde_json::Value,
-) -> Result<axum::response::Response, ApiError> {
-    // Anthropic clients chain NATIVELY on /ai/v3/messages/ (also unmetered
-    // non-streaming — verified §8): no dialect conversion, so tool_use blocks,
-    // content structure and system prompts pass through untouched.
-    if dialect == ClientDialect::AnthropicMessages {
-        return free_complete_anthropic_native(s, headers, payload).await;
-    }
-    let req = convert::parse_request(dialect, &payload).map_err(ApiError)?;
-
-    let pool = s.state.list().await.map_err(ApiError)?;
-    let account = match hdr(headers, "x-framerize-account") {
-        Some(id) => pool
-            .into_iter()
-            .find(|a| a.id.0.to_string() == id)
-            .ok_or_else(|| ApiError("unknown account id".into()))?,
-        None => framer_core::rotation::pick(&pool)
-            .cloned()
-            .ok_or_else(|| ApiError("no eligible account".into()))?,
-    };
-    let session = s
-        .sessions
-        .load(&account.framer_user_id)
-        .await
-        .map_err(ApiError)?
-        .ok_or_else(|| ApiError("account has no session".into()))?;
-    let project = account
-        .current_project
-        .clone()
-        .ok_or_else(|| ApiError("account has no current project".into()))?;
-    let chat_session =
-        hdr(headers, "x-framerize-session").unwrap_or_else(|| format!("s{:08x}", rand_u32()));
-
-    let cfg = framer_core::port::ChainConfig {
-        max_total_tokens: Some(req.max_tokens),
-        ..Default::default()
-    };
-    // ALL free traffic rides /ai/v3/messages/ — the Anthropic-format OpenRouter
-    // passthrough has a ~60s window (measured ≥44.9s survival) vs the chat
-    // route's ~21.5s, so most generations complete in ONE free call without
-    // chaining. OpenAI/Responses dialects convert via IR at the boundary only.
-    let first = convert::to_anthropic_payload(&req, cfg.chunk_tokens);
-    let model = first["model"].as_str().unwrap_or_default().to_string();
-    let messages = first["messages"].as_array().cloned().unwrap_or_default();
-    let system = first.get("system").and_then(Value::as_str).map(String::from);
-
-    let result = s
-        .client
-        .freechat_long(
-            &session,
-            s.browser.as_ref(),
-            &account.id,
-            &project,
-            &model,
-            system,
-            messages,
-            &cfg,
-            &chat_session,
-            framer_core::port::ChainDialect::AnthropicMessages,
-        )
-        .await
-        .map_err(ApiError)?;
-
-    let finish = if result.finish_reason.starts_with("length") {
-        "length"
-    } else {
-        "stop"
-    };
-    let ir = CanonicalResponse {
-        text: result.text,
-        finish_reason: finish.into(),
-        model: req.model.clone(), // echo the client's model id, not the upstream one
-        prompt_tokens: result.prompt_tokens,
-        completion_tokens: result.completion_tokens,
-    };
-
-    if req.stream {
-        let frames = convert::render_stream(dialect, &ir);
-        let body = frames
-            .into_iter()
-            .map(|f| format!("{f}\n\n"))
-            .collect::<String>();
-        let mut resp = axum::response::Response::new(axum::body::Body::from(body));
-        resp.headers_mut().insert(
-            axum::http::header::CONTENT_TYPE,
-            axum::http::HeaderValue::from_static("text/event-stream"),
-        );
-        resp.headers_mut().insert(
-            "x-framerize-session",
-            chat_session
-                .parse()
-                .unwrap_or(axum::http::HeaderValue::from_static("")),
-        );
-        return Ok(resp);
-    }
-
-    let body = convert::render_response(dialect, &ir);
-    let mut resp = axum::response::Response::new(axum::body::Body::from(
-        serde_json::to_string(&body).map_err(|e| ApiError(e.to_string()))?,
-    ));
-    resp.headers_mut().insert(
-        axum::http::header::CONTENT_TYPE,
-        axum::http::HeaderValue::from_static("application/json"),
-    );
-    resp.headers_mut().insert(
-        "x-framerize-session",
-        chat_session
-            .parse()
-            .unwrap_or(axum::http::HeaderValue::from_static("")),
-    );
-    Ok(resp)
+fn anthro_model_for_log(dialect: ClientDialect, payload: &Value) -> String {
+    let _ = dialect;
+    convert::to_openrouter_id(payload["model"].as_str().unwrap_or_default())
 }
 
 /// Anthropic count_tokens shape; character-based estimate (≈4 chars/token) —

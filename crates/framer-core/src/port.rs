@@ -159,17 +159,7 @@ impl Default for ChainConfig {
     }
 }
 
-#[derive(Debug)]
-pub struct ChainResult {
-    pub text: String,
-    pub chunks: u32,
-    pub prompt_tokens: u64,
-    pub completion_tokens: u64,
-    pub finish_reason: String,
-    /// How many chunks fell back to metered streaming (0 = fully free run).
-    /// Automations log/alert on this: nonzero means credits were touched.
-    pub metered_chunks: u32,
-}
+// Chain results are framer_core::convert::AssembledResponse (block-faithful).
 
 /// The one port that talks to Framer. Everything undocumented/fragile is behind this.
 #[async_trait]
@@ -222,6 +212,9 @@ pub trait FramerClient: Send + Sync {
     /// passthroughs 2026-10-01). `model` is a PREFIXED OpenRouter catalog id.
     /// `dialect` picks the upstream wire format; `system` is only used by the
     /// Anthropic dialect (its API keeps system outside messages).
+    /// Lossless free chain: takes the client request already converted to
+    /// Anthropic Messages shape (convert::to_anthropic_request), returns the
+    /// block-faithful assembled response.
     #[allow(clippy::too_many_arguments)]
     async fn freechat_long(
         &self,
@@ -229,13 +222,10 @@ pub trait FramerClient: Send + Sync {
         browser: &dyn BrowserBridge,
         account: &AccountId,
         project: &ProjectId,
-        model: &str,
-        system: Option<String>,
-        messages: Vec<serde_json::Value>,
+        anthro_payload: serde_json::Value,
         cfg: &ChainConfig,
         chat_session: &str,
-        dialect: ChainDialect,
-    ) -> Result<ChainResult, String>;
+    ) -> Result<crate::convert::AssembledResponse, String>;
 
     /// GET /web/teams/{teamId}/ai-credits.
     async fn usage(&self, session: &Session, team: &TeamId) -> Result<CreditSnapshot, String>;
