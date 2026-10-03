@@ -98,8 +98,34 @@ const ANTHROPIC_FIELDS: &[&str] = &[
     "metadata", "thinking",
 ];
 
+/// Tiny operator note appended to the system prompt when tools are in play
+/// (free route only — the paid passthrough is untouched). Physics: a tool
+/// call larger than the upstream idle window (~100s of output) cannot complete
+/// non-streaming, and no retry fixes that — the model must chunk its own work.
+/// This one line eliminates the mid-tool_use retry churn.
+const TOOL_CHUNK_NOTE: &str = "Important: keep every individual tool call small — never more than about 400 words of content in a single call. For anything longer, split it across multiple sequential tool calls (e.g. write or append section by section).";
+
+fn append_chunk_note(out: &mut Value) {
+    let has_tools = out.get("tools").and_then(|t| t.as_array()).map(|a| !a.is_empty()).unwrap_or(false);
+    if !has_tools {
+        return;
+    }
+    match out.get_mut("system") {
+        Some(Value::String(s)) => {
+            s.push_str("\n\n");
+            s.push_str(TOOL_CHUNK_NOTE);
+        }
+        Some(Value::Array(blocks)) => {
+            blocks.push(json!({"type": "text", "text": TOOL_CHUNK_NOTE}));
+        }
+        _ => {
+            out["system"] = json!(TOOL_CHUNK_NOTE);
+        }
+    }
+}
+
 pub fn to_anthropic_request(d: ClientDialect, body: &Value) -> Result<Value, String> {
-    match d {
+    let mut out = match d {
         ClientDialect::AnthropicMessages => {
             // Verbatim passthrough (whitelist): zero loss for native clients.
             let mut out = json!({});
@@ -112,11 +138,13 @@ pub fn to_anthropic_request(d: ClientDialect, body: &Value) -> Result<Value, Str
             if !out.get("messages").map(|m| m.is_array()).unwrap_or(false) {
                 return Err("messages is required".into());
             }
-            Ok(out)
+            out
         }
-        ClientDialect::OpenAiChat => chat_to_anthropic(body),
-        ClientDialect::OpenAiResponses => responses_to_anthropic(body),
-    }
+        ClientDialect::OpenAiChat => chat_to_anthropic(body)?,
+        ClientDialect::OpenAiResponses => responses_to_anthropic(body)?,
+    };
+    append_chunk_note(&mut out);
+    Ok(out)
 }
 
 fn text_from_content(content: &Value) -> String {
