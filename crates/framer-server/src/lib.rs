@@ -360,6 +360,131 @@ async fn free_complete(
         max_total_tokens: Some(max_tokens),
         ..Default::default()
     };
+    if wants_stream {
+        // INCREMENTAL streaming: spawn the chain with an events callback and
+        // emit SSE frames as chunks land — message_start/role/created
+        // immediately, per-chunk deltas as they arrive, heartbeat pings every
+        // 8s of silence. The old behavior buffered the entire chain before
+        // the first byte; streaming clients (Claude Code) timed out the
+        // silent socket: "Claude gave up after repeated API errors".
+        let msg_id = format!("msg_{:08x}{:08x}", rand_u32(), rand_u32());
+        let (tx, mut rx) = tokio::sync::mpsc::channel::<convert::ChainEvent>(64);
+        let s2 = s.clone();
+        let account2 = account.clone();
+        let project2 = project.clone();
+        let chat_session2 = chat_session.clone();
+        let log_model = anthro_model_for_log(dialect, &payload);
+        let mut handle = tokio::spawn(async move {
+            let t0 = std::time::Instant::now();
+            let cb = move |ev: convert::ChainEvent| {
+                let _ = tx.try_send(ev);
+            };
+            let result = s2
+                .client
+                .freechat_long(
+                    &session,
+                    s2.browser.as_ref(),
+                    &account2.id,
+                    &project2,
+                    anthro,
+                    &cfg,
+                    &chat_session2,
+                    Some(&cb),
+                )
+                .await;
+            {
+                use framer_core::observability::Event;
+                let mut ev = Event::new("ai.chain")
+                    .account(&account2.id)
+                    .field("model", log_model)
+                    .field("dialect", format!("{dialect:?}"))
+                    .duration_ms(t0.elapsed().as_millis());
+                ev = match &result {
+                    Ok(r) => ev
+                        .field("chunks", r.chunks)
+                        .field("metered_chunks", r.metered_chunks)
+                        .field("prompt_tokens", r.input_tokens)
+                        .field("completion_tokens", r.output_tokens)
+                        .field("finish_reason", r.stop_reason.clone())
+                        .outcome("ok"),
+                    Err(e) => ev.error(e),
+                };
+                ev.emit();
+            }
+            result
+        });
+
+        let open_frames = convert::stream_open(dialect, &client_model, &msg_id);
+        let composer = convert::SseComposer::new(dialect, &msg_id, &client_model);
+        struct St {
+            done: bool,
+        }
+        let stream = futures::stream::unfold(
+            (rx, open_frames, composer, St { done: false }, handle, client_model, include_usage, dialect),
+            |(mut rx, mut pending, mut composer, mut st, mut handle, client_model, include_usage, dialect)| async move {
+                if st.done {
+                    return None;
+                }
+                if !pending.is_empty() {
+                    let out = pending.join("\n\n") + "\n\n";
+                    pending.clear();
+                    return Some((Ok::<_, std::convert::Infallible>(axum::body::Bytes::from(out)), (rx, pending, composer, st, handle, client_model, include_usage, dialect)));
+                }
+                let frames: Vec<String> = tokio::select! {
+                    biased;
+                    r = &mut handle => {
+                        st.done = true;
+                        match r {
+                            Ok(Ok(assembled)) => composer.finish(&assembled, &client_model, include_usage),
+                            Ok(Err(e)) => {
+                                let err_resp = convert::AssembledResponse {
+                                    id: "msg_err".into(),
+                                    content: vec![serde_json::json!({"type":"text","text":format!("[framerize] {e}")})],
+                                    stop_reason: "end_turn".into(),
+                                    stop_sequence: None,
+                                    usage: serde_json::json!({}),
+                                    input_tokens: 0, output_tokens: 0, chunks: 0, metered_chunks: 0,
+                                };
+                                composer.push_chunk(&err_resp.content.clone())
+                                    .into_iter()
+                                    .chain(composer.finish(&err_resp, &client_model, false))
+                                    .collect()
+                            }
+                            Err(je) => vec![convert::ping_frame(dialect), format!(": join error {je}")],
+                        }
+                    }
+                    ev = rx.recv() => match ev {
+                        Some(convert::ChainEvent::Chunk(blocks)) => composer.push_chunk(&blocks),
+                        Some(convert::ChainEvent::Done(_)) => vec![],
+                        None => vec![],
+                    },
+                    _ = tokio::time::sleep(std::time::Duration::from_secs(8)) => {
+                        vec![convert::ping_frame(dialect)]
+                    }
+                };
+                if frames.is_empty() && !st.done {
+                    return Some((Ok(axum::body::Bytes::new()), (rx, pending, composer, st, handle, client_model, include_usage, dialect)));
+                }
+                let out = if frames.is_empty() { String::new() } else { frames.join("\n\n") + "\n\n" };
+                Some((Ok(axum::body::Bytes::from(out)), (rx, pending, composer, st, handle, client_model, include_usage, dialect)))
+            },
+        );
+        let mut resp = axum::response::Response::new(axum::body::Body::from_stream(stream));
+        resp.headers_mut().insert(
+            axum::http::header::CONTENT_TYPE,
+            axum::http::HeaderValue::from_static("text/event-stream"),
+        );
+        resp.headers_mut().insert(
+            "x-framerize-session",
+            chat_session.parse().unwrap_or(axum::http::HeaderValue::from_static("")),
+        );
+        resp.headers_mut().insert(
+            axum::http::header::CACHE_CONTROL,
+            axum::http::HeaderValue::from_static("no-cache"),
+        );
+        return Ok(resp);
+    }
+
     let t0 = std::time::Instant::now();
     let result = s
         .client
@@ -371,6 +496,7 @@ async fn free_complete(
             anthro,
             &cfg,
             &chat_session,
+            None,
         )
         .await;
 
@@ -395,21 +521,6 @@ async fn free_complete(
         ev.emit();
     }
     let result = result.map_err(ApiError)?;
-
-    if wants_stream {
-        let frames = convert::render_sse(dialect, &result, &client_model, include_usage);
-        let body = frames.into_iter().map(|f| format!("{f}\n\n")).collect::<String>();
-        let mut resp = axum::response::Response::new(axum::body::Body::from(body));
-        resp.headers_mut().insert(
-            axum::http::header::CONTENT_TYPE,
-            axum::http::HeaderValue::from_static("text/event-stream"),
-        );
-        resp.headers_mut().insert(
-            "x-framerize-session",
-            chat_session.parse().unwrap_or(axum::http::HeaderValue::from_static("")),
-        );
-        return Ok(resp);
-    }
 
     let body = convert::render_json(dialect, &result, &client_model);
     let mut resp = axum::response::Response::new(axum::body::Body::from(

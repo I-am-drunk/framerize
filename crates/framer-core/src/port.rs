@@ -225,6 +225,7 @@ pub trait FramerClient: Send + Sync {
         anthro_payload: serde_json::Value,
         cfg: &ChainConfig,
         chat_session: &str,
+        events: Option<&(dyn Fn(crate::convert::ChainEvent) + Send + Sync)>,
     ) -> Result<crate::convert::AssembledResponse, String>;
 
     /// GET /web/teams/{teamId}/ai-credits.
