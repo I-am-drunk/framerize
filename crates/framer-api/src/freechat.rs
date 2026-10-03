@@ -62,7 +62,7 @@ pub async fn complete_long(
     let mut last_usage = json!({});
     let (mut ptok, mut ctok) = (0u64, 0u64);
     let mut metered_chunks = 0u32;
-    let mut retried_tool_cut = false;
+    let mut tool_cut_retries = 0u32;
 
     // Window sizing from live measurement (§8): messages route ~60-109s.
     let window_budget_s = 45.0f32;
@@ -166,13 +166,15 @@ pub async fn complete_long(
             .last()
             .map(|b| b["type"].as_str() == Some("tool_use"))
             .unwrap_or(false);
-        if chunk_stop == "max_tokens" && ends_in_tool_use && !retried_tool_cut {
-            // ONE free retry with a window-safe budget (~4000 tokens ≈ 60s at
-            // Fable's measured ~67 tok/s): the cut is usually thinking-block
-            // hogging, and the tool call itself fits the bigger window.
-            retried_tool_cut = true;
-            eprintln!("[freechat] chunk {i} cut mid-tool_use — one window-safe retry (max_tokens≈4000)");
-            chunk_tokens = 4000;
+        if chunk_stop == "max_tokens" && ends_in_tool_use && tool_cut_retries < 2 {
+            // Free retry with an ADAPTIVE window-safe budget: ~85s of the
+            // model's own measured throughput (Fable runs ~67 tok/s → ~5700
+            // tokens, inside the ~100s window). The cut is usually thinking
+            // hogging the budget, not the tool call itself.
+            tool_cut_retries += 1;
+            let budget = ((tps * 85.0) as u32).clamp(3500, 6000).max(chunk_tokens);
+            eprintln!("[freechat] chunk {i} cut mid-tool_use — free retry #{tool_cut_retries} (max_tokens={budget}, measured {tps:.0} tok/s)");
+            chunk_tokens = budget;
             ctok = ctok.saturating_sub(out_t);
             continue;
         }
