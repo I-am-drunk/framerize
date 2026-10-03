@@ -238,7 +238,7 @@ class Host:
         return acc
 
     def _ctx(self, account):
-        return self.accounts[account][1]
+        return self.accounts[account].ctx
 
     async def handle(self, req):
         cmd = req.get("cmd")
