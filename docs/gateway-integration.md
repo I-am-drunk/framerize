@@ -82,3 +82,32 @@ For 24/7 automation the rule is "a long request can never cause an issue":
 
 Streaming requests from clients (Claude Code always streams) get synthesized
 SSE from the chain: full ordered event sequence, with per-chunk deltas.
+
+## Losslessness contract (v0.5 architecture)
+
+The free path is a **block-faithful relay**, not a text proxy:
+
+- **Anthropic clients**: the request passes to the upstream **verbatim** (only
+  `model` is normalized, `stream` forced off per chunk, `max_tokens` set per
+  chunk). `tools`, `tool_choice`, `system` (string or block arrays with
+  cache_control), `temperature`, `top_p`, `top_k`, `stop_sequences`,
+  `metadata`, `thinking` all flow upstream untouched. Response content blocks
+  re-emit untouched (including upstream extras like `citations`).
+- **OpenAI chat / responses clients**: every field with an Anthropic
+  equivalent is mapped — `tools` ↔ anthropic tools, `tool_calls` ↔ `tool_use`,
+  tool results ↔ `tool_result` user blocks, `instructions` ↔ system, images
+  (url + base64) ↔ image blocks, `user` ↔ `metadata.user_id`. Documented drops
+  (no Anthropic equivalent): penalties, logprobs, seed, n>1, reasoning blobs.
+- **Chaining is block-aware**: text blocks merge seamlessly across chunks;
+  `tool_use` blocks keep ids/names/inputs; a chunk cut mid-`tool_use` retries
+  with a doubled budget instead of chaining through a half-written call;
+  `stop_reason` and usage pass through exactly.
+- **Streaming**: synthesized SSE emits the complete dialect event grammar —
+  Anthropic (`content_block_start` typed blocks, `input_json_delta`,
+  `message_delta` with stop_reason), chat (`tool_calls` deltas with indices,
+  usage chunk behind `stream_options.include_usage`), responses
+  (`output_item.added/done`, `function_call_arguments.delta/done`,
+  `response.completed` with the full object).
+- Verified live on iris (2026-10-03): tool_use via stream + JSON, multi-turn
+  tool_result loop, Codex-shape function_call SSE, chat tool_calls, 1.5k-token
+  chained generation — all `metered_chunks=0`.
