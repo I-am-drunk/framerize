@@ -777,8 +777,9 @@ mod tests {
         // assistant tool_use block
         let msgs = out["messages"].as_array().unwrap();
         let asst = &msgs[1];
-        assert_eq!(asst["content"][1]["type"], "tool_use");
-        assert_eq!(asst["content"][1]["input"]["city"], "Paris");
+        // content is null on the assistant message → no text block; tool_use leads
+        assert_eq!(asst["content"][0]["type"], "tool_use");
+        assert_eq!(asst["content"][0]["input"]["city"], "Paris");
         // tool_result in user turn
         let tr = &msgs[2];
         assert_eq!(tr["role"], "user");
