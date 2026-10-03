@@ -143,6 +143,21 @@ pub fn to_anthropic_request(d: ClientDialect, body: &Value) -> Result<Value, Str
         ClientDialect::OpenAiChat => chat_to_anthropic(body)?,
         ClientDialect::OpenAiResponses => responses_to_anthropic(body)?,
     };
+    // Free-route thinking cap: thinking tokens hog the chunk budget (Fable/
+    // Opus burn 200-2000 thinking tokens even on trivia) — and when the
+    // upstream degrades to single-digit tok/s, a 32000-token thinking budget
+    // is the difference between answering and stalling into the wall.
+    // 1024 keeps reasoning useful, bounded. FRAMERIZE_NO_THINKING_CAP=1 opts out.
+    if std::env::var("FRAMERIZE_NO_THINKING_CAP").map(|v| v != "1").unwrap_or(true) {
+        if let Some(t) = out.get_mut("thinking") {
+            if t["type"].as_str() == Some("enabled") {
+                let cur = t["budget_tokens"].as_u64().unwrap_or(u64::MAX);
+                if cur > 1024 {
+                    t["budget_tokens"] = json!(1024);
+                }
+            }
+        }
+    }
     append_chunk_note(&mut out);
     Ok(out)
 }

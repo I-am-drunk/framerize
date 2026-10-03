@@ -63,6 +63,7 @@ pub async fn complete_long(
     let (mut ptok, mut ctok) = (0u64, 0u64);
     let mut metered_chunks = 0u32;
     let mut tool_cut_retries = 0u32;
+    let mut slow_chunks = 0u32;
 
     // Window sizing from live measurement (§8 + 2026-10-03 storm analysis):
     // the messages route's deaths cluster at ~60-67s under load, and upstream
@@ -164,6 +165,18 @@ pub async fn complete_long(
         let tps = out_t as f32 / elapsed.max(0.5);
         if tps > 1.0 {
             chunk_tokens = budget_for(tps);
+        }
+        // Sustained collapse detector: two consecutive chunks under ~8 tok/s
+        // means the upstream is in a degraded period. Fail FAST (the client
+        // retries later and wins) instead of grinding into the 300s wall-cap
+        // and multiplying user wait through client retries.
+        if tps > 0.0 && tps < 8.0 {
+            slow_chunks += 1;
+            if slow_chunks >= 2 {
+                return Err(format!("upstream degraded ({tps:.0} tok/s sustained) — retry in a minute"));
+            }
+        } else if tps >= 12.0 {
+            slow_chunks = 0;
         }
 
         // Partial tool_use at max_tokens: a half-written tool call can't be
