@@ -244,7 +244,7 @@ fn merge_consecutive(msgs: Vec<Value>) -> Vec<Value> {
                 // append content blocks/strings
                 let mut lc = last["content"].clone();
                 let mc = m["content"].clone();
-                let mut to_blocks = |c: &Value| -> Vec<Value> {
+                let to_blocks = |c: &Value| -> Vec<Value> {
                     match c {
                         Value::String(s) => vec![json!({"type":"text","text":s})],
                         Value::Array(a) => a.clone(),
