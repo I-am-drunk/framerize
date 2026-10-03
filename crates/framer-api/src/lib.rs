@@ -158,13 +158,10 @@ impl FramerClient for HttpFramerClient {
         browser: &dyn BrowserBridge,
         account: &AccountId,
         project: &framer_core::ids::ProjectId,
-        model: &str,
-        system: Option<String>,
-        messages: Vec<serde_json::Value>,
+        anthro_payload: serde_json::Value,
         cfg: &framer_core::port::ChainConfig,
         chat_session: &str,
-        dialect: framer_core::port::ChainDialect,
-    ) -> Result<framer_core::port::ChainResult, String> {
+    ) -> Result<framer_core::convert::AssembledResponse, String> {
         freechat::complete_long(
             &self.transport,
             &self.ai_token,
@@ -172,12 +169,9 @@ impl FramerClient for HttpFramerClient {
             browser,
             account,
             project,
-            model,
-            system,
-            messages,
+            anthro_payload,
             cfg,
             chat_session,
-            dialect,
         )
         .await
     }

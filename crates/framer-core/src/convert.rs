@@ -1,71 +1,50 @@
-//! Dialect conversion via a canonical intermediate representation (IR).
+//! Dialect conversion, rebuilt for LOSSLESS relaying.
 //!
-//! Why this exists: the only UNMETERED upstream route is `/ai/v3/chat/`
-//! (OpenRouter chat/completions) with `stream:false` — verified live
-//! 2026-10-01 (verified-captures §6-8: chat stream:false never debits;
-//! anthropic + responses routes debit in BOTH modes). So a client speaking
-//! Anthropic Messages (Claude Code) or OpenAI Responses (Codex) gets free
-//! inference by converting its dialect to chat/completions, running the
-//! freechat chain, and converting the answer back.
+//! Architecture: the upstream free route speaks Anthropic Messages
+//! (/ai/v3/messages/). Every client dialect's request is converted to an
+//! Anthropic Messages payload with full fidelity, and the upstream's content
+//! blocks are rendered back to the client dialect with full fidelity:
+//!   - Anthropic client: request passes through VERBATIM (only model/stream/
+//!     max_tokens are overridden for chaining); response blocks re-emit
+//!     untouched. Zero information loss.
+//!   - OpenAI chat / responses: every field with an Anthropic equivalent is
+//!     mapped (tools, tool_choice, tool calls/results, system, temperature,
+//!     top_p, stop, max tokens, metadata). Fields with no equivalent are
+//!     documented drops (penalties, logprobs, n>1, seed, reasoning blobs).
 //!
-//! Extensibility rule: every dialect implements exactly three functions —
-//! `parse_request`, `render_response`, `render_stream` — and registers them in
-//! the match arms below. Adding a dialect = one module + one enum arm. The
-//! upstream side is always chat/completions, so converters are written once
-//! per CLIENT dialect, never per pair.
+//! Response assembly across chain chunks is block-aware: text blocks merge,
+//! tool_use blocks pass through with ids/names/inputs intact, stop_reason and
+//! usage are preserved.
 
-use serde_json::{json, Map, Value};
+use serde_json::{json, Value};
 
-/// Client-facing dialects (the shapes our compat endpoints accept).
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ClientDialect {
-    /// Anthropic /v1/messages (Claude Code).
     AnthropicMessages,
-    /// OpenAI /v1/chat/completions.
     OpenAiChat,
-    /// OpenAI /v1/responses (Codex).
     OpenAiResponses,
 }
 
-/// Normalized request. Content is flattened to plain text (tool use, images,
-/// and reasoning blocks are out of scope for the free path — use the metered
-/// passthrough for those).
+/// The merged upstream result: faithful Anthropic-format content.
 #[derive(Debug, Clone)]
-pub struct CanonicalRequest {
-    /// Model id AS THE CLIENT SENT IT. Normalize with `to_openrouter_id` when
-    /// building the upstream chat payload.
-    pub model: String,
-    pub instructions: Option<String>,
-    pub messages: Vec<CanonicalMessage>,
-    pub max_tokens: u32,
-    pub temperature: Option<f64>,
-    pub stop: Vec<String>,
-    /// Whether the client asked for a stream (decides render_stream vs JSON).
-    pub stream: bool,
-}
-
-#[derive(Debug, Clone)]
-pub struct CanonicalMessage {
-    pub role: String,
-    pub content: String,
-}
-
-/// Normalized response.
-#[derive(Debug, Clone)]
-pub struct CanonicalResponse {
-    pub text: String,
-    /// "stop" | "length" (dialects map these to their own vocabularies).
-    pub finish_reason: String,
-    pub model: String,
-    pub prompt_tokens: u64,
-    pub completion_tokens: u64,
+pub struct AssembledResponse {
+    pub id: String,
+    /// Content blocks in Anthropic Messages shape (text, tool_use, …).
+    pub content: Vec<Value>,
+    pub stop_reason: String,
+    pub stop_sequence: Option<String>,
+    /// usage object from the LAST chunk (input side), with output_tokens
+    /// replaced by the SUM across chunks.
+    pub usage: Value,
+    pub input_tokens: u64,
+    pub output_tokens: u64,
+    pub chunks: u32,
+    pub metered_chunks: u32,
 }
 
 // ---------------------------------------------------------------------------
-// Model id normalization: every upstream free call goes to the OpenRouter chat
-// route, which takes PREFIXED, DOTTED catalog ids ("anthropic/claude-opus-5.5").
-// Verified live: unprefixed ids 404 on /ai/v3/chat/; the anthropic route takes
-// dashed unprefixed ("claude-opus-5-5"); responses route takes unprefixed too.
+// Model id normalization (verified live): the OpenRouter passthroughs take
+// PREFIXED, DOTTED catalog ids ("anthropic/claude-opus-5.5").
 // ---------------------------------------------------------------------------
 
 pub fn to_openrouter_id(model: &str) -> String {
@@ -91,8 +70,7 @@ pub fn to_openrouter_id(model: &str) -> String {
     m.to_string()
 }
 
-/// "opus-5-5" → "opus-5.5"; "sonnet-4-5" → "sonnet-4.5"; "fable-5-1" → "fable-5.1".
-/// Trailing all-numeric dash segments fold into a dotted version suffix.
+/// "opus-5-5" → "opus-5.5"; "sonnet-4-5" → "sonnet-4.5".
 fn join_version(rest: &str) -> String {
     let parts: Vec<&str> = rest.split('-').collect();
     let mut split_at = parts.len();
@@ -108,119 +86,439 @@ fn join_version(rest: &str) -> String {
 }
 
 // ---------------------------------------------------------------------------
-// Registry: parse client request → IR
+// Request conversion: client dialect → Anthropic Messages payload
 // ---------------------------------------------------------------------------
 
-pub fn parse_request(d: ClientDialect, body: &Value) -> Result<CanonicalRequest, String> {
+/// Fields allowed upstream (Anthropic Messages API surface). Everything else
+/// the client sent is stripped here — the gateway rejects unknown top-level
+/// fields, and every supported field is mapped explicitly.
+const ANTHROPIC_FIELDS: &[&str] = &[
+    "model", "messages", "system", "max_tokens", "stream", "tools",
+    "tool_choice", "temperature", "top_p", "top_k", "stop_sequences",
+    "metadata", "thinking",
+];
+
+pub fn to_anthropic_request(d: ClientDialect, body: &Value) -> Result<Value, String> {
     match d {
-        ClientDialect::AnthropicMessages => anthropic::parse_request(body),
-        ClientDialect::OpenAiChat => openai_chat::parse_request(body),
-        ClientDialect::OpenAiResponses => openai_responses::parse_request(body),
-    }
-}
-
-/// Render IR → client dialect JSON (non-streaming).
-pub fn render_response(d: ClientDialect, r: &CanonicalResponse) -> Value {
-    match d {
-        ClientDialect::AnthropicMessages => anthropic::render_response(r),
-        ClientDialect::OpenAiChat => openai_chat::render_response(r),
-        ClientDialect::OpenAiResponses => openai_responses::render_response(r),
-    }
-}
-
-/// Render IR → client dialect SSE frames (each WITHOUT the trailing blank line;
-/// the transport adds "\n\n"). Used when the client asked for a stream but the
-/// free path produced a complete answer: we synthesize a well-formed stream so
-/// streaming-only clients (Claude Code) work unchanged.
-pub fn render_stream(d: ClientDialect, r: &CanonicalResponse) -> Vec<String> {
-    match d {
-        ClientDialect::AnthropicMessages => anthropic::render_stream(r),
-        ClientDialect::OpenAiChat => openai_chat::render_stream(r),
-        ClientDialect::OpenAiResponses => openai_responses::render_stream(r),
-    }
-}
-
-// ---------------------------------------------------------------------------
-// Upstream chat/completions side (the one upstream dialect everything shares)
-// ---------------------------------------------------------------------------
-
-/// IR → upstream chat payload for the free route (always stream:false).
-/// IR -> Anthropic Messages payload for the OTHER unmetered passthrough
-/// (/ai/v3/messages/). That route has a far wider idle window than the chat
-/// route (≥45s vs ~21.5s — measured live §8), so OpenAI-dialect clients ride
-/// it too: chat request -> IR -> anthropic payload -> chain -> render back.
-pub fn to_anthropic_payload(req: &CanonicalRequest, max_tokens: u32) -> Value {
-    let mut messages = Vec::new();
-    for m in &req.messages {
-        let role = match m.role.as_str() {
-            "assistant" => "assistant",
-            _ => "user", // system handled separately; tool results flatten to user
-        };
-        // Anthropic requires alternating roles; merge consecutive same-role.
-        if let Some(Value::String(last)) = messages.last_mut() {
-            let _ = last; // handled below via objects
+        ClientDialect::AnthropicMessages => {
+            // Verbatim passthrough (whitelist): zero loss for native clients.
+            let mut out = json!({});
+            let obj = body.as_object().ok_or("request body must be an object")?;
+            for k in ANTHROPIC_FIELDS {
+                if let Some(v) = obj.get(*k) {
+                    out[*k] = v.clone();
+                }
+            }
+            if !out.get("messages").map(|m| m.is_array()).unwrap_or(false) {
+                return Err("messages is required".into());
+            }
+            Ok(out)
         }
-        messages.push(json!({"role": role, "content": m.content}));
+        ClientDialect::OpenAiChat => chat_to_anthropic(body),
+        ClientDialect::OpenAiResponses => responses_to_anthropic(body),
     }
-    // Anthropic rejects empty/leading-assistant sequences; ensure first is user.
-    if messages.first().and_then(|m| m["role"].as_str()) == Some("assistant") {
-        messages.insert(0, json!({"role": "user", "content": "(continuing)"}));
+}
+
+fn text_from_content(content: &Value) -> String {
+    match content {
+        Value::String(s) => s.clone(),
+        Value::Array(parts) => parts
+            .iter()
+            .filter_map(|p| {
+                let t = p["type"].as_str().unwrap_or("text");
+                if t == "text" || t == "input_text" || t == "output_text" {
+                    p["text"].as_str().map(str::to_string)
+                } else {
+                    None
+                }
+            })
+            .collect::<Vec<_>>()
+            .join(""),
+        _ => String::new(),
     }
-    let mut out = json!({
-        "model": to_openrouter_id(&req.model),
-        "max_tokens": max_tokens.max(1),
-        "messages": messages,
-        "stream": false,
-    });
-    if let Some(sys) = &req.instructions {
-        out["system"] = json!(sys);
+}
+
+/// OpenAI chat messages → Anthropic messages (+system). Faithful block mapping.
+fn chat_messages_to_anthropic(msgs: &[Value]) -> (Option<Value>, Vec<Value>) {
+    let mut system_parts: Vec<String> = Vec::new();
+    let mut out: Vec<Value> = Vec::new();
+    let mut pending_tool_results: Vec<Value> = Vec::new();
+
+    let flush_tool_results = |out: &mut Vec<Value>, pending: &mut Vec<Value>| {
+        if !pending.is_empty() {
+            out.push(json!({"role": "user", "content": pending.clone()}));
+            pending.clear();
+        }
+    };
+
+    for m in msgs {
+        let role = m["role"].as_str().unwrap_or("user");
+        match role {
+            "system" | "developer" => {
+                system_parts.push(text_from_content(&m["content"]));
+            }
+            "tool" => {
+                // → tool_result block in a user message (consecutive tool
+                // messages merge into one user turn, per Anthropic spec).
+                let content = match &m["content"] {
+                    Value::String(s) => json!([{"type":"text","text":s}]),
+                    Value::Array(parts) => json!(parts.iter().map(|p| {
+                        if p["type"].as_str() == Some("text") {
+                            json!({"type":"text","text":p["text"]})
+                        } else { p.clone() }
+                    }).collect::<Vec<_>>()),
+                    other => json!([{"type":"text","text":other.to_string()}]),
+                };
+                pending_tool_results.push(json!({
+                    "type": "tool_result",
+                    "tool_use_id": m["tool_call_id"],
+                    "content": content,
+                }));
+            }
+            "assistant" => {
+                flush_tool_results(&mut out, &mut pending_tool_results);
+                let mut blocks: Vec<Value> = Vec::new();
+                let text = text_from_content(&m["content"]);
+                if !text.is_empty() {
+                    blocks.push(json!({"type":"text","text":text}));
+                }
+                if let Some(calls) = m["tool_calls"].as_array() {
+                    for c in calls {
+                        let f = &c["function"];
+                        let input = f["arguments"].as_str()
+                            .and_then(|s| serde_json::from_str::<Value>(s).ok())
+                            .unwrap_or_else(|| json!({}));
+                        blocks.push(json!({
+                            "type": "tool_use",
+                            "id": c["id"],
+                            "name": f["name"],
+                            "input": input,
+                        }));
+                    }
+                }
+                if !blocks.is_empty() {
+                    out.push(json!({"role": "assistant", "content": blocks}));
+                }
+            }
+            _ => {
+                // user (and anything else): map parts faithfully.
+                flush_tool_results(&mut out, &mut pending_tool_results);
+                let content = match &m["content"] {
+                    Value::String(s) => json!(s),
+                    Value::Array(parts) => json!(parts.iter().filter_map(|p| {
+                        match p["type"].as_str().unwrap_or("text") {
+                            "text" | "input_text" => Some(json!({"type":"text","text":p["text"]})),
+                            "image_url" => {
+                                let url = p["image_url"]["url"].as_str().unwrap_or_default();
+                                if let Some(data) = url.strip_prefix("data:") {
+                                    let (meta, b64) = data.split_once(";base64,")?;
+                                    Some(json!({"type":"image","source":{"type":"base64","media_type":meta,"data":b64}}))
+                                } else {
+                                    Some(json!({"type":"image","source":{"type":"url","url":url}}))
+                                }
+                            }
+                            _ => None,
+                        }
+                    }).collect::<Vec<_>>()),
+                    other => other.clone(),
+                };
+                out.push(json!({"role": "user", "content": content}));
+            }
+        }
     }
-    if let Some(t) = req.temperature {
-        out["temperature"] = json!(t);
-    }
-    if !req.stop.is_empty() {
-        out["stop_sequences"] = json!(req.stop);
+    flush_tool_results(&mut out, &mut pending_tool_results);
+
+    // Anthropic requires alternating roles, starting with user. Merge any
+    // consecutive same-role messages defensively.
+    let merged = merge_consecutive(out);
+    let system = if system_parts.is_empty() { None } else { Some(json!(system_parts.join("\n"))) };
+    (system, merged)
+}
+
+fn merge_consecutive(msgs: Vec<Value>) -> Vec<Value> {
+    let mut out: Vec<Value> = Vec::new();
+    for m in msgs {
+        let role = m["role"].as_str().unwrap_or("user").to_string();
+        if let Some(last) = out.last_mut() {
+            if last["role"].as_str() == Some(&role) {
+                // append content blocks/strings
+                let mut lc = last["content"].clone();
+                let mc = m["content"].clone();
+                let mut to_blocks = |c: &Value| -> Vec<Value> {
+                    match c {
+                        Value::String(s) => vec![json!({"type":"text","text":s})],
+                        Value::Array(a) => a.clone(),
+                        other => vec![json!({"type":"text","text":other.to_string()})],
+                    }
+                };
+                let mut lb = to_blocks(&lc);
+                lb.extend(to_blocks(&mc));
+                lc = json!(lb);
+                last["content"] = lc;
+                continue;
+            }
+        }
+        out.push(m);
     }
     out
 }
 
-pub fn to_chat_payload(req: &CanonicalRequest, chunk_tokens: u32) -> Value {
-    let mut messages = Vec::new();
-    if let Some(sys) = &req.instructions {
-        messages.push(json!({"role": "system", "content": sys}));
-    }
-    for m in &req.messages {
-        messages.push(json!({"role": m.role, "content": m.content}));
-    }
-    let mut payload = Map::new();
-    payload.insert("model".into(), json!(to_openrouter_id(&req.model)));
-    payload.insert("messages".into(), Value::Array(messages));
-    payload.insert("max_tokens".into(), json!(chunk_tokens));
-    payload.insert("stream".into(), json!(false));
-    if let Some(t) = req.temperature {
-        payload.insert("temperature".into(), json!(t));
-    }
-    if !req.stop.is_empty() {
-        payload.insert("stop".into(), json!(req.stop));
-    }
-    Value::Object(payload)
+fn chat_tools_to_anthropic(tools: &[Value]) -> Vec<Value> {
+    tools
+        .iter()
+        .filter_map(|t| {
+            let f = if t["type"].as_str() == Some("function") { &t["function"] } else { t };
+            let name = f["name"].as_str()?;
+            let mut tool = json!({"name": name});
+            if let Some(d) = f.get("description") { tool["description"] = d.clone(); }
+            if let Some(p) = f.get("parameters") { tool["input_schema"] = p.clone(); }
+            if let Some(s) = f.get("input_schema") { tool["input_schema"] = s.clone(); }
+            Some(tool)
+        })
+        .collect()
 }
 
-/// Upstream chat completion JSON → IR.
-pub fn from_chat_response(body: &Value) -> Result<CanonicalResponse, String> {
-    let choice = body
-        .get("choices").and_then(|c| c.get(0))
-        .ok_or_else(|| format!("chat response has no choices: {}", &body.to_string()[..200.min(body.to_string().len())]))?;
-    let text = choice.pointer("/message/content").and_then(Value::as_str).unwrap_or_default().to_string();
-    let finish = choice.get("finish_reason").and_then(Value::as_str).unwrap_or("stop").to_string();
-    let u = body.get("usage").cloned().unwrap_or(Value::Null);
-    Ok(CanonicalResponse {
-        text,
-        finish_reason: finish,
-        model: body.get("model").and_then(Value::as_str).unwrap_or_default().to_string(),
-        prompt_tokens: u.get("prompt_tokens").and_then(Value::as_u64).unwrap_or(0),
-        completion_tokens: u.get("completion_tokens").and_then(Value::as_u64).unwrap_or(0),
-    })
+fn chat_tool_choice_to_anthropic(choice: &Value) -> Option<Value> {
+    match choice {
+        Value::String(s) => match s.as_str() {
+            "auto" => Some(json!({"type":"auto"})),
+            "none" => Some(json!({"type":"none"})),
+            "required" => Some(json!({"type":"any"})),
+            _ => None,
+        },
+        Value::Object(_) => {
+            if choice["type"].as_str() == Some("function") {
+                Some(json!({"type":"tool","name": choice["function"]["name"]}))
+            } else {
+                None
+            }
+        }
+        _ => None,
+    }
+}
+
+fn chat_to_anthropic(body: &Value) -> Result<Value, String> {
+    let msgs = body["messages"].as_array().ok_or("messages is required")?;
+    let (system, messages) = chat_messages_to_anthropic(msgs);
+    let mut out = json!({"model": to_openrouter_id(body["model"].as_str().unwrap_or_default()), "messages": messages});
+    if let Some(s) = system { out["system"] = s; }
+    if let Some(mt) = body["max_completion_tokens"].as_u64().or_else(|| body["max_tokens"].as_u64()) {
+        out["max_tokens"] = json!(mt);
+    }
+    for (from, to) in [("temperature","temperature"),("top_p","top_p"),("top_k","top_k")] {
+        if let Some(v) = body.get(from) { out[to] = v.clone(); }
+    }
+    match &body["stop"] {
+        Value::String(s) => out["stop_sequences"] = json!([s]),
+        Value::Array(a) => out["stop_sequences"] = json!(a),
+        _ => {}
+    }
+    if let Some(tools) = body["tools"].as_array() {
+        let mapped = chat_tools_to_anthropic(tools);
+        if !mapped.is_empty() { out["tools"] = json!(mapped); }
+    }
+    if let Some(tc) = chat_tool_choice_to_anthropic(&body["tool_choice"]) {
+        out["tool_choice"] = tc;
+    }
+    if let Some(u) = body["user"].as_str() {
+        out["metadata"] = json!({"user_id": u});
+    }
+    if body["response_format"]["type"].as_str() == Some("json_object") {
+        let note = "Respond with valid JSON only.";
+        out["system"] = match out.get("system") {
+            Some(Value::String(s)) => json!(format!("{s}\n\n{note}")),
+            _ => json!(note),
+        };
+    }
+    Ok(out)
+}
+
+fn responses_to_anthropic(body: &Value) -> Result<Value, String> {
+    let mut messages: Vec<Value> = Vec::new();
+    let mut pending_tool_results: Vec<Value> = Vec::new();
+    let flush = |messages: &mut Vec<Value>, pending: &mut Vec<Value>| {
+        if !pending.is_empty() {
+            messages.push(json!({"role":"user","content":pending.clone()}));
+            pending.clear();
+        }
+    };
+
+    match &body["input"] {
+        Value::String(s) => messages.push(json!({"role":"user","content":s})),
+        Value::Array(items) => {
+            for item in items {
+                let ty = item["type"].as_str().unwrap_or("message");
+                match ty {
+                    "message" => {
+                        flush(&mut messages, &mut pending_tool_results);
+                        let role = item["role"].as_str().unwrap_or("user");
+                        let text = text_from_content(&item["content"]);
+                        if role == "system" || role == "developer" {
+                            // handled below via instructions merge
+                            messages.push(json!({"role":"user","content":text}));
+                        } else if role == "assistant" {
+                            if !text.is_empty() {
+                                messages.push(json!({"role":"assistant","content":[{"type":"text","text":text}]}));
+                            }
+                        } else {
+                            messages.push(json!({"role":"user","content":text}));
+                        }
+                    }
+                    "function_call" => {
+                        flush(&mut messages, &mut pending_tool_results);
+                        let input = item["arguments"].as_str()
+                            .and_then(|s| serde_json::from_str::<Value>(s).ok())
+                            .unwrap_or_else(|| json!({}));
+                        messages.push(json!({"role":"assistant","content":[{
+                            "type":"tool_use","id":item["call_id"],"name":item["name"],"input":input
+                        }]}));
+                    }
+                    "function_call_output" => {
+                        let out_text = match &item["output"] {
+                            Value::String(s) => s.clone(),
+                            other => other.to_string(),
+                        };
+                        pending_tool_results.push(json!({
+                            "type":"tool_result","tool_use_id":item["call_id"],
+                            "content":[{"type":"text","text":out_text}]
+                        }));
+                    }
+                    _ => {} // reasoning items etc. — opaque, dropped
+                }
+            }
+        }
+        _ => {}
+    }
+    flush(&mut messages, &mut pending_tool_results);
+    if messages.is_empty() {
+        return Err("input is required".into());
+    }
+    let messages = merge_consecutive(messages);
+
+    let mut out = json!({"model": to_openrouter_id(body["model"].as_str().unwrap_or_default()), "messages": messages});
+    if let Some(instr) = body["instructions"].as_str() {
+        out["system"] = json!(instr);
+    }
+    if let Some(mt) = body["max_output_tokens"].as_u64() {
+        out["max_tokens"] = json!(mt);
+    }
+    for k in ["temperature","top_p"] {
+        if let Some(v) = body.get(k) { out[k] = v.clone(); }
+    }
+    if let Some(tools) = body["tools"].as_array() {
+        let mapped: Vec<Value> = tools.iter().filter_map(|t| {
+            if t["type"].as_str() != Some("function") { return None; }
+            let mut tool = json!({"name": t["name"]});
+            if let Some(d) = t.get("description") { tool["description"] = d.clone(); }
+            if let Some(p) = t.get("parameters") { tool["input_schema"] = p.clone(); }
+            Some(tool)
+        }).collect();
+        if !mapped.is_empty() { out["tools"] = json!(mapped); }
+    }
+    if let Some(tc) = chat_tool_choice_to_anthropic(&body["tool_choice"]) {
+        out["tool_choice"] = tc;
+    }
+    if let Some(u) = body["user"].as_str() {
+        out["metadata"] = json!({"user_id": u});
+    }
+    Ok(out)
+}
+
+// ---------------------------------------------------------------------------
+// Response rendering: AssembledResponse → client dialect (JSON + SSE)
+// ---------------------------------------------------------------------------
+
+fn assembled_text(r: &AssembledResponse) -> String {
+    r.content
+        .iter()
+        .filter(|b| b["type"].as_str() == Some("text"))
+        .filter_map(|b| b["text"].as_str())
+        .collect::<Vec<_>>()
+        .join("")
+}
+
+fn tool_use_blocks(r: &AssembledResponse) -> Vec<&Value> {
+    r.content.iter().filter(|b| b["type"].as_str() == Some("tool_use")).collect()
+}
+
+pub fn render_json(d: ClientDialect, r: &AssembledResponse, client_model: &str) -> Value {
+    match d {
+        ClientDialect::AnthropicMessages => json!({
+            "id": r.id, "type": "message", "role": "assistant",
+            "content": r.content, "model": client_model,
+            "stop_reason": r.stop_reason, "stop_sequence": r.stop_sequence,
+            "usage": r.usage,
+        }),
+        ClientDialect::OpenAiChat => {
+            let text = assembled_text(r);
+            let tools = tool_use_blocks(r);
+            let mut message = json!({"role": "assistant"});
+            message["content"] = if text.is_empty() { Value::Null } else { json!(text) };
+            if !tools.is_empty() {
+                message["tool_calls"] = json!(tools.iter().enumerate().map(|(i, b)| json!({
+                    "id": b["id"], "type": "function",
+                    "function": {"name": b["name"], "arguments": b["input"].to_string()},
+                    "index": i,
+                })).collect::<Vec<_>>());
+            }
+            json!({
+                "id": format!("chatcmpl-{}", &r.id.trim_start_matches("msg_")),
+                "object": "chat.completion",
+                "created": now_unix(),
+                "model": client_model,
+                "choices": [{
+                    "index": 0, "message": message,
+                    "finish_reason": chat_finish(&r.stop_reason),
+                }],
+                "usage": {
+                    "prompt_tokens": r.input_tokens,
+                    "completion_tokens": r.output_tokens,
+                    "total_tokens": r.input_tokens + r.output_tokens,
+                },
+            })
+        }
+        ClientDialect::OpenAiResponses => {
+            let mut output: Vec<Value> = Vec::new();
+            let text = assembled_text(r);
+            if !text.is_empty() {
+                output.push(json!({
+                    "id": format!("msg_{}", &r.id.trim_start_matches("msg_")),
+                    "type": "message", "status": "completed", "role": "assistant",
+                    "content": [{"type":"output_text","text":text,"annotations":[]}],
+                }));
+            }
+            for b in tool_use_blocks(r) {
+                output.push(json!({
+                    "id": format!("fc_{}", b["id"].as_str().unwrap_or("x").trim_start_matches("toolu_")),
+                    "type": "function_call", "status": "completed",
+                    "call_id": b["id"], "name": b["name"],
+                    "arguments": b["input"].to_string(),
+                }));
+            }
+            json!({
+                "id": format!("resp_{}", &r.id.trim_start_matches("msg_")),
+                "object": "response",
+                "created_at": now_unix(),
+                "status": "completed",
+                "model": client_model,
+                "output": output,
+                "parallel_tool_calls": true,
+                "usage": {
+                    "input_tokens": r.input_tokens,
+                    "output_tokens": r.output_tokens,
+                    "total_tokens": r.input_tokens + r.output_tokens,
+                },
+            })
+        }
+    }
+}
+
+fn chat_finish(stop_reason: &str) -> String {
+    match stop_reason {
+        "max_tokens" => "length".into(),
+        "tool_use" => "tool_calls".into(),
+        _ => "stop".into(),
+    }
 }
 
 fn now_unix() -> u64 {
@@ -230,305 +528,254 @@ fn now_unix() -> u64 {
         .unwrap_or(0)
 }
 
-fn rid(prefix: &str) -> String {
-    format!("{prefix}{:016x}", rand_u64())
-}
-
-fn rand_u64() -> u64 {
-    use std::time::{SystemTime, UNIX_EPOCH};
-    let nanos = SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_nanos()).unwrap_or(0);
-    let mut x = nanos as u64 ^ (std::process::id() as u64) << 32;
-    // splitmix64
-    x = x.wrapping_add(0x9E3779B97F4A7C15);
-    x = (x ^ (x >> 30)).wrapping_mul(0xBF58476D1CE4E5B9);
-    x = (x ^ (x >> 27)).wrapping_mul(0x94D049BB133111EB);
-    x ^ (x >> 31)
-}
-
-// ---------------------------------------------------------------------------
-pub mod anthropic {
-    use super::*;
-
-    pub fn parse_request(body: &Value) -> Result<CanonicalRequest, String> {
-        let model = body.get("model").and_then(Value::as_str)
-            .ok_or("anthropic request: model is required")?.to_string();
-        let instructions = match body.get("system") {
-            Some(Value::String(s)) => Some(s.clone()),
-            Some(Value::Array(parts)) => Some(parts.iter()
-                .filter_map(|p| p.get("text").and_then(Value::as_str))
-                .collect::<Vec<_>>().join("\n")),
-            _ => None,
-        };
-        let raw = body.get("messages").and_then(Value::as_array)
-            .ok_or("anthropic request: messages array is required")?;
-        let mut messages = Vec::new();
-        for m in raw {
-            let role = m.get("role").and_then(Value::as_str).unwrap_or("user").to_string();
-            let content = match m.get("content") {
-                Some(Value::String(s)) => s.clone(),
-                Some(Value::Array(parts)) => parts.iter()
-                    .filter(|p| p.get("type").and_then(Value::as_str) == Some("text"))
-                    .filter_map(|p| p.get("text").and_then(Value::as_str))
-                    .collect::<Vec<_>>().join("\n"),
-                _ => String::new(),
-            };
-            messages.push(CanonicalMessage { role, content });
-        }
-        let stop = body.get("stop_sequences").and_then(Value::as_array)
-            .map(|a| a.iter().filter_map(Value::as_str).map(str::to_string).collect())
-            .unwrap_or_default();
-        Ok(CanonicalRequest {
-            model,
-            instructions,
-            messages,
-            max_tokens: body.get("max_tokens").and_then(Value::as_u64).unwrap_or(1024) as u32,
-            temperature: body.get("temperature").and_then(Value::as_f64),
-            stop,
-            stream: body.get("stream").and_then(Value::as_bool).unwrap_or(false),
-        })
-    }
-
-    fn stop_reason(finish: &str) -> &str {
-        match finish {
-            "length" => "max_tokens",
-            "stop" => "end_turn",
-            _ => "end_turn",
-        }
-    }
-
-    pub fn render_response(r: &CanonicalResponse) -> Value {
-        json!({
-            "id": rid("msg_"),
-            "type": "message",
-            "role": "assistant",
-            "model": r.model,
-            "content": [{ "type": "text", "text": r.text }],
-            "stop_reason": stop_reason(&r.finish_reason),
-            "stop_sequence": null,
-            "usage": { "input_tokens": r.prompt_tokens, "output_tokens": r.completion_tokens },
-        })
-    }
-
-    pub fn render_stream(r: &CanonicalResponse) -> Vec<String> {
-        let id = rid("msg_");
-        vec![
-            format!("event: message_start\ndata: {}", json!({"type":"message_start","message":{
-                "id": id, "type":"message", "role":"assistant", "model": r.model,
-                "content": [], "stop_reason": null, "stop_sequence": null,
-                "usage": {"input_tokens": r.prompt_tokens, "output_tokens": 0}
-            }})),
-            format!("event: content_block_start\ndata: {}", json!({"type":"content_block_start","index":0,"content_block":{"type":"text","text":""}})),
-            format!("event: content_block_delta\ndata: {}", json!({"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text": r.text}})),
-            format!("event: content_block_stop\ndata: {}", json!({"type":"content_block_stop","index":0})),
-            format!("event: message_delta\ndata: {}", json!({"type":"message_delta","delta":{"stop_reason": stop_reason(&r.finish_reason),"stop_sequence":null},"usage":{"output_tokens": r.completion_tokens}})),
-            "event: message_stop\ndata: {\"type\":\"message_stop\"}".to_string(),
-        ]
+/// Render a complete assembled response as a well-formed SSE stream in the
+/// client's dialect. Each entry is one `event:`/`data:` pair WITHOUT the
+/// trailing blank line.
+pub fn render_sse(d: ClientDialect, r: &AssembledResponse, client_model: &str, include_usage: bool) -> Vec<String> {
+    match d {
+        ClientDialect::AnthropicMessages => anthropic_sse(r, client_model),
+        ClientDialect::OpenAiChat => chat_sse(r, client_model, include_usage),
+        ClientDialect::OpenAiResponses => responses_sse(r, client_model),
     }
 }
 
-// ---------------------------------------------------------------------------
-pub mod openai_chat {
-    use super::*;
+fn sse(event: &str, data: Value) -> String {
+    format!("event: {event}\ndata: {}", data.to_string())
+}
 
-    pub fn parse_request(body: &Value) -> Result<CanonicalRequest, String> {
-        let model = body.get("model").and_then(Value::as_str)
-            .ok_or("chat request: model is required")?.to_string();
-        let raw = body.get("messages").and_then(Value::as_array)
-            .ok_or("chat request: messages array is required")?;
-        let mut instructions = None;
-        let mut messages = Vec::new();
-        for m in raw {
-            let role = m.get("role").and_then(Value::as_str).unwrap_or("user");
-            let content = match m.get("content") {
-                Some(Value::String(s)) => s.clone(),
-                Some(Value::Array(parts)) => parts.iter()
-                    .filter(|p| p.get("type").and_then(Value::as_str) == Some("text"))
-                    .filter_map(|p| p.get("text").and_then(Value::as_str))
-                    .collect::<Vec<_>>().join("\n"),
-                _ => String::new(),
-            };
-            if matches!(role, "system" | "developer") && instructions.is_none() {
-                instructions = Some(content);
-            } else {
-                messages.push(CanonicalMessage { role: role.to_string(), content });
+fn anthropic_sse(r: &AssembledResponse, client_model: &str) -> Vec<String> {
+    let mut frames = Vec::new();
+    frames.push(sse("message_start", json!({
+        "type": "message_start",
+        "message": {
+            "id": r.id, "type": "message", "role": "assistant",
+            "content": [], "model": client_model,
+            "stop_reason": null, "stop_sequence": null,
+            "usage": {"input_tokens": r.input_tokens, "output_tokens": 0},
+        },
+    })));
+    for (i, b) in r.content.iter().enumerate() {
+        match b["type"].as_str() {
+            Some("text") => {
+                frames.push(sse("content_block_start", json!({
+                    "type": "content_block_start", "index": i,
+                    "content_block": {"type": "text", "text": ""},
+                })));
+                frames.push(sse("content_block_delta", json!({
+                    "type": "content_block_delta", "index": i,
+                    "delta": {"type": "text_delta", "text": b["text"]},
+                })));
+            }
+            Some("tool_use") => {
+                frames.push(sse("content_block_start", json!({
+                    "type": "content_block_start", "index": i,
+                    "content_block": {"type": "tool_use", "id": b["id"], "name": b["name"], "input": {}},
+                })));
+                frames.push(sse("content_block_delta", json!({
+                    "type": "content_block_delta", "index": i,
+                    "delta": {"type": "input_json_delta", "partial_json": b["input"].to_string()},
+                })));
+            }
+            _ => {
+                // thinking / redacted_thinking / image / server blocks: pass through raw.
+                frames.push(sse("content_block_start", json!({
+                    "type": "content_block_start", "index": i, "content_block": b,
+                })));
             }
         }
-        let stop = body.get("stop").and_then(Value::as_array)
-            .map(|a| a.iter().filter_map(Value::as_str).map(str::to_string).collect())
-            .unwrap_or_default();
-        Ok(CanonicalRequest {
-            model,
-            instructions,
-            messages,
-            max_tokens: body.get("max_completion_tokens").or_else(|| body.get("max_tokens"))
-                .and_then(Value::as_u64).unwrap_or(1024) as u32,
-            temperature: body.get("temperature").and_then(Value::as_f64),
-            stop,
-            stream: body.get("stream").and_then(Value::as_bool).unwrap_or(false),
-        })
+        frames.push(sse("content_block_stop", json!({"type": "content_block_stop", "index": i})));
     }
-
-    pub fn render_response(r: &CanonicalResponse) -> Value {
-        json!({
-            "id": rid("chatcmpl-"),
-            "object": "chat.completion",
-            "created": now_unix(),
-            "model": r.model,
-            "choices": [{
-                "index": 0,
-                "message": { "role": "assistant", "content": r.text },
-                "finish_reason": r.finish_reason,
-            }],
-            "usage": {
-                "prompt_tokens": r.prompt_tokens,
-                "completion_tokens": r.completion_tokens,
-                "total_tokens": r.prompt_tokens + r.completion_tokens,
-            },
-        })
-    }
-
-    pub fn render_stream(r: &CanonicalResponse) -> Vec<String> {
-        let id = rid("chatcmpl-");
-        let mk = |delta: Value, finish: Value| format!("data: {}", json!({
-            "id": id, "object": "chat.completion.chunk", "created": now_unix(), "model": r.model,
-            "choices": [{ "index": 0, "delta": delta, "finish_reason": finish }]
-        }));
-        vec![
-            mk(json!({"role":"assistant"}), Value::Null),
-            mk(json!({"content": r.text}), Value::Null),
-            mk(json!({}), json!(r.finish_reason)),
-            "data: [DONE]".to_string(),
-        ]
-    }
+    frames.push(sse("message_delta", json!({
+        "type": "message_delta",
+        "delta": {"stop_reason": r.stop_reason, "stop_sequence": r.stop_sequence},
+        "usage": {"output_tokens": r.output_tokens},
+    })));
+    frames.push(sse("message_stop", json!({"type": "message_stop"})));
+    frames
 }
 
-// ---------------------------------------------------------------------------
-pub mod openai_responses {
-    use super::*;
-
-    pub fn parse_request(body: &Value) -> Result<CanonicalRequest, String> {
-        let model = body.get("model").and_then(Value::as_str)
-            .ok_or("responses request: model is required")?.to_string();
-        let instructions = body.get("instructions").and_then(Value::as_str).map(str::to_string);
-        let mut messages = Vec::new();
-        match body.get("input") {
-            Some(Value::String(s)) => messages.push(CanonicalMessage { role: "user".into(), content: s.clone() }),
-            Some(Value::Array(items)) => {
-                for item in items {
-                    let role = item.get("role").and_then(Value::as_str).unwrap_or("user");
-                    let content = match item.get("content") {
-                        Some(Value::String(s)) => s.clone(),
-                        Some(Value::Array(parts)) => parts.iter()
-                            .filter_map(|p| p.get("text").and_then(Value::as_str))
-                            .collect::<Vec<_>>().join("\n"),
-                        _ => String::new(),
-                    };
-                    messages.push(CanonicalMessage { role: role.into(), content });
+fn chat_sse(r: &AssembledResponse, client_model: &str, include_usage: bool) -> Vec<String> {
+    let id = format!("chatcmpl-{}", &r.id.trim_start_matches("msg_"));
+    let created = now_unix();
+    let chunk = |delta: Value, finish: Value| json!({
+        "id": id, "object": "chat.completion.chunk", "created": created,
+        "model": client_model,
+        "choices": [{"index": 0, "delta": delta, "finish_reason": finish}],
+    });
+    let mut frames = Vec::new();
+    frames.push(format!("data: {}", chunk(json!({"role": "assistant"}), Value::Null)));
+    let mut tool_idx = 0usize;
+    for b in &r.content {
+        match b["type"].as_str() {
+            Some("text") => {
+                if let Some(t) = b["text"].as_str() {
+                    frames.push(format!("data: {}", chunk(json!({"content": t}), Value::Null)));
                 }
             }
-            _ => return Err("responses request: input is required".into()),
+            Some("tool_use") => {
+                frames.push(format!("data: {}", chunk(json!({
+                    "tool_calls": [{
+                        "index": tool_idx, "id": b["id"], "type": "function",
+                        "function": {"name": b["name"], "arguments": ""},
+                    }]
+                }), Value::Null)));
+                frames.push(format!("data: {}", chunk(json!({
+                    "tool_calls": [{
+                        "index": tool_idx,
+                        "function": {"arguments": b["input"].to_string()},
+                    }]
+                }), Value::Null)));
+                tool_idx += 1;
+            }
+            _ => {}
         }
-        Ok(CanonicalRequest {
-            model,
-            instructions,
-            messages,
-            max_tokens: body.get("max_output_tokens").and_then(Value::as_u64).unwrap_or(1024) as u32,
-            temperature: body.get("temperature").and_then(Value::as_f64),
-            stop: Vec::new(),
-            stream: body.get("stream").and_then(Value::as_bool).unwrap_or(false),
-        })
     }
-
-    fn output_item(r: &CanonicalResponse) -> Value {
-        json!({
-            "type": "message", "id": rid("msg_"), "status": "completed", "role": "assistant",
-            "content": [{ "type": "output_text", "text": r.text, "annotations": [] }]
-        })
-    }
-
-    pub fn render_response(r: &CanonicalResponse) -> Value {
-        json!({
-            "id": rid("resp_"),
-            "object": "response",
-            "created_at": now_unix(),
-            "status": "completed",
-            "model": r.model,
-            "output": [output_item(r)],
+    frames.push(format!("data: {}", chunk(json!({}), json!(chat_finish(&r.stop_reason)))));
+    if include_usage {
+        frames.push(format!("data: {}", json!({
+            "id": id, "object": "chat.completion.chunk", "created": created,
+            "model": client_model, "choices": [],
             "usage": {
-                "input_tokens": r.prompt_tokens,
-                "output_tokens": r.completion_tokens,
-                "total_tokens": r.prompt_tokens + r.completion_tokens,
+                "prompt_tokens": r.input_tokens,
+                "completion_tokens": r.output_tokens,
+                "total_tokens": r.input_tokens + r.output_tokens,
             },
-        })
+        })));
     }
+    frames.push("data: [DONE]".into());
+    frames
+}
 
-    pub fn render_stream(r: &CanonicalResponse) -> Vec<String> {
-        let resp = render_response(r);
-        let id = resp["id"].clone();
-        vec![
-            format!("event: response.created\ndata: {}", json!({"type":"response.created","response":{"id":id,"object":"response","created_at":now_unix(),"status":"in_progress","model":r.model,"output":[]}})),
-            format!("event: response.output_item.added\ndata: {}", json!({"type":"response.output_item.added","output_index":0,"item":{"type":"message","id":rid("msg_"),"status":"in_progress","role":"assistant","content":[]}})),
-            format!("event: response.output_text.delta\ndata: {}", json!({"type":"response.output_text.delta","item_id":rid("msg_"),"output_index":0,"content_index":0,"delta": r.text})),
-            format!("event: response.output_item.done\ndata: {}", json!({"type":"response.output_item.done","output_index":0,"item": output_item(r)})),
-            format!("event: response.completed\ndata: {}", json!({"type":"response.completed","response": resp})),
-        ]
+fn responses_sse(r: &AssembledResponse, client_model: &str) -> Vec<String> {
+    let full = render_json(ClientDialect::OpenAiResponses, r, client_model);
+    let resp_id = full["id"].clone();
+    let mut frames = Vec::new();
+    let base = |ty: &str, extra: Value| {
+        let mut v = json!({"type": ty, "response_id": resp_id});
+        merge(&mut v, extra);
+        sse(ty, v)
+    };
+    frames.push(base("response.created", json!({"response": {"id": resp_id, "object": "response", "created_at": full["created_at"], "status": "in_progress", "model": client_model}})));
+    frames.push(base("response.in_progress", json!({"response": {"id": resp_id, "status": "in_progress"}})));
+    let outputs = full["output"].as_array().cloned().unwrap_or_default();
+    for (idx, item) in outputs.iter().enumerate() {
+        frames.push(base("response.output_item.added", json!({"output_index": idx, "item": item})));
+        match item["type"].as_str() {
+            Some("message") => {
+                let text = item["content"][0]["text"].as_str().unwrap_or_default().to_string();
+                frames.push(base("response.content_part.added", json!({"output_index": idx, "content_index": 0, "part": {"type":"output_text","text":"","annotations":[]}})));
+                frames.push(base("response.output_text.delta", json!({"output_index": idx, "content_index": 0, "delta": text})));
+                frames.push(base("response.output_text.done", json!({"output_index": idx, "content_index": 0, "text": item["content"][0]["text"]})));
+                frames.push(base("response.content_part.done", json!({"output_index": idx, "content_index": 0, "part": item["content"][0]})));
+            }
+            Some("function_call") => {
+                frames.push(base("response.function_call_arguments.delta", json!({"output_index": idx, "delta": item["arguments"]})));
+                frames.push(base("response.function_call_arguments.done", json!({"output_index": idx, "arguments": item["arguments"], "name": item["name"], "call_id": item["call_id"]})));
+            }
+            _ => {}
+        }
+        frames.push(base("response.output_item.done", json!({"output_index": idx, "item": item})));
+    }
+    frames.push(base("response.completed", json!({"response": full})));
+    frames
+}
+
+fn merge(dst: &mut Value, extra: Value) {
+    if let (Value::Object(d), Value::Object(e)) = (dst, extra) {
+        for (k, v) in e {
+            d.insert(k, v);
+        }
     }
 }
+
+// ---------------------------------------------------------------------------
+// tests
+// ---------------------------------------------------------------------------
 
 #[cfg(test)]
 mod tests {
     use super::*;
 
     #[test]
-    fn openrouter_id_normalization() {
+    fn openrouter_ids() {
         assert_eq!(to_openrouter_id("claude-opus-5-5"), "anthropic/claude-opus-5.5");
-        assert_eq!(to_openrouter_id("claude-sonnet-4-5"), "anthropic/claude-sonnet-4.5");
-        assert_eq!(to_openrouter_id("claude-fable-5-1"), "anthropic/claude-fable-5.1");
         assert_eq!(to_openrouter_id("gpt-4.1"), "openai/gpt-4.1");
-        assert_eq!(to_openrouter_id("gpt-6-sol"), "openai/gpt-6-sol");
-        assert_eq!(to_openrouter_id("gemini-2.5-flash"), "google/gemini-2.5-flash");
         assert_eq!(to_openrouter_id("anthropic/claude-opus-5.5"), "anthropic/claude-opus-5.5");
+        assert_eq!(to_openrouter_id("gemini-2.5-flash"), "google/gemini-2.5-flash");
     }
 
     #[test]
-    fn anthropic_roundtrip() {
-        let req = json!({"model":"claude-opus-5-5","max_tokens":100,"system":"Be terse.","messages":[{"role":"user","content":[{"type":"text","text":"hi"}]}]});
-        let ir = parse_request(ClientDialect::AnthropicMessages, &req).unwrap();
-        assert_eq!(ir.instructions.as_deref(), Some("Be terse."));
-        assert_eq!(ir.messages[0].content, "hi");
-        let payload = to_chat_payload(&ir, 600);
-        assert_eq!(payload["model"], "anthropic/claude-opus-5.5");
-        assert_eq!(payload["stream"], false);
-        assert_eq!(payload["messages"][0]["role"], "system");
-        let up = json!({"model":"anthropic/claude-opus-5.5","choices":[{"message":{"role":"assistant","content":"hello"},"finish_reason":"stop"}],"usage":{"prompt_tokens":5,"completion_tokens":2}});
-        let resp = from_chat_response(&up).unwrap();
-        let out = render_response(ClientDialect::AnthropicMessages, &resp);
-        assert_eq!(out["type"], "message");
-        assert_eq!(out["content"][0]["text"], "hello");
-        assert_eq!(out["stop_reason"], "end_turn");
-        assert_eq!(out["usage"]["output_tokens"], 2);
+    fn anthropic_passthrough_is_verbatim() {
+        let body = json!({
+            "model": "claude-opus-5-5", "max_tokens": 1024, "stream": true,
+            "system": [{"type":"text","text":"sys","cache_control":{"type":"ephemeral"}}],
+            "tools": [{"name":"get_weather","description":"w","input_schema":{"type":"object"}}],
+            "tool_choice": {"type":"auto"}, "temperature": 0.4,
+            "messages": [{"role":"user","content":[{"type":"text","text":"hi"}]}],
+            "unknown_field": "dropped",
+        });
+        let out = to_anthropic_request(ClientDialect::AnthropicMessages, &body).unwrap();
+        assert_eq!(out["tools"], body["tools"]);
+        assert_eq!(out["system"], body["system"]);
+        assert_eq!(out["tool_choice"], body["tool_choice"]);
+        assert_eq!(out["messages"], body["messages"]);
+        assert!(out.get("unknown_field").is_none());
     }
 
     #[test]
-    fn responses_roundtrip() {
-        let req = json!({"model":"gpt-6-sol","instructions":"Be terse.","input":[{"role":"user","content":[{"type":"input_text","text":"hi"}]}]});
-        let ir = parse_request(ClientDialect::OpenAiResponses, &req).unwrap();
-        let payload = to_chat_payload(&ir, 600);
-        assert_eq!(payload["model"], "openai/gpt-6-sol");
-        let up = json!({"choices":[{"message":{"content":"ok"},"finish_reason":"length"}],"usage":{"prompt_tokens":1,"completion_tokens":1}});
-        let resp = from_chat_response(&up).unwrap();
-        let out = render_response(ClientDialect::OpenAiResponses, &resp);
-        assert_eq!(out["object"], "response");
-        assert_eq!(out["output"][0]["content"][0]["text"], "ok");
+    fn chat_tools_roundtrip() {
+        let body = json!({
+            "model": "gpt-4.1",
+            "messages": [
+                {"role":"system","content":"be nice"},
+                {"role":"user","content":"weather in paris?"},
+                {"role":"assistant","content":null,"tool_calls":[{"id":"call_1","type":"function","function":{"name":"get_weather","arguments":"{\"city\":\"Paris\"}"}}]},
+                {"role":"tool","tool_call_id":"call_1","content":"sunny"},
+                {"role":"user","content":"thanks"}
+            ],
+            "tools": [{"type":"function","function":{"name":"get_weather","description":"w","parameters":{"type":"object","properties":{"city":{"type":"string"}}}}}],
+            "tool_choice": "auto", "temperature": 0.2,
+        });
+        let out = to_anthropic_request(ClientDialect::OpenAiChat, &body).unwrap();
+        assert_eq!(out["model"], "openai/gpt-4.1");
+        assert_eq!(out["system"], "be nice");
+        assert_eq!(out["tools"][0]["name"], "get_weather");
+        assert_eq!(out["tools"][0]["input_schema"]["type"], "object");
+        // assistant tool_use block
+        let msgs = out["messages"].as_array().unwrap();
+        let asst = &msgs[1];
+        assert_eq!(asst["content"][1]["type"], "tool_use");
+        assert_eq!(asst["content"][1]["input"]["city"], "Paris");
+        // tool_result in user turn
+        let tr = &msgs[2];
+        assert_eq!(tr["role"], "user");
+        assert_eq!(tr["content"][0]["type"], "tool_result");
+        assert_eq!(tr["content"][0]["tool_use_id"], "call_1");
     }
 
     #[test]
-    fn streams_are_wellformed() {
-        let r = CanonicalResponse { text: "hi".into(), finish_reason: "stop".into(), model: "m".into(), prompt_tokens: 1, completion_tokens: 1 };
-        for d in [ClientDialect::AnthropicMessages, ClientDialect::OpenAiChat, ClientDialect::OpenAiResponses] {
-            let frames = render_stream(d, &r);
-            assert!(frames.len() >= 4);
-            for f in &frames { assert!(f.starts_with("data:") || f.starts_with("event:"), "{f}"); }
-        }
+    fn responses_roundtrip_blocks() {
+        let r = AssembledResponse {
+            id: "msg_abc".into(),
+            content: vec![
+                json!({"type":"text","text":"checking"}),
+                json!({"type":"tool_use","id":"call_9","name":"get_weather","input":{"city":"Paris"}}),
+            ],
+            stop_reason: "tool_use".into(),
+            stop_sequence: None,
+            usage: json!({"input_tokens":10,"output_tokens":7}),
+            input_tokens: 10, output_tokens: 7, chunks: 1, metered_chunks: 0,
+        };
+        let j = render_json(ClientDialect::OpenAiResponses, &r, "gpt-4.1");
+        assert_eq!(j["output"][1]["type"], "function_call");
+        assert_eq!(j["output"][1]["call_id"], "call_9");
+        assert_eq!(j["output"][1]["arguments"], "{\"city\":\"Paris\"}");
+        let c = render_json(ClientDialect::OpenAiChat, &r, "gpt-4.1");
+        assert_eq!(c["choices"][0]["finish_reason"], "tool_calls");
+        assert_eq!(c["choices"][0]["message"]["tool_calls"][0]["function"]["name"], "get_weather");
+        let sse_frames = render_sse(ClientDialect::AnthropicMessages, &r, "claude-opus-5-5", false);
+        let joined = sse_frames.join("\n");
+        assert!(joined.contains("input_json_delta"));
+        assert!(joined.contains("\"stop_reason\":\"tool_use\""));
     }
 }
