@@ -148,15 +148,45 @@ pub async fn complete_long(
         }
 
         // Partial tool_use at max_tokens: a half-written tool call can't be
-        // continued. Enlarge the budget and redo this chunk from pre-chunk state.
+        // continued — and enlarging the budget breaks the real invariant
+        // (chunks must finish inside the ~100s idle window; a 5-8k-token tool
+        // call at ~20-50 tok/s CANNOT). Enlarging just dies slower (measured:
+        // 69s NetworkError deaths, then churn to a client-visible 500). So a
+        // mid-tool_use cut routes THIS chunk to metered streaming immediately:
+        // bytes flow, no window applies, the tool call completes whole. Tiny
+        // credit touch for exactly one chunk; the chain resumes free after.
         let ends_in_tool_use = chunk_blocks
             .last()
             .map(|b| b["type"].as_str() == Some("tool_use"))
             .unwrap_or(false);
-        if chunk_stop == "max_tokens" && ends_in_tool_use && chunk_tokens < 8000 {
-            eprintln!("[freechat] chunk {i} cut mid-tool_use — retrying with a bigger budget");
-            chunk_tokens = (chunk_tokens * 2).min(8000);
+        if chunk_stop == "max_tokens" && ends_in_tool_use {
+            if !cfg.metered_fallback {
+                return Err(format!("chunk {i}: tool call exceeds the free window (fallback off)"));
+            }
+            eprintln!("[freechat] chunk {i} cut mid-tool_use — streaming this chunk metered (window physics, not enlargement)");
             ctok = ctok.saturating_sub(out_t);
+            let stream_payload = build_payload(&messages, cfg.max_total_tokens.map(|cap| cap.saturating_sub(ctok as u32).max(1024)).unwrap_or(8000));
+            let streamed = stream_chunk(
+                t, token_cache, session, browser, account, project,
+                upstream, stream_payload, chat_session,
+            ).await?;
+            metered_chunks += 1;
+            ptok = ptok.max(streamed.input_tokens);
+            ctok += streamed.output_tokens;
+            last_usage = streamed.usage.clone();
+            if msg_id.is_empty() && !streamed.id.is_empty() {
+                msg_id = streamed.id.clone();
+            }
+            let streamed_stop = streamed.stop_reason.clone();
+            let streamed_seq = streamed.stop_sequence.clone();
+            let streamed_blocks = streamed.content.clone();
+            merge_blocks(&mut blocks, streamed_blocks.clone());
+            let finished = streamed_stop != "max_tokens"
+                || cfg.max_total_tokens.map(|cap| cap.saturating_sub(ctok as u32) == 0).unwrap_or(false);
+            if finished {
+                return Ok(assemble(msg_id, blocks, streamed_stop, streamed_seq, last_usage, ptok, ctok, i + 1, metered_chunks));
+            }
+            push_continuation(&mut messages, &streamed_blocks, cfg);
             continue;
         }
 
