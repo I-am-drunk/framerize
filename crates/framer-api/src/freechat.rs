@@ -39,9 +39,8 @@ pub async fn complete_long(
     anthro_payload: Value,
     cfg: &ChainConfig,
     chat_session: &str,
-    /// Incremental progress: each chunk's blocks as it completes — the server
-    /// streams these as SSE frames from the first second instead of buffering
-    /// the whole chain (silent-socket client timeouts).
+    // Incremental progress: each chunk's blocks as it completes — the server
+    // streams these as SSE frames from the first second (no silent socket).
     events: Option<&(dyn Fn(ChainEvent) + Send + Sync)>,
 ) -> Result<AssembledResponse, String> {
     let upstream = Dialect::OpenRouterMessages;
