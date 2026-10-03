@@ -15,7 +15,7 @@ use std::sync::Mutex;
 
 use serde_json::{json, Value};
 
-use framer_core::convert::AssembledResponse;
+use framer_core::convert::{AssembledResponse, ChainEvent};
 use framer_core::ids::{AccountId, ProjectId};
 use framer_core::port::{BrowserBridge, ChainConfig, Session};
 
@@ -39,6 +39,10 @@ pub async fn complete_long(
     anthro_payload: Value,
     cfg: &ChainConfig,
     chat_session: &str,
+    /// Incremental progress: each chunk's blocks as it completes — the server
+    /// streams these as SSE frames from the first second instead of buffering
+    /// the whole chain (silent-socket client timeouts).
+    events: Option<&(dyn Fn(ChainEvent) + Send + Sync)>,
 ) -> Result<AssembledResponse, String> {
     let upstream = Dialect::OpenRouterMessages;
 
@@ -114,6 +118,9 @@ pub async fn complete_long(
                         let streamed_seq = streamed.stop_sequence.clone();
                         let streamed_blocks = streamed.content.clone();
                         merge_blocks(&mut blocks, streamed_blocks.clone());
+                        if let Some(cb) = events {
+                            cb(ChainEvent::Chunk(streamed_blocks.clone()));
+                        }
                         let finished = streamed_stop != "max_tokens"
                             || cfg.max_total_tokens.map(|cap| cap.saturating_sub(ctok as u32) == 0).unwrap_or(false);
                         if finished {
@@ -181,6 +188,9 @@ pub async fn complete_long(
             let streamed_seq = streamed.stop_sequence.clone();
             let streamed_blocks = streamed.content.clone();
             merge_blocks(&mut blocks, streamed_blocks.clone());
+            if let Some(cb) = events {
+                cb(ChainEvent::Chunk(streamed_blocks.clone()));
+            }
             let finished = streamed_stop != "max_tokens"
                 || cfg.max_total_tokens.map(|cap| cap.saturating_sub(ctok as u32) == 0).unwrap_or(false);
             if finished {
@@ -193,6 +203,9 @@ pub async fn complete_long(
         stop_reason = chunk_stop.clone();
         stop_sequence = body["stop_sequence"].as_str().map(str::to_string);
         merge_blocks(&mut blocks, chunk_blocks.clone());
+        if let Some(cb) = events {
+            cb(ChainEvent::Chunk(chunk_blocks.clone()));
+        }
 
         let budget_left = cfg.max_total_tokens.map(|cap| cap.saturating_sub(ctok as u32));
         if chunk_stop != "max_tokens" || budget_left == Some(0) {

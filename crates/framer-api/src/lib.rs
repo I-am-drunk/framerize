@@ -171,6 +171,7 @@ impl FramerClient for HttpFramerClient {
             anthro_payload,
             cfg,
             chat_session,
+            events,
         )
         .await
     }

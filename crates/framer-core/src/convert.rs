@@ -779,3 +779,344 @@ mod tests {
         assert!(joined.contains("\"stop_reason\":\"tool_use\""));
     }
 }
+
+// ---------------------------------------------------------------------------
+// INCREMENTAL streaming: the chain emits per-chunk events; these composers
+// turn them into dialect SSE frames AS THEY ARRIVE. This is what keeps
+// streaming clients alive: bytes flow from the first second (message_start /
+// role / response.created), heartbeats fill the gaps between chunks, and the
+// old failure mode — a silent socket for the entire chain duration, which
+// clients time out as "repeated API errors" — is gone.
+// ---------------------------------------------------------------------------
+
+/// What the chain emits as it progresses.
+#[derive(Debug, Clone)]
+pub enum ChainEvent {
+    /// A chunk completed; its new blocks (already merged into the total by the
+    /// chain) are attached for incremental rendering.
+    Chunk(Vec<Value>),
+    /// The chain finished (assembled response available).
+    Done(Box<AssembledResponse>),
+}
+
+/// Heartbeat frame per dialect (legal, parser-ignored keep-alives).
+pub fn ping_frame(d: ClientDialect) -> String {
+    match d {
+        ClientDialect::AnthropicMessages => sse("ping", json!({"type": "ping"})),
+        ClientDialect::OpenAiChat | ClientDialect::OpenAiResponses => ": ping".into(),
+    }
+}
+
+/// Opening frames per dialect, sent IMMEDIATELY on connection.
+pub fn stream_open(d: ClientDialect, client_model: &str, msg_id: &str) -> Vec<String> {
+    match d {
+        ClientDialect::AnthropicMessages => vec![sse("message_start", json!({
+            "type": "message_start",
+            "message": {
+                "id": msg_id, "type": "message", "role": "assistant",
+                "content": [], "model": client_model,
+                "stop_reason": null, "stop_sequence": null,
+                "usage": {"input_tokens": 0, "output_tokens": 0},
+            },
+        }))],
+        ClientDialect::OpenAiChat => vec![format!("data: {}", json!({
+            "id": chat_id(msg_id), "object": "chat.completion.chunk",
+            "created": now_unix(), "model": client_model,
+            "choices": [{"index": 0, "delta": {"role": "assistant"}, "finish_reason": null}],
+        }))],
+        ClientDialect::OpenAiResponses => vec![
+            sse("response.created", json!({
+                "type": "response.created",
+                "response": {"id": resp_id(msg_id), "object": "response",
+                             "created_at": now_unix(), "status": "in_progress",
+                             "model": client_model},
+            })),
+            sse("response.in_progress", json!({
+                "type": "response.in_progress",
+                "response": {"id": resp_id(msg_id), "status": "in_progress"},
+            })),
+        ],
+    }
+}
+
+fn chat_id(msg_id: &str) -> String {
+    format!("chatcmpl-{}", msg_id.trim_start_matches("msg_").trim_start_matches("gen-"))
+}
+fn resp_id(msg_id: &str) -> String {
+    format!("resp_{}", msg_id.trim_start_matches("msg_"))
+}
+
+/// Incremental SSE composer: tracks open blocks across chunks.
+pub struct SseComposer {
+    d: ClientDialect,
+    client_model: String,
+    /// anthropic: next content block index; whether a text block is open
+    next_idx: usize,
+    text_open: bool,
+    /// chat/responses: tool call ordinal; output item ordinal
+    tool_idx: usize,
+    item_idx: usize,
+    /// accumulated blocks (for the responses.completed final object)
+    acc: Vec<Value>,
+    msg_id: String,
+    created: u64,
+    text_item_open: bool,
+}
+
+impl SseComposer {
+    pub fn new(d: ClientDialect, msg_id: &str, client_model: &str) -> Self {
+        Self {
+            d,
+            client_model: client_model.to_string(),
+            next_idx: 0,
+            text_open: false,
+            tool_idx: 0,
+            item_idx: 0,
+            acc: Vec::new(),
+            msg_id: msg_id.to_string(),
+            created: now_unix(),
+            text_item_open: false,
+        }
+    }
+
+    pub fn push_chunk(&mut self, blocks: &[Value]) -> Vec<String> {
+        merge_blocks_local(&mut self.acc, blocks.to_vec());
+        match self.d {
+            ClientDialect::AnthropicMessages => self.push_anthropic(blocks),
+            ClientDialect::OpenAiChat => self.push_chat(blocks),
+            ClientDialect::OpenAiResponses => self.push_responses(blocks),
+        }
+    }
+
+    pub fn finish(&mut self, r: &AssembledResponse, client_model: &str, include_usage: bool) -> Vec<String> {
+        match self.d {
+            ClientDialect::AnthropicMessages => {
+                let mut f = Vec::new();
+                if self.text_open {
+                    f.push(sse("content_block_stop", json!({"type":"content_block_stop","index": self.next_idx})));
+                    self.text_open = false;
+                }
+                f.push(sse("message_delta", json!({
+                    "type": "message_delta",
+                    "delta": {"stop_reason": r.stop_reason, "stop_sequence": r.stop_sequence},
+                    "usage": {"output_tokens": r.output_tokens},
+                })));
+                f.push(sse("message_stop", json!({"type": "message_stop"})));
+                f
+            }
+            ClientDialect::OpenAiChat => {
+                let mut f = Vec::new();
+                f.push(format!("data: {}", json!({
+                    "id": chat_id(&self.msg_id), "object": "chat.completion.chunk",
+                    "created": self.created, "model": client_model,
+                    "choices": [{"index": 0, "delta": {}, "finish_reason": chat_finish(&r.stop_reason)}],
+                })));
+                if include_usage {
+                    f.push(format!("data: {}", json!({
+                        "id": chat_id(&self.msg_id), "object": "chat.completion.chunk",
+                        "created": self.created, "model": client_model, "choices": [],
+                        "usage": {"prompt_tokens": r.input_tokens, "completion_tokens": r.output_tokens,
+                                  "total_tokens": r.input_tokens + r.output_tokens},
+                    })));
+                }
+                f.push("data: [DONE]".into());
+                f
+            }
+            ClientDialect::OpenAiResponses => {
+                let assembled = AssembledResponse {
+                    id: r.id.clone(),
+                    content: self.acc.clone(),
+                    stop_reason: r.stop_reason.clone(),
+                    stop_sequence: r.stop_sequence.clone(),
+                    usage: r.usage.clone(),
+                    input_tokens: r.input_tokens,
+                    output_tokens: r.output_tokens,
+                    chunks: r.chunks,
+                    metered_chunks: r.metered_chunks,
+                };
+                let full = render_json(ClientDialect::OpenAiResponses, &assembled, client_model);
+                vec![sse("response.completed", json!({
+                    "type": "response.completed", "response": full,
+                }))]
+            }
+        }
+    }
+
+    fn push_anthropic(&mut self, blocks: &[Value]) -> Vec<String> {
+        let mut f = Vec::new();
+        for b in blocks {
+            match b["type"].as_str() {
+                Some("text") => {
+                    if !self.text_open {
+                        f.push(sse("content_block_start", json!({
+                            "type": "content_block_start", "index": self.next_idx,
+                            "content_block": {"type": "text", "text": ""},
+                        })));
+                        self.text_open = true;
+                    }
+                    f.push(sse("content_block_delta", json!({
+                        "type": "content_block_delta", "index": self.next_idx,
+                        "delta": {"type": "text_delta", "text": b["text"]},
+                    })));
+                }
+                Some("tool_use") => {
+                    if self.text_open {
+                        f.push(sse("content_block_stop", json!({"type": "content_block_stop", "index": self.next_idx})));
+                        self.text_open = false;
+                        self.next_idx += 1;
+                    }
+                    f.push(sse("content_block_start", json!({
+                        "type": "content_block_start", "index": self.next_idx,
+                        "content_block": {"type": "tool_use", "id": b["id"], "name": b["name"], "input": {}},
+                    })));
+                    f.push(sse("content_block_delta", json!({
+                        "type": "content_block_delta", "index": self.next_idx,
+                        "delta": {"type": "input_json_delta", "partial_json": b["input"].to_string()},
+                    })));
+                    f.push(sse("content_block_stop", json!({"type": "content_block_stop", "index": self.next_idx})));
+                    self.next_idx += 1;
+                }
+                _ => {
+                    // thinking etc.: close text, pass through as its own block
+                    if self.text_open {
+                        f.push(sse("content_block_stop", json!({"type": "content_block_stop", "index": self.next_idx})));
+                        self.text_open = false;
+                        self.next_idx += 1;
+                    }
+                    f.push(sse("content_block_start", json!({
+                        "type": "content_block_start", "index": self.next_idx, "content_block": b,
+                    })));
+                    f.push(sse("content_block_stop", json!({"type": "content_block_stop", "index": self.next_idx})));
+                    self.next_idx += 1;
+                }
+            }
+        }
+        f
+    }
+
+    fn push_chat(&mut self, blocks: &[Value]) -> Vec<String> {
+        let chunk = |delta: Value| json!({
+            "id": chat_id(&self.msg_id), "object": "chat.completion.chunk",
+            "created": self.created, "model": self.client_model,
+            "choices": [{"index": 0, "delta": delta, "finish_reason": null}],
+        });
+        let mut f = Vec::new();
+        for b in blocks {
+            match b["type"].as_str() {
+                Some("text") => {
+                    if let Some(t) = b["text"].as_str() {
+                        if !t.is_empty() {
+                            f.push(format!("data: {}", chunk(json!({"content": t}))));
+                        }
+                    }
+                }
+                Some("tool_use") => {
+                    f.push(format!("data: {}", chunk(json!({
+                        "tool_calls": [{"index": self.tool_idx, "id": b["id"], "type": "function",
+                                        "function": {"name": b["name"], "arguments": ""}}],
+                    }))));
+                    f.push(format!("data: {}", chunk(json!({
+                        "tool_calls": [{"index": self.tool_idx,
+                                        "function": {"arguments": b["input"].to_string()}}],
+                    }))));
+                    self.tool_idx += 1;
+                }
+                _ => {}
+            }
+        }
+        f
+    }
+
+    fn push_responses(&mut self, blocks: &[Value]) -> Vec<String> {
+        let mut f = Vec::new();
+        for b in blocks {
+            match b["type"].as_str() {
+                Some("text") => {
+                    let t = b["text"].as_str().unwrap_or_default();
+                    if t.is_empty() { continue; }
+                    if !self.text_item_open {
+                        f.push(sse("response.output_item.added", json!({
+                            "type": "response.output_item.added",
+                            "output_index": self.item_idx,
+                            "item": {"id": format!("msg_{}", self.msg_id.trim_start_matches("msg_")),
+                                     "type": "message", "status": "in_progress",
+                                     "role": "assistant",
+                                     "content": [{"type":"output_text","text":"","annotations":[]}]},
+                        })));
+                        f.push(sse("response.content_part.added", json!({
+                            "type": "response.content_part.added",
+                            "output_index": self.item_idx, "content_index": 0,
+                            "part": {"type":"output_text","text":"","annotations":[]},
+                        })));
+                        self.text_item_open = true;
+                    }
+                    f.push(sse("response.output_text.delta", json!({
+                        "type": "response.output_text.delta",
+                        "output_index": self.item_idx, "content_index": 0, "delta": t,
+                    })));
+                }
+                Some("tool_use") => {
+                    if self.text_item_open {
+                        f.push(sse("response.output_text.done", json!({
+                            "type": "response.output_text.done",
+                            "output_index": self.item_idx, "content_index": 0,
+                            "text": "",
+                        })));
+                        f.push(sse("response.output_item.done", json!({
+                            "type": "response.output_item.done", "output_index": self.item_idx,
+                            "item": {"type": "message", "status": "completed"},
+                        })));
+                        self.text_item_open = false;
+                        self.item_idx += 1;
+                    }
+                    f.push(sse("response.output_item.added", json!({
+                        "type": "response.output_item.added", "output_index": self.item_idx,
+                        "item": {"id": format!("fc_{}", b["id"].as_str().unwrap_or("x")),
+                                 "type": "function_call", "status": "in_progress",
+                                 "call_id": b["id"], "name": b["name"], "arguments": ""},
+                    })));
+                    f.push(sse("response.function_call_arguments.delta", json!({
+                        "type": "response.function_call_arguments.delta",
+                        "output_index": self.item_idx, "delta": b["input"].to_string(),
+                    })));
+                    f.push(sse("response.function_call_arguments.done", json!({
+                        "type": "response.function_call_arguments.done",
+                        "output_index": self.item_idx,
+                        "arguments": b["input"].to_string(),
+                        "name": b["name"], "call_id": b["id"],
+                    })));
+                    f.push(sse("response.output_item.done", json!({
+                        "type": "response.output_item.done", "output_index": self.item_idx,
+                        "item": {"id": format!("fc_{}", b["id"].as_str().unwrap_or("x")),
+                                 "type": "function_call", "status": "completed",
+                                 "call_id": b["id"], "name": b["name"],
+                                 "arguments": b["input"].to_string()},
+                    })));
+                    self.item_idx += 1;
+                }
+                _ => {}
+            }
+        }
+        f
+    }
+}
+
+fn merge_blocks_local(acc: &mut Vec<Value>, new: Vec<Value>) {
+    for b in new {
+        let is_text = b["type"].as_str() == Some("text");
+        if is_text {
+            if let Some(last) = acc.last_mut() {
+                if last["type"].as_str() == Some("text") {
+                    let joined = format!(
+                        "{}{}",
+                        last["text"].as_str().unwrap_or_default(),
+                        b["text"].as_str().unwrap_or_default()
+                    );
+                    last["text"] = json!(joined);
+                    continue;
+                }
+            }
+        }
+        acc.push(b);
+    }
+}
