@@ -744,7 +744,11 @@ mod tests {
         });
         let out = to_anthropic_request(ClientDialect::AnthropicMessages, &body).unwrap();
         assert_eq!(out["tools"], body["tools"]);
-        assert_eq!(out["system"], body["system"]);
+        // system gains the tool-chunk note (appended as a final block); the
+        // client's own blocks lead, untouched.
+        let sys = out["system"].as_array().unwrap();
+        assert_eq!(sys[0], body["system"][0]);
+        assert!(sys.last().unwrap()["text"].as_str().unwrap().contains("tool call small"));
         assert_eq!(out["tool_choice"], body["tool_choice"]);
         assert_eq!(out["messages"], body["messages"]);
         assert!(out.get("unknown_field").is_none());
