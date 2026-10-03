@@ -149,6 +149,27 @@ if ! command -v t3 >/dev/null; then
 fi
 ok "t3 installed ($(t3 --version 2>/dev/null || echo '?'))"
 
+# ---------- 11b. gateway env, system-wide ----------
+# Codex CLI hard-requires its env_key var to EXIST (the gateway itself needs no
+# key — loopback only). T3 spawns `codex`/`claude` directly, so the vars must
+# be in the machine environment, not just the fcx/fcd wrappers.
+say "11b. gateway env vars (system-wide + t3-serve unit)"
+if ! grep -q FRAMERIZE_LOCAL /etc/environment 2>/dev/null; then
+  printf 'FRAMERIZE_LOCAL=framerize-local
+ANTHROPIC_BASE_URL=http://127.0.0.1:8787/anthropic
+ANTHROPIC_AUTH_TOKEN=framerize-local
+' | sudo tee -a /etc/environment >/dev/null
+fi
+T3UNIT="$HOME/.config/systemd/user/t3-serve.service"
+if [ -f "$T3UNIT" ] && ! grep -q FRAMERIZE_LOCAL "$T3UNIT"; then
+  sed -i 's|^Environment=PATH=|Environment=FRAMERIZE_LOCAL=framerize-local
+Environment=ANTHROPIC_BASE_URL=http://127.0.0.1:8787/anthropic
+Environment=ANTHROPIC_AUTH_TOKEN=framerize-local
+Environment=PATH=|' "$T3UNIT"
+  systemctl --user daemon-reload 2>/dev/null || true
+fi
+ok "FRAMERIZE_LOCAL + ANTHROPIC_* provisioned"
+
 # ---------- 12. make the agents' DEFAULT invocation ride the gateway ----------
 # T3 launches `claude` / `codex` directly — so the daemon URL must be in their
 # config, not only in the fcd/fcx wrappers.
