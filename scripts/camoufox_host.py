@@ -126,7 +126,7 @@ def post_js(path, body, bearer=None):
 })()""" % (MINT_JS, json.dumps(body), API, path, auth)
 
 
-POOL_CAP = int(os.environ.get("FRAMERIZE_PAGE_POOL", "3"))
+POOL_CAP = int(os.environ.get("FRAMERIZE_PAGE_POOL", "6"))
 
 
 class Account:
@@ -171,7 +171,15 @@ class Host:
                     trace(f"{account[:8]}: pool-page warm issue ({type(e).__name__}) — continuing")
                 acc.size += 1
                 return page, acc
-        return await acc.pool.get(), acc
+        # At cap: this request QUEUES for a free page. Log the wait — queue
+        # time dominates total latency under concurrent load (47s→190s
+        # arithmetic growth was invisible until measured here).
+        t0 = time.monotonic()
+        page = await acc.pool.get()
+        wait = time.monotonic() - t0
+        if wait > 2.0:
+            trace(f"{account[:8]}: pool wait {wait:.1f}s (all {POOL_CAP} pages busy)")
+        return page, acc
 
     @staticmethod
     def _release(acc, page):
