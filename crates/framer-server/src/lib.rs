@@ -358,6 +358,8 @@ async fn free_complete(
 
     let cfg = framer_core::port::ChainConfig {
         max_total_tokens: Some(max_tokens),
+        // Metered rungs are credit spend: off unless the operator opts in.
+        metered_fallback: std::env::var("FRAMERIZE_ALLOW_METERED").map(|v| v == "1").unwrap_or(false),
         ..Default::default()
     };
     if wants_stream {
@@ -434,7 +436,18 @@ async fn free_complete(
                     biased;
                     r = &mut handle => {
                         st.done = true;
-                        match r {
+                        // DRAIN pending chunk events BEFORE finishing: a biased
+                        // select resolves the handle first when the last chunk
+                        // and the completion race — without this the final
+                        // chunk's frames (the tool_use block!) are dropped and
+                        // the client sees stop_reason=tool_use with no tool call.
+                        let mut drained: Vec<String> = Vec::new();
+                        while let Ok(ev) = rx.try_recv() {
+                            if let convert::ChainEvent::Chunk(blocks) = ev {
+                                drained.extend(composer.push_chunk(&blocks));
+                            }
+                        }
+                        let tail = match r {
                             Ok(Ok(assembled)) => composer.finish(&assembled, &client_model, include_usage),
                             Ok(Err(e)) => {
                                 let err_resp = convert::AssembledResponse {
@@ -451,7 +464,8 @@ async fn free_complete(
                                     .collect()
                             }
                             Err(je) => vec![convert::ping_frame(dialect), format!(": join error {je}")],
-                        }
+                        };
+                        drained.into_iter().chain(tail).collect()
                     }
                     ev = rx.recv() => match ev {
                         Some(convert::ChainEvent::Chunk(blocks)) => composer.push_chunk(&blocks),

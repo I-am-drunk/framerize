@@ -137,12 +137,10 @@ pub struct ChainConfig {
     /// upstream max_tokens is min(chunk_tokens, remaining). None = chain until
     /// finish_reason == "stop".
     pub max_total_tokens: Option<u32>,
-    /// Never-fail ladder's last rung: when a chunk keeps dying to the upstream
-    /// idle-kill (e.g. provider queue stall > window), finish THAT chunk as a
-    /// metered stream (SSE flows bytes, cannot idle-die) and resume free
-    /// non-streaming for the next chunk. Credits touched only on failure paths.
-    /// Default ON: automations must not fail; free is the optimization, not the
-    /// constraint.
+    /// Last-resort rung: finish a failing chunk as a METERED stream (touches
+    /// credits). Default OFF — credit spend is opt-in per daemon via
+    /// FRAMERIZE_ALLOW_METERED=1. With it off, exhausted free retries return a
+    /// clean error instead of spending.
     pub metered_fallback: bool,
 }
 
@@ -154,7 +152,7 @@ impl Default for ChainConfig {
             max_chunks: 16,
             continue_prompt: "Continue exactly where you stopped. No preamble, no recap.".into(),
             max_total_tokens: None,
-            metered_fallback: true,
+            metered_fallback: false,
         }
     }
 }
