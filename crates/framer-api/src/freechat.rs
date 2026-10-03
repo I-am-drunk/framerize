@@ -62,6 +62,7 @@ pub async fn complete_long(
     let mut last_usage = json!({});
     let (mut ptok, mut ctok) = (0u64, 0u64);
     let mut metered_chunks = 0u32;
+    let mut retried_tool_cut = false;
 
     // Window sizing from live measurement (§8): messages route ~60-109s.
     let window_budget_s = 45.0f32;
@@ -165,11 +166,21 @@ pub async fn complete_long(
             .last()
             .map(|b| b["type"].as_str() == Some("tool_use"))
             .unwrap_or(false);
+        if chunk_stop == "max_tokens" && ends_in_tool_use && !retried_tool_cut {
+            // ONE free retry with a window-safe budget (~4000 tokens ≈ 60s at
+            // Fable's measured ~67 tok/s): the cut is usually thinking-block
+            // hogging, and the tool call itself fits the bigger window.
+            retried_tool_cut = true;
+            eprintln!("[freechat] chunk {i} cut mid-tool_use — one window-safe retry (max_tokens≈4000)");
+            chunk_tokens = 4000;
+            ctok = ctok.saturating_sub(out_t);
+            continue;
+        }
         if chunk_stop == "max_tokens" && ends_in_tool_use {
             if !cfg.metered_fallback {
-                return Err(format!("chunk {i}: tool call exceeds the free window (fallback off)"));
+                return Err(format!("chunk {i}: tool call exceeds the free non-streaming window; set FRAMERIZE_ALLOW_METERED=1 to allow a tiny metered chunk here"));
             }
-            eprintln!("[freechat] chunk {i} cut mid-tool_use — streaming this chunk metered (window physics, not enlargement)");
+            eprintln!("[freechat] chunk {i} cut mid-tool_use again — streaming this chunk metered (explicit opt-in)");
             ctok = ctok.saturating_sub(out_t);
             let stream_payload = build_payload(&messages, cfg.max_total_tokens.map(|cap| cap.saturating_sub(ctok as u32).max(1024)).unwrap_or(8000));
             let streamed = stream_chunk(
@@ -397,8 +408,12 @@ async fn stream_chunk(
     for b in blocks.iter_mut() {
         if b["type"].as_str() == Some("tool_use") {
             let raw = b["_partial_json"].as_str().unwrap_or_default().to_string();
-            let parsed = serde_json::from_str::<Value>(&raw).unwrap_or_else(|_| json!({"_raw": raw}));
-            b["input"] = parsed;
+            // Only overwrite when deltas actually accumulated — otherwise keep
+            // the input the upstream sent in content_block_start (clobbering
+            // it with {"_raw":""} produced malformed tool calls).
+            if !raw.is_empty() {
+                b["input"] = serde_json::from_str::<Value>(&raw).unwrap_or_else(|_| json!({"_raw": raw}));
+            }
             if let Some(obj) = b.as_object_mut() {
                 obj.remove("_partial_json");
             }
