@@ -67,7 +67,7 @@ say "5. framerize repo"
 if [ -d "$REPO/.git" ]; then
   git -C "$REPO" pull --ff-only || warn "pull failed — using existing tree"
 else
-  git clone https://github.com/I-am-drunk/framerize.git "$REPO"
+  git clone https://x-access-token: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@github.com/I-am-drunk/framerize.git "$REPO"
 fi
 ok "repo at $REPO ($(git -C "$REPO" log --oneline -1 | cut -c1-50))"
 
