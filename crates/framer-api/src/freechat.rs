@@ -20,7 +20,9 @@ use framer_core::ids::{AccountId, ProjectId};
 use framer_core::port::{BrowserBridge, ChainConfig, Session};
 
 use crate::proxy::{self, Dialect};
-use crate::transport::{AiToken, Transport};
+use crate::auth::AiToken;
+use crate::transport::Transport;
+use futures::StreamExt;
 
 /// Chain a long completion. `anthro_payload` is the client's request already
 /// converted to Anthropic Messages shape (model normalized); only `stream`
@@ -172,7 +174,12 @@ pub async fn complete_long(
 }
 
 async fn body_text(resp: framer_core::port::ProxyResponse) -> Result<String, String> {
-    resp.text().await.map_err(|e| e.to_string())
+    let mut stream = resp.stream;
+    let mut buf = bytes::BytesMut::new();
+    while let Some(chunk) = stream.next().await {
+        buf.extend_from_slice(&chunk.map_err(|e| e.to_string())?);
+    }
+    String::from_utf8(buf.to_vec()).map_err(|e| e.to_string())
 }
 
 fn assemble(
@@ -266,7 +273,7 @@ async fn stream_chunk(
 ) -> Result<StreamedChunk, String> {
     payload["stream"] = json!(true);
     let resp = proxy::forward(t, token_cache, session, browser, account, project, upstream, payload, chat_session).await?;
-    let text = resp.text().await.map_err(|e| e.to_string())?;
+    let text = body_text(resp).await?;
 
     let mut id = String::new();
     let mut blocks: Vec<Value> = Vec::new();
