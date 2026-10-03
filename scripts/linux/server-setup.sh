@@ -142,4 +142,36 @@ loginctl enable-linger "$USER" 2>/dev/null || true
 sleep 3
 curl -s -m 5 http://127.0.0.1:8787/api/health && ok "daemon healthy on :8787" || warn "daemon not answering yet — check: journalctl --user -u framerize -n 30"
 
-say "DONE. Next: framerize login (magic link), then fcd / fcx."
+# ---------- 11. T3 Code (agent control surface + T3 Connect) ----------
+say "11. T3 Code CLI"
+if ! command -v t3 >/dev/null; then
+  curl -fsSL https://t3.codes/install.sh | sh
+fi
+ok "t3 installed ($(t3 --version 2>/dev/null || echo '?'))"
+
+# ---------- 12. make the agents' DEFAULT invocation ride the gateway ----------
+# T3 launches `claude` / `codex` directly — so the daemon URL must be in their
+# config, not only in the fcd/fcx wrappers.
+say "12. gateway env in agent configs"
+mkdir -p "$HOME/.claude"
+python3 - <<'PYEOF2'
+import json, os
+p = os.path.expanduser("~/.claude/settings.json")
+s = {}
+if os.path.exists(p):
+    try: s = json.load(open(p))
+    except Exception: s = {}
+env = s.setdefault("env", {})
+env["ANTHROPIC_BASE_URL"] = "http://127.0.0.1:8787/anthropic"
+env["ANTHROPIC_AUTH_TOKEN"] = "framerize-local"
+json.dump(s, open(p, "w"), indent=2)
+print("    ✓ ~/.claude/settings.json → framerize gateway")
+PYEOF2
+ok "claude/codex default to the free route (T3-spawned sessions included)"
+
+say "DONE. Next steps:"
+echo "    framerize login          # add your Framer account (magic link)"
+echo "    fcd                      # Claude Code on the free route"
+echo "    fcx                      # Codex on the free route"
+echo "    t3 connect --headless    # link this server to app.t3.codes (device code)"
+echo "    t3 serve                 # (or accept the background service offer)"
