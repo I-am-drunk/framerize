@@ -310,9 +310,6 @@ async fn openai_chat(
     .await
 }
 
-/// Free mode for Anthropic-dialect clients: chain on the OpenRouter
-/// Anthropic-format passthrough (/ai/v3/messages/, unmetered non-streaming)
-/// with the client's own payload — zero conversion.
 /// Free mode, ANY client dialect, LOSSLESS: convert the client's request to
 /// Anthropic Messages shape with full fidelity (tools, system, tool_choice,
 /// content blocks — convert::to_anthropic_request), run the unmetered

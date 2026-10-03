@@ -30,7 +30,6 @@ use framer_core::port::{
 };
 use framer_core::pipeline::{InferenceRequest, InferenceResult};
 use framer_core::workspace::CreditSnapshot;
-use futures::StreamExt;
 use transport::Transport;
 
 /// Live implementation of the core `FramerClient` port.
