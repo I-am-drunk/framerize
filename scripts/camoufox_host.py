@@ -126,16 +126,70 @@ def post_js(path, body, bearer=None):
 })()""" % (MINT_JS, json.dumps(body), API, path, auth)
 
 
+POOL_CAP = int(os.environ.get("FRAMERIZE_PAGE_POOL", "3"))
+
+
+class Account:
+    """One account's browser context + a POOL of pages. One page = one JS main
+    thread: a 60-90s in-page generation blocks every other eval on that page,
+    which (with the old global dispatch lock) serialized the entire gateway —
+    interactive requests queued behind long chains. The pool gives concurrent
+    requests their own threads (cookies, __cuid and the profile are shared
+    per-context; the castle latch warms once per page)."""
+
+    def __init__(self, mgr, ctx, page):
+        self.mgr = mgr
+        self.ctx = ctx
+        self.pool = asyncio.Queue()
+        self.pool.put_nowait(page)
+        self.size = 1
+        self.lock = asyncio.Lock()  # lifecycle only (page creation, close)
+
+
 class Host:
     def __init__(self):
         os.makedirs(ROOT, exist_ok=True)
-        self.accounts = {}  # account -> (mgr, ctx, page)
+        self.accounts = {}  # account -> Account
         self.proxies = {}
-        self.lock = asyncio.Lock()
+        self.lock = asyncio.Lock()  # brief: account-dict lifecycle ONLY
+
+    async def _acquire(self, account, proxy=None):
+        acc = await self._account(account, proxy)
+        try:
+            return acc.pool.get_nowait(), acc
+        except asyncio.QueueEmpty:
+            pass
+        async with acc.lock:
+            if acc.size < POOL_CAP:
+                page = await acc.ctx.new_page()
+                trace(f"{account[:8]}: pool page {acc.size + 1}/{POOL_CAP} (warming)")
+                try:
+                    await page.goto(LOGIN_URL, wait_until="domcontentloaded", timeout=60000)
+                    await page.wait_for_timeout(800)
+                    await page.evaluate(WARM_JS)
+                except Exception as e:
+                    trace(f"{account[:8]}: pool-page warm issue ({type(e).__name__}) — continuing")
+                acc.size += 1
+                return page, acc
+        return await acc.pool.get(), acc
+
+    @staticmethod
+    def _release(acc, page):
+        acc.pool.put_nowait(page)
+
+    async def _account(self, account, proxy=None):
+        if account in self.accounts:
+            return self.accounts[account]
+        async with self.lock:
+            if account in self.accounts:
+                return self.accounts[account]
+            return await self._launch(account, proxy)
 
     async def _page(self, account, proxy=None):
-        if account in self.accounts:
-            return self.accounts[account][2]
+        page, _ = await self._acquire(account, proxy)
+        return page
+
+    async def _launch(self, account, proxy=None):
         if proxy:
             self.proxies[account] = proxy
         profile = os.path.join(ROOT, account)
@@ -179,8 +233,9 @@ class Host:
             trace(f"{account[:8]}: castle warm {'latched — mints now ~1s' if warm_ok else 'no token yet, latch set anyway'}")
         except Exception as e:
             trace(f"{account[:8]}: castle warm failed ({type(e).__name__}) — first real mint will pay it instead")
-        self.accounts[account] = (mgr, ctx, page)
-        return page
+        acc = Account(mgr, ctx, page)
+        self.accounts[account] = acc
+        return acc
 
     def _ctx(self, account):
         return self.accounts[account][1]
@@ -189,7 +244,7 @@ class Host:
         cmd = req.get("cmd")
         account = req.get("account", "")
         if cmd == "begin":
-            page = await self._page(account, req.get("proxy"))
+            page, _acc = await self._acquire(account, req.get("proxy"))
             trace(f"{account[:8]}: mint+signin eval start")
             t0 = time.monotonic()
             r = await page.evaluate(post_js("/auth/v4/signin", {"email": req["email"], "origin": "web"}))
@@ -202,7 +257,7 @@ class Host:
                 raise RuntimeError("signin %s: %s" % (r["status"], r["body"][:400]))
             return {"status": r["status"]}
         if cmd == "complete":
-            page = await self._page(account)
+            page, _acc = await self._acquire(account)
             r = await page.evaluate(post_js("/auth/v4/continue", {"token": req["token"]}))
             if not (200 <= r["status"] < 300):
                 raise RuntimeError("continue %s: %s" % (r["status"], r["body"][:400]))
@@ -220,9 +275,12 @@ class Host:
             emit("auth.complete", account=account[:8], outcome="ok")
             return {"cookie_header": "session=" + session, "me": json.loads(me["body"])}
         if cmd == "mint":
-            page = await self._page(account)
+            page, acc = await self._acquire(account)
             t0 = time.monotonic()
-            tok = await page.evaluate(MINT_JS)
+            try:
+                tok = await page.evaluate(MINT_JS)
+            finally:
+                self._release(acc, page)
             if not tok:
                 emit("castle.mint", account=account[:8], level="error", outcome="error", error="castle-unavailable")
                 raise RuntimeError("castle-unavailable")
@@ -232,9 +290,12 @@ class Host:
                  duration_ms=int((time.monotonic()-t0)*1000), outcome="ok")
             return tok
         if cmd == "ai_post":
-            page = await self._page(account)
+            page, acc = await self._acquire(account)
             t0 = time.monotonic()
-            r = await page.evaluate(post_js(req["path"], req["body"], req.get("bearer")))
+            try:
+                r = await page.evaluate(post_js(req["path"], req["body"], req.get("bearer")))
+            finally:
+                self._release(acc, page)
             emit("ai.post", account=account[:8], path=req["path"], status=r["status"],
                  duration_ms=int((time.monotonic()-t0)*1000),
                  outcome="ok" if 200 <= r["status"] < 300 else "error")
@@ -252,19 +313,19 @@ class Host:
             return await page.evaluate(req["expr"])
         if cmd == "close":
             if account in self.accounts:
-                mgr, ctx, _ = self.accounts.pop(account)
+                acc = self.accounts.pop(account)
                 try:
-                    await ctx.close()
+                    await acc.ctx.close()
                 finally:
-                    await mgr.__aexit__(None, None, None)
+                    await acc.mgr.__aexit__(None, None, None)
             return True
         if cmd == "rotate":
             if account in self.accounts:
-                mgr, ctx, _ = self.accounts.pop(account)
+                acc = self.accounts.pop(account)
                 try:
-                    await ctx.close()
+                    await acc.ctx.close()
                 finally:
-                    await mgr.__aexit__(None, None, None)
+                    await acc.mgr.__aexit__(None, None, None)
             shutil.rmtree(os.path.join(ROOT, account), ignore_errors=True)
             return True
         raise RuntimeError("unknown cmd %s" % cmd)
@@ -281,8 +342,10 @@ class Host:
                 continue
             try:
                 req = json.loads(line)
-                async with self.lock:
-                    result = await self.handle(req)
+                # NO global lock: commands run concurrently; the per-account
+                # page pool is the concurrency unit (the old global lock
+                # serialized the whole gateway behind one generation).
+                result = await self.handle(req)
                 out = {"id": req.get("id"), "ok": True, "result": result}
             except Exception as e:
                 try:
