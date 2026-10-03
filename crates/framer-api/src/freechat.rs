@@ -64,12 +64,23 @@ pub async fn complete_long(
     let mut metered_chunks = 0u32;
     let mut tool_cut_retries = 0u32;
 
-    // Window sizing from live measurement (§8): messages route ~60-109s.
+    // Window sizing from live measurement (§8 + 2026-10-03 storm analysis):
+    // the messages route's deaths cluster at ~60-67s under load, and upstream
+    // throughput COLLAPSES under repeated attempts (67 → 12 tok/s measured).
+    // The budget must track the model's LIVE speed with a hard floor — five
+    // small completed chunks beat five deaths. 45s budget ≈ 75% of the window.
     let window_budget_s = 45.0f32;
     let chunk_cap = cfg.chunk_tokens.max(2500);
     let mut chunk_tokens = chunk_cap;
+    let budget_for = |tps: f32| -> u32 { ((tps * window_budget_s) as u32).clamp(400, 3000) };
 
+    let chain_started = std::time::Instant::now();
+    let max_wall = std::time::Duration::from_secs(300); // 5 min: beyond this a
+    // chain is storming; the client retries fresh far better than we churn.
     for i in 0..cfg.max_chunks {
+        if chain_started.elapsed() > max_wall {
+            return Err(format!("chain exceeded {}s wall-clock budget after {i} chunks (upstream degraded) — retry the request", max_wall.as_secs()));
+        }
         let budget = cfg
             .max_total_tokens
             .map(|cap| cap.saturating_sub(ctok as u32).max(1))
@@ -148,10 +159,11 @@ pub async fn complete_long(
         ctok += out_t;
         last_usage = usage;
 
-        // Adapt chunk size from measured throughput.
+        // Adapt chunk size from measured throughput (floor 400: completes even
+        // when the upstream degrades to a crawl; ceiling 3000 ≈ 75% window).
         let tps = out_t as f32 / elapsed.max(0.5);
         if tps > 1.0 {
-            chunk_tokens = ((tps * window_budget_s) as u32).clamp(150, chunk_cap);
+            chunk_tokens = budget_for(tps);
         }
 
         // Partial tool_use at max_tokens: a half-written tool call can't be
@@ -172,7 +184,7 @@ pub async fn complete_long(
             // tokens, inside the ~100s window). The cut is usually thinking
             // hogging the budget, not the tool call itself.
             tool_cut_retries += 1;
-            let budget = ((tps * 85.0) as u32).clamp(3500, 6000).max(chunk_tokens);
+            let budget = budget_for(tps).max(chunk_tokens);
             eprintln!("[freechat] chunk {i} cut mid-tool_use — free retry #{tool_cut_retries} (max_tokens={budget}, measured {tps:.0} tok/s)");
             chunk_tokens = budget;
             ctok = ctok.saturating_sub(out_t);
