@@ -770,7 +770,8 @@ mod tests {
         });
         let out = to_anthropic_request(ClientDialect::OpenAiChat, &body).unwrap();
         assert_eq!(out["model"], "openai/gpt-4.1");
-        assert_eq!(out["system"], "be nice");
+        assert!(out["system"].as_str().unwrap().starts_with("be nice"));
+        assert!(out["system"].as_str().unwrap().contains("tool call small"));
         assert_eq!(out["tools"][0]["name"], "get_weather");
         assert_eq!(out["tools"][0]["input_schema"]["type"], "object");
         // assistant tool_use block
