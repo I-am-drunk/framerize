@@ -83,6 +83,16 @@ For 24/7 automation the rule is "a long request can never cause an issue":
 Streaming requests from clients (Claude Code always streams) get synthesized
 SSE from the chain: full ordered event sequence, with per-chunk deltas.
 
+## Streaming contract (v0.6)
+
+Compat endpoints stream INCREMENTALLY: the SSE connection opens with
+message_start / role / response.created in the first milliseconds, chunk
+deltas arrive as each chain chunk completes, and heartbeat pings
+(anthropic `ping` events / SSE comments) fire every 8s of upstream silence.
+A chain's total runtime no longer matters to client timeouts — no socket
+ever idles. (The v0.5 buffered-then-synthesize approach produced exactly
+that failure: clients read-timed-out mid-chain.)
+
 ## Losslessness contract (v0.5 architecture)
 
 The free path is a **block-faithful relay**, not a text proxy:
