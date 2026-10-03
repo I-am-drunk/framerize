@@ -301,7 +301,11 @@ class Host:
                  outcome="ok" if 200 <= r["status"] < 300 else "error")
             return r
         if cmd == "set_cookie":
-            await self._page(account)
+            # Context-level op — do NOT acquire a pool page: at cap that's a
+            # self-deadlock (every ai_post flow starts with set_cookie, so
+            # set_cookie waiting for a free page starves behind the very
+            # requests it unblocks; measured: 300s timeouts across the board).
+            await self._account(account)
             await self._ctx(account).add_cookies([{
                 "name": req["name"], "value": req["value"],
                 "domain": ".framer.com", "path": "/",
