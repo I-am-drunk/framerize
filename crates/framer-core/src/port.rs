@@ -242,6 +242,20 @@ pub trait FramerClient: Send + Sync {
     /// GET /web/teams/{teamId}/ai-credits.
     async fn usage(&self, session: &Session, team: &TeamId) -> Result<CreditSnapshot, String>;
 
+    /// GET /web/v2/dashboard/teams/{teamId} — the team's existing projects.
+    ///
+    /// Needed because an imported account arrives with no `current_project`,
+    /// and every AI call needs one (`projectId` in the envelope). An account
+    /// that already has a project should ADOPT it rather than sit unusable or,
+    /// worse, be mistaken for dead. Returns project ids, most recent first.
+    async fn team_projects(
+        &self,
+        _session: &Session,
+        _team: &TeamId,
+    ) -> Result<Vec<crate::ids::ProjectId>, String> {
+        Err("bridge has no project listing".into())
+    }
+
     /// TODO(unmapped): the create-team endpoint is not yet captured
     /// (TeamCreationModal receives `api.createTeam` from its host). Until captured,
     /// workspace rotation uses pre-existing teams from `me()`.

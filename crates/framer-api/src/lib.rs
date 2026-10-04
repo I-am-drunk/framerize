@@ -143,6 +143,35 @@ impl FramerClient for HttpFramerClient {
             .await
     }
 
+    async fn team_projects(
+        &self,
+        session: &Session,
+        team: &TeamId,
+    ) -> Result<Vec<framer_core::ids::ProjectId>, String> {
+        // Cookie auth: this is a dashboard route, not a /web Bearer one
+        // (reference/analysis/framer-ai-endpoints.md:97).
+        let v = self
+            .transport
+            .get(
+                &format!(
+                    "/web/v2/dashboard/teams/{}?collectionId=recent&orderBy=lastOpenedAt&limit=300",
+                    team.0
+                ),
+                crate::transport::Auth::Cookie(session),
+            )
+            .await?
+            .json::<serde_json::Value>()
+            .await
+            .map_err(|e| e.to_string())?;
+
+        // The payload nests projects under a few possible keys across versions;
+        // collect any object carrying an id that looks like a project id rather
+        // than hardcoding one shape.
+        let mut out = Vec::new();
+        collect_project_ids(&v, &mut out);
+        Ok(out)
+    }
+
     async fn create_workspace(
         &self,
         session: &Session,
@@ -175,5 +204,40 @@ impl FramerClient for HttpFramerClient {
             events,
         )
         .await
+    }
+}
+
+
+/// Walk a dashboard payload and collect project ids.
+///
+/// Framer's dashboard response has changed shape across versions (`projects`,
+/// `items`, `collection.items`), so this looks for the INVARIANT instead: a
+/// 20-char base62 `id` on an object that also looks like a project. Being
+/// shape-agnostic here means a dashboard tweak degrades to "found nothing"
+/// rather than a parse error.
+fn collect_project_ids(v: &serde_json::Value, out: &mut Vec<framer_core::ids::ProjectId>) {
+    match v {
+        serde_json::Value::Object(map) => {
+            if let Some(id) = map.get("id").and_then(|i| i.as_str()) {
+                let looks_like_project = id.len() == 20
+                    && id.chars().all(|c| c.is_ascii_alphanumeric())
+                    && (map.contains_key("name") || map.contains_key("lastOpenedAt"));
+                if looks_like_project {
+                    let pid = framer_core::ids::ProjectId(id.to_string());
+                    if !out.contains(&pid) {
+                        out.push(pid);
+                    }
+                }
+            }
+            for child in map.values() {
+                collect_project_ids(child, out);
+            }
+        }
+        serde_json::Value::Array(items) => {
+            for child in items {
+                collect_project_ids(child, out);
+            }
+        }
+        _ => {}
     }
 }

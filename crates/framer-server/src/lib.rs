@@ -1270,6 +1270,27 @@ async fn import_account(
             s.state.upsert(&account).await.map_err(ApiError)?;
             return Err(ApiError(e.to_string()));
         }
+        // Adopt an existing project if the account has one. Every AI call needs
+        // a projectId, so an imported account without one is admitted but
+        // unusable -- and was previously mistaken for dead by the dedupe sweep.
+        if account.current_project.is_none() {
+            if let Some(team) = account.current_team.clone() {
+                match s.client.team_projects(&session, &team).await {
+                    Ok(projects) => {
+                        if let Some(first) = projects.into_iter().next() {
+                            eprintln!(
+                                "[import] {}: adopted project {}",
+                                account.alias, first.0
+                            );
+                            account.current_project = Some(first);
+                        }
+                    }
+                    // Listing is best-effort: a dashboard shape change must not
+                    // fail an otherwise good import.
+                    Err(e) => eprintln!("[import] project listing failed: {e}"),
+                }
+            }
+        }
         s.state.upsert(&account).await.map_err(ApiError)?;
     }
 
