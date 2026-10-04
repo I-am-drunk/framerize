@@ -24,7 +24,7 @@ Protocol: newline-delimited JSON on stdin/stdout (unchanged).
 State root: $FRAMERIZE_STATE (default ~/.framerize/camoufox). Tokens: accept
 v3 AND v2 (Framer ships the v2 fallback itself; Firefox mints v2).
 """
-import asyncio, json, os, shutil, sys, time
+import asyncio, uuid, json, os, shutil, sys, time
 
 LOG_DIR = os.environ.get("FRAMERIZE_LOG_DIR")
 
@@ -149,6 +149,13 @@ def post_with_token_js(path, body, token, bearer=None):
 
 
 POOL_CAP = int(os.environ.get("FRAMERIZE_PAGE_POOL", "6"))
+# The workspace concurrency cap counts PER DEVICE (verified 2026-10-04: 6
+# concurrent generations on __cuid A + 6 on __cuid B, same workspace/route/
+# model → ALL 200; one device alone 429s past ~5). A pool of device ids, each
+# with its OWN castle module instance (modules bind the device at configure
+# time — re-minting with a swapped __cuid on a cached module does NOTHING,
+# verified), rotates the bucket per mint. Warmed concurrently at launch.
+DEVICE_POOL = int(os.environ.get("FRAMERIZE_DEVICE_POOL", "8"))
 
 # Castle mints are serialized PER ACCOUNT, and paced.
 #
@@ -187,7 +194,53 @@ class Account:
         self.lock = asyncio.Lock()  # lifecycle only (page creation, close)
         self.mint_lock = asyncio.Lock()  # one Castle mint at a time per device
         self.last_mint = 0.0
+        self.devices = []           # persisted pool of __cuid device ids
+        self.devpool_ready = False
 
+
+
+DEVPOOL_WARM_JS = """(async () => {
+  // Build the device pool: K castle-module instances, each bound to its own
+  // __cuid. Modules are singletons per URL, so each device needs its own
+  // import URL — warmed CONCURRENTLY (each pays the v3 race in parallel).
+  if (!window.__devmods) window.__devmods = {};
+  if (!window.castlePublishableAPIKey) Object.defineProperty(window, 'castlePublishableAPIKey', { value: Object.freeze('pk_xYqGbB61EcFiSh4LUshpT4DGoEQMKQMB') });
+  const ids = %s; // JSON array of uuids, persisted per account
+  const saved = (() => { try { return localStorage.getItem('__cuid'); } catch(e) { return null; } })();
+  await Promise.all(ids.map(async (dev, i) => {
+    if (window.__devmods[dev]) return;
+    try {
+      localStorage.setItem('__cuid', dev);
+      document.cookie = '__cuid=' + dev + '; domain=.framer.com; path=/; secure; samesite=None';
+      window.__devmods[dev] = await import('https://app.framerstatic.com/chunk-5LKSDTQ5.mjs?dev=' + i);
+    } catch(e) {}
+  }));
+  if (saved) {
+    try { localStorage.setItem('__cuid', saved); } catch(e) {}
+    document.cookie = '__cuid=' + saved + '; domain=.framer.com; path=/; secure; samesite=None';
+  }
+  return Object.keys(window.__devmods).length;
+})()"""
+
+DEVPOOL_MINT_JS = """(async (ids) => {
+  if (!window.__devmods || Object.keys(window.__devmods).length === 0) return null;
+  window.__devidx = ((window.__devidx || 0) + 1) % ids.length;
+  const dev = ids[window.__devidx];
+  const mod = window.__devmods[dev];
+  if (!mod) return null;
+  // Keep the ambient device aligned with the minting module (the AI request
+  // fires right after this mint, from this page).
+  try {
+    localStorage.setItem('__cuid', dev);
+    document.cookie = '__cuid=' + dev + '; domain=.framer.com; path=/; secure; samesite=None';
+  } catch(e) {}
+  for (let i = 0; i < 3; i++) {
+    const t = await mod.a();
+    if (t) return t;
+    await new Promise(r => setTimeout(r, 600));
+  }
+  return null;
+})"""
 
 class Host:
     def __init__(self):
@@ -252,7 +305,14 @@ class Host:
             if gap > 0:
                 await asyncio.sleep(gap)
             t0 = time.monotonic()
-            tok = await page.evaluate(MINT_JS)
+            tok = None
+            if acc.devpool_ready and acc.devices:
+                try:
+                    tok = await page.evaluate(DEVPOOL_MINT_JS, acc.devices)
+                except Exception:
+                    tok = None
+            if not tok:
+                tok = await page.evaluate(MINT_JS)
             acc.last_mint = time.monotonic()
             emit("castle.mint", account=account[:8],
                  duration_ms=int((acc.last_mint - t0) * 1000),
@@ -318,6 +378,27 @@ class Host:
             trace(f"{account[:8]}: castle warm failed ({type(e).__name__}) — first real mint will pay it instead")
         acc = Account(mgr, ctx, page)
         self.accounts[account] = acc
+        # Device pool (the concurrency goose): persisted uuids per account,
+        # castle-module instances warmed concurrently in the background.
+        try:
+            devfile = os.path.join(profile, 'framerize-devices.json')
+            devices = []
+            if os.path.exists(devfile):
+                devices = json.load(open(devfile))
+            while len(devices) < DEVICE_POOL:
+                devices.append(str(uuid.uuid4()))
+            json.dump(devices, open(devfile, 'w'))
+            acc.devices = devices
+            async def warm_pool():
+                try:
+                    n = await page.evaluate(DEVPOOL_WARM_JS.replace('%s', json.dumps(devices)))
+                    acc.devpool_ready = n > 0
+                    trace(f"{account[:8]}: device pool warm ({n}/{len(devices)} modules)")
+                except Exception as e:
+                    trace(f"{account[:8]}: device pool warm failed ({type(e).__name__}) — single-device mints")
+            asyncio.ensure_future(warm_pool())
+        except Exception as e:
+            trace(f"{account[:8]}: device pool init failed ({type(e).__name__})")
         return acc
 
     def _ctx(self, account):
