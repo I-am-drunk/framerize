@@ -224,7 +224,7 @@ impl ConcurrencyGate {
     /// Wait for a slot in `key`'s workspace. Hold the permit for the whole
     /// request; drop it when the request finishes.
     pub async fn acquire(&self, key: &str) -> OwnedSemaphorePermit {
-        let sem = {
+        let (sem, wait) = {
             let mut g = self.gates.lock().await;
             let cfg = self.cfg;
             let loaded = self.load_ceiling(key);
@@ -242,8 +242,7 @@ impl ConcurrencyGate {
             Self::maybe_recover(key, gate, Instant::now());
             let wait = gate.next_allowed.saturating_duration_since(Instant::now());
             gate.next_allowed = Instant::now() + gate.min_interval.max(wait);
-            let sem = gate.sem.clone();
-            sem
+            (gate.sem.clone(), wait)
         };
         if wait > Duration::ZERO {
             tokio::time::sleep(wait).await;

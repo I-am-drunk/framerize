@@ -86,7 +86,9 @@ impl WaveGuard {
         inner.refusals.push_back((account_id.to_string(), now));
         let distinct: std::collections::HashSet<&String> =
             inner.refusals.iter().map(|(a, _)| a).collect();
-        if distinct.len() >= WAVE_MIN_ACCOUNTS {
+        let distinct_len = distinct.len();
+        drop(distinct);
+        if distinct_len >= WAVE_MIN_ACCOUNTS {
             // Escalate if waves keep happening; the ladder resets on quiet.
             if let Some(prev) = inner.last_refusal {
                 if now.duration_since(prev) > QUIET_RESET {
@@ -98,7 +100,7 @@ impl WaveGuard {
             inner.pause_len = (inner.pause_len * 2).min(PAUSE_MAX);
             eprintln!(
                 "[wave] risk-refusals across {} accounts inside {:?} — pausing ALL traffic {:?} (ratio feed must stop)",
-                distinct.len(),
+                distinct_len,
                 WAVE_WINDOW,
                 len
             );
