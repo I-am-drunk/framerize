@@ -136,24 +136,95 @@ pub async fn scan_workspaces(
     Ok(credited)
 }
 
-/// Admission check: does this account have ANY usable workspace?
+/// Admission: the account must bring a NEW credited workspace, or it is refused.
 ///
-/// Returns the best workspace, or `NotEligible` naming the account so the
-/// operator can see which one was refused.
+/// "Credited" alone is not enough. Credits and the 429 concurrency cap are both
+/// WORKSPACE-scoped (reference/analysis/framer-credits.md; AGENTS.md: "credits
+/// live here, not on the account"), so an account landing on a workspace some
+/// other account already uses adds **no capacity at all** -- it splits one
+/// credit pool and one concurrency budget across two records while looking like
+/// growth. Only a workspace nobody has claimed is real capacity.
+///
+/// `claimed` is the set of team ids already in use by OTHER accounts; the
+/// caller excludes this account's own id so a re-login keeps its workspace.
 pub async fn admit(
     deps: &Deps<'_>,
     account: &mut ManagedAccount,
     session: &Session,
+    claimed: &std::collections::BTreeSet<String>,
 ) -> Result<TeamId, CoreError> {
+    let who = account.email.clone().unwrap_or_else(|| account.alias.clone());
     let credited = scan_workspaces(deps, session).await?;
-    let Some(best) = credited.into_iter().next() else {
+
+    if credited.is_empty() {
         return Err(CoreError::NotEligible(format!(
-            "{}: no workspace has credits — account cannot serve requests",
-            account.email.clone().unwrap_or_else(|| account.alias.clone()),
+            "{who}: no workspace has credits — account cannot serve requests",
+        )));
+    }
+
+    // Richest-first among the workspaces nobody else holds.
+    let Some(fresh) = credited.iter().find(|w| !claimed.contains(&w.team.0)) else {
+        let names: Vec<&str> = credited.iter().map(|w| w.team.0.as_str()).collect();
+        return Err(CoreError::NotEligible(format!(
+            "{who}: every credited workspace is already in use ({}) — adding this              account would split one credit pool and one concurrency budget, not              add capacity. Create a new workspace for it first.",
+            names.join(", "),
         )));
     };
-    account.current_team = Some(best.team.clone());
-    account.credit = Some(best.snapshot);
+
+    account.current_team = Some(fresh.team.clone());
+    account.credit = Some(fresh.snapshot.clone());
     deps.state.upsert(account).await.map_err(CoreError::Store)?;
-    Ok(best.team)
+    Ok(fresh.team.clone())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::workspace::CreditSnapshot;
+    use std::collections::BTreeSet;
+
+    fn wc(team: &str, available: f64) -> WorkspaceCredit {
+        WorkspaceCredit {
+            team: TeamId(team.to_string()),
+            snapshot: CreditSnapshot { available, funds: 1 },
+        }
+    }
+
+    /// The selection rule `admit` applies, isolated from the network.
+    fn choose<'a>(
+        credited: &'a [WorkspaceCredit],
+        claimed: &BTreeSet<String>,
+    ) -> Option<&'a WorkspaceCredit> {
+        credited.iter().find(|w| !claimed.contains(&w.team.0))
+    }
+
+    #[test]
+    fn an_unclaimed_workspace_is_accepted() {
+        let credited = vec![wc("fresh", 500.0)];
+        let claimed = BTreeSet::new();
+        assert_eq!(choose(&credited, &claimed).unwrap().team.0, "fresh");
+    }
+
+    #[test]
+    fn a_workspace_another_account_already_holds_is_refused() {
+        // The whole point: credits and the 429 cap are workspace-scoped, so
+        // landing on a claimed workspace splits one budget instead of adding one.
+        let credited = vec![wc("shared", 500.0)];
+        let claimed: BTreeSet<String> = ["shared".to_string()].into();
+        assert!(choose(&credited, &claimed).is_none());
+    }
+
+    #[test]
+    fn the_first_unclaimed_workspace_wins_even_if_poorer() {
+        // scan_workspaces sorts richest-first, so "first unclaimed" is the best
+        // available -- but a claimed richer one must never be chosen.
+        let credited = vec![wc("rich-but-taken", 900.0), wc("poorer-free", 10.0)];
+        let claimed: BTreeSet<String> = ["rich-but-taken".to_string()].into();
+        assert_eq!(choose(&credited, &claimed).unwrap().team.0, "poorer-free");
+    }
+
+    #[test]
+    fn no_credited_workspace_at_all_is_refused() {
+        assert!(choose(&[], &BTreeSet::new()).is_none());
+    }
 }
