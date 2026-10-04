@@ -23,6 +23,9 @@ pub struct AppState {
     pub browser: Arc<dyn BrowserBridge>,
     pub sessions: Arc<dyn SessionStore>,
     pub state: Arc<dyn StateStore>,
+    /// Paces requests against Framer's per-workspace concurrency cap so a large
+    /// fleet queues instead of collecting 429s (framer_core::gate).
+    pub gate: Arc<framer_core::gate::ConcurrencyGate>,
 }
 
 /// Build the router: REST under `/api`, compat under `/anthropic` + `/openai`,
@@ -128,6 +131,17 @@ async fn compat_forward(
         .ok_or_else(|| ApiError("account has no current project".into()))?;
     let chat_session = session_hdr.unwrap_or_else(|| format!("s{:08x}", rand_u32()));
 
+    // Framer caps concurrent AI requests PER WORKSPACE (429 "too many
+    // concurrent AI requests for this workspace" -- measured at 100 parallel).
+    // Hold a permit for the whole request so a large fleet queues rather than
+    // failing; the gate adapts its limit from observed 429s.
+    let gate_key = account
+        .current_team
+        .as_ref()
+        .map(|t| t.0.to_string())
+        .unwrap_or_else(|| "default".to_string());
+    let _permit = s.gate.acquire(&gate_key).await;
+
     let upstream = s
         .client
         .proxy(
@@ -139,8 +153,23 @@ async fn compat_forward(
             payload,
             &chat_session,
         )
-        .await
-        .map_err(ApiError)?;
+        .await;
+
+    let upstream = match upstream {
+        Ok(u) => {
+            s.gate.on_success(&gate_key).await;
+            u
+        }
+        Err(e) => {
+            // 429 means "slow down", never "this account is bad"
+            // (AGENTS.md rule 3). Narrow the gate and surface the error; the
+            // client's retry lands behind a smaller limit.
+            if e.contains("retryable 429") {
+                s.gate.on_overloaded(&gate_key).await;
+            }
+            return Err(ApiError(e));
+        }
+    };
 
     let status = StatusCode::from_u16(upstream.status)
         .unwrap_or(StatusCode::BAD_GATEWAY);
@@ -356,6 +385,18 @@ async fn free_complete(
     let chat_session =
         hdr(headers, "x-framerize-session").unwrap_or_else(|| format!("s{:08x}", rand_u32()));
 
+    // Framer caps concurrent AI requests PER WORKSPACE (429 "too many
+    // concurrent AI requests for this workspace" -- measured: 64 parallel is
+    // clean, 100 yields 64 of them 429). Hold a permit for the whole chain so a
+    // large fleet QUEUES instead of failing. Bound to the function body, so it
+    // releases on every exit path including the streaming spawn below.
+    let gate_key = account
+        .current_team
+        .as_ref()
+        .map(|t| t.0.to_string())
+        .unwrap_or_else(|| "default".to_string());
+    let _permit = s.gate.acquire(&gate_key).await;
+
     let cfg = framer_core::port::ChainConfig {
         max_total_tokens: Some(max_tokens),
         // Metered rungs are credit spend: off unless the operator opts in.
@@ -376,7 +417,12 @@ async fn free_complete(
         let project2 = project.clone();
         let chat_session2 = chat_session.clone();
         let log_model = anthro_model_for_log(dialect, &payload);
+        // Move the gate permit into the task: the chain outlives this function
+        // body, and releasing at function exit would uncap concurrency for
+        // every streaming client (which is all of Claude Code).
+        let permit = _permit;
         let mut handle = tokio::spawn(async move {
+            let _permit = permit;
             let t0 = std::time::Instant::now();
             let cb = move |ev: convert::ChainEvent| {
                 let _ = tx.try_send(ev);
@@ -487,19 +533,58 @@ async fn free_complete(
     }
 
     let t0 = std::time::Instant::now();
-    let result = s
-        .client
-        .freechat_long(
-            &session,
-            s.browser.as_ref(),
-            &account.id,
-            &project,
-            anthro,
-            &cfg,
-            &chat_session,
-            None,
-        )
-        .await;
+    // A 429 is pure back-pressure: the request is valid and no work was done,
+    // so retry it behind the now-narrower gate instead of failing the caller.
+    // Without this the gate only protects LATER requests -- the ones already
+    // in flight when the cap was hit still die (measured: 100 parallel ->
+    // 37/100 with a gate that correctly walked 48->24->12->6).
+    let mut result;
+    let mut attempt = 0u32;
+    loop {
+        // Re-acquire per attempt so a retry waits for the narrowed limit.
+        let permit = if attempt == 0 { None } else { Some(s.gate.acquire(&gate_key).await) };
+        result = s
+            .client
+            .freechat_long(
+                &session,
+                s.browser.as_ref(),
+                &account.id,
+                &project,
+                anthro.clone(),
+                &cfg,
+                &chat_session,
+                None,
+            )
+            .await;
+        drop(permit);
+        // ONLY 429 is retryable here. A 403 risk-refusal must NOT be retried:
+        // every attempt mints another Castle token from the same device, and
+        // repeated minting from a device that is already being refused is
+        // exactly the pattern the risk engine punishes
+        // (reference/analysis/framer-castle-token.md). Retrying trades a
+        // transient refusal for a sticky one. Castle pressure is prevented
+        // upstream by the per-account mint gate, not recovered here.
+        let overloaded = matches!(&result, Err(e)
+            if e.contains("retryable 429") || e.contains("too many concurrent"));
+        if !overloaded || attempt >= 5 {
+            break;
+        }
+        s.gate.on_overloaded(&gate_key).await;
+        attempt += 1;
+        // Jittered backoff keyed off the attempt; the gate is already narrower.
+        let backoff = 250u64 * (1 << attempt.min(4)) + u64::from(rand_u32() % 250);
+        tokio::time::sleep(std::time::Duration::from_millis(backoff)).await;
+    }
+
+    // Feed the outcome back to the gate so the limit tracks reality: 429 means
+    // "slow down", never "this account is bad" (AGENTS.md rule 3).
+    match &result {
+        Ok(_) => s.gate.on_success(&gate_key).await,
+        Err(e) if e.contains("retryable 429") || e.contains("too many concurrent") => {
+            s.gate.on_overloaded(&gate_key).await
+        }
+        Err(_) => {}
+    }
 
     // canonical ai.chain event (credit-use proof lives here: metered_chunks)
     {

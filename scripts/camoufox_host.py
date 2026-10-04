@@ -109,6 +109,9 @@ MINT_JS = """(async () => {
 
 
 def post_js(path, body, bearer=None):
+    """Mint inline, then POST. Used for AUTH calls (signin/continue), which are
+    one-at-a-time by nature. AI calls use post_with_token_js instead so the mint
+    can be gated per account -- see MINT_GAP_S."""
     auth = '"authorization": "Bearer %s",' % bearer if bearer else ""
     return """(async () => {
   const tok = await (%s);
@@ -126,16 +129,54 @@ def post_js(path, body, bearer=None):
 })()""" % (MINT_JS, json.dumps(body), API, path, auth)
 
 
+def post_with_token_js(path, body, token, bearer=None):
+    """POST with an ALREADY-MINTED Castle token. Separating the mint from the
+    fetch is what lets mints be serialized per account while the long
+    generations stay fully parallel: the mint is ~1s, the generation 10-90s."""
+    auth = '"authorization": "Bearer %s",' % bearer if bearer else ""
+    return """(async () => {
+  const body = %s;
+  body.castleToken = %s;
+  try {
+    const r = await fetch("%s" + "%s", {
+      method: "POST", credentials: "include",
+      headers: { "content-type": "application/json; charset=utf-8", "x-requested-by": "Framer", %s },
+      body: JSON.stringify(body),
+    });
+    return { status: r.status, usage: r.headers.get("x-framer-ai-usage"), body: await r.text() };
+  } catch (e) { return { status: -1, usage: null, body: String(e) }; }
+})()""" % (json.dumps(body), json.dumps(token), API, path, auth)
+
+
 POOL_CAP = int(os.environ.get("FRAMERIZE_PAGE_POOL", "6"))
+
+# Castle mints are serialized PER ACCOUNT, and paced.
+#
+# Why this exists (reference/analysis/framer-castle-token.md): a Castle request
+# token is single-shot, minted per request, and fingerprints the browser engine
+# + the stable device id (__cuid). Every page in an account's pool shares that
+# one device id. So N pages minting at once look like one device firing N
+# fingerprint requests simultaneously -- "repeated regeneration is exactly the
+# pattern risk engines punish". Measured 2026-10-04: at 100 concurrent, 28% of
+# requests came back 403 risk-refused once the 429s were handled.
+#
+# Retrying a refusal makes it WORSE (another mint from the same refused
+# device), so prevention is the only correct layer. A mint is ~1s on the warmed
+# v2 path, while a generation is 10-90s, so serializing mints costs almost
+# nothing in throughput and removes the burst signature entirely.
+MINT_GAP_S = float(os.environ.get("FRAMERIZE_MINT_GAP_S", "0.25"))
 
 
 class Account:
-    """One account's browser context + a POOL of pages. One page = one JS main
-    thread: a 60-90s in-page generation blocks every other eval on that page,
-    which (with the old global dispatch lock) serialized the entire gateway —
-    interactive requests queued behind long chains. The pool gives concurrent
-    requests their own threads (cookies, __cuid and the profile are shared
-    per-context; the castle latch warms once per page)."""
+    """One account's browser context + a POOL of pages.
+
+    Pages are NOT the concurrency unit for I/O-bound generations: measured
+    2026-10-04, one page serves 12 concurrent real fetches in 4.5s (vs 36s
+    serial), because an awaited fetch yields the JS main thread. Pages exist to
+    parallelize CPU-bound in-page work (the Castle mint) and to isolate failures.
+
+    `mint_lock` + `last_mint` serialize and pace Castle mints across the whole
+    account, since all its pages share one device id (__cuid)."""
 
     def __init__(self, mgr, ctx, page):
         self.mgr = mgr
@@ -144,6 +185,8 @@ class Account:
         self.pool.put_nowait(page)
         self.size = 1
         self.lock = asyncio.Lock()  # lifecycle only (page creation, close)
+        self.mint_lock = asyncio.Lock()  # one Castle mint at a time per device
+        self.last_mint = 0.0
 
 
 class Host:
@@ -189,6 +232,33 @@ class Host:
     @staticmethod
     def _release(acc, page):
         acc.pool.put_nowait(page)
+
+    @staticmethod
+    async def _mint(acc, page, account):
+        """Mint one Castle token, serialized and paced per ACCOUNT.
+
+        All of an account's pages share one device id (__cuid), so simultaneous
+        mints look like one device firing N fingerprint requests at once --
+        the burst signature a risk engine punishes. The lock makes mints
+        one-at-a-time and MINT_GAP_S spaces them, so the device's request
+        pattern stays human-plausible no matter how many agents are running.
+
+        This is PREVENTION. A 403 risk-refusal must never be retried: another
+        mint from an already-refused device is what turns a transient refusal
+        into a sticky one.
+        """
+        async with acc.mint_lock:
+            gap = MINT_GAP_S - (time.monotonic() - acc.last_mint)
+            if gap > 0:
+                await asyncio.sleep(gap)
+            t0 = time.monotonic()
+            tok = await page.evaluate(MINT_JS)
+            acc.last_mint = time.monotonic()
+            emit("castle.mint", account=account[:8],
+                 duration_ms=int((acc.last_mint - t0) * 1000),
+                 outcome="ok" if tok else "error",
+                 **({} if tok else {"error": "castle-unavailable"}))
+            return tok
 
     async def _account(self, account, proxy=None):
         if account in self.accounts:
@@ -289,24 +359,27 @@ class Host:
             return {"cookie_header": "session=" + session, "me": json.loads(me["body"])}
         if cmd == "mint":
             page, acc, queue_wait = await self._acquire(account)
-            t0 = time.monotonic()
             try:
-                tok = await page.evaluate(MINT_JS)
+                tok = await self._mint(acc, page, account)
             finally:
                 self._release(acc, page)
             if not tok:
-                emit("castle.mint", account=account[:8], level="error", outcome="error", error="castle-unavailable")
                 raise RuntimeError("castle-unavailable")
-            # kind by shape: v3 = >4000 chars with '|' at 8; else v2. NEVER log the value.
-            kind = "v3" if (len(tok) > 4000 and tok[8:9] == "|") else "v2"
-            emit("castle.mint", account=account[:8], kind=kind, token_len=len(tok),
-                 duration_ms=int((time.monotonic()-t0)*1000), outcome="ok")
             return tok
         if cmd == "ai_post":
             page, acc, queue_wait = await self._acquire(account)
             t0 = time.monotonic()
             try:
-                r = await page.evaluate(post_js(req["path"], req["body"], req.get("bearer")))
+                # Mint under the per-account gate, THEN fetch unguarded: the
+                # mint is the risk-engine-sensitive burst, the generation is
+                # just a long I/O await that parallelizes freely.
+                tok = await self._mint(acc, page, account)
+                if not tok:
+                    r = {"status": 0, "usage": None, "body": "castle-unavailable"}
+                else:
+                    r = await page.evaluate(
+                        post_with_token_js(req["path"], req["body"], tok, req.get("bearer"))
+                    )
             finally:
                 self._release(acc, page)
             emit("ai.post", account=account[:8], path=req["path"], status=r["status"],
