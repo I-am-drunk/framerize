@@ -1246,7 +1246,9 @@ pub const ROTATE_STEPS: [&str; 5] = [
 /// a chunk onto /ai/v3/chat/, the other unmetered route).
 pub fn anthro_to_chat(p: &Value) -> Value {
     let mut out = json!({});
-    if let Some(m) = p.get("model") { out["model"] = m.clone(); }
+    // the chat route requires PREFIXED ids; the messages route tolerates the
+    // dashed client form, which is how this slips through ("not a valid model ID").
+    if let Some(m) = p.get("model") { out["model"] = json!(to_openrouter_id(m.as_str().unwrap_or_default())); }
     if let Some(mt) = p.get("max_tokens") { out["max_tokens"] = mt.clone(); }
     let mut messages: Vec<Value> = Vec::new();
     if let Some(sys) = p.get("system") {
