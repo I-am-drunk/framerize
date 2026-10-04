@@ -103,7 +103,7 @@ const ANTHROPIC_FIELDS: &[&str] = &[
 /// call larger than the upstream idle window (~100s of output) cannot complete
 /// non-streaming, and no retry fixes that — the model must chunk its own work.
 /// This one line eliminates the mid-tool_use retry churn.
-const TOOL_CHUNK_NOTE: &str = "Important: keep every individual tool call small — never more than about 400 words of content in a single call. For anything longer, split it across multiple sequential tool calls (e.g. write or append section by section).";
+const TOOL_CHUNK_NOTE: &str = "Hard limit: no single tool call may contain more than ~40 lines or ~1,500 characters of content. When writing or editing files longer than ~40 lines: write the first ~40 lines with one call, then append the next section with a separate call, and repeat. Large single writes get cut off mid-call and the work is lost; small sequential writes always complete.";
 
 fn append_chunk_note(out: &mut Value) {
     let has_tools = out.get("tools").and_then(|t| t.as_array()).map(|a| !a.is_empty()).unwrap_or(false);
