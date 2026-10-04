@@ -524,7 +524,7 @@ mod tests {
         // A monotone-only ceiling is a trap: if the 429 came from a transient
         // upstream wobble, or Framer later raises the cap, the gate would be
         // stuck at the lower number for the life of the process.
-        let cfg = GateConfig { initial: 8, min: 2, max: 8, recover_ms: 1, relax_ms: 10 };
+        let cfg = GateConfig { initial: 8, min: 2, max: 8, recover_ms: 1, relax_ms: 10, min_interval_ms: 0 };
         let g = ConcurrencyGate::with_config(cfg);
 
         g.on_overloaded("w1").await; // evidence: cap < 8, so ceiling = 7
