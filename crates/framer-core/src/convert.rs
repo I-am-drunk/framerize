@@ -1014,7 +1014,22 @@ impl SseComposer {
                     chunks: r.chunks,
                     metered_chunks: r.metered_chunks,
                 };
-                let full = render_json(ClientDialect::OpenAiResponses, &assembled, client_model);
+                let mut full = render_json(ClientDialect::OpenAiResponses, &assembled, client_model);
+                // Codex correlates a stream by response/item id: the events
+                // above were emitted under the LOCAL ids, but `full` carries
+                // the upstream ids — a mismatched completed object is
+                // discarded as an unknown response (measured: Codex recorded
+                // last_agent_message: None after a successful generation).
+                full["id"] = json!(resp_id(&self.msg_id));
+                if let Some(items) = full["output"].as_array_mut() {
+                    for (i, item) in items.iter_mut().enumerate() {
+                        item["id"] = json!(if i == 0 {
+                            self.msg_id.clone()
+                        } else {
+                            format!("{}_{i}", self.msg_id)
+                        });
+                    }
+                }
                 vec![sse("response.completed", json!({
                     "type": "response.completed", "response": full,
                 }))]
