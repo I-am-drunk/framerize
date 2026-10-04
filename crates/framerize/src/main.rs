@@ -101,7 +101,13 @@ fn build_state(db: &str, chrome: &str, profiles: &str, engine: &str) -> Result<A
         )),
         other => return Err(format!("unknown --engine {other} (full-chrome|headless-shell|attach|camoufox)")),
     };
-    Ok(AppState { client, browser, sessions, state })
+    Ok(AppState {
+        client,
+        browser,
+        sessions,
+        state,
+        gate: std::sync::Arc::new(framer_core::gate::ConcurrencyGate::new()),
+    })
 }
 
 /// Per-account egress proxies from persisted account records into the bridge

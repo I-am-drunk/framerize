@@ -6,6 +6,7 @@ pub mod account;
 pub mod convert;
 pub mod credits;
 pub mod error;
+pub mod gate;
 pub mod ids;
 pub mod pipeline;
 pub mod port;
