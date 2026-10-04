@@ -47,7 +47,7 @@ pub async fn complete_long(
     // 429 cap counts per (route × step tag). Each chunk rotates to the next
     // bucket, and a 429 advances to the next bucket INSTANTLY instead of
     // sleeping — one workspace yields ~2 routes × 5 steps × ~5 concurrent.
-    const DIALECTS: [Dialect; 2] = [Dialect::OpenRouterMessages, Dialect::OpenAiChat];
+    const DIALECTS: [Dialect; 2] = [Dialect::OpenRouterMessages, Dialect::OpenRouterChat];
     let bucket = |i: usize| -> (Dialect, &'static str) {
         (
             DIALECTS[i % DIALECTS.len()],
