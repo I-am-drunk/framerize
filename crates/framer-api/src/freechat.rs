@@ -309,15 +309,30 @@ pub async fn complete_long(
             .map(|b| b["type"].as_str() == Some("tool_use"))
             .unwrap_or(false);
         if chunk_stop == "max_tokens" && ends_in_tool_use && tool_cut_retries < 2 {
-            // Free retry with an ADAPTIVE window-safe budget: ~85s of the
-            // model's own measured throughput (Fable runs ~67 tok/s → ~5700
-            // tokens, inside the ~100s window). The cut is usually thinking
-            // hogging the budget, not the tool call itself.
+            // Free retry with a WINDOW-PROPORTIONAL budget: ~70s of the
+            // model's own measured throughput (the messages-route window is
+            // ~100s; the old 45s/3000-cap sat below real capacity, so
+            // 3-5k-token writes were cut twice and the chain errored out —
+            // 99 such deaths on 2026-10-04).
             tool_cut_retries += 1;
-            let budget = budget_for(tps).max(chunk_tokens);
-            eprintln!("[freechat] chunk {i} cut mid-tool_use — free retry #{tool_cut_retries} (max_tokens={budget}, measured {tps:.0} tok/s)");
+            let budget = ((tps * 70.0) as u32).clamp(1200, 5000).max(chunk_tokens);
+            eprintln!("[freechat] chunk {i} cut mid-tool_use — free retry #{tool_cut_retries} (max_tokens={budget}, measured {tps:.0} tok/s, instructing split)");
             chunk_tokens = budget;
             ctok = ctok.saturating_sub(out_t);
+            // ROOT FIX for repeat cuts: the model doesn't know its tool call
+            // was truncated — left alone it re-attempts the SAME giant write
+            // and gets cut again. Keep any text it produced, then instruct
+            // the split explicitly.
+            let texts: Vec<Value> = chunk_blocks
+                .iter()
+                .filter(|b| b["type"].as_str() == Some("text"))
+                .cloned()
+                .collect();
+            let arr = messages.as_array_mut().expect("messages array");
+            if !texts.is_empty() {
+                arr.push(json!({"role": "assistant", "content": texts}));
+            }
+            arr.push(json!({"role": "user", "content": "Your previous response was cut off mid-tool-call because the tool call was too large. Do NOT retry it as one call. Split the work: write at most ~40 lines per call, then append the next section with a separate call, and repeat until the whole file or edit is done."}));
             continue;
         }
         if chunk_stop == "max_tokens" && ends_in_tool_use {
