@@ -322,7 +322,7 @@ pub async fn complete_long(
             let stream_payload = build_payload(&messages, cfg.max_total_tokens.map(|cap| cap.saturating_sub(ctok as u32).max(1024)).unwrap_or(8000), dialect);
             let streamed = stream_chunk(
                 t, token_cache, session, browser, account, project,
-                dialect, step, stream_payload, chat_session,
+                dialect, &step, stream_payload, chat_session,
             ).await?;
             metered_chunks += 1;
             ptok = ptok.max(streamed.input_tokens);
