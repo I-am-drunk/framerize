@@ -268,6 +268,15 @@ class Host:
                     await page.goto(LOGIN_URL, wait_until="domcontentloaded", timeout=60000)
                     await page.wait_for_timeout(800)
                     await page.evaluate(WARM_JS)
+                    # The device pool is PER PAGE (window.__devmods lives in the
+                    # page) — a pool page without it mints single-device tokens
+                    # and the whole rotation collapses back to one bucket.
+                    if acc.devices:
+                        try:
+                            await page.evaluate(DEVPOOL_WARM_JS.replace('%s', json.dumps(acc.devices)))
+                            trace(f"{account[:8]}: pool-page device pool warm ({len(acc.devices)} modules)")
+                        except Exception as e:
+                            trace(f"{account[:8]}: pool-page device warm failed ({type(e).__name__})")
                 except Exception as e:
                     trace(f"{account[:8]}: pool-page warm issue ({type(e).__name__}) — continuing")
                 acc.size += 1
