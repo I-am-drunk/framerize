@@ -186,7 +186,7 @@ mod tests {
     fn wc(team: &str, available: f64) -> WorkspaceCredit {
         WorkspaceCredit {
             team: TeamId(team.to_string()),
-            snapshot: CreditSnapshot { available, funds: 1 },
+            snapshot: CreditSnapshot { available, funds: 1, grants: 1, allocated: available },
         }
     }
 

@@ -75,6 +75,13 @@ impl StateStore for SqliteStateStore {
         .map_err(|e| e.to_string())?;
         Ok(())
     }
+
+    async fn remove(&self, id: AccountId) -> Result<(), String> {
+        let conn = self.conn.lock().unwrap();
+        conn.execute("DELETE FROM accounts WHERE id = ?1", [id.0.to_string()])
+            .map_err(|e| e.to_string())?;
+        Ok(())
+    }
 }
 
 /// Session cookie in the OS keychain. The entry value is the raw `Cookie:` header.
