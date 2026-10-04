@@ -37,6 +37,7 @@ pub fn router(state: AppState, web_dir: &str) -> Router {
         // answer or reject; we answer 200).
         .route("/hello", get(|| async { "ok" }).head(|| async { "ok" }))
         .route("/accounts", get(accounts))
+        .route("/pool", get(pool_shape))
         .route("/accounts/begin", post(begin_login))
         .route("/accounts/complete", post(complete_login))
         .route("/accounts/import", post(import_account))
@@ -750,6 +751,59 @@ fn hdr(headers: &axum::http::HeaderMap, name: &str) -> Option<String> {
 
 async fn accounts(State(s): State<AppState>) -> Result<Json<Vec<ManagedAccount>>, ApiError> {
     Ok(Json(s.state.list().await.map_err(ApiError)?))
+}
+
+/// Pool shape: what adding another account would actually buy.
+///
+/// Spreading load helps only along the axes that are genuinely separate.
+/// Credits are WORKSPACE-scoped (reference/analysis/framer-credits.md: the
+/// ledger is keyed by teamId) and so is the 429 concurrency cap, while Castle
+/// risk is per DEVICE. So three records on one team share one credit pool and
+/// one concurrency budget, and only spread device risk -- which looks like
+/// capacity but isn't. This endpoint makes that visible instead of inferred.
+async fn pool_shape(State(s): State<AppState>) -> Result<Json<serde_json::Value>, ApiError> {
+    let pool = s.state.list().await.map_err(ApiError)?;
+    let now = framer_core::rotation::now_ms();
+
+    let mut teams: std::collections::BTreeMap<String, Vec<&ManagedAccount>> = Default::default();
+    for a in &pool {
+        let key = a.current_team.as_ref().map(|t| t.0.clone()).unwrap_or_else(|| "none".into());
+        teams.entry(key).or_default().push(a);
+    }
+    let users: std::collections::BTreeSet<&str> =
+        pool.iter().map(|a| a.framer_user_id.0.as_str()).collect();
+    let devices: std::collections::BTreeSet<&str> =
+        pool.iter().map(|a| a.castle_device_id.as_str()).collect();
+
+    let workspaces: Vec<serde_json::Value> = teams
+        .iter()
+        .map(|(team, accounts)| {
+            serde_json::json!({
+                "team": team,
+                "accounts": accounts.iter().map(|a| {
+                    serde_json::json!({
+                        "name": a.email.clone().unwrap_or_else(|| a.alias.clone()),
+                        "state": format!("{:?}", a.state),
+                        "available": a.is_available_at(now),
+                        "cooling_ms_left": a.cooling_until_ms
+                            .map(|u| u.saturating_sub(now)).filter(|m| *m > 0),
+                    })
+                }).collect::<Vec<_>>(),
+                "credits": accounts.iter().find_map(|a| a.credit.as_ref().map(|c| c.available)),
+            })
+        })
+        .collect();
+
+    Ok(Json(serde_json::json!({
+        "accounts": pool.len(),
+        "available_now": pool.iter().filter(|a| a.is_available_at(now)).count(),
+        // These three are the levers, in descending order of effect.
+        "distinct_workspaces": teams.len(),
+        "distinct_logins": users.len(),
+        "distinct_devices": devices.len(),
+        "workspaces": workspaces,
+        "note": "Credits and the 429 concurrency cap are per WORKSPACE; Castle risk is per DEVICE. Accounts sharing a team share credits and one concurrency budget.",
+    })))
 }
 
 #[derive(Deserialize)]
