@@ -749,6 +749,20 @@ fn hdr(headers: &axum::http::HeaderMap, name: &str) -> Option<String> {
     headers.get(name).and_then(|v| v.to_str().ok()).map(str::to_string)
 }
 
+/// Team ids already held by OTHER accounts. `exclude` is the account being
+/// admitted, so a re-login keeps the workspace it already owns.
+async fn claimed_workspaces(
+    s: &AppState,
+    exclude: AccountId,
+) -> Result<std::collections::BTreeSet<String>, ApiError> {
+    let pool = s.state.list().await.map_err(ApiError)?;
+    Ok(pool
+        .iter()
+        .filter(|a| a.id != exclude)
+        .filter_map(|a| a.current_team.as_ref().map(|t| t.0.clone()))
+        .collect())
+}
+
 async fn accounts(State(s): State<AppState>) -> Result<Json<Vec<ManagedAccount>>, ApiError> {
     Ok(Json(s.state.list().await.map_err(ApiError)?))
 }
@@ -964,7 +978,9 @@ async fn complete_login(
         sessions: s.sessions.as_ref(),
         state: s.state.as_ref(),
     };
-    let admission = framer_core::credits::admit(&deps, &mut account, &session).await;
+    let claimed = claimed_workspaces(&s, account.id).await?;
+    let admission =
+        framer_core::credits::admit(&deps, &mut account, &session, &claimed).await;
     if let Err(e) = admission {
         account.state = framer_core::account::AccountState::Exhausted;
         s.state.upsert(&account).await.map_err(ApiError)?;
@@ -1103,7 +1119,10 @@ async fn import_account(
             sessions: s.sessions.as_ref(),
             state: s.state.as_ref(),
         };
-        if let Err(e) = framer_core::credits::admit(&deps, &mut account, &session).await {
+        let claimed = claimed_workspaces(&s, account.id).await?;
+        if let Err(e) =
+            framer_core::credits::admit(&deps, &mut account, &session, &claimed).await
+        {
             account.state = framer_core::account::AccountState::Exhausted;
             s.state.upsert(&account).await.map_err(ApiError)?;
             return Err(ApiError(e.to_string()));
