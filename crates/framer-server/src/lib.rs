@@ -940,6 +940,9 @@ struct ImportBody {
     /// IP-reputation-sensitive step; importing a session minted elsewhere
     /// lets a daemon on a flagged/blocked network operate the account.
     session_cookie: String,
+    /// Login email. Same role as in complete_login: operator-facing identity
+    /// and dedupe key.
+    email: Option<String>,
     alias: Option<String>,
     project_id: Option<String>,
 }
@@ -1001,6 +1004,24 @@ async fn import_account(
             cooldown_step: 0,
             cooling_until_ms: None,
         });
+    // Same dedupe + naming rule as complete_login: one email, one account.
+    if let Some(raw) = body.email.as_deref() {
+        let email = framer_core::account::normalize_email(raw);
+        let pool = s.state.list().await.map_err(ApiError)?;
+        if let Some(dup) = pool
+            .iter()
+            .find(|a| a.id != account.id && a.email.as_deref() == Some(email.as_str()))
+        {
+            return Err(ApiError(format!(
+                "{email} is already added as account {} — not adding it twice",
+                dup.alias,
+            )));
+        }
+        if body.alias.is_none() {
+            account.alias = email.clone();
+        }
+        account.email = Some(email);
+    }
     account.framer_user_id = session.active_user.clone();
     account.state = framer_core::account::AccountState::Ready;
     if let Some(a) = &body.alias {
@@ -1017,6 +1038,24 @@ async fn import_account(
         s.browser.set_proxy(&body.account_id, Some(px.clone())).await.map_err(ApiError)?;
     }
     s.state.upsert(&account).await.map_err(ApiError)?;
+
+    // Admission (same rule as complete_login): an account with no credited
+    // workspace cannot serve a request, so refuse it rather than let rotation
+    // discover that one failure at a time.
+    {
+        let deps = Deps {
+            client: s.client.as_ref(),
+            browser: s.browser.as_ref(),
+            sessions: s.sessions.as_ref(),
+            state: s.state.as_ref(),
+        };
+        if let Err(e) = framer_core::credits::admit(&deps, &mut account, &session).await {
+            account.state = framer_core::account::AccountState::Exhausted;
+            s.state.upsert(&account).await.map_err(ApiError)?;
+            return Err(ApiError(e.to_string()));
+        }
+        s.state.upsert(&account).await.map_err(ApiError)?;
+    }
 
     // Kick a background engine pre-warm so the first inference is instant.
     {
