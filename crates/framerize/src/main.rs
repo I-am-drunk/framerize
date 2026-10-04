@@ -107,6 +107,7 @@ fn build_state(db: &str, chrome: &str, profiles: &str, engine: &str) -> Result<A
         sessions,
         state,
         gate: std::sync::Arc::new(framer_core::gate::ConcurrencyGate::new()),
+        wave: std::sync::Arc::new(framer_core::wave::WaveGuard::new()),
     })
 }
 
