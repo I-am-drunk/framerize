@@ -136,3 +136,56 @@ workspaces on one account" design — rotation must be across ACCOUNTS. The user
 workspaces get nothing. Whether the free-intro grant lands on the first one or
 the first two workspaces at signup is indistinguishable on this account (the
 personal space has no team ledger); a fresh-account experiment would settle it.
+
+## Per-project grants: the measurement, and what is still missing (2026-10-04)
+
+**Observed on a freshly added account** (`user 991c1d1d`, team `8cd3b529`):
+
+```
+availableCredits: 1000.0    funds: 1
+```
+
+1000 = 2 x 500, in ONE fund. That matters because the earlier code counted
+*funds* and would have read this as a single 1000-credit fund. The ledger nests
+`funds[].grants[]` (see the JSON above, line ~61), so the correct unit for "how
+many 500-credit allocations does this account hold?" is the GRANT count.
+
+`CreditSnapshot` now carries:
+- `grants` — total grants across all funds
+- `allocated` — sum of `allocatedCredits` (lifetime entitlement)
+- `grant_count()` — `grants`, falling back to `allocated / 500`
+
+This corroborates line 11-13 ("allowances stack across projects") and the
+operator's report: a new Framer account can hold up to two credited projects at
+500 each, and nothing after that.
+
+### Blocked: no project-creation endpoint has been captured
+
+Auto-creating projects to maximise grants needs `POST <create project>`, which
+is **not** in the captured bundles. Searched
+`reference/decompiled/app/full-chunk-set/` for `createProject`, `newProject`,
+and every `le.post`/`.post("/web/...project...")` call site. What exists:
+
+| method | path | purpose |
+|---|---|---|
+| GET | `/web/v3/projects/search/` | project search |
+| GET | `/web/v2/dashboard/teams/{teamId}` | dashboard project list |
+| POST | `/web/v4/projects/{id}/subscription/move` | move a subscription |
+| POST | `/web/v1/sites/hostnames/custom/projects/{id}/validate` | custom hostname |
+| POST | `/account/teams` | create WORKSPACE (captured, works) |
+
+`newProject` appears only as a UI symbol, with no fetch beside it — the create
+call is built elsewhere (same shape as the `TeamCreationModal` problem that kept
+`createTeam` uncaptured until 2026-10-01).
+
+**Next step to unblock, in order of cost:**
+1. Capture it from a real browser: devtools Network, create a project, copy the
+   request (method, path, body, required headers — note `x-requested-by: Framer`
+   is mandatory on `/account/*`).
+2. Then: on admission, read `grant_count()`; while it is below the per-account
+   cap, create a project and re-read the ledger to confirm a grant landed.
+3. Stop on the first creation that does NOT add a grant — that is the real cap,
+   and it must be discovered rather than hardcoded at 2.
+
+Writing the creation call against a guessed endpoint would burn the account's
+one-time grants on failed attempts, so it waits for the capture.
