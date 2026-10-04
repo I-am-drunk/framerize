@@ -167,7 +167,7 @@ pub async fn complete_long(
                 let retry_payload = build_payload(&messages, chunk_tokens, d2);
                 match proxy::forward(
                     t, token_cache, session, browser, account, project,
-                    d2, s2, retry_payload, chat_session,
+                    d2, &s2, retry_payload, chat_session,
                 ).await {
                     Ok(r) => r,
                     Err(e2) => {
@@ -201,7 +201,7 @@ pub async fn complete_long(
                 let retry_payload = build_payload(&messages, chunk_tokens, d3);
                 match proxy::forward(
                     t, token_cache, session, browser, account, project,
-                    d3, s3, retry_payload, chat_session,
+                    d3, &s3, retry_payload, chat_session,
                 ).await {
                     Ok(r) => r,
                     Err(e2) if cfg.metered_fallback => {
@@ -209,7 +209,7 @@ pub async fn complete_long(
                         let stream_payload = build_payload(&messages, chunk_tokens, d3);
                         let streamed = stream_chunk(
                             t, token_cache, session, browser, account, project,
-                            d3, s3, stream_payload, chat_session,
+                            d3, &s3, stream_payload, chat_session,
                         ).await?;
                         metered_chunks += 1;
                         ptok = ptok.max(streamed.input_tokens);
