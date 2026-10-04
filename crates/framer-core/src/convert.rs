@@ -1003,6 +1003,37 @@ impl SseComposer {
                 f
             }
             ClientDialect::OpenAiResponses => {
+                // Close any open text item BEFORE completed: Codex's SSE
+                // state machine only finalizes a message when output_text.done
+                // + output_item.done arrive — a stream that jumps delta ->
+                // completed leaves the item in_progress and Codex records
+                // last_agent_message: None (measured, 2026-10-04).
+                let mut f = Vec::new();
+                if self.text_item_open {
+                    let full_text: String = self.acc.iter()
+                        .filter(|b| b["type"].as_str() == Some("text"))
+                        .filter_map(|b| b["text"].as_str().map(str::to_string))
+                        .collect();
+                    f.push(sse("response.output_text.done", json!({
+                        "type": "response.output_text.done",
+                        "output_index": self.item_idx, "content_index": 0,
+                        "text": full_text,
+                    })));
+                    f.push(sse("response.content_part.done", json!({
+                        "type": "response.content_part.done",
+                        "output_index": self.item_idx, "content_index": 0,
+                        "part": {"type":"output_text","text": full_text,"annotations":[]},
+                    })));
+                    f.push(sse("response.output_item.done", json!({
+                        "type": "response.output_item.done", "output_index": self.item_idx,
+                        "item": {"id": format!("msg_{}", self.msg_id.trim_start_matches("msg_")),
+                                 "type": "message", "status": "completed",
+                                 "role": "assistant",
+                                 "content": [{"type":"output_text","text": full_text,"annotations":[]}]},
+                    })));
+                    self.text_item_open = false;
+                    self.item_idx += 1;
+                }
                 let assembled = AssembledResponse {
                     id: r.id.clone(),
                     content: self.acc.clone(),
@@ -1030,9 +1061,10 @@ impl SseComposer {
                         });
                     }
                 }
-                vec![sse("response.completed", json!({
+                f.push(sse("response.completed", json!({
                     "type": "response.completed", "response": full,
-                }))]
+                })));
+                f
             }
         }
     }
