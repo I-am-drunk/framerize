@@ -266,4 +266,8 @@ pub trait StateStore: Send + Sync {
     async fn get(&self, id: AccountId) -> Result<Option<ManagedAccount>, String>;
     async fn list(&self) -> Result<Vec<ManagedAccount>, String>;
     async fn upsert(&self, account: &ManagedAccount) -> Result<(), String>;
+    /// Remove an account record. Idempotent: removing an absent id succeeds.
+    /// The browser profile and stored session are NOT touched here -- the
+    /// caller decides whether to tear those down too.
+    async fn remove(&self, id: AccountId) -> Result<(), String>;
 }

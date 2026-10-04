@@ -15,6 +15,16 @@ pub struct CreditSnapshot {
     pub available: f64,
     /// Number of non-expired funds in the ledger.
     pub funds: u32,
+    /// Total grants across all funds. A free workspace gets one 500-credit
+    /// `free-intro` grant per credited project, and allowances STACK across
+    /// projects (reference/analysis/framer-credits.md:11-13), so this is the
+    /// count of 500-credit grants the account actually holds.
+    #[serde(default)]
+    pub grants: u32,
+    /// Sum of `allocatedCredits` across grants: lifetime entitlement, as
+    /// opposed to `available` which is what is left after consumption.
+    #[serde(default)]
+    pub allocated: f64,
 }
 
 impl CreditSnapshot {
@@ -22,5 +32,18 @@ impl CreditSnapshot {
     /// run (see pipeline), so this is advisory.
     pub fn looks_exhausted(&self) -> bool {
         self.available <= 0.0
+    }
+
+    /// One free grant is 500 credits.
+    pub const GRANT_CREDITS: f64 = 500.0;
+
+    /// How many 500-credit grants this workspace has, inferred from the
+    /// entitlement when the grant list is unavailable (e.g. a snapshot restored
+    /// from an older record without the field).
+    pub fn grant_count(&self) -> u32 {
+        if self.grants > 0 {
+            return self.grants;
+        }
+        (self.allocated / Self::GRANT_CREDITS).round().max(0.0) as u32
     }
 }

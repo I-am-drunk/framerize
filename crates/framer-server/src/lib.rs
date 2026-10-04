@@ -38,6 +38,8 @@ pub fn router(state: AppState, web_dir: &str) -> Router {
         .route("/hello", get(|| async { "ok" }).head(|| async { "ok" }))
         .route("/accounts", get(accounts))
         .route("/pool", get(pool_shape))
+        .route("/accounts/remove", post(remove_account))
+        .route("/accounts/dedupe", post(dedupe_accounts))
         .route("/accounts/begin", post(begin_login))
         .route("/accounts/complete", post(complete_login))
         .route("/accounts/import", post(import_account))
@@ -761,6 +763,121 @@ async fn claimed_workspaces(
         .filter(|a| a.id != exclude)
         .filter_map(|a| a.current_team.as_ref().map(|t| t.0.clone()))
         .collect())
+}
+
+#[derive(Deserialize)]
+struct RemoveBody {
+    account_id: AccountId,
+    /// Also drop the browser profile (cookies/storage/fingerprint). Off by
+    /// default: a removed record can be re-imported, and wiping the profile
+    /// regenerates the Castle device id, which is the pattern risk engines
+    /// punish (reference/analysis/framer-castle-token.md).
+    #[serde(default)]
+    wipe_profile: bool,
+}
+
+/// Remove one account record.
+async fn remove_account(
+    State(s): State<AppState>,
+    Json(body): Json<RemoveBody>,
+) -> Result<Json<serde_json::Value>, ApiError> {
+    let existing = s.state.get(body.account_id).await.map_err(ApiError)?;
+    let Some(acc) = existing else {
+        return Err(ApiError("account not found".into()));
+    };
+    if body.wipe_profile {
+        // Best effort: a missing browser profile must not block the removal.
+        let _ = s.browser.rotate_identity(&body.account_id).await;
+    }
+    s.state.remove(body.account_id).await.map_err(ApiError)?;
+    Ok(Json(serde_json::json!({
+        "status": "removed",
+        "account": acc.email.unwrap_or(acc.alias),
+    })))
+}
+
+/// Find records that are genuinely redundant.
+///
+/// NOT "same login + same workspace". That pair shares a credit ledger and a
+/// 429 budget, but each record still has its OWN Castle device id, and
+/// spreading mints across devices is what stopped the 403 storm
+/// (commit adfd926). Removing a second record on one team would halve that
+/// protection while gaining nothing -- a dry run on 2026-10-04 proposed
+/// deleting `probe`, which was carrying 50% of live traffic.
+///
+/// Genuinely redundant means one of:
+///   * DEAD -- no project, so it cannot serve a single request; or
+///   * CLONE -- shares a castle_device_id with another record, so it does not
+///     even add device diversity.
+///
+/// Everything else is kept, including same-login siblings.
+async fn dedupe_accounts(
+    State(s): State<AppState>,
+    Json(body): Json<DedupeBody>,
+) -> Result<Json<serde_json::Value>, ApiError> {
+    let pool = s.state.list().await.map_err(ApiError)?;
+    let now = framer_core::rotation::now_ms();
+
+    // Device clones: keep the first record per device id, flag later ones.
+    let mut seen_devices: std::collections::BTreeSet<String> = Default::default();
+    let mut doomed: Vec<(ManagedAccount, &'static str)> = Vec::new();
+    let mut keeping = Vec::new();
+
+    // Stable order so the same record survives across repeated runs: usable
+    // first, then one with credits, then fewest failures.
+    let mut ordered = pool;
+    ordered.sort_by(|a, b| {
+        b.is_available_at(now)
+            .cmp(&a.is_available_at(now))
+            .then(
+                b.credit
+                    .as_ref()
+                    .map(|c| c.available)
+                    .unwrap_or(0.0)
+                    .total_cmp(&a.credit.as_ref().map(|c| c.available).unwrap_or(0.0)),
+            )
+            .then(a.consecutive_failures.cmp(&b.consecutive_failures))
+    });
+
+    for a in ordered {
+        let name = a.email.clone().unwrap_or_else(|| a.alias.clone());
+        if a.current_project.is_none() {
+            doomed.push((a, "no project — cannot serve a request"));
+            continue;
+        }
+        if !seen_devices.insert(a.castle_device_id.clone()) {
+            doomed.push((a, "shares a Castle device id with another record"));
+            continue;
+        }
+        keeping.push(serde_json::json!({
+            "name": name,
+            "team": a.current_team.as_ref().map(|t| t.0[..8.min(t.0.len())].to_string()),
+            "device": a.castle_device_id[..8].to_string(),
+        }));
+    }
+
+    let mut removed = Vec::new();
+    for (dup, why) in doomed {
+        let name = dup.email.clone().unwrap_or_else(|| dup.alias.clone());
+        if body.apply {
+            s.state.remove(dup.id).await.map_err(ApiError)?;
+        }
+        removed.push(serde_json::json!({ "name": name, "reason": why }));
+    }
+
+    Ok(Json(serde_json::json!({
+        "applied": body.apply,
+        "keeping": keeping,
+        "removing": removed,
+        "note": "Same-login siblings are KEPT: each has its own Castle device id,                  and spreading mints across devices is what stops 403 storms. Only                  dead records (no project) and device clones are redundant.",
+    })))
+}
+
+#[derive(Deserialize)]
+struct DedupeBody {
+    /// Dry run unless true, so the operator sees the plan first.
+    #[serde(default)]
+    apply: bool,
 }
 
 async fn accounts(State(s): State<AppState>) -> Result<Json<Vec<ManagedAccount>>, ApiError> {

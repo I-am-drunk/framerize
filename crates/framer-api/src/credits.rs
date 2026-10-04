@@ -32,9 +32,36 @@ pub async fn usage(
         .json::<serde_json::Value>()
         .await
         .map_err(|e| e.to_string())?;
+    // One fund can hold MANY grants: a 1000-credit account read as
+    // {funds:1, availableCredits:1000} is two 500 grants stacked in one fund
+    // (reference/analysis/framer-credits.md:61-74 shows the nesting). Counting
+    // funds alone hid that, which made "how many project grants does this
+    // account have?" unanswerable. Count grants too.
+    let grants: u32 = v["funds"]
+        .as_array()
+        .map(|funds| {
+            funds
+                .iter()
+                .map(|f| f["grants"].as_array().map(|g| g.len() as u32).unwrap_or(0))
+                .sum()
+        })
+        .unwrap_or(0);
+    let allocated: f64 = v["funds"]
+        .as_array()
+        .map(|funds| {
+            funds
+                .iter()
+                .flat_map(|f| f["grants"].as_array().cloned().unwrap_or_default())
+                .map(|g| g["allocatedCredits"].as_f64().unwrap_or(0.0))
+                .sum()
+        })
+        .unwrap_or(0.0);
+
     Ok(CreditSnapshot {
         available: v["availableCredits"].as_f64().unwrap_or(0.0),
         funds: v["funds"].as_array().map(|a| a.len() as u32).unwrap_or(0),
+        grants,
+        allocated,
     })
 }
 
