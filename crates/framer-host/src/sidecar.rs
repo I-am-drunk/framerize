@@ -35,6 +35,10 @@ pub struct SidecarBridge {
     state_root: PathBuf,
     inner: Mutex<Option<Sidecar>>,
     proxies: Mutex<HashMap<AccountId, String>>,
+    /// Per-account queue wait from the most recent `ai_post`, in ms. The host
+    /// reports how long the request waited for a free page; callers subtract it
+    /// before estimating upstream tok/s.
+    queue_wait: Mutex<HashMap<AccountId, u64>>,
 }
 
 struct Sidecar {
@@ -50,6 +54,7 @@ impl SidecarBridge {
             state_root: state_root.into(),
             inner: Mutex::new(None),
             proxies: Mutex::new(HashMap::new()),
+            queue_wait: Mutex::new(HashMap::new()),
         }
     }
 
@@ -250,6 +255,10 @@ impl BrowserBridge for SidecarBridge {
         let status = v["status"].as_i64().unwrap_or(-1);
         let usage = v["usage"].as_str().map(|s| s.to_string());
         let text = v["body"].as_str().unwrap_or("").to_string();
+        self.queue_wait
+            .lock()
+            .await
+            .insert(*account, v["queue_wait_ms"].as_u64().unwrap_or(0));
         if status == 0 {
             return Err("castle-v3-unavailable".into());
         }
@@ -257,6 +266,10 @@ impl BrowserBridge for SidecarBridge {
             return Err(format!("in-page fetch failed: {text}"));
         }
         Ok((status as u16, usage, text))
+    }
+
+    async fn last_queue_wait_ms(&self, account: &AccountId) -> u64 {
+        self.queue_wait.lock().await.get(account).copied().unwrap_or(0)
     }
 
     async fn set_proxy(&self, account: &AccountId, proxy: Option<String>) -> Result<(), String> {

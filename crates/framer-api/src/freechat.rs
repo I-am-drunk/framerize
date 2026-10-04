@@ -149,7 +149,19 @@ pub async fn complete_long(
             }
         };
 
-        let elapsed = t0.elapsed().as_secs_f32();
+        // Wall-clock includes OUR queue wait for a free browser page. Subtract
+        // it: queue wait and a slow upstream look identical in wall-clock, and
+        // charging queue time to the upstream makes the sizer below shrink
+        // chunks under concurrency -- which multiplies round trips (every chunk
+        // re-sends the whole conversation) and deepens the very queue it is
+        // reacting to. Measured 2026-10-03: 85 tok/s solo -> 3-6 tok/s at 12
+        // agents on an otherwise IDLE box (load average 0.29).
+        let wall = t0.elapsed().as_secs_f32();
+        let queued = resp.queue_wait_ms as f32 / 1000.0;
+        let elapsed = (wall - queued).max(0.5);
+        if queued > 2.0 {
+            eprintln!("[freechat] chunk {i} queued {queued:.1}s of {wall:.1}s (excluded from tok/s)");
+        }
         let body: Value = serde_json::from_str(&body_text(resp).await?).map_err(|e| format!("chunk {i} not json: {e}"))?;
         if msg_id.is_empty() {
             msg_id = body["id"].as_str().unwrap_or_default().to_string();

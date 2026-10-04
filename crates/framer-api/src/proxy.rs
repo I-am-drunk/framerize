@@ -138,12 +138,16 @@ async fn attempt(
         }
     }
     let content_type = if streaming { "text/event-stream" } else { "application/json" }.to_string();
+    // Our own queue time, reported so the chunk sizer can exclude it (see
+    // ProxyResponse::queue_wait_ms).
+    let queue_wait_ms = browser.last_queue_wait_ms(account).await;
     Ok(framer_core::port::ProxyResponse {
         status,
         content_type,
         stream: Box::pin(futures::stream::once(async move {
             Ok::<bytes::Bytes, String>(bytes::Bytes::from(text))
         })),
+        queue_wait_ms,
     })
 }
 
