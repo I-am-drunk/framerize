@@ -74,6 +74,7 @@ impl WaveGuard {
     pub fn note_refusal(&self, account_id: &str) {
         let Ok(mut inner) = self.inner.lock() else { return };
         let now = Instant::now();
+        let prev_refusal = inner.last_refusal;
         inner.last_refusal = Some(now);
         while inner
             .refusals
@@ -90,7 +91,7 @@ impl WaveGuard {
         drop(distinct);
         if distinct_len >= WAVE_MIN_ACCOUNTS {
             // Escalate if waves keep happening; the ladder resets on quiet.
-            if let Some(prev) = inner.last_refusal {
+            if let Some(prev) = prev_refusal {
                 if now.duration_since(prev) > QUIET_RESET {
                     inner.pause_len = PAUSE_BASE;
                 }
