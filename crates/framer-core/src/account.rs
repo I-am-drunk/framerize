@@ -66,7 +66,18 @@ pub enum SessionHealth {
 }
 
 impl ManagedAccount {
+    /// Can this account actually serve a request right now?
+    ///
+    /// `Ready` is necessary but NOT sufficient: every AI call needs a
+    /// `current_project` (the payload's `projectId`) and a `current_team`
+    /// (the credit + concurrency scope). A newly added account sits Ready with
+    /// neither until provisioning finishes, and rotation handing it work means
+    /// every request routed there dies instantly with "account has no current
+    /// project" -- 1/N of all traffic for N accounts. Observed live 2026-10-04
+    /// when a third account was added mid-session.
     pub fn is_eligible(&self) -> bool {
         matches!(self.state, AccountState::Ready)
+            && self.current_project.is_some()
+            && self.current_team.is_some()
     }
 }

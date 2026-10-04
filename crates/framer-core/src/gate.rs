@@ -20,11 +20,11 @@ use tokio::sync::{Mutex, OwnedSemaphorePermit, Semaphore};
 /// Start below the measured 429 threshold, with room to grow.
 pub const INITIAL_LIMIT: usize = 48;
 /// Never drop below this: some progress always beats a stalled fleet.
-pub const MIN_LIMIT: usize = 4;
+pub const MIN_LIMIT: usize = 24;
 /// Never exceed: 64 was clean, 100 was not.
 pub const MAX_LIMIT: usize = 64;
 /// Consecutive successes before probing upward.
-const GROW_AFTER: u32 = 32;
+const GROW_AFTER: u32 = 4;
 
 struct Gate {
     sem: Arc<Semaphore>,
