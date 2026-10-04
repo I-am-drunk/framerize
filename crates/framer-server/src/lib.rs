@@ -368,7 +368,12 @@ async fn record_account_health(
             }
             next.note_success();
         }
-        Err(e) if e == "risk-refused" || e.contains("risk-refused") => {
+        // EXACT match only. `contains` would catch an "upstream 403 on ..."
+        // whose echoed provider body happened to mention the word, and cooling
+        // an account for the upstream's policy decision is the 2026-10-04 bug
+        // (classify.rs): 1,399 upstream refusals read as Castle refusals drove
+        // 2 of 3 accounts to the 300s cooldown cap and starved rotation.
+        Err(e) if e == "risk-refused" => {
             next.note_risk_refused(now);
             eprintln!(
                 "[health] {}: risk-refused -> cooling {}ms (step {})",
@@ -376,6 +381,17 @@ async fn record_account_health(
                 framer_core::account::ManagedAccount::cooldown_backoff_ms(next.cooldown_step - 1),
                 next.cooldown_step,
             );
+        }
+        // Upstream refusals are loud but NOT account health: the operator
+        // needs to see them (they mean a bad model id, a region block, or a
+        // content filter), and the account must stay in rotation.
+        Err(e) if e.starts_with("upstream 403") => {
+            eprintln!(
+                "[upstream] {}: provider refused (NOT account health): {}",
+                &account.id.0.to_string()[..8],
+                &e[..e.len().min(240)],
+            );
+            return;
         }
         Err(_) => return, // transport/429/other: not account health
     }

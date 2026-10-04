@@ -100,7 +100,13 @@ pub async fn complete_long(
             Err(e) => {
                 let elapsed = t0.elapsed().as_secs_f32();
                 let idle_killed = e == "risk-refused" && elapsed > 8.0;
-                let transport_died = e != "risk-refused"
+                // An UPSTREAM 403 (provider policy / moderation -- see
+                // classify.rs) is terminal for this chunk. Halving max_tokens
+                // cannot change a policy decision, so the retry below would
+                // only spend a second request to be refused identically.
+                let upstream_refused = e.starts_with("upstream 403");
+                let transport_died = !upstream_refused
+                    && e != "risk-refused"
                     && e != "credits-exhausted"
                     && e != "unauthorized"
                     && !e.starts_with("retryable 4");
