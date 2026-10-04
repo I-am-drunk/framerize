@@ -20,7 +20,11 @@ use tokio::sync::{Mutex, OwnedSemaphorePermit, Semaphore};
 
 /// Defaults, all overridable by env so a stuck gate can be retuned without a
 /// rebuild (the 2026-10-04 incident needed exactly that).
-const DEFAULT_INITIAL: usize = 48;
+// 12: the measured workspace-wide wall is ~20-24 concurrent (2026-10-04:
+// 20x unique-step burst = 20/20; 24x burst hit 3/24 once then recovered).
+// Starting under the wall means the AIMD probe discovers the real ceiling
+// with single-digit 429s instead of a 48-deep storm on every fresh boot.
+const DEFAULT_INITIAL: usize = 12;
 /// A real floor, not an inflated one. The 2026-10-04 stall needed MIN=24 as a
 /// band-aid only because recovery was slow; with proportional time-based
 /// recovery (see `grow_step`) a deep cut climbs back in seconds, so the floor

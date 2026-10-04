@@ -155,7 +155,7 @@ POOL_CAP = int(os.environ.get("FRAMERIZE_PAGE_POOL", "6"))
 # with its OWN castle module instance (modules bind the device at configure
 # time — re-minting with a swapped __cuid on a cached module does NOTHING,
 # verified), rotates the bucket per mint. Warmed concurrently at launch.
-DEVICE_POOL = int(os.environ.get("FRAMERIZE_DEVICE_POOL", "8"))
+DEVICE_POOL = int(os.environ.get("FRAMERIZE_DEVICE_POOL", "1"))  # 1 = single trusted device. Step-tag rotation made pools obsolete; >1 re-enables (farm signal!)
 
 # Castle mints are serialized PER ACCOUNT, and paced.
 #
