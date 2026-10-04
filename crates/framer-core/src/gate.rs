@@ -262,6 +262,13 @@ impl ConcurrencyGate {
     }
 
     fn persist_ceiling(&self, key: &str, ceiling: usize) {
+        // Tests share keys ("w1") and the daemon's HOME state file — learned
+        // ceilings would leak between tests and from the daemon. Production
+        // only.
+        #[cfg(test)]
+        return;
+        #[cfg(not(test))]
+        {
         let path = Self::state_path();
         let mut map: serde_json::Value = std::fs::read_to_string(&path)
             .ok()
@@ -272,14 +279,20 @@ impl ConcurrencyGate {
             let _ = std::fs::create_dir_all(parent);
         }
         let _ = std::fs::write(&path, serde_json::to_string(&map).unwrap_or_default());
+        }
     }
 
     fn load_ceiling(&self, key: &str) -> Option<usize> {
+        #[cfg(test)]
+        return None;
+        #[cfg(not(test))]
+        {
         let map: serde_json::Value = serde_json::from_str(
             &std::fs::read_to_string(Self::state_path()).ok()?,
         )
         .ok()?;
         map[key].as_u64().map(|v| v as usize)
+        }
     }
 
     pub async fn on_overloaded(&self, key: &str) {
