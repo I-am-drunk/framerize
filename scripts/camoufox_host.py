@@ -207,14 +207,18 @@ DEVPOOL_WARM_JS = """(async () => {
   if (!window.castlePublishableAPIKey) Object.defineProperty(window, 'castlePublishableAPIKey', { value: Object.freeze('pk_xYqGbB61EcFiSh4LUshpT4DGoEQMKQMB') });
   const ids = %s; // JSON array of uuids, persisted per account
   const saved = (() => { try { return localStorage.getItem('__cuid'); } catch(e) { return null; } })();
-  await Promise.all(ids.map(async (dev, i) => {
-    if (window.__devmods[dev]) return;
+  // SEQUENTIAL, never Promise.all: a module binds the device it sees at
+  // import time, and parallel swaps race — every module ends up on the LAST
+  // __cuid and the pool silently collapses to one device (measured: 429s).
+  for (let i = 0; i < ids.length; i++) {
+    const dev = ids[i];
+    if (window.__devmods[dev]) continue;
     try {
       localStorage.setItem('__cuid', dev);
       document.cookie = '__cuid=' + dev + '; domain=.framer.com; path=/; secure; samesite=None';
       window.__devmods[dev] = await import('https://app.framerstatic.com/chunk-5LKSDTQ5.mjs?dev=' + i);
     } catch(e) {}
-  }));
+  }
   if (saved) {
     try { localStorage.setItem('__cuid', saved); } catch(e) {}
     document.cookie = '__cuid=' + saved + '; domain=.framer.com; path=/; secure; samesite=None';
