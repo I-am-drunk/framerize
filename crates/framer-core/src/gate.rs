@@ -21,12 +21,23 @@ use tokio::sync::{Mutex, OwnedSemaphorePermit, Semaphore};
 /// Defaults, all overridable by env so a stuck gate can be retuned without a
 /// rebuild (the 2026-10-04 incident needed exactly that).
 const DEFAULT_INITIAL: usize = 48;
-const DEFAULT_MIN: usize = 24;
+/// A real floor, not an inflated one. The 2026-10-04 stall needed MIN=24 as a
+/// band-aid only because recovery was slow; with proportional time-based
+/// recovery (see `grow_step`) a deep cut climbs back in seconds, so the floor
+/// can be an honest "always make some progress" value again.
+const DEFAULT_MIN: usize = 8;
 const DEFAULT_MAX: usize = 64;
 /// How long a gate must stay clean before probing one slot upward. TIME-based,
 /// not success-count-based: with a count, a fleet that is itself throttled
 /// produces few completions, so recovery stalls exactly when it matters most.
-const DEFAULT_RECOVER_MS: u64 = 3_000;
+const DEFAULT_RECOVER_MS: u64 = 1_000;
+
+/// Recover proportionally: one additive slot takes `max/initial` ticks to undo
+/// a halving, which is why a count-based scheme stalled. Climbing by a fraction
+/// of the ceiling makes recovery time independent of how deep the cut was.
+fn grow_step(limit: usize, max: usize) -> usize {
+    ((max / 8).max(1)).min(max.saturating_sub(limit)).max(1)
+}
 
 fn env_usize(key: &str, default: usize) -> usize {
     std::env::var(key).ok().and_then(|v| v.parse().ok()).unwrap_or(default)
@@ -193,7 +204,7 @@ impl ConcurrencyGate {
         if now.duration_since(gate.changed_at) < Duration::from_millis(gate.cfg.recover_ms) {
             return;
         }
-        gate.grow_by(1);
+        gate.grow_by(grow_step(gate.limit, gate.cfg.max));
         gate.changed_at = now;
         eprintln!("[gate] {key}: healthy -> limit {}", gate.limit);
     }
@@ -270,7 +281,10 @@ mod tests {
 
         tokio::time::sleep(Duration::from_millis(60)).await;
         g.on_success("w1").await;
-        assert_eq!(g.limit_of("w1").await, shrunk + 1);
+        // Growth is PROPORTIONAL to the ceiling (max/8), not a single slot, so
+        // recovery time does not depend on how deep the cut was. A +1 step is
+        // what made a halved gate take 32 ticks to climb back.
+        assert_eq!(g.limit_of("w1").await, shrunk + grow_step(shrunk, 64));
     }
 
     #[tokio::test]

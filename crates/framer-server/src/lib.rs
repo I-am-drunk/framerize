@@ -345,6 +345,42 @@ async fn openai_chat(
 /// continuation chain on /ai/v3/messages/ (block-aware), then render the
 /// assembled response back into the client's dialect — as JSON, or as a
 /// synthesized SSE stream when the client asked to stream.
+/// Persist the health consequence of one attempt.
+///
+/// A 403 risk refusal cools the account down with exponential backoff so
+/// rotation stops choosing it; any success clears that state. Never
+/// quarantines (AGENTS.md rule 3) and never treats a 429 as account health --
+/// that is a workspace-level signal handled by the concurrency gate.
+async fn record_account_health(
+    s: &AppState,
+    account: &framer_core::account::ManagedAccount,
+    result: &Result<framer_core::convert::AssembledResponse, String>,
+) {
+    let now = framer_core::rotation::now_ms();
+    let mut next = account.clone();
+    match result {
+        Ok(_) => {
+            if next.consecutive_failures == 0 && next.cooling_until_ms.is_none() {
+                return; // already clean; skip the write
+            }
+            next.note_success();
+        }
+        Err(e) if e == "risk-refused" || e.contains("risk-refused") => {
+            next.note_risk_refused(now);
+            eprintln!(
+                "[health] {}: risk-refused -> cooling {}ms (step {})",
+                &next.id.0.to_string()[..8],
+                framer_core::account::ManagedAccount::cooldown_backoff_ms(next.cooldown_step - 1),
+                next.cooldown_step,
+            );
+        }
+        Err(_) => return, // transport/429/other: not account health
+    }
+    if let Err(e) = s.state.upsert(&next).await {
+        eprintln!("[health] upsert failed: {e}");
+    }
+}
+
 async fn free_complete(
     s: AppState,
     headers: &axum::http::HeaderMap,
@@ -586,6 +622,13 @@ async fn free_complete(
         Err(_) => {}
     }
 
+    // Record ACCOUNT health. This route previously recorded none at all, so a
+    // Castle-poisoned account stayed state=ready with failures=0 forever and
+    // rotation kept feeding it: measured 2026-10-04, one account served 69
+    // consecutive posts at 100% 403 while the gate sat at its ceiling of 64.
+    // The gate was never the problem; the missing feedback loop was.
+    record_account_health(&s, &account, &result).await;
+
     // canonical ai.chain event (credit-use proof lives here: metered_chunks)
     {
         use framer_core::observability::Event;
@@ -745,6 +788,9 @@ async fn begin_login(
 #[derive(Deserialize)]
 struct CompleteLoginBody {
     account_id: AccountId,
+    /// Login email. Stored (normalized) as the human-readable identity and the
+    /// dedupe key, so the same account cannot be added twice by accident.
+    email: Option<String>,
     /// The uuid from the emailed link's #token fragment.
     email_token: String,
     /// Display alias for the account record (e.g. the email).
@@ -807,6 +853,7 @@ async fn complete_login(
         .unwrap_or_else(|| ManagedAccount {
             id: body.account_id,
             alias: body.alias.clone().unwrap_or_else(|| "account".into()),
+            email: None,
             framer_user_id: session.active_user.clone(),
             castle_device_id: uuid::Uuid::new_v4().to_string(),
             proxy: None,
@@ -816,7 +863,29 @@ async fn complete_login(
             credit: None,
             consecutive_failures: 0,
             cooldown_step: 0,
+            cooling_until_ms: None,
         });
+    // Dedupe by email BEFORE anything else: adding the same account twice
+    // splits its credit ledger across two records and makes rotation think it
+    // has more capacity than it does.
+    if let Some(raw) = body.email.as_deref() {
+        let email = framer_core::account::normalize_email(raw);
+        let pool = s.state.list().await.map_err(ApiError)?;
+        if let Some(dup) = pool
+            .iter()
+            .find(|a| a.id != account.id && a.email.as_deref() == Some(email.as_str()))
+        {
+            return Err(ApiError(format!(
+                "{email} is already added as account {} — not adding it twice",
+                dup.alias,
+            )));
+        }
+        // The email is the operator-facing name; a uuid is not.
+        if body.alias.is_none() {
+            account.alias = email.clone();
+        }
+        account.email = Some(email);
+    }
     account.framer_user_id = session.active_user.clone();
     account.state = framer_core::account::AccountState::Ready;
     if let Some(a) = &body.alias {
@@ -830,8 +899,29 @@ async fn complete_login(
     }
     s.state.upsert(&account).await.map_err(ApiError)?;
 
+    // Admission: scan EVERY workspace concurrently and refuse the account if
+    // none has credits. An account with no credited workspace cannot serve a
+    // single request, so admitting it just feeds rotation guaranteed failures.
+    // Parked as Exhausted (not deleted) so the operator can see why, and so it
+    // becomes usable the moment credits appear.
+    let deps = Deps {
+        client: s.client.as_ref(),
+        browser: s.browser.as_ref(),
+        sessions: s.sessions.as_ref(),
+        state: s.state.as_ref(),
+    };
+    let admission = framer_core::credits::admit(&deps, &mut account, &session).await;
+    if let Err(e) = admission {
+        account.state = framer_core::account::AccountState::Exhausted;
+        s.state.upsert(&account).await.map_err(ApiError)?;
+        return Err(ApiError(e.to_string()));
+    }
+    s.state.upsert(&account).await.map_err(ApiError)?;
+
     Ok(Json(serde_json::json!({
         "status": "signed-in",
+        "team": account.current_team.as_ref().map(|t| t.0.clone()),
+        "credits": account.credit.as_ref().map(|c| c.available),
         "account_id": account.id.0,
         "framer_user_id": account.framer_user_id.0,
         "team": account.current_team.map(|t| t.0),
@@ -899,6 +989,7 @@ async fn import_account(
         .unwrap_or_else(|| ManagedAccount {
             id: body.account_id,
             alias: body.alias.clone().unwrap_or_else(|| "imported".into()),
+            email: None,
             framer_user_id: session.active_user.clone(),
             castle_device_id: uuid::Uuid::new_v4().to_string(),
             proxy: None,
@@ -908,6 +999,7 @@ async fn import_account(
             credit: None,
             consecutive_failures: 0,
             cooldown_step: 0,
+            cooling_until_ms: None,
         });
     account.framer_user_id = session.active_user.clone();
     account.state = framer_core::account::AccountState::Ready;

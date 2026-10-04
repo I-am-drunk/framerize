@@ -24,15 +24,46 @@ static CURSOR: AtomicUsize = AtomicUsize::new(0);
 /// cooling-down account is still avoided. Among the healthiest, requests are
 /// handed out round-robin.
 pub fn pick(pool: &[ManagedAccount]) -> Option<&ManagedAccount> {
-    let best = pool
-        .iter()
-        .filter(|a| a.is_eligible())
-        .map(|a| a.consecutive_failures)
-        .min()?;
+    pick_at(pool, now_ms())
+}
 
-    let tied: Vec<&ManagedAccount> = pool
-        .iter()
-        .filter(|a| a.is_eligible() && a.consecutive_failures == best)
+/// Wall clock in unix ms. Separate so tests can pin it.
+pub fn now_ms() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_millis() as u64)
+        .unwrap_or(0)
+}
+
+/// `pick` with an injected clock.
+///
+/// Cooling-down accounts are skipped entirely. If EVERY account is cooling we
+/// fall back to the one whose cooldown expires soonest rather than returning
+/// None: a transient refusal must never take the whole gateway down, and the
+/// caller's own retry/backoff handles the rest.
+pub fn pick_at(pool: &[ManagedAccount], now: u64) -> Option<&ManagedAccount> {
+    let available: Vec<&ManagedAccount> =
+        pool.iter().filter(|a| a.is_available_at(now)).collect();
+
+    let candidates: Vec<&ManagedAccount> = if available.is_empty() {
+        let soonest = pool
+            .iter()
+            .filter(|a| a.is_eligible())
+            .min_by_key(|a| a.cooling_until_ms.unwrap_or(0))?;
+        vec![soonest]
+    } else {
+        available
+    };
+
+    // Rank by EFFECTIVE failures, not the raw count. An account that has served
+    // its cooldown window has already paid for those failures; keeping them in
+    // the ranking starves it forever (failures >= 1 vs a healthy sibling's 0 =>
+    // never picked => count never clears). Accounts failing WITHOUT a cooldown
+    // -- transport errors, say -- are still deprioritized.
+    let best = candidates.iter().map(|a| a.effective_failures(now)).min()?;
+    let tied: Vec<&ManagedAccount> = candidates
+        .into_iter()
+        .filter(|a| a.effective_failures(now) == best)
         .collect();
 
     // `tied` is non-empty: `best` came from the same filtered set.
@@ -52,6 +83,7 @@ mod tests {
         ManagedAccount {
             id: AccountId(Uuid::new_v4()),
             alias: alias.to_string(),
+            email: Some(format!("{alias}@example.test")),
             framer_user_id: FramerUserId(Uuid::new_v4().to_string()),
             castle_device_id: Uuid::new_v4().to_string(),
             proxy: None,
@@ -63,6 +95,7 @@ mod tests {
             credit: None,
             consecutive_failures: failures,
             cooldown_step: 0,
+            cooling_until_ms: None,
         }
     }
 
@@ -119,6 +152,56 @@ mod tests {
         let mut no_team = acct("no-team", 0, AccountState::Ready);
         no_team.current_team = None;
         assert!(pick(&[no_team]).is_none());
+    }
+
+    #[test]
+    fn a_cooling_account_is_skipped_until_its_window_expires() {
+        // The live 2026-10-04 failure: one account went 100% 403 for 69
+        // consecutive posts because nothing ever took it out of rotation.
+        let mut poisoned = acct("poisoned", 0, AccountState::Ready);
+        poisoned.note_risk_refused(1_000);
+        let healthy = acct("healthy", 0, AccountState::Ready);
+        let pool = vec![poisoned, healthy];
+
+        for _ in 0..6 {
+            assert_eq!(pick_at(&pool, 1_500).expect("a pick").alias, "healthy");
+        }
+        // After the backoff window it is usable again -- never permanently out.
+        let after = 1_000 + ManagedAccount::cooldown_backoff_ms(0) + 1;
+        let seen: Vec<&str> = (0..6).map(|_| pick_at(&pool, after).unwrap().alias.as_str()).collect();
+        assert!(seen.contains(&"poisoned"), "must return to rotation: {seen:?}");
+    }
+
+    #[test]
+    fn when_everything_is_cooling_the_soonest_to_recover_is_used() {
+        // A transient refusal must never take the whole gateway down.
+        let mut a = acct("a", 0, AccountState::Ready);
+        let mut b = acct("b", 0, AccountState::Ready);
+        a.note_risk_refused(10_000); // longer window
+        b.cooling_until_ms = Some(10_500);
+        let pool = vec![a, b];
+        assert_eq!(pick_at(&pool, 10_100).expect("a pick").alias, "b");
+    }
+
+    #[test]
+    fn backoff_grows_then_caps_and_success_clears_it() {
+        assert_eq!(ManagedAccount::cooldown_backoff_ms(0), 2_000);
+        assert_eq!(ManagedAccount::cooldown_backoff_ms(1), 4_000);
+        assert_eq!(ManagedAccount::cooldown_backoff_ms(2), 8_000);
+        assert_eq!(ManagedAccount::cooldown_backoff_ms(99), 300_000, "must cap");
+
+        let mut a = acct("a", 0, AccountState::Ready);
+        a.note_risk_refused(0);
+        a.note_risk_refused(0);
+        assert_eq!(a.cooldown_step, 2);
+        assert!(a.cooling_until_ms.is_some());
+        assert!(!a.is_available_at(1));
+
+        a.note_success();
+        assert_eq!(a.cooldown_step, 0);
+        assert_eq!(a.consecutive_failures, 0);
+        assert!(a.cooling_until_ms.is_none());
+        assert!(a.is_available_at(1));
     }
 
     #[test]
