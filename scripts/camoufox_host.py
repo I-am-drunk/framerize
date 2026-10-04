@@ -410,10 +410,9 @@ class Host:
             page = acc.mint_page
             if page is None or page.is_closed():
                 page = acc.mint_page = await self._new_mint_page(acc, account)
-            try:
-                await human_burst(page, random)  # fresh events ride the token
-            except Exception:
-                pass
+            burst_ms = 0  # pre-mint burst REMOVED: it was the bottleneck
+            # (19-21s under humanize=True). The per-page humanize loops keep
+            # Castle's behavioral buffers warm between mints.
             if acc.devpool_ready and acc.devices:
                 try:
                     tok = await page.evaluate(DEVPOOL_MINT_JS, acc.devices)
@@ -424,6 +423,7 @@ class Host:
             acc.last_mint = time.monotonic()
             emit("castle.mint", account=account[:8],
                  duration_ms=int((acc.last_mint - t0) * 1000),
+                 burst_ms=burst_ms,
                  outcome="ok" if tok else "error",
                  **({} if tok else {"error": "castle-unavailable"}))
             return tok
@@ -445,7 +445,12 @@ class Host:
             self.proxies[account] = proxy
         profile = os.path.join(ROOT, account)
         os.makedirs(profile, exist_ok=True)
-        kwargs = dict(headless=True, persistent_context=True, user_data_dir=profile, humanize=True)
+        kwargs = dict(headless=True, persistent_context=True, user_data_dir=profile, humanize=False)
+        # humanize=False (2026-10-04, measured): with True, Camoufox simulates
+        # human input TIMING — every mouse.move burst cost ~19-21s inside the
+        # mint lock (burst_ms=20,991 of a 21,074ms "mint"). Playwright input is
+        # TRUSTED either way (Juggler Input domain), so Castle's listeners
+        # still fire; we only drop the deliberate slowness.
         # Per-account egress: Castle binds tokens to egress IP (verified live).
         px = self.proxies.get(account)
         if px:
