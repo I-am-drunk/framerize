@@ -196,6 +196,7 @@ class Account:
         self.last_mint = 0.0
         self.devices = []           # persisted pool of __cuid device ids
         self.devpool_ready = False
+        self.mint_page = None       # DEDICATED mint page — never runs fetches
 
 
 
@@ -330,16 +331,8 @@ class Host:
                 try:
                     await page.goto(LOGIN_URL, wait_until="domcontentloaded", timeout=60000)
                     await page.wait_for_timeout(800)
-                    await page.evaluate(WARM_JS)
-                    # The device pool is PER PAGE (window.__devmods lives in the
-                    # page) — a pool page without it mints single-device tokens
-                    # and the whole rotation collapses back to one bucket.
-                    if acc.devices:
-                        try:
-                            await page.evaluate(DEVPOOL_WARM_JS.replace('%s', json.dumps(acc.devices)))
-                            trace(f"{account[:8]}: pool-page device pool warm ({len(acc.devices)} modules)")
-                        except Exception as e:
-                            trace(f"{account[:8]}: pool-page device warm failed ({type(e).__name__})")
+                    # Pool pages only FETCH now — mints live on the dedicated
+                    # mint page, so no castle warm is needed here at all.
                 except Exception as e:
                     trace(f"{account[:8]}: pool-page warm issue ({type(e).__name__}) — continuing")
                 acc.size += 1
@@ -359,8 +352,32 @@ class Host:
     def _release(acc, page):
         acc.pool.put_nowait(page)
 
-    @staticmethod
-    async def _mint(acc, page, account):
+    async def _new_mint_page(self, acc, account):
+        """Create the account's dedicated mint page and warm it.
+
+        WHY THIS PAGE EXISTS (measured 2026-10-04): a warm v2 mint costs ~25ms
+        on an idle page, but mints measured p50=46s (max 166s) under load.
+        Mints ran on the SAME pool pages as 100s-generation fetches, and all
+        pages sit on framer.com/login — one Fission content process, one JS
+        main thread, browser-serialized work. Every mint queued behind
+        in-flight generations and vice versa. The "upstream collapse" was
+        this contention, never the upstream (direct probes: 119 tok/s the
+        same minute). A page that ONLY mints has an always-free main thread:
+        mints stay ~25ms forever."""
+        page = await acc.ctx.new_page()
+        await page.goto(LOGIN_URL, wait_until="domcontentloaded", timeout=60000)
+        await page.wait_for_timeout(800)
+        await page.evaluate(WARM_JS)
+        if acc.devices:
+            try:
+                await page.evaluate(DEVPOOL_WARM_JS.replace('%s', json.dumps(acc.devices)))
+            except Exception:
+                pass
+        self._human_tasks[account].append(asyncio.ensure_future(self._human_loop(account, page)))
+        trace(f"{account[:8]}: dedicated mint page ready")
+        return page
+
+    async def _mint(self, acc, page, account):
         """Mint one Castle token, serialized and paced per ACCOUNT.
 
         All of an account's pages share one device id (__cuid), so simultaneous
@@ -379,6 +396,9 @@ class Host:
                 await asyncio.sleep(gap)
             t0 = time.monotonic()
             tok = None
+            page = acc.mint_page
+            if page is None or page.is_closed():
+                page = acc.mint_page = await self._new_mint_page(acc, account)
             try:
                 await human_burst(page, random)  # fresh events ride the token
             except Exception:
@@ -479,6 +499,10 @@ class Host:
             asyncio.ensure_future(warm_pool())
         except Exception as e:
             trace(f"{account[:8]}: device pool init failed ({type(e).__name__})")
+        try:
+            acc.mint_page = await self._new_mint_page(acc, account)
+        except Exception as e:
+            trace(f"{account[:8]}: mint page init failed ({type(e).__name__}) — lazy retry on first mint")
         return acc
 
     def _ctx(self, account):
