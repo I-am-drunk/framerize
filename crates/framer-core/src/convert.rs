@@ -124,6 +124,36 @@ fn append_chunk_note(out: &mut Value) {
     }
 }
 
+/// Anthropic's rule: thinking blocks sent back in history must be EXACTLY as
+/// the original response produced them (signature-verified). A chained
+/// response assembles blocks from MULTIPLE upstream responses, so any
+/// re-sent history containing those blocks fails validation two ways:
+/// "Invalid `signature`" and "thinking blocks in the latest assistant message
+/// cannot be modified" (both reproduced live 2026-10-04). The API explicitly
+/// allows DROPPING thinking blocks from prior turns — the model does not need
+/// them to continue. So we strip them from all history messages (keeping them
+/// only in the freshly generated response), which kills the whole error class.
+fn strip_thinking_from_history(messages: &mut Value) {
+    let Some(arr) = messages.as_array_mut() else { return };
+    let mut drop_idx: Vec<usize> = Vec::new();
+    for (i, m) in arr.iter_mut().enumerate() {
+        if m["role"].as_str() != Some("assistant") {
+            continue;
+        }
+        let Some(blocks) = m["content"].as_array_mut() else { continue };
+        blocks.retain(|b| {
+            let t = b["type"].as_str().unwrap_or_default();
+            t != "thinking" && t != "redacted_thinking"
+        });
+        if blocks.is_empty() {
+            drop_idx.push(i);
+        }
+    }
+    for i in drop_idx.into_iter().rev() {
+        arr.remove(i);
+    }
+}
+
 pub fn to_anthropic_request(d: ClientDialect, body: &Value) -> Result<Value, String> {
     let mut out = match d {
         ClientDialect::AnthropicMessages => {
@@ -138,6 +168,7 @@ pub fn to_anthropic_request(d: ClientDialect, body: &Value) -> Result<Value, Str
             if !out.get("messages").map(|m| m.is_array()).unwrap_or(false) {
                 return Err("messages is required".into());
             }
+            strip_thinking_from_history(&mut out["messages"]);
             out
         }
         ClientDialect::OpenAiChat => chat_to_anthropic(body)?,

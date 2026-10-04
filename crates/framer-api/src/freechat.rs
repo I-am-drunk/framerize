@@ -341,7 +341,14 @@ fn merge_blocks(acc: &mut Vec<Value>, new: Vec<Value>) {
 /// Only ever called when the chunk is text-only (any tool_use ends the
 /// chain), so the assistant message is spec-valid.
 fn push_continuation(messages: &mut Value, chunk_blocks: &[Value], cfg: &ChainConfig) {
-    let content: Vec<Value> = chunk_blocks.to_vec();
+    // Text only: thinking blocks in prior turns must pass signature
+    // validation or be dropped (API rule); a chained continuation can do
+    // neither cleanly, and the model does not need them to continue.
+    let content: Vec<Value> = chunk_blocks
+        .iter()
+        .filter(|b| b["type"].as_str() == Some("text"))
+        .cloned()
+        .collect();
     let arr = messages.as_array_mut().expect("messages array");
     arr.push(json!({"role": "assistant", "content": content}));
     arr.push(json!({"role": "user", "content": cfg.continue_prompt}));
@@ -419,6 +426,14 @@ async fn stream_chunk(
                             v["delta"]["text"].as_str().unwrap_or_default()
                         );
                         blocks[idx]["text"] = json!(joined);
+                    }
+                    Some("signature_delta") => {
+                        let prev = blocks[idx]["signature"].as_str().unwrap_or_default().to_string();
+                        blocks[idx]["signature"] = json!(format!("{}{}", prev, v["delta"]["signature"].as_str().unwrap_or_default()));
+                    }
+                    Some("thinking_delta") => {
+                        let prev = blocks[idx]["thinking"].as_str().unwrap_or_default().to_string();
+                        blocks[idx]["thinking"] = json!(format!("{}{}", prev, v["delta"]["thinking"].as_str().unwrap_or_default()));
                     }
                     Some("input_json_delta") => {
                         let prev = blocks[idx]["_partial_json"].as_str().unwrap_or_default().to_string();
