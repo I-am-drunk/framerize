@@ -24,7 +24,7 @@ Protocol: newline-delimited JSON on stdin/stdout (unchanged).
 State root: $FRAMERIZE_STATE (default ~/.framerize/camoufox). Tokens: accept
 v3 AND v2 (Framer ships the v2 fallback itself; Firefox mints v2).
 """
-import asyncio, uuid, json, os, shutil, sys, time
+import asyncio, random, uuid, random, json, os, shutil, sys, time
 
 LOG_DIR = os.environ.get("FRAMERIZE_LOG_DIR")
 
@@ -246,12 +246,71 @@ DEVPOOL_MINT_JS = """(async (ids) => {
   return null;
 })"""
 
+
+# ---------------------------------------------------------------------------
+# HUMAN PRESENCE (the root fix for Castle risk-refusal waves, 2026-10-04).
+#
+# The decompiled Castle v3 SDK registers document-level listeners for
+# mousedown/mouseup/click/keydown/keyup/mouseenter/mouseleave/visibilitychange
+# and maintains behavioral buffers (event counters + timestamps) that feed the
+# risk verdict attached to every request token. Our account pages sat IDLE
+# forever: every minted token was a signed affidavit of "zero human events,
+# machine-cadence mints" — precisely the signature Castle exists to catch.
+# Measured waves: after sustained machine-only traffic, Castle hard-refused
+# ALL accounts on the host for minutes (28ms refusals), recovering only after
+# a quiet period.
+#
+# The fix: continuous low-rate human activity on every account page (trusted
+# Playwright input events fire those listeners), a fresh burst right before
+# each mint (the buffer's newest events ride the token), and non-metronomic
+# timing everywhere.
+# ---------------------------------------------------------------------------
+
+SAFE_CLICK_JS = """([x, y]) => {
+  const el = document.elementFromPoint(x, y);
+  if (!el) return false;
+  if (el === document.body || el === document.documentElement) return true;
+  if (el.closest('a,button,input,select,textarea,[role="button"],form')) return false;
+  return el.tagName === 'DIV' || el.tagName === 'MAIN' || el.tagName === 'SECTION';
+}"""
+
+async def human_burst(page, rng, allow_click=True):
+    """One small human-like activity burst: a curved mouse move, sometimes a
+    wheel scroll, rarely a verified-safe click (mousedown feeds the SDK's
+    interaction counter)."""
+    x, y = rng.uniform(60, 1100), rng.uniform(60, 560)
+    await page.mouse.move(x, y, steps=rng.randint(5, 16))
+    if rng.random() < 0.4:
+        await page.mouse.wheel(0, rng.uniform(-320, 320))
+        await page.mouse.move(x + rng.uniform(-90, 90), y + rng.uniform(-60, 60),
+                              steps=rng.randint(3, 8))
+    if allow_click and rng.random() < 0.3:
+        try:
+            if await page.evaluate(SAFE_CLICK_JS, [int(x), int(y)]):
+                await page.mouse.click(int(x), int(y), delay=rng.randint(25, 95))
+        except Exception:
+            pass
+
 class Host:
     def __init__(self):
         os.makedirs(ROOT, exist_ok=True)
         self.accounts = {}  # account -> Account
         self.proxies = {}
         self.lock = asyncio.Lock()  # brief: account-dict lifecycle ONLY
+        self._human_tasks = {}  # account -> [humanize loop tasks]
+
+    async def _human_loop(self, account, page):
+        """Continuous human presence on one page: a small activity burst every
+        ~25-90s (randomized). Dies with the page."""
+        rng = random.Random()
+        while True:
+            await asyncio.sleep(rng.uniform(25, 90))
+            try:
+                if page.is_closed():
+                    return
+                await human_burst(page, rng)
+            except Exception:
+                return
 
     async def _acquire(self, account, proxy=None):
         """Returns (page, acc, queue_wait_s). queue_wait_s is the time spent
@@ -284,6 +343,7 @@ class Host:
                 except Exception as e:
                     trace(f"{account[:8]}: pool-page warm issue ({type(e).__name__}) — continuing")
                 acc.size += 1
+                self._human_tasks[account].append(asyncio.ensure_future(self._human_loop(account, page)))
                 return page, acc, 0.0
         # At cap: this request QUEUES for a free page. Log the wait — queue
         # time dominates total latency under concurrent load (47s→190s
@@ -319,6 +379,10 @@ class Host:
                 await asyncio.sleep(gap)
             t0 = time.monotonic()
             tok = None
+            try:
+                await human_burst(page, random)  # fresh events ride the token
+            except Exception:
+                pass
             if acc.devpool_ready and acc.devices:
                 try:
                     tok = await page.evaluate(DEVPOOL_MINT_JS, acc.devices)
@@ -391,6 +455,7 @@ class Host:
             trace(f"{account[:8]}: castle warm failed ({type(e).__name__}) — first real mint will pay it instead")
         acc = Account(mgr, ctx, page)
         self.accounts[account] = acc
+        self._human_tasks[account] = [asyncio.ensure_future(self._human_loop(account, page))]
         # Device pool (the concurrency goose): persisted uuids per account,
         # castle-module instances warmed concurrently in the background.
         try:
