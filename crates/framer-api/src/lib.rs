@@ -79,6 +79,7 @@ impl HttpFramerClient {
             account,
             project,
             dialect,
+            "message",
             payload,
             chat_session,
         )

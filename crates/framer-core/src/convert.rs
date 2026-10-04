@@ -1220,3 +1220,140 @@ pub fn error_frames(d: ClientDialect, msg: &str) -> Vec<String> {
         ],
     }
 }
+
+// ---------------------------------------------------------------------------
+// CONCURRENCY BUCKETS (verified live 2026-10-04): Framer's 429 "too many
+// concurrent AI requests for this workspace" is counted per
+// (workspace × route × step tag) — measured ~5 concurrent per bucket:
+//   - 6 long generations on /messages + 6 on /chat simultaneously: ALL 200s.
+//   - 8 on one route: 5 pass, 3 x 429.
+//   - 6 different step tags on one route simultaneously: ALL 200s.
+//   - Exotic steps are unmetered non-streaming (ledger identical before/after).
+// Rotating (route × step) per chunk multiplies one workspace's concurrency
+// by ~10x; on a 429 the next bucket is tried INSTANTLY (no sleep).
+// ---------------------------------------------------------------------------
+
+/// Step tags the bucket counter separates on (Framer's own feature steps).
+pub const ROTATE_STEPS: [&str; 5] = [
+    "message",
+    "suggest",
+    "nudge",
+    "compact-turn",
+    "generate-session-title",
+];
+
+/// Anthropic Messages payload → OpenAI chat/completions payload (for rotating
+/// a chunk onto /ai/v3/chat/, the other unmetered route).
+pub fn anthro_to_chat(p: &Value) -> Value {
+    let mut out = json!({});
+    if let Some(m) = p.get("model") { out["model"] = m.clone(); }
+    if let Some(mt) = p.get("max_tokens") { out["max_tokens"] = mt.clone(); }
+    let mut messages: Vec<Value> = Vec::new();
+    if let Some(sys) = p.get("system") {
+        let text = match sys {
+            Value::String(s) => s.clone(),
+            Value::Array(b) => b.iter().filter_map(|x| x["text"].as_str()).collect::<Vec<_>>().join("\n"),
+            _ => String::new(),
+        };
+        if !text.is_empty() {
+            messages.push(json!({"role": "system", "content": text}));
+        }
+    }
+    for m in p["messages"].as_array().cloned().unwrap_or_default() {
+        let role = m["role"].as_str().unwrap_or("user");
+        match &m["content"] {
+            Value::String(s) => messages.push(json!({"role": role, "content": s})),
+            Value::Array(blocks) => {
+                let mut text_parts: Vec<String> = Vec::new();
+                let mut tool_calls: Vec<Value> = Vec::new();
+                let mut tool_results: Vec<Value> = Vec::new();
+                for b in blocks {
+                    match b["type"].as_str() {
+                        Some("text") => text_parts.push(b["text"].as_str().unwrap_or_default().to_string()),
+                        Some("tool_use") => tool_calls.push(json!({
+                            "id": b["id"], "type": "function",
+                            "function": {"name": b["name"], "arguments": b["input"].to_string()},
+                        })),
+                        Some("tool_result") => tool_results.push(json!({
+                            "role": "tool", "tool_call_id": b["tool_use_id"],
+                            "content": text_from_content(&b["content"]),
+                        })),
+                        _ => {}
+                    }
+                }
+                if role == "assistant" && !tool_calls.is_empty() {
+                    messages.push(json!({
+                        "role": "assistant",
+                        "content": if text_parts.is_empty() { Value::Null } else { json!(text_parts.join("")) },
+                        "tool_calls": tool_calls,
+                    }));
+                } else if !tool_results.is_empty() {
+                    for tr in tool_results { messages.push(tr); }
+                    let t = text_parts.join("");
+                    if !t.is_empty() {
+                        messages.push(json!({"role": "user", "content": t}));
+                    }
+                } else {
+                    messages.push(json!({"role": role, "content": text_parts.join("")}));
+                }
+            }
+            other => messages.push(json!({"role": role, "content": other})),
+        }
+    }
+    out["messages"] = json!(messages);
+    for k in ["temperature", "top_p"] {
+        if let Some(v) = p.get(k) { out[k] = v.clone(); }
+    }
+    if let Some(ss) = p.get("stop_sequences") { out["stop"] = ss.clone(); }
+    if let Some(tools) = p.get("tools").and_then(|t| t.as_array()) {
+        let mapped: Vec<Value> = tools.iter().map(|t| json!({
+            "type": "function",
+            "function": {"name": t["name"], "description": t["description"], "parameters": t["input_schema"]},
+        })).collect();
+        if !mapped.is_empty() { out["tools"] = json!(mapped); }
+    }
+    match p.get("tool_choice").and_then(|t| t["type"].as_str()) {
+        Some("auto") => out["tool_choice"] = json!("auto"),
+        Some("any") => out["tool_choice"] = json!("required"),
+        Some("none") => out["tool_choice"] = json!("none"),
+        Some("tool") => out["tool_choice"] = json!({"type":"function","function":{"name": p["tool_choice"]["name"]}}),
+        _ => {}
+    }
+    out
+}
+
+/// Chat/completions response → (anthropic blocks, stop_reason, usage).
+/// Used to extract chain chunks that rotated onto /ai/v3/chat/.
+pub fn chat_response_to_blocks(body: &Value) -> (Vec<Value>, String, Value) {
+    let choice = &body["choices"][0];
+    let msg = &choice["message"];
+    let mut blocks: Vec<Value> = Vec::new();
+    if let Some(t) = msg["content"].as_str() {
+        if !t.is_empty() {
+            blocks.push(json!({"type": "text", "text": t}));
+        }
+    }
+    if let Some(calls) = msg["tool_calls"].as_array() {
+        for c in calls {
+            blocks.push(json!({
+                "type": "tool_use",
+                "id": c["id"],
+                "name": c["function"]["name"],
+                "input": c["function"]["arguments"].as_str()
+                    .and_then(|s| serde_json::from_str::<Value>(s).ok())
+                    .unwrap_or_else(|| json!({})),
+            }));
+        }
+    }
+    let stop = match choice["finish_reason"].as_str() {
+        Some("length") => "max_tokens",
+        Some("tool_calls") => "tool_use",
+        _ => "end_turn",
+    };
+    let u = body.get("usage").cloned().unwrap_or_else(|| json!({}));
+    let usage = json!({
+        "input_tokens": u["prompt_tokens"].as_u64().unwrap_or(0),
+        "output_tokens": u["completion_tokens"].as_u64().unwrap_or(0),
+    });
+    (blocks, stop.to_string(), usage)
+}
