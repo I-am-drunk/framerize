@@ -90,6 +90,9 @@ pub struct GateConfig {
     pub max: usize,
     pub recover_ms: u64,
     pub relax_ms: u64,
+    /// Rate smoothing: min ms between acquisitions per workspace (Castle
+    /// high_activity_* burst signals, 2026-10-04). 0 disables (tests).
+    pub min_interval_ms: u64,
 }
 
 impl Default for GateConfig {
@@ -103,6 +106,7 @@ impl Default for GateConfig {
             max,
             recover_ms: env_u64("FRAMERIZE_GATE_RECOVER_MS", DEFAULT_RECOVER_MS),
             relax_ms: env_u64("FRAMERIZE_GATE_RELAX_MS", DEFAULT_RELAX_MS),
+            min_interval_ms: env_u64("FRAMERIZE_GATE_MIN_INTERVAL_MS", 2500),
         }
     }
 }
@@ -144,12 +148,7 @@ impl Gate {
         Self {
             sem: Arc::new(Semaphore::new(cfg.initial)),
             next_allowed: now,
-            min_interval: Duration::from_millis(
-                std::env::var("FRAMERIZE_GATE_MIN_INTERVAL_MS")
-                    .ok()
-                    .and_then(|v| v.parse().ok())
-                    .unwrap_or(2500),
-            ),
+            min_interval: Duration::from_millis(cfg.min_interval_ms),
             limit: cfg.initial,
             debt: 0,
             changed_at: now,
@@ -383,7 +382,8 @@ mod tests {
     fn cfg(min: usize, max: usize, recover_ms: u64) -> GateConfig {
         // relax_ms deliberately long so growth tests observe the ceiling as
         // stable; the decay itself is covered by its own test.
-        GateConfig { initial: max, min, max, recover_ms, relax_ms: 600_000 }
+        GateConfig { initial: max, min, max, recover_ms,
+            min_interval_ms: 0, relax_ms: 600_000 }
     }
 
     fn gate(min: usize, max: usize, recover_ms: u64) -> ConcurrencyGate {
@@ -398,6 +398,7 @@ mod tests {
             max: 20,
             recover_ms: 1_000,
             relax_ms: 30_000,
+            min_interval_ms: 0,
         });
         assert_eq!(g.limit_of("w1").await, 10);
     }

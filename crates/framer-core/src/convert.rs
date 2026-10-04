@@ -794,7 +794,7 @@ mod tests {
         // client's own blocks lead, untouched.
         let sys = out["system"].as_array().unwrap();
         assert_eq!(sys[0], body["system"][0]);
-        assert!(sys.last().unwrap()["text"].as_str().unwrap().contains("tool call small"));
+        assert!(sys.last().unwrap()["text"].as_str().unwrap().contains("no single tool call"));
         assert_eq!(out["tool_choice"], body["tool_choice"]);
         assert_eq!(out["messages"], body["messages"]);
         assert!(out.get("unknown_field").is_none());
@@ -817,7 +817,7 @@ mod tests {
         let out = to_anthropic_request(ClientDialect::OpenAiChat, &body).unwrap();
         assert_eq!(out["model"], "openai/gpt-4.1");
         assert!(out["system"].as_str().unwrap().starts_with("be nice"));
-        assert!(out["system"].as_str().unwrap().contains("tool call small"));
+        assert!(out["system"].as_str().unwrap().contains("no single tool call"));
         assert_eq!(out["tools"][0]["name"], "get_weather");
         assert_eq!(out["tools"][0]["input_schema"]["type"], "object");
         // assistant tool_use block
