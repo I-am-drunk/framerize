@@ -78,3 +78,82 @@ pub async fn rotate_workspace(
     deps.state.upsert(account).await.map_err(CoreError::Store)?;
     Ok(team)
 }
+
+/// One workspace's credit verdict.
+#[derive(Debug, Clone)]
+pub struct WorkspaceCredit {
+    pub team: TeamId,
+    pub snapshot: crate::workspace::CreditSnapshot,
+}
+
+/// Scan EVERY workspace the account owns, concurrently, and return the credited
+/// ones (richest first).
+///
+/// Why concurrent: `rotate_workspace` checks teams one at a time and stops at
+/// the first hit, so admitting an account with N workspaces costs N sequential
+/// round trips -- and each `usage` call is a real HTTP request. Fanning out
+/// turns an N-request wait into one round trip's latency, which is what makes
+/// "is this account useful at all?" answerable in well under a second.
+///
+/// An account whose every workspace is exhausted cannot serve a single request,
+/// so admitting it means rotation sends it traffic that is guaranteed to fail
+/// (the 2026-10-04 lesson, in a different costume).
+pub async fn scan_workspaces(
+    deps: &Deps<'_>,
+    session: &Session,
+) -> Result<Vec<WorkspaceCredit>, CoreError> {
+    let me = deps.client.me(session).await.map_err(CoreError::Framer)?;
+
+    let teams: Vec<TeamId> = me["spaces"]
+        .as_array()
+        .map(|spaces| {
+            spaces
+                .iter()
+                .filter_map(|s| s["ownerId"].as_str())
+                .map(|id| TeamId(id.to_string()))
+                .collect()
+        })
+        .unwrap_or_default();
+
+    if teams.is_empty() {
+        return Ok(Vec::new());
+    }
+
+    // Fan out. A failed probe is NOT evidence of exhaustion -- it is evidence of
+    // nothing -- so it is dropped rather than counted as "no credits".
+    let probes = teams.into_iter().map(|team| async move {
+        match deps.client.usage(session, &team).await {
+            Ok(snapshot) if !snapshot.looks_exhausted() => Some(WorkspaceCredit { team, snapshot }),
+            _ => None,
+        }
+    });
+
+    let mut credited: Vec<WorkspaceCredit> =
+        futures::future::join_all(probes).await.into_iter().flatten().collect();
+
+    // Richest first so the caller lands on the workspace that will last longest.
+    credited.sort_by(|a, b| b.snapshot.available.total_cmp(&a.snapshot.available));
+    Ok(credited)
+}
+
+/// Admission check: does this account have ANY usable workspace?
+///
+/// Returns the best workspace, or `NotEligible` naming the account so the
+/// operator can see which one was refused.
+pub async fn admit(
+    deps: &Deps<'_>,
+    account: &mut ManagedAccount,
+    session: &Session,
+) -> Result<TeamId, CoreError> {
+    let credited = scan_workspaces(deps, session).await?;
+    let Some(best) = credited.into_iter().next() else {
+        return Err(CoreError::NotEligible(format!(
+            "{}: no workspace has credits — account cannot serve requests",
+            account.email.clone().unwrap_or_else(|| account.alias.clone()),
+        )));
+    };
+    account.current_team = Some(best.team.clone());
+    account.credit = Some(best.snapshot);
+    deps.state.upsert(account).await.map_err(CoreError::Store)?;
+    Ok(best.team)
+}
