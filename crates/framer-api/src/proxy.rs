@@ -57,13 +57,14 @@ pub async fn forward(
     account: &AccountId,
     project: &ProjectId,
     dialect: Dialect,
+    step: &str,
     payload: Value,
     chat_session: &str,
 ) -> Result<framer_core::port::ProxyResponse, String> {
     let t0 = std::time::Instant::now();
     let req_id = uuid::Uuid::new_v4().to_string();
     let token = cached_token(t, token_cache, session, account).await?;
-    match attempt(browser, session, account, &token, project, dialect, &payload, chat_session).await {
+    match attempt(browser, session, account, &token, project, dialect, step, &payload, chat_session).await {
         Ok(resp) => {
             framer_core::observability::Event::new("ai.request")
                 .request_id(&req_id)
@@ -81,7 +82,7 @@ pub async fn forward(
                 *guard = None;
             }
             let fresh = cached_token(t, token_cache, session, account).await?;
-            attempt(browser, session, account, &fresh, project, dialect, &payload, chat_session).await
+            attempt(browser, session, account, &fresh, project, dialect, step, &payload, chat_session).await
         }
         Err(e) => {
             framer_core::observability::Event::new("ai.request")
@@ -105,6 +106,7 @@ async fn attempt(
     token: &AiToken,
     project: &ProjectId,
     dialect: Dialect,
+    step: &str,
     payload: &Value,
     chat_session: &str,
 ) -> Result<framer_core::port::ProxyResponse, String> {
@@ -112,7 +114,7 @@ async fn attempt(
         "projectId": project.0,
         "featureCategory": "agents",
         "featureName": "agents",
-        "step": "message",
+        "step": step,
         "sessionId": chat_session,
         "stepIndex": 0,
         "turnId": crate::inference::mint_id_pub(),

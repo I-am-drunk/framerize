@@ -43,12 +43,31 @@ pub async fn complete_long(
     // streams these as SSE frames from the first second (no silent socket).
     events: Option<&(dyn Fn(ChainEvent) + Send + Sync)>,
 ) -> Result<AssembledResponse, String> {
-    let upstream = Dialect::OpenRouterMessages;
+    // CONCURRENCY BUCKETS (verified 2026-10-04): the workspace's ~5-concurrent
+    // 429 cap counts per (route × step tag). Each chunk rotates to the next
+    // bucket, and a 429 advances to the next bucket INSTANTLY instead of
+    // sleeping — one workspace yields ~2 routes × 5 steps × ~5 concurrent.
+    const DIALECTS: [Dialect; 2] = [Dialect::OpenRouterMessages, Dialect::OpenAiChat];
+    let bucket = |i: usize| -> (Dialect, &'static str) {
+        (
+            DIALECTS[i % DIALECTS.len()],
+            framer_core::convert::ROTATE_STEPS[(i / DIALECTS.len()) % framer_core::convert::ROTATE_STEPS.len()],
+        )
+    };
+    let mut bucket_idx = 0usize;
 
-    // Per-chunk payload: the client's full request, only stream/max_tokens overridden.
-    let build_payload = |messages: &Value, chunk: u32| {
-        let mut p = anthro_payload.clone();
-        p["messages"] = messages.clone();
+    // Per-chunk payload: the client's full request, only stream/max_tokens
+    // overridden; chat-route chunks use the converted chat/completions shape.
+    let build_payload = |messages: &Value, chunk: u32, dialect: Dialect| {
+        let base = match dialect {
+            Dialect::OpenRouterMessages => anthro_payload.clone(),
+            _ => framer_core::convert::anthro_to_chat(&anthro_payload),
+        };
+        let mut p = base;
+        p["messages"] = match dialect {
+            Dialect::OpenRouterMessages => messages.clone(),
+            _ => framer_core::convert::anthro_to_chat(&json!({"messages": messages}))["messages"].clone(),
+        };
         p["stream"] = json!(false);
         p["max_tokens"] = json!(chunk);
         p
@@ -90,35 +109,41 @@ pub async fn complete_long(
             .map(|cap| cap.saturating_sub(ctok as u32).max(1))
             .unwrap_or(chunk_tokens);
         let chunk = budget.min(chunk_tokens);
-        let payload = build_payload(&messages, chunk);
+        let (dialect, step) = bucket(bucket_idx);
+        let payload = build_payload(&messages, chunk, dialect);
         let t0 = std::time::Instant::now();
-        eprintln!("[freechat] chunk {i} start (max_tokens={chunk})");
+        eprintln!("[freechat] chunk {i} start (max_tokens={chunk}, bucket {dialect:?}/{step})");
         let resp = match proxy::forward(
             t, token_cache, session, browser, account, project,
-            upstream, payload.clone(), chat_session,
+            dialect, step, payload.clone(), chat_session,
         ).await {
             Ok(r) => r,
-            Err(e) if e.starts_with("retryable 429") && rate_retries < 4 => {
-                // Framer's per-workspace concurrency cap (the gate's whole
-                // reason to exist). This is BACKPRESSURE, not failure: wait
-                // out the window and retry the same chunk instead of erroring
-                // the chain ("then they all error out" was this). Exponential
-                // backoff; the server-side gate independently shrinks its cap.
+            Err(e) if e.starts_with("retryable 429") && rate_retries < 12 => {
+                // 429 = THIS BUCKET (route×step) is full. Advance to the next
+                // bucket and retry INSTANTLY — the cap counts per bucket, so
+                // the next one is empty. Only after ~10 bucket hops (the whole
+                // rotation twice) does it degenerate to a real sleep.
                 rate_retries += 1;
-                let wait = std::time::Duration::from_millis(1500 * (1 << rate_retries.min(4)));
-                eprintln!("[freechat] chunk {i} 429 (workspace concurrency cap) — waiting {wait:?} and retrying (attempt {rate_retries}/4)");
-                tokio::time::sleep(wait).await;
-                let retry_payload = build_payload(&messages, chunk_tokens);
+                bucket_idx += 1;
+                let (d2, s2) = bucket(bucket_idx);
+                if rate_retries > 10 {
+                    let wait = std::time::Duration::from_millis(1500 * (1 << (rate_retries - 10).min(4)));
+                    eprintln!("[freechat] chunk {i} 429 everywhere — sleeping {wait:?} (attempt {rate_retries})");
+                    tokio::time::sleep(wait).await;
+                } else {
+                    eprintln!("[freechat] chunk {i} 429 on {dialect:?}/{step} — instant retry on next bucket {d2:?}/{s2}");
+                }
+                let retry_payload = build_payload(&messages, chunk_tokens, d2);
                 match proxy::forward(
                     t, token_cache, session, browser, account, project,
-                    upstream, retry_payload, chat_session,
+                    d2, s2, retry_payload, chat_session,
                 ).await {
                     Ok(r) => r,
                     Err(e2) => {
-                        if e2.starts_with("retryable 429") && rate_retries < 4 {
+                        if e2.starts_with("retryable 429") && rate_retries < 12 {
                             continue;
                         }
-                        return Err(format!("chunk {i}: workspace still saturated after {rate_retries} backoff retries ({e2})"));
+                        return Err(format!("chunk {i}: workspace still saturated after {rate_retries} bucket retries ({e2})"));
                     }
                 }
             }
@@ -139,19 +164,21 @@ pub async fn complete_long(
                     return Err(e);
                 }
                 chunk_tokens /= 2;
-                eprintln!("[freechat] chunk {i} died at {elapsed:.1}s ({e}) — retrying with max_tokens={chunk_tokens}");
-                let retry_payload = build_payload(&messages, chunk_tokens);
+                bucket_idx += 1;
+                let (d3, s3) = bucket(bucket_idx);
+                eprintln!("[freechat] chunk {i} died at {elapsed:.1}s ({e}) — retrying with max_tokens={chunk_tokens} on {d3:?}/{s3}");
+                let retry_payload = build_payload(&messages, chunk_tokens, d3);
                 match proxy::forward(
                     t, token_cache, session, browser, account, project,
-                    upstream, retry_payload, chat_session,
+                    d3, s3, retry_payload, chat_session,
                 ).await {
                     Ok(r) => r,
                     Err(e2) if cfg.metered_fallback => {
                         eprintln!("[freechat] chunk {i} retry died ({e2}) — metered stream fallback for this chunk");
-                        let stream_payload = build_payload(&messages, chunk_tokens);
+                        let stream_payload = build_payload(&messages, chunk_tokens, d3);
                         let streamed = stream_chunk(
                             t, token_cache, session, browser, account, project,
-                            upstream, stream_payload, chat_session,
+                            d3, s3, stream_payload, chat_session,
                         ).await?;
                         metered_chunks += 1;
                         ptok = ptok.max(streamed.input_tokens);
@@ -197,9 +224,14 @@ pub async fn complete_long(
         if msg_id.is_empty() {
             msg_id = body["id"].as_str().unwrap_or_default().to_string();
         }
-        let chunk_stop = body["stop_reason"].as_str().unwrap_or("end_turn").to_string();
-        let chunk_blocks: Vec<Value> = body["content"].as_array().cloned().unwrap_or_default();
-        let usage = body.get("usage").cloned().unwrap_or_else(|| json!({}));
+        let (chunk_blocks, chunk_stop, usage) = match dialect {
+            Dialect::OpenRouterMessages => (
+                body["content"].as_array().cloned().unwrap_or_default(),
+                body["stop_reason"].as_str().unwrap_or("end_turn").to_string(),
+                body.get("usage").cloned().unwrap_or_else(|| json!({})),
+            ),
+            _ => framer_core::convert::chat_response_to_blocks(&body),
+        };
         let in_t = usage["input_tokens"].as_u64().unwrap_or(0);
         let out_t = usage["output_tokens"].as_u64().unwrap_or(0);
         ptok = ptok.max(in_t); // input counts the whole conversation; keep latest
@@ -256,10 +288,10 @@ pub async fn complete_long(
             }
             eprintln!("[freechat] chunk {i} cut mid-tool_use again — streaming this chunk metered (explicit opt-in)");
             ctok = ctok.saturating_sub(out_t);
-            let stream_payload = build_payload(&messages, cfg.max_total_tokens.map(|cap| cap.saturating_sub(ctok as u32).max(1024)).unwrap_or(8000));
+            let stream_payload = build_payload(&messages, cfg.max_total_tokens.map(|cap| cap.saturating_sub(ctok as u32).max(1024)).unwrap_or(8000), dialect);
             let streamed = stream_chunk(
                 t, token_cache, session, browser, account, project,
-                upstream, stream_payload, chat_session,
+                dialect, step, stream_payload, chat_session,
             ).await?;
             metered_chunks += 1;
             ptok = ptok.max(streamed.input_tokens);
@@ -286,6 +318,7 @@ pub async fn complete_long(
 
         stop_reason = chunk_stop.clone();
         stop_sequence = body["stop_sequence"].as_str().map(str::to_string);
+        bucket_idx += 1; // rotate the bucket every chunk, not just on 429
         merge_blocks(&mut blocks, chunk_blocks.clone());
         if let Some(cb) = events {
             cb(ChainEvent::Chunk(chunk_blocks.clone()));
@@ -402,11 +435,12 @@ async fn stream_chunk(
     account: &AccountId,
     project: &ProjectId,
     upstream: Dialect,
+    step: &str,
     mut payload: Value,
     chat_session: &str,
 ) -> Result<StreamedChunk, String> {
     payload["stream"] = json!(true);
-    let resp = proxy::forward(t, token_cache, session, browser, account, project, upstream, payload, chat_session).await?;
+    let resp = proxy::forward(t, token_cache, session, browser, account, project, upstream, step, payload, chat_session).await?;
     let text = body_text(resp).await?;
 
     let mut id = String::new();
