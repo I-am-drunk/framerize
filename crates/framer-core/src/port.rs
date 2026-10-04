@@ -95,6 +95,13 @@ pub trait BrowserBridge: Send + Sync {
         Err("bridge has no in-page AI transport".into())
     }
 
+    /// Queue wait, in ms, for the most recent `ai_post` on this account: time
+    /// spent waiting for a free browser page rather than on the upstream.
+    /// Bridges without a page pool report 0.
+    async fn last_queue_wait_ms(&self, _account: &AccountId) -> u64 {
+        0
+    }
+
     /// Fresh-device escape hatch: drop the account's browser, wipe its profile
     /// (cookies/storage/fingerprint surface). The daemon's stored session is
     /// unaffected — the browser is only the Castle minting device. Pair with a
@@ -111,6 +118,12 @@ pub struct ProxyResponse {
     pub status: u16,
     pub content_type: String,
     pub stream: Pin<Box<dyn Stream<Item = Result<Bytes, String>> + Send>>,
+    /// Time this request spent waiting for a free browser page, i.e. OUR queue,
+    /// not upstream latency. The two are indistinguishable in wall-clock, and
+    /// conflating them makes the chunk sizer shrink chunks under concurrency —
+    /// which multiplies round trips and deepens the queue it is reacting to.
+    /// Subtract this before estimating tok/s. Zero when a page was free.
+    pub queue_wait_ms: u64,
 }
 
 /// Which unmetered OpenRouter passthrough the chain runs on. Both skip the
