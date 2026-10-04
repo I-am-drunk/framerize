@@ -45,7 +45,7 @@ pub fn pick(pool: &[ManagedAccount]) -> Option<&ManagedAccount> {
 mod tests {
     use super::*;
     use crate::account::{AccountState, ManagedAccount};
-    use crate::ids::{AccountId, FramerUserId};
+    use crate::ids::{AccountId, FramerUserId, ProjectId, TeamId};
     use uuid::Uuid;
 
     fn acct(alias: &str, failures: u32, state: AccountState) -> ManagedAccount {
@@ -55,8 +55,10 @@ mod tests {
             framer_user_id: FramerUserId(Uuid::new_v4().to_string()),
             castle_device_id: Uuid::new_v4().to_string(),
             proxy: None,
-            current_team: None,
-            current_project: None,
+            // A fixture account is fully provisioned by default, because
+            // is_eligible() now requires both (see account.rs).
+            current_team: Some(TeamId("team".to_string())),
+            current_project: Some(ProjectId("proj".to_string())),
             state,
             credit: None,
             consecutive_failures: failures,
@@ -99,6 +101,24 @@ mod tests {
         for _ in 0..3 {
             assert_eq!(pick(&pool).expect("a pick").alias, "ready");
         }
+    }
+
+    #[test]
+    fn skips_accounts_missing_a_project_or_team() {
+        // A newly added account sits Ready with no project until provisioning
+        // finishes. Rotation must not hand it work: every request routed there
+        // fails instantly with "account has no current project" (live
+        // 2026-10-04, a third account took 1/3 of traffic straight to an error).
+        let mut half = acct("half-provisioned", 0, AccountState::Ready);
+        half.current_project = None;
+        let pool = vec![half, acct("ready", 0, AccountState::Ready)];
+        for _ in 0..4 {
+            assert_eq!(pick(&pool).expect("a pick").alias, "ready");
+        }
+
+        let mut no_team = acct("no-team", 0, AccountState::Ready);
+        no_team.current_team = None;
+        assert!(pick(&[no_team]).is_none());
     }
 
     #[test]
