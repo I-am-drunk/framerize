@@ -46,8 +46,16 @@ pub async fn complete_long(
     // CONCURRENCY BUCKETS (verified 2026-10-04): the workspace's ~5-concurrent
     // 429 cap counts per (route × step tag). Each chunk rotates to the next
     // bucket, and a 429 advances to the next bucket INSTANTLY instead of
-    // sleeping — one workspace yields ~2 routes × 5 steps × ~5 concurrent.
-    const DIALECTS: [Dialect; 2] = [Dialect::OpenRouterMessages, Dialect::OpenRouterChat];
+    // sleeping.
+    //
+    // ROUTE PINNED to /messages (2026-10-04, measured live): Castle risk-scores
+    // the /chat passthrough far more aggressively — same account, same second:
+    // /ai/v3/messages/ -> 200, /ai/v3/chat/ -> bare 403 (650ms, no upstream
+    // markers = edge refusal). Alternating dialects per chunk meant every
+    // second chunk risked a refusal, and each refusal drove the account's
+    // cooldown step up (probe/acct2 hit step 16 with messages working fine).
+    // Steps, devices and models still bucket-multiply on this one route.
+    const DIALECTS: [Dialect; 1] = [Dialect::OpenRouterMessages];
     let bucket = |i: usize| -> (Dialect, &'static str) {
         (
             DIALECTS[i % DIALECTS.len()],
