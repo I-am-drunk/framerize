@@ -140,6 +140,13 @@ pub async fn complete_long(
             .map(|cap| cap.saturating_sub(ctok as u32).max(1))
             .unwrap_or(chunk_tokens);
         let chunk = budget.min(chunk_tokens);
+        // Human cadence: a metronomic chunk train is itself a bot signature.
+        // 0.7-2.3s of jitter between chunks (derived from the nonce — no
+        // external entropy needed), invisible against 10-60s generations.
+        if i > 0 {
+            let j = 700u64 + (chain_nonce.wrapping_add(i as u64).wrapping_mul(0x9e3779b1) % 1600);
+            tokio::time::sleep(std::time::Duration::from_millis(j)).await;
+        }
         let (dialect, step) = bucket(bucket_idx);
         let payload = build_payload(&messages, chunk, dialect);
         let t0 = std::time::Instant::now();
