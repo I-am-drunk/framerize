@@ -154,9 +154,14 @@ class Host:
         self.lock = asyncio.Lock()  # brief: account-dict lifecycle ONLY
 
     async def _acquire(self, account, proxy=None):
+        """Returns (page, acc, queue_wait_s). queue_wait_s is the time spent
+        waiting for a free page — NOT upstream latency. Callers report it so the
+        chunk sizer can subtract it: queue wait and a genuinely slow upstream
+        look identical in wall-clock, and conflating them makes the sizer shrink
+        chunks under load, which multiplies round trips and worsens the queue."""
         acc = await self._account(account, proxy)
         try:
-            return acc.pool.get_nowait(), acc
+            return acc.pool.get_nowait(), acc, 0.0
         except asyncio.QueueEmpty:
             pass
         async with acc.lock:
@@ -170,7 +175,7 @@ class Host:
                 except Exception as e:
                     trace(f"{account[:8]}: pool-page warm issue ({type(e).__name__}) — continuing")
                 acc.size += 1
-                return page, acc
+                return page, acc, 0.0
         # At cap: this request QUEUES for a free page. Log the wait — queue
         # time dominates total latency under concurrent load (47s→190s
         # arithmetic growth was invisible until measured here).
@@ -179,7 +184,7 @@ class Host:
         wait = time.monotonic() - t0
         if wait > 2.0:
             trace(f"{account[:8]}: pool wait {wait:.1f}s (all {POOL_CAP} pages busy)")
-        return page, acc
+        return page, acc, wait
 
     @staticmethod
     def _release(acc, page):
@@ -194,7 +199,7 @@ class Host:
             return await self._launch(account, proxy)
 
     async def _page(self, account, proxy=None):
-        page, _ = await self._acquire(account, proxy)
+        page, _, _wait = await self._acquire(account, proxy)
         return page
 
     async def _launch(self, account, proxy=None):
@@ -252,7 +257,7 @@ class Host:
         cmd = req.get("cmd")
         account = req.get("account", "")
         if cmd == "begin":
-            page, _acc = await self._acquire(account, req.get("proxy"))
+            page, _acc, _wait = await self._acquire(account, req.get("proxy"))
             trace(f"{account[:8]}: mint+signin eval start")
             t0 = time.monotonic()
             r = await page.evaluate(post_js("/auth/v4/signin", {"email": req["email"], "origin": "web"}))
@@ -265,7 +270,7 @@ class Host:
                 raise RuntimeError("signin %s: %s" % (r["status"], r["body"][:400]))
             return {"status": r["status"]}
         if cmd == "complete":
-            page, _acc = await self._acquire(account)
+            page, _acc, _wait = await self._acquire(account)
             r = await page.evaluate(post_js("/auth/v4/continue", {"token": req["token"]}))
             if not (200 <= r["status"] < 300):
                 raise RuntimeError("continue %s: %s" % (r["status"], r["body"][:400]))
@@ -283,7 +288,7 @@ class Host:
             emit("auth.complete", account=account[:8], outcome="ok")
             return {"cookie_header": "session=" + session, "me": json.loads(me["body"])}
         if cmd == "mint":
-            page, acc = await self._acquire(account)
+            page, acc, queue_wait = await self._acquire(account)
             t0 = time.monotonic()
             try:
                 tok = await page.evaluate(MINT_JS)
@@ -298,7 +303,7 @@ class Host:
                  duration_ms=int((time.monotonic()-t0)*1000), outcome="ok")
             return tok
         if cmd == "ai_post":
-            page, acc = await self._acquire(account)
+            page, acc, queue_wait = await self._acquire(account)
             t0 = time.monotonic()
             try:
                 r = await page.evaluate(post_js(req["path"], req["body"], req.get("bearer")))
@@ -306,7 +311,12 @@ class Host:
                 self._release(acc, page)
             emit("ai.post", account=account[:8], path=req["path"], status=r["status"],
                  duration_ms=int((time.monotonic()-t0)*1000),
+                 queue_wait_ms=int(queue_wait*1000),
                  outcome="ok" if 200 <= r["status"] < 300 else "error")
+            # queue_wait_ms lets the caller separate "we waited for a page" from
+            # "the upstream is slow" — they are identical in wall-clock and the
+            # chunk sizer must not conflate them.
+            r["queue_wait_ms"] = int(queue_wait * 1000)
             return r
         if cmd == "set_cookie":
             # Context-level op — do NOT acquire a pool page: at cap that's a
@@ -342,31 +352,50 @@ class Host:
             return True
         raise RuntimeError("unknown cmd %s" % cmd)
 
+    async def _serve(self, req, writer_lock):
+        """Run one command and write its reply. Replies are id-matched, so they
+        may be emitted out of order — the Rust side routes by id."""
+        try:
+            result = await self.handle(req)
+            out = {"id": req.get("id"), "ok": True, "result": result}
+        except Exception as e:
+            out = {"id": req.get("id"), "ok": False, "error": str(e)[:800]}
+        # Serialize only the write, never the work: a partial line would
+        # desync the framing for every other in-flight reply.
+        async with writer_lock:
+            sys.stdout.write(json.dumps(out) + "\n")
+            sys.stdout.flush()
+
     async def loop(self):
         trace("sidecar ready (async)")
         loop = asyncio.get_running_loop()
+        writer_lock = asyncio.Lock()
+        tasks = set()
         while True:
             line = await loop.run_in_executor(None, sys.stdin.readline)
             if not line:
-                return
+                break
             line = line.strip()
             if not line:
                 continue
             try:
                 req = json.loads(line)
-                # NO global lock: commands run concurrently; the per-account
-                # page pool is the concurrency unit (the old global lock
-                # serialized the whole gateway behind one generation).
-                result = await self.handle(req)
-                out = {"id": req.get("id"), "ok": True, "result": result}
             except Exception as e:
-                try:
-                    rid = json.loads(line).get("id")
-                except Exception:
-                    rid = None
-                out = {"id": rid, "ok": False, "error": str(e)[:800]}
-            sys.stdout.write(json.dumps(out) + "\n")
-            sys.stdout.flush()
+                async with writer_lock:
+                    sys.stdout.write(json.dumps({"id": None, "ok": False, "error": str(e)[:800]}) + "\n")
+                    sys.stdout.flush()
+                continue
+            # SPAWN, don't await: awaiting handle() here re-serialized the whole
+            # gateway behind one generation no matter how many pages the pool
+            # had -- the next stdin line was not even read until the current
+            # command finished. Measured 2026-10-04: one page serves 12
+            # concurrent real fetches in 4.5s (vs 36s serial), so the JS main
+            # thread was never the limit for I/O-bound work; this read loop was.
+            t = asyncio.create_task(self._serve(req, writer_lock))
+            tasks.add(t)
+            t.add_done_callback(tasks.discard)
+        if tasks:
+            await asyncio.gather(*tasks, return_exceptions=True)
 
 
 if __name__ == "__main__":
