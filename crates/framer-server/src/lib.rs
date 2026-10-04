@@ -806,9 +806,14 @@ async fn remove_account(
 /// deleting `probe`, which was carrying 50% of live traffic.
 ///
 /// Genuinely redundant means one of:
-///   * DEAD -- no project, so it cannot serve a single request; or
 ///   * CLONE -- shares a castle_device_id with another record, so it does not
-///     even add device diversity.
+///     even add device diversity; or
+///   * DEAD -- no project AND no credits AND no session, i.e. nothing to
+///     recover. "No project" ALONE is not dead: a freshly added account has no
+///     project yet while holding its full credit grant. Deleting on that alone
+///     destroyed a 1000-credit account on 2026-10-04 (recovered from its
+///     surviving session file). An unprovisioned account needs a project, not
+///     a grave.
 ///
 /// Everything else is kept, including same-login siblings.
 async fn dedupe_accounts(
@@ -822,6 +827,7 @@ async fn dedupe_accounts(
     let mut seen_devices: std::collections::BTreeSet<String> = Default::default();
     let mut doomed: Vec<(ManagedAccount, &'static str)> = Vec::new();
     let mut keeping = Vec::new();
+    let mut needs_project: Vec<serde_json::Value> = Vec::new();
 
     // Stable order so the same record survives across repeated runs: usable
     // first, then one with credits, then fewest failures.
@@ -841,13 +847,32 @@ async fn dedupe_accounts(
 
     for a in ordered {
         let name = a.email.clone().unwrap_or_else(|| a.alias.clone());
-        if a.current_project.is_none() {
-            doomed.push((a, "no project — cannot serve a request"));
-            continue;
-        }
+        // Device clones first: that judgement needs no external state.
         if !seen_devices.insert(a.castle_device_id.clone()) {
             doomed.push((a, "shares a Castle device id with another record"));
             continue;
+        }
+        // Dead = nothing of value to recover. Credits or a live session make an
+        // account worth provisioning rather than deleting.
+        let has_credits = a.credit.as_ref().is_some_and(|c| c.available > 0.0);
+        let has_session = s
+            .sessions
+            .load(&a.framer_user_id)
+            .await
+            .map_err(ApiError)?
+            .is_some();
+        if a.current_project.is_none() && !has_credits && !has_session {
+            doomed.push((a, "no project, no credits, no session — nothing to recover"));
+            continue;
+        }
+        if a.current_project.is_none() {
+            // Kept, but flagged: it cannot serve traffic until it has a project.
+            needs_project.push(serde_json::json!({
+                "name": name,
+                "credits": a.credit.as_ref().map(|c| c.available),
+                "has_session": has_session,
+                "reason": "no project yet — provision it, do not delete it",
+            }));
         }
         keeping.push(serde_json::json!({
             "name": name,
@@ -868,6 +893,7 @@ async fn dedupe_accounts(
     Ok(Json(serde_json::json!({
         "applied": body.apply,
         "keeping": keeping,
+        "needs_project": needs_project,
         "removing": removed,
         "note": "Same-login siblings are KEPT: each has its own Castle device id,                  and spreading mints across devices is what stops 403 storms. Only                  dead records (no project) and device clones are redundant.",
     })))
