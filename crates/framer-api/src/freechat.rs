@@ -64,6 +64,7 @@ pub async fn complete_long(
     let mut metered_chunks = 0u32;
     let mut tool_cut_retries = 0u32;
     let mut slow_chunks = 0u32;
+    let mut rate_retries = 0u32;
 
     // Window sizing from live measurement (§8 + 2026-10-03 storm analysis):
     // the messages route's deaths cluster at ~60-67s under load, and upstream
@@ -97,6 +98,30 @@ pub async fn complete_long(
             upstream, payload.clone(), chat_session,
         ).await {
             Ok(r) => r,
+            Err(e) if e.starts_with("retryable 429") && rate_retries < 4 => {
+                // Framer's per-workspace concurrency cap (the gate's whole
+                // reason to exist). This is BACKPRESSURE, not failure: wait
+                // out the window and retry the same chunk instead of erroring
+                // the chain ("then they all error out" was this). Exponential
+                // backoff; the server-side gate independently shrinks its cap.
+                rate_retries += 1;
+                let wait = std::time::Duration::from_millis(1500 * (1 << rate_retries.min(4)));
+                eprintln!("[freechat] chunk {i} 429 (workspace concurrency cap) — waiting {wait:?} and retrying (attempt {rate_retries}/4)");
+                tokio::time::sleep(wait).await;
+                let retry_payload = build_payload(&messages, chunk_tokens);
+                match proxy::forward(
+                    t, token_cache, session, browser, account, project,
+                    upstream, retry_payload, chat_session,
+                ).await {
+                    Ok(r) => r,
+                    Err(e2) => {
+                        if e2.starts_with("retryable 429") && rate_retries < 4 {
+                            continue;
+                        }
+                        return Err(format!("chunk {i}: workspace still saturated after {rate_retries} backoff retries ({e2})"));
+                    }
+                }
+            }
             Err(e) => {
                 let elapsed = t0.elapsed().as_secs_f32();
                 let idle_killed = e == "risk-refused" && elapsed > 8.0;
