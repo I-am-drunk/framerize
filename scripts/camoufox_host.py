@@ -400,6 +400,8 @@ class Host:
                 devices = json.load(open(devfile))
             while len(devices) < DEVICE_POOL:
                 devices.append(str(uuid.uuid4()))
+            devices = devices[:DEVICE_POOL]  # shrink stale pools from the
+            # 16-device era (they survive otherwise — Castle farm signal)
             json.dump(devices, open(devfile, 'w'))
             acc.devices = devices
             async def warm_pool():
