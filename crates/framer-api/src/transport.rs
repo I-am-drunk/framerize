@@ -80,7 +80,13 @@ async fn check(path: &str, resp: reqwest::Response) -> Result<reqwest::Response,
         // Exact-match sentinels the pipeline matches on — do not append to these.
         401 => Err("unauthorized".into()),
         402 => Err("credits-exhausted".into()),
-        403 => Err("risk-refused".into()),
+        // Bare HTTP path (auth/credits), not the AI passthrough -- a 403 here
+        // really is Framer's edge. Still read the body so a future upstream
+        // marker is not silently swallowed (see classify.rs).
+        403 => {
+            let body = resp.text().await.unwrap_or_default();
+            Err(crate::classify::classify_403(&body, 0).as_error(path, &body))
+        }
         // Everything else: the response body is the only debugging signal we get
         // (a bare "retryable 400" hid why /auth/v4/signin rejected us once).
         s => {

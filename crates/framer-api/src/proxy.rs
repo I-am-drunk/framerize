@@ -122,16 +122,27 @@ async fn attempt(
     });
     // Imported accounts have an empty browser cookie jar — seed the session.
     browser.seed_session(account, &session.cookie_header).await?;
+    // Timed because latency is the tiebreaker when a 403 body says nothing:
+    // Framer's edge refuses without proxying (~250ms), the upstream cannot.
+    let sent_at = std::time::Instant::now();
     let (status, _usage, text) = browser
         .ai_post(account, dialect.path(), &token.bearer, &body)
         .await?;
+    let elapsed = sent_at.elapsed();
     let streaming = payload["stream"].as_bool() == Some(true);
     // Status policy mirrors transport::check (in-page fetch bypasses it).
     match status {
         200..=299 => {}
         401 => return Err("unauthorized".into()),
         402 => return Err("credits-exhausted".into()),
-        403 => return Err("risk-refused".into()),
+        // A 403 here may be Framer's edge (account health) or the upstream
+        // provider refusing the generation (not account health). Classifying
+        // every 403 as the former drove 1,399 false cooldowns on 2026-10-04 --
+        // see classify.rs.
+        403 => {
+            let r = crate::classify::classify_403(&text, elapsed.as_millis() as u64);
+            return Err(r.as_error(dialect.path(), &text));
+        }
         s => {
             let clipped = &text[..text.len().min(500)];
             return Err(format!("retryable {s} on {}: {clipped}", dialect.path()));

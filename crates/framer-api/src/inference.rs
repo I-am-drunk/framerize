@@ -149,6 +149,7 @@ async fn send(
     project: &ProjectId,
 ) -> Result<Send, String> {
     browser.seed_session(account, &session.cookie_header).await?;
+    let sent_at = std::time::Instant::now();
     let (status, usage_hdr, text) = browser
         .ai_post(
             account,
@@ -157,11 +158,17 @@ async fn send(
             &build_body(req, chat_session, &project.0),
         )
         .await?;
+    let elapsed = sent_at.elapsed();
     match status {
         200..=299 => {}
         401 => return Ok(Send::Unauthorized),
         402 => return Ok(Send::Exhausted),
-        403 => return Err("risk-refused".into()),
+        // See classify.rs: a 403 on an OpenRouter passthrough route is only
+        // account health when Framer's own edge refused it.
+        403 => {
+            let r = crate::classify::classify_403(&text, elapsed.as_millis() as u64);
+            return Err(r.as_error("/ai/v3/openai/responses/", &text));
+        }
         s => {
             let clipped = &text[..text.len().min(500)];
             return Err(format!("retryable {s} on /ai/v3/openai/responses/: {clipped}"));

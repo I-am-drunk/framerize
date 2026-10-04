@@ -31,12 +31,43 @@ const DEFAULT_MAX: usize = 64;
 /// not success-count-based: with a count, a fleet that is itself throttled
 /// produces few completions, so recovery stalls exactly when it matters most.
 const DEFAULT_RECOVER_MS: u64 = 1_000;
+/// How long a lowered cap estimate is trusted before relaxing by one slot.
+/// Absolute, NOT a multiple of `recover_ms`: tying it to the recovery tick made
+/// it 30ms under a test config, and the two knobs answer different questions
+/// ("how fast do we reclaim proven capacity" vs "how long do we believe a 429").
+const DEFAULT_RELAX_MS: u64 = 30_000;
 
-/// Recover proportionally: one additive slot takes `max/initial` ticks to undo
-/// a halving, which is why a count-based scheme stalled. Climbing by a fraction
-/// of the ceiling makes recovery time independent of how deep the cut was.
-fn grow_step(limit: usize, max: usize) -> usize {
-    ((max / 8).max(1)).min(max.saturating_sub(limit)).max(1)
+/// Grow toward `ceiling` -- an estimate of the workspace's real cap that only
+/// ever moves DOWN on evidence.
+///
+/// Why a ceiling and not just a backoff: Framer's cap is a hard server-side
+/// number, not a fair share we are competing for. Once a 429 proves the cap is
+/// below L, L is wrong forever (until the upstream itself changes), so the gate
+/// should never try L again. Memoryless proportional growth ignored that and
+/// relearned the limit from scratch after every cut: measured 2026-10-04 it
+/// sawtoothed 8->16->24->32->40->41, took a 429, halved to 8, and repeated
+/// every ~8 seconds for the entire run -- a burst of 429s per cycle, paid to
+/// rediscover a number already known. The first version of this fix kept a
+/// `threshold` at `limit/2` and still oscillated (19 overloads in the
+/// convergence test) because that records where recovery RESTARTED, not where
+/// the edge IS.
+///
+/// With a monotone ceiling the 429s are self-extinguishing: each one lowers the
+/// estimate, growth is clamped to it, and the gate settles just under the true
+/// cap and stays there.
+///
+/// Fast proportional steps while far below the ceiling (that capacity is
+/// proven), +1 probing in the last stretch (unproven -- find the edge for the
+/// price of one request, not a burst).
+fn grow_step(limit: usize, max: usize, ceiling: usize) -> usize {
+    let bound = ceiling.min(max);
+    let headroom = bound.saturating_sub(limit);
+    if headroom == 0 {
+        return 0;
+    }
+    let probe_zone = (bound / 8).max(1);
+    let step = if headroom <= probe_zone { 1 } else { (max / 8).max(1) };
+    step.min(headroom)
 }
 
 fn env_usize(key: &str, default: usize) -> usize {
@@ -54,6 +85,7 @@ pub struct GateConfig {
     pub min: usize,
     pub max: usize,
     pub recover_ms: u64,
+    pub relax_ms: u64,
 }
 
 impl Default for GateConfig {
@@ -66,6 +98,7 @@ impl Default for GateConfig {
             min,
             max,
             recover_ms: env_u64("FRAMERIZE_GATE_RECOVER_MS", DEFAULT_RECOVER_MS),
+            relax_ms: env_u64("FRAMERIZE_GATE_RELAX_MS", DEFAULT_RELAX_MS),
         }
     }
 }
@@ -82,6 +115,16 @@ struct Gate {
     debt: usize,
     /// When the limit last moved. Recovery is time-based off this.
     changed_at: Instant,
+    /// Best estimate of the workspace's real concurrency cap. Starts at
+    /// `cfg.max` (no evidence yet) and only ever DECREASES, on 429s. Growth is
+    /// clamped to it, which is what makes the 429s self-extinguishing instead
+    /// of a permanent sawtooth.
+    ceiling: usize,
+    /// When `ceiling` was last lowered. A monotone estimate would be wrong
+    /// forever if Framer ever RAISES the cap (or if the 429 came from a
+    /// transient upstream wobble rather than our own concurrency), so the
+    /// estimate relaxes by one slot per quiet window.
+    ceiling_at: Instant,
     cfg: GateConfig,
 }
 
@@ -92,6 +135,8 @@ impl Gate {
             limit: cfg.initial,
             debt: 0,
             changed_at: now,
+            ceiling: cfg.max,
+            ceiling_at: now,
             cfg,
         }
     }
@@ -181,11 +226,24 @@ impl ConcurrencyGate {
         let mut g = self.gates.lock().await;
         let cfg = self.cfg;
         let gate = g.entry(key.to_string()).or_insert_with(|| Gate::new(cfg, Instant::now()));
+        // The cap is strictly below the limit that just 429'd, so lower the
+        // estimate monotonically. Taken against `limit`, not against the old
+        // ceiling, so a cap that we had over-estimated collapses quickly.
+        let evidence = gate.limit.saturating_sub(1).max(gate.cfg.min);
+        if evidence < gate.ceiling {
+            gate.ceiling = evidence;
+            gate.ceiling_at = Instant::now();
+        }
+
+        // Multiplicative decrease to drain the overshoot fast.
         let next = (gate.limit / 2).max(gate.cfg.min);
         if next < gate.limit {
             gate.shrink_to(next);
             gate.changed_at = Instant::now();
-            eprintln!("[gate] {key}: 429 -> limit {}", gate.limit);
+            eprintln!(
+                "[gate] {key}: 429 -> limit {} (cap estimate {})",
+                gate.limit, gate.ceiling
+            );
         }
     }
 
@@ -198,15 +256,28 @@ impl ConcurrencyGate {
     }
 
     fn maybe_recover(key: &str, gate: &mut Gate, now: Instant) {
-        if gate.limit >= gate.cfg.max {
-            return;
+        // Relax a stale estimate by one slot per quiet window, so a cap that
+        // was lowered by a transient wobble -- or that the upstream has since
+        // raised -- is not believed forever. One slot per window is slow enough
+        // that a real cap costs at most one 429 to rediscover.
+        let relax_after = Duration::from_millis(gate.cfg.relax_ms);
+        if gate.ceiling < gate.cfg.max && now.duration_since(gate.ceiling_at) >= relax_after {
+            gate.ceiling += 1;
+            gate.ceiling_at = now;
+        }
+
+        if gate.limit >= gate.ceiling.min(gate.cfg.max) {
+            return; // at the estimated cap: climbing further only buys 429s
         }
         if now.duration_since(gate.changed_at) < Duration::from_millis(gate.cfg.recover_ms) {
             return;
         }
-        gate.grow_by(grow_step(gate.limit, gate.cfg.max));
+        let before = gate.limit;
+        gate.grow_by(grow_step(gate.limit, gate.cfg.max, gate.ceiling));
         gate.changed_at = now;
-        eprintln!("[gate] {key}: healthy -> limit {}", gate.limit);
+        if gate.limit != before {
+            eprintln!("[gate] {key}: healthy -> limit {}", gate.limit);
+        }
     }
 
     /// Try to take a slot without waiting. `None` means the gate is full.
@@ -220,6 +291,18 @@ impl ConcurrencyGate {
             gate.sem.clone()
         };
         sem.try_acquire_owned().ok()
+    }
+
+    /// Shrink without recording 429 evidence. Tests only: lets a test set up a
+    /// below-max limit to observe pure growth, which `on_overloaded` cannot do
+    /// now that it also lowers the cap estimate.
+    #[cfg(test)]
+    pub async fn shrink_for_test(&self, key: &str, to: usize) {
+        let mut g = self.gates.lock().await;
+        let cfg = self.cfg;
+        let gate = g.entry(key.to_string()).or_insert_with(|| Gate::new(cfg, Instant::now()));
+        gate.shrink_to(to);
+        gate.changed_at = Instant::now();
     }
 
     /// Current effective limit, for tests and diagnostics.
@@ -236,7 +319,9 @@ mod tests {
 
     /// Fast recovery so tests do not sleep for seconds.
     fn cfg(min: usize, max: usize, recover_ms: u64) -> GateConfig {
-        GateConfig { initial: max, min, max, recover_ms }
+        // relax_ms deliberately long so growth tests observe the ceiling as
+        // stable; the decay itself is covered by its own test.
+        GateConfig { initial: max, min, max, recover_ms, relax_ms: 600_000 }
     }
 
     fn gate(min: usize, max: usize, recover_ms: u64) -> ConcurrencyGate {
@@ -250,6 +335,7 @@ mod tests {
             min: 4,
             max: 20,
             recover_ms: 1_000,
+            relax_ms: 30_000,
         });
         assert_eq!(g.limit_of("w1").await, 10);
     }
@@ -284,18 +370,107 @@ mod tests {
         // Growth is PROPORTIONAL to the ceiling (max/8), not a single slot, so
         // recovery time does not depend on how deep the cut was. A +1 step is
         // what made a halved gate take 32 ticks to climb back.
-        assert_eq!(g.limit_of("w1").await, shrunk + grow_step(shrunk, 64));
+        //
+        // `shrunk` IS the threshold after one 429, so this first step probes
+        // by 1 -- reclaiming known-good capacity fast only applies below it.
+        let ceiling_after_one_429 = 64 - 1; // evidence: cap is below 64
+        assert_eq!(
+            g.limit_of("w1").await,
+            shrunk + grow_step(shrunk, 64, ceiling_after_one_429)
+        );
     }
 
     #[tokio::test]
-    async fn growth_stops_at_max() {
+    async fn the_gate_converges_instead_of_sawtoothing() {
+        // THE 2026-10-04 BUG. With memoryless proportional growth the gate
+        // relearned the ceiling forever: 8->16->24->32->40 (429) ->8, every
+        // ~8s for the whole run, paying a burst of 429s per cycle.
+        //
+        // Simulate a workspace whose true cap is 20: any limit above it 429s.
+        const TRUE_CAP: usize = 20;
+        let g = gate(8, 64, 1);
+        let mut overloads = 0;
+
+        for _ in 0..200 {
+            tokio::time::sleep(Duration::from_millis(2)).await;
+            if g.limit_of("w1").await > TRUE_CAP {
+                g.on_overloaded("w1").await;
+                overloads += 1;
+            } else {
+                g.on_success("w1").await;
+            }
+        }
+
+        // Convergence means the 429s stop happening, not merely that they are
+        // survivable. A sawtooth would keep collecting them indefinitely.
+        let settled = g.limit_of("w1").await;
+        assert!(
+            settled <= TRUE_CAP && settled >= 8,
+            "should settle just under the true cap, got {settled}"
+        );
+        assert!(
+            overloads < 12,
+            "should stop rediscovering the ceiling; took {overloads} overloads"
+        );
+    }
+
+    #[tokio::test]
+    async fn probing_is_cautious_near_the_cap_and_fast_below_it() {
+        // Far below the estimated cap, capacity is proven -- reclaim it in big
+        // steps. Near it, probe by one so finding the edge costs one request
+        // rather than a burst. At or above it, never grow.
+        assert_eq!(grow_step(8, 64, 24), 8, "far below the cap: proportional");
+        assert_eq!(grow_step(22, 64, 24), 1, "inside the probe zone: +1");
+        assert_eq!(grow_step(24, 64, 24), 0, "at the cap: hold");
+        assert_eq!(grow_step(40, 64, 24), 0, "above the cap: never grow");
+        assert_eq!(grow_step(8, 64, 64), 8, "no 429 yet: climb freely");
+        assert_eq!(grow_step(64, 64, 64), 0, "no headroom at max");
+        // Growth never jumps past the estimate.
+        assert!(20 + grow_step(20, 64, 24) <= 24, "must not overshoot the cap");
+    }
+
+    #[tokio::test]
+    async fn growth_stops_at_max_when_no_429_was_ever_seen() {
+        let g = gate(2, 4, 1);
+        g.shrink_for_test("w1", 2).await;
+        for _ in 0..20 {
+            tokio::time::sleep(Duration::from_millis(2)).await;
+            g.on_success("w1").await;
+        }
+        assert_eq!(g.limit_of("w1").await, 4, "no evidence of a lower cap");
+    }
+
+    #[tokio::test]
+    async fn growth_never_returns_to_a_limit_that_429d() {
+        // A 429 at 4 is proof the cap is below 4. Climbing back to 4 would
+        // guarantee another 429 -- which is precisely the loop that ran for
+        // 7 minutes on 2026-10-04.
         let g = gate(2, 4, 1);
         g.on_overloaded("w1").await;
         for _ in 0..20 {
             tokio::time::sleep(Duration::from_millis(2)).await;
             g.on_success("w1").await;
         }
-        assert_eq!(g.limit_of("w1").await, 4);
+        let settled = g.limit_of("w1").await;
+        assert!(settled < 4, "must stay under the limit that 429'd, got {settled}");
+        assert_eq!(settled, 3, "should reclaim everything proven safe");
+    }
+
+    #[tokio::test]
+    async fn a_lowered_cap_estimate_relaxes_so_it_is_not_believed_forever() {
+        // A monotone-only ceiling is a trap: if the 429 came from a transient
+        // upstream wobble, or Framer later raises the cap, the gate would be
+        // stuck at the lower number for the life of the process.
+        let cfg = GateConfig { initial: 8, min: 2, max: 8, recover_ms: 1, relax_ms: 10 };
+        let g = ConcurrencyGate::with_config(cfg);
+
+        g.on_overloaded("w1").await; // evidence: cap < 8, so ceiling = 7
+        for _ in 0..40 {
+            tokio::time::sleep(Duration::from_millis(3)).await;
+            g.on_success("w1").await;
+        }
+        // Enough quiet windows passed that the estimate walked back to max.
+        assert_eq!(g.limit_of("w1").await, 8, "a stale cap estimate must relax");
     }
 
     #[tokio::test]

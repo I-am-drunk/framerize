@@ -13,6 +13,7 @@
 //!   - success carries X-Framer-AI-Usage: remaining=<credits> (URLSearchParams).
 
 mod auth;
+pub mod classify;
 mod castle;
 mod credits;
 pub mod freechat;
