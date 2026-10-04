@@ -129,23 +129,34 @@ def post_js(path, body, bearer=None):
 })()""" % (MINT_JS, json.dumps(body), API, path, auth)
 
 
-def post_with_token_js(path, body, token, bearer=None):
-    """POST with an ALREADY-MINTED Castle token. Separating the mint from the
-    fetch is what lets mints be serialized per account while the long
-    generations stay fully parallel: the mint is ~1s, the generation 10-90s."""
-    auth = '"authorization": "Bearer %s",' % bearer if bearer else ""
-    return """(async () => {
-  const body = %s;
-  body.castleToken = %s;
-  try {
-    const r = await fetch("%s" + "%s", {
-      method: "POST", credentials: "include",
-      headers: { "content-type": "application/json; charset=utf-8", "x-requested-by": "Framer", %s },
-      body: JSON.stringify(body),
-    });
-    return { status: r.status, usage: r.headers.get("x-framer-ai-usage"), body: await r.text() };
-  } catch (e) { return { status: -1, usage: null, body: String(e) }; }
-})()""" % (json.dumps(body), json.dumps(token), API, path, auth)
+AI_START_JS = """(async ([path, body, token, bearer, jobId]) => {
+  // FIRE-AND-POLL (2026-10-04): the browser driver serializes long-lived
+  // protocol calls per process — an evaluate that awaits a 100s fetch holds
+  // EVERY other command behind it (this was the 46s-mint / phantom-collapse
+  // mechanism). So the fetch starts in-page and this call returns instantly;
+  // completion is polled with instant evaluates (AI_POLL_JS).
+  window.__aiJobs = window.__aiJobs || {};
+  const headers = { "content-type": "application/json; charset=utf-8", "x-requested-by": "Framer" };
+  if (bearer) headers["authorization"] = "Bearer " + bearer;
+  body.castleToken = token;
+  window.__aiJobs[jobId] = { done: false, value: null };
+  (async () => {
+    try {
+      const r = await fetch("%s" + path, {
+        method: "POST", credentials: "include", headers, body: JSON.stringify(body),
+      });
+      return { status: r.status, usage: r.headers.get("x-framer-ai-usage"), body: await r.text() };
+    } catch (e) { return { status: -1, usage: null, body: String(e) }; }
+  })().then(v => { window.__aiJobs[jobId] = { done: true, value: v }; });
+  return jobId;
+})""" % API
+
+AI_POLL_JS = """((jobId) => {
+  const j = (window.__aiJobs || {})[jobId];
+  if (!j || !j.done) return null;
+  delete window.__aiJobs[jobId];
+  return j.value;
+})"""
 
 
 POOL_CAP = int(os.environ.get("FRAMERIZE_PAGE_POOL", "6"))
@@ -562,9 +573,17 @@ class Host:
                 if not tok:
                     r = {"status": 0, "usage": None, "body": "castle-unavailable"}
                 else:
-                    r = await page.evaluate(
-                        post_with_token_js(req["path"], req["body"], tok, req.get("bearer"))
-                    )
+                    job = "job-" + uuid.uuid4().hex
+                    await page.evaluate(AI_START_JS, [req["path"], req["body"], tok, req.get("bearer"), job])
+                    deadline = time.monotonic() + 310
+                    while True:
+                        r = await page.evaluate(AI_POLL_JS, job)
+                        if r is not None:
+                            break
+                        if time.monotonic() > deadline:
+                            r = {"status": -1, "usage": None, "body": "sidecar poll timeout (310s)"}
+                            break
+                        await asyncio.sleep(0.5)
             finally:
                 self._release(acc, page)
             emit("ai.post", account=account[:8], path=req["path"], status=r["status"],
