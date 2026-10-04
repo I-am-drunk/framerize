@@ -112,6 +112,13 @@ struct Gate {
     /// `add_permits` (grow) and acquire-then-forget (shrink), so the semaphore
     /// itself is the single source of truth about capacity.
     sem: Arc<Semaphore>,
+    /// Rate smoothing: earliest instant the next acquire may fire. Castle's
+    /// docs (2026-10-04): high_activity_account/device/ip signals fire on
+    /// "anomalous bursts" relative to baseline — a concurrency cap alone
+    /// still allows rate bursts (slots cycling fast), which is the wave
+    /// trigger. A per-key min interval smooths it; the queue absorbs wait.
+    next_allowed: Instant,
+    min_interval: Duration,
     limit: usize,
     /// Permits we decided to remove but could not take immediately because they
     /// were held by in-flight requests. Settled opportunistically as they free.
@@ -136,6 +143,13 @@ impl Gate {
     fn new(cfg: GateConfig, now: Instant) -> Self {
         Self {
             sem: Arc::new(Semaphore::new(cfg.initial)),
+            next_allowed: now,
+            min_interval: Duration::from_millis(
+                std::env::var("FRAMERIZE_GATE_MIN_INTERVAL_MS")
+                    .ok()
+                    .and_then(|v| v.parse().ok())
+                    .unwrap_or(2500),
+            ),
             limit: cfg.initial,
             debt: 0,
             changed_at: now,
@@ -226,8 +240,14 @@ impl ConcurrencyGate {
             // Opportunistic recovery: a saturated gate still calls acquire, so
             // this is enough to climb back without a background task.
             Self::maybe_recover(key, gate, Instant::now());
-            gate.sem.clone()
+            let wait = gate.next_allowed.saturating_duration_since(Instant::now());
+            gate.next_allowed = Instant::now() + gate.min_interval.max(wait);
+            let sem = gate.sem.clone();
+            sem
         };
+        if wait > Duration::ZERO {
+            tokio::time::sleep(wait).await;
+        }
         sem.acquire_owned().await.expect("gate semaphore is never closed")
     }
 

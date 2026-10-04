@@ -26,6 +26,9 @@ pub struct AppState {
     /// Paces requests against Framer's per-workspace concurrency cap so a large
     /// fleet queues instead of collecting 429s (framer_core::gate).
     pub gate: Arc<framer_core::gate::ConcurrencyGate>,
+    /// Environment-level Castle-wave guard: pauses ALL traffic when refusals
+    /// cluster across accounts (framer_core::wave).
+    pub wave: Arc<framer_core::wave::WaveGuard>,
 }
 
 /// Build the router: REST under `/api`, compat under `/anthropic` + `/openai`,
@@ -363,6 +366,7 @@ async fn record_account_health(
     let mut next = account.clone();
     match result {
         Ok(_) => {
+            s.wave.note_success();
             if next.consecutive_failures == 0 && next.cooling_until_ms.is_none() {
                 return; // already clean; skip the write
             }
@@ -374,6 +378,7 @@ async fn record_account_health(
         // (classify.rs): 1,399 upstream refusals read as Castle refusals drove
         // 2 of 3 accounts to the 300s cooldown cap and starved rotation.
         Err(e) if e == "risk-refused" => {
+            s.wave.note_refusal(&account.id.0.to_string());
             next.note_risk_refused(now);
             eprintln!(
                 "[health] {}: risk-refused -> cooling {}ms (step {})",
@@ -417,6 +422,12 @@ async fn free_complete(
     // Client request → faithful Anthropic Messages payload (model normalized).
     let anthro = convert::to_anthropic_request(dialect, &payload).map_err(ApiError)?;
 
+    if let Some(remaining) = s.wave.check() {
+        return Err(ApiError(format!(
+            "environment cooling: Castle is refusing this egress right now — all traffic paused for {}s (retry then). Zero requests are being sent so the risk score can decay.",
+            remaining.as_secs()
+        )));
+    }
     let pool = s.state.list().await.map_err(ApiError)?;
     let account = match hdr(headers, "x-framerize-account") {
         Some(id) => pool

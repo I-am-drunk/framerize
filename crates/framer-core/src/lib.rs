@@ -11,6 +11,7 @@ pub mod ids;
 pub mod pipeline;
 pub mod port;
 pub mod rotation;
+pub mod wave;
 pub mod workspace;
 
 pub use account::{AccountState, ManagedAccount, SessionHealth};
