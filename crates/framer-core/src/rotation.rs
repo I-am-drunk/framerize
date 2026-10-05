@@ -13,10 +13,36 @@
 //! accounts on the same team costs nothing.
 
 use crate::account::ManagedAccount;
+use std::collections::HashMap;
 use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::Mutex;
 
 /// Round-robin cursor, advanced once per tie-broken pick.
 static CURSOR: AtomicUsize = AtomicUsize::new(0);
+
+/// Workspace (team) -> saturated-until (unix ms). A 429 means "this workspace
+/// is full right now" — the account is FINE, so this never touches health
+/// counters; it only steers the next picks to other workspaces for ~45s.
+/// Without it (measured 2026-10-05 15:25): a burst saturated one workspace,
+/// and health-blind round-robin kept landing client retries on it — every
+/// attempt 429'd, clients gave up ("repeated API errors").
+static SATURATED: Mutex<Option<HashMap<String, u64>>> = Mutex::new(None);
+
+pub fn mark_saturated(team: &str, backoff_ms: u64) {
+    let until = now_ms() + backoff_ms;
+    let mut g = SATURATED.lock().unwrap();
+    g.get_or_insert_with(HashMap::new)
+        .insert(team.to_string(), until);
+    eprintln!("[rotation] workspace {team} saturated for {}s", backoff_ms / 1000);
+}
+
+fn saturated_until(team: &str) -> Option<u64> {
+    SATURATED
+        .lock()
+        .unwrap()
+        .as_ref()
+        .and_then(|m| m.get(team).copied())
+}
 
 /// Pick the account to serve the next request, or `None` if the pool is dry.
 ///
@@ -45,14 +71,35 @@ pub fn pick_at(pool: &[ManagedAccount], now: u64) -> Option<&ManagedAccount> {
     let available: Vec<&ManagedAccount> =
         pool.iter().filter(|a| a.is_available_at(now)).collect();
 
-    let candidates: Vec<&ManagedAccount> = if available.is_empty() {
+    // Workspace-saturation steering: skip accounts whose team is currently
+    // 429-saturated while any alternative exists. All-saturated falls back to
+    // the least-soon-saturated set (a transient must never dry the pool).
+    let unsaturated: Vec<&ManagedAccount> = available
+        .iter()
+        .filter(|a| {
+            a.current_team
+                .as_ref()
+                .map(|t| saturated_until(&t.0).map(|u| u <= now).unwrap_or(true))
+                .unwrap_or(true)
+        })
+        .cloned()
+        .collect();
+    let effective: Vec<&ManagedAccount> = if !unsaturated.is_empty() {
+        unsaturated
+    } else if !available.is_empty() {
+        available.clone()
+    } else {
+        available
+    };
+
+    let candidates: Vec<&ManagedAccount> = if effective.is_empty() {
         let soonest = pool
             .iter()
             .filter(|a| a.is_eligible())
             .min_by_key(|a| a.cooling_until_ms.unwrap_or(0))?;
         vec![soonest]
     } else {
-        available
+        effective
     };
 
     // Rank by EFFECTIVE failures, not the raw count. An account that has served

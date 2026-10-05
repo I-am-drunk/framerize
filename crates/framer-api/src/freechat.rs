@@ -169,7 +169,10 @@ pub async fn complete_long(
                 ).await {
                     Ok(r) => out = Some(Ok((cur_dialect, r))),
                     Err(e) if e.starts_with("retryable 429") => {
-                        if rate_retries >= 12 {
+                        // 4 in-chain hops, then surface: a saturated WORKSPACE
+                        // can't be fixed by bucket hops (the cap is per
+                        // workspace), so get to rotation::mark_saturated fast.
+                        if rate_retries >= 4 {
                             out = Some(Err(format!("chunk {i}: workspace still saturated after {rate_retries} bucket retries ({e})")));
                             break;
                         }

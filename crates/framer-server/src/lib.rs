@@ -237,6 +237,9 @@ async fn compat_forward(
             // client's retry lands behind a smaller limit.
             if e.contains("retryable 429") {
                 s.gate.on_overloaded(&gate_key).await;
+                if let Some(team) = account.current_team.as_ref() {
+                    framer_core::rotation::mark_saturated(&team.0, 45_000);
+                }
             }
             return Err(ApiError(e));
         }
@@ -748,6 +751,9 @@ async fn free_complete(
             break;
         }
         s.gate.on_overloaded(&gate_key).await;
+        if let Some(team) = account.current_team.as_ref() {
+            framer_core::rotation::mark_saturated(&team.0, 45_000);
+        }
         attempt += 1;
         // Jittered backoff keyed off the attempt; the gate is already narrower.
         let backoff = 250u64 * (1 << attempt.min(4)) + u64::from(rand_u32() % 250);
@@ -759,7 +765,10 @@ async fn free_complete(
     match &result {
         Ok(_) => s.gate.on_success(&gate_key).await,
         Err(e) if e.contains("retryable 429") || e.contains("too many concurrent") => {
-            s.gate.on_overloaded(&gate_key).await
+            s.gate.on_overloaded(&gate_key).await;
+            if let Some(team) = account.current_team.as_ref() {
+                framer_core::rotation::mark_saturated(&team.0, 45_000);
+            }
         }
         Err(_) => {}
     }
