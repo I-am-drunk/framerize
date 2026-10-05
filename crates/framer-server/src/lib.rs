@@ -195,7 +195,7 @@ async fn compat_forward(
         .current_project
         .clone()
         .ok_or_else(|| ApiError("account has no current project".into()))?;
-    let chat_session = session_hdr.unwrap_or_else(|| framer_api::inference::mint_id_pub());
+    let chat_session = session_hdr.unwrap_or_else(|| framer_core::ids::mint_short_id());
 
     // Framer caps concurrent AI requests PER WORKSPACE (429 "too many
     // concurrent AI requests for this workspace" -- measured at 100 parallel).
@@ -536,7 +536,7 @@ async fn free_complete(
         .clone()
         .ok_or_else(|| ApiError("account has no current project".into()))?;
     let chat_session =
-        hdr(headers, "x-framerize-session").unwrap_or_else(|| framer_api::inference::mint_id_pub());
+        hdr(headers, "x-framerize-session").unwrap_or_else(|| framer_core::ids::mint_short_id());
 
     // Framer caps concurrent AI requests PER WORKSPACE (429 "too many
     // concurrent AI requests for this workspace" -- measured: 64 parallel is
