@@ -56,8 +56,8 @@ impl<T> std::ops::DerefMut for AbortOnDrop<T> {
         &mut self.0
     }
 }
-impl<T: std::future::Future + Unpin> std::future::Future for AbortOnDrop<T> {
-    type Output = T::Output;
+impl<T> std::future::Future for AbortOnDrop<T> {
+    type Output = Result<T, tokio::task::JoinError>;
     fn poll(
         mut self: std::pin::Pin<&mut Self>,
         cx: &mut std::task::Context<'_>,
