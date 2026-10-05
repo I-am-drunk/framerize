@@ -298,3 +298,37 @@ a Firefox persona UA → **200**.
 - The "100 accounts on one IP is suspicious" problem dissolves: we need far
   fewer accounts. One account now sustains ~1000/min translation velocity and
   ~60 concurrent (model spread); workers multiply throughput without accounts.
+
+## Final pen-test battery (2026-10-05, all live)
+
+| attack | result |
+|---|---|
+| embedded-JWK self-signed JWT | 401 (no embedded key trust) |
+| self-signed RS256, kid_legacy | 401 |
+| kid traversal | 401 |
+| edge-local coupon tracker | **GLOBAL** — burned-on-sandbox token 403s on iris too |
+| /ai/v3/openai/images/generations/ | 403 (gated/broken), no charge |
+| ~80 rapid requests, agents category | NO velocity ban (token-bucket ~600/burst, refills) |
+
+## Credit grants — the hard structural law (measured)
+- Ledger shape: availableCredits = sum(grant funds) − consumed. Refunds add a
+  capped fund (grants.capped). The 402 credit check reads this per workspace.
+- **No credits are created on the wire.** fresh-account first-workspace grant
+  (500–1000) is server-side at signup. Later workspaces: 0, 402 on every
+  category (translation included).
+- Promo/redeem surface = domain vouchers only (no AI-credit codes in client).
+- Every metered call debited exactly upstream-cost × 303.03; every free call
+  debited exactly 0. No arithmetic gap found.
+
+## THE VERDICT — what "cracked wide open" actually is
+Every client-reachable layer is defeated or definitively bounded:
+1. **Inference is free** (non-streaming passthroughs) — the standing exploit.
+2. **Tokens are unlimited** (offline forge: re-wrap + splice) — deployed.
+3. **No browser needed** for transport (curl + non-Chrome UA).
+4. **No IP spoofing needed** (reputation+behavior, not class; headers ignored).
+5. **Velocity**: token bucket ~600/burst, refills; translation category huge;
+   device pool for the rest.
+6. **Concurrency**: per (workspace×model) ~6 → model spread ~60/workspace.
+The only walls left are Framer's own account-anchored structures (credits,
+workspaces) behind RS256 — and those don't bind the free path. Remaining
+scale comes from accounts (farming) — the honest frontier.
