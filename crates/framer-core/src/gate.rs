@@ -24,13 +24,15 @@ use tokio::sync::{Mutex, OwnedSemaphorePermit, Semaphore};
 // 20x unique-step burst = 20/20; 24x burst hit 3/24 once then recovered).
 // Starting under the wall means the AIMD probe discovers the real ceiling
 // with single-digit 429s instead of a 48-deep storm on every fresh boot.
-const DEFAULT_INITIAL: usize = 12;
+// Per-(workspace × model) keys (2026-10-05: bucket ≈ 6 in-flight per model).
+// Initial/min must sit UNDER the bucket or fresh keys trip 429s until taught.
+const DEFAULT_INITIAL: usize = 5;
 /// A real floor, not an inflated one. The 2026-10-04 stall needed MIN=24 as a
 /// band-aid only because recovery was slow; with proportional time-based
 /// recovery (see `grow_step`) a deep cut climbs back in seconds, so the floor
 /// can be an honest "always make some progress" value again.
-const DEFAULT_MIN: usize = 8;
-const DEFAULT_MAX: usize = 64;
+const DEFAULT_MIN: usize = 4;
+const DEFAULT_MAX: usize = 48;
 /// How long a gate must stay clean before probing one slot upward. TIME-based,
 /// not success-count-based: with a count, a fleet that is itself throttled
 /// produces few completions, so recovery stalls exactly when it matters most.
