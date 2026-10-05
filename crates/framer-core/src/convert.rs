@@ -65,13 +65,13 @@ pub fn model_route(model: &str) -> ModelRoute {
     match slug {
         "gpt-6-sol" | "gpt-6-luna" | "gpt-5.6-terra" => ModelRoute::DirectResponses,
         "gpt-6-astra" => ModelRoute::Unavailable(
-            "plan-gated by Framer (\"Upgrade your workspace to use this model\") on every route",
+            "plan-gated by Framer (\"Upgrade your workspace to use this model\") on every route. Working free models: claude-opus-5-5, claude-sonnet-5-5, claude-haiku-4-5, gpt-4.1, gpt-4.1-mini, gemini-2.5-flash, gemini-3-flash-preview",
         ),
         "gemini-2.5-pro" | "gpt-5.1" | "gpt-4o" | "o4-mini" => ModelRoute::Unavailable(
-            "blocked by the gateway's upstream guardrails (404) on every route",
+            "blocked by the gateway's upstream guardrails (404) on every route. Working free models: claude-opus-5-5, claude-sonnet-5-5, claude-haiku-4-5, gpt-4.1, gpt-4.1-mini, gemini-2.5-flash, gemini-3-flash-preview",
         ),
         s if s.starts_with("daybreak") => ModelRoute::Unavailable(
-            "blocked by the gateway's upstream guardrails (404) on every route",
+            "blocked by the gateway's upstream guardrails (404) on every route. Working free models: claude-opus-5-5, claude-sonnet-5-5, claude-haiku-4-5, gpt-4.1, gpt-4.1-mini, gemini-2.5-flash, gemini-3-flash-preview",
         ),
         _ => ModelRoute::FreePassthrough,
     }
