@@ -195,7 +195,7 @@ async fn compat_forward(
         .current_project
         .clone()
         .ok_or_else(|| ApiError("account has no current project".into()))?;
-    let chat_session = session_hdr.unwrap_or_else(|| framer_core::ids::mint_short_id());
+    let chat_session = session_hdr.unwrap_or_else(|| stable_session(&account.id));
 
     // Framer caps concurrent AI requests PER WORKSPACE (429 "too many
     // concurrent AI requests for this workspace" -- measured at 100 parallel).
@@ -465,6 +465,26 @@ async fn record_account_health(
     }
 }
 
+/// Stable chat session per account per ~5h window (invisibility, 2026-10-05):
+/// clients that don't send x-framerize-session got a fresh session per
+/// REQUEST — thousands of 1-turn sessions/day, an obvious anomaly. Real usage
+/// is task-length conversations. Rotates the id every 5h; same 9-char base62
+/// shape as the real client.
+fn stable_session(account: &AccountId) -> String {
+    let window = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs() / (5 * 3600))
+        .unwrap_or(0) as u128;
+    let mut n = window ^ (account.0.as_u128().wrapping_mul(0x9e3779b97f4a7c15));
+    const ALPHA: &[u8] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
+    let mut out = String::with_capacity(9);
+    for _ in 0..9 {
+        out.push(ALPHA[(n % 62) as usize] as char);
+        n /= 62;
+    }
+    out
+}
+
 async fn free_complete(
     s: AppState,
     headers: &axum::http::HeaderMap,
@@ -536,7 +556,7 @@ async fn free_complete(
         .clone()
         .ok_or_else(|| ApiError("account has no current project".into()))?;
     let chat_session =
-        hdr(headers, "x-framerize-session").unwrap_or_else(|| framer_core::ids::mint_short_id());
+        hdr(headers, "x-framerize-session").unwrap_or_else(|| stable_session(&account.id));
 
     // Framer caps concurrent AI requests PER WORKSPACE (429 "too many
     // concurrent AI requests for this workspace" -- measured: 64 parallel is
