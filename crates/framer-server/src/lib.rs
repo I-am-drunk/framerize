@@ -33,6 +33,30 @@ pub struct AppState {
 
 /// Build the router: REST under `/api`, compat under `/anthropic` + `/openai`,
 /// everything else served from `web_dir`.
+/// Abort a spawned chain when the response stream is dropped (client
+/// disconnect/cancel). Dropping a bare JoinHandle DETACHES the task — the
+/// chain kept minting Castle tokens and burning device velocity budget on
+/// work nobody was reading ("zombie chains", 2026-10-05: the user's cancelled
+/// T3 sessions kept consuming concurrency + velocity, and later requests
+/// errored). This guard aborts the task on drop.
+struct AbortOnDrop<T>(tokio::task::JoinHandle<T>);
+impl<T> Drop for AbortOnDrop<T> {
+    fn drop(&mut self) {
+        self.0.abort();
+    }
+}
+impl<T> std::ops::Deref for AbortOnDrop<T> {
+    type Target = tokio::task::JoinHandle<T>;
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+impl<T> std::ops::DerefMut for AbortOnDrop<T> {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.0
+    }
+}
+
 pub fn router(state: AppState, web_dir: &str) -> Router {
     let api = Router::new()
         .route("/health", get(|| async { "ok" }))
@@ -487,7 +511,7 @@ async fn free_complete(
         // body, and releasing at function exit would uncap concurrency for
         // every streaming client (which is all of Claude Code).
         let permit = _permit;
-        let mut handle = tokio::spawn(async move {
+        let handle = AbortOnDrop(tokio::spawn(async move {
             let _permit = permit;
             let t0 = std::time::Instant::now();
             let cb = move |ev: convert::ChainEvent| {
@@ -526,7 +550,7 @@ async fn free_complete(
                 ev.emit();
             }
             result
-        });
+        }));
 
         let open_frames = convert::stream_open(dialect, &client_model, &msg_id);
         let composer = convert::SseComposer::new(dialect, &msg_id, &client_model);
