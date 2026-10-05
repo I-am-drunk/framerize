@@ -408,6 +408,10 @@ class Host:
         return page
 
     TOKEN_TTL_S = 240.0  # contract 2026-10-05: sequential reuse proven at +300s; docs claim 120s
+    TOKEN_MAX_USES = 5   # contract 2026-10-05: a token is a 6-USE coupon — use #7
+                         # returns 403 deterministically (verified: #1-6 pass, #7+ all
+                         # 403). Retire at 5 to stay under. The old per-chunk-mint
+                         # design was SAFE by accident; unbounded pooling was not.
     TOKEN_POOL_CAP = 8
 
     async def _token_acquire(self, acc, page, account):
@@ -419,10 +423,14 @@ class Host:
         now = time.monotonic()
         acc.token_pool = {k: v for k, v in acc.token_pool.items()
                           if now - v["ts"] < self.TOKEN_TTL_S}
-        for tid, ent in acc.token_pool.items():
+        for tid, ent in list(acc.token_pool.items()):
+            if ent["uses"] >= self.TOKEN_MAX_USES:
+                del acc.token_pool[tid]  # burned coupon — retire
+                continue
             if not ent["in_use"]:
                 ent["in_use"] = True
-                trace(f"{account[:8]}: token reuse (age {now - ent['ts']:.0f}s, pool {len(acc.token_pool)})")
+                ent["uses"] += 1
+                trace(f"{account[:8]}: token reuse #{ent['uses']} (age {now - ent['ts']:.0f}s, pool {len(acc.token_pool)})")
                 return tid, ent["token"]
         if len(acc.token_pool) >= self.TOKEN_POOL_CAP:
             tok = await self._mint(acc, page, account)  # all busy: transient, don't grow
@@ -431,7 +439,7 @@ class Host:
         if not tok:
             return None, None
         tid = uuid.uuid4().hex[:12]
-        acc.token_pool[tid] = {"token": tok, "ts": now, "in_use": True}
+        acc.token_pool[tid] = {"token": tok, "ts": now, "in_use": True, "uses": 1}
         return tid, tok
 
     def _token_release(self, acc, tid):
