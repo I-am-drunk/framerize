@@ -490,7 +490,9 @@ class Host:
         trace(f"{account[:8]}: dedicated mint page ready")
         return page
 
-    TOKEN_TTL_S = 240.0  # contract 2026-10-05: sequential reuse proven at +300s; docs claim 120s
+    TOKEN_TTL_S = 480.0  # 2026-10-05: TTL enforcement silently turned ON (~600s
+                         # boundary measured via the velocity-cooling cascade — old
+                         # tokens 403 and were misread as velocity bans). 480 = safe margin.
     TOKEN_CONTENT_MAX_AGE_S = 1800.0  # re-wrap hygiene: re-mint the base after 30min even though server TTL is unenforced
     TOKEN_MAX_USES = 5   # contract 2026-10-05: a token is a 6-USE coupon — use #7
                          # returns 403 deterministically (verified: #1-6 pass, #7+ all
@@ -555,8 +557,11 @@ class Host:
         await in the reuse path — asyncio single-thread)."""
         now = time.monotonic()
         for tid, ent in list(acc.token_pool.items()):
-            if now - ent.get("born", ent["ts"]) > self.TOKEN_CONTENT_MAX_AGE_S:
-                del acc.token_pool[tid]  # content too old — re-mint for hygiene
+            if now - ent.get("born", ent["ts"]) > self.TOKEN_TTL_S:
+                # 2026-10-05: Framer silently enabled TTL enforcement (~600s; the
+                # velocity-cooling cascade was old tokens 403ing, misread as
+                # velocity bans). Retire well under the boundary.
+                del acc.token_pool[tid]
                 continue
             if dev is not None and ent.get("dev") != dev:
                 continue  # stay on the velocity-selected device
@@ -870,6 +875,16 @@ class Host:
                     # silence — retrying that on a fresh device would just die
                     # again and wrongly cool the device. Only rotate on fast 403s.
                     if r["status"] == 403 and r.get("_fetch_ms", 9999) < 4000 and attempt + 1 < attempts:
+                        # TTL vs velocity (2026-10-05): TTL enforcement (~600s) makes
+                        # OLD tokens 403 — that is EXPIRY, not a velocity ban, and
+                        # cooling the device over it drains the pool for nothing
+                        # (the cascade that killed chains today). Only a fresh
+                        # token's 403 means velocity.
+                        tok_age = time.monotonic() - acc.token_pool.get(tid, {}).get("born", acc.token_pool.get(tid, {}).get("ts", time.monotonic())) if tid else 0
+                        if tid and tok_age > self.TOKEN_TTL_S * 0.8:
+                            acc.token_pool.pop(tid, None)  # expired — refresh, same device
+                            trace(f"{account[:8]}: token 403 at age {tok_age:.0f}s — TTL expiry, refreshing (device NOT cooled)")
+                            continue
                         # velocity ban is per-device (proven): cool this one,
                         # rotate, retry — invisible to the caller.
                         self._cool_device(acc, used_dev, account)

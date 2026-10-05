@@ -63,7 +63,7 @@ pub enum ModelRoute {
 pub fn model_route(model: &str) -> ModelRoute {
     let slug = model.rsplit('/').next().unwrap_or(model);
     match slug {
-        "gpt-6-sol" | "gpt-6-luna" | "gpt-5.6-terra" => ModelRoute::DirectResponses,
+        "gpt-6-sol" | "gpt-6.1-sol" | "gpt-6-luna" | "gpt-5.6-terra" => ModelRoute::DirectResponses,
         "gpt-6-astra" => ModelRoute::Unavailable(
             "plan-gated by Framer (\"Upgrade your workspace to use this model\") on every route. Working free models: claude-opus-5-5, claude-sonnet-5-5, claude-haiku-4-5, gpt-4.1, gpt-4.1-mini, gemini-2.5-flash, gemini-3-flash-preview",
         ),
@@ -96,6 +96,9 @@ pub fn to_openrouter_id(model: &str) -> String {
     }
     if m.starts_with("deepseek") {
         return format!("deepseek/{m}");
+    }
+    if m.starts_with("kimi") {
+        return format!("moonshotai/{m}");
     }
     m.to_string()
 }
@@ -808,6 +811,9 @@ mod tests {
         assert_eq!(model_route("openai/gpt-6-luna"), ModelRoute::DirectResponses);
         assert!(matches!(model_route("gpt-6-astra"), ModelRoute::Unavailable(_)));
         assert_eq!(model_route("claude-opus-5-5"), ModelRoute::FreePassthrough);
+        assert_eq!(model_route("gpt-6.1-sol"), ModelRoute::DirectResponses);
+        assert_eq!(to_openrouter_id("kimi-k3"), "moonshotai/kimi-k3");
+        assert_eq!(to_openrouter_id("moonshotai/kimi-k3"), "moonshotai/kimi-k3");
         assert_eq!(to_openrouter_id("gpt-4.1"), "openai/gpt-4.1");
         assert_eq!(to_openrouter_id("anthropic/claude-opus-5.5"), "anthropic/claude-opus-5.5");
         assert_eq!(to_openrouter_id("gemini-2.5-flash"), "google/gemini-2.5-flash");
