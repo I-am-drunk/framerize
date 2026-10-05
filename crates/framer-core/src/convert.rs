@@ -47,33 +47,38 @@ pub struct AssembledResponse {
 // PREFIXED, DOTTED catalog ids ("anthropic/claude-opus-5.5").
 // ---------------------------------------------------------------------------
 
+/// Where a model can actually be served, measured 2026-10-05:
+/// the free OpenRouter passthroughs (/ai/v3/messages/, /chat/, /responses/)
+/// carry only part of the catalog; gpt-6.x live on the direct route
+/// /ai/v3/openai/responses/ (metered; verified 200: gpt-6-sol, gpt-6-luna,
+/// gpt-5.6-terra); gpt-6-astra is plan-gated everywhere; the rest 404 on
+/// the upstream guardrails. Honest routing, never substitution (user rule).
+#[derive(Debug, Clone, PartialEq)]
+pub enum ModelRoute {
+    FreePassthrough,
+    DirectResponses,
+    Unavailable(&'static str),
+}
+
+pub fn model_route(model: &str) -> ModelRoute {
+    let slug = model.rsplit('/').next().unwrap_or(model);
+    match slug {
+        "gpt-6-sol" | "gpt-6-luna" | "gpt-5.6-terra" => ModelRoute::DirectResponses,
+        "gpt-6-astra" => ModelRoute::Unavailable(
+            "plan-gated by Framer (\"Upgrade your workspace to use this model\") on every route",
+        ),
+        "gemini-2.5-pro" | "gpt-5.1" | "gpt-4o" | "o4-mini" => ModelRoute::Unavailable(
+            "blocked by the gateway's upstream guardrails (404) on every route",
+        ),
+        s if s.starts_with("daybreak") => ModelRoute::Unavailable(
+            "blocked by the gateway's upstream guardrails (404) on every route",
+        ),
+        _ => ModelRoute::FreePassthrough,
+    }
+}
+
 pub fn to_openrouter_id(model: &str) -> String {
     let m = model.strip_suffix(":batch").unwrap_or(model);
-    // Alias gated/inaccessible models to working equivalents (measured
-    // 2026-10-05: gpt-6-astra → 403 plan-gated; gpt-6.1-sol/gpt-6-sol,
-    // gpt-5.6-terra, gpt-5.1, gpt-4o, o4-mini, gemini-2.5-pro, daybreak-*
-    // → 404 guardrail-blocked on this gateway). Silently serving the closest
-    // working model is strictly better than failing — the alternative for
-    // these ids is never the real model, it's an error. Every substitution
-    // is logged as a `model.alias` event (framerize logs --event model.alias).
-    let slug = m.rsplit('/').next().unwrap_or(m);
-    let alias: Option<&str> = match slug {
-        "gpt-6-astra" | "gpt-6-sol" | "gpt-6.1-sol" | "gpt-5.6-terra" | "gpt-4o"
-        | "gpt-5" | "gpt-5.1" | "o4-mini" => Some("openai/gpt-4.1"),
-        "gpt-6-luna" | "codex-mini-latest" | "gpt-4.1-nano" => Some("openai/gpt-4.1-mini"),
-        "gemini-2.5-pro" => Some("google/gemini-2.5-flash"),
-        s if s.starts_with("daybreak") => Some("openai/gpt-4.1"),
-        _ => None,
-    };
-    if let Some(a) = alias {
-        crate::observability::Event::new("model.alias")
-            .field("requested", m)
-            .field("served", a)
-            .outcome("ok")
-            .emit();
-        eprintln!("[convert] model.alias {m} -> {a}");
-        return a.to_string();
-    }
     if m.contains('/') {
         return m.to_string();
     }
@@ -798,11 +803,11 @@ mod tests {
     #[test]
     fn openrouter_ids() {
         assert_eq!(to_openrouter_id("claude-opus-5-5"), "anthropic/claude-opus-5.5");
-        assert_eq!(to_openrouter_id("gpt-6-astra"), "openai/gpt-4.1");
-        assert_eq!(to_openrouter_id("openai/gpt-6.1-sol"), "openai/gpt-4.1");
-        assert_eq!(to_openrouter_id("gpt-6-luna"), "openai/gpt-4.1-mini");
-        assert_eq!(to_openrouter_id("gemini-2.5-pro"), "google/gemini-2.5-flash");
         assert_eq!(to_openrouter_id("gpt-4.1"), "openai/gpt-4.1");
+        assert_eq!(model_route("gpt-6-sol"), ModelRoute::DirectResponses);
+        assert_eq!(model_route("openai/gpt-6-luna"), ModelRoute::DirectResponses);
+        assert!(matches!(model_route("gpt-6-astra"), ModelRoute::Unavailable(_)));
+        assert_eq!(model_route("claude-opus-5-5"), ModelRoute::FreePassthrough);
         assert_eq!(to_openrouter_id("gpt-4.1"), "openai/gpt-4.1");
         assert_eq!(to_openrouter_id("anthropic/claude-opus-5.5"), "anthropic/claude-opus-5.5");
         assert_eq!(to_openrouter_id("gemini-2.5-flash"), "google/gemini-2.5-flash");
