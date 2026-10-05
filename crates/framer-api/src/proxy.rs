@@ -60,13 +60,14 @@ pub async fn forward(
     step: &str,
     payload: Value,
     chat_session: &str,
+    step_index: u32,
 ) -> Result<framer_core::port::ProxyResponse, String> {
     let t0 = std::time::Instant::now();
     let req_id = uuid::Uuid::new_v4().to_string();
     let token = cached_token(t, token_cache, session, account).await?;
     let category = std::env::var("FRAMERIZE_FEATURE_CATEGORY")
         .unwrap_or_else(|_| "translation".to_string());
-    match attempt(browser, session, account, &token, project, dialect, step, &payload, chat_session, &category).await {
+    match attempt(browser, session, account, &token, project, dialect, step, &payload, chat_session, &category, step_index).await {
         Ok(resp) => {
             framer_core::observability::Event::new("ai.request")
                 .request_id(&req_id)
@@ -84,7 +85,7 @@ pub async fn forward(
                 guard.retain(|(id, _)| id != account);
             }
             let fresh = cached_token(t, token_cache, session, account).await?;
-            attempt(browser, session, account, &fresh, project, dialect, step, &payload, chat_session, &category).await
+            attempt(browser, session, account, &fresh, project, dialect, step, &payload, chat_session, &category, step_index).await
         }
         Err(e) if e == "category-rejected" => {
             // Structured event so rejected models are visible via
@@ -101,7 +102,7 @@ pub async fn forward(
                 .outcome("ok")
                 .emit();
             eprintln!("[proxy] model {} rejected for category {category} — retrying as agents", payload["model"].as_str().unwrap_or("?"));
-            attempt(browser, session, account, &token, project, dialect, step, &payload, chat_session, "agents").await
+            attempt(browser, session, account, &token, project, dialect, step, &payload, chat_session, "agents", step_index).await
         }
         Err(e) => {
             framer_core::observability::Event::new("ai.request")
@@ -129,6 +130,7 @@ async fn attempt(
     payload: &Value,
     chat_session: &str,
     category: &str,
+    step_index: u32,
 ) -> Result<framer_core::port::ProxyResponse, String> {
     // featureCategory (THE VELOCITY GOOSE, verified 2026-10-05): the
     // "translation" category is accepted on all inference routes, keeps
@@ -143,16 +145,33 @@ async fn attempt(
     // real translation traffic sends translation/translation/translate —
     // our agents-mismatched meta was an inconsistency a reviewer would spot).
     let feature_name = if category == "translation" { "translation" } else { "agents" };
+    // userPrompt (invisibility): the real client sends the user's text on
+    // stepIndex 0 — every one of our turns carried "" (visible in any
+    // session-history view). Populate from the last user message, clipped
+    // like a UI would. top-level `model` also mirrors the real envelope (gf()).
+    let user_prompt: String = payload["messages"]
+        .as_array()
+        .and_then(|ms| ms.iter().rev().find(|m| m["role"] == "user"))
+        .map(|m| match &m["content"] {
+            Value::String(s) => s.clone(),
+            Value::Array(bs) => bs.iter()
+                .filter_map(|b| b["text"].as_str())
+                .collect::<Vec<_>>().join(" "),
+            _ => String::new(),
+        })
+        .unwrap_or_default()
+        .chars().take(300).collect();
     let turn_id = crate::inference::mint_id_pub();
     let body = json!({
         "projectId": project.0,
         "featureCategory": category,
         "featureName": feature_name,
+        "model": payload["model"],
         "step": step,
         "sessionId": chat_session,
-        "stepIndex": 0,
+        "stepIndex": step_index,
         "turnId": turn_id,
-        "userPrompt": "", // proxy calls carry their content in `request`
+        "userPrompt": user_prompt,
         // castleToken is added in-page at fetch time (fresh mint, same env).
         "request": payload,
     });
