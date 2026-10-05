@@ -151,39 +151,56 @@ pub async fn complete_long(
         let payload = build_payload(&messages, chunk, dialect);
         let t0 = std::time::Instant::now();
         eprintln!("[freechat] chunk {i} start (max_tokens={chunk}, bucket {dialect:?}/{step})");
-        let resp = match proxy::forward(
-            t, token_cache, session, browser, account, project,
-            dialect, &step, payload.clone(), chat_session,
-        ).await {
-            Ok(r) => r,
-            Err(e) if e.starts_with("retryable 429") && rate_retries < 12 => {
-                // 429 = THIS BUCKET (route×step) is full. Advance to the next
-                // bucket and retry INSTANTLY — the cap counts per bucket, so
-                // the next one is empty. Only after ~10 bucket hops (the whole
-                // rotation twice) does it degenerate to a real sleep.
-                rate_retries += 1;
-                bucket_idx += 1;
-                let (d2, s2) = bucket(bucket_idx);
-                if rate_retries > 10 {
-                    let wait = std::time::Duration::from_millis(1500 * (1 << (rate_retries - 10).min(4)));
-                    eprintln!("[freechat] chunk {i} 429 everywhere — sleeping {wait:?} (attempt {rate_retries})");
-                    tokio::time::sleep(wait).await;
-                } else {
-                    eprintln!("[freechat] chunk {i} 429 on {dialect:?}/{step} — instant retry on next bucket {d2:?}/{s2}");
-                }
-                let retry_payload = build_payload(&messages, chunk_tokens, d2);
+        // 429 bucket-hop loop (2026-10-05 fix): the old nested match's inner
+        // `continue` skipped to the NEXT CHUNK on a second 429, silently
+        // dropping this chunk's content — and a successful cross-dialect retry
+        // got parsed as the ORIGINAL dialect (garbage). This loop retries THE
+        // SAME chunk, carries the effective dialect forward for parsing, and
+        // only exits on success, a non-429 error, or exhaustion.
+        let mut effective_dialect = dialect;
+        let first = {
+            let mut cur_dialect = dialect;
+            let mut cur_step = step.clone();
+            let mut attempt_payload = payload.clone();
+            let mut out = None;
+            while out.is_none() {
                 match proxy::forward(
                     t, token_cache, session, browser, account, project,
-                    d2, &s2, retry_payload, chat_session,
+                    cur_dialect, &cur_step, attempt_payload.clone(), chat_session,
                 ).await {
-                    Ok(r) => r,
-                    Err(e2) => {
-                        if e2.starts_with("retryable 429") && rate_retries < 12 {
-                            continue;
+                    Ok(r) => out = Some(Ok((cur_dialect, r))),
+                    Err(e) if e.starts_with("retryable 429") => {
+                        if rate_retries >= 12 {
+                            out = Some(Err(format!("chunk {i}: workspace still saturated after {rate_retries} bucket retries ({e})")));
+                            break;
                         }
-                        return Err(format!("chunk {i}: workspace still saturated after {rate_retries} bucket retries ({e2})"));
+                        // 429 = THIS BUCKET (route×step) is full. Advance to
+                        // the next bucket and retry INSTANTLY — the cap counts
+                        // per bucket, so the next one is empty. Only after ~10
+                        // hops (the whole rotation twice) a real sleep.
+                        rate_retries += 1;
+                        bucket_idx += 1;
+                        let (d2, s2) = bucket(bucket_idx);
+                        if rate_retries > 10 {
+                            let wait = std::time::Duration::from_millis(1500 * (1 << (rate_retries - 10).min(4)));
+                            eprintln!("[freechat] chunk {i} 429 everywhere — sleeping {wait:?} (attempt {rate_retries})");
+                            tokio::time::sleep(wait).await;
+                        } else {
+                            eprintln!("[freechat] chunk {i} 429 on {cur_dialect:?}/{cur_step} — instant retry on next bucket {d2:?}/{s2}");
+                        }
+                        attempt_payload = build_payload(&messages, chunk_tokens, d2);
+                        cur_dialect = d2;
+                        cur_step = s2;
                     }
+                    Err(e) => out = Some(Err(e)),
                 }
+            }
+            out.unwrap()
+        };
+        let resp = match first {
+            Ok((used_dialect, r)) => {
+                effective_dialect = used_dialect;
+                r
             }
             Err(e) => {
                 let elapsed = t0.elapsed().as_secs_f32();
@@ -262,7 +279,7 @@ pub async fn complete_long(
         if msg_id.is_empty() {
             msg_id = body["id"].as_str().unwrap_or_default().to_string();
         }
-        let (chunk_blocks, chunk_stop, usage) = match dialect {
+        let (chunk_blocks, chunk_stop, usage) = match effective_dialect {
             Dialect::OpenRouterMessages => (
                 body["content"].as_array().cloned().unwrap_or_default(),
                 body["stop_reason"].as_str().unwrap_or("end_turn").to_string(),
