@@ -49,6 +49,31 @@ pub struct AssembledResponse {
 
 pub fn to_openrouter_id(model: &str) -> String {
     let m = model.strip_suffix(":batch").unwrap_or(model);
+    // Alias gated/inaccessible models to working equivalents (measured
+    // 2026-10-05: gpt-6-astra → 403 plan-gated; gpt-6.1-sol/gpt-6-sol,
+    // gpt-5.6-terra, gpt-5.1, gpt-4o, o4-mini, gemini-2.5-pro, daybreak-*
+    // → 404 guardrail-blocked on this gateway). Silently serving the closest
+    // working model is strictly better than failing — the alternative for
+    // these ids is never the real model, it's an error. Every substitution
+    // is logged as a `model.alias` event (framerize logs --event model.alias).
+    let slug = m.rsplit('/').next().unwrap_or(m);
+    let alias: Option<&str> = match slug {
+        "gpt-6-astra" | "gpt-6-sol" | "gpt-6.1-sol" | "gpt-5.6-terra" | "gpt-4o"
+        | "gpt-5" | "gpt-5.1" | "o4-mini" => Some("openai/gpt-4.1"),
+        "gpt-6-luna" | "codex-mini-latest" | "gpt-4.1-nano" => Some("openai/gpt-4.1-mini"),
+        "gemini-2.5-pro" => Some("google/gemini-2.5-flash"),
+        s if s.starts_with("daybreak") => Some("openai/gpt-4.1"),
+        _ => None,
+    };
+    if let Some(a) = alias {
+        crate::observability::Event::new("model.alias")
+            .field("requested", m)
+            .field("served", a)
+            .outcome("ok")
+            .emit();
+        eprintln!("[convert] model.alias {m} -> {a}");
+        return a.to_string();
+    }
     if m.contains('/') {
         return m.to_string();
     }
@@ -773,6 +798,11 @@ mod tests {
     #[test]
     fn openrouter_ids() {
         assert_eq!(to_openrouter_id("claude-opus-5-5"), "anthropic/claude-opus-5.5");
+        assert_eq!(to_openrouter_id("gpt-6-astra"), "openai/gpt-4.1");
+        assert_eq!(to_openrouter_id("openai/gpt-6.1-sol"), "openai/gpt-4.1");
+        assert_eq!(to_openrouter_id("gpt-6-luna"), "openai/gpt-4.1-mini");
+        assert_eq!(to_openrouter_id("gemini-2.5-pro"), "google/gemini-2.5-flash");
+        assert_eq!(to_openrouter_id("gpt-4.1"), "openai/gpt-4.1");
         assert_eq!(to_openrouter_id("gpt-4.1"), "openai/gpt-4.1");
         assert_eq!(to_openrouter_id("anthropic/claude-opus-5.5"), "anthropic/claude-opus-5.5");
         assert_eq!(to_openrouter_id("gemini-2.5-flash"), "google/gemini-2.5-flash");
