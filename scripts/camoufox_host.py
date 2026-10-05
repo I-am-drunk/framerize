@@ -608,13 +608,21 @@ class Host:
         # requested device, mint locally — no browser eval, no pacing gap, no
         # SDK race. Parts come from any real browser mint (harvested below)
         # and are refreshed every FORGE_MAX_AGE_S.
-        if _cf is not None and dev is not None:
-            ent = acc.forge_parts.get(dev)
+        if _cf is not None:
+            ent = None
+            fdev = dev
+            if dev is not None:
+                ent = acc.forge_parts.get(dev)
+            else:
+                fresh = [(e["born"], c) for c, e in acc.forge_parts.items()]
+                if fresh:
+                    fdev = max(fresh)[1]
+                    ent = acc.forge_parts[fdev]
             if ent and (time.monotonic() - ent["born"]) < FORGE_MAX_AGE_S:
                 try:
-                    tok = _cf.forge(ent["parts"], dev)
-                    emit("castle.forge", account=account[:8], device=str(dev)[:8], outcome="ok")
-                    return tok, dev
+                    tok = _cf.forge(ent["parts"], fdev)
+                    emit("castle.forge", account=account[:8], device=str(fdev)[:8], outcome="ok")
+                    return tok, fdev
                 except Exception:
                     pass  # fall through to a live mint
         async with acc.mint_lock:
@@ -740,12 +748,16 @@ class Host:
             json.dump(devices, open(devfile, 'w'))
             acc.devices = devices
             async def warm_pool():
-                try:
-                    n = await page.evaluate(DEVPOOL_WARM_JS.replace('%s', json.dumps(devices)))
-                    acc.devpool_ready = n > 0
-                    trace(f"{account[:8]}: device pool warm ({n}/{len(devices)} modules)")
-                except Exception as e:
-                    trace(f"{account[:8]}: device pool warm failed ({type(e).__name__}) — single-device mints")
+                for attempt in range(3):
+                    try:
+                        n = await page.evaluate(DEVPOOL_WARM_JS.replace('%s', json.dumps(devices)))
+                        acc.devpool_ready = n > 0
+                        trace(f"{account[:8]}: device pool warm ({n}/{len(devices)} modules)")
+                        if acc.devpool_ready:
+                            return
+                    except Exception as e:
+                        trace(f"{account[:8]}: device pool warm attempt {attempt + 1} failed ({type(e).__name__})")
+                    await asyncio.sleep(20)
             asyncio.ensure_future(warm_pool())
         except Exception as e:
             trace(f"{account[:8]}: device pool init failed ({type(e).__name__})")
