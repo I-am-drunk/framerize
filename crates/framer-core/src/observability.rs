@@ -52,8 +52,10 @@ fn file_for_today() -> Option<&'static Mutex<std::fs::File>> {
     // Note: one file handle per process lifetime; the date suffix means a
     // multi-day run opens a new file only after restart. Acceptable for a
     // local daemon (and stated in docs/logging.md).
+    // Never panic for logging: uninitialized → no writer → emit() is a no-op.
+    // (Library callers like convert::to_openrouter_id run in tests without init.)
+    let dir = LOG_DIR.get()?;
     WRITER.get_or_init(|| {
-        let dir = LOG_DIR.get().expect("observability::init first");
         let day = chrono_today();
         let f = std::fs::OpenOptions::new()
             .create(true)
