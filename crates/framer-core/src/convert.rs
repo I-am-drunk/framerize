@@ -1292,18 +1292,64 @@ fn merge_blocks_local(acc: &mut Vec<Value>, new: Vec<Value>) {
 /// Mid-stream failure frames: a REAL error event per dialect so clients retry
 /// loudly instead of accepting error text as the answer (anthropic `error`
 /// event, responses `response.failed`, chat error object then [DONE]).
-pub fn error_frames(d: ClientDialect, msg: &str) -> Vec<String> {
-    match d {
-        ClientDialect::AnthropicMessages => vec![sse("error", json!({
+/// Parse a chain error of the form "... 400 on /ai/v3/x/: {json}" back into
+/// (http_status, upstream_error_body). The upstream body is Anthropic-shaped:
+/// {"type":"error","error":{"type":"invalid_request_error","message":"..."}}.
+pub fn parse_upstream_error(msg: &str) -> Option<(u16, serde_json::Value)> {
+    let idx = msg.rfind(": {")?;
+    let body: serde_json::Value = serde_json::from_str(msg[idx + 2..].trim()).ok()?;
+    let status = msg
+        .split_whitespace()
+        .find_map(|w| w.parse::<u16>().ok().filter(|n| (400..600).contains(n)))?;
+    Some((status, body))
+}
+
+/// True when the upstream message is a context-window overflow — the client
+/// must COMPACT, not retry. Matching Claude Code's own trigger wording keeps
+/// its auto-compaction path alive through the gateway.
+pub fn is_context_overflow(msg: &str) -> bool {
+    let m = msg.to_lowercase();
+    m.contains("maximum context length") || m.contains("context_length_exceeded") || m.contains("prompt is too long")
+}
+
+/// Dialect-shaped error JSON with the CORRECT status and error type — so the
+/// client sees the real upstream cause (e.g. context overflow → compact) instead
+/// of a generic 500 it retries forever ("gave up after repeated API errors").
+pub fn error_json(d: ClientDialect, msg: &str) -> (u16, serde_json::Value) {
+    let (status, umsg, utype) = match parse_upstream_error(msg) {
+        Some((st, body)) => {
+            let um = body.pointer("/error/message").and_then(|m| m.as_str()).unwrap_or(msg).to_string();
+            let ut = body.pointer("/error/type").and_then(|m| m.as_str()).unwrap_or("invalid_request_error").to_string();
+            (st, um, ut)
+        }
+        None => {
+            let st = if msg.contains("risk-refused") { 403 } else { 500 };
+            (st, msg.to_string(), "api_error".to_string())
+        }
+    };
+    let code = if is_context_overflow(&umsg) { "context_length_exceeded" } else { utype.as_str() };
+    let shaped = match d {
+        ClientDialect::AnthropicMessages => json!({
             "type": "error",
-            "error": {"type": "api_error", "message": msg},
-        }))],
+            "error": {"type": if is_context_overflow(&umsg) { "invalid_request_error" } else { utype.as_str() }, "message": umsg},
+        }),
+        ClientDialect::OpenAiResponses | ClientDialect::OpenAiChat => json!({
+            "error": {"message": umsg, "type": utype, "code": code},
+        }),
+    };
+    (status, shaped)
+}
+
+pub fn error_frames(d: ClientDialect, msg: &str) -> Vec<String> {
+    let (_, shaped) = error_json(d, msg);
+    match d {
+        ClientDialect::AnthropicMessages => vec![sse("error", shaped)],
         ClientDialect::OpenAiResponses => vec![sse("response.failed", json!({
             "type": "response.failed",
-            "response": {"status": "failed", "error": {"message": msg}},
+            "response": {"status": "failed", "error": shaped["error"]},
         }))],
         ClientDialect::OpenAiChat => vec![
-            format!("data: {}", json!({"error": {"message": msg, "type": "server_error"}})),
+            format!("data: {}", json!({"error": shaped["error"]})),
             "data: [DONE]".into(),
         ],
     }
