@@ -278,7 +278,35 @@ async fn compat_forward(
         return Ok(resp);
     }
 
-    let body = axum::body::Body::from_stream(upstream.stream);
+    // HEARTBEAT-WRAP the direct stream (2026-10-05): the in-page transport
+    // delivers the upstream body as ONE burst at completion, so a "streaming"
+    // client sat in total silence for the whole generation — Codex's
+    // app-server idle-timeout killed it mid-wait:
+    // responseStreamDisconnected{httpStatusCode:null} rendered as
+    // "We're currently experiencing high demand". Emit SSE comment pings
+    // every 8s of silence (parser-ignored, legal SSE) until bytes arrive.
+    let mut upstream_stream = upstream.stream;
+    let body_stream = futures::stream::unfold((upstream_stream, false), |(mut up, mut saw_bytes)| async move {
+        loop {
+            tokio::select! {
+                chunk = futures::StreamExt::next(&mut up) => {
+                    match chunk {
+                        Some(Ok(b)) if !b.is_empty() => {
+                            saw_bytes = true;
+                            return Some((Ok::<bytes::Bytes, String>(b), (up, saw_bytes)));
+                        }
+                        Some(Ok(_)) => continue, // never forward empty writes (0-chunk = end-of-stream to some clients)
+                        Some(Err(e)) => return Some((Err(e), (up, saw_bytes))),
+                        None => return None,
+                    }
+                }
+                _ = tokio::time::sleep(std::time::Duration::from_secs(8)) => {
+                    return Some((Ok::<bytes::Bytes, String>(bytes::Bytes::from_static(b": ping\n\n")), (up, saw_bytes)));
+                }
+            }
+        }
+    });
+    let body = axum::body::Body::from_stream(body_stream);
     let mut resp = axum::response::Response::new(body);
     *resp.status_mut() = status;
     resp.headers_mut().insert(
@@ -696,8 +724,10 @@ async fn free_complete(
                     }
                     ev = rx.recv() => match ev {
                         Some(convert::ChainEvent::Chunk(blocks)) => composer.push_chunk(&blocks),
-                        Some(convert::ChainEvent::Done(_)) => vec![],
-                        None => vec![],
+                        // Channel closed (chain finishing) or Done: emit a ping
+                        // instead of an EMPTY frame — a zero-length chunk is
+                        // end-of-stream to strict SSE clients.
+                        Some(convert::ChainEvent::Done(_)) | None => vec![convert::ping_frame(dialect)],
                     },
                     _ = tokio::time::sleep(std::time::Duration::from_secs(8)) => {
                         vec![convert::ping_frame(dialect)]
