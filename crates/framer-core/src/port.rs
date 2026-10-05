@@ -139,7 +139,7 @@ pub enum ChainDialect {
 
 /// Config for free continuation-chained chat (unmetered stream:false chunks —
 /// see framer-api::freechat for the live evidence).
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct ChainConfig {
     /// Tokens per chunk (~6-10 s each on gpt-4.1; under the ~21.5 s idle kill).
     pub chunk_tokens: u32,
@@ -162,6 +162,18 @@ pub struct ChainConfig {
     pub on_429: Option<std::sync::Arc<dyn Fn() + Send + Sync>>,
 }
 
+
+impl std::fmt::Debug for ChainConfig {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("ChainConfig")
+            .field("chunk_tokens", &self.chunk_tokens)
+            .field("max_chunks", &self.max_chunks)
+            .field("max_total_tokens", &self.max_total_tokens)
+            .field("metered_fallback", &self.metered_fallback)
+            .field("on_429", &self.on_429.as_ref().map(|_| "<callback>"))
+            .finish()
+    }
+}
 
 impl Default for ChainConfig {
     fn default() -> Self {
