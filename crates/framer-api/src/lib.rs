@@ -82,6 +82,7 @@ impl HttpFramerClient {
             "message",
             payload,
             chat_session,
+            0,
         )
         .await
     }
