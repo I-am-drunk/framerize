@@ -133,3 +133,41 @@ describing nibble key + fingerprint_version (1,1,4,5) — reuse original
 header bytes verbatim. Edited-content forge (arbitrary claimed fingerprint)
 verified at decode level; live-fire of claimed-behavior edits is the next
 experiment if ever needed.
+
+## v2 vs v3: the trust-tier map (2026-10-05, live-verified)
+
+The two token formats are validated VERY differently server-side:
+
+| property | v2 (legacy fallback) | v3 (current SDK) |
+|---|---|---|
+| length | ~2,100 chars | ~5,700 chars (`cNz8rPYH\|` prefix) |
+| device binding | NONE — cross-device, cross-IP 200 | **BOUND** — Chrome-mint 403s from Camoufox while v2 from same env = 200 |
+| TTL | unenforced (+300s ok) | untested (mint+fire fresh failed only from flagged env) |
+| use limit | 6-use coupon PER STRING (re-wrap = fresh coupon) | n/a (can't replay cross-env) |
+| re-wrap forge | works (outer-XOR re-key) | n/a |
+| who mints it | every non-Chromium engine (v3 SDK times out 27-81s there — measured) | Chrome-family only |
+
+**The strategic conclusion**: v3's environment binding is the *intended* design;
+Framer accepting v2 on AI routes is the legacy hole — and it's a hole real
+populations walk through daily: every genuine Firefox/Safari Framer user only
+ever produces v2 (the SDK's own production fallback). Our traffic profile is
+indistinguishable from that population BY CONSTRUCTION:
+
+- claims = transport (token minted and request fired in the same Camoufox
+  Firefox/Linux — the UA, TLS, and fingerprint tell one coherent story)
+- event sections populated (activity loops on every page incl. the mint page,
+  bezier paths, trusted input events; idle-vs-active diff proves the section
+  exists and fills: 1550B idle vs 1558B active, ~700 bytes of event data)
+- stable persistent device ids (v2 hex-CUID format = the v2 population's format)
+
+Content-scoring evidence so far: NONE — when velocity/concurrency are managed,
+structurally-valid v2 passes everything (weeks of production, zero content-
+based refusals observed; every refusal class mapped to velocity/concurrency/
+structural/IP causes). If Framer ever tightens v2 content validation, the v13
+value layer is partially cracked (structure + byte-perfect re-encode) and the
+drift canary fires daily.
+
+v3 structure notes (for the record): `cNz8rPYH|` prefix is a version/config
+marker, not device-keyed (same across unrelated devices). Post-pipe preamble:
+`24 00` + 48-char base64-ish segment (28-char constant prefix + per-mint tail)
++ counter-ish trailer byte. Nested layers differ from v2's scheme.
