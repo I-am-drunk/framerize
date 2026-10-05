@@ -56,6 +56,15 @@ impl<T> std::ops::DerefMut for AbortOnDrop<T> {
         &mut self.0
     }
 }
+impl<T: std::future::Future + Unpin> std::future::Future for AbortOnDrop<T> {
+    type Output = T::Output;
+    fn poll(
+        mut self: std::pin::Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+    ) -> std::task::Poll<Self::Output> {
+        std::pin::Pin::new(&mut self.0).poll(cx)
+    }
+}
 
 pub fn router(state: AppState, web_dir: &str) -> Router {
     let api = Router::new()
