@@ -61,29 +61,39 @@ Operational consequences (daemon):
 - A 5-use token at ~600-token chunks serves ~3000 tokens of generation;
   long chains transparently rotate to the next coupon.
 
-## Layer 2 — the velocity ban ("waves")
+## Layer 2 — the velocity ban ("waves") — DEFINITIVELY MEASURED (2026-10-05)
 
-- Valid fresh tokens get instant 403s (~46-267ms, same JSON shape as the
-  structural 403) on ALL inference routes simultaneously.
-- Non-inference routes (fetch/refund/usage) are UNAFFECTED during waves.
-- Duration ~10-15 min, self-heals with no client-side change.
-- Follows bursts of automated traffic (soaks, matrix testing).
-- The deny latency (~50-100ms) is too fast for a synchronous Castle cloud
-  verdict — consistent with a LOCAL deny-list/ban cache with a TTL, i.e.
-  Framer's own velocity layer, possibly distinct from Castle scoring.
-- NOT keyed on device (fresh __cuid contexts were denied), NOT on sessionId
-  (fresh per request, still denied), NOT on the AI JWT (mints fine mid-wave).
-- Untested cells (the canary's battery fires these on the next wave):
-  valid token + NOVEL invented step (does the ban bucket per `step` like the
-  concurrency cap?), account-2 same-IP (per-account vs per-IP), stream:true
-  mid-wave, token-reuse mid-wave.
+Controlled ramp experiment (coupon-aware, fresh-token-confirmed):
+
+- **Threshold**: 30 req/min clean (22×200), 60 req/min clean (37×200),
+  **~120 req/min trips it** (~32 requests into the burst).
+- **It is PER-ACCOUNT, not per-IP**: account-2 on the SAME egress IP returned
+  200 while account-1 was mid-ban. **Account rotation is the structural
+  wave escape.**
+- **It does NOT bucket per `step`** (novel invented step → 403), does NOT
+  exempt system steps (`generate-session-title` → 403), does NOT spare
+  streaming (`stream:true` → 403). The concurrency cap's bucketing does not
+  extend to the ban.
+- Deny latency ~50-150ms (local counter, not a synchronous Castle cloud call),
+  same generic-Forbidden JSON as the structural layer.
+- **Duration ~2 min** for a lightly-tripped ban (vs ~10-15 min observed for
+  heavier history) — scales with pressure; hammering a banned account almost
+  certainly extends it (don't).
+- Profile: Framer's own per-account velocity limiter (NOT Castle behavioral
+  scoring). Non-inference routes (fetch/refund/usage) unaffected.
+
+Daemon posture vs the measured line: the gate's 2.5s min-interval per
+workspace caps the daemon at **24 req/min per account** — structurally below
+the ~120/min trip line. Rotation on refusal is correct behavior; the ban is
+per-account so a rotated request succeeds instantly.
 
 ## Canary
 
-`/tmp/wave_canary.py` on iris (detached): probes account-1 every 60s with a
-valid token (free non-streaming gemini call). On wave onset it auto-fires the
-discriminating battery (novel-step, system-step, stream-true, account-2,
-reuse), and logs wave end + duration. Log: `/tmp/wave_canary.log` on iris.
+`/tmp/wave_canary.py` on iris (detached, JWT-refresh fixed): probes account-1
+every 60s with a valid token (free non-streaming gemini call). On wave onset
+(2+ consecutive) it auto-fires the discriminating battery (novel-step,
+system-step, stream-true, account-2, reuse), and logs wave end + duration.
+Log: `/tmp/wave_canary.log` on iris.
 
 ## Metering intersection (constraint: keep the free path)
 
