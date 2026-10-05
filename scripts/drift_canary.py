@@ -128,7 +128,10 @@ async def sweep():
                        {'model': 'google/gemini-2.5-flash', 'messages': [{'role': 'user', 'content': 'ok'}], 'max_tokens': 10, 'stream': False})
         await page.wait_for_timeout(6000)
         l1 = await ledger()
-        if s != 200:
+        if s == 429:
+            # workspace concurrency is full from real traffic — transient, NOT drift
+            record('free-route', 'busy', '429 (workspace saturated by live traffic — not a drift signal)')
+        elif s != 200:
             record('free-route', 'DRIFT', f'status {s}')
         elif l0 is not None and l1 is not None and abs(l1 - l0) < 1e-9:
             record('free-route', 'ok', f'200, delta 0 ({l1})')
@@ -140,7 +143,7 @@ async def sweep():
                        {'model': 'anthropic/claude-opus-5.5', 'messages': [{'role': 'user', 'content': 'ok'}], 'max_tokens': 10, 'stream': False}, 'translation')
         record('model-opus5.5', 'ok' if s == 200 else 'DRIFT', f'status {s}')
         s = await fire('/ai/v3/openai/responses/', 'gpt-6-sol',
-                       {'model': 'gpt-6-sol', 'input': 'ok', 'max_output_tokens': 10, 'stream': False})
+                       {'model': 'gpt-6-sol', 'input': 'say ok', 'max_output_tokens': 64, 'stream': False})
         record('model-gpt6sol-direct', 'ok' if s == 200 else 'warn', f'status {s}')
     finally:
         await mgr.__aexit__(None, None, None)
