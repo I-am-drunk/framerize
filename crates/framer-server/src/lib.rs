@@ -472,6 +472,33 @@ async fn free_complete(
     payload: serde_json::Value,
 ) -> Result<axum::response::Response, ApiError> {
     let client_model = payload["model"].as_str().unwrap_or_default().to_string();
+    // Honest model routing (2026-10-05, user rule: never substitute silently).
+    // gpt-6.x are direct-route models (OpenAI Responses, metered): Codex and
+    // other Responses clients pass through natively. Genuinely unavailable
+    // models get a clear error — the user picks what to do, not us.
+    match convert::model_route(&client_model) {
+        convert::ModelRoute::DirectResponses => {
+            if dialect == ClientDialect::OpenAiResponses {
+                return compat_forward(
+                    s,
+                    "openai-responses",
+                    hdr(headers, "x-framerize-account"),
+                    hdr(headers, "x-framerize-session"),
+                    payload,
+                )
+                .await;
+            }
+            return Err(ApiError(format!(
+                "model {client_model} is a direct-route model (OpenAI Responses API, metered) — call /openai/v1/responses for it; it is not on the free passthrough roster"
+            )));
+        }
+        convert::ModelRoute::Unavailable(reason) => {
+            return Err(ApiError(format!(
+                "model {client_model} is not available on this gateway: {reason}"
+            )));
+        }
+        convert::ModelRoute::FreePassthrough => {}
+    }
     let wants_stream = payload["stream"].as_bool().unwrap_or(false);
     let include_usage = payload["stream_options"]["include_usage"].as_bool().unwrap_or(false);
     let max_tokens = payload["max_tokens"].as_u64()
