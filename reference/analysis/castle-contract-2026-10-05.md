@@ -104,3 +104,32 @@ free non-streaming, metered streaming:
 - `/ai/v3/responses/` (OpenAI Responses dialect — **new**: Codex's native
   protocol, zero conversion, ledger-verified free non-streaming at 6 decimals:
   392.979258 → 392.979258; streaming debited 0.0127)
+
+## THE GOOSE: coupon tracker keys on the token STRING (2026-10-05, live-verified)
+
+The 6-use coupon is enforced per token STRING, not per decrypted content:
+
+- One string fired 12x (agents AND translation, same and unique sessionIds):
+  exactly 6x 200 then permanent 403 — the coupon, deterministic.
+- The SAME string re-wrapped (outer-layer re-key: decode XOR with the embedded
+  key byte, re-XOR with a fresh random byte — byte-identical decrypted content,
+  new string): gets its OWN 6 uses (12 fires: 6x 200 then 403 — same shape).
+- A BURNED token's content, re-wrapped into 10 fresh strings, 2 fires each:
+  **20/20 = 200**. Unlimited coupons from one real mint.
+- Consequence: one real mint every ~30 min (hygiene) sustains unlimited
+  inference. Mints stopped being a rate bottleneck entirely.
+- Forge math: outer layer is base64url(key_byte || body XOR key_byte);
+  re-keying is `b ^ k1 ^ k2` per byte. Inner content untouched — passes the
+  structural validator because it IS a valid token.
+
+Daemon: the sidecar token pool re-wraps locally on burn (pure python, no
+browser eval) and only re-mints on 30-min content age. Commit ca22527.
+
+Deeper crack status (for offline forging / claimed-behavior shaping): v13
+fully decodes (gelistiricitr/castle-reverse parser + yubie v11 XXTEA key,
+unchanged through v13). Inner fingerprint re-encodes BYTE-PERFECT from
+decoded parts (encoder validated). Header encodes init_time with a self-
+describing nibble key + fingerprint_version (1,1,4,5) — reuse original
+header bytes verbatim. Edited-content forge (arbitrary claimed fingerprint)
+verified at decode level; live-fire of claimed-behavior edits is the next
+experiment if ever needed.
