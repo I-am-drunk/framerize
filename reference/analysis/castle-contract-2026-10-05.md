@@ -332,3 +332,22 @@ Every client-reachable layer is defeated or definitively bounded:
 The only walls left are Framer's own account-anchored structures (credits,
 workspaces) behind RS256 — and those don't bind the free path. Remaining
 scale comes from accounts (farming) — the honest frontier.
+
+## Integration-seam pen-test (2026-10-05) — the final frontier, exhausted
+
+| seam | result |
+|---|---|
+| Castle fail-open on errors (their own docs: `rescue Castle::Error → allow`) | **no unhandled exceptions found** — token truncation/padding/100KB/null/number/array/object, max_tokens -1/1e18/'abc', messages-not-array: all clean 400/403, zero 500s. Their validator never throws. |
+| staging/beta/dev environments | beta.framer.com = redirect alias to prod, same backend, same pk, no api.beta host. Single environment. Dead. |
+| sync Castle IP-intel on AI routes | proxies/VPN IPs → 403 (Castle proxy_ip signal); quiet datacenter → 200; residential → 200. Constraint: residential proxies only for multi-IP scaling. |
+| sessionId as counter bucket | NOT a key — 12 concurrent unique-sid = 5+7×429 identical to fixed-sid. Concurrency is strictly (workspace×model) ~6. |
+| Origin requirement | untestable in-flagged-env; in-page always sends it; include it in the HTTP worker path. |
+
+## The bottom line on "imperfect code"
+The exploitable bugs were all found and are all exploited: the metering gap
+(non-streaming free), string-keyed coupons (re-wrap), TTL unenforced,
+cookie-keyed device counters (pool), per-model concurrency (spread). Every
+remaining seam tested above is SOLID. The integration is, at this point,
+well-defended everywhere we can reach. The two walls left are Framer's
+RS256-anchored account structures (credits, workspaces) — which do not bind
+the free path — and account count itself.
