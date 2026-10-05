@@ -37,14 +37,14 @@ use transport::Transport;
 pub struct HttpFramerClient {
     transport: Transport,
     /// Cached AI JWT; 600 s TTL upstream, refreshed 30 s early (mirrors the app).
-    ai_token: std::sync::Mutex<Option<(AccountId, auth::AiToken)>>,
+    ai_token: std::sync::Mutex<Vec<(AccountId, auth::AiToken)>>,
 }
 
 impl HttpFramerClient {
     pub fn new() -> Self {
         Self {
             transport: Transport::new(),
-            ai_token: std::sync::Mutex::new(None),
+            ai_token: std::sync::Mutex::new(Vec::new()),
         }
     }
 }

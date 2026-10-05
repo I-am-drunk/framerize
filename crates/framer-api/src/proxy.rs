@@ -51,7 +51,7 @@ impl Dialect {
 #[allow(clippy::too_many_arguments)]
 pub async fn forward(
     t: &Transport,
-    token_cache: &Mutex<Option<(AccountId, AiToken)>>,
+    token_cache: &Mutex<Vec<(AccountId, AiToken)>>,
     session: &Session,
     browser: &dyn BrowserBridge,
     account: &AccountId,
@@ -79,7 +79,7 @@ pub async fn forward(
         }
         Err(e) if e == "unauthorized" => {
             if let Ok(mut guard) = token_cache.lock() {
-                *guard = None;
+                guard.retain(|(id, _)| id != account);
             }
             let fresh = cached_token(t, token_cache, session, account).await?;
             attempt(browser, session, account, &fresh, project, dialect, step, &payload, chat_session).await
@@ -166,20 +166,28 @@ async fn attempt(
 
 async fn cached_token(
     t: &Transport,
-    cache: &Mutex<Option<(AccountId, AiToken)>>,
+    cache: &Mutex<Vec<(AccountId, AiToken)>>,
     session: &Session,
     account: &AccountId,
 ) -> Result<AiToken, String> {
+    // Per-account cache (2026-10-05): the old SINGLE global slot meant every
+    // account rotation invalidated the previous chain's JWT and forced a
+    // remint at /auth/ai/access-token — ~1 mint per chain. Under a 300-chain
+    // burst that thrash trips the auth endpoint's sustained-rate limiter
+    // (measured: 120/120 mints -> 403), which transport classified as Castle
+    // "risk-refused" (elapsed=0), poisoning account health with phantom
+    // refusals. Per-account caching cuts mints ~99%.
     if let Ok(guard) = cache.lock() {
-        if let Some((id, tok)) = guard.as_ref() {
-            if id == account && tok.usable() {
+        if let Some((_, tok)) = guard.iter().find(|(id, _)| id == account) {
+            if tok.usable() {
                 return Ok(tok.clone());
             }
         }
     }
     let tok = auth::ai_access_token(t, session).await?;
     if let Ok(mut guard) = cache.lock() {
-        *guard = Some((*account, tok.clone()));
+        guard.retain(|(id, _)| id != account);
+        guard.push((*account, tok.clone()));
     }
     Ok(tok)
 }
