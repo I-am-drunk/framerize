@@ -418,13 +418,13 @@ class Host:
         path (asyncio single-thread)."""
         now = time.monotonic()
         acc.token_pool = {k: v for k, v in acc.token_pool.items()
-                          if now - v["ts"] < TOKEN_TTL_S}
+                          if now - v["ts"] < self.TOKEN_TTL_S}
         for tid, ent in acc.token_pool.items():
             if not ent["in_use"]:
                 ent["in_use"] = True
                 trace(f"{account[:8]}: token reuse (age {now - ent['ts']:.0f}s, pool {len(acc.token_pool)})")
                 return tid, ent["token"]
-        if len(acc.token_pool) >= TOKEN_POOL_CAP:
+        if len(acc.token_pool) >= self.TOKEN_POOL_CAP:
             tok = await self._mint(acc, page, account)  # all busy: transient, don't grow
             return None, tok
         tok = await self._mint(acc, page, account)
