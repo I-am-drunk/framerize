@@ -124,6 +124,9 @@ pub fn router(state: AppState, web_dir: &str) -> Router {
         .nest("/paid", paid)
         .fallback_service(ServeDir::new(web_dir))
         .layer(axum::middleware::from_fn(access_log))
+        // Claude Code sends multi-MB contexts (images, long histories) — axum's
+        // 2MB default was 413ing real sessions (2026-10-05).
+        .layer(axum::extract::DefaultBodyLimit::max(64 * 1024 * 1024))
 }
 
 /// HTTP access log: every request lands in the NDJSON event log as
@@ -134,10 +137,7 @@ async fn access_log(
     req: axum::extract::Request,
     next: axum::middleware::Next,
 ) -> axum::response::Response {
-    let method = req.method().as_str().to_string()
-        // Claude Code sends multi-MB contexts (images, long histories) — axum's
-        // 2MB default was 413ing real sessions (2026-10-05).
-        .layer(axum::extract::DefaultBodyLimit::max(64 * 1024 * 1024));
+    let method = req.method().as_str().to_string();
     let path = req.uri().path().to_string();
     let t0 = std::time::Instant::now();
     let resp = next.run(req).await;
