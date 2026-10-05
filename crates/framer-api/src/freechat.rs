@@ -67,24 +67,19 @@ pub async fn complete_long(
     // So every chunk gets a FRESH step tag — organic-looking word + nonce,
     // indistinguishable in shape from Framer's own instrumentation tags.
     const DIALECTS: [Dialect; 1] = [Dialect::OpenRouterMessages];
-    const STEP_WORDS: [&str; 8] = [
-        "message", "compose", "draft", "revise", "refine", "expand", "polish", "continue",
-    ];
-    let chain_nonce = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|d| d.as_secs() as u64 ^ ((d.subsec_nanos() as u64) << 20))
-        .unwrap_or(0x9e3779b97f4a7c15);
-    let fresh_step = move |i: usize| -> String {
-        let h = chain_nonce
-            .wrapping_mul(0x9e3779b97f4a7c15)
-            .wrapping_add((i as u64).wrapping_mul(0xbf58476d1ce4e5b9));
-        format!(
-            "{}-{:06x}",
-            STEP_WORDS[(h as usize >> 8) % STEP_WORDS.len()],
-            (h >> 16) & 0xffffff
-        )
-    };
-    let bucket = |i: usize| -> (Dialect, String) { (DIALECTS[0], fresh_step(i)) };
+    // Step vocabulary (invisibility, 2026-10-05): real clients use CONSTANT
+    // steps — "message" for agent turns, "translate" for translation — so the
+    // invented compose-3fa2c1-style tags (thousands of unique values/day)
+    // were an inspection-visible anomaly. The per-step concurrency dodge they
+    // bought is redundant: the cap is per-device under translation (measured
+    // ~5/device), and the device pool covers concurrency. Constant REAL step.
+    let chain_step: String =
+        if std::env::var("FRAMERIZE_FEATURE_CATEGORY").unwrap_or_default() == "translation" {
+            "translate".to_string()
+        } else {
+            "message".to_string()
+        };
+    let bucket = |_i: usize| -> (Dialect, String) { (DIALECTS[0], chain_step.clone()) };
     let mut bucket_idx = 0usize;
 
     // Per-chunk payload: the client's full request, only stream/max_tokens

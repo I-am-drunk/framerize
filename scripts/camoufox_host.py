@@ -217,6 +217,8 @@ class Account:
         self.last_mint = 0.0
         self.devices = []           # persisted pool of __cuid device ids
         self.devpool_ready = False
+        self.editor_url = None      # project editor this account "has open"
+        self.editor_file = None
         self.token_pool = {}        # castle token pool: id -> {token, ts, in_use, uses, dev}
         self.dev_cooling = {}       # device -> cooling_until (velocity ban, per-device)
         self.dev_reqs = {}          # device -> [timestamps] (rolling velocity window)
@@ -392,6 +394,50 @@ class Host:
         return page, acc, wait
 
     @staticmethod
+    async def _ensure_editor(self, acc, page, account):
+        """Keep the page resident on the account's project EDITOR, not /login.
+
+        INVISIBILITY (2026-10-05): every AI fetch carries the page's Referer
+        and every Castle token embeds its page context — minting and firing
+        generations from framer.com/login marked every request as "not a real
+        editing session" (no logged-in user sits on the login page all day).
+        A real agent user has the editor open: tokens minted there, calls
+        fired from there, ambient sync/presence traffic flowing. After any
+        navigation the castle module cache is gone, so re-warm it (and the
+        device pool) — one-time ~6-10s per page, then fast.
+        """
+        if not acc.editor_url:
+            return
+        try:
+            current = page.url or ""
+        except Exception:
+            current = ""
+        if current.startswith(acc.editor_url):
+            return
+        try:
+            await page.goto(acc.editor_url, wait_until="domcontentloaded", timeout=90000)
+            trace(f"{account[:8]}: page -> editor ({acc.editor_url.split('/')[-1][:12]}...)")
+            await page.wait_for_timeout(1500)
+            await page.evaluate(WARM_JS)
+            if acc.devices:
+                try:
+                    await page.evaluate(DEVPOOL_WARM_JS.replace('%s', json.dumps(acc.devices)))
+                except Exception:
+                    pass
+        except Exception as e:
+            trace(f"{account[:8]}: editor navigation issue ({type(e).__name__}) — continuing")
+
+    def _set_editor(self, acc, account, project_id):
+        url = f"https://framer.com/projects/{project_id}"
+        if acc.editor_url == url:
+            return
+        acc.editor_url = url
+        if acc.editor_file:
+            try:
+                json.dump({"editor_url": url}, open(acc.editor_file, "w"))
+            except Exception:
+                pass
+
     def _release(acc, page):
         acc.pool.put_nowait(page)
 
@@ -603,6 +649,14 @@ class Host:
         except Exception as e:
             trace(f"{account[:8]}: castle warm failed ({type(e).__name__}) — first real mint will pay it instead")
         acc = Account(mgr, ctx, page)
+        acc.editor_file = os.path.join(profile, "framerize-editor.json")
+        try:
+            if os.path.exists(acc.editor_file):
+                acc.editor_url = json.load(open(acc.editor_file)).get("editor_url")
+                if acc.editor_url:
+                    trace(f"{account[:8]}: editor context restored ({acc.editor_url.split('/')[-1][:12]}...)")
+        except Exception:
+            pass
         self.accounts[account] = acc
         self._human_tasks[account] = [asyncio.ensure_future(self._human_loop(account, page))]
         # Device pool (the concurrency goose): persisted uuids per account,
@@ -673,6 +727,7 @@ class Host:
             return {"cookie_header": "session=" + session, "me": json.loads(me["body"])}
         if cmd == "mint":
             page, acc, queue_wait = await self._acquire(account)
+            await self._ensure_editor(acc, page, account)
             try:
                 tok, _dev = await self._mint(acc, page, account)
             finally:
@@ -683,6 +738,10 @@ class Host:
         if cmd == "ai_post":
             page, acc, queue_wait = await self._acquire(account)
             t0 = time.monotonic()
+            pid = (req.get("body") or {}).get("projectId")
+            if pid:
+                self._set_editor(acc, account, pid)
+            await self._ensure_editor(acc, page, account)
             try:
                 # Mint under the per-account gate, THEN fetch unguarded: the
                 # mint is the risk-engine-sensitive burst, the generation is
