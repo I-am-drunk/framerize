@@ -46,8 +46,10 @@ fn mint_id() -> String {
         ^ (std::process::id() as u128) << 64
         ^ (C.fetch_add(1, Ordering::Relaxed) as u128) << 96;
     const ALPHA: &[u8] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
-    let mut out = String::with_capacity(10);
-    for _ in 0..10 {
+    // 9 base62 chars — matches the real client's turnId/sessionId shape
+    // (verified capture: "turnId":"LHXgk7pUf"). 10-char ids stood out.
+    let mut out = String::with_capacity(9);
+    for _ in 0..9 {
         out.push(ALPHA[(n % 62) as usize] as char);
         n /= 62;
     }
