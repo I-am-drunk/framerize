@@ -293,7 +293,7 @@ async fn compat_forward(
                     match chunk {
                         Some(Ok(b)) if !b.is_empty() => {
                             saw_bytes = true;
-                            return Some((Ok::<bytes::Bytes, String>(b), (up, saw_bytes)));
+                            return Some((Ok::<axum::body::Bytes, String>(b), (up, saw_bytes)));
                         }
                         Some(Ok(_)) => continue, // never forward empty writes (0-chunk = end-of-stream to some clients)
                         Some(Err(e)) => return Some((Err(e), (up, saw_bytes))),
@@ -301,7 +301,7 @@ async fn compat_forward(
                     }
                 }
                 _ = tokio::time::sleep(std::time::Duration::from_secs(8)) => {
-                    return Some((Ok::<bytes::Bytes, String>(bytes::Bytes::from_static(b": ping\n\n")), (up, saw_bytes)));
+                    return Some((Ok::<axum::body::Bytes, String>(axum::body::Bytes::from_static(b": ping\n\n")), (up, saw_bytes)));
                 }
             }
         }
