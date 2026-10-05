@@ -202,14 +202,17 @@ async fn compat_forward(
         .ok_or_else(|| ApiError("account has no current project".into()))?;
     let chat_session = session_hdr.unwrap_or_else(|| stable_session(&account.id));
 
-    // Framer caps concurrent AI requests PER WORKSPACE (429 "too many
-    // concurrent AI requests for this workspace" -- measured at 100 parallel).
-    // Hold a permit for the whole request so a large fleet queues rather than
-    // failing; the gate adapts its limit from observed 429s.
+    // Framer caps concurrent AI requests per (workspace × MODEL) — measured
+    // 2026-10-05: ~6 in-flight per model, category-independent; 6 models × 6
+    // = 36/36 clean while 12× one model = 6 pass / 6× 429. The gate keys
+    // accordingly so load spread across the model roster never trips it.
+    let gate_model = framer_core::convert::to_openrouter_id(
+        payload["model"].as_str().unwrap_or("unknown"),
+    );
     let gate_key = account
         .current_team
         .as_ref()
-        .map(|t| t.0.to_string())
+        .map(|t| format!("{}:{gate_model}", t.0))
         .unwrap_or_else(|| "default".to_string());
     let _permit = s.gate.acquire(&gate_key).await;
 
@@ -566,15 +569,14 @@ async fn free_complete(
     let chat_session =
         hdr(headers, "x-framerize-session").unwrap_or_else(|| stable_session(&account.id));
 
-    // Framer caps concurrent AI requests PER WORKSPACE (429 "too many
-    // concurrent AI requests for this workspace" -- measured: 64 parallel is
-    // clean, 100 yields 64 of them 429). Hold a permit for the whole chain so a
-    // large fleet QUEUES instead of failing. Bound to the function body, so it
-    // releases on every exit path including the streaming spawn below.
+    // Per (workspace × MODEL) concurrency — measured 2026-10-05: ~6 in-flight
+    // per model; 6 models × 6 = 36/36 clean. Keyed on the normalized upstream
+    // id (client spellings collapse to the true bucket).
+    let gate_model = anthro["model"].as_str().unwrap_or("unknown").to_string();
     let gate_key = account
         .current_team
         .as_ref()
-        .map(|t| t.0.to_string())
+        .map(|t| format!("{}:{gate_model}", t.0))
         .unwrap_or_else(|| "default".to_string());
     let _permit = s.gate.acquire(&gate_key).await;
 
