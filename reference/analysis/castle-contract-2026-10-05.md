@@ -39,22 +39,27 @@ Castle's documented token doctrine vs. observed enforcement:
 
 | doctrine (Castle docs)              | observed on /ai/v3/*            |
 | ----------------------------------- | ------------------------------- |
-| expires after 120s                  | **+300s → 200** (not enforced)  |
-| single-use per backend request      | **3× sequential reuse → 200**   |
-| (implicitly) account/session-bound  | **acct1 token + acct2 session → 200** |
-| —                                   | **same token × 12 CONCURRENT → all 403** |
+| expires after 120s                  | **+300s → 200** (TTL not enforced) |
+| single-use per backend request      | **6-USE COUPON**: uses #1-6 → 200, use #7+ → 403 **permanently** (burned token still 403 at +90s/+210s while fresh tokens pass — count cap, not a rate window) |
+| (implicitly) account/session-bound  | **acct1 token + acct2 session → 200** (also crossed devices/pages — device-binding not checked) |
+| —                                   | same token × 12 CONCURRENT → all 403 (concurrency denial exists but is partially conflated with the 6-use cap) |
 
-So the ONLY hard bind is concurrency: one token = one in-flight request at a
-time. Sequential reuse is unlimited within at least 5 minutes. Tokens are
-fungible across accounts/sessions on the same environment.
+**The token is a 6-use coupon valid ≥5 minutes, fungible across accounts,
+sessions, and pages on the same network. The only hard rules: ≤6 uses ever,
+never concurrent.**
+
+This retroactively explains "transient 403s" seen in ramp/audit traffic: any
+script reusing one token past 6 uses hits deterministic 403s that *look* like
+risk refusals but are just burned coupons. (The daemon's pre-pool
+per-chunk-mint design was safe by accident; unbounded pooling would have
+burned tokens mid-chain — caught before it bit.)
 
 Operational consequences (daemon):
-- Mint **once per chain per ~240s**, not per chunk: sequential chunks of one
-  chain may share a token (chunks are sequential by construction).
-- CONCURRENT chains must hold DISTINCT tokens (concurrent reuse → 403).
-  A small per-account token pool (acquire on chunk start, release on chunk
-  end, refresh at 240s) is the correct structure.
+- Token pool: acquire/release per chunk, **retire at 5 uses**, refresh at
+  240s, cap 8 per account. Concurrent chains always hold distinct tokens.
 - One mint page can serve all accounts (fungibility).
+- A 5-use token at ~600-token chunks serves ~3000 tokens of generation;
+  long chains transparently rotate to the next coupon.
 
 ## Layer 2 — the velocity ban ("waves")
 
