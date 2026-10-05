@@ -166,7 +166,17 @@ POOL_CAP = int(os.environ.get("FRAMERIZE_PAGE_POOL", "6"))
 # with its OWN castle module instance (modules bind the device at configure
 # time — re-minting with a swapped __cuid on a cached module does NOTHING,
 # verified), rotates the bucket per mint. Warmed concurrently at launch.
-DEVICE_POOL = int(os.environ.get("FRAMERIZE_DEVICE_POOL", "1"))  # 1 = single trusted device. Step-tag rotation made pools obsolete; >1 re-enables (farm signal!)
+# VELOCITY GOOSE (2026-10-05, proven live): the per-account velocity ban is
+# keyed per (account x DEVICE), not per account — same account on a fresh
+# __cuid got 5/5 200s while the banned device sat at 403 (all routes, both
+# JWT types). N stable persisted device ids = N x velocity budget on ONE
+# account, and N x the per-device concurrency cap (~20-24) for free. These
+# are STABLE identities (persisted in framerize-devices.json), not
+# burn-and-churn — "user owns N devices" is a real pattern.
+DEVICE_POOL = int(os.environ.get("FRAMERIZE_DEVICE_POOL", "8"))
+DEV_COOLDOWN_S = 600.0   # velocity-banned device sits out ~10 min (measured 2-15)
+DEV_WINDOW_S = 600.0     # proactive pre-ban rotation window
+DEV_WINDOW_CAP = 180     # ~180 reqs/10min/device = below the measured trip line
 
 # Castle mints are serialized PER ACCOUNT, and paced.
 #
@@ -207,7 +217,10 @@ class Account:
         self.last_mint = 0.0
         self.devices = []           # persisted pool of __cuid device ids
         self.devpool_ready = False
-        self.token_pool = {}        # castle token pool: id -> {token, ts, in_use}
+        self.token_pool = {}        # castle token pool: id -> {token, ts, in_use, uses, dev}
+        self.dev_cooling = {}       # device -> cooling_until (velocity ban, per-device)
+        self.dev_reqs = {}          # device -> [timestamps] (rolling velocity window)
+        self.dev_rr = 0             # device round-robin cursor
         self.mint_page = None       # DEDICATED mint page — never runs fetches
 
 
@@ -239,10 +252,10 @@ DEVPOOL_WARM_JS = """(async () => {
   return Object.keys(window.__devmods).length;
 })()"""
 
-DEVPOOL_MINT_JS = """(async (ids) => {
+DEVPOOL_MINT_JS = """(async ([ids, wantDev]) => {
   if (!window.__devmods || Object.keys(window.__devmods).length === 0) return null;
   window.__devidx = ((window.__devidx || 0) + 1) % ids.length;
-  const dev = ids[window.__devidx];
+  const dev = (wantDev && window.__devmods[wantDev]) ? wantDev : ids[window.__devidx];
   const mod = window.__devmods[dev];
   if (!mod) return null;
   // Keep the ambient device aligned with the minting module (the AI request
@@ -253,7 +266,7 @@ DEVPOOL_MINT_JS = """(async (ids) => {
   } catch(e) {}
   for (let i = 0; i < 3; i++) {
     const t = await mod.a();
-    if (t) return t;
+    if (t) return { t, dev };
     await new Promise(r => setTimeout(r, 600));
   }
   return null;
@@ -414,12 +427,45 @@ class Host:
                          # design was SAFE by accident; unbounded pooling was not.
     TOKEN_POOL_CAP = 8
 
-    async def _token_acquire(self, acc, page, account):
-        """Castle token pool (contract: sequential reuse is free; CONCURRENT
-        reuse of one token is the only deny signature). Hands out an idle
-        fresh-enough token, else mints. Concurrent callers always get distinct
-        tokens because in_use flips atomically before any await in the reuse
-        path (asyncio single-thread)."""
+    def _pick_device(self, acc):
+        """Velocity-aware device choice: round-robin over the persisted device
+        pool, skipping velocity-cooled devices and devices over the proactive
+        window budget. Falls back to the (single) uncooled device or the
+        least-recently-cooled one."""
+        devs = acc.devices or [None]
+        now = time.monotonic()
+        for _ in range(len(devs)):
+            acc.dev_rr = (acc.dev_rr + 1) % len(devs)
+            d = devs[acc.dev_rr]
+            if acc.dev_cooling.get(d, 0) > now:
+                continue
+            reqs = [t for t in acc.dev_reqs.get(d, []) if now - t < DEV_WINDOW_S]
+            acc.dev_reqs[d] = reqs
+            if len(reqs) >= DEV_WINDOW_CAP:
+                continue
+            return d
+        # everything cooling/over-budget: take the device whose cooldown ends soonest
+        if acc.devices:
+            return min(acc.devices, key=lambda d: acc.dev_cooling.get(d, 0))
+        return None
+
+    def _note_request(self, acc, dev):
+        acc.dev_reqs.setdefault(dev, []).append(time.monotonic())
+
+    def _cool_device(self, acc, dev, account):
+        acc.dev_cooling[dev] = time.monotonic() + DEV_COOLDOWN_S
+        # burn the device's outstanding coupons: a banned device's tokens all
+        # draw from its drained velocity budget
+        for tid in [k for k, v in acc.token_pool.items() if v.get("dev") == dev]:
+            del acc.token_pool[tid]
+        trace(f"{account[:8]}: device {str(dev)[:8]} velocity-cooling {int(DEV_COOLDOWN_S)}s (rotating)")
+
+    async def _token_acquire(self, acc, page, account, dev=None):
+        """Castle token pool, device-aware (velocity budgets key on the token's
+        embedded CUID): prefers idle coupons minted on the REQUESTED device,
+        else mints on it. Sequential reuse is free; concurrent reuse of one
+        token is the only deny signature (in_use flips atomically before any
+        await in the reuse path — asyncio single-thread)."""
         now = time.monotonic()
         acc.token_pool = {k: v for k, v in acc.token_pool.items()
                           if now - v["ts"] < self.TOKEN_TTL_S}
@@ -427,20 +473,22 @@ class Host:
             if ent["uses"] >= self.TOKEN_MAX_USES:
                 del acc.token_pool[tid]  # burned coupon — retire
                 continue
+            if dev is not None and ent.get("dev") != dev:
+                continue  # stay on the velocity-selected device
             if not ent["in_use"]:
                 ent["in_use"] = True
                 ent["uses"] += 1
-                trace(f"{account[:8]}: token reuse #{ent['uses']} (age {now - ent['ts']:.0f}s, pool {len(acc.token_pool)})")
-                return tid, ent["token"]
+                trace(f"{account[:8]}: token reuse #{ent['uses']} dev {str(ent.get('dev'))[:8]} (age {now - ent['ts']:.0f}s, pool {len(acc.token_pool)})")
+                return tid, ent["token"], ent.get("dev")
         if len(acc.token_pool) >= self.TOKEN_POOL_CAP:
-            tok = await self._mint(acc, page, account)  # all busy: transient, don't grow
-            return None, tok
-        tok = await self._mint(acc, page, account)
+            tok, used_dev = await self._mint(acc, page, account, dev)  # all busy: transient
+            return None, tok, used_dev
+        tok, used_dev = await self._mint(acc, page, account, dev)
         if not tok:
-            return None, None
+            return None, None, None
         tid = uuid.uuid4().hex[:12]
-        acc.token_pool[tid] = {"token": tok, "ts": now, "in_use": True, "uses": 1}
-        return tid, tok
+        acc.token_pool[tid] = {"token": tok, "ts": now, "in_use": True, "uses": 1, "dev": used_dev}
+        return tid, tok, used_dev
 
     def _token_release(self, acc, tid):
         if tid is None:
@@ -449,7 +497,7 @@ class Host:
         if ent:
             ent["in_use"] = False
 
-    async def _mint(self, acc, page, account):
+    async def _mint(self, acc, page, account, dev=None):
         """Mint one Castle token, serialized and paced per ACCOUNT.
 
         All of an account's pages share one device id (__cuid), so simultaneous
@@ -474,20 +522,24 @@ class Host:
             burst_ms = 0  # pre-mint burst REMOVED: it was the bottleneck
             # (19-21s under humanize=True). The per-page humanize loops keep
             # Castle's behavioral buffers warm between mints.
+            used_dev = dev
             if acc.devpool_ready and acc.devices:
                 try:
-                    tok = await page.evaluate(DEVPOOL_MINT_JS, acc.devices)
+                    res = await page.evaluate(DEVPOOL_MINT_JS, [acc.devices, dev])
+                    if res:
+                        tok, used_dev = res.get("t"), res.get("dev")
                 except Exception:
                     tok = None
             if not tok:
                 tok = await page.evaluate(MINT_JS)
+                used_dev = None  # single-device path (ambient __cuid)
             acc.last_mint = time.monotonic()
             emit("castle.mint", account=account[:8],
                  duration_ms=int((acc.last_mint - t0) * 1000),
-                 burst_ms=burst_ms,
+                 burst_ms=burst_ms, device=str(used_dev)[:8] if used_dev else None,
                  outcome="ok" if tok else "error",
                  **({} if tok else {"error": "castle-unavailable"}))
-            return tok
+            return tok, used_dev
 
     async def _account(self, account, proxy=None):
         if account in self.accounts:
@@ -622,7 +674,7 @@ class Host:
         if cmd == "mint":
             page, acc, queue_wait = await self._acquire(account)
             try:
-                tok = await self._mint(acc, page, account)
+                tok, _dev = await self._mint(acc, page, account)
             finally:
                 self._release(acc, page)
             if not tok:
@@ -635,11 +687,20 @@ class Host:
                 # Mint under the per-account gate, THEN fetch unguarded: the
                 # mint is the risk-engine-sensitive burst, the generation is
                 # just a long I/O await that parallelizes freely.
-                tid, tok = await self._token_acquire(acc, page, account)
-                if not tok:
-                    r = {"status": 0, "usage": None, "body": "castle-unavailable"}
-                else:
+                # VELOCITY GOOSE: pick a device by budget, fire, and if the
+                # device is velocity-banned (403) cool it and INSTANTLY retry
+                # on the next device — a per-device ban never reaches callers.
+                attempts = 1 + min(2, len(acc.devices or [None]))
+                r = None
+                for attempt in range(attempts):
+                    dev = self._pick_device(acc)
+                    tid, tok, used_dev = await self._token_acquire(acc, page, account, dev)
+                    if not tok:
+                        r = {"status": 0, "usage": None, "body": "castle-unavailable"}
+                        break
                     try:
+                        self._note_request(acc, used_dev)
+                        fetch_t0 = time.monotonic()
                         job = "job-" + uuid.uuid4().hex
                         await page.evaluate(AI_START_JS, [req["path"], req["body"], tok, req.get("bearer"), job])
                         deadline = time.monotonic() + 310
@@ -651,11 +712,22 @@ class Host:
                                 r = {"status": -1, "usage": None, "body": "sidecar poll timeout (310s)"}
                                 break
                             await asyncio.sleep(0.5)
+                        r["_fetch_ms"] = int((time.monotonic() - fetch_t0) * 1000)
                     finally:
                         # release only after the response fully arrived — the
                         # token's request is then complete, so a later use is
                         # the proven-safe SEQUENTIAL case (never concurrent).
                         self._token_release(acc, tid)
+                    # Velocity 403s are FAST (~50-150ms measured); the
+                    # idle-window kill is also a 403 but arrives after 8+s of
+                    # silence — retrying that on a fresh device would just die
+                    # again and wrongly cool the device. Only rotate on fast 403s.
+                    if r["status"] == 403 and r.get("_fetch_ms", 9999) < 4000 and attempt + 1 < attempts:
+                        # velocity ban is per-device (proven): cool this one,
+                        # rotate, retry — invisible to the caller.
+                        self._cool_device(acc, used_dev, account)
+                        continue
+                    break
             finally:
                 self._release(acc, page)
             emit("ai.post", account=account[:8], path=req["path"], status=r["status"],
