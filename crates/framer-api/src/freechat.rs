@@ -31,7 +31,7 @@ use futures::StreamExt;
 #[allow(clippy::too_many_arguments)]
 pub async fn complete_long(
     t: &Transport,
-    token_cache: &Mutex<Option<(AccountId, AiToken)>>,
+    token_cache: &Mutex<Vec<(AccountId, AiToken)>>,
     session: &Session,
     browser: &dyn BrowserBridge,
     account: &AccountId,
@@ -499,7 +499,7 @@ struct StreamedChunk {
 #[allow(clippy::too_many_arguments)]
 async fn stream_chunk(
     t: &Transport,
-    token_cache: &Mutex<Option<(AccountId, AiToken)>>,
+    token_cache: &Mutex<Vec<(AccountId, AiToken)>>,
     session: &Session,
     browser: &dyn BrowserBridge,
     account: &AccountId,
