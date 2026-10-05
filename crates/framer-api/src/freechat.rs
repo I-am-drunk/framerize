@@ -181,6 +181,9 @@ pub async fn complete_long(
                         // per bucket, so the next one is empty. Only after ~10
                         // hops (the whole rotation twice) a real sleep.
                         rate_retries += 1;
+                        if let Some(cb) = &cfg.on_429 {
+                            cb();
+                        }
                         bucket_idx += 1;
                         let (d2, s2) = bucket(bucket_idx);
                         if rate_retries > 10 {

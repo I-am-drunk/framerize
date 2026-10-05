@@ -155,6 +155,11 @@ pub struct ChainConfig {
     /// FRAMERIZE_ALLOW_METERED=1. With it off, exhausted free retries return a
     /// clean error instead of spending.
     pub metered_fallback: bool,
+    /// Fired on the FIRST 429 a chain sees (and each after): lets the server
+    /// mark the workspace saturated for rotation steering immediately instead
+    /// of waiting for chain exhaustion (2026-10-05: 15 429s in 4 min with zero
+    /// preemptive marks).
+    pub on_429: Option<std::sync::Arc<dyn Fn() + Send + Sync>>,
 }
 
 
@@ -166,6 +171,7 @@ impl Default for ChainConfig {
             continue_prompt: "Continue exactly where you stopped. No preamble, no recap.".into(),
             max_total_tokens: None,
             metered_fallback: false,
+            on_429: None,
         }
     }
 }
