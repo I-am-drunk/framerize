@@ -251,7 +251,9 @@ async fn compat_forward(
             }
             let _ = tx.send(r).await;
         });
-        let stream = futures::stream::unfold((rx, None, false), |(mut rx, mut up, drained)| async move {
+        let stream = futures::stream::unfold(
+            (rx, None::<framer_core::port::ProxyResponse>, false),
+            |(mut rx, mut up, drained)| async move {
             loop {
                 if let Some(us) = &mut up {
                     // upstream arrived: yield its body chunks until exhausted
