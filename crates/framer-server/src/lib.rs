@@ -219,6 +219,82 @@ async fn compat_forward(
         .unwrap_or_else(|| "default".to_string());
     let _permit = s.gate.acquire(&gate_key).await;
 
+    // STREAMING CLIENTS: return immediately with an SSE response; the upstream
+    // call runs in a task while the body emits keepalive pings. Without this
+    // the client sat with NO headers for the whole generation (the in-page
+    // transport completes before it yields) and codex's idle timeout killed
+    // every long turn — "We're currently experiencing high demand".
+    if client_wants_stream {
+        let s2 = s.clone();
+        let account2 = account.clone();
+        let session2 = session.clone();
+        let project2 = project.clone();
+        let chat2 = chat_session.clone();
+        let dialect2 = dialect.to_string();
+        let gate2 = s.gate.clone();
+        let gate_key2 = gate_key.clone();
+        let (tx, mut rx) = tokio::sync::mpsc::channel::<Result<framer_core::port::ProxyResponse, String>>(1);
+        tokio::spawn(async move {
+            let r = s2
+                .client
+                .proxy(&session2, s2.browser.as_ref(), &account2.id, &project2, &dialect2, payload, &chat2)
+                .await;
+            match &r {
+                Ok(_) => gate2.on_success(&gate_key2).await,
+                Err(e) if e.contains("retryable 429") => {
+                    gate2.on_overloaded(&gate_key2).await;
+                    if let Some(team) = account2.current_team.as_ref() {
+                        framer_core::rotation::mark_saturated(&team.0, 45_000);
+                    }
+                }
+                Err(_) => {}
+            }
+            let _ = tx.send(r).await;
+        });
+        let stream = futures::stream::unfold((rx, None, false), |(mut rx, mut up, drained)| async move {
+            loop {
+                if let Some(us) = &mut up {
+                    // upstream arrived: yield its body chunks until exhausted
+                    match futures::StreamExt::next(&mut us.stream).await {
+                        Some(Ok(b)) if !b.is_empty() => {
+                            return Some((Ok::<axum::body::Bytes, String>(b), (rx, up, drained)));
+                        }
+                        Some(Ok(_)) => continue,
+                        Some(Err(e)) => return Some((Err(e), (rx, up, drained))),
+                        None => return None,
+                    }
+                }
+                tokio::select! {
+                    r = rx.recv() => {
+                        match r {
+                            Some(Ok(us)) => { up = Some(us); continue; }
+                            Some(Err(e)) => {
+                                // upstream failed pre-headers: send an in-band SSE
+                                // comment with the cause (200 already on the wire)
+                                let msg = format!(": upstream error: {}\n\n", e.replace('\n', " "));
+                                return Some((Ok(axum::body::Bytes::from(msg)), (rx, None, true)));
+                            }
+                            None => return None,
+                        }
+                    }
+                    _ = tokio::time::sleep(std::time::Duration::from_secs(8)) => {
+                        return Some((Ok::<axum::body::Bytes, String>(axum::body::Bytes::from_static(b": ping\n\n")), (rx, up, drained)));
+                    }
+                }
+            }
+        });
+        let mut resp = axum::response::Response::new(axum::body::Body::from_stream(stream));
+        resp.headers_mut().insert(
+            axum::http::header::CONTENT_TYPE,
+            axum::http::HeaderValue::from_static("text/event-stream"),
+        );
+        resp.headers_mut().insert(
+            "x-framerize-session",
+            chat_session.parse().unwrap_or(axum::http::HeaderValue::from_static("")),
+        );
+        return Ok(resp);
+    }
+
     let upstream = s
         .client
         .proxy(
@@ -278,35 +354,17 @@ async fn compat_forward(
         return Ok(resp);
     }
 
-    // HEARTBEAT-WRAP the direct stream (2026-10-05): the in-page transport
-    // delivers the upstream body as ONE burst at completion, so a "streaming"
-    // client sat in total silence for the whole generation — Codex's
-    // app-server idle-timeout killed it mid-wait:
-    // responseStreamDisconnected{httpStatusCode:null} rendered as
-    // "We're currently experiencing high demand". Emit SSE comment pings
-    // every 8s of silence (parser-ignored, legal SSE) until bytes arrive.
-    let mut upstream_stream = upstream.stream;
-    let body_stream = futures::stream::unfold((upstream_stream, false), |(mut up, mut saw_bytes)| async move {
-        loop {
-            tokio::select! {
-                chunk = futures::StreamExt::next(&mut up) => {
-                    match chunk {
-                        Some(Ok(b)) if !b.is_empty() => {
-                            saw_bytes = true;
-                            return Some((Ok::<axum::body::Bytes, String>(b), (up, saw_bytes)));
-                        }
-                        Some(Ok(_)) => continue, // never forward empty writes (0-chunk = end-of-stream to some clients)
-                        Some(Err(e)) => return Some((Err(e), (up, saw_bytes))),
-                        None => return None,
-                    }
-                }
-                _ = tokio::time::sleep(std::time::Duration::from_secs(8)) => {
-                    return Some((Ok::<axum::body::Bytes, String>(axum::body::Bytes::from_static(b": ping\n\n")), (up, saw_bytes)));
-                }
-            }
-        }
-    });
-    let body = axum::body::Body::from_stream(body_stream);
+    // STREAMING HEARTBEAT (2026-10-05): the in-page transport returns the
+    // upstream body only at COMPLETION, and the old code awaited it inside the
+    // handler — the client got neither headers nor bytes for the whole
+    // generation, so codex's app-server idle-timeout killed every long turn
+    // (responseStreamDisconnected{httpStatusCode:null} → its generic
+    // "We're currently experiencing high demand" message). Fix: return the
+    // SSE response immediately, run the upstream call in a task, emit
+    // keepalive comment pings during the wait, then stream the body.
+    // Non-streaming client + non-SSE upstream (plain JSON): pass through.
+    // (Streaming clients returned early above; SSE upstreams aggregate above.)
+    let body = axum::body::Body::from_stream(upstream.stream);
     let mut resp = axum::response::Response::new(body);
     *resp.status_mut() = status;
     resp.headers_mut().insert(
