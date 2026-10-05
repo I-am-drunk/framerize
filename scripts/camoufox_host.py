@@ -129,7 +129,16 @@ def post_js(path, body, bearer=None):
 })()""" % (MINT_JS, json.dumps(body), API, path, auth)
 
 
-AI_START_JS = """(async ([path, body, token, bearer, jobId]) => {
+AI_START_JS = """(async ([path, body, token, bearer, jobId, dev]) => {
+  // The velocity/concurrency counters key on the page's __cuid (measured
+  // 2026-10-05: spliced tokens claiming other devices do NOT multiply the
+  // bucket). Align the ambient device with the token's claimed device BEFORE
+  // firing — pooled tokens minted for device Y must not be counted against
+  // whatever device the last mint left behind.
+  if (dev) {
+    try { localStorage.setItem('__cuid', dev); } catch(e) {}
+    try { document.cookie = '__cuid=' + dev + '; domain=.framer.com; path=/; secure; samesite=None'; } catch(e) {}
+  }
   // FIRE-AND-POLL (2026-10-04): the browser driver serializes long-lived
   // protocol calls per process — an evaluate that awaits a 100s fetch holds
   // EVERY other command behind it (this was the 46s-mint / phantom-collapse
@@ -160,6 +169,14 @@ AI_POLL_JS = """((jobId) => {
 
 
 POOL_CAP = int(os.environ.get("FRAMERIZE_PAGE_POOL", "6"))
+
+# Offline Castle token forge (harvest once, mint locally forever after).
+try:
+    sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+    import castle_forge as _cf
+except Exception:
+    _cf = None
+FORGE_MAX_AGE_S = float(os.environ.get("FRAMERIZE_FORGE_MAX_AGE", "1500"))  # re-harvest every 25min
 # The workspace concurrency cap counts PER DEVICE (verified 2026-10-04: 6
 # concurrent generations on __cuid A + 6 on __cuid B, same workspace/route/
 # model → ALL 200; one device alone 429s past ~5). A pool of device ids, each
@@ -217,6 +234,7 @@ class Account:
         self.last_mint = 0.0
         self.devices = []           # persisted pool of __cuid device ids
         self.devpool_ready = False
+        self.forge_parts = {}       # device cuid -> {parts, born} for offline forging
         self.editor_url = None      # project editor this account "has open"
         self.editor_file = None
         self.token_pool = {}        # castle token pool: id -> {token, ts, in_use, uses, dev}
@@ -586,6 +604,19 @@ class Host:
         mint from an already-refused device is what turns a transient refusal
         into a sticky one.
         """
+        # FORGE-FIRST (2026-10-05): if we hold fresh harvested parts for the
+        # requested device, mint locally — no browser eval, no pacing gap, no
+        # SDK race. Parts come from any real browser mint (harvested below)
+        # and are refreshed every FORGE_MAX_AGE_S.
+        if _cf is not None and dev is not None:
+            ent = acc.forge_parts.get(dev)
+            if ent and (time.monotonic() - ent["born"]) < FORGE_MAX_AGE_S:
+                try:
+                    tok = _cf.forge(ent["parts"], dev)
+                    emit("castle.forge", account=account[:8], device=str(dev)[:8], outcome="ok")
+                    return tok, dev
+                except Exception:
+                    pass  # fall through to a live mint
         async with acc.mint_lock:
             gap = MINT_GAP_S - (time.monotonic() - acc.last_mint)
             if gap > 0:
@@ -610,6 +641,12 @@ class Host:
                 tok = await page.evaluate(MINT_JS)
                 used_dev = None  # single-device path (ambient __cuid)
             acc.last_mint = time.monotonic()
+            if tok and _cf is not None:
+                try:
+                    parts = _cf.harvest(tok)
+                    acc.forge_parts[parts["cuid"]] = {"parts": parts, "born": time.monotonic()}
+                except Exception:
+                    pass
             emit("castle.mint", account=account[:8],
                  duration_ms=int((acc.last_mint - t0) * 1000),
                  burst_ms=burst_ms, device=str(used_dev)[:8] if used_dev else None,
@@ -791,7 +828,7 @@ class Host:
                         self._note_request(acc, used_dev)
                         fetch_t0 = time.monotonic()
                         job = "job-" + uuid.uuid4().hex
-                        await page.evaluate(AI_START_JS, [req["path"], req["body"], tok, req.get("bearer"), job])
+                        await page.evaluate(AI_START_JS, [req["path"], req["body"], tok, req.get("bearer"), job, used_dev])
                         # Deadline scales with the chunk's expected duration:
                         # a 4300-token chunk at collapse speed (~11 tok/s)
                         # legitimately needs ~390s — the flat 310s raced it and
