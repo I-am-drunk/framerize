@@ -211,3 +211,48 @@ immunity to chunk-URL rotation + zero mint latency.
 Note: a short anti-replay window exists — a string re-fired within seconds of
 its first use can 403 (observed 3× on ~5s turnaround). The pool already avoids
 in-flight reuse; add a small per-string cooldown if re-firing fast.
+
+## BREAKTHROUGH: browserless transport (2026-10-05, clean-window verified)
+
+The "token and transport must share one browser environment" rule was WRONG —
+an artifact of testing with a bare reqwest (giveaway UA). In a clean window,
+from a residential IP, plain **curl** passed 200 with:
+
+- a real v2 token (200)
+- a FORGED v2 token (splice, arbitrary claimed device) (200)
+- the exact Camoufox UA (Windows Firefox persona) (200)
+- garbage UA `Framerize/0.1` (200 — once)
+
+The actual transport rule set (v2):
+1. valid v2 token (structure + content — both forgable offline)
+2. **NOT a standalone-Chrome UA** (Chrome/141 UA → 403 even with a valid token;
+   v2 is the non-Chromium fallback, so v2+Chrome-UA is the anomaly they check).
+   Non-Chrome UAs pass.
+3. IP not reputation-flagged (residential ✓, datacenter ✗)
+4. valid session cookie + fresh JWT (600s TTL enforced — stale JWT → 403;
+   session-rotated mismatch → 401)
+5. UA CONSISTENCY per session: firing the same session with 7 different UAs in
+   minutes is itself a flag (variety = spoofing indicator). Pick one UA per
+   account and keep it.
+
+Consequence: **the daemon does not need a browser for the request path at
+all.** Steady state: harvest once per account per ~25min (one browser page),
+forge all tokens offline, fire via plain HTTP with the account's persona UA.
+Browsers remain only for login flows + harvest. (Production switch deferred:
+the in-page path is proven under all conditions incl. hot accounts; the HTTP
+path was verified in clean windows. Re-verify in a clean window before
+switching transports.)
+
+## Pen-test findings (2026-10-05)
+
+- alg:none / garbage JWT → 401. Signature properly verified. Dead.
+- Path normalization: /ai/v3/messages/. and /%2e → 200 (normalized to same
+  route, full validation). Double-slash/no-slash/params → 404. No bypass.
+- Parameter pollution (castleToken2=valid alongside garbage castleToken) →
+  403. The server reads the exact field. Dead.
+- No __cuid cookie → 200 (structural layer doesn't require it). The SDK
+  re-creates it instantly in-browser, so true cookie-less firing needs
+  transport outside the page (now possible via curl).
+- Extended testing degrades the account within the hour (UA variety + odd
+  patterns) — Castle behavior-scores the TESTING itself. Pen-tests must be
+  spaced, and sacrificial accounts used for destructive batteries.
