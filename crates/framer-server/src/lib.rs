@@ -89,10 +89,15 @@ pub fn router(state: AppState, web_dir: &str) -> Router {
         // Claude Code gateway protocol: token counting is optional (the client
         // falls back to a character estimate when absent), but cheap to serve.
         .route("/v1/messages/count_tokens", post(count_tokens))
+        // Warming probe (gateway protocol): clients hit {BASE_URL}/api/hello —
+        // with base /anthropic that's /anthropic/api/hello, NOT /api/hello
+        // (measured: 30× 404s in 2h from Claude Code warming).
+        .route("/api/hello", get(|| async { "ok" }).head(|| async { "ok" }))
         .with_state(state.clone());
     let openai = Router::new()
         .route("/v1/responses", post(openai_responses))
         .route("/v1/chat/completions", post(openai_chat))
+        .route("/api/hello", get(|| async { "ok" }).head(|| async { "ok" }))
         .with_state(state.clone());
 
     // Convention: the BARE compat routes are the free path (unmetered chain),
