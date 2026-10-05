@@ -139,11 +139,15 @@ async fn attempt(
     // Counters are separate: hammering translation never touched the agents
     // budget (healthchecks stayed 200). Fallback: if a model is rejected
     // for the category, retry once as "agents".
+    // featureName must match the category (verified in the decompiled client:
+    // real translation traffic sends translation/translation/translate —
+    // our agents-mismatched meta was an inconsistency a reviewer would spot).
+    let feature_name = if category == "translation" { "translation" } else { "agents" };
     let turn_id = crate::inference::mint_id_pub();
     let body = json!({
         "projectId": project.0,
         "featureCategory": category,
-        "featureName": "agents",
+        "featureName": feature_name,
         "step": step,
         "sessionId": chat_session,
         "stepIndex": 0,
@@ -195,7 +199,7 @@ async fn attempt(
         let refund_body = json!({
             "projectId": project.0,
             "featureCategory": category,
-            "featureName": "agents",
+            "featureName": feature_name,
             "step": step,
             "sessionId": chat_session,
             "stepIndex": 0,
