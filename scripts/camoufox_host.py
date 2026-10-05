@@ -411,7 +411,13 @@ class Host:
             current = page.url or ""
         except Exception:
             current = ""
-        if current.startswith(acc.editor_url):
+        # The editor SPA redirects /projects/<id> to the slugged
+        # /projects/<name>--<id> — a startswith() check on the bare-id URL
+        # NEVER matched, so every ai_post re-navigated (52 in 10 min, chains
+        # stalling 10-90s per chunk — "sessions not moving"). Match the id
+        # anywhere in the URL instead.
+        pid = acc.editor_url.rsplit('/', 1)[-1]
+        if pid and pid in current:
             return
         try:
             await page.goto(acc.editor_url, wait_until="domcontentloaded", timeout=90000)
