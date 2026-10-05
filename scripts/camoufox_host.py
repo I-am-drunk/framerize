@@ -24,7 +24,7 @@ Protocol: newline-delimited JSON on stdin/stdout (unchanged).
 State root: $FRAMERIZE_STATE (default ~/.framerize/camoufox). Tokens: accept
 v3 AND v2 (Framer ships the v2 fallback itself; Firefox mints v2).
 """
-import asyncio, random, uuid, random, json, os, shutil, sys, time
+import asyncio, base64, random, uuid, json, os, shutil, sys, time
 
 LOG_DIR = os.environ.get("FRAMERIZE_LOG_DIR")
 
@@ -473,6 +473,7 @@ class Host:
         return page
 
     TOKEN_TTL_S = 240.0  # contract 2026-10-05: sequential reuse proven at +300s; docs claim 120s
+    TOKEN_CONTENT_MAX_AGE_S = 1800.0  # re-wrap hygiene: re-mint the base after 30min even though server TTL is unenforced
     TOKEN_MAX_USES = 5   # contract 2026-10-05: a token is a 6-USE coupon — use #7
                          # returns 403 deterministically (verified: #1-6 pass, #7+ all
                          # 403). Retire at 5 to stay under. The old per-chunk-mint
@@ -512,6 +513,22 @@ class Host:
             del acc.token_pool[tid]
         trace(f"{account[:8]}: device {str(dev)[:8]} velocity-cooling {int(DEV_COOLDOWN_S)}s (rotating)")
 
+    @staticmethod
+    def _rewrap_token(token):
+        """Outer-layer re-wrap: decode the outer XOR with the embedded key byte,
+        re-XOR with a fresh random byte. New token STRING, byte-identical content.
+        VERIFIED 2026-10-05 (the Castle goose): the server's 6-use coupon tracker
+        keys on the STRING — a burned coupon re-wrapped passes 200, and each
+        re-wrapped string gets its own 6 uses. Pure python, no browser eval:
+        one real mint now yields unlimited coupons."""
+        raw = base64.urlsafe_b64decode(token + "=" * (-len(token) % 4))
+        k1 = raw[0]
+        body = bytes(b ^ k1 for b in raw[1:])
+        k2 = random.randint(1, 255)
+        while k2 == k1:
+            k2 = random.randint(1, 255)
+        return base64.urlsafe_b64encode(bytes([k2]) + bytes(b ^ k2 for b in body)).decode().rstrip("=")
+
     async def _token_acquire(self, acc, page, account, dev=None):
         """Castle token pool, device-aware (velocity budgets key on the token's
         embedded CUID): prefers idle coupons minted on the REQUESTED device,
@@ -519,14 +536,21 @@ class Host:
         token is the only deny signature (in_use flips atomically before any
         await in the reuse path — asyncio single-thread)."""
         now = time.monotonic()
-        acc.token_pool = {k: v for k, v in acc.token_pool.items()
-                          if now - v["ts"] < self.TOKEN_TTL_S}
         for tid, ent in list(acc.token_pool.items()):
-            if ent["uses"] >= self.TOKEN_MAX_USES:
-                del acc.token_pool[tid]  # burned coupon — retire
+            if now - ent.get("born", ent["ts"]) > self.TOKEN_CONTENT_MAX_AGE_S:
+                del acc.token_pool[tid]  # content too old — re-mint for hygiene
                 continue
             if dev is not None and ent.get("dev") != dev:
                 continue  # stay on the velocity-selected device
+            if ent["uses"] >= self.TOKEN_MAX_USES:
+                # Coupon spent — RE-WRAP instead of re-minting: the tracker keys
+                # on the token string, so a fresh string = a fresh 6-use coupon
+                # for byte-identical content (verified 2026-10-05).
+                ent["token"] = self._rewrap_token(ent["token"])
+                ent["uses"] = 0
+                ent["ts"] = now
+                ent["wraps"] = ent.get("wraps", 0) + 1
+                trace(f"{account[:8]}: token re-wrapped (wrap #{ent['wraps']} dev {str(ent.get('dev'))[:8]}) — fresh coupon, no mint")
             if not ent["in_use"]:
                 ent["in_use"] = True
                 ent["uses"] += 1
@@ -539,7 +563,7 @@ class Host:
         if not tok:
             return None, None, None
         tid = uuid.uuid4().hex[:12]
-        acc.token_pool[tid] = {"token": tok, "ts": now, "in_use": True, "uses": 1, "dev": used_dev}
+        acc.token_pool[tid] = {"token": tok, "ts": now, "born": now, "in_use": True, "uses": 1, "dev": used_dev}
         return tid, tok, used_dev
 
     def _token_release(self, acc, tid):
