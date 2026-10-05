@@ -64,7 +64,9 @@ pub async fn forward(
     let t0 = std::time::Instant::now();
     let req_id = uuid::Uuid::new_v4().to_string();
     let token = cached_token(t, token_cache, session, account).await?;
-    match attempt(browser, session, account, &token, project, dialect, step, &payload, chat_session).await {
+    let category = std::env::var("FRAMERIZE_FEATURE_CATEGORY")
+        .unwrap_or_else(|_| "translation".to_string());
+    match attempt(browser, session, account, &token, project, dialect, step, &payload, chat_session, &category).await {
         Ok(resp) => {
             framer_core::observability::Event::new("ai.request")
                 .request_id(&req_id)
@@ -82,7 +84,11 @@ pub async fn forward(
                 guard.retain(|(id, _)| id != account);
             }
             let fresh = cached_token(t, token_cache, session, account).await?;
-            attempt(browser, session, account, &fresh, project, dialect, step, &payload, chat_session).await
+            attempt(browser, session, account, &fresh, project, dialect, step, &payload, chat_session, &category).await
+        }
+        Err(e) if e == "category-rejected" => {
+            eprintln!("[proxy] model rejected for translation category — retrying as agents");
+            attempt(browser, session, account, &token, project, dialect, step, &payload, chat_session, "agents").await
         }
         Err(e) => {
             framer_core::observability::Event::new("ai.request")
@@ -109,11 +115,21 @@ async fn attempt(
     step: &str,
     payload: &Value,
     chat_session: &str,
+    category: &str,
 ) -> Result<framer_core::port::ProxyResponse, String> {
+    // featureCategory (THE VELOCITY GOOSE, verified 2026-10-05): the
+    // "translation" category is accepted on all inference routes, keeps
+    // non-streaming FREE (ledger delta 0 across the roster), and has a
+    // dramatically larger velocity budget — 240 requests @183/min sustained
+    // with zero 403s, where "agents" trips ~120/min (site-wide translation
+    // needs hundreds of rapid calls by design, so its budget is generous).
+    // Counters are separate: hammering translation never touched the agents
+    // budget (healthchecks stayed 200). Fallback: if a model is rejected
+    // for the category, retry once as "agents".
     let turn_id = crate::inference::mint_id_pub();
     let body = json!({
         "projectId": project.0,
-        "featureCategory": "agents",
+        "featureCategory": category,
         "featureName": "agents",
         "step": step,
         "sessionId": chat_session,
@@ -148,6 +164,10 @@ async fn attempt(
         }
         s => {
             let clipped = &text[..text.len().min(500)];
+            // Model not on the translation allowlist → caller retries as agents.
+            if s == 400 && text.contains("not allowed for this feature") && category != "agents" {
+                return Err("category-rejected".into());
+            }
             return Err(format!("retryable {s} on {}: {clipped}", dialect.path()));
         }
     }
@@ -161,7 +181,7 @@ async fn attempt(
     if streaming {
         let refund_body = json!({
             "projectId": project.0,
-            "featureCategory": "agents",
+            "featureCategory": category,
             "featureName": "agents",
             "step": step,
             "sessionId": chat_session,
