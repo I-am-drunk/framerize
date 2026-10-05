@@ -73,6 +73,10 @@ pub async fn complete_long(
     // were an inspection-visible anomaly. The per-step concurrency dodge they
     // bought is redundant: the cap is per-device under translation (measured
     // ~5/device), and the device pool covers concurrency. Constant REAL step.
+    let chain_nonce = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs() as u64 ^ ((d.subsec_nanos() as u64) << 20))
+        .unwrap_or(0x9e3779b97f4a7c15);
     let chain_step: String =
         if std::env::var("FRAMERIZE_FEATURE_CATEGORY").unwrap_or_default() == "translation" {
             "translate".to_string()
