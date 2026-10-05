@@ -768,13 +768,22 @@ class Host:
                         fetch_t0 = time.monotonic()
                         job = "job-" + uuid.uuid4().hex
                         await page.evaluate(AI_START_JS, [req["path"], req["body"], tok, req.get("bearer"), job])
-                        deadline = time.monotonic() + 310
+                        # Deadline scales with the chunk's expected duration:
+                        # a 4300-token chunk at collapse speed (~11 tok/s)
+                        # legitimately needs ~390s — the flat 310s raced it and
+                        # three chains died mid-generation (2026-10-05 audit).
+                        est_s = 60.0
+                        try:
+                            est_s = max(60.0, float(req["body"].get("request", {}).get("max_tokens", 600)) / 10.0 * 3.0)
+                        except Exception:
+                            pass
+                        deadline = time.monotonic() + min(900.0, est_s)
                         while True:
                             r = await page.evaluate(AI_POLL_JS, job)
                             if r is not None:
                                 break
                             if time.monotonic() > deadline:
-                                r = {"status": -1, "usage": None, "body": "sidecar poll timeout (310s)"}
+                                r = {"status": -1, "usage": None, "body": f"sidecar poll timeout ({int(est_s)}s)"}
                                 break
                             await asyncio.sleep(0.5)
                         r["_fetch_ms"] = int((time.monotonic() - fetch_t0) * 1000)
