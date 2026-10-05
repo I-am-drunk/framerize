@@ -87,7 +87,20 @@ pub async fn forward(
             attempt(browser, session, account, &fresh, project, dialect, step, &payload, chat_session, &category).await
         }
         Err(e) if e == "category-rejected" => {
-            eprintln!("[proxy] model rejected for translation category — retrying as agents");
+            // Structured event so rejected models are visible via
+            // `framerize logs --event category.rejected` — that's the signal
+            // for pruning a model off the translation path.
+            framer_core::observability::Event::new("category.rejected")
+                .request_id(&req_id)
+                .account(account)
+                .field("dialect", format!("{dialect:?}"))
+                .field("model", payload["model"].as_str().unwrap_or("?"))
+                .field("category", category.clone())
+                .field("fallback", "agents")
+                .duration_ms(framer_core::observability::elapsed_ms(t0))
+                .outcome("ok")
+                .emit();
+            eprintln!("[proxy] model {} rejected for category {category} — retrying as agents", payload["model"].as_str().unwrap_or("?"));
             attempt(browser, session, account, &token, project, dialect, step, &payload, chat_session, "agents").await
         }
         Err(e) => {
