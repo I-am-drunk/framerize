@@ -393,7 +393,6 @@ class Host:
             trace(f"{account[:8]}: pool wait {wait:.1f}s (all {POOL_CAP} pages busy)")
         return page, acc, wait
 
-    @staticmethod
     async def _ensure_editor(self, acc, page, account):
         """Keep the page resident on the account's project EDITOR, not /login.
 
@@ -438,6 +437,7 @@ class Host:
             except Exception:
                 pass
 
+    @staticmethod
     def _release(acc, page):
         acc.pool.put_nowait(page)
 
