@@ -207,6 +207,7 @@ class Account:
         self.last_mint = 0.0
         self.devices = []           # persisted pool of __cuid device ids
         self.devpool_ready = False
+        self.token_pool = {}        # castle token pool: id -> {token, ts, in_use}
         self.mint_page = None       # DEDICATED mint page — never runs fetches
 
 
@@ -406,6 +407,40 @@ class Host:
         trace(f"{account[:8]}: dedicated mint page ready")
         return page
 
+    TOKEN_TTL_S = 240.0  # contract 2026-10-05: sequential reuse proven at +300s; docs claim 120s
+    TOKEN_POOL_CAP = 8
+
+    async def _token_acquire(self, acc, page, account):
+        """Castle token pool (contract: sequential reuse is free; CONCURRENT
+        reuse of one token is the only deny signature). Hands out an idle
+        fresh-enough token, else mints. Concurrent callers always get distinct
+        tokens because in_use flips atomically before any await in the reuse
+        path (asyncio single-thread)."""
+        now = time.monotonic()
+        acc.token_pool = {k: v for k, v in acc.token_pool.items()
+                          if now - v["ts"] < TOKEN_TTL_S}
+        for tid, ent in acc.token_pool.items():
+            if not ent["in_use"]:
+                ent["in_use"] = True
+                trace(f"{account[:8]}: token reuse (age {now - ent['ts']:.0f}s, pool {len(acc.token_pool)})")
+                return tid, ent["token"]
+        if len(acc.token_pool) >= TOKEN_POOL_CAP:
+            tok = await self._mint(acc, page, account)  # all busy: transient, don't grow
+            return None, tok
+        tok = await self._mint(acc, page, account)
+        if not tok:
+            return None, None
+        tid = uuid.uuid4().hex[:12]
+        acc.token_pool[tid] = {"token": tok, "ts": now, "in_use": True}
+        return tid, tok
+
+    def _token_release(self, acc, tid):
+        if tid is None:
+            return
+        ent = acc.token_pool.get(tid)
+        if ent:
+            ent["in_use"] = False
+
     async def _mint(self, acc, page, account):
         """Mint one Castle token, serialized and paced per ACCOUNT.
 
@@ -592,21 +627,27 @@ class Host:
                 # Mint under the per-account gate, THEN fetch unguarded: the
                 # mint is the risk-engine-sensitive burst, the generation is
                 # just a long I/O await that parallelizes freely.
-                tok = await self._mint(acc, page, account)
+                tid, tok = await self._token_acquire(acc, page, account)
                 if not tok:
                     r = {"status": 0, "usage": None, "body": "castle-unavailable"}
                 else:
-                    job = "job-" + uuid.uuid4().hex
-                    await page.evaluate(AI_START_JS, [req["path"], req["body"], tok, req.get("bearer"), job])
-                    deadline = time.monotonic() + 310
-                    while True:
-                        r = await page.evaluate(AI_POLL_JS, job)
-                        if r is not None:
-                            break
-                        if time.monotonic() > deadline:
-                            r = {"status": -1, "usage": None, "body": "sidecar poll timeout (310s)"}
-                            break
-                        await asyncio.sleep(0.5)
+                    try:
+                        job = "job-" + uuid.uuid4().hex
+                        await page.evaluate(AI_START_JS, [req["path"], req["body"], tok, req.get("bearer"), job])
+                        deadline = time.monotonic() + 310
+                        while True:
+                            r = await page.evaluate(AI_POLL_JS, job)
+                            if r is not None:
+                                break
+                            if time.monotonic() > deadline:
+                                r = {"status": -1, "usage": None, "body": "sidecar poll timeout (310s)"}
+                                break
+                            await asyncio.sleep(0.5)
+                    finally:
+                        # release only after the response fully arrived — the
+                        # token's request is then complete, so a later use is
+                        # the proven-safe SEQUENTIAL case (never concurrent).
+                        self._token_release(acc, tid)
             finally:
                 self._release(acc, page)
             emit("ai.post", account=account[:8], path=req["path"], status=r["status"],
