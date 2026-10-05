@@ -582,6 +582,14 @@ async fn free_complete(
         max_total_tokens: Some(max_tokens),
         // Metered rungs are credit spend: off unless the operator opts in.
         metered_fallback: std::env::var("FRAMERIZE_ALLOW_METERED").map(|v| v == "1").unwrap_or(false),
+        on_429: {
+            let team = account.current_team.clone().map(|t| t.0);
+            Some(std::sync::Arc::new(move || {
+                if let Some(t) = &team {
+                    framer_core::rotation::mark_saturated(t, 45_000);
+                }
+            }))
+        },
         ..Default::default()
     };
     if wants_stream {
