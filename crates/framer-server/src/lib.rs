@@ -813,7 +813,17 @@ async fn free_complete(
         };
         ev.emit();
     }
-    let result = result.map_err(ApiError)?;
+    let result = match result {
+        Ok(r) => r,
+        Err(e) => {
+            let (status, body) = convert::error_json(dialect, &e);
+            return Ok(ShapedApiError(
+                StatusCode::from_u16(status).unwrap_or(StatusCode::INTERNAL_SERVER_ERROR),
+                body,
+            )
+            .into_response());
+        }
+    };
 
     let body = convert::render_json(dialect, &result, &client_model);
     let mut resp = axum::response::Response::new(axum::body::Body::from(
@@ -1524,8 +1534,24 @@ async fn run(
 
 struct ApiError(String);
 
+/// Dialect-aware API error: correct HTTP status + client-shaped error JSON, so
+/// clients see the REAL upstream cause (context overflow → compact, not a
+/// retry-storm on a generic 500).
+struct ShapedApiError(StatusCode, serde_json::Value);
+
 impl axum::response::IntoResponse for ApiError {
     fn into_response(self) -> axum::response::Response {
         (StatusCode::INTERNAL_SERVER_ERROR, self.0).into_response()
+    }
+}
+
+impl axum::response::IntoResponse for ShapedApiError {
+    fn into_response(self) -> axum::response::Response {
+        (
+            self.0,
+            [(axum::http::header::CONTENT_TYPE, "application/json")],
+            serde_json::to_string(&self.1).unwrap_or_else(|_| "{}".into()),
+        )
+            .into_response()
     }
 }
