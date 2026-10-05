@@ -110,6 +110,7 @@ async fn attempt(
     payload: &Value,
     chat_session: &str,
 ) -> Result<framer_core::port::ProxyResponse, String> {
+    let turn_id = crate::inference::mint_id_pub();
     let body = json!({
         "projectId": project.0,
         "featureCategory": "agents",
@@ -117,7 +118,7 @@ async fn attempt(
         "step": step,
         "sessionId": chat_session,
         "stepIndex": 0,
-        "turnId": crate::inference::mint_id_pub(),
+        "turnId": turn_id,
         "userPrompt": "", // proxy calls carry their content in `request`
         // castleToken is added in-page at fetch time (fresh mint, same env).
         "request": payload,
@@ -148,6 +149,34 @@ async fn attempt(
         s => {
             let clipped = &text[..text.len().min(500)];
             return Err(format!("retryable {s} on {}: {clipped}", dialect.path()));
+        }
+    }
+    // Auto-refund (verified 2026-10-05): /ai/v3/refund/ has NO Castle layer
+    // and fully reverses a streamed charge — `{"granted":true}` restores the
+    // exact debit. Idempotent (second refund on the same turn is denied), and
+    // each account has a small grant quota (~2/window; main exhausted it
+    // during verification, acct2's first-ever refund granted). Pure upside:
+    // denied costs exactly what the stream already cost. The full body is
+    // already awaited above, so the stream has closed and the charge posted.
+    if streaming {
+        let refund_body = json!({
+            "projectId": project.0,
+            "featureCategory": "agents",
+            "featureName": "agents",
+            "step": step,
+            "sessionId": chat_session,
+            "stepIndex": 0,
+            "turnId": turn_id,
+            "userPrompt": "",
+            "castleToken": "garbage", // route ignores it (verified)
+        });
+        match browser.ai_post(account, "/ai/v3/refund/", &token.bearer, &refund_body).await {
+            Ok((200, _, text)) => {
+                let granted = text.contains("\"granted\":true") || text.contains("\"granted\": true");
+                eprintln!("[refund] turn {} — {}", &turn_id[..8.min(turn_id.len())], if granted { "GRANTED (charge reversed)" } else { "denied (quota exhausted)" });
+            }
+            Ok((s, _, text)) => eprintln!("[refund] turn {} — HTTP {s}: {}", &turn_id[..8.min(turn_id.len())], &text[..text.len().min(120)]),
+            Err(e) => eprintln!("[refund] turn {} — transport error: {e}", &turn_id[..8.min(turn_id.len())]),
         }
     }
     let content_type = if streaming { "text/event-stream" } else { "application/json" }.to_string();
