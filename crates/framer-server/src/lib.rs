@@ -817,11 +817,10 @@ async fn free_complete(
         Ok(r) => r,
         Err(e) => {
             let (status, body) = convert::error_json(dialect, &e);
-            return Ok(ShapedApiError(
+            return Ok(axum::response::IntoResponse::into_response(ShapedApiError(
                 StatusCode::from_u16(status).unwrap_or(StatusCode::INTERNAL_SERVER_ERROR),
                 body,
-            )
-            .into_response());
+            )));
         }
     };
 
