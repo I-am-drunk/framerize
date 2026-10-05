@@ -118,6 +118,33 @@ pub fn router(state: AppState, web_dir: &str) -> Router {
         .nest("/openai", openai)
         .nest("/paid", paid)
         .fallback_service(ServeDir::new(web_dir))
+        .layer(axum::middleware::from_fn(access_log))
+}
+
+/// HTTP access log: every request lands in the NDJSON event log as
+/// `http.request` (method, path, status, duration). Exists because Claude
+/// Code's "repeated API errors" once had NO daemon-side trace — handler-level
+/// rejections (4xx) and client-visible 5xx left no record anywhere.
+async fn access_log(
+    req: axum::extract::Request,
+    next: axum::middleware::Next,
+) -> axum::response::Response {
+    let method = req.method().as_str().to_string();
+    let path = req.uri().path().to_string();
+    let t0 = std::time::Instant::now();
+    let resp = next.run(req).await;
+    let status = resp.status().as_u16();
+    if path != "/api/health" {
+        use framer_core::observability::Event;
+        Event::new("http.request")
+            .field("method", method)
+            .field("path", path)
+            .field("status", status)
+            .duration_ms(framer_core::observability::elapsed_ms(t0))
+            .outcome(if status < 400 { "ok" } else { "error" })
+            .emit();
+    }
+    resp
 }
 
 pub async fn serve(state: AppState, web_dir: &str, addr: SocketAddr) -> std::io::Result<()> {
