@@ -205,6 +205,49 @@ async fn compat_forward(
         .ok_or_else(|| ApiError("account has no current project".into()))?;
     let chat_session = session_hdr.unwrap_or_else(|| stable_session(&account.id));
 
+    // CREDIT-BOND GUARD (2026-10-05): metered (direct) routes spend the SAME
+    // balance the free route needs to stay alive — a 0-credit workspace 402s
+    // on EVERYTHING. A gpt-6.x codex session burned 1,400 credits across two
+    // workspaces in one evening and killed both. Refuse metered calls below
+    // the floor (env FRAMERIZE_CREDIT_FLOOR, default 25) so a workspace can
+    // never be burned to death again; free models stay unlimited.
+    if let Some(team) = account.current_team.as_ref() {
+        let floor: f64 = std::env::var("FRAMERIZE_CREDIT_FLOOR")
+            .ok()
+            .and_then(|v| v.parse().ok())
+            .unwrap_or(25.0);
+        match s.client.usage(&session, team).await {
+            Ok(snap) => {
+                if snap.available < floor {
+                    framer_core::observability::Event::new("credits.bond_block")
+                        .account(&account.id)
+                        .field("available", snap.available)
+                        .field("floor", floor)
+                        .outcome("error")
+                        .emit();
+                    return Err(ApiError(format!(
+                        "credit-bond protection: workspace has {:.2} credits left (floor {:.0}) — metered models are blocked below the floor because a zero balance kills the FREE route too. Use a free model (claude-*, gpt-4.1, kimi-k3, gemini-2.5-flash, gemini-3-flash-preview) or add a credited account.",
+                        snap.available, floor
+                    )));
+                }
+                let mut acc2 = account.clone();
+                acc2.credit = Some(snap);
+                let _ = s.state.upsert(&acc2).await;
+            }
+            Err(e) => {
+                // Ledger unreadable: allow if the cached snapshot is above the
+                // floor, else block (fail-safe — the bond matters more than
+                // one metered call).
+                let cached = account.credit.as_ref().map(|c| c.available);
+                if cached.map(|a| a < floor).unwrap_or(true) {
+                    return Err(ApiError(format!(
+                        "credit-bond protection: cannot read the ledger ({e}) and the cached balance is unknown/low — refusing metered calls. Free models unaffected."
+                    )));
+                }
+            }
+        }
+    }
+
     // Framer caps concurrent AI requests per (workspace × MODEL) — measured
     // 2026-10-05: ~6 in-flight per model, category-independent; 6 models × 6
     // = 36/36 clean while 12× one model = 6 pass / 6× 429. The gate keys
@@ -1306,6 +1349,12 @@ async fn complete_login(
         cookie_header,
     };
     s.sessions.save(&session).await.map_err(ApiError)?;
+
+    // Claim the second workspace's 500-credit grant BEFORE admission scans
+    // (first TWO workspaces each get one, verified 2026-10-05). Best-effort.
+    {
+        let _ = s.client.claim_workspace_grant(&session).await;
+    }
     let spaces = me["spaces"].as_array().cloned().unwrap_or_default();
     let first_org = spaces.iter().find(|sp| sp["scope"].as_str() == Some("organization")).cloned();
     let team = first_org
@@ -1386,6 +1435,30 @@ async fn complete_login(
         s.state.upsert(&account).await.map_err(ApiError)?;
         return Err(ApiError(e.to_string()));
     }
+
+    // Project: adopt the workspace's newest, else CREATE one — every AI call
+    // needs a projectId and a fresh workspace has none.
+    if account.current_project.is_none() {
+        if let Some(team) = account.current_team.clone() {
+            match s.client.team_projects(&session, &team).await {
+                Ok(projects) => {
+                    if let Some(first) = projects.into_iter().next() {
+                        account.current_project = Some(first);
+                    }
+                }
+                Err(e) => eprintln!("[login] project listing failed: {e}"),
+            }
+            if account.current_project.is_none() {
+                match s.client.create_project(&session, &team).await {
+                    Ok(p) => {
+                        eprintln!("[login] created project {}", p.0);
+                        account.current_project = Some(p);
+                    }
+                    Err(e) => eprintln!("[login] project creation failed (non-fatal): {e}"),
+                }
+            }
+        }
+    }
     s.state.upsert(&account).await.map_err(ApiError)?;
 
     Ok(Json(serde_json::json!({
@@ -1447,6 +1520,13 @@ async fn import_account(
         cookie_header,
     };
     s.sessions.save(&session).await.map_err(ApiError)?;
+
+    // Claim the second workspace's 500-credit grant BEFORE admission scans
+    // (first TWO workspaces each get one, verified 2026-10-05). Best-effort:
+    // admission below decides usability either way.
+    if body.team_id.is_none() {
+        let _ = s.client.claim_workspace_grant(&session).await;
+    }
 
     let spaces = me["spaces"].as_array().cloned().unwrap_or_default();
     let first_org = if let Some(tid) = &body.team_id {
@@ -1550,6 +1630,20 @@ async fn import_account(
                     // Listing is best-effort: a dashboard shape change must not
                     // fail an otherwise good import.
                     Err(e) => eprintln!("[import] project listing failed: {e}"),
+                }
+            }
+        }
+        // Still no project? CREATE one in the admitted workspace (a fresh
+        // workspace has none, and every AI call needs a projectId).
+        if account.current_project.is_none() {
+            if let Some(team) = account.current_team.clone() {
+                match s.client.create_project(&session, &team).await {
+                    Ok(p) => {
+                        eprintln!("[import] {}: created project {}", account.alias, p.0);
+                        account.current_project = Some(p);
+                        let _ = s.state.upsert(&account).await;
+                    }
+                    Err(e) => eprintln!("[import] project creation failed (non-fatal): {e}"),
                 }
             }
         }

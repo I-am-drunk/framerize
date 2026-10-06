@@ -21,6 +21,7 @@ pub mod inference;
 mod login;
 mod models;
 pub mod proxy;
+pub mod provision;
 mod transport;
 mod workspace;
 
@@ -144,6 +145,30 @@ impl FramerClient for HttpFramerClient {
     ) -> Result<framer_core::port::ProxyResponse, String> {
         self.proxy_raw(session, browser, account, project, parse_dialect(dialect)?, payload, chat_session)
             .await
+    }
+
+    async fn claim_workspace_grant(&self, session: &Session) -> Result<bool, String> {
+        provision::claim_workspace_grant(&self.transport, session).await
+    }
+
+    async fn create_project(
+        &self,
+        session: &Session,
+        team: &TeamId,
+    ) -> Result<framer_core::ids::ProjectId, String> {
+        // Look up the workspace's space id (creation needs it, not the team id).
+        let me = credits::me(&self.transport, session).await?;
+        let space_id = me["spaces"]
+            .as_array()
+            .cloned()
+            .unwrap_or_default()
+            .iter()
+            .find(|sp| {
+                sp["scope"].as_str() == Some("organization") && sp["ownerId"].as_str() == Some(team.0.as_str())
+            })
+            .and_then(|sp| sp["id"].as_str().map(|s| s.to_string()))
+            .ok_or_else(|| format!("no space found for team {}", team.0))?;
+        provision::ensure_project(&self.transport, session, team, &space_id).await
     }
 
     async fn team_projects(
