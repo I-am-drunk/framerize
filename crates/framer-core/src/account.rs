@@ -10,6 +10,28 @@ fn default_castle_device_id() -> String {
 /// Persisted, non-secret account record. The session cookie is NOT here — it lives
 /// in the keychain, referenced by `framer_user_id`. See ADR-001.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+
+/// One usable workspace: a credited team plus a project to scope calls to.
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct WorkspaceScope {
+    pub team: TeamId,
+    pub project: ProjectId,
+}
+
+impl ManagedAccount {
+    /// Every usable scope: the primary (current_team/current_project) plus
+    /// extra_workspaces. Chains round-robin these so one account spreads
+    /// across ALL its workspace concurrency budgets.
+    pub fn all_scopes(&self) -> Vec<WorkspaceScope> {
+        let mut v = Vec::new();
+        if let (Some(t), Some(p)) = (&self.current_team, &self.current_project) {
+            v.push(WorkspaceScope { team: t.clone(), project: p.clone() });
+        }
+        v.extend(self.extra_workspaces.iter().cloned());
+        v
+    }
+}
+
 pub struct ManagedAccount {
     pub id: AccountId,
     pub alias: String,
@@ -41,6 +63,13 @@ pub struct ManagedAccount {
     pub current_team: Option<TeamId>,
     /// The project inside `current_team` that inference calls are scoped to.
     pub current_project: Option<ProjectId>,
+    /// ADDITIONAL credited workspaces with a usable project, rotated per chain
+    /// (the CONCURRENCY goose — measured 2026-10-06: the 429 cap is per
+    /// workspace, NOT per device; one account's session authorizes all its
+    /// workspaces, and the envelope's projectId selects the budget. Two
+    /// workspaces = two ~6/model slots + two ~25-30 ceilings).
+    #[serde(default)]
+    pub extra_workspaces: Vec<WorkspaceScope>,
     pub state: AccountState,
     pub credit: Option<CreditSnapshot>,
     pub consecutive_failures: u32,

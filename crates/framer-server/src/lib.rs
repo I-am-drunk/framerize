@@ -550,6 +550,28 @@ async fn openai_chat(
     .await
 }
 
+
+/// Pick this chain's workspace scope: round-robins the account's credited
+/// workspaces (the per-workspace 429 cap is THE concurrency goose), preferring
+/// non-saturated ones. One account = N workspace budgets (measured 2026-10-06).
+fn pick_scope(account: &ManagedAccount) -> Result<framer_core::account::WorkspaceScope, ApiError> {
+    let scopes = account.all_scopes();
+    if scopes.is_empty() {
+        return Err(ApiError("account has no current project".into()));
+    }
+    if scopes.len() == 1 {
+        return Ok(scopes.into_iter().next().unwrap());
+    }
+    let start = framer_core::rotation::next_scope_idx(&account.id.0.to_string(), scopes.len());
+    for k in 0..scopes.len() {
+        let sc = &scopes[(start + k) % scopes.len()];
+        if !framer_core::rotation::is_saturated(&sc.team.0) {
+            return Ok(sc.clone());
+        }
+    }
+    Ok(scopes[start].clone())
+}
+
 /// Free mode, ANY client dialect, LOSSLESS: convert the client's request to
 /// Anthropic Messages shape with full fidelity (tools, system, tool_choice,
 /// content blocks — convert::to_anthropic_request), run the unmetered
@@ -738,22 +760,18 @@ async fn free_complete(
         .await
         .map_err(ApiError)?
         .ok_or_else(|| ApiError("account has no session".into()))?;
-    let project = account
-        .current_project
-        .clone()
-        .ok_or_else(|| ApiError("account has no current project".into()))?;
+    let scope = pick_scope(&account)?;
+    let project = scope.project.clone();
+    let scope_team = scope.team.clone();
     let chat_session =
         hdr(headers, "x-framerize-session").unwrap_or_else(|| stable_session(&account.id));
 
     // Per (workspace × MODEL) concurrency — measured 2026-10-05: ~6 in-flight
     // per model; 6 models × 6 = 36/36 clean. Keyed on the normalized upstream
-    // id (client spellings collapse to the true bucket).
+    // id (client spellings collapse to the true bucket) AND the chain's
+    // rotated workspace (one account now spans multiple workspace budgets).
     let gate_model = anthro["model"].as_str().unwrap_or("unknown").to_string();
-    let gate_key = account
-        .current_team
-        .as_ref()
-        .map(|t| format!("{}:{gate_model}", t.0))
-        .unwrap_or_else(|| "default".to_string());
+    let gate_key = format!("{}:{gate_model}", scope_team.0);
     let _permit = s.gate.acquire(&gate_key).await;
 
     let cfg = framer_core::port::ChainConfig {
@@ -761,7 +779,7 @@ async fn free_complete(
         // Metered rungs are credit spend: off unless the operator opts in.
         metered_fallback: std::env::var("FRAMERIZE_ALLOW_METERED").map(|v| v == "1").unwrap_or(false),
         on_429: {
-            let team = account.current_team.clone().map(|t| t.0);
+            let team = Some(scope_team.0.clone());
             Some(std::sync::Arc::new(move || {
                 if let Some(t) = &team {
                     framer_core::rotation::mark_saturated(t, 45_000);
@@ -1079,27 +1097,23 @@ async fn native_complete(
         .await
         .map_err(ApiError)?
         .ok_or_else(|| ApiError("account has no session".into()))?;
-    let project = account
-        .current_project
-        .clone()
-        .ok_or_else(|| ApiError("account has no current project".into()))?;
+    let scope = pick_scope(&account)?;
+    let project = scope.project.clone();
+    let scope_team = scope.team.clone();
     let chat_session =
         hdr(headers, "x-framerize-session").unwrap_or_else(|| stable_session(&account.id));
 
-    // Per (workspace × MODEL) concurrency, keyed on the normalized upstream id.
+    // Per (workspace × MODEL) concurrency, keyed on the normalized upstream id
+    // and the chain's rotated workspace (multi-workspace goose).
     let gate_model = convert::to_openrouter_id(&client_model);
-    let gate_key = account
-        .current_team
-        .as_ref()
-        .map(|t| format!("{}:{gate_model}", t.0))
-        .unwrap_or_else(|| "default".to_string());
+    let gate_key = format!("{}:{gate_model}", scope_team.0);
     let _permit = s.gate.acquire(&gate_key).await;
 
     let cfg = framer_core::port::ChainConfig {
         max_total_tokens: Some(max_tokens),
         metered_fallback: std::env::var("FRAMERIZE_ALLOW_METERED").map(|v| v == "1").unwrap_or(false),
         on_429: {
-            let team = account.current_team.clone().map(|t| t.0);
+            let team = Some(scope_team.0.clone());
             Some(std::sync::Arc::new(move || {
                 if let Some(t) = &team {
                     framer_core::rotation::mark_saturated(t, 45_000);
@@ -1401,6 +1415,67 @@ fn hdr(headers: &axum::http::HeaderMap, name: &str) -> Option<String> {
 
 /// Team ids already held by OTHER accounts. `exclude` is the account being
 /// admitted, so a re-login keeps the workspace it already owns.
+
+/// Populate account.extra_workspaces: every OTHER credited workspace the
+/// account owns, each with a project (adopt newest, else create). This is the
+/// multi-workspace concurrency goose — chains round-robin these scopes so one
+/// account uses ALL its per-workspace 429 budgets (measured: the cap is per
+/// workspace; devices do NOT multiply it).
+async fn populate_extra_scopes(
+    s: &AppState,
+    session: &framer_core::session::Session,
+    account: &mut ManagedAccount,
+) {
+    let deps = Deps {
+        client: s.client.as_ref(),
+        browser: s.browser.as_ref(),
+        sessions: s.sessions.as_ref(),
+        state: s.state.as_ref(),
+    };
+    let credited = match framer_core::credits::scan_workspaces(&deps, session).await {
+        Ok(c) => c,
+        Err(e) => {
+            eprintln!("[provision] extra-scope scan failed (non-fatal): {e}");
+            return;
+        }
+    };
+    let primary = account.current_team.as_ref().map(|t| t.0.clone());
+    let mut scopes = Vec::new();
+    for w in credited {
+        if Some(w.team.0.clone()) == primary {
+            continue; // the primary scope lives in current_team/current_project
+        }
+        if w.snapshot.available <= 0.0 {
+            continue; // 0-credit workspaces 402 on every route — not a scope
+        }
+        let mut project = s
+            .client
+            .team_projects(session, &w.team)
+            .await
+            .ok()
+            .and_then(|ps| ps.into_iter().next());
+        if project.is_none() {
+            match s.client.create_project(session, &w.team).await {
+                Ok(p) => {
+                    eprintln!("[provision] created project {} in extra workspace {}", p.0, &w.team.0[..8]);
+                    project = Some(p);
+                }
+                Err(e) => {
+                    eprintln!("[provision] project creation in extra workspace failed: {e}");
+                    continue;
+                }
+            }
+        }
+        if let Some(project) = project {
+            scopes.push(framer_core::account::WorkspaceScope { team: w.team.clone(), project });
+        }
+    }
+    if !scopes.is_empty() {
+        eprintln!("[provision] account now spans {} workspace scopes (multi-workspace concurrency)", scopes.len() + 1);
+    }
+    account.extra_workspaces = scopes;
+}
+
 async fn claimed_workspaces(
     s: &AppState,
     exclude: AccountId,
@@ -1804,6 +1879,9 @@ async fn complete_login(
             }
         }
     }
+    // Multi-workspace goose: claim every other credited workspace as a rotated
+    // scope (each carries its own 429 budget).
+    populate_extra_scopes(&s, &session, &mut account).await;
     s.state.upsert(&account).await.map_err(ApiError)?;
 
     Ok(Json(serde_json::json!({
@@ -1992,6 +2070,9 @@ async fn import_account(
                 }
             }
         }
+        // Multi-workspace goose: claim every other credited workspace as a
+        // rotated scope (each carries its own 429 budget).
+        populate_extra_scopes(&s, &session, &mut account).await;
         s.state.upsert(&account).await.map_err(ApiError)?;
     }
 
