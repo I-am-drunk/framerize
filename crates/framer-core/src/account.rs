@@ -10,28 +10,6 @@ fn default_castle_device_id() -> String {
 /// Persisted, non-secret account record. The session cookie is NOT here — it lives
 /// in the keychain, referenced by `framer_user_id`. See ADR-001.
 #[derive(Debug, Clone, Serialize, Deserialize)]
-
-/// One usable workspace: a credited team plus a project to scope calls to.
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
-pub struct WorkspaceScope {
-    pub team: TeamId,
-    pub project: ProjectId,
-}
-
-impl ManagedAccount {
-    /// Every usable scope: the primary (current_team/current_project) plus
-    /// extra_workspaces. Chains round-robin these so one account spreads
-    /// across ALL its workspace concurrency budgets.
-    pub fn all_scopes(&self) -> Vec<WorkspaceScope> {
-        let mut v = Vec::new();
-        if let (Some(t), Some(p)) = (&self.current_team, &self.current_project) {
-            v.push(WorkspaceScope { team: t.clone(), project: p.clone() });
-        }
-        v.extend(self.extra_workspaces.iter().cloned());
-        v
-    }
-}
-
 pub struct ManagedAccount {
     pub id: AccountId,
     pub alias: String,
@@ -80,6 +58,27 @@ pub struct ManagedAccount {
     /// while rather than retried. `None` means no active cooldown.
     #[serde(default)]
     pub cooling_until_ms: Option<u64>,
+}
+
+/// One usable workspace: a credited team plus a project to scope calls to.
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct WorkspaceScope {
+    pub team: TeamId,
+    pub project: ProjectId,
+}
+
+impl ManagedAccount {
+    /// Every usable scope: the primary (current_team/current_project) plus
+    /// extra_workspaces. Chains round-robin these so one account spreads
+    /// across ALL its workspace concurrency budgets.
+    pub fn all_scopes(&self) -> Vec<WorkspaceScope> {
+        let mut v = Vec::new();
+        if let (Some(t), Some(p)) = (&self.current_team, &self.current_project) {
+            v.push(WorkspaceScope { team: t.clone(), project: p.clone() });
+        }
+        v.extend(self.extra_workspaces.iter().cloned());
+        v
+    }
 }
 
 /// The account lifecycle. Transitions are centralized here so they live in one place.
