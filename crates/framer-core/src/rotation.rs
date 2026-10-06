@@ -44,6 +44,28 @@ fn saturated_until(team: &str) -> Option<u64> {
         .and_then(|m| m.get(team).copied())
 }
 
+/// Per-account round-robin index over its workspace scopes (the concurrency
+/// goose: chains spread across every workspace the account owns).
+static SCOPE_RR: Mutex<Option<HashMap<String, usize>>> = Mutex::new(None);
+
+pub fn next_scope_idx(account_id: &str, n_scopes: usize) -> usize {
+    if n_scopes == 0 {
+        return 0;
+    }
+    let mut g = SCOPE_RR.lock().unwrap();
+    let m = g.get_or_insert_with(HashMap::new);
+    let i = m.entry(account_id.to_string()).or_insert(0);
+    let cur = *i % n_scopes;
+    *i = i.wrapping_add(1);
+    cur
+}
+
+/// True if the workspace is currently marked saturated (used by the scope
+/// picker to prefer non-saturated scopes without a full pick cycle).
+pub fn is_saturated(team: &str) -> bool {
+    saturated_until(team).map(|u| u > now_ms()).unwrap_or(false)
+}
+
 /// Pick the account to serve the next request, or `None` if the pool is dry.
 ///
 /// Health first: an account with fewer consecutive failures always wins, so a
