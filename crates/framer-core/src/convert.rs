@@ -1066,12 +1066,34 @@ mod tests {
 // clients time out as "repeated API errors" — is gone.
 // ---------------------------------------------------------------------------
 
+/// The merged upstream result of a RESPONSES-native chain: a faithful
+/// OpenAI Responses object assembled from chunks (docs/native-chains.md).
+#[derive(Debug, Clone)]
+pub struct AssembledResponses {
+    pub id: String,
+    pub created_at: u64,
+    /// Output items in Responses shape (message, reasoning, function_call,
+    /// custom_tool_call), message text merged across chunks.
+    pub output: Vec<Value>,
+    pub status: String,
+    pub incomplete_details: Option<Value>,
+    pub usage: Value,
+    pub service_tier: Value,
+    pub input_tokens: u64,
+    pub output_tokens: u64,
+    pub chunks: u32,
+    pub metered_chunks: u32,
+}
+
 /// What the chain emits as it progresses.
 #[derive(Debug, Clone)]
 pub enum ChainEvent {
     /// A chunk completed; its new blocks (already merged into the total by the
     /// chain) are attached for incremental rendering.
     Chunk(Vec<Value>),
+    /// A responses-native chunk completed; its new output items, and whether
+    /// the last open assistant text item continues into these items.
+    ResponsesItems { items: Vec<Value>, continues_text: bool },
     /// The chain finished (assembled response available).
     Done(Box<AssembledResponse>),
 }
@@ -1682,4 +1704,473 @@ pub fn chat_response_to_blocks(body: &Value) -> (Vec<Value>, String, Value) {
         "output_tokens": u["completion_tokens"].as_u64().unwrap_or(0),
     });
     (blocks, stop.to_string(), usage)
+}
+
+// ---------------------------------------------------------------------------
+// Chat ↔ Responses boundary (docs/native-chains.md): OpenAI chat clients ride
+// the responses-native chain. Both shapes are OpenAI-native, so the mapping
+// is thin and lossless in practice; documented drops: seed, logprobs, n≠1.
+// ---------------------------------------------------------------------------
+
+/// chat.completions request → responses request (for the native chain).
+pub fn chat_to_responses_request(body: &Value) -> Result<Value, String> {
+    if body.get("n").and_then(|n| n.as_u64()).unwrap_or(1) != 1 {
+        return Err("n != 1 is not supported on this gateway".into());
+    }
+    let mut input: Vec<Value> = Vec::new();
+    for m in body["messages"].as_array().cloned().unwrap_or_default() {
+        let role = m["role"].as_str().unwrap_or("user");
+        match role {
+            "system" | "developer" => input.push(json!({
+                "type": "message", "role": "developer",
+                "content": [{"type": "input_text", "text": content_text(&m["content"])}],
+            })),
+            "user" => input.push(json!({
+                "type": "message", "role": "user",
+                "content": chat_parts_to_input(&m["content"]),
+            })),
+            "assistant" => {
+                let text = content_text(&m["content"]);
+                if !text.is_empty() {
+                    input.push(json!({
+                        "type": "message", "role": "assistant",
+                        "content": [{"type": "output_text", "text": text}],
+                    }));
+                }
+                for tc in m["tool_calls"].as_array().cloned().unwrap_or_default() {
+                    input.push(json!({
+                        "type": "function_call",
+                        "call_id": tc["id"], "name": tc["function"]["name"],
+                        "arguments": tc["function"]["arguments"].as_str().unwrap_or(""),
+                    }));
+                }
+            }
+            "tool" => input.push(json!({
+                "type": "function_call_output",
+                "call_id": m["tool_call_id"],
+                "output": content_text(&m["content"]),
+            })),
+            _ => {}
+        }
+    }
+    if input.is_empty() {
+        return Err("messages is required".into());
+    }
+    let mut out = json!({"model": body["model"].clone(), "input": input});
+    if let Some(tools) = body["tools"].as_array() {
+        let mapped: Vec<Value> = tools
+            .iter()
+            .filter(|t| t["type"].as_str() == Some("function"))
+            .map(|t| {
+                let f = &t["function"];
+                json!({"type": "function", "name": f["name"], "description": f["description"], "parameters": f["parameters"]})
+            })
+            .collect();
+        if !mapped.is_empty() {
+            out["tools"] = json!(mapped);
+        }
+    }
+    match &body["tool_choice"] {
+        Value::String(s) => out["tool_choice"] = json!(s),
+        v @ Value::Object(_) => {
+            if v["type"].as_str() == Some("function") {
+                out["tool_choice"] = json!({"type": "function", "name": v["function"]["name"]});
+            }
+        }
+        _ => {}
+    }
+    if let Some(mt) = body["max_tokens"].as_u64().or_else(|| body["max_completion_tokens"].as_u64()) {
+        out["max_output_tokens"] = json!(mt);
+    }
+    for k in ["temperature", "top_p", "stop", "user", "service_tier", "parallel_tool_calls"] {
+        if let Some(v) = body.get(k) {
+            out[k] = v.clone();
+        }
+    }
+    if body["response_format"]["type"].as_str() == Some("json_object") {
+        out["text"] = json!({"format": {"type": "json_object"}});
+    }
+    if let Some(instr) = body["instructions"].as_str() {
+        out["instructions"] = json!(instr);
+    }
+    Ok(out)
+}
+
+fn content_text(c: &Value) -> String {
+    match c {
+        Value::String(s) => s.clone(),
+        Value::Array(parts) => parts
+            .iter()
+            .filter_map(|p| p["text"].as_str().map(str::to_string))
+            .collect::<Vec<_>>()
+            .join(""),
+        _ => String::new(),
+    }
+}
+
+fn chat_parts_to_input(c: &Value) -> Value {
+    match c {
+        Value::String(s) => json!([{"type": "input_text", "text": s}]),
+        Value::Array(parts) => {
+            let mapped: Vec<Value> = parts
+                .iter()
+                .filter_map(|p| match p["type"].as_str() {
+                    Some("text") => Some(json!({"type": "input_text", "text": p["text"]})),
+                    Some("image_url") => Some(json!({
+                        "type": "input_image",
+                        "image_url": p["image_url"]["url"].as_str().unwrap_or(p["image_url"].as_str().unwrap_or("")),
+                    })),
+                    _ => None,
+                })
+                .collect();
+            json!(mapped)
+        }
+        _ => json!([{"type": "input_text", "text": ""}]),
+    }
+}
+
+/// Assembled responses object → chat.completion (non-streaming render).
+pub fn responses_to_chat_completion(r: &AssembledResponses, client_model: &str) -> Value {
+    let mut text = String::new();
+    let mut tool_calls: Vec<Value> = Vec::new();
+    for it in &r.output {
+        match it["type"].as_str() {
+            Some("message") => {
+                for p in it["content"].as_array().cloned().unwrap_or_default() {
+                    if p["type"] == "output_text" {
+                        text.push_str(p["text"].as_str().unwrap_or_default());
+                    }
+                }
+            }
+            Some("function_call") => tool_calls.push(json!({
+                "id": it["call_id"], "type": "function",
+                "function": {"name": it["name"], "arguments": it["arguments"].as_str().unwrap_or("")},
+            })),
+            Some("custom_tool_call") => tool_calls.push(json!({
+                "id": it["call_id"], "type": "function",
+                "function": {"name": it["name"], "arguments": it["input"].as_str().unwrap_or("")},
+            })),
+            _ => {}
+        }
+    }
+    let finish = if !tool_calls.is_empty() {
+        "tool_calls"
+    } else if r.status == "incomplete" {
+        "length"
+    } else {
+        "stop"
+    };
+    let mut message = json!({"role": "assistant"});
+    if text.is_empty() && !tool_calls.is_empty() {
+        message["content"] = Value::Null;
+    } else {
+        message["content"] = json!(text);
+    }
+    if !tool_calls.is_empty() {
+        message["tool_calls"] = json!(tool_calls);
+    }
+    json!({
+        "id": format!("chatcmpl-{}", r.id.trim_start_matches("gen-").trim_start_matches("resp_")),
+        "object": "chat.completion",
+        "created": if r.created_at > 0 { r.created_at } else { now_unix() },
+        "model": client_model,
+        "service_tier": r.service_tier.clone(),
+        "choices": [{"index": 0, "message": message, "finish_reason": finish}],
+        "usage": {
+            "prompt_tokens": r.input_tokens,
+            "completion_tokens": r.output_tokens,
+            "total_tokens": r.input_tokens + r.output_tokens,
+        },
+    })
+}
+
+/// The assembled responses object as its own JSON (verbatim for codex) with
+/// the logical response id the server minted (chunk ids never surface).
+pub fn responses_json(r: &AssembledResponses, client_model: &str, logical_id: &str) -> Value {
+    let mut usage = r.usage.clone();
+    usage["input_tokens"] = json!(r.input_tokens);
+    usage["output_tokens"] = json!(r.output_tokens);
+    if usage.get("total_tokens").is_none() {
+        usage["total_tokens"] = json!(r.input_tokens + r.output_tokens);
+    }
+    let mut out = json!({
+        "id": logical_id,
+        "object": "response",
+        "created_at": if r.created_at > 0 { r.created_at } else { now_unix() },
+        "status": r.status,
+        "model": client_model,
+        "output": r.output,
+        "service_tier": r.service_tier.clone(),
+        "usage": usage,
+    });
+    if r.status == "incomplete" {
+        out["incomplete_details"] = r
+            .incomplete_details
+            .clone()
+            .unwrap_or_else(|| json!({"reason": "max_output_tokens"}));
+    }
+    out
+}
+
+// ---------------------------------------------------------------------------
+// Item-driven SSE composers for the native chain: one per OpenAI dialect,
+// both fed by ChainEvent::ResponsesItems (spec-exact frames per dialect).
+// ---------------------------------------------------------------------------
+
+/// Responses-API SSE composer. Whole items arrive per chunk (tool calls are
+/// always complete — a mid-call cut is retried, never emitted), so deltas are
+/// emitted per item in one shot, which is spec-valid.
+pub struct ResponsesComposer {
+    client_model: String,
+    logical_id: String,
+    item_idx: usize,
+    /// An assistant message item is open (text may continue next chunk).
+    text_open: bool,
+    text_acc: String,
+}
+
+impl ResponsesComposer {
+    pub fn new(client_model: &str, logical_id: &str) -> Self {
+        Self {
+            client_model: client_model.to_string(),
+            logical_id: logical_id.to_string(),
+            item_idx: 0,
+            text_open: false,
+            text_acc: String::new(),
+        }
+    }
+
+    fn ev(ty: &str, extra: Value) -> String {
+        let mut v = json!({"type": ty});
+        merge(&mut v, extra);
+        sse(ty, v)
+    }
+
+    fn close_text(&mut self) -> Vec<String> {
+        if !self.text_open {
+            return Vec::new();
+        }
+        self.text_open = false;
+        let idx = self.item_idx;
+        self.item_idx += 1;
+        let text = std::mem::take(&mut self.text_acc);
+        let part_text = text.clone();
+        vec![
+            Self::ev("response.output_text.done", json!({"output_index": idx, "content_index": 0, "text": text})),
+            Self::ev("response.content_part.done", json!({
+                "output_index": idx, "content_index": 0,
+                "part": {"type": "output_text", "text": part_text, "annotations": []},
+            })),
+            Self::ev("response.output_item.done", json!({
+                "output_index": idx,
+                "item": {"type": "message", "status": "completed", "role": "assistant"},
+            })),
+        ]
+    }
+
+    pub fn push_items(&mut self, items: &[Value], continues_text: bool) -> Vec<String> {
+        let mut f = Vec::new();
+        let mut first = true;
+        for it in items {
+            match it["type"].as_str() {
+                Some("message") => {
+                    let text: String = it["content"]
+                        .as_array()
+                        .cloned()
+                        .unwrap_or_default()
+                        .iter()
+                        .filter_map(|p| p["text"].as_str().map(str::to_string))
+                        .collect();
+                    if !(first && continues_text && self.text_open) {
+                        f.extend(self.close_text());
+                        f.push(Self::ev("response.output_item.added", json!({
+                            "output_index": self.item_idx,
+                            "item": {"type": "message", "status": "in_progress",
+                                     "role": "assistant",
+                                     "content": [{"type": "output_text", "text": "", "annotations": []}]},
+                        })));
+                        f.push(Self::ev("response.content_part.added", json!({
+                            "output_index": self.item_idx, "content_index": 0,
+                            "part": {"type": "output_text", "text": "", "annotations": []},
+                        })));
+                        self.text_open = true;
+                    }
+                    if !text.is_empty() {
+                        self.text_acc.push_str(&text);
+                        f.push(Self::ev("response.output_text.delta", json!({
+                            "output_index": self.item_idx, "content_index": 0, "delta": text,
+                        })));
+                    }
+                }
+                Some("reasoning") => {
+                    f.extend(self.close_text());
+                    let idx = self.item_idx;
+                    self.item_idx += 1;
+                    f.push(Self::ev("response.output_item.added", json!({
+                        "output_index": idx, "item": it,
+                    })));
+                    f.push(Self::ev("response.output_item.done", json!({
+                        "output_index": idx, "item": it,
+                    })));
+                }
+                Some("function_call") => {
+                    f.extend(self.close_text());
+                    let idx = self.item_idx;
+                    self.item_idx += 1;
+                    let args = it["arguments"].as_str().unwrap_or("").to_string();
+                    f.push(Self::ev("response.output_item.added", json!({
+                        "output_index": idx,
+                        "item": {"id": it["id"], "type": "function_call", "status": "in_progress",
+                                 "call_id": it["call_id"], "name": it["name"], "arguments": ""},
+                    })));
+                    f.push(Self::ev("response.function_call_arguments.delta", json!({
+                        "output_index": idx, "delta": args,
+                    })));
+                    f.push(Self::ev("response.function_call_arguments.done", json!({
+                        "output_index": idx, "arguments": args,
+                        "name": it["name"], "call_id": it["call_id"],
+                    })));
+                    f.push(Self::ev("response.output_item.done", json!({
+                        "output_index": idx,
+                        "item": {"id": it["id"], "type": "function_call", "status": "completed",
+                                 "call_id": it["call_id"], "name": it["name"], "arguments": args},
+                    })));
+                }
+                Some("custom_tool_call") => {
+                    f.extend(self.close_text());
+                    let idx = self.item_idx;
+                    self.item_idx += 1;
+                    let input = it["input"].as_str().unwrap_or("").to_string();
+                    f.push(Self::ev("response.output_item.added", json!({
+                        "output_index": idx,
+                        "item": {"id": it["id"], "type": "custom_tool_call",
+                                 "call_id": it["call_id"], "name": it["name"], "input": ""},
+                    })));
+                    f.push(Self::ev("response.custom_tool_call_input.delta", json!({
+                        "output_index": idx, "delta": input,
+                    })));
+                    f.push(Self::ev("response.custom_tool_call_input.done", json!({
+                        "output_index": idx, "input": input,
+                        "name": it["name"], "call_id": it["call_id"],
+                    })));
+                    f.push(Self::ev("response.output_item.done", json!({
+                        "output_index": idx,
+                        "item": {"id": it["id"], "type": "custom_tool_call",
+                                 "call_id": it["call_id"], "name": it["name"], "input": input},
+                    })));
+                }
+                _ => {}
+            }
+            first = false;
+        }
+        f
+    }
+
+    pub fn finish(mut self, r: &AssembledResponses) -> Vec<String> {
+        let mut f = self.close_text();
+        let full = responses_json(r, &self.client_model, &self.logical_id);
+        f.push(Self::ev("response.completed", json!({"response": full})));
+        f
+    }
+}
+
+/// Chat-completions chunk composer for the same item stream.
+pub struct ChatComposer {
+    client_model: String,
+    logical_id: String,
+    created: u64,
+    tool_idx: usize,
+}
+
+impl ChatComposer {
+    pub fn new(client_model: &str, logical_id: &str) -> Self {
+        Self {
+            client_model: client_model.to_string(),
+            logical_id: logical_id.to_string(),
+            created: now_unix(),
+            tool_idx: 0,
+        }
+    }
+
+    fn chunk(&self, delta: Value, finish: Value) -> String {
+        format!(
+            "data: {}",
+            json!({
+                "id": format!("chatcmpl-{}", self.logical_id.trim_start_matches("resp_")),
+                "object": "chat.completion.chunk", "created": self.created,
+                "model": self.client_model,
+                "choices": [{"index": 0, "delta": delta, "finish_reason": finish}],
+            })
+        )
+    }
+
+    pub fn push_items(&mut self, items: &[Value], _continues_text: bool) -> Vec<String> {
+        let mut f = Vec::new();
+        for it in items {
+            match it["type"].as_str() {
+                Some("message") => {
+                    let text: String = it["content"]
+                        .as_array()
+                        .cloned()
+                        .unwrap_or_default()
+                        .iter()
+                        .filter_map(|p| p["text"].as_str().map(str::to_string))
+                        .collect();
+                    if !text.is_empty() {
+                        f.push(self.chunk(json!({"content": text}), Value::Null));
+                    }
+                }
+                Some("function_call") | Some("custom_tool_call") => {
+                    let idx = self.tool_idx;
+                    self.tool_idx += 1;
+                    let args = if it["type"] == "function_call" {
+                        it["arguments"].as_str().unwrap_or("").to_string()
+                    } else {
+                        it["input"].as_str().unwrap_or("").to_string()
+                    };
+                    f.push(self.chunk(json!({
+                        "tool_calls": [{
+                            "index": idx, "id": it["call_id"], "type": "function",
+                            "function": {"name": it["name"], "arguments": ""},
+                        }],
+                    }), Value::Null));
+                    f.push(self.chunk(json!({
+                        "tool_calls": [{"index": idx, "function": {"arguments": args}}],
+                    }), Value::Null));
+                }
+                _ => {}
+            }
+        }
+        f
+    }
+
+    pub fn finish(self, r: &AssembledResponses, include_usage: bool) -> Vec<String> {
+        let has_calls = r
+            .output
+            .iter()
+            .any(|it| matches!(it["type"].as_str(), Some("function_call") | Some("custom_tool_call")));
+        let reason = if has_calls {
+            "tool_calls"
+        } else if r.status == "incomplete" {
+            "length"
+        } else {
+            "stop"
+        };
+        let mut f = vec![self.chunk(json!({}), json!(reason))];
+        if include_usage {
+            f.push(format!(
+                "data: {}",
+                json!({
+                    "id": format!("chatcmpl-{}", self.logical_id.trim_start_matches("resp_")),
+                    "object": "chat.completion.chunk", "created": self.created,
+                    "model": self.client_model, "choices": [],
+                    "usage": {"prompt_tokens": r.input_tokens,
+                              "completion_tokens": r.output_tokens,
+                              "total_tokens": r.input_tokens + r.output_tokens},
+                })
+            ));
+        }
+        f.push("data: [DONE]".into());
+        f
+    }
 }
