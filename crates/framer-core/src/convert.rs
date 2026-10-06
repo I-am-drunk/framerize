@@ -1055,6 +1055,23 @@ mod tests {
         assert!(joined.contains("input_json_delta"));
         assert!(joined.contains("\"stop_reason\":\"tool_use\""));
     }
+
+    #[test]
+    fn responses_stream_preserves_namespace() {
+        // Codex round-trips streamed function_call items; the upstream rejects
+        // re-sent calls missing `namespace`. The composer must emit items verbatim.
+        let mut c = ResponsesComposer::new("gpt-6-astra", "resp_test");
+        let items = vec![json!({
+            "id": "fc_1", "type": "function_call", "call_id": "call_1",
+            "name": "spawn_agent", "arguments": "{\"task\":\"x\"}",
+            "namespace": "agents", "status": "completed",
+        })];
+        let frames = c.push_items(&items, false);
+        let joined = frames.join("\n");
+        let done = frames.iter().find(|f| f.contains("response.output_item.done")).unwrap();
+        assert!(done.contains("\"namespace\":\"agents\""), "namespace dropped: {done}");
+        assert!(joined.contains("function_call_arguments.delta"));
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -2018,10 +2035,16 @@ impl ResponsesComposer {
                     let idx = self.item_idx;
                     self.item_idx += 1;
                     let args = it["arguments"].as_str().unwrap_or("").to_string();
+                    // Item fields pass through VERBATIM (namespace + any future
+                    // upstream fields) — codex round-trips the streamed item and
+                    // the upstream rejects re-sent calls missing `namespace`
+                    // (2026-10-06: "Missing namespace for function_call 'spawn_agent'").
+                    let mut added_item = it.clone();
+                    added_item["status"] = json!("in_progress");
+                    added_item["arguments"] = json!("");
                     f.push(Self::ev("response.output_item.added", json!({
                         "output_index": idx,
-                        "item": {"id": it["id"], "type": "function_call", "status": "in_progress",
-                                 "call_id": it["call_id"], "name": it["name"], "arguments": ""},
+                        "item": added_item,
                     })));
                     f.push(Self::ev("response.function_call_arguments.delta", json!({
                         "output_index": idx, "delta": args,
@@ -2030,10 +2053,11 @@ impl ResponsesComposer {
                         "output_index": idx, "arguments": args,
                         "name": it["name"], "call_id": it["call_id"],
                     })));
+                    let mut done_item = it.clone();
+                    done_item["status"] = json!("completed");
                     f.push(Self::ev("response.output_item.done", json!({
                         "output_index": idx,
-                        "item": {"id": it["id"], "type": "function_call", "status": "completed",
-                                 "call_id": it["call_id"], "name": it["name"], "arguments": args},
+                        "item": done_item,
                     })));
                 }
                 Some("custom_tool_call") => {
@@ -2041,10 +2065,11 @@ impl ResponsesComposer {
                     let idx = self.item_idx;
                     self.item_idx += 1;
                     let input = it["input"].as_str().unwrap_or("").to_string();
+                    let mut added_item = it.clone();
+                    added_item["input"] = json!("");
                     f.push(Self::ev("response.output_item.added", json!({
                         "output_index": idx,
-                        "item": {"id": it["id"], "type": "custom_tool_call",
-                                 "call_id": it["call_id"], "name": it["name"], "input": ""},
+                        "item": added_item,
                     })));
                     f.push(Self::ev("response.custom_tool_call_input.delta", json!({
                         "output_index": idx, "delta": input,
@@ -2055,8 +2080,7 @@ impl ResponsesComposer {
                     })));
                     f.push(Self::ev("response.output_item.done", json!({
                         "output_index": idx,
-                        "item": {"id": it["id"], "type": "custom_tool_call",
-                                 "call_id": it["call_id"], "name": it["name"], "input": input},
+                        "item": it,
                     })));
                 }
                 _ => {}
