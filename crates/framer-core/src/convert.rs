@@ -829,7 +829,6 @@ mod tests {
         assert_eq!(to_openrouter_id("gpt-4.1"), "openai/gpt-4.1");
         assert_eq!(model_route("gpt-6-sol"), ModelRoute::DirectResponses);
         assert_eq!(model_route("openai/gpt-6-luna"), ModelRoute::DirectResponses);
-        assert!(matches!(model_route("gpt-6-astra"), ModelRoute::Unavailable(_)));
         assert_eq!(model_route("claude-opus-5-5"), ModelRoute::FreePassthrough);
         assert_eq!(model_route("gpt-6.1-sol"), ModelRoute::DirectResponses);
         assert_eq!(model_route("gpt-6-astra"), ModelRoute::FreePassthrough);
