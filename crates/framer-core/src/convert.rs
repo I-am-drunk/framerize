@@ -134,6 +134,11 @@ const ANTHROPIC_FIELDS: &[&str] = &[
     "model", "messages", "system", "max_tokens", "stream", "tools",
     "tool_choice", "temperature", "top_p", "top_k", "stop_sequences",
     "metadata", "thinking",
+    // OpenRouter service tiers (2026-10-06): service_tier (default|flex|
+    // priority|fast|ultrafast) and Anthropic's native speed:"fast" pass
+    // straight through the gateway and are STILL FREE non-streaming —
+    // ultrafast served with ledger delta 0.0.
+    "service_tier", "speed",
 ];
 
 /// Tiny operator note appended to the system prompt when tools are in play
@@ -442,6 +447,11 @@ fn chat_to_anthropic(body: &Value) -> Result<Value, String> {
             _ => json!(note),
         };
     }
+    {
+        if let Some(t) = body.get("service_tier") {
+            out["service_tier"] = t.clone();
+        }
+    }
     Ok(out)
 }
 
@@ -532,6 +542,11 @@ fn responses_to_anthropic(body: &Value) -> Result<Value, String> {
     }
     if let Some(u) = body["user"].as_str() {
         out["metadata"] = json!({"user_id": u});
+    }
+    {
+        if let Some(t) = body.get("service_tier") {
+            out["service_tier"] = t.clone();
+        }
     }
     Ok(out)
 }
