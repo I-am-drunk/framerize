@@ -593,6 +593,7 @@ pub fn render_json(d: ClientDialect, r: &AssembledResponse, client_model: &str) 
                 "object": "chat.completion",
                 "created": now_unix(),
                 "model": client_model,
+                "service_tier": r.usage["service_tier"].clone(),
                 "choices": [{
                     "index": 0, "message": message,
                     "finish_reason": chat_finish(&r.stop_reason),
@@ -628,6 +629,7 @@ pub fn render_json(d: ClientDialect, r: &AssembledResponse, client_model: &str) 
                 "created_at": now_unix(),
                 "status": "completed",
                 "model": client_model,
+                "service_tier": r.usage["service_tier"].clone(),
                 "output": output,
                 "parallel_tool_calls": true,
                 "usage": {
