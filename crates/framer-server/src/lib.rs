@@ -1307,11 +1307,7 @@ async fn complete_login(
     };
     s.sessions.save(&session).await.map_err(ApiError)?;
     let spaces = me["spaces"].as_array().cloned().unwrap_or_default();
-    let first_org = if let Some(tid) = &body.team_id {
-        spaces.iter().find(|sp| sp["ownerId"].as_str() == Some(tid.as_str())).cloned()
-    } else {
-        spaces.iter().find(|sp| sp["scope"].as_str() == Some("organization")).cloned()
-    };
+    let first_org = spaces.iter().find(|sp| sp["scope"].as_str() == Some("organization")).cloned();
     let team = first_org
         .as_ref()
         .and_then(|sp| sp["ownerId"].as_str())
