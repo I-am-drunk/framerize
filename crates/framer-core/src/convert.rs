@@ -455,6 +455,35 @@ fn chat_to_anthropic(body: &Value) -> Result<Value, String> {
     Ok(out)
 }
 
+/// Names of Responses-API "custom" tools in a client payload — the render
+/// side unwraps their tool_use input from the {"input": ...} wrapper back to
+/// freeform custom_tool_call items.
+pub fn custom_tool_names(body: &Value) -> std::collections::HashSet<String> {
+    body["tools"]
+        .as_array()
+        .map(|tools| {
+            tools
+                .iter()
+                .filter(|t| t["type"].as_str() == Some("custom"))
+                .filter_map(|t| t["name"].as_str().map(String::from))
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+/// Unwrap a custom tool's freeform input: {"input": "..."} → the string;
+/// anything else (model improvised a different shape) → its JSON text.
+fn unwrap_custom_input(input: &Value) -> String {
+    if let Some(obj) = input.as_object() {
+        if obj.len() == 1 {
+            if let Some(Value::String(s)) = obj.get("input") {
+                return s.clone();
+            }
+        }
+    }
+    input.to_string()
+}
+
 fn responses_to_anthropic(body: &Value) -> Result<Value, String> {
     let mut messages: Vec<Value> = Vec::new();
     let mut pending_tool_results: Vec<Value> = Vec::new();
@@ -495,7 +524,15 @@ fn responses_to_anthropic(body: &Value) -> Result<Value, String> {
                             "type":"tool_use","id":item["call_id"],"name":item["name"],"input":input
                         }]}));
                     }
-                    "function_call_output" => {
+                    "custom_tool_call" => {
+                        flush(&mut messages, &mut pending_tool_results);
+                        let input_str = item["input"].as_str().unwrap_or("");
+                        messages.push(json!({"role":"assistant","content":[{
+                            "type":"tool_use","id":item["call_id"],"name":item["name"],
+                            "input":{"input": input_str}
+                        }]}));
+                    }
+                    "function_call_output" | "custom_tool_call_output" => {
                         let out_text = match &item["output"] {
                             Value::String(s) => s.clone(),
                             other => other.to_string(),
@@ -529,11 +566,33 @@ fn responses_to_anthropic(body: &Value) -> Result<Value, String> {
     }
     if let Some(tools) = body["tools"].as_array() {
         let mapped: Vec<Value> = tools.iter().filter_map(|t| {
-            if t["type"].as_str() != Some("function") { return None; }
-            let mut tool = json!({"name": t["name"]});
-            if let Some(d) = t.get("description") { tool["description"] = d.clone(); }
-            if let Some(p) = t.get("parameters") { tool["input_schema"] = p.clone(); }
-            Some(tool)
+            let ty = t["type"].as_str();
+            if ty == Some("function") {
+                let mut tool = json!({"name": t["name"]});
+                if let Some(d) = t.get("description") { tool["description"] = d.clone(); }
+                if let Some(p) = t.get("parameters") { tool["input_schema"] = p.clone(); }
+                return Some(tool);
+            }
+            if ty == Some("custom") {
+                // Codex's core tools (exec, apply_patch, ...) are Responses-API
+                // "custom" tools with freeform TEXT input — dropping them made
+                // models report "no execution tools available" (2026-10-06).
+                // Anthropic tools need a schema: wrap the freeform string as
+                // {"input": "..."} upstream; the render side unwraps it back
+                // to a custom_tool_call (custom_tool_names below).
+                let mut tool = json!({"name": t["name"]});
+                let mut desc = t["description"].as_str().unwrap_or("").to_string();
+                if !desc.is_empty() { desc.push_str("\n\n"); }
+                desc.push_str("This tool takes freeform plain-text input, not JSON. Pass the entire text as the \"input\" string.");
+                tool["description"] = json!(desc);
+                tool["input_schema"] = json!({
+                    "type": "object",
+                    "properties": {"input": {"type": "string"}},
+                    "required": ["input"],
+                });
+                return Some(tool);
+            }
+            None
         }).collect();
         if !mapped.is_empty() { out["tools"] = json!(mapped); }
     }
@@ -569,6 +628,15 @@ fn tool_use_blocks(r: &AssembledResponse) -> Vec<&Value> {
 }
 
 pub fn render_json(d: ClientDialect, r: &AssembledResponse, client_model: &str) -> Value {
+    render_json_with(d, r, client_model, &std::collections::HashSet::new())
+}
+
+pub fn render_json_with(
+    d: ClientDialect,
+    r: &AssembledResponse,
+    client_model: &str,
+    custom_tools: &std::collections::HashSet<String>,
+) -> Value {
     match d {
         ClientDialect::AnthropicMessages => json!({
             "id": r.id, "type": "message", "role": "assistant",
@@ -616,12 +684,22 @@ pub fn render_json(d: ClientDialect, r: &AssembledResponse, client_model: &str) 
                 }));
             }
             for b in tool_use_blocks(r) {
-                output.push(json!({
-                    "id": format!("fc_{}", b["id"].as_str().unwrap_or("x").trim_start_matches("toolu_")),
-                    "type": "function_call", "status": "completed",
-                    "call_id": b["id"], "name": b["name"],
-                    "arguments": b["input"].to_string(),
-                }));
+                let name = b["name"].as_str().unwrap_or_default();
+                if custom_tools.contains(name) {
+                    output.push(json!({
+                        "id": format!("fc_{}", b["id"].as_str().unwrap_or("x").trim_start_matches("toolu_")),
+                        "type": "custom_tool_call",
+                        "call_id": b["id"], "name": b["name"],
+                        "input": unwrap_custom_input(&b["input"]),
+                    }));
+                } else {
+                    output.push(json!({
+                        "id": format!("fc_{}", b["id"].as_str().unwrap_or("x").trim_start_matches("toolu_")),
+                        "type": "function_call", "status": "completed",
+                        "call_id": b["id"], "name": b["name"],
+                        "arguments": b["input"].to_string(),
+                    }));
+                }
             }
             json!({
                 "id": format!("resp_{}", &r.id.trim_start_matches("msg_")),
@@ -865,6 +943,61 @@ mod tests {
     }
 
     #[test]
+    #[test]
+    fn custom_tools_roundtrip() {
+        // Codex's exec-style custom tools survive both directions:
+        // definition → wrapped anthropic tool; tool_use → custom_tool_call.
+        let body = json!({
+            "model": "gpt-6-astra",
+            "input": [
+                {"type":"message","role":"user","content":[{"type":"input_text","text":"run pwd"}]},
+                {"type":"custom_tool_call","call_id":"call_1","name":"exec","input":"await tools.exec_command({cmd:'pwd'})"},
+                {"type":"custom_tool_call_output","call_id":"call_1","output":"/home/user"}
+            ],
+            "max_output_tokens": 100,
+            "tools": [
+                {"type":"custom","name":"exec","description":"Run commands"},
+                {"type":"function","name":"sleep","description":"Sleep","parameters":{"type":"object"}}
+            ]
+        });
+        let names = custom_tool_names(&body);
+        assert!(names.contains("exec"));
+        assert!(!names.contains("sleep"));
+        let out = to_anthropic_request(ClientDialect::OpenAiResponses, &body).unwrap();
+        // definition wrapped with the {"input": string} schema
+        let exec = out["tools"].as_array().unwrap().iter().find(|t| t["name"] == "exec").unwrap();
+        assert_eq!(exec["input_schema"]["properties"]["input"]["type"], "string");
+        // history preserved: custom_tool_call → tool_use with wrapped input
+        let msgs = out["messages"].as_array().unwrap();
+        let tu = msgs.iter().find_map(|m| m["content"].as_array()?.iter().find(|c| c["type"] == "tool_use").cloned()).unwrap();
+        assert_eq!(tu["name"], "exec");
+        assert_eq!(tu["input"]["input"], "await tools.exec_command({cmd:'pwd'})");
+        // and tool_result preserved
+        let tr = msgs.iter().find_map(|m| m["content"].as_array()?.iter().find(|c| c["type"] == "tool_result").cloned()).unwrap();
+        assert_eq!(tr["tool_use_id"], "call_1");
+        // render back: exec → custom_tool_call with freeform input; function stays function_call
+        let r = AssembledResponse {
+            id: "msg_x".into(),
+            content: vec![
+                json!({"type":"tool_use","id":"call_9","name":"exec","input":{"input":"const x = 1;"}}),
+                json!({"type":"tool_use","id":"call_10","name":"sleep","input":{"duration_ms":1000}}),
+            ],
+            stop_reason: "tool_use".into(),
+            stop_sequence: None,
+            usage: json!({}),
+            input_tokens: 1,
+            output_tokens: 1,
+            chunks: 1,
+            metered_chunks: 0,
+        };
+        let j = render_json_with(ClientDialect::OpenAiResponses, &r, "gpt-6-astra", &names);
+        let items = j["output"].as_array().unwrap();
+        assert_eq!(items[0]["type"], "custom_tool_call");
+        assert_eq!(items[0]["input"], "const x = 1;");
+        assert_eq!(items[1]["type"], "function_call");
+        assert_eq!(items[1]["arguments"], "{\"duration_ms\":1000}");
+    }
+
     fn chat_tools_roundtrip() {
         let body = json!({
             "model": "gpt-4.1",
@@ -994,6 +1127,7 @@ fn resp_id(msg_id: &str) -> String {
 pub struct SseComposer {
     d: ClientDialect,
     client_model: String,
+    custom_tools: std::collections::HashSet<String>,
     /// anthropic: next content block index; whether a text block is open
     next_idx: usize,
     text_open: bool,
@@ -1009,8 +1143,13 @@ pub struct SseComposer {
 
 impl SseComposer {
     pub fn new(d: ClientDialect, msg_id: &str, client_model: &str) -> Self {
+        Self::new_with_custom(d, msg_id, client_model, std::collections::HashSet::new())
+    }
+
+    pub fn new_with_custom(d: ClientDialect, msg_id: &str, client_model: &str, custom_tools: std::collections::HashSet<String>) -> Self {
         Self {
             d,
+            custom_tools,
             client_model: client_model.to_string(),
             next_idx: 0,
             text_open: false,
@@ -1260,29 +1399,57 @@ impl SseComposer {
                         self.text_item_open = false;
                         self.item_idx += 1;
                     }
-                    f.push(sse("response.output_item.added", json!({
-                        "type": "response.output_item.added", "output_index": self.item_idx,
-                        "item": {"id": format!("fc_{}", b["id"].as_str().unwrap_or("x")),
-                                 "type": "function_call", "status": "in_progress",
-                                 "call_id": b["id"], "name": b["name"], "arguments": ""},
-                    })));
-                    f.push(sse("response.function_call_arguments.delta", json!({
-                        "type": "response.function_call_arguments.delta",
-                        "output_index": self.item_idx, "delta": b["input"].to_string(),
-                    })));
-                    f.push(sse("response.function_call_arguments.done", json!({
-                        "type": "response.function_call_arguments.done",
-                        "output_index": self.item_idx,
-                        "arguments": b["input"].to_string(),
-                        "name": b["name"], "call_id": b["id"],
-                    })));
-                    f.push(sse("response.output_item.done", json!({
-                        "type": "response.output_item.done", "output_index": self.item_idx,
-                        "item": {"id": format!("fc_{}", b["id"].as_str().unwrap_or("x")),
-                                 "type": "function_call", "status": "completed",
-                                 "call_id": b["id"], "name": b["name"],
-                                 "arguments": b["input"].to_string()},
-                    })));
+                    let tool_name = b["name"].as_str().unwrap_or_default();
+                    if self.custom_tools.contains(tool_name) {
+                        let free_input = unwrap_custom_input(&b["input"]);
+                        f.push(sse("response.output_item.added", json!({
+                            "type": "response.output_item.added", "output_index": self.item_idx,
+                            "item": {"id": format!("fc_{}", b["id"].as_str().unwrap_or("x")),
+                                     "type": "custom_tool_call",
+                                     "call_id": b["id"], "name": b["name"], "input": ""},
+                        })));
+                        f.push(sse("response.custom_tool_call_input.delta", json!({
+                            "type": "response.custom_tool_call_input.delta",
+                            "output_index": self.item_idx, "delta": free_input,
+                        })));
+                        f.push(sse("response.custom_tool_call_input.done", json!({
+                            "type": "response.custom_tool_call_input.done",
+                            "output_index": self.item_idx,
+                            "input": free_input,
+                            "name": b["name"], "call_id": b["id"],
+                        })));
+                        f.push(sse("response.output_item.done", json!({
+                            "type": "response.output_item.done", "output_index": self.item_idx,
+                            "item": {"id": format!("fc_{}", b["id"].as_str().unwrap_or("x")),
+                                     "type": "custom_tool_call",
+                                     "call_id": b["id"], "name": b["name"],
+                                     "input": free_input},
+                        })));
+                    } else {
+                        f.push(sse("response.output_item.added", json!({
+                            "type": "response.output_item.added", "output_index": self.item_idx,
+                            "item": {"id": format!("fc_{}", b["id"].as_str().unwrap_or("x")),
+                                     "type": "function_call", "status": "in_progress",
+                                     "call_id": b["id"], "name": b["name"], "arguments": ""},
+                        })));
+                        f.push(sse("response.function_call_arguments.delta", json!({
+                            "type": "response.function_call_arguments.delta",
+                            "output_index": self.item_idx, "delta": b["input"].to_string(),
+                        })));
+                        f.push(sse("response.function_call_arguments.done", json!({
+                            "type": "response.function_call_arguments.done",
+                            "output_index": self.item_idx,
+                            "arguments": b["input"].to_string(),
+                            "name": b["name"], "call_id": b["id"],
+                        })));
+                        f.push(sse("response.output_item.done", json!({
+                            "type": "response.output_item.done", "output_index": self.item_idx,
+                            "item": {"id": format!("fc_{}", b["id"].as_str().unwrap_or("x")),
+                                     "type": "function_call", "status": "completed",
+                                     "call_id": b["id"], "name": b["name"],
+                                     "arguments": b["input"].to_string()},
+                        })));
+                    }
                     self.item_idx += 1;
                 }
                 _ => {}

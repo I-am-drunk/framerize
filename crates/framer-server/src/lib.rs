@@ -657,6 +657,9 @@ async fn free_complete(
         payload["service_tier"] = serde_json::Value::String(tier.into());
     }
     let client_model = payload["model"].as_str().unwrap_or_default().to_string();
+    // Codex "custom" tools (exec, apply_patch, …) ride upstream in an
+    // {"input": …} wrapper; the render side unwraps them by name.
+    let custom_tools = convert::custom_tool_names(&payload);
     // Honest model routing (2026-10-05, user rule: never substitute silently).
     // gpt-6.x are direct-route models (OpenAI Responses, metered): Codex and
     // other Responses clients pass through natively. Genuinely unavailable
@@ -808,7 +811,7 @@ async fn free_complete(
         }));
 
         let open_frames = convert::stream_open(dialect, &client_model, &msg_id);
-        let composer = convert::SseComposer::new(dialect, &msg_id, &client_model);
+        let composer = convert::SseComposer::new_with_custom(dialect, &msg_id, &client_model, custom_tools.clone());
         struct St {
             done: bool,
         }
@@ -977,7 +980,7 @@ async fn free_complete(
         }
     };
 
-    let body = convert::render_json(dialect, &result, &client_model);
+    let body = convert::render_json_with(dialect, &result, &client_model, &custom_tools);
     let mut resp = axum::response::Response::new(axum::body::Body::from(
         serde_json::to_string(&body).map_err(|e| ApiError(e.to_string()))?,
     ));
