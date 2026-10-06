@@ -39,11 +39,28 @@ async def main():
         await asyncio.sleep(INTERVAL_S)
 
 async def sweep():
-    sess_files = sorted(glob.glob(os.path.expanduser('~/.framerize/profiles/.sessions/*.session')))
-    if not sess_files:
-        record('session', 'DRIFT', 'no session files')
+    # Live account discovery (2026-10-06): the canary used to hardcode the
+    # ORIGINAL account's project/team — after the account rotation it probed
+    # a workspace it couldn't see and reported 402s as "DRIFT". Discover the
+    # daemon's first ready account each cycle.
+    import urllib.request as _ur
+    try:
+        with _ur.urlopen('http://127.0.0.1:8787/api/accounts', timeout=10) as r:
+            accounts = json.loads(r.read().decode())
+    except Exception as e:
+        record('daemon-accounts', 'DRIFT', f'{type(e).__name__}: {e}')
         return
-    cookie_raw = open(sess_files[0]).read().strip()
+    ready = [a for a in accounts if a.get('state') == 'ready' and a.get('current_project')]
+    if not ready:
+        record('daemon-accounts', 'DRIFT', 'no ready account with a project')
+        return
+    acct = ready[0]
+    uid = acct['framer_user_id']
+    sess_file = os.path.expanduser(f'~/.framerize/profiles/.sessions/{uid}.session')
+    if not os.path.exists(sess_file):
+        record('session', 'DRIFT', f'no session file for {uid[:8]}')
+        return
+    cookie_raw = open(sess_file).read().strip()
     cookie_value = cookie_raw.split('session=')[1].split(';')[0] if 'session=' in cookie_raw else cookie_raw
 
     # --- static checks (no browser) ---
@@ -82,8 +99,8 @@ async def sweep():
     record('users-me', 'ok' if s == 200 else 'DRIFT', f'status {s}')
 
     # --- live inference checks (browser) ---
-    proj = 'UtVRwMnJTYSkR8C46sQM'
-    team = '4713db54-ff6e-4698-863f-8fcbbd94d3d8'
+    proj = acct['current_project']
+    team = acct.get('current_team') or ''
     mgr = AsyncCamoufox(headless=True, persistent_context=True,
                         user_data_dir='/tmp/drift-profile', humanize=False)
     ctx = await mgr.__aenter__()
