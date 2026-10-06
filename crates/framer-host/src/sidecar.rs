@@ -260,6 +260,12 @@ impl BrowserBridge for SidecarBridge {
             .await
             .insert(*account, v["queue_wait_ms"].as_u64().unwrap_or(0));
         if status == 0 {
+            // velocity-paused must reach proxy.rs's 429-backoff mapping (chains
+            // wait-and-retry) — flattening it to castle-v3-unavailable made
+            // chains DIE during full-device-cooldown saturation (2026-10-06).
+            if text.contains("velocity-paused") {
+                return Ok((0, usage, text));
+            }
             return Err("castle-v3-unavailable".into());
         }
         if status == -1 {
