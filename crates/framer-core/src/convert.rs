@@ -64,9 +64,7 @@ pub fn model_route(model: &str) -> ModelRoute {
     let slug = model.rsplit('/').next().unwrap_or(model);
     match slug {
         "gpt-6-sol" | "gpt-6.1-sol" | "gpt-6-luna" | "gpt-5.6-terra" => ModelRoute::DirectResponses,
-        "gpt-6-astra" => ModelRoute::Unavailable(
-            "plan-gated by Framer (\"Upgrade your workspace to use this model\") on every route. Working free models: claude-opus-5-5, claude-sonnet-5-5, claude-haiku-4-5, gpt-4.1, gpt-4.1-mini, gemini-2.5-flash, gemini-3-flash-preview",
-        ),
+        "gpt-6-astra" => ModelRoute::FreePassthrough,
         "gemini-2.5-pro" | "gpt-5.1" | "gpt-4o" | "o4-mini" => ModelRoute::Unavailable(
             "blocked by the gateway's upstream guardrails (404) on every route. Working free models: claude-opus-5-5, claude-sonnet-5-5, claude-haiku-4-5, gpt-4.1, gpt-4.1-mini, gemini-2.5-flash, gemini-3-flash-preview",
         ),
@@ -84,6 +82,13 @@ pub fn to_openrouter_id(model: &str) -> String {
     }
     if let Some(rest) = m.strip_prefix("claude-") {
         return format!("anthropic/claude-{}", join_version(rest));
+    }
+    // gpt-6-astra is the one OpenAI-family model that must stay UNPREFIXED:
+    // "openai/gpt-6-astra" gets Framer's plan gate (403 "Upgrade your
+    // workspace") while bare "gpt-6-astra" resolves through the OpenRouter
+    // catalog FREE (verified 2026-10-06: 200 + ledger delta 0.0).
+    if m == "gpt-6-astra" {
+        return m.to_string();
     }
     if m.starts_with("gpt") || m.starts_with("o1") || m.starts_with("o3") || m.starts_with("o4") {
         return format!("openai/{m}");
@@ -812,6 +817,8 @@ mod tests {
         assert!(matches!(model_route("gpt-6-astra"), ModelRoute::Unavailable(_)));
         assert_eq!(model_route("claude-opus-5-5"), ModelRoute::FreePassthrough);
         assert_eq!(model_route("gpt-6.1-sol"), ModelRoute::DirectResponses);
+        assert_eq!(model_route("gpt-6-astra"), ModelRoute::FreePassthrough);
+        assert_eq!(to_openrouter_id("gpt-6-astra"), "gpt-6-astra");
         assert_eq!(to_openrouter_id("kimi-k3"), "moonshotai/kimi-k3");
         assert_eq!(to_openrouter_id("moonshotai/kimi-k3"), "moonshotai/kimi-k3");
         assert_eq!(to_openrouter_id("gpt-4.1"), "openai/gpt-4.1");
