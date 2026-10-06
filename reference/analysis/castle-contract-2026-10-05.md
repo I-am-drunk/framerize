@@ -386,3 +386,12 @@ amplification to 192 req/2min -> velocity cascade. Fixed: hard cap 8,
 initial 5, persisted ceilings clamped. Verified post-fix: 10 streams on one
 model = 10/10 zero upstream 429s (overflow queues); 15 streams across 3
 models = 15/15 zero 429s in 28s; ledger delta 0 throughout.
+
+
+## 2026-10-06 night addendum (6h soak experiments)
+
+- **Token TTL: beyond 620s.** Controlled aging: fresh v2 tokens pass at 300/400/440/470/520s; the 620s failure was the 600s AI-JWT expiring (401), not the castle token. The "~450s deaths" seen in production were transient refusals misclassified by the age heuristic, NOT expiry — and the freshness fallback (pop old token, retry fresh on same device, only THEN classify velocity) self-corrects within one retry.
+- **Re-wrapped tokens age identically to originals** (200 at 301/451/452s) — the forge needs no special re-harvest cadence for aging; the 25-min re-harvest is for fingerprint freshness only.
+- **Coupon concurrency**: 1 token supports ~4-5 concurrent uses (x4 all pass; x6 = 5+1x429 workspace cap; x8 = 4x200+4x403 token-level denial). Pool's no-concurrent-sharing rule stays (correct, and 8 tokens is ample).
+- **Service tiers on Claude models: NOT honored** — speed:"fast" and service_tier:"priority" return 200 but usage reports standard. Tier infrastructure only exists for OpenAI models here (astra ultrafast works). Requests stay free regardless.
+- **Refund quota: still denied after ~30h** ({"granted": false}) — effectively one-time per account, not a renewing window. Auto-refund stays as pure upside.
