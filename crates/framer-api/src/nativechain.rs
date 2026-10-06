@@ -61,6 +61,52 @@ pub async fn complete_long(
         _ => Vec::new(),
     };
 
+    // Namespace backfill (heals sessions poisoned before the verbatim-streaming
+    // fix): the upstream rejects re-sent function_calls missing `namespace`
+    // when the tool lives outside the default namespace ("Missing namespace for
+    // function_call 'spawn_agent'", 2026-10-06). Recover the namespace from the
+    // request's own tool declarations: a `namespace` field on the tool, a
+    // `type:"namespace"` container holding it, or a dotted `ns.name`.
+    let ns_of = {
+        let mut map: std::collections::HashMap<String, String> = std::collections::HashMap::new();
+        if let Some(tools) = client_payload["tools"].as_array() {
+            for t in tools {
+                let ty = t["type"].as_str().unwrap_or_default();
+                if ty == "namespace" {
+                    if let Some(ns) = t["name"].as_str() {
+                        for inner in t["tools"].as_array().into_iter().flatten() {
+                            if let Some(n) = inner["name"].as_str() {
+                                map.insert(n.to_string(), ns.to_string());
+                            }
+                        }
+                    }
+                } else if let Some(n) = t["name"].as_str() {
+                    if let Some(ns) = t["namespace"].as_str() {
+                        map.insert(n.to_string(), ns.to_string());
+                    } else if let Some((ns, _)) = n.split_once('.') {
+                        map.insert(n.rsplit('.').next().unwrap_or(n).to_string(), ns.to_string());
+                    }
+                }
+            }
+        }
+        map
+    };
+    if !ns_of.is_empty() {
+        let mut healed = 0u32;
+        for it in input_items.iter_mut() {
+            let ty = it["type"].as_str().unwrap_or_default();
+            if (ty == "function_call" || ty == "custom_tool_call") && it.get("namespace").is_none() {
+                if let Some(ns) = it["name"].as_str().and_then(|n| ns_of.get(n)) {
+                    it["namespace"] = json!(ns);
+                    healed += 1;
+                }
+            }
+        }
+        if healed > 0 {
+            eprintln!("[nativechain] namespace backfill: healed {healed} call item(s) from tool declarations");
+        }
+    }
+
     // Per-chunk payload: client verbatim, model normalized, stream off,
     // budget set, proxy-unsupported persistence fields stripped (measured
     // 400s: previous_response_id, store, background).
