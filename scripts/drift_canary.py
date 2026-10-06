@@ -142,9 +142,13 @@ async def sweep():
         s = await fire('/ai/v3/messages/', 'anthropic/claude-opus-5.5',
                        {'model': 'anthropic/claude-opus-5.5', 'messages': [{'role': 'user', 'content': 'ok'}], 'max_tokens': 10, 'stream': False}, 'translation')
         record('model-opus5.5', 'ok' if s == 200 else 'DRIFT', f'status {s}')
-        s = await fire('/ai/v3/openai/responses/', 'gpt-6-sol',
-                       {'model': 'gpt-6-sol', 'input': 'say ok', 'max_output_tokens': 64, 'stream': False})
-        record('model-gpt6sol-direct', 'ok' if s == 200 else 'warn', f'status {s}')
+        # Direct-route probe REMOVED (2026-10-06): sol is metered — every probe
+        # spent credits, and the route is blocked by daemon policy anyway.
+        # Verify the BLOCKED surface instead: sol on the free passthrough must
+        # stay absent (its appearance would change routing assumptions).
+        s = await fire('/ai/v3/responses/', 'gpt-6-sol',
+                       {'model': 'openai/gpt-6-sol', 'input': 'say ok', 'max_output_tokens': 64, 'stream': False})
+        record('model-gpt6sol-still-unavailable-free-route', 'ok' if s in (400, 403, 404) else 'warn', f'status {s}')
     finally:
         await mgr.__aexit__(None, None, None)
 
