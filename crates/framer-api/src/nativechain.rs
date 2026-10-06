@@ -11,14 +11,18 @@
 //! appended to `input` verbatim (reasoning items included — verified), plus a
 //! "continue exactly where you stopped" user message.
 
+use std::sync::Mutex;
+
+use serde_json::{json, Value};
+
+use framer_core::convert::{AssembledResponses, ChainEvent};
+use framer_core::ids::{AccountId, ProjectId};
+use framer_core::port::{BrowserBridge, ChainConfig, Session};
+
+use crate::auth::AiToken;
 use crate::proxy::{self, Dialect};
 use crate::transport::Transport;
-use framer_core::account::{AccountId, AiToken};
-use framer_core::convert::{AssembledResponses, ChainEvent};
-use framer_core::ids::ProjectId;
-use framer_core::port::{BrowserBridge, ChainConfig, Session};
-use serde_json::{json, Value};
-use tokio::sync::Mutex;
+use futures::StreamExt;
 
 /// Fire a full (possibly multi-chunk) generation on the responses passthrough
 /// and return the assembled native Responses object.
@@ -318,14 +322,15 @@ fn merge_items(acc: &mut Vec<Value>, new: Vec<Value>) {
                     // Concatenate output_text parts across chunks.
                     let mut parts = last["content"].as_array().cloned().unwrap_or_default();
                     let mut new_parts = it["content"].as_array().cloned().unwrap_or_default();
-                    if let (Some(a), Some(b)) = (
+                    let first_new_text_idx = new_parts.iter().position(|p| p["type"] == "output_text");
+                    if let (Some(a), Some(bidx)) = (
                         parts.iter_mut().rev().find(|p| p["type"] == "output_text"),
-                        new_parts.iter_mut().find(|p| p["type"] == "output_text"),
+                        first_new_text_idx,
                     ) {
-                        let t = b["text"].as_str().unwrap_or_default().to_string();
+                        let t = new_parts[bidx]["text"].as_str().unwrap_or_default().to_string();
                         let cur = a["text"].as_str().unwrap_or_default().to_string();
                         a["text"] = json!(cur + &t);
-                        new_parts.retain(|p| p != b);
+                        new_parts.remove(bidx);
                     }
                     parts.extend(new_parts);
                     last["content"] = json!(parts);
@@ -404,7 +409,12 @@ fn finish(
 }
 
 async fn body_text(resp: framer_core::port::ProxyResponse) -> Result<String, String> {
-    resp.text().await.map_err(|e| e.to_string())
+    let mut stream = resp.stream;
+    let mut buf = bytes::BytesMut::new();
+    while let Some(chunk) = stream.next().await {
+        buf.extend_from_slice(&chunk.map_err(|e| e.to_string())?);
+    }
+    String::from_utf8(buf.to_vec()).map_err(|e| e.to_string())
 }
 
 /// Metered fallback rung: one chunk as an SSE stream (bytes flow, no idle
@@ -428,7 +438,7 @@ async fn stream_chunk(
         Dialect::OpenRouterResponses, step, payload, chat_session, step_index,
     )
     .await?;
-    let text = resp.text().await.map_err(|e| e.to_string())?;
+    let text = body_text(resp).await?;
     // The buffered SSE text: find the terminal response.completed event.
     let mut final_obj: Option<Value> = None;
     for line in text.lines() {
