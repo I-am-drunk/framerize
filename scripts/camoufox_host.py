@@ -503,8 +503,11 @@ class Host:
     def _pick_device(self, acc):
         """Velocity-aware device choice: round-robin over the persisted device
         pool, skipping velocity-cooled devices and devices over the proactive
-        window budget. Falls back to the (single) uncooled device or the
-        least-recently-cooled one."""
+        window budget. Returns a READY device, or None when everything is
+        cooling/over-budget — call _device_ready_in() for the wait time. NEVER
+        fire on a cooling device: poking a banned device re-bans it for the
+        full cooldown (measured 2026-10-06: the re-poke cascade kept every
+        device permanently banned during the storm)."""
         devs = acc.devices or [None]
         now = time.monotonic()
         for _ in range(len(devs)):
@@ -517,10 +520,25 @@ class Host:
             if len(reqs) >= DEV_WINDOW_CAP:
                 continue
             return d
-        # everything cooling/over-budget: take the device whose cooldown ends soonest
-        if acc.devices:
-            return min(acc.devices, key=lambda d: acc.dev_cooling.get(d, 0))
         return None
+
+    def _device_ready_in(self, acc):
+        """Seconds until SOME device is usable: the soonest cooldown expiry, or
+        the soonest window slot freeing up. None when a device is ready now."""
+        now = time.monotonic()
+        if not acc.devices:
+            return None
+        waits = []
+        for d in acc.devices:
+            cu = acc.dev_cooling.get(d, 0)
+            if cu > now:
+                waits.append(cu - now)
+                continue
+            reqs = [t for t in acc.dev_reqs.get(d, []) if now - t < DEV_WINDOW_S]
+            if len(reqs) < DEV_WINDOW_CAP:
+                return None  # this device is ready now
+            waits.append((reqs[0] + DEV_WINDOW_S) - now)
+        return min(waits) if waits else None
 
     def _note_request(self, acc, dev):
         acc.dev_reqs.setdefault(dev, []).append(time.monotonic())
@@ -837,6 +855,22 @@ class Host:
                 r = None
                 for attempt in range(attempts):
                     dev = self._pick_device(acc)
+                    if dev is None and acc.devices:
+                        # Everything cooling/over-budget: WAIT for the soonest
+                        # recovery instead of poking a banned device (the poke
+                        # re-bans for the full 600s — the cascade). Bounded:
+                        # long waits surface as velocity-paused so the chain
+                        # backs off honestly instead of minting into a ban.
+                        wait = self._device_ready_in(acc)
+                        if wait is not None and wait <= 60.0:
+                            trace(f"{account[:8]}: all devices busy/cooling — waiting {wait:.0f}s for recovery (no re-poke)")
+                            await asyncio.sleep(wait + 0.25)
+                            dev = self._pick_device(acc)
+                        if dev is None:
+                            w = self._device_ready_in(acc) or 0
+                            r = {"status": 0, "usage": None,
+                                 "body": f"velocity-paused: every device is cooling; retry in {int(w)}s"}
+                            break
                     tid, tok, used_dev = await self._token_acquire(acc, page, account, dev)
                     if not tok:
                         r = {"status": 0, "usage": None, "body": "castle-unavailable"}

@@ -172,7 +172,7 @@ pub async fn complete_long(
                         // 4 in-chain hops, then surface: a saturated WORKSPACE
                         // can't be fixed by bucket hops (the cap is per
                         // workspace), so get to rotation::mark_saturated fast.
-                        if rate_retries >= 4 {
+                        if rate_retries >= 9 {
                             out = Some(Err(format!("chunk {i}: workspace still saturated after {rate_retries} bucket retries ({e})")));
                             break;
                         }
@@ -186,9 +186,14 @@ pub async fn complete_long(
                         }
                         bucket_idx += 1;
                         let (d2, s2) = bucket(bucket_idx);
-                        if rate_retries > 10 {
-                            let wait = std::time::Duration::from_millis(1500 * (1 << (rate_retries - 10).min(4)));
-                            eprintln!("[freechat] chunk {i} 429 everywhere — sleeping {wait:?} (attempt {rate_retries})");
+                        if rate_retries > 2 {
+                            // Saturation is workspace-wide (measured): bucket
+                            // hops stop helping after the first couple — WAIT
+                            // for in-flight work to drain (escalating, ~2min
+                            // total patience) instead of erroring into client
+                            // retry storms (the 2026-10-06 wave analysis).
+                            let wait = std::time::Duration::from_millis(1500 * (1 << (rate_retries - 2).min(4)));
+                            eprintln!("[freechat] chunk {i} 429 — backoff {wait:?} (attempt {rate_retries}/9)");
                             tokio::time::sleep(wait).await;
                         } else {
                             eprintln!("[freechat] chunk {i} 429 on {cur_dialect:?}/{cur_step} — instant retry on next bucket {d2:?}/{s2}");

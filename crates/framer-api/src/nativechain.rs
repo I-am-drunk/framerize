@@ -137,7 +137,7 @@ pub async fn complete_long(
                 {
                     Ok(r) => out = Some(Ok(r)),
                     Err(e) if e.starts_with("retryable 429") => {
-                        if rate_retries >= 4 {
+                        if rate_retries >= 9 {
                             out = Some(Err(format!(
                                 "chunk {i}: workspace still saturated after {rate_retries} retries ({e})"
                             )));
