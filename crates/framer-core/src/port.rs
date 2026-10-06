@@ -260,6 +260,23 @@ pub trait FramerClient: Send + Sync {
     /// GET /web/teams/{teamId}/ai-credits.
     async fn usage(&self, session: &Session, team: &TeamId) -> Result<CreditSnapshot, String>;
 
+    /// Claim the account's second-workspace credit grant (first TWO workspaces
+    /// each get 500, verified 2026-10-05). Creates the workspace when the
+    /// account has just one. Best-effort; default impl errors (bridge without it).
+    async fn claim_workspace_grant(&self, _session: &Session) -> Result<bool, String> {
+        Err("bridge has no grant claiming".into())
+    }
+
+    /// Create a project in the given workspace (every AI call needs one).
+    /// Default impl errors; HttpFramerClient implements via the page route.
+    async fn create_project(
+        &self,
+        _session: &Session,
+        _team: &TeamId,
+    ) -> Result<crate::ids::ProjectId, String> {
+        Err("bridge has no project creation".into())
+    }
+
     /// GET /web/v2/dashboard/teams/{teamId} — the team's existing projects.
     ///
     /// Needed because an imported account arrives with no `current_project`,
