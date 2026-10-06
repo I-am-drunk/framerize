@@ -17,8 +17,11 @@ Everything downstream is unchanged:
 - **Free-route models** (astra): conversions carry `service_tier` to the
   OpenRouter passthrough — **still unmetered** (verified: tier=ultrafast
   served, ledger delta 0.0).
-- **Direct-route models** (sol): compat_forward sends the payload verbatim,
-  so the tier rides to the direct route (metered, credit-bond floor applies).
+- **Direct-route models** (sol): the direct API has no ultrafast endpoint for
+  sol (verified: 400 "Invalid service_tier argument") — the variant injects
+  `service_tier: "priority"` instead, the best tier sol accepts (this mirrors
+  OpenRouter's own "ultrafast falls back to priority" rule). Metered, and the
+  credit-bond floor applies.
 
 ## T3 side
 

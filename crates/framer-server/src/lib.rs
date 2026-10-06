@@ -644,8 +644,17 @@ async fn free_complete(
     let ultrafast = payload["model"].as_str().unwrap_or_default().ends_with("-ultrafast");
     if ultrafast {
         let base = payload["model"].as_str().unwrap_or_default().trim_end_matches("-ultrafast").to_string();
+        // Tier by route (verified 2026-10-06): the OpenRouter passthroughs take
+        // "ultrafast" (and fall back to priority internally per the docs); the
+        // direct Responses API rejects it for sol ("Invalid service_tier
+        // argument") — priority is the best tier it accepts.
+        let tier = if convert::model_route(&base) == convert::ModelRoute::DirectResponses {
+            "priority"
+        } else {
+            "ultrafast"
+        };
         payload["model"] = serde_json::Value::String(base);
-        payload["service_tier"] = serde_json::Value::String("ultrafast".into());
+        payload["service_tier"] = serde_json::Value::String(tier.into());
     }
     let client_model = payload["model"].as_str().unwrap_or_default().to_string();
     // Honest model routing (2026-10-05, user rule: never substitute silently).
