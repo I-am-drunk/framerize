@@ -160,6 +160,7 @@ mod tests {
             // is_eligible() now requires both (see account.rs).
             current_team: Some(TeamId("team".to_string())),
             current_project: Some(ProjectId("proj".to_string())),
+            extra_workspaces: Vec::new(),
             state,
             credit: None,
             consecutive_failures: failures,

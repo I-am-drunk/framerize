@@ -1423,7 +1423,7 @@ fn hdr(headers: &axum::http::HeaderMap, name: &str) -> Option<String> {
 /// workspace; devices do NOT multiply it).
 async fn populate_extra_scopes(
     s: &AppState,
-    session: &framer_core::session::Session,
+    session: &framer_core::port::Session,
     account: &mut ManagedAccount,
 ) {
     let deps = Deps {
@@ -1796,6 +1796,7 @@ async fn complete_login(
             proxy: None,
             current_team: None,
             current_project: None,
+            extra_workspaces: Vec::new(),
             state: framer_core::account::AccountState::Ready,
             credit: None,
             consecutive_failures: 0,
@@ -1976,6 +1977,7 @@ async fn import_account(
             proxy: None,
             current_team: None,
             current_project: None,
+            extra_workspaces: Vec::new(),
             state: framer_core::account::AccountState::Ready,
             credit: None,
             consecutive_failures: 0,
