@@ -210,6 +210,12 @@ async fn attempt(
             if s == 400 && text.contains("not allowed for this feature") && category != "agents" {
                 return Err("category-rejected".into());
             }
+            // velocity-paused (sidecar: every device cooling, wait >60s) — map
+            // onto the 429 backoff path so chains wait-and-retry instead of
+            // erroring into client retry storms (the 2026-10-06 cascade).
+            if s == 0 && text.contains("velocity-paused") {
+                return Err(format!("retryable 429 on {}: {clipped}", dialect.path()));
+            }
             return Err(format!("retryable {s} on {}: {clipped}", dialect.path()));
         }
     }
