@@ -20,6 +20,7 @@ pub mod freechat;
 pub mod inference;
 mod login;
 mod models;
+pub mod nativechain;
 pub mod proxy;
 pub mod provision;
 pub mod routes;
@@ -228,6 +229,32 @@ impl FramerClient for HttpFramerClient {
             account,
             project,
             anthro_payload,
+            cfg,
+            chat_session,
+            events,
+        )
+        .await
+    }
+
+    async fn native_long(
+        &self,
+        session: &Session,
+        browser: &dyn BrowserBridge,
+        account: &AccountId,
+        project: &framer_core::ids::ProjectId,
+        responses_payload: serde_json::Value,
+        cfg: &framer_core::port::ChainConfig,
+        chat_session: &str,
+        events: Option<&(dyn Fn(framer_core::convert::ChainEvent) + Send + Sync)>,
+    ) -> Result<framer_core::convert::AssembledResponses, String> {
+        nativechain::complete_long(
+            &self.transport,
+            &self.ai_token,
+            session,
+            browser,
+            account,
+            project,
+            responses_payload,
             cfg,
             chat_session,
             events,

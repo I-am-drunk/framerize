@@ -257,6 +257,22 @@ pub trait FramerClient: Send + Sync {
         events: Option<&(dyn Fn(crate::convert::ChainEvent) + Send + Sync)>,
     ) -> Result<crate::convert::AssembledResponse, String>;
 
+    /// The responses-native free chain (docs/native-chains.md): takes the
+    /// client request in OpenAI Responses shape, runs it on
+    /// /ai/v3/responses/ verbatim, returns the assembled native object.
+    #[allow(clippy::too_many_arguments)]
+    async fn native_long(
+        &self,
+        session: &Session,
+        browser: &dyn BrowserBridge,
+        account: &AccountId,
+        project: &ProjectId,
+        responses_payload: serde_json::Value,
+        cfg: &ChainConfig,
+        chat_session: &str,
+        events: Option<&(dyn Fn(crate::convert::ChainEvent) + Send + Sync)>,
+    ) -> Result<crate::convert::AssembledResponses, String>;
+
     /// GET /web/teams/{teamId}/ai-credits.
     async fn usage(&self, session: &Session, team: &TeamId) -> Result<CreditSnapshot, String>;
 

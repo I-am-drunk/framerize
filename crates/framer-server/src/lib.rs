@@ -666,18 +666,27 @@ async fn free_complete(
     // models get a clear error — the user picks what to do, not us.
     match convert::model_route(&client_model) {
         convert::ModelRoute::DirectResponses => {
-            if dialect == ClientDialect::OpenAiResponses {
-                return compat_forward(
-                    s,
-                    "openai-responses",
-                    hdr(headers, "x-framerize-account"),
-                    hdr(headers, "x-framerize-session"),
-                    payload,
-                )
-                .await;
+            // Metered route BLOCKED by default (user rule 2026-10-06: "we
+            // should not be using the paid route"). gpt-6-sol/6.1-sol/luna/
+            // terra only exist on the metered direct route, so they are
+            // unavailable unless the operator explicitly opts into spend.
+            if std::env::var("FRAMERIZE_ALLOW_METERED").map(|v| v == "1").unwrap_or(false) {
+                if dialect == ClientDialect::OpenAiResponses {
+                    return compat_forward(
+                        s,
+                        "openai-responses",
+                        hdr(headers, "x-framerize-account"),
+                        hdr(headers, "x-framerize-session"),
+                        payload,
+                    )
+                    .await;
+                }
+                return Err(ApiError(format!(
+                    "model {client_model} is a direct-route model (OpenAI Responses API, metered) — call /openai/v1/responses for it"
+                )));
             }
             return Err(ApiError(format!(
-                "model {client_model} is a direct-route model (OpenAI Responses API, metered) — call /openai/v1/responses for it; it is not on the free passthrough roster"
+                "model {client_model} is metered-only (direct route) and metered access is disabled on this gateway (set FRAMERIZE_ALLOW_METERED=1 to allow spend). Free alternatives: gpt-6-astra, gpt-4.1, kimi-k3, gemini-2.5-flash, and the Claude roster."
             )));
         }
         convert::ModelRoute::Unavailable(reason) => {
@@ -693,6 +702,16 @@ async fn free_complete(
         .or_else(|| payload["max_completion_tokens"].as_u64())
         .or_else(|| payload["max_output_tokens"].as_u64())
         .unwrap_or(4096) as u32;
+
+    // THE DIALECT-NATIVE RULE (docs/native-chains.md, 2026-10-06): OpenAI
+    // clients never convert to Anthropic. Responses clients run the
+    // responses-native chain verbatim; chat clients map thinly onto it
+    // (chat→responses is OpenAI→OpenAI). Anthropic clients use the existing
+    // anthro chain. The conversion that caused the "no tools" bug class is
+    // dead for OpenAI clients.
+    if dialect != ClientDialect::AnthropicMessages {
+        return native_complete(s, headers, dialect, payload, wants_stream, include_usage, max_tokens).await;
+    }
 
     // Client request → faithful Anthropic Messages payload (model normalized).
     let anthro = convert::to_anthropic_request(dialect, &payload).map_err(ApiError)?;
@@ -993,6 +1012,296 @@ async fn free_complete(
         chat_session.parse().unwrap_or(axum::http::HeaderValue::from_static("")),
     );
     Ok(resp)
+}
+
+/// The OpenAI-native free path (docs/native-chains.md): Responses clients
+/// run the responses-native chain verbatim; chat clients map thinly onto it.
+/// No Anthropic conversion for OpenAI clients — tools, reasoning items,
+/// service tiers, and ids all survive by construction.
+async fn native_complete(
+    s: AppState,
+    headers: &axum::http::HeaderMap,
+    dialect: ClientDialect,
+    payload: serde_json::Value,
+    wants_stream: bool,
+    include_usage: bool,
+    max_tokens: u32,
+) -> Result<axum::response::Response, ApiError> {
+    let client_model = payload["model"].as_str().unwrap_or_default().to_string();
+    let mut native_payload = if dialect == ClientDialect::OpenAiChat {
+        convert::chat_to_responses_request(&payload).map_err(ApiError)?
+    } else {
+        payload.clone()
+    };
+    // The split-writes rule (same as the anthro chain): with tools present,
+    // tell the model to chunk big writes — the strongest mid-call-cut
+    // prevention there is.
+    let has_tools = native_payload["tools"].as_array().map(|a| !a.is_empty()).unwrap_or(false);
+    if has_tools {
+        let note = "When using tools to write or edit files, split large writes: at most ~40 lines per tool call, then append the next section with a separate call, and repeat until done.";
+        match native_payload["instructions"].as_str() {
+            Some(existing) if !existing.is_empty() => {
+                native_payload["instructions"] = serde_json::Value::String(format!("{existing}\n\n{note}"));
+            }
+            _ => {
+                native_payload["instructions"] = serde_json::Value::String(note.into());
+            }
+        }
+    }
+
+    if let Some(remaining) = s.wave.check() {
+        return Err(ApiError(format!(
+            "environment cooling: Castle is refusing this egress right now — all traffic paused for {}s (retry then). Zero requests are being sent so the risk score can decay.",
+            remaining.as_secs()
+        )));
+    }
+    let pool = s.state.list().await.map_err(ApiError)?;
+    let account = match hdr(headers, "x-framerize-account") {
+        Some(id) => pool
+            .into_iter()
+            .find(|a| a.id.0.to_string() == id)
+            .ok_or_else(|| ApiError("unknown account id".into()))?,
+        None => framer_core::rotation::pick(&pool)
+            .cloned()
+            .ok_or_else(|| ApiError("no eligible account".into()))?,
+    };
+    let session = s
+        .sessions
+        .load(&account.framer_user_id)
+        .await
+        .map_err(ApiError)?
+        .ok_or_else(|| ApiError("account has no session".into()))?;
+    let project = account
+        .current_project
+        .clone()
+        .ok_or_else(|| ApiError("account has no current project".into()))?;
+    let chat_session =
+        hdr(headers, "x-framerize-session").unwrap_or_else(|| stable_session(&account.id));
+
+    // Per (workspace × MODEL) concurrency, keyed on the normalized upstream id.
+    let gate_model = convert::to_openrouter_id(&client_model);
+    let gate_key = account
+        .current_team
+        .as_ref()
+        .map(|t| format!("{}:{gate_model}", t.0))
+        .unwrap_or_else(|| "default".to_string());
+    let _permit = s.gate.acquire(&gate_key).await;
+
+    let cfg = framer_core::port::ChainConfig {
+        max_total_tokens: Some(max_tokens),
+        metered_fallback: std::env::var("FRAMERIZE_ALLOW_METERED").map(|v| v == "1").unwrap_or(false),
+        on_429: {
+            let team = account.current_team.clone().map(|t| t.0);
+            Some(std::sync::Arc::new(move || {
+                if let Some(t) = &team {
+                    framer_core::rotation::mark_saturated(t, 45_000);
+                }
+            }))
+        },
+        ..Default::default()
+    };
+
+    // ONE logical id for the whole response (minted here, before stream_open
+    // sends response.created): chunk ids never surface to the client.
+    let logical_id = format!("{:08x}{:08x}", rand_u32(), rand_u32());
+
+    if wants_stream {
+        let (tx, mut rx) = tokio::sync::mpsc::channel::<convert::ChainEvent>(64);
+        let s2 = s.clone();
+        let account2 = account.clone();
+        let project2 = project.clone();
+        let chat_session2 = chat_session.clone();
+        let log_model = gate_model.clone();
+        let permit = _permit;
+        let handle = AbortOnDrop(tokio::spawn(async move {
+            let _permit = permit;
+            let t0 = std::time::Instant::now();
+            let cb = move |ev: convert::ChainEvent| {
+                let _ = tx.try_send(ev);
+            };
+            let result = s2
+                .client
+                .native_long(
+                    &session,
+                    s2.browser.as_ref(),
+                    &account2.id,
+                    &project2,
+                    native_payload,
+                    &cfg,
+                    &chat_session2,
+                    Some(&cb),
+                )
+                .await;
+            let mut ev = framer_core::observability::Event::new("ai.chain")
+                .account(&account2.id)
+                .field("model", log_model)
+                .field("dialect", format!("{dialect:?}"))
+                .duration_ms(t0.elapsed().as_millis());
+            ev = match &result {
+                Ok(r) => ev
+                    .field("chunks", r.chunks)
+                    .field("metered_chunks", r.metered_chunks)
+                    .field("prompt_tokens", r.input_tokens)
+                    .field("completion_tokens", r.output_tokens)
+                    .field("finish_reason", r.status.clone())
+                    .outcome("ok"),
+                Err(e) => ev.error(e),
+            };
+            ev.emit();
+            result
+        }));
+
+        let open_frames = convert::stream_open(dialect, &client_model, &logical_id);
+        let stream = futures::stream::unfold(
+            (rx, open_frames, None::<NativeComposerState>, false, handle, client_model.clone(), logical_id.clone(), include_usage, dialect),
+            |(mut rx, mut pending, mut composer, mut done, mut handle, client_model, logical_id, include_usage, dialect)| async move {
+                if done {
+                    return None;
+                }
+                if !pending.is_empty() {
+                    let out = pending.join("\n\n") + "\n\n";
+                    pending.clear();
+                    return Some((Ok::<_, std::convert::Infallible>(axum::body::Bytes::from(out)), (rx, pending, composer, done, handle, client_model, logical_id, include_usage, dialect)));
+                }
+                if composer.is_none() {
+                    composer = Some(NativeComposerState::new(dialect, &client_model, &logical_id));
+                }
+                let frames: Vec<String> = tokio::select! {
+                    biased;
+                    r = &mut handle => {
+                        done = true;
+                        let mut drained: Vec<String> = Vec::new();
+                        while let Ok(ev) = rx.try_recv() {
+                            if let convert::ChainEvent::ResponsesItems { items, continues_text } = ev {
+                                drained.extend(composer.as_mut().unwrap().push(&items, continues_text));
+                            }
+                        }
+                        let tail = match r {
+                            Ok(Ok(assembled)) => composer.take().unwrap().finish(&assembled, include_usage),
+                            Ok(Err(e)) => convert::error_frames(dialect, &e),
+                            Err(je) => vec![convert::ping_frame(dialect), format!(": join error {je}")],
+                        };
+                        drained.into_iter().chain(tail).collect()
+                    }
+                    ev = rx.recv() => match ev {
+                        Some(convert::ChainEvent::ResponsesItems { items, continues_text }) => {
+                            composer.as_mut().unwrap().push(&items, continues_text)
+                        }
+                        Some(_) => vec![convert::ping_frame(dialect)],
+                        None => vec![convert::ping_frame(dialect)],
+                    },
+                    _ = tokio::time::sleep(std::time::Duration::from_secs(8)) => {
+                        vec![convert::ping_frame(dialect)]
+                    }
+                };
+                let out = if frames.is_empty() { String::new() } else { frames.join("\n\n") + "\n\n" };
+                Some((Ok(axum::body::Bytes::from(out)), (rx, pending, composer, done, handle, client_model, logical_id, include_usage, dialect)))
+            },
+        );
+        let mut resp = axum::response::Response::new(axum::body::Body::from_stream(stream));
+        resp.headers_mut().insert(
+            axum::http::header::CONTENT_TYPE,
+            axum::http::HeaderValue::from_static("text/event-stream"),
+        );
+        resp.headers_mut().insert(
+            axum::http::header::CACHE_CONTROL,
+            axum::http::HeaderValue::from_static("no-cache"),
+        );
+        resp.headers_mut().insert(
+            "x-framerize-session",
+            chat_session.parse().unwrap_or(axum::http::HeaderValue::from_static("")),
+        );
+        return Ok(resp);
+    }
+
+    let t0 = std::time::Instant::now();
+    let result = s
+        .client
+        .native_long(
+            &session,
+            s.browser.as_ref(),
+            &account.id,
+            &project,
+            native_payload,
+            &cfg,
+            &chat_session,
+            None,
+        )
+        .await;
+    {
+        let mut ev = framer_core::observability::Event::new("ai.chain")
+            .account(&account.id)
+            .field("model", gate_model.clone())
+            .field("dialect", format!("{dialect:?}"))
+            .duration_ms(t0.elapsed().as_millis());
+        ev = match &result {
+            Ok(r) => ev
+                .field("chunks", r.chunks)
+                .field("metered_chunks", r.metered_chunks)
+                .field("prompt_tokens", r.input_tokens)
+                .field("completion_tokens", r.output_tokens)
+                .field("finish_reason", r.status.clone())
+                .outcome("ok"),
+            Err(e) => ev.error(e),
+        };
+        ev.emit();
+    }
+    let result = match result {
+        Ok(r) => r,
+        Err(e) => {
+            let (status, body) = convert::error_json(dialect, &e);
+            return Ok(axum::response::IntoResponse::into_response(ShapedApiError(
+                StatusCode::from_u16(status).unwrap_or(StatusCode::INTERNAL_SERVER_ERROR),
+                body,
+            )));
+        }
+    };
+    let body = if dialect == ClientDialect::OpenAiChat {
+        convert::responses_to_chat_completion(&result, &client_model)
+    } else {
+        convert::responses_json(&result, &client_model, &format!("resp_{logical_id}"))
+    };
+    let mut resp = axum::response::Response::new(axum::body::Body::from(
+        serde_json::to_string(&body).map_err(|e| ApiError(e.to_string()))?,
+    ));
+    resp.headers_mut().insert(
+        axum::http::header::CONTENT_TYPE,
+        axum::http::HeaderValue::from_static("application/json"),
+    );
+    resp.headers_mut().insert(
+        "x-framerize-session",
+        chat_session.parse().unwrap_or(axum::http::HeaderValue::from_static("")),
+    );
+    Ok(resp)
+}
+
+/// Per-dialect composer for the native stream (responses SSE or chat chunks).
+enum NativeComposerState {
+    Responses(convert::ResponsesComposer),
+    Chat(convert::ChatComposer),
+}
+
+impl NativeComposerState {
+    fn new(dialect: ClientDialect, client_model: &str, logical_id: &str) -> Self {
+        match dialect {
+            ClientDialect::OpenAiChat => {
+                Self::Chat(convert::ChatComposer::new(client_model, logical_id))
+            }
+            _ => Self::Responses(convert::ResponsesComposer::new(client_model, logical_id)),
+        }
+    }
+    fn push(&mut self, items: &[serde_json::Value], continues_text: bool) -> Vec<String> {
+        match self {
+            Self::Responses(c) => c.push_items(items, continues_text),
+            Self::Chat(c) => c.push_items(items, continues_text),
+        }
+    }
+    fn finish(self, r: &convert::AssembledResponses, include_usage: bool) -> Vec<String> {
+        match self {
+            Self::Responses(c) => c.finish(r),
+            Self::Chat(c) => c.finish(r, include_usage),
+        }
+    }
 }
 
 fn anthro_model_for_log(dialect: ClientDialect, payload: &Value) -> String {

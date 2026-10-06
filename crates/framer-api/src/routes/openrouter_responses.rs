@@ -6,7 +6,7 @@ use crate::proxy::Dialect;
 pub const ROUTE: Route = Route {
     id: "openrouter-responses",
     path: "/ai/v3/responses/",
-    dialect: Dialect::OpenRouterChat, // same wire family for proxy purposes
+    dialect: Dialect::OpenRouterResponses,
     metering: Metering::FreeNonStreaming,
     probe_model: "openai/gpt-4.1",
     primary: true,

@@ -28,6 +28,9 @@ pub enum Dialect {
     AnthropicMessages,
     /// /ai/v3/messages/ — Anthropic format via OpenRouter.
     OpenRouterMessages,
+    /// /ai/v3/responses/ — OpenAI Responses format via OpenRouter. Free
+    /// non-streaming (verified 2026-10-05); the codex-native chain route.
+    OpenRouterResponses,
 }
 
 impl Dialect {
@@ -145,16 +148,23 @@ async fn attempt(
     // stepIndex 0 — every one of our turns carried "" (visible in any
     // session-history view). Populate from the last user message, clipped
     // like a UI would. top-level `model` also mirrors the real envelope (gf()).
-    let user_prompt: String = payload["messages"]
-        .as_array()
-        .and_then(|ms| ms.iter().rev().find(|m| m["role"] == "user"))
-        .map(|m| match &m["content"] {
+    // Reads both native shapes: Anthropic `messages` and Responses `input`
+    // (the codex-native path sends the latter — an empty userPrompt on every
+    // turn was the anomaly this extraction exists to avoid).
+    let last_user_text = |items: &Vec<Value>| -> Option<String> {
+        items.iter().rev().find(|m| m["role"] == "user").map(|m| match &m["content"] {
             Value::String(s) => s.clone(),
             Value::Array(bs) => bs.iter()
-                .filter_map(|b| b["text"].as_str())
+                .filter_map(|b| b["text"].as_str().or_else(|| b["input_text"].as_str()))
                 .collect::<Vec<_>>().join(" "),
             _ => String::new(),
         })
+    };
+    let user_prompt: String = payload["messages"]
+        .as_array()
+        .and_then(last_user_text)
+        .or_else(|| payload["input"].as_array().and_then(last_user_text))
+        .or_else(|| payload["input"].as_str().map(str::to_string))
         .unwrap_or_default()
         .chars().take(300).collect();
     let turn_id = crate::inference::mint_id_pub();
