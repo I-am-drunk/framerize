@@ -32,7 +32,7 @@ const DEFAULT_INITIAL: usize = 5;
 /// recovery (see `grow_step`) a deep cut climbs back in seconds, so the floor
 /// can be an honest "always make some progress" value again.
 const DEFAULT_MIN: usize = 4;
-const DEFAULT_MAX: usize = 48;
+const DEFAULT_MAX: usize = 8; // MEASURED cap ~5-6 per (workspace x model); 48 let the 2026-10-06 burst sail into the 429 wall
 /// How long a gate must stay clean before probing one slot upward. TIME-based,
 /// not success-count-based: with a count, a fleet that is itself throttled
 /// produces few completions, so recovery stalls exactly when it matters most.
@@ -154,7 +154,7 @@ impl Gate {
             limit: cfg.initial,
             debt: 0,
             changed_at: now,
-            ceiling: cfg.max,
+            ceiling: cfg.initial, // start conservative; learn up via relax, down via 429 evidence
             ceiling_at: now,
             cfg,
         }
@@ -232,6 +232,9 @@ impl ConcurrencyGate {
             let gate = g.entry(key.to_string()).or_insert_with(|| {
                 let mut ng = Gate::new(cfg, Instant::now());
                 if let Some(c) = loaded {
+                    // Clamp persisted ceilings to the (now-measured) max: a stale
+                    // 41 from the unbounded-ratchet era must not survive the fix.
+                    let c = c.min(cfg.max);
                     ng.ceiling = c;
                     ng.limit = ng.limit.min(c);
                 }
