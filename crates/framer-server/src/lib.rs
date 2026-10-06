@@ -636,6 +636,17 @@ async fn free_complete(
     dialect: ClientDialect,
     payload: serde_json::Value,
 ) -> Result<axum::response::Response, ApiError> {
+    let mut payload = payload;
+    // T3 ultrafast variants (compat/t3/ultrafast): a model id ending in
+    // "-ultrafast" strips to the base model and rides upstream with
+    // service_tier:"ultrafast" (OpenAI's lowest-latency tier — free on the
+    // passthrough, verified delta 0.0; metered+premium on the direct route).
+    let ultrafast = payload["model"].as_str().unwrap_or_default().ends_with("-ultrafast");
+    if ultrafast {
+        let base = payload["model"].as_str().unwrap_or_default().trim_end_matches("-ultrafast").to_string();
+        payload["model"] = serde_json::Value::String(base);
+        payload["service_tier"] = serde_json::Value::String("ultrafast".into());
+    }
     let client_model = payload["model"].as_str().unwrap_or_default().to_string();
     // Honest model routing (2026-10-05, user rule: never substitute silently).
     // gpt-6.x are direct-route models (OpenAI Responses, metered): Codex and
