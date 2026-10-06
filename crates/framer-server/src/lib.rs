@@ -778,7 +778,7 @@ async fn free_complete(
         // the first byte; streaming clients (Claude Code) timed out the
         // silent socket: "Claude gave up after repeated API errors".
         let msg_id = format!("msg_{:08x}{:08x}", rand_u32(), rand_u32());
-        let (tx, mut rx) = tokio::sync::mpsc::channel::<convert::ChainEvent>(64);
+        let (tx, mut rx) = tokio::sync::mpsc::channel::<convert::ChainEvent>(1024);
         let s2 = s.clone();
         let account2 = account.clone();
         let project2 = project.clone();
@@ -792,7 +792,12 @@ async fn free_complete(
             let _permit = permit;
             let t0 = std::time::Instant::now();
             let cb = move |ev: convert::ChainEvent| {
-                let _ = tx.try_send(ev);
+                if tx.try_send(ev).is_err() {
+                    // Channel full under client backpressure: log it. A dropped
+                    // frame here is a hole in the user's stream — invisible
+                    // before (2026-10-06 "stream stopped" audit).
+                    eprintln!("[stream] event channel full — dropping a frame (client backpressure)");
+                }
             };
             let result = s2
                 .client
@@ -1109,7 +1114,7 @@ async fn native_complete(
     let logical_id = format!("{:08x}{:08x}", rand_u32(), rand_u32());
 
     if wants_stream {
-        let (tx, mut rx) = tokio::sync::mpsc::channel::<convert::ChainEvent>(64);
+        let (tx, mut rx) = tokio::sync::mpsc::channel::<convert::ChainEvent>(1024);
         let s2 = s.clone();
         let account2 = account.clone();
         let project2 = project.clone();
@@ -1120,7 +1125,12 @@ async fn native_complete(
             let _permit = permit;
             let t0 = std::time::Instant::now();
             let cb = move |ev: convert::ChainEvent| {
-                let _ = tx.try_send(ev);
+                if tx.try_send(ev).is_err() {
+                    // Channel full under client backpressure: log it. A dropped
+                    // frame here is a hole in the user's stream — invisible
+                    // before (2026-10-06 "stream stopped" audit).
+                    eprintln!("[stream] event channel full — dropping a frame (client backpressure)");
+                }
             };
             let result = s2
                 .client
