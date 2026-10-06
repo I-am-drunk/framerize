@@ -192,19 +192,8 @@ FORGE_MAX_AGE_S = float(os.environ.get("FRAMERIZE_FORGE_MAX_AGE", "1500"))  # re
 # burn-and-churn — "user owns N devices" is a real pattern.
 DEVICE_POOL = int(os.environ.get("FRAMERIZE_DEVICE_POOL", "8"))
 DEV_COOLDOWN_S = 600.0   # velocity-banned device sits out ~10 min (measured 2-15)
-# The velocity budget is a LONG-WINDOW bucket, not per-minute (measured
-# 2026-10-06: reis's devices cascaded after ~3,085 requests each in a day at
-# only ~167/hour sustained — far under the 120/min burst line). The old cap
-# (180/10min = 1,080/hr) let each device burn its whole budget in <3h.
-# 100/hr/device keeps ~40% margin under the measured sustained line;
-# 40 devices x 100/hr = 4,000/hr aggregate — far above real load.
-DEV_WINDOW_S = float(os.environ.get("FRAMERIZE_DEV_WINDOW_S", "3600"))
-DEV_WINDOW_CAP = int(os.environ.get("FRAMERIZE_DEV_WINDOW_CAP", "100"))
-# Short-window burst shaping: consecutive fires on ONE device are spaced by
-# DEV_MIN_GAP_S so subagent storms (10+ requests inside a second) don't
-# present as machine bursts. The generation itself takes seconds, so a
-# sub-second gap costs nothing end-to-end.
-DEV_MIN_GAP_S = float(os.environ.get("FRAMERIZE_DEV_MIN_GAP_S", "0.3"))
+DEV_WINDOW_S = 600.0     # proactive pre-ban rotation window
+DEV_WINDOW_CAP = 180     # ~180 reqs/10min/device = below the measured trip line
 
 # Castle mints are serialized PER ACCOUNT, and paced.
 #
@@ -244,7 +233,6 @@ class Account:
         self.mint_lock = asyncio.Lock()  # one Castle mint at a time per device
         self.last_mint = 0.0
         self.devices = []           # persisted pool of __cuid device ids
-        self.dev_last_fire = {}     # dev -> monotonic of last AI fire (burst spacing)
         self.devpool_ready = False
         self.forge_parts = {}       # device cuid -> {parts, born} for offline forging
         self.editor_url = None      # project editor this account "has open"
@@ -888,12 +876,6 @@ class Host:
                         r = {"status": 0, "usage": None, "body": "castle-unavailable"}
                         break
                     try:
-                        # burst spacing BEFORE the fire (short-window shaping)
-                        lf = acc.dev_last_fire.get(used_dev, 0)
-                        gap = DEV_MIN_GAP_S - (time.monotonic() - lf)
-                        if gap > 0:
-                            await asyncio.sleep(gap)
-                        acc.dev_last_fire[used_dev] = time.monotonic()
                         self._note_request(acc, used_dev)
                         fetch_t0 = time.monotonic()
                         job = "job-" + uuid.uuid4().hex
