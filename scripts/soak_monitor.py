@@ -36,18 +36,18 @@ def emit(rec):
 
 
 def external_time():
-    """UTC epoch from an external source (independent clock)."""
-    for url in ("https://worldtimeapi.org/api/timezone/Etc/UTC",):
+    """UTC epoch from an external source (independent clock). Any HTTPS
+    response carries a Date header — parse it from a reliable host."""
+    import email.utils
+    for url in ("https://www.google.com", "https://cloudflare.com", "https://github.com"):
         try:
-            with urllib.request.urlopen(url, timeout=10) as r:
-                return json.loads(r.read().decode())["unixtime"]
+            req = urllib.request.Request(url, method="HEAD")
+            with urllib.request.urlopen(req, timeout=10) as r:
+                dt = email.utils.parsedate_to_datetime(r.headers["Date"])
+                return int(dt.timestamp())
         except Exception:
-            pass
-    try:
-        with urllib.request.urlopen("https://time.google.com", timeout=10) as r:
-            return None  # headers only; body isn't parseable time
-    except Exception:
-        return None
+            continue
+    return None
 
 
 def http_json(method, path, body=None, timeout=30, headers=None, raw=False):
@@ -183,7 +183,7 @@ async def main():
             cycle += 1
             health = None
             try:
-                s, dt, _ = http_json("GET", "/api/health", timeout=10)
+                s, dt, _ = http_json("GET", "/api/health", timeout=10, raw=True)
                 health = {"status": s, "ms": round(dt * 1000)}
             except Exception as e:
                 health = {"status": -1, "error": str(e)}
