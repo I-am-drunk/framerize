@@ -22,6 +22,7 @@ mod login;
 mod models;
 pub mod proxy;
 pub mod provision;
+pub mod routes;
 mod transport;
 mod workspace;
 

@@ -32,12 +32,8 @@ pub enum Dialect {
 
 impl Dialect {
     pub fn path(self) -> &'static str {
-        match self {
-            Self::OpenAiResponses => "/ai/v3/openai/responses/",
-            Self::OpenRouterChat => "/ai/v3/chat/",
-            Self::AnthropicMessages => "/ai/v3/anthropic/messages/",
-            Self::OpenRouterMessages => "/ai/v3/messages/",
-        }
+        // Single source of truth: the route registry (routes/mod.rs).
+        crate::routes::by_dialect(self).path
     }
 }
 
@@ -226,7 +222,7 @@ async fn attempt(
             "userPrompt": "",
             "castleToken": "garbage", // route ignores it (verified)
         });
-        match browser.ai_post(account, "/ai/v3/refund/", &token.bearer, &refund_body).await {
+        match browser.ai_post(account, crate::routes::by_id("refund").map(|r| r.path).unwrap_or("/ai/v3/refund/"), &token.bearer, &refund_body).await {
             Ok((200, _, text)) => {
                 let granted = text.contains("\"granted\":true") || text.contains("\"granted\": true");
                 eprintln!("[refund] turn {} — {}", &turn_id[..8.min(turn_id.len())], if granted { "GRANTED (charge reversed)" } else { "denied (quota exhausted)" });

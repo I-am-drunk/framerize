@@ -163,7 +163,7 @@ async fn send(
     let (status, usage_hdr, text) = browser
         .ai_post(
             account,
-            "/ai/v3/openai/responses/",
+            crate::routes::by_id("direct-responses").map(|r| r.path).unwrap_or("/ai/v3/openai/responses/"),
             &token.bearer,
             &build_body(req, chat_session, &project.0),
         )
@@ -177,11 +177,11 @@ async fn send(
         // account health when Framer's own edge refused it.
         403 => {
             let r = crate::classify::classify_403(&text, elapsed.as_millis() as u64);
-            return Err(r.as_error("/ai/v3/openai/responses/", &text));
+            return Err(r.as_error(crate::routes::by_id("direct-responses").map(|r| r.path).unwrap_or("/ai/v3/openai/responses/"), &text));
         }
         s => {
             let clipped = &text[..text.len().min(500)];
-            return Err(format!("retryable {s} on /ai/v3/openai/responses/: {clipped}"));
+            return Err(format!("retryable {s} on {}: {clipped}", crate::routes::by_id("direct-responses").map(|r| r.path).unwrap_or("/ai/v3/openai/responses/")));
         }
     }
 
