@@ -869,6 +869,9 @@ async fn free_complete(
                     }
                     ev = rx.recv() => match ev {
                         Some(convert::ChainEvent::Chunk(blocks)) => composer.push_chunk(&blocks),
+                        // ResponsesItems belong to the native path's own stream
+                        // (native_complete); they never arrive on this channel.
+                        Some(convert::ChainEvent::ResponsesItems { .. }) => vec![convert::ping_frame(dialect)],
                         // Channel closed (chain finishing) or Done: emit a ping
                         // instead of an EMPTY frame — a zero-length chunk is
                         // end-of-stream to strict SSE clients.
