@@ -1307,10 +1307,11 @@ async fn complete_login(
     };
     s.sessions.save(&session).await.map_err(ApiError)?;
     let spaces = me["spaces"].as_array().cloned().unwrap_or_default();
-    let first_org = spaces
-        .iter()
-        .find(|sp| sp["scope"].as_str() == Some("organization"))
-        .cloned();
+    let first_org = if let Some(tid) = &body.team_id {
+        spaces.iter().find(|sp| sp["ownerId"].as_str() == Some(tid.as_str())).cloned()
+    } else {
+        spaces.iter().find(|sp| sp["scope"].as_str() == Some("organization")).cloned()
+    };
     let team = first_org
         .as_ref()
         .and_then(|sp| sp["ownerId"].as_str())
@@ -1418,6 +1419,10 @@ struct ImportBody {
     email: Option<String>,
     alias: Option<String>,
     project_id: Option<String>,
+    /// Pin the account to a specific workspace (team). Without it the first
+    /// org is used — wrong when an account has multiple workspaces and the
+    /// credited one isn't first (2026-10-05: workspace 2 grants are real).
+    team_id: Option<String>,
 }
 
 /// Import an externally-minted session cookie: verify it against
@@ -1448,10 +1453,11 @@ async fn import_account(
     s.sessions.save(&session).await.map_err(ApiError)?;
 
     let spaces = me["spaces"].as_array().cloned().unwrap_or_default();
-    let first_org = spaces
-        .iter()
-        .find(|sp| sp["scope"].as_str() == Some("organization"))
-        .cloned();
+    let first_org = if let Some(tid) = &body.team_id {
+        spaces.iter().find(|sp| sp["ownerId"].as_str() == Some(tid.as_str())).cloned()
+    } else {
+        spaces.iter().find(|sp| sp["scope"].as_str() == Some("organization")).cloned()
+    };
     let team = first_org
         .as_ref()
         .and_then(|sp| sp["ownerId"].as_str())
