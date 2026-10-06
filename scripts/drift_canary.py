@@ -23,12 +23,42 @@ API = 'https://api.framer.com'
 DRIFT_LOG = os.path.expanduser('~/.framerize/drift-log.ndjson')
 INTERVAL_S = 20 * 60
 
+EVENTS_DIR = os.path.expanduser('~/.framerize/profiles/.logs')
+ALARM_FILE = os.path.expanduser('~/.framerize/METERING-ALARM.txt')
+
 def record(check, status, detail=None):
     line = json.dumps({'ts': time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime()),
                        'check': check, 'status': status, 'detail': detail})
     print(line, flush=True)
     with open(DRIFT_LOG, 'a') as f:
         f.write(line + '\n')
+    if status == 'DRIFT':
+        alarm(check, detail)
+
+def alarm(check, detail):
+    """LOUD surfacing (operator asked 2026-10-06: 'if unmetering stops working
+    one day it must error loudly so I know to go find a new exploit'). Three
+    channels: the daemon event log (framerize logs shows it), a persistent
+    alarm file, and the systemd journal."""
+    ts = time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime())
+    msg = f'EXPLOIT DRIFT: {check} — {detail}. The free path may be dead; investigate and find the new gap.'
+    # 1. daemon NDJSON event log — visible via `framerize logs`
+    try:
+        os.makedirs(EVENTS_DIR, exist_ok=True)
+        ev = json.dumps({'ts': ts, 'level': 'error', 'event': 'exploit.drift',
+                         'check': check, 'detail': str(detail)})
+        with open(os.path.join(EVENTS_DIR, time.strftime('events-%Y-%m-%d.ndjson', time.gmtime())), 'a') as f:
+            f.write(ev + '\n')
+    except Exception:
+        pass
+    # 2. persistent alarm file
+    try:
+        with open(ALARM_FILE, 'a') as f:
+            f.write(f'{ts} {msg}\n')
+    except Exception:
+        pass
+    # 3. journal (systemctl --user status framerize-drift shows it)
+    print(f'!!! {msg}', flush=True)
 
 async def main():
     while True:
