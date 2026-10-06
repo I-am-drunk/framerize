@@ -351,3 +351,38 @@ remaining seam tested above is SOLID. The integration is, at this point,
 well-defended everywhere we can reach. The two walls left are Framer's
 RS256-anchored account structures (credits, workspaces) — which do not bind
 the free path — and account count itself.
+
+
+## 2026-10-06 addendum: the concurrency model, definitively settled
+
+The device-concurrency claim from 2026-10-04 ("the cap counts PER DEVICE",
+from the 6+6=12/12 T1 test) was a SEQUENTIAL ARTIFACT. The first clean
+truly-concurrent test (correct session, per-device mints via per-context
+module imports, asyncio.gather over two browser contexts, control + test in
+one run):
+
+    control: 6 concurrent on device A            -> 5x200, 1x429
+    test:    6 on device A + 6 on device B       -> A: 5x200/1x429, B: 6x429
+             (12 in flight total, same ~5 pass as one device)
+
+THE 429 CONCURRENCY COUNTER KEYS PER (WORKSPACE x MODEL): ~5-6 concurrent
+per model on a workspace, workspace-wide ceiling ~25-30 in-flight. Devices
+do NOT multiply it. (Velocity is still per (account x device) — that half
+of the device pool's job is intact and cleanly proven.)
+
+The multipliers that DO work:
+  1. MODEL spread: 6 models x 6 concurrent = 36/36 on one workspace.
+  2. WORKSPACE spread (multi-workspace rotation, shipped 2026-10-06): one
+     account's session authorizes all its workspaces; the envelope's
+     projectId selects the budget. The daemon claims every credited
+     workspace at import/login (extra_workspaces) and round-robins chains
+     across scopes. Each fresh account = 2 workspaces = ~10-12 concurrent
+     on a single model.
+
+Also settled 2026-10-06 (the 6-stream wave root cause): the daemon gate's
+AIMD had an unbounded upward ratchet (learned limit 41 vs the real ~6 cap),
+so 6 streams were admitted as ~40 concurrent -> 429 storm -> retry
+amplification to 192 req/2min -> velocity cascade. Fixed: hard cap 8,
+initial 5, persisted ceilings clamped. Verified post-fix: 10 streams on one
+model = 10/10 zero upstream 429s (overflow queues); 15 streams across 3
+models = 15/15 zero 429s in 28s; ledger delta 0 throughout.
