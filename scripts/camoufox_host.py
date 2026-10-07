@@ -199,6 +199,16 @@ DEVICE_POOL = int(os.environ.get("FRAMERIZE_DEVICE_POOL", "8"))
 # kept at a constant light-user cadence of REAL free-route requests, forever.
 # Cost: 8 devices x ~7.5/hr = 60 requests/hour/account of unmetered traffic.
 HEARTBEAT_S = float(os.environ.get("FRAMERIZE_HEARTBEAT_S", "60"))
+# BURST-RESERVE DEVICES (user's burn-and-replace idea, scoped to emergencies
+# only, 2026-10-07): the velocity counter is fingerprint-BLIND (measured: a
+# fresh __cuid on a KNOWN, previously-banned fingerprint still gets the full
+# ~408-request grace budget — identical to a new fingerprint). So when the
+# whole stable pool is velocity-cooling, mint fresh reserve devices instead
+# of parking requests. Stable pool + heartbeat stays the steady-state (trained
+# devices beat grace thresholds with zero churn signature); reserves are the
+# burst reserve, capped per day to bound Castle's new_device/farm heuristics
+# (>10 devices/account flags — docs). Never persisted to devices.json.
+RESERVE_PER_DAY = int(os.environ.get("FRAMERIZE_RESERVE_PER_DAY", "8"))
 DEV_COOLDOWN_S = 600.0   # velocity-banned device sits out ~10 min (measured 2-15)
 DEV_WINDOW_S = 600.0     # proactive pre-ban rotation window
 DEV_WINDOW_CAP = 180     # ~180 reqs/10min/device = below the measured trip line
@@ -244,6 +254,10 @@ class Account:
         self.devpool_ready = False
         self.project = None         # stashed from real ai_posts (heartbeat)
         self.bearer = None
+        self.reserve = set()        # in-memory burst-reserve device ids (never persisted)
+        self.reserve_warmed = set() # reserve ids with a warm castle module
+        self.reserve_day = ""       # YYYY-MM-DD of the current reserve allowance
+        self.reserve_used = 0
         self.forge_parts = {}       # device cuid -> {parts, born} for offline forging
         self.editor_url = None      # project editor this account "has open"
         self.editor_file = None
@@ -530,6 +544,20 @@ class Host:
             if len(reqs) >= DEV_WINDOW_CAP:
                 continue
             return d
+        # Stable pool exhausted — BURST RESERVE: a fresh __cuid carries the
+        # full grace budget even on a known fingerprint (counter is
+        # fingerprint-blind, measured). Capped per day to bound the
+        # new_device/farm signature. Atomic: no awaits in this function.
+        today = time.strftime("%Y-%m-%d", time.gmtime())
+        if acc.reserve_day != today:
+            acc.reserve_day, acc.reserve_used = today, 0
+        if acc.reserve_used < RESERVE_PER_DAY:
+            acc.reserve_used += 1
+            dev = str(uuid.uuid4())
+            acc.devices.append(dev)
+            acc.reserve.add(dev)
+            trace(f"{account[:8]}: burst-reserve device #{acc.reserve_used}/{RESERVE_PER_DAY} created (stable pool cooling)")
+            return dev
         return None
 
     def _device_ready_in(self, acc):
@@ -673,6 +701,14 @@ class Host:
             used_dev = dev
             if acc.devpool_ready and acc.devices:
                 try:
+                    # lazy-warm burst-reserve devices (created on demand, their
+                    # castle module doesn't exist yet — one ~2s import binds it)
+                    if dev in acc.reserve and dev not in acc.reserve_warmed:
+                        try:
+                            await page.evaluate(DEVPOOL_WARM_JS.replace('%s', json.dumps([dev])))
+                            acc.reserve_warmed.add(dev)
+                        except Exception:
+                            pass
                     res = await page.evaluate(DEVPOOL_MINT_JS, [acc.devices, dev])
                     if res:
                         tok, used_dev = res.get("t"), res.get("dev")
