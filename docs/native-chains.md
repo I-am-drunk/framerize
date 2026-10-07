@@ -127,3 +127,23 @@ credit-bond floor still guards the allowed case.
 - Upstream content refusal: terminal for the chunk (no retry).
 - Wall-clock: 300s cap; sustained-collapse detector fails fast with
   "upstream degraded — retry in a minute".
+
+## Speed-tier investigation (2026-10-07, measured)
+
+Suspected "ultrafast feels normal" — full decomposition, all measured live:
+- No `:nitro` anywhere in the stack (it admits priority only, never ultrafast).
+  The T3 `-ultrafast` variants inject `service_tier: "ultrafast"` — the correct
+  opt-in — and the chain preserves it verbatim on every chunk.
+- Phase-separated decode timing on astra ultrafast (2,833 output tokens):
+  **text decode 570 tok/s** (faster than OpenRouter's ~350 public figures);
+  **reasoning phase 191 tok/s** — 2,070 invisible reasoning tokens = 75% of
+  wall time. The felt slowness is the model's reasoning phase, not the tier,
+  not the provider, not the chain.
+- Tier-aware chain sizing deployed: fast-lane requests (service_tier
+  ultrafast/priority/fast) start chunks at 1500 (not 600) and grow to fill
+  the 45s window at measured speed (cap 12000 vs 3000) — near-single-shot,
+  killing the per-chunk TTFT+continuation overhead (~2-3s × N chunks).
+- Provider pinning tested: no consistent win, routing left to OpenRouter.
+- Reasoning effort is the user's lever: the gateway passes `reasoning` /
+  `reasoning_effort` verbatim (never auto-injects). Set it in codex config
+  (`model_reasoning_effort`) or the request body.
