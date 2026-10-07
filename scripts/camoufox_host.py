@@ -191,6 +191,14 @@ FORGE_MAX_AGE_S = float(os.environ.get("FRAMERIZE_FORGE_MAX_AGE", "1500"))  # re
 # are STABLE identities (persisted in framerize-devices.json), not
 # burn-and-churn — "user owns N devices" is a real pattern.
 DEVICE_POOL = int(os.environ.get("FRAMERIZE_DEVICE_POOL", "8"))
+# BASELINE-TRAINING HEARTBEAT (the velocity golden goose, from Castle's own
+# docs 2026-10-07): high_activity_device "learns what is typical behavior for
+# a device and detects ANOMALOUS BURSTS" — the trip line is RELATIVE to the
+# device's learned baseline. Idle-for-hours-then-burst is the trigger; a
+# steady rhythm reads as normal at production rates. So every pool device is
+# kept at a constant light-user cadence of REAL free-route requests, forever.
+# Cost: 8 devices x ~7.5/hr = 60 requests/hour/account of unmetered traffic.
+HEARTBEAT_S = float(os.environ.get("FRAMERIZE_HEARTBEAT_S", "60"))
 DEV_COOLDOWN_S = 600.0   # velocity-banned device sits out ~10 min (measured 2-15)
 DEV_WINDOW_S = 600.0     # proactive pre-ban rotation window
 DEV_WINDOW_CAP = 180     # ~180 reqs/10min/device = below the measured trip line
@@ -234,6 +242,8 @@ class Account:
         self.last_mint = 0.0
         self.devices = []           # persisted pool of __cuid device ids
         self.devpool_ready = False
+        self.project = None         # stashed from real ai_posts (heartbeat)
+        self.bearer = None
         self.forge_parts = {}       # device cuid -> {parts, born} for offline forging
         self.editor_url = None      # project editor this account "has open"
         self.editor_file = None
@@ -782,6 +792,7 @@ class Host:
                         trace(f"{account[:8]}: device pool warm attempt {attempt + 1} failed ({type(e).__name__})")
                     await asyncio.sleep(20)
             asyncio.ensure_future(warm_pool())
+            asyncio.ensure_future(self._heartbeat_loop(acc, account))
         except Exception as e:
             trace(f"{account[:8]}: device pool init failed ({type(e).__name__})")
         try:
@@ -789,6 +800,66 @@ class Host:
         except Exception as e:
             trace(f"{account[:8]}: mint page init failed ({type(e).__name__}) — lazy retry on first mint")
         return acc
+
+    async def _heartbeat_loop(self, acc, account):
+        """Keep every pool device on a steady learned-as-normal cadence: one
+        tiny free-route AI request per HEARTBEAT_S, cycling all devices equally
+        (each device ~DEVICE_POOL x HEARTBEAT_S between beats). Waits for the
+        pool to warm, skips cooling devices, uses the mint page so production
+        pool pages are never blocked, and tolerates every failure silently —
+        the heartbeat is pure background training, never a request source."""
+        import random as _rnd
+        await asyncio.sleep(45)  # let the account boot + pool warm first
+        hb_idx = 0
+        while account in self.accounts:
+            try:
+                await asyncio.sleep(HEARTBEAT_S * (0.75 + _rnd.random() * 0.5))
+                if not acc.devices or not acc.devpool_ready or not acc.project:
+                    continue
+                now = time.monotonic()
+                dev = None
+                for _ in range(len(acc.devices)):
+                    d = acc.devices[hb_idx % len(acc.devices)]
+                    hb_idx += 1
+                    if acc.dev_cooling.get(d, 0) > now:
+                        continue
+                    dev = d
+                    break
+                if dev is None:
+                    continue
+                page = acc.mint_page
+                if page is None or page.is_closed():
+                    continue
+                tid, tok, used_dev = await self._token_acquire(acc, page, account, dev)
+                if not tok:
+                    continue
+                self._note_request(acc, used_dev)
+                body = {
+                    "projectId": acc.project, "featureCategory": "translation",
+                    "featureName": "translation", "step": "translate",
+                    "sessionId": "hb-" + uuid.uuid4().hex[:6], "stepIndex": 0,
+                    "turnId": uuid.uuid4().hex, "userPrompt": "ok",
+                    "request": {"model": "google/gemini-2.5-flash",
+                                "messages": [{"role": "user", "content": "ok"}],
+                                "max_tokens": 8, "stream": False},
+                }
+                job = "hb-" + uuid.uuid4().hex
+                await page.evaluate(AI_START_JS, ["/ai/v3/messages/", body, tok, acc.bearer, job, used_dev])
+                st = None
+                for _wait in range(60):
+                    await asyncio.sleep(0.5)
+                    r = await page.evaluate(AI_POLL_JS, job)
+                    if r is not None:
+                        st = r.get("status")
+                        break
+                if st == 403:
+                    self._cool_device(acc, used_dev, account)
+                elif st is not None and st != 200:
+                    trace(f"{account[:8]}: heartbeat got {st} (device {str(used_dev)[:8]})")
+            except asyncio.CancelledError:
+                raise
+            except Exception:
+                await asyncio.sleep(30)
 
     def _ctx(self, account):
         return self.accounts[account].ctx
@@ -879,6 +950,8 @@ class Host:
                         self._note_request(acc, used_dev)
                         fetch_t0 = time.monotonic()
                         job = "job-" + uuid.uuid4().hex
+                        acc.project = req["body"].get("projectId") or acc.project
+                        acc.bearer = req.get("bearer") or acc.bearer
                         await page.evaluate(AI_START_JS, [req["path"], req["body"], tok, req.get("bearer"), job, used_dev])
                         # Deadline scales with the chunk's expected duration:
                         # a 4300-token chunk at collapse speed (~11 tok/s)
