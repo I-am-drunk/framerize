@@ -773,7 +773,10 @@ class Host:
             devfile = os.path.join(profile, 'framerize-devices.json')
             devices = []
             if os.path.exists(devfile):
-                devices = json.load(open(devfile))
+                try:
+                    devices = json.load(open(devfile))
+                except Exception:
+                    devices = []  # empty/corrupt (crash mid-write) — regenerate
             while len(devices) < DEVICE_POOL:
                 devices.append(str(uuid.uuid4()))
             devices = devices[:DEVICE_POOL]  # shrink stale pools from the
