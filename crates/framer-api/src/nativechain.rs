@@ -140,9 +140,22 @@ pub async fn complete_long(
     let mut final_incomplete: Option<Value> = None;
 
     let window_budget_s = 45.0f32;
-    let chunk_cap = cfg.chunk_tokens.max(2500);
-    let mut chunk_tokens = cfg.chunk_tokens.min(600);
-    let budget_for = |tps: f32| -> u32 { ((tps * window_budget_s) as u32).clamp(400, 3000) };
+    // Fast lane: the client explicitly opted into a speed tier (ultrafast/
+    // priority/fast — the T3 -ultrafast variants inject these). At measured
+    // 100-350 tok/s a 600-token first chunk means 4+ chunks per real
+    // response, each paying TTFT + continuation + eval overhead (~2-3s) —
+    // measured 2026-10-07: 752-token response, 105 tok/s chunk decode but
+    // 77 tok/s wall. Fast-lane requests start near-single-shot and may grow
+    // to fill the window at measured speed; if the tier sheds to default
+    // the death-retry halves and re-measures, self-healing.
+    let fast_lane = matches!(
+        client_payload["service_tier"].as_str(),
+        Some("ultrafast") | Some("priority") | Some("fast")
+    );
+    let grow_cap: u32 = if fast_lane { 12000 } else { 3000 };
+    let chunk_cap = cfg.chunk_tokens.max(if fast_lane { 4000 } else { 2500 });
+    let mut chunk_tokens = if fast_lane { cfg.chunk_tokens.clamp(1500, grow_cap) } else { cfg.chunk_tokens.min(600) };
+    let budget_for = |tps: f32| -> u32 { ((tps * window_budget_s) as u32).clamp(400, grow_cap) };
 
     let chain_started = std::time::Instant::now();
     let max_wall = std::time::Duration::from_secs(300);
