@@ -677,6 +677,14 @@ async fn free_complete(
         };
         payload["model"] = serde_json::Value::String(base);
         payload["service_tier"] = serde_json::Value::String(tier.into());
+        // reasoning_effort:"low" rides too (measured 2026-10-07 with wall-time
+        // TPS on astra: ultrafast alone 127 tok/s vs ultrafast+effort:low 197
+        // tok/s — astra otherwise burns whole budgets on invisible reasoning
+        // tokens, which dominates wall time at any tier). Only when the client
+        // didn't set an effort itself — explicit client choice always wins.
+        if payload.get("reasoning_effort").is_none() && payload.get("reasoning").is_none() {
+            payload["reasoning_effort"] = serde_json::Value::String("low".into());
+        }
     }
     let client_model = payload["model"].as_str().unwrap_or_default().to_string();
     // Codex "custom" tools (exec, apply_patch, …) ride upstream in an
