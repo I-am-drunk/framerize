@@ -850,9 +850,21 @@ class Host:
         import random as _rnd
         await asyncio.sleep(45)  # let the account boot + pool warm first
         hb_idx = 0
+        hb_interval = HEARTBEAT_S  # adaptive: hb 403s double it (curse decay), 200s recover
         while account in self.accounts:
             try:
-                await asyncio.sleep(HEARTBEAT_S * (0.75 + _rnd.random() * 0.5))
+                # Operator override: ~/.framerize/heartbeat-skip.json = ["alias", ...]
+                # or ["*"] — hot-reloaded each cycle (2026-10-08: an escalated
+                # account's heartbeat keeps its account-level activity score
+                # hot forever; skip it and let the score decay).
+                try:
+                    skip = json.load(open(os.path.expanduser("~/.framerize/heartbeat-skip.json")))
+                    if "*" in skip or account in skip or getattr(self, "aliases", {}).get(account) in skip:
+                        await asyncio.sleep(60)
+                        continue
+                except Exception:
+                    pass
+                await asyncio.sleep(hb_interval * (0.75 + _rnd.random() * 0.5))
                 if not acc.devices or not acc.devpool_ready or not acc.project:
                     continue
                 now = time.monotonic()
@@ -893,8 +905,16 @@ class Host:
                         break
                 if st == 403:
                     self._cool_device(acc, used_dev, account)
-                elif st is not None and st != 200:
-                    trace(f"{account[:8]}: heartbeat got {st} (device {str(used_dev)[:8]})")
+                    # The heartbeat ITSELF got velocity-banned: this account's
+                    # score is so escalated that even background beats trip it.
+                    # Back off hard — every further beat just keeps the score
+                    # hot. Doubling per ban (cap ~2h); recovery at half speed.
+                    hb_interval = min(hb_interval * 2, 7200)
+                    trace(f"{account[:8]}: heartbeat banned — interval now {int(hb_interval)}s")
+                else:
+                    hb_interval = max(HEARTBEAT_S, hb_interval * 0.9)
+                    if st is not None and st != 200:
+                        trace(f"{account[:8]}: heartbeat got {st} (device {str(used_dev)[:8]})")
             except asyncio.CancelledError:
                 raise
             except Exception:
