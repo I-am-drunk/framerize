@@ -17,7 +17,7 @@ REPO=/home/tjninja/.framerize-ops/repo
 LOG=/var/log/cloudflared-tunnel.log
 STATE=/home/tjninja/.framerize-ops/last-url
 while true; do
-  URL=$(grep -oE 'https://[a-z0-9-]+\.trycloudflare\.com' "$LOG" 2>/dev/null | head -1)
+  URL=$(grep -oE 'https://[a-z0-9-]+\.trycloudflare\.com' "$LOG" 2>/dev/null | tail -1)
   if [ -n "$URL" ] && [ "$URL" != "$(cat "$STATE" 2>/dev/null)" ]; then
     cd "$REPO" || { sleep 30; continue; }
     git pull -q origin main >/dev/null 2>&1
