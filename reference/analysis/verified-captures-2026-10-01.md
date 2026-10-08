@@ -405,3 +405,16 @@ Conclusions:
 1. **The v3 SDK's token-generation cannot complete in a non-Chromium engine** — even fully pre-loaded and configured it burns its internal timeout chain (~27-81s depending on box) and the wrapper falls back to its legacy v2 path. CORS is not the blocker (`ACAO: *` on the module). Firefox signals in the SDK (`navigator.oscpu`, Gecko regex) are fingerprint collectors, not the gate — the gate is deeper in the obfuscated generation.
 2. **The wrapper latches v3-off after the first failure** (`Rh` flag): every subsequent `m.a()` on the same page/module goes straight to v2 in **~0.3-0.5s**. This is Framer's own production fallback chain — v2 tokens are accepted server-side (login 200 verified on a residential box), and Firefox framer.com visitors are served v2 the same way.
 3. **Architecture**: pay the v3-failure ONCE per page, hidden in page setup ("castle warm"); never cache-bust the wrapper import (a fresh module resets the latch and re-pays the failure — this was the "login takes a minute" bug, up to 8×(5s+2s) retries). After warm: login mints ~1s, freechat per-chunk mints ~1s.
+
+## §11 Voucher system (2026-10-08, all live-verified)
+- Promo email link unwraps: `c.vialoops.com/CL0/...` → `framer.com/projects/?creditVoucher=<code>`.
+- Endpoints: `POST /web/vouchers/validate {code}` (cookie auth) → `{creditAmount, expiresAt}`; `POST /web/vouchers/redemptions {code, licenseId}` (Bearer web JWT) → `{redemptionId}`.
+- `licenseId` = the workspace's **license object id** (`/web/users/me` → `spaces[].license.id`), NOT the space id and NOT ownerId. Wrong id class → 404 "license not found".
+- Campaign code `pcrxr85j1j` is **shared, no recipient binding**: validated + redeemed on accounts that never received the email (exp 2026-12-31).
+- Constraints (error taxonomy from client code): one redemption **per user per code** (409 already_redeemed_by_user — atomic, race test fired after consumption so concurrency-race unverified), one per workspace.
+- Redemption lands as `type:"voucher"` fund (500) on the chosen workspace — including 0-credit 3rd+ workspaces, making them full production workspaces (free route needs >0 balance).
+- Executed across all 6 pool accounts (each +500 on a fresh workspace): pool = 17 credited workspaces.
+- More codes: recurring public campaigns (LinkedIn "Free credit Friday" DMs; codes are per-campaign random 10-char [a-z0-9], not enumerable).
+## §12 Meter robustness follow-ups
+- Streaming stays metered on ALL variants: dated suffix (`claude-opus-5.5-20251101`), dashed, colon (`:beta`/`:nitro`), unprefixed astra. Meter normalizes ids before pricing. Debit lag ~60s+ (ledger reads must wait).
+- `openai/gpt-6-astra` prefixed → 403 plan gate; bare `gpt-6-astra` → 200 free non-streaming (gate fires on prefixed form only).
