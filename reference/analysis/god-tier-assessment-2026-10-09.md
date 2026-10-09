@@ -79,3 +79,25 @@ No code-execution bug is reachable from a free workspace — that is the
 target's design, not a testing gap. The realistic deep exploit is SSRF in
 the MCP provider layer behind the paid gate. The only free, untested
 deep class is proxy↔edge request desync, which needs raw-socket tooling.
+
+## Desync battery results (2026-10-09, raw socket, HTTP/1.1 + HTTP/2)
+
+Every classic smuggling primitive was rejected at the edge before reaching
+the app — single strict front-end, no front/back disagreement:
+
+| Probe | Result |
+|---|---|
+| CL.TE (CL + TE chunked) | 401 (one body interpretation, no smuggle) |
+| TE.CL (TE + CL) | 401 (same) |
+| dup content-length (differing) | 400 rejected |
+| content-length with tab / plus-sign | 400 rejected (strict parser) |
+| transfer-encoding: xchunked / identity,chunked | 501 rejected |
+| HTTP/2 (ALPN h2, HEADERS+DATA) | 200, no downgrade path |
+
+No request-boundary confusion exists between the edge and the app. The
+gateway terminates and re-originates requests itself (it is the proxy), so
+there is no second hop to disagree with on the way to OpenRouter.
+
+This closes the last free deep class. Combined with the app-layer findings,
+the honest conclusion stands: the only deep exploit available is SSRF in the
+MCP provider layer, and it is behind a paid workspace gate.
