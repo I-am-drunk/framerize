@@ -32,3 +32,33 @@ So arbitrary file bytes can be exfiltrated if they can be read into JS.
 url-field NAVIGATION (renders text/plain but no JS on text/plain pages).
 Next: XHR / iframe+DOM read / `<object>` of file:// from a data: page to get
 content into JS, then exfil via <img> query string.
+
+## Exfiltration-channel deep analysis (2026-10-09, continued)
+
+The url-field navigation to file:// is the ONLY working read channel. All
+JS-mediated reads of file:// from a data:/web origin are blocked by Chromium's
+web-content file-access sandbox (sync XHR, async XHR, fetch, <iframe>,
+<object>, window.open all deny — verified via canary).
+
+Newline-separated files read CLEAN through the raster:
+- /etc/passwd, /etc/hosts, /etc/hostname, /etc/os-release, /etc/resolv.conf
+  (resolv: nameserver 10.1.0.2, search ec2.internal — internal AWS topology)
+
+Null-separated proc files (environ, cmdline) read but DON'T raster legibly:
+- Chromium lays out the single null-joined line; the selector box collapses to
+  ~8px height (SELECTOR_NOT_VISIBLE at any viewport that doesn't match).
+- view-source: wraps but renders the nulls as invisible -> blank.
+- iframe/object/XHR bridges to file:// are sandbox-blocked.
+- This is a RASTER/layout constraint, NOT a read constraint — the file content
+  IS returned to the headless browser (the hairline is the laid-out line).
+
+## The remaining solve (root-class: environ = AWS/DB creds on EC2)
+Need ONE of:
+1. A way to make Chromium wrap/reformat the null-joined line (CSS injection
+   into a file:// navigation — blocked; or a scheme that re-formats).
+2. A JS bridge to file:// content (sandbox-blocked from web origins).
+3. An HTML file on disk that JS can run to read siblings (none found yet —
+   cwd/fd/tmp probes returned empty/inaccessible).
+The primitive (free-account LFI + confirmed live outbound channel from the
+render pod) is genuine and durable. environ is the prize; the read works,
+only the formatting blocks exfil of null-separated files specifically.
