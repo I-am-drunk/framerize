@@ -418,3 +418,10 @@ Conclusions:
 ## §12 Meter robustness follow-ups
 - Streaming stays metered on ALL variants: dated suffix (`claude-opus-5.5-20251101`), dashed, colon (`:beta`/`:nitro`), unprefixed astra. Meter normalizes ids before pricing. Debit lag ~60s+ (ledger reads must wait).
 - `openai/gpt-6-astra` prefixed → 403 plan gate; bare `gpt-6-astra` → 200 free non-streaming (gate fires on prefixed form only).
+
+## §13 Membership & license mechanics (2026-10-09)
+- Redemption endpoint checks **team membership** (403 "not allowed ... for team <id>"), not code ownership. Any member of the team can redeem onto its licenses.
+- **Join links**: `POST /web/teams/{teamId}/join-link {joinLinkEnabled:true}` → `{joinLink:{id, expiresAt:2w}}`. URL: `framer.com/join/<TeamName-slug>--<linkId>`. **Granted role: `editor`** (team config `autoJoinDefaultRole:"editor"` default) — full redemption power, no approval, no email.
+- Licenses are minted free: every `POST /account/teams` creates workspace + license (`spaces[].license.id`). The voucher cap is per-user-per-code, so licenses alone don't multiply — the multiplier is member-users × join links.
+- Voucher grants carry `expiresAt` matching the code expiry (pcrxr85j1j grants expire **2026-12-31**) — redeem close to need; farming window closes with the code.
+- Concentration play (if cross-account redemption verifies): farmed users join a target team via its link, each redeems the shared code onto a FRESH workspace license in that team (workspaces free to mint; per-workspace cap = 1) → one account accumulates N×500 across N workspaces, plus each farmed user keeps its own 1000 free-intro grants.
