@@ -435,6 +435,7 @@ dependencies = [
  "futures",
  "reqwest",
  "serde_json",
+ "tokio",
  "uuid",
 ]
 
@@ -471,6 +472,7 @@ name = "framer-server"
 version = "0.1.0"
 dependencies = [
  "axum",
+ "bytes",
  "framer-core",
  "futures",
  "serde",
