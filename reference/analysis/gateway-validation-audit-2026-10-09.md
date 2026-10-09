@@ -102,6 +102,28 @@ No image route is reachable on a free workspace.
 - n-amplification — provider no-op.
 - Image generation via chat route or generations route — hard-walled both ways.
 
+## Auth model: two JWT mints, route-dependent acceptance (NEW)
+
+From decompiled `chunk-2JWIV63T.mjs` (the `Ur`/`Ie` HTTP client, class `B`):
+- `get accessTokenRefresher(){return j}` — every v1 request carries
+  `Authorization: Bearer <web-access-token>` minted from the session cookie.
+- The cookie alone mints web tokens freely (`curl /auth/web/access-token` →
+  200 on all 10 pooled sessions, no browser).
+- **But route acceptance differs**: `/ai/v3/*` inference routes accept the
+  bare `session` cookie (all batteries ran cookie-only). `/ai/v1/*` and
+  `/ai/v3/usage/total/` return 401 without the Bearer JWT. Two parallel auth
+  paths on the same gateway — a routing inconsistency.
+
+## MCP integration layer: plan-gated off free workspaces (NEW)
+
+`/ai/v1/mcp/providers` and `/ai/v1/projects/{id}/mcp-connections` with a
+valid web Bearer JWT → **403 Forbidden** (not 401). Auth passes; the layer is
+plan-gated exactly like images/baseten/fireworks. The one surface with real
+server-side complexity (outbound provider connections, OAuth `returnUrl`
+callbacks, tool-call dispatch) is unreachable from free accounts — so its
+SSRF / open-redirect / tool-injection classes cannot be exercised without a
+paid workspace.
+
 ## Assessment
 
 No memory-corruption or logic bug was found in ~80 probes across every
