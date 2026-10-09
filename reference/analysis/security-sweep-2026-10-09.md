@@ -43,3 +43,27 @@ multiple sessions/accounts) + decompiled client code review.
   307 Location: /projects/<20-char-id> (must not follow redirects;
   spaceId = space.id NOT ownerId). Duplicate route:
   `POST /projects/new?duplicate=<id>&format=json&team=<teamId>`.
+
+## Second pass (same day, continued)
+
+| Attack class | Target | Result |
+|---|---|---|
+| Refund round-up | `refundedCredits` vs charge size | **DEAD.** max_tokens 15 vs 4000 with identical tiny usage → both `refundedCredits: 1`. Refund restores ACTUAL usage, never more. No ceil/max_tokens exploit. |
+| Cross-user refund (full envelope) | account B's charge refunded from A | **DEAD** — 403 project-ownership check. |
+| Refund on nonexistent turn | refund a turnId that never streamed | `500 "cannot get project: Project with id … not found"` — second unhandled-error info leak (no grant). |
+| API keys as AI auth | minted `fr_…` project key → `/ai/*` | **DEAD.** Key minted fine (`POST /web/api-keys {name, target:{type:"project",id}}` → 201) but `/ai/*` with it: 401; web routes: "jwt malformed". CMS-only surface, no AI path. |
+| Legacy/alt chat routes | `/api/chat`, `/graphql`, `/internal/svgo` | 404 — don't exist on the API host. |
+| Workspace-grant race | 6 concurrent team creates (fresh acct) | **DEAD — transactional.** Exactly 2 grants regardless of concurrency. |
+| Negative balance | every route on 0-credit workspace | **DEAD** — uniform 402 pre-check. |
+
+### Final error-handling inventory (the only genuine bugs found)
+1. `500 "cannot record refund: ERROR: duplicate key value violates unique constraint"` — DB schema leak (concurrent refunds).
+2. `500 "cannot get project: Project with id … not found"` — internal error text (refund on nonexistent turn).
+3. `500 "Failed to generate screenshot"` (`/web/agents/screenshot` with `{}`).
+All low-severity info disclosure — no privilege, no credit, no access.
+
+### Notes for future hunters
+- `x-framer-ai-usage: remaining=N` header: real-time-ish counter, INTEGER floor; debits post lazily (grants instant). Ledger endpoint `/web/teams/{t}/ai-credits` lags HOURS (consumedCredits stays 0 during active streaming).
+- Refund quota: weekly per user (client: "Reached weekly refund…"), ~2 grants.
+- Refund requires the FULL standard envelope (projectId, featureCategory, featureName, step, sessionId, turnId, userPrompt, castleToken).
+- API key revoke: `DELETE /web/api-keys/<id>?target=project:<projectId>` → 204.
