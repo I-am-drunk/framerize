@@ -75,3 +75,44 @@ requires the desktop app (macOS/Windows) — the Linux sandbox can't run it.
 The primitive is a design flaw in the auth handoff, so it will persist until
 Framer adds a nonce/confirmation to the `fut` flow — exactly the
 patch-resistant class requested.
+
+## Renderer→main bridge audit (2026-10-09, closing pass)
+
+The preload exposes two IPC senders to every renderer:
+`__targetRepresentingParentFrame.postMessage` → `service-message-to-main`,
+and `__framerApp.postMessage` → `"community"`. Plus a full service-RPC
+framework (`Tw.on(wc).register(...)`) per webContents.
+
+Findings:
+
+- **`"community"` channel**: `Hj` validator enforces exact
+  `{channel:"community", version:1, type:"activity.unseenCount", payload:{count:int}}`
+  and `pAe` checks `event.sender===webContents` + senderFrame URL startsWith
+  the marketplace/community hosts. Closed.
+- **Service-RPC framework**: services registered per-webContents include
+  `__ElectronWebRendering__` (writeToDisk, openSaveDialog, writeToClipboard,
+  getImageData), `__ElectronProjectV2__` (openPlugin, selectNode),
+  `__ElectronApp__` (window/project management). The router's only guard is
+  `t.sender===this.webContents` — **no origin check on what is currently
+  loaded in that webContents.** This is the classic Electron confused-deputy
+  shape.
+- **Why it does not fire**: plugins run as iframes inside the framer.com
+  page (no separate webContents), `<webview>` is globally blocked
+  (`will-attach-webview → preventDefault`), and every webContents is created
+  with `sandbox:true, contextIsolation:true, nodeIntegration:false`. Iframe
+  content cannot reach `ipcRenderer`; only the top-level framer.com page can.
+  Navigation handlers (`will-navigate`/`will-redirect`/`setWindowOpenHandler`)
+  route external URLs to `shell.openExternal` (https/mailto only).
+- **Residual risk**: if any framer.com page can be made to navigate the
+  project webContents to attacker content (an open redirect on framer.com),
+  that content inherits the full service-RPC surface including
+  `writeToDisk`/`openPlugin`. The writeToDisk path writes through a
+  snapshot-manager `saveFiles` queue with a dialog — worth a live check on
+  desktop.
+
+## Confirmed webPreferences (all project/app WebContentsViews)
+
+`sandbox:true, contextIsolation:true, nodeIntegration:false, webSecurity:true,
+allowRunningInsecureContent:false, safeDialogs:true, preload:bundle/preload.js`.
+The hardened baseline is why the fut cookie-plant (pure main-process, no
+renderer needed) is the clean primitive: it needs no renderer compromise.
