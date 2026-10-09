@@ -81,6 +81,17 @@ bills it. Not a cost-desync.
    featureCategory}` — server-side binding of turnId→charge holds (phantom
    refunds denied 2026-10-08), quota is effectively one-time per account.
 
+## Image generation: hard-walled
+
+| Probe | Result |
+|---|---|
+| `openai/gpt-image-1` via chat route | 404 OpenRouter: "image generation model… cannot be used with chat/completions. Use /api/v1/images" |
+| `google/gemini-2.5-flash-image` via chat | 404 OpenRouter guardrail-blocked |
+| `openai/dall-e-3`, `flux-schnell` via chat | 400 "not a valid model ID" (not in Framer's OpenRouter catalog) |
+| any model via `/ai/v3/openai/images/generations/` | 403 bare "Forbidden" — Framer-side feature gate, never reaches upstream |
+
+No image route is reachable on a free workspace.
+
 ## What was ruled out today (don't retest)
 
 - Inner-request numeric overflow / negative values — passthrough, harmless.
@@ -89,3 +100,30 @@ bills it. Not a cost-desync.
 - Envelope step/featureName/stepIndex manipulation — no metering effect.
 - featureCategory escape — strict allowlist.
 - n-amplification — provider no-op.
+- Image generation via chat route or generations route — hard-walled both ways.
+
+## Assessment
+
+No memory-corruption or logic bug was found in ~80 probes across every
+reachable route. That is the expected outcome for this architecture: the
+attack surface is a thin Go proxy that (a) auth checks, (b) validates two
+envelope fields, (c) byte-forwards `request` to OpenRouter, and (d) hooks a
+meter on SSE streams. There is no parsing, no state machine, no file I/O,
+no agent tool execution on the server — nothing complex enough to hold a
+memory bug, and the meter hook placement (stream vs non-stream) is a
+routing decision, not an exploitable code defect.
+
+The one durable, structural finding remains what previous sessions
+established: **the chat route with `stream:false` has no metering hook.**
+That is a product/routing misconfiguration (the meter lives only on the
+SSE path), not a code bug — it is the kind of thing Framer can patch in a
+one-line config change, and the drift canary exists precisely to catch the
+day they do. It is also load-bearing for Framerize's free path today.
+
+Everything else reachable from a free-workspace session is either a pure
+pass-through (all inner-request attack surface lands on OpenRouter, not
+Framer) or hard-gated (images, baseten, fireworks, featureCategory). The
+remaining un-swept surface is server-side agent tooling (evaluate_code_files,
+str_replace_based_edit_tool) — but that executes in the client/sandbox, not
+on Framer's servers, and only runs when the model emits tool calls, which
+requires the metered streaming agent path.
