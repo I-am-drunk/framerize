@@ -101,3 +101,18 @@ there is no second hop to disagree with on the way to OpenRouter.
 This closes the last free deep class. Combined with the app-layer findings,
 the honest conclusion stands: the only deep exploit available is SSRF in the
 MCP provider layer, and it is behind a paid workspace gate.
+
+## JWT verification battery (2026-10-09)
+
+Both web and ai JWTs: RS256, iss svc:access-token-service, kid_legacy,
+scope as a server-checked bitmask claim (web 16383 / ai 12288). No JWKS
+endpoint is publicly discoverable. All standard attacks rejected with 401:
+
+- alg:none (empty + original signature)
+- tampered scopes with original signature
+- kid injection (SQL quote, path traversal, template)
+- truncated / garbage signature
+- backdated exp with original signature
+
+Signature and claims are fully verified; no algorithm confusion, no claim
+forgery. The auth layer is sound.
