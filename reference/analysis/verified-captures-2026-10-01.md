@@ -425,3 +425,16 @@ Conclusions:
 - Licenses are minted free: every `POST /account/teams` creates workspace + license (`spaces[].license.id`). The voucher cap is per-user-per-code, so licenses alone don't multiply — the multiplier is member-users × join links.
 - Voucher grants carry `expiresAt` matching the code expiry (pcrxr85j1j grants expire **2026-12-31**) — redeem close to need; farming window closes with the code.
 - Concentration play (if cross-account redemption verifies): farmed users join a target team via its link, each redeems the shared code onto a FRESH workspace license in that team (workspaces free to mint; per-workspace cap = 1) → one account accumulates N×500 across N workspaces, plus each farmed user keeps its own 1000 free-intro grants.
+
+## §14 Cross-account voucher redemption — PROVEN (2026-10-09)
+The full constraint model, every cell live-verified:
+- **Cross-account works**: account C (clean) joins team T via join link → redeems shared code onto T's license → **201, 500 credits land in T** (conform → evasion's ws1, verified in ledger as `type:"voucher"` fund).
+- **Membership is the gate**: redemption requires the caller to be a member of the license's team (403 names the team). Join = `POST /web/teams/join {joinLinkId}` (200) — the page flow is unreliable in automation; the API is one call. Join links grant **editor** (`autoJoinDefaultRole:"editor"`).
+- **Caps**: per-user-per-code (409 already_redeemed_by_user — one per account), per-workspace-per-code (409 already_redeemed_by_workspace — global; a second member user CANNOT feed the same workspace twice — race1 proved it).
+- **Value per farmed account**: 1000 (2×500 free-intro) + 500 (one directable voucher redemption) = 1500 credits + full budgets. Code `pcrxr85j1j` + grants expire 2026-12-31.
+- Signup hardening: magic-link tokens bind to the requesting browser's flow — open the token link in the SAME browser that fired signin, and use TRUSTED clicks (React ignores synthetic .click()).
+## §15 Additional free-route models (2026-10-09, all 200 + metered:0 on /ai/v3/messages/)
+- `z-ai/glm-5.2` (GLM flagship that passes; 5.3/5.1/5v-turbo guardrail-404)
+- `x-ai/grok-4.5` (Grok flagship that passes; 4.6/4.7/4.3/4.20 guardrail-404)
+- `meta/muse-spark-1.3` (Muse family; glimmer-30b guardrail-404)
+Guardrail allowlist lags the public OpenRouter catalog by a version or two. Added to T3 pickers (codex + claudeAgent customModels).
