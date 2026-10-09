@@ -67,3 +67,45 @@ All low-severity info disclosure — no privilege, no credit, no access.
 - Refund quota: weekly per user (client: "Reached weekly refund…"), ~2 grants.
 - Refund requires the FULL standard envelope (projectId, featureCategory, featureName, step, sessionId, turnId, userPrompt, castleToken).
 - API key revoke: `DELETE /web/api-keys/<id>?target=project:<projectId>` → 204.
+
+## Third pass — screenshot-renderer SSRF claim: FALSE POSITIVE (disproven)
+
+A parallel session claimed `/web/agents/screenshot` `htmlBase64` subresources
+reached internal hosts ("golden goose" blind SSRF). Re-tested rigorously with
+the naturalWidth oracle (`<img>` naturalWidth>0 = fetched a real image) +
+fetch()-to-text, on a live session, calibrated with controls. **The claim does
+not hold.**
+
+Route contract (from decompiled client `chunk-IL7V6RK4.mjs`):
+`POST /web/agents/screenshot {htmlBase64, selectors[], theme:"light"|"dark",
+viewport{w,h}}` → `{status:"ok", results:{selector:{url}}}` hosted JPEGs per
+selector. Auth = session cookie only (AI bearer → 403 scope mismatch).
+
+### htmlBase64 field — network-isolated render browser (no SSRF possible)
+| target | channel | result |
+|---|---|---|
+| https://example.com/ | `<img>` | `ERR nw=0` |
+| https://framerusercontent.com/... (Framer CDN) | declarative `<img>` | `ERR nw=0` |
+| http://169.254.169.254/latest/meta-data/ | `<img>` / `new Image()` | `ERR nw=0` |
+| http://169.254.169.254/computeMetadata/v1/ | `<img>` | `ERR nw=0` |
+| http://127.0.0.1 :80/:3000/:8080/:9222 | `<img>` | `ERR nw=0` |
+| http://192.168.1.1/ , http://10.0.0.1/ | `<img>` | `ERR nw=0` |
+| https://example.com/ | `fetch()` | `TypeError: Failed to fetch` |
+
+Even the internet control AND Framer's own image CDN fail. A renderer that
+cannot load its own CDN has no outbound network; the htmlBase64 browser renders
+against a dead/snapshot network. The renderer DOES await page JS (textContent
+updates are captured), so this is not a timing artifact. The earlier "200" /
+"ONERROR/ONLOAD differentiation" readings were the envelope's HTTP status field
+and content-type mismatch noise — never rendered internal bytes. FALSE POSITIVE.
+
+### url field — real fetcher, guard intact
+| target | result |
+|---|---|
+| https://example.com/ | rendered live page perfectly (real outbound) |
+| http://169.254.169.254/... | `400 PAGE_LOAD_FAILED` (blocked pre-fetch) |
+| http://127.0.0.1/ | `400 PAGE_LOAD_FAILED` (blocked pre-fetch) |
+
+The SSRF guard lives on the `url` field and works: internal/loopback refused
+before fetch. Matches the prior `/ai/v3/fetch/` finding (guard re-validates
+redirects). Screenshot surface: CLOSED, no SSRF.
