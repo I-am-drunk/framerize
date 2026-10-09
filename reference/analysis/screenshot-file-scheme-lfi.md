@@ -53,12 +53,41 @@ Null-separated proc files (environ, cmdline) read but DON'T raster legibly:
   IS returned to the headless browser (the hairline is the laid-out line).
 
 ## The remaining solve (root-class: environ = AWS/DB creds on EC2)
-Need ONE of:
-1. A way to make Chromium wrap/reformat the null-joined line (CSS injection
-   into a file:// navigation — blocked; or a scheme that re-formats).
-2. A JS bridge to file:// content (sandbox-blocked from web origins).
-3. An HTML file on disk that JS can run to read siblings (none found yet —
-   cwd/fd/tmp probes returned empty/inaccessible).
-The primitive (free-account LFI + confirmed live outbound channel from the
-render pod) is genuine and durable. environ is the prize; the read works,
-only the formatting blocks exfil of null-separated files specifically.
+
+Mechanism PROVEN 2026-10-09 (second pass):
+- `data:text/plain` page with environ-structured NUL-separated bytes renders
+  PERFECTLY — Latin-1 fallback, NULs visible as U+FFFD replacement glyphs,
+  full-height raster (`PATH=/usr/local/bin HOME=/root AWS_SECRET=AKIA...`
+  control decoded completely).
+- `file://` navigation of the SAME bytes collapses: Chromium's file loader
+  sniffs alternating NULs and applies **UTF-16 charset detection**, decoding
+  byte pairs into CJK/unassigned codepoints with no font glyph → zero advance
+  width → 8px-height blank strip (899-byte all-white JPEG, text genuinely
+  ABSENT from raster, not tiny — upscaling recovers nothing).
+- text-fragment `#:~:text=PATH` on the file:// URL does NOT match (the DOM
+  text is the mangled UTF-16 decode, not the raw bytes).
+
+Bridges tested and closed (second pass):
+- url-field `data:` page runs JS but is `origin=null` (opaque) — sync XHR to
+  file:// → `NetworkError: Failed to load` (`--allow-file-access-from-files`
+  NOT set on the render browser).
+- htmlBase64 page runs JS from `https://screenshot.framer.invalid` (real
+  https origin via renderer-internal virtual host) — sync XHR to file://
+  → `NetworkError` (mixed-content/scheme block); the virtual host serves
+  ONLY the injected document, no path mapping to the filesystem.
+- meta-refresh `data:`→`file://` redirect chains do not fire in headless
+  (blank render, no navigation).
+- `<img src=file://>` → onerror; `<object data=file://>` → blank;
+  `<iframe src=file://>` → blank; FileSystem API → sandboxed virtual FS
+  (`GETFILE_EX NotFoundError`); CSS `@font-face`/`@import` of file:// →
+  blocked; chrome:// pages → PAGE_LOAD_FAILED; `javascript:`/`blob:`/
+  `filesystem:` top-level → PAGE_LOAD_FAILED.
+- `<meta charset>` IS honored in htmlBase64 (UTF-16 control decoded
+  correctly) — but charset cannot be forced on a file:// navigation, and
+  file:// content can never reach a page where meta applies.
+
+The wall is exact: environ's bytes are readable ONLY through the file://
+loader, which destroys them via UTF-16 detection. Every path that preserves
+the bytes (data:/htmlBase64) cannot obtain them. The render binary is
+server-side — flags/binary patches are not attacker-reachable from a free
+account.
