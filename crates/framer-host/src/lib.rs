@@ -696,6 +696,16 @@ impl BrowserBridge for CdpBridge {
         if status == -1 {
             return Err(format!("in-page fetch failed: {text}"));
         }
+        if status == 403 {
+            // The body NAMES the refusal (velocity / verification / policy /
+            // plan) — without it every 403 looks identical and gets
+            // misdiagnosed (2026-10-11 iMac hunt).
+            eprintln!(
+                "[host] 403 body for account {}: {}",
+                &account.0.to_string()[..8],
+                &text.chars().take(400).collect::<String>()
+            );
+        }
         Ok((status as u16, usage, text))
     }
 
