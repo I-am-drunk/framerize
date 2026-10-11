@@ -105,6 +105,15 @@ pub fn to_openrouter_id(model: &str) -> String {
     if m.starts_with("kimi") {
         return format!("moonshotai/{m}");
     }
+    // glm/muse normalization (audit 2026-10-11): bare ids must map to their
+    // catalog prefixes — "glm-5.2" -> "z-ai/glm-5.2", "muse-spark-1.3" ->
+    // "meta/muse-spark-1.3" — bare unprefixed forms 404 like kimi-k2 did.
+    if m.starts_with("glm") {
+        return format!("z-ai/{m}");
+    }
+    if m.starts_with("muse") {
+        return format!("meta/{m}");
+    }
     m.to_string()
 }
 
