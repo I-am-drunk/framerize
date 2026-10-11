@@ -29,7 +29,12 @@ const SCRIPT: &str = include_str!("../../../scripts/camoufox_host.py");
 
 /// In-page AI calls wait out a full generation (window ceiling ~109 s); mints
 /// on a cold engine can take 60 s+. 300 s covers both with margin.
-const REQ_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(300);
+// 900s: a browser LAUNCH happens inside whichever command triggers it
+// (set_cookie/first ai_post of a daemon boot), and under heavy machine load
+// the handshake needs >300s (measured on the iMac under its chromium build:
+// 300.8s deaths with the browser still booting). The hung-command guard stays
+// — just looser.
+const REQ_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(900);
 
 pub struct SidecarBridge {
     state_root: PathBuf,
