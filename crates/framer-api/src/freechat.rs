@@ -158,12 +158,12 @@ pub async fn complete_long(
         // SAME chunk, carries the effective dialect forward for parsing, and
         // only exits on success, a non-429 error, or exhaustion.
         let mut effective_dialect = dialect;
+        let mut last_attempt_t0 = t0;
         let first = {
             let mut cur_dialect = dialect;
             let mut cur_step = step.clone();
             let mut attempt_payload = payload.clone();
             let mut out = None;
-            let mut last_attempt_t0 = std::time::Instant::now();
             while out.is_none() {
                 last_attempt_t0 = std::time::Instant::now();
                 match proxy::forward(
