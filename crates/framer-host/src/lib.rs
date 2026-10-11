@@ -46,11 +46,24 @@ async fn desktop_ua(chrome: &Path) -> String {
             .find(|w| w.chars().next().map(|c| c.is_ascii_digit()).unwrap_or(false))
             .map(|v| v.to_string())
     });
+    let platform = if cfg!(target_os = "macos") {
+        "Macintosh; Intel Mac OS X 10_15_7"
+    } else if cfg!(target_os = "windows") {
+        "Windows NT 10.0; Win64; x64"
+    } else {
+        "X11; Linux x86_64"
+    };
     match ver {
         Some(v) => format!(
-            "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/{v} Safari/537.36"
+            "Mozilla/5.0 ({platform}) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/{v} Safari/537.36"
         ),
-        None => DESKTOP_UA.to_string(),
+        None => {
+            if cfg!(target_os = "macos") {
+                format!("Mozilla/5.0 ({platform}) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/141.0.0.0 Safari/537.36")
+            } else {
+                DESKTOP_UA.to_string()
+            }
+        }
     }
 }
 
@@ -786,7 +799,7 @@ fn find_subslice(haystack: &[u8], needle: &[u8]) -> Option<usize> {
 async fn bring_up_ws(profile: &std::path::Path) -> Result<WsStream, String> {
     let port_file = profile.join("DevToolsActivePort");
     let mut port = None;
-    for _ in 0..100 {
+    for _ in 0..450 {
         if let Ok(raw) = tokio::fs::read_to_string(&port_file).await {
             if let Some(line) = raw.lines().next() {
                 if let Ok(p) = line.trim().parse::<u16>() {
