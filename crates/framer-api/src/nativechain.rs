@@ -183,10 +183,10 @@ pub async fn complete_long(
 
         // 429 handling: instant in-chain retries (≤4) with the saturation
         // callback, then an honest error — same policy as freechat.
+        let mut last_attempt_t0 = t0;
         let first = {
             let mut attempt_payload = payload.clone();
             let mut out = None;
-            let mut last_attempt_t0 = std::time::Instant::now();
             while out.is_none() {
                 last_attempt_t0 = std::time::Instant::now();
                 match proxy::forward(
