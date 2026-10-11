@@ -77,12 +77,13 @@ pub async fn complete_long(
         .duration_since(std::time::UNIX_EPOCH)
         .map(|d| d.as_secs() ^ ((d.subsec_nanos() as u64) << 20))
         .unwrap_or(0x9e3779b97f4a7c15);
+    // Default "translate" to MATCH proxy.rs's default category (translation):
+    // the envelope went category=translation + step=message otherwise — real
+    // translation traffic uses step=translate (invisibility audit 2026-10-11).
+    let category = std::env::var("FRAMERIZE_FEATURE_CATEGORY")
+        .unwrap_or_else(|_| "translation".to_string());
     let chain_step: String =
-        if std::env::var("FRAMERIZE_FEATURE_CATEGORY").unwrap_or_default() == "translation" {
-            "translate".to_string()
-        } else {
-            "message".to_string()
-        };
+        if category == "translation" { "translate".to_string() } else { "message".to_string() };
     let bucket = |_i: usize| -> (Dialect, String) { (DIALECTS[0], chain_step.clone()) };
     let mut bucket_idx = 0usize;
 
@@ -162,7 +163,9 @@ pub async fn complete_long(
             let mut cur_step = step.clone();
             let mut attempt_payload = payload.clone();
             let mut out = None;
+            let mut last_attempt_t0 = std::time::Instant::now();
             while out.is_none() {
+                last_attempt_t0 = std::time::Instant::now();
                 match proxy::forward(
                     t, token_cache, session, browser, account, project,
                     cur_dialect, &cur_step, attempt_payload.clone(), chat_session, i,
@@ -213,7 +216,11 @@ pub async fn complete_long(
                 r
             }
             Err(e) => {
-                let elapsed = t0.elapsed().as_secs_f32();
+                // The idle-kill check must time the FAILING ATTEMPT — the whole
+                // loop includes 429 backoffs, which would misclassify a fast
+                // velocity 403 after >8s of waiting as an idle-window kill
+                // (audit 2026-10-11: wasted halve-retries on velocity bans).
+                let elapsed = last_attempt_t0.elapsed().as_secs_f32();
                 let idle_killed = e == "risk-refused" && elapsed > 8.0;
                 // An UPSTREAM 403 (provider policy / moderation -- see
                 // classify.rs) is terminal for this chunk. Halving max_tokens

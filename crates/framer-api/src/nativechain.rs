@@ -40,7 +40,7 @@ pub async fn complete_long(
     events: Option<&(dyn Fn(ChainEvent) + Send + Sync)>,
 ) -> Result<AssembledResponses, String> {
     let chain_step: String =
-        if std::env::var("FRAMERIZE_FEATURE_CATEGORY").unwrap_or_default() == "translation" {
+        if std::env::var("FRAMERIZE_FEATURE_CATEGORY").unwrap_or_else(|_| "translation".to_string()) == "translation" {
             "translate".to_string()
         } else {
             "message".to_string()
@@ -186,7 +186,9 @@ pub async fn complete_long(
         let first = {
             let mut attempt_payload = payload.clone();
             let mut out = None;
+            let mut last_attempt_t0 = std::time::Instant::now();
             while out.is_none() {
+                last_attempt_t0 = std::time::Instant::now();
                 match proxy::forward(
                     t, token_cache, session, browser, account, project,
                     Dialect::OpenRouterResponses, &chain_step, attempt_payload.clone(),
@@ -226,7 +228,11 @@ pub async fn complete_long(
         let resp = match first {
             Ok(r) => r,
             Err(e) => {
-                let elapsed = t0.elapsed().as_secs_f32();
+                // The idle-kill check must time the FAILING ATTEMPT — the whole
+                // loop includes 429 backoffs, which would misclassify a fast
+                // velocity 403 after >8s of waiting as an idle-window kill
+                // (audit 2026-10-11: wasted halve-retries on velocity bans).
+                let elapsed = last_attempt_t0.elapsed().as_secs_f32();
                 let idle_killed = e == "risk-refused" && elapsed > 8.0;
                 let upstream_refused = e.starts_with("upstream 403");
                 let transport_died = !upstream_refused

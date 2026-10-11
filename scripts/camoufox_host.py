@@ -577,7 +577,18 @@ class Host:
                                 "path": "/", "secure": True, "httpOnly": True, "sameSite": "None"})
             await d.ctx.add_cookies(cookies)
             d.page = await d.ctx.new_page()
-            await d.page.goto(LOGIN_URL, wait_until="domcontentloaded", timeout=90000)
+            try:
+                await d.page.goto(LOGIN_URL, wait_until="domcontentloaded", timeout=90000)
+            except Exception:
+                # Don't leak the half-built context on a failed first
+                # navigation (audit 2026-10-11): close it so the next call
+                # rebuilds from scratch instead of stacking contexts.
+                try:
+                    await d.ctx.close()
+                except Exception:
+                    pass
+                d.ctx, d.page, d.warm = None, None, False
+                raise
             trace(f"{account[:8]}: device {dev[:8]} context ready (isolated, pre-seeded)")
         if not d.warm:
             try:
