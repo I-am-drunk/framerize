@@ -840,7 +840,7 @@ class Host:
         # iMac's chromium build pinned load avg >100), the juggler handshake
         # starves past the default 30s and every launch dies in a retry loop —
         # 180s lets it complete slowly instead of never (2026-10-11 stall).
-        kwargs = dict(headless=True, humanize=False, timeout=180_000)
+        kwargs = dict(headless=True, humanize=False, timeout=600_000)
         # humanize=False (2026-10-04, measured): with True, Camoufox simulates
         # human input TIMING — every mouse.move burst cost ~19-21s inside the
         # mint lock (burst_ms=20,991 of a 21,074ms "mint"). Playwright input is
