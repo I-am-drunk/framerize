@@ -261,6 +261,7 @@ class Account:
     def __init__(self, mgr, ctx, page):
         self.mgr = mgr
         self.ctx = ctx
+        self.page = page  # shared ambient page: I/O-bound generations share it (one page serves 12 concurrent fetches, measured)
         self.pool = asyncio.Queue()
         self.pool.put_nowait(page)
         self.size = 1
