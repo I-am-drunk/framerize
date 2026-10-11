@@ -449,6 +449,14 @@ class Host:
         """
         if not acc.editor_url:
             return
+        # 2026-10-11, measured on a FRESH profile: fires from the editor 403,
+        # fires from /login 200. The residency theory holds for long-lived
+        # established pages (iris), but a profile that JUST landed on the
+        # editor and instantly calls AI reads as automation to Castle.
+        # FRAMERIZE_NO_EDITOR=1 skips residency entirely (iMac default until
+        # profiles mature).
+        if os.environ.get("FRAMERIZE_NO_EDITOR") == "1":
+            return
         try:
             current = page.url or ""
         except Exception:
