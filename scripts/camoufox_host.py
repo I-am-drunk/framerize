@@ -950,8 +950,14 @@ class Host:
                     break
                 if dev is None:
                     continue
-                page = acc.mint_page
-                if page is None or page.is_closed():
+                # Fire in the DEVICE'S OWN context (2026-10-11 audit): the old
+                # path fired on the ambient mint page, whose __cuid got synced
+                # to a different device every beat — reintroducing the exact
+                # churn this architecture exists to hide, concentrated in one
+                # page's storage for the SDK to see.
+                try:
+                    page = (await self._dev_page(acc, account, dev)).page
+                except Exception:
                     continue
                 tid, tok, used_dev = await self._token_acquire(acc, page, account, dev)
                 if not tok:
