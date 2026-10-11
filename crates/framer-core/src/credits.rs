@@ -172,7 +172,7 @@ pub async fn admit(
     };
 
     account.current_team = Some(fresh.team.clone());
-    account.credit = Some(fresh.snapshot.clone());
+    account.credit = Some(fresh.snapshot);
     deps.state.upsert(account).await.map_err(CoreError::Store)?;
     Ok(fresh.team.clone())
 }

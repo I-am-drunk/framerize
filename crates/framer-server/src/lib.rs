@@ -276,7 +276,7 @@ async fn compat_forward(
         let dialect2 = dialect.to_string();
         let gate2 = s.gate.clone();
         let gate_key2 = gate_key.clone();
-        let (tx, mut rx) = tokio::sync::mpsc::channel::<Result<framer_core::port::ProxyResponse, String>>(1);
+        let (tx, rx) = tokio::sync::mpsc::channel::<Result<framer_core::port::ProxyResponse, String>>(1);
         tokio::spawn(async move {
             let r = s2
                 .client
@@ -796,7 +796,7 @@ async fn free_complete(
         // the first byte; streaming clients (Claude Code) timed out the
         // silent socket: "Claude gave up after repeated API errors".
         let msg_id = format!("msg_{:08x}{:08x}", rand_u32(), rand_u32());
-        let (tx, mut rx) = tokio::sync::mpsc::channel::<convert::ChainEvent>(1024);
+        let (tx, rx) = tokio::sync::mpsc::channel::<convert::ChainEvent>(1024);
         let s2 = s.clone();
         let account2 = account.clone();
         let project2 = project.clone();
@@ -1128,7 +1128,7 @@ async fn native_complete(
     let logical_id = format!("{:08x}{:08x}", rand_u32(), rand_u32());
 
     if wants_stream {
-        let (tx, mut rx) = tokio::sync::mpsc::channel::<convert::ChainEvent>(1024);
+        let (tx, rx) = tokio::sync::mpsc::channel::<convert::ChainEvent>(1024);
         let s2 = s.clone();
         let account2 = account.clone();
         let project2 = project.clone();
