@@ -524,7 +524,7 @@ class Host:
                          # design was SAFE by accident; unbounded pooling was not.
     TOKEN_POOL_CAP = 8
 
-    def _pick_device(self, acc):
+    def _pick_device(self, acc, account=None):
         """Velocity-aware device choice: round-robin over the persisted device
         pool, skipping velocity-cooled devices and devices over the proactive
         window budget. Returns a READY device, or None when everything is
@@ -556,7 +556,7 @@ class Host:
             dev = str(uuid.uuid4())
             acc.devices.append(dev)
             acc.reserve.add(dev)
-            trace(f"{account[:8]}: burst-reserve device #{acc.reserve_used}/{RESERVE_PER_DAY} created (stable pool cooling)")
+            trace(f"{(account or chr(63)*8)[:8]}: burst-reserve device #{acc.reserve_used}/{RESERVE_PER_DAY} created (stable pool cooling)")
             return dev
         return None
 
@@ -984,7 +984,7 @@ class Host:
                 attempts = 1 + min(2, len(acc.devices or [None]))
                 r = None
                 for attempt in range(attempts):
-                    dev = self._pick_device(acc)
+                    dev = self._pick_device(acc, account)
                     if dev is None and acc.devices:
                         # Everything cooling/over-budget: WAIT for the soonest
                         # recovery instead of poking a banned device (the poke
@@ -995,7 +995,7 @@ class Host:
                         if wait is not None and wait <= 60.0:
                             trace(f"{account[:8]}: all devices busy/cooling — waiting {wait:.0f}s for recovery (no re-poke)")
                             await asyncio.sleep(wait + 0.25)
-                            dev = self._pick_device(acc)
+                            dev = self._pick_device(acc, account)
                         if dev is None:
                             w = self._device_ready_in(acc) or 0
                             r = {"status": 0, "usage": None,
