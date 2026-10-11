@@ -747,7 +747,7 @@ pub fn render_sse(d: ClientDialect, r: &AssembledResponse, client_model: &str, i
 }
 
 fn sse(event: &str, data: Value) -> String {
-    format!("event: {event}\ndata: {}", data.to_string())
+    format!("event: {event}\ndata: {}", data)
 }
 
 fn anthropic_sse(r: &AssembledResponse, client_model: &str) -> Vec<String> {
@@ -802,7 +802,7 @@ fn anthropic_sse(r: &AssembledResponse, client_model: &str) -> Vec<String> {
 }
 
 fn chat_sse(r: &AssembledResponse, client_model: &str, include_usage: bool) -> Vec<String> {
-    let id = format!("chatcmpl-{}", &r.id.trim_start_matches("msg_"));
+    let id = format!("chatcmpl-{}", r.id.trim_start_matches("msg_"));
     let created = now_unix();
     let chunk = |delta: Value, finish: Value| json!({
         "id": id, "object": "chat.completion.chunk", "created": created,
@@ -1789,11 +1789,10 @@ pub fn chat_to_responses_request(body: &Value) -> Result<Value, String> {
     }
     match &body["tool_choice"] {
         Value::String(s) => out["tool_choice"] = json!(s),
-        v @ Value::Object(_) => {
-            if v["type"].as_str() == Some("function") {
+        v @ Value::Object(_)
+            if v["type"].as_str() == Some("function") => {
                 out["tool_choice"] = json!({"type": "function", "name": v["function"]["name"]});
             }
-        }
         _ => {}
     }
     if let Some(mt) = body["max_tokens"].as_u64().or_else(|| body["max_completion_tokens"].as_u64()) {

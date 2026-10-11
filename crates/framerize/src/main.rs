@@ -363,7 +363,7 @@ fn cli_logs(log_dir: &str, tail: usize, event: Option<&str>, account: Option<&st
         use std::collections::BTreeMap;
         let mut by: BTreeMap<String, (u64, u64, u128)> = BTreeMap::new(); // (ok, err, total_ms)
         for v in &filtered {
-            let key = format!("{}", v["event"].as_str().unwrap_or("?"));
+            let key = v["event"].as_str().unwrap_or("?").to_string();
             let e = by.entry(key).or_default();
             if v["outcome"].as_str() == Some("ok") { e.0 += 1; } else { e.1 += 1; }
             e.2 += v["duration_ms"].as_u64().unwrap_or(0) as u128;

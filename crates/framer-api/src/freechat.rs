@@ -75,7 +75,7 @@ pub async fn complete_long(
     // ~5/device), and the device pool covers concurrency. Constant REAL step.
     let chain_nonce = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
-        .map(|d| d.as_secs() as u64 ^ ((d.subsec_nanos() as u64) << 20))
+        .map(|d| d.as_secs() ^ ((d.subsec_nanos() as u64) << 20))
         .unwrap_or(0x9e3779b97f4a7c15);
     let chain_step: String =
         if std::env::var("FRAMERIZE_FEATURE_CATEGORY").unwrap_or_default() == "translation" {
@@ -123,7 +123,7 @@ pub async fn complete_long(
     // Ramp UP from 600 with measured speed instead of ramping down after
     // deaths: first content lands in ~10-60s regardless of upstream mood.
     let window_budget_s = 45.0f32;
-    let chunk_cap = cfg.chunk_tokens.max(2500);
+    let _chunk_cap = cfg.chunk_tokens.max(2500);
     let mut chunk_tokens = cfg.chunk_tokens.min(600);
     let budget_for = |tps: f32| -> u32 { ((tps * window_budget_s) as u32).clamp(400, 3000) };
 
@@ -165,7 +165,7 @@ pub async fn complete_long(
             while out.is_none() {
                 match proxy::forward(
                     t, token_cache, session, browser, account, project,
-                    cur_dialect, &cur_step, attempt_payload.clone(), chat_session, i as u32,
+                    cur_dialect, &cur_step, attempt_payload.clone(), chat_session, i,
                 ).await {
                     Ok(r) => out = Some(Ok((cur_dialect, r))),
                     Err(e) if e.starts_with("retryable 429") => {
@@ -235,7 +235,7 @@ pub async fn complete_long(
                 let retry_payload = build_payload(&messages, chunk_tokens, d3);
                 match proxy::forward(
                     t, token_cache, session, browser, account, project,
-                    d3, &s3, retry_payload, chat_session, i as u32,
+                    d3, &s3, retry_payload, chat_session, i,
                 ).await {
                     Ok(r) => r,
                     Err(e2) if cfg.metered_fallback => {
@@ -243,7 +243,7 @@ pub async fn complete_long(
                         let stream_payload = build_payload(&messages, chunk_tokens, d3);
                         let streamed = stream_chunk(
                             t, token_cache, session, browser, account, project,
-                            d3, &s3, stream_payload, chat_session, i as u32,
+                            d3, &s3, stream_payload, chat_session, i,
                         ).await?;
                         metered_chunks += 1;
                         ptok = ptok.max(streamed.input_tokens);
@@ -371,7 +371,7 @@ pub async fn complete_long(
             let stream_payload = build_payload(&messages, cfg.max_total_tokens.map(|cap| cap.saturating_sub(ctok as u32).max(1024)).unwrap_or(8000), dialect);
             let streamed = stream_chunk(
                 t, token_cache, session, browser, account, project,
-                dialect, &step, stream_payload, chat_session, i as u32,
+                dialect, &step, stream_payload, chat_session, i,
             ).await?;
             metered_chunks += 1;
             ptok = ptok.max(streamed.input_tokens);

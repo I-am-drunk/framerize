@@ -47,7 +47,7 @@ pub async fn complete_long(
         };
     let chain_nonce = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
-        .map(|d| d.as_secs() as u64 ^ ((d.subsec_nanos() as u64) << 20))
+        .map(|d| d.as_secs() ^ ((d.subsec_nanos() as u64) << 20))
         .unwrap_or(0x9e3779b97f4a7c15);
 
     // Normalize the client's input to an item array (a bare string prompt is
@@ -190,7 +190,7 @@ pub async fn complete_long(
                 match proxy::forward(
                     t, token_cache, session, browser, account, project,
                     Dialect::OpenRouterResponses, &chain_step, attempt_payload.clone(),
-                    chat_session, i as u32,
+                    chat_session, i,
                 )
                 .await
                 {
@@ -243,7 +243,7 @@ pub async fn complete_long(
                 let retry_payload = build_payload(&input_items, chunk_tokens.max(16));
                 match proxy::forward(
                     t, token_cache, session, browser, account, project,
-                    Dialect::OpenRouterResponses, &chain_step, retry_payload, chat_session, i as u32,
+                    Dialect::OpenRouterResponses, &chain_step, retry_payload, chat_session, i,
                 )
                 .await
                 {
@@ -252,7 +252,7 @@ pub async fn complete_long(
                         eprintln!("[nativechain] chunk {i} retry died ({e2}) — metered stream fallback for this chunk");
                         let sp = build_payload(&input_items, chunk_tokens.max(16));
                         let streamed =
-                            stream_chunk(t, token_cache, session, browser, account, project, &chain_step, sp, chat_session, i as u32).await?;
+                            stream_chunk(t, token_cache, session, browser, account, project, &chain_step, sp, chat_session, i).await?;
                         metered_chunks += 1;
                         record_chunk(
                             streamed, &mut output_items, &mut resp_id, &mut created_at,
