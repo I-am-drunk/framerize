@@ -186,9 +186,21 @@ async fn attempt(
     // Timed because latency is the tiebreaker when a 403 body says nothing:
     // Framer's edge refuses without proxying (~250ms), the upstream cannot.
     let sent_at = std::time::Instant::now();
-    let (status, _usage, text) = browser
+    let (status, usage_header, text) = browser
         .ai_post(account, dialect.path(), &token.bearer, &body)
         .await?;
+    // X-Framer-AI-Usage rides every successful AI response (free real-time
+    // balance telemetry — no extra call). It was captured and discarded as
+    // `_usage` everywhere (audit 2026-10-11); log it so balances are visible
+    // per request without polling the rate-limited ledger endpoint.
+    if let Some(remaining) = usage_header.as_deref().and_then(crate::credits::parse_usage_header) {
+        framer_core::observability::Event::new("credits.usage_header")
+            .account(account)
+            .field("remaining", remaining)
+            .field("status", status)
+            .outcome("ok")
+            .emit();
+    }
     let elapsed = sent_at.elapsed();
     let streaming = payload["stream"].as_bool() == Some(true);
     // Status policy mirrors transport::check (in-page fetch bypasses it).
