@@ -647,6 +647,45 @@ impl BrowserBridge for CdpBridge {
     ) -> Result<(u16, Option<String>, String), String> {
         let inst = self.instance(account).await?;
         let mut g = inst.lock().await;
+        // EDITOR RESIDENCY (2026-10-11, mirrors the camoufox sidecar's proven
+        // fix): an AI fetch fired from /login carries login-page context
+        // (Referer + page state) that Castle scores as "not a real editing
+        // session" — instant 403s on the full-chrome engine. Keep the page
+        // resident on the project's editor instead. The SPA redirects the bare
+        // id to a slugged URL, so match the id ANYWHERE in the href.
+        if let Some(pid) = body.get("projectId").and_then(|v| v.as_str()) {
+            let href = g
+                .eval("location.href".into())
+                .await
+                .ok()
+                .and_then(|v| v.as_str().map(str::to_string))
+                .unwrap_or_default();
+            if !href.contains(pid) {
+                let _ = g
+                    .cmd("Page.navigate", json!({"url": format!("https://framer.com/projects/{pid}")}))
+                    .await;
+                for _ in 0..60 {
+                    tokio::time::sleep(std::time::Duration::from_millis(400)).await;
+                    let ready = g
+                        .eval("document.readyState".into())
+                        .await
+                        .ok()
+                        .and_then(|v| v.as_str().map(str::to_string))
+                        .unwrap_or_default();
+                    let href2 = g
+                        .eval("location.href".into())
+                        .await
+                        .ok()
+                        .and_then(|v| v.as_str().map(str::to_string))
+                        .unwrap_or_default();
+                    if ready == "complete" && href2.contains(pid) {
+                        break;
+                    }
+                }
+                // the SPA's AI client finishes booting a beat after 'complete'
+                tokio::time::sleep(std::time::Duration::from_secs(2)).await;
+            }
+        }
         let v = g.eval_long(ai_post_expr(path, bearer, body)).await?;
         let status = v["status"].as_i64().unwrap_or(-1);
         let usage = v["usage"].as_str().map(|s| s.to_string());
