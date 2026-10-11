@@ -45,9 +45,17 @@ con.close()
 seen = set()
 for rid, blob in rows:
     seen.add(rid)
+    obj = json.loads(blob)
+    # Machine-local fields NEVER sync (2026-10-11, the two-fingerprints-one-cuid
+    # incident): castle_device_id is the per-machine device identity — two
+    # machines presenting one cuid from two browser fingerprints is an instant
+    # Castle anomaly (403 on first fire). proxy is a machine-local egress
+    # setting. Each machine owns these for itself.
+    obj["castle_device_id"] = None
+    obj["proxy"] = None
     tmp = f"{rdir}/accounts/{rid}.json.tmp"
     with open(tmp, "w") as f:
-        f.write(json.dumps(json.loads(blob), indent=1, sort_keys=True))
+        f.write(json.dumps(obj, indent=1, sort_keys=True))
     os.replace(tmp, f"{rdir}/accounts/{rid}.json")
 # remove registry files for accounts no longer present locally (tombstoned remotely stay gone)
 for fn in os.listdir(f"{rdir}/accounts"):
@@ -87,8 +95,19 @@ if os.path.isdir(adir):
         if not fn.endswith(".json"): continue
         rid = fn[:-5]
         if rid in tomb: continue
-        blob = open(os.path.join(adir, fn)).read()
-        json.loads(blob)  # validate
+        obj = json.loads(open(os.path.join(adir, fn)).read())
+        # device identity is machine-local: keep the local one on update,
+        # generate a fresh one for new accounts (never inherit the remote's —
+        # one cuid on two fingerprints is an instant Castle anomaly).
+        local = con.execute("SELECT json FROM accounts WHERE id = ?", (rid,)).fetchone()
+        if local:
+            try:
+                obj["castle_device_id"] = json.loads(local[0]).get("castle_device_id") or str(__import__("uuid").uuid4())
+            except Exception:
+                obj["castle_device_id"] = str(__import__("uuid").uuid4())
+        elif not obj.get("castle_device_id"):
+            obj["castle_device_id"] = str(__import__("uuid").uuid4())
+        blob = json.dumps(obj)
         con.execute("INSERT INTO accounts (id, json) VALUES (?, ?) ON CONFLICT(id) DO UPDATE SET json=excluded.json", (rid, blob))
         n_add += 1
 con.commit(); con.close()
