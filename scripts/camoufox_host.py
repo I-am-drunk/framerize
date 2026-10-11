@@ -190,7 +190,7 @@ FORGE_MAX_AGE_S = float(os.environ.get("FRAMERIZE_FORGE_MAX_AGE", "1500"))  # re
 # account, and N x the per-device concurrency cap (~20-24) for free. These
 # are STABLE identities (persisted in framerize-devices.json), not
 # burn-and-churn — "user owns N devices" is a real pattern.
-DEVICE_POOL = int(os.environ.get("FRAMERIZE_DEVICE_POOL", "8"))
+DEVICE_POOL = int(os.environ.get("FRAMERIZE_DEVICE_POOL", "4"))  # realistic human device count (laptop/phone/desktop/tablet); >10/account is a Castle review signal
 # BASELINE-TRAINING HEARTBEAT (the velocity golden goose, from Castle's own
 # docs 2026-10-07): high_activity_device "learns what is typical behavior for
 # a device and detects ANOMALOUS BURSTS" — the trip line is RELATIVE to the
@@ -230,6 +230,23 @@ DEV_WINDOW_CAP = 180     # ~180 reqs/10min/device = below the measured trip line
 MINT_GAP_S = float(os.environ.get("FRAMERIZE_MINT_GAP_S", "0.25"))
 
 
+class Device:
+    """One PERMANENT device identity, living in its own isolated browser
+    context (own cookie jar, localStorage, JS realm). The Castle SDK in this
+    context sees exactly ONE device for its entire life — the __cuid is seeded
+    BEFORE the module loads, and is never swapped. That is what hides the
+    churn the velocity/risk layers key on (2026-10-11: the old single-page
+    __cuid-swap pool was visible to the SDK's storage and read as a device
+    farm)."""
+    __slots__ = ("id", "ctx", "page", "warm")
+
+    def __init__(self, dev_id):
+        self.id = dev_id
+        self.ctx = None
+        self.page = None
+        self.warm = False
+
+
 class Account:
     """One account's browser context + a POOL of pages.
 
@@ -266,6 +283,10 @@ class Account:
         self.dev_reqs = {}          # device -> [timestamps] (rolling velocity window)
         self.dev_rr = 0             # device round-robin cursor
         self.mint_page = None       # DEDICATED mint page — never runs fetches
+        self.browser = None         # non-persistent camoufox Browser (context parent)
+        self.dev_objs = {}          # device id -> Device (isolated context each)
+        self.primary_dev = None     # STICKY device: all requests ride it until it cools
+        self.session_cookie = None  # (name, value) — fanned into every device context
 
 
 
@@ -532,6 +553,54 @@ class Host:
                          # design was SAFE by accident; unbounded pooling was not.
     TOKEN_POOL_CAP = 8
 
+    async def _dev_page(self, acc, account, dev):
+        """Get-or-create the device's isolated context + page, with __cuid
+        seeded BEFORE the castle module loads (add_init_script runs ahead of
+        any page script) and the account session cookie fanned in. The module
+        is warmed once per context (the v3-race latch is per module scope)."""
+        d = acc.dev_objs.get(dev)
+        if d is None:
+            d = Device(dev)
+            acc.dev_objs[dev] = d
+        if d.page is not None and d.page.is_closed():
+            d.page, d.ctx, d.warm = None, None, False
+        if d.page is None:
+            d.ctx = await acc.browser.new_context()
+            await d.ctx.add_init_script(
+                f"try {{ localStorage.setItem('__cuid', {json.dumps(dev)}); }} catch(e) {{}}"
+            )
+            cookies = [{"name": "__cuid", "value": dev, "domain": ".framer.com",
+                        "path": "/", "secure": True, "httpOnly": False, "sameSite": "None"}]
+            if acc.session_cookie:
+                name, value = acc.session_cookie
+                cookies.append({"name": name, "value": value, "domain": ".framer.com",
+                                "path": "/", "secure": True, "httpOnly": True, "sameSite": "None"})
+            await d.ctx.add_cookies(cookies)
+            d.page = await d.ctx.new_page()
+            await d.page.goto(LOGIN_URL, wait_until="domcontentloaded", timeout=90000)
+            trace(f"{account[:8]}: device {dev[:8]} context ready (isolated, pre-seeded)")
+        if not d.warm:
+            try:
+                await d.page.evaluate(WARM_JS)
+                d.warm = True
+            except Exception as e:
+                trace(f"{account[:8]}: device {dev[:8]} warm issue ({type(e).__name__})")
+        return d
+
+    def _pick_device_sticky(self, acc):
+        """STICKY selection: the primary device serves everything until it
+        actually cools; only then promote the next ready device. Server-side
+        this reads as 'user opened their other laptop' — not a per-request
+        rotation (the old round-robin was the loudest churn signal)."""
+        now = time.monotonic()
+        ready = [d for d in acc.devices
+                 if acc.dev_cooling.get(d, 0) <= now
+                 and len([t for t in acc.dev_reqs.get(d, []) if now - t < DEV_WINDOW_S]) < DEV_WINDOW_CAP]
+        if acc.primary_dev in ready:
+            return acc.primary_dev
+        acc.primary_dev = ready[0] if ready else None
+        return acc.primary_dev
+
     def _pick_device(self, acc, account=None):
         """Velocity-aware device choice: round-robin over the persisted device
         pool, skipping velocity-cooled devices and devices over the proactive
@@ -707,20 +776,16 @@ class Host:
             # (19-21s under humanize=True). The per-page humanize loops keep
             # Castle's behavioral buffers warm between mints.
             used_dev = dev
-            if acc.devpool_ready and acc.devices:
+            if dev is not None and acc.browser is not None:
+                # CONTEXT-PER-DEVICE: mint inside the device's own isolated
+                # context. The SDK binds the context's single pre-seeded
+                # __cuid — no swaps, no shared-page churn, ever.
                 try:
-                    # lazy-warm burst-reserve devices (created on demand, their
-                    # castle module doesn't exist yet — one ~2s import binds it)
-                    if dev in acc.reserve and dev not in acc.reserve_warmed:
-                        try:
-                            await page.evaluate(DEVPOOL_WARM_JS.replace('%s', json.dumps([dev])))
-                            acc.reserve_warmed.add(dev)
-                        except Exception:
-                            pass
-                    res = await page.evaluate(DEVPOOL_MINT_JS, [acc.devices, dev])
-                    if res:
-                        tok, used_dev = res.get("t"), res.get("dev")
-                except Exception:
+                    d = await self._dev_page(acc, account, dev)
+                    tok = await d.page.evaluate(MINT_JS)
+                    used_dev = dev
+                except Exception as e:
+                    trace(f"{account[:8]}: context mint failed on {str(dev)[:8]} ({type(e).__name__})")
                     tok = None
             if not tok:
                 tok = await page.evaluate(MINT_JS)
@@ -756,7 +821,11 @@ class Host:
             self.proxies[account] = proxy
         profile = os.path.join(ROOT, account)
         os.makedirs(profile, exist_ok=True)
-        kwargs = dict(headless=True, persistent_context=True, user_data_dir=profile, humanize=False)
+        # CONTEXT-PER-DEVICE model (2026-10-11): a NON-persistent browser, and
+        # every device gets its own isolated ephemeral context (own storage —
+        # verified: ctx A cannot see ctx B's cookies). The old persistent
+        # single-context profile forced the __cuid-swap churn that flagged us.
+        kwargs = dict(headless=True, humanize=False)
         # humanize=False (2026-10-04, measured): with True, Camoufox simulates
         # human input TIMING — every mouse.move burst cost ~19-21s inside the
         # mint lock (burst_ms=20,991 of a 21,074ms "mint"). Playwright input is
@@ -769,8 +838,9 @@ class Host:
         trace(f"{account[:8]}: launching camoufox (profile {profile})")
         t0 = time.monotonic()
         mgr = AsyncCamoufox(**kwargs)
-        ctx = await mgr.__aenter__()
+        browser = await mgr.__aenter__()
         emit("camoufox.launch", account=account[:8], duration_ms=int((time.monotonic()-t0)*1000), outcome="ok")
+        ctx = await browser.new_context()   # ambient context (login flow, heartbeats' home)
         page = await ctx.new_page()
         trace(f"{account[:8]}: goto login page")
         await page.goto(LOGIN_URL, wait_until="domcontentloaded", timeout=90000)
@@ -801,6 +871,7 @@ class Host:
         except Exception as e:
             trace(f"{account[:8]}: castle warm failed ({type(e).__name__}) — first real mint will pay it instead")
         acc = Account(mgr, ctx, page)
+        acc.browser = browser
         acc.editor_file = os.path.join(profile, "framerize-editor.json")
         try:
             if os.path.exists(acc.editor_file):
@@ -827,18 +898,11 @@ class Host:
             # 16-device era (they survive otherwise — Castle farm signal)
             json.dump(devices, open(devfile, 'w'))
             acc.devices = devices
-            async def warm_pool():
-                for attempt in range(3):
-                    try:
-                        n = await page.evaluate(DEVPOOL_WARM_JS.replace('%s', json.dumps(devices)))
-                        acc.devpool_ready = n > 0
-                        trace(f"{account[:8]}: device pool warm ({n}/{len(devices)} modules)")
-                        if acc.devpool_ready:
-                            return
-                    except Exception as e:
-                        trace(f"{account[:8]}: device pool warm attempt {attempt + 1} failed ({type(e).__name__})")
-                    await asyncio.sleep(20)
-            asyncio.ensure_future(warm_pool())
+            acc.primary_dev = devices[0] if devices else None
+            # Device contexts are created LAZILY on first use (each is a real
+            # browser context — eager-warming N of them at boot is the slow
+            # part). devpool_ready kept for compat with the token path.
+            acc.devpool_ready = True
             asyncio.ensure_future(self._heartbeat_loop(acc, account))
         except Exception as e:
             trace(f"{account[:8]}: device pool init failed ({type(e).__name__})")
@@ -976,12 +1040,15 @@ class Host:
                 raise RuntimeError("castle-unavailable")
             return tok
         if cmd == "ai_post":
-            page, acc, queue_wait = await self._acquire(account)
+            acc = await self._account(account)
+            page = acc.page  # ambient page (fallback only)
+            queue_wait = 0.0
             t0 = time.monotonic()
             pid = (req.get("body") or {}).get("projectId")
             if pid:
                 self._set_editor(acc, account, pid)
-            await self._ensure_editor(acc, page, account)
+            if os.environ.get("FRAMERIZE_NO_EDITOR") != "1":
+                await self._ensure_editor(acc, page, account)
             try:
                 # Mint under the per-account gate, THEN fetch unguarded: the
                 # mint is the risk-engine-sensitive burst, the generation is
@@ -992,7 +1059,7 @@ class Host:
                 attempts = 1 + min(2, len(acc.devices or [None]))
                 r = None
                 for attempt in range(attempts):
-                    dev = self._pick_device(acc, account)
+                    dev = self._pick_device_sticky(acc) or self._pick_device(acc, account)
                     if dev is None and acc.devices:
                         # Everything cooling/over-budget: WAIT for the soonest
                         # recovery instead of poking a banned device (the poke
@@ -1003,13 +1070,19 @@ class Host:
                         if wait is not None and wait <= 60.0:
                             trace(f"{account[:8]}: all devices busy/cooling — waiting {wait:.0f}s for recovery (no re-poke)")
                             await asyncio.sleep(wait + 0.25)
-                            dev = self._pick_device(acc, account)
+                            dev = self._pick_device_sticky(acc) or self._pick_device(acc, account)
                         if dev is None:
                             w = self._device_ready_in(acc) or 0
                             r = {"status": 0, "usage": None,
                                  "body": f"velocity-paused: every device is cooling; retry in {int(w)}s"}
                             break
-                    tid, tok, used_dev = await self._token_acquire(acc, page, account, dev)
+                    fire_page = page
+                    if dev is not None and acc.browser is not None:
+                        try:
+                            fire_page = (await self._dev_page(acc, account, dev)).page
+                        except Exception:
+                            fire_page = page
+                    tid, tok, used_dev = await self._token_acquire(acc, fire_page, account, dev)
                     if not tok:
                         r = {"status": 0, "usage": None, "body": "castle-unavailable"}
                         break
@@ -1019,7 +1092,7 @@ class Host:
                         job = "job-" + uuid.uuid4().hex
                         acc.project = req["body"].get("projectId") or acc.project
                         acc.bearer = req.get("bearer") or acc.bearer
-                        await page.evaluate(AI_START_JS, [req["path"], req["body"], tok, req.get("bearer"), job, used_dev])
+                        await fire_page.evaluate(AI_START_JS, [req["path"], req["body"], tok, req.get("bearer"), job, used_dev])
                         # Deadline scales with the chunk's expected duration:
                         # a 4300-token chunk at collapse speed (~11 tok/s)
                         # legitimately needs ~390s — the flat 310s raced it and
@@ -1031,7 +1104,7 @@ class Host:
                             pass
                         deadline = time.monotonic() + min(900.0, est_s)
                         while True:
-                            r = await page.evaluate(AI_POLL_JS, job)
+                            r = await fire_page.evaluate(AI_POLL_JS, job)
                             if r is not None:
                                 break
                             if time.monotonic() > deadline:
@@ -1065,7 +1138,7 @@ class Host:
                         continue
                     break
             finally:
-                self._release(acc, page)
+                pass  # device-context pages are long-lived; nothing to release
             emit("ai.post", account=account[:8], path=req["path"], status=r["status"],
                  duration_ms=int((time.monotonic()-t0)*1000),
                  queue_wait_ms=int(queue_wait*1000),
@@ -1080,12 +1153,26 @@ class Host:
             # self-deadlock (every ai_post flow starts with set_cookie, so
             # set_cookie waiting for a free page starves behind the very
             # requests it unblocks; measured: 300s timeouts across the board).
-            await self._account(account)
+            acc = await self._account(account)
             await self._ctx(account).add_cookies([{
                 "name": req["name"], "value": req["value"],
                 "domain": ".framer.com", "path": "/",
                 "secure": True, "httpOnly": True, "sameSite": "None",
             }])
+            # Fan into every device context (present and future): the AI fetch
+            # in a device context must carry the account session.
+            if req["name"] == "session":
+                acc.session_cookie = (req["name"], req["value"])
+                for d in list(acc.dev_objs.values()):
+                    if d.ctx is not None:
+                        try:
+                            await d.ctx.add_cookies([{
+                                "name": req["name"], "value": req["value"],
+                                "domain": ".framer.com", "path": "/",
+                                "secure": True, "httpOnly": True, "sameSite": "None",
+                            }])
+                        except Exception:
+                            pass
             return True
         if cmd == "eval":
             page = await self._page(account)
@@ -1093,6 +1180,12 @@ class Host:
         if cmd == "close":
             if account in self.accounts:
                 acc = self.accounts.pop(account)
+                for d in list(acc.dev_objs.values()):
+                    try:
+                        if d.ctx is not None:
+                            await d.ctx.close()
+                    except Exception:
+                        pass
                 try:
                     await acc.ctx.close()
                 finally:
@@ -1101,6 +1194,12 @@ class Host:
         if cmd == "rotate":
             if account in self.accounts:
                 acc = self.accounts.pop(account)
+                for d in list(acc.dev_objs.values()):
+                    try:
+                        if d.ctx is not None:
+                            await d.ctx.close()
+                    except Exception:
+                        pass
                 try:
                     await acc.ctx.close()
                 finally:
