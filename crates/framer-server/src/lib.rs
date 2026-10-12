@@ -584,6 +584,40 @@ fn pick_scope(account: &ManagedAccount) -> Result<framer_core::account::Workspac
 /// rotation stops choosing it; any success clears that state. Never
 /// quarantines (AGENTS.md rule 3) and never treats a 429 as account health --
 /// that is a workspace-level signal handled by the concurrency gate.
+
+/// Castle-refusal classes that mean "THIS account is being refused" (its
+/// devices' velocity budget, or an account-level verdict). Distinct from
+/// upstream 403s (provider policy — bad model id, region, content), which say
+/// nothing about the account. The chain composes errors as
+/// "chunk N retry died (fallback off): <cause>", so the sentinel is a SUFFIX —
+/// the exact-match bug of 2026-10-11: `e == "risk-refused"` never fired and a
+/// 100%-refused account read fail: 0 through 20 straight chain deaths.
+fn is_castle_refusal(e: &str) -> bool {
+    if e.starts_with("upstream 403") {
+        return false;
+    }
+    e.ends_with("risk-refused") || e.contains("velocity-paused")
+}
+
+/// Pick a serving account excluding the ones already tried for this request.
+/// Re-reads the pool so health marks written moments ago are honored.
+async fn pick_fresh_account(
+    s: &AppState,
+    excluded: &[String],
+) -> Result<framer_core::account::ManagedAccount, ApiError> {
+    let pool = s.state.list().await.map_err(ApiError)?;
+    let filtered: Vec<_> = pool
+        .into_iter()
+        .filter(|a| !excluded.contains(&a.id.0.to_string()))
+        .collect();
+    if filtered.is_empty() {
+        return Err(ApiError("pool exhausted: every account was refused for this request".into()));
+    }
+    framer_core::rotation::pick(&filtered)
+        .cloned()
+        .ok_or_else(|| ApiError("no eligible account".into()))
+}
+
 async fn record_account_health(
     s: &AppState,
     account: &framer_core::account::ManagedAccount,
@@ -599,12 +633,12 @@ async fn record_account_health(
             }
             next.note_success();
         }
-        // EXACT match only. `contains` would catch an "upstream 403 on ..."
-        // whose echoed provider body happened to mention the word, and cooling
-        // an account for the upstream's policy decision is the 2026-10-04 bug
-        // (classify.rs): 1,399 upstream refusals read as Castle refusals drove
-        // 2 of 3 accounts to the 300s cooldown cap and starved rotation.
-        Err(e) if e == "risk-refused" => {
+        // SUFFIX match: chains compose "chunk N retry died (fallback off):
+        // risk-refused" — the sentinel is the tail, so the old EXACT match
+        // never fired (measured 2026-10-11: conform served 20/20 refusals at
+        // fail: 0). "upstream 403 ..." bodies are excluded by is_castle_refusal
+        // (their policy refusal is not the account's health).
+        Err(e) if is_castle_refusal(e) => {
             s.wave.note_refusal(&account.id.0.to_string());
             next.note_risk_refused(now);
             eprintln!(
@@ -754,16 +788,16 @@ async fn free_complete(
             .cloned()
             .ok_or_else(|| ApiError("no eligible account".into()))?,
     };
-    let session = s
+    let mut session = s
         .sessions
         .load(&account.framer_user_id)
         .await
         .map_err(ApiError)?
         .ok_or_else(|| ApiError("account has no session".into()))?;
-    let scope = pick_scope(&account)?;
-    let project = scope.project.clone();
-    let scope_team = scope.team.clone();
-    let chat_session =
+    let mut scope = pick_scope(&account)?;
+    let mut project = scope.project.clone();
+    let mut scope_team = scope.team.clone();
+    let mut chat_session =
         hdr(headers, "x-framerize-session").unwrap_or_else(|| stable_session(&account.id));
 
     // Per (workspace × MODEL) concurrency — measured 2026-10-05: ~6 in-flight
@@ -771,15 +805,15 @@ async fn free_complete(
     // id (client spellings collapse to the true bucket) AND the chain's
     // rotated workspace (one account now spans multiple workspace budgets).
     let gate_model = anthro["model"].as_str().unwrap_or("unknown").to_string();
-    let gate_key = format!("{}:{gate_model}", scope_team.0);
+    let mut gate_key = format!("{}:{gate_model}", scope_team.0);
     let _permit = s.gate.acquire(&gate_key).await;
 
-    let cfg = framer_core::port::ChainConfig {
+    let mk_cfg = |team: &framer_core::ids::TeamId| framer_core::port::ChainConfig {
         max_total_tokens: Some(max_tokens),
         // Metered rungs are credit spend: off unless the operator opts in.
         metered_fallback: std::env::var("FRAMERIZE_ALLOW_METERED").map(|v| v == "1").unwrap_or(false),
         on_429: {
-            let team = Some(scope_team.0.clone());
+            let team = Some(team.0.clone());
             Some(std::sync::Arc::new(move || {
                 if let Some(t) = &team {
                     framer_core::rotation::mark_saturated(t, 45_000);
@@ -788,6 +822,8 @@ async fn free_complete(
         },
         ..Default::default()
     };
+    let mut cfg = mk_cfg(&scope_team);
+    let mut account = account;
     if wants_stream {
         // INCREMENTAL streaming: spawn the chain with an events callback and
         // emit SSE frames as chunks land — message_start/role/created
@@ -809,7 +845,17 @@ async fn free_complete(
         let handle = AbortOnDrop(tokio::spawn(async move {
             let _permit = permit;
             let t0 = std::time::Instant::now();
+            // Tracks whether any CONTENT ever reached the stream: a chain that
+            // dies before its first chunk can be silently restarted on a fresh
+            // account (the client's message_start and pings are emitted by US,
+            // so a swap mid-silence is invisible); once content has flowed, a
+            // restart would duplicate blocks and the error must surface.
+            let emitted_content = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+            let ec2 = emitted_content.clone();
             let cb = move |ev: convert::ChainEvent| {
+                if matches!(ev, convert::ChainEvent::Chunk(_) | convert::ChainEvent::ResponsesItems { .. }) {
+                    ec2.store(true, std::sync::atomic::Ordering::Relaxed);
+                }
                 if tx.try_send(ev).is_err() {
                     // Channel full under client backpressure: log it. A dropped
                     // frame here is a hole in the user's stream — invisible
@@ -817,23 +863,65 @@ async fn free_complete(
                     eprintln!("[stream] event channel full — dropping a frame (client backpressure)");
                 }
             };
-            let result = s2
-                .client
-                .freechat_long(
-                    &session,
-                    s2.browser.as_ref(),
-                    &account2.id,
-                    &project2,
-                    anthro,
-                    &cfg,
-                    &chat_session2,
-                    Some(&cb),
-                )
-                .await;
+            let mut account = account2;
+            let mut session = session;
+            let mut project = project2;
+            let mut cfg2 = cfg;
+            let mut tried: Vec<String> = Vec::new();
+            let mut acct_attempt = 0u32;
+            let result = loop {
+                let r = s2
+                    .client
+                    .freechat_long(
+                        &session,
+                        s2.browser.as_ref(),
+                        &account.id,
+                        &project,
+                        anthro.clone(),
+                        &cfg2,
+                        &chat_session2,
+                        Some(&cb),
+                    )
+                    .await;
+                record_account_health(&s2, &account, &r).await;
+                let refusal = matches!(&r, Err(e) if is_castle_refusal(e));
+                if refusal && !emitted_content.load(std::sync::atomic::Ordering::Relaxed) && acct_attempt < 2 {
+                    tried.push(account.id.0.to_string());
+                    match pick_fresh_account(&s2, &tried).await {
+                        Ok(next) => {
+                            {
+                                use framer_core::observability::Event;
+                                Event::new("ai.chain.repick")
+                                    .account(&account.id)
+                                    .field("to", &next.id.0.to_string()[..8])
+                                    .field("reason", r.as_ref().err().map(|e| &e[..e.len().min(120)]).unwrap_or(""))
+                                    .emit();
+                            }
+                            account = next;
+                            session = match s2.sessions.load(&account.framer_user_id).await {
+                                Ok(Some(x)) => x,
+                                _ => break r,
+                            };
+                            let sc = match pick_scope(&account) { Ok(sc) => sc, Err(_) => break r };
+                            project = sc.project.clone();
+                            let team = Some(sc.team.0.clone());
+                            cfg2.on_429 = Some(std::sync::Arc::new(move || {
+                                if let Some(t) = &team {
+                                    framer_core::rotation::mark_saturated(t, 45_000);
+                                }
+                            }));
+                            acct_attempt += 1;
+                            continue;
+                        }
+                        Err(_) => break r,
+                    }
+                }
+                break r;
+            };
             {
                 use framer_core::observability::Event;
                 let mut ev = Event::new("ai.chain")
-                    .account(&account2.id)
+                    .account(&account.id)
                     .field("model", log_model)
                     .field("dialect", format!("{dialect:?}"))
                     .duration_ms(t0.elapsed().as_millis());
@@ -934,6 +1022,9 @@ async fn free_complete(
     // in flight when the cap was hit still die (measured: 100 parallel ->
     // 37/100 with a gate that correctly walked 48->24->12->6).
     let mut result;
+    let mut tried_accounts: Vec<String> = Vec::new();
+    let mut acct_attempt = 0u32;
+    'account_retry: loop {
     let mut attempt = 0u32;
     loop {
         // Re-acquire per attempt so a retry waits for the narrowed limit.
@@ -973,6 +1064,49 @@ async fn free_complete(
         let backoff = 250u64 * (1 << attempt.min(4)) + u64::from(rand_u32() % 250);
         tokio::time::sleep(std::time::Duration::from_millis(backoff)).await;
     }
+
+    // CASTLE REPICK (2026-10-11): a risk-refusal is ACCOUNT-specific (the
+    // verdict follows the account+devices, not the request) — retrying the
+    // chain on the SAME account just fails again, which is how 1/8 of chains
+    // died all morning while 7 healthy accounts idled. Nothing reaches the
+    // client on the non-stream path until the chain completes, so a refusal
+    // is always safe to retry on a fresh account. The health mark lands first
+    // (below), so the repick never selects the same account twice.
+    if matches!(&result, Err(e) if is_castle_refusal(e)) && acct_attempt < 2 {
+        tried_accounts.push(account.id.0.to_string());
+        // Mark BEFORE re-picking: the store must know this account is poisoned
+        // so every later request steers away, not just this one.
+        record_account_health(&s, &account, &result).await;
+        match pick_fresh_account(&s, &tried_accounts).await {
+            Ok(next) => {
+                {
+                    use framer_core::observability::Event;
+                    Event::new("ai.chain.repick")
+                        .account(&account.id)
+                        .field("to", &next.id.0.to_string()[..8])
+                        .field("reason", result.as_ref().err().map(|e| &e[..e.len().min(120)]).unwrap_or(""))
+                        .emit();
+                }
+                account = next;
+                session = match s.sessions.load(&account.framer_user_id).await {
+                    Ok(Some(s2)) => s2,
+                    _ => break 'account_retry result,
+                };
+                scope = match pick_scope(&account) { Ok(sc) => sc, Err(_) => break 'account_retry result };
+                project = scope.project.clone();
+                scope_team = scope.team.clone();
+                gate_key = format!("{}:{gate_model}", scope_team.0);
+                cfg = mk_cfg(&scope_team);
+                chat_session = hdr(headers, "x-framerize-session")
+                    .unwrap_or_else(|| stable_session(&account.id));
+                acct_attempt += 1;
+                continue 'account_retry;
+            }
+            Err(_) => break 'account_retry result,
+        }
+    }
+    break 'account_retry result;
+    } // end account_retry
 
     // Feed the outcome back to the gate so the limit tracks reality: 429 means
     // "slow down", never "this account is bad" (AGENTS.md rule 3).
@@ -1091,29 +1225,29 @@ async fn native_complete(
             .cloned()
             .ok_or_else(|| ApiError("no eligible account".into()))?,
     };
-    let session = s
+    let mut session = s
         .sessions
         .load(&account.framer_user_id)
         .await
         .map_err(ApiError)?
         .ok_or_else(|| ApiError("account has no session".into()))?;
-    let scope = pick_scope(&account)?;
-    let project = scope.project.clone();
-    let scope_team = scope.team.clone();
-    let chat_session =
+    let mut scope = pick_scope(&account)?;
+    let mut project = scope.project.clone();
+    let mut scope_team = scope.team.clone();
+    let mut chat_session =
         hdr(headers, "x-framerize-session").unwrap_or_else(|| stable_session(&account.id));
 
     // Per (workspace × MODEL) concurrency, keyed on the normalized upstream id
     // and the chain's rotated workspace (multi-workspace goose).
     let gate_model = convert::to_openrouter_id(&client_model);
-    let gate_key = format!("{}:{gate_model}", scope_team.0);
+    let mut gate_key = format!("{}:{gate_model}", scope_team.0);
     let _permit = s.gate.acquire(&gate_key).await;
 
-    let cfg = framer_core::port::ChainConfig {
+    let mk_cfg = |team: &framer_core::ids::TeamId| framer_core::port::ChainConfig {
         max_total_tokens: Some(max_tokens),
         metered_fallback: std::env::var("FRAMERIZE_ALLOW_METERED").map(|v| v == "1").unwrap_or(false),
         on_429: {
-            let team = Some(scope_team.0.clone());
+            let team = Some(team.0.clone());
             Some(std::sync::Arc::new(move || {
                 if let Some(t) = &team {
                     framer_core::rotation::mark_saturated(t, 45_000);
@@ -1122,6 +1256,8 @@ async fn native_complete(
         },
         ..Default::default()
     };
+    let mut cfg = mk_cfg(&scope_team);
+    let mut account = account;
 
     // ONE logical id for the whole response (minted here, before stream_open
     // sends response.created): chunk ids never surface to the client.
@@ -1138,7 +1274,12 @@ async fn native_complete(
         let handle = AbortOnDrop(tokio::spawn(async move {
             let _permit = permit;
             let t0 = std::time::Instant::now();
+            let emitted_content = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+            let ec2 = emitted_content.clone();
             let cb = move |ev: convert::ChainEvent| {
+                if matches!(ev, convert::ChainEvent::Chunk(_) | convert::ChainEvent::ResponsesItems { .. }) {
+                    ec2.store(true, std::sync::atomic::Ordering::Relaxed);
+                }
                 if tx.try_send(ev).is_err() {
                     // Channel full under client backpressure: log it. A dropped
                     // frame here is a hole in the user's stream — invisible
@@ -1146,21 +1287,63 @@ async fn native_complete(
                     eprintln!("[stream] event channel full — dropping a frame (client backpressure)");
                 }
             };
-            let result = s2
-                .client
-                .native_long(
-                    &session,
-                    s2.browser.as_ref(),
-                    &account2.id,
-                    &project2,
-                    native_payload,
-                    &cfg,
-                    &chat_session2,
-                    Some(&cb),
-                )
-                .await;
+            let mut account = account2;
+            let mut session = session;
+            let mut project = project2;
+            let mut cfg2 = cfg;
+            let mut tried: Vec<String> = Vec::new();
+            let mut acct_attempt = 0u32;
+            let result = loop {
+                let r = s2
+                    .client
+                    .native_long(
+                        &session,
+                        s2.browser.as_ref(),
+                        &account.id,
+                        &project,
+                        native_payload.clone(),
+                        &cfg2,
+                        &chat_session2,
+                        Some(&cb),
+                    )
+                    .await;
+                record_account_health(&s2, &account, &r).await;
+                let refusal = matches!(&r, Err(e) if is_castle_refusal(e));
+                if refusal && !emitted_content.load(std::sync::atomic::Ordering::Relaxed) && acct_attempt < 2 {
+                    tried.push(account.id.0.to_string());
+                    match pick_fresh_account(&s2, &tried).await {
+                        Ok(next) => {
+                            {
+                                use framer_core::observability::Event;
+                                Event::new("ai.chain.repick")
+                                    .account(&account.id)
+                                    .field("to", &next.id.0.to_string()[..8])
+                                    .field("reason", r.as_ref().err().map(|e| &e[..e.len().min(120)]).unwrap_or(""))
+                                    .emit();
+                            }
+                            account = next;
+                            session = match s2.sessions.load(&account.framer_user_id).await {
+                                Ok(Some(x)) => x,
+                                _ => break r,
+                            };
+                            let sc = match pick_scope(&account) { Ok(sc) => sc, Err(_) => break r };
+                            project = sc.project.clone();
+                            let team = Some(sc.team.0.clone());
+                            cfg2.on_429 = Some(std::sync::Arc::new(move || {
+                                if let Some(t) = &team {
+                                    framer_core::rotation::mark_saturated(t, 45_000);
+                                }
+                            }));
+                            acct_attempt += 1;
+                            continue;
+                        }
+                        Err(_) => break r,
+                    }
+                }
+                break r;
+            };
             let mut ev = framer_core::observability::Event::new("ai.chain")
-                .account(&account2.id)
+                .account(&account.id)
                 .field("model", log_model)
                 .field("dialect", format!("{dialect:?}"))
                 .duration_ms(t0.elapsed().as_millis());
@@ -1242,19 +1425,58 @@ async fn native_complete(
     }
 
     let t0 = std::time::Instant::now();
-    let result = s
-        .client
-        .native_long(
-            &session,
-            s.browser.as_ref(),
-            &account.id,
-            &project,
-            native_payload,
-            &cfg,
-            &chat_session,
-            None,
-        )
-        .await;
+    let mut tried_accounts: Vec<String> = Vec::new();
+    let mut acct_attempt = 0u32;
+    let result = 'account_retry: loop {
+        let r = s
+            .client
+            .native_long(
+                &session,
+                s.browser.as_ref(),
+                &account.id,
+                &project,
+                native_payload.clone(),
+                &cfg,
+                &chat_session,
+                None,
+            )
+            .await;
+        record_account_health(&s, &account, &r).await;
+        // Nothing reaches the client on the non-stream path until the chain
+        // completes, so a Castle refusal is always safe to retry on a fresh
+        // account (the verdict follows the account, not the request).
+        if matches!(&r, Err(e) if is_castle_refusal(e)) && acct_attempt < 2 {
+            tried_accounts.push(account.id.0.to_string());
+            match pick_fresh_account(&s, &tried_accounts).await {
+                Ok(next) => {
+                    {
+                        use framer_core::observability::Event;
+                        Event::new("ai.chain.repick")
+                            .account(&account.id)
+                            .field("to", &next.id.0.to_string()[..8])
+                            .field("reason", r.as_ref().err().map(|e| &e[..e.len().min(120)]).unwrap_or(""))
+                            .emit();
+                    }
+                    account = next;
+                    session = match s.sessions.load(&account.framer_user_id).await {
+                        Ok(Some(s2)) => s2,
+                        _ => break 'account_retry r,
+                    };
+                    scope = match pick_scope(&account) { Ok(sc) => sc, Err(_) => break 'account_retry r };
+                    project = scope.project.clone();
+                    scope_team = scope.team.clone();
+                    gate_key = format!("{}:{gate_model}", scope_team.0);
+                    cfg = mk_cfg(&scope_team);
+                    chat_session = hdr(headers, "x-framerize-session")
+                        .unwrap_or_else(|| stable_session(&account.id));
+                    acct_attempt += 1;
+                    continue 'account_retry;
+                }
+                Err(_) => break 'account_retry r,
+            }
+        }
+        break 'account_retry r;
+    };
     {
         let mut ev = framer_core::observability::Event::new("ai.chain")
             .account(&account.id)
