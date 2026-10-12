@@ -618,10 +618,10 @@ async fn pick_fresh_account(
         .ok_or_else(|| ApiError("no eligible account".into()))
 }
 
-async fn record_account_health(
+async fn record_account_health<T>(
     s: &AppState,
     account: &framer_core::account::ManagedAccount,
-    result: &Result<framer_core::convert::AssembledResponse, String>,
+    result: &Result<T, String>,
 ) {
     let now = framer_core::rotation::now_ms();
     let mut next = account.clone();
@@ -1090,9 +1090,9 @@ async fn free_complete(
                 account = next;
                 session = match s.sessions.load(&account.framer_user_id).await {
                     Ok(Some(s2)) => s2,
-                    _ => break 'account_retry result,
+                    _ => break 'account_retry,
                 };
-                scope = match pick_scope(&account) { Ok(sc) => sc, Err(_) => break 'account_retry result };
+                scope = match pick_scope(&account) { Ok(sc) => sc, Err(_) => break 'account_retry };
                 project = scope.project.clone();
                 scope_team = scope.team.clone();
                 gate_key = format!("{}:{gate_model}", scope_team.0);
@@ -1102,10 +1102,10 @@ async fn free_complete(
                 acct_attempt += 1;
                 continue 'account_retry;
             }
-            Err(_) => break 'account_retry result,
+            Err(_) => break 'account_retry,
         }
     }
-    break 'account_retry result;
+    break;
     } // end account_retry
 
     // Feed the outcome back to the gate so the limit tracks reality: 429 means
