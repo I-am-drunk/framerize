@@ -1918,8 +1918,17 @@ pub fn responses_json(r: &AssembledResponses, client_model: &str, logical_id: &s
     if usage.get("total_tokens").is_none() {
         usage["total_tokens"] = json!(r.input_tokens + r.output_tokens);
     }
+    // Response-id continuity: every event in a stream must carry the same id,
+    // and codex's client state machine keys on it — created mints ,
+    // so completed must too (a bare id here makes codex discard the whole turn:
+    // observed 2026-10-12 as turns completing with tokens but last_agent_message null).
+    let normalized_id = if logical_id.starts_with("resp_") {
+        logical_id.to_string()
+    } else {
+        format!("resp_{logical_id}")
+    };
     let mut out = json!({
-        "id": logical_id,
+        "id": normalized_id,
         "object": "response",
         "created_at": if r.created_at > 0 { r.created_at } else { now_unix() },
         "status": r.status,
