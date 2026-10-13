@@ -58,12 +58,18 @@ async fn relay_mint(session: &Session) -> Result<AiToken, String> {
     if relay.is_empty() {
         return Err("no relay configured".into());
     }
-    let url = format!("{}?u={}", relay, session.active_user.0);
+    // Contents-API form avoids raw.githubusercontent.com's ~5min edge cache
+    // (a 600s JWT cannot tolerate stale relay files). The `r` param is a
+    // cache-buster regardless.
+    let url = format!("{}&r={}", relay, now_ms());
     let client = reqwest::Client::builder()
         .timeout(std::time::Duration::from_secs(10))
         .build()
         .map_err(|e| e.to_string())?;
-    let mut req = client.get(&url);
+    let mut req = client
+        .get(&url)
+        .header("accept", "application/vnd.github.raw")
+        .header("user-agent", "framerize-relay/0.1");
     if let Ok(tok) = std::env::var("FRAMERIZE_JWT_RELAY_TOKEN") {
         if !tok.is_empty() {
             req = req.header("authorization", format!("Bearer {}", tok));
