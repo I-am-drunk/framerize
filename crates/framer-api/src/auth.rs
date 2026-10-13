@@ -34,8 +34,13 @@ async fn mint(t: &Transport, session: &Session, path: &str) -> Result<AiToken, S
     // URL. Fetch first; fall back to the local mint on ANY relay failure, so
     // the relay can never take the daemon down with it.
     if path == "/auth/ai/access-token" {
-        if let Ok(tok) = relay_mint(session).await {
-            return Ok(tok);
+        match relay_mint(session).await {
+            Ok(tok) => return Ok(tok),
+            Err(e) => eprintln!(
+                "[auth] jwt relay fetch failed for {} ({}) — falling back to local mint",
+                &session.active_user.0.get(..8).unwrap_or("?"),
+                e
+            ),
         }
     }
     let v = t.get(path, Auth::Cookie(session)).await?.json::<serde_json::Value>().await.map_err(|e| e.to_string())?;
