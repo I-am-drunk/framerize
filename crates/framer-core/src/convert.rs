@@ -2012,9 +2012,13 @@ impl ResponsesComposer {
                 "output_index": idx, "content_index": 0,
                 "part": {"type": "output_text", "text": part_text, "annotations": []},
             })),
+            // Codex's aggregator builds the assistant message from output_item.done's
+            // content array — an item without content yields last_agent_message null
+            // even when deltas carried the text (verified 2026-10-13).
             Self::ev("response.output_item.done", json!({
                 "output_index": idx,
-                "item": {"id": item_id, "type": "message", "status": "completed", "role": "assistant"},
+                "item": {"id": item_id, "type": "message", "status": "completed", "role": "assistant",
+                           "content": [{"type": "output_text", "text": part_text, "annotations": []}]},
             })),
         ]
     }
