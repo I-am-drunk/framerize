@@ -2,41 +2,30 @@
 # (fresh Azure datacenter IP every run = effectively unlimited IPs) and
 # publishes them to .ops/jwt-relay.json for the iris daemon.
 #
-# TWO jobs:
-#   relay-loop  — the workhorse: one 355-minute job looping every 420s.
-#                 Restarted every ~5h by cron, so coverage is near-continuous.
-#   relay-once  — the IP-rotation bonus: a fresh runner every 15 min, one
-#                 pass each (every mint comes from a different IP).
-#
-# The 600s JWT TTL tolerates cron's real-world delays because relay-loop
-# renews at 420s and the daemon falls back to its own mint if a relay file
-# ever goes stale.
+# Design after measured GitHub cron unreliability (2026-10-13: zero schedule
+# fires in 100 min):
+#   relay-loop — THE backbone: a 355-min job looping every 420s. Before
+#     exiting, it dispatches its own next run via the API (workflow_dispatch
+#     with the RELAY_PAT secret), so coverage is perpetual and never depends
+#     on GitHub's cron scheduler. A concurrency group prevents overlap.
+#   relay-once — bonus fresh-IP pass on whatever cron fires deliver.
 name: jwt-relay
+
 on:
   workflow_dispatch:
   schedule:
-    - cron: "17 */5 * * *"   # restart the long loop ~every 5h (offset from :00)
-    - cron: "*/15 * * * *"   # fresh-IP single passes every 15 min
+    - cron: "*/15 * * * *"
 
 permissions:
   contents: read
 
 jobs:
-  relay-once:
-    if: github.event_name == 'schedule' && github.event.schedule == '*/15 * * * *' || github.event_name == 'workflow_dispatch'
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
-    steps:
-      - uses: actions/checkout@v4
-      - name: one mint pass (fresh runner IP)
-        env:
-          RELAY_PAT: ${{ secrets.RELAY_PAT }}
-        run: python3 relay/relay_mint.py
-
   relay-loop:
-    if: github.event_name == 'schedule' && github.event.schedule == '17 */5 * * *' || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     timeout-minutes: 355
+    concurrency:
+      group: relay-loop
+      cancel-in-progress: false
     steps:
       - uses: actions/checkout@v4
       - name: mint loop (355 min, every 420s)
@@ -48,3 +37,26 @@ jobs:
             python3 relay/relay_mint.py || echo "pass failed, retrying next cycle"
             sleep 420
           done
+      - name: dispatch the next loop (self-perpetuating)
+        if: always()
+        env:
+          RELAY_PAT: ${{ secrets.RELAY_PAT }}
+        run: |
+          curl -sf -X POST \
+            -H "Authorization: token ${RELAY_PAT}" \
+            -H "Accept: application/vnd.github+json" \
+            https://api.github.com/repos/I-am-drunk/framerize/actions/workflows/jwt-relay.yml/dispatches \
+            -d '{"ref":"main"}' || echo "self-dispatch failed (cron remains as backup)"
+
+  relay-once:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    concurrency:
+      group: relay-once
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@v4
+      - name: one mint pass (fresh runner IP)
+        env:
+          RELAY_PAT: ${{ secrets.RELAY_PAT }}
+        run: python3 relay/relay_mint.py
