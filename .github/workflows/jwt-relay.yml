@@ -1,0 +1,20 @@
+name: jwt-relay
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "*/5 * * * *"
+jobs:
+  relay:
+    runs-on: ubuntu-latest
+    timeout-minutes: 355
+    steps:
+      - name: mint loop
+        env:
+          RELAY_PAT: ${{ secrets.RELAY_PAT }}
+        run: |
+          git clone -q --depth 1 https://x-access-token:${RELAY_PAT}@github.com/I-am-drunk/framerize-registry.git reg
+          END=$((SECONDS + 21000))
+          while [ $SECONDS -lt $END ]; do
+            python3 .github/workflows/relay_mint.py || true
+            sleep 420
+          done
