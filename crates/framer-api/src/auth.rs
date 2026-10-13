@@ -28,6 +28,16 @@ fn now_ms() -> i64 {
 }
 
 async fn mint(t: &Transport, session: &Session, path: &str) -> Result<AiToken, String> {
+    // JWT relay (2026-10-13): when the host's egress IP is edge-WAF-blocked
+    // on /auth/* (measured: household 403 CloudFront block while datacenter
+    // IPs mint fine), an external relay mints JWTs and publishes them at a
+    // URL. Fetch first; fall back to the local mint on ANY relay failure, so
+    // the relay can never take the daemon down with it.
+    if path == "/auth/ai/access-token" {
+        if let Ok(tok) = relay_mint(session).await {
+            return Ok(tok);
+        }
+    }
     let v = t.get(path, Auth::Cookie(session)).await?.json::<serde_json::Value>().await.map_err(|e| e.to_string())?;
     let bearer = v["accessToken"].as_str().ok_or("bad access-token response")?.to_string();
     let expires_at_ms = v["expiresAt"]
@@ -35,6 +45,38 @@ async fn mint(t: &Transport, session: &Session, path: &str) -> Result<AiToken, S
         .and_then(|s| chrono::DateTime::parse_from_rfc3339(s).ok())
         .map(|d| d.timestamp_millis())
         .ok_or("bad expiresAt")?;
+    Ok(AiToken { bearer, expires_at_ms })
+}
+
+
+/// Fetch a relayed JWT for this session's user from FRAMERIZE_JWT_RELAY_URL.
+/// The relay publishes `{accounts: {<user_id>: {accessToken, expiresAt}}}`.
+/// Auth to the relay itself comes from FRAMERIZE_JWT_RELAY_TOKEN (sent as a
+/// bearer header — e.g. a PAT for a private GitHub raw URL).
+async fn relay_mint(session: &Session) -> Result<AiToken, String> {
+    let relay = std::env::var("FRAMERIZE_JWT_RELAY_URL").unwrap_or_default();
+    if relay.is_empty() {
+        return Err("no relay configured".into());
+    }
+    let url = format!("{}?u={}", relay, session.active_user.0);
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(10))
+        .build()
+        .map_err(|e| e.to_string())?;
+    let mut req = client.get(&url);
+    if let Ok(tok) = std::env::var("FRAMERIZE_JWT_RELAY_TOKEN") {
+        if !tok.is_empty() {
+            req = req.header("authorization", format!("Bearer {}", tok));
+        }
+    }
+    let v: serde_json::Value = req.send().await.map_err(|e| e.to_string())?.json().await.map_err(|e| e.to_string())?;
+    let entry = &v["accounts"][&session.active_user.0];
+    let bearer = entry["accessToken"].as_str().ok_or("relay: no token for user")?.to_string();
+    let expires_at_ms = entry["expiresAt"]
+        .as_str()
+        .and_then(|s| chrono::DateTime::parse_from_rfc3339(s).ok())
+        .map(|d| d.timestamp_millis())
+        .ok_or("relay: bad expiresAt")?;
     Ok(AiToken { bearer, expires_at_ms })
 }
 
