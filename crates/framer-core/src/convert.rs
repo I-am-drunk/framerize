@@ -1961,6 +1961,11 @@ pub struct ResponsesComposer {
     /// An assistant message item is open (text may continue next chunk).
     text_open: bool,
     text_acc: String,
+    /// Stable ids for assistant message items across the stream — codex
+    /// correlates output_item.added/done by item id; items without one are
+    /// dropped, which produced turns with tokens but no assistant message.
+    msg_seq: usize,
+    open_msg_id: String,
 }
 
 impl ResponsesComposer {
@@ -1971,7 +1976,18 @@ impl ResponsesComposer {
             item_idx: 0,
             text_open: false,
             text_acc: String::new(),
+            msg_seq: 0,
+            open_msg_id: String::new(),
         }
+    }
+
+    fn next_msg_id(&mut self) -> String {
+        self.msg_seq += 1;
+        format!(
+            "msg_{}_{}",
+            self.logical_id.trim_start_matches("resp_"),
+            self.msg_seq
+        )
     }
 
     fn ev(ty: &str, extra: Value) -> String {
@@ -1989,6 +2005,7 @@ impl ResponsesComposer {
         self.item_idx += 1;
         let text = std::mem::take(&mut self.text_acc);
         let part_text = text.clone();
+        let item_id = std::mem::take(&mut self.open_msg_id);
         vec![
             Self::ev("response.output_text.done", json!({"output_index": idx, "content_index": 0, "text": text})),
             Self::ev("response.content_part.done", json!({
@@ -1997,7 +2014,7 @@ impl ResponsesComposer {
             })),
             Self::ev("response.output_item.done", json!({
                 "output_index": idx,
-                "item": {"type": "message", "status": "completed", "role": "assistant"},
+                "item": {"id": item_id, "type": "message", "status": "completed", "role": "assistant"},
             })),
         ]
     }
@@ -2017,9 +2034,10 @@ impl ResponsesComposer {
                         .collect();
                     if !(first && continues_text && self.text_open) {
                         f.extend(self.close_text());
+                        self.open_msg_id = self.next_msg_id();
                         f.push(Self::ev("response.output_item.added", json!({
                             "output_index": self.item_idx,
-                            "item": {"type": "message", "status": "in_progress",
+                            "item": {"id": self.open_msg_id, "type": "message", "status": "in_progress",
                                      "role": "assistant",
                                      "content": [{"type": "output_text", "text": "", "annotations": []}]},
                         })));
