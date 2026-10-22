@@ -53,9 +53,17 @@ the token discarded; it did not load account state or send an upstream
 inference request. Neither result proves end-to-end client delivery or the
 total-memory target.
 
-The saved-device worker and shared device/rate admission components have
-accepted source reviews. Their new 28-case and 23-case suites are still unrun
-at this checkpoint. The host/application connection is unfinished.
+The saved-device worker and shared device/rate admission components passed
+their prepared 28-case and 23-case suites on 2026-10-22. Peak test memory was
+78,086,144 and 34,054,144 bytes respectively, with zero recorded swap or resource
+events and complete teardown. These were inert checks using temporary state.
+They did not run a live SDK mint or inference request. The host/application
+connection is in progress and remains untested.
+
+Saved result hashes: worker
+`f5e763424a839450e0719b112c0b12811f4995d0c30ac320985c74e55270ebd2`,
+native device/rate
+`55f251eea0cd09d24e9bea31295a2b2f52fe8a3e8c0a48dd00c5f5bcf2a94b38`.
 
 Next action, owned by the primary implementation agent: connect the existing
 restored host authority to the native request lifetime and protocol-v2 worker,
