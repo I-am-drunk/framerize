@@ -74,6 +74,8 @@ mod ai_result;
 
 #[path = "sidecar_browser_lifecycle.rs"]
 mod browser_lifecycle;
+#[path = "sidecar_native_device.rs"]
+mod native_device;
 
 #[path = "sidecar_proxy_registration.rs"]
 mod proxy_registration;
@@ -486,6 +488,26 @@ impl SidecarBridge {
 
 #[async_trait::async_trait]
 impl BrowserBridge for SidecarBridge {
+    async fn open_native_device(&self, account: AccountId)
+        -> Result<framer_core::native_device::DeviceGrant, framer_core::native_device::DeviceFailure> {
+        self.native_open(account).await
+    }
+
+    async fn admit_native_mint(&self, grant: &framer_core::native_device::DeviceGrant, budget_ms: u64)
+        -> Result<u64, framer_core::native_device::DeviceFailure> {
+        self.native_mint(grant, budget_ms).await
+    }
+
+    async fn finish_native_mint(&self, grant: &framer_core::native_device::DeviceGrant,
+        sequence: u64, joined: bool) -> Result<bool, framer_core::native_device::DeviceFailure> {
+        self.native_minted(grant, sequence, joined).await
+    }
+
+    async fn close_native_device(&self, grant: &framer_core::native_device::DeviceGrant,
+        joined: bool, risk_refused: bool) -> Result<bool, framer_core::native_device::DeviceFailure> {
+        self.native_close(grant, joined, risk_refused).await
+    }
+
     fn supports_browser_lifecycle(&self) -> bool { true }
 
     async fn browser_status(&self, account: &AccountId)

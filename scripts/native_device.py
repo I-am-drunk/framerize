@@ -12,9 +12,13 @@ from collections import deque
 from pathlib import Path
 
 
+class Rejected(RuntimeError):
+    """A refused command whose work did not outlive its reply."""
+
+
 def require(value, reason):
     if not value:
-        raise RuntimeError(reason)
+        raise Rejected(reason)
 
 
 def identifier(value):
@@ -205,9 +209,12 @@ def install(host_type, root, **policy):
 
     async def handle(host, request):
         if request.get('cmd', '').startswith('native_device_'):
-            if not hasattr(host, '_native_devices'):
-                host._native_devices = NativeDevices(host, root, **policy)
-            return await host._native_devices.handle(request)
+            try:
+                if not hasattr(host, '_native_devices'):
+                    host._native_devices = NativeDevices(host, root, **policy)
+                return await host._native_devices.handle(request)
+            except (Rejected, ValueError, OSError, KeyError, asyncio.TimeoutError):
+                return {'rejected': True}
         return await original_handle(host, request)
 
     @asynccontextmanager

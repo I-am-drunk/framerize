@@ -16,12 +16,56 @@ fn exact_success_metadata_is_accepted() {
     let bytes = serde_json::to_vec(&valid_metadata()).unwrap();
     assert!(metadata::accept(&bytes, 16000).is_some());
 }
+
+#[test]
+fn saved_device_protocol_cannot_accept_stateless_or_changed_storage() {
+    let device = SavedDevice::new("fixture-device".into()).unwrap();
+    let input = device::encode(target("fixture"), Some(&device), 16000).unwrap();
+    let input: Value = serde_json::from_slice(&input).unwrap();
+    assert_eq!(input["version"], 2);
+    assert_eq!(input["device"], json!({ "id": "fixture-device" }));
+    let mut value = valid_metadata();
+    assert!(metadata::accept_mode(&serde_json::to_vec(&value).unwrap(), 16000, true).is_none());
+    value["version"] = json!(2);
+    value["device_storage_seeded"] = json!(true);
+    value["device_storage_unchanged"] = json!(true);
+    assert!(metadata::accept_mode(&serde_json::to_vec(&value).unwrap(), 16000, true).is_some());
+    value["device_storage_unchanged"] = json!(false);
+    assert!(metadata::accept_mode(&serde_json::to_vec(&value).unwrap(), 16000, true).is_none());
+}
 #[test]
 fn missing_cleanup_is_rejected() {
     for field in ["window_closed", "inspector_closed", "sources_unchanged"] {
         let mut value = valid_metadata(); value[field] = json!(false);
         assert!(metadata::accept(&serde_json::to_vec(&value).unwrap(), 16000).is_none());
     }
+}
+#[test]
+fn saved_device_input_matches_javascript_protocol() {
+    use std::io::Write;
+    let device = SavedDevice::new("fixture-device".into()).unwrap();
+    let input = device::encode(target("fixture"), Some(&device), 16000).unwrap();
+    let root = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+    let protocol = root.parent().unwrap().parent().unwrap()
+        .join("scripts/offline_worker/protocol.mjs");
+    let script = r#"
+        import fs from 'node:fs';
+        import assert from 'node:assert/strict';
+        const { validateInput } = await import(process.argv[1]);
+        const input = JSON.parse(fs.readFileSync(0, 'utf8'));
+        const accepted = validateInput(input);
+        assert.equal(accepted.version, 2);
+        assert.throws(() => JSON.stringify(accepted.device), /private-device/);
+        input.device = input.device.id;
+        assert.throws(() => validateInput(input), /device/);
+    "#;
+    let mut child = std::process::Command::new(&fake_worker().specification.node)
+        .args(["--input-type=module", "--eval", script]).arg(protocol)
+        .env_clear().stdin(Stdio::piped()).stdout(Stdio::null())
+        .stderr(Stdio::piped()).spawn().unwrap();
+    child.stdin.take().unwrap().write_all(&input).unwrap();
+    let output = child.wait_with_output().unwrap();
+    assert!(output.status.success(), "{}", String::from_utf8_lossy(&output.stderr));
 }
 #[test]
 fn v2_fallback_is_rejected() {

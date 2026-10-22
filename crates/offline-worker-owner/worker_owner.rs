@@ -12,7 +12,9 @@ use sha2::{Digest, Sha256};
 #[path = "worker_io.rs"] mod pipe;
 #[path = "worker_sandbox.rs"] mod sandbox;
 #[path = "worker_metadata.rs"] mod metadata;
+#[path = "worker_device.rs"] mod device;
 pub use metadata::Metadata;
+pub use device::SavedDevice;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Failure { Configuration, Runtime, Deadline, Cancelled, Input, Identity, Spawn, Io, Worker, Protocol }
@@ -92,14 +94,22 @@ impl Worker {
     }
 
     pub fn begin(&self, target: Target, deadline: Instant) -> Result<Run, Failure> {
+        self.begin_input(target, None, deadline)
+    }
+
+    pub fn begin_with_device(&self, target: Target, device: &SavedDevice,
+        deadline: Instant) -> Result<Run, Failure> {
+        self.begin_input(target, Some(device), deadline)
+    }
+
+    fn begin_input(&self, target: Target, device: Option<&SavedDevice>,
+        deadline: Instant) -> Result<Run, Failure> {
         let now = Instant::now();
         let deadline = deadline.min(now + Duration::from_secs(16));
         let budget_ms = deadline.saturating_duration_since(now).as_millis() as u64;
         if budget_ms == 0 { return Err(Failure::Deadline); }
-        let input = serde_json::to_vec(&serde_json::json!({ "version": 1,
-            "budget_ms": budget_ms, "target": { "project_id": target.project_id,
-                "url": target.page_url, "path": target.path } })).map_err(|_| Failure::Input)?;
-        if input.len() > 8192 { return Err(Failure::Input); }
+        let input = device::encode(target, device, budget_ms)?;
+        let device_required = device.is_some();
         let runtime = tokio::runtime::Handle::try_current().map_err(|_| Failure::Runtime)?;
         let (cancel, receiver) = watch::channel(false);
         let (sender, result) = oneshot::channel();
@@ -110,7 +120,7 @@ impl Worker {
         #[cfg(not(test))]
         let first_read_delay = None;
         let task = runtime.spawn(supervise(spec, input, budget_ms, deadline,
-            receiver, sender, pid.clone(), first_read_delay));
+            receiver, sender, pid.clone(), first_read_delay, device_required));
         let completion = Completion(async move {
             task.await.unwrap_or(Cleanup::Unconfirmed)
         }.boxed().shared());
@@ -187,7 +197,7 @@ fn spawn(spec: &Specification) -> std::io::Result<Spawned> {
 async fn supervise(spec: Arc<Specification>, input: Vec<u8>, budget_ms: u64,
     deadline: Instant, mut cancel: watch::Receiver<bool>,
     sender: oneshot::Sender<Result<Minted, Failure>>, started: Arc<AtomicU32>,
-    _first_read_delay: Option<Duration>) -> Cleanup {
+    _first_read_delay: Option<Duration>, device_required: bool) -> Cleanup {
     let until = tokio::time::Instant::from_std(deadline);
     let verified = tokio::select! {
         biased;
@@ -231,7 +241,8 @@ async fn supervise(spec: Arc<Specification>, input: Vec<u8>, budget_ms: u64,
                 if *cancel.borrow() { return Err(Failure::Cancelled); }
                 if Instant::now() >= deadline { return Err(Failure::Deadline); }
                 if !status.success() || pid == 0 { return Err(Failure::Worker); }
-                let metadata = metadata::accept(&safe, budget_ms).ok_or(Failure::Protocol)?;
+                let metadata = metadata::accept_mode(&safe, budget_ms, device_required)
+                    .ok_or(Failure::Protocol)?;
                 let token = metadata::token(bytes).ok_or(Failure::Protocol)?;
                 let received_at = received_at.ok_or(Failure::Protocol)?;
                 Ok(Minted { token, freshness_origin, received_at, metadata })

@@ -54,9 +54,10 @@ impl Provider {
     pub(crate) fn new(state: AppState, sessions: Sessions,
         worker: Arc<super::offline_worker_owner::Worker>, contexts: Arc<dyn Contexts>,
         policy: Policy, streaming: Option<port::StreamingPolicy>) -> Result<Self, DispatchError> {
+        let bridge = state.browser.clone();
         Self::with_sources(state, sessions, contexts, policy, streaming,
             Arc::new(move |target| Arc::new(super::offline_source::OfflineSource::new(
-                worker.clone(), target))))
+                worker.clone(), target, bridge.clone()))))
     }
 
     pub(crate) fn with_sources(state: AppState, sessions: Sessions, contexts: Arc<dyn Contexts>,

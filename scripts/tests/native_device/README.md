@@ -18,6 +18,7 @@ The installer only wraps the existing host command/account/status boundaries.
 Private device values travel in the existing command reply. No credential or
 device value is included in public errors or diagnostics.
 
-Status: source only, untested and not installed. Fixtures use temporary state
-and synthetic clocks. Root still owns Rust integration, protocol validation,
-bounded execution, independent review and any deployment.
+The 23 component cases passed on 2026-10-22 using temporary state and synthetic
+clocks. The Rust connection has now compiled; its focused tests and independent
+review are separate. This component has not been installed in the live host.
+The runtime owner still controls real-request validation and deployment.

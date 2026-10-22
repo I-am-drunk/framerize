@@ -16,6 +16,8 @@ mod shared_sessions;
 mod store_failures;
 #[path = "offline_routing_tests.rs"]
 mod routing;
+#[path = "offline_device_tests.rs"]
+mod device;
 
 async fn wait(semaphore: &Semaphore) {
     tokio::time::timeout(Duration::from_secs(2), semaphore.acquire())
@@ -189,6 +191,8 @@ struct Ports {
     loading: Semaphore, read: Semaphore, issuing: Semaphore, issue: Semaphore,
     builds: AtomicUsize, cancelled: AtomicBool, uncertain: AtomicBool,
     panic_build: AtomicBool, scope: Mutex<Option<AccountScope>>,
+    device_mode: AtomicUsize, device_users: AtomicUsize,
+    device_closing: Semaphore, device_finish: Semaphore,
 }
 
 fn fixture() -> (AppState, Arc<Ports>, Specification, Sessions) {
@@ -211,7 +215,9 @@ fn fixture() -> (AppState, Arc<Ports>, Specification, Sessions) {
         loading: Semaphore::new(0), read: Semaphore::new(1),
         issuing: Semaphore::new(0), issue: Semaphore::new(1), builds: AtomicUsize::new(0),
         cancelled: AtomicBool::new(false), uncertain: AtomicBool::new(false),
-        panic_build: AtomicBool::new(false), scope: Mutex::new(None) });
+        panic_build: AtomicBool::new(false), scope: Mutex::new(None),
+        device_mode: AtomicUsize::new(0), device_users: AtomicUsize::new(0),
+        device_closing: Semaphore::new(0), device_finish: Semaphore::new(1) });
     let state = AppState { operation_ownership: None, native_dispatch: None,
         client: Arc::new(HttpFramerClient::new()), browser: ports.clone(),
         sessions: ports.clone(), state: ports.clone(),
@@ -312,6 +318,34 @@ impl SessionStore for Ports {
 
 #[async_trait::async_trait]
 impl BrowserBridge for Ports {
+    async fn open_native_device(&self, account: AccountId)
+        -> Result<framer_core::native_device::DeviceGrant, framer_core::native_device::DeviceFailure> {
+        use framer_core::native_device::{DeviceFailure, DeviceGrant};
+        self.events.lock().unwrap().push("device_open");
+        assert_eq!(account, self.account.lock().unwrap().id);
+        let mode = self.device_mode.load(Ordering::SeqCst);
+        if mode == 1 { return Err(DeviceFailure::Rejected); }
+        self.device_users.fetch_add(1, Ordering::SeqCst);
+        if mode == 2 { return Err(DeviceFailure::Unconfirmed); }
+        Ok(DeviceGrant { account, lease: uuid::Uuid::new_v4(),
+            host_generation: "a".repeat(32), device: "fixture-device".into() })
+    }
+    async fn close_native_device(&self, grant: &framer_core::native_device::DeviceGrant,
+        joined: bool, _risk: bool) -> Result<bool, framer_core::native_device::DeviceFailure> {
+        assert_eq!(grant.account, self.account.lock().unwrap().id);
+        if joined {
+            let scope = self.scope.lock().unwrap().clone();
+            if let Some(scope) = scope { assert_eq!(scope.closed().now_or_never(), Some(Ok(()))); }
+        }
+        self.device_closing.add_permits(1);
+        self.device_finish.acquire().await.unwrap().forget();
+        self.events.lock().unwrap().push("device_close");
+        if self.device_mode.load(Ordering::SeqCst) == 3 {
+            return Err(framer_core::native_device::DeviceFailure::Unconfirmed);
+        }
+        if joined { assert_eq!(self.device_users.fetch_sub(1, Ordering::SeqCst), 1); }
+        Ok(joined)
+    }
     fn supports_browser_lifecycle(&self) -> bool { true }
     async fn browser_status(&self, id: &AccountId) -> Result<BrowserAccountStatus, String> {
         self.events.lock().unwrap().push("status");

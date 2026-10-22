@@ -38,12 +38,36 @@ fn provider(state: &AppState, ports: &Arc<Ports>, spec: &Specification,
         missing_content_type: "application/json".into(), chunk_tokens: 32,
         max_chunks: 2, continuation: Some("fixture continuation".into()),
         allow_paid: false, credit_floor: 1.0,
-    }, None, Arc::new(move |_| Arc::new(Builder(ports.clone())))).unwrap()
+    }, None, Arc::new(move |_| {
+        if ports.device_mode.load(Ordering::SeqCst) != 0 {
+            Arc::new(super::device::DeviceBuilder(ports.clone())) as Arc<dyn SourceBuilder>
+        } else { Arc::new(Builder(ports.clone())) }
+    })).unwrap()
 }
 
 fn request(spec: &Specification) -> Preparation {
     Preparation { identity: spec.identity.clone(), route: Route::Responses,
         deadline: spec.deadline, max_total_tokens: spec.token_limit }
+}
+
+#[tokio::test]
+async fn routing_waits_for_device_cleanup_before_reporting_pre_head_failure() {
+    let (state, ports, spec, sessions) = fixture();
+    ports.device_mode.store(3, Ordering::SeqCst);
+    ports.device_finish.try_acquire().unwrap().forget();
+    let identity = spec.identity.clone();
+    let call = prepare(&state, &ports, &spec, &sessions, false).await;
+    let run = call.responses(spec.payload);
+    wait(&ports.device_closing).await;
+    let mut result = run.result;
+    assert!(result.as_mut().now_or_never().is_none());
+    assert!(run.cleanup.clone().now_or_never().is_none());
+    ports.device_finish.add_permits(1);
+    assert_eq!(result.await.err().unwrap().kind, FailureKind::Cleanup);
+    assert_eq!(run.cleanup.await, Err(FailureKind::Cleanup));
+    assert_eq!(ports.device_users.load(Ordering::SeqCst), 1);
+    assert!(native_control::admit(&state, identity, "gpt-4.1",
+        Instant::now() + Duration::from_secs(1)).await.is_err());
 }
 
 async fn prepare(state: &AppState, ports: &Arc<Ports>, spec: &Specification,

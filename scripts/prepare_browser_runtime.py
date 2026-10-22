@@ -12,8 +12,10 @@ def prepare(destination):
     source = scripts / 'cooldown_support'
     names = ('__init__.py', 'startup_state.py', 'inventory.py', 'ledger.py',
              'private_state.py')
-    pins = {name: hashlib.sha256((source / name).read_bytes()).hexdigest()
-            for name in names}
+    files = {name: source / name for name in names}
+    files['native_device.py'] = scripts / 'native_device.py'
+    pins = {name: hashlib.sha256(path.read_bytes()).hexdigest()
+            for name, path in files.items()}
     manifest = (json.dumps(pins, sort_keys=True, indent=2) + '\n').encode()
     digest = hashlib.sha256(manifest).hexdigest()
     support_name = 'cooldown-support-' + digest[:16]
@@ -29,8 +31,8 @@ def prepare(destination):
     destination.mkdir(parents=True, exist_ok=False)
     support = destination / support_name
     support.mkdir()
-    for name in names:
-        shutil.copyfile(source / name, support / name)
+    for name, path in files.items():
+        shutil.copyfile(path, support / name)
     (support / 'runtime-sources.json').write_bytes(manifest)
     host = destination / 'camoufox_host.py'
     host.write_text(generated)

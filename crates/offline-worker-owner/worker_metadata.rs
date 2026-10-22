@@ -7,6 +7,10 @@ pub struct Metadata {
 }
 
 pub fn accept(bytes: &[u8], budget_ms: u64) -> Option<Metadata> {
+    accept_mode(bytes, budget_ms, false)
+}
+
+pub fn accept_mode(bytes: &[u8], budget_ms: u64, device_required: bool) -> Option<Metadata> {
     let value: Value = serde_json::from_slice(bytes).ok()?;
     let object = value.as_object()?;
     let fields = ["version", "status", "failure_phase", "target_validated",
@@ -14,10 +18,16 @@ pub fn accept(bytes: &[u8], budget_ms: u64) -> Option<Metadata> {
         "v3_evaluated", "window_closed", "inspector_closed", "sources_unchanged",
         "async_errors", "diagnostics", "late_settlements", "method_ms",
         "elapsed_ms", "mint_to_handoff_ms", "token_handoff"];
-    if object.len() != fields.len() || fields.iter().any(|key| !object.contains_key(*key)) {
+    let device_fields = ["device_storage_seeded", "device_storage_unchanged"];
+    if object.len() != fields.len() + if device_required { 2 } else { 0 }
+        || fields.iter().any(|key| !object.contains_key(*key)) {
         return None;
     }
-    if value["version"].as_u64()? != 1 || value["status"].as_str()? != "passed"
+    if device_required && device_fields.iter().any(|key| value[*key].as_bool() != Some(true)) {
+        return None;
+    }
+    let expected_version = if device_required { 2 } else { 1 };
+    if value["version"].as_u64()? != expected_version || value["status"].as_str()? != "passed"
         || !value["failure_phase"].is_null() || value["account_state_loaded"].as_bool()?
         || value["wrapper_calls"].as_u64()? != 1 || value["dynamic_imports"].as_u64()? != 1
         || value["async_errors"].as_u64()? != 0 || value["late_settlements"].as_u64()? != 0 {

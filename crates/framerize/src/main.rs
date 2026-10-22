@@ -23,6 +23,8 @@ mod offline_worker;
 #[cfg(feature = "native-dispatch")]
 mod offline_source;
 #[cfg(feature = "native-dispatch")]
+mod offline_device;
+#[cfg(feature = "native-dispatch")]
 mod offline_serving;
 #[cfg(feature = "native-dispatch")]
 mod offline_sessions;

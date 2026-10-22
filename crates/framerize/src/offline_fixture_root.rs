@@ -4,6 +4,7 @@ mod observed_authorization;
 mod one_shot_control;
 mod offline_worker;
 mod offline_source;
+mod offline_device;
 mod offline_serving;
 mod offline_sessions;
 mod offline_http;

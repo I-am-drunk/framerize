@@ -61,6 +61,23 @@ pub struct WorkspaceSpec {
 /// webview only.
 #[async_trait]
 pub trait BrowserBridge: Send + Sync {
+    async fn open_native_device(&self, _account: AccountId)
+        -> Result<crate::native_device::DeviceGrant, crate::native_device::DeviceFailure> {
+        Err(crate::native_device::DeviceFailure::Rejected)
+    }
+    async fn admit_native_mint(&self, _grant: &crate::native_device::DeviceGrant, _budget_ms: u64)
+        -> Result<u64, crate::native_device::DeviceFailure> {
+        Err(crate::native_device::DeviceFailure::Rejected)
+    }
+    async fn finish_native_mint(&self, _grant: &crate::native_device::DeviceGrant,
+        _sequence: u64, _joined: bool) -> Result<bool, crate::native_device::DeviceFailure> {
+        Err(crate::native_device::DeviceFailure::Unconfirmed)
+    }
+    async fn close_native_device(&self, _grant: &crate::native_device::DeviceGrant,
+        _joined: bool, _risk_refused: bool) -> Result<bool, crate::native_device::DeviceFailure> {
+        Err(crate::native_device::DeviceFailure::Unconfirmed)
+    }
+
     /// Whether admission can inspect incarnation-bound browser lifecycle state.
     /// Bridges without this facility retain their existing admission behavior.
     fn supports_browser_lifecycle(&self) -> bool { false }
