@@ -5,3 +5,13 @@ web/dist/
 # python artifacts
 __pycache__/
 *.pyc
+
+# Private local state and generated runtime output
+/profiles/
+/.framerize/
+/framerize.db*
+/.env
+/.env.*
+!/.env.example
+/runtime/
+/artifacts/
