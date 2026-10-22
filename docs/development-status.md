@@ -129,8 +129,12 @@ comparison confirmed that the six selected startup accounts would change
 within the required window. This is a real admission constraint. The original
 cooldown timestamps and startup checks remain unchanged.
 
+The one-request input is prepared privately from the host's saved editor
+target, matched to the current account and project. It starts a new test
+conversation and limits the response to 16 tokens. No request has been sent.
+
 The next step is a stable admission window and an authenticated coordinated
-trial release, followed by one real request with current session context.
+trial release, followed by that one real request with fresh account checks.
 Keep normal browser routes, restored cooldowns and one account authority.
 No application rebuild or broad test rerun is needed for this runtime-data
 change.
