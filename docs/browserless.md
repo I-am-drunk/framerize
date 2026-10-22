@@ -23,8 +23,9 @@ the whole service's memory use.
 The source-only device components are now tracked in `scripts/native_device.py`
 and `scripts/offline_worker/`. Their fixtures are under
 `scripts/tests/native_device/` and beside the worker modules. Their 23 and 28
-cases have not yet run at this checkpoint. These files are not installed or
-automatically connected to the live host.
+cases now pass in their original bounded runs. These files are not installed
+or automatically connected to the live host; application integration remains
+in progress.
 
 The worker's pin table still names the original local, verified SDK and JSDOM
 inputs. Those external inputs are not bundled in Git. Keep this limitation
