@@ -133,10 +133,28 @@ The one-request input is prepared privately from the host's saved editor
 target, matched to the current account and project. It starts a new test
 conversation and limits the response to 16 tokens. No request has been sent.
 
-The next live milestone needs a stable admission window and an authenticated
-coordinated trial release, followed by one real request with fresh account
-checks. Those are dependencies of that live step, not a verdict that the
-whole engineering goal has no available work.
+At 22:36 UTC, the authorized R7 terminal launch authenticated successfully.
+It then refused before staging because the service did not drain within
+55 seconds. Both saved samples during that attempt had four active requests.
+The controller released its maintenance marker and finished cleanup. The
+original browser service remained active with the same process identity.
+No installation, restart or browserless request occurred.
+
+The coding sessions themselves use this Framerize service. Their request
+traffic must be accounted for when arranging a quiet deployment window.
+The consumed R7 launch is preserved and must not be rerun in place. The next
+step is to coordinate that window and prepare a separate execution binding
+without relaxing drain, cooldown, capture or startup checks.
+
+The separate R8 source package is frozen, with the same application, worker
+and runtime inventory. Its fresh read-only preparation checked 1,709 runtime
+file pins. Only provenance, review paths and generated launch paths change.
+It reuses the original transition and checker results. R8 has not been
+deployed, and preparing it does not establish present admission.
+
+The next live milestone remains a coordinated trial release, followed by
+one real request with fresh account checks. This dependency belongs to the
+live step; it does not stop the wider engineering goal.
 Keep normal browser routes, restored cooldowns and one account authority.
 No application rebuild or broad test rerun is needed for this runtime-data
 change.

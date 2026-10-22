@@ -59,6 +59,13 @@ Enabling its worker configuration does not switch the normal routing policy.
 This lets one real request exercise the shared ownership without running a
 second account authority or sending duplicate traffic.
 
+Deployment also has to account for coding sessions using the same daemon.
+A maintenance marker controls recovery ownership; it does not stop incoming
+requests. Permission to cancel a request is not proof that it has finished.
+The transition must still observe fresh zero active work and zero ingress
+before capturing state. Preserve a refused execution and arrange a separate
+coordinated attempt instead of weakening those checks or overwriting evidence.
+
 The optional request observer wraps the existing client checker, verified by
 its exact source hash. It samples the shared service's memory during that same
 request and retains measurements on failure. It neither owns accounts nor
