@@ -162,13 +162,13 @@ pub async fn complete_long(
         let first = {
             let mut cur_dialect = dialect;
             let mut cur_step = step.clone();
-            let mut attempt_payload = payload.clone();
+            let mut attempt_payload = payload;
             let mut out = None;
             while out.is_none() {
                 last_attempt_t0 = std::time::Instant::now();
                 match proxy::forward(
                     t, token_cache, session, browser, account, project,
-                    cur_dialect, &cur_step, attempt_payload.clone(), chat_session, i,
+                    cur_dialect, &cur_step, attempt_payload.take(), chat_session, i,
                 ).await {
                     Ok(r) => out = Some(Ok((cur_dialect, r))),
                     Err(e) if e.starts_with("retryable 429") => {
@@ -215,6 +215,7 @@ pub async fn complete_long(
                 effective_dialect = used_dialect;
                 r
             }
+            Err(e) if framer_core::error::AccountCooldown::from_error(&e).is_some() => return Err(e),
             Err(e) => {
                 // The idle-kill check must time the FAILING ATTEMPT — the whole
                 // loop includes 429 backoffs, which would misclassify a fast
@@ -245,6 +246,7 @@ pub async fn complete_long(
                     d3, &s3, retry_payload, chat_session, i,
                 ).await {
                     Ok(r) => r,
+                    Err(e2) if framer_core::error::AccountCooldown::from_error(&e2).is_some() => return Err(e2),
                     Err(e2) if cfg.metered_fallback => {
                         eprintln!("[freechat] chunk {i} retry died ({e2}) — metered stream fallback for this chunk");
                         let stream_payload = build_payload(&messages, chunk_tokens, d3);

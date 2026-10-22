@@ -7,6 +7,10 @@ use framer_server::AppState;
 use std::io::Write;
 use std::sync::Arc;
 
+mod allocator_reclaim;
+mod allocator_reclaim_task;
+mod cli_control;
+
 #[derive(Parser)]
 #[command(name = "framerize", about = "Multi-account Framer AI service")]
 struct Cli {
@@ -37,6 +41,12 @@ enum Cmd {
         /// One browser profile directory per account lives under here.
         #[arg(long, default_value = "profiles")]
         profiles: String,
+        /// Maximum resident account browsers; saved accounts remain available.
+        #[arg(long, env = "FRAMERIZE_ACTIVE_POOL_SIZE")]
+        active_pool_size: Option<usize>,
+        /// Eligible accounts: all, none, or comma-separated full UUIDs.
+        #[arg(long)]
+        eligible_accounts: Option<String>,
     },
     /// Log in a Framer account: sends the magic-link email, then prompts for
     /// the #token from the emailed link. Talks to the running daemon.
@@ -70,14 +80,18 @@ enum Cmd {
         log_dir: String,
     },
     /// List accounts and their state.
-    Accounts {
-        /// Daemon base URL.
-        #[arg(long, env = "FRAMERIZE_URL", default_value = "http://127.0.0.1:8787")]
-        daemon: String,
-    },
+    #[command(alias = "account")]
+    Accounts(cli_control::AccountsArgs),
+    /// Inspect and change the live pool without editing service files.
+    Pool(cli_control::PoolArgs),
+    /// Call any daemon API, streaming the response to standard output.
+    Api(cli_control::ApiArgs),
 }
 
-fn build_state(db: &str, chrome: &str, profiles: &str, engine: &str) -> Result<AppState, String> {
+async fn build_state(db: &str, chrome: &str, profiles: &str, engine: &str,
+    active_pool_size: Option<usize>, eligible_accounts: Option<&str>) -> Result<AppState, String> {
+    // Parse once before opening stores or constructing any browser bridge.
+    let startup_policy = framer_server::ServingAccountPolicy::from_env()?;
     // Create our own dirs — a first run must not fail because
     // ~/.framerize doesn't exist yet (observed on a fresh Linux install).
     if let Some(parent) = std::path::Path::new(db).parent() {
@@ -85,6 +99,11 @@ fn build_state(db: &str, chrome: &str, profiles: &str, engine: &str) -> Result<A
     }
     std::fs::create_dir_all(profiles).map_err(|e| format!("create profiles dir: {e}"))?;
     let state = Arc::new(framer_store::SqliteStateStore::open(db)?);
+    use framer_core::StateStore;
+    let saved = state.setting(framer_server::POOL_SETTING_KEY).await?;
+    let pool_config = resolve_pool_config(startup_policy.config(), saved.as_deref(),
+        active_pool_size, eligible_accounts)?;
+    let serving_accounts = Arc::new(framer_server::ServingAccountPolicy::from_config(pool_config)?);
     // File-based session store: daemons run headless (no dbus/keychain).
     // Sessions live 0600 under <profiles>/.sessions/.
     let sessions = Arc::new(framer_store::FileSessionStore::new(
@@ -108,54 +127,64 @@ fn build_state(db: &str, chrome: &str, profiles: &str, engine: &str) -> Result<A
         state,
         gate: std::sync::Arc::new(framer_core::gate::ConcurrencyGate::new()),
         wave: std::sync::Arc::new(framer_core::wave::WaveGuard::new()),
+        serving_accounts,
     })
 }
 
-/// Per-account egress proxies from persisted account records into the bridge
-/// (Castle binds tokens to egress IP — each account needs its own network).
-async fn load_proxies(state: &AppState) {
-    if let Ok(accounts) = state.state.list().await {
-        for a in accounts.into_iter().filter(|a| a.proxy.is_some()) {
-            // set_proxy drops any live browser instance so it relaunches on
-            // the new egress.
-            let _ = state.browser.set_proxy(&a.id, a.proxy.clone()).await;
-        }
+/// Apply explicit startup flags after the saved runtime configuration.
+fn resolve_pool_config(default: framer_server::PoolConfig, saved: Option<&str>,
+    capacity: Option<usize>, eligible: Option<&str>) -> Result<framer_server::PoolConfig, String> {
+    let mut config = match saved {
+        Some(json) => serde_json::from_str::<framer_server::PoolConfig>(json)
+            .map_err(|error| format!("invalid saved pool configuration: {error}"))?,
+        None => default,
+    };
+    if let Some(capacity) = capacity { config.active_capacity = capacity; }
+    if let Some(eligible) = eligible {
+        config.eligible_accounts = match eligible.trim() {
+            "all" => framer_server::EligibleAccounts::All(framer_server::AllAccounts::All),
+            "none" => framer_server::EligibleAccounts::Only(Vec::new()),
+            ids => framer_server::ServingAccountPolicy::parse(Some(ids))?.config().eligible_accounts,
+        };
     }
+    config.validate()?;
+    Ok(config)
+}
+
+#[cfg(test)]
+mod pool_startup_tests;
+
+/// Register saved per-account proxies before any browser can start.
+async fn load_proxies(state: &AppState) -> Result<(), String> {
+    let accounts = state.state.list().await?;
+    for a in accounts.into_iter().filter(|a| a.proxy.is_some()) {
+        state.browser.register_account_proxy(&a.id, a.proxy.clone()).await
+            .map_err(|_| format!("could not configure proxy for account {}", a.id.0))?;
+    }
+    Ok(())
 }
 
 #[tokio::main]
 async fn main() {
     let cli = Cli::parse();
     match cli.cmd {
-        Cmd::Daemon { listen, web_dir, db, chrome, engine, profiles } => {
-            let state = match build_state(&db, &chrome, &profiles, &engine) {
+        Cmd::Daemon { listen, web_dir, db, chrome, engine, profiles, active_pool_size, eligible_accounts } => {
+            let state = match build_state(&db, &chrome, &profiles, &engine,
+                active_pool_size, eligible_accounts.as_deref()).await {
                 Ok(s) => s,
                 Err(e) => {
                     eprintln!("failed to initialize: {e}");
                     std::process::exit(1);
                 }
             };
-            load_proxies(&state).await;
-            // Pre-warm every account's engine in the BACKGROUND: browser
-            // launch + page load + castle warm-up happen here, once — not
-            // inside the first user-visible request. Sequential (the sidecar
-            // serializes anyway, and engines are heavy).
-            {
-                let state = state.clone();
-                tokio::spawn(async move {
-                    if let Ok(accounts) = state.state.list().await {
-                        for a in accounts {
-                            let t0 = std::time::Instant::now();
-                            let r = state.browser.castle_token(&a.id).await;
-                            framer_core::observability::Event::new("account.prewarm")
-                                .account(&a.id)
-                                .duration_ms(framer_core::observability::elapsed_ms(t0))
-                                .outcome(if r.is_ok() { "ok" } else { "error" })
-                                .emit();
-                        }
-                    }
-                });
+            let _memory_task = allocator_reclaim_task::start();
+            if let Err(error) = load_proxies(&state).await {
+                eprintln!("failed to initialize: {error}");
+                std::process::exit(1);
             }
+            // Warm at most the configured capacity through the same admission
+            // path as requests. The remaining saved accounts stay unloaded.
+            tokio::spawn(framer_server::prewarm_accounts(state.clone()));
             let addr = match listen.parse() {
                 Ok(a) => a,
                 Err(e) => {
@@ -182,12 +211,16 @@ async fn main() {
         Cmd::Logs { tail, event, account, stats, credits, log_dir } => {
             cli_logs(&log_dir, tail, event.as_deref(), account.as_deref(), stats, credits);
         }
-        Cmd::Accounts { daemon } => {
-            if let Err(e) = cli_accounts(&daemon).await {
-                eprintln!("\x1b[31m✗\x1b[0m {e}");
-                std::process::exit(1);
-            }
-        }
+        Cmd::Accounts(args) => cli_result(cli_control::run_accounts(args).await),
+        Cmd::Pool(args) => cli_result(cli_control::run_pool(args).await),
+        Cmd::Api(args) => cli_result(cli_control::run_api(args).await),
+    }
+}
+
+fn cli_result(result: Result<(), String>) {
+    if let Err(error) = result {
+        eprintln!("{error}");
+        std::process::exit(1);
     }
 }
 

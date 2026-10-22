@@ -27,6 +27,9 @@ pub mod routes;
 mod transport;
 mod workspace;
 
+#[cfg(test)]
+mod cooldown_tests;
+
 use async_trait::async_trait;
 use framer_core::ids::{AccountId, TeamId};
 use framer_core::port::{

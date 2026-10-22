@@ -203,34 +203,7 @@ async fn attempt(
     }
     let elapsed = sent_at.elapsed();
     let streaming = payload["stream"].as_bool() == Some(true);
-    // Status policy mirrors transport::check (in-page fetch bypasses it).
-    match status {
-        200..=299 => {}
-        401 => return Err("unauthorized".into()),
-        402 => return Err("credits-exhausted".into()),
-        // A 403 here may be Framer's edge (account health) or the upstream
-        // provider refusing the generation (not account health). Classifying
-        // every 403 as the former drove 1,399 false cooldowns on 2026-10-04 --
-        // see classify.rs.
-        403 => {
-            let r = crate::classify::classify_403(&text, elapsed.as_millis() as u64);
-            return Err(r.as_error(dialect.path(), &text));
-        }
-        s => {
-            let clipped = &text[..text.len().min(500)];
-            // Model not on the translation allowlist → caller retries as agents.
-            if s == 400 && text.contains("not allowed for this feature") && category != "agents" {
-                return Err("category-rejected".into());
-            }
-            // velocity-paused (sidecar: every device cooling, wait >60s) — map
-            // onto the 429 backoff path so chains wait-and-retry instead of
-            // erroring into client retry storms (the 2026-10-06 cascade).
-            if s == 0 && text.contains("velocity-paused") {
-                return Err(format!("retryable 429 on {}: {clipped}", dialect.path()));
-            }
-            return Err(format!("retryable {s} on {}: {clipped}", dialect.path()));
-        }
-    }
+    check_response_status(status, &text, dialect.path(), category, elapsed.as_millis() as u64)?;
     // Auto-refund (verified 2026-10-05): /ai/v3/refund/ has NO Castle layer
     // and fully reverses a streamed charge — `{"granted":true}` restores the
     // exact debit. Idempotent (second refund on the same turn is denied), and
@@ -273,6 +246,30 @@ async fn attempt(
     })
 }
 
+fn check_response_status(status: u16, text: &str, path: &str, category: &str, elapsed_ms: u64) -> Result<(), String> {
+    match status {
+        200..=299 => Ok(()),
+        401 => Err("unauthorized".into()),
+        402 => Err("credits-exhausted".into()),
+        403 => Err(crate::classify::classify_403(text, elapsed_ms).as_error(path, text)),
+        // This is the browser's local cooldown, not an upstream workspace 429.
+        // Let the existing account failover choose another admitted account.
+        0 if text.starts_with("velocity-paused:") => {
+            // The sidecar rounds down its remaining wait. Keep the account
+            // parked through that window without reporting a new refusal.
+            let retry_after_secs = text.rsplit_once("; retry in ")
+                .and_then(|(_, wait)| wait.strip_suffix('s'))
+                .and_then(|wait| wait.parse::<u64>().ok())
+                .map(|wait| wait.saturating_add(1))
+                .unwrap_or(60);
+            Err(framer_core::error::AccountCooldown { retry_after_secs }.to_string())
+        }
+        400 if category != "agents" && text.contains("not allowed for this feature") =>
+            Err("category-rejected".into()),
+        _ => Err(format!("retryable {status} on {path}: {}", text.chars().take(500).collect::<String>())),
+    }
+}
+
 async fn cached_token(
     t: &Transport,
     cache: &Mutex<Vec<(AccountId, AiToken)>>,
@@ -299,4 +296,38 @@ async fn cached_token(
         guard.push((*account, tok.clone()));
     }
     Ok(tok)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::check_response_status;
+
+    #[test]
+    fn local_device_cooldown_requests_account_failover_without_429_backoff() {
+        let result = check_response_status(0,
+            "velocity-paused: every device is cooling; retry in 583s",
+            "/ai/v3/responses/", "translation", 0);
+        assert_eq!(result.unwrap_err(), "account-cooling:584");
+    }
+
+    #[test]
+    fn unrecognized_local_cooldown_keeps_a_bounded_account_wait() {
+        let result = check_response_status(0, "velocity-paused: unavailable",
+            "/ai/v3/responses/", "translation", 0);
+        assert_eq!(result.unwrap_err(), "account-cooling:60");
+    }
+
+    #[test]
+    fn real_workspace_rate_limits_keep_their_retry_policy() {
+        let result = check_response_status(429, "workspace full",
+            "/ai/v3/responses/", "translation", 40);
+        assert_eq!(result.unwrap_err(), "retryable 429 on /ai/v3/responses/: workspace full");
+    }
+
+    #[test]
+    fn unrelated_transport_failures_do_not_mark_an_account_unhealthy() {
+        let result = check_response_status(0, "network timeout",
+            "/ai/v3/responses/", "translation", 60_000);
+        assert_eq!(result.unwrap_err(), "retryable 0 on /ai/v3/responses/: network timeout");
+    }
 }

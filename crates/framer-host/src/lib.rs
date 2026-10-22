@@ -16,6 +16,10 @@
 //! attach to the page target, `Runtime.evaluate` with awaitPromise.
 
 pub mod sidecar;
+mod cdp_proxy_registration;
+use cdp_proxy_registration::CdpAccountRoute;
+#[cfg(test)]
+mod cdp_proxy_tests;
 use async_trait::async_trait;
 use framer_core::ids::AccountId;
 use framer_core::port::{BrowserBridge, CastleToken};
@@ -438,6 +442,7 @@ pub struct CdpBridge {
     /// `--proxy-server` at chrome launch for that account's profile.
     proxies: std::sync::Arc<tokio::sync::RwLock<std::collections::HashMap<String, String>>>,
     instances: Mutex<HashMap<AccountId, Arc<Mutex<CdpInstance>>>>,
+    routes: Mutex<HashMap<AccountId, Arc<Mutex<CdpAccountRoute>>>>,
 }
 
 impl CdpBridge {
@@ -454,14 +459,22 @@ impl CdpBridge {
             engine,
             proxies: std::sync::Arc::new(tokio::sync::RwLock::new(HashMap::new())),
             instances: Mutex::new(HashMap::new()),
+            routes: Mutex::new(HashMap::new()),
         }
     }
 
-    /// Set/replace the proxy map (account uuid string → proxy URL). Takes
-    /// effect on the NEXT chrome launch for that account; a running instance
-    /// keeps its current egress until rotated/dropped.
-    pub async fn set_proxies(&self, map: HashMap<String, String>) {
-        *self.proxies.write().await = map;
+    /// Register each route without closing or starting browsers. A rejected
+    /// account retains its old route; earlier accepted accounts stay applied.
+    pub async fn set_proxies(&self, map: HashMap<String, String>) -> Result<(), String> {
+        let previous = self.proxies.read().await.clone();
+        let keys: std::collections::BTreeSet<_> = previous.keys().chain(map.keys()).collect();
+        let routes: Result<Vec<_>, _> = keys.into_iter().map(|key| {
+            uuid::Uuid::parse_str(key).map(|id| (AccountId(id), map.get(key).cloned()))
+        }).collect();
+        for (account, proxy) in routes.map_err(|_| "invalid proxy account ID")? {
+            self.register_proxy(&account, proxy).await?;
+        }
+        Ok(())
     }
 
     fn profile_dir(&self, account: &AccountId) -> PathBuf {
@@ -469,8 +482,13 @@ impl CdpBridge {
     }
 
     async fn instance(&self, account: &AccountId) -> Result<Arc<Mutex<CdpInstance>>, String> {
+        let cell = self.route_cell(account).await;
+        let mut route = cell.lock().await;
         if let Some(inst) = self.instances.lock().await.get(account) {
             return Ok(inst.clone());
+        }
+        if route.may_have_browser {
+            return Err("cdp-lifecycle-unconfirmed: browser cleanup is unconfirmed".into());
         }
         let profile = self.profile_dir(account);
         tokio::fs::create_dir_all(&profile).await.map_err(|e| e.to_string())?;
@@ -486,6 +504,7 @@ impl CdpBridge {
         // own real Chrome with --remote-debugging-port=<port>; we drive a
         // framer.com tab in it. `chrome` path field is reused as "host:port".
         if self.engine == EngineKind::Attach {
+            route.may_have_browser = true;
             let ws = attach_ws(&self.chrome, account).await?;
             let mut inst = CdpInstance { child: None, ws, next_id: 0 };
             for _ in 0..50 {
@@ -551,12 +570,20 @@ impl CdpBridge {
             }
             EngineKind::Attach | EngineKind::Camoufox => unreachable!(),
         }
-        let mut child = cmd
+        route.may_have_browser = true;
+        let child = cmd
             .arg(FRAMER_HOME)
             .stdout(Stdio::null())
             .stderr(Stdio::null())
-            .spawn()
-            .map_err(|e| format!("launch chrome: {e}"))?;
+            .kill_on_drop(true)
+            .spawn();
+        let mut child = match child {
+            Ok(child) => child,
+            Err(error) => {
+                route.may_have_browser = false;
+                return Err(format!("launch chrome: {error}"));
+            }
+        };
 
         // Everything from here to a constructed CdpInstance must kill the
         // child on error — a leaked chrome is ~300MB and a few of them OOM
@@ -710,16 +737,13 @@ impl BrowserBridge for CdpBridge {
     }
 
     async fn rotate_identity(&self, account: &AccountId) -> Result<(), String> {
-        // Drop the live instance (kills chrome), wipe the profile. Next mint
-        // recreates the profile; the caller pairs this with a fresh
-        // castle_device_id. The stored session survives — the browser is only
-        // the minting device.
-        if let Some(inst) = self.instances.lock().await.remove(account) {
-            let mut g = inst.lock().await;
-            if let Some(c) = g.child.as_mut() {
-                let _ = c.start_kill();
-            }
+        let cell = self.route_cell(account).await;
+        let route = cell.lock().await;
+        if route.may_have_browser || self.instances.lock().await.contains_key(account) {
+            return Err("CDP identity rotation requires confirmed browser cleanup; unsupported for a started account".into());
         }
+        // CDP has no acknowledged idle-close contract yet. Never delete a
+        // profile while a started or unconfirmed browser may still own it.
         let profile = self.profile_dir(account);
         if profile.exists() {
             tokio::fs::remove_dir_all(&profile).await.map_err(|e| e.to_string())?;
@@ -787,14 +811,12 @@ impl BrowserBridge for CdpBridge {
     }
 
     async fn set_proxy(&self, account: &AccountId, proxy: Option<String>) -> Result<(), String> {
-        let key = account.0.to_string();
-        match proxy {
-            Some(p) => self.proxies.write().await.insert(key, p),
-            None => self.proxies.write().await.remove(&key),
-        };
-        // Drop any live instance: the next use relaunches on the new egress.
-        self.instances.lock().await.remove(account);
-        Ok(())
+        self.register_proxy(account, proxy).await
+    }
+
+    async fn register_account_proxy(&self, account: &AccountId, proxy: Option<String>)
+        -> Result<(), String> {
+        self.register_proxy(account, proxy).await
     }
 
     async fn castle_token(&self, account: &AccountId) -> Result<CastleToken, String> {

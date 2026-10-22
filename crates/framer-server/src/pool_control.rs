@@ -1,0 +1,380 @@
+use super::{ApiError, AppState, PoolConfig, ServingAccountPolicy, POOL_SETTING_KEY};
+use super::pool_config::EligibleAccounts;
+use axum::{extract::State, Json};
+use framer_core::{AccountId, BrowserBridge};
+use framer_core::resident_pool::{Acquire, ParkTicket, PoolError, ResidentLease, ResidentStatus};
+use serde::Deserialize;
+use std::time::Duration;
+
+fn busy(error: impl std::fmt::Display) -> ApiError {
+    ApiError::PoolBusy(error.to_string())
+}
+
+async fn confirm_resident_status(browser: &dyn BrowserBridge, lease: ResidentLease)
+    -> Result<ResidentLease, ApiError> {
+    use framer_core::browser_lifecycle::BrowserAccountState as State;
+    if !browser.supports_browser_lifecycle() {
+        lease.ensure_admissible().map_err(busy)?;
+        return Ok(lease);
+    }
+    let observation = tokio::time::timeout(Duration::from_secs(5),
+        browser.browser_status(&lease.account())).await;
+    let usable = match observation {
+        Ok(Ok(status)) => {
+            let identity_valid = match status.host_generation.as_deref() {
+                Some(generation) => !generation.is_empty()
+                    && (status.account_incarnation > 0 || status.state == State::Absent),
+                None => status.account_incarnation == 0 && status.state == State::Absent,
+            };
+            status.account_id == lease.account() && identity_valid
+                && !matches!(status.state, State::Closing | State::Unconfirmed)
+        },
+        _ => false,
+    };
+    if !usable {
+        lease.mark_unconfirmed().map_err(busy)?;
+        return Err(busy("account browser status is unconfirmed; its occupied slot is retained"));
+    }
+    lease.ensure_admissible().map_err(busy)?;
+    Ok(lease)
+}
+
+pub(super) fn cleanup_unconfirmed(error: &str) -> bool {
+    let cause = error.strip_prefix("chunk ")
+        .and_then(|rest| rest.split_once(" retry died (fallback off): "))
+        .filter(|(index, _)| index.parse::<u32>().is_ok())
+        .map(|(_, cause)| cause).unwrap_or(error);
+    matches!(cause, "account browser cleanup is unconfirmed; retry after cleanup"
+        | "browser launch cleanup is unconfirmed")
+}
+
+pub(super) fn observe_lease_result<T>(lease: &ResidentLease, result: Result<T, String>)
+    -> Result<T, String> {
+    if matches!(&result, Err(error) if cleanup_unconfirmed(error)) {
+        lease.mark_unconfirmed().map_err(|e| format!("account residency fence failed: {e}"))?;
+    }
+    result
+}
+
+#[derive(Clone)]
+pub(super) struct RequestResidency(std::sync::Arc<std::sync::Mutex<Option<ResidentLease>>>);
+
+impl RequestResidency {
+    pub(super) fn new(lease: ResidentLease) -> Self {
+        Self(std::sync::Arc::new(std::sync::Mutex::new(Some(lease))))
+    }
+    pub(super) fn take(&self) -> Option<ResidentLease> {
+        self.0.lock().expect("request residency poisoned").take()
+    }
+    pub(super) fn replace(&self, lease: ResidentLease) {
+        let previous = self.0.lock().expect("request residency poisoned").replace(lease);
+        drop(previous);
+    }
+    pub(super) fn observe_result<T>(&self, account: AccountId, result: Result<T, String>)
+        -> Result<T, String> {
+        if !matches!(&result, Err(error) if cleanup_unconfirmed(error)) { return result; }
+        let held = self.0.lock().map_err(|_| "request residency is unavailable")?;
+        let lease = held.as_ref().filter(|lease| lease.account() == account)
+            .ok_or("cleanup observation has no matching account lease")?;
+        observe_lease_result(lease, result)
+    }
+}
+
+pub(super) struct Management {
+    account: AccountId,
+    mutations: std::sync::Arc<std::sync::Mutex<std::collections::HashSet<AccountId>>>,
+    _lease: Option<ResidentLease>,
+}
+
+impl Drop for Management {
+    fn drop(&mut self) {
+        if let Ok(mut mutations) = self.mutations.lock() { mutations.remove(&self.account); }
+    }
+}
+
+pub(super) async fn management(s: &AppState, id: AccountId, browser: bool)
+    -> Result<Management, ApiError> {
+    management_inner(s, id, browser, false).await
+}
+
+async fn management_inner(s: &AppState, id: AccountId, browser: bool, reconcile: bool)
+    -> Result<Management, ApiError> {
+    let lease = if browser {
+        Some(s.serving_accounts.acquire(s.browser.as_ref(), id, None, None).await?)
+    } else { None };
+    let operation = s.serving_accounts.operation.lock().await;
+    if s.serving_accounts.pending_config.read().map_err(busy)?.is_some() {
+        return Err(busy("pool configuration is in progress"));
+    }
+    let snapshot = s.serving_accounts.residents.snapshot().map_err(busy)?;
+    if snapshot.residents.iter().any(|slot| slot.replacement == Some(id) || (slot.account == id
+        && (slot.users > usize::from(lease.is_some()) || (slot.uncertain && !reconcile)
+            || slot.status == ResidentStatus::Closing))) {
+        return Err(busy("account has active work or unconfirmed cleanup"));
+    }
+    let mutations = s.serving_accounts.mutations.clone();
+    if !mutations.lock().map_err(busy)?.insert(id) {
+        return Err(busy("account management is already in progress"));
+    }
+    drop(operation);
+    Ok(Management { account: id, mutations, _lease: lease })
+}
+
+pub(super) async fn lease_account(s: &AppState, id: AccountId) -> Result<ResidentLease, ApiError> {
+    let idle = s.serving_accounts.residents.idle_ids().map_err(busy)?;
+    let accounts = s.state.list().await.map_err(ApiError::Internal)?;
+    if !accounts.iter().any(|account| account.id == id) {
+        return Err(ApiError::InvalidRequest("account not found".into()));
+    }
+    let now = framer_core::rotation::now_ms();
+    let preferred = idle.iter().find(|victim| accounts.iter().any(|account|
+        account.id == **victim && (!s.serving_accounts.allows(victim) || !account.is_available_at(now))))
+        .copied();
+    let lease = s.serving_accounts.acquire(s.browser.as_ref(), id, preferred, Some(s.state.as_ref())).await?;
+    if s.state.get(id).await.map_err(ApiError::Internal)?.is_none() {
+        return Err(ApiError::InvalidRequest("account was removed before admission".into()));
+    }
+    Ok(lease)
+}
+
+pub(super) async fn park(State(s): State<AppState>, Json(body): Json<AccountBody>)
+    -> Result<Json<serde_json::Value>, ApiError> {
+    let _management = management_inner(&s, body.account_id, false, true).await?;
+    tokio::time::timeout(Duration::from_secs(20),
+        s.serving_accounts.park_managed(s.browser.as_ref(), body.account_id))
+        .await.map_err(|_| busy("account close timed out; its slot is retained"))??;
+    Ok(Json(serde_json::json!({"account_id":body.account_id,"status":"parked",
+        "eligible":s.serving_accounts.allows(&body.account_id)})))
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(super) struct ConfigUpdate {
+    active_capacity: Option<usize>,
+    eligible_accounts: Option<EligibleAccounts>,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(super) struct AccountBody { account_id: AccountId }
+
+pub(super) async fn config(State(s): State<AppState>) -> Json<PoolConfig> {
+    Json(s.serving_accounts.config())
+}
+
+pub(super) async fn activate(State(s): State<AppState>, Json(body): Json<AccountBody>)
+    -> Result<Json<serde_json::Value>, ApiError> {
+    let accounts = s.state.list().await.map_err(ApiError::Internal)?;
+    s.serving_accounts.select(accounts, Some(&body.account_id.0.to_string()))?;
+    if let Some(remaining) = s.wave.check() {
+        return Err(ApiError::Cooling { retry_after_secs: remaining.as_secs().saturating_add(1) });
+    }
+    let lease = lease_account(&s, body.account_id).await?;
+    super::current_account(&s, body.account_id).await?;
+    observe_lease_result(&lease, s.browser.castle_token(&body.account_id).await)
+        .map_err(ApiError::Internal)?;
+    Ok(Json(serde_json::json!({"account_id":body.account_id,"status":"active"})))
+}
+
+pub async fn prewarm_accounts(s: AppState) {
+    let Ok(mut accounts) = s.state.list().await else { return; };
+    let now = framer_core::rotation::now_ms();
+    accounts.retain(|account| s.serving_accounts.allows(&account.id) && account.is_available_at(now));
+    accounts.sort_by_key(|account| (account.consecutive_failures, account.id.0));
+    for account in accounts.into_iter().take(s.serving_accounts.config().active_capacity) {
+        if s.wave.check().is_some() { break; }
+        let t0 = std::time::Instant::now();
+        let result = activate(State(s.clone()), Json(AccountBody { account_id: account.id })).await;
+        framer_core::observability::Event::new("account.prewarm").account(&account.id)
+            .duration_ms(framer_core::observability::elapsed_ms(t0))
+            .outcome(if result.is_ok() { "ok" } else { "error" }).emit();
+    }
+}
+
+pub(super) async fn configure(State(s): State<AppState>, Json(update): Json<ConfigUpdate>)
+    -> Result<Json<PoolConfig>, ApiError> {
+    let policy = &s.serving_accounts;
+    let _configuration = policy.configuration.lock().await;
+    let old = policy.config();
+    let mut next = old.clone();
+    if let Some(capacity) = update.active_capacity { next.active_capacity = capacity; }
+    if let Some(eligible) = update.eligible_accounts { next.eligible_accounts = eligible; }
+    next.validate().map_err(ApiError::InvalidRequest)?;
+    let operation = policy.operation.lock().await;
+    if !policy.mutations.lock().map_err(busy)?.is_empty() {
+        return Err(busy("account management is in progress"));
+    }
+    // Account removal uses this same transition lock. Validate after taking
+    // it so a stale list cannot publish eligibility for a removed account.
+    if let EligibleAccounts::Only(ids) = &next.eligible_accounts {
+        let accounts = s.state.list().await.map_err(ApiError::Internal)?;
+        if ids.iter().any(|id| !accounts.iter().any(|account| account.id == *id)) {
+            return Err(ApiError::InvalidRequest("eligible_accounts contains an unknown account".into()));
+        }
+    }
+    let snapshot = policy.residents.snapshot().map_err(busy)?;
+    if snapshot.residents.iter().any(|slot| slot.status == ResidentStatus::Closing) {
+        return Err(busy("account browser closure is already in progress"));
+    }
+    let active = snapshot.residents.iter().filter(|slot| slot.users > 0).count();
+    if active > next.active_capacity || snapshot.residents.iter()
+        .any(|slot| slot.users > 0 && !next.allows(&slot.account)) {
+        return Err(busy("requested pool change would interrupt active work; retry after it finishes"));
+    }
+    let _pending = PendingConfig::new(policy, next.clone())?;
+    let tickets = reserve_config(policy, &next)?;
+    drop(operation);
+    apply_config(&s, next, tickets).await.map(Json)
+}
+
+struct PendingConfig<'a>(&'a ServingAccountPolicy);
+
+impl<'a> PendingConfig<'a> {
+    fn new(policy: &'a ServingAccountPolicy, next: PoolConfig) -> Result<Self, ApiError> {
+        *policy.pending_config.write().map_err(busy)? = Some(next);
+        Ok(Self(policy))
+    }
+}
+
+impl Drop for PendingConfig<'_> {
+    fn drop(&mut self) {
+        if let Ok(mut pending) = self.0.pending_config.write() { *pending = None; }
+    }
+}
+
+// Queued tickets have not issued a close. Restore those reservations on any
+// earlier failure or cancellation; only an attempted close can be uncertain.
+struct QueuedParks(std::collections::VecDeque<ParkTicket>);
+
+impl Drop for QueuedParks {
+    fn drop(&mut self) {
+        for ticket in self.0.drain(..) { let _ = ticket.cancel_before_io(); }
+    }
+}
+
+fn reserve_config(policy: &ServingAccountPolicy, next: &PoolConfig) -> Result<QueuedParks, ApiError> {
+    let snapshot = policy.residents.snapshot().map_err(busy)?;
+    let mut victims: Vec<_> = snapshot.residents.iter().filter(|slot| !next.allows(&slot.account))
+        .map(|slot| slot.account).collect();
+    for id in policy.residents.idle_ids().map_err(busy)? {
+        if snapshot.occupied.saturating_sub(victims.len()) <= next.active_capacity { break; }
+        if !victims.contains(&id) { victims.push(id); }
+    }
+    if snapshot.occupied.saturating_sub(victims.len()) > next.active_capacity {
+        return Err(busy("unconfirmed browser slots must be parked before shrinking the pool"));
+    }
+    let mut queued = QueuedParks(Default::default());
+    for id in victims {
+        queued.0.push_back(policy.residents.begin_park(id).map_err(busy)?);
+    }
+    Ok(queued)
+}
+
+async fn apply_config(s: &AppState, next: PoolConfig, mut tickets: QueuedParks) -> Result<PoolConfig, ApiError> {
+    let policy = &s.serving_accounts;
+    while let Some(ticket) = tickets.0.pop_front() {
+        finish_park(s.browser.as_ref(), ticket).await?;
+    }
+    let json = serde_json::to_string(&next).map_err(|e| ApiError::Internal(e.to_string()))?;
+    let _operation = policy.operation.lock().await;
+    s.state.save_setting(POOL_SETTING_KEY, &json).await.map_err(ApiError::Internal)?;
+    policy.residents.set_capacity(next.active_capacity).map_err(busy)?;
+    *policy.config.write().map_err(|_| busy("pool configuration is unavailable"))? = next.clone();
+    Ok(next)
+}
+
+impl ServingAccountPolicy {
+    /// The caller retains this account's management guard during the close.
+    pub(super) async fn park_managed(&self, browser: &dyn BrowserBridge, id: AccountId) -> Result<(), ApiError> {
+        let operation = self.operation.lock().await;
+        let ticket = match self.residents.begin_park(id) {
+            Ok(ticket) => ticket,
+            Err(PoolError::NotResident) => return Ok(()),
+            Err(error) => return Err(busy(error)),
+        };
+        drop(operation);
+        finish_park(browser, ticket).await
+    }
+}
+
+#[cfg(test)]
+#[path = "pool_control_tests.rs"]
+mod tests;
+
+async fn finish_park(browser: &dyn BrowserBridge, mut ticket: ParkTicket) -> Result<(), ApiError> {
+    tokio::time::timeout(Duration::from_secs(20), async {
+        let id = ticket.victim();
+        let expected = match browser.browser_status(&id).await {
+            Ok(status) => status,
+            Err(error) => { ticket.cancel_before_io().map_err(busy)?; return Err(busy(error)); }
+        };
+        if expected.account_id != id || expected.active_commands != 0 {
+            ticket.cancel_before_io().map_err(busy)?;
+            return Err(busy("account browser is busy or its identity changed"));
+        }
+        ticket.close_started().map_err(busy)?;
+        let result = browser.close_idle_browser(&id, &expected).await.map_err(busy)?;
+        if !result.confirms_absence(&expected) {
+            return Err(busy("account browser closure is unconfirmed; its slot is retained"));
+        }
+        ticket.confirm_close().map_err(busy)
+    }).await.map_err(|_| busy("account close timed out; its slot is retained"))?
+}
+
+impl ServingAccountPolicy {
+    pub(super) async fn acquire(&self, browser: &dyn BrowserBridge, id: AccountId,
+        preferred_idle: Option<AccountId>, existing: Option<&dyn framer_core::StateStore>) -> Result<ResidentLease, ApiError> {
+        tokio::time::timeout(Duration::from_secs(25), async {
+            let deadline = tokio::time::Instant::now() + Duration::from_secs(2);
+            loop {
+                let operation = self.operation.lock().await;
+                self.require(&id)?;
+                if let Some(next) = self.pending_config.read().map_err(busy)?.as_ref() {
+                    let resident = self.residents.resident_ids().map_err(busy)?.contains(&id);
+                    if !next.allows(&id) || !resident {
+                        return Err(busy("pool configuration is in progress; retry admission after it finishes"));
+                    }
+                }
+                let mutations = self.mutations.lock().map_err(busy)?.clone();
+                if mutations.contains(&id) { return Err(busy("account management is in progress")); }
+                // Management cannot start while this transition is held. Recheck
+                // existence after waiting, before reserving or evicting any slot.
+                if let Some(state) = existing {
+                    if state.get(id).await.map_err(ApiError::Internal)?.is_none() {
+                        return Err(ApiError::InvalidRequest("account not found".into()));
+                    }
+                }
+                let protected: Vec<_> = mutations.into_iter().collect();
+                match self.residents.try_acquire_excluding(id, preferred_idle, &protected) {
+                    Ok(Acquire::Lease(lease)) => {
+                        drop(operation);
+                        return confirm_resident_status(browser, lease).await;
+                    },
+                    Ok(Acquire::Evict(mut ticket)) => {
+                        drop(operation);
+                        let expected = match browser.browser_status(&ticket.victim()).await {
+                            Ok(status) => status,
+                            Err(error) => { ticket.cancel_before_io().map_err(busy)?; return Err(busy(error)); }
+                        };
+                        if expected.account_id != ticket.victim() || expected.active_commands != 0 {
+                            ticket.cancel_before_io().map_err(busy)?;
+                            return Err(busy("account browser is still busy or its identity changed"));
+                        }
+                        ticket.close_started().map_err(busy)?;
+                        let result = browser.close_idle_browser(&ticket.victim(), &expected)
+                            .await.map_err(busy)?;
+                        if !result.confirms_absence(&expected) {
+                            return Err(busy("previous account browser has not confirmed closure"));
+                        }
+                        let lease = ticket.confirm_close().map_err(busy)?;
+                        return confirm_resident_status(browser, lease).await;
+                    }
+                    Err(PoolError::NoIdleSlot | PoolError::AccountBusy) if tokio::time::Instant::now() < deadline => {}
+                    Err(error) => return Err(busy(error)),
+                }
+                drop(operation);
+                tokio::time::sleep(Duration::from_millis(50)).await;
+            }
+        }).await.map_err(|_| busy("account admission timed out; occupied slots are retained"))?
+    }
+}
