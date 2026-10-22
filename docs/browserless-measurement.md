@@ -31,3 +31,9 @@ account cleanup. Existing application ownership and cleanup rules still apply.
 
 Four focused checks use temporary counters, including a spike between endpoint
 samples and a failed request. No live inference has been measured by them.
+
+The observer now preserves the checker's deadline exception during final
+readings. A regression sends a real alarm signal at both final-reading sites;
+both fail against the original observer and pass with the correction. All five
+local cases pass. This correction has not had independent source review or a
+live run. The first live request will use the accepted checker directly.
