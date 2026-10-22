@@ -63,7 +63,7 @@ class MemorySampler:
         if joined and self.error is None and len(self.samples) < 802:
             try:
                 self.sample()
-            except Exception as error:
+            except (OSError, ValueError, RuntimeError) as error:
                 self.error = type(error).__name__
         rows = list(self.samples)
         gaps = [right[0] - left[0] for left, right in zip(rows, rows[1:])]
@@ -87,6 +87,8 @@ def observe_exchange(checker, original, observer_pin, checker_pin):
         try:
             try:
                 sampler.start()
+            except checker.Refused:
+                raise
             except Exception as error:
                 sampler.error = type(error).__name__
                 raise checker.Refused('resource_observation_unavailable') from None
@@ -100,6 +102,8 @@ def observe_exchange(checker, original, observer_pin, checker_pin):
             for name, read in readers:
                 try:
                     observation[name] = read()
+                except checker.Refused:
+                    raise
                 except Exception as error:
                     observation['complete'] = False
                     observation[name + '_error'] = type(error).__name__

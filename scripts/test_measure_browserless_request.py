@@ -1,6 +1,7 @@
 import hashlib
 import importlib.util
 import json
+import signal
 import tempfile
 import threading
 import unittest
@@ -12,6 +13,10 @@ spec = importlib.util.spec_from_file_location(
     'measurement', Path(__file__).with_name('measure_browserless_request.py'))
 measurement = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(measurement)
+
+
+class Refused(Exception):
+    pass
 
 
 def counters(group, memory):
@@ -51,7 +56,7 @@ class MeasurementTests(unittest.TestCase):
 
     def test_failed_request_keeps_final_measurement_and_is_not_retried(self):
         service = {'cgroup': '/unused-test-service', 'pid': 7}
-        checker = SimpleNamespace(Refused=RuntimeError,
+        checker = SimpleNamespace(Refused=Refused,
             current_service=lambda: service, memory_snapshot=lambda _: {'memory.current': '32'})
         send = Mock(side_effect=OSError('private request diagnostic'))
         report = {'service': service}
@@ -72,7 +77,7 @@ class MeasurementTests(unittest.TestCase):
 
     def test_replaced_cgroup_refuses_before_the_request(self):
         service = {'cgroup': '/unused-test-service', 'pid': 7}
-        checker = SimpleNamespace(Refused=RuntimeError,
+        checker = SimpleNamespace(Refused=Refused,
             current_service=lambda: service, memory_snapshot=lambda _: {})
         send, report = Mock(), {'service': service}
         with tempfile.TemporaryDirectory() as folder:
@@ -84,11 +89,44 @@ class MeasurementTests(unittest.TestCase):
             counters(group, 128)
             with patch.object(measurement, 'MemorySampler', return_value=sampler):
                 exchange = measurement.observe_exchange(checker, send, {}, {})
-                with self.assertRaisesRegex(RuntimeError, 'resource_observation_unavailable'):
+                with self.assertRaisesRegex(Refused, 'resource_observation_unavailable'):
                     exchange(b'{}', '/route', report)
         send.assert_not_called()
         self.assertFalse(report['resource_observation']['complete'])
         self.assertTrue(report['resource_observation']['sampler_joined'])
+
+    def test_deadline_during_final_measurements_is_preserved(self):
+        def expire(_number, _frame):
+            raise Refused('client_deadline')
+        previous = signal.signal(signal.SIGALRM, expire)
+        self.addCleanup(signal.signal, signal.SIGALRM, previous)
+        for site in ('sample', 'memory_after'):
+            with self.subTest(site=site), tempfile.TemporaryDirectory() as folder:
+                group = Path(folder) / 'service'
+                counters(group, 32)
+                sampler = measurement.MemorySampler(group)
+                sample, sent = sampler.sample, {'done': False}
+                def final_sample():
+                    if site == 'sample' and sent['done']:
+                        signal.raise_signal(signal.SIGALRM)
+                    sample()
+                sampler.sample = final_sample
+                sampler.poll = lambda: sampler.stop.wait(2)
+                service = {'cgroup': '/unused-test-service', 'pid': 7}
+                def final_memory(_service):
+                    if site == 'memory_after':
+                        signal.raise_signal(signal.SIGALRM)
+                    return {'memory.current': '32'}
+                checker = SimpleNamespace(Refused=Refused,
+                    current_service=lambda: service, memory_snapshot=final_memory)
+                def send(*_args):
+                    sent['done'] = True
+                with patch.object(measurement, 'MemorySampler', return_value=sampler):
+                    exchange = measurement.observe_exchange(checker, send, {}, {})
+                    with self.assertRaisesRegex(Refused, 'client_deadline'):
+                        exchange(b'{}', '/route', {'service': service})
+                self.assertTrue(sent['done'])
+                self.assertFalse(sampler.thread.is_alive())
 
     def test_wrong_source_hash_is_rejected_before_checker_code_runs(self):
         with tempfile.TemporaryDirectory() as folder:

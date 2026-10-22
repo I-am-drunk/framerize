@@ -176,3 +176,8 @@ local checks passed using temporary counters, with no network or child-process
 attempts. The original checker and release remain unchanged. This prepares
 measurement; no live browserless response or service-memory saving is claimed.
 See [browserless-measurement.md](browserless-measurement.md).
+
+The optional observer's timeout-handling bug is corrected locally. All five
+focused cases pass, and the new alarm regression fails at both affected sites
+against the original code. No network request was made. Independent review
+remains pending; this observer will not gate or wrap the first live request.
