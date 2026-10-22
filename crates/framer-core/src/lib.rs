@@ -3,6 +3,8 @@
 
 pub mod observability;
 pub mod account;
+pub mod browser_lifecycle;
+pub mod resident_pool;
 pub mod convert;
 pub mod credits;
 pub mod error;

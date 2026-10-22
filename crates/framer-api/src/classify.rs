@@ -85,6 +85,21 @@ pub fn classify_403(body: &str, elapsed_ms: u64) -> Refusal {
         return Refusal::Upstream;
     }
 
+    // Framer's structured edge refusal can arrive after browser warm-up and
+    // internal retries. That elapsed time is not evidence of a provider error.
+    // Require the complete envelope; an isolated reason string is ambiguous.
+    if let Ok(value) = serde_json::from_str::<serde_json::Value>(body) {
+        let error = &value["error"];
+        if error["status"] == 403
+            && error["message"] == "This request was blocked by our security checks"
+            && error["data"]["reason"] == "request_blocked"
+            && error["ref"].as_str().is_some_and(|s| !s.is_empty())
+            && error["timestamp"].as_str().is_some_and(|s| !s.is_empty())
+        {
+            return Refusal::Castle;
+        }
+    }
+
     if CASTLE_MARKERS
         .iter()
         .any(|m| lower.contains(&m.to_ascii_lowercase()))
@@ -104,6 +119,31 @@ pub fn classify_403(body: &str, elapsed_ms: u64) -> Refusal {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    const FRAMER_SECURITY_REFUSAL: &str =
+        include_str!("../../../reference/fixtures/framer-security-refusal.json");
+
+    #[test]
+    fn structured_framer_refusal_is_castle_even_after_browser_retries() {
+        for elapsed_ms in [250, 2_219, 14_280, 60_000] {
+            let refusal = classify_403(FRAMER_SECURITY_REFUSAL, elapsed_ms);
+            assert_eq!(refusal, Refusal::Castle);
+            assert_eq!(refusal.as_error("/ai/v3/responses/", FRAMER_SECURITY_REFUSAL), "risk-refused");
+        }
+    }
+
+    #[test]
+    fn provider_evidence_still_overrides_a_structured_refusal() {
+        let mut body: serde_json::Value = serde_json::from_str(FRAMER_SECURITY_REFUSAL).unwrap();
+        body["request_id"] = "gen-fixture".into();
+        assert_eq!(classify_403(&body.to_string(), 14_280), Refusal::Upstream);
+    }
+
+    #[test]
+    fn a_reason_without_the_framer_envelope_is_ambiguous() {
+        let body = r#"{"error":{"data":{"reason":"request_blocked"}}}"#;
+        assert_eq!(classify_403(body, 14_280), Refusal::Upstream);
+    }
 
     #[test]
     fn openrouter_refusals_are_not_account_health() {

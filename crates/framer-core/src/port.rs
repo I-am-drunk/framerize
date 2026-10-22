@@ -44,6 +44,23 @@ pub struct WorkspaceSpec {
 /// webview only.
 #[async_trait]
 pub trait BrowserBridge: Send + Sync {
+    /// Whether admission can inspect incarnation-bound browser lifecycle state.
+    /// Bridges without this facility retain their existing admission behavior.
+    fn supports_browser_lifecycle(&self) -> bool { false }
+
+    /// Inspect residency without starting a missing browser or host.
+    async fn browser_status(&self, _account: &AccountId)
+        -> Result<crate::browser_lifecycle::BrowserAccountStatus, String> {
+        Err("browser lifecycle inspection is unsupported".into())
+    }
+
+    /// Non-destructive close bound to the previously observed incarnation.
+    async fn close_idle_browser(&self, _account: &AccountId,
+        _expected: &crate::browser_lifecycle::BrowserAccountStatus)
+        -> Result<crate::browser_lifecycle::IdleCloseResult, String> {
+        Err("idle browser close is unsupported".into())
+    }
+
     async fn castle_token(&self, account: &AccountId) -> Result<CastleToken, String>;
 
     /// In-page `POST /auth/v4/signin` from the account's own browser. Auth
@@ -64,9 +81,18 @@ pub trait BrowserBridge: Send + Sync {
 
     /// Per-account egress proxy (Castle binds tokens to egress IP — verified:
     /// clean token + flagged IP = 403 on /ai/*). Default no-op for bridges
-    /// without proxy support; CdpBridge applies it on next launch.
+    /// without proxy support. CdpBridge refuses changes after startup; callers
+    /// should use nonlaunching registration after acknowledged closure.
     async fn set_proxy(&self, _account: &AccountId, _proxy: Option<String>) -> Result<(), String> {
         Ok(())
+    }
+
+    /// Register saved egress without starting or closing a browser or host.
+    /// A changed route requires confirmed absence; an unchanged route is a no-op.
+    /// Unsupported bridges fail explicitly instead of silently losing egress.
+    async fn register_account_proxy(&self, _account: &AccountId, _proxy: Option<String>)
+        -> Result<(), String> {
+        Err("nonlaunching account proxy registration is unsupported".into())
     }
 
     /// Ensure the account's browser cookie jar holds the session cookie.
@@ -328,6 +354,14 @@ pub trait SessionStore: Send + Sync {
 /// Non-secret state (SQLite). Never stores cookies/tokens.
 #[async_trait]
 pub trait StateStore: Send + Sync {
+    /// Non-secret service settings. Missing keys use the startup defaults.
+    async fn setting(&self, _key: &str) -> Result<Option<String>, String> {
+        Ok(None)
+    }
+    async fn save_setting(&self, _key: &str, _value: &str) -> Result<(), String> {
+        Err("persistent settings are unsupported by this state store".into())
+    }
+
     async fn get(&self, id: AccountId) -> Result<Option<ManagedAccount>, String>;
     async fn list(&self) -> Result<Vec<ManagedAccount>, String>;
     async fn upsert(&self, account: &ManagedAccount) -> Result<(), String>;

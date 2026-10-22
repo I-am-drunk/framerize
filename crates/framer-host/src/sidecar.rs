@@ -20,10 +20,35 @@ use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::process::Stdio;
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::Arc;
-use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
+use std::sync::{Arc, Mutex as StdMutex};
+use tokio::io::{AsyncBufReadExt, AsyncWrite, AsyncWriteExt, BufReader};
 use tokio::process::{Child, Command};
-use tokio::sync::{oneshot, Mutex};
+use tokio::sync::{mpsc, oneshot, Mutex};
+
+type PendingReplies =
+    Arc<StdMutex<HashMap<u64, oneshot::Sender<Result<Value, String>>>>>;
+
+struct PendingCall {
+    id: u64,
+    pending: PendingReplies,
+    cancel: mpsc::Sender<u64>,
+}
+
+impl Drop for PendingCall {
+    fn drop(&mut self) {
+        if self.pending.lock().unwrap().remove(&self.id).is_some() {
+            // A dropped or timed-out caller must release its reply slot and
+            // ask the browser host to cancel the abandoned work.
+            let _ = self.cancel.try_send(self.id);
+        }
+    }
+}
+
+fn fail_pending(pending: &PendingReplies, message: &str) {
+    for (_, tx) in pending.lock().unwrap().drain() {
+        let _ = tx.send(Err(message.to_owned()));
+    }
+}
 
 const SCRIPT: &str = include_str!("../../../scripts/camoufox_host.py");
 
@@ -36,10 +61,93 @@ const SCRIPT: &str = include_str!("../../../scripts/camoufox_host.py");
 // — just looser.
 const REQ_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(900);
 
+#[path = "sidecar_ai_result.rs"]
+mod ai_result;
+
+#[path = "sidecar_browser_lifecycle.rs"]
+mod browser_lifecycle;
+
+#[path = "sidecar_proxy_registration.rs"]
+mod proxy_registration;
+use proxy_registration::ProxyState;
+
+fn take_reply_result(mut reply: Value) -> Result<Value, String> {
+    if reply["ok"].as_bool() == Some(true) {
+        // Move the owned payload out of its envelope, including nested strings.
+        Ok(reply.get_mut("result").map(Value::take).unwrap_or(Value::Null))
+    } else {
+        Err(reply["error"].as_str().unwrap_or("sidecar error").to_owned())
+    }
+}
+
+async fn write_command(writer: &mut (impl AsyncWrite + Unpin), fields: Value) -> std::io::Result<()> {
+    let line = format!("{fields}\n");
+    // Only the encoded line is needed while the pipe applies backpressure.
+    drop(fields);
+    writer.write_all(line.as_bytes()).await
+}
+
+/// Release cancelled work while queued; finish an already-started frame.
+async fn write_owned_command<W>(
+    stdin: Arc<Mutex<W>>,
+    fields: Value,
+) -> std::io::Result<()>
+where
+    W: AsyncWrite + Unpin + Send + 'static,
+{
+    let (mut completed, received) = oneshot::channel();
+    tokio::spawn(async move {
+        let mut writer = tokio::select! {
+            biased;
+            _ = completed.closed() => return,
+            writer = stdin.lock() => writer,
+        };
+        if completed.is_closed() {
+            return;
+        }
+        // This task owns the write even if its caller disconnects. Cancelling
+        // write_all after a short write would splice the next JSON command
+        // into the unfinished line.
+        let result = write_command(&mut *writer, fields).await;
+        drop(writer);
+        let _ = completed.send(result);
+    });
+    received.await.unwrap_or_else(|_| {
+        Err(std::io::Error::new(
+            std::io::ErrorKind::BrokenPipe,
+            "sidecar writer stopped",
+        ))
+    })
+}
+
+#[cfg(test)]
+#[path = "sidecar_memory_tests.rs"]
+mod memory_tests;
+
+#[cfg(test)]
+#[path = "sidecar_write_tests.rs"]
+mod write_tests;
+
+#[cfg(test)]
+#[path = "sidecar_cancel_write_tests.rs"]
+mod cancel_write_tests;
+
+#[cfg(test)]
+#[path = "sidecar_lifecycle_tests.rs"]
+mod lifecycle_tests;
+
+#[cfg(test)]
+#[path = "sidecar_deadline_tests.rs"]
+mod deadline_tests;
+
+#[cfg(test)]
+#[path = "sidecar_proxy_tests.rs"]
+mod proxy_tests;
+
 pub struct SidecarBridge {
     state_root: PathBuf,
     inner: Mutex<Option<Sidecar>>,
-    proxies: Mutex<HashMap<AccountId, String>>,
+    routes: Mutex<HashMap<AccountId, Arc<Mutex<ProxyState>>>>,
     /// Per-account queue wait from the most recent `ai_post`, in ms. The host
     /// reports how long the request waited for a free page; callers subtract it
     /// before estimating upstream tok/s.
@@ -48,8 +156,9 @@ pub struct SidecarBridge {
 
 struct Sidecar {
     child: Child,
-    stdin: tokio::process::ChildStdin,
-    pending: Arc<Mutex<HashMap<u64, oneshot::Sender<Result<Value, String>>>>>,
+    stdin: Arc<Mutex<tokio::process::ChildStdin>>,
+    pending: PendingReplies,
+    cancel: mpsc::Sender<u64>,
     next_id: AtomicU64,
 }
 
@@ -58,7 +167,7 @@ impl SidecarBridge {
         Self {
             state_root: state_root.into(),
             inner: Mutex::new(None),
-            proxies: Mutex::new(HashMap::new()),
+            routes: Mutex::new(HashMap::new()),
             queue_wait: Mutex::new(HashMap::new()),
         }
     }
@@ -75,27 +184,16 @@ impl SidecarBridge {
         self.state_root.join(".bin").join("camoufox_host.py")
     }
 
-    /// Spawn the sidecar if needed; RESPAWN if it died. A dead python still
-    /// has a Some(child.id()) — id() is not a liveness check (a silent
-    /// sidecar death on a constrained box hung every later call for 300s).
+    /// Start the first host only. A lost host cannot certify that its browser
+    /// descendants stopped or transfer its cooldown ledger to a new process.
     async fn sidecar(&self) -> Result<(), String> {
         let mut guard = self.inner.lock().await;
-        let mut dead = false;
         if let Some(s) = guard.as_mut() {
             match s.child.try_wait() {
                 Ok(None) => return Ok(()), // alive
                 _ => {
-                    eprintln!("[sidecar] python exited — respawning on next request");
-                    dead = true;
-                }
-            }
-        }
-        if dead {
-            if let Some(s) = guard.take() {
-                // fail every waiter; the caller's error surfaces immediately
-                let mut pend = s.pending.lock().await;
-                for (_, tx) in pend.drain() {
-                    let _ = tx.send(Err("sidecar died — retry the request".into()));
+                    fail_pending(&s.pending, "host-lifecycle-unconfirmed: sidecar exited");
+                    return Err("host-lifecycle-unconfirmed: sidecar exited; cleanup must be confirmed before recovery".into());
                 }
             }
         }
@@ -140,10 +238,28 @@ impl SidecarBridge {
                      scripts/linux/install-camoufox.sh"
                 )
             })?;
-        let stdin = child.stdin.take().ok_or("sidecar stdin")?;
+        let stdin = Arc::new(Mutex::new(child.stdin.take().ok_or("sidecar stdin")?));
         let stdout = child.stdout.take().ok_or("sidecar stdout")?;
-        let pending: Arc<Mutex<HashMap<u64, oneshot::Sender<Result<Value, String>>>>> =
-            Arc::new(Mutex::new(HashMap::new()));
+        let pending: PendingReplies = Arc::new(StdMutex::new(HashMap::new()));
+        let (cancel, mut cancellations) = mpsc::channel::<u64>(512);
+        {
+            let stdin = stdin.clone();
+            tokio::spawn(async move {
+                while let Some(id) = cancellations.recv().await {
+                    let write = write_owned_command(
+                        stdin.clone(), json!({"cmd": "cancel", "request_id": id}),
+                    );
+                    // Stop enqueueing after a stall. A started frame still
+                    // finishes under its independent writer ownership.
+                    if !matches!(
+                        tokio::time::timeout(std::time::Duration::from_secs(2), write).await,
+                        Ok(Ok(()))
+                    ) {
+                        break;
+                    }
+                }
+            });
+        }
         // Reader task: route response lines to their oneshot by id.
         {
             let pending = pending.clone();
@@ -152,52 +268,106 @@ impl SidecarBridge {
                 while let Ok(Some(line)) = lines.next_line().await {
                     let Ok(v) = serde_json::from_str::<Value>(&line) else { continue };
                     let Some(id) = v["id"].as_u64() else { continue };
-                    let tx = pending.lock().await.remove(&id);
+                    let tx = pending.lock().unwrap().remove(&id);
                     if let Some(tx) = tx {
-                        if v["ok"].as_bool() == Some(true) {
-                            let _ = tx.send(Ok(v["result"].clone()));
-                        } else {
-                            let _ = tx.send(Err(v["error"].as_str().unwrap_or("sidecar error").to_string()));
-                        }
+                        let _ = tx.send(take_reply_result(v));
                     }
                 }
+                fail_pending(&pending, "host-lifecycle-unconfirmed: sidecar output closed");
             });
         }
-        *guard = Some(Sidecar { child, stdin, pending, next_id: AtomicU64::new(0) });
+        *guard = Some(Sidecar { child, stdin, pending, cancel, next_id: AtomicU64::new(0) });
         Ok(())
     }
 
-    async fn call(&self, cmd: &str, mut fields: Value) -> Result<Value, String> {
-        self.sidecar().await?;
-        let mut guard = self.inner.lock().await;
-        let s = guard.as_mut().ok_or("sidecar unavailable")?;
-        let id = s.next_id.fetch_add(1, Ordering::Relaxed) + 1;
-        fields["id"] = json!(id);
-        fields["cmd"] = json!(cmd);
-        let (tx, rx) = oneshot::channel();
-        s.pending.lock().await.insert(id, tx);
-        s.stdin
-            .write_all(format!("{}\n", fields).as_bytes())
-            .await
-            .map_err(|e| format!("sidecar write: {e}"))?;
+    async fn call(&self, cmd: &str, fields: Value) -> Result<Value, String> {
+        self.call_with_timeout(cmd, fields, REQ_TIMEOUT).await
+    }
+
+    async fn call_with_timeout(
+        &self,
+        cmd: &str,
+        fields: Value,
+        timeout: std::time::Duration,
+    ) -> Result<Value, String> {
+        self.call_with_policy(cmd, fields, timeout, true).await
+    }
+
+    async fn call_with_policy(
+        &self,
+        cmd: &str,
+        mut fields: Value,
+        timeout: std::time::Duration,
+        start_missing: bool,
+    ) -> Result<Value, String> {
         let started = std::time::Instant::now();
-        drop(guard); // don't hold the process lock while a generation runs
-        match tokio::time::timeout(REQ_TIMEOUT, rx).await {
-            Ok(Ok(r)) => r,
-            Ok(Err(_)) => Err("sidecar dropped the request".into()),
+        // Apply one deadline to setup, queueing, writing and the reply.
+        // A started write retains ownership when this caller times out.
+        let request = async {
+            if start_missing {
+                self.sidecar().await?;
+            }
+            let mut guard = self.inner.lock().await;
+            let s = guard.as_mut().ok_or("sidecar unavailable")?;
+            if !start_missing && !matches!(s.child.try_wait(), Ok(None)) {
+                return Err("host-lifecycle-unconfirmed: sidecar exited; browser cleanup is unconfirmed".into());
+            }
+            let id = s.next_id.fetch_add(1, Ordering::Relaxed) + 1;
+            fields["id"] = json!(id);
+            fields["cmd"] = json!(cmd);
+            let (tx, rx) = oneshot::channel();
+            s.pending.lock().unwrap().insert(id, tx);
+            let _pending_call = PendingCall {
+                id,
+                pending: s.pending.clone(),
+                cancel: s.cancel.clone(),
+            };
+            let stdin = s.stdin.clone();
+            // A full command pipe must not hold the process lifecycle lock.
+            // The cloned pipe belongs to this generation, and its own mutex
+            // still keeps complete command frames in order.
+            drop(guard);
+            write_owned_command(stdin, fields)
+                .await
+                .map_err(|e| format!("sidecar write: {e}"))?;
+            rx.await.map_err(|_| "sidecar dropped the request".to_owned())?
+        };
+        match tokio::time::timeout(timeout, request).await {
+            Ok(result) => result,
             Err(_) => Err(format!("sidecar timeout after {:?} (cmd {cmd})", started.elapsed())),
         }
     }
 
     async fn call_account(&self, account: &AccountId, cmd: &str, extra: Value) -> Result<Value, String> {
-        let mut fields = extra;
-        fields["account"] = json!(account.0.to_string());
-        self.call(cmd, fields).await
+        tokio::time::timeout(REQ_TIMEOUT, async {
+            let route = self.route_for_command(account).await?;
+            let mut fields = extra;
+            fields["account"] = json!(account.0.to_string());
+            fields["proxy_revision"] = json!(route.revision);
+            if matches!(cmd, "begin" | "complete" | "mint" | "ai_post" | "set_cookie" | "eval") {
+                // Null explicitly selects the host's global/default egress.
+                fields["proxy"] = json!(route.proxy);
+            }
+            self.call(cmd, fields).await
+        }).await.map_err(|_| format!("sidecar account command timed out (cmd {cmd})"))?
     }
 }
 
 #[async_trait::async_trait]
 impl BrowserBridge for SidecarBridge {
+    fn supports_browser_lifecycle(&self) -> bool { true }
+
+    async fn browser_status(&self, account: &AccountId)
+        -> Result<framer_core::browser_lifecycle::BrowserAccountStatus, String> {
+        self.inspect_browser(account).await
+    }
+
+    async fn close_idle_browser(&self, account: &AccountId,
+        expected: &framer_core::browser_lifecycle::BrowserAccountStatus)
+        -> Result<framer_core::browser_lifecycle::IdleCloseResult, String> {
+        self.close_observed_browser(account, expected).await
+    }
+
     async fn castle_token(&self, account: &AccountId) -> Result<CastleToken, String> {
         let v = self.call_account(account, "mint", json!({})).await?;
         v.as_str()
@@ -206,12 +376,7 @@ impl BrowserBridge for SidecarBridge {
     }
 
     async fn auth_begin(&self, account: &AccountId, email: &str) -> Result<(), String> {
-        let proxy = self.proxies.lock().await.get(account).cloned();
-        let mut body = json!({ "email": email });
-        if let Some(p) = proxy {
-            body["proxy"] = json!(p);
-        }
-        self.call_account(account, "begin", body).await?;
+        self.call_account(account, "begin", json!({ "email": email })).await?;
         Ok(())
     }
 
@@ -257,13 +422,12 @@ impl BrowserBridge for SidecarBridge {
                 json!({ "path": path, "bearer": bearer, "body": body }),
             )
             .await?;
-        let status = v["status"].as_i64().unwrap_or(-1);
-        let usage = v["usage"].as_str().map(|s| s.to_string());
-        let text = v["body"].as_str().unwrap_or("").to_string();
+        let ai_result::OwnedAiPostResult { status, usage, text, queue_wait_ms } =
+            ai_result::take_ai_post_result(v);
         self.queue_wait
             .lock()
             .await
-            .insert(*account, v["queue_wait_ms"].as_u64().unwrap_or(0));
+            .insert(*account, queue_wait_ms);
         if status == 0 {
             // velocity-paused must reach proxy.rs's 429-backoff mapping (chains
             // wait-and-retry) — flattening it to castle-v3-unavailable made
@@ -284,13 +448,15 @@ impl BrowserBridge for SidecarBridge {
     }
 
     async fn set_proxy(&self, account: &AccountId, proxy: Option<String>) -> Result<(), String> {
-        match proxy {
-            Some(p) => self.proxies.lock().await.insert(*account, p),
-            None => self.proxies.lock().await.remove(account),
-        };
-        // Relaunch the account's browser on the new egress next use.
-        let _ = self.call_account(account, "close", json!({})).await;
-        Ok(())
+        if self.route_snapshot(account).await?.proxy == proxy { return Ok(()); }
+        // Do not report a new egress while active requests prevented closure.
+        self.call_account(account, "close", json!({})).await?;
+        self.register_proxy(account, proxy).await
+    }
+
+    async fn register_account_proxy(&self, account: &AccountId, proxy: Option<String>)
+        -> Result<(), String> {
+        self.register_proxy(account, proxy).await
     }
 
     async fn rotate_identity(&self, account: &AccountId) -> Result<(), String> {
@@ -306,4 +472,47 @@ pub fn default_sidecar_root(profiles: &str) -> PathBuf {
 
 fn dirs_home() -> PathBuf {
     std::env::var("HOME").map(PathBuf::from).unwrap_or_else(|_| PathBuf::from("/root"))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn dropped_call_releases_reply_and_requests_cancellation() {
+        let pending: PendingReplies = Arc::new(StdMutex::new(HashMap::new()));
+        let (tx, _rx) = oneshot::channel();
+        pending.lock().unwrap().insert(7, tx);
+        let (cancel, mut cancellations) = mpsc::channel(1);
+        drop(PendingCall { id: 7, pending: pending.clone(), cancel });
+        assert!(pending.lock().unwrap().is_empty());
+        assert_eq!(cancellations.try_recv().unwrap(), 7);
+    }
+
+    #[test]
+    fn completed_call_does_not_cancel_another_request() {
+        let pending: PendingReplies = Arc::new(StdMutex::new(HashMap::new()));
+        let (tx, _rx) = oneshot::channel();
+        pending.lock().unwrap().insert(8, tx);
+        let (cancel, mut cancellations) = mpsc::channel(1);
+        drop(PendingCall { id: 7, pending: pending.clone(), cancel });
+        assert!(pending.lock().unwrap().contains_key(&8));
+        assert!(cancellations.try_recv().is_err());
+    }
+
+    #[test]
+    fn closed_output_fails_all_waiters_immediately() {
+        let pending: PendingReplies = Arc::new(StdMutex::new(HashMap::new()));
+        let mut receivers = Vec::new();
+        for id in 0..3 {
+            let (tx, rx) = oneshot::channel();
+            pending.lock().unwrap().insert(id, tx);
+            receivers.push(rx);
+        }
+        fail_pending(&pending, "output closed");
+        assert!(pending.lock().unwrap().is_empty());
+        for mut rx in receivers {
+            assert_eq!(rx.try_recv().unwrap(), Err("output closed".to_owned()));
+        }
+    }
 }

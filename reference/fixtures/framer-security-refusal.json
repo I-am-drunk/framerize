@@ -1,0 +1,11 @@
+{
+  "error": {
+    "message": "This request was blocked by our security checks",
+    "status": 403,
+    "timestamp": "2026-10-20T21:04:29.596132934Z",
+    "ref": "fixture",
+    "data": {
+      "reason": "request_blocked"
+    }
+  }
+}

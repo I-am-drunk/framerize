@@ -24,6 +24,10 @@ use crate::proxy::{self, Dialect};
 use crate::transport::Transport;
 use futures::StreamExt;
 
+#[cfg(test)]
+#[path = "nativechain_tool_tests.rs"]
+mod tool_completion_tests;
+
 /// Fire a full (possibly multi-chunk) generation on the responses passthrough
 /// and return the assembled native Responses object.
 #[allow(clippy::too_many_arguments)]
@@ -185,13 +189,13 @@ pub async fn complete_long(
         // callback, then an honest error — same policy as freechat.
         let mut last_attempt_t0 = t0;
         let first = {
-            let mut attempt_payload = payload.clone();
+            let mut attempt_payload = payload;
             let mut out = None;
             while out.is_none() {
                 last_attempt_t0 = std::time::Instant::now();
                 match proxy::forward(
                     t, token_cache, session, browser, account, project,
-                    Dialect::OpenRouterResponses, &chain_step, attempt_payload.clone(),
+                    Dialect::OpenRouterResponses, &chain_step, attempt_payload.take(),
                     chat_session, i,
                 )
                 .await
@@ -225,8 +229,11 @@ pub async fn complete_long(
             out.unwrap()
         };
 
-        let resp = match first {
-            Ok(r) => r,
+        // Keep the successful request's actual budget with its response.
+        // A transport retry can lower it after the original payload was sent.
+        let (resp, response_budget) = match first {
+            Ok(r) => (r, chunk),
+            Err(e) if framer_core::error::AccountCooldown::from_error(&e).is_some() => return Err(e),
             Err(e) => {
                 // The idle-kill check must time the FAILING ATTEMPT — the whole
                 // loop includes 429 backoffs, which would misclassify a fast
@@ -245,18 +252,20 @@ pub async fn complete_long(
                 }
                 // Died silently (idle window or transport): halve and retry once.
                 chunk_tokens /= 2;
-                eprintln!("[nativechain] chunk {i} died at {elapsed:.1}s ({e}) — retrying with max_output_tokens={chunk_tokens}");
-                let retry_payload = build_payload(&input_items, chunk_tokens.max(16));
+                let retry_chunk = budget.min(chunk_tokens).min(chunk_cap).max(16);
+                eprintln!("[nativechain] chunk {i} died at {elapsed:.1}s ({e}) — retrying with max_output_tokens={retry_chunk}");
+                let retry_payload = build_payload(&input_items, retry_chunk);
                 match proxy::forward(
                     t, token_cache, session, browser, account, project,
                     Dialect::OpenRouterResponses, &chain_step, retry_payload, chat_session, i,
                 )
                 .await
                 {
-                    Ok(r) => r,
+                    Ok(r) => (r, retry_chunk),
+                    Err(e2) if framer_core::error::AccountCooldown::from_error(&e2).is_some() => return Err(e2),
                     Err(e2) if cfg.metered_fallback => {
                         eprintln!("[nativechain] chunk {i} retry died ({e2}) — metered stream fallback for this chunk");
-                        let sp = build_payload(&input_items, chunk_tokens.max(16));
+                        let sp = build_payload(&input_items, retry_chunk);
                         let streamed =
                             stream_chunk(t, token_cache, session, browser, account, project, &chain_step, sp, chat_session, i).await?;
                         metered_chunks += 1;
@@ -304,21 +313,35 @@ pub async fn complete_long(
             slow_chunks = 0;
         }
 
-        let hit_cap = status == "incomplete" && incomplete_reason.as_deref() == Some("max_output_tokens");
         let ends_in_call = items
             .last()
             .map(|it| matches!(it["type"].as_str(), Some("function_call") | Some("custom_tool_call")))
             .unwrap_or(false);
+        // Live cut-off tool inputs were labelled completed at exactly the
+        // requested 1500-token budget. That status can also be our default
+        // when the upstream field is absent. Do not publish executable tool
+        // input whose completeness is uncertain at the token boundary.
+        let tool_budget_exhausted = ends_in_call && out_t >= u64::from(response_budget);
+        let hit_cap = (status == "incomplete"
+            && incomplete_reason.as_deref() == Some("max_output_tokens"))
+            || tool_budget_exhausted;
+        if tool_budget_exhausted && status != "incomplete" {
+            eprintln!("[nativechain] chunk {i} tool output exhausted {response_budget}-token budget (status {status}); withholding for retry");
+        }
 
         // Mid-tool-call cut: same policy as freechat — free retry with a
         // window-proportional budget and an explicit split instruction (the
         // truncated call is dropped; its text survives as context).
         if hit_cap && ends_in_call && tool_cut_retries < 2 {
+            if i + 1 >= cfg.max_chunks {
+                return Err(format!("chunk {i}: incomplete tool call has no remaining retry chunk"));
+            }
             tool_cut_retries += 1;
             let budget = ((tps * 70.0) as u32).clamp(1200, 5000).max(chunk_tokens);
             eprintln!("[nativechain] chunk {i} cut mid-tool-call — free retry #{tool_cut_retries} (max_output_tokens={budget}, {tps:.0} tok/s, instructing split)");
             chunk_tokens = budget;
-            ctok = ctok.saturating_sub(out_t);
+            // This discarded chunk has not been added to ctok. Previously
+            // subtracting it erased the usage of already delivered chunks.
             let text_items: Vec<Value> = items
                 .iter()
                 .filter(|it| it["type"].as_str() == Some("message") || it["type"].as_str() == Some("reasoning"))
@@ -331,9 +354,9 @@ pub async fn complete_long(
             }));
             continue;
         }
-        if hit_cap && ends_in_call && !cfg.metered_fallback && tool_cut_retries >= 2 {
+        if hit_cap && ends_in_call && tool_cut_retries >= 2 {
             return Err(format!(
-                "chunk {i}: tool call exceeds the free non-streaming window; set FRAMERIZE_ALLOW_METERED=1 to allow a tiny metered chunk here"
+                "chunk {i}: tool call is still incomplete after two bounded retries; split the tool input into smaller calls"
             ));
         }
 

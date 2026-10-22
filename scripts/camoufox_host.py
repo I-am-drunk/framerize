@@ -1,14 +1,10 @@
 #!/usr/bin/env python3
 """camoufox_host.py — framerize Camoufox (stealth Firefox) sidecar. ASYNC.
 
-AsyncCamoufox + asyncio throughout: the sync API dies after the first launch
-("Playwright Sync API inside the asyncio loop") because a Camoufox launch
-leaves a running loop in the calling thread. Async inside the loop is the
-prescribed model (learned 2026-10-02, second-login 500).
-
-One Camoufox process per account (persistent_context model): the profile dir
-IS the account identity — cookies (incl. the httpOnly session cookie and
-Castle's __cuid), storage, and fingerprint config persist across restarts.
+One asynchronous Playwright driver manages separate Camoufox browsers.
+Each account keeps its own browser, launch configuration and storage. Device
+contexts remain isolated within that browser. Account directories persist
+device IDs and editor metadata; the credential store supplies session cookies.
 
 Protocol: newline-delimited JSON on stdin/stdout (unchanged).
   -> {"id":1,"cmd":"begin","account":"<uuid>","email":"...","proxy":"http://..."?}
@@ -19,14 +15,20 @@ Protocol: newline-delimited JSON on stdin/stdout (unchanged).
   -> {"id":6,"cmd":"eval","account":"<uuid>","expr":"<js>"}
   -> {"id":7,"cmd":"close","account":"<uuid>"}
   -> {"id":8,"cmd":"rotate","account":"<uuid>"}
+  -> {"id":9,"cmd":"browser_status","account":"<uuid>"}
+  -> {"id":10,"cmd":"close_idle","account":"<uuid>","host_generation":"<id>","account_incarnation":1}
   <- {"id":1,"ok":true,"result":...} / {"id":1,"ok":false,"error":"..."}
 
 State root: $FRAMERIZE_STATE (default ~/.framerize/camoufox). Tokens: accept
 v3 AND v2 (Framer ships the v2 fallback itself; Firefox mints v2).
 """
 import asyncio, base64, random, uuid, json, os, shutil, sys, time
+from collections import deque
+from contextlib import asynccontextmanager
+from pathlib import Path
 
 LOG_DIR = os.environ.get("FRAMERIZE_LOG_DIR")
+NATIVE_POINTER_LIBRARY_SHA256 = "25bdc30e0afcff4190925f27f154557643645daabf9577618af750363c326096"
 
 def trace(msg):
     sys.stderr.write(f"[camoufox {time.strftime('%H:%M:%S')}] {msg}\n")
@@ -49,7 +51,8 @@ def emit(event, level="info", **fields):
         pass  # logging must never break the sidecar
 
 try:
-    from camoufox.async_api import AsyncCamoufox
+    from camoufox.async_api import AsyncNewBrowser
+    from playwright.async_api import async_playwright
 except ImportError:
     trace("camoufox not installed. Run: scripts/linux/install-camoufox.sh")
     sys.exit(2)
@@ -148,24 +151,417 @@ AI_START_JS = """(async ([path, body, token, bearer, jobId, dev]) => {
   const headers = { "content-type": "application/json; charset=utf-8", "x-requested-by": "Framer" };
   if (bearer) headers["authorization"] = "Bearer " + bearer;
   body.castleToken = token;
-  window.__aiJobs[jobId] = { done: false, value: null };
+  const job = { done: false, value: null, controller: new AbortController() };
+  window.__aiJobs[jobId] = job;
+  // A disconnected host must not leave a fetch or its response resident.
+  job.timer = setTimeout(() => {
+    if (window.__aiJobs[jobId] !== job) return;
+    job.controller.abort();
+    delete window.__aiJobs[jobId];
+  }, 900000);
   (async () => {
     try {
       const r = await fetch("%s" + path, {
         method: "POST", credentials: "include", headers, body: JSON.stringify(body),
+        signal: job.controller.signal,
       });
       return { status: r.status, usage: r.headers.get("x-framer-ai-usage"), body: await r.text() };
     } catch (e) { return { status: -1, usage: null, body: String(e) }; }
-  })().then(v => { window.__aiJobs[jobId] = { done: true, value: v }; });
+  })().then(v => {
+    // Cancellation deletes the slot. A late completion must not recreate it.
+    if (window.__aiJobs[jobId] === job) {
+      job.done = true;
+      job.value = v;
+    }
+  });
   return jobId;
 })""" % API
 
 AI_POLL_JS = """((jobId) => {
   const j = (window.__aiJobs || {})[jobId];
   if (!j || !j.done) return null;
+  clearTimeout(j.timer);
   delete window.__aiJobs[jobId];
   return j.value;
 })"""
+
+AI_CANCEL_JS = """((jobId) => {
+  const jobs = window.__aiJobs || {};
+  const job = jobs[jobId];
+  if (!job) return false;
+  delete jobs[jobId];
+  clearTimeout(job.timer);
+  job.controller.abort();
+  return true;
+})"""
+
+
+def memory_snapshot(proc_root=Path("/proc"), cgroup_root=Path("/sys/fs/cgroup")):
+    """Read allocation headroom, including tighter ancestor cgroup limits.
+
+    The 90% mark stops new allocations. It never throttles the shared slice
+    containing the editor or pauses work already running in a warm browser.
+    """
+    result = {}
+    headroom = []
+    try:
+        mem = {}
+        for line in (proc_root / "meminfo").read_text().splitlines():
+            key, value = line.split(":", 1)
+            if key in ("MemTotal", "MemAvailable"):
+                mem[key] = int(value.split()[0]) * 1024
+        result["host_available_bytes"] = mem["MemAvailable"]
+        result["host_reserve_bytes"] = mem["MemTotal"] // 10
+        headroom.append(mem["MemAvailable"] - result["host_reserve_bytes"])
+    except (OSError, ValueError, KeyError):
+        pass
+    try:
+        group = next(line[3:] for line in (proc_root / "self/cgroup").read_text().splitlines()
+                     if line.startswith("0::"))
+        node = cgroup_root / group.lstrip("/")
+        while node.is_relative_to(cgroup_root):
+            try:
+                current = int((node / "memory.current").read_text())
+                limit_text = (node / "memory.max").read_text().strip()
+                if "cgroup_current_bytes" not in result:
+                    result["cgroup_current_bytes"] = current
+                    swap = node / "memory.swap.current"
+                    if swap.exists():
+                        result["cgroup_swap_bytes"] = int(swap.read_text())
+                if limit_text != "max":
+                    limit = int(limit_text)
+                    headroom.append(limit * 9 // 10 - current)
+                    result["cgroup_limit_bytes"] = min(result.get("cgroup_limit_bytes", limit), limit)
+            except (OSError, ValueError):
+                pass
+            if node == cgroup_root:
+                break
+            node = node.parent
+    except (OSError, StopIteration):
+        pass
+    if headroom:
+        result["allocation_headroom_bytes"] = min(headroom)
+    return result
+
+
+def trim_unused_heap():
+    """Return unused libc pages. Live Python objects are not collected."""
+    if sys.platform != "linux":
+        return None
+    try:
+        import ctypes
+        trim = ctypes.CDLL(None).malloc_trim
+        trim.argtypes = [ctypes.c_size_t]
+        trim.restype = ctypes.c_int
+        return bool(trim(0))
+    except (AttributeError, OSError):
+        return None
+
+
+class MemoryPressureError(RuntimeError):
+    pass
+
+
+BROWSER_STARTUP_RESERVE = 1024**3
+
+
+def reply_chunks(out):
+    """Encode the existing NDJSON bytes without copying a large text body.
+
+    Prepare every other field before writing, so a serialization error cannot
+    leave half a JSON line in the shared pipe. The caller owns the writer lock.
+    """
+    result = out.get("result") if type(out) is dict else None
+    body = result.get("body") if type(result) is dict else None
+    if (type(body) is not str or len(body) < 65536
+            or tuple(out) != ("id", "ok", "result")
+            or len(result) > 16
+            or any(type(key) is not str for key in result)):
+        yield json.dumps(out) + "\n"
+        return
+
+    before = ['{"id": ', json.dumps(out["id"]),
+              ', "ok": ', json.dumps(out["ok"]), ', "result": {']
+    after = []
+    parts = before
+    for index, (key, value) in enumerate(result.items()):
+        if index:
+            parts.append(", ")
+        parts.extend((json.dumps(key), ": "))
+        if key == "body":
+            parts.append('"')
+            parts = after
+            parts.append('"')
+        else:
+            parts.append(json.dumps(value))
+    parts.append("}}\n")
+    prefix, suffix = "".join(before), "".join(after)
+    del before, after, parts
+    yield prefix
+    for start in range(0, len(body), 16384):
+        # Python slices at code points. Default ASCII escaping also preserves
+        # lone surrogates and matches the original encoder at chunk boundaries.
+        yield json.dumps(body[start:start + 16384])[1:-1]
+    yield suffix
+
+
+def write_reply(stream, out):
+    """Synchronous encoding adapter for offline measurements."""
+    for chunk in reply_chunks(out):
+        stream.write(chunk)
+
+
+class AsyncReplyWriter:
+    """Keep pipe backpressure off the browser loop, with one frame in flight.
+
+    Cancellation before acquiring the lock discards the queued reply. Once a
+    frame starts, its task owns the lock until the complete line is written.
+    Only closing the entire writer may abandon a partially written frame.
+    """
+
+    def __init__(self, stream):
+        self._fd = os.dup(stream.fileno())
+        try:
+            os.set_blocking(self._fd, False)
+        except BaseException:
+            os.close(self._fd)
+            raise
+        self._lock = asyncio.Lock()
+        self._tasks = set()
+        self._closed = False
+
+    @property
+    def busy(self):
+        # A cancelled sender can leave its complete-frame task draining.
+        return self._lock.locked()
+
+    def _close_fd(self):
+        if self._fd is not None:
+            os.close(self._fd)
+            self._fd = None
+
+    def _finished(self, task):
+        self._tasks.discard(task)
+        self._lock.release()
+        if not task.cancelled():
+            # A cancelled caller no longer retrieves its writer's exception.
+            task.exception()
+
+    async def send(self, out):
+        await self._lock.acquire()
+        if self._closed:
+            self._lock.release()
+            raise BrokenPipeError("reply writer is closed")
+        try:
+            task = asyncio.create_task(self._write_frame(out))
+        except BaseException:
+            self._lock.release()
+            raise
+        self._tasks.add(task)
+        task.add_done_callback(self._finished)
+        await asyncio.shield(task)
+
+    async def _write_frame(self, out):
+        loop = asyncio.get_running_loop()
+        fd = self._fd
+        started = False
+        try:
+            for chunk in reply_chunks(out):
+                data = memoryview(chunk.encode("ascii"))
+                while data:
+                    try:
+                        count = os.write(fd, data)
+                    except BlockingIOError:
+                        ready = loop.create_future()
+
+                        def writable():
+                            if not ready.done():
+                                ready.set_result(None)
+
+                        loop.add_writer(fd, writable)
+                        try:
+                            await ready
+                        finally:
+                            loop.remove_writer(fd)
+                        continue
+                    if not count:
+                        raise BrokenPipeError("reply pipe made no progress")
+                    started = True
+                    data = data[count:]
+        except BaseException as exc:
+            if started or isinstance(exc, (OSError, asyncio.CancelledError)):
+                self._closed = True
+                self._close_fd()
+            raise
+
+    async def close(self):
+        self._closed = True
+        tasks = tuple(self._tasks)
+        for task in tasks:
+            task.cancel()
+        if tasks:
+            await asyncio.gather(*tasks, return_exceptions=True)
+        self._close_fd()
+
+
+def prepared_memory_browser():
+    """Validate an optional private browser before opening accounts."""
+    configured = os.environ.get("FRAMERIZE_MEMORY_BROWSER")
+    selected = _validate_memory_browser(configured) if configured else None
+    if os.environ.get("FRAMERIZE_BATCH_CONSOLE_DISPOSAL") == "1":
+        try:
+            supports_batch = selected is not None and json.loads(
+                (Path(selected).parent / "framerize-memory-patch.json").read_text()
+            ).get("patch_version") in (5, 6, 7, 8, 9)
+        except (OSError, ValueError, AttributeError):
+            supports_batch = False
+        if not supports_batch:
+            os.environ["FRAMERIZE_BATCH_CONSOLE_DISPOSAL"] = "0"
+            os.environ["FRAMERIZE_DISPOSE_EVICTED_CONSOLE"] = "0"
+    if os.environ.get("FRAMERIZE_IDLE_CACHE_RECLAIM") == "1":
+        try:
+            supports_reclaim = selected is not None and json.loads(
+                (Path(selected).parent / "framerize-memory-patch.json").read_text()
+            ).get("patch_version") in (8, 9)
+        except (OSError, ValueError, AttributeError):
+            supports_reclaim = False
+        if not supports_reclaim:
+            os.environ["FRAMERIZE_IDLE_CACHE_RECLAIM"] = "0"
+    return selected
+
+
+def _validate_memory_browser(configured):
+    import hashlib
+    import zipfile
+    try:
+        directory = Path(configured).expanduser().resolve(strict=True)
+        manifest = json.loads((directory / "framerize-memory-patch.json").read_text())
+        version = manifest.get("patch_version")
+        expected_module = {
+            3: "48c7827bd61e32ea59a749c00b0a4dffe9c816dbf81754a3dae2a1c47e97a6c8",
+            4: "c6c37cde0229fdd51df32604ef8cbeecb10c7b1fb0c4019483c514ca80bce142",
+            5: "c6c37cde0229fdd51df32604ef8cbeecb10c7b1fb0c4019483c514ca80bce142",
+            6: "f37bec3303fc06b57469afabe7759c95d20d83545fb73d86672777797c6f98d9",
+            7: "f37bec3303fc06b57469afabe7759c95d20d83545fb73d86672777797c6f98d9",
+            8: "f37bec3303fc06b57469afabe7759c95d20d83545fb73d86672777797c6f98d9",
+            9: "f37bec3303fc06b57469afabe7759c95d20d83545fb73d86672777797c6f98d9",
+        }.get(version)
+        if (expected_module is None
+                or manifest.get("patched_module_sha256") != expected_module
+                or manifest.get("preference") != "framerize.captureResponseBodies"):
+            raise ValueError("unsupported memory browser patch")
+        if version in (4, 5, 6, 7, 8, 9) and manifest.get("request_preference") != "framerize.captureRequestBodies":
+            raise ValueError("unsupported request capture patch")
+        if version in (6, 7, 8, 9) and manifest.get("redirect_preference") != "framerize.reportActualRedirects":
+            raise ValueError("unsupported finished-request tracking patch")
+        executable = directory / "camoufox"
+        if not executable.is_file():
+            raise ValueError("memory browser executable missing")
+        with (directory / "omni.ja").open("rb") as stream:
+            digest = hashlib.file_digest(stream, "sha256").hexdigest()
+        if digest != manifest.get("patched_archive_sha256"):
+            raise ValueError("memory browser archive changed")
+        with zipfile.ZipFile(directory / "omni.ja") as archive:
+            module = archive.read("chrome/juggler/content/NetworkObserver.js")
+            if version in (5, 6, 7, 8, 9):
+                batch_modules = {
+                    "content/Runtime.js": "30d50f6856fd7094d8bfe6fadfe8c7ffb4dadb236692d1fdc33a9abc72e17d57",
+                    "protocol/Protocol.js": "338cb8652825699a723815b9fed40ff4a70a215ecc855324add43478c6902d6f",
+                    "protocol/PageHandler.js": "4845116854d77119b2eb040704206a169d12dae79526c5b515d54e8e2e0c20ec",
+                    "content/PageAgent.js": "df5081a90f477a863cfad8ca4b052a650d4c9df66350a2a97f1e9a8dfe4772a7",
+                    "content/WorkerMain.js": "74ae8d31377499ed699be86d662f64e5ceb045d3d35beff0ed72eb1de130e864",
+                }
+                if version in (6, 7, 8, 9):
+                    batch_modules["protocol/Protocol.js"] = "6caf5d857e95d89b4e90fe9c885a30f3a18418e1c15b9f8a8204e1e43d1764fa"
+                if version in (8, 9):
+                    reclaim_module = "98931d84fc5989e98bc3dc5ce5b7341f6567557edc0070cc3f130579c764200d"
+                    batch_modules["protocol/PageHandler.js"] = reclaim_module
+                    if (manifest.get("graphics_reclaim_preference") != "framerize.reclaimGraphicsOnGC"
+                            or manifest.get("graphics_reclaim_module_sha256") != reclaim_module
+                            or manifest.get("graphics_reclaim_default_enabled") is not False):
+                        raise ValueError("unsupported cache reclamation patch")
+                expected_batch = {
+                    "chrome/juggler/content/" + name: digest
+                    for name, digest in batch_modules.items()
+                }
+                if manifest.get("batch_disposal_modules") != expected_batch:
+                    raise ValueError("unsupported batch disposal patch")
+                for name, expected in expected_batch.items():
+                    if hashlib.sha256(archive.read(name)).hexdigest() != expected:
+                        raise ValueError("batch disposal module changed")
+            if version == 9:
+                cleanup_module = "7e60cec867abcb10f3d6af75d0f3439256c03b271f9755175db90895f6f7ec44"
+                if (manifest.get("failed_page_cleanup_module_sha256") != cleanup_module
+                        or hashlib.sha256(archive.read(
+                            "chrome/juggler/content/TargetRegistry.js")).hexdigest() != cleanup_module):
+                    raise ValueError("unsupported failed-page cleanup patch")
+        if hashlib.sha256(module).hexdigest() != expected_module:
+            raise ValueError("memory browser module changed")
+        if version in (7, 8, 9):
+            if (manifest.get("native_pointer_library_sha256") != NATIVE_POINTER_LIBRARY_SHA256
+                    or manifest.get("native_pointer_upstream_commit") !=
+                    "da1688c62468c554f6593456cff80f3886dc21b8"):
+                raise ValueError("unsupported native pointer backport")
+            with (directory / "libxul.so").open("rb") as stream:
+                native_digest = hashlib.file_digest(stream, "sha256").hexdigest()
+            if native_digest != NATIVE_POINTER_LIBRARY_SHA256:
+                raise ValueError("native pointer library changed")
+    except Exception as exc:
+        emit("memory.browser_patch", level="warn", outcome="unavailable",
+             error=type(exc).__name__)
+        return None
+    emit("memory.browser_patch", outcome="verified", patch_version=version)
+    return str(executable)
+
+
+MEMORY_ADDON_SOURCE_SHA256 = "a7602c21732f828c1601b47ec484b76bcecbb3b7b1459ba7ca4f429f8a3037bd"
+MEMORY_ADDON_PATCHED_SHA256 = "0ca79ae890b922506e4689cadfa704ab827ee803f8b1fa8e0691adf512f0a51d"
+
+
+def prepared_memory_addon():
+    configured = os.environ.get("FRAMERIZE_MEMORY_ADDON")
+    if not configured:
+        return None
+    import hashlib
+    try:
+        from camoufox.addons import DefaultAddons, get_addon_path
+        installed = Path(get_addon_path(DefaultAddons.UBO.name)).resolve(strict=True)
+        directory = Path(configured).expanduser().resolve(strict=True)
+        record_name = "framerize-addon-patch.json"
+        module = "js/s14e-serializer.js"
+        record = json.loads((directory / record_name).read_text())
+        if (directory == installed or record.get("patch_version") != 1
+                or record.get("purpose") != "serializer-exception-cleanup"
+                or record.get("modified_files") != [module]):
+            raise ValueError("unsupported addon patch")
+        before, after = record["source_files"], record["files"]
+        if (before.get(module) != MEMORY_ADDON_SOURCE_SHA256
+                or after.get(module) != MEMORY_ADDON_PATCHED_SHA256
+                or set(before) != set(after)):
+            raise ValueError("unsupported addon source")
+        actual_source = {p.relative_to(installed).as_posix()
+                         for p in installed.rglob("*") if p.is_file()}
+        actual_candidate = {p.relative_to(directory).as_posix()
+                            for p in directory.rglob("*") if p.is_file()
+                            and p.relative_to(directory).as_posix() != record_name}
+        if set(before) != actual_source or set(after) != actual_candidate:
+            raise ValueError("addon file inventory changed")
+        for name in before:
+            if name != module and before[name] != after[name]:
+                raise ValueError("unrelated addon change")
+            for root, expected in ((installed, before[name]), (directory, after[name])):
+                path = (root / name).resolve(strict=True)
+                if not path.is_relative_to(root):
+                    raise ValueError("addon file outside its directory")
+                with path.open("rb") as stream:
+                    if hashlib.file_digest(stream, "sha256").hexdigest() != expected:
+                        raise ValueError("addon file changed")
+    except Exception as exc:
+        emit("memory.addon_patch", level="warn", outcome="unavailable",
+             error=type(exc).__name__)
+        return None
+    emit("memory.addon_patch", outcome="verified", patch_version=1)
+    return {"path": str(directory), "excluded_default": DefaultAddons.UBO}
 
 
 POOL_CAP = int(os.environ.get("FRAMERIZE_PAGE_POOL", "6"))
@@ -238,13 +634,70 @@ class Device:
     churn the velocity/risk layers key on (2026-10-11: the old single-page
     __cuid-swap pool was visible to the SDK's storage and read as a device
     farm)."""
-    __slots__ = ("id", "ctx", "page", "warm")
+    __slots__ = ("id", "ctx", "page", "warm", "lock")
 
     def __init__(self, dev_id):
         self.id = dev_id
         self.ctx = None
         self.page = None
         self.warm = False
+        self.lock = asyncio.Lock()
+
+
+def verify_close_protocol():
+    # These are the same acknowledged-close primitives used by the observer.
+    # Browser.close() itself suppresses TargetClosedError in this revision.
+    from playwright._impl import _browser, _connection
+    pins = ((_browser, "5d087246d6a98943623a8d0bc848b27afb16cf6fb1e9ed11fb95ffd0296f2014"),
+            (_connection, "1e323ddddbc6fe2c5739760059b6cd5d7cc7b1456547ec8ce44023e4774a9d6e"))
+    for module, digest in pins:
+        if hashlib.sha256(Path(module.__file__).read_bytes()).hexdigest() != digest:
+            raise RuntimeError("unsupported acknowledged browser close protocol")
+
+
+class BrowserCloseReceipt:
+    def __init__(self, browser):
+        self.browser = browser
+        self.acknowledged = self.closed = False
+        self.disconnected = asyncio.Event()
+        browser.on("disconnected", self._disconnected)
+        if not browser.is_connected():
+            self._disconnected()
+
+    def _disconnected(self, *_):
+        self.disconnected.set()
+
+    async def close(self):
+        if self.closed:
+            return
+        if not self.acknowledged:
+            if self.disconnected.is_set():
+                raise RuntimeError("browser exited without a close acknowledgement")
+            verify_close_protocol()
+            impl = self.browser._impl_obj
+            if impl._should_close_connection_on_close:
+                raise RuntimeError("shared protocol connection close is unsupported")
+            await impl._channel.send("close", None, {"reason": "idle account eviction"})
+            self.acknowledged = True
+        await self.disconnected.wait()
+        self.browser.remove_listener("disconnected", self._disconnected)
+        self.closed = True
+
+
+class AccountLifecycle:
+    """Small same-host ledger; browser eviction must not reset device limits."""
+    def __init__(self):
+        self.incarnation = 0
+        self.phase = "absent"
+        self.browser = None
+        self.close_receipt = None
+        self.close_task = None
+        self.active_commands = 0
+        self.cooling = {}
+        self.requests = {}
+        self.reserve_day = ""
+        self.reserve_used = 0
+        self.last_mint = 0.0
 
 
 class Account:
@@ -258,36 +711,65 @@ class Account:
     `mint_lock` + `last_mint` serialize and pace Castle mints across the whole
     account, since all its pages share one device id (__cuid)."""
 
-    def __init__(self, mgr, ctx, page):
+    def __init__(self, mgr, ctx, page, lifecycle=None):
+        self.lifecycle = lifecycle if lifecycle is not None else AccountLifecycle()
         self.mgr = mgr
         self.ctx = ctx
         self.page = page  # shared ambient page: I/O-bound generations share it (one page serves 12 concurrent fetches, measured)
         self.pool = asyncio.Queue()
         self.pool.put_nowait(page)
+        self.borrowed = set()
         self.size = 1
         self.lock = asyncio.Lock()  # lifecycle only (page creation, close)
         self.mint_lock = asyncio.Lock()  # one Castle mint at a time per device
-        self.last_mint = 0.0
         self.devices = []           # persisted pool of __cuid device ids
         self.devpool_ready = False
         self.project = None         # stashed from real ai_posts (heartbeat)
         self.bearer = None
         self.reserve = set()        # in-memory burst-reserve device ids (never persisted)
         self.reserve_warmed = set() # reserve ids with a warm castle module
-        self.reserve_day = ""       # YYYY-MM-DD of the current reserve allowance
-        self.reserve_used = 0
         self.forge_parts = {}       # device cuid -> {parts, born} for offline forging
         self.editor_url = None      # project editor this account "has open"
         self.editor_file = None
         self.token_pool = {}        # castle token pool: id -> {token, ts, in_use, uses, dev}
-        self.dev_cooling = {}       # device -> cooling_until (velocity ban, per-device)
-        self.dev_reqs = {}          # device -> [timestamps] (rolling velocity window)
+        self.dev_cooling = self.lifecycle.cooling
+        self.dev_reqs = self.lifecycle.requests
         self.dev_rr = 0             # device round-robin cursor
         self.mint_page = None       # DEDICATED mint page — never runs fetches
         self.browser = None         # non-persistent camoufox Browser (context parent)
         self.dev_objs = {}          # device id -> Device (isolated context each)
         self.primary_dev = None     # STICKY device: all requests ride it until it cools
         self.session_cookie = None  # (name, value) — fanned into every device context
+        self.last_used = time.monotonic()
+        self.active_requests = 0
+        self.closing = False
+        self.tasks = set()
+        self.last_gc = 0.0
+        self.gc_page = 0
+
+    @property
+    def reserve_day(self):
+        return self.lifecycle.reserve_day
+
+    @reserve_day.setter
+    def reserve_day(self, value):
+        self.lifecycle.reserve_day = value
+
+    @property
+    def reserve_used(self):
+        return self.lifecycle.reserve_used
+
+    @reserve_used.setter
+    def reserve_used(self, value):
+        self.lifecycle.reserve_used = value
+
+    @property
+    def last_mint(self):
+        return self.lifecycle.last_mint
+
+    @last_mint.setter
+    def last_mint(self, value):
+        self.lifecycle.last_mint = value
 
 
 
@@ -405,9 +887,403 @@ class Host:
     def __init__(self):
         os.makedirs(ROOT, exist_ok=True)
         self.accounts = {}  # account -> Account
+        self.lifecycles = {}  # account -> lightweight history, never credentials
+        self.generation = uuid.uuid4().hex
         self.proxies = {}
+        self.proxy_revisions = {}
         self.lock = asyncio.Lock()  # brief: account-dict lifecycle ONLY
-        self._human_tasks = {}  # account -> [humanize loop tasks]
+        self._playwright = None
+        self._memory_browser = prepared_memory_browser()
+        self._memory_addon = prepared_memory_addon()
+        self._closed = False
+        self._allocation_lock = asyncio.Lock()
+        self._reserved_bytes = 0
+        self._command_tasks = {}
+        self._reply_writer = None
+        self._last_heap_trim = None
+        # Closing idle browsers adds a cold start. Keep them warm by default.
+        self.idle_timeout = float(os.environ.get("FRAMERIZE_IDLE_TIMEOUT_S", "0"))
+        configured_gc = os.environ.get("FRAMERIZE_IDLE_GC_S")
+        # An explicit interval applies in both modes; only defaults accelerate.
+        self.idle_gc_interval = float("120" if configured_gc is None else configured_gc)
+        self.idle_gc_pressure_interval = float("60" if configured_gc is None else configured_gc)
+
+    def _check_proxy_revision(self, req):
+        account = req.get("account", "")
+        revision = req.get("proxy_revision", 0)
+        if type(revision) is not int or not 0 <= revision <= 2**64 - 1:
+            raise ValueError("invalid account proxy revision")
+        current = self.proxy_revisions.get(account)
+        if current is not None and revision != current:
+            raise RuntimeError("stale account proxy revision")
+        return revision
+
+    def _adopt_proxy_route(self, req):
+        account = req.get("account", "")
+        revision = self._check_proxy_revision(req)
+        desired = req.get("proxy", self.proxies.get(account))
+        if desired is not None and (not isinstance(desired, str) or not desired):
+            raise ValueError("proxy must be a nonempty string or null")
+        if desired != self.proxies.get(account) and (account in self.proxy_revisions
+                or self._browser_status(account)["state"] != "absent"):
+            raise RuntimeError("account proxy change requires confirmed browser closure and registration")
+        self.proxy_revisions[account] = revision
+        if desired is None:
+            self.proxies.pop(account, None)
+        else:
+            self.proxies[account] = desired
+
+    def _register_proxy(self, req):
+        account = req["account"]
+        expected, revision, proxy = req["expected_revision"], req["revision"], req["proxy"]
+        if (type(expected) is not int or type(revision) is not int
+                or not 0 <= expected < revision <= 2**64 - 1 or revision != expected + 1):
+            raise ValueError("invalid account proxy registration revision")
+        if proxy is not None and (not isinstance(proxy, str) or not proxy):
+            raise ValueError("proxy must be a nonempty string or null")
+        def reply(outcome):
+            return {"outcome": outcome, "status": self._browser_status(account),
+                    "route": {"revision": self.proxy_revisions.get(account, 0),
+                              "proxy": self.proxies.get(account)}}
+        status = self._browser_status(account)
+        if status["state"] != "absent" or status["active_commands"]:
+            return reply("busy")
+        current = self.proxy_revisions.get(account)
+        if current == revision and self.proxies.get(account) == proxy:
+            return reply("registered")
+        if current is not None and current != expected:
+            return reply("stale")
+        self.proxy_revisions[account] = revision
+        if proxy is None:
+            self.proxies.pop(account, None)
+        else:
+            self.proxies[account] = proxy
+        return reply("registered")
+
+    @asynccontextmanager
+    async def _allocation(self, estimate):
+        async with self._allocation_lock:
+            snapshot = memory_snapshot()
+            available = snapshot.get("allocation_headroom_bytes")
+            if available is not None and available < self._reserved_bytes + estimate:
+                emit("memory.admission", level="warn", outcome="deferred", **snapshot)
+                raise MemoryPressureError("browser allocation deferred at the 90% memory watermark; retry after memory is available")
+            self._reserved_bytes += estimate
+        try:
+            yield
+        finally:
+            self._reserved_bytes -= estimate
+
+    @staticmethod
+    def _track_task(acc, coro, *, page=None):
+        task = asyncio.create_task(coro)
+        acc.tasks.add(task)
+        task.add_done_callback(acc.tasks.discard)
+        if page is not None:
+            # A sleeping background task otherwise retains its closed page
+            # until the next timer wake. Only cancel this page's own task.
+            owner_task = task
+
+            def page_closed(*_):
+                if owner_task is not None:
+                    owner_task.cancel()
+
+            def detach(_=None):
+                nonlocal owner_task
+                # A damaged emitter may fail to remove the callback. Make
+                # any residual callback inert without retaining the task.
+                owner_task = None
+                try:
+                    page.remove_listener("close", page_closed)
+                except Exception:
+                    pass
+
+            try:
+                page.on("close", page_closed)
+            except Exception:
+                # Optional lifecycle tracking must not break live work.
+                # Also remove a hook if registration only partly succeeded.
+                detach()
+            else:
+                task.add_done_callback(detach)
+                try:
+                    # Covers a page closed before the listener was attached.
+                    if page.is_closed():
+                        page_closed()
+                except Exception:
+                    # Future close events still provide cleanup; retain the
+                    # original polling lifetime if inspection is unavailable.
+                    pass
+        return task
+
+    @asynccontextmanager
+    async def _use_account(self, account, proxy=None):
+        life = self.lifecycles.setdefault(account, AccountLifecycle())
+        life.active_commands += 1
+        acc = None
+        try:
+            current = await self._account(account, proxy)
+            if current.closing:
+                raise RuntimeError("account browser is closing; retry after cleanup")
+            acc = current
+            acc.active_requests += 1
+            acc.last_used = time.monotonic()
+            yield acc
+        finally:
+            life.active_commands -= 1
+            if acc is not None:
+                acc.active_requests -= 1
+                acc.last_used = time.monotonic()
+
+    async def _dispose_account(self, acc):
+        acc.closing = True
+        tasks = tuple(acc.tasks)
+        for task in tasks:
+            task.cancel()
+        if tasks:
+            await asyncio.gather(*tasks, return_exceptions=True)
+        # Browser closure includes every context. Other accounts keep their
+        # separate browsers and continue using the shared protocol driver.
+        await asyncio.wait_for(acc.lifecycle.close_receipt.close(), 10)
+        acc.dev_objs.clear()
+        acc.token_pool.clear()
+        acc.forge_parts.clear()
+        acc.session_cookie = None
+        acc.borrowed.clear()
+
+    def _browser_status(self, account):
+        life = self.lifecycles.get(account)
+        if life is not None and life.phase == "absent" and (
+                account in self.accounts or life.browser is not None or life.close_receipt is not None):
+            life.phase = "unconfirmed"
+        if life is not None and life.phase == "resident":
+            try:
+                acc = self.accounts.get(account)
+                connected = (acc is not None and acc.browser is life.browser
+                             and life.browser.is_connected())
+            except Exception:
+                connected = False
+            if not connected:
+                life.phase = "unconfirmed"
+                if account in self.accounts:
+                    self.accounts[account].closing = True
+        return {"account_id": account, "host_generation": self.generation,
+                "account_incarnation": 0 if life is None else life.incarnation,
+                "state": ("unconfirmed" if account in self.accounts else "absent") if life is None else life.phase,
+                "active_commands": 0 if life is None else life.active_commands}
+
+    async def _close_idle(self, req):
+        account = req["account"]
+        current = self._browser_status(account)
+        if (not isinstance(req.get("host_generation"), str)
+                or type(req.get("account_incarnation")) is not int):
+            raise ValueError("idle close requires the observed browser identity")
+        if any(req[key] != current[key] for key in ("host_generation", "account_incarnation")):
+            return {"outcome": "stale_generation", "status": current}
+        if current["active_commands"] or current["state"] == "starting":
+            return {"outcome": "busy", "status": current}
+        if current["state"] == "absent":
+            return {"outcome": "already_absent", "status": current}
+        closed = await self._close_account(account)
+        return {"outcome": "closed" if closed else "unconfirmed",
+                "status": self._browser_status(account)}
+
+    async def _close_account(self, account, *, idle_before=None):
+        life = self.lifecycles.get(account)
+        if life is None:
+            return account not in self.accounts
+        acc = self.accounts.get(account)
+        if life.active_commands or life.phase == "starting":
+            return False
+        if acc is not None and (acc.active_requests or
+                (idle_before is not None and acc.last_used >= idle_before)):
+            return False
+        if life.phase == "absent":
+            return acc is None and life.browser is None and life.close_receipt is None
+        if life.close_task is None:
+            self._start_close(account, life, acc)
+        return await asyncio.shield(life.close_task)
+
+    def _start_close(self, account, life, acc):
+        life.phase = "closing"
+        if acc is not None:
+            acc.closing = True
+        registered = asyncio.get_running_loop().create_future()
+        async def finish():
+            await registered
+            return await self._finish_close(account, life, acc)
+        runner = finish()
+        try:
+            life.close_task = asyncio.create_task(runner)
+        except BaseException:
+            runner.close()
+            life.phase = "unconfirmed"
+            raise
+        registered.set_result(None)
+        return life.close_task
+
+    async def _finish_close(self, account, life, acc):
+        incarnation = life.incarnation
+        try:
+            if life.browser is None:
+                raise RuntimeError("browser launch cleanup is unconfirmed")
+            if life.close_receipt is None or life.close_receipt.browser is not life.browser:
+                raise RuntimeError("browser close ownership is unconfirmed")
+            if acc is not None:
+                await self._dispose_account(acc)
+            else:
+                await asyncio.wait_for(life.close_receipt.close(), 10)
+            if (self.lifecycles.get(account) is not life or life.incarnation != incarnation
+                    or self.accounts.get(account) is not acc):
+                raise RuntimeError("browser ownership changed during cleanup")
+            self.accounts.pop(account, None)
+            life.browser = None
+            life.close_receipt = None
+            life.phase = "absent"
+            return True
+        except asyncio.CancelledError:
+            life.phase = "unconfirmed"
+            raise
+        except Exception as exc:
+            life.phase = "unconfirmed"
+            emit("browser.cleanup", level="warn", outcome="unconfirmed",
+                 error=type(exc).__name__)
+            return False
+        finally:
+            life.close_task = None
+
+    async def _monitor_once(self):
+        snapshot = memory_snapshot()
+        emit("memory.snapshot", accounts=len(self.accounts),
+             active_requests=sum(a.active_requests for a in self.accounts.values()),
+             background_tasks=sum(len(a.tasks) for a in self.accounts.values()),
+             pages=sum(len(c.pages) for a in self.accounts.values() for c in a.browser.contexts),
+             **snapshot)
+        for account, life in list(self.lifecycles.items()):
+            acc = self.accounts.get(account)
+            if life.phase in ("closing", "unconfirmed") or (acc is not None and self.idle_timeout > 0):
+                try:
+                    cutoff = None if life.phase != "resident" else time.monotonic() - self.idle_timeout
+                    await self._close_account(account, idle_before=cutoff)
+                except Exception as exc:
+                    emit("browser.cleanup", level="warn", outcome="error", error=type(exc).__name__)
+        await self._reclaim_idle_memory(snapshot)
+        self._trim_idle_heap(snapshot)
+
+    def _trim_idle_heap(self, snapshot):
+        """Release spare host heap pages only between commands under pressure."""
+        headroom = snapshot.get("allocation_headroom_bytes")
+        now = time.monotonic()
+        if (self.idle_gc_interval <= 0 or headroom is None
+                or headroom >= BROWSER_STARTUP_RESERVE
+                or self._command_tasks or self._reserved_bytes
+                or (self._reply_writer is not None and self._reply_writer.busy)
+                or self.lock.locked() or self._allocation_lock.locked()
+                or (self._last_heap_trim is not None
+                    and now - self._last_heap_trim < self.idle_gc_interval)):
+            return
+        for acc in self.accounts.values():
+            if (acc.closing or acc.active_requests or acc.borrowed
+                    or acc.mint_lock.locked()
+                    or any(d.lock.locked() for d in acc.dev_objs.values())
+                    or any(t.get("in_use") for t in acc.token_pool.values())):
+                return
+        self._last_heap_trim = now
+        outcome, released = "ok", False
+        try:
+            result = trim_unused_heap()
+            if result is None:
+                outcome = "unsupported"
+            else:
+                released = result
+        except Exception:
+            outcome = "unavailable"
+        emit("memory.host_trim", outcome=outcome, released=released,
+             duration_ms=round((time.monotonic() - now) * 1000, 3))
+
+    async def _reclaim_idle_memory(self, snapshot):
+        """Reclaim unreachable objects without unloading a warm account.
+
+        At most three idle accounts are collected per tick, or six when the
+        reserve is breached. Stop starting further work after 250 ms;
+        a started collection may take longer.
+        This does not clear
+        cookies, storage, handles or live JS objects, and never retries a stuck
+        collection in a loop. Regular requests do not wait on a host lock.
+        """
+        headroom = snapshot.get("allocation_headroom_bytes")
+        # Start reclamation when a new browser would be refused by admission.
+        # The former 256 MiB trigger left idle caches untouched while a launch
+        # needed 1 GiB of headroom. Existing idle and busy checks still apply.
+        if (self.idle_gc_interval <= 0 or headroom is None
+                or headroom >= BROWSER_STARTUP_RESERVE):
+            return
+        started = time.monotonic()
+        collections = 0
+        pressure = headroom < 0
+        cooldown = self.idle_gc_pressure_interval if pressure else self.idle_gc_interval
+        collection_limit = 6 if pressure else 3
+        candidates = sorted(self.accounts.items(), key=lambda item: item[1].last_gc)
+        for account, acc in candidates:
+            now = time.monotonic()
+            if now - started >= 0.250:
+                return
+            if (acc.closing or acc.active_requests or now - acc.last_used < 30
+                    or now - acc.last_gc < cooldown
+                    or acc.mint_lock.locked() or acc.borrowed
+                    or any(d.lock.locked() for d in acc.dev_objs.values())
+                    or any(t.get("in_use") for t in acc.token_pool.values())):
+                continue
+            pages = [p for ctx in acc.browser.contexts for p in ctx.pages if not p.is_closed()]
+            if not pages:
+                continue
+            page = pages[acc.gc_page % len(pages)]
+            acc.gc_page += 1
+            previous_gc = acc.last_gc
+            acc.last_gc = now
+            outcome = "ok"
+            try:
+                # Heartbeats also use these pages. Inspect all contexts without
+                # modifying jobs, then recheck activity after the async probe.
+                pending = await asyncio.wait_for(asyncio.gather(*(p.evaluate(
+                    "Object.values(window.__aiJobs || {}).some(job => !job.done)"
+                ) for p in pages)), timeout=0.5)
+                if (any(pending) or acc.closing or acc.active_requests
+                        or time.monotonic() - acc.last_used < 30
+                        or acc.mint_lock.locked() or acc.borrowed
+                        or any(d.lock.locked() for d in acc.dev_objs.values())
+                        or any(t.get("in_use") for t in acc.token_pool.values())):
+                    outcome = "busy"
+                    acc.last_gc = previous_gc
+                else:
+                    await asyncio.wait_for(page.request_gc(), timeout=1)
+            except asyncio.CancelledError:
+                raise
+            except Exception:
+                outcome = "unavailable"
+            emit("memory.idle_gc", account=account[:8], outcome=outcome, pressure=pressure,
+                 duration_ms=int((time.monotonic() - now) * 1000))
+            if outcome == "ok":
+                collections += 1
+            if outcome == "unavailable" or collections >= collection_limit:
+                return
+
+    async def _monitor(self):
+        while True:
+            await asyncio.sleep(30)
+            await self._monitor_once()
+
+    async def close(self):
+        self._closed = True
+        for account in list(self.lifecycles):
+            try:
+                await self._close_account(account)
+            except Exception:
+                pass
+        if self._playwright is not None:
+            await self._playwright.stop()
+            self._playwright = None
+        self.accounts.clear()
 
     async def _human_loop(self, account, page):
         """Continuous human presence on one page: a small activity burst every
@@ -429,29 +1305,36 @@ class Host:
         look identical in wall-clock, and conflating them makes the sizer shrink
         chunks under load, which multiplies round trips and worsens the queue."""
         acc = await self._account(account, proxy)
-        try:
-            return acc.pool.get_nowait(), acc, 0.0
-        except asyncio.QueueEmpty:
-            pass
         async with acc.lock:
+            while not acc.pool.empty():
+                page = acc.pool.get_nowait()
+                if page.is_closed():
+                    acc.size -= 1
+                    continue
+                acc.borrowed.add(page)
+                return page, acc, 0.0
             if acc.size < POOL_CAP:
-                page = await acc.ctx.new_page()
-                trace(f"{account[:8]}: pool page {acc.size + 1}/{POOL_CAP} (warming)")
-                try:
-                    await page.goto(LOGIN_URL, wait_until="domcontentloaded", timeout=60000)
-                    await page.wait_for_timeout(800)
-                    # Pool pages only FETCH now — mints live on the dedicated
-                    # mint page, so no castle warm is needed here at all.
-                except Exception as e:
-                    trace(f"{account[:8]}: pool-page warm issue ({type(e).__name__}) — continuing")
+                async with self._allocation(64 * 1024**2):
+                    page = await acc.ctx.new_page()
+                    try:
+                        await page.goto(LOGIN_URL, wait_until="domcontentloaded", timeout=60000)
+                        await page.wait_for_timeout(800)
+                    except BaseException:
+                        await page.close()
+                        raise
                 acc.size += 1
-                self._human_tasks[account].append(asyncio.ensure_future(self._human_loop(account, page)))
+                acc.borrowed.add(page)
+                self._track_task(acc, self._human_loop(account, page), page=page)
                 return page, acc, 0.0
         # At cap: this request QUEUES for a free page. Log the wait — queue
         # time dominates total latency under concurrent load (47s→190s
         # arithmetic growth was invisible until measured here).
         t0 = time.monotonic()
         page = await acc.pool.get()
+        if page.is_closed():
+            acc.size -= 1
+            return await self._acquire(account, proxy)
+        acc.borrowed.add(page)
         wait = time.monotonic() - t0
         if wait > 2.0:
             trace(f"{account[:8]}: pool wait {wait:.1f}s (all {POOL_CAP} pages busy)")
@@ -511,13 +1394,21 @@ class Host:
         acc.editor_url = url
         if acc.editor_file:
             try:
-                json.dump({"editor_url": url}, open(acc.editor_file, "w"))
+                Path(acc.editor_file).write_text(json.dumps({"editor_url": url}))
             except Exception:
                 pass
 
     @staticmethod
     def _release(acc, page):
-        acc.pool.put_nowait(page)
+        if page not in acc.borrowed:
+            return
+        acc.borrowed.remove(page)
+        if acc.closing:
+            acc.size -= 1
+        else:
+            # A closed page also wakes a waiter, which replaces it under the
+            # creation lock. Dropping it here could strand every pool waiter.
+            acc.pool.put_nowait(page)
 
     async def _new_mint_page(self, acc, account):
         """Create the account's dedicated mint page and warm it.
@@ -531,16 +1422,21 @@ class Host:
         this contention, never the upstream (direct probes: 119 tok/s the
         same minute). A page that ONLY mints has an always-free main thread:
         mints stay ~25ms forever."""
-        page = await acc.ctx.new_page()
-        await page.goto(LOGIN_URL, wait_until="domcontentloaded", timeout=60000)
-        await page.wait_for_timeout(800)
-        await page.evaluate(WARM_JS)
-        if acc.devices:
+        async with self._allocation(64 * 1024**2):
+            page = await acc.ctx.new_page()
             try:
-                await page.evaluate(DEVPOOL_WARM_JS.replace('%s', json.dumps(acc.devices)))
-            except Exception:
-                pass
-        self._human_tasks[account].append(asyncio.ensure_future(self._human_loop(account, page)))
+                await page.goto(LOGIN_URL, wait_until="domcontentloaded", timeout=60000)
+                await page.wait_for_timeout(800)
+                await page.evaluate(WARM_JS)
+                if acc.devices:
+                    try:
+                        await page.evaluate(DEVPOOL_WARM_JS.replace('%s', json.dumps(acc.devices)))
+                    except Exception:
+                        pass
+            except BaseException:
+                await page.close()
+                raise
+        self._track_task(acc, self._human_loop(account, page), page=page)
         trace(f"{account[:8]}: dedicated mint page ready")
         return page
 
@@ -563,41 +1459,62 @@ class Host:
         if d is None:
             d = Device(dev)
             acc.dev_objs[dev] = d
+        # Single-flight initialization keeps simultaneous first requests from
+        # overwriting and leaking each other's context.
+        async with d.lock:
+            return await self._prepare_device(acc, account, d)
+
+    async def _prepare_device(self, acc, account, d):
+        dev = d.id
         if d.page is not None and d.page.is_closed():
+            if d.ctx is not None:
+                await d.ctx.close()
             d.page, d.ctx, d.warm = None, None, False
-        if d.page is None:
-            d.ctx = await acc.browser.new_context()
-            await d.ctx.add_init_script(
-                f"try {{ localStorage.setItem('__cuid', {json.dumps(dev)}); }} catch(e) {{}}"
-            )
-            cookies = [{"name": "__cuid", "value": dev, "domain": ".framer.com",
-                        "path": "/", "secure": True, "httpOnly": False, "sameSite": "None"}]
-            if acc.session_cookie:
-                name, value = acc.session_cookie
-                cookies.append({"name": name, "value": value, "domain": ".framer.com",
-                                "path": "/", "secure": True, "httpOnly": True, "sameSite": "None"})
-            await d.ctx.add_cookies(cookies)
-            d.page = await d.ctx.new_page()
-            try:
-                await d.page.goto(LOGIN_URL, wait_until="domcontentloaded", timeout=90000)
-            except Exception:
-                # Don't leak the half-built context on a failed first
-                # navigation (audit 2026-10-11): close it so the next call
-                # rebuilds from scratch instead of stacking contexts.
+        if d.page is not None and d.warm:
+            return d
+        async with self._allocation(64 * 1024**2):
+            if d.page is None:
+                ctx = await acc.browser.new_context()
                 try:
-                    await d.ctx.close()
-                except Exception:
-                    pass
-                d.ctx, d.page, d.warm = None, None, False
-                raise
-            trace(f"{account[:8]}: device {dev[:8]} context ready (isolated, pre-seeded)")
-        if not d.warm:
-            try:
-                await d.page.evaluate(WARM_JS)
-                d.warm = True
-            except Exception as e:
-                trace(f"{account[:8]}: device {dev[:8]} warm issue ({type(e).__name__})")
+                    await ctx.add_init_script(
+                        f"try {{ localStorage.setItem('__cuid', {json.dumps(dev)}); }} catch(e) {{}}"
+                    )
+                    cookies = [{"name": "__cuid", "value": dev, "domain": ".framer.com",
+                                "path": "/", "secure": True, "httpOnly": False, "sameSite": "None"}]
+                    if acc.session_cookie:
+                        name, value = acc.session_cookie
+                        cookies.append({"name": name, "value": value, "domain": ".framer.com",
+                                        "path": "/", "secure": True, "httpOnly": True, "sameSite": "None"})
+                    await ctx.add_cookies(cookies)
+                    page = await ctx.new_page()
+                    await page.goto(LOGIN_URL, wait_until="domcontentloaded", timeout=90000)
+                except BaseException:
+                    await ctx.close()
+                    raise
+                d.ctx, d.page = ctx, page
+                trace(f"{account[:8]}: device {dev[:8]} context ready (isolated, pre-seeded)")
+            if not d.warm:
+                try:
+                    await d.page.evaluate(WARM_JS)
+                    d.warm = True
+                except Exception as e:
+                    trace(f"{account[:8]}: device {dev[:8]} warm issue ({type(e).__name__})")
         return d
+
+    @staticmethod
+    def _request_window(acc, dev, now):
+        """Discard expired timestamps once, without copying the active window.
+
+        Timestamps are appended in monotonic order on the event-loop thread.
+        Use the same subtraction and strict window boundary as the previous
+        filters. Do not cap the queue: every in-window request still counts.
+        """
+        reqs = acc.dev_reqs.get(dev)
+        if reqs is None:
+            return ()
+        while reqs and now - reqs[0] >= DEV_WINDOW_S:
+            reqs.popleft()
+        return reqs
 
     def _pick_device_sticky(self, acc):
         """STICKY selection: the primary device serves everything until it
@@ -607,7 +1524,7 @@ class Host:
         now = time.monotonic()
         ready = [d for d in acc.devices
                  if acc.dev_cooling.get(d, 0) <= now
-                 and len([t for t in acc.dev_reqs.get(d, []) if now - t < DEV_WINDOW_S]) < DEV_WINDOW_CAP]
+                 and len(self._request_window(acc, d, now)) < DEV_WINDOW_CAP]
         if acc.primary_dev in ready:
             return acc.primary_dev
         acc.primary_dev = ready[0] if ready else None
@@ -628,8 +1545,7 @@ class Host:
             d = devs[acc.dev_rr]
             if acc.dev_cooling.get(d, 0) > now:
                 continue
-            reqs = [t for t in acc.dev_reqs.get(d, []) if now - t < DEV_WINDOW_S]
-            acc.dev_reqs[d] = reqs
+            reqs = self._request_window(acc, d, now)
             if len(reqs) >= DEV_WINDOW_CAP:
                 continue
             return d
@@ -661,14 +1577,17 @@ class Host:
             if cu > now:
                 waits.append(cu - now)
                 continue
-            reqs = [t for t in acc.dev_reqs.get(d, []) if now - t < DEV_WINDOW_S]
+            reqs = self._request_window(acc, d, now)
             if len(reqs) < DEV_WINDOW_CAP:
                 return None  # this device is ready now
             waits.append((reqs[0] + DEV_WINDOW_S) - now)
         return min(waits) if waits else None
 
     def _note_request(self, acc, dev):
-        acc.dev_reqs.setdefault(dev, []).append(time.monotonic())
+        now = time.monotonic()
+        if dev not in acc.dev_reqs:
+            acc.dev_reqs[dev] = deque()
+        self._request_window(acc, dev, now).append(now)
 
     def _cool_device(self, acc, dev, account):
         acc.dev_cooling[dev] = time.monotonic() + DEV_COOLDOWN_S
@@ -781,9 +1700,6 @@ class Host:
                 await asyncio.sleep(gap)
             t0 = time.monotonic()
             tok = None
-            page = acc.mint_page
-            if page is None or page.is_closed():
-                page = acc.mint_page = await self._new_mint_page(acc, account)
             burst_ms = 0  # pre-mint burst REMOVED: it was the bottleneck
             # (19-21s under humanize=True). The per-page humanize loops keep
             # Castle's behavioral buffers warm between mints.
@@ -800,6 +1716,9 @@ class Host:
                     trace(f"{account[:8]}: context mint failed on {str(dev)[:8]} ({type(e).__name__})")
                     tok = None
             if not tok:
+                page = acc.mint_page
+                if page is None or page.is_closed():
+                    page = acc.mint_page = await self._new_mint_page(acc, account)
                 tok = await page.evaluate(MINT_JS)
                 used_dev = None  # single-device path (ambient __cuid)
             acc.last_mint = time.monotonic()
@@ -817,16 +1736,39 @@ class Host:
             return tok, used_dev
 
     async def _account(self, account, proxy=None):
-        if account in self.accounts:
+        if self._closed:
+            raise RuntimeError("browser host is closed")
+        life = self.lifecycles.setdefault(account, AccountLifecycle())
+        self._browser_status(account)
+        if life.phase in ("closing", "unconfirmed"):
+            raise RuntimeError("account browser cleanup is unconfirmed; retry after cleanup")
+        if account in self.accounts and life.phase == "resident":
             return self.accounts[account]
         async with self.lock:
+            if self._closed:
+                raise RuntimeError("browser host is closed")
+            if life.phase in ("closing", "unconfirmed"):
+                raise RuntimeError("account browser cleanup is unconfirmed; retry after cleanup")
             if account in self.accounts:
                 return self.accounts[account]
-            return await self._launch(account, proxy)
+            life.incarnation += 1
+            life.phase = "starting"
+            try:
+                acc = await self._launch(account, proxy)
+            except BaseException:
+                if life.phase == "starting":
+                    life.phase = "absent"
+                raise
+            life.phase = "resident"
+            return acc
 
+    @asynccontextmanager
     async def _page(self, account, proxy=None):
-        page, _, _wait = await self._acquire(account, proxy)
-        return page
+        page, acc, _wait = await self._acquire(account, proxy)
+        try:
+            yield page
+        finally:
+            self._release(acc, page)
 
     async def _launch(self, account, proxy=None):
         if proxy:
@@ -841,21 +1783,66 @@ class Host:
         # iMac's chromium build pinned load avg >100), the juggler handshake
         # starves past the default 30s and every launch dies in a retry loop —
         # 180s lets it complete slowly instead of never (2026-10-11 stall).
-        kwargs = dict(headless=True, humanize=False, timeout=600_000)
+        kwargs = dict(headless=True, humanize=False, timeout=600_000,
+                      firefox_user_prefs={
+                          "dom.ipc.processCount": 1,
+                          "dom.ipc.processCount.webIsolated": 1,
+                          "browser.cache.memory.enable": False,
+                          "browser.cache.disk.enable": False,
+                          "browser.sessionhistory.max_entries": 2,
+                      })
+        if self._memory_addon is not None:
+            kwargs["addons"] = [self._memory_addon["path"]]
+            kwargs["exclude_addons"] = [self._memory_addon["excluded_default"]]
+        if self._memory_browser:
+            kwargs["executable_path"] = self._memory_browser
+            kwargs["firefox_user_prefs"]["framerize.captureResponseBodies"] = False
+            # v3 ignores this preference; v4 skips unused debugger upload copies.
+            kwargs["firefox_user_prefs"]["framerize.captureRequestBodies"] = False
+            # v6 distinguishes completed requests from actual redirect chains.
+            kwargs["firefox_user_prefs"]["framerize.reportActualRedirects"] = True
+            # v8 also releases native caches during the existing idle GC.
+            # This preference defaults off and does not unload documents.
+            kwargs["firefox_user_prefs"]["framerize.reclaimGraphicsOnGC"] = (
+                os.environ.get("FRAMERIZE_IDLE_CACHE_RECLAIM") == "1")
         # humanize=False (2026-10-04, measured): with True, Camoufox simulates
         # human input TIMING — every mouse.move burst cost ~19-21s inside the
         # mint lock (burst_ms=20,991 of a 21,074ms "mint"). Playwright input is
         # TRUSTED either way (Juggler Input domain), so Castle's listeners
         # still fire; we only drop the deliberate slowness.
         # Per-account egress: Castle binds tokens to egress IP (verified live).
-        px = self.proxies.get(account)
+        px = self.proxies.get(account) or os.environ.get("FRAMERIZE_PROXY")
         if px:
             kwargs["proxy"] = {"server": px}
         trace(f"{account[:8]}: launching camoufox (profile {profile})")
         t0 = time.monotonic()
-        mgr = AsyncCamoufox(**kwargs)
-        browser = await mgr.__aenter__()
-        emit("camoufox.launch", account=account[:8], duration_ms=int((time.monotonic()-t0)*1000), outcome="ok")
+        # Isolated browser fixtures peaked near 1 GiB. Reserve startup
+        # headroom, not the former 256 MiB estimate below even warm usage.
+        # This admission estimate is not a cap on later browser growth.
+        async with self._allocation(BROWSER_STARTUP_RESERVE):
+            if self._playwright is None:
+                self._playwright = await async_playwright().start()
+            # Each launch still has its own process, profile, configuration,
+            # proxy and storage. Only the Playwright transport is shared.
+            life = self.lifecycles[account]
+            try:
+                browser = await AsyncNewBrowser(self._playwright, **kwargs)
+            except BaseException:
+                # A cancelled handshake may have launched a process without
+                # returning its handle. Never turn that uncertainty into room.
+                life.phase = "unconfirmed"
+                raise
+            life.browser = browser
+            emit("camoufox.launch", account=account[:8], duration_ms=int((time.monotonic()-t0)*1000), outcome="ok")
+            try:
+                life.close_receipt = BrowserCloseReceipt(browser)
+                return await self._initialize_account(account, profile, browser)
+            except BaseException:
+                acc = self.accounts.get(account)
+                await asyncio.shield(self._start_close(account, life, acc))
+                raise
+
+    async def _initialize_account(self, account, profile, browser):
         ctx = await browser.new_context()   # ambient context (login flow, heartbeats' home)
         page = await ctx.new_page()
         trace(f"{account[:8]}: goto login page")
@@ -886,18 +1873,18 @@ class Host:
             trace(f"{account[:8]}: castle warm {'latched — mints now ~1s' if warm_ok else 'no token yet, latch set anyway'}")
         except Exception as e:
             trace(f"{account[:8]}: castle warm failed ({type(e).__name__}) — first real mint will pay it instead")
-        acc = Account(mgr, ctx, page)
+        acc = Account(None, ctx, page, self.lifecycles[account])
         acc.browser = browser
         acc.editor_file = os.path.join(profile, "framerize-editor.json")
         try:
             if os.path.exists(acc.editor_file):
-                acc.editor_url = json.load(open(acc.editor_file)).get("editor_url")
+                acc.editor_url = json.loads(Path(acc.editor_file).read_text()).get("editor_url")
                 if acc.editor_url:
                     trace(f"{account[:8]}: editor context restored ({acc.editor_url.split('/')[-1][:12]}...)")
         except Exception:
             pass
         self.accounts[account] = acc
-        self._human_tasks[account] = [asyncio.ensure_future(self._human_loop(account, page))]
+        self._track_task(acc, self._human_loop(account, page), page=page)
         # Device pool (the concurrency goose): persisted uuids per account,
         # castle-module instances warmed concurrently in the background.
         try:
@@ -905,27 +1892,25 @@ class Host:
             devices = []
             if os.path.exists(devfile):
                 try:
-                    devices = json.load(open(devfile))
+                    devices = json.loads(Path(devfile).read_text())
                 except Exception:
                     devices = []  # empty/corrupt (crash mid-write) — regenerate
             while len(devices) < DEVICE_POOL:
                 devices.append(str(uuid.uuid4()))
             devices = devices[:DEVICE_POOL]  # shrink stale pools from the
             # 16-device era (they survive otherwise — Castle farm signal)
-            json.dump(devices, open(devfile, 'w'))
+            Path(devfile).write_text(json.dumps(devices))
             acc.devices = devices
             acc.primary_dev = devices[0] if devices else None
             # Device contexts are created LAZILY on first use (each is a real
             # browser context — eager-warming N of them at boot is the slow
             # part). devpool_ready kept for compat with the token path.
             acc.devpool_ready = True
-            asyncio.ensure_future(self._heartbeat_loop(acc, account))
+            self._track_task(acc, self._heartbeat_loop(acc, account))
         except Exception as e:
             trace(f"{account[:8]}: device pool init failed ({type(e).__name__})")
-        try:
-            acc.mint_page = await self._new_mint_page(acc, account)
-        except Exception as e:
-            trace(f"{account[:8]}: mint page init failed ({type(e).__name__}) — lazy retry on first mint")
+        # Device requests use their own page. Allocate the ambient mint page
+        # only when the legacy mint path actually needs it.
         return acc
 
     async def _heartbeat_loop(self, acc, account):
@@ -939,14 +1924,14 @@ class Host:
         await asyncio.sleep(45)  # let the account boot + pool warm first
         hb_idx = 0
         hb_interval = HEARTBEAT_S  # adaptive: hb 403s double it (curse decay), 200s recover
-        while account in self.accounts:
+        while self.accounts.get(account) is acc and not acc.closing:
             try:
                 # Operator override: ~/.framerize/heartbeat-skip.json = ["alias", ...]
                 # or ["*"] — hot-reloaded each cycle (2026-10-08: an escalated
                 # account's heartbeat keeps its account-level activity score
                 # hot forever; skip it and let the score decay).
                 try:
-                    skip = json.load(open(os.path.expanduser("~/.framerize/heartbeat-skip.json")))
+                    skip = json.loads(Path("~/.framerize/heartbeat-skip.json").expanduser().read_text())
                     if "*" in skip or account in skip or getattr(self, "aliases", {}).get(account) in skip:
                         await asyncio.sleep(60)
                         continue
@@ -989,14 +1974,12 @@ class Host:
                                 "max_tokens": 8, "stream": False},
                 }
                 job = "hb-" + uuid.uuid4().hex
-                await page.evaluate(AI_START_JS, ["/ai/v3/messages/", body, tok, acc.bearer, job, used_dev])
-                st = None
-                for _wait in range(60):
-                    await asyncio.sleep(0.5)
-                    r = await page.evaluate(AI_POLL_JS, job)
-                    if r is not None:
-                        st = r.get("status")
-                        break
+                try:
+                    r = await self._run_job(page, "/ai/v3/messages/", body, tok,
+                                            acc.bearer, job, used_dev, 30)
+                    st = r.get("status")
+                finally:
+                    self._token_release(acc, tid)
                 if st == 403:
                     self._cool_device(acc, used_dev, account)
                     # The heartbeat ITSELF got velocity-banned: this account's
@@ -1017,44 +2000,91 @@ class Host:
     def _ctx(self, account):
         return self.accounts[account].ctx
 
+    async def _run_job(self, page, path, body, token, bearer, job, dev, timeout):
+        deadline = time.monotonic() + timeout
+        try:
+            await asyncio.wait_for(
+                page.evaluate(AI_START_JS, [path, body, token, bearer, job, dev]),
+                min(30, timeout),
+            )
+            while True:
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    return {"status": -1, "usage": None, "body": f"sidecar poll timeout ({timeout:g}s)"}
+                try:
+                    result = await asyncio.wait_for(page.evaluate(AI_POLL_JS, job), min(8, remaining))
+                except asyncio.TimeoutError:
+                    result = None
+                if result is not None:
+                    return result
+                await asyncio.sleep(min(0.5, max(0, deadline - time.monotonic())))
+        finally:
+            # Covers success, timeout, cancellation and a broken poll call.
+            # The in-page timer also covers disappearance of the host process.
+            try:
+                await asyncio.wait_for(page.evaluate(AI_CANCEL_JS, job), 2)
+            except (Exception, asyncio.CancelledError):
+                pass
+
     async def handle(self, req):
+        if req.get("cmd") == "register_proxy":
+            return self._register_proxy(req)
+        if req.get("cmd") == "browser_status":
+            return self._browser_status(req["account"])
+        if req.get("cmd") == "close_idle":
+            return await self._close_idle(req)
+        if req.get("cmd") in ("close", "rotate"):
+            self._check_proxy_revision(req)
+            account = req.get("account", "")
+            if not await self._close_account(account):
+                raise RuntimeError("account is busy or browser cleanup is unconfirmed")
+            if req["cmd"] == "rotate":
+                shutil.rmtree(os.path.join(ROOT, account), ignore_errors=True)
+            return True
+        if req.get("cmd") not in ("begin", "complete", "mint", "ai_post", "set_cookie", "eval"):
+            raise RuntimeError("unknown cmd %s" % req.get("cmd"))
+        self._adopt_proxy_route(req)
+        async with self._use_account(req.get("account", ""), req.get("proxy")):
+            return await self._handle(req)
+
+    async def _handle(self, req):
         cmd = req.get("cmd")
         account = req.get("account", "")
         if cmd == "begin":
-            page, _acc, _wait = await self._acquire(account, req.get("proxy"))
-            trace(f"{account[:8]}: mint+signin eval start")
-            t0 = time.monotonic()
-            r = await page.evaluate(post_js("/auth/v4/signin", {"email": req["email"], "origin": "web"}))
-            trace(f"{account[:8]}: signin -> status {r['status']}")
-            ok = 200 <= r["status"] < 300
-            emit("auth.signin", account=account[:8], status=r["status"],
-                 duration_ms=int((time.monotonic()-t0)*1000), outcome="ok" if ok else "error",
-                 **({} if ok else {"error": r["body"][:300]}))
-            if not ok:
-                raise RuntimeError("signin %s: %s" % (r["status"], r["body"][:400]))
-            return {"status": r["status"]}
+            async with self._page(account, req.get("proxy")) as page:
+                trace(f"{account[:8]}: mint+signin eval start")
+                t0 = time.monotonic()
+                r = await page.evaluate(post_js("/auth/v4/signin", {"email": req["email"], "origin": "web"}))
+                trace(f"{account[:8]}: signin -> status {r['status']}")
+                ok = 200 <= r["status"] < 300
+                emit("auth.signin", account=account[:8], status=r["status"],
+                     duration_ms=int((time.monotonic()-t0)*1000), outcome="ok" if ok else "error",
+                     **({} if ok else {"error": r["body"][:300]}))
+                if not ok:
+                    raise RuntimeError("signin %s: %s" % (r["status"], r["body"][:400]))
+                return {"status": r["status"]}
         if cmd == "complete":
-            page, _acc, _wait = await self._acquire(account)
-            r = await page.evaluate(post_js("/auth/v4/continue", {"token": req["token"]}))
-            if not (200 <= r["status"] < 300):
-                raise RuntimeError("continue %s: %s" % (r["status"], r["body"][:400]))
-            me = await page.evaluate("""(async () => {
-              const r = await fetch("%s/web/users/me", { headers: { "x-requested-by": "Framer" }, credentials: "include" });
-              return { status: r.status, body: await r.text() };
-            })()""" % API)
-            if not (200 <= me["status"] < 300):
-                raise RuntimeError("me %s: %s" % (me["status"], me["body"][:400]))
-            cookies = await self._ctx(account).cookies("https://framer.com")
-            session = next((c["value"] for c in cookies if c["name"] == "session"), None)
-            if not session:
-                emit("auth.complete", account=account[:8], level="error", outcome="error", error="no session cookie after continue")
-                raise RuntimeError("no session cookie after continue")
-            emit("auth.complete", account=account[:8], outcome="ok")
-            return {"cookie_header": "session=" + session, "me": json.loads(me["body"])}
+            async with self._page(account) as page:
+                r = await page.evaluate(post_js("/auth/v4/continue", {"token": req["token"]}))
+                if not (200 <= r["status"] < 300):
+                    raise RuntimeError("continue %s: %s" % (r["status"], r["body"][:400]))
+                me = await page.evaluate("""(async () => {
+                  const r = await fetch("%s/web/users/me", { headers: { "x-requested-by": "Framer" }, credentials: "include" });
+                  return { status: r.status, body: await r.text() };
+                })()""" % API)
+                if not (200 <= me["status"] < 300):
+                    raise RuntimeError("me %s: %s" % (me["status"], me["body"][:400]))
+                cookies = await self._ctx(account).cookies("https://framer.com")
+                session = next((c["value"] for c in cookies if c["name"] == "session"), None)
+                if not session:
+                    emit("auth.complete", account=account[:8], level="error", outcome="error", error="no session cookie after continue")
+                    raise RuntimeError("no session cookie after continue")
+                emit("auth.complete", account=account[:8], outcome="ok")
+                return {"cookie_header": "session=" + session, "me": json.loads(me["body"])}
         if cmd == "mint":
             page, acc, queue_wait = await self._acquire(account)
-            await self._ensure_editor(acc, page, account)
             try:
+                await self._ensure_editor(acc, page, account)
                 tok, _dev = await self._mint(acc, page, account)
             finally:
                 self._release(acc, page)
@@ -1069,8 +2099,6 @@ class Host:
             pid = (req.get("body") or {}).get("projectId")
             if pid:
                 self._set_editor(acc, account, pid)
-            if os.environ.get("FRAMERIZE_NO_EDITOR") != "1":
-                await self._ensure_editor(acc, page, account)
             try:
                 # Mint under the per-account gate, THEN fetch unguarded: the
                 # mint is the risk-engine-sensitive burst, the generation is
@@ -1104,6 +2132,8 @@ class Host:
                             fire_page = (await self._dev_page(acc, account, dev)).page
                         except Exception:
                             fire_page = page
+                    if fire_page is page:
+                        await self._ensure_editor(acc, page, account)
                     tid, tok, used_dev = await self._token_acquire(acc, fire_page, account, dev)
                     if not tok:
                         r = {"status": 0, "usage": None, "body": "castle-unavailable"}
@@ -1114,25 +2144,24 @@ class Host:
                         job = "job-" + uuid.uuid4().hex
                         acc.project = req["body"].get("projectId") or acc.project
                         acc.bearer = req.get("bearer") or acc.bearer
-                        await fire_page.evaluate(AI_START_JS, [req["path"], req["body"], tok, req.get("bearer"), job, used_dev])
                         # Deadline scales with the chunk's expected duration:
                         # a 4300-token chunk at collapse speed (~11 tok/s)
                         # legitimately needs ~390s — the flat 310s raced it and
                         # three chains died mid-generation (2026-10-05 audit).
+                        # Read max_output_tokens too: the nativechain Responses
+                        # payload never sets max_tokens, so the old default-600
+                        # math was a lie for Codex.
                         est_s = 60.0
                         try:
-                            est_s = max(60.0, float(req["body"].get("request", {}).get("max_tokens", 600)) / 10.0 * 3.0)
+                            rb = req["body"].get("request", {}) or {}
+                            tok_n = rb.get("max_tokens") or rb.get("max_output_tokens") or 600
+                            est_s = max(60.0, float(tok_n) / 10.0 * 3.0)
                         except Exception:
                             pass
-                        deadline = time.monotonic() + min(900.0, est_s)
-                        while True:
-                            r = await fire_page.evaluate(AI_POLL_JS, job)
-                            if r is not None:
-                                break
-                            if time.monotonic() > deadline:
-                                r = {"status": -1, "usage": None, "body": f"sidecar poll timeout ({int(est_s)}s)"}
-                                break
-                            await asyncio.sleep(0.5)
+                        r = await self._run_job(
+                            fire_page, req["path"], req["body"], tok,
+                            req.get("bearer"), job, used_dev, min(180.0, est_s),
+                        )
                         r["_fetch_ms"] = int((time.monotonic() - fetch_t0) * 1000)
                     finally:
                         # release only after the response fully arrived — the
@@ -1197,84 +2226,157 @@ class Host:
                             pass
             return True
         if cmd == "eval":
-            page = await self._page(account)
-            return await page.evaluate(req["expr"])
-        if cmd == "close":
-            if account in self.accounts:
-                acc = self.accounts.pop(account)
-                for d in list(acc.dev_objs.values()):
-                    try:
-                        if d.ctx is not None:
-                            await d.ctx.close()
-                    except Exception:
-                        pass
-                try:
-                    await acc.ctx.close()
-                finally:
-                    await acc.mgr.__aexit__(None, None, None)
-            return True
-        if cmd == "rotate":
-            if account in self.accounts:
-                acc = self.accounts.pop(account)
-                for d in list(acc.dev_objs.values()):
-                    try:
-                        if d.ctx is not None:
-                            await d.ctx.close()
-                    except Exception:
-                        pass
-                try:
-                    await acc.ctx.close()
-                finally:
-                    await acc.mgr.__aexit__(None, None, None)
-            shutil.rmtree(os.path.join(ROOT, account), ignore_errors=True)
-            return True
+            async with self._page(account) as page:
+                return await page.evaluate(req["expr"])
         raise RuntimeError("unknown cmd %s" % cmd)
 
-    async def _serve(self, req, writer_lock):
+    async def _serve(self, req, writer):
         """Run one command and write its reply. Replies are id-matched, so they
         may be emitted out of order — the Rust side routes by id."""
+        request_id = req.get("id")
         try:
             result = await self.handle(req)
-            out = {"id": req.get("id"), "ok": True, "result": result}
+            out = {"id": request_id, "ok": True, "result": result}
         except Exception as e:
-            out = {"id": req.get("id"), "ok": False, "error": str(e)[:800]}
-        # Serialize only the write, never the work: a partial line would
-        # desync the framing for every other in-flight reply.
-        async with writer_lock:
-            sys.stdout.write(json.dumps(out) + "\n")
-            sys.stdout.flush()
+            out = {"id": request_id, "ok": False, "error": str(e)[:800]}
+        finally:
+            # The handler owns input only until it finishes. A slow reply
+            # consumer must not keep a completed request body alive.
+            req = None
+        # The writer owns framing and backpressure. A slow reader must not
+        # block browser jobs, cancellations or the memory monitor.
+        await writer.send(out)
 
     async def loop(self):
         trace("sidecar ready (async)")
         loop = asyncio.get_running_loop()
-        writer_lock = asyncio.Lock()
-        tasks = set()
-        while True:
-            line = await loop.run_in_executor(None, sys.stdin.readline)
-            if not line:
-                break
-            line = line.strip()
-            if not line:
-                continue
+        writer = AsyncReplyWriter(sys.stdout)
+        # Include pending commands and detached frame writers in the idle gate.
+        self._reply_writer = writer
+        tasks = self._command_tasks = {}
+        monitor = asyncio.create_task(self._monitor())
+        try:
+            while True:
+                line = await loop.run_in_executor(None, sys.stdin.readline)
+                try:
+                    if not line:
+                        break
+                    if not line.strip():
+                        continue
+                    try:
+                        try:
+                            req = json.loads(line)
+                        finally:
+                            line = None
+                        if not isinstance(req, dict):
+                            raise ValueError("command must be an object")
+                    except Exception as e:
+                        await writer.send({"id": None, "ok": False, "error": str(e)[:800]})
+                        continue
+                    if req.get("cmd") == "cancel":
+                        task = tasks.get(req.get("request_id"))
+                        if task:
+                            task.cancel()
+                        continue
+                    request_id = req.get("id")
+                    if request_id in tasks or len(tasks) >= 512:
+                        await writer.send({"id": request_id, "ok": False,
+                                           "error": "sidecar busy or duplicate request id"})
+                        continue
+                    task = asyncio.create_task(self._serve(req, writer))
+                    tasks[request_id] = task
+                    task.add_done_callback(lambda done, key=request_id: tasks.pop(key, None))
+                finally:
+                    # The next read can wait indefinitely. Only active tasks
+                    # should retain decoded input, never the reader itself.
+                    line = req = task = None
+        finally:
+            # EOF means the owner has gone away. Waiting out its abandoned
+            # requests would keep browsers and response buffers alive.
+            monitor.cancel()
+            pending = tuple(tasks.values())
+            for task in pending:
+                task.cancel()
+            await asyncio.gather(monitor, *pending, return_exceptions=True)
+            await writer.close()
+            self._reply_writer = None
+            await self.close()
+
+
+# Keep this transport block identical to linear_playwright_transport.py.
+import asyncio
+import hashlib
+import inspect
+from pathlib import Path
+
+SOURCE_SHA256 = "edac83a94c76c0f7cda78b58beaed30432fd43f611bb65480e52e160da54425b"
+RUN_SHA256 = "366cfa477e221e17116cc9d2da7eb24620e7bcbd5f59a081c91fcaab67126d4d"
+
+
+async def run_linear(self):
+    assert self._proc.stdout
+    assert self._proc.stdin
+    try:
+        while not self._stopped:
             try:
-                req = json.loads(line)
-            except Exception as e:
-                async with writer_lock:
-                    sys.stdout.write(json.dumps({"id": None, "ok": False, "error": str(e)[:800]}) + "\n")
-                    sys.stdout.flush()
-                continue
-            # SPAWN, don't await: awaiting handle() here re-serialized the whole
-            # gateway behind one generation no matter how many pages the pool
-            # had -- the next stdin line was not even read until the current
-            # command finished. Measured 2026-10-04: one page serves 12
-            # concurrent real fetches in 4.5s (vs 36s serial), so the JS main
-            # thread was never the limit for I/O-bound work; this read loop was.
-            t = asyncio.create_task(self._serve(req, writer_lock))
-            tasks.add(t)
-            t.add_done_callback(tasks.discard)
-        if tasks:
-            await asyncio.gather(*tasks, return_exceptions=True)
+                header = await self._proc.stdout.readexactly(4)
+                if self._stopped:
+                    break
+                remaining = int.from_bytes(header, byteorder="little", signed=False)
+                parts = []
+                while remaining:
+                    size = min(remaining, 32768)
+                    part = await self._proc.stdout.readexactly(size)
+                    if self._stopped:
+                        break
+                    remaining -= size
+                    parts.append(part)
+                    del part
+                if self._stopped:
+                    break
+                wire = parts[0] if len(parts) == 1 else b"".join(parts)
+                parts.clear()
+                del parts, header
+                message = self.deserialize_message(wire)
+                del wire
+                self.on_message(message)
+                del message
+            except asyncio.IncompleteReadError:
+                if not self._stopped:
+                    self.on_error_future.set_exception(
+                        Exception("Connection closed while reading from the driver"))
+                break
+            await asyncio.sleep(0)
+        await self._proc.communicate()
+    finally:
+        if not self._stopped_future.done():
+            self._stopped_future.set_result(None)
+
+
+def install():
+    try:
+        from playwright._impl import _transport
+        current = _transport.PipeTransport.run
+    except (ImportError, AttributeError):
+        return "unsupported"
+    if current is run_linear:
+        return "already_applied"
+    try:
+        source = Path(_transport.__file__).read_bytes()
+        method = inspect.getsource(current).encode()
+    except (OSError, TypeError, AttributeError):
+        return "unsupported"
+    if (hashlib.sha256(source).hexdigest() != SOURCE_SHA256
+            or hashlib.sha256(method).hexdigest() != RUN_SHA256
+            or current.__module__ != _transport.__name__):
+        return "unsupported"
+    _transport.PipeTransport.run = run_linear
+    return "applied"
 
 
 if __name__ == "__main__":
+    if os.environ.get("FRAMERIZE_LINEAR_PYTHON_PIPE", "1") == "1":
+        outcome = install()
+        emit("memory.python_pipe", outcome=outcome,
+             level="warn" if outcome == "unsupported" else "info")
     asyncio.run(Host().loop())

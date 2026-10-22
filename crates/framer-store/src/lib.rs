@@ -7,7 +7,7 @@ use async_trait::async_trait;
 use framer_core::account::ManagedAccount;
 use framer_core::ids::{AccountId, FramerUserId};
 use framer_core::port::{Session, SessionStore, StateStore};
-use rusqlite::Connection;
+use rusqlite::{Connection, OptionalExtension};
 use std::sync::Mutex;
 
 const KEYCHAIN_SERVICE: &str = "framerize.session";
@@ -23,6 +23,10 @@ impl SqliteStateStore {
             "CREATE TABLE IF NOT EXISTS accounts (
                 id            TEXT PRIMARY KEY,
                 json          TEXT NOT NULL
+             );
+             CREATE TABLE IF NOT EXISTS settings (
+                key TEXT PRIMARY KEY,
+                value TEXT NOT NULL
              );",
         )
         .map_err(|e| e.to_string())?;
@@ -32,6 +36,20 @@ impl SqliteStateStore {
 
 #[async_trait]
 impl StateStore for SqliteStateStore {
+    async fn setting(&self, key: &str) -> Result<Option<String>, String> {
+        self.conn.lock().map_err(|e| e.to_string())?
+            .query_row("SELECT value FROM settings WHERE key = ?1", [key], |row| row.get(0))
+            .optional().map_err(|e| e.to_string())
+    }
+
+    async fn save_setting(&self, key: &str, value: &str) -> Result<(), String> {
+        self.conn.lock().map_err(|e| e.to_string())?.execute(
+            "INSERT INTO settings (key, value) VALUES (?1, ?2)
+             ON CONFLICT(key) DO UPDATE SET value = excluded.value", (key, value),
+        ).map_err(|e| e.to_string())?;
+        Ok(())
+    }
+
     async fn get(&self, id: AccountId) -> Result<Option<ManagedAccount>, String> {
         let conn = self.conn.lock().unwrap();
         let row: Option<String> = conn

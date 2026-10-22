@@ -88,7 +88,11 @@ async fn relay_mint(session: &Session) -> Result<AiToken, String> {
         .and_then(|s| chrono::DateTime::parse_from_rfc3339(s).ok())
         .map(|d| d.timestamp_millis())
         .ok_or("relay: bad expiresAt")?;
-    Ok(AiToken { bearer, expires_at_ms })
+    let token = AiToken { bearer, expires_at_ms };
+    if !token.usable() {
+        return Err("relay: token is expired or within the refresh window".into());
+    }
+    Ok(token)
 }
 
 // Global per-(session,path) token cache (2026-10-05): the auth endpoints

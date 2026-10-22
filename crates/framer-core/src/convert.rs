@@ -1560,6 +1560,10 @@ pub fn error_json(d: ClientDialect, msg: &str) -> (u16, serde_json::Value) {
             let ut = body.pointer("/error/type").and_then(|m| m.as_str()).unwrap_or("invalid_request_error").to_string();
             (st, um, ut)
         }
+        None if crate::error::AccountCooldown::from_error(msg).is_some() => {
+            let cooldown = crate::error::AccountCooldown::from_error(msg).expect("matched local cooldown");
+            (503, format!("This account is temporarily cooling down. Retry in {} seconds.", cooldown.retry_after_secs), "overloaded_error".to_string())
+        }
         None => {
             let st = if msg.contains("risk-refused") { 403 } else { 500 };
             (st, msg.to_string(), "api_error".to_string())
