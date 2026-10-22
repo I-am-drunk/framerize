@@ -106,7 +106,25 @@ This milestone is built and locally checked, not deployed. No real
 browserless response or whole-service memory saving is established. A fresh
 readiness check refused before staging because one system DNS file changed
 from the saved runtime inventory. The other 2,718 inventory entries match.
-The next step is a narrow runtime-evidence update, then fresh admission and
-the coordinated trial release. Keep normal browser routes, restored cooldowns
-and one account authority. No application rebuild or broad test rerun is needed
-for this runtime-data change.
+The additive R7 release records the current DNS file and keeps every other
+inventory row, application binary and execution control unchanged. Its narrow
+source review is accepted:
+`c2d2c7b3404f96640607b9d8e1efa5812775354dd2570c81e734346fb5179c9c`.
+The original refusal and R6 plan remain preserved.
+
+The concrete R7 plan and its client-check binding are independently accepted.
+Plan-review SHA-256:
+`d841c43c04745e34533ba891f6b805fd239747d16ca5181e4ce04ce2c769705d`.
+Client-review SHA-256:
+`837fb3b3b0e82fa65e4d31c12f46071cc1258b69d03e7c4afc49b456dea21367`.
+
+At 21:18 UTC, fresh read-only admission passed the input checks but refused
+the startup window because four account cooldowns would expire within it.
+The service was not changed. The accepted window remains 440 seconds plus
+the actual 2.5-second settlement; account cooldowns remain untouched.
+Administrator authentication is also required before a service transition.
+
+The next step is fresh admission after the cooldown boundary, then the
+coordinated trial release and one real request. Keep normal browser routes,
+restored cooldowns and one account authority. No application rebuild or
+broad test rerun is needed for this runtime-data change.
