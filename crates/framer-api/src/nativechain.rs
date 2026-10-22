@@ -54,80 +54,13 @@ pub async fn complete_long(
         .map(|d| d.as_secs() ^ ((d.subsec_nanos() as u64) << 20))
         .unwrap_or(0x9e3779b97f4a7c15);
 
-    // Normalize the client's input to an item array (a bare string prompt is
-    // legal Responses input).
-    let mut input_items: Vec<Value> = match &client_payload["input"] {
-        Value::String(s) => vec![json!({
-            "type": "message", "role": "user",
-            "content": [{"type": "input_text", "text": s}],
-        })],
-        Value::Array(a) => a.clone(),
-        _ => Vec::new(),
-    };
-
-    // Namespace backfill (heals sessions poisoned before the verbatim-streaming
-    // fix): the upstream rejects re-sent function_calls missing `namespace`
-    // when the tool lives outside the default namespace ("Missing namespace for
-    // function_call 'spawn_agent'", 2026-10-06). Recover the namespace from the
-    // request's own tool declarations: a `namespace` field on the tool, a
-    // `type:"namespace"` container holding it, or a dotted `ns.name`.
-    let ns_of = {
-        let mut map: std::collections::HashMap<String, String> = std::collections::HashMap::new();
-        if let Some(tools) = client_payload["tools"].as_array() {
-            for t in tools {
-                let ty = t["type"].as_str().unwrap_or_default();
-                if ty == "namespace" {
-                    if let Some(ns) = t["name"].as_str() {
-                        for inner in t["tools"].as_array().into_iter().flatten() {
-                            if let Some(n) = inner["name"].as_str() {
-                                map.insert(n.to_string(), ns.to_string());
-                            }
-                        }
-                    }
-                } else if let Some(n) = t["name"].as_str() {
-                    if let Some(ns) = t["namespace"].as_str() {
-                        map.insert(n.to_string(), ns.to_string());
-                    } else if let Some((ns, _)) = n.split_once('.') {
-                        map.insert(n.rsplit('.').next().unwrap_or(n).to_string(), ns.to_string());
-                    }
-                }
-            }
-        }
-        map
-    };
-    if !ns_of.is_empty() {
-        let mut healed = 0u32;
-        for it in input_items.iter_mut() {
-            let ty = it["type"].as_str().unwrap_or_default();
-            if (ty == "function_call" || ty == "custom_tool_call") && it.get("namespace").is_none() {
-                if let Some(ns) = it["name"].as_str().and_then(|n| ns_of.get(n)) {
-                    it["namespace"] = json!(ns);
-                    healed += 1;
-                }
-            }
-        }
-        if healed > 0 {
-            eprintln!("[nativechain] namespace backfill: healed {healed} call item(s) from tool declarations");
-        }
-    }
+    let mut input_items = prepare_input(&client_payload);
 
     // Per-chunk payload: client verbatim, model normalized, stream off,
     // budget set, proxy-unsupported persistence fields stripped (measured
     // 400s: previous_response_id, store, background).
     let build_payload = |input: &[Value], chunk_budget: u32| {
-        let mut p = client_payload.clone();
-        p["model"] = json!(framer_core::convert::to_openrouter_id(
-            client_payload["model"].as_str().unwrap_or_default()
-        ));
-        p["stream"] = json!(false);
-        p["max_output_tokens"] = json!(chunk_budget.max(16)); // API floor
-        p["input"] = json!(input);
-        for k in ["store", "previous_response_id", "background"] {
-            if let Some(obj) = p.as_object_mut() {
-                obj.remove(k);
-            }
-        }
-        p
+        prepare_payload(&client_payload, input, chunk_budget)
     };
 
     let mut output_items: Vec<Value> = Vec::new();
@@ -554,5 +487,221 @@ async fn stream_chunk(
         usage,
         chunks: 1,
         metered_chunks: 1,
+    })
+}
+
+// Preserve the existing typed-input and namespace normalization.
+pub(crate) fn prepare_input(client_payload: &Value) -> Vec<Value> {
+    // Normalize the client's input to an item array (a bare string prompt is
+    // legal Responses input).
+    let mut input_items: Vec<Value> = match &client_payload["input"] {
+        Value::String(s) => vec![json!({
+            "type": "message", "role": "user",
+            "content": [{"type": "input_text", "text": s}],
+        })],
+        Value::Array(a) => a.clone(),
+        _ => Vec::new(),
+    };
+
+    // Namespace backfill (heals sessions poisoned before the verbatim-streaming
+    // fix): the upstream rejects re-sent function_calls missing `namespace`
+    // when the tool lives outside the default namespace ("Missing namespace for
+    // function_call 'spawn_agent'", 2026-10-06). Recover the namespace from the
+    // request's own tool declarations: a `namespace` field on the tool, a
+    // `type:"namespace"` container holding it, or a dotted `ns.name`.
+    let ns_of = {
+        let mut map: std::collections::HashMap<String, String> = std::collections::HashMap::new();
+        if let Some(tools) = client_payload["tools"].as_array() {
+            for t in tools {
+                let ty = t["type"].as_str().unwrap_or_default();
+                if ty == "namespace" {
+                    if let Some(ns) = t["name"].as_str() {
+                        for inner in t["tools"].as_array().into_iter().flatten() {
+                            if let Some(n) = inner["name"].as_str() {
+                                map.insert(n.to_string(), ns.to_string());
+                            }
+                        }
+                    }
+                } else if let Some(n) = t["name"].as_str() {
+                    if let Some(ns) = t["namespace"].as_str() {
+                        map.insert(n.to_string(), ns.to_string());
+                    } else if let Some((ns, _)) = n.split_once('.') {
+                        map.insert(n.rsplit('.').next().unwrap_or(n).to_string(), ns.to_string());
+                    }
+                }
+            }
+        }
+        map
+    };
+    if !ns_of.is_empty() {
+        let mut healed = 0u32;
+        for it in input_items.iter_mut() {
+            let ty = it["type"].as_str().unwrap_or_default();
+            if (ty == "function_call" || ty == "custom_tool_call") && it.get("namespace").is_none() {
+                if let Some(ns) = it["name"].as_str().and_then(|n| ns_of.get(n)) {
+                    it["namespace"] = json!(ns);
+                    healed += 1;
+                }
+            }
+        }
+        if healed > 0 {
+            eprintln!("[nativechain] namespace backfill: healed {healed} call item(s) from tool declarations");
+        }
+    }
+
+    input_items
+}
+
+// Shared preparation only. Transport and retry policies remain separate.
+pub(crate) fn prepare_payload(client_payload: &Value, input: &[Value], chunk_budget: u32) -> Value {
+    let mut p = client_payload.clone();
+    p["model"] = json!(framer_core::convert::to_openrouter_id(
+        client_payload["model"].as_str().unwrap_or_default()
+    ));
+    p["stream"] = json!(false);
+    p["max_output_tokens"] = json!(chunk_budget.max(16)); // API floor
+    p["input"] = json!(input);
+    for k in ["store", "previous_response_id", "background"] {
+        if let Some(obj) = p.as_object_mut() {
+            obj.remove(k);
+        }
+    }
+    p
+}
+
+/// Both native delivery paths must withhold uncertain executable tool input.
+/// The caller supplies the actual prepared request budget, including its floor.
+#[cfg(feature = "experimental-native")]
+pub(crate) fn responses_tool_output_incomplete(body: &Value, request_budget: u32) -> bool {
+    let contains_call = body["output"].as_array().is_some_and(|items| {
+        items.iter().any(|item| matches!(item["type"].as_str(),
+            Some("function_call") | Some("custom_tool_call")))
+    });
+    let hit_cap = body["status"].as_str() == Some("incomplete")
+        && body["incomplete_details"]["reason"].as_str() == Some("max_output_tokens");
+    contains_call && (hit_cap
+        || body["usage"]["output_tokens"].as_u64().unwrap_or(0) >= u64::from(request_budget))
+}
+
+/// Explicit native Responses chain with shared typed-input/payload preparation.
+/// This entry never enters browser, retry or metered fallback paths.
+#[cfg(feature = "experimental-native")]
+pub async fn complete_long_native(
+    native: &crate::experimental_native::application::NativeInvocation<'_>,
+    project: &ProjectId,
+    client_payload: Value,
+    cfg: &ChainConfig,
+    chat_session: &str,
+    events: Option<&(dyn Fn(ChainEvent) + Send + Sync)>,
+) -> Result<crate::experimental_native::application::NativeChain<AssembledResponses>,
+            crate::experimental_native::application::ApplicationError> {
+    use crate::experimental_native::application::{self, ApplicationError, NativeChain};
+    application::validate_chain(cfg)?;
+    if !client_payload.is_object()
+        || !(client_payload["input"].is_array() || client_payload["input"].is_string()) {
+        return Err(ApplicationError::InvalidRequest("Responses requires string or array input"));
+    }
+    if cfg.chunk_tokens < 16 || cfg.max_total_tokens.is_some_and(|cap| cap < 16) {
+        return Err(ApplicationError::InvalidRequest("Responses chunk budget must reach the API floor"));
+    }
+    let mut input_items = prepare_input(&client_payload);
+    let mut output_items = Vec::new();
+    let mut attempts = Vec::new();
+    let mut resp_id = String::new();
+    let mut created_at = 0u64;
+    let mut last_usage = json!({});
+    let mut last_service_tier = Value::Null;
+    let (mut ptok, mut ctok) = (0u64, 0u64);
+    let mut final_status = String::new();
+    let mut final_incomplete = None;
+    let fast_lane = matches!(
+        client_payload["service_tier"].as_str(),
+        Some("ultrafast") | Some("priority") | Some("fast")
+    );
+    let grow_cap = if fast_lane { 12000 } else { 3000 };
+    let chunk_cap = cfg.chunk_tokens.max(if fast_lane { 4000 } else { 2500 });
+    let mut chunk_tokens = if fast_lane {
+        cfg.chunk_tokens.clamp(1500, grow_cap)
+    } else {
+        cfg.chunk_tokens.min(600)
+    };
+    for i in 0..cfg.max_chunks {
+        let remaining = cfg.max_total_tokens
+            .map(|cap| (cap as u64).saturating_sub(ctok))
+            .unwrap_or(chunk_tokens as u64);
+        let chunk = remaining.min(chunk_tokens as u64).min(chunk_cap as u64) as u32;
+        let payload = prepare_payload(&client_payload, &input_items, chunk);
+        let result = native.json(
+            project, Dialect::OpenRouterResponses, payload, chat_session, i,
+            |body| body.is_object() && body["id"].is_string()
+                && body["output"].is_array()
+                && matches!(body["status"].as_str(), Some("completed") | Some("incomplete"))
+                && body.get("usage").map(|v| v.is_object()).unwrap_or(true),
+        ).await;
+        let (body, metadata) = match result {
+            Ok(value) => value,
+            Err(error) => return Err(error.with_attempts(attempts)),
+        };
+        let elapsed = metadata.elapsed.as_secs_f32().max(0.5);
+        // Complete JSON can still contain a cut-off executable tool input.
+        // A completed label is insufficient at the actual request budget.
+        // Keep this entry's no-retry contract and reject before any event or
+        // output publication, retaining the current and prior attempt evidence.
+        if responses_tool_output_incomplete(&body, chunk.max(16)) {
+            return Err(ApplicationError::InvalidResponse {
+                detail: "tool output completeness is unconfirmed at the request token boundary",
+                metadata,
+                body: body.to_string().into_bytes(),
+            }.with_attempts(attempts));
+        }
+        attempts.push(metadata);
+        let items = body["output"].as_array().expect("validated array").clone();
+        final_status = body["status"].as_str().expect("validated status").to_owned();
+        final_incomplete = body.get("incomplete_details").cloned();
+        if i == 0 {
+            resp_id = body["id"].as_str().expect("validated id").to_owned();
+            created_at = body["created_at"].as_u64().unwrap_or(0);
+        }
+        last_usage = body.get("usage").cloned().unwrap_or_else(|| json!({}));
+        ptok = ptok.max(last_usage["input_tokens"].as_u64().unwrap_or(0));
+        let out_t = last_usage["output_tokens"].as_u64().unwrap_or(0);
+        ctok = ctok.saturating_add(out_t);
+        if !body["service_tier"].is_null() {
+            last_service_tier = body["service_tier"].clone();
+        }
+        let tps = out_t as f32 / elapsed;
+        if tps > 1.0 {
+            chunk_tokens = ((tps * 45.0) as u32).clamp(400, grow_cap);
+        }
+        let hit_cap = final_status == "incomplete"
+            && body["incomplete_details"]["reason"].as_str() == Some("max_output_tokens");
+        let text_output = items.last()
+            .is_some_and(|item| item["type"].as_str() == Some("message"))
+            && items.iter().all(|item| {
+                matches!(item["type"].as_str(), Some("message") | Some("reasoning"))
+            });
+        let remaining = cfg.max_total_tokens
+            .map(|cap| (cap as u64).saturating_sub(ctok));
+        let continues = hit_cap && text_output && i + 1 < cfg.max_chunks
+            && !remaining.is_some_and(|left| left < 16)
+            && !cfg.continue_prompt.is_empty();
+        record_chunk_events(&items, continues, events);
+        merge_items(&mut output_items, items.clone());
+        if !continues { break; }
+        // Only the explicit caller configuration supplies a continuation.
+        input_items.extend(items);
+        input_items.push(json!({
+            "type": "message", "role": "user",
+            "content": [{"type": "input_text", "text": cfg.continue_prompt}],
+        }));
+    }
+    Ok(NativeChain {
+        response: AssembledResponses {
+            id: resp_id, created_at, output: output_items, status: final_status,
+            incomplete_details: final_incomplete, usage: last_usage,
+            service_tier: last_service_tier, input_tokens: ptok, output_tokens: ctok,
+            chunks: attempts.len() as u32, metered_chunks: 0,
+        },
+        attempts,
     })
 }

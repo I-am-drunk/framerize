@@ -18,6 +18,15 @@ use std::net::SocketAddr;
 use std::sync::Arc;
 use tower_http::services::ServeDir;
 
+#[cfg(feature = "native-dispatch")]
+mod native_dispatch;
+#[cfg(feature = "native-dispatch")]
+pub mod native_control;
+#[cfg(feature = "native-dispatch")]
+pub use native_dispatch::http_stream::{with_native_streaming, NativeStreamCompletion,
+    NativeStreamObservers};
+pub mod operation_ownership;
+
 mod serving_accounts;
 mod pool_config;
 mod pool_control;
@@ -28,6 +37,10 @@ use pool_control::{lease_account, RequestResidency};
 
 #[derive(Clone)]
 pub struct AppState {
+    /// Explicit application ownership; no default activation.
+    pub operation_ownership: Option<Arc<operation_ownership::ServingOwnership>>,
+    #[cfg(feature = "native-dispatch")]
+    pub native_dispatch: Option<Arc<dyn framer_core::native_dispatch::InvocationProvider>>,
     pub client: Arc<dyn FramerClient>,
     pub browser: Arc<dyn BrowserBridge>,
     pub sessions: Arc<dyn SessionStore>,
@@ -81,6 +94,9 @@ impl<T> std::future::Future for AbortOnDrop<T> {
 #[path = "stream_ownership_tests.rs"]
 mod stream_ownership_tests;
 
+#[cfg(test)]
+mod permit_lifetime_tests;
+
 /// Keep the producer owned by its response body, including before the first poll.
 fn proxy_response_stream(
     rx: tokio::sync::mpsc::Receiver<Result<framer_core::port::ProxyResponse, String>>,
@@ -124,6 +140,12 @@ fn proxy_response_stream(
 }
 
 pub fn router(state: AppState, web_dir: &str) -> Router {
+    router_with_request_layer(state, web_dir, |router| router)
+}
+
+/// Install application metadata inside the existing owned handler task.
+pub fn router_with_request_layer(state: AppState, web_dir: &str,
+    layer: impl FnOnce(Router) -> Router) -> Router {
     let api = Router::new()
         .route("/health", get(|| async { "ok" }))
         // Claude Code connection-warming probe (gateway protocol: safe to
@@ -177,12 +199,16 @@ pub fn router(state: AppState, web_dir: &str) -> Router {
         .nest("/anthropic", anthropic_paid)
         .nest("/openai", openai_paid);
 
-    Router::new()
+    let router = Router::new()
         .nest("/api", api)
         .nest("/anthropic", anthropic)
         .nest("/openai", openai)
         .nest("/paid", paid)
-        .fallback_service(ServeDir::new(web_dir))
+        .fallback_service(ServeDir::new(web_dir));
+    layer(router)
+        .layer(axum::middleware::from_fn_with_state(
+            state.operation_ownership.clone(), operation_ownership::middleware))
+        // The outer access logger observes ownership refusals as well.
         .layer(axum::middleware::from_fn(access_log))
         // Claude Code sends multi-MB contexts (images, long histories) — axum's
         // 2MB default was 413ing real sessions (2026-10-05).
@@ -197,12 +223,16 @@ async fn access_log(
     req: axum::extract::Request,
     next: axum::middleware::Next,
 ) -> axum::response::Response {
+    #[cfg(test)]
+    let access_capture = req.extensions().get::<operation_ownership::AccessLogCapture>().cloned();
     let method = req.method().as_str().to_string();
     let path = req.uri().path().to_string();
     let t0 = std::time::Instant::now();
     let resp = next.run(req).await;
     let status = resp.status().as_u16();
     if path != "/api/health" {
+        #[cfg(test)]
+        if let Some(capture) = access_capture { capture.0.lock().unwrap().push(status); }
         use framer_core::observability::Event;
         Event::new("http.request")
             .field("method", method)
@@ -228,6 +258,20 @@ pub async fn serve(state: AppState, web_dir: &str, addr: SocketAddr) -> std::io:
 /// Account continuity: clients may pin a conversation with `x-framerize-account`
 /// + `x-framerize-session` headers; otherwise the least-failed eligible account
 ///   and a fresh chat session are used.
+async fn compat_forward_headers(
+    s: AppState,
+    dialect: &'static str,
+    headers: &axum::http::HeaderMap,
+    payload: serde_json::Value,
+) -> Result<axum::response::Response, ApiError> {
+    #[cfg(feature = "native-dispatch")]
+    if s.native_dispatch.is_some() {
+        return Ok(native_dispatch::raw(&s, dialect, headers, payload).await);
+    }
+    compat_forward(s, dialect, hdr(headers, "x-framerize-account"),
+        hdr(headers, "x-framerize-session"), payload).await
+}
+
 async fn compat_forward(
     s: AppState,
     dialect: &'static str,
@@ -284,9 +328,9 @@ async fn compat_forward(
                         snap.available, floor
                     )));
                 }
-                let mut acc2 = account.clone();
-                acc2.credit = Some(snap);
-                let _ = s.state.upsert(&acc2).await;
+                let _ = pipeline::update_account(s.state.as_ref(),
+                    &s.serving_accounts.health_update, &account,
+                    |current| current.credit = Some(snap)).await;
             }
             Err(e) => {
                 // Ledger unreadable: allow if the cached snapshot is above the
@@ -335,7 +379,8 @@ async fn compat_forward(
         let producer_residency = lease_account(&s, account.id).await?;
         current_account(&s, account.id).await?;
         let (tx, rx) = tokio::sync::mpsc::channel::<Result<framer_core::port::ProxyResponse, String>>(1);
-        let handle = AbortOnDrop(tokio::spawn(async move {
+        let handle = AbortOnDrop(operation_ownership::spawn(s.operation_ownership.as_ref(),
+            framer_core::operation_gate::OperationKind::Inference, async move {
             let _producer_permit = producer_permit;
             let producer_residency = Arc::new(producer_residency);
             let r = match current_account(&s2, account2.id).await {
@@ -362,7 +407,7 @@ async fn compat_forward(
                 Err(_) => {}
             }
             let _ = tx.send(r).await;
-        }));
+        }).map_err(|_| ApiError::ServingCapacity("operation admission closed".into()))?);
         let stream = retain_owner(proxy_response_stream(rx, handle), (residency, _permit));
         let mut resp = axum::response::Response::new(axum::body::Body::from_stream(stream));
         resp.headers_mut().insert(
@@ -448,12 +493,12 @@ async fn compat_forward(
     // Non-streaming client + non-SSE upstream (plain JSON): pass through.
     // (Streaming clients returned early above; SSE upstreams aggregate above.)
     use futures::StreamExt;
-    let owner = (residency, _permit);
+    let residency = Arc::new(residency);
+    let observer = residency.clone();
     let stream = upstream.stream.map(move |chunk| {
-        let _ = &owner.1;
-        pool_control::observe_lease_result(&owner.0, chunk)
+        pool_control::observe_lease_result(&observer, chunk)
     });
-    let body = axum::body::Body::from_stream(stream);
+    let body = axum::body::Body::from_stream(retain_owner(stream, (residency, _permit)));
     let mut resp = axum::response::Response::new(body);
     *resp.status_mut() = status;
     resp.headers_mut().insert(
@@ -471,7 +516,9 @@ async fn compat_forward(
 /// Verified event shapes in reference/analysis/verified-captures-2026-10-01.md.
 fn retain_owner<S: futures::Stream, T>(stream: S, owner: T) -> impl futures::Stream<Item = S::Item> {
     use futures::StreamExt;
-    stream.map(move |item| { let _ = &owner; item })
+    futures::stream::unfold((Box::pin(stream), owner), |(mut stream, owner)| async move {
+        stream.next().await.map(|item| (item, (stream, owner)))
+    })
 }
 
 fn aggregate_sse(dialect: &str, body: &str) -> serde_json::Value {
@@ -553,11 +600,10 @@ async fn anthropic_messages(
     if hdr(&headers, "x-framerize-mode").as_deref() != Some("paid") {
         return free_complete(s, &headers, ClientDialect::AnthropicMessages, payload).await;
     }
-    compat_forward(
+    compat_forward_headers(
         s,
         "anthropic-messages",
-        hdr(&headers, "x-framerize-account"),
-        hdr(&headers, "x-framerize-session"),
+        &headers,
         payload,
     )
     .await
@@ -571,11 +617,10 @@ async fn openai_responses(
     if hdr(&headers, "x-framerize-mode").as_deref() != Some("paid") {
         return free_complete(s, &headers, ClientDialect::OpenAiResponses, payload).await;
     }
-    compat_forward(
+    compat_forward_headers(
         s,
         "openai-responses",
-        hdr(&headers, "x-framerize-account"),
-        hdr(&headers, "x-framerize-session"),
+        &headers,
         payload,
     )
     .await
@@ -589,11 +634,10 @@ async fn openai_chat(
     if hdr(&headers, "x-framerize-mode").as_deref() != Some("paid") {
         return free_complete(s, &headers, ClientDialect::OpenAiChat, payload).await;
     }
-    compat_forward(
+    compat_forward_headers(
         s,
         "openrouter-chat",
-        hdr(&headers, "x-framerize-account"),
-        hdr(&headers, "x-framerize-session"),
+        &headers,
         payload,
     )
     .await
@@ -698,10 +742,17 @@ async fn record_account_health<T>(
     account: &framer_core::account::ManagedAccount,
     result: &Result<T, String>,
 ) {
+    let _update = s.serving_accounts.health_update.lock().await;
+    let Ok(Some(current)) = s.state.get(account.id).await else { return; };
+    if current.framer_user_id != account.framer_user_id { return; }
     let now = framer_core::rotation::now_ms();
-    let mut next = account.clone();
+    let mut next = current;
     match result {
         Ok(_) => {
+            // A response admitted before a newer refusal cannot clear it.
+            if next.cooldown_step != account.cooldown_step
+                || next.cooling_until_ms != account.cooling_until_ms
+                || next.consecutive_failures != account.consecutive_failures { return; }
             s.wave.note_success();
             if next.consecutive_failures == 0 && next.cooling_until_ms.is_none() {
                 return; // already clean; skip the write
@@ -724,7 +775,9 @@ async fn record_account_health<T>(
         // (their policy refusal is not the account's health).
         Err(e) if is_castle_refusal(e) => {
             s.wave.note_refusal(&account.id.0.to_string());
+            let previous = next.cooling_until_ms.unwrap_or(0);
             next.note_risk_refused(now);
+            next.cooling_until_ms = Some(previous.max(next.cooling_until_ms.unwrap_or(0)));
             eprintln!(
                 "[health] {}: risk-refused -> cooling {}ms (step {})",
                 &next.id.0.to_string()[..8],
@@ -776,6 +829,10 @@ async fn free_complete(
     dialect: ClientDialect,
     payload: serde_json::Value,
 ) -> Result<axum::response::Response, ApiError> {
+    #[cfg(feature = "native-dispatch")]
+    if s.native_dispatch.is_some() {
+        return Ok(native_dispatch::chain(&s, headers, dialect, payload).await);
+    }
     let mut payload = payload;
     // T3 ultrafast variants (compat/t3/ultrafast): a model id ending in
     // "-ultrafast" strips to the base model and rides upstream with
@@ -812,11 +869,10 @@ async fn free_complete(
             // unavailable unless the operator explicitly opts into spend.
             if std::env::var("FRAMERIZE_ALLOW_METERED").map(|v| v == "1").unwrap_or(false) {
                 if dialect == ClientDialect::OpenAiResponses {
-                    return compat_forward(
+                    return compat_forward_headers(
                         s,
                         "openai-responses",
-                        hdr(headers, "x-framerize-account"),
-                        hdr(headers, "x-framerize-session"),
+                        headers,
                         payload,
                     )
                     .await;
@@ -923,7 +979,8 @@ async fn free_complete(
         let log_model = anthro_model_for_log(dialect, &payload);
         // The task owns the first permit and reacquires for each replacement
         // account using that attempt's actual workspace and model.
-        let handle = AbortOnDrop(tokio::spawn(async move {
+        let handle = AbortOnDrop(operation_ownership::spawn(s.operation_ownership.as_ref(),
+            framer_core::operation_gate::OperationKind::Inference, async move {
             let t0 = std::time::Instant::now();
             // Tracks whether any CONTENT ever reached the stream: a chain that
             // dies before its first chunk can be silently restarted on a fresh
@@ -1032,7 +1089,7 @@ async fn free_complete(
                 ev.emit();
             }
             result
-        }));
+        }).map_err(|_| ApiError::ServingCapacity("operation admission closed".into()))?);
 
         let open_frames = convert::stream_open(dialect, &client_model, &msg_id);
         let composer = convert::SseComposer::new_with_custom(dialect, &msg_id, &client_model, custom_tools.clone());
@@ -1280,6 +1337,31 @@ async fn free_complete(
 /// run the responses-native chain verbatim; chat clients map thinly onto it.
 /// No Anthropic conversion for OpenAI clients — tools, reasoning items,
 /// service tiers, and ids all survive by construction.
+fn prepare_native_payload(dialect: ClientDialect, payload: Value) -> Result<Value, String> {
+    let mut native_payload = if dialect == ClientDialect::OpenAiChat {
+        convert::chat_to_responses_request(&payload)?
+    } else {
+        payload
+    };
+    // The split-writes rule (same as the anthro chain): with tools present,
+    // tell the model to chunk big writes — the strongest mid-call-cut
+    // prevention there is.
+    let has_tools = native_payload["tools"].as_array().map(|a| !a.is_empty()).unwrap_or(false);
+    if has_tools {
+        let note = "When using tools to write or edit files, split large writes: at most ~40 lines per tool call, then append the next section with a separate call, and repeat until done.";
+        match native_payload["instructions"].as_str() {
+            Some(existing) if !existing.is_empty() => {
+                native_payload["instructions"] = serde_json::Value::String(format!("{existing}\n\n{note}"));
+            }
+            _ => {
+                native_payload["instructions"] = serde_json::Value::String(note.into());
+            }
+        }
+    }
+
+    Ok(native_payload)
+}
+
 async fn native_complete(
     s: AppState,
     headers: &axum::http::HeaderMap,
@@ -1371,7 +1453,8 @@ async fn native_complete(
         let mut chat_session2 = chat_session.clone();
         let explicit_chat_session = hdr(headers, "x-framerize-session");
         let log_model = gate_model.clone();
-        let handle = AbortOnDrop(tokio::spawn(async move {
+        let handle = AbortOnDrop(operation_ownership::spawn(s.operation_ownership.as_ref(),
+            framer_core::operation_gate::OperationKind::Inference, async move {
             let t0 = std::time::Instant::now();
             let emitted_content = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
             let ec2 = emitted_content.clone();
@@ -1472,7 +1555,7 @@ async fn native_complete(
             };
             ev.emit();
             result
-        }));
+        }).map_err(|_| ApiError::ServingCapacity("operation admission closed".into()))?);
 
         let open_frames = convert::stream_open(dialect, &client_model, &logical_id);
         let stream = futures::stream::unfold(
@@ -1714,11 +1797,10 @@ async fn anthropic_messages_paid(
     headers: axum::http::HeaderMap,
     Json(payload): Json<serde_json::Value>,
 ) -> Result<axum::response::Response, ApiError> {
-    compat_forward(
+    compat_forward_headers(
         s,
         "anthropic-messages",
-        hdr(&headers, "x-framerize-account"),
-        hdr(&headers, "x-framerize-session"),
+        &headers,
         payload,
     )
     .await
@@ -1729,11 +1811,10 @@ async fn openai_responses_paid(
     headers: axum::http::HeaderMap,
     Json(payload): Json<serde_json::Value>,
 ) -> Result<axum::response::Response, ApiError> {
-    compat_forward(
+    compat_forward_headers(
         s,
         "openai-responses",
-        hdr(&headers, "x-framerize-account"),
-        hdr(&headers, "x-framerize-session"),
+        &headers,
         payload,
     )
     .await
@@ -1744,11 +1825,10 @@ async fn openai_chat_paid(
     headers: axum::http::HeaderMap,
     Json(payload): Json<serde_json::Value>,
 ) -> Result<axum::response::Response, ApiError> {
-    compat_forward(
+    compat_forward_headers(
         s,
         "openrouter-chat",
-        hdr(&headers, "x-framerize-account"),
-        hdr(&headers, "x-framerize-session"),
+        &headers,
         payload,
     )
     .await
@@ -1776,6 +1856,7 @@ async fn populate_extra_scopes(
         browser: s.browser.as_ref(),
         sessions: s.sessions.as_ref(),
         state: s.state.as_ref(),
+        account_updates: &s.serving_accounts.health_update,
     };
     let credited = match framer_core::credits::scan_workspaces(&deps, session).await {
         Ok(c) => c,
@@ -2225,6 +2306,7 @@ async fn complete_login(
         browser: s.browser.as_ref(),
         sessions: s.sessions.as_ref(),
         state: s.state.as_ref(),
+        account_updates: &s.serving_accounts.health_update,
     };
     let claimed = claimed_workspaces(&s, account.id).await?;
     let admission =
@@ -2411,6 +2493,7 @@ async fn import_account(
             browser: s.browser.as_ref(),
             sessions: s.sessions.as_ref(),
             state: s.state.as_ref(),
+            account_updates: &s.serving_accounts.health_update,
         };
         let claimed = claimed_workspaces(&s, account.id).await?;
         if let Err(e) =
@@ -2469,7 +2552,8 @@ async fn import_account(
         let browser = s.browser.clone();
         let state = s.clone();
         let id = body.account_id;
-        tokio::spawn(async move {
+        let prewarm = operation_ownership::spawn(s.operation_ownership.as_ref(),
+            framer_core::operation_gate::OperationKind::Background, async move {
             let Ok(_lease) = lease_account(&state, id).await else { return; };
             if current_account(&state, id).await.is_err() { return; }
             let t0 = std::time::Instant::now();
@@ -2480,6 +2564,11 @@ async fn import_account(
                 .outcome(if r.is_ok() { "ok" } else { "error" })
                 .emit();
         });
+        if prewarm.is_err() {
+            framer_core::observability::Event::new("account.prewarm")
+                .account(&id).outcome("deferred")
+                .field("reason", "ownership_admission").emit();
+        }
     }
     Ok(Json(serde_json::json!({
         "status": "imported",
@@ -2514,6 +2603,7 @@ async fn run(
         browser: s.browser.as_ref(),
         sessions: s.sessions.as_ref(),
         state: s.state.as_ref(),
+        account_updates: &s.serving_accounts.health_update,
     };
     // The agent route (/ai/v3/openai/responses/) takes UNPREFIXED model ids —
     // "openai/gpt-4.1" gets 400 "model pricing is not configured" (observed).

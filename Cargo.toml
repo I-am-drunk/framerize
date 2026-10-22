@@ -7,6 +7,7 @@ members = [
     "crates/framer-server",
     "crates/framer-host",
     "crates/framerize",
+    "crates/offline-worker-owner",
 ]
 
 [workspace.package]

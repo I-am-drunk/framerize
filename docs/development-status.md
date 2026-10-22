@@ -33,6 +33,16 @@ checked offline during publication, without importing or running the host.
 
 ## Browserless progress and limits
 
+This branch now contains the accepted `offline-client-routing-r8` source.
+All 282 original source hashes were verified on import. The new repository
+instructions were retained instead of restoring the old `AGENTS.md`.
+Source-review hash:
+`4df30f4e178e984cb4cb8ed14e26bc9a8c683891c48ff73149fce43a62ab1f5b`.
+Saved routing-results review hash:
+`0f89cb75beb5dc95e75c8066dbd1036a8acea6dd256d0fe3889437fd5c2b379a`.
+These are reused results for the original source, not a fresh Git checkout
+build or a deployment. Some isolated worker fixtures still name local paths.
+
 The earlier serving foundation passed 882 component cases. Later focused
 routing validation passed 49 API cases and 38 application cases, with 67
 application cases filtered out. The routing binary is built and undeployed.

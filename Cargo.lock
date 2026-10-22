@@ -471,13 +471,16 @@ dependencies = [
 name = "framer-server"
 version = "0.1.0"
 dependencies = [
+ "async-trait",
  "axum",
  "bytes",
  "framer-core",
  "futures",
+ "http-body",
  "serde",
  "serde_json",
  "tokio",
+ "tower",
  "tower-http",
  "tracing",
  "uuid",
@@ -498,16 +501,34 @@ dependencies = [
 name = "framerize"
 version = "0.1.0"
 dependencies = [
+ "async-trait",
+ "axum",
  "clap",
  "framer-api",
  "framer-core",
  "framer-host",
  "framer-server",
  "framer-store",
+ "futures",
+ "libc",
+ "offline-worker-owner",
  "reqwest",
+ "serde",
  "serde_json",
  "tokio",
+ "tower",
  "uuid",
+]
+
+[[package]]
+name = "offline-worker-owner"
+version = "0.1.0"
+dependencies = [
+ "futures",
+ "libc",
+ "serde_json",
+ "sha2",
+ "tokio",
 ]
 
 [[package]]
@@ -1526,6 +1547,17 @@ dependencies = [
  "itoa",
  "ryu",
  "serde",
+]
+
+[[package]]
+name = "sha2"
+version = "0.10.9"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a7507d819769d01a365ab707794a4084392c824f54a7a6a7862f8c3d0892b283"
+dependencies = [
+ "cfg-if",
+ "cpufeatures",
+ "digest",
 ]
 
 [[package]]

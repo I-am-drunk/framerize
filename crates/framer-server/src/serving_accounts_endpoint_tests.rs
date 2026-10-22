@@ -167,6 +167,9 @@ fn fixture(import: bool) -> (AppState, Arc<FixturePorts>) {
         state_writes: AtomicUsize::new(0),
     });
     let state = AppState {
+        operation_ownership: None,
+        #[cfg(feature = "native-dispatch")]
+        native_dispatch: None,
         client: ports.clone(), browser: ports.clone(), sessions: ports.clone(), state: ports.clone(),
         gate: Arc::new(framer_core::gate::ConcurrencyGate::new()),
         wave: Arc::new(framer_core::wave::WaveGuard::new()),
@@ -468,5 +471,37 @@ async fn parked_import_preserves_session_and_proxy_without_browser_work() {
     assert_eq!(records[1].id, account(2).id);
     assert_eq!(records[1].castle_device_id, account(2).castle_device_id);
     assert_eq!(records[1].proxy.as_deref(), Some(proxy));
+    assert_eq!(records[1].current_project, account(2).current_project);
+}
+
+#[tokio::test(flavor = "current_thread")]
+async fn import_succeeds_when_optional_prewarm_registration_has_no_capacity() {
+    use tower::ServiceExt;
+    use axum::{body::{Body, to_bytes}, http::Request};
+    let (mut state, ports) = fixture(true);
+    state.serving_accounts = Arc::new(policy(&[1, 2]));
+    // Exactly host + whole-handler ownership fit; optional child cannot fit.
+    state = crate::operation_ownership::with_owned_operations(state, 2).unwrap();
+    let before = serde_json::to_value(&ports.records.lock().unwrap()[0]).unwrap();
+    let request = Request::builder().method("POST").uri("/api/accounts/import")
+        .header("content-type", "application/json")
+        .body(Body::from(json!({"account_id":account(2).id,
+            "session_cookie":"fixture-only","team_id":"team-2"}).to_string())).unwrap();
+    let response = tokio::time::timeout(std::time::Duration::from_secs(3),
+        crate::router(state, "/nonexistent-fixture-web").oneshot(request)).await.unwrap().unwrap();
+    assert_eq!(response.status(), 200);
+    let body: Value = serde_json::from_slice(&to_bytes(response.into_body(), 4096).await.unwrap()).unwrap();
+    assert_eq!(body["status"], "imported");
+    assert_eq!(body["serving_allowed"], true);
+    assert_eq!(ports.browser_calls.load(Ordering::SeqCst), 0);
+    assert_eq!(*ports.registered_proxies.lock().unwrap(), vec![(account(2).id, account(2).proxy)]);
+    assert_eq!(ports.session_calls.load(Ordering::SeqCst), 1);
+    assert!(ports.state_writes.load(Ordering::SeqCst) > 0);
+    let saved = ports.saved.lock().unwrap();
+    assert_eq!(saved.len(), 1);
+    assert_eq!(saved[0].active_user.0, "user-2");
+    let records = ports.records.lock().unwrap();
+    assert_eq!(serde_json::to_value(&records[0]).unwrap(), before);
+    assert_eq!(records[1].framer_user_id.0, "user-2");
     assert_eq!(records[1].current_project, account(2).current_project);
 }

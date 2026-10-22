@@ -72,6 +72,17 @@ pub fn primary() -> impl Iterator<Item = &'static Route> {
     ALL.iter().copied().filter(|r| r.primary)
 }
 
+/// Supported inference routes, independently of drift-canary selection.
+pub fn inference() -> impl Iterator<Item = &'static Route> {
+    [
+        &openrouter_messages::ROUTE,
+        &openrouter_chat::ROUTE,
+        &openrouter_responses::ROUTE,
+        &direct_responses::ROUTE,
+        &direct_anthropic::ROUTE,
+    ].into_iter()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

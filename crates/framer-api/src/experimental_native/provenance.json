@@ -1,0 +1,248 @@
+{
+  "schema": 3,
+  "prepared_at": "2026-10-20T17:43:43.267001+00:00",
+  "status": "source_only_uncompiled_unrun",
+  "source_paths_relative_to": "investigation workspace",
+  "destination_paths_relative_to": "package-next-r4/source",
+  "pinned_inputs": {
+    "inputs-package-compile-r3.json": "b8e98d706886ab1237dde34af94671b2a7c972d5b3c96e34760654df245d7d08",
+    "package-baseline-r3/snapshot.json": "4e49aa22496ad0a1b4d815bc4ee2da09045dc888085e7e1f6b4a0edb5c6aa9fb",
+    "downstream-owner/bridge.rs": "0e488c1b9d4f3b5289eb5711b8421619c082167e5dce7b56c05c115962b7584a",
+    "native-account/client.rs": "09cdb4b5e8b7e3f6220ba2f5f6f926289abd070cb26c5aec87bf3a2eab3a9fde"
+  },
+  "feature": "experimental-native",
+  "feature_default_enabled": false,
+  "dependency_changes": [],
+  "production_dispatch_changes": [],
+  "test_only_deletions": [],
+  "root_alias_additions": [],
+  "unchanged_files": [
+    {
+      "path": "crates/framer-api/Cargo.toml",
+      "sha256": "98b320df1e6461f36119d938eb48b72ac24841c9bd81b4841d6fb58364673d1e"
+    },
+    {
+      "path": "crates/framer-api/src/auth.rs",
+      "sha256": "80c17510696cb99555950de72ed15ba102c61d9d2991493ed68c768da2d7bf04"
+    },
+    {
+      "path": "crates/framer-api/src/browser_lease_tests.rs",
+      "sha256": "ab4adccf9de22f914084cbacff0b10a63d6351e8525550cbc77c7c8193006f22"
+    },
+    {
+      "path": "crates/framer-api/src/castle.rs",
+      "sha256": "435743bd88e8767b682c25d10e4e3297a53c284edc1144b89a8a3d0f30cf9117"
+    },
+    {
+      "path": "crates/framer-api/src/classify.rs",
+      "sha256": "65ed644807a316d920c75d249b347b2d6349fa863e91fada5bc5a8026383154d"
+    },
+    {
+      "path": "crates/framer-api/src/credits.rs",
+      "sha256": "922d2b0eed57f35b9675697b7b9312b93a876e07f3ba9fd025fe1721cf9e014b"
+    },
+    {
+      "path": "crates/framer-api/src/experimental_native/closure.rs",
+      "sha256": "ffedced36ecd05f1cf9817e3e0774821df3ba27406d1928f372f199eb8ffe9ca"
+    },
+    {
+      "path": "crates/framer-api/src/experimental_native/consumer.rs",
+      "sha256": "718d5a73a45b7bbe3176ad67e3c178c623a99eb8c6671e5b872a987c7831791a"
+    },
+    {
+      "path": "crates/framer-api/src/experimental_native/fixture_body.rs",
+      "sha256": "2d0b64f695c0cafa4f2456a4987d9a98dcee91c7eceb9420cc739075c9798cf0"
+    },
+    {
+      "path": "crates/framer-api/src/experimental_native/legacy_framing.rs",
+      "sha256": "4fe2f67c0216daa74bf862846f66fb13d21419099f46a3f5672031fdb2fad192"
+    },
+    {
+      "path": "crates/framer-api/src/experimental_native/native_http.rs",
+      "sha256": "b313e22fda553cf1e6cfecb3989292884bfd44aa18cce04ca7733b33c4bdb190"
+    },
+    {
+      "path": "crates/framer-api/src/experimental_native/native_owner.rs",
+      "sha256": "e76c206682e757efe89af6853c9648357749bc49df5c769d0426dc25d3341f54"
+    },
+    {
+      "path": "crates/framer-api/src/experimental_native/response_adapter.rs",
+      "sha256": "3cf52b9660eef3ef3c56da189e306eac5e72148c87eaf94497c29a491131a88f"
+    },
+    {
+      "path": "crates/framer-api/src/experimental_native/sse_decoder.rs",
+      "sha256": "2c3b611d07d5eabccc0b0d396ab5341642b9f6860c0d747bfe681513e01b31f0"
+    },
+    {
+      "path": "crates/framer-api/src/experimental_native/sse_decoder_tests.rs",
+      "sha256": "411c235d27d0eef983c36d44e6fe9d710f525e60e7ee836cb7c50800659f901f"
+    },
+    {
+      "path": "crates/framer-api/src/experimental_native/terminal_response.rs",
+      "sha256": "5f20375c0f15613d042ae37971442bc5dbe518a05054eaaa60c80fd3a986fb37"
+    },
+    {
+      "path": "crates/framer-api/src/freechat.rs",
+      "sha256": "c8799a007c20f3cc8bc57e6b8afad03a9de6b1e67ac517dd07f46229ee48cf18"
+    },
+    {
+      "path": "crates/framer-api/src/inference.rs",
+      "sha256": "388455b012c5d25726ff12fc3322753d815a0d9c02b9b0f6c50c58c24f181bf4"
+    },
+    {
+      "path": "crates/framer-api/src/lib.rs",
+      "sha256": "0295a0bb3e1d1bc23c40d32f8f1f66ae7b899f99a5a32ad53398c6aee8b9ef8c"
+    },
+    {
+      "path": "crates/framer-api/src/login.rs",
+      "sha256": "3d59645f96249ce4621e2111ded6da71994596096dde429fa5ab2c6b4ad318c8"
+    },
+    {
+      "path": "crates/framer-api/src/models.rs",
+      "sha256": "4150ed99e292a2d3b665989c88563e7868843dfc8794b82283720a40637795a9"
+    },
+    {
+      "path": "crates/framer-api/src/native_http.rs",
+      "sha256": "36bbdcf2d71198fc67536ddf190c4268095d28dee71f3313dd0cb3d3034190d3"
+    },
+    {
+      "path": "crates/framer-api/src/nativechain.rs",
+      "sha256": "a9111618b0a63ce6a91f589125c45e6496d4ce6875ca37886a9900627dfb1163"
+    },
+    {
+      "path": "crates/framer-api/src/provision.rs",
+      "sha256": "5538e1705a8be3591189ce4054ed87ec94942b36905019633b29cb6ae67a4538"
+    },
+    {
+      "path": "crates/framer-api/src/proxy.rs",
+      "sha256": "c21a09d3942c0b79bbffa4d1b4443a19162591baa0da07073992cccd004b1527"
+    },
+    {
+      "path": "crates/framer-api/src/routes/direct_anthropic.rs",
+      "sha256": "25027a5271a8102e1b0160d4c2dbdbc8070efc582c118097ef9db1635b3cfc35"
+    },
+    {
+      "path": "crates/framer-api/src/routes/direct_responses.rs",
+      "sha256": "853505f73ed15f36faf1bdbe09445ff8b900411106893798e4b7be3a78b68eff"
+    },
+    {
+      "path": "crates/framer-api/src/routes/fetch.rs",
+      "sha256": "85557a8b48c447d4722d00b4a741c1d7f57e977a5878bfaa5520574d6580e8b9"
+    },
+    {
+      "path": "crates/framer-api/src/routes/mod.rs",
+      "sha256": "d24260f094f27056f8f892d94c69ea0c73783f0675b595bd09702df43d2e934b"
+    },
+    {
+      "path": "crates/framer-api/src/routes/openrouter_chat.rs",
+      "sha256": "f68b7e0d2ef4bafd8373f5d46b9e191c6ee2fc9bb5204e6cb141a0fb07f7510a"
+    },
+    {
+      "path": "crates/framer-api/src/routes/openrouter_messages.rs",
+      "sha256": "ca5534b1a07cd0c4695d3389753f4db3781d4011aeaabfd02ddce3ab9d3a5d12"
+    },
+    {
+      "path": "crates/framer-api/src/routes/openrouter_responses.rs",
+      "sha256": "f87a614190def34724ad3498ba80e29626fc9de2e7b8d513ec0fdb115175e276"
+    },
+    {
+      "path": "crates/framer-api/src/routes/refund.rs",
+      "sha256": "57d837d265ef940c1dbaf0a7bbff4c7106d12a6c6f2b8303f96ab18bd6e9be42"
+    },
+    {
+      "path": "crates/framer-api/src/transport.rs",
+      "sha256": "74609a15b14249d8c3fa3fb252c8c6f9e21b1b5ce70ce7c14b604f82df7a8210"
+    },
+    {
+      "path": "crates/framer-api/src/workspace.rs",
+      "sha256": "56cb0864a4a64b646f7f5d1deec1104ecfdc8c85a2dc0e1815339ea1e259cf0e"
+    }
+  ],
+  "new_modules": [
+    {
+      "source": "investigation/browserless-resume-20261020/downstream-owner/bridge.rs",
+      "source_sha256": "0e488c1b9d4f3b5289eb5711b8421619c082167e5dce7b56c05c115962b7584a",
+      "destination": "crates/framer-api/src/experimental_native/downstream_owner.rs",
+      "destination_sha256": "d8116198376a8c7659e6a547ff1bbed8dd929af5b969f95684e38a2600fbb361",
+      "replacements": [
+        {
+          "from": "use crate::consumer::",
+          "to": "use super::consumer::",
+          "count": 1
+        },
+        {
+          "from": "use crate::native_http::",
+          "to": "use super::native_http::",
+          "count": 1
+        },
+        {
+          "from": "use crate::native_owner::",
+          "to": "use super::native_owner::",
+          "count": 1
+        },
+        {
+          "from": "use crate::response_owned::",
+          "to": "use super::response_adapter::",
+          "count": 1
+        },
+        {
+          "from": "use crate::terminal_response::",
+          "to": "use super::terminal_response::",
+          "count": 1
+        }
+      ],
+      "deleted_ranges": []
+    },
+    {
+      "source": "investigation/browserless-resume-20261020/native-account/client.rs",
+      "source_sha256": "09cdb4b5e8b7e3f6220ba2f5f6f926289abd070cb26c5aec87bf3a2eab3a9fde",
+      "destination": "crates/framer-api/src/experimental_native/native_account.rs",
+      "destination_sha256": "36edea6b5de8149ee39900539be879e668e25275e2a7af11b2812607e8908b4f",
+      "replacements": [
+        {
+          "from": "use crate::downstream_owner::",
+          "to": "use super::downstream_owner::",
+          "count": 1
+        },
+        {
+          "from": "use crate::native_http::",
+          "to": "use super::native_http::",
+          "count": 1
+        },
+        {
+          "from": "crate::native_owner::",
+          "to": "super::native_owner::",
+          "count": 2
+        }
+      ],
+      "deleted_ranges": []
+    }
+  ],
+  "existing_code_changes": [
+    {
+      "path": "crates/framer-api/src/experimental_native/mod.rs",
+      "source_sha256": "5f690d2de8011347296ca78132966488d84a491c022eb27241e5ca3aa780807a",
+      "destination_sha256": "89f8f11e7a709d97e3595c3f219ea8654926f37b942d455e350032021d93cbae",
+      "replacements": [
+        {
+          "from": "pub mod consumer;\n",
+          "to": "pub mod consumer;\npub mod downstream_owner;\npub mod native_account;\n",
+          "count": 1
+        }
+      ]
+    }
+  ],
+  "documentation_changes": {
+    "README.md": {
+      "source_template": "package-next-r4/module-readme.md",
+      "sha256": "1ac1d5fb0e082682a1e6717992b700d0cf6456b89f920003fa847293ef183058"
+    },
+    "provenance.json": "This file replaces the r3 provenance; original preserved in evidence."
+  },
+  "limits": [
+    "Crate-source overlay, not a standalone Cargo workspace.",
+    "New account and bridge source candidates remain uncompiled and unrun.",
+    "Earlier 177 cases and package-r3 metadata checks are separate evidence.",
+    "Application dispatch, live acceptance and production memory goals remain open."
+  ]
+}
