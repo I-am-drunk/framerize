@@ -66,6 +66,12 @@ The transition must still observe fresh zero active work and zero ingress
 before capturing state. Preserve a refused execution and arrange a separate
 coordinated attempt instead of weakening those checks or overwriting evidence.
 
+Account selection must also remain stable over the accepted startup interval.
+A quiet client window does not clear cooldowns or replace that requirement.
+Use the recorded expiry times to choose the next attempt, then let the
+launcher check current state again. Keep original cooldown timestamps and
+the same shared account authority throughout the transition.
+
 The optional request observer wraps the existing client checker, verified by
 its exact source hash. It samples the shared service's memory during that same
 request and retains measurements on failure. It neither owns accounts nor

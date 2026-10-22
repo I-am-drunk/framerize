@@ -152,6 +152,16 @@ file pins. Only provenance, review paths and generated launch paths change.
 It reuses the original transition and checker results. R8 has not been
 deployed, and preparing it does not establish present admission.
 
+The final R8 plan and client R5 binding are independently accepted. Their
+review hashes are `f8303fe1b25f15842c1d533d119586f2f7f14a5c5b71019e270e46d331cc37f6`
+and `f537162f79c757bbee99158754b63d915723df4d7cb5b1778bd234b6df71f53e`.
+The four client source entries match their seal. The collected R8 readiness
+sample refused before any service change because cooldown expiries fell
+inside the startup interval. At 22:49 UTC, the last relevant expiry was
+about eight minutes away if no new cooldown appeared. The next runtime step
+is a fresh check after that boundary, followed by coordinated quiet time
+and one reviewed launch. The 16-token request is already prepared privately.
+
 The next live milestone remains a coordinated trial release, followed by
 one real request with fresh account checks. This dependency belongs to the
 live step; it does not stop the wider engineering goal.
