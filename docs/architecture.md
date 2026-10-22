@@ -52,6 +52,13 @@ The generated host package installs the native device adapter after the
 existing restoration hook. A base embedded host alone does not provide this
 integration; native configuration remains an explicit deployment choice.
 
+The first trial enables `/api/offline/complete` in that same daemon. Ordinary
+inference routes keep the browser provider. The trial receives explicit
+request context and returns a completed response only after native cleanup.
+Enabling its worker configuration does not switch the normal routing policy.
+This lets one real request exercise the shared ownership without running a
+second account authority or sending duplicate traffic.
+
 ## Moving the default
 
 Keep normal browser serving available throughout development. Before moving

@@ -93,9 +93,20 @@ Corrected integrated result SHA-256:
 Source-review SHA-256:
 `23b897870d6b39837d7b2d7d025d2f6ae2fe69936f6a59b62907bc82ddca8232`.
 
-This milestone is built and locally checked, not deployed. Independent review
-of the corrected evidence and its release binding is pending. No real
-browserless response or whole-service memory saving is established. Next:
-complete the coordinated release preparation for one bounded request through
-the shared daemon's explicit trial endpoint. Keep normal browser routes,
-restored cooldowns and one account authority throughout that trial.
+Independent review now accepts the corrected build evidence and the R6
+release source and evidence bindings. The acceptance hashes are
+`8b7ea21ccd4cb84b3751a167a7beaa6430c57bcfddaddf47ac0411e044dcb7a4`
+and `6b25c5ebb383673825b96477ddbd9fd2deacb2ac9853d7c74121cd2cc5638640`.
+The concrete R6 plan and its single-request checker are independently accepted
+within their source and evidence scopes. The checker uses that plan and the
+corrected executable. Only its three release constants changed. The accepted
+framing logic and original 16-case evidence are reused without another test run.
+
+This milestone is built and locally checked, not deployed. No real
+browserless response or whole-service memory saving is established. A fresh
+readiness check refused before staging because one system DNS file changed
+from the saved runtime inventory. The other 2,718 inventory entries match.
+The next step is a narrow runtime-evidence update, then fresh admission and
+the coordinated trial release. Keep normal browser routes, restored cooldowns
+and one account authority. No application rebuild or broad test rerun is needed
+for this runtime-data change.
