@@ -28,6 +28,13 @@ use tokio::sync::{mpsc, oneshot, Mutex};
 type PendingReplies =
     Arc<StdMutex<HashMap<u64, oneshot::Sender<Result<Value, String>>>>>;
 
+#[path = "sidecar_observer.rs"]
+pub mod observer;
+#[path = "sidecar_retirement.rs"]
+pub mod retirement;
+#[path = "sidecar_tasks.rs"]
+mod tasks;
+
 struct PendingCall {
     id: u64,
     pending: PendingReplies,
@@ -36,7 +43,8 @@ struct PendingCall {
 
 impl Drop for PendingCall {
     fn drop(&mut self) {
-        if self.pending.lock().unwrap().remove(&self.id).is_some() {
+        if self.pending.lock().unwrap_or_else(std::sync::PoisonError::into_inner)
+            .remove(&self.id).is_some() {
             // A dropped or timed-out caller must release its reply slot and
             // ask the browser host to cancel the abandoned work.
             let _ = self.cancel.try_send(self.id);
@@ -45,7 +53,7 @@ impl Drop for PendingCall {
 }
 
 fn fail_pending(pending: &PendingReplies, message: &str) {
-    for (_, tx) in pending.lock().unwrap().drain() {
+    for (_, tx) in pending.lock().unwrap_or_else(std::sync::PoisonError::into_inner).drain() {
         let _ = tx.send(Err(message.to_owned()));
     }
 }
@@ -95,8 +103,19 @@ async fn write_owned_command<W>(
 where
     W: AsyncWrite + Unpin + Send + 'static,
 {
+    write_registered_command(stdin, fields, None).await
+}
+
+async fn write_registered_command<W>(
+    stdin: Arc<Mutex<W>>,
+    fields: Value,
+    owner: Option<&Arc<tasks::TransportTasks>>,
+) -> std::io::Result<()>
+where
+    W: AsyncWrite + Unpin + Send + 'static,
+{
     let (mut completed, received) = oneshot::channel();
-    tokio::spawn(async move {
+    tasks::launch(owner, async move {
         let mut writer = tokio::select! {
             biased;
             _ = completed.closed() => return,
@@ -111,7 +130,7 @@ where
         let result = write_command(&mut *writer, fields).await;
         drop(writer);
         let _ = completed.send(result);
-    });
+    }).await.map_err(|error| std::io::Error::new(std::io::ErrorKind::BrokenPipe, error))?;
     received.await.unwrap_or_else(|_| {
         Err(std::io::Error::new(
             std::io::ErrorKind::BrokenPipe,
@@ -144,7 +163,15 @@ mod deadline_tests;
 #[path = "sidecar_proxy_tests.rs"]
 mod proxy_tests;
 
+#[cfg(test)]
+#[path = "sidecar_pool_merge_tests.rs"]
+mod pool_merge_tests;
+
 pub struct SidecarBridge {
+    retirement: Option<Arc<retirement::AdmissionBoundary>>,
+    transport_tasks: Option<Arc<tasks::TransportTasks>>,
+    mode: observer::ProcessMode,
+    observed: std::sync::OnceLock<Arc<observer::Registry>>,
     state_root: PathBuf,
     inner: Mutex<Option<Sidecar>>,
     routes: Mutex<HashMap<AccountId, Arc<Mutex<ProxyState>>>>,
@@ -155,16 +182,24 @@ pub struct SidecarBridge {
 }
 
 struct Sidecar {
+    capability: Arc<Mutex<Option<Result<(), observer::ObserverError>>>>,
+    healthy: Arc<std::sync::atomic::AtomicBool>,
+    incarnation: uuid::Uuid,
+    events: tokio::sync::broadcast::Sender<observer::RemoteEvent>,
     child: Child,
     stdin: Arc<Mutex<tokio::process::ChildStdin>>,
     pending: PendingReplies,
     cancel: mpsc::Sender<u64>,
-    next_id: AtomicU64,
+    next_id: Arc<AtomicU64>,
 }
 
 impl SidecarBridge {
     pub fn new(state_root: impl Into<PathBuf>) -> Self {
         Self {
+            retirement: None,
+            transport_tasks: None,
+            mode: observer::ProcessMode::Unmanaged,
+            observed: std::sync::OnceLock::new(),
             state_root: state_root.into(),
             inner: Mutex::new(None),
             routes: Mutex::new(HashMap::new()),
@@ -172,7 +207,26 @@ impl SidecarBridge {
         }
     }
 
+    fn admit_unscoped(&self) -> Result<Option<retirement::LocalCall>, String> {
+        if matches!(self.mode, observer::ProcessMode::Observed { .. }) {
+            return Err("observed sidecar requires an account-bound scope".into());
+        }
+        self.retirement.as_ref().map(|boundary| boundary.enter())
+            .transpose().map_err(|error| format!("host admission: {error:?}"))
+    }
+
+    // Call only while holding inner. A missing Child after failed startup is
+    // not proof that no process or browser work was started.
+    fn check_unused_startup(&self) -> Result<(), String> {
+        self.retirement.as_ref().map(|boundary| boundary.check_unused())
+            .transpose().map(|_| ())
+            .map_err(|error| format!("host startup: {error:?}"))
+    }
+
     fn script_path(&self) -> PathBuf {
+        if let observer::ProcessMode::Observed { script, .. } = &self.mode {
+            return script.clone();
+        }
         // External override wins: sidecar fixes ship via `git pull` + a copy to
         // ~/.framerize/camoufox_host.py instead of a full binary rebuild.
         // (Learned the hard way: include_str! alone makes every python tweak
@@ -188,14 +242,23 @@ impl SidecarBridge {
     /// descendants stopped or transfer its cooldown ledger to a new process.
     async fn sidecar(&self) -> Result<(), String> {
         let mut guard = self.inner.lock().await;
+        if let Some(boundary) = &self.retirement {
+            boundary.check_open().map_err(|error| format!("host admission: {error:?}"))?;
+        }
         if let Some(s) = guard.as_mut() {
-            match s.child.try_wait() {
-                Ok(None) => return Ok(()), // alive
+            let ready = self.retirement.as_ref().map_or(true, |b| b.check_ready().is_ok());
+            match (ready && s.healthy.load(Ordering::Acquire), s.child.try_wait()) {
+                (true, Ok(None)) => return Ok(()),
                 _ => {
+                    s.healthy.store(false, Ordering::Release);
+                    let _ = s.events.send(observer::RemoteEvent::Lost);
                     fail_pending(&s.pending, "host-lifecycle-unconfirmed: sidecar exited");
                     return Err("host-lifecycle-unconfirmed: sidecar exited; cleanup must be confirmed before recovery".into());
                 }
             }
+        }
+        if let Some(boundary) = &self.retirement {
+            boundary.begin_start().map_err(|error| format!("host startup: {error:?}"))?;
         }
         let script = self.script_path();
         // The MANAGED path is always refreshed (a "don't overwrite" here kept
@@ -203,7 +266,7 @@ impl SidecarBridge {
         // The external override (~/.framerize/camoufox_host.py) is never
         // written by us — it's the user's escape hatch.
         let is_override = script == dirs_home().join(".framerize/camoufox_host.py");
-        if !is_override {
+        if !is_override && matches!(self.mode, observer::ProcessMode::Unmanaged) {
             if let Some(parent) = script.parent() {
                 std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
             }
@@ -216,8 +279,19 @@ impl SidecarBridge {
             let venv = dirs_home().join(".framerize/venv/bin/python3");
             if venv.exists() { venv.to_string_lossy().into_owned() } else { "python3".into() }
         });
-        let mut child = Command::new(&python)
-            .arg(&script)
+        let incarnation = uuid::Uuid::new_v4();
+        let healthy = Arc::new(std::sync::atomic::AtomicBool::new(true));
+        let (events, _) = tokio::sync::broadcast::channel(512);
+        let (mode, profile_nonce) = match &self.mode {
+            observer::ProcessMode::Unmanaged => ("unmanaged", String::new()),
+            observer::ProcessMode::Observed { profile_nonce, .. } =>
+                ("observed_one_shot_v1", profile_nonce.to_string()),
+        };
+        let mut command = Command::new(&python);
+        command.arg(&script)
+            .env("FRAMERIZE_SIDECAR_MODE", mode)
+            .env("FRAMERIZE_OBSERVED_PROFILE_NONCE", profile_nonce)
+            .env("FRAMERIZE_SIDECAR_INCARNATION", incarnation.to_string())
             .env("FRAMERIZE_STATE", self.state_root.join("camoufox"))
             // Structured sidecar events land in the SAME NDJSON stream as the
             // daemon's (docs/logging.md).
@@ -230,8 +304,11 @@ impl SidecarBridge {
             )
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
-            .stderr(Stdio::inherit()) // sidecar traces land in the daemon log
-            .spawn()
+            .stderr(Stdio::inherit()); // sidecar traces land in the daemon log
+        if matches!(self.mode, observer::ProcessMode::Observed { .. }) {
+            command.env("FRAMERIZE_DEVICE_POOL", "1").env("FRAMERIZE_RESERVE_PER_DAY", "0");
+        }
+        let mut child = command.spawn()
             .map_err(|e| {
                 format!(
                     "spawn camoufox sidecar: {e} — install it first: \
@@ -242,12 +319,28 @@ impl SidecarBridge {
         let stdout = child.stdout.take().ok_or("sidecar stdout")?;
         let pending: PendingReplies = Arc::new(StdMutex::new(HashMap::new()));
         let (cancel, mut cancellations) = mpsc::channel::<u64>(512);
+        // Own the generation before registering transport tasks can yield.
+        *guard = Some(Sidecar {
+            child, stdin: stdin.clone(), pending: pending.clone(),
+            cancel: cancel.clone(), incarnation, events: events.clone(),
+            healthy: healthy.clone(), capability: Arc::new(Mutex::new(None)),
+            next_id: Arc::new(AtomicU64::new(0)),
+        });
         {
             let stdin = stdin.clone();
-            tokio::spawn(async move {
-                while let Some(id) = cancellations.recv().await {
-                    let write = write_owned_command(
-                        stdin.clone(), json!({"cmd": "cancel", "request_id": id}),
+            let owner = self.transport_tasks.as_ref().map(Arc::downgrade);
+            let mut stop = self.transport_tasks.as_ref().map(|tasks| tasks.stopping());
+            tasks::launch(self.transport_tasks.as_ref(), async move {
+                loop {
+                    let id = tokio::select! {
+                        biased;
+                        _ = tasks::stopped(&mut stop) => break,
+                        id = cancellations.recv() => match id { Some(id) => id, None => break },
+                    };
+                    let retained = owner.as_ref().and_then(std::sync::Weak::upgrade);
+                    if owner.is_some() && retained.is_none() { break; }
+                    let write = write_registered_command(
+                        stdin.clone(), json!({"cmd": "cancel", "request_id": id}), retained.as_ref(),
                     );
                     // Stop enqueueing after a stall. A started frame still
                     // finishes under its independent writer ownership.
@@ -258,25 +351,57 @@ impl SidecarBridge {
                         break;
                     }
                 }
-            });
+            }).await?;
         }
         // Reader task: route response lines to their oneshot by id.
         {
+            let observed = mode == "observed_one_shot_v1";
             let pending = pending.clone();
-            tokio::spawn(async move {
+            let events = events.clone();
+            let healthy = healthy.clone();
+            let mut stop = self.transport_tasks.as_ref().map(|tasks| tasks.stopping());
+            tasks::launch(self.transport_tasks.as_ref(), async move {
                 let mut lines = BufReader::new(stdout).lines();
-                while let Ok(Some(line)) = lines.next_line().await {
-                    let Ok(v) = serde_json::from_str::<Value>(&line) else { continue };
-                    let Some(id) = v["id"].as_u64() else { continue };
+                loop {
+                    let line = tokio::select! {
+                        biased;
+                        _ = tasks::stopped(&mut stop) => break,
+                        line = lines.next_line() => match line {
+                            Ok(Some(line)) => line,
+                            _ => break,
+                        },
+                    };
+                    let v = match serde_json::from_str::<Value>(&line) {
+                        Ok(v) => v,
+                        Err(_) if observed => break,
+                        Err(_) => continue,
+                    };
+                    if let Some(event) = observer::RemoteEvent::parse(&v, incarnation) {
+                        if matches!(event, observer::RemoteEvent::Lost) {
+                            healthy.store(false, Ordering::Release);
+                            fail_pending(&pending, "invalid observed cleanup frame");
+                        }
+                        let _ = events.send(event);
+                        continue;
+                    }
+                    if observed && v.get("kind").is_some() { break; }
+                    let Some(id) = v["id"].as_u64() else {
+                        if observed { break; }
+                        continue;
+                    };
                     let tx = pending.lock().unwrap().remove(&id);
                     if let Some(tx) = tx {
                         let _ = tx.send(take_reply_result(v));
                     }
                 }
+                healthy.store(false, Ordering::Release);
                 fail_pending(&pending, "host-lifecycle-unconfirmed: sidecar output closed");
-            });
+                let _ = events.send(observer::RemoteEvent::Lost);
+            }).await?;
         }
-        *guard = Some(Sidecar { child, stdin, pending, cancel, next_id: AtomicU64::new(0) });
+        if let Some(boundary) = &self.retirement {
+            boundary.finish_start().map_err(|error| format!("host startup: {error:?}"))?;
+        }
         Ok(())
     }
 
@@ -300,6 +425,7 @@ impl SidecarBridge {
         timeout: std::time::Duration,
         start_missing: bool,
     ) -> Result<Value, String> {
+        let _admission = self.admit_unscoped()?;
         let started = std::time::Instant::now();
         // Apply one deadline to setup, queueing, writing and the reply.
         // A started write retains ownership when this caller times out.
@@ -309,8 +435,11 @@ impl SidecarBridge {
             }
             let mut guard = self.inner.lock().await;
             let s = guard.as_mut().ok_or("sidecar unavailable")?;
-            if !start_missing && !matches!(s.child.try_wait(), Ok(None)) {
+            if !s.healthy.load(Ordering::Acquire) || !matches!(s.child.try_wait(), Ok(None)) {
                 return Err("host-lifecycle-unconfirmed: sidecar exited; browser cleanup is unconfirmed".into());
+            }
+            if let Some(boundary) = &self.retirement {
+                boundary.check_ready().map_err(|error| format!("host startup: {error:?}"))?;
             }
             let id = s.next_id.fetch_add(1, Ordering::Relaxed) + 1;
             fields["id"] = json!(id);
@@ -327,7 +456,7 @@ impl SidecarBridge {
             // The cloned pipe belongs to this generation, and its own mutex
             // still keeps complete command frames in order.
             drop(guard);
-            write_owned_command(stdin, fields)
+            write_registered_command(stdin, fields, self.transport_tasks.as_ref())
                 .await
                 .map_err(|e| format!("sidecar write: {e}"))?;
             rx.await.map_err(|_| "sidecar dropped the request".to_owned())?
@@ -339,6 +468,8 @@ impl SidecarBridge {
     }
 
     async fn call_account(&self, account: &AccountId, cmd: &str, extra: Value) -> Result<Value, String> {
+        // Own route selection too: it may start the host before the command.
+        let _admission = self.admit_unscoped()?;
         tokio::time::timeout(REQ_TIMEOUT, async {
             let route = self.route_for_command(account).await?;
             let mut fields = extra;
@@ -397,7 +528,7 @@ impl BrowserBridge for SidecarBridge {
 
     async fn seed_session(&self, account: &AccountId, cookie_header: &str) -> Result<(), String> {
         let Some((name, value)) = cookie_header.split_once('=') else {
-            return Err(format!("bad cookie header: {cookie_header:?}"));
+            return Err("bad cookie header".into());
         };
         self.call_account(
             account,
@@ -448,6 +579,7 @@ impl BrowserBridge for SidecarBridge {
     }
 
     async fn set_proxy(&self, account: &AccountId, proxy: Option<String>) -> Result<(), String> {
+        let _admission = self.admit_unscoped()?;
         if self.route_snapshot(account).await?.proxy == proxy { return Ok(()); }
         // Do not report a new egress while active requests prevented closure.
         self.call_account(account, "close", json!({})).await?;

@@ -952,7 +952,6 @@ mod tests {
     }
 
     #[test]
-    #[test]
     fn custom_tools_roundtrip() {
         // Codex's exec-style custom tools survive both directions:
         // definition → wrapped anthropic tool; tool_use → custom_tool_call.

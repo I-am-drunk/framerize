@@ -41,6 +41,7 @@ impl SidecarBridge {
     }
 
     pub(super) async fn route_for_command(&self, account: &AccountId) -> Result<ProxyRoute, String> {
+        let _admission = self.admit_unscoped()?;
         let cell = self.route_state(account).await;
         let state = cell.lock().await;
         if state.pending.is_some() {
@@ -55,6 +56,7 @@ impl SidecarBridge {
 
     pub(super) async fn register_proxy(&self, account: &AccountId, proxy: Option<String>)
         -> Result<(), String> {
+        let _admission = self.admit_unscoped()?;
         if proxy.as_ref().map_or(false, String::is_empty) {
             return Err("proxy must be a nonempty string or null".into());
         }
@@ -62,7 +64,11 @@ impl SidecarBridge {
             let cell = self.route_state(account).await;
             let mut state = cell.lock().await;
             if state.pending.is_some() { self.settle_registration(account, &mut state).await?; }
-            if state.current.proxy == proxy { return Ok(()); }
+            if state.current.proxy == proxy {
+                let inner = self.inner.lock().await;
+                if inner.is_none() { self.check_unused_startup()?; }
+                return Ok(());
+            }
             let revision = state.current.revision.checked_add(1)
                 .ok_or("account proxy revision exhausted")?;
             state.pending = Some(ProxyRoute { revision, proxy });
@@ -73,10 +79,14 @@ impl SidecarBridge {
     async fn settle_registration(&self, account: &AccountId, state: &mut ProxyState)
         -> Result<(), String> {
         let next = state.pending.clone().ok_or("no pending proxy registration")?;
-        if self.inner.lock().await.is_none() {
-            state.current = next;
-            state.pending = None;
-            return Ok(());
+        {
+            let inner = self.inner.lock().await;
+            if inner.is_none() {
+                self.check_unused_startup()?;
+                state.current = next;
+                state.pending = None;
+                return Ok(());
+            }
         }
         let value = self.call_with_policy("register_proxy", json!({
             "account": account.0.to_string(), "expected_revision": state.current.revision,

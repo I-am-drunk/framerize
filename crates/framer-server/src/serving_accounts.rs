@@ -17,6 +17,7 @@ pub struct ServingAccountPolicy {
     pub(crate) residents: ResidentPool,
     pub(crate) operation: tokio::sync::Mutex<()>,
     pub(crate) configuration: tokio::sync::Mutex<()>,
+    pub(crate) health_update: tokio::sync::Mutex<()>,
     pub(crate) pending_config: RwLock<Option<PoolConfig>>,
     pub(crate) mutations: std::sync::Arc<std::sync::Mutex<HashSet<AccountId>>>,
 }
@@ -32,6 +33,7 @@ impl ServingAccountPolicy {
         Ok(Self { config: RwLock::new(config), residents,
             operation: tokio::sync::Mutex::new(()),
             configuration: tokio::sync::Mutex::new(()),
+            health_update: tokio::sync::Mutex::new(()),
             pending_config: RwLock::new(None),
             mutations: Default::default() })
     }

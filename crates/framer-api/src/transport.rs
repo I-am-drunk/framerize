@@ -18,6 +18,33 @@ pub enum Auth<'a> {
 }
 
 impl Transport {
+    #[cfg(feature = "experimental-native")]
+    pub(crate) fn for_account(egress: super::experimental_native::native_http::NativeEgress<'_>)
+        -> Result<Self, String> {
+        Self::explicit(API.to_owned(), egress, true)
+    }
+
+    #[cfg(feature = "experimental-native")]
+    fn explicit(base: String, egress: super::experimental_native::native_http::NativeEgress<'_>,
+        https_only: bool) -> Result<Self, String> {
+        use super::experimental_native::native_http::NativeEgress;
+        let builder = reqwest::Client::builder().user_agent("Framerize/0.1")
+            .no_proxy().redirect(reqwest::redirect::Policy::none())
+            .retry(reqwest::retry::never()).https_only(https_only).http1_only()
+            .pool_max_idle_per_host(0)
+            .connect_timeout(std::time::Duration::from_secs(10))
+            .timeout(std::time::Duration::from_secs(30))
+            .no_gzip().no_brotli().no_deflate().no_zstd();
+        let builder = match egress {
+            NativeEgress::Direct => builder,
+            NativeEgress::Proxy(url) => builder.proxy(reqwest::Proxy::all(url)
+                .map_err(|_| "control authorization: invalid account proxy".to_owned())?),
+        };
+        let http = builder.build()
+            .map_err(|_| "control authorization: client initialization failed".to_owned())?;
+        Ok(Self { http, base })
+    }
+
     pub fn new() -> Self {
         Self::with_base(API.to_string())
     }
@@ -69,6 +96,55 @@ impl Transport {
             .json()
             .await
             .map_err(|e| format!("decode {path}: {e}"))
+    }
+
+    /// Bounded, single-attempt response for the explicit control supplier.
+    /// Failure messages contain no response body, cookie, URL or proxy.
+    #[cfg(feature = "experimental-native")]
+    pub(crate) async fn control_ai_token(&self, session: &Session) -> Result<Value, String> {
+        self.control_json("/auth/ai/access-token", Auth::Cookie(session)).await
+    }
+
+    #[cfg(feature = "experimental-native")]
+    pub(crate) async fn control_json(&self, path: &str, auth: Auth<'_>) -> Result<Value, String> {
+        const LIMIT: usize = 64 * 1024;
+        let (name, value, invalid) = match auth {
+            Auth::Cookie(session) => (reqwest::header::COOKIE, session.cookie_header.clone(),
+                "control authorization: invalid cookie"),
+            Auth::Bearer(token) => (reqwest::header::AUTHORIZATION, format!("Bearer {token}"),
+                "control authorization: invalid bearer"),
+            Auth::None => return Err("control authorization: credentials required".into()),
+        };
+        let mut value = reqwest::header::HeaderValue::from_str(&value)
+            .map_err(|_| invalid.to_owned())?;
+        value.set_sensitive(true);
+        let request = self.http.get(format!("{}{path}", self.base))
+            .header("x-requested-by", "Framer").header(name, value);
+        let mut response = request.send().await
+            .map_err(|_| "control authorization: transport failed".to_owned())?;
+        if response.status().as_u16() != 200 {
+            return Err(format!("control authorization: HTTP {}", response.status().as_u16()));
+        }
+        if response.content_length().is_some_and(|bytes| bytes > LIMIT as u64) {
+            return Err("control authorization: response exceeds limit".to_owned());
+        }
+        let mut body = Vec::new();
+        while let Some(chunk) = response.chunk().await
+            .map_err(|_| "control authorization: body failed".to_owned())? {
+            if chunk.len() > LIMIT.saturating_sub(body.len()) {
+                return Err("control authorization: response exceeds limit".to_owned());
+            }
+            body.extend_from_slice(&chunk);
+        }
+        serde_json::from_slice(&body)
+            .map_err(|_| "control authorization: invalid response".to_owned())
+    }
+
+    #[cfg(all(test, feature = "experimental-native"))]
+    pub(crate) fn control_for_loopback(address: std::net::SocketAddr,
+        egress: super::experimental_native::native_http::NativeEgress<'_>) -> Result<Self, String> {
+        if !address.ip().is_loopback() { return Err("fixture requires loopback".into()); }
+        Self::explicit(format!("http://{address}"), egress, false)
     }
 }
 

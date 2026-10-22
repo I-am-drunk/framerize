@@ -34,6 +34,23 @@ impl std::fmt::Debug for Session {
 /// mint one per upstream request, never cache.
 pub struct CastleToken(pub String);
 
+/// Exact target and private login for one credential preparation.
+pub struct BrowserAuthorizationRequest<'a> {
+    pub project: &'a ProjectId,
+    pub path: &'a str,
+    pub cookie_header: &'a str,
+}
+
+/// Private material from the account page and its current cookie jar.
+/// Credentials deliberately have no Debug or serialization implementation.
+pub struct BrowserAuthorization {
+    pub project: ProjectId,
+    pub path: String,
+    pub page_url: String,
+    pub castle: CastleToken,
+    pub cookie_header: String,
+}
+
 #[derive(Debug, Clone)]
 pub struct WorkspaceSpec {
     pub name: String,
@@ -62,6 +79,13 @@ pub trait BrowserBridge: Send + Sync {
     }
 
     async fn castle_token(&self, account: &AccountId) -> Result<CastleToken, String>;
+
+    /// Prepare on the requested project's actual page, without a legacy mint fallback.
+    async fn prepare_inference_authorization(
+        &self, _account: &AccountId, _request: BrowserAuthorizationRequest<'_>,
+    ) -> Result<BrowserAuthorization, String> {
+        Err("bridge has no contextual authorization".into())
+    }
 
     /// In-page `POST /auth/v4/signin` from the account's own browser. Auth
     /// requests MUST originate from the same browser context that minted the

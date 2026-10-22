@@ -18,6 +18,17 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 use tokio::sync::Semaphore;
 
+#[cfg(feature = "native-dispatch")]
+#[path = "native_pool_tests.rs"]
+mod native_merge_tests;
+
+#[cfg(feature = "native-dispatch")]
+#[path = "native_control_tests.rs"]
+mod native_control_tests;
+
+#[path = "pool_ownership_tests.rs"]
+mod ownership_merge_tests;
+
 // The existing endpoint fixture is private and intentionally denies valid I/O.
 // Match its boxed-future convention without adding an async-trait dependency.
 macro_rules! denied {
@@ -47,6 +58,7 @@ struct Ports {
     save_failure: AtomicBool,
     setting_writes: AtomicUsize,
     account_writes: AtomicUsize,
+    pause_usage: AtomicBool, usage_captured: AtomicUsize, usage_gate: Semaphore,
     live: Mutex<HashMap<AccountId, u64>>,
     next_incarnation: AtomicUsize,
     max_live: AtomicUsize,
@@ -91,6 +103,8 @@ impl Ports {
             pause_list: AtomicBool::new(false), list_captured: AtomicUsize::new(0),
             list_gate: Semaphore::new(0),
             setting_writes: AtomicUsize::new(0), account_writes: AtomicUsize::new(0),
+            pause_usage: AtomicBool::new(false), usage_captured: AtomicUsize::new(0),
+            usage_gate: Semaphore::new(0),
             live: Mutex::new(HashMap::new()), next_incarnation: AtomicUsize::new(1),
             max_live: AtomicUsize::new(0), events: Mutex::new(Vec::new()),
             close_mode: Mutex::new(CloseMode::Confirm), status_mode: Mutex::new(StatusMode::Ready),
@@ -404,7 +418,13 @@ impl FramerClient for Ports {
     }
     fn usage<'s, 'b, 'c, 'a>(&'s self, _session: &'b Session, _team: &'c TeamId) -> BoxFuture<'a, Result<CreditSnapshot, String>>
     where 's: 'a, 'b: 'a, 'c: 'a, Self: 'a {
-        Box::pin(async { Ok(CreditSnapshot { available: 1000.0, funds: 1, grants: 1, allocated: 1000.0 }) })
+        Box::pin(async move {
+            if self.pause_usage.swap(false, Ordering::SeqCst) {
+                self.usage_captured.fetch_add(1, Ordering::SeqCst);
+                self.usage_gate.acquire().await.unwrap().forget();
+            }
+            Ok(CreditSnapshot { available: 1000.0, funds: 1, grants: 1, allocated: 1000.0 })
+        })
     }
 }
 
@@ -422,6 +442,9 @@ fn account(n: u128) -> ManagedAccount {
 fn fixture(capacity: usize, saved: u128) -> (AppState, Arc<Ports>) {
     let ports = Arc::new(Ports::new(saved));
     let state = AppState {
+        operation_ownership: None,
+        #[cfg(feature = "native-dispatch")]
+        native_dispatch: None,
         client: ports.clone(), browser: ports.clone(), sessions: ports.clone(), state: ports.clone(),
         gate: Arc::new(framer_core::gate::ConcurrencyGate::new()),
         wave: Arc::new(framer_core::wave::WaveGuard::new()),

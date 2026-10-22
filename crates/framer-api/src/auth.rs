@@ -132,3 +132,11 @@ pub async fn ai_access_token(t: &Transport, session: &Session) -> Result<AiToken
 pub async fn web_access_token(t: &Transport, session: &Session) -> Result<AiToken, String> {
     cached_mint(t, session, "/auth/web/access-token").await
 }
+
+/// Called only after the corresponding native generation and its pending
+/// authorization work have drained, before replacing/removing private state.
+#[cfg(feature = "native-dispatch")]
+pub(crate) fn invalidate_session(session: &Session) {
+    cache().lock().unwrap_or_else(std::sync::PoisonError::into_inner)
+        .retain(|(cookie, _), _| cookie != &session.cookie_header);
+}

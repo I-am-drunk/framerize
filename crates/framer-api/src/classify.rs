@@ -35,6 +35,23 @@ pub enum Refusal {
     Upstream,
 }
 
+/// Why the existing policy chose its bucket. This records a heuristic,
+/// not a verdict about token validity or the party that caused a refusal.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RefusalBasis {
+    ProviderMarker,
+    FramerSecurityEnvelope,
+    FramerMarker,
+    ElapsedFallback,
+}
+
+/// Bounded policy evidence. It never retains body text or request identifiers.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct RefusalObservation {
+    pub policy: Refusal,
+    pub basis: RefusalBasis,
+}
+
 impl Refusal {
     /// The error string the pipeline matches on. `Castle` MUST stay exactly
     /// `risk-refused`: rotation and `record_account_health` compare against it.
@@ -74,6 +91,12 @@ const CASTLE_MARKERS: &[&str] = &["Forbidden", "castle", "risk", "challenge", "c
 /// alone would be fragile under load, so it decides only when the body is empty
 /// or says nothing either way.
 pub fn classify_403(body: &str, elapsed_ms: u64) -> Refusal {
+    observe_403(body, elapsed_ms).policy
+}
+
+/// Preserve exactly the legacy classification while exposing its basis.
+/// Callers must not treat the elapsed fallback as positive body evidence.
+pub fn observe_403(body: &str, elapsed_ms: u64) -> RefusalObservation {
     let lower = body.to_ascii_lowercase();
 
     // Positive upstream evidence wins outright: these strings cannot appear
@@ -82,7 +105,8 @@ pub fn classify_403(body: &str, elapsed_ms: u64) -> Refusal {
         .iter()
         .any(|m| lower.contains(&m.to_ascii_lowercase()))
     {
-        return Refusal::Upstream;
+        return RefusalObservation { policy: Refusal::Upstream,
+            basis: RefusalBasis::ProviderMarker };
     }
 
     // Framer's structured edge refusal can arrive after browser warm-up and
@@ -96,7 +120,8 @@ pub fn classify_403(body: &str, elapsed_ms: u64) -> Refusal {
             && error["ref"].as_str().is_some_and(|s| !s.is_empty())
             && error["timestamp"].as_str().is_some_and(|s| !s.is_empty())
         {
-            return Refusal::Castle;
+            return RefusalObservation { policy: Refusal::Castle,
+                basis: RefusalBasis::FramerSecurityEnvelope };
         }
     }
 
@@ -104,16 +129,18 @@ pub fn classify_403(body: &str, elapsed_ms: u64) -> Refusal {
         .iter()
         .any(|m| lower.contains(&m.to_ascii_lowercase()))
     {
-        return Refusal::Castle;
+        return RefusalObservation { policy: Refusal::Castle,
+            basis: RefusalBasis::FramerMarker };
     }
 
     // No signal in the body. A refusal that took longer than any measured edge
     // refusal (989ms was the slowest of 322) was almost certainly proxied.
-    if elapsed_ms >= 1_000 {
+    let policy = if elapsed_ms >= 1_000 {
         Refusal::Upstream
     } else {
         Refusal::Castle
-    }
+    };
+    RefusalObservation { policy, basis: RefusalBasis::ElapsedFallback }
 }
 
 #[cfg(test)]

@@ -1,0 +1,170 @@
+//! Opt-in ownership wiring. Existing unmanaged host work is a permanent barrier
+//! until a separate observed close integration exists. Never claim Held from
+//! HTTP completion or local counters alone.
+use axum::{body::Body, extract::{Request, State}, middleware::Next,
+    response::{IntoResponse, Response}, http::StatusCode};
+use framer_core::{operation_gate::{OperationGate, OperationOwner, OperationKind,
+    GateError, DrainTicket, ControlGuard, LegacyHostOwner, ApplicationDrained}, wave::WaveGuard};
+use std::{future::Future, pin::Pin, sync::{Arc, Mutex}, task::{Context, Poll}};
+use http_body::{Body as HttpBody, Frame, SizeHint};
+
+tokio::task_local! { static CURRENT: Arc<OwnerContext>; }
+
+pub struct ServingOwnership {
+    gate: OperationGate,
+    _guard: ControlGuard,
+    // No release API: existing raw BrowserBridge cannot supply closure proof.
+    _unmanaged_host: LegacyHostOwner,
+}
+impl ServingOwnership {
+    /// Construct host ownership with this exact gate. The retained host barrier
+    /// is unchanged; this does not attest that the host can be safely retired.
+    /// The factory should construct an inert host before any serving work starts.
+    pub fn new_with_host_factory<T>(
+        wave: Arc<WaveGuard>, limit: usize,
+        make_host: impl FnOnce(OperationGate) -> T,
+    ) -> Result<(Arc<Self>, T), GateError> {
+        let ownership = Self::new_unmanaged(wave, limit)?;
+        let host = make_host(ownership.gate.clone());
+        Ok((ownership, host))
+    }
+
+    pub fn new_unmanaged(wave: Arc<WaveGuard>, limit: usize) -> Result<Arc<Self>, GateError> {
+        let (gate, host) = OperationGate::new_with_legacy_host(limit)?;
+        Ok(Arc::new(Self { _guard: ControlGuard::bind(gate.clone(), wave),
+            gate, _unmanaged_host: host }))
+    }
+    /// Seal rejects new work, but wait cannot reach Held while unmanaged host
+    /// ownership persists. External close remains an explicit unsatisfied fact.
+    pub fn seal(&self) -> Result<DrainTicket, GateError> { self.gate.seal() }
+    pub fn unmanaged_host_close_required(&self) -> bool { true }
+    /// Registered application completion is distinct from host retirement.
+    pub fn check_application_drained(&self, proof: &ApplicationDrained<'_>)
+        -> Result<(), GateError> {
+        self.gate.check_application_drained(proof)
+    }
+    fn owner(self: &Arc<Self>, kind: OperationKind) -> Result<Arc<OwnerContext>, GateError> {
+        let owner = self.registration(kind)?;
+        Ok(Arc::new(OwnerContext { owner: Mutex::new(Some(owner)), scope: self.clone() }))
+    }
+    fn registration(self: &Arc<Self>, kind: OperationKind) -> Result<OperationOwner, GateError> {
+        match CURRENT.try_with(|parent| {
+            if !Arc::ptr_eq(&parent.scope, self) { return Err(GateError::WrongGate); }
+            parent.child()
+        }) {
+            Ok(value) => value,
+            Err(_) => self.gate.admit(kind),
+        }
+    }
+    #[cfg(feature = "native-dispatch")]
+    pub(crate) fn native_cleanup(self: &Arc<Self>) -> Result<OperationOwner, GateError> {
+        self.registration(OperationKind::Inference)
+    }
+}
+
+struct OwnerContext { owner: Mutex<Option<OperationOwner>>, scope: Arc<ServingOwnership> }
+impl OwnerContext {
+    fn child(&self) -> Result<OperationOwner, GateError> {
+        self.owner.lock().map_err(|_| GateError::Poisoned)?.as_ref()
+            .ok_or(GateError::Unconfirmed)?.register_cleanup()
+    }
+    fn finish(&self) {
+        if let Ok(mut slot) = self.owner.lock() {
+            if let Some(owner) = slot.take() { let _ = owner.complete(); }
+        }
+    }
+}
+
+/// All four serving detached jobs and startup prewarm use this boundary.
+/// Registration happens BEFORE spawn. Caller cancellation cannot discard an
+/// admitted detached job; explicit existing producer abort remains unconfirmed.
+pub fn spawn<T, F>(scope: Option<&Arc<ServingOwnership>>, kind: OperationKind, future: F)
+    -> Result<tokio::task::JoinHandle<T>, GateError>
+where T: Send + 'static, F: Future<Output = T> + Send + 'static {
+    let Some(scope) = scope else { return Ok(tokio::spawn(future)); };
+    let owner = scope.owner(kind)?;
+    Ok(tokio::spawn(CURRENT.scope(owner.clone(), async move {
+        let result = future.await;
+        owner.finish();
+        result
+    })))
+}
+
+pub async fn run<T, F>(scope: Option<&Arc<ServingOwnership>>, kind: OperationKind, future: F)
+    -> Result<T, GateError>
+where T: Send + 'static, F: Future<Output = T> + Send + 'static {
+    if scope.is_none() { return Ok(future.await); }
+    spawn(scope, kind, future)?.await.map_err(|_| GateError::Unconfirmed)
+}
+
+pub async fn middleware(State(scope): State<Option<Arc<ServingOwnership>>>,
+    request: Request, next: Next) -> Response {
+    let Some(scope) = scope else { return next.run(request).await; };
+    if request.uri().path() == "/api/health" { return next.run(request).await; }
+    let path = request.uri().path();
+    let kind = if path.contains("/accounts/") || path.starts_with("/api/pool/") {
+        OperationKind::Admin
+    } else { OperationKind::Inference };
+    let owner = match scope.owner(kind) {
+        Ok(owner) => owner,
+        Err(_) => return (StatusCode::SERVICE_UNAVAILABLE, "operation admission closed").into_response(),
+    };
+    let task = tokio::spawn(CURRENT.scope(owner.clone(), async move {
+        // Handler remains owned even when the HTTP result waiter disappears.
+        // Auth/session/state mutation futures are not cancelled by that drop.
+        let response = next.run(request).await;
+        let (parts, body) = response.into_parts();
+        Response::from_parts(parts, Body::new(OwnedBody { body, owner: Some(owner) }))
+    }));
+    match task.await {
+        Ok(response) => response,
+        Err(_) => (StatusCode::INTERNAL_SERVER_ERROR, "operation completion unconfirmed").into_response(),
+    }
+}
+
+struct OwnedBody { body: Body, owner: Option<Arc<OwnerContext>> }
+impl OwnedBody {
+    fn finish(&mut self) { if let Some(owner) = self.owner.take() { owner.finish(); } }
+}
+impl HttpBody for OwnedBody {
+    type Data = axum::body::Bytes;
+    type Error = axum::Error;
+    fn poll_frame(mut self: Pin<&mut Self>, cx: &mut Context<'_>)
+        -> Poll<Option<Result<Frame<Self::Data>, Self::Error>>> {
+        let value = Pin::new(&mut self.body).poll_frame(cx);
+        match &value {
+            Poll::Ready(None) => self.finish(),
+            Poll::Ready(Some(Err(_))) => { self.owner.take(); },
+            _ => {},
+        }
+        value
+    }
+    fn is_end_stream(&self) -> bool { self.body.is_end_stream() }
+    fn size_hint(&self) -> SizeHint { self.body.size_hint() }
+}
+impl Drop for OwnedBody {
+    fn drop(&mut self) {
+        // Empty or fully consumed bodies need no additional poll to confirm
+        // completion. Early drop of an unfinished body remains Unconfirmed.
+        if self.body.is_end_stream() { self.finish(); }
+    }
+}
+
+#[cfg(test)]
+#[path = "operation_ownership_tests.rs"]
+mod tests;
+
+/// Explicit construction seam for a future reviewed startup controller. No
+/// CLI or default calls it. Bind before proxy loading, prewarm or serving.
+pub fn with_owned_operations(mut state: crate::AppState, limit: usize)
+    -> Result<crate::AppState, GateError> {
+    if state.operation_ownership.is_some() { return Err(GateError::Unconfirmed); }
+    state.operation_ownership = Some(ServingOwnership::new_unmanaged(state.wave.clone(), limit)?);
+    Ok(state)
+}
+
+// Test-only observation at the real access_log emission site. No global logger
+// initialization or private/log-filesystem access is needed by these fixtures.
+#[cfg(test)]
+#[derive(Clone)]
+pub(crate) struct AccessLogCapture(pub Arc<Mutex<Vec<u16>>>);

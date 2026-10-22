@@ -29,8 +29,7 @@ pub async fn ensure_workspace(
                 // the create-team stub even when the current team had credits.)
                 if let Ok(snap) = deps.client.usage(session, &team).await {
                     let ok = !snap.looks_exhausted();
-                    account.credit = Some(snap);
-                    deps.state.upsert(account).await.map_err(CoreError::Store)?;
+                    deps.update(account, |current| current.credit = Some(snap)).await?;
                     if ok {
                         return Ok(team);
                     }
@@ -58,9 +57,10 @@ pub async fn rotate_workspace(
             }
             if let Ok(snap) = deps.client.usage(session, &team).await {
                 if !snap.looks_exhausted() {
-                    account.current_team = Some(team.clone());
-                    account.credit = Some(snap);
-                    deps.state.upsert(account).await.map_err(CoreError::Store)?;
+                    deps.update(account, |current| {
+                        current.current_team = Some(team.clone());
+                        current.credit = Some(snap);
+                    }).await?;
                     return Ok(team);
                 }
             }
@@ -73,9 +73,10 @@ pub async fn rotate_workspace(
         .create_workspace(session, &default_workspace_spec())
         .await
         .map_err(CoreError::Framer)?;
-    account.current_team = Some(team.clone());
-    account.credit = None;
-    deps.state.upsert(account).await.map_err(CoreError::Store)?;
+    deps.update(account, |current| {
+        current.current_team = Some(team.clone());
+        current.credit = None;
+    }).await?;
     Ok(team)
 }
 
@@ -171,9 +172,10 @@ pub async fn admit(
         )));
     };
 
-    account.current_team = Some(fresh.team.clone());
-    account.credit = Some(fresh.snapshot);
-    deps.state.upsert(account).await.map_err(CoreError::Store)?;
+    deps.update(account, |current| {
+        current.current_team = Some(fresh.team.clone());
+        current.credit = Some(fresh.snapshot);
+    }).await?;
     Ok(fresh.team.clone())
 }
 

@@ -133,3 +133,18 @@ mod tests {
         assert!(g.check().is_none());
     }
 }
+
+impl WaveGuard {
+    /// Observe this live guard without pruning history or resetting state.
+    /// A poisoned mutex is unavailable rather than clear admission.
+    pub(crate) fn control_admission_status(&self) -> Result<Option<Duration>, ()> {
+        let inner = self.inner.lock().map_err(|_| ())?;
+        let now = Instant::now();
+        Ok(inner.paused_until.filter(|until| *until > now)
+            .map(|until| until.duration_since(now)))
+    }
+}
+
+#[cfg(test)]
+#[path = "wave_control_tests.rs"]
+mod control_tests;

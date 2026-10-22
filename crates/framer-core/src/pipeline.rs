@@ -47,6 +47,34 @@ pub struct Deps<'a> {
     pub browser: &'a dyn BrowserBridge,
     pub sessions: &'a dyn SessionStore,
     pub state: &'a dyn StateStore,
+    /// Shared with every serving account-health writer.
+    pub account_updates: &'a tokio::sync::Mutex<()>,
+}
+
+/// Apply only the completed operation's fields to the current account record.
+pub async fn update_account(state: &dyn StateStore, updates: &tokio::sync::Mutex<()>,
+    expected: &ManagedAccount, update: impl FnOnce(&mut ManagedAccount) + Send)
+    -> Result<ManagedAccount, CoreError> {
+    let _update = updates.lock().await;
+    let mut current = state.get(expected.id).await.map_err(CoreError::Store)?
+        .ok_or_else(|| CoreError::NotEligible("account removed during update".into()))?;
+    if current.framer_user_id != expected.framer_user_id
+        || current.castle_device_id != expected.castle_device_id
+        || current.current_team != expected.current_team
+        || current.current_project != expected.current_project || current.proxy != expected.proxy {
+        return Err(CoreError::NotEligible("account scope changed during update".into()));
+    }
+    update(&mut current);
+    state.upsert(&current).await.map_err(CoreError::Store)?;
+    Ok(current)
+}
+
+impl Deps<'_> {
+    pub(crate) async fn update(&self, account: &mut ManagedAccount,
+        update: impl FnOnce(&mut ManagedAccount) + Send) -> Result<(), CoreError> {
+        *account = update_account(self.state, self.account_updates, account, update).await?;
+        Ok(())
+    }
 }
 
 /// Run a request for `account`, rotating workspace and retrying once on exhaustion.
@@ -93,8 +121,7 @@ pub async fn run(
             {
                 Ok(InferenceResult::Completed(outcome)) => Ok(outcome),
                 Ok(InferenceResult::Exhausted { reason }) => {
-                    account.state = AccountState::Exhausted;
-                    deps.state.upsert(account).await.map_err(CoreError::Store)?;
+                    deps.update(account, |current| current.state = AccountState::Exhausted).await?;
                     Err(CoreError::NotEligible(format!(
                         "exhausted again after rotation: {reason}"
                     )))
@@ -104,9 +131,10 @@ pub async fn run(
         }
         Err(e) if e == "risk-refused" => {
             // Castle refusal is transient. Cool down; never quarantine.
-            account.state = AccountState::CoolingDown;
-            account.cooldown_step += 1;
-            deps.state.upsert(account).await.map_err(CoreError::Store)?;
+            deps.update(account, |current| {
+                current.state = AccountState::CoolingDown;
+                current.cooldown_step = current.cooldown_step.saturating_add(1);
+            }).await?;
             Err(CoreError::RiskRefused(e))
         }
         Err(e) => Err(CoreError::Framer(e)),

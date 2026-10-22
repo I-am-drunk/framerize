@@ -3,8 +3,12 @@
 
 pub mod observability;
 pub mod account;
+pub mod account_lease;
 pub mod browser_lifecycle;
 pub mod resident_pool;
+pub mod operation_gate;
+#[cfg(feature = "native-dispatch")]
+pub mod native_dispatch;
 pub mod convert;
 pub mod credits;
 pub mod error;

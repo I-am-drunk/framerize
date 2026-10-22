@@ -21,6 +21,9 @@ pub mod inference;
 mod login;
 mod models;
 pub mod nativechain;
+
+#[cfg(feature = "experimental-native")]
+pub mod experimental_native;
 pub mod proxy;
 pub mod provision;
 pub mod routes;
@@ -52,6 +55,15 @@ impl HttpFramerClient {
             transport: Transport::new(),
             ai_token: std::sync::Mutex::new(Vec::new()),
         }
+    }
+
+    /// Clear legacy account-keyed JWTs after all traffic holding the shared
+    /// account lease has drained, before publishing a changed login/session.
+    /// The session bridge separately invalidates the cookie-keyed cache.
+    #[cfg(feature = "experimental-native")]
+    pub fn invalidate_account_authorization(&self, account: &AccountId) {
+        self.ai_token.lock().unwrap_or_else(std::sync::PoisonError::into_inner)
+            .retain(|(id, _)| id != account);
     }
 }
 
@@ -93,6 +105,51 @@ impl HttpFramerClient {
         .await
     }
 
+}
+
+/// Native entry points require an explicit account scope and per-attempt
+/// authorization. The existing FramerClient implementation remains browser based.
+#[cfg(feature = "experimental-native")]
+impl HttpFramerClient {
+    pub async fn proxy_raw_native(
+        &self,
+        native: &experimental_native::application::NativeInvocation<'_>,
+        project: &framer_core::ids::ProjectId,
+        dialect: proxy::Dialect,
+        payload: serde_json::Value,
+        chat_session: &str,
+    ) -> Result<experimental_native::downstream_owner::Pending,
+                experimental_native::application::ApplicationError> {
+        native.start(project, dialect, payload, chat_session, 0).await
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    pub async fn freechat_long_native(
+        &self,
+        native: &experimental_native::application::NativeInvocation<'_>,
+        project: &framer_core::ids::ProjectId,
+        anthro_payload: serde_json::Value,
+        cfg: &framer_core::port::ChainConfig,
+        chat_session: &str,
+        events: Option<&(dyn Fn(framer_core::convert::ChainEvent) + Send + Sync)>,
+    ) -> Result<experimental_native::application::NativeChain<framer_core::convert::AssembledResponse>,
+                experimental_native::application::ApplicationError> {
+        freechat::complete_long_native(native, project, anthro_payload, cfg, chat_session, events).await
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    pub async fn native_long_native(
+        &self,
+        native: &experimental_native::application::NativeInvocation<'_>,
+        project: &framer_core::ids::ProjectId,
+        responses_payload: serde_json::Value,
+        cfg: &framer_core::port::ChainConfig,
+        chat_session: &str,
+        events: Option<&(dyn Fn(framer_core::convert::ChainEvent) + Send + Sync)>,
+    ) -> Result<experimental_native::application::NativeChain<framer_core::convert::AssembledResponses>,
+                experimental_native::application::ApplicationError> {
+        nativechain::complete_long_native(native, project, responses_payload, cfg, chat_session, events).await
+    }
 }
 
 fn parse_dialect(d: &str) -> Result<proxy::Dialect, String> {
@@ -300,3 +357,12 @@ fn collect_project_ids(v: &serde_json::Value, out: &mut Vec<framer_core::ids::Pr
         _ => {}
     }
 }
+
+#[cfg(feature = "native-dispatch")]
+pub mod native_dispatch;
+
+#[cfg(all(test, feature = "native-dispatch"))]
+extern crate self as framer_api;
+#[cfg(all(test, feature = "native-dispatch"))]
+#[path = "observed_factory_fixture.rs"]
+mod observed_factory;

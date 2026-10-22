@@ -4,7 +4,11 @@ version = "0.1.0"
 edition.workspace = true
 license.workspace = true
 
+[features]
+native-dispatch = ["framer-core/native-dispatch"]
+
 [dependencies]
+http-body = "1"
 framer-core = { path = "../framer-core" }
 axum = "0.8"
 serde = { version = "1", features = ["derive"] }
@@ -15,3 +19,7 @@ tokio = { version = "1", features = ["full"] }
 tower-http = { version = "0.6", features = ["fs"] }
 tracing = "0.1"
 uuid = { version = "1", features = ["v4"] }
+
+[dev-dependencies]
+async-trait = "0.1"
+tower = { version = "0.5", features = ["util"] }

@@ -10,6 +10,36 @@ use std::sync::Arc;
 mod allocator_reclaim;
 mod allocator_reclaim_task;
 mod cli_control;
+mod startup;
+use startup::start_prewarm;
+#[cfg(feature = "native-dispatch")]
+mod observed_authorization;
+#[cfg(feature = "native-dispatch")]
+mod one_shot_control;
+#[cfg(feature = "native-dispatch")]
+extern crate offline_worker_owner;
+#[cfg(feature = "native-dispatch")]
+mod offline_worker;
+#[cfg(feature = "native-dispatch")]
+mod offline_source;
+#[cfg(feature = "native-dispatch")]
+mod offline_serving;
+#[cfg(feature = "native-dispatch")]
+mod offline_sessions;
+#[cfg(feature = "native-dispatch")]
+mod offline_routing;
+#[cfg(feature = "native-dispatch")]
+mod offline_request_context;
+#[cfg(feature = "native-dispatch")]
+mod offline_routing_config;
+#[cfg(feature = "native-dispatch")]
+mod offline_config;
+#[cfg(feature = "native-dispatch")]
+mod offline_http;
+#[cfg(feature = "native-dispatch")]
+mod retirable_assembly;
+#[cfg(feature = "native-dispatch")]
+mod retirable_state;
 
 #[derive(Parser)]
 #[command(name = "framerize", about = "Multi-account Framer AI service")]
@@ -47,6 +77,14 @@ enum Cmd {
         /// Eligible accounts: all, none, or comma-separated full UUIDs.
         #[arg(long)]
         eligible_accounts: Option<String>,
+        /// Enable the explicit offline complete-JSON endpoint with pinned runtime inputs.
+        #[cfg(feature = "native-dispatch")]
+        #[arg(long)]
+        offline_worker_config: Option<String>,
+        /// Route compatible client requests using explicit per-request context.
+        #[cfg(feature = "native-dispatch")]
+        #[arg(long)]
+        offline_routing_config: Option<String>,
     },
     /// Log in a Framer account: sends the magic-link email, then prompts for
     /// the #token from the emailed link. Talks to the running daemon.
@@ -121,6 +159,9 @@ async fn build_state(db: &str, chrome: &str, profiles: &str, engine: &str,
         other => return Err(format!("unknown --engine {other} (full-chrome|headless-shell|attach|camoufox)")),
     };
     Ok(AppState {
+        operation_ownership: None,
+        #[cfg(feature = "native-dispatch")]
+        native_dispatch: None,
         client,
         browser,
         sessions,
@@ -168,7 +209,9 @@ async fn load_proxies(state: &AppState) -> Result<(), String> {
 async fn main() {
     let cli = Cli::parse();
     match cli.cmd {
-        Cmd::Daemon { listen, web_dir, db, chrome, engine, profiles, active_pool_size, eligible_accounts } => {
+        Cmd::Daemon { listen, web_dir, db, chrome, engine, profiles, active_pool_size, eligible_accounts,
+            #[cfg(feature = "native-dispatch")] offline_worker_config,
+            #[cfg(feature = "native-dispatch")] offline_routing_config } => {
             let state = match build_state(&db, &chrome, &profiles, &engine,
                 active_pool_size, eligible_accounts.as_deref()).await {
                 Ok(s) => s,
@@ -177,14 +220,31 @@ async fn main() {
                     std::process::exit(1);
                 }
             };
+            #[cfg(feature = "native-dispatch")]
+            let (state, offline_worker) = match offline_http::configure(
+                state, offline_worker_config.as_deref(), offline_routing_config.as_deref()) {
+                Ok(value) => value,
+                Err(error) => {
+                    eprintln!("failed to initialize: {error}");
+                    std::process::exit(1);
+                }
+            };
             let _memory_task = allocator_reclaim_task::start();
-            if let Err(error) = load_proxies(&state).await {
+            let proxy_state = state.clone();
+            let proxies = framer_server::operation_ownership::run(
+                state.operation_ownership.as_ref(),
+                framer_core::operation_gate::OperationKind::Background,
+                async move { load_proxies(&proxy_state).await },
+            ).await.map_err(|error| format!("startup ownership unavailable: {error:?}"))
+                .and_then(|result| result);
+            if let Err(error) = proxies {
                 eprintln!("failed to initialize: {error}");
                 std::process::exit(1);
             }
-            // Warm at most the configured capacity through the same admission
-            // path as requests. The remaining saved accounts stay unloaded.
-            tokio::spawn(framer_server::prewarm_accounts(state.clone()));
+            if let Err(error) = start_prewarm(&state) {
+                eprintln!("{error}");
+                std::process::exit(1);
+            }
             let addr = match listen.parse() {
                 Ok(a) => a,
                 Err(e) => {
@@ -197,7 +257,14 @@ async fn main() {
                 .field("listen", listen.clone())
                 .field("engine", engine.clone())
                 .emit();
-            if let Err(e) = framer_server::serve(state, &web_dir, addr).await {
+            #[cfg(feature = "native-dispatch")]
+            let result = match offline_worker {
+                Some(worker) => offline_http::serve(state, worker, &web_dir, addr).await,
+                None => framer_server::serve(state, &web_dir, addr).await,
+            };
+            #[cfg(not(feature = "native-dispatch"))]
+            let result = framer_server::serve(state, &web_dir, addr).await;
+            if let Err(e) = result {
                 eprintln!("server error: {e}");
                 std::process::exit(1);
             }

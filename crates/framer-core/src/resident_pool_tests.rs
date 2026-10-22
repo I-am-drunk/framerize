@@ -1,6 +1,30 @@
 use super::*;
 
 #[test]
+fn ordinary_drop_preserves_a_separately_retained_native_user() {
+    for mark_first in [true, false] {
+        let pool = ResidentPool::new(1).unwrap();
+        let native = lease(&pool, 1);
+        let ordinary = lease(&pool, 1);
+        ordinary.ensure_admissible().unwrap();
+        if mark_first { ordinary.mark_unconfirmed().unwrap(); }
+        native.retain_unconfirmed();
+        ordinary.mark_unconfirmed().unwrap();
+        assert!(matches!(ordinary.ensure_admissible(), Err(PoolError::AccountBusy)));
+        assert_eq!(pool.snapshot().unwrap().residents[0].users, 2);
+        drop(ordinary);
+        let snapshot = pool.snapshot().unwrap();
+        assert_eq!(snapshot.occupied, 1);
+        assert_eq!(snapshot.residents[0].users, 1);
+        assert_eq!(snapshot.residents[0].status, ResidentStatus::Uncertain);
+        assert!(pool.idle_ids().unwrap().is_empty());
+        assert!(matches!(pool.try_acquire(id(1), None), Err(PoolError::AccountBusy)));
+        assert!(matches!(pool.try_acquire(id(2), None), Err(PoolError::NoIdleSlot)));
+        assert!(matches!(pool.begin_park(id(1)), Err(PoolError::AccountBusy)));
+    }
+}
+
+#[test]
 fn negative_browser_observation_retains_users_and_capacity() {
     let pool = ResidentPool::new(1).unwrap();
     let first = lease(&pool, 1);

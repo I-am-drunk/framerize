@@ -54,7 +54,7 @@ struct Inner { capacity: usize, slots: Vec<Slot>, clock: u64, next_ticket: u64 }
 pub struct ResidentPool { inner: Arc<Mutex<Inner>> }
 pub enum Acquire { Lease(ResidentLease), Evict(EvictionTicket) }
 #[must_use = "retain through the full request or SSE chain"]
-pub struct ResidentLease { pool: ResidentPool, account: AccountId }
+pub struct ResidentLease { pool: ResidentPool, account: AccountId, release_on_drop: bool }
 struct CloseTicket { pool: ResidentPool, victim: AccountId, target: Option<AccountId>, id: u64, done: bool }
 #[must_use = "close the victim before confirming replacement"]
 pub struct EvictionTicket(CloseTicket);
@@ -125,11 +125,11 @@ impl ResidentPool {
         if let Some(slot) = inner.slots.iter_mut().find(|s| s.account == account) {
             if !matches!(slot.state, SlotState::Resident) { return Err(PoolError::AccountBusy); }
             slot.users = slot.users.checked_add(1).ok_or(PoolError::Unavailable)?;
-            return Ok(Acquire::Lease(ResidentLease { pool: self.clone(), account }));
+            return Ok(Acquire::Lease(ResidentLease { pool: self.clone(), account, release_on_drop: true }));
         }
         if inner.slots.len() < inner.capacity {
             inner.slots.push(Slot { account, users: 1, idle_order: 0, state: SlotState::Resident });
-            return Ok(Acquire::Lease(ResidentLease { pool: self.clone(), account }));
+            return Ok(Acquire::Lease(ResidentLease { pool: self.clone(), account, release_on_drop: true }));
         }
         let idle = |s: &&Slot| s.users == 0 && matches!(s.state, SlotState::Resident)
             && !protected.contains(&s.account);
@@ -159,6 +159,16 @@ impl ResidentPool {
 }
 impl ResidentLease {
     pub fn account(&self) -> AccountId { self.account }
+    /// Retain an unresolved user count when external cleanup is unconfirmed.
+    /// Local idle-close evidence cannot release this reservation.
+    pub fn retain_unconfirmed(mut self) {
+        self.release_on_drop = false;
+        if let Ok(mut inner) = self.pool.lock() {
+            if let Some(slot) = inner.slots.iter_mut().find(|s| s.account == self.account) {
+                slot.state = SlotState::Uncertain;
+            }
+        }
+    }
 
     /// Linearize admission after an asynchronous browser observation.
     pub fn ensure_admissible(&self) -> Result<(), PoolError> {
@@ -187,6 +197,7 @@ impl ResidentLease {
 }
 impl Drop for ResidentLease {
     fn drop(&mut self) {
+        if !self.release_on_drop { return; }
         if let Ok(mut inner) = self.pool.lock() {
             inner.clock = inner.clock.saturating_add(1);
             let order = inner.clock;
@@ -232,7 +243,7 @@ impl CloseTicket {
         let lease = if let Some(account) = self.target {
             if inner.slots.iter().any(|s| s.account == account) { return Err(PoolError::AccountBusy); }
             inner.slots[index] = Slot { account, users: 1, idle_order: 0, state: SlotState::Resident };
-            Some(ResidentLease { pool: self.pool.clone(), account })
+            Some(ResidentLease { pool: self.pool.clone(), account, release_on_drop: true })
         } else {
             inner.slots.remove(index);
             None

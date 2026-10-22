@@ -30,9 +30,14 @@ fn validate_status(account: &AccountId, status: BrowserAccountStatus)
 impl SidecarBridge {
     pub(super) async fn inspect_browser(&self, account: &AccountId)
         -> Result<BrowserAccountStatus, String> {
+        let _admission = self.admit_unscoped()?;
         tokio::time::timeout(STATUS_TIMEOUT, async {
-            if self.inner.lock().await.is_none() {
-                return Ok(absent_without_host(account));
+            {
+                let inner = self.inner.lock().await;
+                if inner.is_none() {
+                    self.check_unused_startup()?;
+                    return Ok(absent_without_host(account));
+                }
             }
             let value = self.call_with_policy("browser_status",
                 json!({ "account": account.0.to_string() }), STATUS_TIMEOUT, false).await?;
@@ -44,6 +49,7 @@ impl SidecarBridge {
 
     pub(super) async fn close_observed_browser(&self, account: &AccountId,
         expected: &BrowserAccountStatus) -> Result<IdleCloseResult, String> {
+        let _admission = self.admit_unscoped()?;
         if expected.account_id != *account {
             return Err("idle close account does not match the observed browser".into());
         }

@@ -99,7 +99,11 @@ async fn an_exited_host_is_uncertain_and_is_never_respawned_by_inspection() {
     let (cancel, _rx) = mpsc::channel(1);
     let bridge = SidecarBridge::new("unused-lifecycle-state");
     *bridge.inner.lock().await = Some(Sidecar {
-        child, stdin, pending: pending.clone(), cancel, next_id: AtomicU64::new(0),
+        child, stdin, pending: pending.clone(), cancel, next_id: Arc::new(AtomicU64::new(0)),
+        capability: Arc::new(Mutex::new(None)),
+        healthy: Arc::new(std::sync::atomic::AtomicBool::new(true)),
+        incarnation: uuid::Uuid::new_v4(),
+        events: tokio::sync::broadcast::channel(512).0,
     });
     let error = bridge.browser_status(&AccountId::new()).await.unwrap_err();
     assert!(error.starts_with("host-lifecycle-unconfirmed:"));

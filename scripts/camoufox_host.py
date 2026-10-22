@@ -907,6 +907,85 @@ class Host:
         # An explicit interval applies in both modes; only defaults accelerate.
         self.idle_gc_interval = float("120" if configured_gc is None else configured_gc)
         self.idle_gc_pressure_interval = float("60" if configured_gc is None else configured_gc)
+        self._observed = None
+        mode = os.environ.get("FRAMERIZE_SIDECAR_MODE", "unmanaged")
+        if mode != "unmanaged":
+            from observed_sidecar import MODE, ObservedHost
+            if mode != MODE or DEVICE_POOL != 1 or RESERVE_PER_DAY != 0:
+                raise RuntimeError("unsupported observed process configuration")
+            self._observed = ObservedHost(self, ROOT,
+                os.environ.get("FRAMERIZE_SIDECAR_INCARNATION"),
+                os.environ.get("FRAMERIZE_OBSERVED_PROFILE_NONCE"))
+
+    def _observed_scope(self, account):
+        if self._observed is None:
+            return None
+        scope = self._observed.accounts.get(account)
+        life = self.lifecycles.get(account)
+        if (self._observed.closed or scope is None or scope.failure or scope.stopped.is_set()
+                or life is None or life is not scope.lifecycle
+                or life.incarnation != scope.lifecycle_incarnation):
+            raise RuntimeError("observed account admission closed")
+        return scope
+
+    def _observed_scope_open(self, scope):
+        life = self.lifecycles.setdefault(scope.account, AccountLifecycle())
+        status = self._browser_status(scope.account)
+        if (status["state"] != "absent" or life.active_commands
+                or life.close_task is not None):
+            raise RuntimeError("observed account cleanup is unconfirmed")
+        scope.lifecycle = life
+        scope.lifecycle_incarnation = life.incarnation
+
+    def _observed_scope_closed(self, scope):
+        life = scope.lifecycle
+        if (self._observed.accounts.get(scope.account) is not scope
+                or self.lifecycles.get(scope.account) is not life
+                or life.incarnation != scope.lifecycle_incarnation
+                or scope.failure or life.active_commands or life.close_task is not None):
+            raise RuntimeError("observed lifecycle settlement is unconfirmed")
+        acc = self.accounts.get(scope.account)
+        if acc is not None and (acc.lifecycle is not life
+                or acc._observed_scope is not scope or acc.browser is not life.browser):
+            raise RuntimeError("observed account identity changed")
+        if scope.browsers:
+            if len(scope.browsers) != 1:
+                raise RuntimeError("observed browser identity changed")
+            owned = scope.browsers[0]
+            if (not owned.closed or owned.browser is not life.browser
+                    or life.close_receipt is not owned):
+                raise RuntimeError("observed close acknowledgement is unconfirmed")
+        elif (scope.launch_started or acc is not None or life.phase != "absent"
+                or life.browser is not None or life.close_receipt is not None):
+            raise RuntimeError("observed launch cleanup is unconfirmed")
+        self.accounts.pop(scope.account, None)
+        life.browser = life.close_receipt = None
+        life.phase = "absent"
+        # Keep the same device windows, pacing and revisioned proxy route.
+
+    def _observed_command(self, req):
+        from observed_sidecar import SUPPORTED
+        scope = self._observed.scope_for(req)
+        if req.get("cmd") not in SUPPORTED or self._observed_scope(scope.account) is not scope:
+            raise RuntimeError("unsupported observed account command")
+        desired = req.get("proxy")
+        if desired is not None and (not isinstance(desired, str) or not desired):
+            raise ValueError("proxy must be a nonempty string or null")
+        if not scope.route_bound:
+            revision = self.proxy_revisions.get(scope.account, 0)
+            if desired != self.proxies.get(scope.account):
+                result = self._register_proxy(dict(account=scope.account,
+                    expected_revision=revision, revision=revision + 1, proxy=desired))
+                if result["outcome"] != "registered":
+                    raise RuntimeError("observed proxy registration is unconfirmed")
+                revision += 1
+            scope.proxy, scope.proxy_revision = desired, revision
+            scope.route_bound = True
+        if desired != scope.proxy:
+            raise RuntimeError("observed scope proxy changed")
+        command = dict(req, proxy=scope.proxy, proxy_revision=scope.proxy_revision)
+        self._adopt_proxy_route(command)
+        return command
 
     def _check_proxy_revision(self, req):
         account = req.get("account", "")
@@ -976,6 +1055,9 @@ class Host:
 
     @staticmethod
     def _track_task(acc, coro, *, page=None):
+        scope = getattr(acc, "_observed_scope", None)
+        if scope is not None:
+            return scope.background_task(coro)
         task = asyncio.create_task(coro)
         acc.tasks.add(task)
         task.add_done_callback(acc.tasks.discard)
@@ -1089,6 +1171,8 @@ class Host:
                 "status": self._browser_status(account)}
 
     async def _close_account(self, account, *, idle_before=None):
+        if self._observed is not None:
+            raise RuntimeError("observed scopes own account closure")
         life = self.lifecycles.get(account)
         if life is None:
             return account not in self.accounts
@@ -1274,6 +1358,8 @@ class Host:
             await self._monitor_once()
 
     async def close(self):
+        if self._observed is not None:
+            raise RuntimeError("observed scopes own host shutdown")
         self._closed = True
         for account in list(self.lifecycles):
             try:
@@ -1736,6 +1822,7 @@ class Host:
             return tok, used_dev
 
     async def _account(self, account, proxy=None):
+        self._observed_scope(account)
         if self._closed:
             raise RuntimeError("browser host is closed")
         life = self.lifecycles.setdefault(account, AccountLifecycle())
@@ -1745,6 +1832,7 @@ class Host:
         if account in self.accounts and life.phase == "resident":
             return self.accounts[account]
         async with self.lock:
+            scope = self._observed_scope(account)
             if self._closed:
                 raise RuntimeError("browser host is closed")
             if life.phase in ("closing", "unconfirmed"):
@@ -1753,8 +1841,16 @@ class Host:
                 return self.accounts[account]
             life.incarnation += 1
             life.phase = "starting"
+            if scope is not None:
+                scope.lifecycle_incarnation = life.incarnation
             try:
                 acc = await self._launch(account, proxy)
+                if self._observed is not None:
+                    try:
+                        self._observed_scope(account)
+                    except RuntimeError:
+                        life.phase = "unconfirmed"
+                        raise
             except BaseException:
                 if life.phase == "starting":
                     life.phase = "absent"
@@ -1771,6 +1867,7 @@ class Host:
             self._release(acc, page)
 
     async def _launch(self, account, proxy=None):
+        self._observed_scope(account)
         if proxy:
             self.proxies[account] = proxy
         profile = os.path.join(ROOT, account)
@@ -1811,7 +1908,9 @@ class Host:
         # TRUSTED either way (Juggler Input domain), so Castle's listeners
         # still fire; we only drop the deliberate slowness.
         # Per-account egress: Castle binds tokens to egress IP (verified live).
-        px = self.proxies.get(account) or os.environ.get("FRAMERIZE_PROXY")
+        px = self.proxies.get(account)
+        if self._observed is None:
+            px = px or os.environ.get("FRAMERIZE_PROXY")
         if px:
             kwargs["proxy"] = {"server": px}
         trace(f"{account[:8]}: launching camoufox (profile {profile})")
@@ -1820,29 +1919,55 @@ class Host:
         # headroom, not the former 256 MiB estimate below even warm usage.
         # This admission estimate is not a cap on later browser growth.
         async with self._allocation(BROWSER_STARTUP_RESERVE):
-            if self._playwright is None:
-                self._playwright = await async_playwright().start()
+            scope = self._observed_scope(account)
+            life = self.lifecycles[account]
+            if scope is not None:
+                scope.begin_launch()
+            try:
+                if self._playwright is None:
+                    self._playwright = await async_playwright().start()
+            except BaseException:
+                if scope is not None:
+                    life.phase = "unconfirmed"
+                    scope.fail("driver_start_unconfirmed")
+                raise
             # Each launch still has its own process, profile, configuration,
             # proxy and storage. Only the Playwright transport is shared.
-            life = self.lifecycles[account]
             try:
                 browser = await AsyncNewBrowser(self._playwright, **kwargs)
             except BaseException:
                 # A cancelled handshake may have launched a process without
                 # returning its handle. Never turn that uncertainty into room.
                 life.phase = "unconfirmed"
+                if scope is not None:
+                    scope.fail("browser_launch_unconfirmed")
                 raise
             life.browser = browser
             emit("camoufox.launch", account=account[:8], duration_ms=int((time.monotonic()-t0)*1000), outcome="ok")
             try:
-                life.close_receipt = BrowserCloseReceipt(browser)
+                life.close_receipt = (scope.browser_started(browser) if scope is not None
+                                      else BrowserCloseReceipt(browser))
                 return await self._initialize_account(account, profile, browser)
             except BaseException:
+                if scope is not None:
+                    life.phase = "unconfirmed"
+                    scope.fail("account_initialization_failed")
+                    raise
                 acc = self.accounts.get(account)
                 await asyncio.shield(self._start_close(account, life, acc))
                 raise
 
     async def _initialize_account(self, account, profile, browser):
+        scope = self._observed_scope(account)
+        if scope is not None and scope.contextual_authorization:
+            from contextual_authorization import initialize_account
+            life = self.lifecycles[account]
+            def make_account(manager, context, page):
+                if (self._observed_scope(account) is not scope
+                        or self.lifecycles.get(account) is not life):
+                    raise RuntimeError("observed initializer ownership changed")
+                return Account(manager, context, page, life)
+            return await initialize_account(self, account, browser, scope, make_account)
         ctx = await browser.new_context()   # ambient context (login flow, heartbeats' home)
         page = await ctx.new_page()
         trace(f"{account[:8]}: goto login page")
@@ -1874,6 +1999,8 @@ class Host:
         except Exception as e:
             trace(f"{account[:8]}: castle warm failed ({type(e).__name__}) — first real mint will pay it instead")
         acc = Account(None, ctx, page, self.lifecycles[account])
+        if scope is not None:
+            acc._observed_scope = scope
         acc.browser = browser
         acc.editor_file = os.path.join(profile, "framerize-editor.json")
         try:
@@ -2001,6 +2128,11 @@ class Host:
         return self.accounts[account].ctx
 
     async def _run_job(self, page, path, body, token, bearer, job, dev, timeout):
+        if self._observed is not None:
+            from observed_sidecar import run_job
+            scope = self._observed.scope_for_page(page)
+            return await run_job(scope, page, path, body, token, bearer, job, dev,
+                                 timeout, AI_START_JS, AI_POLL_JS, AI_CANCEL_JS)
         deadline = time.monotonic() + timeout
         try:
             await asyncio.wait_for(
@@ -2027,6 +2159,16 @@ class Host:
                 pass
 
     async def handle(self, req):
+        if self._observed is not None:
+            req = self._observed_command(req)
+        if req.get("cmd") == "prepare_inference_authorization":
+            if self._observed is None:
+                raise RuntimeError("contextual authorization requires an observed scope")
+            from contextual_authorization import prepare, validate_request
+            plan = validate_request(req)
+            account = req.get("account", "")
+            async with self._use_account(account, req.get("proxy")):
+                return await prepare(self, account, CASTLE_CHUNK, plan)
         if req.get("cmd") == "register_proxy":
             return self._register_proxy(req)
         if req.get("cmd") == "browser_status":
@@ -2248,6 +2390,8 @@ class Host:
         await writer.send(out)
 
     async def loop(self):
+        if self._observed is not None:
+            return await self._observed.loop(AsyncReplyWriter(sys.stdout))
         trace("sidecar ready (async)")
         loop = asyncio.get_running_loop()
         writer = AsyncReplyWriter(sys.stdout)

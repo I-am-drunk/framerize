@@ -53,7 +53,7 @@ async fn interrupted_registration_reconciles_before_applying_a_different_route()
     finish(bridge, reader).await;
 }
 
-async fn echo_bridge(close_error: Option<&'static str>) -> (SidecarBridge, mpsc::UnboundedReceiver<Value>, tokio::task::JoinHandle<()>) {
+pub(super) async fn echo_bridge(close_error: Option<&'static str>) -> (SidecarBridge, mpsc::UnboundedReceiver<Value>, tokio::task::JoinHandle<()>) {
     echo_bridge_mode(close_error, "registered").await
 }
 
@@ -108,12 +108,16 @@ async fn echo_bridge_mode(close_error: Option<&'static str>, mode: &'static str)
     let (cancel, _rx) = mpsc::channel(1);
     let bridge = SidecarBridge::new("unused-proxy-fixture");
     *bridge.inner.lock().await = Some(Sidecar {
-        child, stdin, pending, cancel, next_id: AtomicU64::new(0),
+        child, stdin, pending, cancel, next_id: Arc::new(AtomicU64::new(0)),
+        capability: Arc::new(Mutex::new(None)),
+        healthy: Arc::new(std::sync::atomic::AtomicBool::new(true)),
+        incarnation: uuid::Uuid::new_v4(),
+        events: tokio::sync::broadcast::channel(512).0,
     });
     (bridge, frames, reader)
 }
 
-async fn finish(bridge: SidecarBridge, reader: tokio::task::JoinHandle<()>) {
+pub(super) async fn finish(bridge: SidecarBridge, reader: tokio::task::JoinHandle<()>) {
     let mut state = bridge.inner.lock().await;
     let worker = state.as_mut().unwrap();
     worker.child.kill().await.unwrap();

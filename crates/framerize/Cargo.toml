@@ -4,6 +4,10 @@ version = "0.1.0"
 edition.workspace = true
 license.workspace = true
 
+[features]
+native-dispatch = ["framer-api/native-dispatch", "framer-server/native-dispatch", "framer-core/native-dispatch",
+    "dep:offline-worker-owner", "dep:axum", "dep:futures", "dep:libc", "dep:serde"]
+
 [dependencies]
 framer-core = { path = "../framer-core" }
 framer-api = { path = "../framer-api" }
@@ -15,3 +19,12 @@ tokio = { version = "1", features = ["full"] }
 reqwest = { version = "0.12", features = ["json", "stream"] }
 serde_json = "1"
 uuid = { version = "1", features = ["v4"] }
+offline-worker-owner = { path = "../offline-worker-owner", optional = true }
+axum = { version = "0.8", optional = true }
+futures = { version = "0.3", optional = true }
+libc = { version = "0.2", optional = true }
+serde = { version = "1", features = ["derive"], optional = true }
+
+[dev-dependencies]
+async-trait = "0.1"
+tower = { version = "0.5", features = ["util"] }
