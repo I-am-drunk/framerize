@@ -124,7 +124,13 @@ The service was not changed. The accepted window remains 440 seconds plus
 the actual 2.5-second settlement; account cooldowns remain untouched.
 Administrator authentication is also required before a service transition.
 
-The next step is fresh admission after the cooldown boundary, then the
-coordinated trial release and one real request. Keep normal browser routes,
-restored cooldowns and one account authority. No application rebuild or
-broad test rerun is needed for this runtime-data change.
+A second sample at 21:26 UTC found new cooldown deadlines. A focused read-only
+comparison confirmed that the six selected startup accounts would change
+within the required window. This is a real admission constraint. The original
+cooldown timestamps and startup checks remain unchanged.
+
+The next step is a stable admission window and an authenticated coordinated
+trial release, followed by one real request with current session context.
+Keep normal browser routes, restored cooldowns and one account authority.
+No application rebuild or broad test rerun is needed for this runtime-data
+change.
