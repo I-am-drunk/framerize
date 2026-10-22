@@ -19,3 +19,14 @@ Preserve one authority for account cooldowns. Use one bounded real request
 after that connection is validated; do not mirror paid traffic. Component
 tests and a successful standalone SDK mint do not prove client delivery or
 the whole service's memory use.
+
+The source-only device components are now tracked in `scripts/native_device.py`
+and `scripts/offline_worker/`. Their fixtures are under
+`scripts/tests/native_device/` and beside the worker modules. Their 23 and 28
+cases have not yet run at this checkpoint. These files are not installed or
+automatically connected to the live host.
+
+The worker's pin table still names the original local, verified SDK and JSDOM
+inputs. Those external inputs are not bundled in Git. Keep this limitation
+explicit until the runtime package is made relocatable and validated. Never
+substitute unverified dependencies just to make a copied worker launch.
