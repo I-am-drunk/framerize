@@ -59,6 +59,13 @@ Enabling its worker configuration does not switch the normal routing policy.
 This lets one real request exercise the shared ownership without running a
 second account authority or sending duplicate traffic.
 
+The optional request observer wraps the existing client checker, verified by
+its exact source hash. It samples the shared service's memory during that same
+request and retains measurements on failure. It neither owns accounts nor
+changes request policy. Its sampled maximum is a lower bound, and concurrent
+browser work prevents attributing that maximum to the native request alone.
+See [browserless-measurement.md](browserless-measurement.md) for interpretation.
+
 ## Moving the default
 
 Keep normal browser serving available throughout development. Before moving
