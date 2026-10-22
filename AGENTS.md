@@ -28,6 +28,29 @@ Inherited from Notionize, same taste. Read before changing code.
    development. Run live checks only within the user's authorized scope, with
    existing account and rate ownership. Never duplicate paid requests.
 
+## Continue the goal when a step must wait
+
+The user explicitly requires continued work on the original objective.
+Never voluntarily stop or mark the whole goal blocked because one selected
+step needs authentication, a cooldown window, an external reply or a fix.
+Attach the dependency to that step and continue meaningful independent work
+within the existing authorization. Do not ask for the same permission again.
+
+Before deciding that no useful work is available, inspect the current source
+and checkpoint for remaining implementation, integration and measurement
+tasks across delivery, streaming, tools, cleanup, latency, memory and account
+isolation. Choose the smallest useful action and carry it through. Recover
+context from existing code and state before asking the user to supply it.
+
+Repeated readiness checks, unchanged audits and status messages are not
+progress or proof that the whole goal is blocked. A user resume requires a
+fresh assessment. Preserve the original objective and all valid evidence.
+
+Do not bypass authentication or runtime ownership, weaken safety checks,
+invent results or replace the goal to conceal a wait. Mandatory higher-priority
+goal-tool rules still apply if all meaningful authorized work is exhausted;
+explain any required transition and retain the exact next action.
+
 ## Branches and commits
 
 `main` remains browser-based until an explicitly reviewed switch. Keep the

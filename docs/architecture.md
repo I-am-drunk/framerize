@@ -72,6 +72,23 @@ streams, a 30-minute soak and measurements across ten accounts. These remain
 targets, not established results. Preserve the last working browser commit on
 `browser-based` when making a later reviewed default change.
 
+## Continuing work around a waiting step
+
+Project progress and runtime admission are separate decisions. A deployment
+can wait for authentication or stable account selection while other useful
+engineering continues. Keep that dependency attached to the deployment;
+never voluntarily treat it as a reason to stop the entire project.
+
+Use the current source and saved evidence to select the smallest independent
+implementation or measurement that advances the original objective. Keep an
+explicit owner, expected result and next action. Reuse valid results instead
+of repeating reviews or polling unchanged prerequisites. A resumed request
+requires a fresh assessment of available work.
+
+This does not authorize a second account owner, duplicate traffic, weaker
+admission or invented results. Follow mandatory goal-tool status rules only
+when their full conditions apply, and explain any required transition.
+
 ## Publishing work
 
 Commit and push each coherent milestone to its appropriate branch. Include
