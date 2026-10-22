@@ -12,7 +12,7 @@ use futures::{future::BoxFuture, FutureExt};
 use std::{panic::AssertUnwindSafe, sync::Arc};
 use tokio::{sync::{oneshot, watch}, time::Instant};
 use super::{offline_source::OfflineSource, offline_worker_owner::Worker,
-    one_shot_control::SourceBuilder, offline_sessions::Sessions};
+    one_shot_control::SourceBuilder, offline_sessions::Sessions, offline_device::DeviceLease};
 
 #[cfg(test)]
 #[path = "offline_serving_tests.rs"]
@@ -75,7 +75,7 @@ impl Run { pub(crate) fn cancel(&self) { self.stop.cancel(); } }
 
 pub(crate) fn launch(state: AppState, request: Request, worker: Arc<Worker>, sessions: Sessions)
     -> Result<Run, DispatchError> {
-    let source = Arc::new(OfflineSource::new(worker, request.target));
+    let source = Arc::new(OfflineSource::new(worker, request.target, state.browser.clone()));
     launch_with_source(state, request.spec, source, sessions)
 }
 
@@ -152,7 +152,8 @@ type Admission = (tokio::sync::OwnedSemaphorePermit, port::PoolAdmission);
 
 async fn execute(state: &AppState, spec: Specification, source: Arc<dyn SourceBuilder>,
     admission: Admission, owner: &native_control::ControlOwner, proxy: &Option<String>,
-    stop: Arc<Stop>, native: &NativeAccountClient, scope: &AccountScope) -> Outcome {
+    stop: Arc<Stop>, native: &NativeAccountClient, scope: &AccountScope,
+    device: Option<Arc<framer_core::native_device::DeviceGrant>>) -> Outcome {
     if let Some(kind) = stopped(&stop, spec.deadline) { return Outcome::failed(kind); }
     if let Err(error) = owner.revalidate(state, &spec.identity, proxy).await {
         return Outcome::failed(error.kind);
@@ -162,7 +163,7 @@ async fn execute(state: &AppState, spec: Specification, source: Arc<dyn SourceBu
     let plan = match Plan::new(scope.clone(), spec) {
         Ok(value) => value, Err(error) => return Outcome::failed(error.kind),
     };
-    let source = match source.build(scope.clone(), proxy.clone()) {
+    let source = match source.build_with_device(scope.clone(), proxy.clone(), device) {
         Ok(value) => value, Err(_) => return Outcome::failed(FailureKind::Authorization),
     };
     if let Some(kind) = stopped(&stop, deadline) { return Outcome::failed(kind); }
@@ -214,6 +215,35 @@ async fn observe(mut probe: ProbeRun, stop: Arc<Stop>, deadline: Instant,
 async fn session(state: &AppState, spec: Specification, source: Arc<dyn SourceBuilder>,
     admission: Admission, owner: &native_control::ControlOwner, proxy: &Option<String>,
     stop: Arc<Stop>, sessions: &Sessions) -> Outcome {
+    use framer_core::native_device::DeviceFailure;
+    let device = match DeviceLease::open(source.as_ref(), spec.identity.account).await {
+        Ok(device) => device,
+        Err(DeviceFailure::Rejected) => return Outcome::failed(FailureKind::Ineligible),
+        Err(DeviceFailure::Unconfirmed) => {
+            admission.0.forget();
+            return Outcome::unconfirmed();
+        }
+    };
+    let mut outcome = if let Some(kind) = stopped(&stop, spec.deadline) {
+        Outcome::failed(kind)
+    } else {
+        AssertUnwindSafe(session_inner(state, spec, source, admission, owner, proxy,
+            stop, sessions, device.grant())).catch_unwind().await
+            .unwrap_or_else(|_| Outcome::unconfirmed())
+    };
+    let risk = outcome.evidence.as_ref().is_some_and(|e| e.status == Some(403)
+        && e.attempts == 1 && e.refusal.is_some_and(|r| r.policy == Refusal::Castle));
+    if !device.finish(outcome.cleanup_confirmed, risk).await {
+        outcome.cleanup_confirmed = false;
+        outcome.reject(FailureKind::Cleanup);
+    }
+    outcome
+}
+
+async fn session_inner(state: &AppState, spec: Specification, source: Arc<dyn SourceBuilder>,
+    admission: Admission, owner: &native_control::ControlOwner, proxy: &Option<String>,
+    stop: Arc<Stop>, sessions: &Sessions,
+    device: Option<Arc<framer_core::native_device::DeviceGrant>>) -> Outcome {
     let native = sessions.native();
     let bridge = sessions.bridge();
     let route = proxy.as_deref().map(NativeEgress::Proxy).unwrap_or(NativeEgress::Direct);
@@ -224,7 +254,7 @@ async fn session(state: &AppState, spec: Specification, source: Arc<dyn SourceBu
     match opened {
         Ok(Ok(scope)) => {
             let mut outcome = AssertUnwindSafe(execute(state, spec, source, admission,
-                owner, proxy, stop, native, &scope)).catch_unwind().await
+                owner, proxy, stop, native, &scope, device)).catch_unwind().await
                 .unwrap_or_else(|_| Outcome::unconfirmed());
             let closed = match native.close_account(&scope) {
                 Ok(observer) => observer.await.is_ok(), Err(_) => false,

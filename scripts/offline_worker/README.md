@@ -15,7 +15,8 @@ The 19 existing inert cases remain. Nine additional cases cover explicit input,
 privacy, real JSDOM storage, separate windows, repeated saved values and rejected
 storage changes. No case evaluates the SDK or contacts a service.
 
-Status: source only, untested. This component accepts a value; the application
-must obtain it from the selected account's existing authority and rate ledger.
+The 28 inert component cases passed on 2026-10-22. This component accepts a
+value; the application obtains it from the selected account's existing host
+authority and rate ledger. Combined application validation remains separate.
 It does not establish token-internal identity, upstream acceptance, account
 continuity, live integration or deployment. All earlier freezes are preserved.

@@ -7,7 +7,7 @@ branches does not change the running service.
 | --- | --- | --- |
 | `main` | Normal browser-based path | Verified browser source restored to Git |
 | `browser-based` | Maintained browser fallback | Same browser baseline |
-| `browserless` | Native request path and SDK worker | Experimental; integration remains |
+| `browserless` | Native request path and SDK worker | Integrated and locally checked; real delivery remains |
 
 ## Browser baseline
 
@@ -58,14 +58,35 @@ their prepared 28-case and 23-case suites on 2026-10-22. Peak test memory was
 78,086,144 and 34,054,144 bytes respectively, with zero recorded swap or resource
 events and complete teardown. These were inert checks using temporary state.
 They did not run a live SDK mint or inference request. The host/application
-connection is in progress and remains untested.
+connection now has separate focused validation, described below.
 
 Saved result hashes: worker
 `f5e763424a839450e0719b112c0b12811f4995d0c30ac320985c74e55270ebd2`,
 native device/rate
 `55f251eea0cd09d24e9bea31295a2b2f52fe8a3e8c0a48dd00c5f5bcf2a94b38`.
 
-Next action, owned by the primary implementation agent: connect the existing
-restored host authority to the native request lifetime and protocol-v2 worker,
-validate that connection, then run one bounded real request. Keep this work on
-`browserless`, commit each coherent step and retain normal browser serving.
+The application now keeps the restored host's device grant through native
+session, worker and response cleanup. Each mint uses the same device/rate
+authority as the browser path. A cancelled waiter cannot release running work.
+Unknown cleanup retains the account fence. Successful stream headers remain
+available before body cleanup completes.
+
+The first integrated checks missed a Rust/JavaScript device-format mismatch.
+That error is fixed. A regression now sends Rust's actual encoded bytes to the
+unchanged JavaScript consumer and rejects the former incorrect representation.
+The corrected source passed independent narrow review and six fresh build/test
+phases on 2026-10-22: 30 worker cases and 12 focused application cases passed.
+The application run filtered 97 unrelated cases. Five unchanged libraries and
+the 23 device/rate cases reuse their original results and exact dependencies.
+The final executable built successfully. One disk-reserve refusal was resolved
+by removing unused package cache; no memory limit was raised.
+
+Integrated result SHA-256:
+`ad2a156c80f1c6fec86cacb1fd8f1a32ac5ea3158e4d1c2dcb8bd612dbb1cd7a`.
+Source-review SHA-256:
+`23b897870d6b39837d7b2d7d025d2f6ae2fe69936f6a59b62907bc82ddca8232`.
+
+This milestone is built and locally checked, not deployed. No real browserless
+response or whole-service memory saving is established. Next: prepare one
+bounded request through the shared daemon's explicit trial endpoint, preserving
+the normal browser routes, restored cooldowns and a single account authority.

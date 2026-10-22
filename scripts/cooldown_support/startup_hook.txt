@@ -1,5 +1,6 @@
     # Restore an explicitly armed, one-use cooldown transfer before serving.
     import importlib.util as _handoff_import
+    from importlib import import_module as _handoff_module
     sys.dont_write_bytecode = True
     _support = Path(__file__).resolve().with_name('SUPPORT_DIRECTORY')
     _manifest = _support / 'runtime-sources.json'
@@ -17,6 +18,9 @@
     _spec.loader.exec_module(_module)
     _module.startup_state.install(Host, AccountLifecycle,
                                  Path(__file__).resolve().parent, Path(__file__).resolve())
+    _handoff_module(_spec.name + '.native_device').install(Host, ROOT,
+        gap=MINT_GAP_S, window=DEV_WINDOW_S, capacity=DEV_WINDOW_CAP,
+        cooldown=DEV_COOLDOWN_S)
     for _name, _expected in _pins.items():
         if hashlib.sha256((_support / _name).read_bytes()).hexdigest() != _expected:
             raise RuntimeError('cooldown support changed while loading')

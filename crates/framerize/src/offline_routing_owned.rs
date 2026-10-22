@@ -95,6 +95,34 @@ where T: Delivered + Send + 'static,
     if let Err(error) = control.stopped(admission.as_ref().unwrap().0.deadline) {
         return Completion::rejected(error);
     }
+    let device = match crate::offline_device::DeviceLease::open(
+        source.as_ref(), binding.identity.account).await {
+        Ok(device) => device,
+        Err(framer_core::native_device::DeviceFailure::Rejected) =>
+            return Completion::rejected(DispatchError::new(FailureKind::Ineligible)),
+        Err(framer_core::native_device::DeviceFailure::Unconfirmed) => return Completion::lost(),
+    };
+    let mut completed = AssertUnwindSafe(session_scoped(shared, binding, source,
+        admission, owner, control, operation, sender, device.grant()))
+        .catch_unwind().await.unwrap_or_else(|_| Completion::lost());
+    if !device.finish(completed.confirmed,
+        matches!(completed.health, HealthOutcome::RiskRefused)).await {
+        completed.confirmed = false;
+    }
+    completed
+}
+
+async fn session_scoped<T, F>(shared: &Shared, binding: RequestContext,
+    source: Arc<dyn SourceBuilder>, admission: &mut Option<Admission>, owner: &ControlOwner,
+    control: Arc<running::Control>, operation: F,
+    sender: &mut Option<oneshot::Sender<Result<T, DispatchError>>>,
+    device: Option<Arc<framer_core::native_device::DeviceGrant>>) -> Completion
+where T: Delivered + Send + 'static,
+    F: FnOnce(Box<dyn OwnedInvocation>, Value) -> port::InvocationRun<T> + Send + 'static,
+{
+    if let Err(error) = control.stopped(admission.as_ref().unwrap().0.deadline) {
+        return Completion::rejected(error);
+    }
     let egress = binding.proxy.as_deref().map(NativeEgress::Proxy).unwrap_or(NativeEgress::Direct);
     let opened = shared.sessions.bridge().open_account_observed(binding.identity.account,
         binding.identity.user.clone(), NativeHttpLimits::default(), egress).await;
@@ -105,7 +133,7 @@ where T: Delivered + Send + 'static,
         Err(OpenAccountError::CleanupUnconfirmed) => return Completion::lost(),
     };
     let mut completed = AssertUnwindSafe(execute(shared, binding, source, admission,
-        owner, control, &scope, operation, sender)).catch_unwind().await
+        owner, control, &scope, operation, sender, device)).catch_unwind().await
         .unwrap_or_else(|_| Completion::lost());
     let closed = match shared.sessions.native().close_account(&scope) {
         Ok(observer) => observer.await.is_ok(),
@@ -118,7 +146,8 @@ where T: Delivered + Send + 'static,
 async fn execute<T, F>(shared: &Shared, mut binding: RequestContext, source: Arc<dyn SourceBuilder>,
     admission: &mut Option<Admission>, owner: &ControlOwner, control: Arc<running::Control>,
     scope: &framer_api::experimental_native::native_account::AccountScope,
-    operation: F, sender: &mut Option<oneshot::Sender<Result<T, DispatchError>>>) -> Completion
+    operation: F, sender: &mut Option<oneshot::Sender<Result<T, DispatchError>>>,
+    device: Option<Arc<framer_core::native_device::DeviceGrant>>) -> Completion
 where T: Delivered + Send + 'static,
     F: FnOnce(Box<dyn OwnedInvocation>, Value) -> port::InvocationRun<T> + Send + 'static,
 {
@@ -138,7 +167,7 @@ where T: Delivered + Send + 'static,
             return Completion::rejected(error);
         }
     }
-    let source = match source.build(scope.clone(), binding.proxy) {
+    let source = match source.build_with_device(scope.clone(), binding.proxy, device) {
         Ok(source) => source,
         Err(_) => return Completion::rejected(DispatchError::new(FailureKind::Authorization)),
     };

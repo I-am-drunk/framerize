@@ -31,6 +31,27 @@ owns HTTP routing, API owns Framer protocol details, host owns browser/device
 integration, and the executable assembles them. Add missing connections at
 these boundaries instead of introducing another ownership framework.
 
+## Experimental device lifetime
+
+The native request obtains its saved device from the same restored host that
+owns browser cooldowns. The host admits and charges each mint before the SDK
+worker starts. It refuses browser work for that account while the native
+request remains owned, so the two paths cannot spend independent rate limits.
+
+The application keeps the host grant until the worker, native session and
+response cleanup have finished. Cancelling the client does not release that
+grant early. A lost cleanup acknowledgement leaves the account fenced.
+Successful stream headers can still reach the client before the body ends.
+
+Worker protocol version 2 carries the private saved device through a pipe.
+The worker seeds its isolated storage before loading the SDK and checks that
+the value remains unchanged. This does not establish upstream acceptance or
+prove which identity an opaque token contains. Those require separate evidence.
+
+The generated host package installs the native device adapter after the
+existing restoration hook. A base embedded host alone does not provide this
+integration; native configuration remains an explicit deployment choice.
+
 ## Moving the default
 
 Keep normal browser serving available throughout development. Before moving
