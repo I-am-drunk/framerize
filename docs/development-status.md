@@ -150,3 +150,11 @@ record its result. Do not count repeated readiness checks as progress.
 
 This documentation correction does not change the recorded deployment or
 test results and establishes no new live delivery or memory saving.
+
+The first-request observer is now implemented separately from the accepted
+checker. It samples memory, swap and task counts during that same request,
+keeps final measurements on failure, and records sampling gaps. Four focused
+local checks passed using temporary counters, with no network or child-process
+attempts. The original checker and release remain unchanged. This prepares
+measurement; no live browserless response or service-memory saving is claimed.
+See [browserless-measurement.md](browserless-measurement.md).
