@@ -81,12 +81,21 @@ the 23 device/rate cases reuse their original results and exact dependencies.
 The final executable built successfully. One disk-reserve refusal was resolved
 by removing unused package cache; no memory limit was raised.
 
-Integrated result SHA-256:
-`ad2a156c80f1c6fec86cacb1fd8f1a32ac5ea3158e4d1c2dcb8bd612dbb1cd7a`.
+Independent review found that the two application builds had not recorded the
+new worker library as a direct input. The commands used the right library,
+but their dependency records were incomplete. The corrected records now pin
+every directly used library. Both application outputs were rebuilt and match
+the earlier binaries exactly, so the original test results remain reusable.
+No component suite was repeated for this correction.
+
+Corrected integrated result SHA-256:
+`5202e63374500c50b96b1ba17bf977826ca218bd7c8ef72f67edf866414677fb`.
 Source-review SHA-256:
 `23b897870d6b39837d7b2d7d025d2f6ae2fe69936f6a59b62907bc82ddca8232`.
 
-This milestone is built and locally checked, not deployed. No real browserless
-response or whole-service memory saving is established. Next: prepare one
-bounded request through the shared daemon's explicit trial endpoint, preserving
-the normal browser routes, restored cooldowns and a single account authority.
+This milestone is built and locally checked, not deployed. Independent review
+of the corrected evidence and its release binding is pending. No real
+browserless response or whole-service memory saving is established. Next:
+complete the coordinated release preparation for one bounded request through
+the shared daemon's explicit trial endpoint. Keep normal browser routes,
+restored cooldowns and one account authority throughout that trial.
