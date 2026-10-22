@@ -1,0 +1,22 @@
+    # Restore an explicitly armed, one-use cooldown transfer before serving.
+    import importlib.util as _handoff_import
+    sys.dont_write_bytecode = True
+    _support = Path(__file__).resolve().with_name('SUPPORT_DIRECTORY')
+    _manifest = _support / 'runtime-sources.json'
+    _manifest_bytes = _manifest.read_bytes()
+    if hashlib.sha256(_manifest_bytes).hexdigest() != 'MANIFEST_SHA256':
+        raise RuntimeError('cooldown support manifest changed')
+    _pins = json.loads(_manifest_bytes)
+    for _name, _expected in _pins.items():
+        if hashlib.sha256((_support / _name).read_bytes()).hexdigest() != _expected:
+            raise RuntimeError('cooldown support source changed')
+    _spec = _handoff_import.spec_from_file_location('_framerize_cooldown',
+        _support / '__init__.py', submodule_search_locations=[str(_support)])
+    _module = _handoff_import.module_from_spec(_spec)
+    sys.modules[_spec.name] = _module
+    _spec.loader.exec_module(_module)
+    _module.startup_state.install(Host, AccountLifecycle,
+                                 Path(__file__).resolve().parent, Path(__file__).resolve())
+    for _name, _expected in _pins.items():
+        if hashlib.sha256((_support / _name).read_bytes()).hexdigest() != _expected:
+            raise RuntimeError('cooldown support changed while loading')

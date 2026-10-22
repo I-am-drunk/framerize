@@ -1,5 +1,11 @@
 # Framerize
 
+`main` remains the browser-based service. The `browser-based` branch preserves
+that path, and `browserless` contains the experimental native path. See
+[architecture and branch policy](docs/architecture.md) and
+[current development status](docs/development-status.md) for validated results
+and remaining work. A source push does not deploy or switch the running service.
+
 Always-on service that automates Framer AI: hold multiple Framer accounts, run agent
 inference through them. Forked
 from [Notionize](https://github.com/I-am-drunk/notionize); the core is replaced with
