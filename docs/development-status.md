@@ -3,7 +3,7 @@
 Updated 2026-10-23. The normal service remains browser-based. Publishing these
 branches does not change the running service.
 
-The disconnect correction is being validated on `browserless`. Review of the
+The disconnect correction is locally validated on `browserless`. Review of the
 first version found that the browser helper could still retry after disconnect,
 one timeout was not treated as uncertain cleanup, and refunds could start after
 cancellation or hide uncertain completion. The additive correction addresses
@@ -11,7 +11,11 @@ those three paths. Independent source review accepts the correction. All 27
 focused checks pass: two actual helper-loop cases, five API cases, four host
 cases and 16 routed-response cases. The host group reused its compiled binary
 after adding a missing existing fixture to the isolated test package; the
-original failure remains recorded. The deployable build is next.
+original failure remains recorded. Five production builds now pass, reusing the
+matching saved core library. The resulting executable is built and verified.
+One API build hit the intermediate file-size cap; the original production
+compiler setting passed within the unchanged limits. Both records are kept.
+The next step is the safe runtime update, followed by one real request.
 This change is not deployed and no browserless live response is verified.
 
 The first version's core and API builds remain saved evidence for that version.
