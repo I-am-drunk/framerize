@@ -6,9 +6,17 @@ branches does not change the running service.
 The experimental owner source now selects `--jitless`. Its five files match
 the already built and measured variant exactly. Owner/host review `df13c06d`
 accepts that source and saved integration evidence. Both cancellation cases
-also pass, with their separate independent review still queued. The existing
-staged application binary predates this source adoption; its targeted relink
-is the next build step. Running services and browser-based branches are unchanged.
+also pass, with their separate independent review pending. The targeted
+application link now passes: result `05552129` binds executable `8ffa3077`
+and 6,272 inputs. The binary is built, not installed or executed. Running
+services and browser-based branches are unchanged.
+
+The successful build peaked at 725,790,720 bytes under its unchanged 768 MiB
+cap, with 12 tasks, zero swap/events and no remaining build unit or cgroup.
+An earlier memory-cap failure and a diagnostic-file ordering refusal are
+preserved. The wrapper now releases unused verifier allocations and writes
+its memory diagnostic after the empty-directory check. Reclaim was about
+10 MB, so it does not establish the first attempt's high-memory cause.
 
 Live readiness checked at 19:12 UTC on 2026-10-23: the isolated store has
 zero accounts and zero saved sessions. Its earlier native test instance ended
@@ -101,8 +109,9 @@ cases after observed worker activity. Both join the worker and leave no unit
 or cgroup, with zero swap/events. Summary `6a451af4` binds their separate
 harness build and two runs. The SDK phase was unobserved, and these cases
 do not establish HTTP-stream cleanup. The experimental owner source now
-matches the measured variant. Next: finish the separate cancellation review
-and relink the application against the already verified owner library.
+matches the measured variant. The application now links that verified owner
+library. Its separate cancellation and application-result reviews remain
+pending; real account readiness and authenticated delivery remain unproven.
 
 Two additional local cases now cancel the real worker after observed process
 activity. Explicit cancellation returns the expected failure; dropping the
