@@ -157,6 +157,13 @@ terminal authentication context even when the caller has authenticated.
 An authentication refusal consumes that attempt before recovery or requests;
 preserve its evidence and bind any later attempt separately.
 
+The recovery identity helper uses the recovery controller's own binding
+module. Loading a deployment helper in a different controller does not provide
+its original import namespace. The recovery package verifies every selected
+module through the real loader without live actions, and retains the original
+helper's import failure as a regression. Those import checks do not exercise
+identity checks against installed state or replace fresh runtime predicates.
+
 Recovery of an already installed runtime verifies its configuration in place.
 It preserves both file content and identity, obtains a fresh maintenance hold,
 and reuses the drain, capture, settlement and startup ownership checks.
