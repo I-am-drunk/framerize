@@ -135,6 +135,15 @@ and 42 synthetic outputs. The two original passes are reused exactly; R1
 remains failed overall. No current service, real account, SDK execution or
 authenticated delivery is accepted by this receipt.
 
+The deferred browser-import candidate passes those same three server cases
+with Camoufox and Playwright directories hidden inside the test namespace.
+Five additional cases cover native startup without those dependencies,
+deferred browser preparation, retained launch options and cleanup, missing
+dependencies, and transport setup. The prior source fails the native-startup
+case. No browser is launched in these fixtures; browser launch objects are
+inert. The accepted server binary is reused with the candidate host selected
+explicitly. Its generated hash is `e09123fe`; support bytes are unchanged.
+
 The checker limits its own execution to two POST calls. Exclusive request
 ownership still requires coordination with other callers. Completion
 metadata is not an exhaustive count of transport starts, and a missing

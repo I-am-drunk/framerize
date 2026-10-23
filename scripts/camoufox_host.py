@@ -50,12 +50,18 @@ def emit(event, level="info", **fields):
     except Exception:
         pass  # logging must never break the sidecar
 
-try:
-    from camoufox.async_api import AsyncNewBrowser
-    from playwright.async_api import async_playwright
-except ImportError:
-    trace("camoufox not installed. Run: scripts/linux/install-camoufox.sh")
-    sys.exit(2)
+def browser_runtime():
+    """Load browser dependencies only when an account needs a browser."""
+    try:
+        from camoufox.async_api import AsyncNewBrowser
+        from playwright.async_api import async_playwright
+    except ImportError as error:
+        raise RuntimeError("camoufox not installed. Run: scripts/linux/install-camoufox.sh") from error
+    if os.environ.get("FRAMERIZE_LINEAR_PYTHON_PIPE", "1") == "1":
+        outcome = install()
+        emit("memory.python_pipe", outcome=outcome,
+             level="warn" if outcome == "unsupported" else "info")
+    return AsyncNewBrowser, async_playwright
 
 ROOT = os.environ.get("FRAMERIZE_STATE", os.path.expanduser("~/.framerize/camoufox"))
 LOGIN_URL = "https://framer.com/login"
@@ -893,8 +899,9 @@ class Host:
         self.proxy_revisions = {}
         self.lock = asyncio.Lock()  # brief: account-dict lifecycle ONLY
         self._playwright = None
-        self._memory_browser = prepared_memory_browser()
-        self._memory_addon = prepared_memory_addon()
+        self._browser_runtime = None
+        self._memory_browser = None
+        self._memory_addon = None
         self._closed = False
         self._allocation_lock = asyncio.Lock()
         self._reserved_bytes = 0
@@ -1868,6 +1875,12 @@ class Host:
 
     async def _launch(self, account, proxy=None):
         self._observed_scope(account)
+        if self._browser_runtime is None:
+            runtime = browser_runtime()
+            self._memory_browser = prepared_memory_browser()
+            self._memory_addon = prepared_memory_addon()
+            self._browser_runtime = runtime
+        AsyncNewBrowser, async_playwright = self._browser_runtime
         if proxy:
             self.proxies[account] = proxy
         profile = os.path.join(ROOT, account)
@@ -2530,8 +2543,4 @@ def install():
 
 
 if __name__ == "__main__":
-    if os.environ.get("FRAMERIZE_LINEAR_PYTHON_PIPE", "1") == "1":
-        outcome = install()
-        emit("memory.python_pipe", outcome=outcome,
-             level="warn" if outcome == "unsupported" else "info")
     asyncio.run(Host().loop())

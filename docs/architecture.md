@@ -42,6 +42,13 @@ cases. The original failed status assertion remains recorded; only the
 corrected case was rerun. This validates synthetic restoration and device
 release through the server, with no authenticated delivery or deployment claim.
 
+Browser dependencies and optional browser memory patches are prepared only
+when `_launch` first needs them. Native device and restoration commands do
+not import Camoufox or Playwright. The browser path retains its transport
+verification, per-account launch options and close ownership. Missing browser
+dependencies refuse a browser launch without preventing native host startup.
+This host change is validated in isolation and has not been installed.
+
 Normal API routing additionally requires `--offline-routing-config`.
 `examples/browserless-routing.json` provides bounded, unpaid streaming limits;
 it is not installed automatically. Native requests also require explicit
