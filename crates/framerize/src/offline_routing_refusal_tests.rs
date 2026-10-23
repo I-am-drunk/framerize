@@ -33,6 +33,35 @@ fn refused() -> (InvocationRun<port::ComposedStreamHead>,
 }
 
 #[tokio::test]
+async fn routing_collected_refusal_keeps_cleanup_before_error_publication() {
+    let (source, release, _, credit) = refused();
+    let mut error = source.result.await.err().unwrap();
+    // A collected result owns ordinary bytes, not a composed JSON lease.
+    let upstream = error.upstream.as_mut().unwrap();
+    upstream.body = axum::body::Bytes::copy_from_slice(&upstream.body);
+    assert_eq!(credit.available_permits(), 1);
+    let run = InvocationRun::<port::RawResult> {
+        result: async { Err(error) }.boxed(), cleanup: source.cleanup,
+        cancellation: source.cancellation, completed_attempts: None,
+    };
+    let (sender, mut receiver) = oneshot::channel();
+    let mut task = tokio::spawn(async move {
+        let mut sender = Some(sender);
+        let completion = owned::forward(run, Instant::now() + Duration::from_secs(2),
+            Control::new(), &mut sender).await;
+        (completion, sender)
+    });
+    assert!(tokio::time::timeout(Duration::from_millis(20), &mut task).await.is_err());
+    assert!(matches!(receiver.try_recv(), Err(oneshot::error::TryRecvError::Empty)));
+    release.send(Ok(())).unwrap();
+    let (completion, sender) = tokio::time::timeout(Duration::from_secs(1), task).await.unwrap().unwrap();
+    assert!(completion.confirmed && sender.is_some());
+    let error = completion.error.unwrap();
+    assert_eq!(error.kind, FailureKind::Upstream);
+    assert_eq!(error.upstream.unwrap().body.as_ref(), b"{\"error\":\"fixture refusal\"}");
+}
+
+#[tokio::test]
 async fn routing_refusal_drop_releases_body_but_never_confirms_failed_cleanup() {
     for abandoned in [false, true] {
         let (run, release, _, credit) = refused();
