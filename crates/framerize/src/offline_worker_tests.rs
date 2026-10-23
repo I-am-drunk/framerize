@@ -8,6 +8,9 @@ use framer_api::experimental_native::{
 };
 use framer_core::{ids::{AccountId, FramerUserId, ProjectId}, port::Session};
 
+#[path = "offline_worker_device_tests.rs"]
+mod device;
+
 const NODE: &str = "/home/tjninja/.nvm/versions/node/v24.13.0/bin/node";
 const FIXTURE_SOURCE: &str = concat!("/home/tjninja/.t3/scratch/",
     "2026-10-20-can-you-look-at-the-430fdc9c/browserless-offline-mint-r2");

@@ -153,7 +153,17 @@ It then opens and closes a fresh lease without another mint. Host and worker
 have separate filesystem views, and neither can reach real account state.
 One combined group measurement passed at 102,887,424 bytes peak, including
 the measurement helpers. It excludes the application server and authenticated
-inference. Summary `6af8688a` is locally checked, pending independent review.
+inference. Final review `d98b96cf` accepts summary `6af8688a` and the
+frozen source and saved evidence, with no findings.
+
+The production `OfflineWorkerMinter::with_device` bridge waits for the
+worker to join before reporting completion to the shared host, then retains
+account preparation until the host acknowledges it. New focused tests cover
+explicit cancellation, a dropped result waiter and a lost host acknowledgement.
+They use the real worker owner and account preparation with a deterministic
+worker and controlled host replies. The source is prepared but UNRUN:
+both compilation admissions were refused before launch by the memory reserve.
+These cases do not establish authenticated delivery or actual host cleanup.
 
 ```mermaid
 flowchart LR
