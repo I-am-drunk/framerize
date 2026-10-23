@@ -127,6 +127,14 @@ timestamp. This prevents another state transfer from discarding a known
 selection; it does not reconstruct one already lost or make an unknown device
 eligible. The corrected extractor has passed its 17 focused fixture cases.
 
+An already-lost selection must be established by the normal account owner.
+The separate preparation client uses one bounded free browser request before
+parking that same account. It checks the service generation around both
+operations and retains the existing native client and its release guards.
+Its event evidence is bounded and excludes response content and credentials.
+Incomplete or ambiguous evidence prevents the subsequent native request.
+The preparation client's fixture pass does not establish live readiness.
+
 A support-only release can reuse the verified Rust binary. Bind its changed
 support file to separate review evidence, and regenerate only the host's
 support-manifest reference. Preserve the previous launch override for rollback.

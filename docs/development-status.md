@@ -275,11 +275,21 @@ are unchanged. All 17 extractor cases pass, including four new boundaries.
 The original extractor reproduces the parked-device loss with otherwise equal
 output. The isolated run peaked at 34.1 MB, with two tasks and no swap or
 resource events; its unit and cgroup are absent after completion.
-The correction is source and fixture work, not a live-state repair. It cannot
-reconstruct an already-lost selection. Next: review this narrow delta and
-establish an actual current selection through the existing account owner
-before another bounded browserless trial. No request or deployment was repeated.
+Independent review accepts the capture source and saved results. It cannot
+reconstruct an already-lost selection. The next live step needs an actual
+current selection from the existing account owner. No deployment was repeated.
 The exact change is in [parked-device-capture.patch](../reference/analysis/parked-device-capture.patch).
+
+The separate R8 client prepares that selection with one small normal free
+request, confirms its completion evidence, then parks through the pool owner
+before invoking the unchanged native client once. It stops on changed service
+generation, unavailable accounts, ambiguous events or incomplete responses.
+All 16 new inert cases pass, with a 28.1 MB peak and no swap or resource events.
+The fixture unit and cgroup are gone. No live R8 request has run. Source and
+saved results await independent review; the existing client results are reused.
+See [device-preparation-client-r8.patch](../reference/analysis/device-preparation-client-r8.patch).
+Missing log events remain a limitation, not proof that no other attempt ran.
+
 The operational delta is published in
 [saved-device-cookie-release-r18.patch](../reference/analysis/saved-device-cookie-release-r18.patch).
 
