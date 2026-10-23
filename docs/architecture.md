@@ -135,6 +135,13 @@ Its event evidence is bounded and excludes response content and credentials.
 Incomplete or ambiguous evidence prevents the subsequent native request.
 The preparation client's fixture pass does not establish live readiness.
 
+The client-only attempt also checks the current released generation, protected
+runtime files and resource limits before sending either request. A refused
+attempt remains consumed. Service swap requires separate recovery evidence;
+closing browser residents alone cannot clear swapped server or sidecar pages.
+After any restart, the client must bind the newly verified generation before
+preparation and delivery, while the coordinated quiet window remains in place.
+
 A support-only release can reuse the verified Rust binary. Bind its changed
 support file to separate review evidence, and regenerate only the host's
 support-manifest reference. Preserve the previous launch override for rollback.
