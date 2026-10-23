@@ -158,17 +158,26 @@ Separate inspection verified the original launch configuration, restored
 cooldowns, all 11 account identities, six resident slots and no uncertain or
 closing residents. Both failed startup records remain unchanged. A narrow
 helper to release only the verified pending handoff and owned maintenance hold
-is under source review. It cannot restart the service or send an inference
-request. Its final release has not run.
+received source acceptance. It cannot restart the service or send an inference
+request. Its first execution refused on service swap before either mutation.
 
 The first helper review found that original arguments and absent new override
 files did not prove the eight preserved installed files were unchanged. The
 additive correction reuses the existing protected-file and complete override
 inventory check before either bookkeeping mutation. The earlier inspection
-remains explicitly partial. The exact unexecuted source is preserved in
+remains explicitly partial. The exact helper source is preserved in
 [r16-recovery-hold-release.patch](../reference/analysis/r16-recovery-hold-release.patch);
-its narrow closure review is pending. This patch records source, not a reusable
+its narrow closure review passed. This patch records source, not a reusable
 authorization to release a different generation or maintenance owner.
+
+A separate installed-runtime recovery is frozen and under review. It preserves
+the current R15 payload and existing maintenance ownership, reusing the accepted
+drain, capture, settlement and startup paths for one controlled restart.
+Release still requires successful warmup, unchanged account and protected-file
+bindings, idle residency and zero current/peak swap or resource events.
+All eight inert recovery cases pass. The first run's mock-spec error remains
+preserved. No recovery restart or new request has run. The source is recorded in
+[r16-runtime-recovery.patch](../reference/analysis/r16-runtime-recovery.patch).
 
 Saved events also show ordinary inference during both startup windows.
 Client acknowledgements alone therefore did not establish continuing quiet.
