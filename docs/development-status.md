@@ -10,6 +10,12 @@ identity/import fixtures are UNRUN. The accepted executable and both running
 service configurations remain unchanged; separate authentication and actual
 device/cooldown authority are still required for a live browserless request.
 
+Import validation first stopped before compilation because its launcher and
+runner disagreed on the test-unit name. After that setup correction, compilation
+found a missing optional identity field in one existing test initializer. The
+initializer is corrected in source; a fresh compile and the eight selected
+import cases remain pending. Both failed attempts are retained.
+
 Browserless is not complete: the isolated setup has no verified authenticated
 Framer delivery. Its latest prepared launch still has no selected account,
 generation or executable client plan. The saved browser account inventory
