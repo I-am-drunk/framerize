@@ -43,7 +43,8 @@ result into the private request cookies. It preserves the original login,
 rejects conflicting or duplicate device cookies, and never writes the request
 snapshot back to the session store. The existing account-generation and private
 session checks still apply when those cookies reach the HTTP transport.
-This connection is not yet validated or deployed.
+This connection passed the selected local cookie and authorization tests.
+Deployment and upstream acceptance remain unverified.
 
 The application keeps the host grant until the worker, native session and
 response cleanup have finished. Cancelling the client does not release that

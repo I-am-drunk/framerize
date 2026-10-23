@@ -226,10 +226,16 @@ device, while the subsequent native request used only the saved login cookie.
 The candidate preserves the original login and private session, rejects
 conflicting or duplicate device cookies, and retains account generation,
 freshness, cancellation and cleanup checks. Three new focused cases cover
-the cookie boundary and joined-mint handoff. They have not run yet, and the
-candidate is undeployed. This addresses a context gap; upstream acceptance
-remains unverified. Next: freeze the narrow source for review and run bounded
-API validation using the existing build inputs.
+the cookie boundary and joined-mint handoff. Source review accepted the
+correction, and all 33 selected API cases passed in a separate fixture that
+preserves their bodies and all production bytes. Its 375 excluded cases remain
+explicitly unrun. The fixture, production API and executable builds passed
+their receipt checks; unchanged core, host, store, server and worker libraries
+were reused after source comparison. Saved summary is `beef996b`; candidate
+binary is `9e03bde3`. No swap or resource event occurred during these stages.
+The candidate is undeployed. This addresses a context gap; upstream acceptance
+remains unverified. Next: review the frozen results and prepare the additive
+release while preserving the current R17 support and account ownership.
 
 R17 reused the existing builds and focused tests. The independent test cleanup
 remains separate, with 27 batches awaiting later owner validation.
