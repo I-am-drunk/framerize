@@ -2139,6 +2139,7 @@ class Host:
                 page.evaluate(AI_START_JS, [path, body, token, bearer, job, dev]),
                 min(30, timeout),
             )
+            emit("ai.post.started", job=job, path=path)
             while True:
                 remaining = deadline - time.monotonic()
                 if remaining <= 0:

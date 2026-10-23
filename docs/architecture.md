@@ -55,6 +55,14 @@ refund. An already-started call retains its owner through the real reply, with
 one overall deadline. An unknown timeout or refund cleanup remains unconfirmed.
 Legacy raw and paid response paths without observers retain their prior limits.
 
+Buffered normal responses carry the observed completion of every account
+attempt, including an earlier attempt whose cleanup remains uncertain. A
+later successful answer cannot clear that uncertainty. Client disconnect
+stops future attempts while the current browser call keeps its owner.
+The browser host records a job-start event after the page has started its
+fetch. This lets a live cancellation check observe the actual call boundary
+without logging request content, credentials or a response body.
+
 Worker protocol version 2 carries the private saved device through a pipe.
 The worker seeds its isolated storage before loading the SDK and checks that
 the value remains unchanged. This does not establish upstream acceptance or
