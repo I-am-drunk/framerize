@@ -1,4 +1,7 @@
 //! Handler admission fixtures. These ports never perform external I/O.
+#[path = "account_import_identity_tests.rs"]
+mod import_identity;
+
 use super::{account, policy};
 use crate::{ApiError, AppState};
 use axum::{extract::State, http::HeaderMap, Json};
@@ -446,6 +449,7 @@ async fn parked_import_preserves_session_and_proxy_without_browser_work() {
     let proxy = "http://replacement-fixture.invalid:8080";
     let result = crate::import_account(State(state), Json(crate::ImportBody {
         account_id: account(2).id,
+        expected_framer_user_id: None,
         proxy: Some(proxy.into()),
         session_cookie: "fixture-only".into(),
         email: None, alias: None, project_id: None,

@@ -3,6 +3,13 @@
 Updated 2026-10-23. The normal service remains browser-based. Publishing these
 branches does not change the running service.
 
+An account-import source candidate now checks an optional expected Framer
+identity before saving the session or provisioning workspaces. It also skips
+automatic browser prewarm when native dispatch is configured. Four new
+identity/import fixtures are UNRUN. The accepted executable and both running
+service configurations remain unchanged; separate authentication and actual
+device/cooldown authority are still required for a live browserless request.
+
 Browserless is not complete: the isolated setup has no verified authenticated
 Framer delivery. Its latest prepared launch still has no selected account,
 generation or executable client plan. The saved browser account inventory
