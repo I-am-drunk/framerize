@@ -138,6 +138,13 @@ or host admission, HTTP request or application service. Its saved source,
 build and runtime evidence await independent review. It does not change the
 96 MiB production heap or establish total service memory or request latency.
 
+The companion `measure_owned_offline_cancel.rs` exercises explicit cancellation
+and owner drop against the real worker. It requires observed child activity
+and a stable start identity, then verifies joined cleanup and child absence.
+Both local cases pass with the original worker and unchanged owner library.
+They identify no SDK phase and do not replace a real HTTP stream-disconnect
+check or establish later account admission.
+
 ```mermaid
 flowchart LR
     Client --> Server[Shared HTTP API and account selection]
