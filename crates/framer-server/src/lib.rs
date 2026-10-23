@@ -1650,6 +1650,7 @@ async fn native_complete(
     let t0 = std::time::Instant::now();
     let mut tried_accounts: Vec<String> = Vec::new();
     let mut acct_attempt = 0u32;
+    let mut cleanup_confirmed = true;
     let result = 'account_retry: loop {
         if let Err(error) = cfg.check_cancelled() { break Err(error); }
         let permit = match first_permit.take() {
@@ -1673,6 +1674,8 @@ async fn native_complete(
             .await;
         drop(permit);
         let r = residency.observe_result(account.id, r);
+        // A later successful account cannot confirm an earlier lost cleanup.
+        cleanup_confirmed &= !matches!(&r, Err(error) if pool_control::cleanup_unconfirmed(error));
         record_account_health(&s, &account, &r).await;
         // Nothing reaches the client on the non-stream path until the chain
         // completes, so a Castle refusal is always safe to retry on a fresh
@@ -1739,7 +1742,7 @@ async fn native_complete(
                 body,
             ));
             return Ok(operation_ownership::completed_response(response,
-                !pool_control::cleanup_unconfirmed(&e)));
+                cleanup_confirmed && !pool_control::cleanup_unconfirmed(&e)));
         }
     };
     let body = if dialect == ClientDialect::OpenAiChat {
@@ -1758,7 +1761,7 @@ async fn native_complete(
         "x-framerize-session",
         chat_session.parse().unwrap_or(axum::http::HeaderValue::from_static("")),
     );
-    Ok(operation_ownership::completed_response(resp, true))
+    Ok(operation_ownership::completed_response(resp, cleanup_confirmed))
 }
 
 /// Per-dialect composer for the native stream (responses SSE or chat chunks).

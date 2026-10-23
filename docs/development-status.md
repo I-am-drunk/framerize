@@ -9,8 +9,11 @@ when their HTTP waiter disconnects. An unread completed body previously
 marked the operation gate permanently unconfirmed. Unknown cleanup still
 retains its fence. Refusal events now distinguish capacity, seal and unknown
 completion without logging request data. Three focused regressions are
-prepared; diff checks pass, but compilation, tests and deployment are pending
-with the sole runtime owner. The local rustfmt component is unavailable.
+prepared. The first bounded compile passed and 18 of 19 focused cases passed.
+The unknown-cleanup fixture omitted the existing second-account failover reply.
+The correction supplies that reply and retains earlier cleanup uncertainty
+even if a later account succeeds. Its replacement check and deployment remain
+pending with the sole runtime owner. The local rustfmt component is unavailable.
 Existing core, host, API and store
 builds are unchanged and available for reuse.
 

@@ -10,7 +10,12 @@ async fn nonstream_unknown_cleanup_stays_fenced_after_body_drop_or_consumption()
         let task = tokio::spawn(app.clone().oneshot(fixture_request(&f, false)));
         let call = f.next().await;
         call.reply.send(Err("host-lifecycle-unconfirmed: fixture lost".into())).ok().unwrap();
+        // Existing policy may fail over, but its success proves only this call.
+        let next = f.next().await;
+        assert_ne!(next.account, call.account);
+        next.reply.send(Ok(fixture::success(next.kind))).ok().unwrap();
         let response = tokio::time::timeout(WAIT, task).await.unwrap().unwrap().unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
         if consume { to_bytes(response.into_body(), 65536).await.unwrap(); }
         else { drop(response); }
         assert!(ownership.gate.stats().unwrap().unconfirmed);
