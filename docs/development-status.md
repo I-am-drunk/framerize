@@ -40,9 +40,16 @@ instead of transferring it back to the shared lifecycle.
 The new host fix preserves the actual selected device after confirmed browser
 closure. Four focused checks pass, using the actual closure method; the new
 regression fails against the old support module. Unconfirmed closure still
-refuses native work and the existing cooldown history remains intact. This fix
-is not deployed. Next: review and deploy the small support change, then park
-one idle account through the existing pool owner and send one bounded request.
+refuses native work and the existing cooldown history remains intact. Independent
+source and saved-result review accepts this fix at commit `49256e89`.
+
+The separate R10 deployment package is frozen for narrow review. It reuses the
+built application and changes only the native support module and the generated
+host's reference to that support set. Three focused package-binding checks pass;
+the current six-file manifest also passes its existing consumer check. The
+fresh baseline still identifies the running R9 service. R10 is not deployed.
+Next: bind the reviewed plan, coordinate a quiet transition, then park one idle
+account through the existing pool owner and send one bounded request.
 No browserless live response or total-memory saving is verified yet.
 
 The first version's core and API builds remain saved evidence for that version.
