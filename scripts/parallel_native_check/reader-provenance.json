@@ -1,0 +1,12 @@
+{
+  "frames.py": {
+    "change": "Package-relative import; reject duplicate DONE and incomplete terminal details.",
+    "derived_sha256": "2650d5fa8df7874b06ffa43863413533041e7701bb2fcdf40387e5f59677cb4f",
+    "original_sha256": "12890e446633895b62f2444f185f93ee2b8f3b2b75a528c675a93ba6d96585b0"
+  },
+  "streaming.py": {
+    "change": "Package-relative imports; local-only error codes; case-insensitive content type.",
+    "derived_sha256": "70591550ba1813f16e867a3914146411488c12b30dee3e6f53a964ddfbc4e674",
+    "original_sha256": "fbed2f719f359cf687f4d45b0e0512396e7494d4436fa99f6bcae7f8c8d9f159"
+  }
+}
