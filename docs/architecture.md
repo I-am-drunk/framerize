@@ -29,7 +29,8 @@ A native streaming refusal can carry a body that still owns the producer's
 bounded JSON reservation. The outer routing layer transfers that same body
 before awaiting cleanup, while retaining its separate account and device
 owner. Waiting for cleanup while retaining the error locally would create
-a circular wait. Body-less failures keep their existing cleanup ordering.
+a circular wait. This early transfer applies only to streaming heads.
+Collected JSON calls and body-less failures keep their existing cleanup ordering.
 At the HTTP boundary, failed heads carry the same independent completion
 and cleanup observers as successful heads. Dropping an error body therefore
 does not imply either successful cleanup or permanent uncertainty; the

@@ -22,11 +22,12 @@ impl Completion {
 type Admission = (Preparation, Value, tokio::sync::OwnedSemaphorePermit, port::PoolAdmission);
 
 pub(super) trait Delivered {
+    const STREAMING: bool = false;
     fn health(&self) -> HealthOutcome { HealthOutcome::Unclassified }
 }
 impl<T> Delivered for port::Completed<T> {}
-impl Delivered for port::RawStreamHead {}
-impl Delivered for port::ComposedStreamHead {}
+impl Delivered for port::RawStreamHead { const STREAMING: bool = true; }
+impl Delivered for port::ComposedStreamHead { const STREAMING: bool = true; }
 impl Delivered for port::RawResult {
     fn health(&self) -> HealthOutcome { classify(&self.metadata, &self.body) }
 }
@@ -210,7 +211,7 @@ pub(super) async fn forward<T: Delivered>(run: port::InvocationRun<T>, deadline:
             if let Some(sender) = sender.take() { let _ = sender.send(Ok(value)); }
             None
         }
-        Err(error) if error.upstream.is_some() => {
+        Err(error) if T::STREAMING && error.upstream.is_some() => {
             // A composed refusal owns the inner JSON reservation. Its cleanup
             // waits for the last body owner, so holding it here would deadlock
             // both delivery and cleanup. Transfer that same allocation before

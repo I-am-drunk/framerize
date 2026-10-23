@@ -18,13 +18,17 @@ that the earlier 403 is resolved.
 A source-level deadlock is now fixed: a composed refusal's error body owns
 the same memory reservation that cleanup waits to recover. The outer router
 used to retain that error while awaiting cleanup, preventing both from
-finishing. It now transfers that body to the caller first and retains the
-account/device owner until actual cleanup. Failed HTTP heads also carry the
+finishing. Streaming calls now transfer that body to the caller first and
+retain the account/device owner until actual cleanup. Collected JSON calls
+preserve their original cleanup-before-error ordering. Failed HTTP heads also carry the
 existing independent cleanup observer, including when their body is dropped.
-Six focused forwarding cases and 23 server stream/ownership cases pass.
-Their peaks were 91,250,688 and 17,162,240 bytes, with zero recorded swap or
-resource events and clean teardown. The correction is not deployed yet;
-its complete application build and guarded isolated recovery are next.
+Seven forwarding cases and 23 server stream/ownership cases pass. The final
+streaming-only refinement has three fresh passing cases, including collected
+JSON ordering, and reuses four unchanged forwarding and all 23 server cases.
+The fresh run peaked at 36,446,208 bytes, with zero recorded swap or resource
+events and clean teardown. The first complete application build passed; the
+final refinement still needs linking and guarded isolated recovery. No corrected
+binary is deployed and the old timed-out request is not replayed.
 
 The live client now supplies a fresh turn ID and matching prompt for each
 request. Its interruption waits for both the actual native send and HTTP 200
