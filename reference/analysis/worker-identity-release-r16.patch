@@ -1,9 +1,9 @@
 --- a/HANDOFF.md
 +++ b/HANDOFF.md
-@@ -1,29 +1,22 @@
+@@ -1 +1 @@
 -# Completion evidence on the current browserless trial
 +# Worker application identity on the current browserless trial
- 
+@@ -3,5 +3,5 @@
 -R15 replaces only the application with diagnostic build 162105d5.
 -Three focused HTTP cases pass. Five unchanged library builds and the
 -accepted 19-case admission repair remain bound at their original paths.
@@ -14,7 +14,7 @@
 +both native HTTP clients. Resource fetches remain disabled. Six worker
 +files are identical to R15; only offline_mint.mjs changes. All 23 worker
 +input pins remain bound. No SDK or upstream result is inferred from this.
- 
+@@ -9,4 +9,4 @@
 -The application records bounded completion fields after joined cleanup.
 -It logs no request context, account identifier, credential or response text.
 -Missing events do not prove that no attempt occurred. Request, retry,
@@ -23,7 +23,7 @@
 +path, so all collected metrics are invalid. The additive correction preserves
 +that limitation. Unit limits and successful exit are recorded; no measured
 +peak is claimed. Cleanup found the stopped unit absent. No tests are repeated.
- 
+@@ -14,3 +14,5 @@
 -The exact R14 host fd17f5a2, support b20f6835, worker configuration and
 -2719-row runtime inventory are retained. Runtime files from R9, R12 and
 -R14 remain protected. New launch destinations are owned by R15.
@@ -32,7 +32,7 @@
 +original paths. R15's 403 security refusal and confirmed cleanup are preserved.
 +Eight prior configuration/override files remain protected. Rollback restores
 +the prior launch configuration while retaining the unchanged host/support.
- 
+@@ -18,12 +20,3 @@
 -The existing drain, capture, startup, cooldown and release rules are retained.
 -Rollback restores the original binary and launch configuration, retaining
 -the same host and support bytes. No live admission or delivery is claimed.
@@ -50,132 +50,62 @@
 +may follow successful release. This is not current admission or delivery proof.
 --- a/adapter.py
 +++ b/adapter.py
-@@ -21,7 +21,7 @@
- BINARY_ROOT = HERE.parent / 'offline-completion-link-r2'
- BASE = Path('/home/tjninja/.t3/scratch/2026-10-20-can-you-look-at-the-430fdc9c/tool-completion-r2/deploy.py')
- BASE_SHA = '651d30492f229fa6c9fa3d4daff2636989f69b8551168cd1c612935ee576a9b3'
+@@ -24 +24 @@
 -OLD_BIN = 'e0ff2db9f14c703ec718fa2ccd76e614ed215cd6e9801aeda64e7d997e9bf77a'
 +OLD_BIN = '162105d5d1c010c60f8bcebefbddc63e0cee492f0f9942459a6fcc11cfedba7b'
- OLD_PY = 'fd17f5a2d2547f01ccf0e62849ce4d6a67037fca7f0bd0cb3357e0636c85210b'
- NEW_PY = 'fd17f5a2d2547f01ccf0e62849ce4d6a67037fca7f0bd0cb3357e0636c85210b'
- DEST = Path('/home/tjninja/.local/bin/framerize')
 --- a/authorize.py
 +++ b/authorize.py
-@@ -8,7 +8,7 @@
- import time
- from pathlib import Path
- HERE = Path(__file__).resolve().parent
+@@ -11 +11 @@
 -BRIDGE_SHA = '9d01381945fdc0f5a6859b64a9f0ca8400e83a2e460c7f018f19799058b4ce0c'
 +BRIDGE_SHA = 'b10952d9bcffe6d3d98e76fe923fcad243ff4d242c1b89fb71e808db6fccb7c5'
- STOP_REQUESTED = False
- 
- 
 --- a/fd_bridge.py
 +++ b/fd_bridge.py
-@@ -11,7 +11,7 @@
- import time
- from pathlib import Path
- PYTHON_SHA = 'e50d468e8b0adfb05733f5b87b3cff34829c4a8c1aea50c865aa8bdfe4bb150f'
+@@ -14 +14 @@
 -OLD_BINARY = 'e0ff2db9f14c703ec718fa2ccd76e614ed215cd6e9801aeda64e7d997e9bf77a'
 +OLD_BINARY = '162105d5d1c010c60f8bcebefbddc63e0cee492f0f9942459a6fcc11cfedba7b'
- OLD_SCRIPT = 'fd17f5a2d2547f01ccf0e62849ce4d6a67037fca7f0bd0cb3357e0636c85210b'
- NEW_BINARY = '162105d5d1c010c60f8bcebefbddc63e0cee492f0f9942459a6fcc11cfedba7b'
- NEW_SCRIPT = 'fd17f5a2d2547f01ccf0e62849ce4d6a67037fca7f0bd0cb3357e0636c85210b'
 --- a/checker/support.py
 +++ b/checker/support.py
-@@ -7,10 +7,10 @@
- ROOT = DEPLOY.parent
- RELEASE = DEPLOY / 'release'
- ADAPTER = DEPLOY
+@@ -10 +10 @@
 -REVIEW = Path('/home/tjninja/.t3/scratch/2026-10-20-can-you-look-at-the-430fdc9c/offline-serving-deployment-review-r15/plan-review.json')
 +REVIEW = Path('/home/tjninja/.t3/scratch/2026-10-20-can-you-look-at-the-430fdc9c/offline-serving-deployment-review-r16/plan-review.json')
- HANDOFF = Path('/home/tjninja/.framerize/cooldown-handoff')
- NEW_BIN = '162105d5d1c010c60f8bcebefbddc63e0cee492f0f9942459a6fcc11cfedba7b'
+@@ -13 +13 @@
 -OLD_BIN = 'e0ff2db9f14c703ec718fa2ccd76e614ed215cd6e9801aeda64e7d997e9bf77a'
 +OLD_BIN = '162105d5d1c010c60f8bcebefbddc63e0cee492f0f9942459a6fcc11cfedba7b'
- SIDECAR = 'fd17f5a2d2547f01ccf0e62849ce4d6a67037fca7f0bd0cb3357e0636c85210b'
- TARGET = {'active_capacity': 6, 'eligible_accounts': 'all'}
- 
 --- a/prepare_launch.py
 +++ b/prepare_launch.py
-@@ -10,9 +10,9 @@
- PEER = Path('/home/tjninja/.t3/scratch/2026-10-20-can-you-look-at-the-430fdc9c')
- CONFIG = HERE / 'worker-config.json'
- INVENTORY = HERE / 'runtime-inputs.jsonl'
+@@ -13 +13 @@
 -CONFIG_SHA = '06b409f3a9c0858ae558e163788426cfb2af842bf849de9df07029d6728a6253'
 +CONFIG_SHA = '0cf5dd4f9b67713d3ec9d01c36031b4947f2d634abdd3e02ebaa8e099c67d71b'
- INVENTORY_SHA = 'cd6686cb0cc7354f5f6b827e146d95b68b8343a04e2c11474978a16e373daf57'
+@@ -15 +15 @@
 -OLD = 'e0ff2db9f14c703ec718fa2ccd76e614ed215cd6e9801aeda64e7d997e9bf77a'
 +OLD = '162105d5d1c010c60f8bcebefbddc63e0cee492f0f9942459a6fcc11cfedba7b'
- 
- def write(path, text):
-     with path.open('x') as stream:
-@@ -52,7 +52,7 @@
-     assert raw.endswith(b'\0') and len(raw) < 16384
-     args = [os.fsdecode(a) for a in raw[:-1].split(b'\0')]
-     assert args[0] == '/home/tjninja/.local/bin/framerize' and 'daemon' in args
+@@ -55 +55 @@
 -    previous_path = HERE.parent / 'offline-serving-deployment-r14/runtime-launch.json'
 +    previous_path = HERE.parent / 'offline-serving-deployment-r15/runtime-launch.json'
-     previous = json.loads(previous_path.read_text())
-     assert args == previous['candidate_argv']
-     inputs[str(previous_path)] = sha(previous_path)
-@@ -69,8 +69,8 @@
-         assert not old.is_symlink() and sha(old) == previous[label]['source']['sha256']
-         preserved.append(pin(old))
-         inputs[str(old)] = sha(old)
+@@ -72,2 +72,2 @@
 -    destination = Path('/home/tjninja/.framerize/offline-worker-config-r15.json')
 -    dropin = Path('/home/tjninja/.config/systemd/user/framerize.service.d/zzzzzz-offline-worker-r15.conf')
 +    destination = Path('/home/tjninja/.framerize/offline-worker-config-r16.json')
 +    dropin = Path('/home/tjninja/.config/systemd/user/framerize.service.d/zzzzzz-offline-worker-r16.conf')
-     assert not os.path.lexists(destination) and not os.path.lexists(dropin)
-     assert args.count('--offline-worker-config') == 1
-     new_args = list(args)
 --- a/freeze_source.py
 +++ b/freeze_source.py
-@@ -9,6 +9,8 @@
- CHECKER = HERE / 'checker'
- PRIOR = HERE.parent / 'pool-lifecycle-deployment-r1/source-manifest.json'
- SAFETY = HERE / 'manual/safety.py'
+@@ -11,0 +12,2 @@
 +IDENTITY = HERE.parent / 'offline-worker-identity-r1'
 +REVIEW = Path('/home/tjninja/.t3/scratch/2026-10-20-can-you-look-at-the-430fdc9c/offline-worker-identity-review-r1/review.json')
- 
- 
- def sha(path):
-@@ -48,7 +50,7 @@
-         ('deploy.sh', 'manual/revert.sh', 'runtime-sources.json', 'startup-hook.txt',
-          'runtime-launch.json', 'worker-runtime.json', 'offline-worker.conf',
-          'runtime-inputs.jsonl', 'runtime-inventory-delta.json', 'worker-config.json',
+@@ -51 +53 @@
 -         'HANDOFF.md', 'origins.json')]
 +         'HANDOFF.md', 'origins.json')] + sorted((HERE / 'worker').glob('*.mjs'))
-     other = sorted(SUPPORT.glob('*.py')) + [checker_path, SAFETY,
-         HERE.parent / 'pool-lifecycle-manual-rollback-r1/original-sidecar.py',
-         HERE.parent / 'native-device-handoff-binding-check-r1/run.py',
-@@ -64,6 +66,8 @@
-         HERE.parent / 'offline-completion-release-check-r1/run.py',
-         HERE.parent / 'offline-completion-release-check-r1/result.json',
-         HERE.parent / 'offline-completion-release-check-r1/execution.json']
+@@ -66,0 +69,2 @@
 +    other += [IDENTITY / name for name in ('freeze.json', 'admission.json',
 +        'tests.log', 'resources.json', 'collection-correction.json')] + [REVIEW]
-     for path in local + other:
-         if path.suffix == '.py':
-             ast.parse(path.read_text(), filename=str(path))
-@@ -80,8 +84,8 @@
-         assert sources[row['path']] == row['sha256']
-     manifest = dict(schema=1, status='requires_independent_plan_acceptance',
-         sources=sources, modules=modules, previous_source_manifest=pin(PRIOR),
+@@ -83,2 +87,2 @@
 -        deployment_parent=pin(HERE.with_name('offline-serving-deployment-r14') / 'SOURCE.sha256'),
 -        scope='Completion evidence only, retaining the exact R14 host, support, worker and cooldown ownership.')
 +        deployment_parent=pin(HERE.with_name('offline-serving-deployment-r15') / 'SOURCE.sha256'),
 +        scope='Worker application identity only; retain exact R15 binary, host, support and cooldown ownership.')
-     write(HERE / 'source-manifest.json', json.dumps(manifest, indent=2, sort_keys=True) + '\n')
-     files = {str(p.relative_to(HERE)): sha(p) for p in local + [HERE / 'source-manifest.json']}
-     write(HERE / 'SOURCE.sha256', ''.join(digest + '  ' + name + '\n'
 --- a/release/plan.py
 +++ b/release/plan.py
-@@ -13,6 +13,13 @@
-     origins = read(DEPLOY/'origins.json')
-     paths = [HERE/'release.json', HERE/'baseline.json', HERE/'snapshot.json',
-              DEPLOY/'source-manifest.json', reviewed]
+@@ -15,0 +16,7 @@
 +    identity = DEPLOY.parent / 'offline-worker-identity-r1'
 +    worker_review = origins['worker_identity_review']
 +    assert sha(worker_review['path']) == worker_review['sha256']
@@ -183,6 +113,3 @@
 +    paths += [Path(worker_review['path'])] + [identity/name for name in
 +        ('freeze.json', 'admission.json', 'tests.log', 'resources.json',
 +         'collection-correction.json')]
-     for name in ('preparation','test_preparation','validation_summary','independent_results_review',
-                  'worker_runtime','runtime_launch','device_handoff_review'):
-         paths.append(Path(release[name]['path']))
