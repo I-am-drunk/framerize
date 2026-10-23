@@ -193,3 +193,26 @@ The harness and owner source needed no correction.
 Summary `c3edd067` binds the saved build and runtime results. Direct compiler
 and external library inputs were checked; transitive cache and sysroot remain
 trusted. Independent review is pending. Production remains unchanged.
+
+## Actual-worker cancellation
+
+The [cancellation harness](../scripts/measure_owned_offline_cancel.rs) retains
+the original worker, owner library, isolated filesystem and resource caps.
+Two distinct local cases passed: an explicit cancellation request and dropping
+the owner. Before interruption, each observed the owned child alive with the
+same start identity and at least ten CPU ticks. This confirms process activity,
+but does not identify the SDK execution phase.
+
+Explicit cancellation returned the expected cancellation failure. Dropping
+the owner did not request a token result. Both cases joined the actual child,
+observed its absence, and left no test unit or cgroup. Interruption-to-join
+times were 3.268 ms and 2.896 ms in these single samples. Each used at most
+11 tasks, with zero swap and memory events.
+
+Group peaks were 27,766,784 and 27,746,304 bytes. These smaller numbers reflect
+early termination and are not full-mint memory savings. No application service,
+account, HTTP request or upstream model was involved. These cases do not prove
+real-stream cancellation, post-cancellation admission or user-visible latency.
+Summary `ba8d6ac0` binds the passing build and both saved results. The exact
+tested source is published; independent review is pending. The previous mint
+measurement and its frozen review package remain unchanged.

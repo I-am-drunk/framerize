@@ -48,9 +48,17 @@ join. The unit and cgroup disappeared. This single synthetic sample excludes
 account/host admission, HTTP, authenticated delivery and total service memory.
 The exact harness and summary `c3edd067` preserve the passing build and run,
 two compiler-wrapper failures and one prelaunch resource refusal.
-Independent review is pending. Next freeze that narrow source and saved
-evidence for review; no repeat build or measurement is required.
+Independent review of frozen package `52d1ae7e` is pending.
+No repeat build or measurement is required.
 Production is unchanged, and the separately owned account remains pending.
+
+Two additional local cases now cancel the real worker after observed process
+activity. Explicit cancellation returns the expected failure; dropping the
+owner also joins the child. Both leave no worker, unit or cgroup, with zero
+swap/events. Their 3.268 ms and 2.896 ms interruption-to-join samples do not
+establish real-stream cleanup or user latency. The SDK phase is unobserved,
+and their lower memory peaks reflect early termination. Summary `ba8d6ac0`
+and the exact tested harness are published pending independent review.
 
 The isolated client now records monotonic request timings, starting before
 connection/request work. It distinguishes headers, first complete text,
