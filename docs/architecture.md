@@ -36,6 +36,15 @@ and cleanup observers as successful heads. Dropping an error body therefore
 does not imply either successful cleanup or permanent uncertainty; the
 original cleanup result decides admission after that body is released.
 
+Recovery of an already deadlocked isolated generation is separate from clean
+request completion. Its controller captures the real rate history while both
+local processes are held, accepts only the known retained lease after the SDK
+worker has joined, and preserves the raw capture. It requires every old process
+and the old group to be absent before preparing restoration. It extends the
+selected device's cooldown by a full window without removing request history
+or changing account files. This proves local termination only. It grants no
+remote completion claim or permission to replay the consumed request.
+
 The account-import candidate accepts an expected Framer user ID
 and checks it before saving the session or provisioning account resources.
 With native dispatch configured, import also skips automatic browser prewarm.

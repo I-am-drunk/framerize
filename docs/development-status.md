@@ -8,8 +8,13 @@ The enrollment build is running in its separate loopback instance on port
 and enrolled successfully, with the initial full 600-second cooldown enforced.
 The browser service and its account set have not been changed.
 
-The Origin candidate is now active only in that isolated instance. Its real
-cooldown/device history was restored successfully. One subsequent request
+The streaming-refusal correction is now active only in that isolated instance
+as binary `be15778f`. The old generation's real device history was captured
+before its processes were stopped. The replacement has a one-use restoration
+handoff and a full additional device cooldown; live validation is pending.
+The protected browser service is unchanged.
+
+The preceding Origin candidate restored its real history successfully. One request
 made one native send, then returned a 60-second deadline error without text.
 Cleanup was still unconfirmed after the following 30-second observation;
 the second request did not run. This is not successful delivery or evidence
@@ -27,8 +32,9 @@ streaming-only refinement has three fresh passing cases, including collected
 JSON ordering, and reuses four unchanged forwarding and all 23 server cases.
 The fresh run peaked at 36,446,208 bytes, with zero recorded swap or resource
 events and clean teardown. The first complete application build passed; the
-final refinement still needs linking and guarded isolated recovery. No corrected
-binary is deployed and the old timed-out request is not replayed.
+final refinement also linked successfully, peaking at 402,513,920 bytes with
+zero recorded swap or resource events. It is deployed only to the isolated
+instance. The old timed-out request is not replayed.
 
 The live client now supplies a fresh turn ID and matching prompt for each
 request. Its interruption waits for both the actual native send and HTTP 200
