@@ -1,6 +1,9 @@
 //! Handler admission fixtures. These ports never perform external I/O.
 #[path = "account_import_identity_tests.rs"]
 mod import_identity;
+#[cfg(feature = "native-dispatch")]
+#[path = "native_enrollment_tests.rs"]
+mod enrollment;
 
 use super::{account, policy};
 use crate::{ApiError, AppState};
@@ -26,6 +29,10 @@ struct FixturePorts {
     session_calls: AtomicUsize,
     state_reads: AtomicUsize,
     state_writes: AtomicUsize,
+    native_session: Mutex<Option<Option<Session>>>,
+    native_result: Mutex<Option<Result<framer_core::native_device::DeviceEnrollment,
+        framer_core::native_device::DeviceFailure>>>,
+    native_calls: Mutex<Vec<(AccountId, FramerUserId, String)>>,
 }
 
 impl FixturePorts {
@@ -60,6 +67,20 @@ macro_rules! denied {
 }
 
 impl BrowserBridge for FixturePorts {
+    fn enroll_native_device<'s, 'b, 'c, 'a>(&'s self, account: AccountId,
+        user: &'b FramerUserId, device: &'c str)
+        -> BoxFuture<'a, Result<framer_core::native_device::DeviceEnrollment,
+            framer_core::native_device::DeviceFailure>>
+    where 's: 'a, 'b: 'a, 'c: 'a, Self: 'a {
+        Box::pin(async move {
+            let result = self.native_result.lock().unwrap().take()
+                .unwrap_or_else(|| self.unexpected("browser"));
+            self.browser_calls.fetch_add(1, Ordering::SeqCst);
+            self.native_calls.lock().unwrap().push((account, user.clone(), device.into()));
+            result
+        })
+    }
+
     fn register_account_proxy<'s, 'b, 'a>(&'s self, account: &'b AccountId, proxy: Option<String>)
         -> BoxFuture<'a, Result<(), String>>
     where 's: 'a, 'b: 'a, Self: 'a {
@@ -113,7 +134,16 @@ impl FramerClient for FixturePorts {
 }
 
 impl SessionStore for FixturePorts {
-    denied!("session", load<'b>(_user: &'b FramerUserId) -> Result<Option<Session>, String>);
+    fn load<'s, 'b, 'a>(&'s self, _user: &'b FramerUserId)
+        -> BoxFuture<'a, Result<Option<Session>, String>>
+    where 's: 'a, 'b: 'a, Self: 'a {
+        Box::pin(async move {
+            let session = self.native_session.lock().unwrap().clone()
+                .unwrap_or_else(|| self.unexpected("session"));
+            self.session_calls.fetch_add(1, Ordering::SeqCst);
+            Ok(session)
+        })
+    }
     denied!("session", delete<'b>(_user: &'b FramerUserId) -> Result<(), String>);
 
     fn save<'s, 'b, 'a>(&'s self, session: &'b Session) -> BoxFuture<'a, Result<(), String>>
@@ -168,6 +198,9 @@ fn fixture(import: bool) -> (AppState, Arc<FixturePorts>) {
         browser_calls: AtomicUsize::new(0), client_calls: AtomicUsize::new(0),
         session_calls: AtomicUsize::new(0), state_reads: AtomicUsize::new(0),
         state_writes: AtomicUsize::new(0),
+        native_session: Mutex::new(None),
+        native_result: Mutex::new(None),
+        native_calls: Mutex::new(Vec::new()),
     });
     let state = AppState {
         operation_ownership: None,

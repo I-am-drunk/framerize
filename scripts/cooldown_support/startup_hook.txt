@@ -21,7 +21,9 @@
                                  _instance_root, Path(__file__).resolve())
     _handoff_module(_spec.name + '.native_device').install(Host, ROOT,
         gap=MINT_GAP_S, window=DEV_WINDOW_S, capacity=DEV_WINDOW_CAP,
-        cooldown=DEV_COOLDOWN_S)
+        cooldown=DEV_COOLDOWN_S,
+        lifecycle_type=AccountLifecycle
+            if os.environ.get('FRAMERIZE_NATIVE_ENROLLMENT') == '1' else None)
     for _name, _expected in _pins.items():
         if hashlib.sha256((_support / _name).read_bytes()).hexdigest() != _expected:
             raise RuntimeError('cooldown support changed while loading')

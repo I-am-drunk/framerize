@@ -13,7 +13,7 @@
 //! Camoufox process per account; the profile dir is the account identity
 //! (session cookie + Castle __cuid persist across restarts).
 
-use framer_core::ids::AccountId;
+use framer_core::ids::{AccountId, FramerUserId};
 use framer_core::port::{BrowserBridge, CastleToken};
 use serde_json::{json, Value};
 use std::collections::HashMap;
@@ -532,6 +532,12 @@ impl SidecarBridge {
 
 #[async_trait::async_trait]
 impl BrowserBridge for SidecarBridge {
+    async fn enroll_native_device(&self, account: AccountId, user: &FramerUserId,
+        device: &str)
+        -> Result<framer_core::native_device::DeviceEnrollment, framer_core::native_device::DeviceFailure> {
+        self.native_enroll(account, user, device).await
+    }
+
     async fn open_native_device(&self, account: AccountId)
         -> Result<framer_core::native_device::DeviceGrant, framer_core::native_device::DeviceFailure> {
         self.native_open(account).await

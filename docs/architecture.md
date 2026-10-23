@@ -31,6 +31,17 @@ still requires same-generation restoration and a real selected device;
 initial account setup must preserve those ownership and cooldown guarantees
 without inventing a prior host or treating an empty history as proof.
 
+The source now includes `POST /api/accounts/native/enroll` for a newly
+imported native account. It checks the expected login and loaded session
+under account-management ownership, refuses a login/device already assigned
+to another account, and passes the observed device to the host. The host
+must explicitly enable `FRAMERIZE_NATIVE_ENROLLMENT=1`. It creates private,
+exclusive initial records only when no account lifecycle or profile exists.
+The initial lifecycle starts with a full rate window and cooldown. A restart
+cannot reuse the initial record as a restoration receipt. Unknown enrollment
+completion keeps operation admission fenced. This path has passing Python
+component tests; Rust validation and live use remain pending.
+
 The deferred IDNA-table patch is retained only as an unapplied experiment.
 Its synthetic equivalence checks passed, but the subsequent worker measurement
 did not establish a useful peak-memory reduction. Production still uses the

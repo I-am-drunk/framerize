@@ -1,5 +1,5 @@
 use super::*;
-use framer_core::native_device::{DeviceFailure, DeviceGrant};
+use framer_core::native_device::{DeviceEnrollment, DeviceFailure, DeviceGrant, valid_device_id};
 use std::time::Duration;
 
 fn fields(grant: &DeviceGrant) -> Value {
@@ -8,6 +8,37 @@ fn fields(grant: &DeviceGrant) -> Value {
 }
 
 impl SidecarBridge {
+    pub(super) async fn native_enroll(&self, account: AccountId, user: &FramerUserId,
+        device: &str) -> Result<DeviceEnrollment, DeviceFailure> {
+        if user.0.is_empty() || user.0.len() > 128 || user.0.trim() != user.0
+            || !valid_device_id(device) {
+            return Err(DeviceFailure::Rejected);
+        }
+        let enrollment = uuid::Uuid::new_v4();
+        let value = self.native_rpc("native_device_enroll", json!({
+            "account": account.0, "user": user.0, "device": device,
+            "enrollment": enrollment,
+        }), Duration::from_secs(5), true).await?;
+        Self::parse_enrollment(value, enrollment)
+    }
+
+    fn parse_enrollment(value: Value, enrollment: uuid::Uuid)
+        -> Result<DeviceEnrollment, DeviceFailure> {
+        let generation = value["generation"].as_str().ok_or(DeviceFailure::Unconfirmed)?;
+        let cooldown_ms = value["cooldown_ms"].as_u64()
+            .filter(|ms| (1..=900_000).contains(ms)).ok_or(DeviceFailure::Unconfirmed)?;
+        if value.as_object().is_none_or(|o| o.len() != 4)
+            || value["enrolled"].as_bool() != Some(true)
+            || value["enrollment"].as_str() != Some(enrollment.to_string().as_str())
+            || generation.len() != 32
+            || !generation.bytes().all(|b| b.is_ascii_hexdigit()) {
+            return Err(DeviceFailure::Unconfirmed);
+        }
+        Ok(DeviceEnrollment {
+            host_generation: generation.into(), enrollment, cooldown_ms,
+        })
+    }
+
     pub(super) async fn native_close(&self, grant: &DeviceGrant, joined: bool, risk_refused: bool)
         -> Result<bool, DeviceFailure> {
         let mut input = fields(grant);
