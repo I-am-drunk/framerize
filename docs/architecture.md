@@ -72,6 +72,17 @@ selected; provider IDs, headers, usage and content are excluded. The observed
 attempt count covers retained metadata, and yielded bytes are not proof of
 delivery. An absent record does not prove that no attempt occurred.
 
+Native HTTP also increments a process-wide counter immediately before each
+send invocation, including attempts that fail before response headers. It emits
+`native.http.send` with that counter. The public raw and composed stream
+adapters emit `native.stream.sends` after the original cleanup resolves, with
+the cumulative count and unchanged cleanup outcome. Internal composed steps
+do not create additional public cleanup snapshots. These events contain no
+account, route, credentials or provider data. They do not prove upstream receipt.
+The isolated checker requires sequential counts one and two and matching
+cleanup snapshots on a fresh, exclusively owned generation. Missing or extra
+evidence refuses acceptance; the existing body and pool checks remain required.
+
 The optional `scripts/check_parallel_native.py` client binds an explicitly
 separate service generation on loopback port 8788. It operates no services
 and never contacts the browser endpoint. A generation marker prevents

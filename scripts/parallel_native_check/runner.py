@@ -30,7 +30,8 @@ def main():
     started = {'started_at_unix': time.time(), 'plan_sha256': args.plan_sha256}
     with Path(str(output) + '.started').open('x') as stream:
         json.dump(started, stream)
-    report = dict(started, accepted=False, post_calls=0, samples=[], native_completions=[])
+    report = dict(started, accepted=False, post_calls=0, samples=[], native_completions=[],
+                  native_send_invocations=[], native_send_snapshots=[])
     events = None
     binding = None
     try:
@@ -47,6 +48,8 @@ def main():
     finally:
         if events is not None:
             report['native_completions'] = list(events.completed)
+            report['native_send_invocations'] = list(events.send_invocations)
+            report['native_send_snapshots'] = list(events.send_snapshots)
             events.close()
     report['finished_at_unix'] = time.time()
     report['measurement_scope'] = 'Isolated service samples; memory.peak is a lifetime counter.'

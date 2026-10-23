@@ -31,6 +31,9 @@ type WireBody = Pin<Box<dyn Stream<Item = Result<Bytes, reqwest::Error>> + Send>
 pub mod closure;
 pub use closure::{NativeTrackedRequest, NativeResponseFuture, NativeClosed, NativeCloseError};
 
+#[path = "native_send_evidence.rs"]
+pub(crate) mod send_evidence;
+
 /// Headers and an on-demand raw stream. Native HTTP exposes a real usage
 /// header even when browser CORS would have hidden it.
 pub struct NativeResponse {
@@ -624,6 +627,7 @@ impl NativeHttp {
             .header(AUTHORIZATION, bearer)
             .header(COOKIE, cookie)
             .body(wire);
+        send_evidence::invoked()?;
         let send = request.send();
         let send_cancellation = cancellation.clone();
         let cancelled = send_cancellation.cancelled();
@@ -679,3 +683,7 @@ pub mod fixture_body;
 #[cfg(test)]
 #[path = "native_http_memory_tests.rs"]
 mod memory_tests;
+
+#[cfg(test)]
+#[path = "native_send_tests.rs"]
+mod send_tests;

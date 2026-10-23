@@ -3,6 +3,17 @@
 Updated 2026-10-23. The normal service remains browser-based. Publishing these
 branches does not change the running service.
 
+Native send accounting now covers attempts that fail before response headers.
+The separate checker requires both the send events and the cumulative count
+after original stream cleanup. This supplements the existing response metadata
+count, which could miss an additional failed send. All 25 affected Python cases
+and 13 selected Rust cases pass, including three new transport cases. The old
+checker fails the hidden-send regression. Original failed candidate/validator
+results are preserved. The API library and final executable builds also pass;
+binary `b4151ab3` is staged. The unchanged host library still embeds the earlier
+default, so the accepted lazy host requires explicit sidecar selection. This
+change has not been deployed or independently reviewed yet.
+
 The native host now defers Camoufox, Playwright and optional browser memory
 setup until a browser launch. Five focused tests pass; the native-startup
 regression fails against the prior source. The three existing real-server
