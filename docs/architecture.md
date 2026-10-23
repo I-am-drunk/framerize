@@ -163,6 +163,9 @@ its original import namespace. The recovery package verifies every selected
 module through the real loader without live actions, and retains the original
 helper's import failure as a regression. Those import checks do not exercise
 identity checks against installed state or replace fresh runtime predicates.
+The client and owner must bind the same accepted recovery directory and plan.
+Updating those references preserves prior consumed attempts and carries the
+new helper hash through the client and input driver before execution.
 
 Recovery of an already installed runtime verifies its configuration in place.
 It preserves both file content and identity, obtains a fresh maintenance hold,

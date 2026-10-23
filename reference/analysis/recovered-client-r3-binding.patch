@@ -1,0 +1,26 @@
+--- a/client/check.py
++++ b/client/check.py
+@@ -18 +18 @@
+-RECOVERY_HELPER_SHA = 'fb18bcd49b13093d5d9a6c89bd54a7bc004e59e132bfe11433013319458da353'
++RECOVERY_HELPER_SHA = '8e12bb2b6bcf273d964620b28a5a756fb84a58a1d7dac8e64e09c273d1a57293'
+--- a/client/recovery_state.py
++++ b/client/recovery_state.py
+@@ -6,3 +6,3 @@
+-RECOVERY = HERE.parent / 'offline-serving-r18-runtime-recovery-r2'
+-PLAN_SHA = '7c0d9a2948b47484abf5ea15c3edbd93befdc02c3e57b498f3a4129a81ba2bda'
+-REVIEW_SHA = 'a4338526ccfdfa7a7a0abe2b34c385af030a55334666f41d40327ca305c9020c'
++RECOVERY = HERE.parent / 'offline-serving-r18-runtime-recovery-r3'
++PLAN_SHA = '339087b4f9ead5a77d1a90cd94db000b8b42e7aaf7aa5941af2439740e47e8fb'
++REVIEW_SHA = '8bc652aeff4293d701c2d96c8e33895d94c88f23f75b072832e9242d3aa45063'
+--- a/input/run_once.py
++++ b/input/run_once.py
+@@ -5,2 +5,2 @@
+-CLIENT = HERE.parent / 'offline-serving-client-check-r16/check.py'
+-CLIENT_SHA = '4e7f9d7bfce1a2cea8823915584b9c38bd1f9ebe0e0336c7032bb2e59f01d8da'
++CLIENT = HERE.parent / 'offline-serving-client-check-r17/check.py'
++CLIENT_SHA = 'c0b4af6ce34d3f897969aba91fb57eebf3cfbb97f193d38ec52a2944a432bae5'
+--- a/owner/sequence.py
++++ b/owner/sequence.py
+@@ -13 +13 @@
+-RECOVERY = HERE.parent / 'offline-serving-r18-runtime-recovery-r2'
++RECOVERY = HERE.parent / 'offline-serving-r18-runtime-recovery-r3'
