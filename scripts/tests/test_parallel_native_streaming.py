@@ -1,4 +1,5 @@
 import http.client
+import json
 import socket
 import unittest
 from native_check_fixture import await_state, event, terminal
@@ -7,6 +8,13 @@ from parallel_native_check.support import Refusal
 
 
 class StreamingTests(unittest.TestCase):
+    @staticmethod
+    def security_error():
+        return {'error': {'status': 403,
+            'message': 'This request was blocked by our security checks',
+            'data': {'reason': 'request_blocked'},
+            'ref': 'private-marker-reference', 'timestamp': 'private-marker-timestamp'}}
+
     def stream(self, body, framing, eof=True, status=b'200 OK', content_type=b'text/event-stream'):
         local, remote = socket.socketpair()
         local.settimeout(2)
@@ -58,6 +66,47 @@ class StreamingTests(unittest.TestCase):
                 self.assertIsNone(value['response_error_code'])
                 self.assertEqual(value['read_error'], 'stream_http_status')
                 self.assertNotIn('private-marker', str(value))
+
+    def test_security_error_retains_category_without_private_details(self):
+        body = json.dumps(self.security_error()).encode()
+        stream, _, _ = self.stream(body, b'Content-Length: ' + str(len(body)).encode(),
+                                  status=b'403 Forbidden', content_type=b'application/json')
+        value = await_state(stream, lambda state: state['finished'])
+        details = value['response_failure']
+        self.assertEqual(set(details), {'native_error_code', 'content_kind', 'json_valid',
+            'json_bytes', 'json_truncated', 'framer_security_envelope'})
+        self.assertTrue(details['framer_security_envelope'])
+        self.assertTrue(details['json_valid'])
+        self.assertEqual(details['json_bytes'], len(body))
+        self.assertIsNone(value['response_error_code'])
+        self.assertEqual(value['read_error'], 'stream_http_status')
+        self.assertNotIn('private-marker', str(value))
+
+    def test_security_category_requires_complete_envelope_and_http_403(self):
+        for missing in ('status', 'message', 'data', 'ref', 'timestamp', None):
+            with self.subTest(missing=missing):
+                value = self.security_error()
+                if missing:
+                    del value['error'][missing]
+                body = json.dumps(value).encode()
+                status = b'403 Forbidden' if missing else b'500 Server Error'
+                stream, _, _ = self.stream(body, b'Content-Length: ' + str(len(body)).encode(),
+                                          status=status, content_type=b'application/json')
+                value = await_state(stream, lambda state: state['finished'])
+                self.assertFalse(value['response_failure']['framer_security_envelope'])
+                self.assertEqual(value['read_error'], 'stream_http_status')
+                self.assertNotIn('private-marker', str(value))
+
+    def test_non_json_error_retains_only_media_category(self):
+        body = b'private-marker'
+        for media, category in [(b'text/html', 'html'), (b'private-marker', 'other')]:
+            stream, _, _ = self.stream(body, b'Content-Length: ' + str(len(body)).encode(),
+                                      status=b'403 Forbidden', content_type=media)
+            value = await_state(stream, lambda state: state['finished'])
+            self.assertEqual(value['response_failure']['content_kind'], category)
+            self.assertIsNone(value['response_failure']['json_bytes'])
+            self.assertFalse(value['response_failure']['framer_security_envelope'])
+            self.assertNotIn('private-marker', str(value))
 
     def test_cancel_shuts_down_detached_socket_after_real_text(self):
         frame = event('response.output_text.delta', delta='started')

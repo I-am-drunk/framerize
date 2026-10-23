@@ -3,7 +3,7 @@ import socket
 import threading
 import time
 from .frames import Frames
-from .http_error import response_error
+from .http_error import response_details
 from .support import error_code, require
 
 class Stream:
@@ -16,6 +16,7 @@ class Stream:
         self.frames = Frames()
         self.state = {'status': None, 'headers_at_unix': None, 'eof': False,
                       'response_error_code': None,
+                      'response_failure': None,
                       'finished': False, 'read_error': None,
                       'request_started_at_unix': started_at_unix,
                       'headers_elapsed_ms': None, 'first_text_elapsed_ms': None,
@@ -36,9 +37,10 @@ class Stream:
                 self.state['headers_at_unix'] = time.time()
                 self.state['headers_elapsed_ms'] = self._elapsed_ms()
             if response.status != 200:
-                code = response_error(response)
+                details = response_details(response)
                 with self.lock:
-                    self.state['response_error_code'] = code
+                    self.state['response_error_code'] = details['native_error_code']
+                    self.state['response_failure'] = details
                 require(False, 'stream_http_status')
             require(response.getheader('Content-Type', '').split(';')[0].strip()
                     .lower() == 'text/event-stream', 'stream_content_type')
