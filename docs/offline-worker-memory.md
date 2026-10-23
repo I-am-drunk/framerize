@@ -92,3 +92,23 @@ verified locally in follow-up summary `5a1b30b6`, reusing the first baseline
 from the accepted six-run study. The 1,247 installed/tool declarations were
 forwarded without reading their targets. These follow-up results have not
 received independent review. No experiment was rerun to publish this summary.
+
+## Bounded verification buffers
+
+One additional synthetic run replaced whole-file hash buffers with a reusable
+64 KiB buffer. The input inventory, expected digests, module parsing, SDK,
+DOM, device and cleanup checks stayed unchanged. This changed only the
+experimental source copy.
+
+The local mint passed, but did not demonstrate a useful saving. Peak group
+memory was 75,436,032 bytes versus the saved baseline mean of 75,018,240.
+Reported process RSS peaked at 123,359,232 bytes. Minter time was 1209.069 ms
+versus the baseline mean of 1186.823 ms. One sample cannot establish a small
+regression, but it provides no reason to adopt the change.
+
+The worker joined, the unit and cgroup disappeared, and swap and memory events
+were zero. Saved comparison `2bf821c0` records the result. It has not received
+independent review. The [experimental patch](../reference/analysis/offline-worker-verification-buffer.patch)
+is preserved for reproduction and is not applied to production.
+Next investigate the components of JSDOM's import allocation with one
+isolated import-only measurement. Keep the existing DOM behavior unchanged.
