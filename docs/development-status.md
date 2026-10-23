@@ -134,8 +134,16 @@ HTTP 502 after 3.072 seconds. The new completion event identifies an upstream
 confirmed final cleanup. This does not identify the exact rejection cause.
 Health and pool admission subsequently returned 200 on the same generation,
 with no uncertain residents, swap or resource events. No request was repeated.
-The next source investigation traces the pinned SDK's device-state handling
-and the native request context. Existing account and cooldown rules remain.
+The worker now uses the same truthful `Framerize/0.1` application identity as
+both native HTTP clients, replacing JSDOM's default browser label. Its page
+context is unchanged and all resource fetches remain disabled. Two inert
+JSDOM tests passed without executing the SDK or sending a request. The saved
+resource collector used an empty cgroup path and its metrics are invalid;
+an additive correction preserves that failure. Configured limits and test
+exit success are recorded, but no measured test peak is claimed. The test
+unit is absent after cleanup. This source change is not deployed and is not
+proven to resolve the upstream refusal. Next: narrow source/evidence review,
+then bounded worker validation. Existing account and cooldown rules remain.
 The exact operational source delta is saved in
 [completion-evidence-release-r15.patch](../reference/analysis/completion-evidence-release-r15.patch).
 No browserless live response or total-memory saving is verified yet.

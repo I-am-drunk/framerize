@@ -8,6 +8,19 @@ import { SdkModules, verifyInputs } from './sdk_loader.mjs';
 import { validateInput, OpaqueToken } from './protocol.mjs';
 import { observeBranch, exactV3 } from './branch.mjs';
 
+export function createOfflineWindow({ JSDOM, ResourceLoader }, url, virtualConsole) {
+  class OfflineResources extends ResourceLoader {
+    constructor() { super({ userAgent: 'Framerize/0.1' }); }
+    fetch() { return null; }
+  }
+  // Match the native transport's truthful application identity and keep
+  // JSDOM resource loading disabled, including file and data URLs.
+  return new JSDOM('<!doctype html><html><head></head><body></body></html>', {
+    url, runScripts: 'outside-only', pretendToBeVisual: true, virtualConsole,
+    resources: new OfflineResources(),
+  });
+}
+
 export class OfflineCastleMinter {
   #input; #used = false;
   constructor(input) { this.#input = validateInput(input); }
@@ -41,16 +54,13 @@ export class OfflineCastleMinter {
           || !process.execArgv.includes('--experimental-vm-modules')) throw new Error('runtime');
       phase = 'import';
       const require = createRequire(import.meta.url);
-      const { JSDOM, VirtualConsole } = require(DOM + '/node_modules/jsdom/lib/api.js');
+      const jsdom = require(DOM + '/node_modules/jsdom/lib/api.js');
       const { settleOnce } = await import(pathToFileURL(SUPPORT.settle[0]));
       const { createErrorLocationReader } = await import(pathToFileURL(SUPPORT.location[0]));
       phase = 'window';
-      const console = new VirtualConsole();
+      const console = new jsdom.VirtualConsole();
       for (const name of ['warn', 'error', 'jsdomError']) console.on(name, diagnostic);
-      dom = new JSDOM('<!doctype html><html><head></head><body></body></html>', {
-        url: this.#input.target.url, runScripts: 'outside-only',
-        pretendToBeVisual: true, virtualConsole: console,
-      });
+      dom = createOfflineWindow(jsdom, this.#input.target.url, console);
       if (this.#input.device) {
         phase = 'device-storage';
         verifyDevice = this.#input.device.seed(dom.window);
