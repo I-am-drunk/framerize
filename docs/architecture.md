@@ -65,6 +65,11 @@ The browser host records a job-start event after the page has started its
 fetch. This lets a live cancellation check observe the actual call boundary
 without logging request content, credentials or a response body.
 
+The normal-route recovery check disconnects one unmetered request after that
+start event, waits for its actual completion and cleanup, then requires a
+complete second response on the same process and runtime configuration.
+A restart between those requests cannot establish cancellation recovery.
+
 Worker protocol version 2 carries the private saved device through a pipe.
 The worker seeds its isolated storage before loading the SDK and checks that
 the value remains unchanged. This does not establish upstream acceptance or
