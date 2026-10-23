@@ -3,7 +3,7 @@
 Updated 2026-10-23. The normal service remains browser-based. Publishing these
 branches does not change the running service.
 
-An account-import source candidate now checks an optional expected Framer
+An account-import candidate now checks an optional expected Framer
 identity before saving the session or provisioning workspaces. It also skips
 automatic browser prewarm when native dispatch is configured. All eight
 focused import cases pass, including four new identity/prewarm cases. The
@@ -18,7 +18,12 @@ initializer is corrected. The fresh R3 test build and all eight selected cases
 pass; summary `8f46157b` binds both results and the retained failures. Compilation
 peaked at 705,204,224 bytes and testing at 17,985,536 bytes, with zero swap and
 verified cleanup. These are validation-process measurements, not service memory.
-The application still needs rebuilding before this correction can be staged.
+The corrected server library and full application link also pass. Candidate
+`1baa4a98` is built but has never been launched or deployed. Their compilation
+peaks were 377,405,440 and 530,116,608 bytes, with zero swap and verified cleanup.
+Summary `7fff81b6` and freeze `e50f1424` bind the source, eight cases, both builds
+and retained failures. Independent source/saved-results review is pending.
+The candidate still requires explicit selection of the accepted lazy host.
 
 Browserless is not complete: the isolated setup has no verified authenticated
 Framer delivery. Its latest prepared launch still has no selected account,
@@ -51,6 +56,8 @@ cgroup, with zero swap/events. Eight new sampler cases pass; summary `9e644000`
 binds those results and the unchanged probe/application binaries. The failed
 first measurement and prelaunch directory-setup error are preserved. No
 authenticated inference, browser-service change or live-account access occurred.
+Review `85f3d29c` accepts this frozen source and saved measurement, with no
+findings. It grants neither runtime approval nor acceptance of the 100 MB target.
 
 A later attribution sample separates known measurement helpers from the
 application, host, worker and separate owner probe. Their simultaneous PSS
