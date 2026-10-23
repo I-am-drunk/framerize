@@ -10,11 +10,18 @@ The host requires explicit startup opt-in, refuses prior account/profile
 history, and charges a full cooldown/window before any first request.
 Enrollment does not manufacture a restoration receipt or clear old history.
 
-All 34 focused Python host cases pass, including nine new enrollment cases.
-They use temporary state and synthetic clocks; peak was 34,918,400 bytes,
-with zero swap/events and verified teardown. The Rust endpoint/bridge and
-nine new server cases remain UNCOMPILED/UNRUN. The previous built executable
-does not contain this change. Neither service nor any live account changed.
+All 34 focused Python host cases and 31 focused Rust server cases pass,
+including nine new cases in each layer. The Rust selection retains the
+affected account-management and import coverage. Both runs use synthetic
+state, with zero swap/events and verified teardown. The Rust run peaked at
+17,940,480 bytes; the Python run peaked at 34,918,400 bytes.
+
+The compatible core, host, API, store and server libraries and full application
+now build successfully. Candidate `afb3c82e` contains enrollment and is staged
+with the explicit generated host `161b3206`. Its 23 worker configuration pins
+and 1,247 dependency entries were verified. This is a staged candidate, not
+authenticated inference or a changed browser service. Independent initial
+enrollment and the bounded real streaming sequence are next.
 
 The retained JITless cancellation, device-bridge results and memory-attribution
 reviews are now complete. All three accept source and saved evidence with no

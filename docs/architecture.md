@@ -39,8 +39,11 @@ must explicitly enable `FRAMERIZE_NATIVE_ENROLLMENT=1`. It creates private,
 exclusive initial records only when no account lifecycle or profile exists.
 The initial lifecycle starts with a full rate window and cooldown. A restart
 cannot reuse the initial record as a restoration receipt. Unknown enrollment
-completion keeps operation admission fenced. This path has passing Python
-component tests; Rust validation and live use remain pending.
+completion keeps operation admission fenced. This path has 34 passing Python
+component cases and 31 passing Rust server cases, including the affected
+account-management fixtures. Its compatible libraries and full application
+are built. The staged instance selects the enrollment-capable generated host
+explicitly; live enrollment and authenticated delivery remain unverified.
 
 The deferred IDNA-table patch is retained only as an unapplied experiment.
 Its synthetic equivalence checks passed, but the subsequent worker measurement
