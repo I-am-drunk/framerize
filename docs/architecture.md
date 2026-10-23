@@ -143,7 +143,17 @@ and owner drop against the real worker. It requires observed child activity
 and a stable start identity, then verifies joined cleanup and child absence.
 Both local cases pass with the original worker and unchanged owner library.
 They identify no SDK phase and do not replace a real HTTP stream-disconnect
-check or establish later account admission.
+check or establish later account admission. Final review `72ba6876` accepts
+the source and saved evidence without findings.
+
+The separate `run_host_worker.py` fixture combines an accepted native host
+with that same owner executable. It restores synthetic state, holds a device
+lease across one real local mint and reports joined completion before release.
+It then opens and closes a fresh lease without another mint. Host and worker
+have separate filesystem views, and neither can reach real account state.
+One combined group measurement passed at 102,887,424 bytes peak, including
+the measurement helpers. It excludes the application server and authenticated
+inference. Summary `6af8688a` is locally checked, pending independent review.
 
 ```mermaid
 flowchart LR

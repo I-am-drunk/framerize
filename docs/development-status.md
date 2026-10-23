@@ -58,7 +58,18 @@ owner also joins the child. Both leave no worker, unit or cgroup, with zero
 swap/events. Their 3.268 ms and 2.896 ms interruption-to-join samples do not
 establish real-stream cleanup or user latency. The SDK phase is unobserved,
 and their lower memory peaks reflect early termination. Summary `ba8d6ac0`
-and the exact tested harness are published pending independent review.
+and the exact tested harness are accepted by final review `72ba6876`, with
+no findings. This accepts source and saved evidence only.
+
+One subsequent combined measurement held a real native host device lease
+while the unchanged owner and worker completed a synthetic mint. The host
+kept the same generation, confirmed joined completion and released the lease.
+A fresh lease then opened and closed without another mint. The group peaked
+at 102,887,424 bytes with 15 tasks, zero swap/events and no remaining unit or
+cgroup. Owner elapsed was 1934.152 ms. This includes the host, worker and
+measurement helpers, but no application server or authenticated inference.
+The published Python harness and saved summary `6af8688a` preserve the
+result; independent review is pending. No production source or service changed.
 
 The isolated client now records monotonic request timings, starting before
 connection/request work. It distinguishes headers, first complete text,
