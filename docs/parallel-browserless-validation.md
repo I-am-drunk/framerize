@@ -100,8 +100,17 @@ or service-control socket. It invokes native admission commands, not the SDK.
 Direct cgroup measurements peaked at 123,883,520 bytes and seven tasks, with
 zero swap/events. All nine fixture processes were joined; its unit and cgroup
 were absent afterward. This validates the process wiring, not authentication
-or inference. The deliberately uncertain account remains logically fenced
-until its isolated fixture process exits.
+or inference. The deliberately uncertain account remains logically unconfirmed;
+joining its fixture process does not establish application cleanup.
+
+Final review `b0868885` accepts source and saved-evidence bindings with no
+findings. It binds freeze `74c02edc`, summary `987ac63c` and verification
+`acf906aa`, covering 26 seals, five published files and 49 synthetic outputs.
+The restoration destination is the fixture's Python parent, and mint and
+cleanup completions are injected. Child absence is sampled rather than traced
+for the entire lifetime. Resource measurements cover these synthetic cases
+only; no daemon recovery, account or authenticated inference is accepted.
+The existing separate-account selection remains the next activation dependency.
 
 The checker limits its own execution to two POST calls. Exclusive request
 ownership still requires coordination with other callers. Completion
