@@ -150,6 +150,13 @@ together with the release pin. The client compares those complete wrappers,
 then binds the fingerprint and release to the recovered state. The live
 configuration check continues to compare the bare fingerprint.
 
+The local owner sequence retains its authenticated terminal session while
+placing each child phase in a separate process group. Cancellation signals
+that group and waits for the child. Starting a new session discards the
+terminal authentication context even when the caller has authenticated.
+An authentication refusal consumes that attempt before recovery or requests;
+preserve its evidence and bind any later attempt separately.
+
 Recovery of an already installed runtime verifies its configuration in place.
 It preserves both file content and identity, obtains a fresh maintenance hold,
 and reuses the drain, capture, settlement and startup ownership checks.

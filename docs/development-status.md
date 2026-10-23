@@ -337,8 +337,20 @@ five owner-orchestration checks, at a 28.5 MB peak with zero swap or resource
 events. The test unit and cgroup are absent. The original 25-case result and
 rejection remain preserved. A disk refusal preceded this run; a separately
 audited cache cleanup restored the unchanged reserve. No runtime recovery
-or request has run. The correction awaits narrow source and results review.
+or request has run. Independent review accepts this exact source and result.
 See [r18-recovered-client-r2.patch](../reference/analysis/r18-recovered-client-r2.patch).
+The first owner sequence stopped at administrator authentication before its
+controller or either request started. Its result is preserved. A bounded
+terminal check isolated the launch boundary: a new child session loses the
+cached terminal authentication. The separate owner correction keeps the
+terminal session while assigning the child its own process group.
+All seven focused owner cases pass, including the original terminal-loss
+regression and cancellation of the corrected child and its descendant.
+Peak memory was 34.4 MB across five tasks, with zero swap or resource events;
+the fixture unit and cgroup are absent. Existing client and recovery evidence
+is reused unchanged. This owner correction is not yet live and awaits narrow
+review before a new coordinated attempt. No recovery or request was retried.
+See [recovered-owner-terminal.patch](../reference/analysis/recovered-owner-terminal.patch).
 Its first test launch refused disk reserve before starting a test. A separate
 audited cleanup removed 135.4 MB of old, unreferenced package-cache copies;
 the original refusal remains preserved. No service action was involved.
