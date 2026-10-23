@@ -15,7 +15,11 @@ original failure remains recorded. Five production builds now pass, reusing the
 matching saved core library. The resulting executable is built and verified.
 One API build hit the intermediate file-size cap; the original production
 compiler setting passed within the unchanged limits. Both records are kept.
-The next step is the safe runtime update, followed by one real request.
+Independent review now accepts the built repair and the exact R9 release plan.
+The client checker is bound to that executable and plan, with its original
+16-case evidence reused. The next step is the coordinated runtime update,
+subject to fresh account, resource, drain and startup checks, followed by one
+real request. A coding-session quiet window is being arranged for that attempt.
 This change is not deployed and no browserless live response is verified.
 
 The first version's core and API builds remain saved evidence for that version.
