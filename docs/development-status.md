@@ -124,9 +124,13 @@ successfully as `162105d5`, reusing five unchanged library builds and all 32
 direct external libraries. The link used a 768 MiB cap and peaked at 397 MB,
 with no swap or resource events. An earlier attempt refused memory admission
 before compilation; that refusal remains saved. Request and retry behavior
-are unchanged. Source review is accepted; saved build review is pending.
-Next: bind and deploy the diagnostic executable through the existing release
-controls before any further bounded browserless trial.
+are unchanged. Independent source and saved build reviews are accepted.
+R15 is frozen with the current R14 host, support package and worker settings.
+Its build consumer accepts the diagnostic build and rejects the older summary.
+The fresh baseline and release binding pass. Final deployment review and
+plan/client binding remain before a coordinated activation and native trial.
+The exact operational source delta is saved in
+[completion-evidence-release-r15.patch](../reference/analysis/completion-evidence-release-r15.patch).
 No browserless live response or total-memory saving is verified yet.
 
 The first version's core and API builds remain saved evidence for that version.
