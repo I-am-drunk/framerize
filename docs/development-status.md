@@ -38,8 +38,19 @@ dependency copy passed, but its 74,878,976-byte group peak was essentially
 the existing baseline range, and its 1330.950 ms elapsed time was higher.
 That patch also remains unapplied. Summaries `5a262d7f` and `c46984c2` preserve
 the results and limits; they are not independently reviewed.
-Next inspect existing real worker-entry/pipe evidence before preparing a
-focused measurement with the actual owner. Production is unchanged.
+The subsequent actual-owner measurement passed using the unchanged library
+from the accepted application build and the original worker entry. Its real
+private-pipe, metadata and freshness checks completed; the worker joined and
+was absent afterward, and the synthetic token was discarded and cleared.
+Peak group memory was 75,116,544 bytes with 12 tasks and zero swap/events.
+Owner elapsed time was 1978.228 ms, including startup, minting, handoff and
+join. The unit and cgroup disappeared. This single synthetic sample excludes
+account/host admission, HTTP, authenticated delivery and total service memory.
+The exact harness and summary `c3edd067` preserve the passing build and run,
+two compiler-wrapper failures and one prelaunch resource refusal.
+Independent review is pending. Next freeze that narrow source and saved
+evidence for review; no repeat build or measurement is required.
+Production is unchanged, and the separately owned account remains pending.
 
 The isolated client now records monotonic request timings, starting before
 connection/request work. It distinguishes headers, first complete text,

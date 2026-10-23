@@ -164,7 +164,32 @@ and cgroups disappeared, and swap and memory events were zero.
 Full-mint summary `c46984c2` and the fixture summary are locally checked,
 not independently reviewed. No service or real account was used.
 
-Further measurement should cover the real worker entry and private pipe
-handoff under its owner. These direct-minter experiments do not measure that
-integration. Existing owner tests and saved validation should be checked
-before adding a focused measurement, to avoid repeating established results.
+These direct-minter experiments do not measure the Rust owner or private
+pipe integration. The following separate measurement covers that boundary.
+
+## Actual owner and private-pipe measurement
+
+The [Rust harness](../scripts/measure_owned_offline_worker.rs) links the exact
+owner library used by the accepted application build. All five owner source
+files still match that library's saved build. It runs the original worker
+entry with synthetic project/device input and the original 96 MiB heap.
+No account, host admission or HTTP call is involved.
+
+The local mint passed the real descriptor, framing, metadata and freshness
+checks. The harness waited for joined completion, observed the worker's
+absence, and discarded and cleared the token bytes. Group peak was 75,116,544
+bytes with 12 tasks and zero swap/events; the outer unit and cgroup disappeared.
+Owner elapsed time was 1978.228 ms, including verification, process startup,
+minting, handoff and join. SDK elapsed was 1270.783 ms; handoff was 11.345 ms.
+These are one local sample and do not measure request latency or service memory.
+
+Two build-wrapper failures are retained: a read-only compiler working
+directory and an unavailable cc alias inside the isolated filesystem.
+A third attempt refused before launch at the memory reserve. After source
+preparation finished, the unchanged guard admitted the successful build,
+which peaked at 298,430,464 bytes with zero swap/events and clean teardown.
+The harness and owner source needed no correction.
+
+Summary `c3edd067` binds the saved build and runtime results. Direct compiler
+and external library inputs were checked; transitive cache and sysroot remain
+trusted. Independent review is pending. Production remains unchanged.
