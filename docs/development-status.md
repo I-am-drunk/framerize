@@ -11,10 +11,14 @@ heartbeat and partial-frame exclusion, retained first-text time, terminal text,
 wall-clock changes, parse failure and actual cancellation. The isolated run
 peaked at 18,374,656 bytes with four tasks, zero swap/events and joined threads;
 its unit and cgroup are absent. This Python-only change does not rebuild the
-staged server or establish live latency. Independent review remains pending.
-Next: close that timing-only review and bind the separately owned account to
-the prepared isolated runtime. The accepted send-accounting executable remains
-staged; the browser service and its account scope remain protected.
+staged server or establish live latency. Final review `d9760e73` accepts the
+source and saved evidence without findings, binding freeze `2a4ca7ad` and
+summary `3eab1e9f`. Actual prelaunch memory and disk values were not serialized;
+the saved caps and passing run do not establish current resource admission.
+The isolated preparation now binds all ten accepted client files. Account,
+generation and execution plan remain unset. Next: bind the separately owned
+account and freshly admit the isolated stream check. The accepted executable
+remains staged; the browser service and its account scope remain protected.
 
 Native send accounting now covers attempts that fail before response headers.
 The separate checker requires both the send events and the cumulative count

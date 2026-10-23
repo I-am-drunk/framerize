@@ -101,6 +101,9 @@ terminal completion, socket disconnection and reader exit. Heartbeats and
 partial text frames do not establish first text. These are client observation
 times, including parsing and scheduling; reader exit does not prove server
 cleanup. Existing native completion and idle-pool checks remain authoritative.
+Final review `d9760e73` accepts the timing source and saved synthetic results.
+The prepared client is pinned separately from the unchanged staged executable;
+neither that preparation nor synthetic timing validates a live generation.
 
 ```mermaid
 flowchart LR

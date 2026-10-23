@@ -52,6 +52,10 @@ than headers, heartbeats or a partial frame. These are client observation times,
 including scheduling and parsing; reader exit is not server cleanup evidence.
 Five new timing cases and 22 existing cases pass in an isolated socket fixture.
 No live latency measurement or additional request is implied by those results.
+Final review `d9760e73`, verification `9e31218a`, accepts freeze `2a4ca7ad`
+and summary `3eab1e9f`: 35 seals, six published paths and 19 tested inputs.
+Admission source and enforced test caps are bound, but the prelaunch memory
+and disk values were not saved. Fresh resource checks are still required.
 
 The explicit checker entry point is `scripts/check_parallel_native.py`.
 It takes `--plan`, `--plan-sha256`, `--report` and `--execute`. The plan
