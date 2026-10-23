@@ -3,6 +3,17 @@
 Updated 2026-10-23. The normal service remains browser-based. Publishing these
 branches does not change the running service.
 
+Six isolated worker-memory experiments are complete. Five synthetic local
+SDK mints passed their existing device and cleanup checks; the 32 MiB heap
+trial exited with code 134 before producing a result. Neither heap flags nor
+the successful reduced heaps demonstrated a useful saving. Production keeps
+its accepted 96 MiB setting. All test groups are gone, with zero swap/events.
+The new probe and [measurement report](offline-worker-memory.md) preserve
+these results, including the failure and limits of the RSS/group comparison.
+Independent review is pending. Next independent work is allocation attribution
+during module loading. Real streaming still awaits a separately owned account;
+the accepted executable and timing client remain prepared but not activated.
+
 The isolated client now records monotonic request timings, starting before
 connection/request work. It distinguishes headers, first complete text,
 terminal completion, socket disconnection and reader exit. Five new socket

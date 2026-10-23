@@ -105,6 +105,13 @@ Final review `d9760e73` accepts the timing source and saved synthetic results.
 The prepared client is pinned separately from the unchanged staged executable;
 neither that preparation nor synthetic timing validates a live generation.
 
+The separate offline worker probe measures a local SDK invocation with
+synthetic input and no account or network access. It retains the worker's
+syscall filter and records process RSS separately from group memory. Its
+heap-policy experiments do not change the production launch configuration.
+See the [worker memory results](offline-worker-memory.md) for the measured
+limits and rejected settings.
+
 ```mermaid
 flowchart LR
     Client --> Server[Shared HTTP API and account selection]
