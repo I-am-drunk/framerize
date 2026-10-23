@@ -50,10 +50,12 @@ The next source change adds `native.stream.complete` at the existing joined
 native completion/cleanup observer. It records only bounded outcome, status,
 attempt-metadata count, yielded bytes and timing fields. It keeps body failure
 separate from cleanup confirmation. The active binary does not contain this
-change yet. Three focused cases are prepared for observer ordering, cleanup
-failure and exclusion of provider metadata; compilation and execution are
-pending. This event will supplement the real-stream check, not prove delivery
-or count every transport start by itself.
+change yet. Three focused cases for observer ordering, cleanup failure and
+exclusion of provider metadata pass alongside all 22 selected ownership
+regressions. The server library and final executable also build successfully
+under the existing caps. Binary `a8b5bf6e` is staged, not installed; source and
+saved-result review is pending. This event supplements the real-stream check;
+it does not prove delivery or count every transport start by itself.
 
 The new `examples/browserless-routing.json` configuration passes a separate
 process fixture for normal streaming dispatch. With an empty account store,
