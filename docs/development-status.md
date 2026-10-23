@@ -3,6 +3,16 @@
 Updated 2026-10-23. The normal service remains browser-based. Publishing these
 branches does not change the running service.
 
+The isolated client now records monotonic request timings, starting before
+connection/request work. It distinguishes headers, first complete text,
+terminal completion, socket disconnection and reader exit. Five new socket
+and caller tests pass with 22 existing stream/workflow/runner cases. They cover
+heartbeat and partial-frame exclusion, retained first-text time, terminal text,
+wall-clock changes, parse failure and actual cancellation. The isolated run
+peaked at 18,374,656 bytes with four tasks, zero swap/events and joined threads;
+its unit and cgroup are absent. This Python-only change does not rebuild the
+staged server or establish live latency. Independent review remains pending.
+
 Native send accounting now covers attempts that fail before response headers.
 The separate checker requires both the send events and the cumulative count
 after original stream cleanup. This supplements the existing response metadata

@@ -42,6 +42,17 @@ routing. Bind native lifecycle evidence before claiming current-work cleanup
 or absence of another attempt. Preserve refusal results and do not retry them
 automatically. Keep account, streaming and memory acceptance separate.
 
+Each stream snapshot now includes `request_started_at_unix` for correlation
+and monotonic durations in milliseconds: `headers_elapsed_ms`,
+`first_text_elapsed_ms`, `terminal_elapsed_ms`, and `reader_finished_elapsed_ms`.
+A successful interruption also records `disconnected_elapsed_ms`. The clock
+starts before sending the HTTP request, including connection setup. First text
+requires a complete parsed text event or text in the terminal response, rather
+than headers, heartbeats or a partial frame. These are client observation times,
+including scheduling and parsing; reader exit is not server cleanup evidence.
+Five new timing cases and 22 existing cases pass in an isolated socket fixture.
+No live latency measurement or additional request is implied by those results.
+
 The explicit checker entry point is `scripts/check_parallel_native.py`.
 It takes `--plan`, `--plan-sha256`, `--report` and `--execute`. The plan
 and report paths must be absolute; the report must not already exist.

@@ -95,6 +95,13 @@ no cleanup uncertainty. An empty pool is also allowed. Reports contain
 bounded counts and local error codes, without provider content. Failed
 sequences only observe existing cleanup and do not retry inference.
 
+The checker starts each request's monotonic clock before sending its HTTP
+request. Stream snapshots record elapsed time to headers, first complete text,
+terminal completion, socket disconnection and reader exit. Heartbeats and
+partial text frames do not establish first text. These are client observation
+times, including parsing and scheduling; reader exit does not prove server
+cleanup. Existing native completion and idle-pool checks remain authoritative.
+
 ```mermaid
 flowchart LR
     Client --> Server[Shared HTTP API and account selection]
