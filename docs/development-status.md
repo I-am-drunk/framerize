@@ -239,9 +239,19 @@ this exact build. R18's release-source review is accepted, with
 82 local seals, 165 declarations and 11 modules. Its saved-file consumer
 accepts the new build and rejects the older completion summary. The host,
 support, worker and service limits remain unchanged. Ten earlier config and
-override files stay protected. This package is not deployed. The exact final
-plan and client are submitted for their separate reviews. Next: coordinate
-fresh admission and one trial after those receipts are accepted.
+override files stay protected. The exact final plan and client reviews are
+accepted. R18's first coordinated attempt stopped before controller creation
+because free disk was 988,340,224 bytes, below the unchanged 1 GiB reserve.
+Readiness passed on the existing R17 generation; no staging, restart or request
+ran. The refusal is preserved and all three quiet peers were released.
+Removing 1,751 old, single-link Bun registry metadata files recovered
+131,002,368 allocated bytes. Installed packages, source, runtime state and
+bound evidence remain intact. The saved inspection found no visible use or
+installer, with restricted process mappings explicitly unobserved.
+Free space afterward was 1,099,165,696 bytes, only modest reserve headroom.
+The cleanup is complete. Next: secure enough disposable-cache headroom and
+coordinate a separate attempt of the unchanged accepted package. R18 remains
+undeployed, with no browserless delivery or memory-saving claim.
 The operational delta is published in
 [saved-device-cookie-release-r18.patch](../reference/analysis/saved-device-cookie-release-r18.patch).
 
