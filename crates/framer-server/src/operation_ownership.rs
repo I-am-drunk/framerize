@@ -10,6 +10,9 @@ use http_body::{Body as HttpBody, Frame, SizeHint};
 use futures::{future::{BoxFuture, Shared}, FutureExt};
 #[cfg(feature = "native-dispatch")]
 use crate::native_dispatch::http_stream::NativeStreamObservers;
+#[cfg(feature = "native-dispatch")]
+#[path = "native_stream_evidence.rs"]
+mod native_stream_evidence;
 
 tokio::task_local! { static CURRENT: Arc<OwnerContext>; }
 tokio::task_local! { static CLIENT: Arc<tokio::sync::oneshot::Sender<()>>; }
@@ -183,10 +186,7 @@ pub async fn middleware(State(scope): State<Option<Arc<ServingOwnership>>>,
         #[cfg(feature = "native-dispatch")]
         let completion = completion.or_else(|| {
             parts.extensions.get::<NativeStreamObservers>().cloned().map(|observers|
-                ResponseCompletion(async move {
-                    let (_, cleanup) = tokio::join!(observers.completion, observers.cleanup);
-                    cleanup.is_ok()
-                }.boxed().shared()))
+                ResponseCompletion(native_stream_evidence::observe(observers).boxed().shared()))
         });
         Response::from_parts(parts, Body::new(OwnedBody { body, owner: Some(owner),
             completion,

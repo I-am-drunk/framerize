@@ -46,6 +46,15 @@ accounts, so none can simply be copied into the parallel instance. Account
 selection is pending. Empty startup and routing results establish neither
 authenticated delivery nor memory use under inference load.
 
+The next source change adds `native.stream.complete` at the existing joined
+native completion/cleanup observer. It records only bounded outcome, status,
+attempt-metadata count, yielded bytes and timing fields. It keeps body failure
+separate from cleanup confirmation. The active binary does not contain this
+change yet. Three focused cases are prepared for observer ordering, cleanup
+failure and exclusion of provider metadata; compilation and execution are
+pending. This event will supplement the real-stream check, not prove delivery
+or count every transport start by itself.
+
 The new `examples/browserless-routing.json` configuration passes a separate
 process fixture for normal streaming dispatch. With an empty account store,
 the request reaches native dispatch and returns the expected `Ineligible`
