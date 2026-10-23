@@ -143,6 +143,14 @@ original launch configuration, account isolation and restored cooldown state.
 Releasing verified recovery bookkeeping does not turn the failed startup into
 an accepted deployment or establish browserless delivery. Preserve both results.
 
+Swap in a restored generation can prevent its hold from being released.
+A separately bound recovery may treat that exact swapped generation as its
+input, then reuse capture, settlement and startup for the installed runtime.
+It must preserve cooldowns, account identity, runtime files and hold ownership.
+Successful warmup, idle residency and zero current and peak swap are still
+required afterward. Accepting a degraded input is not acceptance of a degraded
+result. Save new recovery evidence separately from the failed deployment.
+
 Account selection must also remain stable over the accepted startup interval.
 A quiet client window does not clear cooldowns or replace that requirement.
 Use the recorded expiry times to choose the next attempt, then let the
