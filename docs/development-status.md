@@ -294,6 +294,14 @@ memory-limit events. The R18 generation was unchanged. No request or service
 action ran, and all quiet peers were released. This attempt is preserved.
 The next step is a separately reviewed recovery of the same installed payload,
 followed by preparation and the native trial in one continuous quiet window.
+That recovery candidate passes all 14 inert cases, with a 17.7 MB peak, one
+task and no swap or resource events. It preserves installed file bytes and
+identities and uses the accepted parked-device capture correction. It remains
+unexecuted and awaits review. The exact source is recorded in
+[r18-installed-runtime-recovery.patch](../reference/analysis/r18-installed-runtime-recovery.patch).
+Its first test launch refused disk reserve before starting a test. A separate
+audited cleanup removed 135.4 MB of old, unreferenced package-cache copies;
+the original refusal remains preserved. No service action was involved.
 See [device-preparation-client-r8.patch](../reference/analysis/device-preparation-client-r8.patch).
 Missing log events remain a limitation, not proof that no other attempt ran.
 

@@ -142,6 +142,12 @@ closing browser residents alone cannot clear swapped server or sidecar pages.
 After any restart, the client must bind the newly verified generation before
 preparation and delivery, while the coordinated quiet window remains in place.
 
+Recovery of an already installed runtime verifies its configuration in place.
+It preserves both file content and identity, obtains a fresh maintenance hold,
+and reuses the drain, capture, settlement and startup ownership checks.
+Its input verification follows the previously accepted handoff archive after
+clearance. Releasing a new hold still requires confirmed startup and cleanup.
+
 A support-only release can reuse the verified Rust binary. Bind its changed
 support file to separate review evidence, and regenerate only the host's
 support-manifest reference. Preserve the previous launch override for rollback.
