@@ -18,8 +18,9 @@ The account-import candidate accepts an expected Framer user ID
 and checks it before saving the session or provisioning account resources.
 With native dispatch configured, import also skips automatic browser prewarm.
 Proxy registration and existing native device/cooldown admission remain.
-Eight focused import cases pass. These source changes are not present in the
-installed or staged application executable.
+Eight focused import cases pass. A complete candidate application now contains
+these changes, with its source and saved build results awaiting review. It has
+not been selected by the activation preparation or deployed to either service.
 
 The deferred IDNA-table patch is retained only as an unapplied experiment.
 Its synthetic equivalence checks passed, but the subsequent worker measurement

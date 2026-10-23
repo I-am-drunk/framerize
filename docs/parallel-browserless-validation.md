@@ -40,7 +40,11 @@ the second reached the compiler and found an existing test initializer missing
 the new optional field. That fixture now supplies `None`. The fresh R3 compile
 and eight-case run pass, with exact discovery and serial filters, zero swap
 and verified cleanup. Summary `8f46157b` preserves both earlier failures.
-Rebuild the application before binding this source to an isolated live plan.
+The rebuilt server library and application link pass. Candidate `1baa4a98`
+is frozen with summary `7fff81b6` and source/result package `e50f1424`; review
+remains pending. It is not active or selected by the existing preparation.
+Retain explicit lazy-host selection when binding an accepted candidate to a
+new isolated plan, together with every account/device/cooldown prerequisite.
 
 Use one owned generation and at most two model requests. The first stream
 must demonstrate actual response text before its client disconnects, with
