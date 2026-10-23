@@ -7,8 +7,11 @@ The disconnect correction is being validated on `browserless`. Review of the
 first version found that the browser helper could still retry after disconnect,
 one timeout was not treated as uncertain cleanup, and refunds could start after
 cancellation or hide uncertain completion. The additive correction addresses
-those three paths. Two tests of the actual helper loop pass, including a held
-fetch. The corrected Rust bridge, refund and routed-response tests are pending.
+those three paths. Independent source review accepts the correction. All 27
+focused checks pass: two actual helper-loop cases, five API cases, four host
+cases and 16 routed-response cases. The host group reused its compiled binary
+after adding a missing existing fixture to the isolated test package; the
+original failure remains recorded. The deployable build is next.
 This change is not deployed and no browserless live response is verified.
 
 The first version's core and API builds remain saved evidence for that version.
