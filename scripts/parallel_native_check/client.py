@@ -1,5 +1,6 @@
 import http.client
 import json
+import time
 import uuid
 from .guard import ADDRESS
 from .streaming import Stream
@@ -39,11 +40,12 @@ def send(binding, cancel, report):
     connection = http.client.HTTPConnection(*ADDRESS, timeout=65)
     report['post_calls'] += 1
     try:
+        request_started = (time.monotonic(), time.time())
         connection.request('POST', '/openai/v1/responses', body=json.dumps(payload), headers={
             'Content-Type': 'application/json', 'Connection': 'close',
             'x-framerize-account': binding.account, 'x-framerize-session': uuid.uuid4().hex,
             'x-framerize-context': json.dumps(binding.input['context'])})
-        return Stream(connection)
+        return Stream(connection, request_started=request_started)
     except BaseException:
         connection.close()
         raise
