@@ -188,6 +188,19 @@ main, sidecar, boot, cgroup and invocation identities across the saved result.
 The source is recorded in
 [r16-runtime-recovery.patch](../reference/analysis/r16-runtime-recovery.patch).
 
+R17 is frozen for source review against that recovered generation. It retains
+all seven R16 worker files and the R15 binary, host and support package.
+Preparation and baseline capture verify the exact recovered processes before
+accepting the release inputs. The 82 local seals and 148 source declarations
+preserve the failed attempts, recovery receipts and eight protected files.
+The source seal is `015fca72`; the manifest is `04a400a7`.
+Its source delta is published in
+[worker-identity-release-r17.patch](../reference/analysis/worker-identity-release-r17.patch).
+No R17 deployment or request has run. Next: complete source, plan and client
+review, then coordinate passive quiet through cooldown, drain and startup.
+The existing builds and focused tests are reused. The independent test cleanup
+remains separate, with 27 batches awaiting later owner validation.
+
 Saved events also show ordinary inference during both startup windows.
 Client acknowledgements alone therefore did not establish continuing quiet.
 Before another deployment, address that activity and its memory demand;
