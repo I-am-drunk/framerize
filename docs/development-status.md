@@ -87,7 +87,14 @@ A separate rollback verification and hold-release helper is prepared in
 It starts or stops no service. Six inert barrier cases pass, plus three cases
 for consuming the actual saved validation format. The latter correct an
 unreleased prelaunch check that expected `passed` instead of `accepted`.
-Source review and guarded execution remain pending; this is no recovery claim.
+Independent review accepted the exact source and saved evidence. The one
+coordinated run then refused release at the zero-swap check, before either
+mutation. A subsequent bounded read confirmed the saved rollback generation
+with 265,490,432 bytes of current and peak swap and zero memory events.
+The maintenance marker remains held; no release or inference acceptance is
+claimed. All quiet peers were released after the owner command completed.
+The user requested T3 update validation first. No further Framerize deployment
+will overlap that work; the original source, build and client remain accepted.
 
 The admission repair on `fix/live-admission-503-20261023` adds completion
 evidence for assembled nonstream Responses bodies and stops future attempts
