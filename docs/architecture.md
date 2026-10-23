@@ -147,6 +147,11 @@ It preserves both file content and identity, obtains a fresh maintenance hold,
 and reuses the drain, capture, settlement and startup ownership checks.
 Its input verification follows the previously accepted handoff archive after
 clearance. Releasing a new hold still requires confirmed startup and cleanup.
+Launch capture for recovery binds its current executable explicitly to the
+installed release's verified binary. The deployment adapter's older executable
+constant remains a rollback binding. Passing a replacement hash alone does
+not change the executable that capture expects to be running. The recovery
+copy retains the original pool, process-generation and startup checks.
 
 A support-only release can reuse the verified Rust binary. Bind its changed
 support file to separate review evidence, and regenerate only the host's
