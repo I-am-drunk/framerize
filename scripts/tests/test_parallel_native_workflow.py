@@ -7,7 +7,36 @@ from parallel_native_check import check, client
 from parallel_native_check.support import Refusal
 
 
+def pending_close_pool():
+    value = quiet_pool()
+    value['residency']['residents'] = [{
+        'account': 'account', 'users': 0, 'status': 'closing',
+        'replacement': None, 'uncertain': False, 'close_started': False}]
+    return value
+
+
 class WorkflowTests(unittest.TestCase):
+    def test_pending_close_prevents_first_request(self):
+        scenario = Scenario()
+        self.prepare(scenario)
+        idle = pending_close_pool()
+        idle['residency']['residents'][0]['status'] = 'idle'
+        self.assertTrue(check.quiet(idle, 'account'))
+        self.assertTrue(check.quiet(quiet_pool(), 'account'))
+        with patch.object(client, 'pool', return_value=pending_close_pool()):
+            with self.assertRaisesRegex(Refusal, 'native_work_before_test'):
+                check.run(scenario.binding, scenario.events, scenario.report)
+        self.assertEqual(scenario.report['post_calls'], 0)
+
+    def test_pending_close_after_cancellation_prevents_second_request(self):
+        scenario = Scenario()
+        self.prepare(scenario)
+        with patch.object(client, 'pool', side_effect=[quiet_pool(), pending_close_pool()]):
+            with patch.object(check.time, 'monotonic', side_effect=range(0, 1000, 100)):
+                with self.assertRaisesRegex(Refusal, 'native_check_timeout'):
+                    check.run(scenario.binding, scenario.events, scenario.report)
+        self.assertEqual(scenario.report['post_calls'], 1)
+
     def prepare(self, scenario):
         self.enterContext(patch.object(client, 'pool', return_value=quiet_pool()))
         self.head = self.enterContext(patch.object(client, 'head', return_value={'status': 200}))
