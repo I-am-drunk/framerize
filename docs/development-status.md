@@ -12,6 +12,9 @@ wall-clock changes, parse failure and actual cancellation. The isolated run
 peaked at 18,374,656 bytes with four tasks, zero swap/events and joined threads;
 its unit and cgroup are absent. This Python-only change does not rebuild the
 staged server or establish live latency. Independent review remains pending.
+Next: close that timing-only review and bind the separately owned account to
+the prepared isolated runtime. The accepted send-accounting executable remains
+staged; the browser service and its account scope remain protected.
 
 Native send accounting now covers attempts that fail before response headers.
 The separate checker requires both the send events and the cumulative count
@@ -22,7 +25,10 @@ checker fails the hidden-send regression. Original failed candidate/validator
 results are preserved. The API library and final executable builds also pass;
 binary `b4151ab3` is staged. The unchanged host library still embeds the earlier
 default, so the accepted lazy host requires explicit sidecar selection. This
-change has not been deployed or independently reviewed yet.
+change has not been deployed. Final review `baef93ed` accepts its frozen
+source and saved evidence with no findings, binding freeze `d1bdcf10` and
+summary `31f9210e`. The old-checker negative control uses current fixture
+support. This acceptance does not establish a live account or delivered stream.
 
 The native host now defers Camoufox, Playwright and optional browser memory
 setup until a browser launch. Five focused tests pass; the native-startup
