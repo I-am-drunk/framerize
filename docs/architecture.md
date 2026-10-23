@@ -19,8 +19,10 @@ rate history. The controller holds the idle application and sidecar, writes
 a private snapshot, and verifies old-process absence before replacing the
 binary and routing. It preserves the original files and account inventory.
 The new host checks its service invocation, parent binary and live controller
-before restoring that snapshot. The controller stays alive through lazy
-host startup and the bounded client check. The browser service is outside
+before restoring that snapshot. That identity witness must share the host's
+user namespace. The outer controller retains the full service checks and
+keeps the joined witness alive through lazy startup and the bounded client
+check. The browser service is outside
 this transfer, and old request attempts remain consumed.
 
 The account-import candidate accepts an expected Framer user ID
