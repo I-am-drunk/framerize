@@ -117,11 +117,16 @@ request then returned HTTP 502 with failure kind `Upstream` after 2.546 seconds.
 It produced no accepted answer. The same service generation still returned
 200 for health and pool admission afterward. No request retry was made.
 The running endpoint discards its detailed upstream and cleanup evidence.
-A source-only change now retains safe status, attempt and cleanup fields in
-the existing event log after completion. Its focused privacy and cleanup test
-is written but not yet compiled or run. It changes no request or retry behavior.
-Next: validate and deploy this diagnostic change using the existing build and
-release controls before any further bounded browserless trial.
+A diagnostic change now retains safe status, attempt and cleanup fields in
+the existing event log after completion. All three focused HTTP cases pass,
+including field privacy and final cleanup selection. The application links
+successfully as `162105d5`, reusing five unchanged library builds and all 32
+direct external libraries. The link used a 768 MiB cap and peaked at 397 MB,
+with no swap or resource events. An earlier attempt refused memory admission
+before compilation; that refusal remains saved. Request and retry behavior
+are unchanged. Source review is accepted; saved build review is pending.
+Next: bind and deploy the diagnostic executable through the existing release
+controls before any further bounded browserless trial.
 No browserless live response or total-memory saving is verified yet.
 
 The first version's core and API builds remain saved evidence for that version.
