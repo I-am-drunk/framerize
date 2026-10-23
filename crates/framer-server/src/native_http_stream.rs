@@ -65,18 +65,28 @@ impl Drop for CancelOnDrop { fn drop(&mut self) { self.cancel(); } }
 
 async fn head<T>(run: InvocationRun<T>,
     completion: Shared<BoxFuture<'static, NativeStreamCompletion>>, deadline: Instant)
-    -> Result<(T, CancelOnDrop, NativeStreamObservers), DispatchError> {
+    -> Result<(T, CancelOnDrop, NativeStreamObservers), (DispatchError, NativeStreamObservers)> {
     let InvocationRun { result, cleanup, cancellation, completed_attempts } = run;
     let guard = CancelOnDrop { cancellation, armed: true };
+    let observers = NativeStreamObservers { completion, cleanup };
     let value = match tokio::time::timeout_at(deadline, result).await {
-        Ok(value) => value?,
+        Ok(Ok(value)) => value,
+        Ok(Err(error)) => return Err((error, observers)),
         Err(_) => {
             let mut error = DispatchError::new(FailureKind::Deadline);
             if let Some(snapshot) = completed_attempts { error.attempts = snapshot(); }
-            return Err(error);
+            return Err((error, observers));
         }
     };
-    Ok((value, guard, NativeStreamObservers { completion, cleanup }))
+    Ok((value, guard, observers))
+}
+
+fn failed_head(error: DispatchError, observers: NativeStreamObservers) -> Response {
+    // Failure bodies can own a producer reservation. Hand them off unchanged
+    // while the existing middleware independently observes actual cleanup.
+    let mut response = super::failure(error);
+    response.extensions_mut().insert(observers);
+    response
 }
 
 #[derive(Debug)]
@@ -159,7 +169,10 @@ impl Stream for HttpBody {
 pub(super) async fn raw(run: RawStreamRun, deadline: Instant, session: &str, _heartbeat: Option<Duration>)
     -> Result<Response, DispatchError> {
     let completion = run.finished.map(NativeStreamCompletion::Raw).boxed().shared();
-    let (head, guard, observers) = head(run.response, completion, deadline).await?;
+    let (head, guard, observers) = match head(run.response, completion, deadline).await {
+        Ok(value) => value,
+        Err((error, observers)) => return Ok(failed_head(error, observers)),
+    };
     let content_type = head.headers.content_type.clone();
     // Raw chunks can end inside an SSE field, UTF-8 sequence, or CRLF pair.
     // A local comment inserted while that chunk is pending would change the
@@ -170,7 +183,10 @@ pub(super) async fn raw(run: RawStreamRun, deadline: Instant, session: &str, _he
 pub(super) async fn composed(run: ComposedStreamRun, deadline: Instant, session: &str, heartbeat: Option<Duration>)
     -> Result<Response, DispatchError> {
     let completion = run.finished.map(NativeStreamCompletion::Composed).boxed().shared();
-    let (head, guard, observers) = head(run.response, completion, deadline).await?;
+    let (head, guard, observers) = match head(run.response, completion, deadline).await {
+        Ok(value) => value,
+        Err((error, observers)) => return Ok(failed_head(error, observers)),
+    };
     response(head.body, head.first_attempt, head.content_type, guard, observers, deadline, session, heartbeat)
 }
 

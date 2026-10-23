@@ -8,6 +8,24 @@ The enrollment build is running in its separate loopback instance on port
 and enrolled successfully, with the initial full 600-second cooldown enforced.
 The browser service and its account set have not been changed.
 
+The Origin candidate is now active only in that isolated instance. Its real
+cooldown/device history was restored successfully. One subsequent request
+made one native send, then returned a 60-second deadline error without text.
+Cleanup was still unconfirmed after the following 30-second observation;
+the second request did not run. This is not successful delivery or evidence
+that the earlier 403 is resolved.
+
+A source-level deadlock is now fixed: a composed refusal's error body owns
+the same memory reservation that cleanup waits to recover. The outer router
+used to retain that error while awaiting cleanup, preventing both from
+finishing. It now transfers that body to the caller first and retains the
+account/device owner until actual cleanup. Failed HTTP heads also carry the
+existing independent cleanup observer, including when their body is dropped.
+Six focused forwarding cases and 23 server stream/ownership cases pass.
+Their peaks were 91,250,688 and 17,162,240 bytes, with zero recorded swap or
+resource events and clean teardown. The correction is not deployed yet;
+its complete application build and guarded isolated recovery are next.
+
 The live client now supplies a fresh turn ID and matching prompt for each
 request. Its interruption waits for both the actual native send and HTTP 200
 stream headers, before this adapter renders its buffered response. It still
@@ -69,9 +87,9 @@ restoration, changed account state or additional operation owner. Real inert
 namespace probes reproduce the permission boundary. The final arrangement
 keeps full service checks outside and an identity witness inside the native
 user namespace. Its fixture confirms both checks and clean child exits.
-The existing isolated generation is being used for the still-pending live
-check. No further application build or service restart is needed for this
-controller correction. The browser service remains unchanged.
+The isolated generation was reused for the bounded request described above.
+That controller correction needed no further application build or restart.
+The browser service remains unchanged.
 
 Earlier build and preparation milestones below retain their original limits.
 

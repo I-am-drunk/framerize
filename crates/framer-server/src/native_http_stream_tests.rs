@@ -11,6 +11,55 @@ use fixture::{headers, kind, responses, Fixture, BOUND};
 
 const IDLE: Duration = Duration::from_millis(40);
 
+#[tokio::test]
+async fn routed_failed_head_drop_waits_for_cleanup_without_sealing_admission() {
+    for path in ["/paid/openai/v1/responses", "/openai/v1/responses"] {
+        let mut fixture = Fixture::new(1, Duration::from_secs(2), None);
+        fixture.state = crate::operation_ownership::with_owned_operations(fixture.state, 32).unwrap();
+        let ownership = fixture.state.operation_ownership.clone().unwrap();
+        let mut control = fixture.enqueue(0, headers(403, "application/json", None), "text/event-stream");
+        control.reject(FailureKind::Upstream);
+        let response = fixture.request(path, responses(), 0, "session", false).await;
+        assert_eq!(response.status(), StatusCode::BAD_GATEWAY);
+        assert_eq!(response.extensions().get::<FailureKind>(), Some(&FailureKind::Upstream));
+        assert!(response.extensions().get::<NativeStreamObservers>().is_some());
+        drop(response);
+        assert_eq!(control.probe.cancellations(), 1);
+        pool_is_open(&fixture).await;
+        assert!(!fixture.slot_free(0, "gpt-4.1").await);
+        let mut ticket = ownership.seal().unwrap();
+        assert!(tokio::time::timeout(IDLE, ticket.wait_application()).await.is_err());
+        control.finish(Err(FailureKind::Upstream));
+        assert!(tokio::time::timeout(IDLE, ticket.wait_application()).await.is_err());
+        control.release().await;
+        let proof = tokio::time::timeout(BOUND, ticket.wait_application()).await.unwrap().unwrap();
+        ownership.check_application_drained(&proof).unwrap();
+        drop(proof);
+        ticket.cancel_before_control().unwrap();
+        pool_is_open(&fixture).await;
+        assert!(fixture.slot_free(0, "gpt-4.1").await);
+        fixture.assert_legacy_unused();
+    }
+}
+
+#[tokio::test]
+async fn routed_failed_head_with_lost_cleanup_remains_unconfirmed() {
+    let mut fixture = Fixture::new(1, Duration::from_secs(2), None);
+    fixture.state = crate::operation_ownership::with_owned_operations(fixture.state, 32).unwrap();
+    let ownership = fixture.state.operation_ownership.clone().unwrap();
+    let mut control = fixture.enqueue(0, headers(200, "text/event-stream", None), "text/event-stream");
+    control.reject(FailureKind::Transport);
+    let response = fixture.request("/openai/v1/responses", responses(), 0, "session", false).await;
+    let observers = response.extensions().get::<NativeStreamObservers>().unwrap().clone();
+    assert_eq!(response.status(), StatusCode::BAD_GATEWAY);
+    drop(response);
+    control.finish(Err(FailureKind::Transport));
+    drop(control);
+    assert_eq!(tokio::time::timeout(BOUND, observers.cleanup).await.unwrap(), Err(FailureKind::Cleanup));
+    assert!(matches!(ownership.seal(), Err(framer_core::operation_gate::GateError::Unconfirmed)));
+    fixture.assert_legacy_unused();
+}
+
 async fn pool_is_open(fixture: &Fixture) {
     use tower::ServiceExt;
     let request = axum::http::Request::builder().uri("/api/pool")
@@ -597,7 +646,8 @@ async fn pre_header_deadline_cancels_without_committing_success_or_waiting_clean
         let response = fixture.request(path, responses(), 0, "session", false).await;
         assert_eq!(response.status(), StatusCode::GATEWAY_TIMEOUT);
         assert_eq!(response.extensions().get::<FailureKind>(), Some(&FailureKind::Deadline));
-        assert!(response.extensions().get::<NativeStreamObservers>().is_none());
+        let observers = response.extensions().get::<NativeStreamObservers>().unwrap();
+        assert!(observers.cleanup.clone().now_or_never().is_none());
         assert!(response.headers().get("x-framer-ai-usage").is_none());
         assert_eq!(control.probe.cancellations(), 1);
         assert_eq!(control.probe.body_polls.load(Ordering::SeqCst), 0);
@@ -634,7 +684,8 @@ async fn pre_header_error_never_commits_a_streaming_success() {
     let response = fixture.request("/openai/v1/responses", responses(), 0, "session", false).await;
     assert_eq!(response.status(), StatusCode::BAD_GATEWAY);
     assert_eq!(response.extensions().get::<FailureKind>(), Some(&FailureKind::Transport));
-    assert!(response.extensions().get::<NativeStreamObservers>().is_none());
+    let observers = response.extensions().get::<NativeStreamObservers>().unwrap();
+    assert!(observers.cleanup.clone().now_or_never().is_none());
     assert_eq!(control.probe.cancellations(), 1);
     assert_eq!(control.probe.body_polls.load(Ordering::SeqCst), 0);
     control.release().await;
