@@ -98,8 +98,16 @@ origin accepted by native page validation. Its `Framerize/0.1` user agent
 remains explicit. It never constructs a project-page Referer from the project
 ID or exposes a page path or query. It does not impersonate browser networking
 or alter tokens. Both headers have local wire-level regression coverage.
-The last live request received a complete 403 security envelope and confirmed
-cleanup. Whether the missing Referer caused that refusal remains unknown.
+The last live request included both Origin and Referer and still received a
+complete 403 security envelope, with confirmed cleanup. These headers alone
+were insufficient; the underlying rejection cause remains unknown.
+The worker validates outer V3 branch selection, bounded nonempty UTF-8 and
+its own private-pipe framing. It does not certify the returned string's
+internal Castle token kind. The observed outer V2 fallback is rejected, but
+the V3 SDK's internal return/recovery branches still need a static trace.
+The documented JSDOM support mismatch and the saved 403 do not independently
+prove that an internal fallback/error token was produced. See
+[Castle runtime support](castle-runtime-support.md) for the documented limits.
 For the composed adapter, text is rendered after upstream JSON is complete.
 The interruption check therefore waits for the actual send and successful
 stream headers, then disconnects while the body remains open. It separately

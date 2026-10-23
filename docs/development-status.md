@@ -11,9 +11,14 @@ runtime or Framer acceptance. Castle's Node server SDK consumes frontend
 tokens, while the native client SDKs target mobile platforms. This does not
 prove the specific cause of the saved 403. See
 [runtime support](castle-runtime-support.md) for the official sources.
-The next authentication task is to establish a documented native token path
-for Framer before selecting another compatibility change. No execution,
-deployment or request was repeated for this documentation assessment.
+The reviewed Framer Server API and Plugin API documentation did not establish
+a native AI completion/token method. Framer MCP uses the connected agent's
+plan or credits, so it does not establish the requested Framer-backed path.
+The SDK's outer V3 selection and nonempty return do not certify its internal
+token kind. The next task is a static trace of the pinned V3 return/error
+branches, which remain unexamined. No fallback/error token is established
+for the live refusal. The JSDOM limitation was already recorded on October 20.
+No execution, deployment or request was repeated for this assessment.
 
 The enrollment build is running in its separate loopback instance on port
 8788. A legitimate independent login and its observed device have been imported
