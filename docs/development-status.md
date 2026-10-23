@@ -21,8 +21,10 @@ It preserves the existing response status and cooldown headers. Unknown,
 lazy and paid work retain their existing completion requirements.
 
 The exact correction from `27e0d578` and its three new routed regressions are
-integrated on `browserless`, but are not yet compiled, tested or deployed.
-Validation is the existing 19-case slice plus these three cases. The runtime
+integrated as `f27f3165` on `browserless`. Source review is accepted and all
+22 selected cases pass: the existing 19-case slice plus the three new cases.
+The server library and final executable compile successfully. The executable
+is `00508774`; saved build review and deployment remain pending. The runtime
 owner will preserve the current support configuration and verify normal
 streaming, a hello HEAD probe, interruption and a subsequent complete request
 on one generation. This does not require another offline trial.
