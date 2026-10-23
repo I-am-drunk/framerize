@@ -23,6 +23,18 @@ binds those results and the unchanged probe/application binaries. The failed
 first measurement and prelaunch directory-setup error are preserved. No
 authenticated inference, browser-service change or live-account access occurred.
 
+A later attribution sample separates known measurement helpers from the
+application, host, worker and separate owner probe. Their simultaneous PSS
+total is 142,124,032 bytes: worker 92,988,416, application 25,802,752, host
+20,989,952 and owner probe 2,342,912. No unknown role occurred at that peak.
+This still exceeds the 100 MB target and includes a standalone owner probe,
+not the fully integrated request path. It is attribution, not a saving.
+Fifteen focused sampler/role cases pass; summary `42afcec1` binds the new
+diagnostic and exact source. The same binaries ran under unchanged limits,
+with zero swap/events, joined processes and no remaining unit or cgroup.
+The next memory investigation targets the worker's allocation phases;
+authenticated delivery continues to require the separate account.
+
 Review `4e69d24b` accepts the application source and saved build bindings with
 no findings. It grants no runtime or delivery approval. Preparation `398c1c63`
 selects this binary while retaining the ten other runtime declarations and

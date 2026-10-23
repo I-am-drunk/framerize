@@ -9,6 +9,7 @@ import time
 from restored_daemon import DaemonLab
 from restored_native_host import sha
 from run_host_worker import group_root, sample, worker_command
+from application_memory_roles import ProcessRoles, record_attribution
 
 
 def resident_bytes(pid):
@@ -17,11 +18,15 @@ def resident_bytes(pid):
     return int(fields['VmRSS'].split()[0]) * 1024
 
 
-def process_memory(group, failures=None):
+def process_memory(group, failures=None, classify=None):
     try:
         pids = set((group / 'cgroup.procs').read_text().split())
         totals = dict(pss_with_rss_fallback=0, rss=0, processes=len(pids), fallback_processes=0)
+        if classify is not None:
+            totals['roles'] = {}
         for pid in pids:
+            before = classify(int(pid)) if classify is not None else None
+            fallback = False
             try:
                 lines = Path('/proc', pid, 'smaps_rollup').read_text().splitlines()
                 fields = {line.split(':', 1)[0]: int(line.split()[1]) * 1024
@@ -30,8 +35,20 @@ def process_memory(group, failures=None):
                 rss = resident_bytes(int(pid))
                 fields = {'Rss': rss, 'Pss': rss}
                 totals['fallback_processes'] += 1
+                fallback = True
             totals['pss_with_rss_fallback'] += fields['Pss']
             totals['rss'] += fields['Rss']
+            if classify is not None:
+                if before != classify(int(pid)):
+                    if failures is not None:
+                        failures['IdentityChanged'] = failures.get('IdentityChanged', 0) + 1
+                    return None
+                role = totals['roles'].setdefault(before[0], dict(
+                    pss_with_rss_fallback=0, rss=0, processes=0, fallback_processes=0))
+                role['pss_with_rss_fallback'] += fields['Pss']
+                role['rss'] += fields['Rss']
+                role['processes'] += 1
+                role['fallback_processes'] += int(fallback)
         current_pids = set((group / 'cgroup.procs').read_text().split())
     except (OSError, KeyError, ValueError) as error:
         if failures is not None:
@@ -58,8 +75,10 @@ def exercise(lab, source, root, result):
     result.update(application_identity=identity, local_setup_posts=1)
     group = group_root()
     result['phases']['application_and_host_ready'] = sample(group)
+    classify = ProcessRoles(identity['main'], identity['sidecar'], source)
     result['baseline_memory_failures'] = {}
-    result['baseline_process_memory'] = process_memory(group, result['baseline_memory_failures'])
+    result['baseline_process_memory'] = process_memory(
+        group, result['baseline_memory_failures'], classify)
     assert result['baseline_process_memory'] is not None, 'baseline process-memory coverage'
     output = root / 'worker'
     output.mkdir(mode=0o700)
@@ -73,6 +92,7 @@ def exercise(lab, source, root, result):
     observed.update(memory_samples=0, memory_skipped=0, process_pss_rss_peak=0,
                     process_rss_peak=0, process_count_peak=0, fallback_processes_peak=0)
     observed['sample_failures'] = {}
+    observed['attribution'] = {}
     result['overlap_observation'] = observed
     try:
         while worker.poll() is None:
@@ -84,11 +104,12 @@ def exercise(lab, source, root, result):
             for key, value in values.items():
                 observed[key] = max(observed[key], value)
             observed['samples'] += 1
-            processes = process_memory(group, observed['sample_failures'])
+            processes = process_memory(group, observed['sample_failures'], classify)
             if processes is None:
                 observed['memory_skipped'] += 1
             else:
                 observed['memory_samples'] += 1
+                record_attribution(observed['attribution'], processes)
                 for key, field in (('process_pss_rss_peak', 'pss_with_rss_fallback'),
                                    ('process_rss_peak', 'rss'), ('process_count_peak', 'processes'),
                                    ('fallback_processes_peak', 'fallback_processes')):
@@ -163,6 +184,8 @@ def main():
     result['memory_scope'] = (
         'Group accounting and sampled process PSS/RSS include measurement helpers. '
         'Unreadable detailed maps use RSS and are counted explicitly. '
+        'Role attribution binds process starts and executable device/inode; '
+        'unknown roles remain included in the product estimate. '
         'Process samples require stable membership but are not atomic or exact peaks.')
     result['accepted'] = (
         result.get('workload_passed') is True
