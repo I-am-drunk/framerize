@@ -51,8 +51,24 @@ the owner's `investigation/admission-repair-r1` directory.
 The additive correction supplies that existing failover reply and carries
 cleanup uncertainty across later successful attempts. This prevents the new
 completion proof from forgetting an earlier account's unknown cleanup.
-Exact next action: publish the additive correction and have the owner run
-the replacement focused check/build. No local repeat or live action occurred.
+Additive correction `fc774556aca127801bc8b307d370ff1e1d691d57` is pushed.
+Owner integrated it into browserless and is publishing a one-line
+`ai.post.started` event after successful AI_START_JS evaluation. This supplies
+actual call-start observation for the live disconnect check.
+The release preserves exact R9 six-file support manifest `b88742d6...`.
+No R11 native-device support delta or offline trial is included. Worker-config
+bytes stay identical; an owner-staged path change will be explicit.
+Exact next action: collect replacement focused results and the owner's
+combined build/deployment identities. No local repeat or live action occurred.
+
+Review found a retry-admission early return that bypassed accumulated cleanup
+uncertainty. The additive correction attaches the existing error response to
+that same proof, retaining status/body/retry headers. Serialization errors
+also retain the proof. The existing focused case now holds a replacement
+account's permit, marks it cooling, and consumes the resulting refusal.
+Owner's `admission-repair-r2` snapshot is preserved unrun. No replacement
+compiler has started. Exact next action: publish this correction for the
+owner's final narrow review and replacement validation.
 
 Live acceptance remains pending. Use the normal `/openai/v1/responses` route,
 with one bounded nonstream request disconnected after its current call starts,

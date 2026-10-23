@@ -14,6 +14,9 @@ The unknown-cleanup fixture omitted the existing second-account failover reply.
 The correction supplies that reply and retains earlier cleanup uncertainty
 even if a later account succeeds. Its replacement check and deployment remain
 pending with the sole runtime owner. The local rustfmt component is unavailable.
+Review found a retry-admission early return that bypassed the accumulated
+cleanup outcome. Its correction and focused case preserve
+its status, body and retry headers. The intermediate snapshot remains unrun.
 Existing core, host, API and store
 builds are unchanged and available for reuse.
 
