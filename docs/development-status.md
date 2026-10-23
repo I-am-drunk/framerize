@@ -359,10 +359,17 @@ existing recovery source files remain exact. Both focused loader cases pass:
 all 14 selected helpers load without live actions, and the original helper
 reproduces the missing import. Peak memory was 26.8 MB with one task, zero swap
 and no resource events; the fixture unit and cgroup are absent. The original
-18 recovery/capture cases are reused. This correction awaits narrow review
-and a separately bound owner/client attempt. It proves no live recovery or
-browserless response. See
+18 recovery/capture cases are reused. Independent review accepts the exact
+correction and its separate plan, conditional on every fresh runtime check.
+It proves no live recovery or browserless response. See
 [recovery-identity-import.patch](../reference/analysis/recovery-identity-import.patch).
+The separate client/input/owner rebind changes seven constants across six
+files. Static comparison preserves all other bytes, and the published patch
+reconstructs those files. It reuses the accepted client and terminal-owner
+results without a rerun. This rebind awaits narrow source/binding review
+before a new quiet window and one guarded attempt. Both consumed owner
+attempts remain preserved. See
+[recovered-client-r3-binding.patch](../reference/analysis/recovered-client-r3-binding.patch).
 The original preparation client's first test launch refused disk reserve. A separate
 audited cleanup removed 135.4 MB of old, unreferenced package-cache copies;
 the original refusal remains preserved. No service action was involved.
