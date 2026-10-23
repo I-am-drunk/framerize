@@ -5,8 +5,8 @@ branches does not change the running service.
 
 The enrollment build is running in its separate loopback instance on port
 8788. A legitimate independent login and its observed device have been imported
-and enrolled successfully. The initial full 600-second cooldown remains in
-force. The browser service and its account set have not been changed.
+and enrolled successfully, with the initial full 600-second cooldown enforced.
+The browser service and its account set have not been changed.
 
 The live client now supplies a fresh turn ID and matching prompt for each
 request. Its interruption waits for both the actual native send and HTTP 200
@@ -14,8 +14,17 @@ stream headers, before this adapter renders its buffered response. It still
 requires confirmed cleanup, exactly one upstream attempt and successful
 headers before admitting the second request. The focused workflow cases
 pass; the remaining unchanged client cases reuse their saved results.
+The first local request stopped with HTTP 502 before any native inference
+send. No second request ran. The example's 64 KiB composed-state allowance
+is too small: fixed reservations alone require 66,048 bytes before payloads.
+The example now allows a bounded 4 MiB without changing process or worker caps.
+Six focused Rust cases pass against the deployed libraries, including the
+original-budget refusal and corrected-example authorization boundary.
+The client now retains only allowlisted native error codes and saves its
+failed stream snapshot. All 29 focused streaming/workflow/timing cases pass.
 Authenticated delivery, live interruption and loaded memory remain unverified.
-The immediate next action is the bounded two-request check after cooldown.
+Next apply the configuration to the isolated instance while preserving its
+actual device/cooldown history, then run the bounded acceptance sequence.
 
 Earlier build and preparation milestones below retain their original limits.
 
