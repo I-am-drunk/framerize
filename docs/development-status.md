@@ -103,9 +103,16 @@ module plus the generated host's reference to that support set. The three
 package checks, current manifest-consumer check and existing builds are reused.
 The exact operational source delta is published in
 [device-handoff-release-r11.patch](../reference/analysis/device-handoff-release-r11.patch).
-The latest saved baseline still identifies R9. R11 is not deployed.
-Next: generate and review the exact plan, coordinate a quiet transition, then
-park one idle account through the existing pool owner and send one bounded request.
+R11 remains undeployed. R14 carries the device handoff onto the verified R12
+repair and retains its executable. R13's baseline check correctly refused an
+incomplete list of protected configuration files. R14 preserves both the R9
+and R12 file sets; its read-only preparation and baseline capture now pass.
+The package and manifest checks are reused from their unchanged R13 inputs.
+The frozen operational delta is published in
+[device-handoff-release-r14.patch](../reference/analysis/device-handoff-release-r14.patch).
+Source review is pending. Next: bind the accepted plan and client, coordinate
+the update, then park one idle account through the existing pool owner and
+send one bounded browserless request.
 No browserless live response or total-memory saving is verified yet.
 
 The first version's core and API builds remain saved evidence for that version.
