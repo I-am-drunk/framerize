@@ -121,7 +121,7 @@
 +                if key in row and type(row[key]) in (bool, int, str):
 +                    clean[key] = row[key]
              self.public.append(clean)
- 
+
      def count(self, event):
 --- /dev/null
 +++ b/frames.py
@@ -241,7 +241,7 @@
 -    return bool(select.select([connection.sock], [], [], 0)[0])
 +from streaming import Stream
 +from checks import cancel_request, complete_request, quiet, settled
- 
+
  def send(account, model, cancel, report):
 -    text = ('Count from one to five hundred in words, in order.' if cancel
 -            else 'Reply with exactly OK.')
@@ -345,7 +345,7 @@
 -        require(time.monotonic() < deadline, 'local_cleanup_unconfirmed')
 -        time.sleep(0.2)
 +        raise
- 
+
  def run(report):
      spec, base, adapter = bind()
 @@ -128,21 +48,34 @@
@@ -395,7 +395,7 @@
 +        report['accepted'] = True
 +    finally:
 +        events.stream.close()
- 
+
  def main():
      require(sys.argv[1:] == ['--execute'] and not sys.flags.optimize, 'explicit_execution_required')
 @@ -152,8 +85,8 @@
@@ -426,7 +426,7 @@
 +    print(json.dumps({'accepted': report['accepted'], 'post_calls': report['post_calls'],
 +                      'receipt': str(destination), 'error': report.get('error')}))
      return 0 if report['accepted'] else 1
- 
+
  if __name__ == '__main__':
 --- /dev/null
 +++ b/run_tests.py
