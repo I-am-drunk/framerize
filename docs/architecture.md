@@ -59,6 +59,8 @@ Buffered normal responses carry the observed completion of every account
 attempt, including an earlier attempt whose cleanup remains uncertain. A
 later successful answer cannot clear that uncertainty. Client disconnect
 stops future attempts while the current browser call keeps its owner.
+Retry-admission and serialization failures retain that same accumulated
+completion outcome, including when the error response is fully consumed.
 The browser host records a job-start event after the page has started its
 fetch. This lets a live cancellation check observe the actual call boundary
 without logging request content, credentials or a response body.
