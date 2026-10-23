@@ -28,9 +28,16 @@ The instance has its own writable root and masks the browser account paths.
 Its 5,378,048-byte peak and zero swap describe only this empty-instance sample.
 It has no automatic restart and a 30-minute maximum lifetime.
 
-Next: independent source/evidence review, then a separately owned account for
-real browserless validation. An account must be outside the browser service's
-current scope; an empty instance proves startup isolation, not delivery.
+Independent review accepted the frozen source and saved evidence with no
+findings (receipt `a679d7f8`, freeze `c0d7a7a3`, validation `2c22b87d`). This
+acceptance covers the startup fix and recorded checks, not live inference.
+
+Next: a separately owned account for real browserless validation. The current
+instance configures the explicit offline endpoint only; normal streaming also
+needs `--offline-routing-config`. Both routing and the test account must be
+bound before a real request. The account must be outside the browser service's
+current scope. Empty startup results establish neither delivery nor memory
+use under inference load.
 
 The earlier nonstream admission repair passed its bounded normal-route check.
 An unmetered request was disconnected after its browser fetch started. The
