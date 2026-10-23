@@ -58,9 +58,20 @@ The isolated transfer controller has nine passing focused fixture checks.
 It retains a private, genuine cooldown/device snapshot, requires the old
 process group to be absent before replacement, preserves the launch sandbox
 and checks the new service invocation. Its original binary and routing are
-backed up before any stop. The controller remains alive through first host
-restoration and the bounded live check. No fixture result establishes live
-delivery or authorizes a change to the protected browser service.
+backed up before any stop. The first isolated replacement started but its
+host could not inspect the outer controller across the sandbox's user
+namespace. That request failed before any upstream send. A second controller
+placement failed its full guard before arming a handoff or sending a request.
+Both failures and the original account history remain preserved.
+
+Five additional recovery cases reject snapshot reuse after any native send,
+restoration, changed account state or additional operation owner. Real inert
+namespace probes reproduce the permission boundary. The final arrangement
+keeps full service checks outside and an identity witness inside the native
+user namespace. Its fixture confirms both checks and clean child exits.
+The existing isolated generation is being used for the still-pending live
+check. No further application build or service restart is needed for this
+controller correction. The browser service remains unchanged.
 
 Earlier build and preparation milestones below retain their original limits.
 
