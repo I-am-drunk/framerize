@@ -79,6 +79,10 @@ authority, and an account without a recorded primary device remains ineligible.
 The first trial needs an idle account parked through the normal pool owner;
 general account availability alone does not establish native readiness.
 
+A support-only release can reuse the verified Rust binary. Bind its changed
+support file to separate review evidence, and regenerate only the host's
+support-manifest reference. Preserve the previous launch override for rollback.
+
 Deployment also has to account for coding sessions using the same daemon.
 A maintenance marker controls recovery ownership; it does not stop incoming
 requests. Permission to cancel a request is not proof that it has finished.
