@@ -106,6 +106,11 @@ The API library and final executable builds pass. Staged binary `b4151ab3`
 retains the previously built host and server libraries; selecting the accepted
 lazy host still requires the explicit sidecar path. No service was changed.
 
+Final send review `baef93ed` accepts the frozen source and saved evidence,
+with verification `3add1bbb`, freeze `d1bdcf10` and summary `31f9210e`.
+It covers 132 seals, the 794-file snapshot, the 13 Rust and 25 Python cases,
+and the saved library/executable builds. It does not cover live execution.
+
 The earlier checker validation covered 40 distinct cases using synthetic inputs and local socket pairs.
 They cover framing, actual socket shutdown, cleanup ordering, privacy,
 account overlap, resource refusal and replay protection. The capped fixture
