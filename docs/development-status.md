@@ -249,8 +249,13 @@ Removing 1,751 old, single-link Bun registry metadata files recovered
 bound evidence remain intact. The saved inspection found no visible use or
 installer, with restricted process mappings explicitly unobserved.
 Free space afterward was 1,099,165,696 bytes, only modest reserve headroom.
-The cleanup is complete. Next: secure enough disposable-cache headroom and
-coordinate a separate attempt of the unchanged accepted package. R18 remains
+A separate cleanup removed 18,646 single-link files in three old Bun package
+caches, recovering another 224,501,760 allocated file bytes. Current references,
+home symlinks and visible process use showed no dependency on these copies.
+Earlier cleanup receipts referenced only previously removed files. Restricted
+process mappings remain an explicit observation limit. Free space afterward
+was 1,197,637,632 bytes. Both cleanups are complete and their results retained.
+Next: coordinate a separate attempt of the unchanged accepted package. R18 remains
 undeployed, with no browserless delivery or memory-saving claim.
 The operational delta is published in
 [saved-device-cookie-release-r18.patch](../reference/analysis/saved-device-cookie-release-r18.patch).
