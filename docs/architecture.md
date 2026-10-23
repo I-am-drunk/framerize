@@ -32,6 +32,13 @@ The same configuration is now active only on the isolated port 8788 instance.
 See [parallel validation](parallel-browserless-validation.md) for the remaining
 account, streaming, cleanup and resource evidence required for a real run.
 
+The native stream ownership observer records `native.stream.complete` only
+after both body completion and independent cleanup join. Body failure and
+cleanup confirmation remain separate fields. Only bounded scalar data is
+selected; provider IDs, headers, usage and content are excluded. The observed
+attempt count covers retained metadata, and yielded bytes are not proof of
+delivery. An absent record does not prove that no attempt occurred.
+
 ```mermaid
 flowchart LR
     Client --> Server[Shared HTTP API and account selection]
