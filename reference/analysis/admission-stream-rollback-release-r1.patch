@@ -1,0 +1,611 @@
+--- /dev/null
++++ b/runtime.py
+@@ -0,0 +1,163 @@
++"""Verify and release one completed rollback; never launch or stop a service."""
++from pathlib import Path
++import hashlib
++import json
++import os
++import re
++import subprocess
++import sys
++import time
++
++HERE = Path(__file__).resolve().parent
++
++def require(value, message):
++    if not value:
++        raise RuntimeError(message)
++
++def sha(path):
++    with Path(path).open('rb') as stream:
++        return hashlib.file_digest(stream, 'sha256').hexdigest()
++
++def pin(path):
++    return dict(path=str(Path(path).resolve(strict=True)), sha256=sha(path))
++
++def read(bound):
++    path = Path(bound['path'])
++    require(path.is_absolute() and sha(path) == bound['sha256'], 'bound evidence changed')
++    require(path.stat().st_size <= 4 * 1024**2, 'oversized evidence')
++    return json.loads(path.read_bytes())
++
++def save(name, value):
++    fd = os.open(HERE / name, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600)
++    with os.fdopen(fd, 'w') as stream:
++        json.dump(value, stream, sort_keys=True, indent=2, allow_nan=False)
++        stream.write('\n')
++        stream.flush()
++        os.fsync(stream.fileno())
++
++def controller_absent(outer):
++    require(re.fullmatch(r'framerize-r18-recover-[0-9a-f]{12}', outer['unit']), 'wrong controller unit')
++    require(outer['exit_code'] == 1 and not outer['errors'] and outer['command_joined']
++            and outer['unit_absent'] and outer['cgroup_absent'], 'controller teardown is unconfirmed')
++    unit = outer['unit'] + '.service'
++    raw = subprocess.check_output(['systemctl', '--user', 'show', unit, '-p',
++        'MainPID,ActiveState,Job,ControlGroup'], text=True, timeout=5)
++    state = dict(row.split('=', 1) for row in raw.splitlines())
++    require(state['MainPID'] == '0' and state['ActiveState'] in ('inactive', 'failed')
++        and state['Job'] in ('', '0', '0 /', '[not set]') and not state['ControlGroup'],
++        'controller is not absent')
++    require(not Path('/proc', str(outer['command_pid'])).exists(), 'controller command PID exists')
++    base = Path('/sys/fs/cgroup/user.slice') / f'user-{os.getuid()}.slice' / f'user@{os.getuid()}.service/app.slice'
++    require(not (base / unit).exists(), 'controller cgroup exists')
++
++def prepare(freeze):
++    inputs = read(freeze['inputs'])
++    require(inputs['purpose'] == 'VERIFY_AND_RELEASE_COMPLETED_ROLLBACK_ONLY', 'wrong recovery scope')
++    documents = {name: read(value) for name, value in inputs['pins'].items()}
++    plan, review = documents['plan'], documents['plan_review']
++    require(review.get('accepted') is True and review.get('status') == 'ACCEPTED_FOR_COORDINATED_ACTIVATION'
++        and review['plan_sha256'] == inputs['pins']['plan']['sha256'], 'deployment review differs')
++    for name in ('sources', 'evidence'):
++        for path, digest in plan[name].items():
++            require(sha(path) == digest, 'accepted deployment input changed')
++    root = Path(inputs['deployment'])
++    sys.path.insert(0, str(root))
++    sys.path.insert(0, str(root / 'controller'))
++    import recovery_binding as binding
++    binding.checked_plan(inputs['pins']['plan'], inputs['pins']['plan_review'])
++    controller_absent(documents['outer'])
++    return bind(freeze, inputs, documents, plan, root, binding)
++
++def bind(freeze, inputs, documents, plan, root, binding):
++    record, result, state, outer = [documents[k] for k in ('record', 'result', 'state', 'outer')]
++    require(record['status'] == result['status'] == state['status'] ==
++            'rolled_back_pending_independent_verification', 'rollback is not complete')
++    require(result['attempts'] == state['attempts'] == ['activate', 'rollback'], 'unexpected attempts')
++    require([a['direction'] for a in record['startup_attempts']] == ['candidate', 'rollback']
++            and 'completion' not in record['startup_attempts'][0], 'startup history differs')
++    require(result['adapter_receipt'] == inputs['pins']['record'], 'rollback record differs')
++    require(state['maintenance'] == result['maintenance'] and
++            state['launch_capture'] == inputs['pins']['capture'], 'controller state binding differs')
++    require(outer['plan'] == inputs['pins']['plan'] and outer['review'] == inputs['pins']['plan_review'],
++            'outer execution binding differs')
++    require(documents['sequence']['client_started'] is False, 'client unexpectedly ran')
++    names = ('window', 'control', 'recovery_identity', 'adapter', 'cooldown_transfer', 'observer', 'restoration')
++    loaded = {name: binding.module(name, plan['modules'][name]) for name in names}
++    verify_path = str(HERE / 'verification.py')
++    loaded['verification'] = binding.module('rollback_verification',
++        dict(path=verify_path, sha256=freeze['files'][verify_path]))
++    adopt = binding.module('rollback_adopt', dict(path=str(root / 'adopt.py'),
++        sha256=plan['sources'][str(root / 'adopt.py')]))
++    require(loaded['recovery_identity'].identity() == documents['producer'], 'recovery producer changed')
++    cls = loaded['recovery_identity'].bound_controls(loaded['control'].Controls, documents['producer'])
++    cls = adopt.adopted_controls(cls, state['maintenance'], loaded['control'].MARKER)
++    sources = dict(plan['sources']) | plan['evidence'] | freeze['files']
++    sources.update({value['path']: value['sha256'] for value in inputs['pins'].values()})
++    controls = cls(outer['coordination'], sources)
++    controls.acquire()
++    try:
++        controls.wait_guard()
++        adapter = loaded['adapter']
++        require(adapter.RECEIPT == Path(inputs['pins']['record']['path']), 'wrong adapter record')
++        adapter.TRANSFER = loaded['cooldown_transfer'].Transfer(adapter)
++        bound = adapter.release(plan['release'])
++        return dict(inputs=inputs, documents=documents, plan=plan, loaded=loaded,
++                    controls=controls, adapter=adapter, bound=bound, record=record)
++    except BaseException:
++        os.close(controls._marker_fd)
++        controls._marker_fd = None
++        raise
++
++def inspect(context):
++    adapter, controls = context['adapter'], context['controls']
++    loaded, record = context['loaded'], context['record']
++    observed = loaded['verification'].inspect(adapter, adapter.accepted_base(),
++        context['bound'], controls, loaded, record)
++    controls.assert_restart_excluded(observed['current'])
++    controller_absent(context['documents']['outer'])
++    return observed
++
++def close(context):
++    controls = context['controls']
++    if getattr(controls, '_marker_fd', None) is not None:
++        os.close(controls._marker_fd)
++        controls._marker_fd = None
++
++def barrier(context, observed):
++    adapter, controls = context['adapter'], context['controls']
++    controls.assert_held()
++    current = adapter.snapshot(adapter.accepted_base())
++    require(adapter.same_processes(current, observed['current']), 'recovered generation changed')
++    require(current['main']['exe_sha256'] == sha(adapter.DEST) == adapter.OLD_BIN and
++            sha(adapter.SIDECAR) == adapter.OLD_PY, 'recovered executable or host changed')
++    adapter.runtime_config.verify_process(adapter, current['main']['pid'], old=True)
++    require(adapter.protected(context['bound'], current['main']['pid']) == observed['protected'],
++            'protected inputs changed before mutation')
++    metrics = context['loaded']['verification'].no_swap(current)
++    live = adapter.observe_live_state(context['record']['stops'][-1])
++    adapter.verify_pool(context['record'])
++    adapter.require_idle_residency(context['record']['pool_residency'])
++    controls.assert_restart_excluded(current)
++    controller_absent(context['documents']['outer'])
++    return dict(current=current, metrics=metrics, live_state=live)
++
++def release(context, observed, review_pin, freeze_pin):
++    controls, adapter = context['controls'], context['adapter']
++    intent = dict(at_unix=time.time(), review=review_pin, freeze=freeze_pin,
++        inputs=context['inputs']['pins'], observed=observed,
++        marker_identity=controls.marker_identity, marker_sha256=controls.marker_sha256,
++        browserless_accepted=False, admission_repair_accepted=False)
++    save('release-intent.json', intent)
++    first = barrier(context, observed)
++    cleared = context['loaded']['restoration'].clear_verified(adapter,
++        context['record'], first['current'])
++    save('cleared-handoff.json', cleared)
++    final = barrier(context, observed)
++    controls.release_verified = True
++    controls.release()
++    require(not context['loaded']['control'].MARKER.exists(), 'maintenance marker remains')
++    result = intent | dict(final=final, accepted=True, marker_absent=True,
++        status='VERIFIED_ROLLBACK_HOLD_RELEASED', completed_at_unix=time.time())
++    save('released.json', result)
++    return result
++
+--- /dev/null
++++ b/verification.py
+@@ -0,0 +1,96 @@
++"""Read-only verification of the restored generation using accepted checks."""
++import hashlib
++import json
++import os
++import time
++from pathlib import Path
++from recovery_binding import require, save, sha
++
++
++def pin(path):
++    return dict(path=str(path), sha256=sha(path))
++
++
++def metrics(current):
++    root = Path('/sys/fs/cgroup' + current['cgroup'])
++    return {name: (root / name).read_text().strip() for name in (
++        'memory.current', 'memory.peak', 'memory.swap.current',
++        'memory.swap.peak', 'memory.swap.max', 'memory.events')}
++
++
++def no_events(values):
++    require(all(row.split()[1] == '0' for row in values['memory.events'].splitlines()),
++            'service resource event detected')
++
++
++def no_swap(current):
++    values = metrics(current)
++    no_events(values)
++    require(values['memory.swap.current'] == values['memory.swap.peak'] == '0',
++            'service has current or historical swap')
++    return values
++
++
++def startup_bytes(adapter, observer, attempt):
++    before, after = attempt['boundary']['log'], attempt['completion']['event_log']
++    for key in ('device', 'inode', 'start_offset'):
++        require(before[key] == after[key], 'startup log boundary differs')
++    count = after['end_offset'] - after['start_offset']
++    require(0 < count == after['bytes'] <= 8*1024**2, 'invalid startup byte span')
++    path = adapter.PROFILES/'.logs'/('events-'+attempt['boundary']['event_day']+'.ndjson')
++    fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW)
++    try:
++        info = os.fstat(fd)
++        require((info.st_dev, info.st_ino) == (after['device'], after['inode']),
++                'startup log inode differs')
++        raw = os.pread(fd, count, after['start_offset'])
++        require(len(raw) == count and raw.endswith(b'\n'), 'incomplete startup span')
++        require(hashlib.sha256(raw).hexdigest() == after['sha256'], 'startup bytes changed')
++    finally:
++        os.close(fd)
++    coverage = observer.Coverage(attempt['plan'])
++    for line in raw.splitlines():
++        require(len(line) <= 65536, 'oversized startup event')
++        coverage.observe(json.loads(line))
++    require(coverage.complete(), 'startup event coverage is incomplete')
++    return dict(log=after, daemon_starts=coverage.daemon_starts,
++                successful_account_prefixes=coverage.seen)
++
++
++def inspect(adapter, base, bound, controls, loaded, record):
++    current = adapter.snapshot(base)
++    require(adapter.same_processes(current, record['current']), 'deployed generation changed')
++    require(current['main']['exe_sha256'] == sha(adapter.DEST) == adapter.OLD_BIN
++            and sha(adapter.SIDECAR) == adapter.OLD_PY == adapter.NEW_PY,
++            'installed binary or preserved host differs')
++    adapter.runtime_config.verify_process(adapter, current['main']['pid'], old=True)
++    require(adapter.protected(bound, current['main']['pid']) == record['protected'],
++            'protected state changed')
++    require(len(record['stops']) == len(record['startup_attempts']) == 2,
++            'unexpected restart count')
++    stopped, attempt = record['stops'][-1], record['startup_attempts'][-1]
++    adapter.require_settlement(stopped, stopped['settlement'], after_start=True)
++    live_state = adapter.observe_live_state(stopped)
++    adapter.verify_pool(record)
++    adapter.require_idle_residency(record['pool_residency'])
++    for key in ('plan', 'boundary'):
++        require(hashlib.sha256(json.dumps(attempt[key], sort_keys=True).encode()).hexdigest()
++                == attempt[key + '_sha256'], 'startup object hash differs')
++    restoration = loaded['restoration'].verify_restored(adapter, record, current)
++    coverage = startup_bytes(adapter, loaded['observer'], attempt)
++    completion = attempt['completion']
++    require(completion['main'] == current['main'] and completion['invocation_id'] ==
++            current['service']['InvocationID'], 'startup generation differs')
++    require(completion['plan_sha256'] == attempt['plan_sha256'] and
++            completion['boundary_sha256'] == attempt['boundary_sha256'], 'startup binding differs')
++    require(completion['daemon_start_count'] == 1 and completion['terminals'] ==
++            [dict(account_id=a, outcome='ok') for a in attempt['plan']['expected_accounts']],
++            'startup terminals differ')
++    values = no_swap(current)
++    controls.assert_held()
++    require(adapter.same_processes(current, adapter.snapshot(base)),
++            'service changed during verification')
++    return dict(current=current, startup=coverage, pool=record['pool_verified'],
++        metrics=values, live_state=live_state, pool_residency=record['pool_residency'],
++        cooldown_restoration=restoration, protected=record['protected'])
++
+--- /dev/null
++++ b/run.py
+@@ -0,0 +1,105 @@
++"""One coordinated rollback verification and release, with owner silence."""
++from pathlib import Path
++import hashlib
++import json
++import os
++import resource
++import signal
++import sys
++import time
++import traceback
++
++HERE = Path(__file__).resolve().parent
++PEERS = {'466b6e5b-4733-4325-b5c4-fb2eac98b835',
++         'mcp:5f12e90a-05fe-4ae9-ad74-80288a94c597',
++         '0b8f0573-c8fd-4bd6-a241-d202430fdc9c',
++         'mcp:28c55101-e602-443c-a616-db31e42ee907'}
++
++def sha(path):
++    with Path(path).open('rb') as stream:
++        return hashlib.file_digest(stream, 'sha256').hexdigest()
++
++def read(pin):
++    path = Path(pin['path'])
++    assert path.is_absolute() and sha(path) == pin['sha256'], 'bound input changed'
++    assert path.stat().st_size <= 4 * 1024**2, 'oversized control input'
++    return json.loads(path.read_bytes())
++
++def checked(control):
++    assert len(control['peers']) == 4 and {p['thread_id'] for p in control['peers']} == PEERS
++    now = time.time()
++    for peer in control['peers']:
++        assert peer['message_id'] and peer['ack_at_unix'] <= now
++        assert peer['quiet_until_unix'] >= control['quiet_until_unix']
++    assert now + 400 < control['quiet_until_unix'], 'quiet window too short'
++    freeze, review = read(control['freeze']), read(control['review'])
++    assert review.get('accepted') is True
++    assert review.get('status') == 'ACCEPTED_FOR_OWNED_RECOVERY_HOLD_RELEASE'
++    assert review.get('freeze') == control['freeze']
++    assert review.get('validation') == freeze['validation']
++    for path, digest in freeze['files'].items():
++        assert Path(path).is_absolute() and sha(path) == digest, 'recovery source changed'
++    assert freeze['files'].get(str(Path(__file__).resolve())) == sha(__file__)
++    assert freeze['files'].get(str(HERE / 'runtime.py')) == sha(HERE / 'runtime.py')
++    assert freeze['files'].get(str(HERE / 'verification.py')) == sha(HERE / 'verification.py')
++    assert freeze['files'].get(freeze['inputs']['path']) == freeze['inputs']['sha256']
++    read(freeze['inputs'])
++    assert read(freeze['validation']).get('accepted') is True
++    return freeze
++
++def main():
++    assert sys.argv[1:2] == ['--execute'] and len(sys.argv) == 3 and not sys.flags.optimize
++    os.umask(0o077)
++    resource.setrlimit(resource.RLIMIT_CORE, (0, 0))
++    resource.setrlimit(resource.RLIMIT_AS, (128 * 1024**2, 128 * 1024**2))
++    def expired(_signal, _frame):
++        raise TimeoutError('bounded recovery deadline')
++    def cancelled(_signal, _frame):
++        raise InterruptedError('recovery cancellation requested')
++    signal.signal(signal.SIGALRM, expired)
++    for number in (signal.SIGINT, signal.SIGTERM):
++        signal.signal(number, cancelled)
++    signal.alarm(360)
++    fd = os.open(HERE / 'run-result.json', os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600)
++    report = dict(accepted=False, started_at_unix=time.time(), control_sha256=sys.argv[2])
++    context = None
++    try:
++        control = read(dict(path=str(HERE / 'control.json'), sha256=sys.argv[2]))
++        freeze = checked(control)
++        report['phase'] = 'owner_quiet_settling'
++        print(json.dumps(dict(phase=report['phase'], seconds=45)), flush=True)
++        time.sleep(45)
++        checked(control)
++        sys.path.insert(0, str(HERE))
++        import runtime
++        report['phase'] = 'verifying_rollback'
++        context = runtime.prepare(freeze)
++        observed = runtime.inspect(context)
++        runtime.save('inspection.json', dict(observed, at_unix=time.time(),
++            status='VERIFIED_ROLLBACK_PENDING_HOLD_RELEASE', freeze=control['freeze']))
++        report['phase'] = 'releasing_verified_rollback'
++        runtime.release(context, observed, control['review'], control['freeze'])
++        report.update(accepted=True, phase='released', released=dict(
++            path=str(HERE / 'released.json'), sha256=sha(HERE / 'released.json')))
++    except BaseException as error:
++        report['error_type'] = type(error).__name__
++        report['error_frames'] = [dict(file=Path(f.filename).name, line=f.lineno,
++            function=f.name) for f in traceback.extract_tb(error.__traceback__)]
++    finally:
++        signal.alarm(0)
++        if context is not None:
++            try:
++                runtime.close(context)
++            except Exception as error:
++                report.update(accepted=False, cleanup_error_type=type(error).__name__)
++        report['finished_at_unix'] = time.time()
++        with os.fdopen(fd, 'w') as stream:
++            json.dump(report, stream, sort_keys=True, indent=2)
++            stream.write('\n')
++            stream.flush()
++            os.fsync(stream.fileno())
++    print(json.dumps(report), flush=True)
++    return 0 if report['accepted'] else 1
++
++if __name__ == '__main__':
++    raise SystemExit(main())
+--- /dev/null
++++ b/test_release.py
+@@ -0,0 +1,87 @@
++"""Inert checks of the two mutation barriers. No installed inputs are read."""
++import contextlib
++from pathlib import Path
++from types import SimpleNamespace
++import unittest
++from unittest.mock import patch
++import runtime
++
++class ReleaseTests(unittest.TestCase):
++    @contextlib.contextmanager
++    def fixture(self, *, bad_protection=None, changed_generation=None, swap=False):
++        events, calls = [], {'snapshot': 0, 'protected': 0}
++        current = {'main': {'pid': 7, 'exe_sha256': 'old'}, 'generation': 'fixed'}
++        def snapshot(_base):
++            calls['snapshot'] += 1
++            return current if calls['snapshot'] != changed_generation else dict(current, generation='changed')
++        def protected(_bound, _pid):
++            calls['protected'] += 1
++            return 'changed' if calls['protected'] == bad_protection else 'bound'
++        def no_swap(_current):
++            runtime.require(not swap, 'service has current or historical swap')
++            return {'memory.swap.current': '0'}
++        def unlock():
++            runtime.require(controls.release_verified, 'unverified release')
++            events.append('unlock')
++        controls = SimpleNamespace(marker_identity=(1, 2), marker_sha256='marker',
++            release_verified=False, assert_held=lambda: None,
++            assert_restart_excluded=lambda _current: None, release=unlock)
++        adapter = SimpleNamespace(OLD_BIN='old', OLD_PY='host', DEST='binary', SIDECAR='host',
++            accepted_base=lambda: None, snapshot=snapshot, same_processes=lambda a, b: a == b,
++            runtime_config=SimpleNamespace(verify_process=lambda *a, **kw: None),
++            protected=protected, observe_live_state=lambda _stop: {}, verify_pool=lambda _record: None,
++            require_idle_residency=lambda _residency: None)
++        loaded = {'verification': SimpleNamespace(no_swap=no_swap),
++            'restoration': SimpleNamespace(clear_verified=lambda *args: events.append('clear') or {}),
++            'control': SimpleNamespace(MARKER=SimpleNamespace(exists=lambda: False))}
++        context = dict(controls=controls, adapter=adapter, loaded=loaded, bound={},
++            documents={'outer': {}}, inputs={'pins': {}},
++            record={'stops': [{}], 'pool_residency': {}})
++        observed = {'current': current, 'protected': 'bound'}
++        with patch.object(runtime, 'sha', side_effect=lambda p: {'binary': 'old', 'host': 'host'}[p]), \
++             patch.object(runtime, 'controller_absent'), \
++             patch.object(runtime, 'save', side_effect=lambda name, value: events.append(name)):
++            yield context, observed, events, calls
++
++    def test_release_requires_two_fresh_protection_checks(self):
++        with self.fixture() as (context, observed, events, calls):
++            result = runtime.release(context, observed, {}, {})
++        self.assertTrue(result['accepted'])
++        self.assertEqual(calls['protected'], 2)
++        self.assertEqual(events, ['release-intent.json', 'clear', 'cleared-handoff.json', 'unlock', 'released.json'])
++
++    def test_changed_protected_files_prevent_handoff_clearance(self):
++        with self.fixture(bad_protection=1) as (context, observed, events, _):
++            with self.assertRaisesRegex(RuntimeError, 'protected inputs changed'):
++                runtime.release(context, observed, {}, {})
++        self.assertEqual(events, ['release-intent.json'])
++
++    def test_later_protection_change_keeps_maintenance_hold(self):
++        with self.fixture(bad_protection=2) as (context, observed, events, _):
++            with self.assertRaisesRegex(RuntimeError, 'protected inputs changed'):
++                runtime.release(context, observed, {}, {})
++        self.assertEqual(events, ['release-intent.json', 'clear', 'cleared-handoff.json'])
++
++    def test_generation_change_after_clearance_keeps_hold(self):
++        with self.fixture(changed_generation=2) as (context, observed, events, _):
++            with self.assertRaisesRegex(RuntimeError, 'recovered generation changed'):
++                runtime.release(context, observed, {}, {})
++        self.assertEqual(events, ['release-intent.json', 'clear', 'cleared-handoff.json'])
++
++    def test_swap_refusal_prevents_both_mutations(self):
++        with self.fixture(swap=True) as (context, observed, events, _):
++            with self.assertRaisesRegex(RuntimeError, 'historical swap'):
++                runtime.release(context, observed, {}, {})
++        self.assertEqual(events, ['release-intent.json'])
++
++    def test_inspection_cleanup_only_closes_the_lock(self):
++        with self.fixture() as (context, _, events, _):
++            context['controls']._marker_fd = 123
++            with patch.object(runtime.os, 'close') as close:
++                runtime.close(context)
++            close.assert_called_once_with(123)
++        self.assertIsNone(context['controls']._marker_fd)
++        self.assertEqual(events, [])
++
++if __name__ == '__main__':
++    unittest.main()
+--- /dev/null
++++ b/test_control.py
+@@ -0,0 +1,51 @@
++"""Consume the saved validation shape without reading installed inputs."""
++import contextlib
++import json
++from pathlib import Path
++import tempfile
++import time
++import unittest
++import run
++
++class ControlTests(unittest.TestCase):
++    @contextlib.contextmanager
++    def fixture(self, accepted=True, matching=True):
++        with tempfile.TemporaryDirectory() as directory:
++            root = Path(directory)
++            def save(name, value):
++                path = root / name
++                path.write_text(json.dumps(value))
++                return dict(path=str(path), sha256=run.sha(path))
++            saved = json.loads((run.HERE / 'validation-1792765724455617944.json').read_text())
++            saved['accepted'] = accepted
++            validation = save('validation.json', saved)
++            inputs = save('inputs.json', {})
++            paths = [run.HERE / name for name in ('run.py', 'runtime.py', 'verification.py')]
++            files = {str(path): run.sha(path) for path in paths}
++            files[inputs['path']] = inputs['sha256']
++            freeze = save('freeze.json', dict(files=files, inputs=inputs, validation=validation))
++            review = save('review.json', dict(accepted=True,
++                status='ACCEPTED_FOR_OWNED_RECOVERY_HOLD_RELEASE', freeze=freeze,
++                validation=validation if matching else {}))
++            now = time.time()
++            peers = [dict(thread_id=peer, message_id='fixture', ack_at_unix=now - 1,
++                quiet_until_unix=now + 1000) for peer in run.PEERS]
++            yield dict(peers=peers, quiet_until_unix=now + 1000, freeze=freeze, review=review)
++
++    def test_real_saved_accepted_result_is_consumed(self):
++        with self.fixture() as control:
++            freeze = run.checked(control)
++        self.assertIn('validation', freeze)
++
++    def test_failed_result_prevents_execution(self):
++        with self.fixture(accepted=False) as control:
++            with self.assertRaises(AssertionError):
++                run.checked(control)
++
++    def test_different_reviewed_validation_prevents_execution(self):
++        with self.fixture(matching=False) as control:
++            with self.assertRaises(AssertionError):
++                run.checked(control)
++
++if __name__ == '__main__':
++    unittest.main()
+--- /dev/null
++++ b/run_tests.py
+@@ -0,0 +1,44 @@
++"""One bounded fixture run with private profiles and networking unavailable."""
++import hashlib
++import json
++import os
++from pathlib import Path
++import resource
++import subprocess
++import time
++
++HERE = Path(__file__).resolve().parent
++def sha(path):
++    with Path(path).open('rb') as stream:
++        return hashlib.file_digest(stream, 'sha256').hexdigest()
++
++resource.setrlimit(resource.RLIMIT_AS, (128 * 1024**2, 128 * 1024**2))
++resource.setrlimit(resource.RLIMIT_CPU, (10, 10))
++resource.setrlimit(resource.RLIMIT_CORE, (0, 0))
++paths = sorted(set(map(Path, json.loads((HERE / 'module-bindings.json').read_text())['files'])) | set(HERE.glob('*.py')) | {HERE / 'module-bindings.json', Path('/usr/bin/python3.12'), Path('/usr/bin/bwrap')})
++before = {str(path): sha(path) for path in paths}
++argv = ['/usr/bin/bwrap', '--die-with-parent', '--unshare-net', '--ro-bind', '/', '/',
++        '--tmpfs', '/tmp', '--tmpfs', '/home/tjninja/.framerize', '--dev', '/dev',
++        '--proc', '/proc', '--chdir', str(HERE), '/usr/bin/python3.12', '-B',
++        '-m', 'unittest', '-v', 'test_release']
++started = time.time()
++result = subprocess.run(argv, capture_output=True, text=True, timeout=15,
++    env={'PATH': '/usr/bin:/bin', 'LC_ALL': 'C.UTF-8', 'PYTHONDONTWRITEBYTECODE': '1'})
++after = {str(path): sha(path) for path in paths}
++accepted = before == after and result.returncode == 0
++report = dict(accepted=accepted, inputs=before, after=after, argv=argv,
++    exit_code=result.returncode, stdout=result.stdout, stderr=result.stderr,
++    started_at_unix=started, finished_at_unix=time.time(),
++    child_peak_rss_kib=resource.getrusage(resource.RUSAGE_CHILDREN).ru_maxrss,
++    scope='Six inert rollback release barrier cases; no live input.',
++    controls=dict(network_namespace='isolated', private_profiles='masked',
++                  address_space_bytes=128 * 1024**2, cpu_seconds=10, wall_seconds=15),
++    limitations=['RSS is a child high-water mark; no aggregate cgroup or swap claim.'])
++path = HERE / ('validation-' + str(time.time_ns()) + '.json')
++fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
++with os.fdopen(fd, 'w') as stream:
++    json.dump(report, stream, indent=2)
++    stream.write('\n')
++print(json.dumps(dict(accepted=accepted, path=str(path), sha256=sha(path),
++                      child_peak_rss_kib=report['child_peak_rss_kib'])))
++raise SystemExit(0 if accepted else 1)
+--- /dev/null
++++ b/run_control_tests.py
+@@ -0,0 +1,44 @@
++"""One bounded fixture run with private profiles and networking unavailable."""
++import hashlib
++import json
++import os
++from pathlib import Path
++import resource
++import subprocess
++import time
++
++HERE = Path(__file__).resolve().parent
++def sha(path):
++    with Path(path).open('rb') as stream:
++        return hashlib.file_digest(stream, 'sha256').hexdigest()
++
++resource.setrlimit(resource.RLIMIT_AS, (128 * 1024**2, 128 * 1024**2))
++resource.setrlimit(resource.RLIMIT_CPU, (10, 10))
++resource.setrlimit(resource.RLIMIT_CORE, (0, 0))
++paths = sorted(set(map(Path, json.loads((HERE / 'module-bindings.json').read_text())['files'])) | set(HERE.glob('*.py')) | {HERE / 'module-bindings.json', Path('/usr/bin/python3.12'), Path('/usr/bin/bwrap'), HERE / 'validation-1792765724455617944.json'})
++before = {str(path): sha(path) for path in paths}
++argv = ['/usr/bin/bwrap', '--die-with-parent', '--unshare-net', '--ro-bind', '/', '/',
++        '--tmpfs', '/tmp', '--tmpfs', '/home/tjninja/.framerize', '--dev', '/dev',
++        '--proc', '/proc', '--chdir', str(HERE), '/usr/bin/python3.12', '-B',
++        '-m', 'unittest', '-v', 'test_control']
++started = time.time()
++result = subprocess.run(argv, capture_output=True, text=True, timeout=15,
++    env={'PATH': '/usr/bin:/bin', 'LC_ALL': 'C.UTF-8', 'PYTHONDONTWRITEBYTECODE': '1'})
++after = {str(path): sha(path) for path in paths}
++accepted = before == after and result.returncode == 0
++report = dict(accepted=accepted, inputs=before, after=after, argv=argv,
++    exit_code=result.returncode, stdout=result.stdout, stderr=result.stderr,
++    started_at_unix=started, finished_at_unix=time.time(),
++    child_peak_rss_kib=resource.getrusage(resource.RUSAGE_CHILDREN).ru_maxrss,
++    scope='Three inert saved-validation consumer cases; no live input.',
++    controls=dict(network_namespace='isolated', private_profiles='masked',
++                  address_space_bytes=128 * 1024**2, cpu_seconds=10, wall_seconds=15),
++    limitations=['RSS is a child high-water mark; no aggregate cgroup or swap claim.'])
++path = HERE / ('validation-' + str(time.time_ns()) + '.json')
++fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
++with os.fdopen(fd, 'w') as stream:
++    json.dump(report, stream, indent=2)
++    stream.write('\n')
++print(json.dumps(dict(accepted=accepted, path=str(path), sha256=sha(path),
++                      child_peak_rss_kib=report['child_peak_rss_kib'])))
++raise SystemExit(0 if accepted else 1)

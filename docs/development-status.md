@@ -55,8 +55,8 @@ The startup receipt now summarizes the complete source map by count and hash;
 every source is still verified. Two fixture corrections and the contained
 package-consumer refusals remain recorded. Those consumer fixtures substitute
 saved service policy and installed-file pins; live checks remain required.
-Deployment source and exact plan review are accepted. No service change or
-live request has run for this continuation.
+Deployment source and exact plan review are accepted. The second coordinated
+attempt and its rollback are recorded below; its streaming client never ran.
 
 The client release binding and owner sequence add 13 passing inert cases:
 five for the actual release receipt, one for one-time client execution, and
@@ -70,9 +70,24 @@ The first coordinated owner attempt was refused by the disk guard before
 the deployment controller started. No service transition or inference request
 occurred. Its result remains preserved. Removing only old, unused compiled
 startup-cache files recovered 335 MB while retaining browser profile data.
-A fresh attempt uses byte-identical preparation and sequence code in a new
-output directory; its narrow binding review is pending. All original source,
-build, client and deployment results remain valid and unchanged.
+A fresh attempt used byte-identical preparation and sequence code in a new
+output directory, with accepted binding review. All original source, build,
+client and deployment results remain valid and unchanged.
+
+The second attempt installed the candidate, then rolled back after startup
+verification failed. Five candidate prewarms succeeded; the sixth failed.
+All six rollback prewarms succeeded. The exact outcome remains
+`rolled_back_pending_independent_verification`, with the maintenance hold
+retained and no streaming acceptance request sent. Saved traffic shows normal
+inference during startup, so the next coordinated attempt also requires the
+runtime owner to remain passive. The sixth-prewarm cause is not established.
+
+A separate rollback verification and hold-release helper is prepared in
+[admission-stream-rollback-release-r1.patch](../reference/analysis/admission-stream-rollback-release-r1.patch).
+It starts or stops no service. Six inert barrier cases pass, plus three cases
+for consuming the actual saved validation format. The latter correct an
+unreleased prelaunch check that expected `passed` instead of `accepted`.
+Source review and guarded execution remain pending; this is no recovery claim.
 
 The admission repair on `fix/live-admission-503-20261023` adds completion
 evidence for assembled nonstream Responses bodies and stops future attempts

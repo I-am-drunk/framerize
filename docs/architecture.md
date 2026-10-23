@@ -105,6 +105,14 @@ The normal-stream client verifies that release receipt, accepted plan and
 current generation before sending a request. Its owner runs deployment first
 and permits one client invocation, retaining a consumed marker on refusal.
 
+After a completed rollback, a separate helper can verify the restored
+generation and release the retained hold without starting or stopping the
+service. It verifies saved startup coverage against the same log bytes,
+cooldown restoration, pool residency, protected files and zero swap. It
+repeats current generation, protection and drain checks before both handoff
+clearance and marker removal. The runtime owner joins peer silence while
+these checks run; a maintenance marker alone does not stop inference traffic.
+
 Worker protocol version 2 carries the private saved device through a pipe.
 The worker seeds its isolated storage before loading the SDK and checks that
 the value remains unchanged. This does not establish upstream acceptance or
