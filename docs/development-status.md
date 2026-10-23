@@ -78,6 +78,16 @@ findings. It binds freeze `075b12d9` and summary `13bde1a3`. The accepted
 binary remains staged; no account, execution plan or live result is covered.
 No live request or service action has occurred.
 
+Six additional process cases now pass against the unchanged generated host
+and support package. They cover nonempty synthetic restoration, real selected
+device and rate-history admission, retained mint charges, uncertain ownership,
+changed-account JSON and replay refusal. This closes the gap between earlier
+in-process restoration fixtures and empty-store process checks. The fixture
+peaked at 123,883,520 bytes with seven tasks and zero swap/events. All nine
+fixture processes joined, and the temporary unit and cgroup are absent.
+Neither running service was queried or changed. No worker SDK or inference
+ran; the separate-account dependency and staged-binary status remain.
+
 The new `examples/browserless-routing.json` configuration passes a separate
 process fixture for normal streaming dispatch. With an empty account store,
 the request reaches native dispatch and returns the expected `Ineligible`

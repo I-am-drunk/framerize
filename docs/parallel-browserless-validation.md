@@ -90,6 +90,19 @@ no findings, closing the original queued-close finding. It binds freeze
 `075b12d9` and summary `13bde1a3`; the original rejected review is retained.
 This does not approve an account or establish a deployed generation.
 
+The separate `scripts/tests/run_restored_native_host.py` process fixture now
+passes six cases against the unchanged generated host and support package.
+It restores synthetic account JSON and checks the selected device, existing
+cooldown/full-window refusals, retained mint charges after confirmed cleanup,
+ownership after uncertain cleanup, changed-account rejection and handoff
+replay rejection. The namespace has no external network, real account paths
+or service-control socket. It invokes native admission commands, not the SDK.
+Direct cgroup measurements peaked at 123,883,520 bytes and seven tasks, with
+zero swap/events. All nine fixture processes were joined; its unit and cgroup
+were absent afterward. This validates the process wiring, not authentication
+or inference. The deliberately uncertain account remains logically fenced
+until its isolated fixture process exits.
+
 The checker limits its own execution to two POST calls. Exclusive request
 ownership still requires coordination with other callers. Completion
 metadata is not an exhaustive count of transport starts, and a missing

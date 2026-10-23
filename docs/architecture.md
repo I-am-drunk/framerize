@@ -24,6 +24,11 @@ Handoff JSON under the instance's own root remains subject to the existing
 generation, inventory and cooldown checks. No stale record is deleted or
 silently accepted as part of startup.
 
+The separate restored-host process fixture exercises the generated package
+with synthetic nonempty state. It verifies current device and rate ownership
+through the real command pipe, including failed cleanup and stale/replayed
+handoffs. It performs no SDK or upstream call and gives no live-account proof.
+
 Normal API routing additionally requires `--offline-routing-config`.
 `examples/browserless-routing.json` provides bounded, unpaid streaming limits;
 it is not installed automatically. Native requests also require explicit
