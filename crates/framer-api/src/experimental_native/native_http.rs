@@ -13,7 +13,7 @@ use framer_core::ids::{AccountId, FramerUserId};
 use framer_core::port::{CastleToken, Session};
 use futures::task::AtomicWaker;
 use futures::{Future, Stream};
-use reqwest::header::{HeaderValue, AUTHORIZATION, CONTENT_TYPE, COOKIE, ORIGIN};
+use reqwest::header::{HeaderValue, AUTHORIZATION, CONTENT_TYPE, COOKIE, ORIGIN, REFERER};
 use serde_json::Value;
 use std::io::{self, Write};
 use std::pin::Pin;
@@ -624,6 +624,9 @@ impl NativeHttp {
             // Inference belongs to the Framer application origin. Keep the
             // truthful native User-Agent and transport; this is not a browser.
             .header(ORIGIN, "https://framer.com")
+            // The API is cross-origin. Send only the public application origin,
+            // without inventing or disclosing a project page or query string.
+            .header(REFERER, "https://framer.com/")
             .header("x-requested-by", "Framer")
             .header("accept", "*/*")
             .header("accept-encoding", "identity")
