@@ -17,6 +17,14 @@ pending with the sole runtime owner. The local rustfmt component is unavailable.
 Existing core, host, API and store
 builds are unchanged and available for reuse.
 
+The runtime owner has integrated `fc77455` on `browserless` and added one
+host event after the in-page fetch starts. The event contains only the job
+identifier and route. The corrected 19-case run and deployable build are
+pending. The normal-endpoint release will retain the current R9 support
+package and worker configuration; the separate R11 device handoff remains
+undeployed. Live acceptance requires a cancelled request followed by a
+complete response on the same service generation.
+
 The owner's 03:32:48 UTC diagnosis found the previous binary in a new service
 generation (main 2270461, started 03:28:49). Health and pool returned 200.
 Those observations do not verify real inference or establish the cause of
