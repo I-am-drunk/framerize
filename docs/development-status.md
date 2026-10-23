@@ -220,7 +220,7 @@ All quiet holds are released. Next: trace the remaining token and native
 request-context differences from the preserved sources, without repeating
 the same request or deployment.
 
-The next source-only candidate carries the worker's actual saved device into
+The built candidate carries the worker's actual saved device into
 the existing per-request cookie context. Previously the worker seeded that
 device, while the subsequent native request used only the saved login cookie.
 The candidate preserves the original login and private session, rejects
@@ -234,8 +234,15 @@ their receipt checks; unchanged core, host, store, server and worker libraries
 were reused after source comparison. Saved summary is `beef996b`; candidate
 binary is `9e03bde3`. No swap or resource event occurred during these stages.
 The candidate is undeployed. This addresses a context gap; upstream acceptance
-remains unverified. Next: review the frozen results and prepare the additive
-release while preserving the current R17 support and account ownership.
+remains unverified. Independent source and saved-results reviews accepted
+this exact build. R18 is frozen for separate release-source review, with
+82 local seals, 165 declarations and 11 modules. Its saved-file consumer
+accepts the new build and rejects the older completion summary. The host,
+support, worker and service limits remain unchanged. Ten earlier config and
+override files stay protected. This package is not deployed. Next: bind the
+reviewed plan and client, then coordinate fresh admission and one trial.
+The operational delta is published in
+[saved-device-cookie-release-r18.patch](../reference/analysis/saved-device-cookie-release-r18.patch).
 
 R17 reused the existing builds and focused tests. The independent test cleanup
 remains separate, with 27 batches awaiting later owner validation.
