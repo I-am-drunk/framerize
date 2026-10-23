@@ -110,12 +110,15 @@ and R12 file sets; its read-only preparation and baseline capture now pass.
 The package and manifest checks are reused from their unchanged R13 inputs.
 The frozen operational delta is published in
 [device-handoff-release-r14.patch](../reference/analysis/device-handoff-release-r14.patch).
-Independent source review accepts R14 without findings. The exact final plan
-and one-request client are now with the existing reviewer. The client changes
-only its release, binary and plan bindings; all request behavior and saved
-fixture results remain unchanged. Next: collect those acceptances, coordinate
-the update, then park one idle account through the existing pool owner and
-send one bounded browserless request.
+Independent review accepted R14, its exact plan and the one-request client.
+R14 deployed on 2026-10-23 at 04:37 UTC and released its maintenance hold.
+The chosen idle browser was parked and its closure confirmed. One browserless
+request then returned HTTP 502 with failure kind `Upstream` after 2.546 seconds.
+It produced no accepted answer. The same service generation still returned
+200 for health and pool admission afterward. No request retry was made.
+The endpoint currently discards its detailed upstream and cleanup evidence.
+The next change retains only safe status, attempt and cleanup fields in the
+existing event log, so a later bounded trial can distinguish the failure.
 No browserless live response or total-memory saving is verified yet.
 
 The first version's core and API builds remain saved evidence for that version.
