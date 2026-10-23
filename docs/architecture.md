@@ -152,6 +152,10 @@ installed release's verified binary. The deployment adapter's older executable
 constant remains a rollback binding. Passing a replacement hash alone does
 not change the executable that capture expects to be running. The recovery
 copy retains the original pool, process-generation and startup checks.
+Source-only acceptance cannot open the recovery execution gate. Its final
+plan must bind the completed capture fixtures and retain the original saved
+recovery cases. Execution still requires a separately accepted plan, fresh
+resource and generation checks, and actual drain under the existing owner.
 
 A support-only release can reuse the verified Rust binary. Bind its changed
 support file to separate review evidence, and regenerate only the host's

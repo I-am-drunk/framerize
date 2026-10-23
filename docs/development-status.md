@@ -304,12 +304,18 @@ The additive correction passes the verified installed R18 binary explicitly
 to a recovery copy of capture. Inherited deployment and rollback constants
 remain unchanged. Four new inert cases cover the actual preparation call,
 wrong executable hashes, invalid current pins and the original refusal.
-They remain unrun after two memory-admission refusals and a coordinated
-attempt that passed memory admission but refused disk reserve. Two bounded
-cache audits timed out before producing a deletion plan; no files were
-removed. The original 14 cases and their results are unchanged. All 17 source
-files reconstruct exactly from the additive patch. Source review is next;
-execution acceptance still requires the four new cases to pass.
+All four now pass, with a direct cgroup peak of 17.3 MB, one task, zero swap
+and no resource events. Their unit and cgroup are absent. The original 14
+cases remain reused evidence. Independent source review accepted the exact
+correction at `754baf2`; its source-only receipt cannot authorize recovery.
+The final execution plan separately binds the four-case result `e53852b4`
+and still awaits review. No service transition or request has occurred.
+Two memory refusals, the coordinated disk refusal and two timed-out cache
+audits remain preserved. Subsequent audited batches recovered 81.1 MB and
+201.6 MB of old single-link cache files. Installed hardlinks and preserved
+inputs were excluded; restricted process mappings remain an audit limit.
+The test launch passed the unchanged memory and disk guards. All 17 source
+files still reconstruct exactly from the additive patch.
 See [r18-recovery-capture-r2.patch](../reference/analysis/r18-recovery-capture-r2.patch).
 Its first test launch refused disk reserve before starting a test. A separate
 audited cleanup removed 135.4 MB of old, unreferenced package-cache copies;
