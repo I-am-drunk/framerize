@@ -91,6 +91,10 @@ the upstream status, attempt counters, refusal classification and final cleanup
 outcome. It excludes response text, model strings, account identities and request
 context. The final cleanup outcome can remain false even when an inner attempt
 reports successful cleanup. The event is diagnostic evidence, not a retry signal.
+An upstream security refusal and successful cleanup are separate facts. The
+refusal classification does not identify whether device state, request context
+or another upstream check caused it. Keep that distinction when selecting the
+next source correction; a completed rejected attempt is not delivered output.
 
 A browser and native grant cannot use the same account simultaneously. After
 the existing host confirms browser closure, the native adapter retains that

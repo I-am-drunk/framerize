@@ -125,10 +125,17 @@ direct external libraries. The link used a 768 MiB cap and peaked at 397 MB,
 with no swap or resource events. An earlier attempt refused memory admission
 before compilation; that refusal remains saved. Request and retry behavior
 are unchanged. Independent source and saved build reviews are accepted.
-R15 is frozen with the current R14 host, support package and worker settings.
+R15 retains the R14 host, support package and worker settings.
 Its build consumer accepts the diagnostic build and rejects the older summary.
-The fresh baseline and release binding pass. Final deployment review and
-plan/client binding remain before a coordinated activation and native trial.
+Independent source, plan and client reviews passed. R15 deployed and released
+its maintenance hold on 2026-10-23 at 05:10 UTC. One native request returned
+HTTP 502 after 3.072 seconds. The new completion event identifies an upstream
+403 security-envelope refusal, one authorization and transport attempt, and
+confirmed final cleanup. This does not identify the exact rejection cause.
+Health and pool admission subsequently returned 200 on the same generation,
+with no uncertain residents, swap or resource events. No request was repeated.
+The next source investigation traces the pinned SDK's device-state handling
+and the native request context. Existing account and cooldown rules remain.
 The exact operational source delta is saved in
 [completion-evidence-release-r15.patch](../reference/analysis/completion-evidence-release-r15.patch).
 No browserless live response or total-memory saving is verified yet.
