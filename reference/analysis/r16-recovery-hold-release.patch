@@ -1,0 +1,144 @@
+--- /dev/null
++++ r16-recovery/release_recovery.py
+@@ -0,0 +1,141 @@
++"""Release verified R16 recovery bookkeeping. Never restart or send requests."""
++import hashlib
++import json
++import os
++import sys
++import time
++from pathlib import Path
++
++HERE = Path(__file__).resolve().parent
++DEPLOY = HERE.parent / 'offline-serving-deployment-r16'
++EVIDENCE = HERE.parent / 'offline-serving-r16-recovery-r1'
++INSPECTION_SHA = '434ee7f7e38cccafe5b788622e8d20fc7b0bfc862aaa4dc27ae5e83eeb0355cc'
++PINS = {
++    'release/plan.json': '79850262e7d69ff74f3b9c12c692783721863253c3f0e2801029e8707022227c',
++    'release/plan-review-pin.json': '8dcebae71aa9a7b796018e7dfc8bb3624267b7f5d9903dfa6e2359e2ee8a25e4',
++    'deployment.json': '8ba0d3089d09d3813022fd664ecfa7d25f3ec24c5045f4f7456876f483361091',
++    'controller/execution/controller-state.json': '269125c79f20f20703130fc113841b6f05eeb3d29b2d63d81e9b94dd533d32b1',
++    'controller/framerize-cli-activate-c9d4966424f4.json': '2d41957ef7ae9c3489ed5835cf634cb4fe3e7a2ae4b9aa507c378fb41c7ce4fc',
++}
++
++def require(condition, message):
++    if not condition:
++        raise RuntimeError(message)
++
++def sha(path):
++    with Path(path).open('rb') as stream:
++        return hashlib.file_digest(stream, 'sha256').hexdigest()
++
++def pin(path):
++    return dict(path=str(path), sha256=sha(path))
++
++def read(path):
++    raw = Path(path).read_bytes()
++    require(len(raw) <= 4 * 1024**2, 'oversized evidence')
++    return json.loads(raw)
++
++def save(name, value):
++    fd = os.open(HERE/name, os.O_WRONLY|os.O_CREAT|os.O_EXCL|os.O_NOFOLLOW, 0o600)
++    with os.fdopen(fd, 'w') as stream:
++        json.dump(value, stream, sort_keys=True)
++        stream.write('\n')
++        stream.flush()
++        os.fsync(stream.fileno())
++
++def prepare():
++    for name, digest in PINS.items():
++        require(sha(DEPLOY/name) == digest, 'frozen recovery input changed')
++    require(sha(EVIDENCE/'restored-inspection.json') == INSPECTION_SHA, 'inspection changed')
++    plan = read(DEPLOY/'release/plan.json')
++    for path, digest in plan['sources'].items():
++        require(sha(path) == digest, 'reviewed source changed')
++    sys.path.insert(0, str(DEPLOY/'release'))
++    from post import checked_plan, module, held_controls
++    from restoration import verify_restored, clear_verified
++    plan = checked_plan(pin(DEPLOY/'release/plan.json'), read(DEPLOY/'release/plan-review-pin.json'))
++    outer = DEPLOY/'controller/framerize-cli-activate-c9d4966424f4.json'
++    controls = held_controls(plan, pin(outer))
++    adapter = module('adapter', plan['modules']['adapter'])
++    transfer = module('cooldown_transfer', plan['modules']['cooldown_transfer'])
++    adapter.TRANSFER = transfer.Transfer(adapter)
++    record = adapter.document(adapter.RECEIPT)
++    require(record['status'] == 'rollback_incomplete', 'unexpected recovery status')
++    require([a['direction'] for a in record['startup_attempts']] == ['candidate', 'rollback'], 'unexpected attempts')
++    return adapter, controls, record, verify_restored, clear_verified
++
++def protected(adapter, record, current):
++    plan = read(DEPLOY/'release/plan.json')
++    release = adapter.document(adapter.pinned(plan['release']))
++    bound = {'deployment': adapter.checked_deployment(release)}
++    fingerprint = adapter.protected(bound, current['main']['pid'])
++    require(fingerprint == record['protected'], 'protected runtime inputs changed')
++    return dict(fingerprint=fingerprint, release=plan['release'], baseline=release['deployment'])
++
++def verify(adapter, controls, record, verify_restored):
++    saved = read(EVIDENCE/'restored-inspection.json')
++    current = adapter.snapshot(adapter.accepted_base())
++    require(adapter.same_processes(current, saved['current']), 'inspected generation changed')
++    require(adapter.same_processes(current, record['current']), 'rollback generation changed')
++    require(sha(adapter.DEST) == adapter.OLD_BIN, 'installed binary changed')
++    require(sha(adapter.SIDECAR) == adapter.OLD_PY, 'installed host changed')
++    adapter.runtime_config.verify_process(adapter, current['main']['pid'], old=True)
++    protection = protected(adapter, record, current)
++    restored = verify_restored(adapter, record, current)
++    require(restored == saved['restoration'], 'inspected restoration changed')
++    live = adapter.observe_live_state(record['stops'][-1])
++    adapter.verify_pool(record)
++    pool = record['pool_verified']
++    require(pool['uncertain'] == pool['close_started'] == 0, 'resident cleanup is unresolved')
++    group = Path('/sys/fs/cgroup'+current['cgroup'])
++    metrics = {name:(group/name).read_text().strip() for name in (
++        'memory.current', 'memory.swap.current', 'memory.events')}
++    require(metrics['memory.swap.current'] == '0', 'service has swap')
++    require(all(row.split()[1] == '0' for row in metrics['memory.events'].splitlines()), 'resource event detected')
++    controls.assert_held()
++    require(adapter.same_processes(current, adapter.snapshot(adapter.accepted_base())), 'generation changed during checks')
++    return dict(current=current, restoration=restored, live_state=live, pool=pool,
++                metrics=metrics, protected=protection)
++
++def main():
++    require(not sys.flags.optimize and len(sys.argv) == 4 and sys.argv[1] == '--execute', 'explicit reviewed release required')
++    require(not any((HERE/name).exists() for name in (
++        'release-intent.json', 'cleared-handoff.json', 'released.json')), 'preserve the previous release attempt')
++    review_path = Path(sys.argv[2])
++    require(review_path.resolve(strict=True) == review_path, 'noncanonical review path')
++    require(sha(review_path) == sys.argv[3], 'review receipt changed')
++    review = read(review_path)
++    require(review.get('accepted') is True, 'review did not accept the release')
++    require(review.get('status') == 'ACCEPTED_FOR_OWNED_RECOVERY_HOLD_RELEASE', 'wrong review scope')
++    require(review.get('source') == pin(Path(__file__).resolve()), 'reviewed source differs')
++    require(review.get('saved_inspection') == pin(EVIDENCE/'restored-inspection.json'), 'reviewed inspection differs')
++    adapter, controls, record, verify_restored, clear_verified = prepare()
++    observed = verify(adapter, controls, record, verify_restored)
++    intent = dict(at_unix=time.time(), review=pin(review_path), source=pin(Path(__file__).resolve()),
++                  saved_inspection=pin(EVIDENCE/'restored-inspection.json'), observed=observed,
++                  saved_inspection_scope='Partial: preserved installed inputs excluded; checked afresh here',
++                  original_failure_pins=PINS, marker_identity=controls.marker_identity,
++                  marker_sha256=controls.marker_sha256, browserless_accepted=False)
++    save('release-intent.json', intent)
++    for name, digest in PINS.items():
++        require(sha(DEPLOY/name) == digest, 'frozen evidence changed before release')
++    controls.assert_held()
++    current = adapter.snapshot(adapter.accepted_base())
++    require(adapter.same_processes(current, observed['current']), 'generation changed before release')
++    adapter.runtime_config.verify_process(adapter, current['main']['pid'], old=True)
++    require(sha(adapter.DEST) == adapter.OLD_BIN and sha(adapter.SIDECAR) == adapter.OLD_PY, 'installed pair changed')
++    require(protected(adapter, record, current) == observed['protected'], 'protected inputs changed before clearance')
++    cleared = clear_verified(adapter, record, current)
++    save('cleared-handoff.json', cleared)
++    controls.assert_held()
++    require(adapter.same_processes(current, adapter.snapshot(adapter.accepted_base())), 'generation changed after handoff clearance')
++    intent['final_live_state'] = adapter.observe_live_state(record['stops'][-1])
++    require(protected(adapter, record, current) == observed['protected'], 'protected inputs changed before hold release')
++    controls.release()
++    marker = Path('/home/tjninja/.local/state/framerize-recovery/maintenance')
++    require(not marker.exists(), 'maintenance marker remains')
++    save('released.json', intent | dict(completed_at_unix=time.time(),
++        status='RESTORED_RUNTIME_HOLD_RELEASED', marker_absent=True))
++    print(json.dumps(pin(HERE/'released.json')))
++
++if __name__ == '__main__':
++    main()

@@ -161,6 +161,15 @@ helper to release only the verified pending handoff and owned maintenance hold
 is under source review. It cannot restart the service or send an inference
 request. Its final release has not run.
 
+The first helper review found that original arguments and absent new override
+files did not prove the eight preserved installed files were unchanged. The
+additive correction reuses the existing protected-file and complete override
+inventory check before either bookkeeping mutation. The earlier inspection
+remains explicitly partial. The exact unexecuted source is preserved in
+[r16-recovery-hold-release.patch](../reference/analysis/r16-recovery-hold-release.patch);
+its narrow closure review is pending. This patch records source, not a reusable
+authorization to release a different generation or maintenance owner.
+
 Saved events also show ordinary inference during both startup windows.
 Client acknowledgements alone therefore did not establish continuing quiet.
 Before another deployment, address that activity and its memory demand;
