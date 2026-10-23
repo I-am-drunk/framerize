@@ -37,6 +37,19 @@ The complete application rebuild and isolated activation remain pending.
 Actual device history must survive activation; the browser service stays
 unchanged. Authenticated delivery and live interruption remain unverified.
 
+The failed-response checker now records only bounded content categories,
+JSON validity/size and whether a complete known security-error envelope was
+present. It never retains response text, reference IDs or timestamps. All
+32 focused streaming, workflow and timing cases pass, including the three
+new diagnostic cases; their saved inputs match the published source.
+
+A separate GitHub Actions workflow builds the native candidate with pinned
+Rust 1.99.0 and the locked dependencies, and publishes an executable with its
+source commit, compiler identity and hashes. This moves compilation away
+from the running services. The remote build is pending and does not deploy
+anything or supply live credentials. The local application rebuild was
+prepared but not launched; its preparation remains preserved.
+
 Earlier build and preparation milestones below retain their original limits.
 
 Initial native enrollment is now implemented in source. The new native-only

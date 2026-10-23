@@ -56,6 +56,11 @@ allowing an upstream request. This changes the example, not resource caps.
 The checker also retains allowlisted native error codes on failed HTTP heads;
 it discards arbitrary codes and response text and never turns a failed head
 into permission for a second request.
+Failed heads also retain an allowlisted content category and bounded JSON
+shape metadata. A known security-error envelope is reported only as a
+boolean after checking its complete shape and HTTP status. Raw error text,
+provider references and timestamps are discarded. This category cannot
+identify why a provider refused the request or authorize a retry.
 Native inference HTTP now includes `Origin: https://framer.com`, matching
 the canonical application origin accepted by native page validation. Its
 `Framerize/0.1` user agent remains explicit. It does not invent a project-page
