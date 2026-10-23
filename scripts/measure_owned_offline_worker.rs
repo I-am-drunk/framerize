@@ -2,6 +2,12 @@ use std::{fs, path::PathBuf, time::{Duration, Instant}};
 use offline_worker_owner::{Cleanup, FilePin, SavedDevice, Specification, Target, Worker};
 use serde_json::{json, Value};
 
+const GROUP_LIMIT: u64 = if cfg!(application_worker_memory) {
+    256 * 1024 * 1024
+} else {
+    128 * 1024 * 1024
+};
+
 fn isolated() -> bool {
     let namespace = |kind: &str| fs::read_link(format!("/proc/self/ns/{kind}"))
         .ok().map(|p| p.to_string_lossy().into_owned());
@@ -19,7 +25,7 @@ fn isolated() -> bool {
     let root = PathBuf::from("/sys/fs/cgroup").join(group.trim_start_matches('/'));
     let value = |name| fs::read_to_string(root.join(name)).ok()
         .and_then(|s| s.trim().parse::<u64>().ok());
-    value("memory.max") == Some(128 * 1024 * 1024)
+    value("memory.max") == Some(GROUP_LIMIT)
         && value("memory.swap.max") == Some(0) && value("pids.max") == Some(32)
 }
 
