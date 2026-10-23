@@ -25,6 +25,15 @@ def clean_completion(value):
     return dict(value, observed_at_unix=time.time())
 
 
+def clean_sends(value):
+    require(isinstance(value, dict) and
+            set(value) == {'send_invocations', 'cleanup_confirmed'}, 'send_snapshot_shape')
+    count = value['send_invocations']
+    require(type(count) is int and 0 <= count <= 2**64 - 1, 'send_snapshot_count')
+    require(type(value['cleanup_confirmed']) is bool, 'send_snapshot_cleanup')
+    return dict(value, observed_at_unix=time.time())
+
+
 class Events:
     def __init__(self, path, root):
         self.path = Path(path)
@@ -37,6 +46,8 @@ class Events:
         self.pending = b''
         self.bytes = 0
         self.completed = []
+        self.send_invocations = []
+        self.send_snapshots = []
         self.refusals = 0
 
     def poll(self):
@@ -54,6 +65,14 @@ class Events:
             require(isinstance(row, dict), 'event_shape')
             if row.get('event') == 'operation.admission.refused':
                 self.refusals += 1
+            elif row.get('event') == 'native.http.send':
+                count = row.get('invocation')
+                require(type(count) is int and count == len(self.send_invocations) + 1
+                        and count <= 2, 'unexpected_native_send')
+                self.send_invocations.append(count)
+            elif row.get('event') == 'native.stream.sends':
+                self.send_snapshots.append(clean_sends(row.get('sends')))
+                require(len(self.send_snapshots) <= 2, 'unexpected_send_snapshot')
             elif row.get('event') == 'native.stream.complete':
                 self.completed.append(clean_completion(row.get('completion')))
                 require(len(self.completed) <= 2, 'unexpected_native_completion')

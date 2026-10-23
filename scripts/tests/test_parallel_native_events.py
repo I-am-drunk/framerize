@@ -3,11 +3,41 @@ from pathlib import Path
 import tempfile
 import unittest
 from native_check_fixture import completion
-from parallel_native_check.events import Events, clean_completion
+from parallel_native_check.events import Events, clean_completion, clean_sends
 from parallel_native_check.support import Refusal
 
 
 class EventsTests(unittest.TestCase):
+    def test_exact_send_and_cleanup_records_are_bounded_and_retained(self):
+        path, events = self.source()
+        with path.open('a') as stream:
+            for count in (1, 2):
+                stream.write(json.dumps({'event': 'native.http.send', 'invocation': count}) + '\n')
+                stream.write(json.dumps({'event': 'native.stream.sends', 'sends': {
+                    'send_invocations': count, 'cleanup_confirmed': True}}) + '\n')
+        events.poll()
+        self.assertEqual(events.send_invocations, [1, 2])
+        self.assertEqual([row['send_invocations'] for row in events.send_snapshots], [1, 2])
+        self.assertTrue(all(row['cleanup_confirmed'] for row in events.send_snapshots))
+
+    def test_send_counter_rejects_gap_replay_boolean_and_third_send(self):
+        for counts in ([2], [True], [1, 1], [1, 3], [1, 2, 3]):
+            with self.subTest(counts=counts):
+                path, events = self.source()
+                with path.open('a') as stream:
+                    for count in counts:
+                        stream.write(json.dumps({'event': 'native.http.send', 'invocation': count}) + '\n')
+                with self.assertRaisesRegex(Refusal, 'unexpected_native_send'):
+                    events.poll()
+
+    def test_send_snapshot_rejects_unbounded_or_private_fields(self):
+        valid = {'send_invocations': 1, 'cleanup_confirmed': True}
+        for value in (dict(valid, provider='private'), dict(valid, send_invocations=True),
+                      dict(valid, send_invocations=-1), dict(valid, send_invocations=2**64),
+                      dict(valid, cleanup_confirmed=1)):
+            with self.subTest(value=value), self.assertRaises(Refusal):
+                clean_sends(value)
+
     def source(self, history=''):
         root = Path(self.enterContext(tempfile.TemporaryDirectory()))
         logs = root / 'profiles/.logs'

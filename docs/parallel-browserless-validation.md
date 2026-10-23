@@ -75,7 +75,27 @@ Changing the report name does not enable another attempt. Retain failed
 reports and markers. A fresh attempt requires a separately coordinated
 generation and plan; this client does not prepare either one.
 
-Validation covers 40 distinct cases using synthetic inputs and local socket pairs.
+The checker now also requires `native.http.send` invocation numbers one and
+two, plus matching `native.stream.sends` snapshots after each original stream
+cleanup. These are cumulative process counts, so an already-used generation
+cannot supply this acceptance. An extra send that never produces headers, or
+a send event missing from the log, is exposed by the final counter snapshot.
+Missing snapshots and mismatched counts prevent the next request or final
+acceptance. The existing body, cleanup, idle-pool and generation checks remain.
+
+The new selection passes 25 Python cases and 13 Rust cases. Three new Rust
+cases cover cancellation before headers, transport failure without headers,
+and requests discarded or rejected before sending. Ten existing stream and
+cleanup cases pass unchanged. The old client fails the new hidden-send case.
+The first candidate run caught an error-ordering regression and a validator
+cap-comparison typo; both are corrected and the failed records are retained.
+The actual caps stayed at 128 MiB for tests and at most 1 GiB for compilation, with
+zero swap. These results are offline evidence, not authenticated delivery.
+The API library and final executable builds pass. Staged binary `b4151ab3`
+retains the previously built host and server libraries; selecting the accepted
+lazy host still requires the explicit sidecar path. No service was changed.
+
+The earlier checker validation covered 40 distinct cases using synthetic inputs and local socket pairs.
 They cover framing, actual socket shutdown, cleanup ordering, privacy,
 account overlap, resource refusal and replay protection. The capped fixture
 run mounts neither service nor account state and has no external network.
@@ -85,7 +105,7 @@ correction, 12 workflow and runner cases pass, including both request barriers;
 These are test measurements, not loaded browserless usage. A pool slot with
 status `closing` is not idle even when `close_started` is still false.
 
-Final review `26089a3b` accepts these source and saved-result bindings with
+Final review `26089a3b` accepts those earlier source and saved-result bindings with
 no findings, closing the original queued-close finding. It binds freeze
 `075b12d9` and summary `13bde1a3`; the original rejected review is retained.
 This does not approve an account or establish a deployed generation.

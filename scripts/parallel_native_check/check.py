@@ -26,8 +26,11 @@ def wait(binding, events, report, predicate, seconds):
     while True:
         events.poll()
         report['native_completions'] = list(events.completed)
+        report['native_send_invocations'] = list(events.send_invocations)
+        report['native_send_snapshots'] = list(events.send_snapshots)
         report['admission_refusals'] = events.refusals
         require(events.refusals == 0, 'admission_refused')
+        require(len(events.send_invocations) <= report['post_calls'], 'unexpected_native_send')
         require(len(report['samples']) < 2500, 'sample_limit')
         report['samples'].append({'at_unix': time.time(), 'values': binding.sample()})
         result = predicate()
@@ -39,11 +42,16 @@ def wait(binding, events, report, predicate, seconds):
 
 def settled(binding, events, report, count, failure):
     def ready():
-        if len(events.completed) < count:
+        if len(events.completed) < count or len(events.send_snapshots) < count:
             return False
         require(len(events.completed) == count, 'unexpected_completion_count')
         value = events.completed[-1]
         require(value['body_failure'] == failure and value['cleanup_confirmed'], 'native_cleanup_outcome')
+        require(len(events.send_snapshots) == count and
+                events.send_invocations == list(range(1, count + 1)), 'native_send_count')
+        snapshot = events.send_snapshots[-1]
+        require(snapshot['send_invocations'] == count and snapshot['cleanup_confirmed'],
+                'native_send_snapshot')
         require(value['observed_attempts'] == 1 and value['last_status'] == 200,
                 'native_attempt_outcome')
         require(value['yielded_bytes'] > 0, 'native_empty_body')
@@ -53,6 +61,9 @@ def settled(binding, events, report, count, failure):
 
 
 def run(binding, events, report):
+    events.poll()
+    require(not events.send_invocations and not events.send_snapshots and not events.completed,
+            'native_work_before_test')
     require(quiet(client.pool(), binding.account), 'native_work_before_test')
     binding.refresh()
     report['stage'] = 'cancel_stream'
@@ -61,7 +72,10 @@ def run(binding, events, report):
         def started():
             value = pending(stream)
             require(not events.completed, 'completion_before_disconnect')
-            return value if value['text_characters'] > 0 else None
+            if value['text_characters'] > 0:
+                require(events.send_invocations == [1], 'native_send_count')
+                return value
+            return None
         report['started_stream'] = wait(binding, events, report, started, 60)
         report['first_text_seen_at_unix'] = time.time()
         report['hello_head'] = client.head()
@@ -92,7 +106,8 @@ def run(binding, events, report):
     settled(binding, events, report, 2, None)
     events.poll()
     require(len(events.completed) == 2 and not events.pending and
-            events.refusals == 0, 'unexpected_final_events')
+            events.refusals == 0 and events.send_invocations == [1, 2] and
+            len(events.send_snapshots) == 2, 'unexpected_final_events')
     require(report['post_calls'] == 2, 'post_count')
     report.update(accepted=True, stage='complete')
 

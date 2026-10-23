@@ -59,7 +59,8 @@ class Scenario:
         self.emit = emit
         self.binding = SimpleNamespace(account='account', refresh=lambda: None,
                                        sample=lambda: {'memory.current': 1})
-        self.events = SimpleNamespace(completed=[], refusals=0, pending=b'', poll=self.poll)
+        self.events = SimpleNamespace(completed=[], send_invocations=[], send_snapshots=[],
+                                      refusals=0, pending=b'', poll=self.poll)
         self.report = {'post_calls': 0, 'samples': []}
 
     def send(self, binding, cancel, report):
@@ -68,6 +69,7 @@ class Scenario:
         report['post_calls'] += 1
         stream = FakeStream(not cancel)
         self.sent.append(stream)
+        self.events.send_invocations.append(len(self.sent))
         return stream
 
     def poll(self):
@@ -75,5 +77,8 @@ class Scenario:
             return
         if not self.events.completed:
             self.events.completed.append(completion('Cancelled', self.cleanup))
+            self.events.send_snapshots.append({'send_invocations': 1,
+                                              'cleanup_confirmed': self.cleanup})
         if len(self.sent) == 2 and len(self.events.completed) == 1:
             self.events.completed.append(completion())
+            self.events.send_snapshots.append({'send_invocations': 2, 'cleanup_confirmed': True})

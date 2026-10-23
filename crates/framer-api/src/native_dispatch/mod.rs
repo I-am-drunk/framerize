@@ -274,11 +274,15 @@ fn validate_payload(payload: &Value) -> Result<(), DispatchError> {
 impl OwnedInvocation for NativeCall {
     fn composed_stream_for_client(self: Box<Self>, payload: Value,
         options: port::ComposedStreamOptions, client_model: String) -> port::ComposedStreamRun {
-        composed_stream::launch_for_client(self, payload, options, client_model)
+        let mut run = composed_stream::launch_for_client(self, payload, options, client_model);
+        run.response.cleanup = observed_stream_cleanup(run.response.cleanup);
+        run
     }
     fn composed_stream(self: Box<Self>, payload: Value, options: port::ComposedStreamOptions)
         -> port::ComposedStreamRun {
-        composed_stream::launch(self, payload, options)
+        let mut run = composed_stream::launch(self, payload, options);
+        run.response.cleanup = observed_stream_cleanup(run.response.cleanup);
+        run
     }
     fn raw(self: Box<Self>, payload: Value) -> InvocationRun<RawResult> {
         self.launch(move |p, registry| async move {
@@ -293,7 +297,9 @@ impl OwnedInvocation for NativeCall {
 
     fn raw_stream(self: Box<Self>, payload: Value, limits: port::RawStreamLimits)
         -> port::RawStreamRun {
-        raw_stream::launch(self, payload, limits)
+        let mut run = raw_stream::launch(self, payload, limits);
+        run.response.cleanup = observed_stream_cleanup(run.response.cleanup);
+        run
     }
 
     fn messages(self: Box<Self>, payload: Value) -> InvocationRun<Completed<AssembledResponse>> {
@@ -333,6 +339,14 @@ impl OwnedInvocation for NativeCall {
                 attempts: result.attempts.into_iter().map(errors::metadata).collect() })
         })
     }
+}
+
+fn observed_stream_cleanup(cleanup: port::Cleanup) -> port::Cleanup {
+    async move {
+        let result = cleanup.await;
+        crate::experimental_native::native_http::send_evidence::settled(result.is_ok());
+        result
+    }.boxed().shared()
 }
 
 // The legacy builder can backfill namespaces. Native admission rejects such

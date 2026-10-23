@@ -33,7 +33,7 @@ class RunnerTests(unittest.TestCase):
         return SimpleNamespace(root=self.root, plan={'invocation_id': 'a' * 32, 'events_path': ''})
 
     def test_different_report_name_does_not_allow_generation_replay(self):
-        events = SimpleNamespace(completed=[], close=lambda: None)
+        events = SimpleNamespace(completed=[], send_invocations=[], send_snapshots=[], close=lambda: None)
         with patch.object(runner, 'Binding', return_value=self.binding()):
             with patch.object(runner, 'Events', return_value=events):
                 with patch.object(runner, 'run') as run:

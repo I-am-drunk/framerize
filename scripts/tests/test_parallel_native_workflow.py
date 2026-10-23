@@ -16,6 +16,57 @@ def pending_close_pool():
 
 
 class WorkflowTests(unittest.TestCase):
+    def test_missing_send_snapshot_never_proves_no_retry(self):
+        scenario = Scenario()
+        self.prepare(scenario)
+        original = scenario.events.poll
+        def poll():
+            original()
+            scenario.events.send_snapshots.clear()
+        scenario.events.poll = poll
+        with patch.object(check.time, 'monotonic', side_effect=range(0, 1000, 100)):
+            with self.assertRaisesRegex(Refusal, 'native_check_timeout'):
+                check.run(scenario.binding, scenario.events, scenario.report)
+        self.assertEqual(scenario.report['post_calls'], 1)
+
+    def test_started_stream_requires_send_invocation(self):
+        scenario = Scenario()
+        self.prepare(scenario)
+        original = scenario.events.poll
+        def poll():
+            original()
+            scenario.events.send_invocations.clear()
+        scenario.events.poll = poll
+        with self.assertRaisesRegex(Refusal, 'native_send_count'):
+            check.run(scenario.binding, scenario.events, scenario.report)
+        self.assertEqual(scenario.report['post_calls'], 1)
+
+    def test_extra_send_without_headers_prevents_second_request(self):
+        scenario = Scenario()
+        self.prepare(scenario)
+        original = scenario.events.poll
+        def poll():
+            original()
+            if scenario.events.completed:
+                scenario.events.send_invocations[:] = [1, 2]
+        scenario.events.poll = poll
+        with self.assertRaisesRegex(Refusal, 'unexpected_native_send'):
+            check.run(scenario.binding, scenario.events, scenario.report)
+        self.assertEqual(scenario.report['post_calls'], 1)
+
+    def test_unlogged_send_before_headers_is_caught_by_cleanup_counter(self):
+        scenario = Scenario()
+        self.prepare(scenario)
+        original = scenario.events.poll
+        def poll():
+            original()
+            if scenario.events.send_snapshots:
+                scenario.events.send_snapshots[-1]['send_invocations'] = 2
+        scenario.events.poll = poll
+        with self.assertRaisesRegex(Refusal, 'native_send_snapshot'):
+            check.run(scenario.binding, scenario.events, scenario.report)
+        self.assertEqual(scenario.report['post_calls'], 1)
+
     def test_pending_close_prevents_first_request(self):
         scenario = Scenario()
         self.prepare(scenario)
