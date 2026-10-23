@@ -55,6 +55,9 @@ struct CancelOnDrop { control: Arc<Control>, armed: bool }
 #[cfg(test)]
 #[path = "offline_routing_forward_tests.rs"]
 mod tests;
+#[cfg(test)]
+#[path = "offline_routing_refusal_tests.rs"]
+mod refusal_tests;
 impl Drop for CancelOnDrop {
     fn drop(&mut self) { if self.armed { self.control.cancel(); } }
 }

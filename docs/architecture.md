@@ -25,6 +25,16 @@ keeps the joined witness alive through lazy startup and the bounded client
 check. The browser service is outside
 this transfer, and old request attempts remain consumed.
 
+A native streaming refusal can carry a body that still owns the producer's
+bounded JSON reservation. The outer routing layer transfers that same body
+before awaiting cleanup, while retaining its separate account and device
+owner. Waiting for cleanup while retaining the error locally would create
+a circular wait. Body-less failures keep their existing cleanup ordering.
+At the HTTP boundary, failed heads carry the same independent completion
+and cleanup observers as successful heads. Dropping an error body therefore
+does not imply either successful cleanup or permanent uncertainty; the
+original cleanup result decides admission after that body is released.
+
 The account-import candidate accepts an expected Framer user ID
 and checks it before saving the session or provisioning account resources.
 With native dispatch configured, import also skips automatic browser prewarm.
