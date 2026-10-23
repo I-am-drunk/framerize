@@ -142,7 +142,10 @@ device lease until confirmed completion, then released and reopened a lease
 in the same generation. These single samples exclude the application server
 and authenticated requests. Review `df13c06d` accepts summary `dd8002d2` and
 its source/build bindings. The experimental owner now selects this exact
-flag; the application relink is pending and running services are unchanged.
+flag. Application result `05552129` binds the relinked binary `8ffa3077` to
+that owner library and the unchanged application sources. It is built only;
+running services are unchanged and the lazy host still requires an explicit
+sidecar path because the retained host library embeds the earlier default.
 The same variant also passes the existing explicit-cancel and dropped-owner
 cases after observed worker activity. Summary `6a451af4` preserves their
 joined cleanup and SDK-phase limits; live HTTP cancellation remains unproven.
