@@ -69,7 +69,7 @@ with zero swap/events, joined processes and absent unit/cgroup. This one
 sample excludes the Rust owner, host and authenticated inference. Summary
 `841d7c33` preserves the result without rerunning a baseline. The measurement
 tool permits this flag for further controlled comparison; production remains
-unchanged, and the new result has not received independent review.
+unchanged; this sample is included in the subsequent review below.
 
 Two further JITless samples passed using the unchanged worker and guards.
 The three-sample mean is now 57,839,616 bytes of group peak memory and
@@ -79,11 +79,18 @@ three reused baseline samples. Mean local minting time is 1230.173 ms,
 stayed zero. Summary `b55a2a79` preserves the original and two new results.
 This supports the memory direction across three small samples; it does not
 establish service memory or request latency. Production remains unchanged.
-An unapplied one-argument owner patch now prepares the next integration check.
-It is source-only, uncompiled and unrun. The actual owner clears inherited
-environment settings, so this explicit isolated variant is required to test
-its real launch and private-pipe path with JITless enabled. Its other four
-modules and the published production owner remain unchanged.
+Review `f68c813b` accepts the three-sample source and saved evidence without
+findings. A subsequent isolated owner variant now has two passing builds and
+two passing integration measurements. Actual-owner group peak was 59,097,088
+bytes versus the saved 75,116,544-byte baseline. With the host and its device
+lease, peak was 82,403,328 versus 102,887,424 bytes. Both cases retained joined
+cleanup, zero swap/events and absent units/cgroups; the host released its
+lease and admitted a fresh one in the same generation. These are single
+synthetic samples, not HTTP or authenticated delivery. Summary `dd8002d2`
+binds the new results and reused baselines; its independent review is pending.
+The one-argument patch remains unapplied to production. Next: independently
+review this integration evidence and validate cancellation with the same
+owner variant before considering adoption on the experimental branch.
 
 Two additional local cases now cancel the real worker after observed process
 activity. Explicit cancellation returns the expected failure; dropping the

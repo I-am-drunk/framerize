@@ -272,7 +272,8 @@ Group memory was 23.58% lower and reported RSS was 21.41% lower, while minting
 took 7.13% longer. These measurements describe one local comparison, not a
 reliable latency benchmark or a complete service saving. They exclude the
 Rust owner, native host, HTTP and authenticated inference. Summary `841d7c33`
-binds the saved run and reused baselines. Independent review is pending.
+binds the saved run and reused baselines. This sample is included in the
+subsequent three-sample review below.
 The measurement tool now permits `--jitless`; production does not select it.
 
 Two additional candidate-only samples checked whether that reduction repeats.
@@ -287,11 +288,31 @@ Summary `b55a2a79` binds the two new results, original sample and reused
 baselines. These are small samples collected at different times, not a
 reliable latency benchmark. The repeatable direction supports further
 integration work but proves no complete-service saving. Production remains
-unchanged; the combined three-sample evidence is not independently reviewed.
+unchanged. Review `f68c813b` accepts the three-sample source and saved evidence
+with no findings. It does not approve a production change or live request.
 
-The next isolated comparison is prepared as an
+Two further integration comparisons use the
 [unapplied owner patch](../reference/analysis/offline-worker-owner-jitless.patch).
 It adds only the fixed `--jitless` argument to the real owner's launch command;
-the other four owner modules remain exact. This source is UNCOMPILED/UNRUN.
-It will reuse the existing owner harness, private pipes and cleanup checks.
-It has no build or runtime result and does not change production policy.
+the other four owner modules remain exact. The isolated library and unchanged
+owner harness both compiled. One owner-only run and one combined host/owner
+run then passed using the original SDK, synthetic inputs and cleanup checks.
+Their matching earlier baselines were reused without another baseline run.
+
+| Scope | Earlier group peak, bytes | JITless group peak, bytes | Change |
+| --- | ---: | ---: | ---: |
+| Owner and worker | 75,116,544 | 59,097,088 | -21.33% |
+| Host, owner and worker | 102,887,424 | 82,403,328 | -19.91% |
+
+The combined case retained its device lease through worker completion, then
+confirmed release and a fresh lease in the same host generation without a
+second mint. Both cases joined their processes, recorded zero swap or memory
+events, and left no unit or cgroup. Owner intervals were 1918.245 ms and
+1911.415 ms respectively. One sample per scope, with older baselines, does
+not establish a latency improvement. Summary `dd8002d2` binds both builds,
+both new runs and the two reused results; its independent review is pending.
+
+The combined group includes measurement helpers and excludes the application
+server, HTTP and authenticated inference. It does not establish the complete
+100 MB target. Only isolated measurement binaries contain the new flag;
+the staged application and production launch policy remain unchanged.
