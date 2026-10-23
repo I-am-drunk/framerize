@@ -110,8 +110,7 @@ The worker joined, the unit and cgroup disappeared, and swap and memory events
 were zero. Saved comparison `2bf821c0` records the result. It has not received
 independent review. The [experimental patch](../reference/analysis/offline-worker-verification-buffer.patch)
 is preserved for reproduction and is not applied to production.
-Next investigate the components of JSDOM's import allocation with one
-isolated import-only measurement. Keep the existing DOM behavior unchanged.
+This led to the import-only diagnostic below.
 
 ## Import-only allocation diagnostic
 
@@ -130,11 +129,42 @@ negative because collection and measurement overhead affect these boundaries.
 The values locate candidates; they do not assign exact ownership of memory.
 
 Source inspection finds eager property-descriptor installation on the CSS
-style prototype at this point. The next hypothesis is allocation caused by
-repeated prototype changes. Any experiment must retain the final properties,
-descriptors and CSS behavior and preserve the original dependency separately.
-No dependency change has been applied.
+style prototype at this point. The subsequent experiment below investigates
+allocation caused by repeated prototype changes. No dependency change has
+been applied to production.
 
 All inputs remained exact. The worker joined, its unit and cgroup disappeared,
 and swap and memory events were zero. Summary `89f3ecc3` records the result;
 it is locally checked and has not received independent review.
+
+## CSS prototype construction experiment
+
+A separate dependency copy adds and removes two temporary symbol properties
+before installing the original CSS properties. The original dependency stays
+unchanged. The [fixture](../scripts/measure_offline_css.mjs) uses an explicit
+read-only overlay and checks its actual source hash.
+
+The first pair matched all 1,553 final property descriptors and the hashes of
+1,537 per-setter observations. These compare the two implementations with the
+same inputs; they do not establish comprehensive CSS correctness. Group peak
+fell from 49,573,888 to 43,384,832 bytes in this import-and-fixture workload.
+Summary `5a262d7f` preserves this limited result.
+
+One full synthetic mint then used the same experimental overlay with all
+seven worker modules unchanged. The measurement child checked the overlaid
+file's hash before and after minting. The original SDK, device and cleanup
+checks passed. Group peak was 74,878,976 bytes, only 8,192 bytes below the
+lowest saved baseline sample, with reported process RSS of 122,822,656 bytes.
+Minter time was 1330.950 ms against the baseline mean of 1186.823 ms.
+
+The apparent import saving did not produce a useful full-worker result.
+The [dependency patch](../reference/analysis/offline-worker-css-layout.patch)
+is preserved but remains unapplied. All three workers joined, their units
+and cgroups disappeared, and swap and memory events were zero.
+Full-mint summary `c46984c2` and the fixture summary are locally checked,
+not independently reviewed. No service or real account was used.
+
+Further measurement should cover the real worker entry and private pipe
+handoff under its owner. These direct-minter experiments do not measure that
+integration. Existing owner tests and saved validation should be checked
+before adding a focused measurement, to avoid repeating established results.

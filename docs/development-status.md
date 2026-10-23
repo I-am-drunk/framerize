@@ -31,8 +31,15 @@ The process group peaked at 41,947,136 bytes with zero swap/events and clean
 teardown. This excludes SDK execution and is not a full-worker improvement.
 Summary `89f3ecc3` and the published probe preserve the diagnostic and its
 GC/nested-allocation limits. No service, dependency or account was changed.
-Next test whether prototype construction causes avoidable allocation while
-requiring identical final descriptors and CSS behavior. Production is unchanged.
+The prototype-construction experiment then matched all 1,553 descriptors and
+1,537 per-setter observation hashes. Its import-and-fixture group peak fell
+from 49,573,888 to 43,384,832 bytes. A full synthetic mint with the same
+dependency copy passed, but its 74,878,976-byte group peak was essentially
+the existing baseline range, and its 1330.950 ms elapsed time was higher.
+That patch also remains unapplied. Summaries `5a262d7f` and `c46984c2` preserve
+the results and limits; they are not independently reviewed.
+Next inspect existing real worker-entry/pipe evidence before preparing a
+focused measurement with the actual owner. Production is unchanged.
 
 The isolated client now records monotonic request timings, starting before
 connection/request work. It distinguishes headers, first complete text,

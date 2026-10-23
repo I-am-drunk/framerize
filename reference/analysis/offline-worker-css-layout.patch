@@ -1,0 +1,10 @@
+--- a/node_modules/cssstyle/lib/CSSStyleDeclaration.js
++++ b/node_modules/cssstyle/lib/CSSStyleDeclaration.js
+@@ -595,0 +596,7 @@
++// Experimental internal layout; final own properties stay unchanged.
++const framerizeLayoutKeys = [Symbol(), Symbol()];
++for (const key of framerizeLayoutKeys) {
++  Object.defineProperty(CSSStyleDeclaration.prototype, key, { value: 0, configurable: true });
++}
++for (const key of framerizeLayoutKeys) delete CSSStyleDeclaration.prototype[key];
++
