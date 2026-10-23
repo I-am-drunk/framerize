@@ -21,6 +21,8 @@ use tower_http::services::ServeDir;
 #[cfg(feature = "native-dispatch")]
 mod native_dispatch;
 #[cfg(feature = "native-dispatch")]
+mod native_enrollment;
+#[cfg(feature = "native-dispatch")]
 pub mod native_control;
 #[cfg(feature = "native-dispatch")]
 pub use native_dispatch::http_stream::{with_native_streaming, NativeStreamCompletion,
@@ -168,8 +170,10 @@ pub fn router_with_request_layer(state: AppState, web_dir: &str,
         .route("/accounts/begin", post(begin_login))
         .route("/accounts/complete", post(complete_login))
         .route("/accounts/import", post(import_account))
-        .route("/run", post(run))
-        .with_state(state.clone());
+        .route("/run", post(run));
+    #[cfg(feature = "native-dispatch")]
+    let api = api.route("/accounts/native/enroll", post(native_enrollment::enroll));
+    let api = api.with_state(state.clone());
 
     // Compat surfaces: thin translating proxies onto Framer's native dialect
     // routes. See reference/analysis/compat-mapping.md.

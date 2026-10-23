@@ -3,6 +3,19 @@
 Updated 2026-10-23. The normal service remains browser-based. Publishing these
 branches does not change the running service.
 
+Initial native enrollment is now implemented in source. The new native-only
+account endpoint checks the expected login, stored session and exclusive
+account ownership before asking the host to enroll the observed device.
+The host requires explicit startup opt-in, refuses prior account/profile
+history, and charges a full cooldown/window before any first request.
+Enrollment does not manufacture a restoration receipt or clear old history.
+
+All 34 focused Python host cases pass, including nine new enrollment cases.
+They use temporary state and synthetic clocks; peak was 34,918,400 bytes,
+with zero swap/events and verified teardown. The Rust endpoint/bridge and
+nine new server cases remain UNCOMPILED/UNRUN. The previous built executable
+does not contain this change. Neither service nor any live account changed.
+
 The retained JITless cancellation, device-bridge results and memory-attribution
 reviews are now complete. All three accept source and saved evidence with no
 findings. Their exact receipts are bound to the existing inactive preparation;
@@ -12,7 +25,7 @@ A bounded read-only check found an authenticated saved Framer login outside
 the browser service's current configured account set. The browser generation
 remained unchanged. No cookie was exported or account imported. Native
 admission still requires genuine device selection and cooldown history;
-initial admission for this account is the next integration task. This is
+validation and owned initial admission are the next integration tasks. This is
 not authenticated inference or permission to manufacture restored state.
 
 An account-import candidate now checks an optional expected Framer

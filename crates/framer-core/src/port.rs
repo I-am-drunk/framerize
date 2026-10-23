@@ -61,6 +61,11 @@ pub struct WorkspaceSpec {
 /// webview only.
 #[async_trait]
 pub trait BrowserBridge: Send + Sync {
+    async fn enroll_native_device(&self, _account: AccountId, _user: &FramerUserId,
+        _device: &str)
+        -> Result<crate::native_device::DeviceEnrollment, crate::native_device::DeviceFailure> {
+        Err(crate::native_device::DeviceFailure::Rejected)
+    }
     async fn open_native_device(&self, _account: AccountId)
         -> Result<crate::native_device::DeviceGrant, crate::native_device::DeviceFailure> {
         Err(crate::native_device::DeviceFailure::Rejected)

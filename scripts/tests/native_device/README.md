@@ -2,6 +2,12 @@ This source component connects native issuance to an existing host lifecycle.
 It requires completed restoration, an absent browser, the saved primary device
 and the unchanged canonical device file. Missing authority refuses admission.
 
+An explicit initial-enrollment mode now exists for a new native account.
+It accepts an observed device only when no lifecycle or profile is present,
+refuses duplicate login/device ownership, and begins with a full cooldown
+and request window. It neither invents a prior host nor grants restoration
+authority. Existing files and uncertain work prevent reenrollment.
+
 Open retains the lifecycle's active command count. Mint admission shares the
 same cooling/request dictionaries, enforces the configured mint spacing and
 charges one possible request before returning. Charges survive cancellation.
@@ -27,3 +33,9 @@ correction is not deployed. Four focused checks now cover the two handoff cases
 and the existing installer ownership cases; the other saved checks are reused.
 The handoff fixture executes the actual host closure method with inert disposal.
 The runtime owner still controls real-request validation and deployment.
+
+On 2026-10-23, all 34 component cases pass, including nine new initial
+enrollment cases. They cover time boundaries, private files, preserved
+history, unknown cleanup, generation change, identity reuse and partial
+write refusal. Clocks and account data are synthetic. Rust endpoint and
+bridge validation remain pending; this result does not authorize live use.

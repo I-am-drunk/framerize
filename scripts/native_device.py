@@ -56,6 +56,14 @@ def saved_devices(root, account):
     return set(devices), hashlib.sha256(raw).hexdigest()
 
 
+def private_new(path, raw):
+    fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600)
+    with os.fdopen(fd, 'wb') as stream:
+        stream.write(raw)
+        stream.flush()
+        os.fsync(stream.fileno())
+
+
 class Grant:
     def __init__(self, device, digest):
         self.device, self.digest = device, digest
@@ -67,12 +75,62 @@ class Grant:
 
 class NativeDevices:
     def __init__(self, host, root, *, gap, window, capacity, cooldown,
-                 clock=time.monotonic, sleep=asyncio.sleep):
+                 clock=time.monotonic, sleep=asyncio.sleep, lifecycle_type=None):
         self.host, self.root = host, Path(root).resolve(strict=True)
         self.gap, self.window, self.cooldown = map(finite, (gap, window, cooldown))
         require(self.gap <= 900 and self.window > 0 and self.cooldown > 0
                 and type(capacity) is int and capacity > 0, 'invalid native rate policy')
         self.capacity, self.clock, self.sleep = capacity, clock, sleep
+        self.lifecycle_type = lifecycle_type
+
+    def enroll(self, request):
+        require(not getattr(self.host, '_closed', False), 'native host is closed')
+        require(self.lifecycle_type is not None, 'native enrollment unavailable')
+        account = identifier(request['account'])
+        enrollment = identifier(request['enrollment'])
+        user, device = request['user'], request['device']
+        require(type(user) is str and 0 < len(user) <= 128 and user.strip() == user,
+                'invalid native login identity')
+        require(type(device) is str and
+                re.fullmatch(r'[A-Za-z0-9._~-]{1,256}', device),
+                'invalid observed native device')
+        require(account not in self.host.lifecycles and account not in self.host.accounts,
+                'native account already has history')
+        require(getattr(self.host, '_observed', None) is None,
+                'native enrollment conflicts with observed ownership')
+        user_digest = hashlib.sha256(user.encode()).hexdigest()
+        require(len(self.host.lifecycles) < 64 and all(
+            getattr(life, 'native_enrollment_user_sha256', None) != user_digest
+            and getattr(life, 'restored_primary_device', None) != device
+            for life in self.host.lifecycles.values()),
+            'native enrollment identity already owned')
+        directory = self.root / account
+        require(not directory.exists() and not directory.is_symlink(),
+                'native profile already exists')
+        now = finite(self.clock())
+        horizon = max(self.gap, self.window, self.cooldown)
+        life = self.lifecycle_type()
+        life.restored_primary_device = device
+        life.native_enrollment_generation = self.host.generation
+        life.native_enrollment_user_sha256 = user_digest
+        life.cooling[device] = now + horizon
+        life.requests[device] = deque([now] * self.capacity)
+        life.last_mint = now
+        directory.mkdir(mode=0o700)
+        device_bytes = (json.dumps([device]) + '\n').encode()
+        private_new(directory / 'framerize-devices.json', device_bytes)
+        life.native_initial_device_sha256 = hashlib.sha256(device_bytes).hexdigest()
+        receipt = dict(format=1, account=account, enrollment=enrollment,
+                       generation=self.host.generation, enrolled_monotonic=now,
+                       hold_seconds=horizon,
+                       user_sha256=hashlib.sha256(user.encode()).hexdigest(),
+                       device_sha256=hashlib.sha256(device.encode()).hexdigest())
+        private_new(directory / 'native-enrollment.json',
+                    (json.dumps(receipt, sort_keys=True) + '\n').encode())
+        self.host.lifecycles[account] = life
+        return dict(enrolled=True, enrollment=enrollment,
+                    generation=self.host.generation,
+                    cooldown_ms=math.ceil(horizon * 1000))
 
     def grant(self, request):
         require(not getattr(self.host, '_closed', False), 'native host is closed')
@@ -92,8 +150,11 @@ class NativeDevices:
         require(not getattr(self.host, '_closed', False), 'native host is closed')
         account, lease = identifier(request['account']), identifier(request['lease'])
         restored = getattr(self.host, '_cooldown_restoration', {})
-        require(restored.get('generation') == self.host.generation, 'rate restoration required')
         life = self.host.lifecycles.get(account)
+        initially_enrolled = (getattr(life, 'native_enrollment_generation', None)
+                              == self.host.generation)
+        require(restored.get('generation') == self.host.generation or initially_enrolled,
+                'rate restoration required')
         require(life is not None and life.phase == 'absent'
                 and account not in self.host.accounts
                 and getattr(life, 'browser', None) is None
@@ -108,6 +169,9 @@ class NativeDevices:
                 'native owner capacity or identity conflict')
         device = getattr(life, 'restored_primary_device', None)
         devices, digest = saved_devices(self.root, account)
+        if initially_enrolled:
+            require(digest == life.native_initial_device_sha256,
+                    'initial native device state changed')
         require(type(device) is str and device in devices
                 and re.fullmatch(r'[A-Za-z0-9._~-]{1,256}', device),
                 'restored primary device unavailable')
@@ -190,6 +254,8 @@ class NativeDevices:
 
     async def handle(self, request):
         command = request['cmd']
+        if command == 'native_device_enroll':
+            return self.enroll(request)
         if command == 'native_device_open':
             return self.open(request)
         if command == 'native_device_mint':
