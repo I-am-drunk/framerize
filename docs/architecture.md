@@ -37,6 +37,10 @@ private network namespace with complete synthetic account records. It binds
 restoration to that server's actual process, exercises missing-session release
 through normal streaming routes and preserves full-window and changed-JSON
 refusals. It never supplies real session credentials or starts the SDK.
+Final review `f299b5c3` accepts the fixture source and three distinct saved
+cases. The original failed status assertion remains recorded; only the
+corrected case was rerun. This validates synthetic restoration and device
+release through the server, with no authenticated delivery or deployment claim.
 
 Normal API routing additionally requires `--offline-routing-config`.
 `examples/browserless-routing.json` provides bounded, unpaid streaming limits;

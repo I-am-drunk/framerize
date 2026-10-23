@@ -128,6 +128,13 @@ events. The fixture reaped its server and adopted host processes; both units
 and cgroups were absent afterward. These are synthetic admission/refusal and
 cleanup checks, not authenticated streaming or deployment acceptance.
 
+Final review `f299b5c3` accepts this source and saved evidence with no findings,
+binding freeze `caf09f97`, summary `cdc939cc` and verification `860a35a5`.
+It covers 65 seals, five published files, 13 unchanged production contexts
+and 42 synthetic outputs. The two original passes are reused exactly; R1
+remains failed overall. No current service, real account, SDK execution or
+authenticated delivery is accepted by this receipt.
+
 The checker limits its own execution to two POST calls. Exclusive request
 ownership still requires coordination with other callers. Completion
 metadata is not an exhaustive count of transport starts, and a missing

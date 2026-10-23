@@ -111,6 +111,14 @@ Current and peak swap were zero; all owned processes joined and both temporary
 units and cgroups disappeared. Real accounts, SDK work and authenticated
 inference remain outside this fixture. The accepted binary is still staged.
 
+Final restored-daemon review `f299b5c3` accepts the source and saved evidence
+with no findings. Verification `860a35a5` binds freeze `caf09f97`, summary
+`cdc939cc`, 65 seals, five published files, 13 unchanged production contexts
+and 42 synthetic outputs. Two R1 passes are reused; one corrected R2 case
+passes. R1 remains failed overall. Receipt hashes and freeze/summary bindings
+were checked without rerunning tests or querying either service. Real-account
+selection and the bounded authenticated stream check remain pending.
+
 The new `examples/browserless-routing.json` configuration passes a separate
 process fixture for normal streaming dispatch. With an empty account store,
 the request reaches native dispatch and returns the expected `Ineligible`
