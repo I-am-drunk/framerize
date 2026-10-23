@@ -144,6 +144,13 @@ case. No browser is launched in these fixtures; browser launch objects are
 inert. The accepted server binary is reused with the candidate host selected
 explicitly. Its generated hash is `e09123fe`; support bytes are unchanged.
 
+Final review `35d0b188` accepts the frozen source and saved evidence with no
+findings, binding freeze `1e7ef8bc`, summary `a36c1078` and verification
+`1eb6de8f`. The memory comparison is one matched raw-host initialization
+sample before its startup hook or SDK work. It does not validate an actual
+browser launch or total service memory. The staged executable still embeds
+the old default; a later activation must select the new host explicitly.
+
 The checker limits its own execution to two POST calls. Exclusive request
 ownership still requires coordination with other callers. Completion
 metadata is not an exhaustive count of transport starts, and a missing

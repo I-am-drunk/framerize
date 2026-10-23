@@ -17,8 +17,11 @@ the baseline loaded 78. These are one-process, one-sample measurements before
 SDK work or inference. They do not establish total service memory or latency.
 The three server cases peaked at 41,328,640 bytes, with seven tasks, zero swap
 and no memory events. Their processes joined and the test unit/cgroup are gone.
-This is source and fixture evidence; independent review and real-account
-validation remain separate from these results.
+Final review `35d0b188` accepts the source and saved evidence with no findings,
+binding freeze `1e7ef8bc` and summary `a36c1078`. Verification `1eb6de8f`
+covers all 106 seals. This does not accept an actual browser launch, SDK run,
+authenticated stream or current deployment. Real-account validation remains
+pending, and the live browser service remains untouched.
 
 The current instruction is to leave the live browser service untouched and
 run browserless in a separate instance. T3 update work is set aside. The live

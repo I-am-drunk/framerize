@@ -48,6 +48,9 @@ not import Camoufox or Playwright. The browser path retains its transport
 verification, per-account launch options and close ownership. Missing browser
 dependencies refuse a browser launch without preventing native host startup.
 This host change is validated in isolation and has not been installed.
+Final review `35d0b188` accepts its source and saved evidence. The existing
+server binary still embeds the old default host, so this candidate requires
+explicit `--sidecar-script` selection until a later executable rebuild.
 
 Normal API routing additionally requires `--offline-routing-config`.
 `examples/browserless-routing.json` provides bounded, unpaid streaming limits;
