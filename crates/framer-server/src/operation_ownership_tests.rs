@@ -178,7 +178,8 @@ async fn body_error_without_a_completion_observer_stays_unconfirmed() {
 
 #[tokio::test]
 async fn disconnected_browser_chain_retains_uncertainty_when_current_call_loses_cleanup() {
-    for error in ["host-lifecycle-unconfirmed: fixture lost", "sidecar timeout after 900s (cmd ai_post)"] {
+    for error in ["host-lifecycle-unconfirmed: fixture lost", "sidecar timeout after 900s (cmd ai_post)",
+        "sidecar account command timed out (cmd ai_post)"] {
         let mut f = fixture::Fixture::new();
         f.state = with_owned_operations(f.state, 32).unwrap();
         let ownership = f.state.operation_ownership.clone().unwrap();
@@ -194,6 +195,9 @@ async fn disconnected_browser_chain_retains_uncertainty_when_current_call_loses_
         assert!(matches!(tokio::time::timeout(WAIT, ticket.wait_application()).await.unwrap(),
             Err(GateError::Unconfirmed)));
         assert!(ownership.gate.stats().unwrap().unconfirmed);
+        let snapshot = f.state.serving_accounts.residents.snapshot().unwrap();
+        assert!(snapshot.residents.iter().any(|slot|
+            slot.account == call.account && slot.uncertain));
         f.no_call();
     }
 }

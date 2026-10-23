@@ -49,6 +49,12 @@ the already-started call owned until it returns. Native responses use their
 existing completion and cleanup observers. Dropping a response does not itself
 prove cleanup, and it must not start another mint or drain an abandoned chain.
 
+For cancellable browser calls, the host returns after one attempt. Rust checks
+whether the client is still present before authorizing a retry or optional
+refund. An already-started call retains its owner through the real reply, with
+one overall deadline. An unknown timeout or refund cleanup remains unconfirmed.
+Legacy raw and paid response paths without observers retain their prior limits.
+
 Worker protocol version 2 carries the private saved device through a pipe.
 The worker seeds its isolated storage before loading the SDK and checks that
 the value remains unchanged. This does not establish upstream acceptance or

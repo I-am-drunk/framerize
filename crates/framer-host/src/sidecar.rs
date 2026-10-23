@@ -469,6 +469,23 @@ impl SidecarBridge {
         }
     }
 
+    async fn ai_post_result(&self, account: &AccountId, value: Value)
+        -> Result<(u16, Option<String>, String), String> {
+        let ai_result::OwnedAiPostResult { status, usage, text, queue_wait_ms } =
+            ai_result::take_ai_post_result(value);
+        self.queue_wait.lock().await.insert(*account, queue_wait_ms);
+        if status == 0 {
+            if text.contains("velocity-paused") {
+                return Ok((0, usage, text));
+            }
+            return Err("castle-v3-unavailable".into());
+        }
+        if status == -1 {
+            return Err(format!("in-page fetch failed: {text}"));
+        }
+        Ok((status as u16, usage, text))
+    }
+
     async fn call_account(&self, account: &AccountId, cmd: &str, extra: Value) -> Result<Value, String> {
         // Own route selection too: it may start the host before the command.
         let _admission = self.admit_unscoped()?;
@@ -575,25 +592,33 @@ impl BrowserBridge for SidecarBridge {
                 json!({ "path": path, "bearer": bearer, "body": body }),
             )
             .await?;
-        let ai_result::OwnedAiPostResult { status, usage, text, queue_wait_ms } =
-            ai_result::take_ai_post_result(v);
-        self.queue_wait
-            .lock()
-            .await
-            .insert(*account, queue_wait_ms);
-        if status == 0 {
-            // velocity-paused must reach proxy.rs's 429-backoff mapping (chains
-            // wait-and-retry) — flattening it to castle-v3-unavailable made
-            // chains DIE during full-device-cooldown saturation (2026-10-06).
-            if text.contains("velocity-paused") {
-                return Ok((0, usage, text));
+        self.ai_post_result(account, v).await
+    }
+
+    async fn ai_post_cancellable(
+        &self, account: &AccountId, path: &str, bearer: &str, body: &Value,
+        cancelled: Option<&(dyn Fn() -> bool + Send + Sync)>,
+    ) -> Result<(u16, Option<String>, String), String> {
+        let Some(cancelled) = cancelled else {
+            return self.ai_post(account, path, bearer, body).await;
+        };
+        let request = async {
+            for attempt_index in 0..3 {
+                if cancelled() { return Err("client cancelled".into()); }
+                // One host fetch at a time. Keep its real reply owned, then check
+                // cancellation before authorizing a device retry in another call.
+                let value = self.call_account(account, "ai_post", json!({
+                    "path": path, "bearer": bearer, "body": body,
+                    "defer_retries": true, "attempt_index": attempt_index,
+                })).await?;
+                if value.get("_retry_device").and_then(Value::as_bool) != Some(true) {
+                    return self.ai_post_result(account, value).await;
+                }
             }
-            return Err("castle-v3-unavailable".into());
-        }
-        if status == -1 {
-            return Err(format!("in-page fetch failed: {text}"));
-        }
-        Ok((status as u16, usage, text))
+            Err("host-lifecycle-unconfirmed: invalid browser retry budget".into())
+        };
+        tokio::time::timeout(REQ_TIMEOUT, request).await
+            .map_err(|_| "sidecar account command timed out (cmd ai_post)".to_owned())?
     }
 
     async fn last_queue_wait_ms(&self, account: &AccountId) -> u64 {
