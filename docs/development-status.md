@@ -3,6 +3,13 @@
 Updated 2026-10-23. The normal service remains browser-based. Publishing these
 branches does not change the running service.
 
+The admission repair is now deployed and passed its real normal-route check.
+An unmetered request was disconnected after its browser fetch started. The
+current call finished, cleanup completed, and no additional attempt started.
+A second request then returned a complete HTTP 200 response without a service
+restart. This verifies the bounded cancellation and recovery case, not every
+historical 503 or successful browserless delivery.
+
 The admission repair on `fix/live-admission-503-20261023` adds completion
 evidence for assembled nonstream Responses bodies and stops future attempts
 when their HTTP waiter disconnects. An unread completed body previously
@@ -13,7 +20,7 @@ including the three new nonstream cases. The first run passed 18 of 19 cases.
 The unknown-cleanup fixture omitted the existing second-account failover reply.
 The correction supplies that reply and retains earlier cleanup uncertainty
 even if a later account succeeds. The corrected source has independent review
-acceptance; live deployment remains pending. The local rustfmt component is unavailable.
+acceptance and is deployed in R12. The local rustfmt component is unavailable.
 Review found a retry-admission early return that bypassed the accumulated
 cleanup outcome. Its correction and focused case preserve
 its status, body and retry headers. The intermediate snapshot remains unrun.
@@ -25,24 +32,26 @@ host event after the in-page fetch starts. The event contains only the job
 identifier and route. The corrected 19-case run used a peak of 16.4 MB,
 with no recorded swap or resource events. The built executable is `e0ff2db9`.
 Independent saved-results review accepts the build and its 19 selected cases.
-The normal-endpoint release retains
-the current R9 support
+The normal-endpoint release retains the current R9 support
 package and worker configuration; the separate R11 device handoff remains
-undeployed. Live acceptance requires a cancelled request followed by a
-complete response on the same service generation.
+undeployed. Live acceptance passed on 2026-10-23 at 04:14 UTC with exactly
+two requests on one service generation. Account isolation was unchanged.
+The 103 samples recorded 4.27 to 4.71 GB of shared browser-service memory,
+with zero swap or memory events. This establishes no memory saving.
 
 The frozen R12 operational delta is published in
 [admission-repair-release-r12.patch](../reference/analysis/admission-repair-release-r12.patch).
-Independent source review accepts this release package. The concrete plan and
-two-request client remain under final review. Publication does not change the
-service or establish a successful live request.
+Independent review accepted the source, exact plan and two-request client.
+The coordinated deployment and result checks passed, and the owned maintenance
+hold was released before the live requests. Earlier failed evidence is retained.
 
 The owner's 03:32:48 UTC diagnosis found the previous binary in a new service
 generation (main 2270461, started 03:28:49). Health and pool returned 200.
 Those observations do not verify real inference or establish the cause of
-the user's earlier request. Next: collect the final plan/client acceptance and
-quiet acknowledgements, then run one coordinated deployment and the real
-normal-endpoint cancellation and recovery check. Reuse the completed build.
+the user's earlier request. The later R12 live check above verifies the focused
+repair. Next: carry the accepted native-device handoff into an additive release
+that retains this running repair, then continue the single browserless trial.
+Reuse the completed build and device-hook checks.
 
 The original disconnect correction was deployed from `browserless`. R9 completed its
 fresh admission, drain, startup and release checks on 2026-10-23. The maintenance
