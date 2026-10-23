@@ -133,11 +133,15 @@ That flag is not selected by the production worker; see the measurement
 report for the separate process/group results and their limits.
 Two subsequent local samples retained the memory reduction. The three-sample
 mean group peak is 57,839,616 bytes, 22.90% below the reused baseline mean,
-with 3.65% more local minting time. The actual owner/host/request integration
-has not been measured with this flag; production still uses its original policy.
-An unapplied one-argument patch prepares that owner integration measurement.
-The source variant is uncompiled/unrun and retains the original environment,
-private pipes, sandbox, freshness, cancellation and join logic.
+with 3.65% more local minting time. The actual owner and host integration
+was subsequently measured with an isolated one-argument owner variant.
+The actual owner and worker peaked at 59,097,088 bytes, and the combined host,
+owner and worker at 82,403,328 bytes. Both synthetic cases retained private
+pipes, sandboxing, freshness and joined cleanup. The combined case kept its
+device lease until confirmed completion, then released and reopened a lease
+in the same generation. These single samples exclude the application server
+and authenticated requests. Summary `dd8002d2` awaits independent review;
+production still uses its original policy and the patch remains unapplied.
 
 The separate `measure_owned_offline_worker.rs` harness links the unchanged
 owner library from the accepted application build. It runs the original
