@@ -13,6 +13,17 @@ Generated hosts locate cooldown state from their canonical
 `root/profiles/.sidecar/camoufox` path, rather than from shared source code.
 They continue to reject stale or changed handoffs within their own instance.
 An empty isolated instance can validate startup without claiming inference.
+
+The application/worker memory harness now keeps a synthetic application and
+lazy host alive during one separate owned SDK mint. The setup request remains
+inside a private network and refuses for missing session before inference.
+The harness records group memory separately from summed process memory.
+Denied detailed process maps use explicit RSS fallback; malformed, missing
+or membership-changing samples are rejected. This covers simultaneous
+component residency, not a real authenticated HTTP pipeline. The standalone
+probe retains its 128 MiB requirement; an explicit compile mode permits the
+combined fixture's 256 MiB group. Neither mode changes service configuration.
+
 Session storage follows the selected `profiles/.sessions` directory. Native
 admission also requires verified cooldown restoration for the host generation
 and its actual selected device; account import alone does not establish these.

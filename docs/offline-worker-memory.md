@@ -1,5 +1,27 @@
 # Local worker memory measurements
 
+The latest combined sample (2026-10-23) includes the application server,
+lazy host, separate owned worker and measurement helpers. It does not send
+an authenticated request. Group peak was 89,899,008 bytes, sampled process
+PSS with RSS fallback was 159,323,136 bytes, and summed process RSS was
+195,010,560 bytes. The lower group charge does not prove that the complete
+service fits within 100 MB. Shared mappings, charging and measurement scope
+differ between these counters.
+
+There were 83 complete process samples and one rejected membership change.
+One process required RSS fallback because its detailed map was unavailable.
+Eight focused tests verify that fallback is counted and that partial,
+malformed or changing-membership samples are rejected. The first measurement
+failed its coverage check and remains failed; a later missing output-parent
+error occurred before admission and is also preserved.
+
+The worker owner interval was 2233.986 ms, including startup and joined
+cleanup. The application remained alive afterward. Final cleanup left no
+unit or cgroup, with 18 peak tasks and zero swap or memory events. The
+existing application and probe binaries were reused. Summary `9e644000`
+binds the completed results. This single synthetic sample neither measures
+real request latency nor completes authenticated streaming acceptance.
+
 On 2026-10-23, six isolated runs tested the SDK worker with a synthetic
 project and device. No account, session, browser service or upstream request
 was used. Locally generated tokens were discarded without writing their

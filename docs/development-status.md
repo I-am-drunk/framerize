@@ -8,8 +8,20 @@ the already built and measured variant exactly. Owner/host review `df13c06d`
 accepts that source and saved integration evidence. Both cancellation cases
 also pass, with their separate independent review pending. The targeted
 application link now passes: result `05552129` binds executable `8ffa3077`
-and 6,272 inputs. The binary is built, not installed or executed. Running
-services and browser-based branches are unchanged.
+and 6,272 inputs. The binary has run only in isolated synthetic fixtures;
+it is not deployed. Running services and browser-based branches are unchanged.
+
+A combined application, lazy-host and separate owned-worker measurement now
+passes. Its group peak is 89,899,008 bytes, while sampled process PSS with
+explicit RSS fallback peaks at 159,323,136 bytes. Summed process RSS peaks at
+195,010,560 bytes. These are different accounting measures, not interchangeable
+estimates. The result does not establish the 100 MB service target.
+The synthetic worker completed in a 2,233.986 ms owner interval. It joined,
+the application remained alive afterward, and final cleanup left no unit or
+cgroup, with zero swap/events. Eight new sampler cases pass; summary `9e644000`
+binds those results and the unchanged probe/application binaries. The failed
+first measurement and prelaunch directory-setup error are preserved. No
+authenticated inference, browser-service change or live-account access occurred.
 
 Review `4e69d24b` accepts the application source and saved build bindings with
 no findings. It grants no runtime or delivery approval. Preparation `398c1c63`
