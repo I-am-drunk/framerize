@@ -33,11 +33,14 @@ expectations refuse before I/O. Existing imports may omit the field; the
 isolated setup should always bind it to its independently selected login.
 The same candidate skips automatic browser prewarm when native dispatch is
 configured. It does not initialize a device or bypass cooldown restoration.
-Four new fixture cases are UNRUN; no installed binary has this change yet.
+The four new cases and four retained import regressions pass; no installed
+application binary has this change yet.
 The first validation attempt failed its unit-identity check before compiling;
 the second reached the compiler and found an existing test initializer missing
-the new optional field. That fixture now supplies `None`. Preserve both failed
-attempts and compile the correction before running the eight selected cases.
+the new optional field. That fixture now supplies `None`. The fresh R3 compile
+and eight-case run pass, with exact discovery and serial filters, zero swap
+and verified cleanup. Summary `8f46157b` preserves both earlier failures.
+Rebuild the application before binding this source to an isolated live plan.
 
 Use one owned generation and at most two model requests. The first stream
 must demonstrate actual response text before its client disconnects, with
