@@ -188,7 +188,7 @@ main, sidecar, boot, cgroup and invocation identities across the saved result.
 The source is recorded in
 [r16-runtime-recovery.patch](../reference/analysis/r16-runtime-recovery.patch).
 
-R17 is frozen for source review against that recovered generation. It retains
+R17 has source, plan and client acceptance against that recovered generation. It retains
 all seven R16 worker files and the R15 binary, host and support package.
 Preparation and baseline capture verify the exact recovered processes before
 accepting the release inputs. The 82 local seals and 148 source declarations
@@ -196,8 +196,17 @@ preserve the failed attempts, recovery receipts and eight protected files.
 The source seal is `015fca72`; the manifest is `04a400a7`.
 Its source delta is published in
 [worker-identity-release-r17.patch](../reference/analysis/worker-identity-release-r17.patch).
-No R17 deployment or request has run. Next: complete source, plan and client
-review, then coordinate passive quiet through cooldown, drain and startup.
+Its first attempt stopped before controller launch at the unchanged disk
+reserve guard: 873,046,016 bytes were available, below the strict 1 GiB floor.
+No deployment, rollback or request ran. The refusal remains preserved, and all
+three peers received an early release from their quiet holds.
+Verified package-index cache and one redundant browser download were removed,
+recovering 333,922,304 allocated bytes. Installed packages, the extracted
+browser, profiles, runtime state and frozen evidence were preserved.
+At 06:52 UTC, 1,169,182,720 bytes were available. This is modest headroom,
+not fresh deployment admission. Next: record a separate attempt using the
+unchanged accepted plan and arrange new quiet acknowledgements before its
+fresh cooldown, resource, generation, drain and startup checks.
 The existing builds and focused tests are reused. The independent test cleanup
 remains separate, with 27 batches awaiting later owner validation.
 
