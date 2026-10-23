@@ -66,6 +66,14 @@ cases are reused. Final client/owner review is accepted with no findings.
 The coordinated live sequence remains pending fresh quiet acknowledgements
 and every existing runtime guard. No additional inference probe is planned.
 
+The first coordinated owner attempt was refused by the disk guard before
+the deployment controller started. No service transition or inference request
+occurred. Its result remains preserved. Removing only old, unused compiled
+startup-cache files recovered 335 MB while retaining browser profile data.
+A fresh attempt uses byte-identical preparation and sequence code in a new
+output directory; its narrow binding review is pending. All original source,
+build, client and deployment results remain valid and unchanged.
+
 The admission repair on `fix/live-admission-503-20261023` adds completion
 evidence for assembled nonstream Responses bodies and stops future attempts
 when their HTTP waiter disconnects. An unread completed body previously
