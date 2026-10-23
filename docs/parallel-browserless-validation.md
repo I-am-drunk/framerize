@@ -112,6 +112,22 @@ for the entire lifetime. Resource measurements cover these synthetic cases
 only; no daemon recovery, account or authenticated inference is accepted.
 The existing separate-account selection remains the next activation dependency.
 
+`scripts/tests/run_restored_daemon.py` extends the process check to the real
+server binary with full synthetic account records. The restored receipt binds
+the actual server and host identities. Repeated missing-session requests use
+the normal streaming route and release their device leases on one generation,
+with idle pool and hello HEAD checks between them. A full restored rate window
+refuses admission. A changed account record remains rejected with no restored
+receipt. An inert worker sentinel must remain unused throughout.
+Two cases passed in the first run. The JSON-mismatch assertion used the wrong
+HTTP status; the route maps `Cleanup` to 502. Only that assertion was corrected
+and that case rerun, for three distinct passing cases. Both runs and the exact
+unchanged case/helper comparisons are retained. Peak memory was 127,746,048
+and 109,379,584 bytes, with 10 and 9 tasks, zero current/peak swap and no memory
+events. The fixture reaped its server and adopted host processes; both units
+and cgroups were absent afterward. These are synthetic admission/refusal and
+cleanup checks, not authenticated streaming or deployment acceptance.
+
 The checker limits its own execution to two POST calls. Exclusive request
 ownership still requires coordination with other callers. Completion
 metadata is not an exhaustive count of transport starts, and a missing

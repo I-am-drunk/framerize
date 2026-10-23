@@ -98,6 +98,19 @@ injected. Process joins do not prove application cleanup. No daemon recovery,
 authenticated inference or current service availability is accepted. The
 review receipt was verified without rerunning tests or querying either service.
 
+Three additional process cases now exercise the built server and generated
+host together using complete synthetic account records. Two missing-session
+requests on one generation return `502/Authorization`, release the device and
+leave the pool idle; hello HEAD remains usable. A restored full window returns
+`503/Ineligible`. Changed account JSON returns `502/Cleanup` without publishing
+restoration. The original fixture expected 503 for that last case; its failed
+result is retained. Only that assertion was corrected and that case rerun;
+the other two passing results are reused. No production bytes changed.
+The two runs peaked at 127,746,048 and 109,379,584 bytes, with 10 and 9 tasks.
+Current and peak swap were zero; all owned processes joined and both temporary
+units and cgroups disappeared. Real accounts, SDK work and authenticated
+inference remain outside this fixture. The accepted binary is still staged.
+
 The new `examples/browserless-routing.json` configuration passes a separate
 process fixture for normal streaming dispatch. With an empty account store,
 the request reaches native dispatch and returns the expected `Ineligible`
