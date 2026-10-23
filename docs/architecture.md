@@ -72,6 +72,18 @@ Use the recorded expiry times to choose the next attempt, then let the
 launcher check current state again. Keep original cooldown timestamps and
 the same shared account authority throughout the transition.
 
+Completion evidence belongs to one exact service generation. A later recovery
+or restart invalidates its use as current release evidence even when the binary
+and sidecar hashes are unchanged. Check the current process, installed files,
+accounts, pool, restored state and maintenance ownership before a live test.
+Never recreate an old pending handoff merely to make a verifier pass.
+
+The runtime support manifest includes six files, including `native_device.py`.
+The completion checker requires all six and verifies their hashes, ownership,
+permissions and exact directory membership. Archived handoff copies may prove
+historical execution only. Such a result must carry a distinct status that the
+live release command rejects.
+
 The optional request observer wraps the existing client checker, verified by
 its exact source hash. It samples the shared service's memory during that same
 request and retains measurements on failure. It neither owns accounts nor
