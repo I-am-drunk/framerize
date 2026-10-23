@@ -3,6 +3,15 @@
 Updated 2026-10-23. The normal service remains browser-based. Publishing these
 branches does not change the running service.
 
+Live readiness checked at 19:12 UTC on 2026-10-23: the isolated store has
+zero accounts and zero saved sessions. Its earlier native test instance ended
+at 16:37:56 UTC under its configured 30-minute limit. No authenticated live
+request has been sent from this isolated setup. The accepted executable stays
+staged. A legitimate separate account, session and device/cooldown history are
+required before the bounded live check. These read-only checks did not access
+the browser service or change either service. Local tests do not establish
+successful authenticated delivery.
+
 Six isolated worker-memory experiments are complete. Five synthetic local
 SDK mints passed their existing device and cleanup checks; the 32 MiB heap
 trial exited with code 134 before producing a result. Neither heap flags nor
