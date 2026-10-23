@@ -134,8 +134,8 @@ worker entry with synthetic device/project input, exercises the real private
 pipe and metadata/freshness checks, waits for joined completion, then clears
 and discards the token. One isolated run passed with a 75,116,544-byte group
 peak and no remaining worker, unit or cgroup. The harness exercises no account
-or host admission, HTTP request or application service. Its saved source,
-build and runtime evidence await independent review. It does not change the
+or host admission, HTTP request or application service. Final review
+`089c5975` accepts its source and saved build/run bindings. It does not change the
 96 MiB production heap or establish total service memory or request latency.
 
 The companion `measure_owned_offline_cancel.rs` exercises explicit cancellation
