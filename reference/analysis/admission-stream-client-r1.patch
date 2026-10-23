@@ -1,0 +1,741 @@
+--- /dev/null
++++ b/checks.py
+@@ -0,0 +1,108 @@
++"""Observe start, HEAD, disconnect and joined completion in that order."""
++import datetime
++import http.client
++import time
++from support import pool, require
++
++def quiet(value):
++    return all(row['users'] == 0 and not row['uncertain'] and
++               not row['close_started'] for row in value['residency']['residents'])
++
++def observe(events, report, base, service):
++    events.poll()
++    report['events'] = events.public
++    report['memory_samples'].append({'at_unix': time.time(),
++                                    'values': base.memory_snapshot(service)})
++    require(len(report['memory_samples']) <= 2500, 'sample_limit')
++    require(events.count('operation.admission.refused') == 0, 'admission_refused')
++
++def head_probe(report):
++    connection = http.client.HTTPConnection('127.0.0.1', 8787, timeout=5)
++    try:
++        started = time.time()
++        connection.request('HEAD', '/anthropic/api/hello',
++                           headers={'Connection': 'close'})
++        response = connection.getresponse()
++        body = response.read(1)
++        require(response.status == 200 and not body and
++                response.getheader('Content-Length') == '2', 'hello_head_failed')
++        report['hello_head'] = {'path': '/anthropic/api/hello', 'method': 'HEAD',
++            'started_at_unix': started, 'finished_at_unix': time.time(),
++            'status': response.status, 'body_bytes': len(body), 'content_length': 2}
++    finally:
++        connection.close()
++
++def pending(stream):
++    state = stream.snapshot()
++    require(state['read_error'] is None, 'cancel_stream_error')
++    require(not state['finished'] and not state['eof'] and
++            state['terminal_completions'] == 0, 'stream_finished_before_disconnect')
++    return state
++
++def cancel_request(stream, events, report, base, service, account):
++    deadline = time.monotonic() + 70
++    while True:
++        observe(events, report, base, service)
++        state = pending(stream)
++        require(time.monotonic() < deadline, 'start_not_observed')
++        require(events.count('ai.post') == events.count('ai.chain') == 0,
++                'call_finished_before_disconnect')
++        require(events.count('ai.post.started') <= 1, 'competing_call')
++        if events.count('ai.post.started') and state['status'] == 200 and state['events']:
++            started = [r for r in events.seen if r.get('event') == 'ai.post.started']
++            require(started[0].get('path') == '/ai/v3/responses/', 'unexpected_started_route')
++            rows = pool()['residency']['residents']
++            require(sum(r['users'] for r in rows) == 1 and any(
++                r['account'] == account and r['users'] == 1 for r in rows), 'competing_work')
++            report['start_observed_at_unix'] = time.time()
++            report['cancel_stream_before_head'] = state
++            break
++        time.sleep(0.1)
++    head_probe(report)
++    observe(events, report, base, service)
++    report['cancel_stream_before_disconnect'] = pending(stream)
++    require(events.count('ai.post.started') == 1 and events.count('ai.post') ==
++            events.count('ai.chain') == 0, 'call_completed_during_head')
++    stream.close(cancel=True)
++    report['disconnected_at_unix'] = stream.snapshot()['disconnected_at_unix']
++    deadline = time.monotonic() + 190
++    while events.count('ai.chain') < 1:
++        observe(events, report, base, service)
++        require(events.count('ai.post.started') == 1, 'new_attempt_after_disconnect')
++        require(time.monotonic() < deadline, 'call_completion_unconfirmed')
++        time.sleep(0.1)
++    require(events.count('ai.chain') == events.count('ai.post') == 1,
++            'browser_completion_unconfirmed')
++    completed = [r for r in events.seen if r.get('event') in ('ai.post', 'ai.chain')]
++    for row in completed:
++        timestamp = datetime.datetime.fromisoformat(row['ts'].replace('Z', '+00:00'))
++        require(timestamp.timestamp() > report['disconnected_at_unix'],
++                'completion_predates_disconnect')
++    require(events.count('ai.chain.repick') == 0, 'repick_after_disconnect')
++    report['completion_observed_at_unix'] = time.time()
++
++def complete_request(stream, events, report, base, service):
++    deadline = time.monotonic() + 65
++    while True:
++        observe(events, report, base, service)
++        state = stream.snapshot()
++        require(state['read_error'] is None, 'delivery_stream_error')
++        if state['finished']:
++            report['response'] = state
++            require(state['status'] == 200 and state['eof'] and
++                    state['terminal_completions'] == 1 and state['text_characters'] > 0,
++                    'normal_stream_incomplete')
++            report['response_complete_at_unix'] = time.time()
++            return
++        require(time.monotonic() < deadline, 'response_deadline')
++        time.sleep(0.1)
++
++def settled(events, report, base, service):
++    deadline = time.monotonic() + 10
++    while True:
++        observe(events, report, base, service)
++        if quiet(pool()):
++            report['cleanup_observed_at_unix'] = time.time()
++            return
++        require(time.monotonic() < deadline, 'local_cleanup_unconfirmed')
++        time.sleep(0.2)
+--- a/events.py
++++ b/events.py
+@@ -28,6 +28,11 @@
+             clean = {key: row[key] for key in ('ts', 'event', 'status', 'outcome', 'job',
+                 'duration_ms', 'metered_chunks', 'chunks') if key in row}
+             clean['observed_at_unix'] = time.time()
++            if row.get('path') == '/ai/v3/responses/':
++                clean['path'] = row['path']
++            for key in ('reason', 'active', 'sealed', 'unconfirmed'):
++                if key in row and type(row[key]) in (bool, int, str):
++                    clean[key] = row[key]
+             self.public.append(clean)
+ 
+     def count(self, event):
+--- /dev/null
++++ b/frames.py
+@@ -0,0 +1,77 @@
++"""Bounded Responses SSE evidence, retaining counts rather than response text."""
++import json
++from support import require
++
++class Frames:
++    def __init__(self):
++        self.pending = b''
++        self.lines = []
++        self.bytes = 0
++        self.events = 0
++        self.completed = 0
++        self.text_characters = 0
++        self.terminal_text_characters = 0
++        self.done_marker = False
++
++    def feed(self, data):
++        self.bytes += len(data)
++        require(self.bytes <= 65536, 'stream_byte_limit')
++        self.pending += data
++        while b'\n' in self.pending:
++            line, self.pending = self.pending.split(b'\n', 1)
++            line = line.removesuffix(b'\r')
++            if line:
++                self.lines.append(line)
++            else:
++                self.event()
++                self.lines.clear()
++
++    def event(self):
++        data = [line[5:].lstrip(b' ') for line in self.lines
++                if line.startswith(b'data:')]
++        if not data:
++            return
++        payload = b'\n'.join(data)
++        if payload == b'[DONE]':
++            require(self.completed == 1, 'done_without_completion')
++            self.done_marker = True
++            return
++        value = json.loads(payload)
++        require(isinstance(value, dict), 'invalid_stream_event')
++        kind = value.get('type')
++        require(isinstance(kind, str), 'missing_stream_event_type')
++        labels = [line[6:].strip().decode() for line in self.lines
++                  if line.startswith(b'event:')]
++        require(not labels or labels == [kind], 'stream_event_type_mismatch')
++        require(not self.completed, 'event_after_completion')
++        require(kind not in ('error', 'response.failed', 'response.incomplete')
++                and not value.get('error'), 'stream_error')
++        self.events += 1
++        if kind == 'response.output_text.delta':
++            require(isinstance(value.get('delta'), str), 'invalid_text_delta')
++            self.text_characters += len(value['delta'])
++        elif kind == 'response.completed':
++            response = value.get('response')
++            require(isinstance(response, dict) and response.get('status') ==
++                    'completed' and not response.get('error'), 'invalid_completion')
++            self.terminal_text_characters = sum(
++                len(part['text']) for item in response.get('output', [])
++                for part in item.get('content', [])
++                if part.get('type') == 'output_text' and isinstance(part.get('text'), str))
++            self.completed += 1
++
++    def finish(self):
++        require(not self.pending and not self.lines, 'partial_stream_frame')
++        require(self.completed == 1, 'missing_terminal_completion')
++        require(max(self.text_characters, self.terminal_text_characters) > 0,
++                'empty_stream_output')
++        if self.text_characters and self.terminal_text_characters:
++            require(self.text_characters == self.terminal_text_characters,
++                    'incomplete_stream_text')
++
++    def public(self):
++        return {'bytes': self.bytes, 'events': self.events,
++                'terminal_completions': self.completed,
++                'text_characters': max(self.text_characters,
++                                       self.terminal_text_characters),
++                'done_marker': self.done_marker}
+--- a/launch.py
++++ b/launch.py
+@@ -8,8 +8,9 @@
+ assert hashlib.sha256(seal).hexdigest() == sys.argv[1]
+ rows = [line.split('  ', 1) for line in seal.decode().splitlines()]
+ assert {name for _, name in rows} == {
+-    'launch.py', 'run.py', 'support.py', 'events.py', 'binding.json'}
+-assert len(rows) == 5
++    'launch.py', 'run.py', 'support.py', 'events.py', 'binding.json',
++    'frames.py', 'streaming.py', 'checks.py'}
++assert len(rows) == 8
+ for digest, name in rows:
+     assert hashlib.sha256((root / name).read_bytes()).hexdigest() == digest
+ sys.argv = [str(root / 'run.py'), '--execute']
+--- a/run.py
++++ b/run.py
+@@ -1,115 +1,35 @@
+-"""Root-owned cancellation and delivery check, with no inference retries."""
++"""Two normal streams, one HEAD and no inference retry on one generation."""
+ import http.client
+ import json
+ import os
+ from pathlib import Path
+ import resource
+-import select
+ import signal
+-import socket
+ import sys
+ import time
+ import uuid
+ sys.path.insert(0, str(Path(__file__).resolve().parent))
+ from support import HERE, bind, identity, pool, require, sha
+ from events import Events
+-
+-def ready(connection):
+-    return bool(select.select([connection.sock], [], [], 0)[0])
++from streaming import Stream
++from checks import cancel_request, complete_request, quiet, settled
+ 
+ def send(account, model, cancel, report):
+-    text = ('Count from one to five hundred in words, in order.' if cancel
+-            else 'Reply with exactly OK.')
+-    body = json.dumps(dict(model=model, input=text, stream=False,
++    require(report['post_calls'] < 2, 'post_limit')
++    prompt = ('Count from one to five hundred in words, in order.' if cancel
++              else 'Reply with exactly OK.')
++    body = json.dumps(dict(model=model, input=prompt, stream=True,
+                            max_output_tokens=700 if cancel else 16))
+     connection = http.client.HTTPConnection('127.0.0.1', 8787, timeout=65)
+     report['post_calls'] += 1
+-    connection.request('POST', '/openai/v1/responses', body=body, headers={
+-        'Content-Type': 'application/json', 'Connection': 'close',
+-        'x-framerize-account': account, 'x-framerize-session': uuid.uuid4().hex})
+-    return connection
+-
+-def quiet(value):
+-    rows = value['residency']['residents']
+-    return all(r['users'] == 0 and not r['uncertain'] and not r['close_started']
+-               for r in rows)
+-
+-def observe(events, report, base, service):
+-    events.poll()
+-    report['events'] = events.public
+-    sample = base.memory_snapshot(service)
+-    report['memory_samples'].append(dict(at_unix=time.time(), values=sample))
+-    require(len(report['memory_samples']) <= 2500, 'sample_limit')
+-
+-def cancel_request(connection, events, report, base, service, account):
+-    deadline = time.monotonic() + 70
+     try:
+-        while True:
+-            observe(events, report, base, service)
+-            require(time.monotonic() < deadline, 'start_not_observed')
+-            if ready(connection):
+-                response = connection.getresponse()
+-                response.read(65537)
+-                report['early_http_status'] = response.status
+-                raise RuntimeError('response_arrived_before_disconnect')
+-            if events.count('ai.post.started'):
+-                require(events.count('ai.post.started') == 1 and
+-                        events.count('ai.post') == 0, 'call_already_finished_or_retried')
+-                started = [r for r in events.seen if r.get('event') == 'ai.post.started']
+-                require(started[0].get('path') == '/ai/v3/responses/', 'unexpected_started_route')
+-                rows = pool()['residency']['residents']
+-                require(sum(r['users'] for r in rows) == 1 and any(
+-                    r['account'] == account and r['users'] == 1 for r in rows), 'competing_work')
+-                require(not ready(connection), 'response_finished_before_disconnect')
+-                report['start_observed_at_unix'] = time.time()
+-                break
+-            time.sleep(0.1)
+-        connection.sock.shutdown(socket.SHUT_RDWR)
+-        report['disconnected_at_unix'] = time.time()
+-    finally:
++        connection.request('POST', '/openai/v1/responses', body=body, headers={
++            'Content-Type': 'application/json', 'Connection': 'close',
++            'x-framerize-account': account, 'x-framerize-session': uuid.uuid4().hex})
++        return Stream(connection)
++    except BaseException:
+         connection.close()
+-    deadline = time.monotonic() + 190
+-    while events.count('ai.chain') < 1:
+-        observe(events, report, base, service)
+-        require(events.count('ai.post.started') == 1, 'new_attempt_after_disconnect')
+-        require(time.monotonic() < deadline, 'call_completion_unconfirmed')
+-        time.sleep(0.1)
+-    require(events.count('ai.post') == 1, 'browser_completion_unconfirmed')
+-    report['completion_observed_at_unix'] = time.time()
+-
+-def complete_request(connection, events, report, base, service):
+-    deadline = time.monotonic() + 65
+-    try:
+-        while not ready(connection):
+-            observe(events, report, base, service)
+-            require(time.monotonic() < deadline, 'response_deadline')
+-            time.sleep(0.1)
+-        response = connection.getresponse()
+-        raw = response.read(65537)
+-        require(len(raw) <= 65536 and response.length in (None, 0), 'response_framing')
+-        require(response.isclosed(), 'response_not_complete')
+-        result = base.inspect_response(response.status,
+-            response.getheader('Content-Type', ''), raw, '/ai/v3/responses/')
+-        if result.get('complete_json'):
+-            value = json.loads(raw)
+-            result['text_characters'] = sum(len(part.get('text', ''))
+-                for item in value['output'] for part in item.get('content', [])
+-                if isinstance(part.get('text'), str))
+-        report['response'] = result
+-        require(result.get('complete_json') and result.get('text_characters', 0) > 0,
+-                'normal_response_incomplete')
+-        report['response_complete_at_unix'] = time.time()
+-    finally:
+-        connection.close()
+-
+-def settled(events, report, base, service):
+-    deadline = time.monotonic() + 10
+-    while True:
+-        observe(events, report, base, service)
+-        if quiet(pool()):
+-            return
+-        require(time.monotonic() < deadline, 'local_cleanup_unconfirmed')
+-        time.sleep(0.2)
++        raise
+ 
+ def run(report):
+     spec, base, adapter = bind()
+@@ -128,21 +48,34 @@
+     events = Events(logfile)
+     report.update(generation=before, release_sha256=receipt, route='/openai/v1/responses')
+     account_before = adapter.account_snapshot()
+-    cancel_request(send(account, model, True, report), events, report, base, released, account)
+-    settled(events, report, base, released)
+-    require(identity(base, adapter) == before, 'generation_changed_after_cancel')
+-    require(events.count('ai.post.started') == 1, 'extra_cancel_attempt')
+-    report['cancellation_recovered'] = True
+-    complete_request(send(account, model, False, report), events, report, base, released)
+-    settled(events, report, base, released)
+-    require(identity(base, adapter) == before, 'generation_changed_after_delivery')
+-    require(events.count('ai.post.started') == events.count('ai.post') == 2,
+-            'unexpected_upstream_attempt_count')
+-    require(events.count('ai.chain.repick') == 0, 'unexpected_account_repick')
+-    require(all(r.get('metered_chunks', 0) == 0 for r in events.seen), 'metered_attempt')
+-    report['account_isolation'] = adapter.live_checks.accounts(account_before, adapter.account_snapshot())
+-    report['accepted'] = True
+-    events.stream.close()
++    try:
++        first = send(account, model, True, report)
++        try:
++            cancel_request(first, events, report, base, released, account)
++        finally:
++            first.close()
++        settled(events, report, base, released)
++        report['cancel_cleanup_at_unix'] = report['cleanup_observed_at_unix']
++        require(identity(base, adapter) == before, 'generation_changed_after_cancel')
++        require(events.count('ai.post.started') == 1, 'extra_cancel_attempt')
++        report['cancel_cleanup_observed'] = True
++        second = send(account, model, False, report)
++        try:
++            complete_request(second, events, report, base, released)
++        finally:
++            second.close()
++        settled(events, report, base, released)
++        require(identity(base, adapter) == before, 'generation_changed_after_delivery')
++        require(events.count('ai.post.started') == events.count('ai.post') ==
++                events.count('ai.chain') == 2, 'unexpected_upstream_attempt_count')
++        require(events.count('ai.chain.repick') == 0, 'unexpected_account_repick')
++        require(all(r.get('metered_chunks', 0) == 0 for r in events.seen), 'metered_attempt')
++        report['account_isolation'] = adapter.live_checks.accounts(
++            account_before, adapter.account_snapshot())
++        report['cancellation_recovered'] = True
++        report['accepted'] = True
++    finally:
++        events.stream.close()
+ 
+ def main():
+     require(sys.argv[1:] == ['--execute'] and not sys.flags.optimize, 'explicit_execution_required')
+@@ -152,8 +85,8 @@
+         raise RuntimeError('bounded_live_check_deadline')
+     signal.signal(signal.SIGALRM, expired)
+     signal.alarm(350)
+-    report = dict(accepted=False, post_calls=0, started_at_unix=time.time(), memory_samples=[],
+-        scope='Two normal unmetered requests on one generation; no browserless or memory-saving claim.')
++    report = {'accepted': False, 'post_calls': 0, 'started_at_unix': time.time(),
++              'memory_samples': [], 'scope': 'Two normal unmetered streams and one HEAD on one generation.'}
+     destination = HERE / ('result-' + str(time.time_ns()) + '.json')
+     fd = os.open(destination, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600)
+     try:
+@@ -163,11 +96,13 @@
+     finally:
+         signal.alarm(0)
+         report['finished_at_unix'] = time.time()
+-        with os.fdopen(fd, 'w') as stream:
+-            json.dump(report, stream, indent=2)
+-            stream.write('\n'); stream.flush(); os.fsync(stream.fileno())
+-    print(json.dumps(dict(accepted=report['accepted'], post_calls=report['post_calls'],
+-                         receipt=str(destination), error=report.get('error'))))
++        with os.fdopen(fd, 'w') as output:
++            json.dump(report, output, indent=2)
++            output.write('\n')
++            output.flush()
++            os.fsync(output.fileno())
++    print(json.dumps({'accepted': report['accepted'], 'post_calls': report['post_calls'],
++                      'receipt': str(destination), 'error': report.get('error')}))
+     return 0 if report['accepted'] else 1
+ 
+ if __name__ == '__main__':
+--- /dev/null
++++ b/run_tests.py
+@@ -0,0 +1,44 @@
++"""One bounded fixture run with private profiles and networking unavailable."""
++import hashlib
++import json
++import os
++from pathlib import Path
++import resource
++import subprocess
++import time
++
++HERE = Path(__file__).resolve().parent
++def sha(path):
++    with Path(path).open('rb') as stream:
++        return hashlib.file_digest(stream, 'sha256').hexdigest()
++
++resource.setrlimit(resource.RLIMIT_AS, (128 * 1024**2, 128 * 1024**2))
++resource.setrlimit(resource.RLIMIT_CPU, (10, 10))
++resource.setrlimit(resource.RLIMIT_CORE, (0, 0))
++paths = sorted(HERE.glob('*.py')) + [Path('/usr/bin/python3.12'), Path('/usr/bin/bwrap')]
++before = {str(path): sha(path) for path in paths}
++argv = ['/usr/bin/bwrap', '--die-with-parent', '--unshare-net', '--ro-bind', '/', '/',
++        '--tmpfs', '/tmp', '--tmpfs', '/home/tjninja/.framerize', '--dev', '/dev',
++        '--proc', '/proc', '--chdir', str(HERE), '/usr/bin/python3.12', '-B',
++        '-m', 'unittest', '-v', 'test_streaming', 'test_socket', 'test_bounds']
++started = time.time()
++result = subprocess.run(argv, capture_output=True, text=True, timeout=15,
++    env={'PATH': '/usr/bin:/bin', 'LC_ALL': 'C.UTF-8', 'PYTHONDONTWRITEBYTECODE': '1'})
++after = {str(path): sha(path) for path in paths}
++accepted = before == after and result.returncode == 0
++report = dict(accepted=accepted, inputs=before, after=after, argv=argv,
++    exit_code=result.returncode, stdout=result.stdout, stderr=result.stderr,
++    started_at_unix=started, finished_at_unix=time.time(),
++    child_peak_rss_kib=resource.getrusage(resource.RUSAGE_CHILDREN).ru_maxrss,
++    scope='Local framing, socket lifetime and request limits; no live application or input.',
++    controls=dict(network_namespace='isolated', private_profiles='masked',
++                  address_space_bytes=128 * 1024**2, cpu_seconds=10, wall_seconds=15),
++    limitations=['RSS is a child high-water mark; no aggregate cgroup or swap claim.'])
++path = HERE / ('validation-' + str(time.time_ns()) + '.json')
++fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
++with os.fdopen(fd, 'w') as stream:
++    json.dump(report, stream, indent=2)
++    stream.write('\n')
++print(json.dumps(dict(accepted=accepted, path=str(path), sha256=sha(path),
++                      tests=result.stderr, child_peak_rss_kib=report['child_peak_rss_kib'])))
++raise SystemExit(0 if accepted else 1)
+--- /dev/null
++++ b/streaming.py
+@@ -0,0 +1,80 @@
++"""Read one stream while retaining a socket that can always be interrupted."""
++import socket
++import threading
++import time
++from frames import Frames
++from support import require
++
++class Stream:
++    def __init__(self, connection):
++        self.connection = connection
++        self.control = connection.sock.dup()
++        self.lock = threading.Lock()
++        self.frames = Frames()
++        self.state = {'status': None, 'headers_at_unix': None, 'eof': False,
++                      'finished': False, 'read_error': None}
++        self.cancelling = False
++        self.reader = threading.Thread(target=self._read, daemon=True)
++        self.reader.start()
++
++    def _read(self):
++        response = None
++        try:
++            response = self.connection.getresponse()
++            with self.lock:
++                self.state['status'] = response.status
++                self.state['headers_at_unix'] = time.time()
++            require(response.status == 200, 'stream_http_status')
++            require(response.getheader('Content-Type', '').split(';')[0].strip()
++                    == 'text/event-stream', 'stream_content_type')
++            while True:
++                data = response.read1(4096)
++                with self.lock:
++                    if self.cancelling:
++                        break
++                    if not data:
++                        require(response.length in (None, 0) and response.isclosed(),
++                                'stream_http_framing')
++                        self.frames.finish()
++                        self.state['eof'] = True
++                        break
++                    self.frames.feed(data)
++        except Exception as error:
++            with self.lock:
++                if not self.cancelling:
++                    self.state['read_error'] = (str(error) if type(error) is
++                                                RuntimeError else type(error).__name__)
++        finally:
++            if response is not None:
++                response.close()
++            self.connection.close()
++            with self.lock:
++                self.state['finished'] = True
++
++    def snapshot(self):
++        with self.lock:
++            return dict(self.state, **self.frames.public())
++
++    def close(self, cancel=False):
++        eligible = True
++        try:
++            if cancel or self.reader.is_alive():
++                with self.lock:
++                    if cancel:
++                        eligible = (not self.state['finished'] and
++                                    not self.state['eof'] and
++                                    self.state['read_error'] is None and
++                                    self.frames.completed == 0)
++                    self.cancelling = True
++                    try:
++                        self.control.shutdown(socket.SHUT_RDWR)
++                    except OSError:
++                        if cancel:
++                            raise
++                    if cancel and eligible:
++                        self.state['disconnected_at_unix'] = time.time()
++        finally:
++            self.reader.join(timeout=3)
++            self.control.close()
++        require(not self.reader.is_alive(), 'stream_reader_not_joined')
++        require(eligible, 'stream_finished_before_disconnect')
+--- /dev/null
++++ b/test_bounds.py
+@@ -0,0 +1,44 @@
++"""Request limits and admission guards without live inputs."""
++import json
++import unittest
++from unittest.mock import Mock, patch
++import run as client
++from checks import pending, quiet
++
++class BoundsTests(unittest.TestCase):
++    def test_two_normal_streams_only(self):
++        report = {'post_calls': 0}
++        with patch.object(client.http.client, 'HTTPConnection') as factory, \
++                patch.object(client, 'Stream'):
++            client.send('fixture', 'gpt-4.1', True, report)
++            client.send('fixture', 'gpt-4.1', False, report)
++            with self.assertRaisesRegex(RuntimeError, 'post_limit'):
++                client.send('fixture', 'gpt-4.1', False, report)
++        calls = factory.return_value.request.call_args_list
++        self.assertEqual(len(calls), 2)
++        self.assertEqual([json.loads(c.kwargs['body'])['max_output_tokens']
++                          for c in calls], [700, 16])
++        for call in calls:
++            self.assertEqual(call.args, ('POST', '/openai/v1/responses'))
++            self.assertIs(json.loads(call.kwargs['body'])['stream'], True)
++        self.assertNotEqual(calls[0].kwargs['headers']['x-framerize-session'],
++                            calls[1].kwargs['headers']['x-framerize-session'])
++
++    def test_active_and_unknown_cleanup_do_not_pass_settlement(self):
++        for user, uncertain, closing in [(1, False, False), (0, True, False),
++                                         (0, False, True)]:
++            self.assertFalse(quiet({'residency': {'residents': [dict(
++                users=user, uncertain=uncertain, close_started=closing)]}}))
++
++    def test_open_frames_are_pending_but_terminal_or_error_is_not(self):
++        state = dict(read_error=None, finished=False, eof=False,
++                     terminal_completions=0, status=200, events=1)
++        stream = Mock()
++        stream.snapshot.return_value = state
++        self.assertEqual(pending(stream), state)
++        for field, value in [('finished', True), ('eof', True),
++                             ('terminal_completions', 1), ('read_error', 'error')]:
++            with self.subTest(field=field):
++                stream.snapshot.return_value = state | {field: value}
++                with self.assertRaises(RuntimeError):
++                    pending(stream)
+--- /dev/null
++++ b/test_socket.py
+@@ -0,0 +1,65 @@
++"""Real local sockets, with no network listener or application service."""
++import http.client
++import socket
++import time
++import unittest
++from streaming import Stream
++from test_streaming import OPEN, TEXT, END
++
++class SocketTests(unittest.TestCase):
++    def connected(self, payload):
++        client, peer = socket.socketpair()
++        client.settimeout(2)
++        peer.settimeout(2)
++        self.addCleanup(peer.close)
++        connection = http.client.HTTPConnection('fixture.invalid')
++        connection.sock = client
++        connection.request('POST', '/fixture', body=b'')
++        peer.recv(4096)
++        peer.sendall(b'HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\n'
++                     b'Transfer-Encoding: chunked\r\nConnection: close\r\n\r\n' + payload)
++        stream = Stream(connection)
++        self.addCleanup(stream.close)
++        return connection, peer, stream
++
++    def wait_for(self, stream, predicate):
++        deadline = time.monotonic() + 2
++        while not predicate(stream.snapshot()):
++            self.assertLess(time.monotonic(), deadline, stream.snapshot())
++            time.sleep(0.005)
++
++    @staticmethod
++    def chunk(data):
++        return ('%x\r\n' % len(data)).encode() + data + b'\r\n'
++
++    def test_disconnect_closes_detached_live_response_socket(self):
++        connection, peer, stream = self.connected(self.chunk(OPEN))
++        self.wait_for(stream, lambda state: state['events'] == 1)
++        self.assertIsNone(connection.sock)
++        self.assertEqual(stream.snapshot()['terminal_completions'], 0)
++        stream.close(cancel=True)
++        self.assertEqual(peer.recv(1), b'')
++        self.assertFalse(stream.reader.is_alive())
++        self.assertIn('disconnected_at_unix', stream.snapshot())
++
++    def test_complete_stream_requires_clean_http_end(self):
++        _, _, stream = self.connected(self.chunk(OPEN + TEXT + END) + b'0\r\n\r\n')
++        self.wait_for(stream, lambda state: state['finished'])
++        state = stream.snapshot()
++        self.assertIsNone(state['read_error'])
++        self.assertTrue(state['eof'])
++        self.assertEqual(state['text_characters'], 2)
++
++    def test_truncated_http_after_terminal_is_not_success(self):
++        _, peer, stream = self.connected(self.chunk(OPEN + TEXT + END))
++        peer.shutdown(socket.SHUT_WR)
++        self.wait_for(stream, lambda state: state['finished'])
++        self.assertIsNotNone(stream.snapshot()['read_error'])
++        self.assertFalse(stream.snapshot()['eof'])
++
++    def test_completed_response_cannot_be_claimed_as_cancelled(self):
++        _, _, stream = self.connected(self.chunk(END) + b'0\r\n\r\n')
++        self.wait_for(stream, lambda state: state['finished'])
++        with self.assertRaisesRegex(RuntimeError, 'stream_finished_before_disconnect'):
++            stream.close(cancel=True)
++        self.assertNotIn('disconnected_at_unix', stream.snapshot())
+--- /dev/null
++++ b/test_streaming.py
+@@ -0,0 +1,63 @@
++"""Inert framing and socket-lifetime regressions for the live-check client."""
++import http.client
++import json
++import socket
++import time
++import unittest
++from frames import Frames
++from streaming import Stream
++
++def event(kind, **fields):
++    return ('event: ' + kind + '\ndata: ' + json.dumps({'type': kind, **fields})
++            + '\n\n').encode()
++
++OPEN = event('response.created', response={'status': 'in_progress'})
++TEXT = event('response.output_text.delta', delta='OK')
++END = event('response.completed', response={'status': 'completed', 'output': [
++    {'content': [{'type': 'output_text', 'text': 'OK'}]}]})
++
++class FramingTests(unittest.TestCase):
++    def test_opening_frames_are_not_completion(self):
++        frames = Frames()
++        frames.feed(OPEN)
++        self.assertEqual(frames.completed, 0)
++        with self.assertRaisesRegex(RuntimeError, 'missing_terminal_completion'):
++            frames.finish()
++
++    def test_complete_stream_accepts_fragmented_crlf_without_retaining_text(self):
++        frames = Frames()
++        for byte in (OPEN + TEXT + END).replace(b'\n', b'\r\n'):
++            frames.feed(bytes([byte]))
++        frames.finish()
++        self.assertEqual(frames.public()['text_characters'], 2)
++        self.assertNotIn('OK', json.dumps(frames.public()))
++
++    def test_terminal_errors_cannot_pass_as_output(self):
++        for kind in ('error', 'response.failed', 'response.incomplete'):
++            with self.subTest(kind=kind):
++                with self.assertRaisesRegex(RuntimeError, 'stream_error'):
++                    Frames().feed(event(kind))
++
++    def test_done_without_completed_is_rejected(self):
++        with self.assertRaisesRegex(RuntimeError, 'done_without_completion'):
++            Frames().feed(b'data: [DONE]\n\n')
++
++    def test_truncated_frame_is_rejected(self):
++        frames = Frames()
++        frames.feed(END[:-1])
++        with self.assertRaisesRegex(RuntimeError, 'partial_stream_frame'):
++            frames.finish()
++
++    def test_empty_completion_is_rejected(self):
++        frames = Frames()
++        frames.feed(event('response.completed', response={'status': 'completed'}))
++        with self.assertRaisesRegex(RuntimeError, 'empty_stream_output'):
++            frames.finish()
++
++    def test_late_event_and_oversized_stream_are_rejected(self):
++        frames = Frames()
++        frames.feed(END)
++        with self.assertRaisesRegex(RuntimeError, 'event_after_completion'):
++            frames.feed(TEXT)
++        with self.assertRaisesRegex(RuntimeError, 'stream_byte_limit'):
++            Frames().feed(b' ' * 65537)

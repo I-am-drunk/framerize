@@ -24,10 +24,20 @@ The exact correction from `27e0d578` and its three new routed regressions are
 integrated as `f27f3165` on `browserless`. Source review is accepted and all
 22 selected cases pass: the existing 19-case slice plus the three new cases.
 The server library and final executable compile successfully. The executable
-is `00508774`; saved build review and deployment remain pending. The runtime
+is `00508774`; independent saved build review is accepted. Deployment remains
+pending. The runtime
 owner will preserve the current support configuration and verify normal
 streaming, a hello HEAD probe, interruption and a subsequent complete request
 on one generation. This does not require another offline trial.
+
+The new streaming acceptance client passed 14 local fixtures. They exercise
+fragmented frames, terminal errors, incomplete HTTP framing, cancellation of
+the real response socket after headers, and refusal to label a completed
+response as cancelled. Its two inference requests stay on the normal route.
+The exact source delta is published in
+[admission-stream-client-r1.patch](../reference/analysis/admission-stream-client-r1.patch).
+Source review and concrete deployment bindings are still pending. No live
+request or service change followed this fixture run.
 
 The admission repair on `fix/live-admission-503-20261023` adds completion
 evidence for assembled nonstream Responses bodies and stops future attempts
