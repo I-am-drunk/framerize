@@ -324,9 +324,21 @@ completion, unchanged runtime/support and protected files, zero swap/events
 and the released hold. The normal preparation and native request must share
 that verified generation. All 25 focused client cases pass, including the old
 driver's generation-refusal regression. Peak memory was 27.6 MB with no swap
-or resource events, and the test unit is absent. Client source review is
-pending. No recovery or live request ran during this work. The source is in
+or resource events, and the test unit is absent. Review rejected a comparison
+between wrapped protected evidence and the state's bare fingerprint. Its
+fixture used the bare value everywhere and missed the actual producer shape.
+No recovery or live request ran during this work. The original source is in
 [r18-recovered-client.patch](../reference/analysis/r18-recovered-client.patch).
+The separate correction binds the three complete wrappers to the state's
+fingerprint and release, retaining the live bare-fingerprint comparison.
+The fixture now calls the actual producer. The original-client refusal and
+changed fingerprint/release cases pass. All 32 focused cases pass, including
+five owner-orchestration checks, at a 28.5 MB peak with zero swap or resource
+events. The test unit and cgroup are absent. The original 25-case result and
+rejection remain preserved. A disk refusal preceded this run; a separately
+audited cache cleanup restored the unchanged reserve. No runtime recovery
+or request has run. The correction awaits narrow source and results review.
+See [r18-recovered-client-r2.patch](../reference/analysis/r18-recovered-client-r2.patch).
 Its first test launch refused disk reserve before starting a test. A separate
 audited cleanup removed 135.4 MB of old, unreferenced package-cache copies;
 the original refusal remains preserved. No service action was involved.
