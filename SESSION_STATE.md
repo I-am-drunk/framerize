@@ -44,8 +44,15 @@ Commit `f4bb927136f2add85c52dff7913ebff6d177b1a5` is pushed to the matching
 remote branch. Owner received four source paths and exact three case names.
 Focused scope is the original 16-case cancellation slice plus three new cases
 (19 total). The full ownership module alone has 14 original cases, not 16.
-Exact next action: collect the owner's focused server regression/build result;
-repair any concrete failure here before that owner deploys.
+The owner's first compile passed (peak 972304384 bytes, clean controls).
+The first 19-case run passed 18; the unknown-cleanup case timed out waiting
+for an unanswered second-account call. Failure evidence remains immutable in
+the owner's `investigation/admission-repair-r1` directory.
+The additive correction supplies that existing failover reply and carries
+cleanup uncertainty across later successful attempts. This prevents the new
+completion proof from forgetting an earlier account's unknown cleanup.
+Exact next action: publish the additive correction and have the owner run
+the replacement focused check/build. No local repeat or live action occurred.
 
 Live acceptance remains pending. Use the normal `/openai/v1/responses` route,
 with one bounded nonstream request disconnected after its current call starts,
