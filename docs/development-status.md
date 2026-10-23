@@ -8,22 +8,24 @@ evidence for assembled nonstream Responses bodies and stops future attempts
 when their HTTP waiter disconnects. An unread completed body previously
 marked the operation gate permanently unconfirmed. Unknown cleanup still
 retains its fence. Refusal events now distinguish capacity, seal and unknown
-completion without logging request data. Three focused regressions are
-prepared. The first bounded compile passed and 18 of 19 focused cases passed.
+completion without logging request data. All 19 selected regressions now pass,
+including the three new nonstream cases. The first run passed 18 of 19 cases.
 The unknown-cleanup fixture omitted the existing second-account failover reply.
 The correction supplies that reply and retains earlier cleanup uncertainty
-even if a later account succeeds. Its replacement check and deployment remain
-pending with the sole runtime owner. The local rustfmt component is unavailable.
+even if a later account succeeds. The corrected source has independent review
+acceptance; live deployment remains pending. The local rustfmt component is unavailable.
 Review found a retry-admission early return that bypassed the accumulated
 cleanup outcome. Its correction and focused case preserve
 its status, body and retry headers. The intermediate snapshot remains unrun.
-Existing core, host, API and store
-builds are unchanged and available for reuse.
+Core, API and store builds are verified reuse. The host, server and final
+executable were rebuilt successfully on 2026-10-23.
 
-The runtime owner has integrated `fc77455` on `browserless` and added one
+The runtime owner has integrated the final correction as `2fed7797` and added one
 host event after the in-page fetch starts. The event contains only the job
-identifier and route. The corrected 19-case run and deployable build are
-pending. The normal-endpoint release will retain the current R9 support
+identifier and route. The corrected 19-case run used a peak of 16.4 MB,
+with no recorded swap or resource events. The built executable is `e0ff2db9`.
+Independent saved-results review is pending. The normal-endpoint release retains
+the current R9 support
 package and worker configuration; the separate R11 device handoff remains
 undeployed. Live acceptance requires a cancelled request followed by a
 complete response on the same service generation.
@@ -31,9 +33,8 @@ complete response on the same service generation.
 The owner's 03:32:48 UTC diagnosis found the previous binary in a new service
 generation (main 2270461, started 03:28:49). Health and pool returned 200.
 Those observations do not verify real inference or establish the cause of
-the user's earlier request. Next: the owner runs the focused server checks,
-builds the changed server/application, and coordinates deployment plus real
-normal-endpoint cancellation and recovery validation.
+the user's earlier request. Next: review the exact R12 release, then coordinate
+deployment and real normal-endpoint cancellation and recovery validation.
 
 The original disconnect correction was deployed from `browserless`. R9 completed its
 fresh admission, drain, startup and release checks on 2026-10-23. The maintenance
