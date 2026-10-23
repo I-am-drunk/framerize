@@ -192,7 +192,10 @@ The harness and owner source needed no correction.
 
 Summary `c3edd067` binds the saved build and runtime results. Direct compiler
 and external library inputs were checked; transitive cache and sysroot remain
-trusted. Independent review is pending. Production remains unchanged.
+trusted. Final review `089c5975`, verification `a6899afc`, accepts the exact
+source and saved evidence with no findings. Omitted artifacts and installed
+targets were checked by saved declarations only. This grants no runtime or
+authenticated-delivery approval. Production remains unchanged.
 
 ## Actual-worker cancellation
 

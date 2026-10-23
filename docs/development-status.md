@@ -48,8 +48,8 @@ join. The unit and cgroup disappeared. This single synthetic sample excludes
 account/host admission, HTTP, authenticated delivery and total service memory.
 The exact harness and summary `c3edd067` preserve the passing build and run,
 two compiler-wrapper failures and one prelaunch resource refusal.
-Independent review of frozen package `52d1ae7e` is pending.
-No repeat build or measurement is required.
+Final review `089c5975` accepts frozen package `52d1ae7e` for source and saved
+evidence, with no findings. No repeat build or measurement is required.
 Production is unchanged, and the separately owned account remains pending.
 
 Two additional local cases now cancel the real worker after observed process
