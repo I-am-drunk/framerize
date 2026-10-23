@@ -30,6 +30,11 @@ package and worker configuration; the separate R11 device handoff remains
 undeployed. Live acceptance requires a cancelled request followed by a
 complete response on the same service generation.
 
+The frozen R12 operational delta is published in
+[admission-repair-release-r12.patch](../reference/analysis/admission-repair-release-r12.patch).
+Its source review and concrete release plan remain pending. Publication does
+not change the service or establish a successful live request.
+
 The owner's 03:32:48 UTC diagnosis found the previous binary in a new service
 generation (main 2270461, started 03:28:49). Health and pool returned 200.
 Those observations do not verify real inference or establish the cause of

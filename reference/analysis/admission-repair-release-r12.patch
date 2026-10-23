@@ -1,0 +1,263 @@
+--- a/adapter.py
++++ b/adapter.py
+@@ -17,13 +17,13 @@
+ import live_checks
+ import runtime_config
+ PEER = Path('/home/tjninja/.t3/scratch/2026-10-18-i-keep-getting-this-error-0486847e')
+-CANDIDATE = HERE.parent / 'disconnect-repair-build-r2'
++CANDIDATE = HERE.parent / 'admission-repair-r3'
+ BINARY_ROOT = CANDIDATE
+ BASE = Path('/home/tjninja/.t3/scratch/2026-10-20-can-you-look-at-the-430fdc9c/tool-completion-r2/deploy.py')
+ BASE_SHA = '651d30492f229fa6c9fa3d4daff2636989f69b8551168cd1c612935ee576a9b3'
+ OLD_BIN = '72ab248a6cf46db713850f148deb35542d0de55cc2a1154066f57163b6a4415e'
+ OLD_PY = 'dfcdd440f179f307c8d81c7c8d1c4e302a8580109076400cf2b571ae90d673e3'
+-NEW_PY = '84da179d4279b5129a3a92031f18d0c05729986a2ab574f185bd91cbff540a38'
++NEW_PY = '7fe0dbc934729272dd5635769319c1d602b119d9f2f3bfe0f78cefae78adf81e'
+ DEST = Path('/home/tjninja/.local/bin/framerize')
+ SIDECAR = Path('/home/tjninja/.framerize/camoufox_host.py')
+ DB = Path('/home/tjninja/.framerize/framerize.db')
+--- a/authorize.py
++++ b/authorize.py
+@@ -8,7 +8,7 @@
+ import time
+ from pathlib import Path
+ HERE = Path(__file__).resolve().parent
+-BRIDGE_SHA = 'c589c516652b43451f63a03fc082f1bf85e57edb07b9009cd4cd184a40b43c6b'
++BRIDGE_SHA = '764c01d799e30349c8d3d6861d8912f2d0792b190aaf9c0cfb8a584363900f34'
+ STOP_REQUESTED = False
+ 
+ 
+--- a/camoufox_host.py
++++ b/camoufox_host.py
+@@ -2139,6 +2139,7 @@
+                 page.evaluate(AI_START_JS, [path, body, token, bearer, job, dev]),
+                 min(30, timeout),
+             )
++            emit("ai.post.started", job=job, path=path)
+             while True:
+                 remaining = deadline - time.monotonic()
+                 if remaining <= 0:
+@@ -2537,10 +2538,10 @@
+     import importlib.util as _handoff_import
+     from importlib import import_module as _handoff_module
+     sys.dont_write_bytecode = True
+-    _support = Path(__file__).resolve().with_name('cooldown-support-b20f683510fda599')
++    _support = Path(__file__).resolve().with_name('cooldown-support-b88742d64664235c')
+     _manifest = _support / 'runtime-sources.json'
+     _manifest_bytes = _manifest.read_bytes()
+-    if hashlib.sha256(_manifest_bytes).hexdigest() != 'b20f683510fda599daa2081ae00acd72e8160079e20ef36928a177c9d60335b8':
++    if hashlib.sha256(_manifest_bytes).hexdigest() != 'b88742d64664235ca21017feb5f655389195e94e850025eded5a152ae018e7a6':
+         raise RuntimeError('cooldown support manifest changed')
+     _pins = json.loads(_manifest_bytes)
+     for _name, _expected in _pins.items():
+--- a/checker/support.py
++++ b/checker/support.py
+@@ -7,11 +7,11 @@
+ ROOT = DEPLOY.parent
+ RELEASE = DEPLOY / 'release'
+ ADAPTER = DEPLOY
+-REVIEW = Path('/home/tjninja/.t3/scratch/2026-10-20-can-you-look-at-the-430fdc9c/offline-serving-deployment-review-r11/plan-review.json')
++REVIEW = Path('/home/tjninja/.t3/scratch/2026-10-20-can-you-look-at-the-430fdc9c/offline-serving-deployment-review-r12/plan-review.json')
+ HANDOFF = Path('/home/tjninja/.framerize/cooldown-handoff')
+-NEW_BIN = '72ab248a6cf46db713850f148deb35542d0de55cc2a1154066f57163b6a4415e'
++NEW_BIN = 'e0ff2db9f14c703ec718fa2ccd76e614ed215cd6e9801aeda64e7d997e9bf77a'
+ OLD_BIN = '72ab248a6cf46db713850f148deb35542d0de55cc2a1154066f57163b6a4415e'
+-SIDECAR = '84da179d4279b5129a3a92031f18d0c05729986a2ab574f185bd91cbff540a38'
++SIDECAR = '7fe0dbc934729272dd5635769319c1d602b119d9f2f3bfe0f78cefae78adf81e'
+ TARGET = {'active_capacity': 6, 'eligible_accounts': 'all'}
+ 
+ def require(ok, message):
+--- a/checker/test_cooldown.py
++++ b/checker/test_cooldown.py
+@@ -193,7 +193,7 @@
+     def test_release_support_manifest_is_bound(self):
+         raw = (DEPLOY / 'runtime-sources.json').read_bytes()
+         self.assertEqual(hashlib.sha256(raw).hexdigest(),
+-                         'b20f683510fda599daa2081ae00acd72e8160079e20ef36928a177c9d60335b8')
++                         'b88742d64664235ca21017feb5f655389195e94e850025eded5a152ae018e7a6')
+         manifest = json.loads(raw)
+         files = {name: (DEPLOY / 'runtime-support' / name).read_bytes() for name in manifest}
+         self.assertEqual({name: hashlib.sha256(raw).hexdigest() for name, raw in files.items()}, manifest)
+--- a/fd_bridge.py
++++ b/fd_bridge.py
+@@ -13,8 +13,8 @@
+ PYTHON_SHA = 'e50d468e8b0adfb05733f5b87b3cff34829c4a8c1aea50c865aa8bdfe4bb150f'
+ OLD_BINARY = '72ab248a6cf46db713850f148deb35542d0de55cc2a1154066f57163b6a4415e'
+ OLD_SCRIPT = 'dfcdd440f179f307c8d81c7c8d1c4e302a8580109076400cf2b571ae90d673e3'
+-NEW_BINARY = '72ab248a6cf46db713850f148deb35542d0de55cc2a1154066f57163b6a4415e'
+-NEW_SCRIPT = '84da179d4279b5129a3a92031f18d0c05729986a2ab574f185bd91cbff540a38'
++NEW_BINARY = 'e0ff2db9f14c703ec718fa2ccd76e614ed215cd6e9801aeda64e7d997e9bf77a'
++NEW_SCRIPT = '7fe0dbc934729272dd5635769319c1d602b119d9f2f3bfe0f78cefae78adf81e'
+ SIDECAR = Path('/home/tjninja/.framerize/camoufox_host.py')
+ 
+ 
+--- a/freeze_source.py
++++ b/freeze_source.py
+@@ -54,7 +54,9 @@
+         HERE.parent / 'native-device-handoff-binding-check-r1/run.py',
+         HERE.parent / 'native-device-handoff-binding-check-r1/result.json',
+         HERE.parent / 'offline-serving-deployment-r11-checks/run.py',
+-        HERE.parent / 'offline-serving-deployment-r11-checks/result.json']
++        HERE.parent / 'offline-serving-deployment-r11-checks/result.json',
++        HERE.parent / 'admission-release-checks-r2/run.py',
++        HERE.parent / 'admission-release-checks-r2/result.json']
+     for path in local + other:
+         if path.suffix == '.py':
+             ast.parse(path.read_text(), filename=str(path))
+@@ -71,8 +73,8 @@
+         assert sources[row['path']] == row['sha256']
+     manifest = dict(schema=1, status='requires_independent_plan_acceptance',
+         sources=sources, modules=modules, previous_source_manifest=pin(PRIOR),
+-        deployment_parent=pin(HERE.with_name('offline-serving-deployment-r10') / 'SOURCE.sha256'),
+-        scope='Device-integrated explicit trial endpoint with normal browser routes and preserved cooldowns.')
++        deployment_parent=pin(HERE.with_name('offline-serving-deployment-r11') / 'SOURCE.sha256'),
++        scope='Normal browser admission repair with unchanged R9 runtime support and preserved cooldowns.')
+     write(HERE / 'source-manifest.json', json.dumps(manifest, indent=2, sort_keys=True) + '\n')
+     files = {str(p.relative_to(HERE)): sha(p) for p in local + [HERE / 'source-manifest.json']}
+     write(HERE / 'SOURCE.sha256', ''.join(digest + '  ' + name + '\n'
+--- a/prepare_launch.py
++++ b/prepare_launch.py
+@@ -62,8 +62,8 @@
+         assert not old.is_symlink() and sha(old) == previous[label]['source']['sha256']
+         preserved.append(pin(old))
+         inputs[str(old)] = sha(old)
+-    destination = Path('/home/tjninja/.framerize/offline-worker-config-r11.json')
+-    dropin = Path('/home/tjninja/.config/systemd/user/framerize.service.d/zzzzzz-offline-worker-r11.conf')
++    destination = Path('/home/tjninja/.framerize/offline-worker-config-r12.json')
++    dropin = Path('/home/tjninja/.config/systemd/user/framerize.service.d/zzzzzz-offline-worker-r12.conf')
+     assert not os.path.lexists(destination) and not os.path.lexists(dropin)
+     assert args.count('--offline-worker-config') == 1
+     new_args = list(args)
+--- a/release/bind.py
++++ b/release/bind.py
+@@ -3,14 +3,14 @@
+ from pathlib import Path
+ sys.path.insert(0, str(Path(__file__).resolve().parent))
+ from capture import HERE, DEPLOY, sha, save
+-ROOT = DEPLOY.parent / 'disconnect-repair-build-r2'
++ROOT = DEPLOY.parent / 'admission-repair-r3'
+ def pin(path): return {'path': str(path), 'sha256': sha(path)}
+ def read(path): return json.loads(Path(path).read_text())
+ def main():
+     summary_pin = pin(ROOT / 'validation-summary.json')
+-    assert summary_pin['sha256'] == '90dcc9642ff901da1efcc5f419776067b447cc3f6d4519cc5b7cfa49b17738f9'
++    assert summary_pin['sha256'] == '11131cbb07ec9a675bf1519853db9dd0cf4195fc7cb0edf18bbbff912e986bcf'
+     summary = read(summary_pin['path'])
+-    assert summary['status'] == 'cancellation_repair_checks_passed'
++    assert summary['status'] == 'admission_repair_checks_passed'
+     review_path = Path(sys.argv[1]).resolve(strict=True)
+     review = read(review_path)
+     assert review['accepted'] is True and review['validation_summary'] == summary_pin
+@@ -31,7 +31,6 @@
+         binary=summary['binary'], independent_results_review=pin(review_path),
+         deployment=pin(HERE / 'baseline.json'))
+     release.update(service_processes={k: current[k] for k in ('main', 'sidecar')},
+-        device_handoff_review=read(DEPLOY / 'origins.json')['device_handoff_review'],
+         cooldown_runtime=pin(DEPLOY / 'runtime-sources.json'),
+         cooldown_sidecar=pin(DEPLOY / 'camoufox_host.py'),
+         worker_runtime=pin(DEPLOY / 'worker-runtime.json'),
+--- a/release/plan.py
++++ b/release/plan.py
+@@ -14,11 +14,14 @@
+     paths = [HERE/'release.json', HERE/'baseline.json', HERE/'snapshot.json',
+              DEPLOY/'source-manifest.json', reviewed]
+     for name in ('preparation','test_preparation','validation_summary','independent_results_review',
+-                 'worker_runtime','runtime_launch','device_handoff_review'):
++                 'worker_runtime','runtime_launch'):
+         paths.append(Path(release[name]['path']))
+     paths += [Path(row['path']) for row in release['phase_acceptances'].values()]
+     paths.append(DEPLOY.parent / 'native-device-handoff-binding-check-r1/result.json')
+     paths.append(DEPLOY.parent / 'offline-serving-deployment-r11-checks/result.json')
++    package = DEPLOY.parent / 'admission-release-checks-r2/result.json'
++    assert read(package)['accepted'] is True
++    paths.append(package)
+     paths += [DEPLOY.parent/'pool-cooldown-deployment-r1/handoff-validation-r1/result.json',
+               Path(origins['saved_transition']['path'])]
+     assert sha(paths[-1]) == origins['saved_transition']['sha256']
+--- a/release_evidence.py
++++ b/release_evidence.py
+@@ -47,39 +47,21 @@
+ 
+ def bind_runtime(adapter, data, runtime, inputs):
+     require, document, pinned = adapter.require, adapter.document, adapter.pinned
+-    origins = document(adapter.HERE / 'origins.json')
+-    require(data['device_handoff_review'] == origins['device_handoff_review'],
+-            'device handoff review differs')
+-    review = document(pinned(data['device_handoff_review']))
+-    require(review['accepted'] is True and
+-            review['status'] == 'ACCEPTED_SOURCE_AND_SAVED_EVIDENCE_ONLY' and
+-            review['source'] == origins['device_handoff_source'] and
+-            review['result'] == origins['device_handoff_result'],
+-            'device handoff is not independently accepted')
+-    for row in (review['source'], review['result'], review['adapter']):
+-        inputs[str(pinned(row))] = row['sha256']
+     original = document(pinned(runtime['manifest']))
+     current = document(pinned(data['cooldown_runtime']))
+-    require(current == dict(original, **{'native_device.py': review['adapter']['sha256']}),
+-            'runtime differs beyond the accepted native device adapter')
+-    require(runtime['sidecar']['sha256'] == adapter.OLD_PY,
+-            'runtime parent is not the installed baseline')
++    require(current == original, 'normal-route release must preserve R9 support')
++    require(runtime['sidecar']['sha256'] == adapter.OLD_PY, 'wrong runtime parent')
+     previous = pinned(runtime['sidecar']).read_bytes()
+-    old_hash = runtime['manifest']['sha256'].encode()
+-    new_hash = data['cooldown_runtime']['sha256'].encode()
+-    old_name = b'cooldown-support-' + old_hash[:16]
+-    new_name = b'cooldown-support-' + new_hash[:16]
+-    require(previous.count(old_hash) == previous.count(old_name) == 1,
+-            'runtime parent has an ambiguous support binding')
+-    expected = previous.replace(old_hash, new_hash).replace(old_name, new_name)
+-    require(pinned(data['cooldown_sidecar']).read_bytes() == expected,
+-            'generated host differs beyond the support binding')
+-
++    needle = b'                min(30, timeout),\n            )\n            while True:'
++    require(previous.count(needle) == 1, 'ambiguous fetch-start boundary')
++    replacement = needle.replace(b'            while True:', b'            emit("ai.post.started", job=job, path=path)\n            while True:')
++    require(pinned(data['cooldown_sidecar']).read_bytes() == previous.replace(needle, replacement),
++            'generated host differs beyond the fetch-start event')
+ 
+ def build_inputs(adapter, data):
+     require, document, pinned = adapter.require, adapter.document, adapter.pinned
+     summary = document(pinned(data['validation_summary']))
+-    require(summary['status'] == 'cancellation_repair_checks_passed',
++    require(summary['status'] == 'admission_repair_checks_passed',
+             'repair validation is required')
+     source = document(pinned(summary['source']))
+     source_review = document(pinned(summary['source_review']))
+@@ -100,9 +82,8 @@
+         seen.add(phase)
+         if 'passed_cases' in result:
+             cases[phase] = len(result['passed_cases'])
+-    require(len(seen) == 8 and focus['passed_cases'] == 27 and cases == {
+-        'cancel-python-run': 2, 'cancel-api-run': 5,
+-        'cancel-host-run': 4, 'cancel-server-run': 16}, 'focused inventory differs')
++    require(len(seen) == 2 and focus['passed_cases'] == 19 and cases == {
++        'cancel-server-run': 19}, 'focused inventory differs')
+     phases = summary['phases']
+     expected = {'cancel-core-compile'} | {
+         'repair-' + name + '-compile' for name in ('host', 'api', 'store', 'server', 'main')}
+--- a/runtime-support/native_device.py
++++ b/runtime-support/native_device.py
+@@ -206,17 +206,6 @@
+     original_handle = host_type.handle
+     original_use = host_type._use_account
+     original_status = host_type._browser_status
+-    original_finish_close = host_type._finish_close
+-
+-    async def finish_close(host, account, life, acc):
+-        closed = await original_finish_close(host, account, life, acc)
+-        if closed and acc is not None:
+-            require(host.lifecycles.get(account) is life and life.phase == 'absent'
+-                    and account not in host.accounts and life.browser is None
+-                    and life.close_receipt is None, 'browser closure identity changed')
+-            # Preserve the actual final selection, after all browser work joins.
+-            life.restored_primary_device = acc.primary_dev
+-        return closed
+ 
+     async def handle(host, request):
+         if request.get('cmd', '').startswith('native_device_'):
+@@ -244,4 +233,3 @@
+ 
+     host_type.handle, host_type._use_account = handle, use_account
+     host_type._browser_status = status
+-    host_type._finish_close = finish_close
