@@ -204,9 +204,21 @@ Verified package-index cache and one redundant browser download were removed,
 recovering 333,922,304 allocated bytes. Installed packages, the extracted
 browser, profiles, runtime state and frozen evidence were preserved.
 At 06:52 UTC, 1,169,182,720 bytes were available. This is modest headroom,
-not fresh deployment admission. Next: record a separate attempt using the
-unchanged accepted plan and arrange new quiet acknowledgements before its
-fresh cooldown, resource, generation, drain and startup checks.
+not fresh deployment admission. A separately recorded second attempt passed
+fresh readiness, drain, startup, preserved-state and owned-hold release checks
+using the unchanged accepted plan. All six warmups succeeded, all 11 accounts
+were preserved, and the saved startup result has zero swap and memory events.
+The owner remained in one passive tool call for the 243-second operation.
+
+R17 is deployed. Its one browserless trial returned HTTP 502 after 3.02 seconds.
+The completion event records one authorization and one completed transport:
+upstream HTTP 403 with the same security-envelope classification as R15.
+Both inner and final cleanup were confirmed. The worker identity change did
+not resolve that refusal. No answer or attributed memory saving is established.
+Saved result verification is `b37578a5`; the client result is `e811383c`.
+All quiet holds are released. Next: trace the remaining token and native
+request-context differences from the preserved sources, without repeating
+the same request or deployment.
 The existing builds and focused tests are reused. The independent test cleanup
 remains separate, with 27 batches awaiting later owner validation.
 
