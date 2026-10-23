@@ -3,6 +3,22 @@
 Updated 2026-10-23. The normal service remains browser-based. Publishing these
 branches does not change the running service.
 
+The enrollment build is running in its separate loopback instance on port
+8788. A legitimate independent login and its observed device have been imported
+and enrolled successfully. The initial full 600-second cooldown remains in
+force. The browser service and its account set have not been changed.
+
+The live client now supplies a fresh turn ID and matching prompt for each
+request. Its interruption waits for both the actual native send and HTTP 200
+stream headers, before this adapter renders its buffered response. It still
+requires confirmed cleanup, exactly one upstream attempt and successful
+headers before admitting the second request. The focused workflow cases
+pass; the remaining unchanged client cases reuse their saved results.
+Authenticated delivery, live interruption and loaded memory remain unverified.
+The immediate next action is the bounded two-request check after cooldown.
+
+Earlier build and preparation milestones below retain their original limits.
+
 Initial native enrollment is now implemented in source. The new native-only
 account endpoint checks the expected login, stored session and exclusive
 account ownership before asking the host to enroll the observed device.
@@ -61,10 +77,9 @@ non-executable: account, generation and concrete client plan remain unbound.
 The candidate still requires explicit selection of the accepted lazy host.
 
 Browserless is not complete: the isolated setup has no verified authenticated
-Framer delivery. Its latest prepared launch still has no selected account,
-generation or executable client plan. The isolated instance has not imported
-the newly identified login. Source and synthetic-test acceptance
-do not remove the need for a separate legitimate login and device history.
+Framer delivery. Import and initial enrollment now succeed for the separate
+login. The bounded live check must still demonstrate delivery and cleanup
+after the full initial cooldown; source and synthetic tests cannot prove them.
 
 The deferred IDNA-table experiment is complete and remains unapplied. Original
 and candidate outputs match across 105,216 calls each, but one synthetic mint
