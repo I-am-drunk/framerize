@@ -12,6 +12,15 @@ use futures::{future::{BoxFuture, Shared}, FutureExt};
 use crate::native_dispatch::http_stream::NativeStreamObservers;
 
 tokio::task_local! { static CURRENT: Arc<OwnerContext>; }
+tokio::task_local! { static CLIENT: Arc<tokio::sync::oneshot::Sender<()>>; }
+
+/// Cancels future attempts when the HTTP waiter disappears, not current work.
+pub(crate) fn request_cancelled() -> Option<Arc<dyn Fn() -> bool + Send + Sync>> {
+    CLIENT.try_with(|client| {
+        let client = client.clone();
+        Arc::new(move || client.is_closed()) as Arc<dyn Fn() -> bool + Send + Sync>
+    }).ok()
+}
 
 pub struct ServingOwnership {
     gate: OperationGate,
@@ -96,6 +105,13 @@ where T: Send + 'static, F: Future<Output = T> + Send + 'static {
 #[derive(Clone)]
 pub(crate) struct ResponseCompletion(Shared<BoxFuture<'static, bool>>);
 
+/// Only for an already assembled response with an observed cleanup outcome.
+pub(crate) fn completed_response(mut response: Response, confirmed: bool) -> Response {
+    response.extensions_mut().insert(ResponseCompletion(
+        futures::future::ready(confirmed).boxed().shared()));
+    response
+}
+
 /// Observe the existing producer task. Cooperative cancellation must stop its
 /// next attempt; this signal only resolves after its in-flight work returns.
 pub(crate) fn spawn_observed<T, F>(scope: Option<&Arc<ServingOwnership>>,
@@ -130,9 +146,20 @@ pub async fn middleware(State(scope): State<Option<Arc<ServingOwnership>>>,
     } else { OperationKind::Inference };
     let owner = match scope.owner(kind) {
         Ok(owner) => owner,
-        Err(_) => return (StatusCode::SERVICE_UNAVAILABLE, "operation admission closed").into_response(),
+        Err(error) => {
+            let mut event = framer_core::observability::Event::new("operation.admission.refused")
+                .field("reason", format!("{error:?}"))
+                .field("kind", format!("{kind:?}"));
+            if let Ok(stats) = scope.gate.stats() {
+                event = event.field("active", stats.active).field("sealed", stats.sealed)
+                    .field("unconfirmed", stats.unconfirmed);
+            }
+            event.emit();
+            return (StatusCode::SERVICE_UNAVAILABLE, "operation admission closed").into_response();
+        },
     };
-    let task = tokio::spawn(CURRENT.scope(owner.clone(), async move {
+    let (client, present) = tokio::sync::oneshot::channel();
+    let task = tokio::spawn(CLIENT.scope(Arc::new(client), CURRENT.scope(owner.clone(), async move {
         // Handler remains owned even when the HTTP result waiter disappears.
         // Auth/session/state mutation futures are not cancelled by that drop.
         let response = next.run(request).await;
@@ -149,8 +176,10 @@ pub async fn middleware(State(scope): State<Option<Arc<ServingOwnership>>>,
         Response::from_parts(parts, Body::new(OwnedBody { body, owner: Some(owner),
             completion,
         }))
-    }));
-    match task.await {
+    })));
+    let result = task.await;
+    drop(present);
+    match result {
         Ok(response) => response,
         Err(_) => (StatusCode::INTERNAL_SERVER_ERROR, "operation completion unconfirmed").into_response(),
     }
@@ -171,7 +200,9 @@ impl OwnedBody {
             // admitted producer (and native cleanup, when present) joins.
             drop(std::mem::replace(&mut self.body, Body::empty()));
             if let Some(owner) = self.owner.take() {
-                if let Ok(runtime) = tokio::runtime::Handle::try_current() {
+                if let Some(confirmed) = completion.0.clone().now_or_never() {
+                    if confirmed { owner.finish(); }
+                } else if let Ok(runtime) = tokio::runtime::Handle::try_current() {
                     runtime.spawn(async move {
                         if completion.0.await { owner.finish(); }
                     });

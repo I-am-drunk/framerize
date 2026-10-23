@@ -3,7 +3,25 @@
 Updated 2026-10-23. The normal service remains browser-based. Publishing these
 branches does not change the running service.
 
-The disconnect correction is deployed from `browserless`. R9 completed its
+The admission repair on `fix/live-admission-503-20261023` adds completion
+evidence for assembled nonstream Responses bodies and stops future attempts
+when their HTTP waiter disconnects. An unread completed body previously
+marked the operation gate permanently unconfirmed. Unknown cleanup still
+retains its fence. Refusal events now distinguish capacity, seal and unknown
+completion without logging request data. Three focused regressions are
+prepared; diff checks pass, but compilation, tests and deployment are pending
+with the sole runtime owner. The local rustfmt component is unavailable.
+Existing core, host, API and store
+builds are unchanged and available for reuse.
+
+The owner's 03:32:48 UTC diagnosis found the previous binary in a new service
+generation (main 2270461, started 03:28:49). Health and pool returned 200.
+Those observations do not verify real inference or establish the cause of
+the user's earlier request. Next: the owner runs the focused server checks,
+builds the changed server/application, and coordinates deployment plus real
+normal-endpoint cancellation and recovery validation.
+
+The original disconnect correction was deployed from `browserless`. R9 completed its
 fresh admission, drain, startup and release checks on 2026-10-23. The maintenance
 hold is released. A read-only check after the first trial confirmed that health
 and the account pool still return HTTP 200 on the same service generation.

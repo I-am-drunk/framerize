@@ -1436,8 +1436,10 @@ async fn native_complete(
     let mut first_permit = Some(s.gate.acquire(&gate_key).await);
     current_account(&s, account.id).await?;
 
+    let cancelled = operation_ownership::request_cancelled();
     let mk_cfg = |team: &framer_core::ids::TeamId| framer_core::port::ChainConfig {
         max_total_tokens: Some(max_tokens),
+        cancelled: cancelled.clone(),
         metered_fallback: std::env::var("FRAMERIZE_ALLOW_METERED").map(|v| v == "1").unwrap_or(false),
         on_429: {
             let team = Some(team.0.clone());
@@ -1649,10 +1651,12 @@ async fn native_complete(
     let mut tried_accounts: Vec<String> = Vec::new();
     let mut acct_attempt = 0u32;
     let result = 'account_retry: loop {
+        if let Err(error) = cfg.check_cancelled() { break Err(error); }
         let permit = match first_permit.take() {
             Some(permit) => permit,
             None => s.gate.acquire(&gate_key).await,
         };
+        if let Err(error) = cfg.check_cancelled() { break Err(error); }
         current_account(&s, account.id).await?;
         let r = s
             .client
@@ -1673,6 +1677,7 @@ async fn native_complete(
         // Nothing reaches the client on the non-stream path until the chain
         // completes, so a Castle refusal is always safe to retry on a fresh
         // account (the verdict follows the account, not the request).
+        if cfg.is_cancelled() { break r; }
         if matches!(&r, Err(e) if should_retry_account(e)) && acct_attempt < 2 {
             tried_accounts.push(account.id.0.to_string());
             drop(residency.take());
@@ -1729,10 +1734,12 @@ async fn native_complete(
         Ok(r) => r,
         Err(e) => {
             let (status, body) = convert::error_json(dialect, &e);
-            return Ok(axum::response::IntoResponse::into_response(ShapedApiError(
+            let response = axum::response::IntoResponse::into_response(ShapedApiError(
                 StatusCode::from_u16(status).unwrap_or(StatusCode::INTERNAL_SERVER_ERROR),
                 body,
-            )));
+            ));
+            return Ok(operation_ownership::completed_response(response,
+                !pool_control::cleanup_unconfirmed(&e)));
         }
     };
     let body = if dialect == ClientDialect::OpenAiChat {
@@ -1751,7 +1758,7 @@ async fn native_complete(
         "x-framerize-session",
         chat_session.parse().unwrap_or(axum::http::HeaderValue::from_static("")),
     );
-    Ok(resp)
+    Ok(operation_ownership::completed_response(resp, true))
 }
 
 /// Per-dialect composer for the native stream (responses SSE or chat chunks).
