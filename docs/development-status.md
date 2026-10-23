@@ -39,6 +39,14 @@ The exact source delta is published in
 Source review and concrete deployment bindings are still pending. No live
 request or service change followed this fixture run.
 
+Client review found that a raw account-repick reason could reach a saved
+failure report. The additive correction retains only the three known
+admission-refusal reasons and omits other raw reasons. Its one new privacy
+regression passes; the 14 unchanged framing, socket and request cases are
+reused. The original rejected source is preserved. The correction is in
+[admission-stream-client-privacy-r2.patch](../reference/analysis/admission-stream-client-privacy-r2.patch)
+and still needs its narrow review and final deployment binding.
+
 The admission repair on `fix/live-admission-503-20261023` adds completion
 evidence for assembled nonstream Responses bodies and stops future attempts
 when their HTTP waiter disconnects. An unread completed body previously
