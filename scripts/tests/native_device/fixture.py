@@ -1,3 +1,4 @@
+import ast
 import asyncio
 import json
 import tempfile
@@ -10,6 +11,15 @@ from native_device import NativeDevices
 ACCOUNT = '00000000-0000-0000-0000-000000000001'
 LEASE = '00000000-0000-0000-0000-000000000002'
 SECOND = '00000000-0000-0000-0000-000000000003'
+
+SOURCE = Path(__file__).resolve().parents[2] / 'camoufox_host.py'
+tree = ast.parse(SOURCE.read_text())
+host_node = next(n for n in tree.body if isinstance(n, ast.ClassDef) and n.name == 'Host')
+close_node = next(n for n in host_node.body
+                  if isinstance(n, ast.AsyncFunctionDef) and n.name == '_finish_close')
+namespace = dict(asyncio=asyncio, emit=lambda *args, **kwargs: None)
+exec(compile(ast.Module(body=[close_node], type_ignores=[]), str(SOURCE), 'exec'), namespace)
+close_browser = namespace['_finish_close']
 
 class Fixture(unittest.IsolatedAsyncioTestCase):
     def setUp(self):
