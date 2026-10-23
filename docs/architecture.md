@@ -83,6 +83,13 @@ A support-only release can reuse the verified Rust binary. Bind its changed
 support file to separate review evidence, and regenerate only the host's
 support-manifest reference. Preserve the previous launch override for rollback.
 
+Two releases may use the same executable with different support packages.
+Rollback therefore identifies the running generation and launch configuration;
+an executable hash alone cannot establish that the old release is running.
+The current rollback restores the original executable and launch configuration
+while retaining the new restoring host and support package. It preserves the
+existing cooldown transfer and verifies the resulting runtime explicitly.
+
 Deployment also has to account for coding sessions using the same daemon.
 A maintenance marker controls recovery ownership; it does not stop incoming
 requests. Permission to cancel a request is not proof that it has finished.
