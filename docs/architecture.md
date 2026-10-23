@@ -163,6 +163,11 @@ and sidecar hashes are unchanged. Check the current process, installed files,
 accounts, pool, restored state and maintenance ownership before a live test.
 Never recreate an old pending handoff merely to make a verifier pass.
 
+A deployment prepared after recovery also binds its preparation and baseline
+to the recovered generation. Identical payload bytes do not make the earlier
+process identity current. Preserve the old failure and recovery records in the
+new release's evidence, and repeat the normal readiness checks before launch.
+
 The runtime support manifest includes six files, including `native_device.py`.
 The completion checker requires all six and verifies their hashes, ownership,
 permissions and exact directory membership. Archived handoff copies may prove
