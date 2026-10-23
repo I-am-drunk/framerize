@@ -46,8 +46,49 @@ and exact resource caps before loading the worker. It records numeric memory
 and time observations and selected cleanup fields. It does not accept account
 input or operate either service.
 
-The saved source, input and output bindings were checked locally. Independent
-review remains pending. The next useful optimization target is source-level
-allocation during module loading, rather than enabling an unproven heap flag.
+Independent review `c87b7653` accepts the original six-run source and saved
+evidence, with no findings. Verification `948f7f8c` binds the unchanged freeze
+`9d45d1b0` and summary `dc39951c`. This acceptance does not cover the later
+allocation and cache studies below or authorize a runtime change.
 Authenticated streaming, interruption and loaded-service measurement still
 require the separately owned account and fresh isolated runtime.
+
+## Allocation attribution
+
+A later instrumented synthetic mint retained the original device and cleanup
+checks and recorded nine numeric phase samples. Anonymous process memory
+increased from 12,587,008 to 37,629,952 bytes while importing JSDOM, before
+creating its window. That 25,042,944-byte increase is the largest early step
+in this sample. Wrapper evaluation and minting added further allocations.
+
+The instrumented run's group peak was 75,800,576 bytes. Its worker joined,
+its unit and cgroup disappeared, and swap and memory events remained zero.
+Instrumentation can affect timing and allocation. The sample identifies a
+target for investigation; it does not establish an achievable saving.
+Only frozen measurement copies contain these probes. Production is unchanged.
+
+## Static compile-cache comparison
+
+A separate preparation imported JSDOM without invoking the SDK and generated
+633 static cache files totaling 2,457,612 bytes. Three subsequent measurements
+mounted that cache read-only. All cache hashes remained unchanged. Only the
+measurement launcher enabled caching; production worker bytes stayed exact.
+
+| Pair | Baseline mint, ms | Cached mint, ms | Baseline group peak, bytes | Cached group peak, bytes |
+| --- | ---: | ---: | ---: | ---: |
+| 1 | 1184.281 | 1136.845 | 75,018,240 | 79,147,008 |
+| 2 | 1199.040 | 1118.411 | 74,887,168 | 79,642,624 |
+| 3 | 1177.149 | 1159.043 | 75,149,312 | 77,553,664 |
+
+Across these samples, average minter time fell from 1186.823 to 1138.099 ms,
+about 4.1%, while average peak group memory rose about 5.0%. The small timing
+change does not justify adopting a memory regression. Production caching
+remains disabled. Three comparisons do not establish a reliable latency gain,
+and cache-hit telemetry was not collected. No live request latency was measured.
+
+The attribution, preparation and comparison runs passed their original caps,
+device checks where applicable, and teardown checks. Saved evidence was
+verified locally in follow-up summary `5a1b30b6`, reusing the first baseline
+from the accepted six-run study. The 1,247 installed/tool declarations were
+forwarded without reading their targets. These follow-up results have not
+received independent review. No experiment was rerun to publish this summary.

@@ -112,6 +112,14 @@ heap-policy experiments do not change the production launch configuration.
 See the [worker memory results](offline-worker-memory.md) for the measured
 limits and rejected settings.
 
+The original six-run worker study has accepted source and saved evidence.
+Later probes attribute an early allocation increase to importing JSDOM.
+A read-only static Node cache slightly reduced local minting time across
+three comparisons but increased group memory. Those results are locally
+verified and not independently reviewed. Production retains the 96 MiB heap
+and does not enable that cache. The next allocation experiment targets our
+input verification buffers without changing SDK, DOM or device behavior.
+
 ```mermaid
 flowchart LR
     Client --> Server[Shared HTTP API and account selection]

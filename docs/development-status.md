@@ -10,9 +10,20 @@ the successful reduced heaps demonstrated a useful saving. Production keeps
 its accepted 96 MiB setting. All test groups are gone, with zero swap/events.
 The new probe and [measurement report](offline-worker-memory.md) preserve
 these results, including the failure and limits of the RSS/group comparison.
-Independent review is pending. Next independent work is allocation attribution
-during module loading. Real streaming still awaits a separately owned account;
+Final review `c87b7653` accepts the original source and six saved runs with no
+findings. Its scope excludes the subsequent allocation and cache study.
+Real streaming still awaits a separately owned account;
 the accepted executable and timing client remain prepared but not activated.
+
+The subsequent allocation probe identifies JSDOM loading as the largest early
+increase: 25,042,944 bytes of additional anonymous memory before window creation.
+Three static-cache comparisons averaged 4.1% less local minting time and 5.0%
+more peak group memory. Production caching remains disabled and the heap stays
+at 96 MiB. All completed study inputs, outputs and teardown records are checked
+in local summary `5a1b30b6`; these later results are not independently reviewed.
+The next source target is temporary full-file allocation in input verification,
+while retaining every digest check and the existing DOM/device environment.
+Any benefit remains unmeasured. No service or account has been changed.
 
 The isolated client now records monotonic request timings, starting before
 connection/request work. It distinguishes headers, first complete text,
