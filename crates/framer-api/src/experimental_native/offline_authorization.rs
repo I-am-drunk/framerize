@@ -26,6 +26,7 @@ impl OfflineMintTarget {
 
 pub struct MintedCastle {
     scope: AccountScope,
+    device: Option<String>,
     pub token: CastleToken,
     pub received_at: std::time::Instant,
 }
@@ -34,7 +35,14 @@ impl MintedCastle {
     /// This binding does not establish persistent SDK device continuity.
     pub fn new(scope: AccountScope, token: CastleToken,
         received_at: std::time::Instant) -> Self {
-        Self { scope, token, received_at }
+        Self { scope, device: None, token, received_at }
+    }
+
+    /// Carry the same saved device that seeded this invocation. The receiving
+    /// source validates it against the private session before HTTP dispatch.
+    pub fn with_saved_device(mut self, device: String) -> Self {
+        self.device = Some(device);
+        self
     }
 }
 
@@ -85,12 +93,12 @@ impl OfflineSessionSource {
             return PreparationResult::finished(Err(PreparationFailure::Cancelled));
         }
         let minted = self.minter.mint(&self.target, control).await;
-        self.finish_mint(scope, control, bearer, minted)
+        self.finish_mint(scope, session, control, bearer, minted)
     }
 }
 
 impl OfflineSessionSource {
-    fn finish_mint(&self, scope: &AccountScope, control: &PreparationControl,
+    fn finish_mint(&self, scope: &AccountScope, session: &Session, control: &PreparationControl,
         bearer: String, minted: PreparationResult<MintedCastle>)
         -> PreparationResult<PreparedCredentials> {
         if !minted.cleanup_confirmed { return PreparationResult::unconfirmed(); }
@@ -102,6 +110,9 @@ impl OfflineSessionSource {
                 || !self.minter.scope().same_generation(scope) {
                 return Err(PreparationFailure::Rejected);
             }
+            let current_cookies = minted.device.as_deref()
+                .map(|device| CurrentRequestCookies::from_saved_device(session, device))
+                .transpose().map_err(|_| PreparationFailure::Rejected)?;
             let token = minted.token;
             if token.0.is_empty() || token.0.len() > 16 * 1024 {
                 return Err(PreparationFailure::Rejected);
@@ -111,8 +122,7 @@ impl OfflineSessionSource {
                 .map_err(|_| PreparationFailure::Rejected)?;
             Ok(PreparedCredentials {
                 material: CredentialMaterial { bearer, castle },
-                // No browser jar or invented device state is supplied here.
-                current_cookies: None,
+                current_cookies,
             })
         });
         PreparationResult::finished(value)

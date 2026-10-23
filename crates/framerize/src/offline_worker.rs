@@ -148,7 +148,11 @@ impl OfflineWorkerMinter {
             }
             let origin = minted.freshness_origin;
             let token = CastleToken(minted.into_token());
-            Ok(MintedCastle::new(self.scope.clone(), token, origin))
+            let minted = MintedCastle::new(self.scope.clone(), token, origin);
+            Ok(match &self.device {
+                Some((_, grant)) => minted.with_saved_device(grant.device.clone()),
+                None => minted,
+            })
         });
         PreparationResult::finished(result)
     }

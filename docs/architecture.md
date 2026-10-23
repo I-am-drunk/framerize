@@ -38,6 +38,13 @@ owns browser cooldowns. The host admits and charges each mint before the SDK
 worker starts. It refuses browser work for that account while the native
 request remains owned, so the two paths cannot spend independent rate limits.
 
+The source candidate carries that same saved device from the joined worker
+result into the private request cookies. It preserves the original login,
+rejects conflicting or duplicate device cookies, and never writes the request
+snapshot back to the session store. The existing account-generation and private
+session checks still apply when those cookies reach the HTTP transport.
+This connection is not yet validated or deployed.
+
 The application keeps the host grant until the worker, native session and
 response cleanup have finished. Cancelling the client does not release that
 grant early. A lost cleanup acknowledgement leaves the account fenced.

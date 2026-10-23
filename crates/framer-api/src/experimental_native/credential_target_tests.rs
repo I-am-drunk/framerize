@@ -4,6 +4,40 @@ use framer_core::ids::FramerUserId;
 const PROJECT: &str = "AB12cd34EF56gh78IJ90";
 const LOGIN: &str = "session=fixture-login";
 
+#[test]
+fn saved_device_preserves_the_login_and_existing_cookie_bytes() {
+    for (header, expected) in [
+        (LOGIN, "session=fixture-login; __cuid=saved-device"),
+        ("theme=dark; __cuid=saved-device; session=fixture-login",
+         "theme=dark; __cuid=saved-device; session=fixture-login"),
+    ] {
+        let seed = session(header);
+        let cookies = CurrentRequestCookies::from_saved_device(&seed, "saved-device").unwrap();
+        let current = cookies.into_session(&seed).unwrap();
+        assert_eq!(current.cookie_header, expected);
+        assert_eq!(current.active_user, seed.active_user);
+        assert_eq!(seed.cookie_header, header);
+    }
+}
+
+#[test]
+fn saved_device_rejects_conflicts_injection_and_header_overflow() {
+    let oversized = "x".repeat(257);
+    for device in ["", "x;y", "x=y", "with space", "é", "x\r\ny", &oversized] {
+        assert!(CurrentRequestCookies::from_saved_device(&session(LOGIN), device).is_err());
+    }
+    for header in [
+        "session=fixture-login; __cuid=other-device",
+        "session=fixture-login; __cuid=saved-device; __cuid=saved-device",
+        "session=other; session=fixture-login",
+    ] {
+        assert!(CurrentRequestCookies::from_saved_device(&session(header), "saved-device").is_err());
+    }
+    let prefix = "session=fixture-login; padding=";
+    let full = format!("{prefix}{}", "x".repeat(16 * 1024 - prefix.len()));
+    assert!(CurrentRequestCookies::from_saved_device(&session(&full), "saved-device").is_err());
+}
+
 fn session(header: &str) -> Session {
     Session {
         active_user: FramerUserId("fixture-private-user".into()),

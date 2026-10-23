@@ -84,6 +84,34 @@ fn actual_project_page_and_supported_route_are_required() {
 }
 
 #[tokio::test]
+async fn saved_device_follows_the_joined_mint_into_request_cookies() {
+    let (client, account) = scope(NativeEgress::Direct);
+    let listener = listener().await;
+    let minted = minted(&account, "fixture-token".into()).with_saved_device("saved-device".into());
+    let minter = Arc::new(Minter::new(&account, PreparationResult::finished(Ok(minted))));
+    let source = source(&account, listener.local_addr().unwrap(), minter.clone());
+    let server = auth(listener);
+    let expected = account.clone();
+    let pending = client.prepare_owned(&account, tokio::time::Instant::now() + BOUND,
+        move |session, control| async move {
+            let issued = source.issue_for_target(&expected, &session, &target(), &control).await;
+            PreparationResult { cleanup_confirmed: issued.cleanup_confirmed,
+                value: issued.value.map(|prepared| {
+                    let current = prepared.current_cookies.expect("saved device context")
+                        .into_session(&session).unwrap();
+                    (current.cookie_header, session.cookie_header)
+                }) }
+        }).unwrap();
+    let result = tokio::time::timeout(BOUND, pending).await.unwrap().unwrap();
+    assert_eq!(result, ("session=fixture-only-cookie; __cuid=saved-device".into(),
+        "session=fixture-only-cookie".into()));
+    assert_eq!(minter.calls.load(Ordering::SeqCst), 1);
+    assert_eq!(minter.joined.load(Ordering::SeqCst), 1);
+    assert!(!fixture::result(server).await.contains("__cuid="));
+    close(&client, &account).await;
+}
+
+#[tokio::test]
 async fn exact_target_issues_once_without_browser_cookie_state() {
     let (client, account) = scope(NativeEgress::Direct);
     let listener = listener().await;
