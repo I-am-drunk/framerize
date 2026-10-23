@@ -11,6 +11,11 @@ application link now passes: result `05552129` binds executable `8ffa3077`
 and 6,272 inputs. The binary is built, not installed or executed. Running
 services and browser-based branches are unchanged.
 
+Review `4e69d24b` accepts the application source and saved build bindings with
+no findings. It grants no runtime or delivery approval. Preparation `398c1c63`
+selects this binary while retaining the ten other runtime declarations and
+the existing client. Account, generation and execution plan remain unset.
+
 The successful build peaked at 725,790,720 bytes under its unchanged 768 MiB
 cap, with 12 tasks, zero swap/events and no remaining build unit or cgroup.
 An earlier memory-cap failure and a diagnostic-file ordering refusal are
@@ -110,8 +115,9 @@ or cgroup, with zero swap/events. Summary `6a451af4` binds their separate
 harness build and two runs. The SDK phase was unobserved, and these cases
 do not establish HTTP-stream cleanup. The experimental owner source now
 matches the measured variant. The application now links that verified owner
-library. Its separate cancellation and application-result reviews remain
-pending; real account readiness and authenticated delivery remain unproven.
+library. Its separate cancellation review remains pending; application review
+`4e69d24b` accepts the source and saved build bindings. Real account readiness
+and authenticated delivery remain unproven.
 
 Two additional local cases now cancel the real worker after observed process
 activity. Explicit cancellation returns the expected failure; dropping the
