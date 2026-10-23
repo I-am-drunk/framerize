@@ -75,6 +75,12 @@ The worker seeds its isolated storage before loading the SDK and checks that
 the value remains unchanged. This does not establish upstream acceptance or
 prove which identity an opaque token contains. Those require separate evidence.
 
+The worker's JSDOM window identifies the application as `Framerize/0.1`, the
+same identity used by both native HTTP clients. Its resource loader always
+returns no resource, including for HTTPS, file and data URLs. This preserves
+the isolated page context and does not make JSDOM a browser or prove that
+an upstream security check will accept a native request.
+
 The generated host package installs the native device adapter after the
 existing restoration hook. A base embedded host alone does not provide this
 integration; native configuration remains an explicit deployment choice.
