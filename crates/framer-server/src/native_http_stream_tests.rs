@@ -11,6 +11,74 @@ use fixture::{headers, kind, responses, Fixture, BOUND};
 
 const IDLE: Duration = Duration::from_millis(40);
 
+async fn pool_is_open(fixture: &Fixture) {
+    use tower::ServiceExt;
+    let request = axum::http::Request::builder().uri("/api/pool")
+        .body(axum::body::Body::empty()).unwrap();
+    let response = crate::router(fixture.state.clone(), "/fixture-no-web")
+        .oneshot(request).await.unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    axum::body::to_bytes(response.into_body(), 65536).await.unwrap();
+}
+
+#[tokio::test]
+async fn routed_disconnect_and_body_error_wait_for_native_cleanup_without_closing_admission() {
+    for path in ["/paid/openai/v1/responses", "/openai/v1/responses"] {
+        for body_error in [false, true] {
+            let mut fixture = Fixture::new(1, Duration::from_secs(2), None);
+            fixture.state = crate::operation_ownership::with_owned_operations(fixture.state, 32).unwrap();
+            let ownership = fixture.state.operation_ownership.clone().unwrap();
+            let mut control = fixture.enqueue(0, headers(200, "text/event-stream", None), "text/event-stream");
+            control.open();
+            let response = fixture.request(path, responses(), 0, "session", false).await;
+            let observers = response.extensions().get::<NativeStreamObservers>().unwrap().clone();
+            let mut body = response.into_body().into_data_stream();
+            if body_error {
+                control.fail_body(FailureKind::Body);
+                assert_eq!(kind(&next(&mut body).await.unwrap().unwrap_err()), FailureKind::Body);
+            }
+            drop(body);
+            assert_eq!(control.probe.cancellations(), 1);
+            assert_eq!(control.probe.body_drops.load(Ordering::SeqCst), 1);
+            pool_is_open(&fixture).await;
+            assert!(!fixture.slot_free(0, "gpt-4.1").await);
+            let mut ticket = ownership.seal().unwrap();
+            assert!(tokio::time::timeout(IDLE, ticket.wait_application()).await.is_err());
+            let failure = if body_error { FailureKind::Body } else { FailureKind::Cancelled };
+            control.finish(Err(failure));
+            assert_eq!(completion_result(completed(&observers).await), Err(failure));
+            assert!(tokio::time::timeout(IDLE, ticket.wait_application()).await.is_err());
+            control.release().await;
+            let proof = tokio::time::timeout(BOUND, ticket.wait_application()).await.unwrap().unwrap();
+            ownership.check_application_drained(&proof).unwrap();
+            drop(proof);
+            ticket.cancel_before_control().unwrap();
+            pool_is_open(&fixture).await;
+            assert!(fixture.slot_free(0, "gpt-4.1").await);
+            assert_eq!(fixture.records().len(), 1);
+            fixture.assert_legacy_unused();
+        }
+    }
+}
+
+#[tokio::test]
+async fn routed_disconnect_with_lost_native_cleanup_still_refuses_admission() {
+    let mut fixture = Fixture::new(1, Duration::from_secs(2), None);
+    fixture.state = crate::operation_ownership::with_owned_operations(fixture.state, 32).unwrap();
+    let ownership = fixture.state.operation_ownership.clone().unwrap();
+    let mut control = fixture.enqueue(0, headers(200, "text/event-stream", None), "text/event-stream");
+    control.open();
+    let response = fixture.request("/openai/v1/responses", responses(), 0, "session", false).await;
+    let observers = response.extensions().get::<NativeStreamObservers>().unwrap().clone();
+    drop(response);
+    assert_eq!(control.probe.cancellations(), 1);
+    control.finish(Err(FailureKind::Cancelled));
+    drop(control);
+    assert_eq!(tokio::time::timeout(BOUND, observers.cleanup).await.unwrap(), Err(FailureKind::Cleanup));
+    assert!(matches!(ownership.seal(), Err(framer_core::operation_gate::GateError::Unconfirmed)));
+    fixture.assert_legacy_unused();
+}
+
 async fn next<S: Stream + Unpin>(stream: &mut S) -> Option<S::Item> {
     tokio::time::timeout(BOUND, stream.next()).await.expect("bounded body observation")
 }

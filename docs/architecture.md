@@ -43,6 +43,12 @@ response cleanup have finished. Cancelling the client does not release that
 grant early. A lost cleanup acknowledgement leaves the account fenced.
 Successful stream headers can still reach the client before the body ends.
 
+The pending disconnect correction separates cancelling future work from
+confirming current work. Browser chains stop before another attempt, but keep
+the already-started call owned until it returns. Native responses use their
+existing completion and cleanup observers. Dropping a response does not itself
+prove cleanup, and it must not start another mint or drain an abandoned chain.
+
 Worker protocol version 2 carries the private saved device through a pipe.
 The worker seeds its isolated storage before loading the SDK and checks that
 the value remains unchanged. This does not establish upstream acceptance or

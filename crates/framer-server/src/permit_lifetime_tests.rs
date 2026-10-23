@@ -233,7 +233,7 @@ async fn cancelling_failover_wait_cannot_start_a_late_attempt() {
 }
 
 #[tokio::test(flavor = "current_thread")]
-async fn cancelling_active_chain_releases_slot_after_its_client_future_drops() {
+async fn cancelling_active_stream_retains_slot_until_its_current_call_returns() {
     for (messages, stream) in [(true, true), (true, false), (false, true), (false, false)] {
         let mut f = Fixture::new();
         let key = f.key(0, if messages { MESSAGE_MODEL } else { RESPONSE_MODEL });
@@ -244,12 +244,16 @@ async fn cancelling_active_chain_releases_slot_after_its_client_future_drops() {
         let call = f.next().await;
         occupied(&f.state.gate, &key).await;
         drop(response);
-        if !stream {
+        if stream {
+            occupied(&f.state.gate, &key).await;
+            assert!(!call.reply.is_closed());
+            call.reply.send(Ok(success(call.kind))).ok().unwrap();
+        } else {
             task.0.abort();
             assert!((&mut task).await.unwrap_err().is_cancelled());
+            assert!(call.reply.is_closed());
         }
         tokio::time::timeout(WAIT, call.dropped).await.unwrap().unwrap();
-        assert!(call.reply.is_closed());
         available(&f.state.gate, &key).await;
         f.no_call();
     }

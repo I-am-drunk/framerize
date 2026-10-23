@@ -227,8 +227,19 @@ pub struct ChainConfig {
     /// of waiting for chain exhaustion (2026-10-05: 15 429s in 4 min with zero
     /// preemptive marks).
     pub on_429: Option<std::sync::Arc<dyn Fn() + Send + Sync>>,
+    /// Stop before another upstream attempt when the response consumer leaves.
+    /// A call already sent keeps running until its own completion is observed.
+    pub cancelled: Option<std::sync::Arc<dyn Fn() -> bool + Send + Sync>>,
 }
 
+impl ChainConfig {
+    pub fn is_cancelled(&self) -> bool {
+        self.cancelled.as_ref().is_some_and(|cancelled| cancelled())
+    }
+    pub fn check_cancelled(&self) -> Result<(), String> {
+        if self.is_cancelled() { Err("client cancelled".into()) } else { Ok(()) }
+    }
+}
 
 impl std::fmt::Debug for ChainConfig {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -238,6 +249,7 @@ impl std::fmt::Debug for ChainConfig {
             .field("max_total_tokens", &self.max_total_tokens)
             .field("metered_fallback", &self.metered_fallback)
             .field("on_429", &self.on_429.as_ref().map(|_| "<callback>"))
+            .field("cancelled", &self.cancelled.as_ref().map(|_| "<callback>"))
             .finish()
     }
 }
@@ -251,6 +263,7 @@ impl Default for ChainConfig {
             max_total_tokens: None,
             metered_fallback: false,
             on_429: None,
+            cancelled: None,
         }
     }
 }

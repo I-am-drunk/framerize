@@ -46,6 +46,10 @@ pub(super) fn cleanup_unconfirmed(error: &str) -> bool {
         .map(|(_, cause)| cause).unwrap_or(error);
     matches!(cause, "account browser cleanup is unconfirmed; retry after cleanup"
         | "browser launch cleanup is unconfirmed")
+        || cause.contains("host-lifecycle-unconfirmed:")
+        || cause.contains("sidecar timeout")
+        || cause.contains("sidecar dropped the request")
+        || cause.contains("sidecar write:")
 }
 
 pub(super) fn observe_lease_result<T>(lease: &ResidentLease, result: Result<T, String>)

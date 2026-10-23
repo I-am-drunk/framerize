@@ -7,6 +7,9 @@ use framer_core::{operation_gate::{OperationGate, OperationOwner, OperationKind,
     GateError, DrainTicket, ControlGuard, LegacyHostOwner, ApplicationDrained}, wave::WaveGuard};
 use std::{future::Future, pin::Pin, sync::{Arc, Mutex}, task::{Context, Poll}};
 use http_body::{Body as HttpBody, Frame, SizeHint};
+use futures::{future::{BoxFuture, Shared}, FutureExt};
+#[cfg(feature = "native-dispatch")]
+use crate::native_dispatch::http_stream::NativeStreamObservers;
 
 tokio::task_local! { static CURRENT: Arc<OwnerContext>; }
 
@@ -90,6 +93,26 @@ where T: Send + 'static, F: Future<Output = T> + Send + 'static {
     })))
 }
 
+#[derive(Clone)]
+pub(crate) struct ResponseCompletion(Shared<BoxFuture<'static, bool>>);
+
+/// Observe the existing producer task. Cooperative cancellation must stop its
+/// next attempt; this signal only resolves after its in-flight work returns.
+pub(crate) fn spawn_observed<T, F>(scope: Option<&Arc<ServingOwnership>>,
+    kind: OperationKind, future: F)
+    -> Result<(tokio::task::JoinHandle<Result<T, String>>, ResponseCompletion), GateError>
+where T: Send + 'static, F: Future<Output = Result<T, String>> + Send + 'static {
+    let (done, completed) = tokio::sync::oneshot::channel();
+    let task = spawn(scope, kind, async move {
+        let result = future.await;
+        let confirmed = result.as_ref().err()
+            .map_or(true, |error| !crate::pool_control::cleanup_unconfirmed(error));
+        let _ = done.send(confirmed);
+        result
+    })?;
+    Ok((task, ResponseCompletion(async move { completed.await.unwrap_or(false) }.boxed().shared())))
+}
+
 pub async fn run<T, F>(scope: Option<&Arc<ServingOwnership>>, kind: OperationKind, future: F)
     -> Result<T, GateError>
 where T: Send + 'static, F: Future<Output = T> + Send + 'static {
@@ -114,7 +137,18 @@ pub async fn middleware(State(scope): State<Option<Arc<ServingOwnership>>>,
         // Auth/session/state mutation futures are not cancelled by that drop.
         let response = next.run(request).await;
         let (parts, body) = response.into_parts();
-        Response::from_parts(parts, Body::new(OwnedBody { body, owner: Some(owner) }))
+        let completion = parts.extensions.get::<ResponseCompletion>().cloned();
+        #[cfg(feature = "native-dispatch")]
+        let completion = completion.or_else(|| {
+            parts.extensions.get::<NativeStreamObservers>().cloned().map(|observers|
+                ResponseCompletion(async move {
+                    let (_, cleanup) = tokio::join!(observers.completion, observers.cleanup);
+                    cleanup.is_ok()
+                }.boxed().shared()))
+        });
+        Response::from_parts(parts, Body::new(OwnedBody { body, owner: Some(owner),
+            completion,
+        }))
     }));
     match task.await {
         Ok(response) => response,
@@ -122,9 +156,31 @@ pub async fn middleware(State(scope): State<Option<Arc<ServingOwnership>>>,
     }
 }
 
-struct OwnedBody { body: Body, owner: Option<Arc<OwnerContext>> }
+struct OwnedBody {
+    body: Body, owner: Option<Arc<OwnerContext>>,
+    completion: Option<ResponseCompletion>,
+}
 impl OwnedBody {
-    fn finish(&mut self) { if let Some(owner) = self.owner.take() { owner.finish(); } }
+    fn finish(&mut self) {
+        if self.observe_completion() { return; }
+        if let Some(owner) = self.owner.take() { owner.finish(); }
+    }
+    fn observe_completion(&mut self) -> bool {
+        if let Some(completion) = self.completion.take() {
+            // Body drop cancels future attempts. Retain this owner until the
+            // admitted producer (and native cleanup, when present) joins.
+            drop(std::mem::replace(&mut self.body, Body::empty()));
+            if let Some(owner) = self.owner.take() {
+                if let Ok(runtime) = tokio::runtime::Handle::try_current() {
+                    runtime.spawn(async move {
+                        if completion.0.await { owner.finish(); }
+                    });
+                }
+            }
+            return true;
+        }
+        false
+    }
 }
 impl HttpBody for OwnedBody {
     type Data = axum::body::Bytes;
@@ -134,7 +190,9 @@ impl HttpBody for OwnedBody {
         let value = Pin::new(&mut self.body).poll_frame(cx);
         match &value {
             Poll::Ready(None) => self.finish(),
-            Poll::Ready(Some(Err(_))) => { self.owner.take(); },
+            Poll::Ready(Some(Err(_))) => {
+                if !self.observe_completion() { self.owner.take(); }
+            },
             _ => {},
         }
         value
@@ -144,8 +202,10 @@ impl HttpBody for OwnedBody {
 }
 impl Drop for OwnedBody {
     fn drop(&mut self) {
-        // Empty or fully consumed bodies need no additional poll to confirm
-        // completion. Early drop of an unfinished body remains Unconfirmed.
+        if self.observe_completion() { return; }
+        // Without a cleanup observer, early drop remains unconfirmed. In
+        // particular, do not drain abandoned browser chains: drop must abort
+        // them before they can issue another mint or continuation.
         if self.body.is_end_stream() { self.finish(); }
     }
 }

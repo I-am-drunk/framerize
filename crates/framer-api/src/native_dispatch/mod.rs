@@ -201,7 +201,7 @@ impl Parts {
             max_chunks: self.policy.max_chunks,
             continue_prompt: self.policy.continuation.clone().unwrap_or_default(),
             max_total_tokens: Some(self.request.max_total_tokens),
-            metered_fallback: false, on_429: None }
+            metered_fallback: false, on_429: None, cancelled: None }
     }
 }
 

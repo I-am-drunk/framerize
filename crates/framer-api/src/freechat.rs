@@ -121,6 +121,7 @@ pub async fn complete_long(
     let max_wall = std::time::Duration::from_secs(300); // 5 min: beyond this a
     // chain is storming; the client retries fresh far better than we churn.
     for i in 0..cfg.max_chunks {
+        cfg.check_cancelled()?;
         if chain_started.elapsed() > max_wall {
             return Err(format!("chain exceeded {}s wall-clock budget after {i} chunks (upstream degraded) — retry the request", max_wall.as_secs()));
         }
@@ -154,12 +155,14 @@ pub async fn complete_long(
             let mut attempt_payload = payload;
             let mut out = None;
             while out.is_none() {
+                cfg.check_cancelled()?;
                 last_attempt_t0 = std::time::Instant::now();
-                match proxy::forward(
+                match proxy::forward_cancellable(
                     t, token_cache, session, browser, account, project,
-                    cur_dialect, &cur_step, attempt_payload.take(), chat_session, i,
+                    cur_dialect, &cur_step, attempt_payload.take(), chat_session, i, cfg.cancelled.as_deref(),
                 ).await {
                     Ok(r) => out = Some(Ok((cur_dialect, r))),
+                    Err(e) if cfg.is_cancelled() => return Err(e),
                     Err(e) if e.starts_with("retryable 429") => {
                         // 4 in-chain hops, then surface: a saturated WORKSPACE
                         // can't be fixed by bucket hops (the cap is per
@@ -205,6 +208,7 @@ pub async fn complete_long(
                 r
             }
             Err(e) if framer_core::error::AccountCooldown::from_error(&e).is_some() => return Err(e),
+            Err(e) if cfg.is_cancelled() => return Err(e),
             Err(e) => {
                 // The idle-kill check must time the FAILING ATTEMPT — the whole
                 // loop includes 429 backoffs, which would misclassify a fast
@@ -230,18 +234,19 @@ pub async fn complete_long(
                 let (d3, s3) = bucket(bucket_idx);
                 eprintln!("[freechat] chunk {i} died at {elapsed:.1}s ({e}) — retrying with max_tokens={chunk_tokens} on {d3:?}/{s3}");
                 let retry_payload = build_payload(&messages, chunk_tokens, d3);
-                match proxy::forward(
+                match proxy::forward_cancellable(
                     t, token_cache, session, browser, account, project,
-                    d3, &s3, retry_payload, chat_session, i,
+                    d3, &s3, retry_payload, chat_session, i, cfg.cancelled.as_deref(),
                 ).await {
                     Ok(r) => r,
                     Err(e2) if framer_core::error::AccountCooldown::from_error(&e2).is_some() => return Err(e2),
+                    Err(e2) if cfg.is_cancelled() => return Err(e2),
                     Err(e2) if cfg.metered_fallback => {
                         eprintln!("[freechat] chunk {i} retry died ({e2}) — metered stream fallback for this chunk");
                         let stream_payload = build_payload(&messages, chunk_tokens, d3);
                         let streamed = stream_chunk(
                             t, token_cache, session, browser, account, project,
-                            d3, &s3, stream_payload, chat_session, i,
+                            d3, &s3, stream_payload, chat_session, i, cfg.cancelled.as_deref(),
                         ).await?;
                         metered_chunks += 1;
                         ptok = ptok.max(streamed.input_tokens);
@@ -369,7 +374,7 @@ pub async fn complete_long(
             let stream_payload = build_payload(&messages, cfg.max_total_tokens.map(|cap| cap.saturating_sub(ctok as u32).max(1024)).unwrap_or(8000), dialect);
             let streamed = stream_chunk(
                 t, token_cache, session, browser, account, project,
-                dialect, &step, stream_payload, chat_session, i,
+                dialect, &step, stream_payload, chat_session, i, cfg.cancelled.as_deref(),
             ).await?;
             metered_chunks += 1;
             ptok = ptok.max(streamed.input_tokens);
@@ -517,9 +522,10 @@ async fn stream_chunk(
     mut payload: Value,
     chat_session: &str,
     step_index: u32,
+    cancelled: Option<&(dyn Fn() -> bool + Send + Sync)>,
 ) -> Result<StreamedChunk, String> {
     payload["stream"] = json!(true);
-    let resp = proxy::forward(t, token_cache, session, browser, account, project, upstream, step, payload, chat_session, step_index).await?;
+    let resp = proxy::forward_cancellable(t, token_cache, session, browser, account, project, upstream, step, payload, chat_session, step_index, cancelled).await?;
     let text = body_text(resp).await?;
 
     let mut id = String::new();
