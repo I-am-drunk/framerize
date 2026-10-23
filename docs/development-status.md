@@ -5,16 +5,20 @@ branches does not change the running service.
 
 An account-import source candidate now checks an optional expected Framer
 identity before saving the session or provisioning workspaces. It also skips
-automatic browser prewarm when native dispatch is configured. Four new
-identity/import fixtures are UNRUN. The accepted executable and both running
-service configurations remain unchanged; separate authentication and actual
-device/cooldown authority are still required for a live browserless request.
+automatic browser prewarm when native dispatch is configured. All eight
+focused import cases pass, including four new identity/prewarm cases. The
+accepted application executable and service configurations remain unchanged;
+separate authentication and actual device/cooldown authority are still required
+for a live browserless request.
 
 Import validation first stopped before compilation because its launcher and
 runner disagreed on the test-unit name. After that setup correction, compilation
 found a missing optional identity field in one existing test initializer. The
-initializer is corrected in source; a fresh compile and the eight selected
-import cases remain pending. Both failed attempts are retained.
+initializer is corrected. The fresh R3 test build and all eight selected cases
+pass; summary `8f46157b` binds both results and the retained failures. Compilation
+peaked at 705,204,224 bytes and testing at 17,985,536 bytes, with zero swap and
+verified cleanup. These are validation-process measurements, not service memory.
+The application still needs rebuilding before this correction can be staged.
 
 Browserless is not complete: the isolated setup has no verified authenticated
 Framer delivery. Its latest prepared launch still has no selected account,

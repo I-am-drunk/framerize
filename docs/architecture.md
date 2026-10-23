@@ -14,11 +14,12 @@ Generated hosts locate cooldown state from their canonical
 They continue to reject stale or changed handoffs within their own instance.
 An empty isolated instance can validate startup without claiming inference.
 
-The unvalidated account-import candidate accepts an expected Framer user ID
+The account-import candidate accepts an expected Framer user ID
 and checks it before saving the session or provisioning account resources.
 With native dispatch configured, import also skips automatic browser prewarm.
 Proxy registration and existing native device/cooldown admission remain.
-These source changes are not present in the installed or staged executable.
+Eight focused import cases pass. These source changes are not present in the
+installed or staged application executable.
 
 The deferred IDNA-table patch is retained only as an unapplied experiment.
 Its synthetic equivalence checks passed, but the subsequent worker measurement
