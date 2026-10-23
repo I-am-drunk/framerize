@@ -38,13 +38,14 @@ owns browser cooldowns. The host admits and charges each mint before the SDK
 worker starts. It refuses browser work for that account while the native
 request remains owned, so the two paths cannot spend independent rate limits.
 
-The source candidate carries that same saved device from the joined worker
+The R18 source carries that same saved device from the joined worker
 result into the private request cookies. It preserves the original login,
 rejects conflicting or duplicate device cookies, and never writes the request
 snapshot back to the session store. The existing account-generation and private
 session checks still apply when those cookies reach the HTTP transport.
 This connection passed the selected local cookie and authorization tests.
-Deployment and upstream acceptance remain unverified.
+R18 deployment is verified. Its first trial refused local admission; upstream
+acceptance remains unverified.
 
 The application keeps the host grant until the worker, native session and
 response cleanup have finished. Cancelling the client does not release that
@@ -117,6 +118,14 @@ request history remain in that same lifecycle. Failed closure transfers no
 authority, and an account without a recorded primary device remains ineligible.
 The first trial needs an idle account parked through the normal pool owner;
 general account availability alone does not establish native readiness.
+
+The deployment capture must preserve a parked account's recorded primary
+device from its lifecycle. A resident browser's actual selection takes
+precedence. The additive capture correction covers both cases and preserves
+null or missing selections as unknown. It retains every cooldown and request
+timestamp. This prevents another state transfer from discarding a known
+selection; it does not reconstruct one already lost or make an unknown device
+eligible. The corrected extractor has passed its 17 focused fixture cases.
 
 A support-only release can reuse the verified Rust binary. Bind its changed
 support file to separate review evidence, and regenerate only the host's
