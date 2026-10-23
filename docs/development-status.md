@@ -32,12 +32,19 @@ Independent review accepted the frozen source and saved evidence with no
 findings (receipt `a679d7f8`, freeze `c0d7a7a3`, validation `2c22b87d`). This
 acceptance covers the startup fix and recorded checks, not live inference.
 
-Next: a separately owned account for real browserless validation. The current
-instance configures the explicit offline endpoint only; normal streaming also
-needs `--offline-routing-config`. Both routing and the test account must be
-bound before a real request. The account must be outside the browser service's
-current scope. Empty startup results establish neither delivery nor memory
-use under inference load.
+At 2026-10-23 16:07 UTC a guarded switch replaced only the owned empty test
+instance. `framerize-browserless-native-r1.service` now serves port 8788 with
+the validated native routing configuration. The browser service kept its
+process generation. A normal streaming request reached native dispatch and
+returned `503/Ineligible` before any worker started. Activation receipt
+`6a429355` records a 5,238,784-byte empty-instance peak and zero swap/events.
+The instance retains its 30-minute limit and has no automatic restart.
+
+Next: a separately owned account for real browserless validation. A read-only
+inventory found that the browser service's saved policy includes all 11 saved
+accounts, so none can simply be copied into the parallel instance. Account
+selection is pending. Empty startup and routing results establish neither
+authenticated delivery nor memory use under inference load.
 
 The new `examples/browserless-routing.json` configuration passes a separate
 process fixture for normal streaming dispatch. With an empty account store,
@@ -47,8 +54,12 @@ refusal before a host or worker starts. The fixture supplies synthetic
 account and project. Its first two attempts omitted that header and are
 retained as failed fixture evidence. The corrected run exited cleanly, with
 a 16,809,984-byte group peak, five tasks and no swap or memory events.
-The previously accepted binary was reused. This configuration has not been
-applied to port 8788, and no authenticated request is covered by the result.
+The previously accepted binary was reused. Independent review accepted this
+source and saved evidence with no findings: receipt `05fc283a`, freeze
+`cb8117b6`, summary `aea1130b`. Resource sampling preceded cleanup; daemon join
+and an empty systemd ControlGroup do not establish filesystem cgroup absence.
+The configuration is now applied to port 8788 as described above. No
+authenticated request is covered by these results.
 
 The earlier nonstream admission repair passed its bounded normal-route check.
 An unmetered request was disconnected after its browser fetch started. The

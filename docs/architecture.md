@@ -28,6 +28,9 @@ it is not installed automatically. Native requests also require explicit
 `run_native_binding.py` fixture verifies that a normal streaming request reaches
 native dispatch with synthetic context and an empty account store. It proves
 the routing binding, not authentication, upstream acceptance or text delivery.
+The same configuration is now active only on the isolated port 8788 instance.
+See [parallel validation](parallel-browserless-validation.md) for the remaining
+account, streaming, cleanup and resource evidence required for a real run.
 
 ```mermaid
 flowchart LR
