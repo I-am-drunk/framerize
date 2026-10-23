@@ -183,13 +183,15 @@ worker to join before reporting completion to the shared host, then retains
 account preparation until the host acknowledges it. New focused tests cover
 explicit cancellation, a dropped result waiter and a lost host acknowledgement.
 They use the real worker owner and account preparation with a deterministic
-worker and controlled host replies. The source is prepared but UNRUN:
-three compilation admissions were refused before launch by the memory reserve.
+worker and controlled host replies. All three cases now pass, and a deliberate
+early-release control fails the intended host-acknowledgement assertion.
+The three earlier prelaunch memory refusals remain preserved.
 The corrected validation launcher uses fresh labels under the original output
 parent, with three labels per mode and all resource guards preserved. Its result
 binder also checks the exact launcher, dependencies, label and mode. This
-additive preparation correction is accepted for source/static bindings and
-remains unexecuted because the compiler reserve has not been met.
+additive preparation correction is accepted for source/static bindings.
+Summary `167fb923` records the two later builds and synthetic runtime checks
+under unchanged guards, using the original frozen owner-library binding.
 These cases do not establish authenticated delivery or actual host cleanup.
 
 ```mermaid
