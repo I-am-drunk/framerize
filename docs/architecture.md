@@ -14,6 +14,11 @@ Generated hosts locate cooldown state from their canonical
 They continue to reject stale or changed handoffs within their own instance.
 An empty isolated instance can validate startup without claiming inference.
 
+The deferred IDNA-table patch is retained only as an unapplied experiment.
+Its synthetic equivalence checks passed, but the subsequent worker measurement
+did not establish a useful peak-memory reduction. Production still uses the
+original dependency; neither the patch nor its probe participates in startup.
+
 The application/worker memory harness now keeps a synthetic application and
 lazy host alive during one separate owned SDK mint. The setup request remains
 inside a private network and refuses for missing session before inference.
