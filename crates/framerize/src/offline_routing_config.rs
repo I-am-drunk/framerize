@@ -7,6 +7,10 @@ use std::time::Duration;
 #[path = "offline_routing_config_tests.rs"]
 mod tests;
 
+#[cfg(test)]
+#[path = "offline_routing_example_tests.rs"]
+mod example_tests;
+
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct Config {

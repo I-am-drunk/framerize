@@ -7,7 +7,7 @@ from parallel_native_check.support import Refusal
 
 
 class StreamingTests(unittest.TestCase):
-    def stream(self, body, framing, eof=True):
+    def stream(self, body, framing, eof=True, status=b'200 OK', content_type=b'text/event-stream'):
         local, remote = socket.socketpair()
         local.settimeout(2)
         remote.settimeout(2)
@@ -16,8 +16,8 @@ class StreamingTests(unittest.TestCase):
         connection.sock = local
         connection.request('GET', '/')
         remote.recv(8192)
-        remote.sendall(b'HTTP/1.1 200 OK\r\nConnection: close\r\n'
-                       b'Content-Type: text/event-stream\r\n' + framing + b'\r\n\r\n' + body)
+        remote.sendall(b'HTTP/1.1 ' + status + b'\r\nConnection: close\r\n'
+                       b'Content-Type: ' + content_type + b'\r\n' + framing + b'\r\n\r\n' + body)
         if eof:
             remote.shutdown(socket.SHUT_WR)
         stream = Stream(connection)
@@ -31,6 +31,33 @@ class StreamingTests(unittest.TestCase):
         self.assertTrue(state['eof'])
         self.assertIsNone(state['read_error'])
         self.assertEqual(state['terminal_completions'], 1)
+
+    def test_preflight_error_retains_only_allowlisted_code(self):
+        body = b'{"error":{"type":"native_dispatch_error","code":"BodyTooLarge","message":"private-marker"}}'
+        stream, _, _ = self.stream(body, b'Content-Length: ' + str(len(body)).encode(),
+                                  status=b'502 Bad Gateway', content_type=b'application/json')
+        value = await_state(stream, lambda state: state['finished'])
+        self.assertEqual(value['status'], 502)
+        self.assertEqual(value['response_error_code'], 'BodyTooLarge')
+        self.assertEqual(value['read_error'], 'stream_http_status')
+        self.assertFalse(value['eof'])
+        self.assertNotIn('private-marker', str(value))
+
+    def test_error_response_cannot_export_unknown_codes_or_large_bodies(self):
+        for body in [
+            b'{"error":{"type":"native_dispatch_error","code":"private-marker"}}',
+            b'{"error":{"type":"provider_error","code":"BodyTooLarge"}}',
+            b'{"error":{"type":"native_dispatch_error","code":"BodyTooLarge"},"padding":"'
+            + b'x' * 8192 + b'"}',
+            b'{"error":"private-marker"}',
+        ]:
+            with self.subTest(body_length=len(body)):
+                stream, _, _ = self.stream(body, b'Content-Length: ' + str(len(body)).encode(),
+                                          status=b'502 Bad Gateway', content_type=b'application/json')
+                value = await_state(stream, lambda state: state['finished'])
+                self.assertIsNone(value['response_error_code'])
+                self.assertEqual(value['read_error'], 'stream_http_status')
+                self.assertNotIn('private-marker', str(value))
 
     def test_cancel_shuts_down_detached_socket_after_real_text(self):
         frame = event('response.output_text.delta', delta='started')

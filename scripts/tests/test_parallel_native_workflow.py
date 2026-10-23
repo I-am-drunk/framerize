@@ -16,6 +16,23 @@ def pending_close_pool():
 
 
 class WorkflowTests(unittest.TestCase):
+    def test_preflight_refusal_preserves_response_code_without_second_request(self):
+        scenario = Scenario()
+        original = scenario.send
+        def refused(binding, cancel, report):
+            stream = original(binding, cancel, report)
+            stream.state.update(status=502, read_error='stream_http_status',
+                                response_error_code='BodyTooLarge', finished=True)
+            return stream
+        scenario.send = refused
+        self.prepare(scenario)
+        with self.assertRaisesRegex(Refusal, 'stream_read_error'):
+            check.run(scenario.binding, scenario.events, scenario.report)
+        self.assertEqual(scenario.report['post_calls'], 1)
+        self.assertEqual(scenario.report['cancel_stream']['status'], 502)
+        self.assertEqual(scenario.report['cancel_stream']['response_error_code'], 'BodyTooLarge')
+        self.head.assert_not_called()
+
     def test_actual_send_waits_for_headers_before_cancelling_buffered_text(self):
         scenario = Scenario()
         original_send, original_poll = scenario.send, scenario.events.poll

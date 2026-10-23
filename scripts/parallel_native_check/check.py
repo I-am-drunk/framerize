@@ -91,6 +91,7 @@ def run(binding, events, report):
         report['cancel_stream'] = stream.snapshot()
     finally:
         stream.close()
+        report['cancel_stream'] = stream.snapshot()
     report['stage'] = 'cancel_cleanup'
     settled(binding, events, report, 1, 'Cancelled')
     report['stage'] = 'complete_stream'
@@ -107,6 +108,7 @@ def run(binding, events, report):
         report['complete_stream'] = value
     finally:
         stream.close()
+        report['complete_stream'] = stream.snapshot()
     report['stage'] = 'complete_cleanup'
     settled(binding, events, report, 2, None)
     events.poll()

@@ -48,6 +48,14 @@ host explicitly. Initial enrollment has succeeded with an independent login
 and observed device. Its full cooldown still precedes authenticated delivery.
 
 The live checker supplies a fresh turn ID and matching prompt for each call.
+The example gives composed-stream bookkeeping a bounded 4 MiB allowance.
+The earlier 64 KiB example could not cover even its fixed pre-authorization
+reservations. A regression runs the real composer against both budgets and
+checks authorization reachability, cleanup and returned capacity without
+allowing an upstream request. This changes the example, not resource caps.
+The checker also retains allowlisted native error codes on failed HTTP heads;
+it discards arbitrary codes and response text and never turns a failed head
+into permission for a second request.
 For the composed adapter, text is rendered after upstream JSON is complete.
 The interruption check therefore waits for the actual send and successful
 stream headers, then disconnects while the body remains open. It separately

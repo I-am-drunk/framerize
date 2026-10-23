@@ -18,7 +18,7 @@
       "frame_bytes": 4096,
       "retained_bytes": 8192,
       "retained_frames": 4,
-      "state_bytes": 65536,
+      "state_bytes": 4194304,
       "json_bytes": 8192,
       "source_chunk_bytes": 1024,
       "header_bytes": 4096,
