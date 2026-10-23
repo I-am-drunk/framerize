@@ -32,6 +32,8 @@ subtracted to claim a saving. The RSS high-water mark was read inside the
 worker after minting, before final output and exit. Group counters were read
 again after the worker joined. These measurements do not include a running
 application server or establish total loaded-service memory.
+The probe calls the minter directly. It does not exercise the Rust worker
+owner, private token-pipe handoff, native HTTP path or authenticated delivery.
 
 All six groups recorded zero swap and memory events, joined their workers,
 and were absent afterward. The five successful runs retained device storage,
