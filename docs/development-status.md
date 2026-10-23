@@ -348,10 +348,22 @@ All seven focused owner cases pass, including the original terminal-loss
 regression and cancellation of the corrected child and its descendant.
 Peak memory was 34.4 MB across five tasks, with zero swap or resource events;
 the fixture unit and cgroup are absent. Existing client and recovery evidence
-is reused unchanged. This owner correction is not yet live and awaits narrow
-review before a new coordinated attempt. No recovery or request was retried.
+is reused unchanged. Independent review accepted the owner correction. Its
+single coordinated attempt passed authentication and the quiet/cooldown wait,
+then failed to import the recovery identity helper. It acquired no maintenance
+hold and started no service transition or request. The outcome is preserved,
+the controller is gone, and all quiet peers were released.
 See [recovered-owner-terminal.patch](../reference/analysis/recovered-owner-terminal.patch).
-Its first test launch refused disk reserve before starting a test. A separate
+The separate recovery R3 changes only that helper's binding import. All 17
+existing recovery source files remain exact. Both focused loader cases pass:
+all 14 selected helpers load without live actions, and the original helper
+reproduces the missing import. Peak memory was 26.8 MB with one task, zero swap
+and no resource events; the fixture unit and cgroup are absent. The original
+18 recovery/capture cases are reused. This correction awaits narrow review
+and a separately bound owner/client attempt. It proves no live recovery or
+browserless response. See
+[recovery-identity-import.patch](../reference/analysis/recovery-identity-import.patch).
+The original preparation client's first test launch refused disk reserve. A separate
 audited cleanup removed 135.4 MB of old, unreferenced package-cache copies;
 the original refusal remains preserved. No service action was involved.
 See [device-preparation-client-r8.patch](../reference/analysis/device-preparation-client-r8.patch).
