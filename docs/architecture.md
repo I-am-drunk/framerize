@@ -43,7 +43,7 @@ response cleanup have finished. Cancelling the client does not release that
 grant early. A lost cleanup acknowledgement leaves the account fenced.
 Successful stream headers can still reach the client before the body ends.
 
-The locally validated disconnect correction separates cancelling future work from
+The deployed disconnect correction separates cancelling future work from
 confirming current work. Browser chains stop before another attempt, but keep
 the already-started call owned until it returns. Native responses use their
 existing completion and cleanup observers. Dropping a response does not itself
