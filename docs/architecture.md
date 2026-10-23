@@ -19,8 +19,9 @@ and checks it before saving the session or provisioning account resources.
 With native dispatch configured, import also skips automatic browser prewarm.
 Proxy registration and existing native device/cooldown admission remain.
 Eight focused import cases pass. A complete candidate application now contains
-these changes, with its source and saved build results awaiting review. It has
-not been selected by the activation preparation or deployed to either service.
+these changes, with accepted source and saved build results. A new non-executable
+activation preparation selects it while retaining the other runtime bindings.
+Account, generation and client-plan bindings remain open; neither service changed.
 
 The deferred IDNA-table patch is retained only as an unapplied experiment.
 Its synthetic equivalence checks passed, but the subsequent worker measurement

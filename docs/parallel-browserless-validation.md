@@ -41,8 +41,10 @@ the new optional field. That fixture now supplies `None`. The fresh R3 compile
 and eight-case run pass, with exact discovery and serial filters, zero swap
 and verified cleanup. Summary `8f46157b` preserves both earlier failures.
 The rebuilt server library and application link pass. Candidate `1baa4a98`
-is frozen with summary `7fff81b6` and source/result package `e50f1424`; review
-remains pending. It is not active or selected by the existing preparation.
+is frozen with summary `7fff81b6` and source/result package `e50f1424`. Review
+`7225960e` accepts that source and saved evidence only. Preparation R6 selects
+the candidate and retains the ten other runtime bindings. Its separate review
+binding does not fill the missing account, generation or executable client plan.
 Retain explicit lazy-host selection when binding an accepted candidate to a
 new isolated plan, together with every account/device/cooldown prerequisite.
 

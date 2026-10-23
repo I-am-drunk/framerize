@@ -22,7 +22,10 @@ The corrected server library and full application link also pass. Candidate
 `1baa4a98` is built but has never been launched or deployed. Their compilation
 peaks were 377,405,440 and 530,116,608 bytes, with zero swap and verified cleanup.
 Summary `7fff81b6` and freeze `e50f1424` bind the source, eight cases, both builds
-and retained failures. Independent source/saved-results review is pending.
+and retained failures. Review `7225960e` accepts the exact source and saved
+evidence with no findings; it grants no runtime or account approval. Preparation
+R6 selects this candidate, retains the ten other runtime entries and is still
+non-executable: account, generation and concrete client plan remain unbound.
 The candidate still requires explicit selection of the accepted lazy host.
 
 Browserless is not complete: the isolated setup has no verified authenticated
