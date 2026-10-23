@@ -88,9 +88,13 @@ cleanup, zero swap/events and absent units/cgroups; the host released its
 lease and admitted a fresh one in the same generation. These are single
 synthetic samples, not HTTP or authenticated delivery. Summary `dd8002d2`
 binds the new results and reused baselines; its independent review is pending.
-The one-argument patch remains unapplied to production. Next: independently
-review this integration evidence and validate cancellation with the same
-owner variant before considering adoption on the experimental branch.
+The same variant also passes the existing explicit-cancel and dropped-owner
+cases after observed worker activity. Both join the worker and leave no unit
+or cgroup, with zero swap/events. Summary `6a451af4` binds their separate
+harness build and two runs. The SDK phase was unobserved, and these cases
+do not establish HTTP-stream cleanup. The one-argument patch remains
+unapplied to production. Next: independently review both integration and
+cancellation evidence before considering adoption on the experimental branch.
 
 Two additional local cases now cancel the real worker after observed process
 activity. Explicit cancellation returns the expected failure; dropping the
