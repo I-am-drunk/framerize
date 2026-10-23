@@ -116,9 +116,12 @@ The chosen idle browser was parked and its closure confirmed. One browserless
 request then returned HTTP 502 with failure kind `Upstream` after 2.546 seconds.
 It produced no accepted answer. The same service generation still returned
 200 for health and pool admission afterward. No request retry was made.
-The endpoint currently discards its detailed upstream and cleanup evidence.
-The next change retains only safe status, attempt and cleanup fields in the
-existing event log, so a later bounded trial can distinguish the failure.
+The running endpoint discards its detailed upstream and cleanup evidence.
+A source-only change now retains safe status, attempt and cleanup fields in
+the existing event log after completion. Its focused privacy and cleanup test
+is written but not yet compiled or run. It changes no request or retry behavior.
+Next: validate and deploy this diagnostic change using the existing build and
+release controls before any further bounded browserless trial.
 No browserless live response or total-memory saving is verified yet.
 
 The first version's core and API builds remain saved evidence for that version.
