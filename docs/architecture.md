@@ -86,6 +86,13 @@ start event, waits for its actual completion and cleanup, then requires a
 complete second response on the same process and runtime configuration.
 A restart between those requests cannot establish cancellation recovery.
 
+The streaming acceptance client retains its own socket descriptor after HTTP
+headers arrive, so closing the connection still interrupts the live response.
+Opening frames do not count as completion. A successful stream needs its
+terminal completion event, nonempty text and a clean HTTP ending. The first
+stream includes the hello HEAD probe after the observed browser fetch start;
+the second stream follows observed call completion and local cleanup.
+
 Worker protocol version 2 carries the private saved device through a pipe.
 The worker seeds its isolated storage before loading the SDK and checks that
 the value remains unchanged. This does not establish upstream acceptance or
