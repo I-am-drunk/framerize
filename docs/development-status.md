@@ -3,6 +3,23 @@
 Updated 2026-10-23. The normal service remains browser-based. Publishing these
 branches does not change the running service.
 
+The native host now defers Camoufox, Playwright and optional browser memory
+setup until a browser launch. Five focused tests pass; the native-startup
+regression fails against the prior source. The three existing real-server
+restoration cases also pass with both browser libraries hidden. The generated
+candidate host is `e09123fe`; its support package is unchanged. The server
+binary is reused, and no service or account state has been changed.
+
+Matched isolated host-initialization measurements recorded resident memory
+of 91,348,992 bytes before and 26,550,272 bytes after this change, a reduction
+of 64,798,720 bytes. The candidate loaded no Camoufox or Playwright modules;
+the baseline loaded 78. These are one-process, one-sample measurements before
+SDK work or inference. They do not establish total service memory or latency.
+The three server cases peaked at 41,328,640 bytes, with seven tasks, zero swap
+and no memory events. Their processes joined and the test unit/cgroup are gone.
+This is source and fixture evidence; independent review and real-account
+validation remain separate from these results.
+
 The current instruction is to leave the live browser service untouched and
 run browserless in a separate instance. T3 update work is set aside. The live
 browser's binary, launch files, accounts and retained maintenance marker must
