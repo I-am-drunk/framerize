@@ -123,6 +123,10 @@ The import-only probe records bounded package and module allocation observations
 It invokes no SDK and restores its loader hook. Its largest individual net
 heap increase coincides with CSS style prototype setup. GC and nested loading
 prevent treating these observations as exact ownership or achievable savings.
+An isolated CSS prototype experiment preserved the tested descriptors and
+setter observations, but its import-stage reduction did not yield a useful
+full-mint saving. It remains an unapplied reproduction patch. These direct
+probes do not measure the Rust owner or the private pipe integration.
 
 ```mermaid
 flowchart LR
