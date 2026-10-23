@@ -33,12 +33,13 @@ findings (receipt `a679d7f8`, freeze `c0d7a7a3`, validation `2c22b87d`). This
 acceptance covers the startup fix and recorded checks, not live inference.
 
 At 2026-10-23 16:07 UTC a guarded switch replaced only the owned empty test
-instance. `framerize-browserless-native-r1.service` now serves port 8788 with
+instance. `framerize-browserless-native-r1.service` served port 8788 with
 the validated native routing configuration. The browser service kept its
 process generation. A normal streaming request reached native dispatch and
 returned `503/Ineligible` before any worker started. Activation receipt
 `6a429355` records a 5,238,784-byte empty-instance peak and zero swap/events.
 The instance retains its 30-minute limit and has no automatic restart.
+That saved observation does not establish current availability.
 
 Next: a separately owned account for real browserless validation. A read-only
 inventory found that the browser service's saved policy includes all 11 saved
@@ -87,6 +88,15 @@ peaked at 123,883,520 bytes with seven tasks and zero swap/events. All nine
 fixture processes joined, and the temporary unit and cgroup are absent.
 Neither running service was queried or changed. No worker SDK or inference
 ran; the separate-account dependency and staged-binary status remain.
+
+Final restored-host review `b0868885` accepts source and saved evidence with
+no findings, binding freeze `74c02edc`, summary `987ac63c` and publication
+`c6c49e2b`. Verification `acf906aa` covers 26 seals, five published files,
+49 synthetic outputs and the six saved cases. Its scope is the generated
+host with a Python fixture parent; mint completion and cleanup replies are
+injected. Process joins do not prove application cleanup. No daemon recovery,
+authenticated inference or current service availability is accepted. The
+review receipt was verified without rerunning tests or querying either service.
 
 The new `examples/browserless-routing.json` configuration passes a separate
 process fixture for normal streaming dispatch. With an empty account store,

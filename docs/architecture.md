@@ -28,6 +28,9 @@ The separate restored-host process fixture exercises the generated package
 with synthetic nonempty state. It verifies current device and rate ownership
 through the real command pipe, including failed cleanup and stale/replayed
 handoffs. It performs no SDK or upstream call and gives no live-account proof.
+Final review accepts its source and six saved cases. The restored destination
+is a Python fixture parent, and mint completion and cleanup replies are
+injected. This does not validate a daemon recovery or real request cleanup.
 
 Normal API routing additionally requires `--offline-routing-config`.
 `examples/browserless-routing.json` provides bounded, unpaid streaming limits;
@@ -36,7 +39,9 @@ it is not installed automatically. Native requests also require explicit
 `run_native_binding.py` fixture verifies that a normal streaming request reaches
 native dispatch with synthetic context and an empty account store. It proves
 the routing binding, not authentication, upstream acceptance or text delivery.
-The same configuration is now active only on the isolated port 8788 instance.
+The same configuration was applied only to the isolated port 8788 instance
+at 2026-10-23 16:07 UTC. That instance had a 30-minute lifetime; this saved
+observation does not establish current availability.
 See [parallel validation](parallel-browserless-validation.md) for the remaining
 account, streaming, cleanup and resource evidence required for a real run.
 
