@@ -3,7 +3,12 @@
 Updated 2026-10-23. The normal service remains browser-based. Publishing these
 branches does not change the running service.
 
-The disconnect correction is locally validated on `browserless`. Review of the
+The disconnect correction is deployed from `browserless`. R9 completed its
+fresh admission, drain, startup and release checks on 2026-10-23. The maintenance
+hold is released; health and account-pool checks both return HTTP 200. Ordinary
+traffic remains browser-based, with the native path behind the trial endpoint.
+
+Review of the
 first version found that the browser helper could still retry after disconnect,
 one timeout was not treated as uncertain cleanup, and refunds could start after
 cancellation or hide uncertain completion. The additive correction addresses
@@ -16,11 +21,12 @@ matching saved core library. The resulting executable is built and verified.
 One API build hit the intermediate file-size cap; the original production
 compiler setting passed within the unchanged limits. Both records are kept.
 Independent review now accepts the built repair and the exact R9 release plan.
-The client checker is bound to that executable and plan, with its original
-16-case evidence reused. The next step is the coordinated runtime update,
-subject to fresh account, resource, drain and startup checks, followed by one
-real request. A coding-session quiet window is being arranged for that attempt.
-This change is not deployed and no browserless live response is verified.
+The first client check sent zero requests: its ownership check expected a
+loopback-only listener, while the service owns a valid IPv4 wildcard listener.
+A one-comparison correction passes four focused ownership fixtures; its
+regression reproduces the previous refusal. The original 16 cases remain
+reused evidence. Next: complete its narrow review and send the one real request.
+No browserless live response or total-memory saving is verified yet.
 
 The first version's core and API builds remain saved evidence for that version.
 Its original core evidence check omitted an already-pinned source; a separate
@@ -38,17 +44,16 @@ The exact operational source delta is recorded in
 [r8-completion-checker.patch](../reference/analysis/r8-completion-checker.patch).
 
 External recovery subsequently restarted the service and disabled the offline
-worker option. Current read-only checks find the reviewed binary and sidecar
-installed and the service healthy, but a different process generation.
+worker option. Read-only checks after that recovery found the reviewed binary
+and sidecar installed and the service healthy, but a different process generation.
 The old maintenance marker is absent. Archived handoff bytes match the
 original evidence; the corrected historical checker passes all its checks.
 Independent review accepted that archive-based result as historical evidence.
 
-This is historical deployment evidence, not permission to release or test the
-current process. No browserless inference request has been sent. Next: reconcile
-the recovered browser service and its disabled trial endpoint, then prepare the
-smallest current-state activation that preserves browser traffic and cooldowns.
-The earlier preparation and component results below remain historical evidence.
+That R8 evidence remains historical. The separate R9 deployment described above
+reconciled the recovered generation and restored the trial endpoint while
+preserving browser traffic and cooldowns. Earlier preparation and component
+results below retain their original scope.
 
 | Branch | Purpose | State |
 | --- | --- | --- |
