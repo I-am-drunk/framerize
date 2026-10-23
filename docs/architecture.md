@@ -21,6 +21,14 @@ Handoff JSON under the instance's own root remains subject to the existing
 generation, inventory and cooldown checks. No stale record is deleted or
 silently accepted as part of startup.
 
+Normal API routing additionally requires `--offline-routing-config`.
+`examples/browserless-routing.json` provides bounded, unpaid streaming limits;
+it is not installed automatically. Native requests also require explicit
+`x-framerize-context` metadata for their page and attempts. The separate
+`run_native_binding.py` fixture verifies that a normal streaming request reaches
+native dispatch with synthetic context and an empty account store. It proves
+the routing binding, not authentication, upstream acceptance or text delivery.
+
 ```mermaid
 flowchart LR
     Client --> Server[Shared HTTP API and account selection]
