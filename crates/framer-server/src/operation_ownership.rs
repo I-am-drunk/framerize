@@ -57,7 +57,8 @@ impl ServingOwnership {
     }
     fn owner(self: &Arc<Self>, kind: OperationKind) -> Result<Arc<OwnerContext>, GateError> {
         let owner = self.registration(kind)?;
-        Ok(Arc::new(OwnerContext { owner: Mutex::new(Some(owner)), scope: self.clone() }))
+        Ok(Arc::new(OwnerContext { owner: Mutex::new(Some(owner)), scope: self.clone(),
+            preflight_completed: std::sync::atomic::AtomicBool::new(false) }))
     }
     fn registration(self: &Arc<Self>, kind: OperationKind) -> Result<OperationOwner, GateError> {
         match CURRENT.try_with(|parent| {
@@ -74,7 +75,18 @@ impl ServingOwnership {
     }
 }
 
-struct OwnerContext { owner: Mutex<Option<OperationOwner>>, scope: Arc<ServingOwnership> }
+struct OwnerContext {
+    owner: Mutex<Option<OperationOwner>>, scope: Arc<ServingOwnership>,
+    preflight_completed: std::sync::atomic::AtomicBool,
+}
+
+/// Preserve typed errors while attesting a terminal refusal before any
+/// residency acquisition or external work. Never use for retry admission.
+pub(crate) fn completed_preflight<E>(error: E) -> E {
+    let _ = CURRENT.try_with(|owner| owner.preflight_completed.store(
+        true, std::sync::atomic::Ordering::Relaxed));
+    error
+}
 impl OwnerContext {
     fn child(&self) -> Result<OperationOwner, GateError> {
         self.owner.lock().map_err(|_| GateError::Poisoned)?.as_ref()
@@ -164,7 +176,10 @@ pub async fn middleware(State(scope): State<Option<Arc<ServingOwnership>>>,
         // Auth/session/state mutation futures are not cancelled by that drop.
         let response = next.run(request).await;
         let (parts, body) = response.into_parts();
-        let completion = parts.extensions.get::<ResponseCompletion>().cloned();
+        let completion = parts.extensions.get::<ResponseCompletion>().cloned().or_else(|| {
+            owner.preflight_completed.load(std::sync::atomic::Ordering::Relaxed)
+                .then(|| ResponseCompletion(futures::future::ready(true).boxed().shared()))
+        });
         #[cfg(feature = "native-dispatch")]
         let completion = completion.or_else(|| {
             parts.extensions.get::<NativeStreamObservers>().cloned().map(|observers|

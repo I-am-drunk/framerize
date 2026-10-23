@@ -143,6 +143,13 @@ pub fn router(state: AppState, web_dir: &str) -> Router {
     router_with_request_layer(state, web_dir, |router| router)
 }
 
+async fn hello() -> axum::response::Response {
+    // HEAD removes this body outside the ownership layer. No external work
+    // exists here, so dropping these completed bytes must not fence admission.
+    operation_ownership::completed_response(
+        axum::response::IntoResponse::into_response("ok"), true)
+}
+
 /// Install application metadata inside the existing owned handler task.
 pub fn router_with_request_layer(state: AppState, web_dir: &str,
     layer: impl FnOnce(Router) -> Router) -> Router {
@@ -150,7 +157,7 @@ pub fn router_with_request_layer(state: AppState, web_dir: &str,
         .route("/health", get(|| async { "ok" }))
         // Claude Code connection-warming probe (gateway protocol: safe to
         // answer or reject; we answer 200).
-        .route("/hello", get(|| async { "ok" }).head(|| async { "ok" }))
+        .route("/hello", get(hello).head(hello))
         .route("/accounts", get(accounts))
         .route("/pool", get(pool_shape))
         .route("/pool/config", get(pool_control::config).post(pool_control::configure))
@@ -174,12 +181,12 @@ pub fn router_with_request_layer(state: AppState, web_dir: &str,
         // Warming probe (gateway protocol): clients hit {BASE_URL}/api/hello —
         // with base /anthropic that's /anthropic/api/hello, NOT /api/hello
         // (measured: 30× 404s in 2h from Claude Code warming).
-        .route("/api/hello", get(|| async { "ok" }).head(|| async { "ok" }))
+        .route("/api/hello", get(hello).head(hello))
         .with_state(state.clone());
     let openai = Router::new()
         .route("/v1/responses", post(openai_responses))
         .route("/v1/chat/completions", post(openai_chat))
-        .route("/api/hello", get(|| async { "ok" }).head(|| async { "ok" }))
+        .route("/api/hello", get(hello).head(hello))
         .with_state(state.clone());
 
     // Convention: the BARE compat routes are the free path (unmetered chain),
@@ -913,15 +920,15 @@ async fn free_complete(
     let anthro = convert::to_anthropic_request(dialect, &payload).map_err(ApiError::Internal)?;
 
     if let Some(remaining) = s.wave.check() {
-        return Err(ApiError::Cooling {
+        return Err(operation_ownership::completed_preflight(ApiError::Cooling {
             retry_after_secs: remaining.as_secs().saturating_add(1),
-        });
+        }));
     }
     let pool = s.state.list().await.map_err(ApiError::Internal)?;
     let account = s.serving_accounts.select(
         pool,
         hdr(headers, "x-framerize-account").as_deref(),
-    )?;
+    ).map_err(operation_ownership::completed_preflight)?;
     let residency = RequestResidency::new(lease_account(&s, account.id).await?);
     let account = current_account(&s, account.id).await?;
     let mut session = s
@@ -1406,15 +1413,15 @@ async fn native_complete(
     }
 
     if let Some(remaining) = s.wave.check() {
-        return Err(ApiError::Cooling {
+        return Err(operation_ownership::completed_preflight(ApiError::Cooling {
             retry_after_secs: remaining.as_secs().saturating_add(1),
-        });
+        }));
     }
     let pool = s.state.list().await.map_err(ApiError::Internal)?;
     let account = s.serving_accounts.select(
         pool,
         hdr(headers, "x-framerize-account").as_deref(),
-    )?;
+    ).map_err(operation_ownership::completed_preflight)?;
     let residency = RequestResidency::new(lease_account(&s, account.id).await?);
     let account = current_account(&s, account.id).await?;
     let mut session = s
