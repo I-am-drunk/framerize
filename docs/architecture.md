@@ -93,6 +93,15 @@ terminal completion event, nonempty text and a clean HTTP ending. The first
 stream includes the hello HEAD probe after the observed browser fetch start;
 the second stream follows observed call completion and local cleanup.
 
+An admission-only executable replacement keeps the current browser host,
+support files, arguments and service overrides. The deployment controller
+may adopt an abandoned maintenance marker only after checking its exact
+identity and absent prior owner, while holding an exclusive file lock.
+Startup, cooldown restoration, unchanged account and configuration state,
+idle residency and zero current or historical swap are required before release.
+The bounded startup receipt contains a count and hash of its source map;
+the controller still hashes every declared source before accepting a phase.
+
 Worker protocol version 2 carries the private saved device through a pipe.
 The worker seeds its isolated storage before loading the SDK and checks that
 the value remains unchanged. This does not establish upstream acceptance or
