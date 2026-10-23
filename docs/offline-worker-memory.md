@@ -217,5 +217,33 @@ early termination and are not full-mint memory savings. No application service,
 account, HTTP request or upstream model was involved. These cases do not prove
 real-stream cancellation, post-cancellation admission or user-visible latency.
 Summary `ba8d6ac0` binds the passing build and both saved results. The exact
-tested source is published; independent review is pending. The previous mint
-measurement and its frozen review package remain unchanged.
+tested source and saved evidence are accepted by final review `72ba6876`,
+verification `1ae57d6d`, with no findings. The previous mint measurement
+and its frozen review package remain unchanged.
+
+## Combined native host and worker
+
+The [combined fixture](../scripts/tests/run_host_worker.py) reuses the accepted
+lazy host and compiled owner harness. One synthetic device lease remains
+held while the unchanged worker completes its local mint. Only after the
+worker joins and its absence is confirmed does the fixture report completion
+to the host. It releases the lease, then opens and closes a fresh lease without
+another mint. The host retains the same generation throughout.
+
+The single run peaked at 102,887,424 bytes of group memory with 15 tasks.
+Owner elapsed time was 1934.152 ms, with 1249.716 ms reported for the SDK.
+Swap and memory events stayed zero. All test processes joined, and the test
+unit and cgroup were absent afterward. This includes the host, worker and
+measurement helpers. It excludes the application server, HTTP, authenticated
+inference and concurrent requests, so it does not establish total service
+memory, the full memory target or user-visible latency.
+
+The host uses the existing Python environment with browser libraries masked.
+A nested isolated filesystem keeps that environment and all browser-owned
+state out of the worker's view. The original worker namespace, syscall,
+device, freshness and private-pipe checks remain unchanged. The fixture's
+optional device parameter preserves the previous default by exact reversal.
+
+Summary `6af8688a` binds the saved result, 22 source inputs and 12 output
+files. It has not received independent review. No additional Rust compilation,
+application daemon, real account, model request or production change occurred.

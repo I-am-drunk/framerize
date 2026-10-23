@@ -45,7 +45,7 @@ class Lab:
         finally:
             self.stop(child)
 
-    def state(self, name, counts=(0,), cooling=()):
+    def state(self, name, counts=(0,), cooling=(), selected_device='fixture-selected'):
         root = self.root / name
         root.mkdir(mode=0o700)
         devices = root / 'profiles/.sidecar/camoufox'
@@ -62,10 +62,10 @@ class Lab:
                 directory = devices / account
                 directory.mkdir()
                 self.support.private_state.write_new(directory / 'framerize-devices.json',
-                    ['fixture-other', 'fixture-selected'])
-                rows[account] = dict(cooling={'fixture-selected': now + 500} if index in cooling else {},
-                    requests={'fixture-selected': [now - 1] * count}, last_mint=now - 10,
-                    reserve_day='', reserve_used=0, primary_device='fixture-selected',
+                    ['fixture-other', selected_device])
+                rows[account] = dict(cooling={selected_device: now + 500} if index in cooling else {},
+                    requests={selected_device: [now - 1] * count}, last_mint=now - 10,
+                    reserve_day='', reserve_used=0, primary_device=selected_device,
                     ambient_cooling=None, ambient_requests=None)
         directory = root / 'cooldown-handoff'
         directory.mkdir(mode=0o700)
