@@ -245,5 +245,12 @@ device, freshness and private-pipe checks remain unchanged. The fixture's
 optional device parameter preserves the previous default by exact reversal.
 
 Summary `6af8688a` binds the saved result, 22 source inputs and 12 output
-files. It has not received independent review. No additional Rust compilation,
+files. Final review `d98b96cf` and verification `e8dbefc2` accept the exact
+source and saved evidence with no findings. No additional Rust compilation,
 application daemon, real account, model request or production change occurred.
+
+The next prepared coverage checks cancellation through the production
+device-mint bridge itself. Three UNRUN cases retain the account barrier until
+worker join and a controlled host acknowledgement, including an unconfirmed
+reply. The worker fixture performs no SDK call. Two harness build admissions
+were refused before launch; these add no runtime result or memory measurement.

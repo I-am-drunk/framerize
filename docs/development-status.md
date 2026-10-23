@@ -69,7 +69,20 @@ at 102,887,424 bytes with 15 tasks, zero swap/events and no remaining unit or
 cgroup. Owner elapsed was 1934.152 ms. This includes the host, worker and
 measurement helpers, but no application server or authenticated inference.
 The published Python harness and saved summary `6af8688a` preserve the
-result; independent review is pending. No production source or service changed.
+result. Final review `d98b96cf` accepts their source and saved evidence with
+no findings. No production source or service changed.
+
+Three additional production-bridge tests are prepared and UNRUN. They cover
+explicit cancellation, dropping the result waiter and losing the host's
+completion acknowledgement. The first two retain account closure while the
+host reply is withheld; the third requires unconfirmed cleanup and refuses
+fresh preparation or reopening the same account. A real worker process and
+account preparation are used with a controlled host reply and synthetic input.
+No SDK or network request is involved. Both small-harness compilation attempts
+were refused before launch by the unchanged memory reserve, so there is no
+compile or test result yet. The isolated runtime runner and a deliberate
+early-release negative control are also prepared. Next: admit the small
+harness build, run these three cases serially and verify the negative control.
 
 The isolated client now records monotonic request timings, starting before
 connection/request work. It distinguishes headers, first complete text,
