@@ -128,6 +128,16 @@ setter observations, but its import-stage reduction did not yield a useful
 full-mint saving. It remains an unapplied reproduction patch. These direct
 probes do not measure the Rust owner or the private pipe integration.
 
+The separate `measure_owned_offline_worker.rs` harness links the unchanged
+owner library from the accepted application build. It runs the original
+worker entry with synthetic device/project input, exercises the real private
+pipe and metadata/freshness checks, waits for joined completion, then clears
+and discards the token. One isolated run passed with a 75,116,544-byte group
+peak and no remaining worker, unit or cgroup. The harness exercises no account
+or host admission, HTTP request or application service. Its saved source,
+build and runtime evidence await independent review. It does not change the
+96 MiB production heap or establish total service memory or request latency.
+
 ```mermaid
 flowchart LR
     Client --> Server[Shared HTTP API and account selection]
