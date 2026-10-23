@@ -33,8 +33,10 @@ It keeps its truthful native user agent, unchanged credentials and existing
 single-send behavior. A real loopback request verifies the header; all 14
 focused transport, streaming and cleanup cases pass. This closes a concrete
 request-construction omission, not an established cause of the live 403.
-The complete application rebuild and isolated activation remain pending.
-Actual device history must survive activation; the browser service stays
+The complete application rebuild passed and its candidate is staged. The
+API phase peaked at 877,047,808 bytes and the final link at 592,891,904 bytes,
+with zero recorded swap or resource events and verified teardown. Isolated
+activation must preserve actual device history; the browser service stays
 unchanged. Authenticated delivery and live interruption remain unverified.
 
 The failed-response checker now records only bounded content categories,
@@ -46,9 +48,19 @@ new diagnostic cases; their saved inputs match the published source.
 A separate GitHub Actions workflow builds the native candidate with pinned
 Rust 1.99.0 and the locked dependencies, and publishes an executable with its
 source commit, compiler identity and hashes. This moves compilation away
-from the running services. The remote build is pending and does not deploy
-anything or supply live credentials. The local application rebuild was
-prepared but not launched; its preparation remains preserved.
+from the running services. Its first run was refused before any step because
+GitHub reported failed account payments or a spending limit. No remote
+compiler ran. The first local build admission also refused insufficient
+memory reserve. A later admission met the unchanged requirement and the
+local rebuild completed. Both earlier refusals remain preserved.
+
+The isolated transfer controller has nine passing focused fixture checks.
+It retains a private, genuine cooldown/device snapshot, requires the old
+process group to be absent before replacement, preserves the launch sandbox
+and checks the new service invocation. Its original binary and routing are
+backed up before any stop. The controller remains alive through first host
+restoration and the bounded live check. No fixture result establishes live
+delivery or authorizes a change to the protected browser service.
 
 Earlier build and preparation milestones below retain their original limits.
 

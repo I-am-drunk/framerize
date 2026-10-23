@@ -14,6 +14,15 @@ Generated hosts locate cooldown state from their canonical
 They continue to reject stale or changed handoffs within their own instance.
 An empty isolated instance can validate startup without claiming inference.
 
+An update of an enrolled isolated instance transfers its actual in-memory
+rate history. The controller holds the idle application and sidecar, writes
+a private snapshot, and verifies old-process absence before replacing the
+binary and routing. It preserves the original files and account inventory.
+The new host checks its service invocation, parent binary and live controller
+before restoring that snapshot. The controller stays alive through lazy
+host startup and the bounded client check. The browser service is outside
+this transfer, and old request attempts remain consumed.
+
 The account-import candidate accepts an expected Framer user ID
 and checks it before saving the session or provisioning account resources.
 With native dispatch configured, import also skips automatic browser prewarm.
