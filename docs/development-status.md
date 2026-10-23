@@ -36,7 +36,7 @@ the real response socket after headers, and refusal to label a completed
 response as cancelled. Its two inference requests stay on the normal route.
 The exact source delta is published in
 [admission-stream-client-r1.patch](../reference/analysis/admission-stream-client-r1.patch).
-Source review and concrete deployment bindings are still pending. No live
+The corrected source review is accepted; concrete deployment bindings remain pending. No live
 request or service change followed this fixture run.
 
 Client review found that a raw account-repick reason could reach a saved
@@ -45,7 +45,18 @@ admission-refusal reasons and omits other raw reasons. Its one new privacy
 regression passes; the 14 unchanged framing, socket and request cases are
 reused. The original rejected source is preserved. The correction is in
 [admission-stream-client-privacy-r2.patch](../reference/analysis/admission-stream-client-privacy-r2.patch)
-and still needs its narrow review and final deployment binding.
+and has narrow review acceptance. Its final deployment binding remains pending.
+
+The binary-only deployment continuation has 17 passing focused cases across
+saved runs. It keeps the installed host, support and launch files, adopts only
+the exact abandoned maintenance marker, and checks startup, cooldown
+restoration, account isolation, drain and zero swap before releasing that hold.
+The startup receipt now summarizes the complete source map by count and hash;
+every source is still verified. Two fixture corrections and the contained
+package-consumer refusals remain recorded. Those consumer fixtures substitute
+saved service policy and installed-file pins; live checks remain required.
+Deployment source and plan review
+are pending. No service change or live request has run for this continuation.
 
 The admission repair on `fix/live-admission-503-20261023` adds completion
 evidence for assembled nonstream Responses bodies and stops future attempts
