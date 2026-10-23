@@ -1,0 +1,68 @@
+--- a/scripts/measure_offline_worker.mjs
++++ b/scripts/measure_offline_worker.mjs
+@@ -40 +40 @@
+-    '--max-semi-space-size=1', '--optimize-for-size', '--jitless'];
++    '--max-semi-space-size=1', '--jitless'];
+@@ -56,0 +57,3 @@
++  result.allocation_phases = (await import('./offline_worker/memory_probe.mjs')).phases;
++  result.collections = (await import('./offline_worker/memory_probe.mjs')).collections;
++  if (result.collections.length !== 1 || !result.collections[0].disconnected) throw new Error('collection-count');
+--- a/scripts/offline_worker/offline_mint.mjs
++++ b/scripts/offline_worker/offline_mint.mjs
+@@ -9,0 +10 @@
++import { observeMemory, collectUnusedMemory } from './memory_probe.mjs';
+@@ -48,0 +50 @@
++      observeMemory('inputs_verified');
+@@ -57,0 +60 @@
++      observeMemory('jsdom_loaded');
+@@ -63,0 +67 @@
++      observeMemory('window_created');
+@@ -85,0 +90 @@
++      observeMemory('modules_constructed');
+@@ -86,0 +92 @@
++      observeMemory('modules_linked');
+@@ -89,0 +96 @@
++      observeMemory('inspector_enabled');
+@@ -91,0 +99,3 @@
++      observeMemory('wrapper_evaluated');
++      await collectUnusedMemory();
++      observeMemory('after_collection');
+@@ -102,0 +113 @@
++      observeMemory('mint_settled');
+@@ -136,0 +148 @@
++      observeMemory('cleanup_checked');
+--- /dev/null
++++ b/scripts/offline_worker/memory_probe.mjs
+@@ -0,0 +1,32 @@
++import fs from 'node:fs';
++import { performance } from 'node:perf_hooks';
++
++export const phases = [];
++const started = performance.now();
++export function observeMemory(label) {
++  if (phases.length >= 16) throw new Error('probe-limit');
++  const counters = {};
++  for (const line of fs.readFileSync('/proc/self/smaps_rollup', 'utf8').split('\n')) {
++    const match = /^([A-Za-z_]+):\s+(\d+) kB$/.exec(line);
++    if (match) counters[match[1]] = Number(match[2]) * 1024;
++  }
++  phases.push({ label, elapsed_ms: performance.now() - started,
++    memory: process.memoryUsage(), counters,
++    max_rss_bytes: process.resourceUsage().maxRSS * 1024 });
++}
++
++export const collections = [];
++export async function collectUnusedMemory() {
++  const started = performance.now();
++  const { Session } = await import('node:inspector');
++  const session = new Session();
++  session.connect();
++  try {
++    await new Promise((resolve, reject) => {
++      session.post('HeapProfiler.collectGarbage', error => error ? reject(error) : resolve());
++    });
++  } finally {
++    session.disconnect();
++  }
++  collections.push({ elapsed_ms: performance.now() - started, disconnected: true });
++}
