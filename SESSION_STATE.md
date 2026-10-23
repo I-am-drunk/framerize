@@ -40,5 +40,16 @@ Diff checks pass. rustfmt parsing was attempted but its component is absent;
 no compiler/test/installation ran here. Owner holds the serial build slot.
 Saved journal has no captured failed request, so exact incident attribution
 remains unknown. The concrete source bug is independently reproducible.
-Exact next action: commit/push the reviewed source, then send the owner its
-commit, four source paths and three case names for bounded validation/build.
+Commit `f4bb927136f2add85c52dff7913ebff6d177b1a5` is pushed to the matching
+remote branch. Owner received four source paths and exact three case names.
+Focused scope is the original 16-case cancellation slice plus three new cases
+(19 total). The full ownership module alone has 14 original cases, not 16.
+Exact next action: collect the owner's focused server regression/build result;
+repair any concrete failure here before that owner deploys.
+
+Live acceptance remains pending. Use the normal `/openai/v1/responses` route,
+with one bounded nonstream request disconnected after its current call starts,
+then a bounded successful request after observed completion. Keep one runtime
+owner, original cooldowns, and the same service generation across both checks.
+Record current PID, invocation, binary and support identity with sanitized
+completion/status/cancellation evidence. A restart or pool 200 is insufficient.
