@@ -117,8 +117,10 @@ Later probes attribute an early allocation increase to importing JSDOM.
 A read-only static Node cache slightly reduced local minting time across
 three comparisons but increased group memory. Those results are locally
 verified and not independently reviewed. Production retains the 96 MiB heap
-and does not enable that cache. The next allocation experiment targets our
-input verification buffers without changing SDK, DOM or device behavior.
+and does not enable that cache. An additional verification-buffer experiment
+passed its local mint but demonstrated no useful saving and remains unapplied.
+The next investigation attributes JSDOM's import cost without changing SDK,
+DOM or device behavior.
 
 ```mermaid
 flowchart LR

@@ -21,9 +21,12 @@ Three static-cache comparisons averaged 4.1% less local minting time and 5.0%
 more peak group memory. Production caching remains disabled and the heap stays
 at 96 MiB. All completed study inputs, outputs and teardown records are checked
 in local summary `5a1b30b6`; these later results are not independently reviewed.
-The next source target is temporary full-file allocation in input verification,
-while retaining every digest check and the existing DOM/device environment.
-Any benefit remains unmeasured. No service or account has been changed.
+One subsequent run tested a 64 KiB reusable verification buffer while retaining
+every digest check and the existing DOM/device environment. The local mint
+passed, but its 75,436,032-byte group peak and 1209.069 ms elapsed time did not
+improve on the saved baseline means. That experimental patch remains unapplied.
+The next measurement will attribute JSDOM's import cost to its components,
+without changing the DOM environment. No service or account has been changed.
 
 The isolated client now records monotonic request timings, starting before
 connection/request work. It distinguishes headers, first complete text,
