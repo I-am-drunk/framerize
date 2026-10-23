@@ -146,9 +146,25 @@ proven to resolve the upstream refusal. Independent source and saved-evidence
 review accepted commit `02899fcd` with no findings. R16 packages that change
 while retaining the exact R15 server, host and support files. Its read-only
 preparation passed with 1,718 inputs and eight preserved configuration files.
-The package is frozen for review and is not deployed. Its operational delta is
+Source, plan and client reviews accepted the frozen package. Its operational delta is
 [worker-identity-release-r16.patch](../reference/analysis/worker-identity-release-r16.patch).
-Existing account and cooldown rules remain.
+The 2026-10-23 attempt passed readiness but failed startup. After four browsers
+warmed successfully, the memory guard refused two more allocations. Rollback
+also recorded one failed warmup, so the controller retained its maintenance
+hold and returned failure. No browserless request was sent.
+
+The recovery generation subsequently returned HTTP 200 for health and pool.
+Separate inspection verified the original launch configuration, restored
+cooldowns, all 11 account identities, six resident slots and no uncertain or
+closing residents. Both failed startup records remain unchanged. A narrow
+helper to release only the verified pending handoff and owned maintenance hold
+is under source review. It cannot restart the service or send an inference
+request. Its final release has not run.
+
+Saved events also show ordinary inference during both startup windows.
+Client acknowledgements alone therefore did not establish continuing quiet.
+Before another deployment, address that activity and its memory demand;
+do not repeat the failed attempt or relax the memory reserve.
 The exact operational source delta is saved in
 [completion-evidence-release-r15.patch](../reference/analysis/completion-evidence-release-r15.patch).
 No browserless live response or total-memory saving is verified yet.
