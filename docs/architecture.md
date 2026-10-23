@@ -435,6 +435,13 @@ returns no resource, including for HTTPS, file and data URLs. This preserves
 the isolated page context and does not make JSDOM a browser or prove that
 an upstream security check will accept a native request.
 
+Castle's current Browser SDK documentation requires a real browser and
+explicitly removes support for mocked DOMs such as JSDOM. The present worker
+is an experiment outside that documented runtime support. The Node server
+SDK and native mobile SDKs do not establish a supported Linux replacement.
+Keep local token generation distinct from upstream token acceptance; see
+[the documented runtime boundary](castle-runtime-support.md).
+
 The generated host package installs the native device adapter after the
 existing restoration hook. A base embedded host alone does not provide this
 integration; native configuration remains an explicit deployment choice.

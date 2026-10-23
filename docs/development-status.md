@@ -3,6 +3,18 @@
 Updated 2026-10-23. The normal service remains browser-based. Publishing these
 branches does not change the running service.
 
+The official Castle documentation has now been checked against our worker.
+Its Browser SDK requires a browser, and its 3.0 migration guide explicitly
+removes support for mocked DOMs such as JSDOM. Our local worker uses JSDOM;
+its successful token generation therefore does not establish a supported
+runtime or Framer acceptance. Castle's Node server SDK consumes frontend
+tokens, while the native client SDKs target mobile platforms. This does not
+prove the specific cause of the saved 403. See
+[runtime support](castle-runtime-support.md) for the official sources.
+The next authentication task is to establish a documented native token path
+for Framer before selecting another compatibility change. No execution,
+deployment or request was repeated for this documentation assessment.
+
 The enrollment build is running in its separate loopback instance on port
 8788. A legitimate independent login and its observed device have been imported
 and enrolled successfully, with the initial full 600-second cooldown enforced.
