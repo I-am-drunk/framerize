@@ -1,0 +1,21 @@
+{
+  "scope": "synthetic native canvas qualification; no SDK, authenticated request or service deployment",
+  "node": "24.13.0",
+  "jsdom": "26.1.0",
+  "canvas": "3.2.3",
+  "npm_integrity": "sha512-PzE5nJZPz72YUAfo8oTp0u3fqqY7IzlTubneAihqDYAUcBk7ryeCmBbdJBEdaH0bptSOe2VT2Zwcb3UaFyaSWw==",
+  "native_sha256": "886d1cc270d4caad1d1698ee97532e79c60e992e16fe5f37f2d3bb058f4292b0",
+  "fixture_sha256": "fa9f0faa71cc46166984166aec19ec84b8d33ac5a2493025832ba66c9ce34a52",
+  "patch_sha256": "20c66395e1d1aa4d7ca539850f44028ab03cac25a53b18afd40da615dcbdd32f",
+  "result_sha256": "ecdab7a4f4d312665c88c77167016bc19b33c41ba9f7bd2a02b59c6312bf2d81",
+  "passed": true,
+  "resources": {
+    "memory.peak": 73601024,
+    "memory.swap.current": 0,
+    "memory.swap.peak": 0,
+    "pids.peak": 10
+  },
+  "unit_absent": true,
+  "cgroup_absent": true,
+  "negative_control": "Unpatched JSDOM returned its cached 2D context for webgl; original failed result preserved."
+}

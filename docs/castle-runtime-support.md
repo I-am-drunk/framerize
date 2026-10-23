@@ -47,9 +47,22 @@ An earlier missing-TextEncoder control returned a string through V2 fallback;
 the corrected V3 probe excluded that fallback but retained canvas diagnostics.
 No internal fallback/error token is established for the live 403.
 
-Next: trace the pinned V3 return and internal error/recovery paths to determine
-whether the apparent success path can return an error value without the
-outer error log. Preserve actual account history and require a justified
-correction before another bounded live attempt. The source trace is pending;
-it requires neither token capture nor SDK execution. The JSDOM support limit
-was already recorded on October 20 and was reconfirmed, not newly discovered.
+The focused static trace is now complete. Escaping exceptions reject the
+current token operation. The main return path does not contain a blanket
+catch that converts a rejected operation into another complete token string.
+Individual capability checks can instead resolve diagnostic values: the
+missing SharedWorker and failed canvas-context paths both do so. Those values
+enter fields in the ordinary serialization path without an outer error.
+Our worker explicitly requires SharedWorker to be absent. This establishes
+why outer success does not imply complete browser behavior; it still does
+not classify the actual token or explain the remote decision.
+
+A separate [native canvas fixture](../scripts/experiments/native_canvas/README.md)
+now passes real drawing, bounded PNG round-trip and input-refusal checks.
+Its first run found incorrect context-type caching in JSDOM; the retained
+dependency patch corrects that behavior for the native 2D backend. Neither
+the SDK nor either service used this experiment. Next: a synthetic SDK
+experiment with this genuine graphics implementation under the existing
+resource and cleanup limits. Preserve real account history; another live
+attempt still requires evidence supporting a correction. The JSDOM support
+limit was already recorded on October 20 and was reconfirmed, not new.

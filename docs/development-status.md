@@ -15,10 +15,20 @@ The reviewed Framer Server API and Plugin API documentation did not establish
 a native AI completion/token method. Framer MCP uses the connected agent's
 plan or credits, so it does not establish the requested Framer-backed path.
 The SDK's outer V3 selection and nonempty return do not certify its internal
-token kind. The next task is a static trace of the pinned V3 return/error
-branches, which remain unexamined. No fallback/error token is established
-for the live refusal. The JSDOM limitation was already recorded on October 20.
-No execution, deployment or request was repeated for this assessment.
+token kind. The completed static trace shows that individual missing-feature
+checks can resolve diagnostic fields inside the normal output. Escaping
+exceptions still reject the current operation. No separate fallback/error
+token is established for the live refusal. The JSDOM limitation was already
+recorded on October 20. No SDK or live request was repeated for this trace.
+
+A separate native canvas fixture passes real pixel drawing/readback, PNG
+round-trip, resource refusals and context-type checks. The unpatched first
+run failed because JSDOM returned cached 2D for WebGL. A four-line dependency
+patch corrects that behavior. The second run peaked at 73601024 bytes/ten
+tasks under a 128 MiB group limit, with zero swap/events and verified teardown.
+Its published source is under scripts/experiments/native_canvas; the worker
+and running services do not use it. Next: qualify it with the unchanged SDK
+in a synthetic worker experiment before considering any live change.
 
 The enrollment build is running in its separate loopback instance on port
 8788. A legitimate independent login and its observed device have been imported
