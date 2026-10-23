@@ -1,5 +1,26 @@
 # Local worker memory measurements
 
+The deferred IDNA-table experiment derives all 128 ASCII mappings from the
+pinned `tr46` Unicode table and loads the original table for non-ASCII input.
+The original and candidate returned identical output hashes across 105,216
+calls each, including every ASCII code point in three positions, all 128
+option combinations, and Unicode/punycode cases. The candidate kept the
+table unloaded for ASCII and loaded it when Unicode processing needed it.
+
+One subsequent synthetic SDK mint passed with the table still unloaded.
+Its group peak was 56,176,640 bytes versus the saved current-flag probe's
+56,434,688. Reported peak RSS was 96,210,944 versus 96,002,048 bytes, and
+minter elapsed time was 1215.091 versus 1215.059 ms. This did not demonstrate
+a useful peak-memory improvement. The candidate also performs extra identity
+checks, so this single comparison is not a precise performance benchmark.
+
+The dependency remains unchanged in production. The exact [unapplied patch](../reference/analysis/offline-worker-idna-lazy.patch)
+uses zero-context format. The [equivalence probe](../scripts/measure_idna_loading.mjs)
+and summary `8cb638bf` preserve the results, joined cleanup, absent units and
+cgroups, and zero swap/memory events. No account or authenticated request
+was involved. Faster repeated ASCII conversion in the fixture does not prove
+a live request-latency gain.
+
 A current-flag allocation probe retains the same nine observation points
 and adds `--jitless`. All seven worker modules still match current source
 after reversing the measurement hooks. JSDOM loading added 21,561,344 bytes

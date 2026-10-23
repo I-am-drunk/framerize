@@ -3,6 +3,18 @@
 Updated 2026-10-23. The normal service remains browser-based. Publishing these
 branches does not change the running service.
 
+Browserless is not complete: the isolated setup has no verified authenticated
+Framer delivery. Its latest prepared launch still has no selected account,
+generation or executable client plan. The saved browser account inventory
+contains no independently owned account. Source and synthetic-test acceptance
+do not remove the need for a separate legitimate login and device history.
+
+The deferred IDNA-table experiment is complete and remains unapplied. Original
+and candidate outputs match across 105,216 calls each, but one synthetic mint
+showed no useful peak-memory improvement. Summary `8cb638bf` retains the exact
+comparison and cleanup evidence. The probe and reproduction patch are published;
+no dependency, application binary or running service was changed by this study.
+
 The experimental owner source now selects `--jitless`. Its five files match
 the already built and measured variant exactly. Owner/host review `df13c06d`
 accepts that source and saved integration evidence. Both cancellation cases
