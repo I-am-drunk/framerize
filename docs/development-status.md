@@ -142,8 +142,13 @@ resource collector used an empty cgroup path and its metrics are invalid;
 an additive correction preserves that failure. Configured limits and test
 exit success are recorded, but no measured test peak is claimed. The test
 unit is absent after cleanup. This source change is not deployed and is not
-proven to resolve the upstream refusal. Next: narrow source/evidence review,
-then bounded worker validation. Existing account and cooldown rules remain.
+proven to resolve the upstream refusal. Independent source and saved-evidence
+review accepted commit `02899fcd` with no findings. R16 packages that change
+while retaining the exact R15 server, host and support files. Its read-only
+preparation passed with 1,718 inputs and eight preserved configuration files.
+The package is frozen for review and is not deployed. Its operational delta is
+[worker-identity-release-r16.patch](../reference/analysis/worker-identity-release-r16.patch).
+Existing account and cooldown rules remain.
 The exact operational source delta is saved in
 [completion-evidence-release-r15.patch](../reference/analysis/completion-evidence-release-r15.patch).
 No browserless live response or total-memory saving is verified yet.
