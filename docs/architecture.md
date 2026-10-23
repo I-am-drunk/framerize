@@ -13,6 +13,9 @@ Generated hosts locate cooldown state from their canonical
 `root/profiles/.sidecar/camoufox` path, rather than from shared source code.
 They continue to reject stale or changed handoffs within their own instance.
 An empty isolated instance can validate startup without claiming inference.
+Session storage follows the selected `profiles/.sessions` directory. Native
+admission also requires verified cooldown restoration for the host generation
+and its actual selected device; account import alone does not establish these.
 The process regression in `scripts/tests/run_parallel_startup.py` exercises
 both the generated host and the built server in a private network namespace.
 It places malformed handoff JSON beside shared code and verifies that the

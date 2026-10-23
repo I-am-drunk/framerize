@@ -11,6 +11,14 @@ The accepted startup and routing fixtures use empty stores. At 2026-10-23
 check. It has `eligible-accounts=none`; it is not ready for authenticated
 inference. The 256 MiB empty-instance limit is not a validated worker budget.
 
+A fresh account import alone does not satisfy native admission. The current
+host requires its generation's verified cooldown restoration and the actual
+selected device, with the browser closed and all account work joined. Prepare
+that history using only the separately owned account and instance. Retain the
+restoration check; do not seed empty limits or copy the browser service's
+handoff to make admission pass. Session files use the selected instance's
+`profiles/.sessions` directory.
+
 Before an authenticated run, bind the separate account and its legitimate
 session, project context, existing device identity and cooldown state. Use
 the private session input mechanism; keep credentials out of arguments and
@@ -76,6 +84,11 @@ correction, 12 workflow and runner cases pass, including both request barriers;
 28 unchanged results are reused. The new run peaked at 18,964,480 bytes.
 These are test measurements, not loaded browserless usage. A pool slot with
 status `closing` is not idle even when `close_started` is still false.
+
+Final review `26089a3b` accepts these source and saved-result bindings with
+no findings, closing the original queued-close finding. It binds freeze
+`075b12d9` and summary `13bde1a3`; the original rejected review is retained.
+This does not approve an account or establish a deployed generation.
 
 The checker limits its own execution to two POST calls. Exclusive request
 ownership still requires coordination with other callers. Completion
