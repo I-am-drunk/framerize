@@ -88,11 +88,17 @@ completion acknowledgement. The first two retain account closure while the
 host reply is withheld; the third requires unconfirmed cleanup and refuses
 fresh preparation or reopening the same account. A real worker process and
 account preparation are used with a controlled host reply and synthetic input.
-No SDK or network request is involved. Both small-harness compilation attempts
+No SDK or network request is involved. Three small-harness compilation attempts
 were refused before launch by the unchanged memory reserve, so there is no
 compile or test result yet. The isolated runtime runner and a deliberate
 early-release negative control are also prepared. Next: admit the small
 harness build, run these three cases serially and verify the negative control.
+Source-only review `080d4e9a` found one preparation blocker: all three allowed
+build labels were consumed by the saved prelaunch refusals. An additive
+correction uses a separate output namespace while retaining three labels per
+mode, exclusive creation and every resource guard. It also binds the exact
+launcher, dependency manifest, label and mode when selecting build results.
+Freeze `4745f620` is pending narrow review; no compiler or test has run.
 
 The isolated client now records monotonic request timings, starting before
 connection/request work. It distinguishes headers, first complete text,
