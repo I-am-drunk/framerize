@@ -131,6 +131,10 @@ The measurement tool also permits a JITless comparison. Its first synthetic
 sample used less memory and took longer than the saved baseline mean.
 That flag is not selected by the production worker; see the measurement
 report for the separate process/group results and their limits.
+Two subsequent local samples retained the memory reduction. The three-sample
+mean group peak is 57,839,616 bytes, 22.90% below the reused baseline mean,
+with 3.65% more local minting time. The actual owner/host/request integration
+has not been measured with this flag; production still uses its original policy.
 
 The separate `measure_owned_offline_worker.rs` harness links the unchanged
 owner library from the accepted application build. It runs the original
@@ -167,10 +171,11 @@ explicit cancellation, a dropped result waiter and a lost host acknowledgement.
 They use the real worker owner and account preparation with a deterministic
 worker and controlled host replies. The source is prepared but UNRUN:
 three compilation admissions were refused before launch by the memory reserve.
-The validation launcher now has a separately frozen output namespace, with
-the original three-label limit and all resource guards preserved. Its result
+The corrected validation launcher uses fresh labels under the original output
+parent, with three labels per mode and all resource guards preserved. Its result
 binder also checks the exact launcher, dependencies, label and mode. This
-additive preparation correction is pending review and remains unexecuted.
+additive preparation correction is accepted for source/static bindings and
+remains unexecuted because the compiler reserve has not been met.
 These cases do not establish authenticated delivery or actual host cleanup.
 
 ```mermaid
