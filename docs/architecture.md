@@ -56,6 +56,12 @@ allowing an upstream request. This changes the example, not resource caps.
 The checker also retains allowlisted native error codes on failed HTTP heads;
 it discards arbitrary codes and response text and never turns a failed head
 into permission for a second request.
+Native inference HTTP now includes `Origin: https://framer.com`, matching
+the canonical application origin accepted by native page validation. Its
+`Framerize/0.1` user agent remains explicit. It does not invent a project-page
+Referer from the project ID, impersonate browser networking or alter tokens.
+The added header has local wire-level regression coverage. A prior real
+request received 403; whether this omission caused that refusal is unknown.
 For the composed adapter, text is rendered after upstream JSON is complete.
 The interruption check therefore waits for the actual send and successful
 stream headers, then disconnects while the body remains open. It separately

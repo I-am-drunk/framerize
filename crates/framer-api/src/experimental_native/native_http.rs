@@ -13,7 +13,7 @@ use framer_core::ids::{AccountId, FramerUserId};
 use framer_core::port::{CastleToken, Session};
 use futures::task::AtomicWaker;
 use futures::{Future, Stream};
-use reqwest::header::{HeaderValue, AUTHORIZATION, CONTENT_TYPE, COOKIE};
+use reqwest::header::{HeaderValue, AUTHORIZATION, CONTENT_TYPE, COOKIE, ORIGIN};
 use serde_json::Value;
 use std::io::{self, Write};
 use std::pin::Pin;
@@ -621,6 +621,9 @@ impl NativeHttp {
         self.validate_request(account, path, &auth, &castle)?;
         let request = self.client.post(format!("{}{path}", self.base))
             .header(CONTENT_TYPE, "application/json; charset=utf-8")
+            // Inference belongs to the Framer application origin. Keep the
+            // truthful native User-Agent and transport; this is not a browser.
+            .header(ORIGIN, "https://framer.com")
             .header("x-requested-by", "Framer")
             .header("accept", "*/*")
             .header("accept-encoding", "identity")

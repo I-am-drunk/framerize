@@ -269,6 +269,8 @@ impl Peer {
             .map_err(|_| "application request JSON")?;
         if header_value(head, "cookie")? != "session=fixture-application"
             || header_value(head, "authorization")? != "Bearer fixture-application-bearer"
+            || header_value(head, "origin")? != "https://framer.com"
+            || header_value(head, "user-agent")? != "Framerize/0.1"
             || body != self.expected.envelope
         {
             return Err("application request differs from independent expectation");
