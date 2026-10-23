@@ -103,11 +103,18 @@ complete 403 security envelope, with confirmed cleanup. These headers alone
 were insufficient; the underlying rejection cause remains unknown.
 The worker validates outer V3 branch selection, bounded nonempty UTF-8 and
 its own private-pipe framing. It does not certify the returned string's
-internal Castle token kind. The observed outer V2 fallback is rejected, but
-the V3 SDK's internal return/recovery branches still need a static trace.
+internal Castle token kind. The observed outer V2 fallback is rejected.
+A focused static trace shows that missing-feature checks can resolve
+diagnostic fields that enter the SDK's normal output. Escaping exceptions
+still reject the current token operation; its serial queue absorbs that
+rejection only for future scheduling, not for the current caller.
 The documented JSDOM support mismatch and the saved 403 do not independently
 prove that an internal fallback/error token was produced. See
 [Castle runtime support](castle-runtime-support.md) for the documented limits.
+The separate native canvas fixture uses genuine Cairo drawing and a bounded
+local PNG loader. Its JSDOM patch refuses unsupported context types even after
+a 2D context is cached. This is a qualified graphics component only; neither
+the production worker nor the running isolated service selects it.
 For the composed adapter, text is rendered after upstream JSON is complete.
 The interruption check therefore waits for the actual send and successful
 stream headers, then disconnects while the body remains open. It separately
