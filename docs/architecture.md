@@ -45,7 +45,9 @@ and never contacts the browser endpoint. A generation marker prevents
 replaying the same check under a different report name. Its two requests
 share one account: interrupted streaming first, then complete streaming only
 after joined cleanup is observed. A retained socket permits interruption
-after response headers detach the original connection. Reports contain
+after response headers detach the original connection. Quiescence requires
+explicit idle status with no pending replacement as well as zero users and
+no cleanup uncertainty. An empty pool is also allowed. Reports contain
 bounded counts and local error codes, without provider content. Failed
 sequences only observe existing cleanup and do not retry inference.
 

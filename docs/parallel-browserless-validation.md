@@ -67,11 +67,15 @@ Changing the report name does not enable another attempt. Retain failed
 reports and markers. A fresh attempt requires a separately coordinated
 generation and plan; this client does not prepare either one.
 
-The 38 focused fixtures pass using synthetic inputs and local socket pairs.
+Validation covers 40 distinct cases using synthetic inputs and local socket pairs.
 They cover framing, actual socket shutdown, cleanup ordering, privacy,
 account overlap, resource refusal and replay protection. The capped fixture
 run mounts neither service nor account state and has no external network.
-Its 19,009,536-byte peak is a test measurement, not loaded browserless usage.
+The original 38-case run peaked at 19,009,536 bytes. After the queued-close
+correction, 12 workflow and runner cases pass, including both request barriers;
+28 unchanged results are reused. The new run peaked at 18,964,480 bytes.
+These are test measurements, not loaded browserless usage. A pool slot with
+status `closing` is not idle even when `close_started` is still false.
 
 The checker limits its own execution to two POST calls. Exclusive request
 ownership still requires coordination with other callers. Completion

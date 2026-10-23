@@ -58,13 +58,22 @@ review `14eddc0d` accepts the source and saved results with no findings.
 This event supplements the real-stream check;
 it does not prove delivery or count every transport start by itself.
 
-The separate native stream checker now passes 38 synthetic fixtures. It
+The separate native stream checker initially passed 38 synthetic fixtures. It
 requires a disjoint account, a pinned isolated generation, actual streamed
 text before interruption, confirmed cleanup and a subsequent complete stream.
 The fixture run used 19,009,536 bytes at peak, four tasks and zero swap or
 memory events. All reader threads joined; the test unit and cgroup are gone.
 No live checker invocation or authenticated browserless request has occurred.
 The account selection remains pending.
+
+Client review found one missing guard: a queued resident close can have zero
+users before its close operation starts. The checker now requires explicit
+idle status and no replacement, in addition to the original checks. Twelve
+workflow and runner cases pass, including new regressions at both request
+barriers; 28 unchanged case results are reused. This covers 40 distinct cases.
+The new run peaked at 18,964,480 bytes with three tasks and zero swap/events.
+The original rejection and results remain preserved. The correction awaits
+its exact review; no live request or service action has occurred.
 
 The new `examples/browserless-routing.json` configuration passes a separate
 process fixture for normal streaming dispatch. With an empty account store,

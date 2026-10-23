@@ -8,7 +8,8 @@ def quiet(value, account):
             value['config']['active_capacity'] == 1, 'pool_scope_changed')
     rows = value['residency']['residents']
     require(all(row['account'] == account for row in rows), 'unexpected_resident')
-    return all(row['users'] == 0 and not row['uncertain'] and
+    return all(row['status'] == 'idle' and row['replacement'] is None and
+               row['users'] == 0 and not row['uncertain'] and
                not row['close_started'] for row in rows)
 
 
