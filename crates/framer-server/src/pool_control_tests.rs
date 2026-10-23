@@ -1408,6 +1408,7 @@ async fn wave_pause_started_during_activation_admission_prevents_browser_minting
 fn import_body(proxy: Option<String>) -> crate::ImportBody {
     crate::ImportBody {
         account_id: id(2), proxy, session_cookie: "session=fixture-only".into(),
+        expected_framer_user_id: None,
         email: None, alias: None, project_id: Some("project-2".into()), team_id: Some("team-2".into()),
     }
 }
