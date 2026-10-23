@@ -1658,7 +1658,10 @@ async fn native_complete(
             None => s.gate.acquire(&gate_key).await,
         };
         if let Err(error) = cfg.check_cancelled() { break Err(error); }
-        current_account(&s, account.id).await?;
+        if let Err(error) = current_account(&s, account.id).await {
+            return Ok(operation_ownership::completed_response(
+                axum::response::IntoResponse::into_response(error), cleanup_confirmed));
+        }
         let r = s
             .client
             .native_long(
@@ -1750,8 +1753,14 @@ async fn native_complete(
     } else {
         convert::responses_json(&result, &client_model, &format!("resp_{logical_id}"))
     };
+    let body = match serde_json::to_string(&body) {
+        Ok(body) => body,
+        Err(error) => return Ok(operation_ownership::completed_response(
+            axum::response::IntoResponse::into_response(ApiError::Internal(error.to_string())),
+            cleanup_confirmed)),
+    };
     let mut resp = axum::response::Response::new(axum::body::Body::from(
-        serde_json::to_string(&body).map_err(|e| ApiError::Internal(e.to_string()))?,
+        body,
     ));
     resp.headers_mut().insert(
         axum::http::header::CONTENT_TYPE,
