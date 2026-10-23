@@ -133,25 +133,71 @@ async fn admitted_handler_registers_detached_cleanup_after_seal_and_retains_it()
 }
 
 #[tokio::test]
-async fn real_stream_drop_keeps_aborted_producer_cleanup_unconfirmed() {
+async fn real_stream_disconnect_keeps_inflight_work_but_stops_new_attempts() {
     let mut f = fixture::Fixture::new();
     f.state = with_owned_operations(f.state, 32).unwrap();
     let ownership = f.state.operation_ownership.clone().unwrap();
     let app = crate::router(f.state.clone(), "/nonexistent-fixture-web");
-    let response = tokio::time::timeout(WAIT, app.oneshot(fixture_request(&f, true)))
+    let response = tokio::time::timeout(WAIT, app.clone().oneshot(fixture_request(&f, true)))
         .await.unwrap().unwrap();
     let call = f.next().await;
     assert_eq!(ownership.gate.stats().unwrap().active, 3);
     drop(response);
+    let pool = app.clone().oneshot(HttpRequest::builder().uri("/api/pool")
+        .body(Body::empty()).unwrap()).await.unwrap();
+    assert_eq!(pool.status(), StatusCode::OK);
+    to_bytes(pool.into_body(), 65536).await.unwrap();
+    assert!(!call.reply.is_closed());
+    let mut ticket = ownership.seal().unwrap();
+    assert!(tokio::time::timeout(Duration::from_millis(5),
+        ticket.wait_application()).await.is_err());
+    // This normally triggers account failover. Cancellation must suppress it.
+    call.reply.send(Err("risk-refused".into())).ok().unwrap();
     tokio::time::timeout(WAIT, call.dropped).await.unwrap().unwrap();
-    tokio::time::timeout(WAIT, async {
-        while ownership.gate.stats().unwrap().active > 1 { tokio::task::yield_now().await; }
-    }).await.unwrap();
-    assert!(ownership.gate.stats().unwrap().unconfirmed);
-    assert!(matches!(ownership.seal(), Err(GateError::Unconfirmed)));
+    let proof = tokio::time::timeout(WAIT, ticket.wait_application()).await.unwrap().unwrap();
+    ownership.check_application_drained(&proof).unwrap();
+    assert_eq!(ownership.gate.stats().unwrap().active, 1);
+    assert!(!ownership.gate.stats().unwrap().unconfirmed);
+    f.no_call();
+    drop(proof);
+    ticket.cancel_before_control().unwrap();
 }
 
 struct Frames(std::collections::VecDeque<Frame<Bytes>>);
+
+#[tokio::test]
+async fn body_error_without_a_completion_observer_stays_unconfirmed() {
+    let ownership = scope();
+    let owner = ownership.owner(OperationKind::Inference).unwrap();
+    let source = futures::stream::iter([Err::<Bytes, _>(std::io::Error::other("fixture"))]);
+    let mut body = OwnedBody { body: Body::from_stream(source), owner: Some(owner), completion: None };
+    let result = futures::future::poll_fn(|cx| Pin::new(&mut body).poll_frame(cx)).await;
+    assert!(result.unwrap().is_err());
+    assert!(matches!(ownership.seal(), Err(GateError::Unconfirmed)));
+}
+
+#[tokio::test]
+async fn disconnected_browser_chain_retains_uncertainty_when_current_call_loses_cleanup() {
+    for error in ["host-lifecycle-unconfirmed: fixture lost", "sidecar timeout after 900s (cmd ai_post)"] {
+        let mut f = fixture::Fixture::new();
+        f.state = with_owned_operations(f.state, 32).unwrap();
+        let ownership = f.state.operation_ownership.clone().unwrap();
+        let app = crate::router(f.state.clone(), "/nonexistent-fixture-web");
+        let response = app.oneshot(fixture_request(&f, true)).await.unwrap();
+        let call = f.next().await;
+        drop(response);
+        let mut ticket = ownership.seal().unwrap();
+        assert!(tokio::time::timeout(Duration::from_millis(5),
+            ticket.wait_application()).await.is_err());
+        call.reply.send(Err(error.into())).ok().unwrap();
+        tokio::time::timeout(WAIT, call.dropped).await.unwrap().unwrap();
+        assert!(matches!(tokio::time::timeout(WAIT, ticket.wait_application()).await.unwrap(),
+            Err(GateError::Unconfirmed)));
+        assert!(ownership.gate.stats().unwrap().unconfirmed);
+        f.no_call();
+    }
+}
+
 impl HttpBody for Frames {
     type Data = Bytes;
     type Error = std::convert::Infallible;
@@ -170,7 +216,9 @@ async fn body_wrapper_preserves_data_and_trailers_without_early_owner_release() 
     trailers.insert("x-fixture-trailer", "fixture".parse().unwrap());
     let frames = Frames([Frame::data(Bytes::from_static(b"fixture")), Frame::trailers(trailers)]
         .into_iter().collect());
-    let mut body = OwnedBody { body: Body::new(frames), owner: Some(owner) };
+    let mut body = OwnedBody { body: Body::new(frames), owner: Some(owner),
+        completion: None,
+    };
     let first = futures::future::poll_fn(|cx| Pin::new(&mut body).poll_frame(cx)).await.unwrap().unwrap();
     assert_eq!(first.into_data().unwrap(), Bytes::from_static(b"fixture"));
     assert_eq!(ownership.gate.stats().unwrap().active, 2);
@@ -197,7 +245,7 @@ async fn startup_work_is_registered_before_spawn_and_new_startup_is_rejected_aft
 }
 
 #[tokio::test]
-async fn messages_and_paid_producers_are_owned_after_headers_and_poison_on_abort() {
+async fn messages_cancel_cooperatively_but_unknown_paid_abort_stays_unconfirmed() {
     for messages in [true, false] {
         let mut f = fixture::Fixture::new();
         f.state = with_owned_operations(f.state, 32).unwrap();
@@ -216,6 +264,21 @@ async fn messages_and_paid_producers_are_owned_after_headers_and_poison_on_abort
         assert_eq!(call.kind, if messages { "messages" } else { "proxy" });
         assert_eq!(ownership.gate.stats().unwrap().active, 3);
         drop(response);
+        if messages {
+            assert!(!call.reply.is_closed());
+            let mut ticket = ownership.seal().unwrap();
+            assert!(tokio::time::timeout(Duration::from_millis(5),
+                ticket.wait_application()).await.is_err());
+            call.reply.send(Err("risk-refused".into())).ok().unwrap();
+            tokio::time::timeout(WAIT, call.dropped).await.unwrap().unwrap();
+            let proof = tokio::time::timeout(WAIT, ticket.wait_application()).await.unwrap().unwrap();
+            ownership.check_application_drained(&proof).unwrap();
+            assert!(!ownership.gate.stats().unwrap().unconfirmed);
+            f.no_call();
+            drop(proof);
+            ticket.cancel_before_control().unwrap();
+            continue;
+        }
         tokio::time::timeout(WAIT, call.dropped).await.unwrap().unwrap();
         tokio::time::timeout(WAIT, async {
             while ownership.gate.stats().unwrap().active > 1 { tokio::task::yield_now().await; }

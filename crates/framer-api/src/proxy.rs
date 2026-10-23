@@ -61,12 +61,26 @@ pub async fn forward(
     chat_session: &str,
     step_index: u32,
 ) -> Result<framer_core::port::ProxyResponse, String> {
+    forward_cancellable(t, token_cache, session, browser, account, project,
+        dialect, step, payload, chat_session, step_index, None).await
+}
+
+#[allow(clippy::too_many_arguments)]
+pub(crate) async fn forward_cancellable(
+    t: &Transport, token_cache: &Mutex<Vec<(AccountId, AiToken)>>,
+    session: &Session, browser: &dyn BrowserBridge, account: &AccountId,
+    project: &ProjectId, dialect: Dialect, step: &str, payload: Value,
+    chat_session: &str, step_index: u32,
+    cancelled: Option<&(dyn Fn() -> bool + Send + Sync)>,
+) -> Result<framer_core::port::ProxyResponse, String> {
+    check_cancelled(cancelled)?;
     let t0 = std::time::Instant::now();
     let req_id = uuid::Uuid::new_v4().to_string();
     let token = cached_token(t, token_cache, session, account).await?;
+    check_cancelled(cancelled)?;
     let category = std::env::var("FRAMERIZE_FEATURE_CATEGORY")
         .unwrap_or_else(|_| "translation".to_string());
-    match attempt(browser, session, account, &token, project, dialect, step, &payload, chat_session, &category, step_index).await {
+    match attempt(browser, session, account, &token, project, dialect, step, &payload, chat_session, &category, step_index, cancelled).await {
         Ok(resp) => {
             framer_core::observability::Event::new("ai.request")
                 .request_id(&req_id)
@@ -80,13 +94,15 @@ pub async fn forward(
             Ok(resp)
         }
         Err(e) if e == "unauthorized" => {
+            check_cancelled(cancelled)?;
             if let Ok(mut guard) = token_cache.lock() {
                 guard.retain(|(id, _)| id != account);
             }
             let fresh = cached_token(t, token_cache, session, account).await?;
-            attempt(browser, session, account, &fresh, project, dialect, step, &payload, chat_session, &category, step_index).await
+            attempt(browser, session, account, &fresh, project, dialect, step, &payload, chat_session, &category, step_index, cancelled).await
         }
         Err(e) if e == "category-rejected" => {
+            check_cancelled(cancelled)?;
             // Structured event so rejected models are visible via
             // `framerize logs --event category.rejected` — that's the signal
             // for pruning a model off the translation path.
@@ -101,7 +117,7 @@ pub async fn forward(
                 .outcome("ok")
                 .emit();
             eprintln!("[proxy] model {} rejected for category {category} — retrying as agents", payload["model"].as_str().unwrap_or("?"));
-            attempt(browser, session, account, &token, project, dialect, step, &payload, chat_session, "agents", step_index).await
+            attempt(browser, session, account, &token, project, dialect, step, &payload, chat_session, "agents", step_index, cancelled).await
         }
         Err(e) => {
             framer_core::observability::Event::new("ai.request")
@@ -117,6 +133,10 @@ pub async fn forward(
     }
 }
 
+fn check_cancelled(cancelled: Option<&(dyn Fn() -> bool + Send + Sync)>) -> Result<(), String> {
+    if cancelled.is_some_and(|check| check()) { Err("client cancelled".into()) } else { Ok(()) }
+}
+
 #[allow(clippy::too_many_arguments)]
 async fn attempt(
     browser: &dyn BrowserBridge,
@@ -130,7 +150,9 @@ async fn attempt(
     chat_session: &str,
     category: &str,
     step_index: u32,
+    cancelled: Option<&(dyn Fn() -> bool + Send + Sync)>,
 ) -> Result<framer_core::port::ProxyResponse, String> {
+    check_cancelled(cancelled)?;
     // featureCategory (THE VELOCITY GOOSE, verified 2026-10-05): the
     // "translation" category is accepted on all inference routes, keeps
     // non-streaming FREE (ledger delta 0 across the roster), and has a
@@ -183,6 +205,7 @@ async fn attempt(
     });
     // Imported accounts have an empty browser cookie jar — seed the session.
     browser.seed_session(account, &session.cookie_header).await?;
+    check_cancelled(cancelled)?;
     // Timed because latency is the tiebreaker when a 403 body says nothing:
     // Framer's edge refuses without proxying (~250ms), the upstream cannot.
     let sent_at = std::time::Instant::now();

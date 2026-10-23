@@ -3,6 +3,14 @@
 Updated 2026-10-23. The normal service remains browser-based. Publishing these
 branches does not change the running service.
 
+The current disconnect correction is written on `browserless`. A cancelled
+stream stops further browser attempts while retaining a call already sent
+until its completion is known. Native streams retain their existing cleanup
+observers. Unknown cleanup still refuses admission. The core library compiled;
+focused API and routed-response checks are pending. This change is not deployed.
+The first core evidence check omitted an already-pinned source from its expected
+list. A separate reconciliation preserves that rejection and reuses the build.
+
 The R8 controller completed its service replacement. Its final checker then
 rejected a valid six-file runtime package because it still expected five files.
 That checker is corrected in a separate copy; the original failure is preserved.

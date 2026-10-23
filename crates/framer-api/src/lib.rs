@@ -32,6 +32,8 @@ mod workspace;
 
 #[cfg(test)]
 mod cooldown_tests;
+#[cfg(test)]
+mod chain_cancellation_tests;
 
 use async_trait::async_trait;
 use framer_core::ids::{AccountId, TeamId};

@@ -971,6 +971,9 @@ async fn free_complete(
         // silent socket: "Claude gave up after repeated API errors".
         let msg_id = format!("msg_{:08x}{:08x}", rand_u32(), rand_u32());
         let (tx, rx) = tokio::sync::mpsc::channel::<convert::ChainEvent>(1024);
+        let cancelled = tx.clone();
+        cfg.cancelled = Some(Arc::new(move || cancelled.is_closed()));
+        let disconnected = tx.clone();
         let s2 = s.clone();
         let account2 = account.clone();
         let project2 = project.clone();
@@ -979,7 +982,7 @@ async fn free_complete(
         let log_model = anthro_model_for_log(dialect, &payload);
         // The task owns the first permit and reacquires for each replacement
         // account using that attempt's actual workspace and model.
-        let handle = AbortOnDrop(operation_ownership::spawn(s.operation_ownership.as_ref(),
+        let (handle, completion) = operation_ownership::spawn_observed(s.operation_ownership.as_ref(),
             framer_core::operation_gate::OperationKind::Inference, async move {
             let t0 = std::time::Instant::now();
             // Tracks whether any CONTENT ever reached the stream: a chain that
@@ -993,7 +996,7 @@ async fn free_complete(
                 if matches!(ev, convert::ChainEvent::Chunk(_) | convert::ChainEvent::ResponsesItems { .. }) {
                     ec2.store(true, std::sync::atomic::Ordering::Relaxed);
                 }
-                if tx.try_send(ev).is_err() {
+                if let Err(tokio::sync::mpsc::error::TrySendError::Full(_)) = tx.try_send(ev) {
                     // Channel full under client backpressure: log it. A dropped
                     // frame here is a hole in the user's stream — invisible
                     // before (2026-10-06 "stream stopped" audit).
@@ -1007,10 +1010,15 @@ async fn free_complete(
             let mut tried: Vec<String> = Vec::new();
             let mut acct_attempt = 0u32;
             let result = loop {
+                if let Err(error) = cfg2.check_cancelled() { break Err(error); }
                 let permit = match first_permit.take() {
                     Some(permit) => permit,
-                    None => s2.gate.acquire(&gate_key).await,
+                    None => tokio::select! {
+                        _ = disconnected.closed() => break Err("client cancelled".into()),
+                        permit = s2.gate.acquire(&gate_key) => permit,
+                    },
                 };
+                if let Err(error) = cfg2.check_cancelled() { break Err(error); }
                 if let Err(error) = current_account(&s2, account.id).await {
                     break Err(chain_admission_error(error));
                 }
@@ -1029,7 +1037,10 @@ async fn free_complete(
                     .await;
                 drop(permit);
                 let r = residency.observe_result(account.id, r);
-                record_account_health(&s2, &account, &r).await;
+                if !matches!(&r, Err(error) if error == "client cancelled") {
+                    record_account_health(&s2, &account, &r).await;
+                }
+                if cfg2.is_cancelled() { break r; }
                 let refusal = matches!(&r, Err(e) if should_retry_account(e));
                 if refusal && !emitted_content.load(std::sync::atomic::Ordering::Relaxed) && acct_attempt < 2 {
                     tried.push(account.id.0.to_string());
@@ -1089,7 +1100,7 @@ async fn free_complete(
                 ev.emit();
             }
             result
-        }).map_err(|_| ApiError::ServingCapacity("operation admission closed".into()))?);
+        }).map_err(|_| ApiError::ServingCapacity("operation admission closed".into()))?;
 
         let open_frames = convert::stream_open(dialect, &client_model, &msg_id);
         let composer = convert::SseComposer::new_with_custom(dialect, &msg_id, &client_model, custom_tools.clone());
@@ -1152,6 +1163,7 @@ async fn free_complete(
         );
         let stream = retain_owner(stream, body_residency);
         let mut resp = axum::response::Response::new(axum::body::Body::from_stream(stream));
+        resp.extensions_mut().insert(completion);
         resp.headers_mut().insert(
             axum::http::header::CONTENT_TYPE,
             axum::http::HeaderValue::from_static("text/event-stream"),
@@ -1447,13 +1459,16 @@ async fn native_complete(
     if wants_stream {
         let body_residency = residency.clone();
         let (tx, rx) = tokio::sync::mpsc::channel::<convert::ChainEvent>(1024);
+        let cancelled = tx.clone();
+        cfg.cancelled = Some(Arc::new(move || cancelled.is_closed()));
+        let disconnected = tx.clone();
         let s2 = s.clone();
         let account2 = account.clone();
         let project2 = project.clone();
         let mut chat_session2 = chat_session.clone();
         let explicit_chat_session = hdr(headers, "x-framerize-session");
         let log_model = gate_model.clone();
-        let handle = AbortOnDrop(operation_ownership::spawn(s.operation_ownership.as_ref(),
+        let (handle, completion) = operation_ownership::spawn_observed(s.operation_ownership.as_ref(),
             framer_core::operation_gate::OperationKind::Inference, async move {
             let t0 = std::time::Instant::now();
             let emitted_content = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
@@ -1462,7 +1477,7 @@ async fn native_complete(
                 if matches!(ev, convert::ChainEvent::Chunk(_) | convert::ChainEvent::ResponsesItems { .. }) {
                     ec2.store(true, std::sync::atomic::Ordering::Relaxed);
                 }
-                if tx.try_send(ev).is_err() {
+                if let Err(tokio::sync::mpsc::error::TrySendError::Full(_)) = tx.try_send(ev) {
                     // Channel full under client backpressure: log it. A dropped
                     // frame here is a hole in the user's stream — invisible
                     // before (2026-10-06 "stream stopped" audit).
@@ -1476,10 +1491,15 @@ async fn native_complete(
             let mut tried: Vec<String> = Vec::new();
             let mut acct_attempt = 0u32;
             let result = loop {
+                if let Err(error) = cfg2.check_cancelled() { break Err(error); }
                 let permit = match first_permit.take() {
                     Some(permit) => permit,
-                    None => s2.gate.acquire(&gate_key).await,
+                    None => tokio::select! {
+                        _ = disconnected.closed() => break Err("client cancelled".into()),
+                        permit = s2.gate.acquire(&gate_key) => permit,
+                    },
                 };
+                if let Err(error) = cfg2.check_cancelled() { break Err(error); }
                 if let Err(error) = current_account(&s2, account.id).await {
                     break Err(chain_admission_error(error));
                 }
@@ -1498,7 +1518,10 @@ async fn native_complete(
                     .await;
                 drop(permit);
                 let r = residency.observe_result(account.id, r);
-                record_account_health(&s2, &account, &r).await;
+                if !matches!(&r, Err(error) if error == "client cancelled") {
+                    record_account_health(&s2, &account, &r).await;
+                }
+                if cfg2.is_cancelled() { break r; }
                 let refusal = matches!(&r, Err(e) if should_retry_account(e));
                 if refusal && !emitted_content.load(std::sync::atomic::Ordering::Relaxed) && acct_attempt < 2 {
                     tried.push(account.id.0.to_string());
@@ -1555,7 +1578,7 @@ async fn native_complete(
             };
             ev.emit();
             result
-        }).map_err(|_| ApiError::ServingCapacity("operation admission closed".into()))?);
+        }).map_err(|_| ApiError::ServingCapacity("operation admission closed".into()))?;
 
         let open_frames = convert::stream_open(dialect, &client_model, &logical_id);
         let stream = futures::stream::unfold(
@@ -1606,6 +1629,7 @@ async fn native_complete(
         );
         let stream = retain_owner(stream, body_residency);
         let mut resp = axum::response::Response::new(axum::body::Body::from_stream(stream));
+        resp.extensions_mut().insert(completion);
         resp.headers_mut().insert(
             axum::http::header::CONTENT_TYPE,
             axum::http::HeaderValue::from_static("text/event-stream"),

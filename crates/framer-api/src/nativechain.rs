@@ -98,6 +98,7 @@ pub async fn complete_long(
     let max_wall = std::time::Duration::from_secs(300);
 
     for i in 0..cfg.max_chunks {
+        cfg.check_cancelled()?;
         if chain_started.elapsed() > max_wall {
             return Err(format!(
                 "chain exceeded {}s wall-clock budget after {i} chunks (upstream degraded) — retry the request",
@@ -125,15 +126,17 @@ pub async fn complete_long(
             let mut attempt_payload = payload;
             let mut out = None;
             while out.is_none() {
+                cfg.check_cancelled()?;
                 last_attempt_t0 = std::time::Instant::now();
-                match proxy::forward(
+                match proxy::forward_cancellable(
                     t, token_cache, session, browser, account, project,
                     Dialect::OpenRouterResponses, &chain_step, attempt_payload.take(),
-                    chat_session, i,
+                    chat_session, i, cfg.cancelled.as_deref(),
                 )
                 .await
                 {
                     Ok(r) => out = Some(Ok(r)),
+                    Err(e) if cfg.is_cancelled() => return Err(e),
                     Err(e) if e.starts_with("retryable 429") => {
                         if rate_retries >= 9 {
                             out = Some(Err(format!(
@@ -167,6 +170,7 @@ pub async fn complete_long(
         let (resp, response_budget) = match first {
             Ok(r) => (r, chunk),
             Err(e) if framer_core::error::AccountCooldown::from_error(&e).is_some() => return Err(e),
+            Err(e) if cfg.is_cancelled() => return Err(e),
             Err(e) => {
                 // The idle-kill check must time the FAILING ATTEMPT — the whole
                 // loop includes 429 backoffs, which would misclassify a fast
@@ -188,19 +192,20 @@ pub async fn complete_long(
                 let retry_chunk = budget.min(chunk_tokens).min(chunk_cap).max(16);
                 eprintln!("[nativechain] chunk {i} died at {elapsed:.1}s ({e}) — retrying with max_output_tokens={retry_chunk}");
                 let retry_payload = build_payload(&input_items, retry_chunk);
-                match proxy::forward(
+                match proxy::forward_cancellable(
                     t, token_cache, session, browser, account, project,
-                    Dialect::OpenRouterResponses, &chain_step, retry_payload, chat_session, i,
+                    Dialect::OpenRouterResponses, &chain_step, retry_payload, chat_session, i, cfg.cancelled.as_deref(),
                 )
                 .await
                 {
                     Ok(r) => (r, retry_chunk),
                     Err(e2) if framer_core::error::AccountCooldown::from_error(&e2).is_some() => return Err(e2),
+                    Err(e2) if cfg.is_cancelled() => return Err(e2),
                     Err(e2) if cfg.metered_fallback => {
                         eprintln!("[nativechain] chunk {i} retry died ({e2}) — metered stream fallback for this chunk");
                         let sp = build_payload(&input_items, retry_chunk);
                         let streamed =
-                            stream_chunk(t, token_cache, session, browser, account, project, &chain_step, sp, chat_session, i).await?;
+                            stream_chunk(t, token_cache, session, browser, account, project, &chain_step, sp, chat_session, i, cfg.cancelled.as_deref()).await?;
                         metered_chunks += 1;
                         record_chunk(
                             streamed, &mut output_items, &mut resp_id, &mut created_at,
@@ -452,11 +457,12 @@ async fn stream_chunk(
     mut payload: Value,
     chat_session: &str,
     step_index: u32,
+    cancelled: Option<&(dyn Fn() -> bool + Send + Sync)>,
 ) -> Result<AssembledResponses, String> {
     payload["stream"] = json!(true);
-    let resp = proxy::forward(
+    let resp = proxy::forward_cancellable(
         t, token_cache, session, browser, account, project,
-        Dialect::OpenRouterResponses, step, payload, chat_session, step_index,
+        Dialect::OpenRouterResponses, step, payload, chat_session, step_index, cancelled,
     )
     .await?;
     let text = body_text(resp).await?;
