@@ -309,7 +309,8 @@ and no resource events. Their unit and cgroup are absent. The original 14
 cases remain reused evidence. Independent source review accepted the exact
 correction at `754baf2`; its source-only receipt cannot authorize recovery.
 The final execution plan separately binds the four-case result `e53852b4`
-and still awaits review. No service transition or request has occurred.
+and has independent acceptance, conditional on all fresh runtime predicates.
+No service transition or request has occurred.
 Two memory refusals, the coordinated disk refusal and two timed-out cache
 audits remain preserved. Subsequent audited batches recovered 81.1 MB and
 201.6 MB of old single-link cache files. Installed hardlinks and preserved
@@ -317,6 +318,15 @@ inputs were excluded; restricted process mappings remain an audit limit.
 The test launch passed the unchanged memory and disk guards. All 17 source
 files still reconstruct exactly from the additive patch.
 See [r18-recovery-capture-r2.patch](../reference/analysis/r18-recovery-capture-r2.patch).
+The follow-up client now binds the future recovered generation while keeping
+the original R18 release as provenance. It checks successful controller
+completion, unchanged runtime/support and protected files, zero swap/events
+and the released hold. The normal preparation and native request must share
+that verified generation. All 25 focused client cases pass, including the old
+driver's generation-refusal regression. Peak memory was 27.6 MB with no swap
+or resource events, and the test unit is absent. Client source review is
+pending. No recovery or live request ran during this work. The source is in
+[r18-recovered-client.patch](../reference/analysis/r18-recovered-client.patch).
 Its first test launch refused disk reserve before starting a test. A separate
 audited cleanup removed 135.4 MB of old, unreferenced package-cache copies;
 the original refusal remains preserved. No service action was involved.

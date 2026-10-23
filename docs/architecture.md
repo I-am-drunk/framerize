@@ -141,6 +141,10 @@ attempt remains consumed. Service swap requires separate recovery evidence;
 closing browser residents alone cannot clear swapped server or sidecar pages.
 After any restart, the client must bind the newly verified generation before
 preparation and delivery, while the coordinated quiet window remains in place.
+The original release remains provenance. The recovered generation must come
+from the accepted recovery plan and its completed controller, state and release
+records, then match the live process pair and unchanged support/configuration.
+The original release's old process identity cannot stand in for that proof.
 
 Recovery of an already installed runtime verifies its configuration in place.
 It preserves both file content and identity, obtains a fresh maintenance hold,
