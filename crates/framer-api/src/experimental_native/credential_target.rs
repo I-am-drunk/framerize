@@ -49,6 +49,25 @@ pub struct CurrentRequestCookies {
 }
 
 impl CurrentRequestCookies {
+    pub(crate) fn from_saved_device(session: &Session, device: &str) -> Result<Self, String> {
+        if device.is_empty() || device.len() > 256 || !device.bytes().all(|b|
+            b.is_ascii_alphanumeric() || b"._~-".contains(&b)) || !Self::valid_session(session) {
+            return Err("invalid saved request device".into());
+        }
+        let mut present = false;
+        for part in session.cookie_header.split(';') {
+            let (name, value) = part.trim().split_once('=')
+                .ok_or("invalid saved request cookies")?;
+            if name == "__cuid" {
+                if present || value != device { return Err("conflicting request device".into()); }
+                present = true;
+            }
+        }
+        let header = if present { session.cookie_header.clone() }
+            else { format!("{}; __cuid={device}", session.cookie_header) };
+        Self::from_current_jar(session, header)
+    }
+
     pub(crate) fn valid_session(session: &Session) -> bool {
         login_cookie(&session.cookie_header).is_some()
     }

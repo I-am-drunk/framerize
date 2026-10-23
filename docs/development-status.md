@@ -219,7 +219,19 @@ Saved result verification is `b37578a5`; the client result is `e811383c`.
 All quiet holds are released. Next: trace the remaining token and native
 request-context differences from the preserved sources, without repeating
 the same request or deployment.
-The existing builds and focused tests are reused. The independent test cleanup
+
+The next source-only candidate carries the worker's actual saved device into
+the existing per-request cookie context. Previously the worker seeded that
+device, while the subsequent native request used only the saved login cookie.
+The candidate preserves the original login and private session, rejects
+conflicting or duplicate device cookies, and retains account generation,
+freshness, cancellation and cleanup checks. Three new focused cases cover
+the cookie boundary and joined-mint handoff. They have not run yet, and the
+candidate is undeployed. This addresses a context gap; upstream acceptance
+remains unverified. Next: freeze the narrow source for review and run bounded
+API validation using the existing build inputs.
+
+R17 reused the existing builds and focused tests. The independent test cleanup
 remains separate, with 27 batches awaiting later owner validation.
 
 Saved events also show ordinary inference during both startup windows.
