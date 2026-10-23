@@ -142,6 +142,9 @@ device lease until confirmed completion, then released and reopened a lease
 in the same generation. These single samples exclude the application server
 and authenticated requests. Summary `dd8002d2` awaits independent review;
 production still uses its original policy and the patch remains unapplied.
+The same variant also passes the existing explicit-cancel and dropped-owner
+cases after observed worker activity. Summary `6a451af4` preserves their
+joined cleanup and SDK-phase limits; live HTTP cancellation remains unproven.
 
 The separate `measure_owned_offline_worker.rs` harness links the unchanged
 owner library from the accepted application build. It runs the original

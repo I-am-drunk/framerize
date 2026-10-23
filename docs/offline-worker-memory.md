@@ -316,3 +316,12 @@ The combined group includes measurement helpers and excludes the application
 server, HTTP and authenticated inference. It does not establish the complete
 100 MB target. Only isolated measurement binaries contain the new flag;
 the staged application and production launch policy remain unchanged.
+
+The same owner variant subsequently passed the existing explicit-cancel and
+dropped-owner cases after a separate harness build. Each waited for observed
+worker CPU activity, then joined the worker and left no unit or cgroup. The
+recorded interruption-to-join intervals were 2.865 ms and 3.117 ms, with zero
+swap or memory events. The exact SDK phase was not observed, and early-exit
+memory does not measure a complete mint. Summary `6a451af4` binds this separate
+cancellation result; independent review is pending. No HTTP stream or real
+account was exercised, and the production flag remains unchanged.
