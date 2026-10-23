@@ -1,6 +1,30 @@
 # Local worker memory measurements
 
-The latest combined sample (2026-10-23) includes the application server,
+A subsequent attribution sample binds process roles by known process starts
+and executable device/inode, without reading arguments or private inputs.
+It retains unknown roles in the estimate and rejects changed identities.
+At the peak simultaneous non-helper sample, the observed PSS values were:
+
+| Role | PSS, bytes |
+| --- | ---: |
+| SDK worker | 92,988,416 |
+| Application | 25,802,752 |
+| Lazy host | 20,989,952 |
+| Separate owner probe | 2,342,912 |
+| Sum at that sample | 142,124,032 |
+
+Known measurement processes and fixture wrappers contributed another
+16,559,104 bytes of PSS with explicit RSS fallback. No unknown role occurred
+in that sample. The measurement recorded 82 complete samples and rejected
+two incomplete observations. Group peak was 90,284,032 bytes with zero swap
+or memory events. Fifteen focused cases and final joined teardown pass.
+Summary `42afcec1` binds the result. The 2,324.180 ms synthetic owner interval
+does not measure live request latency. No binaries or production paths changed.
+The worker is the largest measured component; attribution itself saves no
+memory. The separate owner probe and absence of authenticated HTTP remain
+limits on interpreting the sum as real service memory.
+
+The earlier combined sample (2026-10-23) includes the application server,
 lazy host, separate owned worker and measurement helpers. It does not send
 an authenticated request. Group peak was 89,899,008 bytes, sampled process
 PSS with RSS fallback was 159,323,136 bytes, and summed process RSS was

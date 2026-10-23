@@ -24,6 +24,15 @@ component residency, not a real authenticated HTTP pipeline. The standalone
 probe retains its 128 MiB requirement; an explicit compile mode permits the
 combined fixture's 256 MiB group. Neither mode changes service configuration.
 
+Optional process attribution binds the application, host and measurement
+processes to their observed starts. Worker and probe roles use the exact
+executable device/inode from the frozen inputs. Identity changes during a
+sample reject the whole sample. Unreadable or unrecognized executable roles
+stay unknown and remain included in the conservative component estimate.
+The harness saves one simultaneous sample at that estimate's peak; individual
+role peaks are reported separately and are never added together. The owner
+role is a separate probe process in this synthetic fixture.
+
 Session storage follows the selected `profiles/.sessions` directory. Native
 admission also requires verified cooldown restoration for the host generation
 and its actual selected device; account import alone does not establish these.

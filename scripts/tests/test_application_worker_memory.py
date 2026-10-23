@@ -17,7 +17,7 @@ class ProcessMemoryTests(unittest.TestCase):
         }
         self.failures = {}
 
-    def measure(self):
+    def measure(self, classify=None):
         def read(path):
             if str(path) == '/group/cgroup.procs':
                 return self.members.pop(0)
@@ -26,7 +26,7 @@ class ProcessMemoryTests(unittest.TestCase):
                 raise value
             return value
         with patch.object(Path, 'read_text', read):
-            return process_memory(Path('/group'), self.failures)
+            return process_memory(Path('/group'), self.failures, classify)
 
     def test_readable_maps_keep_pss_separate_from_rss(self):
         self.assertEqual(self.measure(), dict(pss_with_rss_fallback=1024000,
