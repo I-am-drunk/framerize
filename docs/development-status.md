@@ -235,12 +235,13 @@ were reused after source comparison. Saved summary is `beef996b`; candidate
 binary is `9e03bde3`. No swap or resource event occurred during these stages.
 The candidate is undeployed. This addresses a context gap; upstream acceptance
 remains unverified. Independent source and saved-results reviews accepted
-this exact build. R18 is frozen for separate release-source review, with
+this exact build. R18's release-source review is accepted, with
 82 local seals, 165 declarations and 11 modules. Its saved-file consumer
 accepts the new build and rejects the older completion summary. The host,
 support, worker and service limits remain unchanged. Ten earlier config and
-override files stay protected. This package is not deployed. Next: bind the
-reviewed plan and client, then coordinate fresh admission and one trial.
+override files stay protected. This package is not deployed. The exact final
+plan and client are submitted for their separate reviews. Next: coordinate
+fresh admission and one trial after those receipts are accepted.
 The operational delta is published in
 [saved-device-cookie-release-r18.patch](../reference/analysis/saved-device-cookie-release-r18.patch).
 
