@@ -254,3 +254,23 @@ device-mint bridge itself. Three UNRUN cases retain the account barrier until
 worker join and a controlled host acknowledgement, including an unconfirmed
 reply. The worker fixture performs no SDK call. Two harness build admissions
 were refused before launch; these add no runtime result or memory measurement.
+
+## JITless comparison
+
+One subsequent synthetic mint disabled V8 JIT compilation while preserving
+the original 96 MiB heap, worker/SDK sources, isolation and cleanup checks.
+It passed and left no worker, unit or cgroup, with zero swap or memory events.
+The three earlier baseline samples were reused without another baseline mint.
+
+| Measurement | Earlier baseline mean, three samples | JITless, one sample |
+| --- | ---: | ---: |
+| Group peak, bytes | 75,018,240 | 57,331,712 |
+| Reported process RSS peak, bytes | 122,791,253 | 96,497,664 |
+| Minter elapsed time, ms | 1186.823 | 1271.386 |
+
+Group memory was 23.58% lower and reported RSS was 21.41% lower, while minting
+took 7.13% longer. These measurements describe one local comparison, not a
+reliable latency benchmark or a complete service saving. They exclude the
+Rust owner, native host, HTTP and authenticated inference. Summary `841d7c33`
+binds the saved run and reused baselines. Independent review is pending.
+The measurement tool now permits `--jitless`; production does not select it.

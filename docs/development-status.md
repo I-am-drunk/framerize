@@ -52,6 +52,16 @@ Final review `089c5975` accepts frozen package `52d1ae7e` for source and saved
 evidence, with no findings. No repeat build or measurement is required.
 Production is unchanged, and the separately owned account remains pending.
 
+A later JITless synthetic sample reduced group peak to 57,331,712 bytes
+and reported process RSS peak to 96,497,664 bytes. Compared with the three
+saved baseline means, these are reductions of 23.58% and 21.41%; minter time
+increased 7.13% to 1271.386 ms. All original device and cleanup checks passed,
+with zero swap/events, joined processes and absent unit/cgroup. This one
+sample excludes the Rust owner, host and authenticated inference. Summary
+`841d7c33` preserves the result without rerunning a baseline. The measurement
+tool permits this flag for further controlled comparison; production remains
+unchanged, and the new result has not received independent review.
+
 Two additional local cases now cancel the real worker after observed process
 activity. Explicit cancellation returns the expected failure; dropping the
 owner also joins the child. Both leave no worker, unit or cgroup, with zero
