@@ -1,0 +1,124 @@
+--- a/pool-cooldown-handoff/extract.py
++++ b/pool-cooldown-handoff/extract.py
+@@ -50,6 +50,7 @@
+                'primary_device': None,
+                'ambient_cooling': memory.number(ambient_cooling) if ambient_cooling else None,
+                'ambient_requests': memory.deque(ambient_requests, types['deque']) if ambient_requests else None}
++        primary = life.get('restored_primary_device', NONE)
+         if account in accounts:
+             current = accounts[account]
+             require(memory.u64(current + 8) == types['Account'], 'unexpected account class')
+@@ -59,7 +60,7 @@
+                     attrs['dev_reqs'] == life['requests'], 'account ledger alias differs')
+             require(memory.number(attrs['active_requests']) == 0, 'account still serving')
+             primary = attrs['primary_dev']
+-            if primary != NONE:
+-                row['primary_device'] = memory.string(primary)
++        if primary != NONE:
++            row['primary_device'] = memory.string(primary)
+         result['accounts'][account] = row
+     return result
+--- a/pool-cooldown-handoff/fixture.py
++++ b/pool-cooldown-handoff/fixture.py
+@@ -46,11 +46,20 @@
+ if mode == 'ambient':
+     life.cooling[None] = now + 123
+     life.requests[None] = deque([now - 2, now - 1])
++expected_primary = acc.primary_dev
++if mode in ('parked_primary', 'parked_null', 'parked_legacy'):
++    host.accounts.clear()
++    expected_primary = None
++    if mode != 'parked_legacy':
++        expected_primary = 'device-one' if mode == 'parked_primary' else None
++        life.restored_primary_device = expected_primary
++if mode == 'resident_saved_primary':
++    life.restored_primary_device = 'device-two'
+ expected = {'generation': host.generation, 'accounts': {aid: {
+     'cooling': {k: v for k, v in life.cooling.items() if k is not None},
+     'requests': {'device-one': list(life.requests['device-one'])},
+     'last_mint': life.last_mint, 'reserve_day': life.reserve_day,
+-    'reserve_used': life.reserve_used, 'primary_device': acc.primary_dev,
++    'reserve_used': life.reserve_used, 'primary_device': expected_primary,
+     'ambient_cooling': life.cooling.get(None),
+     'ambient_requests': list(life.requests[None]) if None in life.requests else None}}}
+ async def heartbeat_fixture():
+--- a/pool-cooldown-handoff/test_extract.py
++++ b/pool-cooldown-handoff/test_extract.py
+@@ -48,6 +48,22 @@
+             child.communicate(timeout=2)
+
+ class ExtractTests(unittest.TestCase):
++    def test_parked_primary_preserves_device_and_rate_history(self):
++        with fixture('parked_primary') as (memory, expected):
++            self.assertEqual(extract(memory), expected)
++
++    def test_parked_null_primary_stays_unknown(self):
++        with fixture('parked_null') as (memory, expected):
++            self.assertEqual(extract(memory), expected)
++
++    def test_parked_legacy_without_primary_stays_unknown(self):
++        with fixture('parked_legacy') as (memory, expected):
++            self.assertEqual(extract(memory), expected)
++
++    def test_resident_primary_remains_authoritative(self):
++        with fixture('resident_saved_primary') as (memory, expected):
++            self.assertEqual(extract(memory), expected)
++
+     def test_exact_ledger(self):
+         with fixture() as (memory, expected):
+             self.assertEqual(extract(memory), expected)
+--- /dev/null
++++ b/pool-cooldown-handoff/run_focused.py
+@@ -0,0 +1,52 @@
++"""Only extractor fixtures, plus the original extractor's expected regression."""
++import hashlib
++import json
++import resource
++import runpy
++import sys
++import time
++import unittest
++from pathlib import Path
++
++HERE = Path(__file__).resolve().parent
++sys.path.insert(0, str(HERE))
++from run_checks import names, pins
++import test_extract
++
++group = Path('/sys/fs/cgroup' + Path('/proc/self/cgroup').read_text().split('0::', 1)[1].strip())
++limits = {name: (group / name).read_text().strip()
++          for name in ('memory.max', 'memory.swap.max', 'pids.max')}
++assert limits == dict(zip(('memory.max', 'memory.swap.max', 'pids.max'),
++                         ('134217728', '0', '16')))
++before = pins()
++started = time.monotonic()
++suite = unittest.defaultTestLoader.loadTestsFromModule(test_extract)
++cases = sorted(names(suite))
++assert len(cases) == len(set(cases)) == 17
++result = unittest.TextTestRunner(verbosity=2).run(suite)
++original = HERE.parent / 'pool-cooldown-handoff-r1/extract.py'
++original_hash = hashlib.sha256(original.read_bytes()).hexdigest()
++assert original_hash == 'a29bba956768e933112cba8a231861713ed7ea0d6669fb59e42fa794abb15a7a'
++old_extract = runpy.run_path(str(original))['extract']
++with test_extract.fixture('parked_primary') as (memory, expected):
++    old_value = old_extract(memory)
++    account = next(iter(expected['accounts']))
++    lost_primary = old_value['accounts'][account]['primary_device'] is None
++    old_value['accounts'][account]['primary_device'] = expected['accounts'][account]['primary_device']
++    regression = lost_primary and old_value == expected
++after = pins()
++unchanged = before == after and original_hash == hashlib.sha256(original.read_bytes()).hexdigest()
++passed = result.wasSuccessful() and not result.skipped and result.testsRun == 17 and unchanged and regression
++report = dict(accepted=passed, cases=cases, tests_run=result.testsRun,
++              errors=len(result.errors), failures=len(result.failures),
++              original_regression_reproduced=regression, original_sha256=original_hash,
++              before=before, after=after, limits=limits, cgroup=str(group),
++              elapsed_seconds=time.monotonic() - started,
++              max_rss_kib=resource.getrusage(resource.RUSAGE_SELF).ru_maxrss)
++report['counters'] = {name: (group / name).read_text().strip() for name in
++    ('memory.peak', 'memory.events', 'memory.swap.peak', 'pids.peak', 'pids.events')}
++with (HERE / 'result.json').open('x') as output:
++    json.dump(report, output, indent=2, sort_keys=True)
++    output.write('\n')
++print(json.dumps(dict(accepted=passed, tests_run=result.testsRun, original_regression_reproduced=regression)))
++raise SystemExit(0 if passed else 1)

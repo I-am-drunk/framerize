@@ -233,8 +233,8 @@ explicitly unrun. The fixture, production API and executable builds passed
 their receipt checks; unchanged core, host, store, server and worker libraries
 were reused after source comparison. Saved summary is `beef996b`; candidate
 binary is `9e03bde3`. No swap or resource event occurred during these stages.
-The candidate is undeployed. This addresses a context gap; upstream acceptance
-remains unverified. Independent source and saved-results reviews accepted
+This addresses a context gap; upstream acceptance remains unverified.
+Independent source and saved-results reviews accepted
 this exact build. R18's release-source review is accepted, with
 82 local seals, 165 declarations and 11 modules. Its saved-file consumer
 accepts the new build and rejects the older completion summary. The host,
@@ -255,8 +255,31 @@ home symlinks and visible process use showed no dependency on these copies.
 Earlier cleanup receipts referenced only previously removed files. Restricted
 process mappings remain an explicit observation limit. Free space afterward
 was 1,197,637,632 bytes. Both cleanups are complete and their results retained.
-Next: coordinate a separate attempt of the unchanged accepted package. R18 remains
-undeployed, with no browserless delivery or memory-saving claim.
+The separate R18 attempt deployed successfully on 2026-10-23 at 08:03 UTC.
+The owned hold was released and the selected idle browser was parked with
+confirmed closure. One browserless request returned HTTP 503 `Ineligible`
+in 8 ms with complete framing. Its completion event confirms cleanup but
+contains no attempt details. Saved release and client identities agree.
+No browserless delivery or memory saving is established.
+
+The preserved handoff snapshot contains no primary-device selection for the
+selected account. Source tracing found that the capture code drops a parked
+account's retained selection: it reads the primary only from resident browsers.
+Warmup can succeed without filling this missing selection. The exact refusal
+predicate was not logged, so the original incident attribution remains limited.
+
+An additive capture correction preserves the lifecycle's recorded selection
+for parked accounts while keeping the actual resident browser authoritative.
+Null and missing selections remain unknown; cooldowns and request histories
+are unchanged. All 17 extractor cases pass, including four new boundaries.
+The original extractor reproduces the parked-device loss with otherwise equal
+output. The isolated run peaked at 34.1 MB, with two tasks and no swap or
+resource events; its unit and cgroup are absent after completion.
+The correction is source and fixture work, not a live-state repair. It cannot
+reconstruct an already-lost selection. Next: review this narrow delta and
+establish an actual current selection through the existing account owner
+before another bounded browserless trial. No request or deployment was repeated.
+The exact change is in [parked-device-capture.patch](../reference/analysis/parked-device-capture.patch).
 The operational delta is published in
 [saved-device-cookie-release-r18.patch](../reference/analysis/saved-device-cookie-release-r18.patch).
 
