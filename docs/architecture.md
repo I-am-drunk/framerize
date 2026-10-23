@@ -166,7 +166,11 @@ account preparation until the host acknowledges it. New focused tests cover
 explicit cancellation, a dropped result waiter and a lost host acknowledgement.
 They use the real worker owner and account preparation with a deterministic
 worker and controlled host replies. The source is prepared but UNRUN:
-both compilation admissions were refused before launch by the memory reserve.
+three compilation admissions were refused before launch by the memory reserve.
+The validation launcher now has a separately frozen output namespace, with
+the original three-label limit and all resource guards preserved. Its result
+binder also checks the exact launcher, dependencies, label and mode. This
+additive preparation correction is pending review and remains unexecuted.
 These cases do not establish authenticated delivery or actual host cleanup.
 
 ```mermaid
