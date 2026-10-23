@@ -1,0 +1,104 @@
+--- a/checker/check.py
++++ b/checker/check.py
+@@ -18 +18 @@
+-RECOVERY_HELPER_SHA = '0a44353655de80f0a2e2c28255b084850e54f88f7c7a2844508d51b5c807b36c'
++RECOVERY_HELPER_SHA = 'fb18bcd49b13093d5d9a6c89bd54a7bc004e59e132bfe11433013319458da353'
+--- a/checker/launch_checks.py
++++ b/checker/launch_checks.py
+@@ -9 +9 @@
+-UNIT = 'framerize-client-r15-fixture-20261023'
++UNIT = 'framerize-client-r16-fixture-20261023'
+@@ -15 +15 @@
+-paths = sorted(HERE.glob('*.py')) + sorted((HERE.parent / 'offline-serving-client-input-r9').glob('*.py')) + [Path('/usr/bin/python3').resolve(),
++paths = sorted(HERE.glob('*.py')) + sorted((HERE.parent / 'offline-serving-client-input-r10').glob('*.py')) + [Path('/usr/bin/python3').resolve(),
+@@ -17,0 +18,4 @@
++paths += sorted((HERE.parent / 'recovered-device-attempt-r1').glob('*.py')) + [
++    HERE.parent / 'offline-serving-client-check-r15/recovery_state.py',
++    HERE.parent / 'offline-serving-r18-runtime-recovery-r2/controller/current.py',
++    HERE.parent / 'offline-serving-r18-runtime-recovery-r2/controller/installed_runtime.py']
+--- a/checker/recovery_fixture.py
++++ b/checker/recovery_fixture.py
+@@ -3,0 +4,2 @@
++import runpy
++import sys
+@@ -10,0 +13,9 @@
++
++def producer_protection(fingerprint, release):
++    directory = recovery.RECOVERY / 'controller'
++    with patch.object(sys, 'path', [str(directory), *sys.path]):
++        producer = runpy.run_path(str(directory / 'current.py'))['protected']
++    adapter = Mock()
++    adapter.protected.return_value = fingerprint
++    record = dict(protected=fingerprint, release=release)
++    return producer(adapter, record, dict(main=dict(pid=100)))
+@@ -46 +57,2 @@
+-        protection = dict(unchanged=True)
++        fingerprint = dict(unchanged=True)
++        protection = producer_protection(fingerprint, release_pin)
+@@ -54 +66 @@
+-                     recovery_input=before_pin, current=current, protected=protection)
++                     recovery_input=before_pin, current=current, protected=fingerprint)
+--- a/checker/recovery_state.py
++++ b/checker/recovery_state.py
+@@ -68 +68,2 @@
+-    require(released['protected'] == post['protected'] == before['protected'] == state['protected'],
++    protection = dict(fingerprint=state['protected'], release=state['release'])
++    require(released['protected'] == post['protected'] == before['protected'] == protection,
+--- a/checker/run_checks.py
++++ b/checker/run_checks.py
+@@ -12 +12 @@
+-DRIVER = HERE.parent / 'offline-serving-client-input-r9'
++DRIVER = HERE.parent / 'offline-serving-client-input-r10'
+@@ -13,0 +14,2 @@
++ATTEMPT = HERE.parent / 'recovered-device-attempt-r1'
++sys.path.insert(0, str(ATTEMPT))
+@@ -20 +22,4 @@
+-    paths = sorted(HERE.glob('*.py')) + sorted(DRIVER.glob('*.py')) + [
++    paths = sorted(HERE.glob('*.py')) + sorted(DRIVER.glob('*.py')) + sorted(ATTEMPT.glob('*.py')) + [
++        HERE.parent / 'offline-serving-client-check-r15/recovery_state.py',
++        HERE.parent / 'offline-serving-r18-runtime-recovery-r2/controller/current.py',
++        HERE.parent / 'offline-serving-r18-runtime-recovery-r2/controller/installed_runtime.py',
+@@ -38 +43 @@
+-                               for name in ('test_recovery', 'test_driver', 'test_recovered_driver'))
++                               for name in ('test_recovery', 'test_driver', 'test_recovered_driver', 'test_sequence'))
+@@ -40 +45 @@
+-    assert len(cases) == len(set(cases)) == 25
++    assert len(cases) == len(set(cases)) == 32
+@@ -43 +48 @@
+-passed = result.wasSuccessful() and not result.skipped and result.testsRun == 25 and before == after
++passed = result.wasSuccessful() and not result.skipped and result.testsRun == 32 and before == after
+--- a/checker/test_recovery.py
++++ b/checker/test_recovery.py
+@@ -2,0 +3 @@
++import runpy
+@@ -9,0 +11,23 @@
++    def test_wrapper_must_bind_state_fingerprint_and_release(self):
++        mutations = [('fingerprint', dict(changed=True)),
++                     ('release', dict(path='/inert/other', sha256='0' * 64))]
++        for field, value in mutations:
++            with self.subTest(field=field), case() as f:
++                for record in (f.before, f.post, f.released):
++                    record['protected'] = dict(record['protected'], **{field: value})
++                f.refresh()
++                with self.assertRaisesRegex(check.Refused, 'inconsistent_recovery_protection'):
++                    recovery.saved(f.client, f.original, f.original_sha)
++
++    def test_original_client_refuses_actual_producer_shape(self):
++        original = runpy.run_path(str(recovery.HERE.parent /
++            'offline-serving-client-check-r15/recovery_state.py'))
++        with case() as f:
++            pins = {key: getattr(recovery, key) for key in
++                    ('RECOVERY', 'PLAN_SHA', 'REVIEW_SHA')}
++            with patch.dict(original['saved'].__globals__, pins):
++                with self.assertRaisesRegex(check.Refused, 'inconsistent_recovery_protection'):
++                    original['saved'](f.client, f.original, f.original_sha)
++            result = recovery.saved(f.client, f.original, f.original_sha)
++            self.assertEqual(result['service'], recovery.service(f.current))
++
+--- a/driver/run_once.py
++++ b/driver/run_once.py
+@@ -5,2 +5,2 @@
+-CLIENT = HERE.parent / 'offline-serving-client-check-r15/check.py'
+-CLIENT_SHA = '44ef060ef0dac77218bb278721f9b4dacd74537ae601584354a88ecb0871dfb1'
++CLIENT = HERE.parent / 'offline-serving-client-check-r16/check.py'
++CLIENT_SHA = '4e7f9d7bfce1a2cea8823915584b9c38bd1f9ebe0e0336c7032bb2e59f01d8da'

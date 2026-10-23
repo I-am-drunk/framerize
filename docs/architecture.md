@@ -145,6 +145,10 @@ The original release remains provenance. The recovered generation must come
 from the accepted recovery plan and its completed controller, state and release
 records, then match the live process pair and unchanged support/configuration.
 The original release's old process identity cannot stand in for that proof.
+The saved inspection and release records wrap their protected fingerprint
+together with the release pin. The client compares those complete wrappers,
+then binds the fingerprint and release to the recovered state. The live
+configuration check continues to compare the bare fingerprint.
 
 Recovery of an already installed runtime verifies its configuration in place.
 It preserves both file content and identity, obtains a fresh maintenance hold,
