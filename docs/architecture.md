@@ -140,8 +140,9 @@ owner and worker at 82,403,328 bytes. Both synthetic cases retained private
 pipes, sandboxing, freshness and joined cleanup. The combined case kept its
 device lease until confirmed completion, then released and reopened a lease
 in the same generation. These single samples exclude the application server
-and authenticated requests. Summary `dd8002d2` awaits independent review;
-production still uses its original policy and the patch remains unapplied.
+and authenticated requests. Review `df13c06d` accepts summary `dd8002d2` and
+its source/build bindings. The experimental owner now selects this exact
+flag; the application relink is pending and running services are unchanged.
 The same variant also passes the existing explicit-cancel and dropped-owner
 cases after observed worker activity. Summary `6a451af4` preserves their
 joined cleanup and SDK-phase limits; live HTTP cancellation remains unproven.
