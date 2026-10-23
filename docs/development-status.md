@@ -110,7 +110,10 @@ and R12 file sets; its read-only preparation and baseline capture now pass.
 The package and manifest checks are reused from their unchanged R13 inputs.
 The frozen operational delta is published in
 [device-handoff-release-r14.patch](../reference/analysis/device-handoff-release-r14.patch).
-Source review is pending. Next: bind the accepted plan and client, coordinate
+Independent source review accepts R14 without findings. The exact final plan
+and one-request client are now with the existing reviewer. The client changes
+only its release, binary and plan bindings; all request behavior and saved
+fixture results remain unchanged. Next: collect those acceptances, coordinate
 the update, then park one idle account through the existing pool owner and
 send one bounded browserless request.
 No browserless live response or total-memory saving is verified yet.
