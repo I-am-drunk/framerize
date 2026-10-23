@@ -119,8 +119,10 @@ three comparisons but increased group memory. Those results are locally
 verified and not independently reviewed. Production retains the 96 MiB heap
 and does not enable that cache. An additional verification-buffer experiment
 passed its local mint but demonstrated no useful saving and remains unapplied.
-The next investigation attributes JSDOM's import cost without changing SDK,
-DOM or device behavior.
+The import-only probe records bounded package and module allocation observations.
+It invokes no SDK and restores its loader hook. Its largest individual net
+heap increase coincides with CSS style prototype setup. GC and nested loading
+prevent treating these observations as exact ownership or achievable savings.
 
 ```mermaid
 flowchart LR

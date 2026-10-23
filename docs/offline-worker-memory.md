@@ -112,3 +112,29 @@ independent review. The [experimental patch](../reference/analysis/offline-worke
 is preserved for reproduction and is not applied to production.
 Next investigate the components of JSDOM's import allocation with one
 isolated import-only measurement. Keep the existing DOM behavior unchanged.
+
+## Import-only allocation diagnostic
+
+The [import probe](../scripts/measure_offline_imports.mjs) ran once with the
+same isolation and resource caps, without invoking the SDK. It observed
+2,546 loader calls and 638 uncached module loads, then restored its loader
+hook. Import time was 475.378 ms. Peak group memory was 41,947,136 bytes;
+reported process RSS peaked at 82,399,232 bytes. This smaller workload cannot
+be compared with the full mint to claim a memory saving.
+
+The largest observed single-module net heap increase, after subtracting
+nested observations, was 6,966,264 bytes around
+`cssstyle/lib/CSSStyleDeclaration.js`. Package aggregates were 10,828,496
+bytes for jsdom and 7,709,672 for cssstyle. Some other observations were
+negative because collection and measurement overhead affect these boundaries.
+The values locate candidates; they do not assign exact ownership of memory.
+
+Source inspection finds eager property-descriptor installation on the CSS
+style prototype at this point. The next hypothesis is allocation caused by
+repeated prototype changes. Any experiment must retain the final properties,
+descriptors and CSS behavior and preserve the original dependency separately.
+No dependency change has been applied.
+
+All inputs remained exact. The worker joined, its unit and cgroup disappeared,
+and swap and memory events were zero. Summary `89f3ecc3` records the result;
+it is locally checked and has not received independent review.

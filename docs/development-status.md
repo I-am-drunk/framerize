@@ -25,8 +25,14 @@ One subsequent run tested a 64 KiB reusable verification buffer while retaining
 every digest check and the existing DOM/device environment. The local mint
 passed, but its 75,436,032-byte group peak and 1209.069 ms elapsed time did not
 improve on the saved baseline means. That experimental patch remains unapplied.
-The next measurement will attribute JSDOM's import cost to its components,
-without changing the DOM environment. No service or account has been changed.
+An import-only probe then observed 638 uncached module loads. CSS style
+prototype setup had the largest individual net heap increase, about 6.97 MB.
+The process group peaked at 41,947,136 bytes with zero swap/events and clean
+teardown. This excludes SDK execution and is not a full-worker improvement.
+Summary `89f3ecc3` and the published probe preserve the diagnostic and its
+GC/nested-allocation limits. No service, dependency or account was changed.
+Next test whether prototype construction causes avoidable allocation while
+requiring identical final descriptors and CSS behavior. Production is unchanged.
 
 The isolated client now records monotonic request timings, starting before
 connection/request work. It distinguishes headers, first complete text,
