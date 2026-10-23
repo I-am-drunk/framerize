@@ -146,6 +146,9 @@ flag. Application result `05552129` binds the relinked binary `8ffa3077` to
 that owner library and the unchanged application sources. It is built only;
 running services are unchanged and the lazy host still requires an explicit
 sidecar path because the retained host library embeds the earlier default.
+Review `4e69d24b` accepts those source and saved build bindings without
+findings. The updated activation preparation preserves all ten other runtime
+declarations and leaves the account, generation and execution plan unset.
 The same variant also passes the existing explicit-cancel and dropped-owner
 cases after observed worker activity. Summary `6a451af4` preserves their
 joined cleanup and SDK-phase limits; live HTTP cancellation remains unproven.
