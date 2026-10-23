@@ -285,8 +285,15 @@ request, confirms its completion evidence, then parks through the pool owner
 before invoking the unchanged native client once. It stops on changed service
 generation, unavailable accounts, ambiguous events or incomplete responses.
 All 16 new inert cases pass, with a 28.1 MB peak and no swap or resource events.
-The fixture unit and cgroup are gone. No live R8 request has run. Source and
-saved results await independent review; the existing client results are reused.
+The fixture unit and cgroup are gone. Independent review accepts the exact
+source and saved results; the existing client results are reused.
+The first coordinated attempt stopped before either request: the current
+service had swap. A separate resource snapshot at 08:30 UTC recorded 3.74 GB
+resident and 587 MB swapped, including the main server and sidecar, with no
+memory-limit events. The R18 generation was unchanged. No request or service
+action ran, and all quiet peers were released. This attempt is preserved.
+The next step is a separately reviewed recovery of the same installed payload,
+followed by preparation and the native trial in one continuous quiet window.
 See [device-preparation-client-r8.patch](../reference/analysis/device-preparation-client-r8.patch).
 Missing log events remain a limitation, not proof that no other attempt ran.
 
