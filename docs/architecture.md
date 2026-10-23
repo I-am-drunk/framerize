@@ -32,6 +32,12 @@ Final review accepts its source and six saved cases. The restored destination
 is a Python fixture parent, and mint completion and cleanup replies are
 injected. This does not validate a daemon recovery or real request cleanup.
 
+The additional `run_restored_daemon.py` fixture starts the built server in a
+private network namespace with complete synthetic account records. It binds
+restoration to that server's actual process, exercises missing-session release
+through normal streaming routes and preserves full-window and changed-JSON
+refusals. It never supplies real session credentials or starts the SDK.
+
 Normal API routing additionally requires `--offline-routing-config`.
 `examples/browserless-routing.json` provides bounded, unpaid streaming limits;
 it is not installed automatically. Native requests also require explicit
