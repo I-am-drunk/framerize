@@ -58,6 +58,13 @@ saved service policy and installed-file pins; live checks remain required.
 Deployment source and plan review
 are pending. No service change or live request has run for this continuation.
 
+The client release binding and owner sequence add 13 passing inert cases:
+five for the actual release receipt, one for one-time client execution, and
+seven for deployment-before-client ordering and sealed preparation. The
+existing 15 streaming/privacy cases and two unchanged terminal/cancellation
+cases are reused. Final client/owner review and the coordinated live sequence
+remain pending. No additional inference probe is part of the plan.
+
 The admission repair on `fix/live-admission-503-20261023` adds completion
 evidence for assembled nonstream Responses bodies and stops future attempts
 when their HTTP waiter disconnects. An unread completed body previously

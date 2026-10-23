@@ -101,6 +101,9 @@ Startup, cooldown restoration, unchanged account and configuration state,
 idle residency and zero current or historical swap are required before release.
 The bounded startup receipt contains a count and hash of its source map;
 the controller still hashes every declared source before accepting a phase.
+The normal-stream client verifies that release receipt, accepted plan and
+current generation before sending a request. Its owner runs deployment first
+and permits one client invocation, retaining a consumed marker on refusal.
 
 Worker protocol version 2 carries the private saved device through a pipe.
 The worker seeds its isolated storage before loading the SDK and checks that
