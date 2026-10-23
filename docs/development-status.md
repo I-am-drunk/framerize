@@ -43,13 +43,19 @@ regression fails against the old support module. Unconfirmed closure still
 refuses native work and the existing cooldown history remains intact. Independent
 source and saved-result review accepts this fix at commit `49256e89`.
 
-The separate R10 deployment package is frozen for narrow review. It reuses the
-built application and changes only the native support module and the generated
-host's reference to that support set. Three focused package-binding checks pass;
-the current six-file manifest also passes its existing consumer check. The
-fresh baseline still identifies the running R9 service. R10 is not deployed.
-Next: bind the reviewed plan, coordinate a quiet transition, then park one idle
-account through the existing pool owner and send one bounded request.
+R11 now has independent source and saved-evidence acceptance. It preserves the
+rejected R10 package and corrects its stale privileged-helper pin and rollback
+decision for two releases using the same executable. Six focused entry and
+binding checks pass. Rollback retains the new restoring host and support files;
+it restores the original executable and launch configuration.
+The accepted device fix reuses the built application and changes its support
+module plus the generated host's reference to that support set. The three
+package checks, current manifest-consumer check and existing builds are reused.
+The exact operational source delta is published in
+[device-handoff-release-r11.patch](../reference/analysis/device-handoff-release-r11.patch).
+The latest saved baseline still identifies R9. R11 is not deployed.
+Next: generate and review the exact plan, coordinate a quiet transition, then
+park one idle account through the existing pool owner and send one bounded request.
 No browserless live response or total-memory saving is verified yet.
 
 The first version's core and API builds remain saved evidence for that version.
