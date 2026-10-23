@@ -5,8 +5,11 @@ branches does not change the running service.
 
 The disconnect correction is deployed from `browserless`. R9 completed its
 fresh admission, drain, startup and release checks on 2026-10-23. The maintenance
-hold is released; health and account-pool checks both return HTTP 200. Ordinary
-traffic remains browser-based, with the native path behind the trial endpoint.
+hold is released. A read-only check after the first trial confirmed that health
+and the account pool still return HTTP 200 on the same service generation.
+Ordinary traffic remains browser-based, with the native path behind the trial
+endpoint. The first real native request returned HTTP 503 in 11 milliseconds.
+It delivered no answer. Its exact error code was not retained by that checker.
 
 Review of the
 first version found that the browser helper could still retry after disconnect,
@@ -25,7 +28,21 @@ The first client check sent zero requests: its ownership check expected a
 loopback-only listener, while the service owns a valid IPv4 wildcard listener.
 A one-comparison correction passes four focused ownership fixtures; its
 regression reproduces the previous refusal. The original 16 cases remain
-reused evidence. Next: complete its narrow review and send the one real request.
+reused evidence. That correction was accepted before the request was sent.
+A later, accepted client change records only known error codes from the exact
+application error envelope, preserving response privacy and all existing gates.
+
+The trial selected an account already serving browser requests. Native admission
+requires an absent browser. The five unused accounts also lacked a recorded
+primary device. Closing a browser previously lost its current device selection
+instead of transferring it back to the shared lifecycle.
+
+The new host fix preserves the actual selected device after confirmed browser
+closure. Four focused checks pass, using the actual closure method; the new
+regression fails against the old support module. Unconfirmed closure still
+refuses native work and the existing cooldown history remains intact. This fix
+is not deployed. Next: review and deploy the small support change, then park
+one idle account through the existing pool owner and send one bounded request.
 No browserless live response or total-memory saving is verified yet.
 
 The first version's core and API builds remain saved evidence for that version.

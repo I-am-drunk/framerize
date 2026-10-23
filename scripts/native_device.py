@@ -206,6 +206,17 @@ def install(host_type, root, **policy):
     original_handle = host_type.handle
     original_use = host_type._use_account
     original_status = host_type._browser_status
+    original_finish_close = host_type._finish_close
+
+    async def finish_close(host, account, life, acc):
+        closed = await original_finish_close(host, account, life, acc)
+        if closed and acc is not None:
+            require(host.lifecycles.get(account) is life and life.phase == 'absent'
+                    and account not in host.accounts and life.browser is None
+                    and life.close_receipt is None, 'browser closure identity changed')
+            # Preserve the actual final selection, after all browser work joins.
+            life.restored_primary_device = acc.primary_dev
+        return closed
 
     async def handle(host, request):
         if request.get('cmd', '').startswith('native_device_'):
@@ -233,3 +244,4 @@ def install(host_type, root, **policy):
 
     host_type.handle, host_type._use_account = handle, use_account
     host_type._browser_status = status
+    host_type._finish_close = finish_close

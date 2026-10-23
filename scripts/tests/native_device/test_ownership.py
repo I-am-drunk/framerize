@@ -2,12 +2,14 @@ import asyncio
 import copy
 import json
 from contextlib import asynccontextmanager
-from fixture import Fixture, ACCOUNT, LEASE, SECOND
+from fixture import Fixture, ACCOUNT, LEASE, SECOND, close_browser
 from native_device import install
 
 
 def host_type():
     class Host:
+        _finish_close = close_browser
+
         async def handle(self, request):
             async with self._use_account(request['account']):
                 self.events.append('legacy')

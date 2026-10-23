@@ -71,6 +71,14 @@ Enabling its worker configuration does not switch the normal routing policy.
 This lets one real request exercise the shared ownership without running a
 second account authority or sending duplicate traffic.
 
+A browser and native grant cannot use the same account simultaneously. After
+the existing host confirms browser closure, the native adapter retains that
+browser's actual final device selection in the shared lifecycle. Cooldowns and
+request history remain in that same lifecycle. Failed closure transfers no
+authority, and an account without a recorded primary device remains ineligible.
+The first trial needs an idle account parked through the normal pool owner;
+general account availability alone does not establish native readiness.
+
 Deployment also has to account for coding sessions using the same daemon.
 A maintenance marker controls recovery ownership; it does not stop incoming
 requests. Permission to cancel a request is not proof that it has finished.
