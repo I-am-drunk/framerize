@@ -97,6 +97,10 @@ general account availability alone does not establish native readiness.
 A support-only release can reuse the verified Rust binary. Bind its changed
 support file to separate review evidence, and regenerate only the host's
 support-manifest reference. Preserve the previous launch override for rollback.
+Carry forward the complete set of retained configuration and override files
+from earlier releases. Check every recorded hash and the exact directory
+contents before changing the service; keeping only the latest pair loses
+the protection for older files that are still installed.
 
 Two releases may use the same executable with different support packages.
 Rollback therefore identifies the running generation and launch configuration;
