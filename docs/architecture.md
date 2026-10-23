@@ -92,12 +92,14 @@ shape metadata. A known security-error envelope is reported only as a
 boolean after checking its complete shape and HTTP status. Raw error text,
 provider references and timestamps are discarded. This category cannot
 identify why a provider refused the request or authorize a retry.
-Native inference HTTP now includes `Origin: https://framer.com`, matching
-the canonical application origin accepted by native page validation. Its
-`Framerize/0.1` user agent remains explicit. It does not invent a project-page
-Referer from the project ID, impersonate browser networking or alter tokens.
-The added header has local wire-level regression coverage. A prior real
-request received 403; whether this omission caused that refusal is unknown.
+Native inference HTTP includes `Origin: https://framer.com` and the public
+origin-only `Referer: https://framer.com/`, matching the canonical application
+origin accepted by native page validation. Its `Framerize/0.1` user agent
+remains explicit. It never constructs a project-page Referer from the project
+ID or exposes a page path or query. It does not impersonate browser networking
+or alter tokens. Both headers have local wire-level regression coverage.
+The last live request received a complete 403 security envelope and confirmed
+cleanup. Whether the missing Referer caused that refusal remains unknown.
 For the composed adapter, text is rendered after upstream JSON is complete.
 The interruption check therefore waits for the actual send and successful
 stream headers, then disconnects while the body remains open. It separately

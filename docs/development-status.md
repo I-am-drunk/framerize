@@ -10,9 +10,21 @@ The browser service and its account set have not been changed.
 
 The streaming-refusal correction is now active only in that isolated instance
 as binary `be15778f`. The old generation's real device history was captured
-before its processes were stopped. The replacement has a one-use restoration
-handoff and a full additional device cooldown; live validation is pending.
-The protected browser service is unchanged.
+before its processes were stopped. The replacement restored that history
+through a one-use handoff and enforced a full additional device cooldown.
+One live request made one upstream send and received HTTP 403 with a complete
+Framer security error envelope. Cleanup was confirmed and the pool returned
+to idle. No second request ran. The protected browser service is unchanged.
+
+The next compatibility correction adds `Referer: https://framer.com/` to
+native inference HTTP. It sends only the public application origin, without
+exposing or inventing a project path or query. The real loopback fixture now
+checks it together with Origin, credentials and the truthful native user
+agent. All 14 focused transport, stream and cleanup cases pass, with zero
+recorded swap or resource events and clean teardown. Test compilation peaked
+at 544,919,552 bytes; the test run peaked at 43,532,288 bytes. The application
+rebuild and isolated live validation are pending. The earlier 403 is not
+claimed resolved.
 
 The preceding Origin candidate restored its real history successfully. One request
 made one native send, then returned a 60-second deadline error without text.
