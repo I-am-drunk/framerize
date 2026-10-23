@@ -1,0 +1,667 @@
+--- /dev/null
++++ admission-stream-client-binding-r1/checker.py
+@@ -0,0 +1,54 @@
++"""Bind the accepted normal-stream client to the reviewed binary-only release."""
++import hashlib as _hashlib
++from pathlib import Path as _Path
++_prior = _Path(__file__).resolve().parents[1] / 'offline-serving-client-check-r9/check.py'
++_source = _prior.read_bytes()
++assert _hashlib.sha256(_source).hexdigest() == \
++    '439d9269db5eb4f7c535d2b6bb065eac96bd5815228f747201782274a8a69b3b'
++exec(compile(_source, str(_prior), 'exec'), globals())
++
++
++def deployed():
++    root = DEPLOY / 'release'
++    released, digest = read_document(root / 'released.json')
++    require(released.get('accepted') is True and released.get('marker_absent') is True
++            and released.get('status') == 'VERIFIED_ADMISSION_BINARY_RELEASED',
++            'deployment_not_released')
++    require(not Path('/home/tjninja/.local/state/framerize-recovery/maintenance').exists(),
++            'maintenance_active')
++    expected = {'plan': root / 'plan.json', 'post_start': root / 'post-start.json',
++                'cleared_handoff': root / 'cleared-handoff.json'}
++    documents = {}
++    for key, path in expected.items():
++        row = released[key]
++        require(Path(row['path']) == path, 'wrong_release_evidence')
++        documents[key] = read_document(path, row['sha256'])[0]
++    require(released['plan']['sha256'] == PLAN, 'wrong_deployment_plan')
++    review_pin = read_document(root / 'plan-review-pin.json')[0]
++    require(released['plan_review'] == review_pin, 'review_binding_changed')
++    review = read_document(review_pin['path'], review_pin['sha256'])[0]
++    require(review.get('accepted') is True and review.get('findings') == [] and
++            review.get('status') == 'ACCEPTED_FOR_COORDINATED_ACTIVATION' and
++            review.get('plan_sha256') == PLAN, 'plan_not_accepted')
++    post = documents['post_start']
++    require(post['plan'] == released['plan'] and post['plan_review'] == review_pin and
++            post['status'] == 'VERIFIED_BINARY_DEPLOYMENT_PENDING_HOLD_RELEASE' and
++            post['current'] == released['service'], 'release_postcheck_differs')
++    state_pin = post['adapter_receipt']
++    require(Path(state_pin['path']) == DEPLOY / 'deployment.json', 'wrong_deployment_state')
++    state = read_document(state_pin['path'], state_pin['sha256'])[0]
++    require(state['status'] == 'configured_pending_independent_verification' and
++            len(state['stops']) == len(state['startup_attempts']) == 1 and
++            state['protected'] == post['protected'], 'deployment_state_differs')
++    require(state['files']['binary']['new_sha256'] == BINARY, 'wrong_replacement_binary')
++    for record in (post['metrics'], released['metrics']):
++        require(record['memory.swap.current'] == record['memory.swap.peak'] == '0'
++                and all(line.split()[1] == '0' for line in record['memory.events'].splitlines()),
++                'release_resource_evidence_failed')
++    service = current_service()
++    saved = released['service']
++    require(service['invocation_id'] == saved['service']['InvocationID'] and
++            service['pid'] == saved['main']['pid'] and service['start'] == saved['main']['start'],
++            'released_service_changed')
++    listener_owned(service['pid'])
++    return service, digest
+--- /dev/null
++++ admission-stream-client-binding-r1/run_once.py
+@@ -0,0 +1,21 @@
++"""Consume the reviewed normal-stream check once, including on refusal."""
++import hashlib
++import os
++from pathlib import Path
++import sys
++
++CLIENT = Path(__file__).resolve().parents[1] / 'admission-stream-live-check-r3'
++SEAL = '21d05bdfd840dd7e9281531e9362ea6fbf71330239a768a1424542416ac2286a'
++
++def main():
++    assert sys.argv[1:] == ['--execute'] and not sys.flags.optimize
++    assert hashlib.sha256((CLIENT / 'SOURCE.sha256').read_bytes()).hexdigest() == SEAL
++    fd = os.open(CLIENT / 'attempt.json', os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600)
++    with os.fdopen(fd, 'w') as stream:
++        stream.write('{"status":"consumed"}\n')
++        stream.flush()
++        os.fsync(stream.fileno())
++    os.execv('/usr/bin/python3', ['/usr/bin/python3', '-I', '-B', '-S', str(CLIENT / 'launch.py'), SEAL])
++
++if __name__ == '__main__':
++    main()
+--- /dev/null
++++ admission-stream-client-binding-r1/run_once_test.py
+@@ -0,0 +1,44 @@
++"""One bounded fixture run with private profiles and networking unavailable."""
++import hashlib
++import json
++import os
++from pathlib import Path
++import resource
++import subprocess
++import time
++
++HERE = Path(__file__).resolve().parent
++def sha(path):
++    with Path(path).open('rb') as stream:
++        return hashlib.file_digest(stream, 'sha256').hexdigest()
++
++resource.setrlimit(resource.RLIMIT_AS, (128 * 1024**2, 128 * 1024**2))
++resource.setrlimit(resource.RLIMIT_CPU, (10, 10))
++resource.setrlimit(resource.RLIMIT_CORE, (0, 0))
++paths = sorted(set(map(Path, json.loads((HERE / 'module-bindings.json').read_text())['files'])) | set(HERE.glob('*.py')) | {HERE / 'module-bindings.json', Path('/usr/bin/python3.12'), Path('/usr/bin/bwrap')})
++before = {str(path): sha(path) for path in paths}
++argv = ['/usr/bin/bwrap', '--die-with-parent', '--unshare-net', '--ro-bind', '/', '/',
++        '--tmpfs', '/tmp', '--tmpfs', '/home/tjninja/.framerize', '--dev', '/dev',
++        '--proc', '/proc', '--chdir', str(HERE), '/usr/bin/python3.12', '-B',
++        '-m', 'unittest', '-v', 'test_once']
++started = time.time()
++result = subprocess.run(argv, capture_output=True, text=True, timeout=15,
++    env={'PATH': '/usr/bin:/bin', 'LC_ALL': 'C.UTF-8', 'PYTHONDONTWRITEBYTECODE': '1'})
++after = {str(path): sha(path) for path in paths}
++accepted = before == after and result.returncode == 0
++report = dict(accepted=accepted, inputs=before, after=after, argv=argv,
++    exit_code=result.returncode, stdout=result.stdout, stderr=result.stderr,
++    started_at_unix=started, finished_at_unix=time.time(),
++    child_peak_rss_kib=resource.getrusage(resource.RUSAGE_CHILDREN).ru_maxrss,
++    scope='One client-attempt consumption case. Prior five release-binding cases reused.',
++    controls=dict(network_namespace='isolated', private_profiles='masked',
++                  address_space_bytes=128 * 1024**2, cpu_seconds=10, wall_seconds=15),
++    limitations=['RSS is a child high-water mark; no aggregate cgroup or swap claim.'])
++path = HERE / ('validation-' + str(time.time_ns()) + '.json')
++fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
++with os.fdopen(fd, 'w') as stream:
++    json.dump(report, stream, indent=2)
++    stream.write('\n')
++print(json.dumps(dict(accepted=accepted, path=str(path), sha256=sha(path),
++                      child_peak_rss_kib=report['child_peak_rss_kib'])))
++raise SystemExit(0 if accepted else 1)
+--- /dev/null
++++ admission-stream-client-binding-r1/run_tests.py
+@@ -0,0 +1,44 @@
++"""One bounded fixture run with private profiles and networking unavailable."""
++import hashlib
++import json
++import os
++from pathlib import Path
++import resource
++import subprocess
++import time
++
++HERE = Path(__file__).resolve().parent
++def sha(path):
++    with Path(path).open('rb') as stream:
++        return hashlib.file_digest(stream, 'sha256').hexdigest()
++
++resource.setrlimit(resource.RLIMIT_AS, (128 * 1024**2, 128 * 1024**2))
++resource.setrlimit(resource.RLIMIT_CPU, (10, 10))
++resource.setrlimit(resource.RLIMIT_CORE, (0, 0))
++paths = sorted(set(map(Path, json.loads((HERE / 'module-bindings.json').read_text())['files'])) | set(HERE.glob('*.py')) | {HERE / 'module-bindings.json', Path('/usr/bin/python3.12'), Path('/usr/bin/bwrap')})
++before = {str(path): sha(path) for path in paths}
++argv = ['/usr/bin/bwrap', '--die-with-parent', '--unshare-net', '--ro-bind', '/', '/',
++        '--tmpfs', '/tmp', '--tmpfs', '/home/tjninja/.framerize', '--dev', '/dev',
++        '--proc', '/proc', '--chdir', str(HERE), '/usr/bin/python3.12', '-B',
++        '-m', 'unittest', '-v', 'test_binding']
++started = time.time()
++result = subprocess.run(argv, capture_output=True, text=True, timeout=15,
++    env={'PATH': '/usr/bin:/bin', 'LC_ALL': 'C.UTF-8', 'PYTHONDONTWRITEBYTECODE': '1'})
++after = {str(path): sha(path) for path in paths}
++accepted = before == after and result.returncode == 0
++report = dict(accepted=accepted, inputs=before, after=after, argv=argv,
++    exit_code=result.returncode, stdout=result.stdout, stderr=result.stderr,
++    started_at_unix=started, finished_at_unix=time.time(),
++    child_peak_rss_kib=resource.getrusage(resource.RUSAGE_CHILDREN).ru_maxrss,
++    scope='Five release-binding fixtures using the actual producer; no live input.',
++    controls=dict(network_namespace='isolated', private_profiles='masked',
++                  address_space_bytes=128 * 1024**2, cpu_seconds=10, wall_seconds=15),
++    limitations=['RSS is a child high-water mark; no aggregate cgroup or swap claim.'])
++path = HERE / ('validation-' + str(time.time_ns()) + '.json')
++fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
++with os.fdopen(fd, 'w') as stream:
++    json.dump(report, stream, indent=2)
++    stream.write('\n')
++print(json.dumps(dict(accepted=accepted, path=str(path), sha256=sha(path),
++                      child_peak_rss_kib=report['child_peak_rss_kib'])))
++raise SystemExit(0 if accepted else 1)
+--- /dev/null
++++ admission-stream-client-binding-r1/test_binding.py
+@@ -0,0 +1,85 @@
++import json
++from pathlib import Path
++import sys
++import unittest
++from unittest.mock import patch
++import checker as client
++
++ROOT = Path(__file__).resolve().parent
++DEPLOY = ROOT.with_name('admission-stream-deployment-r1')
++sys.path.insert(0, str(DEPLOY))
++sys.path.insert(0, str(DEPLOY / 'controller'))
++import test_release as producer_fixture
++import verification
++
++
++class BindingTests(unittest.TestCase):
++    def setUp(self):
++        self.context = producer_fixture.ReleaseTests()
++        self.context.setUp()
++        self.addCleanup(self.context.doCleanups)
++        ctx = self.context
++        self.binary = '00508774de666528cf1ec3b8ee5f049666ce26c63844904fd568a15375050829'
++        ctx.current.clear()
++        ctx.current.update(main={'pid': 123, 'start': 456},
++                           service={'InvocationID': 'fixture-invocation'})
++        ctx.record.update(protected=ctx.protected, startup_attempts=[{}],
++                          files={'binary': {'new_sha256': self.binary}})
++        ctx.adapter.RECEIPT.write_text(json.dumps(ctx.record))
++        metrics = {'memory.swap.current': '0', 'memory.swap.peak': '0',
++                   'memory.events': 'max 0\noom 0\noom_kill 0'}
++        ctx.inspect.return_value['metrics'] = metrics
++        verification.no_swap.return_value = metrics
++        root = ctx.root / 'release'
++        self.plan = verification.pin(root / 'plan.json')
++        review = {'accepted': True, 'findings': [],
++                  'status': 'ACCEPTED_FOR_COORDINATED_ACTIVATION',
++                  'plan_sha256': self.plan['sha256']}
++        (root / 'review.json').write_text(json.dumps(review))
++        self.review = verification.pin(root / 'review.json')
++        (root / 'plan-review-pin.json').write_text(json.dumps(self.review))
++        ctx.bindings = {row['path']: row['sha256'] for row in (self.plan, self.review)}
++        self.released = ctx.finish()
++        self.service = dict(pid=123, start=456, invocation_id='fixture-invocation',
++                            binary_sha256=self.binary, cgroup='/fixture')
++        self.marker_held = False
++        original_exists = Path.exists
++        def exists(path):
++            if str(path) == '/home/tjninja/.local/state/framerize-recovery/maintenance':
++                return self.marker_held
++            return original_exists(path)
++        for scope in (patch.object(client, 'DEPLOY', ctx.root),
++                      patch.object(client, 'BINARY', self.binary),
++                      patch.object(client, 'PLAN', self.plan['sha256']),
++                      patch.object(client, 'current_service', return_value=self.service),
++                      patch.object(client, 'listener_owned'), patch.object(Path, 'exists', exists)):
++            scope.start()
++            self.addCleanup(scope.stop)
++
++    def test_actual_release_producer_is_accepted(self):
++        service, digest = client.deployed()
++        self.assertEqual(service, self.service)
++        self.assertEqual(digest, verification.sha(Path(self.released['released_path'])))
++
++    def test_held_marker_is_refused(self):
++        self.marker_held = True
++        with self.assertRaisesRegex(client.Refused, 'maintenance_active'):
++            client.deployed()
++
++    def test_changed_generation_is_refused(self):
++        self.service['pid'] += 1
++        with self.assertRaisesRegex(client.Refused, 'released_service_changed'):
++            client.deployed()
++
++    def test_unbound_plan_is_refused(self):
++        with patch.object(client, 'PLAN', '0' * 64):
++            with self.assertRaisesRegex(client.Refused, 'wrong_deployment_plan'):
++                client.deployed()
++
++    def test_unconfirmed_resource_outcome_is_refused(self):
++        path = Path(self.released['released_path'])
++        value = json.loads(path.read_text())
++        value['metrics']['memory.swap.peak'] = '1'
++        path.write_text(json.dumps(value))
++        with self.assertRaisesRegex(client.Refused, 'release_resource_evidence_failed'):
++            client.deployed()
+--- /dev/null
++++ admission-stream-client-binding-r1/test_once.py
+@@ -0,0 +1,23 @@
++import hashlib
++from pathlib import Path
++import tempfile
++import unittest
++from unittest.mock import patch
++import run_once
++
++
++class OnceTests(unittest.TestCase):
++    def test_consumed_attempt_cannot_launch_twice(self):
++        with tempfile.TemporaryDirectory() as folder:
++            root = Path(folder)
++            source = root / 'SOURCE.sha256'
++            source.write_text('inert seal')
++            seal = hashlib.sha256(source.read_bytes()).hexdigest()
++            with patch.object(run_once, 'CLIENT', root), patch.object(run_once, 'SEAL', seal), \
++                 patch.object(run_once.sys, 'argv', ['run_once.py', '--execute']), \
++                 patch.object(run_once.os, 'execv') as execute:
++                run_once.main()
++                with self.assertRaises(FileExistsError):
++                    run_once.main()
++                execute.assert_called_once()
++                self.assertEqual(execute.call_args.args[1][-2:], [str(root / 'launch.py'), seal])
+--- /dev/null
++++ admission-stream-attempt-r1/prepare.py
+@@ -0,0 +1,54 @@
++"""One quiet cooldown wait followed by the reviewed binary deployment."""
++from pathlib import Path
++import json
++import os
++import sqlite3
++import subprocess
++import sys
++import time
++HERE = Path(__file__).resolve().parents[1] / 'admission-stream-deployment-r1'
++sys.path.insert(0, str(HERE / 'controller'))
++from recovery_binding import checked_plan, document, require, save, sha
++
++
++def pin(path):
++    return dict(path=str(path), sha256=sha(path))
++
++
++def main():
++    require(sys.argv[1:] == ['--execute'] and not sys.flags.optimize, 'explicit execution required')
++    plan_pin = pin(HERE / 'release/plan.json')
++    review_pin = document(pin(HERE / 'release/plan-review-pin.json'))
++    checked_plan(plan_pin, review_pin)
++    require(not (HERE / 'controller/execution').exists(), 'preserve prior recovery attempt')
++    auth = ['sudo', '-v'] if sys.stdin.isatty() else ['sudo', '-n', '-v']
++    require(subprocess.run(auth, timeout=120).returncode == 0, 'authentication required')
++    print(json.dumps(dict(phase='quiet_settling', seconds=45)), flush=True)
++    time.sleep(45)
++    uri = 'file:/home/tjninja/.framerize/framerize.db?mode=ro'
++    with sqlite3.connect(uri, uri=True) as db:
++        rows = [json.loads(row[0]) for row in db.execute('SELECT json FROM accounts')]
++    require(len(rows) == 11, 'account count changed')
++    selected = [r for r in rows if r['state'] == 'ready' and
++                r['current_team'] is not None and r['current_project'] is not None]
++    ends = [r['cooling_until_ms'] for r in selected if r.get('cooling_until_ms') is not None]
++    require(all(type(end) is int and end >= 0 for end in ends), 'invalid cooldown')
++    delay = max(0, max(ends, default=0) / 1000 - time.time() + 2)
++    require(delay <= 900, 'cooldown exceeds this bounded quiet attempt')
++    record = dict(at_unix=time.time(), ready_with_context=len(selected), wait_seconds=delay)
++    path = HERE / ('cooldown-window-' + str(time.time_ns()) + '.json')
++    save(path, record)
++    until = time.monotonic() + delay
++    while time.monotonic() < until:
++        remaining = max(0, until - time.monotonic())
++        print(json.dumps(dict(phase='cooldown_wait', remaining_seconds=round(remaining))), flush=True)
++        require(subprocess.run(['sudo', '-n', '-v'], timeout=5).returncode == 0,
++                'terminal authentication expired')
++        time.sleep(min(30, remaining))
++    checked_plan(plan_pin, review_pin)
++    os.execv('/usr/bin/python3', ['/usr/bin/python3', '-I', '-B', '-S',
++             str(HERE / 'operator.py'), 'activate'])
++
++
++if __name__ == '__main__':
++    main()
+--- /dev/null
++++ admission-stream-attempt-r1/run_tests.py
+@@ -0,0 +1,44 @@
++"""One bounded fixture run with private profiles and networking unavailable."""
++import hashlib
++import json
++import os
++from pathlib import Path
++import resource
++import subprocess
++import time
++
++HERE = Path(__file__).resolve().parent
++def sha(path):
++    with Path(path).open('rb') as stream:
++        return hashlib.file_digest(stream, 'sha256').hexdigest()
++
++resource.setrlimit(resource.RLIMIT_AS, (128 * 1024**2, 128 * 1024**2))
++resource.setrlimit(resource.RLIMIT_CPU, (10, 10))
++resource.setrlimit(resource.RLIMIT_CORE, (0, 0))
++paths = sorted(HERE.glob('*.py')) + [Path('/usr/bin/python3.12'), Path('/usr/bin/bwrap')]
++before = {str(path): sha(path) for path in paths}
++argv = ['/usr/bin/bwrap', '--die-with-parent', '--unshare-net', '--ro-bind', '/', '/',
++        '--tmpfs', '/tmp', '--tmpfs', '/home/tjninja/.framerize', '--dev', '/dev',
++        '--proc', '/proc', '--chdir', str(HERE), '/usr/bin/python3.12', '-B',
++        '-m', 'unittest', '-v', 'test_sequence']
++started = time.time()
++result = subprocess.run(argv, capture_output=True, text=True, timeout=15,
++    env={'PATH': '/usr/bin:/bin', 'LC_ALL': 'C.UTF-8', 'PYTHONDONTWRITEBYTECODE': '1'})
++after = {str(path): sha(path) for path in paths}
++accepted = before == after and result.returncode == 0
++report = dict(accepted=accepted, inputs=before, after=after, argv=argv,
++    exit_code=result.returncode, stdout=result.stdout, stderr=result.stderr,
++    started_at_unix=started, finished_at_unix=time.time(),
++    child_peak_rss_kib=resource.getrusage(resource.RUSAGE_CHILDREN).ru_maxrss,
++    scope='Seven inert owner-sequence cases. Prior terminal/group-cancellation evidence reused.',
++    controls=dict(network_namespace='isolated', private_profiles='masked',
++                  address_space_bytes=128 * 1024**2, cpu_seconds=10, wall_seconds=15),
++    limitations=['RSS is a child high-water mark; no aggregate cgroup or swap claim.'])
++path = HERE / ('validation-' + str(time.time_ns()) + '.json')
++fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
++with os.fdopen(fd, 'w') as stream:
++    json.dump(report, stream, indent=2)
++    stream.write('\n')
++print(json.dumps(dict(accepted=accepted, path=str(path), sha256=sha(path),
++                      child_peak_rss_kib=report['child_peak_rss_kib'])))
++raise SystemExit(0 if accepted else 1)
+--- /dev/null
++++ admission-stream-attempt-r1/sequence.py
+@@ -0,0 +1,140 @@
++"""One guarded binary deployment, then two normal-stream acceptance requests."""
++import hashlib
++import json
++import os
++import resource
++import signal
++import subprocess
++import sys
++import time
++from pathlib import Path
++
++HERE = Path(__file__).resolve().parent
++DEPLOY = HERE.parent / 'admission-stream-deployment-r1'
++CLIENT = HERE.parent / 'admission-stream-live-check-r3'
++PEERS = {'466b6e5b-4733-4325-b5c4-fb2eac98b835',
++         'mcp:5f12e90a-05fe-4ae9-ad74-80288a94c597',
++         '0b8f0573-c8fd-4bd6-a241-d202430fdc9c',
++         'mcp:28c55101-e602-443c-a616-db31e42ee907'}
++ACTIVE = None
++CANCELLED = False
++
++def sha(path):
++    with Path(path).open('rb') as stream:
++        return hashlib.file_digest(stream, 'sha256').hexdigest()
++
++def document(pin):
++    path = Path(pin['path'])
++    assert path.is_absolute() and sha(path) == pin['sha256'], 'bound input changed'
++    assert path.stat().st_size <= 4 * 1024**2, 'oversized control input'
++    return json.loads(path.read_bytes())
++
++def cancelled(_number, _frame):
++    global CANCELLED
++    CANCELLED = True
++    if ACTIVE is not None and ACTIVE.poll() is None:
++        try:
++            os.killpg(ACTIVE.pid, signal.SIGTERM)
++        except ProcessLookupError:
++            pass
++
++def checked_client(control):
++    freeze = document(control['client_freeze'])
++    review = document(control['client_review'])
++    assert review.get('accepted') is True, 'client review refused'
++    assert review.get('status') == 'ACCEPTED_SOURCE_AND_SAVED_EVIDENCE_BINDINGS_ONLY', 'client review scope differs'
++    assert review.get('freeze') == control['client_freeze'], 'review covers another freeze'
++    assert review.get('validation') == freeze['validation'], 'review covers another result'
++    source = document(freeze['source'])
++    manifest = freeze['manifest']
++    assert sha(manifest['path']) == manifest['sha256'], 'client manifest changed'
++    base = Path(manifest['path']).parent
++    for row in Path(manifest['path']).read_text().splitlines():
++        digest, name = row.split('  ', 1)
++        assert sha(base / name) == digest, 'client seal changed'
++    for path, digest in source['files'].items():
++        assert sha(path) == digest, 'client source changed'
++    driver = control['driver']
++    assert source['files'].get(driver['path']) == driver['sha256'], 'driver is not sealed'
++    assert Path(driver['path']).name == 'run_once.py', 'wrong client entry'
++    prepare = str(HERE / 'prepare.py')
++    assert source['files'].get(prepare) == control['prepare_sha256'], 'unsealed preparation'
++    return driver
++
++def run_phase(script, arguments, log_name):
++    global ACTIVE
++    assert not CANCELLED, 'sequence cancelled'
++    with (HERE / log_name).open('x') as log:
++        ACTIVE = subprocess.Popen(['/usr/bin/python3', '-I', '-B', '-S', str(script),
++            *arguments], stdout=log, stderr=subprocess.STDOUT, process_group=0)
++        try:
++            code = ACTIVE.wait()
++        finally:
++            ACTIVE = None
++    assert not CANCELLED, 'sequence cancelled'
++    return code
++
++def main():
++    assert len(sys.argv) == 3 and sys.argv[1] == '--execute' and not sys.flags.optimize
++    os.umask(0o077)
++    resource.setrlimit(resource.RLIMIT_CORE, (0, 0))
++    resource.setrlimit(resource.RLIMIT_AS, (128 * 1024**2, 128 * 1024**2))
++    for number in (signal.SIGINT, signal.SIGTERM):
++        signal.signal(number, cancelled)
++    fd = os.open(HERE / 'sequence-result.json',
++        os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600)
++    report = dict(accepted=False, deployment_started=False, client_started=False,
++                  started_at_unix=time.time(), control_sha256=sys.argv[2])
++    try:
++        control = document(dict(path=str(HERE / 'control.json'), sha256=sys.argv[2]))
++        assert control['sequence_sha256'] == sha(__file__), 'sequence changed'
++        assert len(control['peers']) == len(PEERS), 'quiet acknowledgements missing'
++        assert {p['thread_id'] for p in control['peers']} == PEERS, 'wrong quiet peers'
++        for peer in control['peers']:
++            assert peer['message_id'] and peer['ack_at_unix'] <= time.time(), 'invalid acknowledgement'
++            assert peer['quiet_until_unix'] >= control['quiet_until_unix'], 'peer hold ends early'
++        assert time.time() + 4250 < control['quiet_until_unix'], 'quiet window too short'
++        driver = checked_client(control)
++        plan = document(control['deployment_plan'])
++        review = document(control['deployment_review'])
++        assert review.get('accepted') is True, 'recovery review refused'
++        assert review.get('status') == 'ACCEPTED_FOR_COORDINATED_ACTIVATION', 'wrong recovery acceptance'
++        assert review.get('plan_sha256') == control['deployment_plan']['sha256'], 'wrong recovery plan'
++        runner = HERE / 'prepare.py'
++        assert sha(runner) == control['prepare_sha256'], 'deployment entry changed'
++        assert not (DEPLOY / 'controller/execution').exists(), 'recovery already attempted'
++        assert not (CLIENT / 'attempt.json').exists(), 'client already attempted'
++        report['deployment_started'] = True
++        print(json.dumps(dict(phase='owned_deployment_started')), flush=True)
++        report['deployment_exit'] = run_phase(runner, ['--execute'], 'recovery.log')
++        report['deployment_log_sha256'] = sha(HERE / 'recovery.log')
++        report['deployment_finished_at_unix'] = time.time()
++        assert report['deployment_exit'] == 0, 'recovery refused or incomplete'
++        released = DEPLOY / 'release/released.json'
++        state = json.loads(released.read_bytes())
++        assert state.get('accepted') is True, 'deployment outcome is not accepted'
++        assert state.get('status') == 'VERIFIED_ADMISSION_BINARY_RELEASED', 'recovery not released'
++        assert state.get('marker_absent') is True, 'recovery hold remains'
++        report['deployment_release'] = dict(path=str(released), sha256=sha(released))
++        assert time.time() + 360 < control['quiet_until_unix'], 'quiet window expired'
++        assert checked_client(control) == driver, 'client entry changed'
++        report['client_started'] = True
++        report['client_started_at_unix'] = time.time()
++        print(json.dumps(dict(phase='normal_stream_client_started')), flush=True)
++        report['client_exit'] = run_phase(driver['path'], ['--execute'], 'client.log')
++        report['client_log_sha256'] = sha(HERE / 'client.log')
++        report['accepted'] = report['client_exit'] == 0
++    except (Exception, KeyboardInterrupt) as error:
++        report['error'] = str(error) if isinstance(error, AssertionError) else type(error).__name__
++    finally:
++        report['finished_at_unix'] = time.time()
++        with os.fdopen(fd, 'w') as stream:
++            json.dump(report, stream, sort_keys=True, indent=2)
++            stream.write('\n')
++            stream.flush()
++            os.fsync(stream.fileno())
++    print(json.dumps(report), flush=True)
++    return 0 if report['accepted'] else 1
++
++if __name__ == '__main__':
++    raise SystemExit(main())
+--- /dev/null
++++ admission-stream-attempt-r1/test_sequence.py
+@@ -0,0 +1,128 @@
++"""Inert checks of the recovery-to-client orchestration boundary."""
++import json
++import tempfile
++import unittest
++from contextlib import ExitStack, contextmanager
++from pathlib import Path
++from types import SimpleNamespace
++from unittest.mock import Mock, patch
++import sequence as runner
++
++
++@contextmanager
++def client_case(include_prepare=True):
++    with tempfile.TemporaryDirectory() as folder:
++        root = Path(folder)
++        def pin(path):
++            return dict(path=str(path), sha256=runner.sha(path))
++        def write(name, data):
++            path = root / name
++            path.write_text(json.dumps(data))
++            return pin(path)
++        driver, prepare = root / 'run_once.py', root / 'prepare.py'
++        driver.write_text('inert driver')
++        prepare.write_text('inert preparation')
++        files = {str(driver): runner.sha(driver)}
++        if include_prepare:
++            files[str(prepare)] = runner.sha(prepare)
++        manifest = root / 'SOURCE.sha256'
++        manifest.write_text(runner.sha(driver) + '  run_once.py\n')
++        validation = write('validation.json', {'accepted': True})
++        frozen = dict(source=write('source.json', {'files': files}),
++                      manifest=pin(manifest), validation=validation)
++        freeze = write('freeze.json', frozen)
++        review = write('review.json', dict(accepted=True,
++            status='ACCEPTED_SOURCE_AND_SAVED_EVIDENCE_BINDINGS_ONLY',
++            freeze=freeze, validation=validation))
++        control = dict(client_freeze=freeze, client_review=review,
++                       driver=pin(driver), prepare_sha256=runner.sha(prepare))
++        with patch.object(runner, 'HERE', root):
++            yield control
++
++
++class ClientSealTests(unittest.TestCase):
++    def test_bound_client_and_preparation_are_accepted(self):
++        with client_case() as control:
++            self.assertEqual(runner.checked_client(control), control['driver'])
++
++    def test_unsealed_preparation_is_rejected(self):
++        with client_case(False) as control, self.assertRaisesRegex(AssertionError, 'unsealed preparation'):
++            runner.checked_client(control)
++
++@contextmanager
++def case(deployment_exit=0, client_exit=0):
++    with tempfile.TemporaryDirectory() as temporary, ExitStack() as stack:
++        root = Path(temporary)
++        attempt = root / 'attempt'
++        attempt.mkdir()
++        recovery = root / 'recovery'
++        driver = dict(path=str(root / 'client/run_once.py'), sha256='a' * 64)
++        plan_pin = dict(path=str(root / 'plan.json'), sha256='a' * 64)
++        review_pin = dict(path=str(root / 'review.json'), sha256='a' * 64)
++        control = dict(sequence_sha256='a' * 64, prepare_sha256='a' * 64, quiet_until_unix=6000,
++            deployment_plan=plan_pin, deployment_review=review_pin,
++            peers=[dict(thread_id=p, message_id='inert', ack_at_unix=999,
++                        quiet_until_unix=6000) for p in runner.PEERS])
++        plan = dict(sources={str(recovery / 'quiet_then_recover.py'): 'a' * 64})
++        review = dict(accepted=True, status='ACCEPTED_FOR_COORDINATED_ACTIVATION',
++                      plan_sha256='a' * 64)
++        documents = {str(attempt / 'control.json'): control,
++                     plan_pin['path']: plan, review_pin['path']: review}
++        calls = []
++        def phase(script, arguments, log_name):
++            calls.append(str(script))
++            (attempt / log_name).write_text('inert\n')
++            if len(calls) == 1:
++                released = recovery / 'release/released.json'
++                released.parent.mkdir(parents=True)
++                released.write_text(json.dumps(dict(
++                    status='VERIFIED_ADMISSION_BINARY_RELEASED', marker_absent=True, accepted=True)))
++            return deployment_exit if len(calls) == 1 else client_exit
++        checked = Mock(return_value=driver)
++        stack.enter_context(patch.multiple(runner, HERE=attempt, DEPLOY=recovery, CLIENT=root / 'client',
++            ACTIVE=None, CANCELLED=False, checked_client=checked,
++            sha=lambda _: 'a' * 64, run_phase=phase,
++            document=lambda pin: documents[pin['path']]))
++        stack.enter_context(patch.object(runner.sys, 'argv',
++            ['sequence.py', '--execute', 'a' * 64]))
++        stack.enter_context(patch.object(runner.time, 'time', return_value=1000))
++        stack.enter_context(patch.object(runner.resource, 'setrlimit'))
++        stack.enter_context(patch.object(runner.signal, 'signal'))
++        stack.enter_context(patch.object(runner.os, 'umask'))
++        stack.enter_context(patch('builtins.print'))
++        yield SimpleNamespace(calls=calls, checked=checked, control=control,
++            driver=driver, output=attempt / 'sequence-result.json')
++
++class SequenceTests(unittest.TestCase):
++    def test_deployment_precedes_the_single_client(self):
++        with case() as f:
++            self.assertEqual(runner.main(), 0)
++            self.assertEqual([Path(p).name for p in f.calls],
++                             ['prepare.py', 'run_once.py'])
++
++    def test_refused_deployment_never_starts_client(self):
++        with case(deployment_exit=1) as f:
++            self.assertEqual(runner.main(), 1)
++            self.assertEqual(len(f.calls), 1)
++            self.assertFalse(json.loads(f.output.read_text())['client_started'])
++
++    def test_changed_client_after_deployment_is_refused(self):
++        with case() as f:
++            f.checked.side_effect = [f.driver, AssertionError('client seal changed')]
++            self.assertEqual(runner.main(), 1)
++            self.assertEqual(len(f.calls), 1)
++
++    def test_short_quiet_window_never_starts_recovery(self):
++        with case() as f:
++            f.control['quiet_until_unix'] = 5000
++            self.assertEqual(runner.main(), 1)
++            self.assertEqual(f.calls, [])
++
++    def test_existing_attempt_cannot_be_replayed(self):
++        with case() as f:
++            self.assertEqual(runner.main(), 0)
++            original = f.output.read_bytes()
++            with self.assertRaises(FileExistsError):
++                runner.main()
++            self.assertEqual(len(f.calls), 2)
++            self.assertEqual(f.output.read_bytes(), original)
