@@ -133,17 +133,19 @@ The published Python harness and saved summary `6af8688a` preserve the
 result. Final review `d98b96cf` accepts their source and saved evidence with
 no findings. No production source or service changed.
 
-Three additional production-bridge tests are prepared and UNRUN. They cover
+Three additional tests of the production caller now pass. They cover
 explicit cancellation, dropping the result waiter and losing the host's
 completion acknowledgement. The first two retain account closure while the
 host reply is withheld; the third requires unconfirmed cleanup and refuses
 fresh preparation or reopening the same account. A real worker process and
 account preparation are used with a controlled host reply and synthetic input.
-No SDK or network request is involved. Three small-harness compilation attempts
-were refused before launch by the unchanged memory reserve, so there is no
-compile or test result yet. The isolated runtime runner and a deliberate
-early-release negative control are also prepared. Next: admit the small
-harness build, run these three cases serially and verify the negative control.
+No SDK or network request is involved. The earlier three prelaunch memory
+refusals remain preserved. Both small harnesses now compile, and the candidate
+passes all three cases. The deliberately broken version fails the expected
+host-acknowledgement assertion. Summary `167fb923` binds these results.
+The runtime groups peaked at 19,230,720 and 19,218,432 bytes, with 12 tasks,
+zero swap/events and no remaining units or cgroups. These tests retain the
+original owner-library binding; they do not validate JITless HTTP behavior.
 Source-only review `080d4e9a` found one preparation blocker: all three allowed
 build labels were consumed by the saved prelaunch refusals. An additive
 correction uses a separate output namespace while retaining three labels per
@@ -153,8 +155,9 @@ Review rejected freeze `4745f620`: the unchanged compiler entry still required
 the original output parent. R3 freeze `8b103a0a` keeps that parent and uses
 fresh bounded attempt labels 4 through 6. Its static checks cover the actual
 entry assertion and detect the R2 mismatch. Review `5d6b6cd0` accepts R3's
-source and static bindings, closing both findings. No compiler or test has
-run; a fresh resource observation still falls below the unchanged reserve.
+source and static bindings, closing both findings. The subsequent builds
+and runtime cases passed fresh resource admission without changing those
+guards. The new saved results await their separate review.
 Both prior rejections remain preserved.
 
 The isolated client now records monotonic request timings, starting before
