@@ -20,7 +20,7 @@ test('offline_window_keeps_native_identity_and_page_context', () => {
   } finally { instance.window.close(); }
 });
 
-test('offline_window_keeps_all_resource_fetches_disabled', () => {
+test('offline_window_rejects_external_files_and_non_png_data', () => {
   let loader;
   class TrapLoader extends jsdom.ResourceLoader {
     constructor(options) { super(options); loader = this; }

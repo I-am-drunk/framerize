@@ -7,14 +7,11 @@ import { DOM, PUBLIC_KEY, SUPPORT } from './pins.mjs';
 import { SdkModules, verifyInputs } from './sdk_loader.mjs';
 import { validateInput, OpaqueToken } from './protocol.mjs';
 import { observeBranch, exactV3 } from './branch.mjs';
+import { pngResources } from './resources.mjs';
 
 export function createOfflineWindow({ JSDOM, ResourceLoader }, url, virtualConsole) {
-  class OfflineResources extends ResourceLoader {
-    constructor() { super({ userAgent: 'Framerize/0.1' }); }
-    fetch() { return null; }
-  }
-  // Match the native transport's truthful application identity and keep
-  // JSDOM resource loading disabled, including file and data URLs.
+  const OfflineResources = pngResources(ResourceLoader);
+  // Preserve native identity. Only bounded, inline PNG images may load.
   return new JSDOM('<!doctype html><html><head></head><body></body></html>', {
     url, runScripts: 'outside-only', pretendToBeVisual: true, virtualConsole,
     resources: new OfflineResources(),
