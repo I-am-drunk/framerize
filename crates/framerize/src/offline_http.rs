@@ -61,10 +61,34 @@ async fn complete(State(endpoint): State<Endpoint>, Json(input): Json<Input>) ->
         Ok(value) => value, Err(error) => return failure(error.kind),
     };
     let outcome = run.result.await;
+    framer_core::observability::Event::new("offline.complete")
+        .field("completion", completion_fields(&outcome))
+        .emit();
     match (outcome.response, outcome.failure, outcome.cleanup_confirmed) {
         (Some(value), None, true) => Json(value).into_response(),
         (_, kind, _) => failure(kind.unwrap_or(FailureKind::Cleanup)),
     }
+}
+
+fn completion_fields(outcome: &offline_serving::Outcome) -> serde_json::Value {
+    // Select facts explicitly. Never serialize the response or request context.
+    let attempt = outcome.evidence.as_ref().map(|e| serde_json::json!({
+        "status": e.status,
+        "content_type": format!("{:?}", e.content_type),
+        "attempts": e.attempts,
+        "authorization_calls": e.authorization_calls,
+        "transport_starts": e.transport_starts,
+        "transport_finishes": e.transport_finishes,
+        "complete_json": e.complete_json,
+        "cleanup_confirmed": e.cleanup_confirmed,
+        "refusal_policy": e.refusal.map(|r| format!("{:?}", r.policy)),
+        "refusal_basis": e.refusal.map(|r| format!("{:?}", r.basis)),
+    }));
+    serde_json::json!({
+        "cleanup_confirmed": outcome.cleanup_confirmed,
+        "failure": outcome.failure.map(|kind| format!("{kind:?}")),
+        "attempt": attempt,
+    })
 }
 
 fn request(input: Input) -> Result<Request, FailureKind> {

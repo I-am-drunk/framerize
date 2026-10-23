@@ -86,6 +86,12 @@ Enabling its worker configuration does not switch the normal routing policy.
 This lets one real request exercise the shared ownership without running a
 second account authority or sending duplicate traffic.
 
+After that request and its cleanup settle, `offline.complete` records only
+the upstream status, attempt counters, refusal classification and final cleanup
+outcome. It excludes response text, model strings, account identities and request
+context. The final cleanup outcome can remain false even when an inner attempt
+reports successful cleanup. The event is diagnostic evidence, not a retry signal.
+
 A browser and native grant cannot use the same account simultaneously. After
 the existing host confirms browser closure, the native adapter retains that
 browser's actual final device selection in the shared lifecycle. Cooldowns and
