@@ -170,13 +170,22 @@ remains explicitly partial. The exact helper source is preserved in
 its narrow closure review passed. This patch records source, not a reusable
 authorization to release a different generation or maintenance owner.
 
-A separate installed-runtime recovery is frozen and under review. It preserves
+A separate installed-runtime recovery was reviewed and completed. It preserves
 the current R15 payload and existing maintenance ownership, reusing the accepted
 drain, capture, settlement and startup paths for one controlled restart.
 Release still requires successful warmup, unchanged account and protected-file
 bindings, idle residency and zero current/peak swap or resource events.
 All eight inert recovery cases pass. The first run's mock-spec error remains
-preserved. No recovery restart or new request has run. The source is recorded in
+preserved. On 2026-10-23, the coordinated recovery completed with six successful
+warmups, all 11 accounts preserved, six idle residents and no uncertain cleanup.
+Current and peak swap and memory events were zero; the owned hold was released.
+The runtime owner stayed in one passive tool call throughout the transition.
+All three peers received an early quiet release. This recovered the installed
+R15 version; it did not deploy the R16 worker or make an inference request.
+The initial local result check compared whole snapshots instead of generation
+identities. Its refusal is preserved; the corrected check verifies matching
+main, sidecar, boot, cgroup and invocation identities across the saved result.
+The source is recorded in
 [r16-runtime-recovery.patch](../reference/analysis/r16-runtime-recovery.patch).
 
 Saved events also show ordinary inference during both startup windows.
