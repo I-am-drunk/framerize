@@ -135,6 +135,9 @@ Two subsequent local samples retained the memory reduction. The three-sample
 mean group peak is 57,839,616 bytes, 22.90% below the reused baseline mean,
 with 3.65% more local minting time. The actual owner/host/request integration
 has not been measured with this flag; production still uses its original policy.
+An unapplied one-argument patch prepares that owner integration measurement.
+The source variant is uncompiled/unrun and retains the original environment,
+private pipes, sandbox, freshness, cancellation and join logic.
 
 The separate `measure_owned_offline_worker.rs` harness links the unchanged
 owner library from the accepted application build. It runs the original

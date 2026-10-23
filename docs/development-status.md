@@ -70,6 +70,11 @@ three reused baseline samples. Mean local minting time is 1230.173 ms,
 stayed zero. Summary `b55a2a79` preserves the original and two new results.
 This supports the memory direction across three small samples; it does not
 establish service memory or request latency. Production remains unchanged.
+An unapplied one-argument owner patch now prepares the next integration check.
+It is source-only, uncompiled and unrun. The actual owner clears inherited
+environment settings, so this explicit isolated variant is required to test
+its real launch and private-pipe path with JITless enabled. Its other four
+modules and the published production owner remain unchanged.
 
 Two additional local cases now cancel the real worker after observed process
 activity. Explicit cancellation returns the expected failure; dropping the
