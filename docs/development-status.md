@@ -1,7 +1,30 @@
 # Development status
 
-Updated 2026-10-22. The normal service remains browser-based. Publishing these
+Updated 2026-10-23. The normal service remains browser-based. Publishing these
 branches does not change the running service.
+
+The R8 controller completed its service replacement. Its final checker then
+rejected a valid six-file runtime package because it still expected five files.
+That checker is corrected in a separate copy; the original failure is preserved.
+All 42 bounded checker cases pass, including the actual six-file manifest.
+Independent source and saved-result review accepted the correction with no
+findings. Review SHA-256:
+`c93c66a37a61c324e38ba7d629d920adc9b5ecb45c504db9eec4ea4ea80f8c68`.
+The exact operational source delta is recorded in
+[r8-completion-checker.patch](../reference/analysis/r8-completion-checker.patch).
+
+External recovery subsequently restarted the service and disabled the offline
+worker option. Current read-only checks find the reviewed binary and sidecar
+installed and the service healthy, but a different process generation.
+The old maintenance marker is absent. Archived handoff bytes match the
+original evidence; the corrected historical checker passes all its checks.
+Independent review of that archive-based result is pending.
+
+This is historical deployment evidence, not permission to release or test the
+current process. No browserless inference request has been sent. Next: reconcile
+the recovered browser service and its disabled trial endpoint, then prepare the
+smallest current-state activation that preserves browser traffic and cooldowns.
+The earlier preparation and component results below remain historical evidence.
 
 | Branch | Purpose | State |
 | --- | --- | --- |
@@ -16,7 +39,7 @@ All 89 source hashes were checked before import. The accepted saved lifecycle
 results cover 15 phase sets, 197 Rust cases and 27 separately reused Python
 cases. Those results were reused, not rerun for this publication.
 
-The deployed binary has SHA-256
+The preserved browser baseline binary has SHA-256
 `6fb7795117f1ec7c49f06d9453c0466b6468bbc257326715bb3bccf90587ea67`.
 The original preparation hash is
 `ac8b3c00d8a27e7f81836d436a1a153b157cd3379c538185988cf3566cdf6911`.
@@ -149,8 +172,8 @@ without relaxing drain, cooldown, capture or startup checks.
 The separate R8 source package is frozen, with the same application, worker
 and runtime inventory. Its fresh read-only preparation checked 1,709 runtime
 file pins. Only provenance, review paths and generated launch paths change.
-It reuses the original transition and checker results. R8 has not been
-deployed, and preparing it does not establish present admission.
+It reused the original transition and checker results. This preparation did
+not establish admission; the later execution and recovery are recorded above.
 
 The final R8 plan and client R5 binding are independently accepted. Their
 review hashes are `f8303fe1b25f15842c1d533d119586f2f7f14a5c5b71019e270e46d331cc37f6`
@@ -158,16 +181,16 @@ and `f537162f79c757bbee99158754b63d915723df4d7cb5b1778bd234b6df71f53e`.
 The four client source entries match their seal. The collected R8 readiness
 sample refused before any service change because cooldown expiries fell
 inside the startup interval. At 22:49 UTC, the last relevant expiry was
-about eight minutes away if no new cooldown appeared. The next runtime step
-is a fresh check after that boundary, followed by coordinated quiet time
-and one reviewed launch. The 16-token request is already prepared privately.
+about eight minutes away if no new cooldown appeared. A later coordinated
+window admitted the R8 launch. That launcher is consumed and must not be
+replayed. The 16-token request remains prepared privately and unsent.
 
 The next live milestone remains a coordinated trial release, followed by
 one real request with fresh account checks. This dependency belongs to the
 live step; it does not stop the wider engineering goal.
 Keep normal browser routes, restored cooldowns and one account authority.
-No application rebuild or broad test rerun is needed for this runtime-data
-change.
+Preserve the original application build and valid component results while
+reconciling the changed runtime. Do not repeat a suite merely to publish work.
 
 The continuation instructions now explicitly prohibit voluntarily stopping
 the overall goal because a selected step must wait. Before concluding that
