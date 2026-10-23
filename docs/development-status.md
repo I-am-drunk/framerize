@@ -3,6 +3,18 @@
 Updated 2026-10-23. The normal service remains browser-based. Publishing these
 branches does not change the running service.
 
+The retained JITless cancellation, device-bridge results and memory-attribution
+reviews are now complete. All three accept source and saved evidence with no
+findings. Their exact receipts are bound to the existing inactive preparation;
+no validation was repeated and no running binary changed.
+
+A bounded read-only check found an authenticated saved Framer login outside
+the browser service's current configured account set. The browser generation
+remained unchanged. No cookie was exported or account imported. Native
+admission still requires genuine device selection and cooldown history;
+initial admission for this account is the next integration task. This is
+not authenticated inference or permission to manufacture restored state.
+
 An account-import candidate now checks an optional expected Framer
 identity before saving the session or provisioning workspaces. It also skips
 automatic browser prewarm when native dispatch is configured. All eight
@@ -30,8 +42,8 @@ The candidate still requires explicit selection of the accepted lazy host.
 
 Browserless is not complete: the isolated setup has no verified authenticated
 Framer delivery. Its latest prepared launch still has no selected account,
-generation or executable client plan. The saved browser account inventory
-contains no independently owned account. Source and synthetic-test acceptance
+generation or executable client plan. The isolated instance has not imported
+the newly identified login. Source and synthetic-test acceptance
 do not remove the need for a separate legitimate login and device history.
 
 The deferred IDNA-table experiment is complete and remains unapplied. Original
@@ -43,7 +55,7 @@ no dependency, application binary or running service was changed by this study.
 The experimental owner source now selects `--jitless`. Its five files match
 the already built and measured variant exactly. Owner/host review `df13c06d`
 accepts that source and saved integration evidence. Both cancellation cases
-also pass, with their separate independent review pending. The targeted
+also pass; review `a7aae40d` accepts their source and saved results. The targeted
 application link now passes: result `05552129` binds executable `8ffa3077`
 and 6,272 inputs. The binary has run only in isolated synthetic fixtures;
 it is not deployed. Running services and browser-based branches are unchanged.
@@ -71,6 +83,9 @@ not the fully integrated request path. It is attribution, not a saving.
 Fifteen focused sampler/role cases pass; summary `42afcec1` binds the new
 diagnostic and exact source. The same binaries ran under unchanged limits,
 with zero swap/events, joined processes and no remaining unit or cgroup.
+Review `450e8928` accepts this attribution source and saved evidence. The
+16,559,104-byte helper sample remains separate from the 142,124,032-byte
+non-helper sample and from process-group accounting.
 The next memory investigation targets the worker's allocation phases;
 authenticated delivery continues to require the separate account.
 
@@ -189,7 +204,7 @@ or cgroup, with zero swap/events. Summary `6a451af4` binds their separate
 harness build and two runs. The SDK phase was unobserved, and these cases
 do not establish HTTP-stream cleanup. The experimental owner source now
 matches the measured variant. The application now links that verified owner
-library. Its separate cancellation review remains pending; application review
+library. Review `a7aae40d` accepts the cancellation evidence; application review
 `4e69d24b` accepts the source and saved build bindings. Real account readiness
 and authenticated delivery remain unproven.
 
@@ -237,7 +252,8 @@ fresh bounded attempt labels 4 through 6. Its static checks cover the actual
 entry assertion and detect the R2 mismatch. Review `5d6b6cd0` accepts R3's
 source and static bindings, closing both findings. The subsequent builds
 and runtime cases passed fresh resource admission without changing those
-guards. The new saved results await their separate review.
+guards. Review `613d33ce` accepts the two builds, three passing cases and
+the intended failing control. Its acceptance covers saved evidence only.
 Both prior rejections remain preserved.
 
 The isolated client now records monotonic request timings, starting before

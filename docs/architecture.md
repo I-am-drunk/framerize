@@ -23,6 +23,14 @@ these changes, with accepted source and saved build results. A new non-executabl
 activation preparation selects it while retaining the other runtime bindings.
 Account, generation and client-plan bindings remain open; neither service changed.
 
+The retained cancellation, device-bridge and memory-attribution reviews now
+accept their exact source and saved evidence. They grant no account admission.
+A read-only authentication check identified a login outside the browser
+service's configured account set. It remains unimported. Native admission
+still requires same-generation restoration and a real selected device;
+initial account setup must preserve those ownership and cooldown guarantees
+without inventing a prior host or treating an empty history as proof.
+
 The deferred IDNA-table patch is retained only as an unapplied experiment.
 Its synthetic equivalence checks passed, but the subsequent worker measurement
 did not establish a useful peak-memory reduction. Production still uses the
