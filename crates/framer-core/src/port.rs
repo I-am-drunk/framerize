@@ -162,6 +162,19 @@ pub trait BrowserBridge: Send + Sync {
         Err("bridge has no in-page AI transport".into())
     }
 
+    /// Cancellation stops further attempts, not the observation of a sent call.
+    /// Bridges with internal retries must check between those attempts too.
+    async fn ai_post_cancellable(
+        &self, account: &AccountId, path: &str, bearer: &str,
+        body: &serde_json::Value,
+        cancelled: Option<&(dyn Fn() -> bool + Send + Sync)>,
+    ) -> Result<(u16, Option<String>, String), String> {
+        if cancelled.is_some_and(|check| check()) {
+            return Err("client cancelled".into());
+        }
+        self.ai_post(account, path, bearer, body).await
+    }
+
     /// Queue wait, in ms, for the most recent `ai_post` on this account: time
     /// spent waiting for a free browser page rather than on the upstream.
     /// Bridges without a page pool report 0.

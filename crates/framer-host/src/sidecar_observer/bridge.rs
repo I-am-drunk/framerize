@@ -64,6 +64,36 @@ impl BrowserBridge for ScopedBridge {
         Ok((status as u16, usage, text))
     }
 
+    async fn ai_post_cancellable(
+        &self, account: &AccountId, path: &str, bearer: &str, body: &Value,
+        cancelled: Option<&(dyn Fn() -> bool + Send + Sync)>,
+    ) -> Result<(u16, Option<String>, String), String> {
+        let Some(cancelled) = cancelled else {
+            return self.ai_post(account, path, bearer, body).await;
+        };
+        let request = async {
+            for attempt_index in 0..3 {
+                if cancelled() { return Err("client cancelled".into()); }
+                let v = self.call(account, "ai_post", || json!({
+                    "path": path, "bearer": bearer, "body": body,
+                    "defer_retries": true, "attempt_index": attempt_index,
+                })).await?;
+                if v.get("_retry_device").and_then(Value::as_bool) == Some(true) { continue; }
+                let ai_result::OwnedAiPostResult { status, usage, text, queue_wait_ms } =
+                    ai_result::take_ai_post_result(v);
+                self.state.queue_wait.store(queue_wait_ms, Ordering::Relaxed);
+                if status == 0 && !text.contains("velocity-paused") {
+                    return Err("castle-v3-unavailable".into());
+                }
+                if status == -1 { return Err(format!("in-page fetch failed: {text}")); }
+                return Ok((status as u16, usage, text));
+            }
+            Err("host-lifecycle-unconfirmed: invalid browser retry budget".into())
+        };
+        tokio::time::timeout(REQ_TIMEOUT, request).await
+            .map_err(|_| "sidecar timeout; observed cleanup still owns the account".to_owned())?
+    }
+
     async fn last_queue_wait_ms(&self, account: &AccountId) -> u64 {
         if self.check_account(account).is_err() { return 0; }
         self.state.queue_wait.load(Ordering::Relaxed)

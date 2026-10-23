@@ -95,7 +95,9 @@ async fn echo_bridge_mode(close_error: Option<&'static str>, mode: &'static str)
                 _ => Ok(json!(true)),
             };
             let registration = value["cmd"] == "register_proxy";
+            let hold_ai = value["cmd"] == "ai_post" && mode == "hold_ai";
             if capture.send(value).is_err() { break; }
+            if hold_ai { continue; }
             if registration {
                 registrations += 1;
                 if mode == "first_silent" && registrations == 1 { continue; }
@@ -129,6 +131,56 @@ pub(super) async fn finish(bridge: SidecarBridge, reader: tokio::task::JoinHandl
 async fn seed_route(bridge: &SidecarBridge, account: &AccountId, proxy: &str) {
     let cell = bridge.route_state(account).await;
     cell.lock().await.current.proxy = Some(proxy.into());
+}
+
+#[tokio::test]
+async fn cancelled_browser_retry_waits_for_current_reply_without_sending_again() {
+    use std::sync::atomic::AtomicBool;
+    use std::time::Duration;
+    for cancel in [true, false] {
+        let (bridge, mut frames, reader) = echo_bridge_mode(None, "hold_ai").await;
+        let account = AccountId::new();
+        let body = json!({});
+        let cancelled = AtomicBool::new(false);
+        let check = || cancelled.load(Ordering::SeqCst);
+        let mut request = Box::pin(bridge.ai_post_cancellable(
+            &account, "/fixture", "fixture-only", &body, Some(&check)));
+        let first = tokio::select! {
+            frame = frames.recv() => frame.unwrap(),
+            result = &mut request => panic!("early reply: {result:?}"),
+            _ = tokio::time::sleep(Duration::from_secs(2)) => panic!("no command"),
+        };
+        assert_eq!(first["defer_retries"], true);
+        assert_eq!(first["attempt_index"], 0);
+        cancelled.store(cancel, Ordering::SeqCst);
+        assert!(tokio::time::timeout(Duration::from_millis(5), &mut request).await.is_err());
+        let send = |frame: &Value, result: Value| {
+            let inner = bridge.inner.try_lock().unwrap();
+            let tx = inner.as_ref().unwrap().pending.lock().unwrap()
+                .remove(&frame["id"].as_u64().unwrap()).unwrap();
+            assert!(tx.send(Ok(result)).is_ok());
+        };
+        send(&first, json!({"status":403,"body":"fixture","_retry_device":true}));
+        if cancel {
+            let result = tokio::time::timeout(Duration::from_secs(2), &mut request)
+                .await.unwrap();
+            assert_eq!(result.unwrap_err(), "client cancelled");
+        } else {
+            let second = tokio::select! {
+                frame = frames.recv() => frame.unwrap(),
+                result = &mut request => panic!("missing retry: {result:?}"),
+                _ = tokio::time::sleep(Duration::from_secs(2)) => panic!("no retry"),
+            };
+            assert_eq!(second["attempt_index"], 1);
+            assert_eq!(second["account"], first["account"]);
+            send(&second, json!({"status":200,"body":"fixture"}));
+            assert_eq!(tokio::time::timeout(Duration::from_secs(2), &mut request)
+                .await.unwrap().unwrap().0, 200);
+        }
+        drop(request);
+        assert!(frames.try_recv().is_err());
+        finish(bridge, reader).await;
+    }
 }
 
 #[tokio::test]

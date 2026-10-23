@@ -210,7 +210,7 @@ async fn attempt(
     // Framer's edge refuses without proxying (~250ms), the upstream cannot.
     let sent_at = std::time::Instant::now();
     let (status, usage_header, text) = browser
-        .ai_post(account, dialect.path(), &token.bearer, &body)
+        .ai_post_cancellable(account, dialect.path(), &token.bearer, &body, cancelled)
         .await?;
     // X-Framer-AI-Usage rides every successful AI response (free real-time
     // balance telemetry — no extra call). It was captured and discarded as
@@ -234,7 +234,7 @@ async fn attempt(
     // during verification, acct2's first-ever refund granted). Pure upside:
     // denied costs exactly what the stream already cost. The full body is
     // already awaited above, so the stream has closed and the charge posted.
-    if streaming {
+    if streaming && !cancelled.is_some_and(|check| check()) {
         let refund_body = json!({
             "projectId": project.0,
             "featureCategory": category,
@@ -246,12 +246,13 @@ async fn attempt(
             "userPrompt": "",
             "castleToken": "garbage", // route ignores it (verified)
         });
-        match browser.ai_post(account, crate::routes::by_id("refund").map(|r| r.path).unwrap_or("/ai/v3/refund/"), &token.bearer, &refund_body).await {
+        match browser.ai_post_cancellable(account, crate::routes::by_id("refund").map(|r| r.path).unwrap_or("/ai/v3/refund/"), &token.bearer, &refund_body, cancelled).await {
             Ok((200, _, text)) => {
                 let granted = text.contains("\"granted\":true") || text.contains("\"granted\": true");
                 eprintln!("[refund] turn {} — {}", &turn_id[..8.min(turn_id.len())], if granted { "GRANTED (charge reversed)" } else { "denied (quota exhausted)" });
             }
             Ok((s, _, text)) => eprintln!("[refund] turn {} — HTTP {s}: {}", &turn_id[..8.min(turn_id.len())], &text[..text.len().min(120)]),
+            Err(e) if cancelled.is_some() => return Err(e),
             Err(e) => eprintln!("[refund] turn {} — transport error: {e}", &turn_id[..8.min(turn_id.len())]),
         }
     }

@@ -3,13 +3,18 @@
 Updated 2026-10-23. The normal service remains browser-based. Publishing these
 branches does not change the running service.
 
-The current disconnect correction is written on `browserless`. A cancelled
-stream stops further browser attempts while retaining a call already sent
-until its completion is known. Native streams retain their existing cleanup
-observers. Unknown cleanup still refuses admission. The core library compiled;
-focused API and routed-response checks are pending. This change is not deployed.
-The first core evidence check omitted an already-pinned source from its expected
-list. A separate reconciliation preserves that rejection and reuses the build.
+The disconnect correction is being validated on `browserless`. Review of the
+first version found that the browser helper could still retry after disconnect,
+one timeout was not treated as uncertain cleanup, and refunds could start after
+cancellation or hide uncertain completion. The additive correction addresses
+those three paths. Two tests of the actual helper loop pass, including a held
+fetch. The corrected Rust bridge, refund and routed-response tests are pending.
+This change is not deployed and no browserless live response is verified.
+
+The first version's core and API builds remain saved evidence for that version.
+Its original core evidence check omitted an already-pinned source; a separate
+reconciliation preserved the rejection and reused the build. Those builds do
+not establish that the later correction passes.
 
 The R8 controller completed its service replacement. Its final checker then
 rejected a valid six-file runtime package because it still expected five files.
@@ -26,7 +31,7 @@ worker option. Current read-only checks find the reviewed binary and sidecar
 installed and the service healthy, but a different process generation.
 The old maintenance marker is absent. Archived handoff bytes match the
 original evidence; the corrected historical checker passes all its checks.
-Independent review of that archive-based result is pending.
+Independent review accepted that archive-based result as historical evidence.
 
 This is historical deployment evidence, not permission to release or test the
 current process. No browserless inference request has been sent. Next: reconcile

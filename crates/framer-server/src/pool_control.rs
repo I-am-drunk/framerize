@@ -48,6 +48,7 @@ pub(super) fn cleanup_unconfirmed(error: &str) -> bool {
         | "browser launch cleanup is unconfirmed")
         || cause.contains("host-lifecycle-unconfirmed:")
         || cause.contains("sidecar timeout")
+        || cause.contains("sidecar account command timed out")
         || cause.contains("sidecar dropped the request")
         || cause.contains("sidecar write:")
 }

@@ -2249,8 +2249,12 @@ class Host:
                 # device is velocity-banned (403) cool it and INSTANTLY retry
                 # on the next device — a per-device ban never reaches callers.
                 attempts = 1 + min(2, len(acc.devices or [None]))
+                defer_retries = req.get("defer_retries") is True
+                first = req.get("attempt_index", 0) if defer_retries else 0
+                if type(first) is not int or not 0 <= first < attempts:
+                    raise ValueError("invalid browser attempt index")
                 r = None
-                for attempt in range(attempts):
+                for attempt in range(first, first + 1 if defer_retries else attempts):
                     dev = self._pick_device_sticky(acc) or self._pick_device(acc, account)
                     if dev is None and acc.devices:
                         # Everything cooling/over-budget: WAIT for the soonest
@@ -2324,10 +2328,16 @@ class Host:
                         if tid and tok_age > self.TOKEN_TTL_S * 0.8:
                             acc.token_pool.pop(tid, None)  # expired — refresh, same device
                             trace(f"{account[:8]}: token 403 at age {tok_age:.0f}s — TTL expiry, refreshing (device NOT cooled)")
+                            if defer_retries:
+                                r["_retry_device"] = True
+                                break
                             continue
                         # velocity ban is per-device (proven): cool this one,
                         # rotate, retry — invisible to the caller.
                         self._cool_device(acc, used_dev, account)
+                        if defer_retries:
+                            r["_retry_device"] = True
+                            break
                         continue
                     break
             finally:
