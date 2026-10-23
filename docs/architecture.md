@@ -168,6 +168,13 @@ to the recovered generation. Identical payload bytes do not make the earlier
 process identity current. Preserve the old failure and recovery records in the
 new release's evidence, and repeat the normal readiness checks before launch.
 
+A refusal before controller launch does not consume a deployment execution.
+Preserve that refusal and any expired coordination window. If the missing
+resource is restored without changing accepted inputs, record a separate
+attempt with fresh coordination and admission against the same accepted plan.
+The disk reserve stays fixed; removing verified disposable cache does not
+authorize changing it or deleting runtime state and frozen evidence.
+
 The runtime support manifest includes six files, including `native_device.py`.
 The completion checker requires all six and verifies their hashes, ownership,
 permissions and exact directory membership. Archived handoff copies may prove
