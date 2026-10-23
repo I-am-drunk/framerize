@@ -1,5 +1,19 @@
 This source adds explicit saved-device storage to the isolated worker.
 
+The browserless worker now permits bounded inline PNGs for a separately pinned
+native canvas bundle. External URLs, local files and other data formats remain
+refused. Each window has its own four-image quota; each PNG is limited to
+65536 bytes, 2048 pixels per side and 262144 pixels total. Unsupported drawing
+contexts still return null. File verification uses a reusable 64 KiB buffer.
+
+The deployable canvas bundle passed all 34 component cases and one synthetic
+mint through the existing JITless owner, including private token handoff and
+joined cleanup. The mint peaked at 84516864 bytes, with zero swap or memory
+events and an absent unit/group afterward. Tests requiring drawing use the
+qualified JSDOM 26.1.0/node-canvas 3.2.3 bundle and its context patch. The normal
+pins remain unchanged until an explicit bundle is selected. These results do
+not establish Framer acceptance or change either running service.
+
 Version 2 requires one supplied device value. The worker seeds localStorage
 and the __cuid cookie before evaluating the original SDK wrapper, then checks
 both values before closing the window. Missing, malformed or changed values

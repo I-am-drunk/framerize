@@ -6,9 +6,21 @@ import { ASSETS, DOM, CDN, MODULES, SUPPORT, DOM_PINS } from './pins.mjs';
 export function verifyInputs() {
   const inputs = [...Object.values(MODULES).map(([name, , hash]) => [ASSETS + '/' + name, hash]),
     ...Object.values(SUPPORT), ...Object.entries(DOM_PINS).map(([name, hash]) => [DOM + '/' + name, hash])];
-  for (const [file, expected] of inputs)
-    if (createHash('sha256').update(fs.readFileSync(file)).digest('hex') !== expected)
-      throw new Error('input-identity');
+  const buffer = Buffer.allocUnsafe(64 * 1024);
+  for (const [file, expected] of inputs) {
+    const digest = createHash('sha256');
+    const descriptor = fs.openSync(file, 'r');
+    try {
+      for (;;) {
+        const count = fs.readSync(descriptor, buffer, 0, buffer.length, null);
+        if (count === 0) break;
+        digest.update(buffer.subarray(0, count));
+      }
+    } finally {
+      fs.closeSync(descriptor);
+    }
+    if (digest.digest('hex') !== expected) throw new Error('input-identity');
+  }
 }
 
 export class SdkModules {

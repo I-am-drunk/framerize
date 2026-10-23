@@ -3,6 +3,17 @@
 Updated 2026-10-23. The normal service remains browser-based. Publishing these
 branches does not change the running service.
 
+The deployable graphics worker is now integrated in browserless source and
+validated in a separate pinned bundle. All 34 component cases and a synthetic
+mint through the existing owner pass. The mint peaks at 84516864 bytes with
+zero swap/memory events, discarded token, joined worker and absent unit/group.
+The fixture-only output is removed. A per-window quota retains the bounded PNG
+policy; external/file/other data resources stay disabled. No Rust rebuild is
+needed because the current application accepts explicit worker configuration.
+The bundle is not deployed yet. Next: transfer the isolated instance's real
+history, select this bundle, and perform the bounded real-request check.
+The protected browser service and its configuration remain unchanged.
+
 The official Castle documentation has now been checked against our worker.
 Its Browser SDK requires a browser, and its 3.0 migration guide explicitly
 removes support for mocked DOMs such as JSDOM. Our local worker uses JSDOM;

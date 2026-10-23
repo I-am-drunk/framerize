@@ -5,6 +5,14 @@ maintained fallback. `browserless` is the separate development branch for the
 native transport and short-lived SDK worker. A Git push does not deploy either
 version or restart the running service.
 
+The native worker can select a separately pinned graphics dependency bundle
+through its existing worker configuration. Its bounded PNG loader is shared
+by the deployable worker and component tests, with an independent quota per
+window. Verification streams each file through a 64 KiB buffer. The standalone
+owner validates the exact bundle without rebuilding the application or loading
+accounts. Selection on the isolated service remains an owned runtime change;
+the browser service's worker/configuration paths are excluded.
+
 The current parallel experiment keeps the live browser service unchanged.
 A browserless instance needs its own port, database, profiles, sessions, gate
 state and log directory, plus an account outside the live service's scope.
