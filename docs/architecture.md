@@ -20,15 +20,16 @@ With native dispatch configured, import also skips automatic browser prewarm.
 Proxy registration and existing native device/cooldown admission remain.
 Eight focused import cases pass. A complete candidate application now contains
 these changes, with accepted source and saved build results. A new non-executable
-activation preparation selects it while retaining the other runtime bindings.
-Account, generation and client-plan bindings remain open; neither service changed.
+activation preparation selected it while retaining the other runtime bindings.
+That earlier preparation preceded the isolated enrollment described below.
 
 The retained cancellation, device-bridge and memory-attribution reviews now
 accept their exact source and saved evidence. They grant no account admission.
 A read-only authentication check identified a login outside the browser
-service's configured account set. It remains unimported. Native admission
-still requires same-generation restoration and a real selected device;
-initial account setup must preserve those ownership and cooldown guarantees
+service's configured account set. The isolated instance has now imported it.
+Native admission requires a real selected device and either same-generation
+restoration or explicit initial enrollment. Initial account setup preserves
+the same ownership and cooldown guarantees
 without inventing a prior host or treating an empty history as proof.
 
 The source now includes `POST /api/accounts/native/enroll` for a newly
@@ -42,8 +43,18 @@ cannot reuse the initial record as a restoration receipt. Unknown enrollment
 completion keeps operation admission fenced. This path has 34 passing Python
 component cases and 31 passing Rust server cases, including the affected
 account-management fixtures. Its compatible libraries and full application
-are built. The staged instance selects the enrollment-capable generated host
-explicitly; live enrollment and authenticated delivery remain unverified.
+are built. The isolated instance selects the enrollment-capable generated
+host explicitly. Initial enrollment has succeeded with an independent login
+and observed device. Its full cooldown still precedes authenticated delivery.
+
+The live checker supplies a fresh turn ID and matching prompt for each call.
+For the composed adapter, text is rendered after upstream JSON is complete.
+The interruption check therefore waits for the actual send and successful
+stream headers, then disconnects while the body remains open. It separately
+requires the original attempt's successful headers, cancellation and cleanup
+before the next request. The second request must deliver nonempty text and
+one terminal response with clean HTTP EOF. Fifteen workflow cases pass with
+39 unchanged client cases reused; these remain synthetic validation.
 
 The deferred IDNA-table patch is retained only as an unapplied experiment.
 Its synthetic equivalence checks passed, but the subsequent worker measurement

@@ -49,12 +49,23 @@ Retain explicit lazy-host selection when binding an accepted candidate to a
 new isolated plan, together with every account/device/cooldown prerequisite.
 
 Use one owned generation and at most two model requests. The first stream
-must demonstrate actual response text before its client disconnects, with
-the hello HEAD check while that stream remains open. Retain the live response
+must demonstrate an actual native send and successful stream headers before
+its client disconnects, with the hello HEAD check while that stream remains
+open. This composed adapter renders text after receiving complete upstream
+JSON, so this check establishes interruption of an accepted in-flight request;
+it does not establish interruption between upstream text deltas. Retain the live response
 socket so disconnect still works after HTTP headers detach it from the
 connection. Confirm cleanup before the next request. The second must produce
 nonempty text, one terminal `response.completed`, clean HTTP EOF and no error.
 HTTP 200, headers and heartbeat frames alone do not establish delivery.
+
+The enrolled-account client now gives each call its own turn ID and matching
+prompt. Fifteen focused workflow cases pass under the 128 MiB cap, with zero
+swap/events and collected teardown. Thirty-nine unchanged client cases reuse
+their saved results. The new waiting case confirms that the send event alone
+cannot trigger disconnect before headers. Successful upstream status and
+confirmed cleanup remain mandatory after cancellation, even when no text was
+yielded. This validation does not itself establish a live result.
 
 Record request count, timing, bounded resource samples and cleanup evidence.
 Do not save response text or raw provider error details. A missing lifecycle

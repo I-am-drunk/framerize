@@ -16,6 +16,48 @@ def pending_close_pool():
 
 
 class WorkflowTests(unittest.TestCase):
+    def test_actual_send_waits_for_headers_before_cancelling_buffered_text(self):
+        scenario = Scenario()
+        original_send, original_poll = scenario.send, scenario.events.poll
+        def send(binding, cancel, report):
+            stream = original_send(binding, cancel, report)
+            if cancel:
+                stream.state.update(status=None, text_characters=0)
+            return stream
+        def poll():
+            original_poll()
+            if scenario.events.completed:
+                scenario.events.completed[0]['yielded_bytes'] = 0
+        def headers_after_wait(_):
+            self.assertFalse(scenario.sent[0].cancelled)
+            self.assertNotIn('started_stream', scenario.report)
+            scenario.sent[0].state['status'] = 200
+        scenario.send, scenario.events.poll = send, poll
+        self.prepare(scenario)
+        with patch.object(check.time, 'monotonic', side_effect=range(0, 1000, 10)):
+            with patch.object(check.time, 'sleep', side_effect=headers_after_wait) as sleep:
+                check.run(scenario.binding, scenario.events, scenario.report)
+        self.assertTrue(scenario.report['accepted'])
+        self.assertTrue(scenario.sent[0].cancelled)
+        self.assertEqual(scenario.report['post_calls'], 2)
+        sleep.assert_called_once()
+        self.assertEqual(scenario.report['started_stream']['status'], 200)
+        self.assertEqual(scenario.report['started_stream']['text_characters'], 0)
+        self.assertIn('send_seen_at_unix', scenario.report)
+
+    def test_cancelled_send_still_requires_its_successful_upstream_response(self):
+        scenario = Scenario()
+        self.prepare(scenario)
+        original = scenario.events.poll
+        def poll():
+            original()
+            if scenario.events.completed:
+                scenario.events.completed[0]['last_status'] = None
+        scenario.events.poll = poll
+        with self.assertRaisesRegex(Refusal, 'native_attempt_outcome'):
+            check.run(scenario.binding, scenario.events, scenario.report)
+        self.assertEqual(scenario.report['post_calls'], 1)
+
     def test_missing_send_snapshot_never_proves_no_retry(self):
         scenario = Scenario()
         self.prepare(scenario)
@@ -142,7 +184,8 @@ class WorkflowTests(unittest.TestCase):
         connection.assert_not_called()
 
     def test_request_uses_only_isolated_route_and_explicit_account(self):
-        binding = SimpleNamespace(account='inert-account', input={'context': {'fixture': True}})
+        template = {'attempts': [{'turn_id': 'template', 'user_prompt': 'template'}]}
+        binding = SimpleNamespace(account='inert-account', input={'context': template})
         report = {'post_calls': 0}
         with patch.object(client.http.client, 'HTTPConnection') as connection:
             with patch.object(client, 'Stream'):
@@ -154,4 +197,8 @@ class WorkflowTests(unittest.TestCase):
         payload = json.loads(call.kwargs['body'])
         self.assertTrue(payload['stream'])
         self.assertEqual(payload['max_output_tokens'], 512)
+        context = json.loads(call.kwargs['headers']['x-framerize-context'])
+        self.assertEqual(context['attempts'][0]['user_prompt'], payload['input'])
+        self.assertNotEqual(context['attempts'][0]['turn_id'], 'template')
+        self.assertEqual(template['attempts'][0]['user_prompt'], 'template')
         self.assertEqual(report['post_calls'], 1)

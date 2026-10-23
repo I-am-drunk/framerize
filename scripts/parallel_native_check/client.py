@@ -37,6 +37,10 @@ def send(binding, cancel, report):
     prompt = 'Count from one to five hundred in words.' if cancel else 'Reply with exactly OK.'
     payload = {'model': 'gpt-4.1', 'input': prompt, 'stream': True,
                'max_output_tokens': 512 if cancel else 16}
+    context = json.loads(json.dumps(binding.input['context']))
+    for attempt in context.get('attempts', []):
+        attempt['turn_id'] = uuid.uuid4().hex
+        attempt['user_prompt'] = prompt
     connection = http.client.HTTPConnection(*ADDRESS, timeout=65)
     report['post_calls'] += 1
     try:
@@ -44,7 +48,7 @@ def send(binding, cancel, report):
         connection.request('POST', '/openai/v1/responses', body=json.dumps(payload), headers={
             'Content-Type': 'application/json', 'Connection': 'close',
             'x-framerize-account': binding.account, 'x-framerize-session': uuid.uuid4().hex,
-            'x-framerize-context': json.dumps(binding.input['context'])})
+            'x-framerize-context': json.dumps(context)})
         return Stream(connection, request_started=request_started)
     except BaseException:
         connection.close()

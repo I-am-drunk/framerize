@@ -54,7 +54,8 @@ def settled(binding, events, report, count, failure):
                 'native_send_snapshot')
         require(value['observed_attempts'] == 1 and value['last_status'] == 200,
                 'native_attempt_outcome')
-        require(value['yielded_bytes'] > 0, 'native_empty_body')
+        if failure is None:
+            require(value['yielded_bytes'] > 0, 'native_empty_body')
         return quiet(client.pool(), binding.account)
     wait(binding, events, report, ready, 30)
     binding.refresh()
@@ -74,10 +75,14 @@ def run(binding, events, report):
             require(not events.completed, 'completion_before_disconnect')
             if value['text_characters'] > 0:
                 require(events.send_invocations == [1], 'native_send_count')
+            # This adapter renders after receiving complete upstream JSON.
+            # Wait for the accepted upstream headers before interrupting.
+            # A send event alone precedes headers and cannot prove acceptance.
+            if events.send_invocations == [1] and value['status'] == 200:
                 return value
             return None
         report['started_stream'] = wait(binding, events, report, started, 60)
-        report['first_text_seen_at_unix'] = time.time()
+        report['send_seen_at_unix'] = time.time()
         report['hello_head'] = client.head()
         pending(stream)
         events.poll()
