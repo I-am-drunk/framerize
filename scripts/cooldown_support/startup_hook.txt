@@ -16,8 +16,9 @@
     _module = _handoff_import.module_from_spec(_spec)
     sys.modules[_spec.name] = _module
     _spec.loader.exec_module(_module)
+    _instance_root = _module.startup_state.runtime_root(ROOT)
     _module.startup_state.install(Host, AccountLifecycle,
-                                 Path(__file__).resolve().parent, Path(__file__).resolve())
+                                 _instance_root, Path(__file__).resolve())
     _handoff_module(_spec.name + '.native_device').install(Host, ROOT,
         gap=MINT_GAP_S, window=DEV_WINDOW_S, capacity=DEV_WINDOW_CAP,
         cooldown=DEV_COOLDOWN_S)

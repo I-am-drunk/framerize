@@ -73,6 +73,9 @@ enum Cmd {
         /// One browser profile directory per account lives under here.
         #[arg(long, default_value = "profiles")]
         profiles: String,
+        /// Prepared host for this instance; bypasses the shared home-directory host.
+        #[arg(long)]
+        sidecar_script: Option<std::path::PathBuf>,
         /// Maximum resident account browsers; saved accounts remain available.
         #[arg(long, env = "FRAMERIZE_ACTIVE_POOL_SIZE")]
         active_pool_size: Option<usize>,
@@ -129,7 +132,11 @@ enum Cmd {
 }
 
 async fn build_state(db: &str, chrome: &str, profiles: &str, engine: &str,
-    active_pool_size: Option<usize>, eligible_accounts: Option<&str>) -> Result<AppState, String> {
+    active_pool_size: Option<usize>, eligible_accounts: Option<&str>,
+    sidecar_script: Option<std::path::PathBuf>) -> Result<AppState, String> {
+    if sidecar_script.is_some() && engine != "camoufox" {
+        return Err("--sidecar-script requires --engine camoufox".into());
+    }
     // Parse once before opening stores or constructing any browser bridge.
     let startup_policy = framer_server::ServingAccountPolicy::from_env()?;
     // Create our own dirs — a first run must not fail because
@@ -155,9 +162,14 @@ async fn build_state(db: &str, chrome: &str, profiles: &str, engine: &str,
         "full-chrome" => Arc::new(CdpBridge::with_engine(chrome, profiles, framer_host::EngineKind::FullChrome)),
         "headless-shell" => Arc::new(CdpBridge::with_engine(chrome, profiles, framer_host::EngineKind::HeadlessShell)),
         "attach" => Arc::new(CdpBridge::with_engine(chrome, profiles, framer_host::EngineKind::Attach)),
-        "camoufox" => Arc::new(framer_host::sidecar::SidecarBridge::new(
-            framer_host::sidecar::default_sidecar_root(profiles),
-        )),
+        "camoufox" => {
+            let bridge = framer_host::sidecar::SidecarBridge::new(
+                framer_host::sidecar::default_sidecar_root(profiles));
+            Arc::new(match sidecar_script {
+                Some(script) => bridge.with_script(script)?,
+                None => bridge,
+            })
+        },
         other => return Err(format!("unknown --engine {other} (full-chrome|headless-shell|attach|camoufox)")),
     };
     Ok(AppState {
@@ -211,11 +223,12 @@ async fn load_proxies(state: &AppState) -> Result<(), String> {
 async fn main() {
     let cli = Cli::parse();
     match cli.cmd {
-        Cmd::Daemon { listen, web_dir, db, chrome, engine, profiles, active_pool_size, eligible_accounts,
+        Cmd::Daemon { listen, web_dir, db, chrome, engine, profiles, sidecar_script,
+            active_pool_size, eligible_accounts,
             #[cfg(feature = "native-dispatch")] offline_worker_config,
             #[cfg(feature = "native-dispatch")] offline_routing_config } => {
             let state = match build_state(&db, &chrome, &profiles, &engine,
-                active_pool_size, eligible_accounts.as_deref()).await {
+                active_pool_size, eligible_accounts.as_deref(), sidecar_script).await {
                 Ok(s) => s,
                 Err(e) => {
                     eprintln!("failed to initialize: {e}");

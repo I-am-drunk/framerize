@@ -169,12 +169,17 @@ mod proxy_tests;
 #[path = "sidecar_pool_merge_tests.rs"]
 mod pool_merge_tests;
 
+#[cfg(test)]
+#[path = "sidecar_script_tests.rs"]
+mod script_tests;
+
 pub struct SidecarBridge {
     retirement: Option<Arc<retirement::AdmissionBoundary>>,
     transport_tasks: Option<Arc<tasks::TransportTasks>>,
     mode: observer::ProcessMode,
     observed: std::sync::OnceLock<Arc<observer::Registry>>,
     state_root: PathBuf,
+    script_override: Option<PathBuf>,
     inner: Mutex<Option<Sidecar>>,
     routes: Mutex<HashMap<AccountId, Arc<Mutex<ProxyState>>>>,
     /// Per-account queue wait from the most recent `ai_post`, in ms. The host
@@ -203,10 +208,28 @@ impl SidecarBridge {
             mode: observer::ProcessMode::Unmanaged,
             observed: std::sync::OnceLock::new(),
             state_root: state_root.into(),
+            script_override: None,
             inner: Mutex::new(None),
             routes: Mutex::new(HashMap::new()),
             queue_wait: Mutex::new(HashMap::new()),
         }
+    }
+
+    /// Select an instance's prepared host without using the shared home override.
+    /// This inspects source metadata only and never starts or rewrites the host.
+    pub fn with_script(mut self, script: impl Into<PathBuf>) -> Result<Self, String> {
+        let script = script.into();
+        if !script.is_absolute()
+            || script.canonicalize().map_err(|_| "cannot resolve sidecar script")? != script
+        {
+            return Err("sidecar script must be an absolute canonical path".into());
+        }
+        let metadata = script.metadata().map_err(|_| "cannot inspect sidecar script")?;
+        if !metadata.is_file() || metadata.len() == 0 || metadata.len() > 4 * 1024 * 1024 {
+            return Err("sidecar script must be a bounded regular file".into());
+        }
+        self.script_override = Some(script);
+        Ok(self)
     }
 
     fn admit_unscoped(&self) -> Result<Option<retirement::LocalCall>, String> {
@@ -227,6 +250,9 @@ impl SidecarBridge {
 
     fn script_path(&self) -> PathBuf {
         if let observer::ProcessMode::Observed { script, .. } = &self.mode {
+            return script.clone();
+        }
+        if let Some(script) = &self.script_override {
             return script.clone();
         }
         // External override wins: sidecar fixes ship via `git pull` + a copy to
@@ -267,7 +293,8 @@ impl SidecarBridge {
         // v0.4.0's script alive under v0.4.1's binary — upgrades must win).
         // The external override (~/.framerize/camoufox_host.py) is never
         // written by us — it's the user's escape hatch.
-        let is_override = script == dirs_home().join(".framerize/camoufox_host.py");
+        let is_override = self.script_override.is_some()
+            || script == dirs_home().join(".framerize/camoufox_host.py");
         if !is_override && matches!(self.mode, observer::ProcessMode::Unmanaged) {
             if let Some(parent) = script.parent() {
                 std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;

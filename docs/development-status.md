@@ -3,6 +3,23 @@
 Updated 2026-10-23. The normal service remains browser-based. Publishing these
 branches does not change the running service.
 
+The current instruction is to leave the live browser service untouched and
+run browserless in a separate instance. T3 update work is set aside. The live
+browser's binary, launch files, accounts and retained maintenance marker must
+not be changed by the parallel experiment.
+
+Journal evidence identifies two startup failures as `saved account state
+changed`. The generated host previously selected its cooldown handoff from
+the script directory, even when launched with another profile root. The new
+source selects the instance root from its canonical profile path and adds an
+explicit `--sidecar-script` option. Five isolated Python fixtures pass,
+including the original shared-directory failure and continued rejection of
+changed account snapshots. The Rust host selection tests and build are pending.
+Next: validate the explicit host path, then start with a separate port, database,
+profiles, session files and gate state. Live inference needs an account outside
+the browser service's current 11-account scope; an empty instance proves only
+startup and isolation, not browserless delivery.
+
 The earlier nonstream admission repair passed its bounded normal-route check.
 An unmetered request was disconnected after its browser fetch started. The
 current call finished, cleanup completed, and no additional attempt started.

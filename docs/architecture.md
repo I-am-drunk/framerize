@@ -5,6 +5,15 @@ maintained fallback. `browserless` is the separate development branch for the
 native transport and short-lived SDK worker. A Git push does not deploy either
 version or restart the running service.
 
+The current parallel experiment keeps the live browser service unchanged.
+A browserless instance needs its own port, database, profiles, sessions, gate
+state and log directory, plus an account outside the live service's scope.
+The daemon can select a prepared host explicitly with `--sidecar-script`.
+Generated hosts locate cooldown state from their canonical
+`root/profiles/.sidecar/camoufox` path, rather than from shared source code.
+They continue to reject stale or changed handoffs within their own instance.
+An empty isolated instance can validate startup without claiming inference.
+
 ```mermaid
 flowchart LR
     Client --> Server[Shared HTTP API and account selection]
@@ -28,9 +37,9 @@ response evidence. Body size, a HEAD method, or a generic error does not by
 itself establish that work has finished.
 
 The browserless path reuses the existing admission and session boundaries.
-It must also use the restored shared device and cooldown authority. Starting
-a second server with an independent copy of that state is not a safe parallel
-test. A bounded real test must send one request through one account owner,
+It must retain the account's device and cooldown authority. Parallel instances
+use disjoint account ownership; an independent copy of a live account's state
+does not establish that ownership. A bounded real test sends one request through one account owner,
 without duplicating paid traffic.
 
 Application code stays in the existing crates: core owns domain policy, server

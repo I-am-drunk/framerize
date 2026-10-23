@@ -14,6 +14,17 @@ def digest(path):
         return hashlib.file_digest(stream, 'sha256').hexdigest()
 
 
+def runtime_root(device_root):
+    """Resolve state from this process's profiles, never its shared code location."""
+    path = Path(device_root)
+    ledger.require(path.is_absolute() and path.resolve() == path,
+                   'noncanonical runtime state path')
+    ledger.require(path.name == 'camoufox' and path.parent.name == '.sidecar'
+                   and path.parent.parent.name == 'profiles',
+                   'runtime state must use root/profiles/.sidecar/camoufox')
+    return path.parent.parent.parent
+
+
 def process(pid):
     root = Path('/proc', str(pid))
     def ticks():
