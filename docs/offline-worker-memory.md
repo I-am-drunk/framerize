@@ -274,3 +274,17 @@ reliable latency benchmark or a complete service saving. They exclude the
 Rust owner, native host, HTTP and authenticated inference. Summary `841d7c33`
 binds the saved run and reused baselines. Independent review is pending.
 The measurement tool now permits `--jitless`; production does not select it.
+
+Two additional candidate-only samples checked whether that reduction repeats.
+Their group peaks were 59,219,968 and 56,967,168 bytes. Both retained every
+device and cleanup check, zero swap/events and absent units/cgroups. No
+baseline was rerun. Across the three JITless samples, mean group peak is
+57,839,616 bytes, mean reported RSS is 96,922,283 bytes, and mean local mint
+time is 1230.173 ms. Relative to the saved baseline means, those are 22.90%
+less group memory, 21.07% less reported RSS and 3.65% longer minting time.
+
+Summary `b55a2a79` binds the two new results, original sample and reused
+baselines. These are small samples collected at different times, not a
+reliable latency benchmark. The repeatable direction supports further
+integration work but proves no complete-service saving. Production remains
+unchanged; the combined three-sample evidence is not independently reviewed.

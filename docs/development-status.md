@@ -62,6 +62,15 @@ sample excludes the Rust owner, host and authenticated inference. Summary
 tool permits this flag for further controlled comparison; production remains
 unchanged, and the new result has not received independent review.
 
+Two further JITless samples passed using the unchanged worker and guards.
+The three-sample mean is now 57,839,616 bytes of group peak memory and
+96,922,283 bytes of reported RSS, respectively 22.90% and 21.07% below the
+three reused baseline samples. Mean local minting time is 1230.173 ms,
+3.65% higher. All processes joined, units/cgroups disappeared and swap/events
+stayed zero. Summary `b55a2a79` preserves the original and two new results.
+This supports the memory direction across three small samples; it does not
+establish service memory or request latency. Production remains unchanged.
+
 Two additional local cases now cancel the real worker after observed process
 activity. Explicit cancellation returns the expected failure; dropping the
 owner also joins the child. Both leave no worker, unit or cgroup, with zero
@@ -98,7 +107,13 @@ build labels were consumed by the saved prelaunch refusals. An additive
 correction uses a separate output namespace while retaining three labels per
 mode, exclusive creation and every resource guard. It also binds the exact
 launcher, dependency manifest, label and mode when selecting build results.
-Freeze `4745f620` is pending narrow review; no compiler or test has run.
+Review rejected freeze `4745f620`: the unchanged compiler entry still required
+the original output parent. R3 freeze `8b103a0a` keeps that parent and uses
+fresh bounded attempt labels 4 through 6. Its static checks cover the actual
+entry assertion and detect the R2 mismatch. Review `5d6b6cd0` accepts R3's
+source and static bindings, closing both findings. No compiler or test has
+run; a fresh resource observation still falls below the unchanged reserve.
+Both prior rejections remain preserved.
 
 The isolated client now records monotonic request timings, starting before
 connection/request work. It distinguishes headers, first complete text,
