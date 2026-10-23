@@ -22,9 +22,20 @@ Six focused Rust cases pass against the deployed libraries, including the
 original-budget refusal and corrected-example authorization boundary.
 The client now retains only allowlisted native error codes and saves its
 failed stream snapshot. All 29 focused streaming/workflow/timing cases pass.
-Authenticated delivery, live interruption and loaded memory remain unverified.
-Next apply the configuration to the isolated instance while preserving its
-actual device/cooldown history, then run the bounded acceptance sequence.
+A separate bounded nonstreaming request reached native HTTP and received
+HTTP 403. It returned the isolated account to idle, with zero recorded swap.
+Its 2.61-second local interval includes preparation and does not identify the
+remote refusal mechanism. The original response category was not retained.
+Both local POSTs are consumed; neither is replayed automatically.
+
+The native transport now supplies the canonical Framer application Origin.
+It keeps its truthful native user agent, unchanged credentials and existing
+single-send behavior. A real loopback request verifies the header; all 14
+focused transport, streaming and cleanup cases pass. This closes a concrete
+request-construction omission, not an established cause of the live 403.
+The complete application rebuild and isolated activation remain pending.
+Actual device history must survive activation; the browser service stays
+unchanged. Authenticated delivery and live interruption remain unverified.
 
 Earlier build and preparation milestones below retain their original limits.
 

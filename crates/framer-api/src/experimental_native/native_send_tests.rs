@@ -32,6 +32,29 @@ async fn wait_for(count: &AtomicUsize) {
 }
 
 #[test]
+fn request_carries_framer_origin_and_truthful_native_user_agent() {
+    let server = Server::new(vec![Expected { path: PATH,
+        envelope: json!({"stream": true, "castleToken": "fixture-token"}),
+        reply: Reply::json(json!({"fixture": "complete"})) }]);
+    let mut received = None;
+    run(async {
+        let (client, account, session, body) = inputs(server.address);
+        let response = client.ai_post(&account, PATH,
+            AccountRequestAuth::new(account, &session, "fixture-application-bearer"),
+            &body, token(account), NativeCancellation::new()).await;
+        assert_eq!(client.in_flight.load(Ordering::Acquire), 0);
+        received = Some(response);
+    });
+    let ended = server.finish();
+    assert_eq!(ended.fault, None);
+    assert_eq!((ended.accepted, ended.requests, ended.headers, ended.replies), (1, 1, 1, 1));
+    let response = received.unwrap().unwrap();
+    assert_eq!(response.0, 200);
+    assert_eq!(serde_json::from_str::<Value>(&response.2).unwrap(),
+        json!({"fixture": "complete"}));
+}
+
+#[test]
 fn send_is_counted_before_headers_and_cancellation_joins() {
     let server = Server::with_held_headers(vec![Expected { path: PATH,
         envelope: json!({"stream": true, "castleToken": "fixture-token"}),
