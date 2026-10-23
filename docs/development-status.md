@@ -8,8 +8,8 @@ The enrollment build is running in its separate loopback instance on port
 and enrolled successfully, with the initial full 600-second cooldown enforced.
 The browser service and its account set have not been changed.
 
-The streaming-refusal correction is now active only in that isolated instance
-as binary `be15778f`. The old generation's real device history was captured
+The streaming-refusal correction first ran in that isolated instance
+as binary `be15778f`. Its old generation's real device history was captured
 before its processes were stopped. The replacement restored that history
 through a one-use handoff and enforced a full additional device cooldown.
 One live request made one upstream send and received HTTP 403 with a complete
@@ -22,9 +22,17 @@ exposing or inventing a project path or query. The real loopback fixture now
 checks it together with Origin, credentials and the truthful native user
 agent. All 14 focused transport, stream and cleanup cases pass, with zero
 recorded swap or resource events and clean teardown. Test compilation peaked
-at 544,919,552 bytes; the test run peaked at 43,532,288 bytes. The application
-rebuild and isolated live validation are pending. The earlier 403 is not
-claimed resolved.
+at 544,919,552 bytes; the test run peaked at 43,532,288 bytes. The complete
+application rebuild also passed. Its native API phase peaked at 558,170,112
+bytes and the final link at 412,545,024 bytes, with zero recorded swap or
+resource events and clean teardown. Candidate `464b413d` is now active only
+in the isolated instance. Its real history was restored without changing
+account identities, devices or the current account records. One new request
+made one upstream send and again received a complete HTTP 403 security
+envelope, after 2.63 seconds. Cleanup was confirmed and no second request
+ran. The browser service remained unchanged. This rules out the header
+correction alone as sufficient for that attempt; authenticated delivery and
+live interruption are still unverified.
 
 The preceding Origin candidate restored its real history successfully. One request
 made one native send, then returned a 60-second deadline error without text.
