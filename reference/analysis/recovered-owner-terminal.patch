@@ -1,0 +1,9 @@
+--- a/owner/sequence.py
++++ b/owner/sequence.py
+@@ -63,5 +63,5 @@
+     with (HERE / log_name).open('x') as log:
+         ACTIVE = subprocess.Popen(['/usr/bin/python3', '-I', '-B', '-S', str(script),
+-            *arguments], stdout=log, stderr=subprocess.STDOUT, start_new_session=True)
++            *arguments], stdout=log, stderr=subprocess.STDOUT, process_group=0)
+         try:
+             code = ACTIVE.wait()
