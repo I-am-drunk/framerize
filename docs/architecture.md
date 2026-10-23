@@ -127,6 +127,10 @@ An isolated CSS prototype experiment preserved the tested descriptors and
 setter observations, but its import-stage reduction did not yield a useful
 full-mint saving. It remains an unapplied reproduction patch. These direct
 probes do not measure the Rust owner or the private pipe integration.
+The measurement tool also permits a JITless comparison. Its first synthetic
+sample used less memory and took longer than the saved baseline mean.
+That flag is not selected by the production worker; see the measurement
+report for the separate process/group results and their limits.
 
 The separate `measure_owned_offline_worker.rs` harness links the unchanged
 owner library from the accepted application build. It runs the original

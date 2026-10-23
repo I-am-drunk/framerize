@@ -37,7 +37,7 @@ function requireIsolation() {
 try {
   requireIsolation();
   const permitted = ['--max-old-space-size=96', '--experimental-vm-modules',
-    '--max-semi-space-size=1', '--optimize-for-size'];
+    '--max-semi-space-size=1', '--optimize-for-size', '--jitless'];
   if (process.execArgv.some(flag => !permitted.includes(flag))) throw new Error('flags');
   result.flags = process.execArgv;
   sample('node_entry');
