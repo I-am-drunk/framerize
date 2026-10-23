@@ -288,3 +288,10 @@ baselines. These are small samples collected at different times, not a
 reliable latency benchmark. The repeatable direction supports further
 integration work but proves no complete-service saving. Production remains
 unchanged; the combined three-sample evidence is not independently reviewed.
+
+The next isolated comparison is prepared as an
+[unapplied owner patch](../reference/analysis/offline-worker-owner-jitless.patch).
+It adds only the fixed `--jitless` argument to the real owner's launch command;
+the other four owner modules remain exact. This source is UNCOMPILED/UNRUN.
+It will reuse the existing owner harness, private pipes and cleanup checks.
+It has no build or runtime result and does not change production policy.
