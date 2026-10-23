@@ -14,11 +14,23 @@ the script directory, even when launched with another profile root. The new
 source selects the instance root from its canonical profile path and adds an
 explicit `--sidecar-script` option. Five isolated Python fixtures pass,
 including the original shared-directory failure and continued rejection of
-changed account snapshots. The Rust host selection tests and build are pending.
-Next: validate the explicit host path, then start with a separate port, database,
-profiles, session files and gate state. Live inference needs an account outside
-the browser service's current 11-account scope; an empty instance proves only
-startup and isolation, not browserless delivery.
+changed account snapshots. Both Rust host-selection cases and the host/main
+build pass. The process fixture also passes: an actual generated host ignores
+a malformed handoff beside its code, and the isolated API rejects malformed
+JSON and an unknown account without crashing. This fixture uses an empty store
+and a private network namespace; it does not contact an upstream model.
+
+At 2026-10-23 15:51 UTC the separately launched instance on port 8788 passed
+health, empty-account/pool and HEAD checks. The browser service retained its
+original process generation. The new binary is active; its prepared host and
+worker configuration are staged, with no host, worker or browser child running.
+The instance has its own writable root and masks the browser account paths.
+Its 5,378,048-byte peak and zero swap describe only this empty-instance sample.
+It has no automatic restart and a 30-minute maximum lifetime.
+
+Next: independent source/evidence review, then a separately owned account for
+real browserless validation. An account must be outside the browser service's
+current scope; an empty instance proves startup isolation, not delivery.
 
 The earlier nonstream admission repair passed its bounded normal-route check.
 An unmetered request was disconnected after its browser fetch started. The
