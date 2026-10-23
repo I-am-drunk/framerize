@@ -39,6 +39,17 @@ bound before a real request. The account must be outside the browser service's
 current scope. Empty startup results establish neither delivery nor memory
 use under inference load.
 
+The new `examples/browserless-routing.json` configuration passes a separate
+process fixture for normal streaming dispatch. With an empty account store,
+the request reaches native dispatch and returns the expected `Ineligible`
+refusal before a host or worker starts. The fixture supplies synthetic
+`x-framerize-context` metadata; a real caller needs valid metadata for its own
+account and project. Its first two attempts omitted that header and are
+retained as failed fixture evidence. The corrected run exited cleanly, with
+a 16,809,984-byte group peak, five tasks and no swap or memory events.
+The previously accepted binary was reused. This configuration has not been
+applied to port 8788, and no authenticated request is covered by the result.
+
 The earlier nonstream admission repair passed its bounded normal-route check.
 An unmetered request was disconnected after its browser fetch started. The
 current call finished, cleanup completed, and no additional attempt started.
