@@ -72,8 +72,11 @@ idle status and no replacement, in addition to the original checks. Twelve
 workflow and runner cases pass, including new regressions at both request
 barriers; 28 unchanged case results are reused. This covers 40 distinct cases.
 The new run peaked at 18,964,480 bytes with three tasks and zero swap/events.
-The original rejection and results remain preserved. The correction awaits
-its exact review; no live request or service action has occurred.
+The original rejection and results remain preserved. Final review `26089a3b`
+accepts the correction's source and saved evidence, closes F1 and reports no
+findings. It binds freeze `075b12d9` and summary `13bde1a3`. The accepted
+binary remains staged; no account, execution plan or live result is covered.
+No live request or service action has occurred.
 
 The new `examples/browserless-routing.json` configuration passes a separate
 process fixture for normal streaming dispatch. With an empty account store,
