@@ -39,6 +39,16 @@ selected; provider IDs, headers, usage and content are excluded. The observed
 attempt count covers retained metadata, and yielded bytes are not proof of
 delivery. An absent record does not prove that no attempt occurred.
 
+The optional `scripts/check_parallel_native.py` client binds an explicitly
+separate service generation on loopback port 8788. It operates no services
+and never contacts the browser endpoint. A generation marker prevents
+replaying the same check under a different report name. Its two requests
+share one account: interrupted streaming first, then complete streaming only
+after joined cleanup is observed. A retained socket permits interruption
+after response headers detach the original connection. Reports contain
+bounded counts and local error codes, without provider content. Failed
+sequences only observe existing cleanup and do not retry inference.
+
 ```mermaid
 flowchart LR
     Client --> Server[Shared HTTP API and account selection]

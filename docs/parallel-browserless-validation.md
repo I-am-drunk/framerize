@@ -33,3 +33,48 @@ event does not prove that no attempt occurred. The previous browser client's
 routing. Bind native lifecycle evidence before claiming current-work cleanup
 or absence of another attempt. Preserve refusal results and do not retry them
 automatically. Keep account, streaming and memory acceptance separate.
+
+The explicit checker entry point is `scripts/check_parallel_native.py`.
+It takes `--plan`, `--plan-sha256`, `--report` and `--execute`. The plan
+and report paths must be absolute; the report must not already exist.
+It never installs a binary, starts a service, changes eligibility or logs in.
+Use it only after a separate activation has bound the accepted binary,
+host, worker dependencies, isolated paths and account authority.
+
+The plan is JSON with the following fields:
+
+| Field | Required binding |
+| --- | --- |
+| `unit`, `invocation_id` | Owned browserless unit and exact generation |
+| `browser_invocation_id` | Protected browser generation, read only |
+| `root` | Canonical root separate from browser database and profiles |
+| `files` | Relative binary and runtime paths mapped to SHA256 hashes |
+| `support_manifest` | Pinned runtime-sources.json and all its member pins |
+| `memory_max_bytes` | Exact isolated cgroup limit, at most 1 GiB |
+| `events_path` | Canonical event file under the isolated profiles/.logs |
+| `private_input` | Object containing a private path and its sha256 |
+
+Private input stays inside the isolated root, with no group or other access.
+It contains only `account_id`, `framer_user_id` and legitimate `context`.
+The checker refuses accounts or logins present in the browser store. It
+requires exactly that account in the native store and launch allowlist.
+Native launch arguments bind the database, profiles, host, worker config,
+routing config, one active slot and port 8788. The cgroup must allow zero
+swap and at most the selected memory limit, with a task limit of 32.
+
+The first invocation claims a permanent marker for that service generation.
+Changing the report name does not enable another attempt. Retain failed
+reports and markers. A fresh attempt requires a separately coordinated
+generation and plan; this client does not prepare either one.
+
+The 38 focused fixtures pass using synthetic inputs and local socket pairs.
+They cover framing, actual socket shutdown, cleanup ordering, privacy,
+account overlap, resource refusal and replay protection. The capped fixture
+run mounts neither service nor account state and has no external network.
+Its 19,009,536-byte peak is a test measurement, not loaded browserless usage.
+
+The checker limits its own execution to two POST calls. Exclusive request
+ownership still requires coordination with other callers. Completion
+metadata is not an exhaustive count of transport starts, and a missing
+event remains unknown. The accepted event binary is staged; these fixtures
+do not establish deployment, authentication or live stream delivery.

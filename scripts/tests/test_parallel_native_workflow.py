@@ -1,0 +1,77 @@
+import json
+import unittest
+from types import SimpleNamespace
+from unittest.mock import patch
+from native_check_fixture import Scenario, quiet_pool
+from parallel_native_check import check, client
+from parallel_native_check.support import Refusal
+
+
+class WorkflowTests(unittest.TestCase):
+    def prepare(self, scenario):
+        self.enterContext(patch.object(client, 'pool', return_value=quiet_pool()))
+        self.head = self.enterContext(patch.object(client, 'head', return_value={'status': 200}))
+        self.enterContext(patch.object(client, 'send', side_effect=scenario.send))
+
+    def test_two_requests_wait_for_cancel_cleanup_then_complete(self):
+        scenario = Scenario()
+        self.prepare(scenario)
+        check.run(scenario.binding, scenario.events, scenario.report)
+        self.assertTrue(scenario.report['accepted'])
+        self.assertEqual(scenario.report['post_calls'], 2)
+        self.assertEqual(len(scenario.events.completed), 2)
+        self.assertTrue(scenario.sent[0].cancelled)
+        self.head.assert_called_once()
+
+    def test_uncertain_cleanup_prevents_second_request(self):
+        scenario = Scenario(cleanup=False)
+        self.prepare(scenario)
+        with self.assertRaisesRegex(Refusal, 'native_cleanup_outcome'):
+            check.run(scenario.binding, scenario.events, scenario.report)
+        self.assertEqual(scenario.report['post_calls'], 1)
+
+    def test_missing_completion_does_not_prove_cleanup(self):
+        scenario = Scenario(emit=False)
+        self.prepare(scenario)
+        with patch.object(check.time, 'monotonic', side_effect=range(0, 1000, 100)):
+            with self.assertRaisesRegex(Refusal, 'native_check_timeout'):
+                check.run(scenario.binding, scenario.events, scenario.report)
+        self.assertEqual(scenario.report['post_calls'], 1)
+
+    def test_admission_refusal_stops_sequence(self):
+        scenario = Scenario()
+        scenario.events.refusals = 1
+        self.prepare(scenario)
+        with self.assertRaisesRegex(Refusal, 'admission_refused'):
+            check.run(scenario.binding, scenario.events, scenario.report)
+        self.assertEqual(scenario.report['post_calls'], 1)
+        self.assertTrue(scenario.sent[0].state['finished'])
+
+    def test_failed_sequence_observes_cleanup_without_another_send(self):
+        scenario = Scenario()
+        self.prepare(scenario)
+        scenario.send(scenario.binding, True, scenario.report).close(cancel=True)
+        check.observe_failed_cleanup(scenario.binding, scenario.events, scenario.report)
+        self.assertTrue(scenario.report['cleanup_after_error']['confirmed'])
+        self.assertEqual(scenario.report['post_calls'], 1)
+
+    def test_two_post_limit_is_enforced_before_connecting(self):
+        with patch.object(client.http.client, 'HTTPConnection') as connection:
+            with self.assertRaisesRegex(Refusal, 'post_limit'):
+                client.send(None, False, {'post_calls': 2})
+        connection.assert_not_called()
+
+    def test_request_uses_only_isolated_route_and_explicit_account(self):
+        binding = SimpleNamespace(account='inert-account', input={'context': {'fixture': True}})
+        report = {'post_calls': 0}
+        with patch.object(client.http.client, 'HTTPConnection') as connection:
+            with patch.object(client, 'Stream'):
+                client.send(binding, True, report)
+        self.assertEqual(connection.call_args.args, ('127.0.0.1', 8788))
+        call = connection.return_value.request.call_args
+        self.assertEqual(call.args, ('POST', '/openai/v1/responses'))
+        self.assertEqual(call.kwargs['headers']['x-framerize-account'], 'inert-account')
+        payload = json.loads(call.kwargs['body'])
+        self.assertTrue(payload['stream'])
+        self.assertEqual(payload['max_output_tokens'], 512)
+        self.assertEqual(report['post_calls'], 1)

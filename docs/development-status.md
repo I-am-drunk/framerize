@@ -53,9 +53,18 @@ separate from cleanup confirmation. The active binary does not contain this
 change yet. Three focused cases for observer ordering, cleanup failure and
 exclusion of provider metadata pass alongside all 22 selected ownership
 regressions. The server library and final executable also build successfully
-under the existing caps. Binary `a8b5bf6e` is staged, not installed; source and
-saved-result review is pending. This event supplements the real-stream check;
+under the existing caps. Binary `a8b5bf6e` is staged, not installed. Independent
+review `14eddc0d` accepts the source and saved results with no findings.
+This event supplements the real-stream check;
 it does not prove delivery or count every transport start by itself.
+
+The separate native stream checker now passes 38 synthetic fixtures. It
+requires a disjoint account, a pinned isolated generation, actual streamed
+text before interruption, confirmed cleanup and a subsequent complete stream.
+The fixture run used 19,009,536 bytes at peak, four tasks and zero swap or
+memory events. All reader threads joined; the test unit and cgroup are gone.
+No live checker invocation or authenticated browserless request has occurred.
+The account selection remains pending.
 
 The new `examples/browserless-routing.json` configuration passes a separate
 process fixture for normal streaming dispatch. With an empty account store,
