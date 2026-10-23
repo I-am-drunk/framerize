@@ -20,6 +20,13 @@ The resident pool limits how many browsers stay loaded. Request ownership
 continues through response streaming and cleanup; uncertain cleanup keeps
 the account fenced instead of making it immediately available again.
 
+The static hello responses carry explicit completion evidence because the
+router strips HEAD bodies after request ownership has wrapped them. Initial
+wave and account-selection refusals attest completion only at their terminal
+return, before residency or external work. The middleware preserves stronger
+response evidence. Body size, a HEAD method, or a generic error does not by
+itself establish that work has finished.
+
 The browserless path reuses the existing admission and session boundaries.
 It must also use the restored shared device and cooldown authority. Starting
 a second server with an independent copy of that state is not a safe parallel

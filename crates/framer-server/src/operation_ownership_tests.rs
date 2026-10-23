@@ -25,6 +25,9 @@ fn fixture_request(f: &fixture::Fixture, stream: bool) -> HttpRequest<Body> {
 #[path = "operation_ownership_nonstream_tests.rs"]
 mod nonstream;
 
+#[path = "operation_ownership_stream_recovery_tests.rs"]
+mod stream_recovery;
+
 #[tokio::test]
 async fn every_mutating_and_inference_route_rejects_before_ports_after_seal() {
     let mut f = fixture::Fixture::new();

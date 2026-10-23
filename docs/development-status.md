@@ -3,12 +3,29 @@
 Updated 2026-10-23. The normal service remains browser-based. Publishing these
 branches does not change the running service.
 
-The admission repair is now deployed and passed its real normal-route check.
+The earlier nonstream admission repair passed its bounded normal-route check.
 An unmetered request was disconnected after its browser fetch started. The
 current call finished, cleanup completed, and no additional attempt started.
 A second request then returned a complete HTTP 200 response without a service
 restart. This verifies the bounded cancellation and recovery case, not every
 historical 503 or successful browserless delivery.
+
+The user has reopened the admission issue after streaming interruptions. The
+saved 2026-10-23 incident contains a successful `HEAD /anthropic/api/hello`
+at 10:53:07 UTC, followed by `Unconfirmed` refusals at 10:53:10. Source tracing
+shows that Axum strips the HEAD body outside the ownership layer, dropping
+the plain hello response with an armed owner. The new server-only correction
+marks these three static hello aliases complete, and marks terminal initial
+wave/account refusals complete before residency or external work begins.
+It preserves the existing response status and cooldown headers. Unknown,
+lazy and paid work retain their existing completion requirements.
+
+The exact correction from `27e0d578` and its three new routed regressions are
+integrated on `browserless`, but are not yet compiled, tested or deployed.
+Validation is the existing 19-case slice plus these three cases. The runtime
+owner will preserve the current support configuration and verify normal
+streaming, a hello HEAD probe, interruption and a subsequent complete request
+on one generation. This does not require another offline trial.
 
 The admission repair on `fix/live-admission-503-20261023` adds completion
 evidence for assembled nonstream Responses bodies and stops future attempts
