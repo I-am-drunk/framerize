@@ -24,7 +24,8 @@ The runtime owner has integrated the final correction as `2fed7797` and added on
 host event after the in-page fetch starts. The event contains only the job
 identifier and route. The corrected 19-case run used a peak of 16.4 MB,
 with no recorded swap or resource events. The built executable is `e0ff2db9`.
-Independent saved-results review is pending. The normal-endpoint release retains
+Independent saved-results review accepts the build and its 19 selected cases.
+The normal-endpoint release retains
 the current R9 support
 package and worker configuration; the separate R11 device handoff remains
 undeployed. Live acceptance requires a cancelled request followed by a
@@ -32,14 +33,16 @@ complete response on the same service generation.
 
 The frozen R12 operational delta is published in
 [admission-repair-release-r12.patch](../reference/analysis/admission-repair-release-r12.patch).
-Its source review and concrete release plan remain pending. Publication does
-not change the service or establish a successful live request.
+Independent source review accepts this release package. The concrete plan and
+two-request client remain under final review. Publication does not change the
+service or establish a successful live request.
 
 The owner's 03:32:48 UTC diagnosis found the previous binary in a new service
 generation (main 2270461, started 03:28:49). Health and pool returned 200.
 Those observations do not verify real inference or establish the cause of
-the user's earlier request. Next: review the exact R12 release, then coordinate
-deployment and real normal-endpoint cancellation and recovery validation.
+the user's earlier request. Next: collect the final plan/client acceptance and
+quiet acknowledgements, then run one coordinated deployment and the real
+normal-endpoint cancellation and recovery check. Reuse the completed build.
 
 The original disconnect correction was deployed from `browserless`. R9 completed its
 fresh admission, drain, startup and release checks on 2026-10-23. The maintenance
