@@ -113,8 +113,13 @@ prove that an internal fallback/error token was produced. See
 [Castle runtime support](castle-runtime-support.md) for the documented limits.
 The separate native canvas fixture uses genuine Cairo drawing and a bounded
 local PNG loader. Its JSDOM patch refuses unsupported context types even after
-a 2D context is cached. This is a qualified graphics component only; neither
-the production worker nor the running isolated service selects it.
+a 2D context is cached. A separate synthetic SDK worker now qualifies that
+component with the unchanged JITless owner and private token handoff. Native
+library hashes use a reusable 64 KiB buffer; the whole-file variant reached
+the 128 MiB group limit and remains rejected. The buffered variant passes
+with zero memory events and verified joined cleanup. Its dependency overlay
+and diagnostic output are experimental. Neither the application worker nor
+the running isolated service selects it, and no Framer acceptance is proven.
 For the composed adapter, text is rendered after upstream JSON is complete.
 The interruption check therefore waits for the actual send and successful
 stream headers, then disconnects while the body remains open. It separately

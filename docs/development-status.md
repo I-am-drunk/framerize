@@ -26,9 +26,20 @@ round-trip, resource refusals and context-type checks. The unpatched first
 run failed because JSDOM returned cached 2D for WebGL. A four-line dependency
 patch corrects that behavior. The second run peaked at 73601024 bytes/ten
 tasks under a 128 MiB group limit, with zero swap/events and verified teardown.
-Its published source is under scripts/experiments/native_canvas; the worker
-and running services do not use it. Next: qualify it with the unchanged SDK
-in a synthetic worker experiment before considering any live change.
+Its published source is under scripts/experiments/native_canvas. A subsequent
+synthetic SDK-worker integration passes using the existing JITless owner.
+The first integration minted but failed the resource check at the unchanged
+128 MiB cap. Applying the existing 64 KiB verification-buffer implementation
+to the larger native-library inputs yields a passing second run: 84398080
+bytes group peak, 12 tasks, zero memory events/swap, two local PNGs and zero
+JSDOM errors. One process warning remains unclassified. The unchanged private
+token pipe, device checks, joined worker, discarded token and final unit/group
+absence all pass. No Rust build, account action or Framer request ran.
+The application worker and both services still do not use this experiment.
+Next: package the qualified dependency/worker variant for the isolated
+instance, retaining actual account history and the protected browser service,
+before the next bounded real-delivery check. Unsupported JSDOM remains a
+documented limitation; this local success does not resolve the live 403.
 
 The enrollment build is running in its separate loopback instance on port
 8788. A legitimate independent login and its observed device have been imported

@@ -27,8 +27,32 @@ bounded qualification launcher. qualification.json binds the tested source,
 dependency artifacts and saved result. Package lifecycle scripts were not run;
 the published source and native archives were verified before extraction.
 
-Next: integrate this real graphics implementation into a separate synthetic
-SDK experiment while preserving the current worker's lifetime, resource and
-cleanup controls. No SDK, token, authenticated request or Framer delivery was
-tested by this fixture. SharedWorker, WebGL and other missing browser APIs
-remain unsupported; Castle still does not document JSDOM as a supported runtime.
+A subsequent synthetic SDK integration now passes. The existing compiled
+JITless owner ran the unchanged SDK with the qualified graphics dependencies,
+original private token pipe, synthetic device and original cleanup checks.
+The first run minted successfully but failed the overall resource check:
+it reached 128 MiB and recorded 53 memory-limit events, with no OOM or swap.
+That source and failed result remain preserved.
+
+The second run changes only file verification among worker modules. It uses
+the existing 64 KiB hashing-buffer implementation instead of allocating each
+entire native library. It passes at 84398080 bytes of group peak memory and
+12 tasks, with zero memory events or swap. Two local PNGs were loaded; JSDOM
+errors and console warnings/errors were zero. One unclassified process warning
+remains. V3 selection, device preservation, token handoff/discard, worker join
+and absence all passed. The outer unit and group were absent afterward.
+
+sdk-worker.patch reconstructs the experimental worker delta with
+`git apply --unidiff-zero`. It includes
+diagnostic output to the fixture's /out directory and must not be applied to
+the application worker. Its separate dependency overlay binds JSDOM, canvas,
+native libraries and the copied context patch with an explicit file-hash
+manifest. This is not an npm lockfile. Machine-specific dependency paths and
+pins are outside this portable patch. sdk-worker-qualification.json binds the
+saved result and records its limits. No Rust rebuild was needed.
+
+No authenticated request, application deployment or complete-service memory
+measurement ran. SharedWorker and WebGL remain absent; Castle still does not
+document JSDOM as supported. Next: package this qualified dependency/worker
+variant for the isolated instance while retaining account history and browser
+protection, then qualify real delivery under the existing request controls.
