@@ -26,6 +26,15 @@ reports. Verify every writable path is inside the isolated root and keep
 the browser paths masked. Match executable, host, support, worker and routing
 hashes to the approved inputs, then size the worker from saved measurements.
 
+The current source candidate adds `expected_framer_user_id` to the private
+account-import JSON. A mismatch refuses after the identity read and before
+session storage, workspace actions or account publication. Empty or oversized
+expectations refuse before I/O. Existing imports may omit the field; the
+isolated setup should always bind it to its independently selected login.
+The same candidate skips automatic browser prewarm when native dispatch is
+configured. It does not initialize a device or bypass cooldown restoration.
+Four new fixture cases are UNRUN; no installed binary has this change yet.
+
 Use one owned generation and at most two model requests. The first stream
 must demonstrate actual response text before its client disconnects, with
 the hello HEAD check while that stream remains open. Retain the live response

@@ -2409,6 +2409,8 @@ async fn complete_login(
 #[derive(Deserialize)]
 struct ImportBody {
     account_id: AccountId,
+    /// Refuse a session for any other login before saving or provisioning it.
+    expected_framer_user_id: Option<String>,
     /// Optional per-account egress proxy (residential etc.) — applied to the
     /// account's browser immediately.
     proxy: Option<String>,
@@ -2434,6 +2436,10 @@ async fn import_account(
     State(s): State<AppState>,
     Json(body): Json<ImportBody>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
+    if body.expected_framer_user_id.as_ref()
+        .is_some_and(|user| user.trim().is_empty() || user.len() > 128) {
+        return Err(ApiError::InvalidRequest("expected Framer user is invalid".into()));
+    }
     let management = pool_control::management(&s, body.account_id, false).await?;
     let cookie_header = if body.session_cookie.starts_with("session=") {
         body.session_cookie.clone()
@@ -2450,6 +2456,10 @@ async fn import_account(
     let user_id = me["id"]
         .as_str()
         .ok_or_else(|| ApiError::Internal("bad /web/users/me response (cookie invalid?)".into()))?;
+    if body.expected_framer_user_id.as_deref()
+        .is_some_and(|expected| expected != user_id) {
+        return Err(ApiError::InvalidRequest("session belongs to a different Framer user".into()));
+    }
     let session = framer_core::port::Session {
         active_user: framer_core::ids::FramerUserId(user_id.to_string()),
         cookie_header,
@@ -2598,7 +2608,11 @@ async fn import_account(
     drop(management);
     // Excluded records retain their saved session and registered proxy without
     // launching a browser. Later activation uses the same admission checks.
-    if s.serving_accounts.allows(&body.account_id) {
+    let prewarm_allowed = s.serving_accounts.allows(&body.account_id);
+    #[cfg(feature = "native-dispatch")]
+    let prewarm_allowed = prewarm_allowed && s.native_dispatch.is_none();
+    // Native imports retain device admission; they do not initialize a browser.
+    if prewarm_allowed {
         let browser = s.browser.clone();
         let state = s.clone();
         let id = body.account_id;
