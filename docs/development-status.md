@@ -35,6 +35,17 @@ with zero swap/events, joined processes and no remaining unit or cgroup.
 The next memory investigation targets the worker's allocation phases;
 authenticated delivery continues to require the separate account.
 
+The current-flag nine-phase worker probe now passes. JSDOM loading added
+21,561,344 bytes of anonymous memory. A separate pre-mint collection
+experiment also passed its original device and cleanup checks, but its
+158.083 ms collection yielded only about 1 MB less reported peak RSS in
+one comparison and 91.081 ms more total minter time. It remains unapplied;
+no reliable service-memory or latency improvement is claimed. Summary
+`72049ab5` preserves both runs, and the reproduction patch is under
+`reference/analysis/offline-worker-pre-mint-gc.patch`. Both workers joined,
+units/cgroups disappeared and swap/memory events stayed zero. No compiler,
+account, running-service or authenticated request action was involved.
+
 Review `4e69d24b` accepts the application source and saved build bindings with
 no findings. It grants no runtime or delivery approval. Preparation `398c1c63`
 selects this binary while retaining the ten other runtime declarations and

@@ -1,6 +1,31 @@
 # Local worker memory measurements
 
-A subsequent attribution sample binds process roles by known process starts
+A current-flag allocation probe retains the same nine observation points
+and adds `--jitless`. All seven worker modules still match current source
+after reversing the measurement hooks. JSDOM loading added 21,561,344 bytes
+of anonymous memory; at mint completion, the process had 47,112,192 bytes
+of anonymous PSS and 45,242,368 bytes of file PSS. This is one synthetic
+worker sample, not integrated service memory or authenticated performance.
+
+One separate experiment requested local inspector garbage collection after
+wrapper evaluation and before minting. It preserved the SDK, device state,
+deadlines and cleanup checks, and disconnected its extra inspector session.
+The worker environment gained no exposed GC global. Both runs passed.
+
+| Current flags | Group peak, bytes | Reported RSS peak, bytes | Minter elapsed, ms |
+| --- | ---: | ---: | ---: |
+| JITless phase probe | 56,434,688 | 96,002,048 | 1215.059 |
+| Plus one pre-mint collection | 55,287,808 | 94,969,856 | 1306.140 |
+
+Collection itself took 158.083 ms. It reduced heap use immediately, but
+reported peak RSS differed by only 1,032,192 bytes across these single
+samples. This does not justify adoption or establish a reliable saving.
+Production stays unchanged. The [reproduction patch](../reference/analysis/offline-worker-pre-mint-gc.patch)
+is preserved and unapplied, with zero-context format (`git apply --unidiff-zero`).
+Summary `72049ab5` binds both results, unchanged
+inputs, joined cleanup, absent units/cgroups and zero swap/memory events.
+
+A separate attribution sample binds process roles by known process starts
 and executable device/inode, without reading arguments or private inputs.
 It retains unknown roles in the estimate and rejects changed identities.
 At the peak simultaneous non-helper sample, the observed PSS values were:
