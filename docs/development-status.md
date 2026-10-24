@@ -58,6 +58,13 @@ resource attempts remained zero. These single-run timings are observations,
 not a latency benchmark. Ordinary V2 construction and R13 remain unchanged;
 this result proves local completion, not upstream acceptance.
 
+The current serializer uses wire format 13 and five fingerprint groups.
+An isolated diagnostic outer-frame decoder now passes seven synthetic cases,
+including a frame matching the public castle-rs golden digest. It returns
+private bytes to its caller, has no logging and is not connected to serving. Field-level
+parsing and private structural comparison remain pending; no private token was
+decoded and no live request followed this work.
+
 R12 completed an isolated-V2 request that was refused. The normal browser
 and paired browser baseline returned complete HTTP 200 model output. The
 isolated V2 component completed under the observed SDK identity, its child

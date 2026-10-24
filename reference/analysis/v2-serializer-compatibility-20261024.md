@@ -31,5 +31,13 @@ The obfuscated semantic graph remains partial. Numerical conclusions come
 from the separately bound constant derivation. No generator, private token
 decoder or upstream request ran for this comparison.
 
-Next: establish the remaining current field framing and implement a bounded
-structural decoder with synthetic vectors before comparing private inputs.
+The experimental `v2_token_frame.fingerprint_bytes` decoder now validates
+canonical bounded input, V13 framing, padding, five-group count and the inner
+terminator before returning private bytes to a structural parser. It has no
+CLI or logging and grants no authentication or dispatch authority. Seven
+focused cases pass, including an independently generated synthetic frame
+whose digest matches castle-rs's published golden vector. No real token has
+been decoded by this helper.
+
+Next: establish the remaining current field framing and qualify the separate
+group parser before comparing private inputs.
