@@ -19,7 +19,7 @@ INPUT = frozenset(('account_id', 'user_id', 'team_id', 'project_id',
     'turn_id', 'baseline_turn_id', 'user_prompt', 'timeout_ms', 'token_limit', 'request'))
 BOOLEANS = frozenset(('baseline_accepted', 'baseline_body_complete',
     'baseline_json_object', 'native_invoked', 'body_complete', 'json_object',
-    'cleanup_confirmed', 'host_fenced'))
+    'native_output_complete', 'cleanup_confirmed', 'host_fenced'))
 ENUMS = {'failure': frozenset(('missing_owner', 'admission', 'context', 'acquire',
     'bearer', 'baseline', 'mint', 'native', 'cancelled', 'deadline', 'publication',
     'cleanup', 'owner_lost')), 'refusal_policy': frozenset(('castle', 'upstream')),
@@ -57,6 +57,9 @@ def checked_report(data):
     for key, choices in ENUMS.items():
         if value[key] is not None and (type(value[key]) is not str or value[key] not in choices):
             refused()
+    if value['native_output_complete'] and not (value['native_invoked']
+            and value['status'] == 200 and value['body_complete'] and value['json_object']):
+        refused()
     return value
 
 

@@ -135,9 +135,10 @@ fn serialization_contains_only_fixed_report_fields() {
     let report = Report { baseline_accepted: true, baseline_status: Some(200),
         status: Some(403), ..Report::default() };
     let value = serde_json::to_value(facts(&report)).unwrap();
-    assert_eq!(value.as_object().unwrap().len(), 13);
+    assert_eq!(value.as_object().unwrap().len(), 14);
     assert_eq!(value["baseline_accepted"], true);
     assert_eq!(value["status"], 403);
+    assert_eq!(value["native_output_complete"], false);
 }
 
 #[test]
