@@ -1,5 +1,17 @@
 # Serving architecture and branch policy
 
+Normal-stream acceptance correlates the server-generated operation header
+with its root registration, original producer join and both successful
+releases. Actual generated text must precede the test disconnect. Confirmed
+cleanup and both releases must precede the subsequent complete stream on
+the same generation. Missing observations remain inconclusive.
+
+Host replacement separately preserves device cooldowns, request windows,
+mint spacing, primary-device selection and daily reserve usage. Account
+cooldown expiry does not prove that host state can be discarded. The normal
+package's proposed entrypoint retains the existing identity-bound, single-use
+restoration mechanism without enabling native routing.
+
 Normal-browser admission rollout and ordinary-V2 acceptance are independent.
 The final ordinary-V2 source input `838f7dbb` retains one checked transfer for
 the original grant/session/scope, including concurrent preparations. Failed

@@ -1,5 +1,19 @@
 # Development status
 
+The normal-stream acceptance client now checks actual generated text before
+disconnect and correlates the response's opaque operation ID with the original
+producer join and both successful releases. Ten new synthetic checks and one
+local socket check pass under a 128 MiB memory limit, no swap, isolated
+networking and no private runtime mounts. The original SSE parser is unchanged.
+Both jobs are collected; the captured launcher/client processes and groups are
+absent. This does not claim exhaustive transient descendant capture.
+
+The live pair remains unspent. The authorized normal rollout still needs the
+host ledger transfer and its fresh controller binding. Source review found
+the existing restoration support compatible with the new host; the combined
+host compatibility check and actual transfer have not run. The new controller
+is incomplete preparation and must not be executed. No live service changed.
+
 Updated 2026-10-24. The normal service remains browser-based. Publishing these
 branches does not change the running service.
 
