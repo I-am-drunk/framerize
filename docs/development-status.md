@@ -12,9 +12,10 @@ block that shared outcome. Goal identity and accumulated accounting are retained
 The recovery owner reports the fixed hook denial in all six live sessions
 (`303f00e`). This runtime session also verified its original active goal and
 nondecreasing accounting against the preload. The prior quiet window is retired.
-Transport's original goal remains intact under an older native binding; its
-guarded reattach repair belongs to the admission lane and does not hold other
-work. No further provider restart or objective recreation is planned.
+Transport reports an explicitly user-created active goal on its replacement
+thread. Its older detached goal remains preserved. The old reattachment plan
+is retired and must not overwrite the new goal. T3 source qualification stays
+separate from the Framer runtime work.
 
 R15 completed with normal browser HTTP 200, browser-baseline HTTP 200 and
 explicit window-realm native HTTP 403. The native response was complete JSON
@@ -60,8 +61,8 @@ duplicate JSON keys before envelope checks and pairing. Its shared decoder
 passes six synthetic cases (`ed4313ae`, peak 17,043,456 bytes), including nested
 and escaped duplicates, fixed errors and successful pairing. Inputs matched;
 no swap or limit events occurred and the test group exited. No private log
-was read. The next capture-package step is linking the qualified writer into
-its dependent binary and freezing the strict decoder with the collector.
+was read. The qualified writer is now linked into the staged capture binary;
+R16 freezes the strict decoder with the collector and its helper dependencies.
 Actual native capture and accepted native inference remain unverified.
 
 The report projection also rejects non-plain entry keys after validation and
@@ -77,8 +78,18 @@ the final link receipt is `3874154a`, binary SHA-256 `fe48a036`, with a
 608,927,744-byte peak. Every phase had zero swap/limit events and joined cleanup.
 The API build includes the qualified bearer-deadline and response-head changes;
 the final executable includes the native structure observer. This is a staged
-binary, not a deployment or new inference. The next attempt must also freeze
-the collector with its JSON decoder, pair helper and projection dependency.
+binary, not a deployment or new inference.
+
+R16 is prepared with 2,013 pinned inputs. Its daemon command and expected image
+hash select `fe48a036`; activation and collection both check the captured image
+against that intended binary. The collector, JSON decoder, pair helper and
+projection module are frozen together. Package binding is `4c8e143f`, diagnostic
+binding `1ddef66c`. Six synthetic full-collector cases pass (`e26b541b`), covering
+day selection, lease pairing, unavailable native data, duplicate keys, detached
+timestamp errors and ambiguous records. Peak memory was 17,993,728 bytes, with
+zero swap or limit events, unchanged inputs and the test group removed. A prior
+disk preflight refusal ran no cases; disposable caches were reclaimed without
+changing the reserve. No R16 retirement, SDK execution or request has run.
 
 The request-path correction is integrated as `216350e`. Its exact 19-case
 qualification is reused from receipt `65937832`: all pass, 17,039,360-byte peak,
