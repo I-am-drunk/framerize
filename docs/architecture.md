@@ -1,5 +1,14 @@
 # Serving architecture and branch policy
 
+The daemon has an explicit `--browser-request-ownership` option. It installs
+request ownership before proxy setup, prewarm and serving while retaining
+ordinary browser routing. Defaults remain unchanged, and mixed offline or
+resident options are rejected. Five focused startup tests pass, including
+normal hello routes and the retained unmanaged-host retirement barrier.
+This option does not itself qualify a rollout: remaining local, static-file
+and administrative completion groups inside the shared router still need
+qualification, along with the selected runtime support files.
+
 The core pipeline rechecks current account identity, saved scope, readiness and
 cooldown after workspace awaits and immediately before either inference call.
 It releases the account update lock before external work. This prevents a retry
