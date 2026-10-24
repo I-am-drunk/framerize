@@ -95,7 +95,7 @@ impl SuppliedAuth {
 }
 
 impl RequestContext {
-    fn prepare(mut self) -> Result<(String, Value), ClientError> {
+    pub(crate) fn prepare(mut self) -> Result<(String, Value), ClientError> {
         if self.project.0.is_empty() || self.feature_category.is_empty()
             || self.feature_name.is_empty() || self.step.is_empty()
             || self.chat_session.is_empty() || self.turn_id.is_empty()

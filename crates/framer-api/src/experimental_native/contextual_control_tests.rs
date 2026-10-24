@@ -14,6 +14,49 @@ fn supplied() -> BrowserAuthorization {
         castle: CastleToken("fixture-token".into()),
         cookie_header: "session=fixture-only-cookie; current=fresh".into() }
 }
+
+#[tokio::test]
+async fn baseline_bearer_uses_checked_current_jar_without_a_mint() {
+    let (client, account) = scope(NativeEgress::Direct);
+    let server = listener().await;
+    let api = bound(&account, server.local_addr().unwrap(), NativeEgress::Direct);
+    let expected = account.clone();
+    let worker = serve_once(server, response(200, &token().to_string(), ""));
+    let pending = client.prepare_owned(&account, tokio::time::Instant::now() + BOUND,
+        move |session, control| async move {
+            api.browser_context_bearer(&expected, &session, &target(),
+                "https://framer.com/projects/fixture-project",
+                "session=fixture-only-cookie; current=fresh", &control).await
+        }).unwrap();
+    assert_eq!(pending.await.unwrap(), "fixture-bearer");
+    let request = result(worker).await.to_ascii_lowercase();
+    assert!(request.contains("\r\ncookie: session=fixture-only-cookie; current=fresh\r\n"));
+    close(&client, &account).await;
+}
+
+#[tokio::test]
+async fn baseline_bearer_rejects_wrong_page_or_login_before_http() {
+    let (client, account) = scope(NativeEgress::Direct);
+    let server = listener().await;
+    let api = bound(&account, server.local_addr().unwrap(), NativeEgress::Direct);
+    let expected = account.clone();
+    let pending = client.prepare_owned(&account, tokio::time::Instant::now() + BOUND,
+        move |session, control| async move {
+            for (page, jar) in [
+                ("https://framer.com/projects/other", "session=fixture-only-cookie"),
+                ("https://framer.com/projects/fixture-project", "session=other"),
+            ] {
+                let reply = api.browser_context_bearer(&expected, &session, &target(),
+                    page, jar, &control).await;
+                assert!(reply.cleanup_confirmed);
+                assert_eq!(reply.value, Err(PreparationFailure::Rejected));
+            }
+            PreparationResult::finished(Ok(()))
+        }).unwrap();
+    pending.await.unwrap();
+    assert!(server.accept().now_or_never().is_none());
+    close(&client, &account).await;
+}
 struct Browser {
     calls: Mutex<Vec<(AccountId, String, String, String)>>,
     reply: Mutex<Option<BrowserAuthorization>>,

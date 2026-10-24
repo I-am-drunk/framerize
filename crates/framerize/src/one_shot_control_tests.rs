@@ -6,6 +6,9 @@ use framer_api::{experimental_native::{native_account::{PreparationControl,
 use std::sync::{Mutex, atomic::{AtomicBool, AtomicUsize, Ordering}};
 use tokio::sync::Semaphore;
 
+#[path = "browser_comparison_tests.rs"]
+mod comparison;
+
 struct Store { loads: AtomicUsize, user: FramerUserId }
 impl SessionStore for Store {
     fn load<'a, 'b, 'f>(&'a self, _: &'b FramerUserId)

@@ -327,6 +327,22 @@ fn bounded_json(value: &Value) -> bool {
 }
 
 impl Plan {
+    /// Exact pre-token envelope for an explicit browser/native comparison.
+    /// Uses the same serializer as native dispatch, including session binding.
+    pub fn comparison_body(&self) -> Result<Value, port::DispatchError> {
+        let c = &self.contract;
+        let (path, body) = crate::experimental_native::native_account::RequestContext {
+            dialect: self.route.dialect(), project: c.identity.project.clone(),
+            feature_category: c.context.feature_category.clone(),
+            feature_name: c.context.feature_name.clone(), step: c.context.step.clone(),
+            chat_session: c.identity.chat_session.clone(), step_index: 0,
+            turn_id: c.context.turn_id.clone(), user_prompt: c.context.user_prompt.clone(),
+            payload: c.expected.clone(),
+        }.prepare().map_err(|_| invalid())?;
+        if path != c.path || !bounded_json(&body) { return Err(invalid()); }
+        Ok(body)
+    }
+
     /// The factory must attach the root-owned shared legacy/native lease and
     /// mutation fencing. It receives the checked binding, never raw credentials.
     /// A bare NativeDispatchProvider is suitable only for isolated fixtures.
