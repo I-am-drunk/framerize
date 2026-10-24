@@ -3,7 +3,7 @@
 
 use crate::account::{AccountState, ManagedAccount};
 use crate::credits;
-use crate::error::CoreError;
+use crate::error::{AccountCooldown, CoreError};
 use crate::port::{BrowserBridge, FramerClient, Session, SessionStore, StateStore, WorkspaceSpec};
 use serde::{Deserialize, Serialize};
 
@@ -148,16 +148,19 @@ async fn check_inference_admission(
         || current.current_project != account.current_project || current.proxy != account.proxy {
         return Err(CoreError::NotEligible("account scope changed before inference".into()));
     }
-    let now = crate::rotation::now_ms();
-    if let Some(until) = current.cooling_until_ms.filter(|until| *until > now) {
-        return Err(CoreError::NotEligible(format!(
-            "account-cooling:{}", until.saturating_sub(now).div_ceil(1000),
-        )));
-    }
-    if !current.is_eligible() {
+    if current.current_team.is_none() || current.current_project.is_none() {
         return Err(CoreError::NotEligible(
             "account is not ready or is missing its current team or project".into(),
         ));
+    }
+    let now = crate::rotation::now_ms();
+    if let Some(until) = current.cooling_until_ms.filter(|until| *until > now) {
+        return Err(CoreError::AccountCooling(AccountCooldown {
+            retry_after_secs: until.saturating_sub(now).div_ceil(1000),
+        }));
+    }
+    if current.state != AccountState::Ready {
+        return Err(CoreError::AccountNotReady);
     }
     Ok(())
 }
