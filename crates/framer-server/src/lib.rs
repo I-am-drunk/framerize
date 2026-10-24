@@ -769,8 +769,8 @@ fn chain_admission_error(error: ApiError) -> String {
     }
 }
 
-fn upstream_error_excerpt(error: &str) -> &str {
-    let mut end = error.len().min(240);
+fn error_excerpt(error: &str, max_bytes: usize) -> &str {
+    let mut end = error.len().min(max_bytes);
     while !error.is_char_boundary(end) {
         end -= 1;
     }
@@ -832,7 +832,7 @@ async fn record_account_health<T>(
             eprintln!(
                 "[upstream] {}: provider refused (NOT account health): {}",
                 &account.id.0.to_string()[..8],
-                upstream_error_excerpt(e),
+                error_excerpt(e, 240),
             );
             return;
         }
@@ -1093,7 +1093,7 @@ async fn free_complete(
                                 Event::new("ai.chain.repick")
                                     .account(&account.id)
                                     .field("to", &next.id.0.to_string()[..8])
-                                    .field("reason", r.as_ref().err().map(|e| &e[..e.len().min(120)]).unwrap_or(""))
+                                    .field("reason", r.as_ref().err().map(|e| error_excerpt(e, 120)).unwrap_or(""))
                                     .emit();
                             }
                             account = next;
@@ -1295,7 +1295,7 @@ async fn free_complete(
                     Event::new("ai.chain.repick")
                         .account(&account.id)
                         .field("to", &next.id.0.to_string()[..8])
-                        .field("reason", result.as_ref().err().map(|e| &e[..e.len().min(120)]).unwrap_or(""))
+                        .field("reason", result.as_ref().err().map(|e| error_excerpt(e, 120)).unwrap_or(""))
                         .emit();
                 }
                 account = next;
@@ -1576,7 +1576,7 @@ async fn native_complete(
                                 Event::new("ai.chain.repick")
                                     .account(&account.id)
                                     .field("to", &next.id.0.to_string()[..8])
-                                    .field("reason", r.as_ref().err().map(|e| &e[..e.len().min(120)]).unwrap_or(""))
+                                    .field("reason", r.as_ref().err().map(|e| error_excerpt(e, 120)).unwrap_or(""))
                                     .emit();
                             }
                             account = next;
@@ -1735,7 +1735,7 @@ async fn native_complete(
                         Event::new("ai.chain.repick")
                             .account(&account.id)
                             .field("to", &next.id.0.to_string()[..8])
-                            .field("reason", r.as_ref().err().map(|e| &e[..e.len().min(120)]).unwrap_or(""))
+                            .field("reason", r.as_ref().err().map(|e| error_excerpt(e, 120)).unwrap_or(""))
                             .emit();
                     }
                     account = next;

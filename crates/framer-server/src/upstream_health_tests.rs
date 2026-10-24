@@ -62,16 +62,18 @@ async fn upstream_403_multibyte_diagnostic_preserves_account_health_and_writes()
 }
 
 #[test]
-fn upstream_diagnostic_keeps_240_byte_cap_on_utf8_boundaries() {
-    assert_eq!(upstream_error_excerpt("short é"), "short é");
-    assert_eq!(upstream_error_excerpt(&"a".repeat(241)), "a".repeat(240));
-    assert_eq!(upstream_error_excerpt(&format!("{}éz", "a".repeat(238))),
-        format!("{}é", "a".repeat(238)));
-    for scalar in ['é', '€', '🦀'] {
-        for cut in 1..scalar.len_utf8() {
-            let prefix = "a".repeat(240 - cut);
-            let error = format!("{prefix}{scalar}tail");
-            assert_eq!(upstream_error_excerpt(&error), prefix);
+fn diagnostic_excerpts_keep_120_and_240_byte_caps_on_utf8_boundaries() {
+    for limit in [120, 240] {
+        assert_eq!(error_excerpt("short é", limit), "short é");
+        assert_eq!(error_excerpt(&"a".repeat(limit + 1), limit), "a".repeat(limit));
+        assert_eq!(error_excerpt(&format!("{}éz", "a".repeat(limit - 2)), limit),
+            format!("{}é", "a".repeat(limit - 2)));
+        for scalar in ['é', '€', '🦀'] {
+            for cut in 1..scalar.len_utf8() {
+                let prefix = "a".repeat(limit - cut);
+                let error = format!("{prefix}{scalar}tail");
+                assert_eq!(error_excerpt(&error, limit), prefix);
+            }
         }
     }
 }
