@@ -185,13 +185,19 @@ AI_START_JS = """(async ([path, body, token, bearer, jobId, dev]) => {
     delete window.__aiJobs[jobId];
   }, 900000);
   (async () => {
+    let failurePhase = "fetch", headStatus = null;
     try {
       const r = await fetch("%s" + path, {
         method: "POST", credentials: "include", headers, body: JSON.stringify(body),
         signal: job.controller.signal,
       });
+      headStatus = r.status;
+      failurePhase = "body";
       return { status: r.status, usage: r.headers.get("x-framer-ai-usage"), body: await r.text() };
-    } catch (e) { return { status: -1, usage: null, body: String(e) }; }
+    } catch (e) {
+      return { status: -1, usage: null, body: String(e),
+        failure_phase: failurePhase, head_status: headStatus };
+    }
   })().then(v => {
     // Cancellation deletes the slot. A late completion must not recreate it.
     if (window.__aiJobs[jobId] === job) {
@@ -2487,6 +2493,20 @@ class Host:
             raise RuntimeError("browser page account ownership is unconfirmed")
         return owners[0]
 
+    @staticmethod
+    def _take_ai_post_failure_facts(result, job):
+        """Strip private diagnostics; a received head does not complete a response."""
+        phase = result.pop("failure_phase", None)
+        status = result.pop("head_status", None)
+        if type(result.get("status")) is not int or result["status"] != -1:
+            return {}
+        if phase == "fetch" and status is None:
+            return {"failure_phase": "fetch", "head_status": None, "job": job}
+        if (phase == "body" and type(status) is int
+                and (status == 0 or 100 <= status <= 599)):
+            return {"failure_phase": "body", "head_status": status, "job": job}
+        return {}
+
     async def _run_job(self, page, path, body, token, bearer, job, dev, timeout):
         if self._observed is not None:
             from observed_sidecar import run_job
@@ -2657,6 +2677,7 @@ class Host:
         if cmd == "ai_post":
             acc = await self._account(account)
             page = acc.page  # ambient page (fallback only)
+            job = None
             queue_wait = 0.0
             t0 = time.monotonic()
             pid = (req.get("body") or {}).get("projectId")
@@ -2773,7 +2794,8 @@ class Host:
             emit("ai.post", account=account[:8], path=req["path"], status=r["status"],
                  duration_ms=int((time.monotonic()-t0)*1000),
                  queue_wait_ms=int(queue_wait*1000),
-                 outcome="ok" if 200 <= r["status"] < 300 else "error")
+                 outcome="ok" if 200 <= r["status"] < 300 else "error",
+                 **self._take_ai_post_failure_facts(r, job))
             # queue_wait_ms lets the caller separate "we waited for a page" from
             # "the upstream is slow" — they are identical in wall-clock and the
             # chunk sizer must not conflate them.
