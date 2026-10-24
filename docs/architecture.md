@@ -1,5 +1,15 @@
 # Serving architecture and branch policy
 
+The private resident bootstrap command reads only the retained HTTP-200
+page's current wrapper, device, URL and actual launch route. It reserves that
+account during its bounded read, retains pending RPCs through waiter loss,
+and returns only after its read-only lease settles. The Rust handoff uses the
+existing sidecar connection and exact incarnation, holds its proxy revision,
+and validates the complete fixed reply. It neither starts a missing browser
+nor registers a replacement proxy. An unknown reply cannot authorize later
+minting or release the caller's application fence. This is a future-startup
+capability; source replacement does not install it in the live owner.
+
 The resident API accepts a typed lease context and actual current cookie jar.
 It permits the captured login-page URL without relaxing comparison editor
 checks, binds the effective launch route, and consumes one retained bearer.

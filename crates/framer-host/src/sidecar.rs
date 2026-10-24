@@ -34,6 +34,8 @@ pub mod observer;
 pub mod retirement;
 #[path = "sidecar_resident.rs"]
 pub mod resident;
+#[path = "sidecar_resident_bootstrap.rs"]
+pub mod resident_bootstrap;
 #[path = "sidecar_tasks.rs"]
 mod tasks;
 
@@ -63,6 +65,7 @@ fn fail_pending(pending: &PendingReplies, message: &str) {
 const SCRIPT: &str = include_str!("../../../scripts/camoufox_host.py");
 const RESIDENT_ACTIVITY: &str = include_str!("../../../scripts/resident_activity.py");
 const RESIDENT_AUTHORIZATION: &str = include_str!("../../../scripts/resident_authorization.py");
+const RESIDENT_BOOTSTRAP: &str = include_str!("../../../scripts/resident_bootstrap.py");
 const CONTEXTUAL_AUTHORIZATION: &str = include_str!("../../../scripts/contextual_authorization.py");
 const RESIDENT_GENERATION_ENV: &str = "FRAMERIZE_RESIDENT_APPLICATION_GENERATION";
 
@@ -313,6 +316,8 @@ impl SidecarBridge {
                 std::fs::write(parent.join("resident_activity.py"), RESIDENT_ACTIVITY)
                     .map_err(|e| e.to_string())?;
                 std::fs::write(parent.join("resident_authorization.py"), RESIDENT_AUTHORIZATION)
+                    .map_err(|e| e.to_string())?;
+                std::fs::write(parent.join("resident_bootstrap.py"), RESIDENT_BOOTSTRAP)
                     .map_err(|e| e.to_string())?;
                 std::fs::write(parent.join("contextual_authorization.py"), CONTEXTUAL_AUTHORIZATION)
                     .map_err(|e| e.to_string())?;

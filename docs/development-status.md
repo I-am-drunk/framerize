@@ -3,6 +3,18 @@
 Updated 2026-10-24. The normal service remains browser-based. Publishing these
 branches does not change the running service.
 
+Resident bootstrap is implemented in source. It reads the retained successful
+browser's metadata through the existing owner, checks the exact sidecar and
+proxy-registration generation, and returns no token or cookie header. The
+Python operation owns its read-only RPCs through caller cancellation. Nine
+new Python cases are frozen but unrun: the 128 MiB test runner was refused
+before execution by the unchanged protected-memory reserve. Five new Rust
+cases are also unrun. Python syntax and whitespace checks pass; rustfmt is
+not installed. This does not activate the running host or prove a crossover.
+The next integration is the asynchronous startup-owned capture adapter and
+version 2 baseline/native-mint sequence. Document-continuity hardening is
+being supplied separately and remains pending.
+
 The private resident Python operation and its host activity integration are
 implemented. Saved isolated checks pass for 26 host activity cases, 25 private
 operation cases and two exact-JavaScript fixture scripts, 141 existing host
