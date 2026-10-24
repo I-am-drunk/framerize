@@ -20,7 +20,8 @@ SECRET = D.SECRET
 UNSET = object()
 STAGES = {"pre_context": "mint_pre_context", "dynamic_import": "mint_import",
           "export_validation": "mint_export", "wrapper_call": "mint_wrapper_call",
-          "post_context": "mint_post_context", "invalid_token": "mint_invalid_token"}
+          "post_context": "mint_post_context", "post_page": "mint_post_page",
+          "post_device": "mint_post_device", "invalid_token": "mint_invalid_token"}
 
 
 class PrivateRPCError(RuntimeError):

@@ -31,7 +31,8 @@ STAGES = {"account_start", "context_inputs", "cookie_seed", "navigation", "devic
           "baseline", "native_token", *BASELINE_STAGES,
           "mint_rpc", "mint_rpc_target_closed", "mint_rpc_timeout", "mint_rpc_error",
           "mint_reply_invalid", "mint_pre_context", "mint_import", "mint_export",
-          "mint_wrapper_call", "mint_post_context", "mint_invalid_token",
+          "mint_wrapper_call", "mint_post_context", "mint_post_page", "mint_post_device",
+          "mint_invalid_token",
           "baseline_header_before_mint_order", "baseline_header_before_mint_membership",
           "baseline_header_before_mint_values", "baseline_header_after_mint_order",
           "baseline_header_after_mint_membership", "baseline_header_after_mint_values"}
