@@ -403,7 +403,12 @@ Transport/config owner: `mcp:a94287af-9994-4882-abc3-5108e653cc34`.
 
 The isolated fixture denied a nested blocked transition after same-process
 configuration reload and retained its goal through cold resume. This does not
-establish live T3 activation. Keep the current anti-blocking guidance until the
+establish live T3 activation. Transport's negative control in `9146049` showed
+that starting a fresh turn without the explicit reload still allowed the blocked
+call on a disposable fixture goal. Its pinned-source trace identifies SIGHUP as
+graceful shutdown, not config reload; no live signal or shared-goal change occurred.
+Neither mechanism supplies the missing live-activation evidence.
+Keep the current anti-blocking guidance until the
 config owner verifies activation, then remove only its redundant wording.
 Retain concrete progress, action ownership/input/evidence, full-outcome completion,
 runtime guards and accounting preservation. No status-only loops, session polling,
