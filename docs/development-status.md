@@ -11,7 +11,8 @@ failed result and account fence remain preserved.
 
 A diagnostic-only source change adds fixed preparation stages and five
 boolean context checks to the sidecar log. It preserves generic public errors
-and all acceptance checks. It is not yet tested or selected by a live attempt.
+and all acceptance checks. Ten affected regression cases and ten new
+diagnostic/privacy cases pass. It has not yet been selected by a live attempt.
 
 The next admitted comparison reached browser startup but exhausted its
 96-task child limit. It returned no baseline or native result. Both logical
