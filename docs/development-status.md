@@ -3,7 +3,17 @@
 Updated 2026-10-24. The normal service remains browser-based. Publishing these
 branches does not change the running service.
 
-The latest isolated comparison (R8) passed device readiness and all seven
+The latest isolated comparison (R9) reached the browser mint operation and
+failed there before any inference transport started. Its saved stage is
+`baseline_mint`; native inference did not run. Account closure was confirmed,
+but browser cleanup was not. The child exited naturally and its group was
+removed, peaking at 1,366,941,696 bytes and 186 tasks with zero swap or limit
+events. A matched same-boot journal resolved physical ownership while keeping
+the logical `Cleanup` failure and full cooldown. The protected browser is
+unchanged, and the isolated service remains stopped. Inner mint and outer
+browser-RPC diagnostics are being prepared before another live comparison.
+
+The earlier isolated comparison (R8) passed device readiness and all seven
 cookie, login and page checks. It returned a settled baseline preparation
 failure with zero inference transport starts; native inference was not
 attempted. This does not identify a Castle or HTTP failure. Fixed diagnostic
@@ -18,7 +28,9 @@ idle instance, and a separate verified shutdown preserved its unused handoff
 and all cooldown history. The isolated service is stopped; the protected
 browser service is unchanged. The next controller keeps clean refusals
 stopped and performs any successful-comparison restoration outside the sandbox.
-That controller is prepared but not yet run.
+R9 used that controller and retained its fence after unconfirmed browser
+cleanup. Fourteen synthetic adoption and restoration cases now pass. No live
+restoration acceptance is claimed from those cases.
 
 A network-isolated browser fixture reproduced a local cookie-selection defect:
 the SDK's host-only and domain cookie pair becomes two entries in Playwright's
