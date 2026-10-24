@@ -61,21 +61,29 @@ this result proves local completion, not upstream acceptance.
 The current serializer uses wire format 13 and five fingerprint groups.
 An isolated diagnostic outer-frame decoder now passes seven synthetic cases,
 including a frame matching the public castle-rs golden digest. It returns
-private bytes to its caller, has no logging and is not connected to serving. Field-level
-parsing and private structural comparison remain pending; no private token was
-decoded and no live request followed this work.
+private bytes to its caller, has no logging and is not connected to serving.
 The report projection now passes eleven focused synthetic cases, including
 duplicate and escaped JSON keys, malformed metadata, structural accounting,
 fixed-error privacy and input-buffer clearing. The isolated suite peaked at
 17,055,744 bytes with zero swap or limit events; its process group is gone.
-The prior seven frame-decoder cases are reused unchanged. The next dependency
-is the separately owned five-group parser, followed by its focused validation
-and a bounded structural observation. No additional SDK call or live request
-was made for these projection checks.
-Two additional synthetic composition cases are prepared to exercise the frame
-decoder, group parser and projection together. They remain unrun until the
-separately owned parser is integrated. The private observation draft retains
-the existing socket denial, child owner and 160 MiB cap; it is not activated.
+The prior seven frame-decoder cases are reused unchanged. The five-group parser
+is integrated and passes all fifteen synthetic cases. Two further composition
+cases pass across frame decoding, group parsing and projection, including the
+unparsed event/trailer boundary. That suite peaked at 17,018,880 bytes with
+zero swap or limit events and confirmed process-group cleanup.
+
+One subsequent socket-denied synthetic SDK observation passed through the
+private diagnostic pipe. It parsed 88 fields across groups 0/4/7/8/9, consuming
+563 fingerprint bytes. Only group ID, field ID, type and encoded byte length
+were retained. The token was discarded; no field values or event payloads were
+saved. The unchanged dedicated profile minted once in 730 ms, completed its
+operation in 983 ms, preserved device state and joined its child. Peak cgroup
+memory was 122,073,088 bytes under the existing 160 MiB cap, with zero swap or
+limit events. These observations validate local structural decoding, not
+upstream acceptance. No account, browser, service or Framer request was made.
+Next, obtain the same bounded structural evidence from an owned working-browser
+mint before drawing conclusions about differences. R13 remains the latest live
+result; its retained owner and rate history are unchanged.
 
 R12 completed an isolated-V2 request that was refused. The normal browser
 and paired browser baseline returned complete HTTP 200 model output. The
