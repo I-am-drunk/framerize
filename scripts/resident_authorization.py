@@ -116,7 +116,8 @@ def validate_request(request):
                   'finish': {'native_state', 'admission'},
                   'discard': {'native_state'}}
         if type(request.get('version')) is int and request['version'] == 2:
-            extras.update(baseline={'bearer', 'body'}, mint_native=set())
+            extras.update(baseline={'bearer', 'body'}, mint_native=set(),
+                          begin_native_sdk=set(), complete_native_sdk=set())
             extras['acquire'] = extras['acquire'] | {'provenance'}
         if type(action) is not str or action not in extras:
             _refuse()
@@ -140,7 +141,7 @@ def validate_request(request):
                 _refuse()
         elif action == 'baseline':
             return _validate_baseline(request)
-        elif action == 'mint_native':
+        elif action in ('mint_native', 'begin_native_sdk', 'complete_native_sdk'):
             pass
         elif action == 'finish':
             if (type(request['native_state']) is not str or request['native_state'] != 'settled'
@@ -346,7 +347,8 @@ class ResidentControl:
                     return await op.phase_call(req)
                 return await self._acquire(req)
             op = self._lookup(req)
-            if req['action'] in ('baseline', 'mint_native'):
+            if req['action'] in ('baseline', 'mint_native', 'begin_native_sdk',
+                                 'complete_native_sdk'):
                 return await op.phase_call(req)
             op.close(req['native_state'], req.get('admission', 'resume') == 'resume')
             return dict(await asyncio.shield(op.completion))
@@ -724,11 +726,14 @@ class _CrossoverOperation(_Operation):
         super().__init__(control, req, binding, lease)
         self.phase, self.pin, self.context = 'new', None, None
         self.baseline_digest = self.rate = None
+        self.sdk_rate_held = False
 
     async def phase_call(self, req):
         action = req['action']
         expected = {'acquire': 'new', 'baseline': 'acquired',
-                    'mint_native': 'baseline_passed'}
+                    'mint_native': 'baseline_passed',
+                    'begin_native_sdk': 'baseline_passed',
+                    'complete_native_sdk': 'sdk_admitted'}
         if (self.phase != expected.get(action) or self.closed or self.failed
                 or (self.owner is not None and not self.owner.done())):
             _refuse()
@@ -785,8 +790,14 @@ class _CrossoverOperation(_Operation):
                 await self.capture()
             elif action == 'baseline':
                 await self.baseline(req)
-            else:
+            elif action == 'mint_native':
                 await self.mint_native()
+            elif action == 'begin_native_sdk':
+                await self.begin_native_sdk()
+            elif action == 'complete_native_sdk':
+                await self.complete_native_sdk()
+            else:
+                _refuse()
         except BaseException as error:
             if isinstance(error, asyncio.CancelledError):
                 self.browser_unknown = True
@@ -799,27 +810,58 @@ class _CrossoverOperation(_Operation):
                         accepted=False, refusal=None)
                 self.payload.update(accepted=False, browser_settled=not self.browser_unknown)
 
-    async def charged_mint(self):
+    async def prepare_rate(self):
         await self.check_pin()
         if self.rate is None:
             self.rate = _ResidentRate(self.binding, self.context[1])
+
+    async def charge_locked(self):
+        rate, acc = self.rate, self.binding.acc
+        rate.check()
+        if (type(acc.last_mint) not in (int, float)
+                or not math.isfinite(acc.last_mint) or acc.last_mint < 0):
+            _refuse()
+        gap = rate.gap - (time.monotonic() - acc.last_mint)
+        if gap > 0:
+            if gap >= self.deadline - asyncio.get_running_loop().time():
+                _refuse()
+            await asyncio.sleep(gap)
+        await self.check_pin()
+        rate.check()
+        self.admitted()
+        # Charge before either SDK can start, even if it later fails.
+        rate.note(acc, rate.key)
+        acc.last_mint = time.monotonic()
+
+    async def begin_native_sdk(self):
+        await self.prepare_rate()
+        await self.rate.lock.acquire()
+        self.sdk_rate_held = True
+        await self.charge_locked()
+        self.payload = self.context_payload('sdk_admitted')
+
+    async def complete_native_sdk(self):
+        # The daemon calls this only after joining its separately owned worker.
+        # No wrapper invocation, token lookup, or new rate charge occurs here.
+        if not self.sdk_rate_held:
+            _refuse()
+        self.binding.acc.last_mint = time.monotonic()
+        await self.check_pin()
+        self.admitted()
+        self.payload = self.context_payload('sdk_complete')
+        self.release_sdk_rate()
+
+    def release_sdk_rate(self):
+        if self.sdk_rate_held:
+            self.binding.acc.last_mint = time.monotonic()
+            self.rate.lock.release()
+            self.sdk_rate_held = False
+
+    async def charged_mint(self):
+        await self.prepare_rate()
         rate, acc = self.rate, self.binding.acc
         async with rate.lock:
-            rate.check()
-            if (type(acc.last_mint) not in (int, float)
-                    or not math.isfinite(acc.last_mint) or acc.last_mint < 0):
-                _refuse()
-            gap = rate.gap - (time.monotonic() - acc.last_mint)
-            if gap > 0:
-                if gap >= self.deadline - asyncio.get_running_loop().time():
-                    _refuse()
-                await asyncio.sleep(gap)
-            await self.check_pin()
-            rate.check()
-            self.admitted()
-            # Conservatively charge each attempted genuine mint, even on failure.
-            rate.note(acc, rate.key)
-            acc.last_mint = time.monotonic()
+            await self.charge_locked()
             phase = 'baseline' if self.phase == 'baseline_pending' else 'native'
             async def mint_owned():
                 sdk = None
@@ -908,6 +950,10 @@ class _CrossoverOperation(_Operation):
         except BaseException:
             self.browser_unknown = True
             self.fence()
+        finally:
+            # The lease still fences admission if external settlement is unknown.
+            # Release only the original rate lock, after all phase/RPC owners join.
+            self.release_sdk_rate()
         receipt = await super().complete(native_state, resume)
         self.spec = self.context = self.baseline_digest = self.rate = None
         return receipt

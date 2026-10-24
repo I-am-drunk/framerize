@@ -11,6 +11,7 @@ pub(crate) struct StartupOwner {
     sidecar: Arc<SidecarBridge>,
     native: NativeAccountClient,
     store: Arc<SessionStoreBridge>,
+    sdk: Option<Arc<offline_worker_owner::V2Worker>>,
 }
 
 impl StartupOwner {
@@ -19,15 +20,22 @@ impl StartupOwner {
         let native = NativeAccountClient::new().map_err(|_| Failure::MissingOwner)?;
         let store = SessionStoreBridge::new(native.clone(), store)
             .map_err(|_| Failure::MissingOwner)?;
-        Ok(Self { sidecar, native, store: Arc::new(store) })
+        Ok(Self { sidecar, native, store: Arc::new(store), sdk: None })
     }
 
     pub fn install(state: &mut AppState, sidecar: Arc<SidecarBridge>)
         -> Result<Arc<Self>, Failure> {
+        Self::install_with_sdk(state, sidecar, None)
+    }
+
+    pub fn install_with_sdk(state: &mut AppState, sidecar: Arc<SidecarBridge>,
+        sdk: Option<Arc<offline_worker_owner::V2Worker>>) -> Result<Arc<Self>, Failure> {
         if state.native_dispatch.is_some() || state.operation_ownership.is_none() {
             return Err(Failure::MissingOwner);
         }
-        let owner = Arc::new(Self::new(sidecar, state.sessions.clone())?);
+        let mut owner = Self::new(sidecar, state.sessions.clone())?;
+        owner.sdk = sdk;
+        let owner = Arc::new(owner);
         state.sessions = owner.store.clone();
         Ok(owner)
     }
@@ -73,6 +81,7 @@ impl Owner for StartupOwner {
             Ok(Capture { identity: identity.clone(), configured_proxy: configured_proxy.clone(),
                 configured_proxy_revision: metadata.proxy_revision,
                 sidecar: self.sidecar.clone(), native: self.native.clone(), scope,
+                sdk: self.sdk.clone(),
                 page: CapturedPage {
                     sidecar_incarnation: metadata.sidecar_incarnation,
                     provenance: metadata.provenance,

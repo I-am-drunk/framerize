@@ -51,12 +51,16 @@ fn failure(value: Failure) -> PreparationFailure {
         Failure::Runtime | Failure::Spawn => PreparationFailure::Unavailable,
         Failure::Io | Failure::Worker => PreparationFailure::WorkerLost,
         Failure::WorkerStage(stage) => {
-            tracing::warn!(stage = stage.as_str(), "offline SDK worker failed");
+            framer_core::observability::Event::new("offline.worker.failed")
+                .field("phase", stage.as_str()).emit();
             PreparationFailure::WorkerLost
         }
         Failure::V2WorkerStage(stage) => {
-            tracing::warn!(stage = stage.phase(), operation = stage.operation(),
-                device = stage.device(), "offline V2 worker failed");
+            let mut event = framer_core::observability::Event::new("offline.v2.failed")
+                .field("phase", stage.phase());
+            if let Some(label) = stage.operation() { event = event.field("operation", label); }
+            if let Some(label) = stage.device() { event = event.field("device", label); }
+            event.emit();
             PreparationFailure::WorkerLost
         }
     }

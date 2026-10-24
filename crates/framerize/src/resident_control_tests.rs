@@ -5,6 +5,24 @@ use tokio::sync::Semaphore;
 
 const HEADER: &str = "session=fixture; __cuid=fixture-device";
 
+#[test]
+fn sdk_context_requires_exact_owned_snapshot_and_no_token() {
+    for state in ["sdk_admitted", "sdk_complete"] {
+        let (binding, page, mut value) = fixture();
+        value["state"] = json!(state);
+        assert!(wire::sdk_context(&binding, &page, HEADER, value.clone(), state).is_ok());
+        for (key, change) in [("cookie_header", json!("different")),
+            ("browser_settled", json!(false)), ("provenance", json!("different")),
+            ("page_url", json!("https://framer.com/login?different")),
+            ("effective_proxy", json!("http://other.invalid")),
+            ("token", json!("unexpected-token")), ("state", json!("minted"))] {
+            let mut changed = value.clone();
+            changed[key] = change;
+            assert!(wire::sdk_context(&binding, &page, HEADER, changed, state).is_err());
+        }
+    }
+}
+
 fn baseline_fixture() -> (wire::Binding, CapturedPage, Value) {
     let (binding, page, mut value) = fixture();
     value["state"] = json!("baseline_complete");

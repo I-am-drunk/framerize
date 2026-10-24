@@ -206,6 +206,25 @@ impl BoundControlClient {
     pub fn authorize_resident_token(&self, retained: ResidentBearer, session: &Session,
         actual: ResidentObservation<'_>, token: CastleToken, control: &PreparationControl)
         -> Result<PreparedCredentials, PreparationFailure> {
+        self.resident_token(retained, session, actual, token, control, false)
+    }
+
+    /// Supply joined SDK output under the existing resident jar and bearer.
+    /// The timestamp must be the worker's pre-spawn origin, never receipt time.
+    pub fn authorize_resident_sdk_mint(&self, mint: ResidentMint, session: &Session,
+        actual: ResidentObservation<'_>, token: CastleToken, origin: Instant,
+        control: &PreparationControl) -> Result<PreparedCredentials, PreparationFailure> {
+        if origin < mint.started_at || origin > Instant::now() {
+            return Err(PreparationFailure::Rejected);
+        }
+        let mut bearer = mint.bearer;
+        bearer.grant.context.acquire_started_at = origin;
+        self.resident_token(bearer, session, actual, token, control, true)
+    }
+
+    fn resident_token(&self, retained: ResidentBearer, session: &Session,
+        actual: ResidentObservation<'_>, token: CastleToken, control: &PreparationControl,
+        sdk: bool) -> Result<PreparedCredentials, PreparationFailure> {
         if control.is_cancelled() { return Err(PreparationFailure::Cancelled); }
         let ResidentBearer { grant, value } = retained;
         if session.active_user != grant.session.active_user
@@ -216,7 +235,9 @@ impl BoundControlClient {
             return Err(PreparationFailure::Rejected);
         }
         let cookies = grant.context.check(self, session, &actual)?;
-        let castle = FreshCastleToken::from_browser_at(grant.context.scope.account(), token,
+        let constructor = if sdk { FreshCastleToken::from_sdk_output_at }
+            else { FreshCastleToken::from_browser_at };
+        let castle = constructor(grant.context.scope.account(), token,
             grant.context.acquire_started_at).map_err(|_| PreparationFailure::Rejected)?;
         Ok(PreparedCredentials { material: CredentialMaterial { bearer: value, castle },
             current_cookies: Some(cookies) })

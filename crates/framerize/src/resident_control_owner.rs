@@ -52,6 +52,8 @@ pub(crate) struct Capture {
     pub native: NativeAccountClient,
     pub scope: AccountScope,
     pub page: CapturedPage,
+    /// Explicit startup selection only; ordinary resident controls mint in-page.
+    pub sdk: Option<Arc<offline_worker_owner::V2Worker>>,
 }
 
 /// Mark before any independent work. Unknown completion consumes capacity

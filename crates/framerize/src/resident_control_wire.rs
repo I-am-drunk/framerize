@@ -65,6 +65,18 @@ pub(super) fn minted(binding: &Binding, page: &CapturedPage, header: &str,
 pub(super) struct Acquired {
     pub header: String,
 }
+pub(super) fn sdk_context(binding: &Binding, page: &CapturedPage, header: &str,
+    value: Value, state: &str) -> Result<(), Failure> {
+    if !matches!(state, "sdk_admitted" | "sdk_complete") || !keys(&value, CONTEXT)
+        || !context_matches(binding, page, &value)
+        || value["state"].as_str() != Some(state)
+        || value["browser_settled"].as_bool() != Some(true)
+        || value["cookie_header"].as_str() != Some(header) {
+        return Err(Failure::Context);
+    }
+    Ok(())
+}
+
 pub(super) fn acquired(binding: &Binding, page: &CapturedPage, mut value: Value)
     -> Result<Acquired, Failure> {
     if !keys(&value, CONTEXT) || !context_matches(binding, page, &value)

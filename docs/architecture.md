@@ -1,5 +1,20 @@
 # Serving architecture and branch policy
 
+The private resident control can select V2 with `--resident-v2-worker-config`
+alongside its socket option. Invalid configuration fails startup; ordinary
+serving and resident controls without this option keep their existing paths.
+After a successful browser baseline, `begin_native_sdk` consumes the native
+phase and charges the retained account's rate owner before starting a worker.
+The original mint lock and resident lease remain held. The daemon joins the
+worker, then `complete_native_sdk` rechecks the pinned document and cookie jar
+without minting. Only that checked context permits native HTTP, using the same
+bearer and current jar. SDK freshness preserves the worker's pre-spawn origin.
+Worker and HTTP settlement both contribute to final cleanup; Python's browser
+receipt cannot certify the external worker. Any SDK error stops the comparison.
+The explicit V2 worker also accepts the captured `/login` URL without replacing
+it with a constructed editor URL. Project authority still comes from resident
+HTTP-200 provenance; default worker URL admission remains unchanged.
+
 `V2Worker` explicitly selects the direct V2 handoff protocol. It shares the
 owned subprocess supervisor with `Worker`, whose default remains V3-only.
 Typed results are released only after private frame validation, exact metadata

@@ -15,6 +15,8 @@ use serde_json::Value;
 #[cfg(test)]
 #[path = "resident_output_tests.rs"]
 mod output_tests;
+#[path = "resident_control_sdk.rs"]
+mod sdk;
 
 pub(super) struct Operation {
     capture: Arc<Capture>,
@@ -148,19 +150,39 @@ async fn execute(operation: &Operation, spec: Specification, baseline_turn: Stri
     // This consumes the one bearer and stamps time BEFORE the native mint RPC.
     let ticket = api.begin_resident_mint(bearer, session, observation, control)
         .map_err(|_| Failure::Context)?;
-    report.cleanup_confirmed = false;
-    let reply = rpc.mint_native().await.map_err(|_| Failure::Mint)?;
-    let minted = wire::minted(&operation.binding, page, &acquired.header,
-        reply.into_unverified_value())?;
-    report.cleanup_confirmed = true;
+    let (token, origin) = if let Some(worker) = &capture.sdk {
+        report.cleanup_confirmed = false;
+        let reply = rpc.begin_native_sdk().await.map_err(|_| Failure::Mint)?;
+        wire::sdk_context(&operation.binding, page, &acquired.header,
+            reply.into_unverified_value(), "sdk_admitted")?;
+        report.cleanup_confirmed = true;
+        let minted = sdk::mint(worker, page, &target, control, deadline, report).await?;
+        let origin = minted.freshness_origin;
+        report.cleanup_confirmed = false;
+        let reply = rpc.complete_native_sdk().await.map_err(|_| Failure::Context)?;
+        wire::sdk_context(&operation.binding, page, &acquired.header,
+            reply.into_unverified_value(), "sdk_complete")?;
+        report.cleanup_confirmed = true;
+        (framer_core::port::CastleToken(minted.into_token()), Some(origin))
+    } else {
+        report.cleanup_confirmed = false;
+        let reply = rpc.mint_native().await.map_err(|_| Failure::Mint)?;
+        let minted = wire::minted(&operation.binding, page, &acquired.header,
+            reply.into_unverified_value())?;
+        report.cleanup_confirmed = true;
+        (minted.token, None)
+    };
     active_until(control, deadline)?;
     let observation = ResidentObservation::from_unverified_reply(&identity, &target.project,
-        target.path, &page.page_url, &page.device_id, &minted.header,
+        target.path, &page.page_url, &page.device_id, &acquired.header,
         owner::egress(&page.effective_proxy));
-    let credentials = api.authorize_resident_mint(ticket, session, observation,
-        minted.token, control).map_err(|_| Failure::Context)?;
+    let credentials = match origin {
+        Some(origin) => api.authorize_resident_sdk_mint(ticket, session, observation,
+            token, origin, control),
+        None => api.authorize_resident_mint(ticket, session, observation, token, control),
+    }.map_err(|_| Failure::Context)?;
     let current = Session { active_user: session.active_user.clone(),
-        cookie_header: minted.header };
+        cookie_header: acquired.header };
     drop(rpc);
     send(operation, &http, target.path, &body, &current, credentials, control,
         deadline, report).await

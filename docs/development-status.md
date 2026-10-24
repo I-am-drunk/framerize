@@ -3,6 +3,25 @@
 Updated 2026-10-24. The normal service remains browser-based. Publishing these
 branches does not change the running service.
 
+The retained resident control now has an explicit V2 worker path in source.
+It charges the existing rate owner before worker launch, joins the child, and
+checks the same document and jar afterward without another browser mint.
+It keeps the original bearer, current jar, egress and worker timestamp.
+There is no fallback to a browser mint after a V2 failure. The changed host
+and API libraries compile. All 68 focused Python cases pass; the three unchanged
+embedded-JavaScript fixtures reuse their exact prior passing source/result.
+The latest aggregate rerun did not complete one unchanged JavaScript VM fixture,
+so it is not reported as a passing aggregate run. Rust fixtures, final linking,
+the added V2 login-URL fixtures and live activation remained pending at that point.
+
+The integration subsequently passed all 34 host, 18 API and 60 coordinator,
+output, socket and startup cases. The production daemon links. The initial main
+compile found an unavailable `tracing` dependency in diagnostic calls; these now
+use the existing fixed-field event logger. The passed library phases were reused.
+All 21 V2 component/URL, six project-URL and 19 worker-source JavaScript cases
+also pass with networking isolated. Current source is ready for owned activation;
+no account-bound isolated V2 token has yet been sent to upstream.
+
 The separate V2 worker now passes private token transport and joined-child
 qualification. One socket-denied synthetic SDK invocation completed its method
 in 604 ms, component in 1,210 ms, and private handoff in 6 ms. Conservative token

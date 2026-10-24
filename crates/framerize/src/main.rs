@@ -98,6 +98,11 @@ enum Cmd {
         #[cfg(feature = "native-dispatch")]
         #[arg(long, conflicts_with_all = ["offline_worker_config", "offline_routing_config"])]
         resident_control_socket: Option<std::path::PathBuf>,
+        /// Use the explicit V2 worker only for the private resident control.
+        #[cfg(feature = "native-dispatch")]
+        #[arg(long, requires = "resident_control_socket",
+            conflicts_with_all = ["offline_worker_config", "offline_routing_config"])]
+        resident_v2_worker_config: Option<String>,
     },
     /// Log in a Framer account: sends the magic-link email, then prompts for
     /// the #token from the emailed link. Talks to the running daemon.
@@ -149,6 +154,7 @@ async fn build_state(db: &str, chrome: &str, profiles: &str, engine: &str,
     active_pool_size: Option<usize>, eligible_accounts: Option<&str>,
     sidecar_script: Option<std::path::PathBuf>,
     #[cfg(feature = "native-dispatch")] resident_controls: bool,
+    #[cfg(feature = "native-dispatch")] resident_sdk: Option<Arc<offline_worker_owner::V2Worker>>,
 ) -> Result<BuiltState, String> {
     if sidecar_script.is_some() && engine != "camoufox" {
         return Err("--sidecar-script requires --engine camoufox".into());
@@ -225,7 +231,7 @@ async fn build_state(db: &str, chrome: &str, profiles: &str, engine: &str,
         Some(bridge) => {
             let mut state = framer_server::operation_ownership::with_owned_operations(state, 256)
                 .map_err(|_| "resident application ownership unavailable".to_owned())?;
-            let owner = resident_control::StartupOwner::install(&mut state, bridge)
+            let owner = resident_control::StartupOwner::install_with_sdk(&mut state, bridge, resident_sdk)
                 .map_err(|_| "resident session ownership unavailable".to_owned())?;
             (state, Some(owner))
         }
@@ -277,7 +283,8 @@ async fn main() {
             active_pool_size, eligible_accounts,
             #[cfg(feature = "native-dispatch")] offline_worker_config,
             #[cfg(feature = "native-dispatch")] offline_routing_config,
-            #[cfg(feature = "native-dispatch")] resident_control_socket } => {
+            #[cfg(feature = "native-dispatch")] resident_control_socket,
+            #[cfg(feature = "native-dispatch")] resident_v2_worker_config } => {
             #[cfg(feature = "native-dispatch")]
             if resident_control_socket.is_some()
                 && (offline_worker_config.is_some() || offline_routing_config.is_some()) {
@@ -293,9 +300,19 @@ async fn main() {
                     std::process::exit(1);
                 }
             };
+            #[cfg(feature = "native-dispatch")]
+            let resident_sdk = match resident_v2_worker_config.as_deref()
+                .map(offline_config::load_v2).transpose() {
+                Ok(worker) => worker.map(Arc::new),
+                Err(error) => {
+                    eprintln!("failed to initialize: {error}");
+                    std::process::exit(1);
+                }
+            };
             let built = match build_state(&db, &chrome, &profiles, &engine,
                 active_pool_size, eligible_accounts.as_deref(), sidecar_script,
                 #[cfg(feature = "native-dispatch")] resident_control_socket.is_some(),
+                #[cfg(feature = "native-dispatch")] resident_sdk,
             ).await {
                 Ok(s) => s,
                 Err(e) => {

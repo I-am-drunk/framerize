@@ -3,12 +3,12 @@ import { createHash } from 'node:crypto';
 import { performance } from 'node:perf_hooks';
 import { pathToFileURL } from 'node:url';
 import { readInput, verifyDescriptors } from './protocol.mjs';
-import { createLegacyV2Minter, verifyV2Inputs } from './v2_runtime.mjs';
+import { createResidentV2Minter, verifyV2Inputs } from './v2_runtime.mjs';
 import { runV2Handoff } from './v2_handoff.mjs';
 import { SUPPORT } from './pins.mjs';
 
 const exit = await runV2Handoff({
-  verifyDescriptors, readInput, createMinter: createLegacyV2Minter,
+  verifyDescriptors, readInput, createMinter: createResidentV2Minter,
   now: () => performance.now(),
   verify() {
     verifyV2Inputs();
