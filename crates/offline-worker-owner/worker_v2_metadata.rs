@@ -12,7 +12,30 @@ const FIELDS: &[&str] = &["version", "sdk", "selection", "status", "failure_phas
 pub fn completed(bytes: &[u8], budget_ms: u64) -> Option<V2OperationMetadata> {
     if bytes.len() > 16384 || !(1..=16000).contains(&budget_ms) { return None; }
     let value: Value = serde_json::from_slice(bytes).ok()?;
+    if !exact_member_count(bytes) { return None; }
     finish(&value, budget_ms)
+}
+
+// JSON syntax is already validated. Combined with the exact unique key set
+// below, the outer member count rejects duplicate keys, including escaped ones.
+fn exact_member_count(bytes: &[u8]) -> bool {
+    let (mut depth, mut commas, mut quoted, mut escaped) = (0usize, 0usize, false, false);
+    for &byte in bytes {
+        if quoted {
+            if escaped { escaped = false; }
+            else if byte == b'\\' { escaped = true; }
+            else if byte == b'"' { quoted = false; }
+            continue;
+        }
+        match byte {
+            b'"' => quoted = true,
+            b'{' | b'[' => depth += 1,
+            b'}' | b']' => depth -= 1,
+            b',' if depth == 1 => commas += 1,
+            _ => {}
+        }
+    }
+    commas + 1 == FIELDS.len()
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
