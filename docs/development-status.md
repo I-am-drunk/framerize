@@ -29,14 +29,29 @@ pass with the revised 19-case inert suite (47,435,776-byte peak). Both suites ha
 zero swap or limit events and confirmed process-group cleanup; the unchanged
 real-thread results are reused. These checks make no new upstream claim.
 
-An explicit window-realm V2 profile is implemented but has not yet executed the
-SDK. Eight synthetic loader cases pass: hash and encoding rejection, static and
+An explicit window-realm V2 profile now completes a synthetic SDK operation.
+Eight synthetic loader cases pass: hash and encoding rejection, static and
 dynamic import refusal, genuine window objects, isolated documents and fresh
 module state. The suite peaked at 67,801,088 bytes, with no swap or limit events
 and confirmed cleanup. Existing profiles retain Node module evaluation. The new
 profile changes where unchanged factory bytes execute; it does not synthesize
-constructors or modify navigator values. Its next qualification is one bounded,
-socket-denied synthetic operation with structural projection and token disposal.
+constructors or modify navigator values. Three further inert realm cases pass,
+confirming Node's missing free constructors and JSDOM's genuine window objects.
+
+The subsequent socket-denied operation minted once in 799 ms and completed in
+1,074 ms, preserving device state and joining cleanly. It delivered two local
+PNGs, where the earlier Node-realm observation attempted none. Its projection
+has 90 fields/567 bytes. Exactly two fields were added, 8/13 and 8/14, both type 5
+and length 2; all other structural entries match the prior synthetic observation.
+The operation peaked at 116,617,216 bytes with zero swap or limit events. One
+diagnostic count was recorded, with zero asynchronous errors or late settlements.
+The token was discarded. This establishes local behavior, not upstream acceptance.
+
+Resident bearer preparation now retains the single auth response's expiry and
+requires it to cover the remaining control deadline after the existing cancellation
+and egress checks. Ordinary bearer behavior is unchanged; no refresh or retry was
+added. Both API compilations and 28 targeted cases pass, including the new lifetime
+cases and existing resident binding/age cases. This source fix is not deployed.
 
 R14 also reached native HTTP with the explicit dedicated-worker V2 profile.
 The normal browser request and paired browser baseline returned HTTP 200
