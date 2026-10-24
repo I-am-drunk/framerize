@@ -1,4 +1,4 @@
-"""Inert device-readiness fixtures. UNRUN by the source implementation owner."""
+"""Inert readiness and diagnostic fixtures. UNRUN by the source implementation owner."""
 import asyncio
 import importlib.util
 import json
@@ -12,6 +12,8 @@ D = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(D)
 C = D.C
 SECRET = "private-readiness-sentinel"
+READY_CHECKS = ('project_match', 'history_object', 'timestamp_valid',
+                'transient_absent', 'canvas_view', 'branch_valid', 'scope_valid', 'device_present')
 
 
 class ControlledHandle:
@@ -28,8 +30,12 @@ class ControlledHandle:
             owner.dispose_cancelled = True
             raise
         if owner.dispose_error:
+            if isinstance(owner.dispose_error, BaseException):
+                raise owner.dispose_error
             raise RuntimeError(SECRET)
         owner.disposed = True
+        if owner.after_dispose is not None:
+            owner.after_dispose()
 
 
 class ReadinessHarness(D.DiagnosticHarness):
@@ -41,6 +47,11 @@ class ReadinessHarness(D.DiagnosticHarness):
         self.dispose_release.set()
         self.ready_error = self.dispose_error = self.dispose_cancelled = self.disposed = False
         self.after_ready, self.snapshots = None, 0
+        self.after_dispose = None
+        self.probes, self.probe_result, self.probe_error = 0, None, None
+        self.probe_started, self.probe_release = asyncio.Event(), asyncio.Event()
+        self.probe_release.set()
+        self.probe_cancelled = False
 
     async def wait_for_function(self, script, *, arg, timeout, polling):
         assert arg == {'project': D.FIXTURE.OLD.PROJECT}
@@ -48,6 +59,8 @@ class ReadinessHarness(D.DiagnosticHarness):
         self.ready_started.set()
         await self.ready_release.wait()
         if self.ready_error:
+            if isinstance(self.ready_error, BaseException):
+                raise self.ready_error
             raise TimeoutError(SECRET)
         assert type(self.page.device) is str and self.page.device
         if self.after_ready is not None:
@@ -55,6 +68,19 @@ class ReadinessHarness(D.DiagnosticHarness):
         return ControlledHandle(self)
 
     async def evaluate(self, script, args=None):
+        if script == 'mw:' + C.COMPARISON_READY:
+            assert args == {'project': D.FIXTURE.OLD.PROJECT, 'diagnose': True}
+            self.probes += 1
+            self.calls.append(('readiness_probe',))
+            self.probe_started.set()
+            try:
+                await self.probe_release.wait()
+            except asyncio.CancelledError:
+                self.probe_cancelled = True
+                raise
+            if self.probe_error is not None:
+                raise self.probe_error
+            return self.probe_result
         if script == "mw:" + C.COMPARISON_SNAPSHOT:
             self.snapshots += 1
             assert self.disposed, "snapshot must follow handle disposal"
@@ -75,6 +101,7 @@ class BrowserComparisonReadinessTests(unittest.IsolatedAsyncioTestCase):
             value.page.device = D.FIXTURE.DEVICE
             value.ready_release.set()
             value.dispose_release.set()
+            value.probe_release.set()
             value.page.sdk_release.set()
             value.fetch_release.set()
         for task in self.tasks:
@@ -84,12 +111,12 @@ class BrowserComparisonReadinessTests(unittest.IsolatedAsyncioTestCase):
         for value in self.values:
             await asyncio.wait_for(value.scope.drain(), 2)
 
-    def assert_pre_snapshot_failure(self, value):
+    def assert_pre_snapshot_failure(self, value, stage='editor_wait_timeout', **checks):
         self.assertEqual((value.snapshots, value.mints, value.fetches), (0, 0, 0))
         self.assertEqual(value.scope.comparison_phase, "failed")
         self.assertIsNone(value.scope.comparison)
         self.assertEqual(value.events, [{"event": "browser.comparison.command",
-            "outcome": "failed", "stage": "editor_readiness"}])
+            "outcome": "failed", "stage": stage, **checks}])
         self.assertNotIn(SECRET, json.dumps(value.events))
 
     async def test_delayed_readiness_disposes_before_snapshot_and_keeps_one_shot_pair(self):
@@ -130,6 +157,7 @@ class BrowserComparisonReadinessTests(unittest.IsolatedAsyncioTestCase):
         self.assertIsNone(caught.exception.__cause__)
         self.assertTrue(caught.exception.__suppress_context__)
         self.assert_pre_snapshot_failure(value)
+        self.assertEqual(value.probes, 1)
         self.assertFalse(value.dispose_started.is_set())
         with self.assertRaises(ValueError):
             await value.prepare_context()
@@ -173,6 +201,7 @@ class BrowserComparisonReadinessTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(value.disposed)
         self.assertFalse(value.scope.pending)
         self.assertEqual((value.snapshots, value.mints, value.fetches), (0, 0, 0))
+        self.assertEqual(value.probes, 0)
         with self.assertRaises(ValueError):
             await value.prepare_context()
 
@@ -201,7 +230,7 @@ class BrowserComparisonReadinessTests(unittest.IsolatedAsyncioTestCase):
                 patch.object(C, "COMPARISON_DISPOSE_SECONDS", 0.01):
             with self.assertRaisesRegex(RuntimeError, "^browser comparison failed$"):
                 await value.prepare_context()
-        self.assert_pre_snapshot_failure(value)
+        self.assert_pre_snapshot_failure(value, 'editor_rpc_timeout')
         owned = value.scope.submitted[-1]
         self.assertFalse(owned.done())
         value.ready_release.set()
@@ -209,6 +238,7 @@ class BrowserComparisonReadinessTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(value.disposed)
         self.assertFalse(value.scope.pending)
         self.assertEqual(value.snapshots, 0)
+        self.assertEqual(value.probes, 0)
 
     async def test_disposal_timeout_keeps_cleanup_owned_and_refuses_snapshot(self):
         value = self.fixture()
@@ -216,21 +246,23 @@ class BrowserComparisonReadinessTests(unittest.IsolatedAsyncioTestCase):
         with patch.object(C, "COMPARISON_DISPOSE_SECONDS", 0.01):
             with self.assertRaisesRegex(RuntimeError, "^browser comparison failed$"):
                 await value.prepare_context()
-        self.assert_pre_snapshot_failure(value)
+        self.assert_pre_snapshot_failure(value, 'editor_dispose_timeout')
         self.assertFalse(value.dispose_cancelled)
         self.assertFalse(value.disposed)
         self.assertIn(value.scope.submitted[-1], value.scope.pending)
         value.dispose_release.set()
         await asyncio.wait_for(value.scope.drain(), 2)
         self.assertTrue(value.disposed)
+        self.assertEqual(value.probes, 0)
 
     async def test_disposal_error_is_private_and_prevents_snapshot(self):
         value = self.fixture()
         value.dispose_error = True
         with self.assertRaisesRegex(RuntimeError, "^browser comparison failed$"):
             await value.prepare_context()
-        self.assert_pre_snapshot_failure(value)
+        self.assert_pre_snapshot_failure(value, 'editor_dispose_error')
         self.assertFalse(value.disposed)
+        self.assertEqual(value.probes, 0)
 
     async def test_final_snapshot_still_rejects_device_cookie_login_page_and_url_drift(self):
         cases = (
@@ -256,6 +288,183 @@ class BrowserComparisonReadinessTests(unittest.IsolatedAsyncioTestCase):
                 self.assertNotIn(SECRET, json.dumps(value.events))
                 seeds = [call[1] for call in value.calls if call[0] == "add_cookies"]
                 self.assertEqual([[row["name"] for row in seed] for seed in seeds], [["session"]])
+
+
+class BrowserComparisonReadinessDiagnosticsTests(unittest.IsolatedAsyncioTestCase):
+    asyncSetUp = BrowserComparisonReadinessTests.asyncSetUp
+    asyncTearDown = BrowserComparisonReadinessTests.asyncTearDown
+    fixture = BrowserComparisonReadinessTests.fixture
+    assert_pre_snapshot_failure = BrowserComparisonReadinessTests.assert_pre_snapshot_failure
+
+    async def test_wait_timeout_probes_once_but_all_true_never_accepts(self):
+        browser_timeout = type('TimeoutError', (Exception,), {})
+        for error in (TimeoutError(SECRET), browser_timeout(SECRET)):
+            with self.subTest(error_type=type(error)):
+                value = self.fixture()
+                value.ready_error = error
+                value.probe_result = dict.fromkeys(READY_CHECKS, True)
+                with self.assertRaisesRegex(RuntimeError, '^browser comparison failed$'):
+                    await value.prepare_context()
+                self.assert_pre_snapshot_failure(value, **value.probe_result)
+                self.assertEqual(value.probes, 1)
+                self.assertFalse(value.dispose_started.is_set())
+                with self.assertRaises(ValueError):
+                    await value.prepare_context()
+                self.assertEqual(value.probes, 1)
+
+    async def test_other_wait_error_refuses_without_probe(self):
+        value = self.fixture()
+        value.ready_error = RuntimeError(SECRET)
+        with self.assertRaisesRegex(RuntimeError, '^browser comparison failed$'):
+            await value.prepare_context()
+        self.assert_pre_snapshot_failure(value, 'editor_wait_error')
+        self.assertEqual(value.probes, 0)
+
+    async def test_dispose_timeout_reply_is_distinct_from_wait_timeout(self):
+        value = self.fixture()
+        value.dispose_error = type('TimeoutError', (Exception,), {})(SECRET)
+        with self.assertRaisesRegex(RuntimeError, '^browser comparison failed$'):
+            await value.prepare_context()
+        self.assert_pre_snapshot_failure(value, 'editor_dispose_timeout')
+        self.assertEqual(value.probes, 0)
+
+    async def test_probe_reports_only_fixed_boolean_facts(self):
+        value = self.fixture()
+        value.ready_error = True
+        value.probe_result = {key: index % 2 == 0 for index, key in enumerate(READY_CHECKS)}
+        with self.assertRaisesRegex(RuntimeError, '^browser comparison failed$'):
+            await value.prepare_context()
+        self.assert_pre_snapshot_failure(value, **value.probe_result)
+        self.assertEqual(C.comparison_evidence(value.scope),
+                         dict(stage='editor_wait_timeout', **value.probe_result))
+        for event in value.progress:
+            self.assertEqual(set(event), {'event', 'trace', 'sequence', 'purpose', 'stage', 'at_limit'})
+        for private in (SECRET, D.FIXTURE.DEVICE, D.FIXTURE.OLD.PROJECT, D.FIXTURE.OLD.LOGIN):
+            self.assertNotIn(private, json.dumps(value.events + value.progress))
+
+    async def test_malformed_probe_cannot_publish_partial_or_private_facts(self):
+        good = dict.fromkeys(READY_CHECKS, True)
+        bad = [None, [], {}, {'device_present': True}, dict(good, token=SECRET),
+               *[dict(good, history_object=value) for value in (0, 1, 'true', None)]]
+        for result in bad:
+            with self.subTest(result_type=type(result)):
+                value = self.fixture()
+                value.ready_error, value.probe_result = True, result
+                with self.assertRaisesRegex(RuntimeError, '^browser comparison failed$'):
+                    await value.prepare_context()
+                self.assert_pre_snapshot_failure(value)
+                self.assertEqual(value.probes, 1)
+
+    async def test_probe_error_leaves_wait_timeout_and_unknown_facts(self):
+        value = self.fixture()
+        value.ready_error, value.probe_error = True, RuntimeError(SECRET)
+        with self.assertRaisesRegex(RuntimeError, '^browser comparison failed$'):
+            await value.prepare_context()
+        self.assert_pre_snapshot_failure(value)
+        self.assertEqual(value.probes, 1)
+
+    async def test_probe_deadline_retains_owned_read_and_unknown_facts(self):
+        value = self.fixture()
+        value.ready_error = True
+        value.probe_result = dict.fromkeys(READY_CHECKS, True)
+        value.probe_release.clear()
+        self.assertGreater(C.COMPARISON_PROBE_SECONDS, 0)
+        self.assertLessEqual(C.COMPARISON_PROBE_SECONDS, 1)
+        with patch.object(C, 'COMPARISON_PROBE_SECONDS', 0.01):
+            with self.assertRaisesRegex(RuntimeError, '^browser comparison failed$'):
+                await value.prepare_context()
+        self.assert_pre_snapshot_failure(value)
+        self.assertIn(value.scope.submitted[-1], value.scope.pending)
+        self.assertFalse(value.probe_cancelled)
+        value.probe_release.set()
+        await asyncio.wait_for(value.scope.drain(), 2)
+        self.assert_pre_snapshot_failure(value)
+        self.assertEqual(value.probes, 1)
+
+    async def test_cancelled_waiter_never_probes_after_late_timeout(self):
+        value = self.fixture()
+        value.ready_error = True
+        value.ready_release.clear()
+        task = asyncio.create_task(value.prepare_context())
+        self.tasks.append(task)
+        await asyncio.wait_for(value.ready_started.wait(), 2)
+        task.cancel()
+        with self.assertRaises(asyncio.CancelledError):
+            await task
+        value.ready_release.set()
+        await asyncio.wait_for(value.scope.drain(), 2)
+        self.assertEqual(value.scope.comparison_phase, 'failed')
+        self.assertEqual((value.probes, value.snapshots, value.mints, value.fetches), (0, 0, 0, 0))
+        self.assertEqual(C.comparison_evidence(value.scope), {'stage': 'editor_readiness'})
+
+    async def test_outer_deadline_never_probes_after_late_wait_timeout(self):
+        value = self.fixture()
+        value.ready_error = True
+        value.ready_release.clear()
+        with patch.object(C, 'COMPARISON_READY_SECONDS', 0.01), \
+                patch.object(C, 'COMPARISON_DISPOSE_SECONDS', 0.01):
+            with self.assertRaisesRegex(RuntimeError, '^browser comparison failed$'):
+                await value.prepare_context()
+        self.assert_pre_snapshot_failure(value, 'editor_rpc_timeout')
+        value.ready_release.set()
+        await asyncio.wait_for(value.scope.drain(), 2)
+        self.assertEqual(value.probes, 0)
+        self.assertEqual(C.comparison_evidence(value.scope), {'stage': 'editor_rpc_timeout'})
+
+    async def test_cancellation_during_probe_preserves_ownership_and_unknown_facts(self):
+        value = self.fixture()
+        value.ready_error = True
+        value.probe_result = dict.fromkeys(READY_CHECKS, True)
+        value.probe_release.clear()
+        task = asyncio.create_task(value.prepare_context())
+        self.tasks.append(task)
+        await asyncio.wait_for(value.probe_started.wait(), 2)
+        owned = value.scope.submitted[-1]
+        task.cancel()
+        with self.assertRaises(asyncio.CancelledError):
+            await task
+        self.assertIn(owned, value.scope.pending)
+        self.assertFalse(value.probe_cancelled)
+        value.probe_release.set()
+        await asyncio.wait_for(value.scope.drain(), 2)
+        self.assertEqual(value.scope.comparison_phase, 'failed')
+        self.assertEqual((value.probes, value.snapshots, value.mints, value.fetches), (1, 0, 0, 0))
+        self.assertEqual(C.comparison_evidence(value.scope), {'stage': 'editor_wait_timeout'})
+
+    async def test_outer_scope_refusal_before_wait_has_no_browser_operation(self):
+        for failed in (True, False):
+            value = self.fixture()
+            if failed:
+                value.scope.failure = SECRET
+            else:
+                value.scope.stopped.set()
+            with self.assertRaisesRegex(RuntimeError, '^contextual authorization stopped$'):
+                await C.comparison_editor_ready(value.scope, value.page, D.FIXTURE.OLD.PROJECT)
+            self.assertEqual(C.comparison_evidence(value.scope), {'stage': 'editor_scope_refused'})
+            self.assertEqual(value.calls, [])
+
+    async def test_outer_scope_refusal_after_disposal_prevents_snapshot(self):
+        value = self.fixture()
+        value.after_dispose = value.scope.stopped.set
+        with self.assertRaisesRegex(RuntimeError, '^browser comparison failed$'):
+            await value.prepare_context()
+        self.assert_pre_snapshot_failure(value, 'editor_scope_refused')
+        self.assertTrue(value.disposed)
+        self.assertEqual(value.probes, 0)
+
+    async def test_outer_rpc_admission_errors_start_neither_wait_nor_probe(self):
+        for closed, stage in ((True, 'editor_scope_refused'), (False, 'editor_rpc_error')):
+            value = self.fixture()
+            value.scope.rpc_admission_closed = closed
+
+            def refused(coroutine):
+                coroutine.close()
+                raise RuntimeError(SECRET)
+
+            with patch.object(value.scope, 'rpc', refused), self.assertRaises(RuntimeError):
+                await C.comparison_editor_ready(value.scope, value.page, D.FIXTURE.OLD.PROJECT)
+            self.assertEqual(C.comparison_evidence(value.scope), {'stage': stage})
+            self.assertEqual(value.calls, [])
 
 
 if __name__ == "__main__":
