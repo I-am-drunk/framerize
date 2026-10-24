@@ -97,6 +97,22 @@ class ResidentStructureObserverTests(unittest.TestCase):
                 self.assertEqual(actual, event())
                 self.assertIs(actual['available'], False)
 
+    def test_disguised_string_keys_cannot_export_private_text(self):
+        class Key(str):
+            def __hash__(self):
+                return hash('group_id')
+            def __eq__(self, other):
+                return other == 'group_id'
+        value = shape()
+        entry = value['entries'][0]
+        entry[Key(TOKEN)] = entry.pop('group_id')
+        self.assertEqual(self.observe(value), event())
+        class Text(str):
+            pass
+        value = shape()
+        value[Text('entries')] = value.pop('entries')
+        self.assertEqual(self.observe(value), event())
+
     def test_malformed_structure_types_are_unavailable(self):
         class Mapping(dict):
             pass

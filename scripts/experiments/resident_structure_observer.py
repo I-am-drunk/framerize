@@ -24,7 +24,14 @@ def record(token, lease, phase, describe, emit):
 
     structure = None
     try:
-        structure = _structure(describe(token))
+        described = describe(token)
+        validated = _structure(described)
+        # Equal keys can still be string subclasses carrying different text.
+        if (any(type(key) is not str for key in described)
+                or any(type(key) is not str for entry in validated['entries']
+                       for key in entry)):
+            raise ValueError()
+        structure = validated
     except Exception:
         pass
 
