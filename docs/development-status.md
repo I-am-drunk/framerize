@@ -3,6 +3,14 @@
 Updated 2026-10-24. The normal service remains browser-based. Publishing these
 branches does not change the running service.
 
+Resident baseline bodies are now checked after turn-ID substitution and
+before lease acquisition. An explicit local `InvalidBaseline` preserves
+previously confirmed preparation cleanup; other RPC errors remain unconfirmed.
+The size-boundary fixture now covers turn-ID expansion, and a new native-owner
+fixture checks the resulting account closure behavior. These source changes
+are uncompiled and unrun. The coordinator inventory is now 15 plus two adapter
+cases; new validation snapshots must use that inventory.
+
 Resident baseline replies now retain the existing refusal classification as
 fixed policy/basis labels. The strict Rust decoder validates those labels and
 records them before rejecting the baseline, allowing the existing risk-history

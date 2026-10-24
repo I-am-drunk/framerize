@@ -258,13 +258,20 @@ impl ResidentRpcV2 {
     pub async fn baseline(&mut self, bearer: &str, body: &Value)
         -> Result<ResidentReply, ResidentError> {
         if self.phase != V2Phase::Acquired { return Err(ResidentError::OutOfOrder); }
-        if !bounded_text(bearer, 16 * 1024) || !baseline_body(body) {
+        if !bounded_text(bearer, 16 * 1024) {
             return Err(ResidentError::InvalidBaseline);
         }
+        Self::validate_baseline_body(body)?;
         let mut fields = self.fields("baseline");
         fields["bearer"] = json!(bearer);
         fields["body"] = body.clone();
         self.step(V2Phase::Acquired, V2Phase::Baselined, fields).await
+    }
+
+    /// Pure preflight of the final body, before acquiring any browser lease.
+    /// InvalidBaseline always precedes phase consumption or a command write.
+    pub fn validate_baseline_body(body: &Value) -> Result<(), ResidentError> {
+        if baseline_body(body) { Ok(()) } else { Err(ResidentError::InvalidBaseline) }
     }
 
     pub async fn mint_native(&mut self) -> Result<ResidentReply, ResidentError> {

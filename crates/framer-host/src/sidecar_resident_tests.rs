@@ -33,6 +33,13 @@ fn v2_baseline_body_checks_serialized_bytes_and_nested_tokens() {
     let mut nested = json!({});
     for _ in 0..65 { nested = json!({"x": nested}); }
     assert!(!baseline_body(&nested));
+    let mut final_body = json!({"turnId": "n", "padding": ""});
+    let overhead = serde_json::to_vec(&final_body).unwrap().len();
+    final_body["padding"] = json!("a".repeat(64 * 1024 - overhead));
+    assert_eq!(ResidentRpcV2::validate_baseline_body(&final_body), Ok(()));
+    final_body["turnId"] = json!("longer-browser-baseline-turn");
+    assert_eq!(ResidentRpcV2::validate_baseline_body(&final_body),
+        Err(ResidentError::InvalidBaseline));
 }
 
 #[tokio::test]
@@ -115,6 +122,7 @@ async fn v2_validates_private_inputs_before_any_command() {
             Some(ResidentError::InvalidBaseline));
     }
     assert!(f.frames.try_recv().is_err());
+    assert!(rpc.phase == V2Phase::Acquired);
     let _ = rpc.baseline(&"x".repeat(16 * 1024), &json!({})).await.unwrap();
     assert_eq!(f.frames.try_recv().unwrap()["action"], "baseline");
     close(&f.owner, f.reader).await;

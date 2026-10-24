@@ -7,7 +7,7 @@ use framer_api::experimental_native::{
 };
 use framer_core::port::Session;
 use framer_host::sidecar::{observer::ApplicationGeneration, resident::{
-    ResidentAcquire, ResidentAdmission, ResidentDiscard, ResidentIdentity, ResidentRpc, ResidentRpcV2,
+    ResidentAcquire, ResidentAdmission, ResidentDiscard, ResidentError, ResidentIdentity, ResidentRpc, ResidentRpcV2,
     MAX_BUDGET_MS}};
 use futures::StreamExt;
 use serde_json::Value;
@@ -82,6 +82,7 @@ async fn execute(operation: &Operation, spec: Specification, baseline_turn: Stri
     let body = plan.comparison_body().map_err(|_| Failure::Context)?;
     let mut baseline_body = body.clone();
     baseline_body["turnId"] = Value::String(baseline_turn);
+    ResidentRpcV2::validate_baseline_body(&baseline_body).map_err(|_| Failure::Baseline)?;
     let api = BoundControlClient::new(capture.scope.clone(), owner::egress(&page.effective_proxy))
         .map_err(|_| Failure::Context)?;
     let http = NativeHttp::new(capture.identity.account, capture.identity.user.clone(),
@@ -127,9 +128,12 @@ async fn execute(operation: &Operation, spec: Specification, baseline_turn: Stri
     let bearer = bearer.value.map_err(|_| Failure::Bearer)?;
     if !report.cleanup_confirmed { return Err(Failure::Cleanup); }
     active_until(control, deadline)?;
+    let previous_cleanup = report.cleanup_confirmed;
     report.cleanup_confirmed = false;
-    let reply = rpc.baseline(bearer.as_str(), &baseline_body).await
-        .map_err(|_| Failure::Baseline)?;
+    let reply = rpc.baseline(bearer.as_str(), &baseline_body).await.map_err(|error| {
+        report.cleanup_confirmed = baseline_rejection_settled(error, previous_cleanup);
+        Failure::Baseline
+    })?;
     let baseline = wire::baseline(&operation.binding, page, &acquired.header,
         reply.into_unverified_value())?;
     record_baseline(report, &baseline)?;
@@ -156,6 +160,10 @@ async fn execute(operation: &Operation, spec: Specification, baseline_turn: Stri
     drop(rpc);
     send(operation, &http, target.path, &body, &current, credentials, control,
         deadline, report).await
+}
+
+pub(super) fn baseline_rejection_settled(error: ResidentError, previously_settled: bool) -> bool {
+    previously_settled && error == ResidentError::InvalidBaseline
 }
 
 pub(super) fn record_baseline(report: &mut Report, baseline: &wire::Baseline)
