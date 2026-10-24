@@ -12,6 +12,13 @@ egress and request context as well as retain the browser cleanup observer.
 The native User-Agent agrees with its worker; the browser's distinct network
 stack remains an unisolated variable in the observed security refusals.
 
+The contextual browser credential source validates the returned account,
+target and current cookie jar before requesting a bearer with that jar.
+It timestamps the browser token before bearer acquisition, so that wait
+counts toward the native transport's age limit. The stored login is unchanged;
+the outer observer still owns browser teardown. This correction has 45 passing
+focused cases and is not deployed or evidence of accepted live delivery.
+
 The native live-check client records HTTP error-body framing separately from
 JSON validity and the capture limit. Its fixed categories are `complete`,
 `incomplete` and `unobserved`. Recognizing an error envelope does not prove

@@ -3,6 +3,13 @@
 Source assessment at `be7c956a2d503e793d9d1ec24835a72396799e75`.
 No SDK, browser, private-state or live request execution accompanied it.
 
+Implementation update: the contextual source now acquires its bearer after
+validating the returned browser jar, using those cookies. Token age begins
+before the bearer wait. The five contextual cases and forty retained request,
+authentication and cleanup cases pass in the focused build. The original
+assessment below describes the baseline; source wiring and the matched live
+comparison remain unfinished. See `browser-context-validation-20261024.json`.
+
 Castle causation remains unproven. The searched owner and reviewer records
 contain no authenticated browser-minted-token to native-HTTP control.
 Synthetic adapter checks and discarded tokens do not supply that evidence.
