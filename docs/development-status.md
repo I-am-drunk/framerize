@@ -21,7 +21,15 @@ successful jobs and the initial failed compile are collected.
 The new normal rollout proposal binds that executable, seven source-exact
 Python modules, explicit ownership startup, joined acceptance and rollback.
 Its eight-file package passes static checks and has not run. The earlier
-`95f29867` package is preserved. Protected-service permission remains required.
+`95f29867` package is preserved. The user authorized the reviewed rollout.
+Final preflight verified the original service generation and 7,795 external
+runtime files, then copied and verified the inactive release. No drop-in,
+stop/start or stream test occurred. The selected raw host lacks the installed
+host's identity-bound device-limit restoration hook. Account cooldown expiry
+alone does not establish expiry of the separate host device ledger. A bounded
+normal-host transfer or positive expiry proof remains required before stop.
+The linear Python pipe patch is preserved through lazy `browser_runtime()`
+initialization. Existing source/test receipts remain valid.
 See `reference/analysis/normal-browser-joined-qualification-20261024.md`.
 
 The separate native package retains binary `6012de1c`. Its exact reviewed
