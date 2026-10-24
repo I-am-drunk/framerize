@@ -706,18 +706,7 @@ class _CrossoverOperation(_Operation):
             await self.check_pin()
             return result['token']
 
-    async def baseline(self, req):
-        token = await self.charged_mint()
-        self.baseline_digest = hashlib.sha256(token.encode()).digest()
-        args = dict(self.arguments(), path=self.spec['path'], bearer=req['bearer'],
-            body=json.dumps(req['body'], ensure_ascii=False, allow_nan=False,
-                            separators=(',', ':')), token=token,
-            timeout_ms=max(1, min(30_000, int(1000 * (
-                self.deadline - asyncio.get_running_loop().time())))))
-        raw = await self.rpc(self.pin.evaluate, RESIDENT_FETCH_JS, args)
-        aliases = {'/ai/v3/openai/responses/': '/ai/v3/responses/',
-                   '/ai/v3/anthropic/messages/': '/ai/v3/messages/'}
-        path = aliases.get(self.spec['path'], self.spec['path'])
+    def record_baseline(self, raw, path):
         evidence = baseline_result(dict(handle=self.identity['lease'],
             project=self.spec['project'], path=path), raw)
         if not evidence['fetch_settled']:
@@ -731,6 +720,31 @@ class _CrossoverOperation(_Operation):
                 pass
         self.payload = self.context_payload('baseline_complete', status=evidence['status'],
             body_complete=evidence['response_complete'], json_object=json_object, accepted=False)
+        return evidence
+
+    async def baseline(self, req):
+        token = await self.charged_mint()
+        self.baseline_digest = hashlib.sha256(token.encode()).digest()
+        args = dict(self.arguments(), path=self.spec['path'], bearer=req['bearer'],
+            body=json.dumps(req['body'], ensure_ascii=False, allow_nan=False,
+                            separators=(',', ':')), token=token,
+            timeout_ms=max(1, min(30_000, int(1000 * (
+                self.deadline - asyncio.get_running_loop().time())))))
+        aliases = {'/ai/v3/openai/responses/': '/ai/v3/responses/',
+                   '/ai/v3/anthropic/messages/': '/ai/v3/messages/'}
+        path = aliases.get(self.spec['path'], self.spec['path'])
+        raw = _FAILED
+        async def fetch_owned():
+            nonlocal raw
+            raw = await self.pin.evaluate(RESIDENT_FETCH_JS, args)
+            return raw
+        try:
+            await self.rpc(fetch_owned)
+        finally:
+            # Preserve observed facts even if rpc's post-check refuses a changed
+            # document. Only the unchanged admission path below can accept them.
+            if raw is not _FAILED:
+                evidence = self.record_baseline(raw, path)
         if evidence['status'] == 403 and raw.get('elapsed_ms', 4000) < 4000:
             self.control.host._cool_device(self.binding.acc, self.rate.key,
                                             self.identity['account'])
