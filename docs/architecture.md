@@ -1,5 +1,14 @@
 # Serving architecture and branch policy
 
+The experimental resident SDK path currently has browser-baseline structural
+observations and separate synthetic worker observations. Those do not describe
+the actual token consumed by a live native request. A bounded Rust projection
+is being prepared for that exact caller boundary; it is not yet wired or
+qualified. It must retain only group/field IDs, type tags and encoded lengths,
+reuse the existing token and lease, and leave all admission and cleanup checks
+in place. Type tags carry limited semantics; matching structure cannot prove
+matching payloads or upstream acceptance.
+
 Native response-head diagnostics attach status, fixed HTTP-version and content-
 encoding categories to the existing send invocation counter. They run after
 headers arrive and before the unchanged response admission checks. Encoding

@@ -3,6 +3,37 @@
 Updated 2026-10-24. The normal service remains browser-based. Publishing these
 branches does not change the running service.
 
+The outstanding goal is a fresh, valid browserless mint followed by accepted
+native Framer inference, with matched identity and egress, account isolation,
+cooldowns, joined cleanup, streaming, latency and measured memory use preserved.
+Completed source tasks and dependencies on another owner do not complete or
+block that shared outcome. Goal identity and accumulated accounting are retained.
+
+R15 completed with normal browser HTTP 200, browser-baseline HTTP 200 and
+explicit window-realm native HTTP 403. The native response was complete JSON
+with Framer's Castle security envelope. Cleanup was confirmed, the isolated
+host remains fenced, and the protected service was unchanged. The live command,
+binary `345cf340`, realm package `514c442b` and all 1,441 activation inputs
+matched. Result `8580c020` is preserved. Peak group memory was 1,584,971,776
+bytes, with zero swap and memory-limit events. No repeat request is queued.
+
+The R15 browser baseline projected to 105 fields/817 bytes. Five entries differ
+from R14's accepted baseline: 0/12, 7/23, 7/25, 7/26 and 9/9. Comparing R15
+with the prior synthetic realm observation gives 30 differences. Neither
+comparison contains R15's native token structure or establishes refusal cause.
+The next source task is a bounded native-token structure projection. The
+structure lane owns the pure Rust decoder port; the runtime owner retains
+caller integration, qualification and any later controlled experiment. No new
+mint, identity override, live retry or request admission rule is part of that port.
+
+The request-path correction is integrated as `216350e`. Its exact 19-case
+qualification is reused from receipt `65937832`: all pass, 17,039,360-byte peak,
+zero swap/limit events and process group absent. The preflight now checks the
+actual request argument, so an unused correct assignment cannot hide a stale
+literal. R15's preparer already checked that consumed argument separately.
+
+## Qualified milestones and retained history
+
 Three source milestones are qualified for future packages. Dedicated-worker
 cleanup now retains pending termination promises after worker exit and preserves
 termination failures. All 17 inert cases and both real-thread cases pass, with
@@ -19,8 +50,8 @@ all seven projection and seven existing send cases pass. Compilation peaked at
 occurred, and all qualification process groups exited. Request construction,
 acceptance and cleanup are unchanged. These facts cannot explain R14's completed
 403 response, and none of these source updates changes its frozen runtime.
-Next, measure the available Node and JSDOM constructors behind the observed
-lexical-versus-supplied-window distinction without another SDK or live request.
+The Node/JSDOM constructor distinction was subsequently qualified by the three
+realm cases below; that measurement is complete.
 The separate attempt-path preflight now passes all 14 synthetic cases, including
 the exact stale R13 filename pattern behind R14's interrupted handoff. It parses
 source without executing it and remains a preparation tool. Peak memory was
