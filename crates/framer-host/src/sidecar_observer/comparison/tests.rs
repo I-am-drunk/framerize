@@ -98,6 +98,18 @@ fn context() -> (ComparisonContext, Arc<state::ScopeState>) {
 }
 
 #[tokio::test]
+async fn comparison_reserves_space_for_predecessor_retirement_before_opening() {
+    let (state, _) = super::super::tests::local_state();
+    let factory = state._owner.observer_factory(ObserverLimits {
+        scopes: 1, commands: 1, cleanup_timeout: Duration::from_secs(1),
+    }).unwrap();
+    assert!(matches!(factory.comparison_scope(state.account, state.application),
+        Err(ObserverError::InvalidLimits)));
+    assert!(factory.registry.accounts.lock().unwrap().is_empty());
+    assert!(state._owner.inner.lock().await.is_none());
+}
+
+#[tokio::test]
 async fn comparison_rejection_and_uncertain_baseline_never_admit_native_token() {
     for started in [false, true] {
         let (mut context, state) = context();

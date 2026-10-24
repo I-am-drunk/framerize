@@ -3,6 +3,19 @@
 Updated 2026-10-24. The normal service remains browser-based. Publishing these
 branches does not change the running service.
 
+Python comparison implementation `712e497` is integrated. Its 28 inert cases
+pass. The Rust host now requires two observer command slots so a continuation
+can join the previous command after its reply becomes visible; 48 host cases
+pass with that change. The separate baseline-bearer and supplied-token helpers
+pass 47 focused authentication/request cases. No live request ran.
+
+The explicit Rust pair coordinator is implemented but remains uncompiled.
+It binds both envelopes through the native serializer, retains the browser
+scope until native account cleanup, stops after baseline failure, and leaves
+admission and cooldown publication with the outer controller. Its standalone
+controller wiring and live acceptance are still pending. These are separate
+limits from the passing host and Python fixtures.
+
 The Rust comparison host interface now compiles and passes 47 selected
 tests, including seven new contract cases and existing observer lifecycle
 cases. Baseline rejection, uncertainty, changed cookies and repeat token

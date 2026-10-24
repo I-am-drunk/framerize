@@ -28,6 +28,9 @@ pub struct ComparisonClient {
 impl ObserverFactory {
     pub fn comparison_scope(&self, account: AccountId, generation: ApplicationGeneration)
         -> Result<ComparisonScope, ObserverError> {
+        // A reply can arrive before its writer-owning command retires.
+        // The continuation joins that command while reserving its own slot.
+        if self.registry.limits.commands < 2 { return Err(ObserverError::InvalidLimits); }
         let opened = self.one_shot_scope(account, generation)?;
         let client = ComparisonClient { account, bridge: Arc::new(bridge::ScopedBridge {
             registry: self.registry.clone(), state: opened.control.state.clone(),

@@ -12,6 +12,9 @@ use tokio::sync::{oneshot, OwnedSemaphorePermit};
 
 type FutureResult<'a, T> = Pin<Box<dyn Future<Output = T> + Send + 'a>>;
 
+#[path = "browser_comparison.rs"]
+pub(crate) mod comparison;
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum Failure {
     MissingAuthority, Cooling, WavePaused, Admission, Context, Session,
