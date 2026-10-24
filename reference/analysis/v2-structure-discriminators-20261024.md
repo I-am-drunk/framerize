@@ -436,3 +436,14 @@ activation, then remove only its redundant wording.
 Retain concrete progress, action ownership/input/evidence, full-outcome completion,
 runtime guards and accounting preservation. No status-only loops, session polling,
 duplicate execution or invented work are authorized. Do not edit stored objectives.
+
+## Comparator error-context correction
+
+Branch `fix/structure-comparison-error-context` uses exact source parent
+`d11f2c06a967dd8248fb65ac621ddb6f6ad6e91c`. The fixed error is raised after leaving
+the handler, matching the pair helper without changing validation or output.
+The 17 inert cases remain **UNRUN here**. Malformed inputs and an injected error
+check absent context/cause, not only suppressed display. This changes exception
+chaining; it does not erase input references retained in Python traceback locals.
+Next action belongs to the runtime owner: qualify with
+`python3 -B reference/fixtures/v2_structure_compare_tests.py`.

@@ -39,4 +39,6 @@ def compare_structures(baseline, native):
         result['structural_match'] = not result['differences']
         return result
     except Exception:
-        raise ValueError('structure-comparison') from None
+        pass
+    # Leave the handler before raising so the caught error is not its context.
+    raise ValueError('structure-comparison') from None
