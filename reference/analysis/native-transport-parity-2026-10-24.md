@@ -70,11 +70,11 @@ owner must bind it to the existing owned comparison and process evidence.
 For R14, the complete 403 is already stronger response evidence. This patch
 does not diagnose its cause or justify another live attempt.
 
-Next action: the runtime owner may qualify the seven pure projection cases
-under `experimental_native::native_http::transport_facts::tests` and the
-existing `experimental_native::native_http::send_tests` slice in its owned
-test environment. The new cases need no sockets, SDK or private inputs.
-Source and staged-diff review are the only local verification. Shared status
+Owner record `bff2afc` now reports successful production/test compilation,
+all seven projection cases and all seven existing send cases. The test run
+peaked at 14,729,216 bytes, with no swap/limit events and joined process groups.
+These are reused owner results; no tests were executed in this checkout.
+Source and staged-diff review remain the only local verification. Shared status
 docs, live activation and interpretation of the next comparison remain owned
 by the coordinators. The full browserless goal remains active and unfulfilled.
 
@@ -119,5 +119,32 @@ after auth starts. They check the current jar and absence of another auth call.
 Next action is owner qualification of the six pure checks and
 `resident_control::tests::deadline_tests`, plus the existing auth/resident
 regressions. No build, test, SDK, browser or live request ran in this checkout.
-The integrated head-facts source is now `browserless` commit `9caa57d`;
-that source integration alone does not attest compilation or fixture success.
+The integrated head-facts source is `browserless` commit `9caa57d`;
+its subsequent owner qualification is recorded above.
+
+Source lineage comparison used the October 24 R7 result landmark
+`825ec7bc125a13b22aed93c92048d1aa0d5dedc4` and R14 result landmark
+`9e7630db48e15ebb6922ca980260c3aa81ec2da2`. Other historical runs reuse
+these R numbers, so their names alone are not adequate comparison keys.
+`git diff --name-status` returns no changes for these seven tracked paths:
+
+- `crates/framer-api/src/experimental_native/native_http.rs`
+- `crates/framer-api/src/experimental_native/native_send_evidence.rs`
+- `crates/framer-api/src/transport.rs`
+- `crates/framer-api/Cargo.toml`
+- `crates/framerize/Cargo.toml`
+- `Cargo.toml`
+- `Cargo.lock`
+
+The shared `native_http.rs` blob is `bd05ef943fb6fb851afe36b3de76b301038602aa`;
+the shared lockfile blob is `c18b71f2c9af76718bb9c7e9d853c5da601271ad`.
+The resident attempt delta adds explicit SDK selection, checked SDK context
+and its freshness origin. Its native `send` and `collect` functions are
+unchanged. The changed cookie-header source remains subject to the existing
+private context validation; this finding does not reopen cookie ordering.
+
+This establishes unchanged tracked sender code and dependency declarations
+between the two documentation landmarks. It does not bind either frozen
+executable to that exact checkout, prove identical wire bytes, or establish
+the same TLS, DNS, egress or backend state. Those require the runtime owner's
+existing build and comparison evidence. No fresh live comparison is implied.
