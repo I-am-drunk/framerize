@@ -15,7 +15,7 @@ clean/published source checkouts; branches and frozen evidence were retained.
 No live request, service deployment or change to frozen R16 accompanies this
 source integration.
 
-The final two-file HTTP isolation fixture from `90cc001` is integrated and
+The two-file HTTP isolation fixture from `90cc001` is integrated and
 qualified. API test compilation passes (`c0dcaefc`, peak 322,371,584 bytes),
 and all eight send cases pass (`bb73da8d`, peak 15,646,720 bytes). The new case
 holds two distinct account/session requests, verifies independent credentials
@@ -23,6 +23,15 @@ on the wire, cancels/joins A while B retains admission, then completes B once.
 Crossed account, session and token-owner inputs cannot reach either server.
 Both phases had zero swap/limit events, unchanged inputs and removed groups.
 This uses synthetic loopback traffic only; production code and R16 are unchanged.
+
+The extension from `723c940` is also integrated and qualified. Its same eight
+cases pass with the concurrent-account case covering ordinary and resident
+headers sequentially. Each server checks its own exact cookie, bearer and
+token expectations before A is cancelled and B completes. Compilation passes
+(`3e3091de`, peak 704,241,664 bytes), and all eight tests pass (`cc058dbf`, peak
+15,953,920 bytes), with unchanged pins, zero swap/limit events and absent groups.
+Both fixture files are bound together; the earlier `90cc001` result is retained
+for its original scope. No production change or live request accompanies this.
 
 The separate ordinary-V2 candidate `fe500a0` now passes both shared-worker
 account-isolation cases. Compilation passes (`43a69a78`, peak 362,864,640 bytes),
@@ -33,8 +42,8 @@ only A. B can be admitted again. Both phases verified unchanged inputs, zero
 swap/limit events and removed groups. The frozen candidate includes the
 ordinary-V2 source stack, which is not promoted into this runtime branch by
 these tests. This is inert fixture qualification, not an SDK or live request.
-The resident HTTP isolation extension and response-decoding correction remain
-separate source inputs for the next native qualification batch.
+The response-decoding and read-only HEAD corrections remain separate source
+inputs for the next native qualification batch.
 
 The outstanding goal is a fresh, valid browserless mint followed by accepted
 native Framer inference, with matched identity and egress, account isolation,

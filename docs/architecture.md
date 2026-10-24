@@ -10,10 +10,11 @@ frozen R16 executable.
 
 The loopback HTTP fixtures hold requests from two account/session owners at
 once. Cancelling one joins its connection while the other retains its permit
-and completes. Each server checks its own synthetic bearer and token bytes;
-crossed account, session and token-owner inputs are refused before connection.
-The final eight-case suite passes. This is local ownership and wire-isolation
-evidence, not external account acceptance.
+and completes. Each server checks its own synthetic bearer and token bytes,
+plus the exact cookie jar in resident mode. The concurrent case exercises
+ordinary and resident headers separately; crossed account, session and token
+owners are refused before connection. All eight cases pass. This is local
+ownership and wire-isolation evidence, not external account acceptance.
 
 The experimental resident SDK path now borrows its existing token after child
 join and same-device host confirmation for a bounded Rust structural projection.

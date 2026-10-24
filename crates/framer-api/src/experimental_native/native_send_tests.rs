@@ -147,20 +147,32 @@ fn resident_control_cancellation_still_joins_without_response_headers() {
 
 #[test]
 fn cancelling_one_account_preserves_another_accounts_request() {
+    for resident in [false, true] {
+        concurrent_account_requests_remain_isolated(resident);
+    }
+}
+
+fn concurrent_account_requests_remain_isolated(resident: bool) {
     let expected = |castle: &str| vec![Expected { path: PATH,
         envelope: json!({"stream": true, "castleToken": castle}),
         reply: Reply::json(json!({"fixture": "complete"})) }];
-    let first_server = Server::with_held_headers_and_authorization(
-        expected("fixture-first-token"), "Bearer fixture-first-bearer");
-    let second_server = Server::with_held_headers_and_authorization(
-        expected("fixture-second-token"), "Bearer fixture-second-bearer");
+    let first_server = Server::with_held_headers_and_credentials(
+        expected("fixture-first-token"), "Bearer fixture-first-bearer",
+        resident.then_some("session=fixture-first; __cuid=fixture-first-device"));
+    let second_server = Server::with_held_headers_and_credentials(
+        expected("fixture-second-token"), "Bearer fixture-second-bearer",
+        resident.then_some("session=fixture-second; __cuid=fixture-second-device"));
     run(async {
-        let (first, first_account, first_session, first_body) =
+        let (first, first_account, mut first_session, first_body) =
             inputs_for_user(first_server.address, "fixture-first-user");
-        let (second, second_account, second_session, second_body) =
+        let (second, second_account, mut second_session, second_body) =
             inputs_for_user(second_server.address, "fixture-second-user");
         assert_ne!(first_account, second_account);
         assert_ne!(first_session.active_user, second_session.active_user);
+        first_session.cookie_header = "session=fixture-first; __cuid=fixture-first-device".into();
+        second_session.cookie_header = "session=fixture-second; __cuid=fixture-second-device".into();
+        let first = if resident { first.with_resident_browser_headers() } else { first };
+        let second = if resident { second.with_resident_browser_headers() } else { second };
         let first_cancel = NativeCancellation::new();
         let mut first_request = first.ai_post_stream_tracked(&first_account, PATH,
             AccountRequestAuth::new(first_account, &first_session, "fixture-first-bearer"),
