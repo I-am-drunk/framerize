@@ -14,8 +14,21 @@ zero memory/task-limit events and no swap. Peak group usage was 841,531,392
 bytes and 175 tasks. The mint result still failed its later `post_context`
 binding check; accepted minting and authenticated delivery are not established.
 All probes use saved public modules, an empty context and disabled networking.
-The live comparison remains unrun while the context mismatch is investigated.
-This crash diagnosis does not establish the cause of earlier HTTP 403s.
+Buffered wrapper logs now explain the context mismatch in this offline case:
+V3 token generation errors, then the wrapper falls back to V2. V2 rejects
+the initial hyphenated UUID and generates a different 32-character identity.
+A second local token was also V2, so it is not V3 acceptance. Removing syscall
+tracing did not prevent the failure. Page-console silence was not useful;
+the existing logger buffer retains branch records even at its default level.
+The original V3 error is now localized: Firefox rejected TypedArray access
+across the automation realm's Xray wrapper. In offline probe R22, Camoufox's
+documented main-world evaluation completed one V3 mint with no V2 fallback,
+SDK errors, or identity change. The public fixture configuration was placed
+in that same realm; no SDK bytes were changed. The browser exited normally,
+its group was absent, peak group usage was 833,970,176 bytes with 176 tasks,
+and recorded swap and limit events were zero. These findings qualify the
+local caller correction, not the cause of earlier HTTP 403s. Comparison-only
+integration and a live browser/native comparison remain pending.
 
 The latest isolated comparison (R10) stopped before minting because its cookie
 header differed from the snapshot used to acquire the bearer. No inference
