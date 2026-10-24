@@ -3,6 +3,34 @@
 Updated 2026-10-24. The normal service remains browser-based. Publishing these
 branches does not change the running service.
 
+The private resident Python operation and its host activity integration are
+implemented. Saved isolated checks pass for 26 host activity cases, 25 private
+operation cases and two exact-JavaScript fixture scripts, 141 existing host
+regressions, and 10 runtime packaging cases. These are inert checks, not a live
+token crossover. A subsequent review found that a cancelled browser launch
+could complete without a cleanup receipt. The receipt now belongs to the
+retained launch task. Five added cases bring that module to 31 cases; the new
+run was refused before execution by memory admission, so the correction is
+unvalidated. The original 26-case result remains evidence for the earlier source.
+
+The Rust startup binding has 19 focused cases, currently unrun. The executable
+build and a smaller metadata-only check were refused before execution by the
+unchanged memory reserve. No compiler or test pass is claimed for this binding.
+The retained daemon worker is source-only: authoritative owner capture, a real
+browser baseline and an activation path are still absent. Its current ordering
+also mints the native token before bearer acquisition and baseline completion;
+that sequence must change before live use. Existing serving processes remain
+untouched. The next action is to integrate a version 2 snapshot-only acquire,
+real browser baseline and separate native mint under one retained lease, then
+qualify that integration and the pending launch correction.
+
+An additive resident mint ticket is now implemented in source with three new
+inert cases, all unrun. It rechecks the retained bearer and current jar before
+the native mint, timestamps that operation before IPC, and consumes the ticket
+after post-mint checks. Earlier API results below cover the published 14-case
+version; they do not validate this addition or its still-missing coordinator
+wiring.
+
 The resident API binding compiles and passes all 14 focused inert cases.
 It checks the captured page, lease identity, current jar and launch route,
 retains one bearer for both arms, and preserves token age from before acquire.
@@ -46,8 +74,8 @@ Eight inert async cases now pass for the standalone resident activity ledger:
 mutual exclusion, retained RPCs after caller cancellation, retained completion
 after waiter loss, account-local fencing, replay/capacity refusal and invalid
 admission. Peak was 16,465,920 bytes with zero swap or limit events and confirmed
-runner removal. Host dispatch/background integration is still pending; these
-tests do not establish a working resident-token handoff.
+runner removal. Host dispatch/background integration is now implemented as
+described above. These tests do not establish a working resident-token handoff.
 
 The comparison now records bounded SDK branch/failure counters without token
 or error contents. Its inference headers use the public caller's default

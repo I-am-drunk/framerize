@@ -70,7 +70,7 @@ class LazyBrowserRuntime(unittest.IsolatedAsyncioTestCase):
         self.host._allocation = allocation
         async def initialize(account, profile, browser):
             self.host.lifecycles[account].phase = 'resident'
-            return 'initialized'
+            return SimpleNamespace(initialized=True)
         self.host._initialize_account = AsyncMock(side_effect=initialize)
         receipts = []
         def close_receipt(browser):
@@ -85,7 +85,7 @@ class LazyBrowserRuntime(unittest.IsolatedAsyncioTestCase):
             for account in ('first', 'second'):
                 self.host.lifecycles[account] = self.module.AccountLifecycle()
                 value = await self.host._launch(account, proxy='http://' + account + '.invalid')
-                self.assertEqual(value, 'initialized')
+                self.assertTrue(value.initialized)
             load.assert_called_once_with()
             memory.assert_called_once_with()
             addon.assert_called_once_with()

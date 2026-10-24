@@ -17,6 +17,8 @@ mod observed_authorization;
 #[cfg(feature = "native-dispatch")]
 mod one_shot_control;
 #[cfg(feature = "native-dispatch")]
+mod resident_control;
+#[cfg(feature = "native-dispatch")]
 extern crate offline_worker_owner;
 #[cfg(feature = "native-dispatch")]
 mod offline_worker;

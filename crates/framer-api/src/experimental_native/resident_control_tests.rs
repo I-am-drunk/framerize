@@ -183,6 +183,81 @@ fn retained_fixture(api: &BoundControlClient, scope: &AccountScope) -> ResidentB
     ResidentBearer { grant: grant(api, scope, Instant::now()), value: "fixture-bearer".into() }
 }
 
+async fn separate_mint_age(delay: Duration, max_age: Duration, accepted: bool) {
+    let (client, scope) = scope(NativeEgress::Direct);
+    let api = BoundControlClient::new(scope.clone(), NativeEgress::Direct).unwrap();
+    let expected = scope.clone();
+    let pending = client.prepare_owned(&scope, tokio::time::Instant::now() + BOUND,
+        move |session, control| async move {
+            let retained = ResidentBearer { grant: grant(&api, &expected,
+                Instant::now() - Duration::from_secs(60)), value: "fixture-bearer".into() };
+            let mint = api.begin_resident_mint(retained, &session,
+                observation(&identity(&expected), &target()), &control).unwrap();
+            tokio::time::sleep(delay).await;
+            PreparationResult::finished(api.authorize_resident_mint(mint, &session,
+                observation(&identity(&expected), &target()),
+                CastleToken("fixture-token".into()), &control))
+        }).unwrap();
+    let prepared = tokio::time::timeout(BOUND, pending).await.unwrap().unwrap();
+    let sink = listener().await;
+    let native = NativeHttp::for_loopback(scope.account(), session().active_user,
+        sink.local_addr().unwrap(), NativeHttpLimits {
+            token_max_age: max_age, ..NativeHttpLimits::default()
+        }).unwrap();
+    let mut sink = Some(sink);
+    let worker = if accepted { Some(tokio::spawn(serve_retaining_listener(sink.take().unwrap(), Duration::ZERO))) }
+        else { None };
+    let current = prepared.current_cookies.unwrap().into_session(&session()).unwrap();
+    let result = tokio::time::timeout(BOUND, native.ai_post(&scope.account(), target().path,
+        AccountRequestAuth::new(scope.account(), &current, &prepared.material.bearer),
+        &serde_json::json!({"stream": false}), prepared.material.castle,
+        NativeCancellation::new())).await.unwrap();
+    assert_eq!(result.is_ok(), accepted);
+    if let Some(worker) = worker {
+        let (sink, _) = tokio::time::timeout(BOUND, worker).await.unwrap().unwrap();
+        assert!(sink.accept().now_or_never().is_none());
+    } else {
+        assert_eq!(result.unwrap_err(), "native-http: fresh Castle token required");
+        assert!(sink.unwrap().accept().now_or_never().is_none());
+    }
+    close(&client, &scope).await;
+}
+
+#[tokio::test]
+async fn native_mint_starts_after_old_bearer_and_baseline_without_reauth() {
+    separate_mint_age(Duration::ZERO, Duration::from_secs(10), true).await;
+}
+
+#[tokio::test]
+async fn separate_mint_roundtrip_is_not_restamped_on_authorization() {
+    separate_mint_age(Duration::from_millis(60), Duration::from_millis(20), false).await;
+}
+
+#[tokio::test]
+async fn separate_mint_rejects_changed_jar_before_and_after_rpc() {
+    let (client, scope) = scope(NativeEgress::Direct);
+    let api = BoundControlClient::new(scope.clone(), NativeEgress::Direct).unwrap();
+    let expected = scope.clone();
+    let pending = client.prepare_owned(&scope, tokio::time::Instant::now() + BOUND,
+        move |session, control| async move {
+            let id = identity(&expected);
+            let target = target();
+            let mut drift = observation(&id, &target);
+            drift.cookie_header = "session=fixture-only-cookie; __cuid=Raw-Device_01; current=changed";
+            assert!(api.begin_resident_mint(retained_fixture(&api, &expected),
+                &session, drift, &control).is_err());
+            let mint = api.begin_resident_mint(retained_fixture(&api, &expected),
+                &session, observation(&id, &target), &control).unwrap();
+            let mut drift = observation(&id, &target);
+            drift.cookie_header = "session=fixture-only-cookie; __cuid=Raw-Device_01; current=changed";
+            assert!(api.authorize_resident_mint(mint, &session, drift,
+                CastleToken("fixture-token".into()), &control).is_err());
+            PreparationResult::finished(Ok(()))
+        }).unwrap();
+    tokio::time::timeout(BOUND, pending).await.unwrap().unwrap();
+    close(&client, &scope).await;
+}
+
 #[test]
 fn browser_timestamp_constructor_rejects_future_birth_time() {
     let future = Instant::now() + Duration::from_secs(60);

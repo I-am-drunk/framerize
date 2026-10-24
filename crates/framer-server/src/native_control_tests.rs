@@ -10,6 +10,33 @@ mod updates;
 mod routing;
 
 #[tokio::test]
+async fn resident_control_refuses_missing_or_busy_slot_without_browser_io() {
+    let (state, ports) = owned();
+    let selected = || identity();
+    let deadline = || Instant::now() + Duration::from_secs(3);
+    let refused = crate::native_control::admit_existing(
+        &state, selected(), "gpt-4.1", deadline()).await;
+    assert_eq!(refused.err().unwrap().kind, FailureKind::Ineligible);
+    assert_eq!(state.serving_accounts.residents.snapshot().unwrap().occupied, 0);
+    let busy = match state.serving_accounts.residents.try_acquire(id(1), None).unwrap() {
+        framer_core::resident_pool::Acquire::Lease(lease) => lease,
+        _ => panic!("unexpected eviction"),
+    };
+    let refused = crate::native_control::admit_existing(
+        &state, selected(), "gpt-4.1", deadline()).await;
+    assert_eq!(refused.err().unwrap().kind, FailureKind::Ineligible);
+    assert_eq!(slot(&state, id(1)).users, 1);
+    assert!(ports.events.lock().unwrap().is_empty());
+    drop(busy);
+    let admitted = crate::native_control::admit_existing(
+        &state, selected(), "gpt-4.1", deadline()).await.unwrap();
+    assert_eq!(slot(&state, id(1)).users, 2);
+    assert!(ports.events.lock().unwrap().is_empty());
+    drop(admitted);
+    assert_eq!(slot(&state, id(1)).users, 0);
+}
+
+#[tokio::test]
 async fn legacy_health_publication_preserves_newer_account_fields() {
     let (state, ports) = owned();
     let stale = account(1);
@@ -19,6 +46,26 @@ async fn legacy_health_publication_preserves_newer_account_fields() {
     let current = state.state.get(id(1)).await.unwrap().unwrap();
     assert_eq!(current.alias, "updated during inference");
     assert_eq!(current.consecutive_failures, stale.consecutive_failures + 1);
+}
+
+#[tokio::test]
+async fn resident_control_retains_management_and_cleanup_fences() {
+    let (state, ports) = owned();
+    drop(acquire(&state).await.unwrap());
+    ports.events.lock().unwrap().clear();
+    let management = management(&state, id(1), false).await.unwrap();
+    let result = crate::native_control::admit_existing(&state, identity(), "gpt-4.1",
+        Instant::now() + Duration::from_secs(3)).await;
+    assert_eq!(result.err().unwrap().kind, FailureKind::Ineligible);
+    drop(management);
+    let held = state.serving_accounts.residents.try_acquire_idle_existing(id(1)).unwrap();
+    held.retain_unconfirmed();
+    let result = crate::native_control::admit_existing(&state, identity(), "gpt-4.1",
+        Instant::now() + Duration::from_secs(3)).await;
+    assert_eq!(result.err().unwrap().kind, FailureKind::Ineligible);
+    assert!(slot(&state, id(1)).uncertain);
+    assert_eq!(slot(&state, id(1)).users, 1);
+    assert!(ports.events.lock().unwrap().is_empty());
 }
 
 #[tokio::test]

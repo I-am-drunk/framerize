@@ -11,6 +11,13 @@
     for _name, _expected in _pins.items():
         if hashlib.sha256((_support / _name).read_bytes()).hexdigest() != _expected:
             raise RuntimeError('cooldown support source changed')
+    for _support_module in ('resident_activity', 'contextual_authorization',
+                            'resident_authorization'):
+        _resident_spec = _handoff_import.spec_from_file_location(_support_module,
+            _support / (_support_module + '.py'))
+        _resident_module = _handoff_import.module_from_spec(_resident_spec)
+        sys.modules[_resident_spec.name] = _resident_module
+        _resident_spec.loader.exec_module(_resident_module)
     _spec = _handoff_import.spec_from_file_location('_framerize_cooldown',
         _support / '__init__.py', submodule_search_locations=[str(_support)])
     _module = _handoff_import.module_from_spec(_spec)

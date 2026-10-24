@@ -61,6 +61,10 @@ fn fail_pending(pending: &PendingReplies, message: &str) {
 }
 
 const SCRIPT: &str = include_str!("../../../scripts/camoufox_host.py");
+const RESIDENT_ACTIVITY: &str = include_str!("../../../scripts/resident_activity.py");
+const RESIDENT_AUTHORIZATION: &str = include_str!("../../../scripts/resident_authorization.py");
+const CONTEXTUAL_AUTHORIZATION: &str = include_str!("../../../scripts/contextual_authorization.py");
+const RESIDENT_GENERATION_ENV: &str = "FRAMERIZE_RESIDENT_APPLICATION_GENERATION";
 
 /// In-page AI calls wait out a full generation (window ceiling ~109 s); mints
 /// on a cold engine can take 60 s+. 300 s covers both with margin.
@@ -182,6 +186,8 @@ pub struct SidecarBridge {
     observed: std::sync::OnceLock<Arc<observer::Registry>>,
     state_root: PathBuf,
     script_override: Option<PathBuf>,
+    resident_application_generation: Option<observer::ApplicationGeneration>,
+    startup_attempted: std::sync::OnceLock<()>,
     inner: Mutex<Option<Sidecar>>,
     routes: Mutex<HashMap<AccountId, Arc<Mutex<ProxyState>>>>,
     /// Per-account queue wait from the most recent `ai_post`, in ms. The host
@@ -211,6 +217,8 @@ impl SidecarBridge {
             observed: std::sync::OnceLock::new(),
             state_root: state_root.into(),
             script_override: None,
+            resident_application_generation: None,
+            startup_attempted: std::sync::OnceLock::new(),
             inner: Mutex::new(None),
             routes: Mutex::new(HashMap::new()),
             queue_wait: Mutex::new(HashMap::new()),
@@ -232,6 +240,33 @@ impl SidecarBridge {
         }
         self.script_override = Some(script);
         Ok(self)
+    }
+
+    /// Bind a trusted generation for a future host launch, before sharing this bridge.
+    /// Rejection retains the bridge and its child; this never starts or updates a host.
+    pub fn configure_resident_controls(
+        &mut self, generation: observer::ApplicationGeneration,
+    ) -> Result<(), String> {
+        if generation.0 == 0 {
+            return Err("resident application generation must be positive".into());
+        }
+        if self.startup_attempted.get().is_some() || self.inner.get_mut().is_some() {
+            return Err("resident controls must be configured before startup".into());
+        }
+        if !matches!(self.mode, observer::ProcessMode::Unmanaged) {
+            return Err("resident controls require an unmanaged sidecar".into());
+        }
+        self.check_unused_startup()?;
+        self.resident_application_generation = Some(generation);
+        Ok(())
+    }
+
+    fn configure_resident_environment(&self, command: &mut Command) {
+        // Ambient process state is never permission to enable resident controls.
+        command.env_remove(RESIDENT_GENERATION_ENV);
+        if let Some(generation) = self.resident_application_generation {
+            command.env(RESIDENT_GENERATION_ENV, generation.0.to_string());
+        }
     }
 
     fn admit_unscoped(&self) -> Result<Option<retirement::LocalCall>, String> {
@@ -268,6 +303,25 @@ impl SidecarBridge {
         self.state_root.join(".bin").join("camoufox_host.py")
     }
 
+    fn extract_embedded_script(&self, script: &Path) -> Result<(), String> {
+        // Refresh embedded managed files together; overrides own their modules.
+        let is_override = self.script_override.is_some()
+            || script == dirs_home().join(".framerize/camoufox_host.py");
+        if !is_override && matches!(self.mode, observer::ProcessMode::Unmanaged) {
+            if let Some(parent) = script.parent() {
+                std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
+                std::fs::write(parent.join("resident_activity.py"), RESIDENT_ACTIVITY)
+                    .map_err(|e| e.to_string())?;
+                std::fs::write(parent.join("resident_authorization.py"), RESIDENT_AUTHORIZATION)
+                    .map_err(|e| e.to_string())?;
+                std::fs::write(parent.join("contextual_authorization.py"), CONTEXTUAL_AUTHORIZATION)
+                    .map_err(|e| e.to_string())?;
+            }
+            std::fs::write(script, SCRIPT).map_err(|e| e.to_string())?;
+        }
+        Ok(())
+    }
+
     /// Start the first host only. A lost host cannot certify that its browser
     /// descendants stopped or transfer its cooldown ledger to a new process.
     async fn sidecar(&self) -> Result<(), String> {
@@ -287,6 +341,8 @@ impl SidecarBridge {
                 }
             }
         }
+        // A failed or cancelled startup must not reopen resident configuration.
+        let _ = self.startup_attempted.set(());
         if let Some(boundary) = &self.retirement {
             boundary.begin_start().map_err(|error| format!("host startup: {error:?}"))?;
         }
@@ -295,14 +351,7 @@ impl SidecarBridge {
         // v0.4.0's script alive under v0.4.1's binary — upgrades must win).
         // The external override (~/.framerize/camoufox_host.py) is never
         // written by us — it's the user's escape hatch.
-        let is_override = self.script_override.is_some()
-            || script == dirs_home().join(".framerize/camoufox_host.py");
-        if !is_override && matches!(self.mode, observer::ProcessMode::Unmanaged) {
-            if let Some(parent) = script.parent() {
-                std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
-            }
-            std::fs::write(&script, SCRIPT).map_err(|e| e.to_string())?;
-        }
+        self.extract_embedded_script(&script)?;
 
         // Python resolution: explicit override, then the installer's venv,
         // then PATH. The venv is where install-camoufox.sh puts everything.
@@ -319,6 +368,7 @@ impl SidecarBridge {
                 ("observed_one_shot_v1", profile_nonce.to_string()),
         };
         let mut command = Command::new(&python);
+        self.configure_resident_environment(&mut command);
         command.arg(&script)
             .env("FRAMERIZE_SIDECAR_MODE", mode)
             .env("FRAMERIZE_OBSERVED_PROFILE_NONCE", profile_nonce)

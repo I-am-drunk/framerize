@@ -47,8 +47,14 @@ pub struct ResidentRpc {
 
 impl ResidentRpc {
     /// No startup, account registration, disk read or remote command is performed.
+    /// The bridge must have opted into this generation before its first startup.
     pub async fn bind(owner: &Arc<SidecarBridge>, identity: ResidentIdentity)
         -> Result<Self, ResidentError> {
+        let expected = owner.resident_application_generation
+            .ok_or(ResidentError::Unconfirmed)?;
+        if identity.application_generation != expected {
+            return Err(ResidentError::InvalidIdentity);
+        }
         let _admission = owner.admit_unscoped().map_err(|_| ResidentError::Unconfirmed)?;
         let mut inner = owner.inner.lock().await;
         let sidecar = inner.as_mut().ok_or(ResidentError::Unconfirmed)?;
@@ -134,6 +140,7 @@ impl ResidentIdentity {
         host_generation: String, account_incarnation: u64, lease: Uuid)
         -> Result<Self, ResidentError> {
         if account.0.is_nil() || lease.is_nil() || account_incarnation == 0
+            || application_generation.0 == 0
             || !bounded_text(&host_generation, 128) {
             return Err(ResidentError::InvalidIdentity);
         }

@@ -1,6 +1,34 @@
 use super::*;
 
 #[test]
+fn existing_only_never_allocates_or_selects_a_victim() {
+    let pool = ResidentPool::new(1).unwrap();
+    assert!(matches!(pool.try_acquire_idle_existing(id(1)), Err(PoolError::NotResident)));
+    assert_eq!(pool.snapshot().unwrap().occupied, 0);
+    drop(lease(&pool, 1));
+    assert!(matches!(pool.try_acquire_idle_existing(id(2)), Err(PoolError::NotResident)));
+    assert_eq!(status(&pool, 1), ResidentStatus::Idle);
+    let held = pool.try_acquire_idle_existing(id(1)).unwrap();
+    assert_eq!(pool.snapshot().unwrap().residents[0].users, 1);
+    assert!(matches!(pool.try_acquire_idle_existing(id(1)), Err(PoolError::AccountBusy)));
+    assert!(matches!(pool.begin_park(id(1)), Err(PoolError::AccountBusy)));
+    drop(held);
+    assert_eq!(status(&pool, 1), ResidentStatus::Idle);
+}
+
+#[test]
+fn existing_only_refuses_closing_and_uncertain_slots() {
+    let pool = ResidentPool::new(1).unwrap();
+    drop(lease(&pool, 1));
+    let close = pool.begin_park(id(1)).unwrap();
+    assert!(matches!(pool.try_acquire_idle_existing(id(1)), Err(PoolError::AccountBusy)));
+    close.cancel_before_io().unwrap();
+    pool.try_acquire_idle_existing(id(1)).unwrap().retain_unconfirmed();
+    assert!(matches!(pool.try_acquire_idle_existing(id(1)), Err(PoolError::AccountBusy)));
+    assert_eq!(pool.snapshot().unwrap().residents[0].users, 1);
+}
+
+#[test]
 fn ordinary_drop_preserves_a_separately_retained_native_user() {
     for mark_first in [true, false] {
         let pool = ResidentPool::new(1).unwrap();
