@@ -12,7 +12,11 @@ ID and stripped before the reply. Status `-1`, retries, rate accounting and
 provenance rules are preserved. Five actual-script JS cases, six host/event
 cases and 21 existing provenance cases pass with networking disabled. No live
 request was repeated. This source is not deployed and does not establish the
-cause of R11; integration preserving the pending RPC diagnostics is next.
+cause of R11. Both diagnostics are now integrated on `browserless`.
+The RPC observer emits only fixed method/category labels and preserves the
+original failure and uncertainty fence. Its five new tests and 31 existing
+activity/ownership cases pass. The unchanged Rust executable remains reusable;
+the next activation uses an explicitly packaged sidecar, with no hot reload.
 
 R10 returned complete HTTP 200 from the normal browser and paired baseline,
 then stopped locally because the isolated V2 worker observed changed device

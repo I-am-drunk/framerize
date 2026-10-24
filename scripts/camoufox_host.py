@@ -1095,7 +1095,13 @@ class Host:
         async def actual():
             try:
                 return await call(*args, **kwargs)
-            except BaseException:
+            except BaseException as error:
+                if getattr(self, '_resident_control', None) is not None:
+                    try:
+                        from resident_authorization import rpc_failure_facts
+                        emit('resident.rpc.failed', **rpc_failure_facts(call, error))
+                    except Exception:
+                        pass
                 self._retain_resident_fence(life)
                 raise
             finally:

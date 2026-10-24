@@ -8,6 +8,10 @@ phase/status facts and the existing opaque job ID to `ai.post`. Missing or
 invalid facts add no diagnostic fields. Poll timeouts remain unattributed.
 Raw exceptions and response contents are not added to the event.
 
+Resident-enabled hosts also emit fixed RPC method/failure categories. These
+labels are diagnostic hints; they do not clear the retained uncertainty
+activity or change the original exception. Failure of the observer is ignored.
+
 Resident-enabled hosts retain separate private V2 identity metadata after an
 observed successful wrapper call. It binds the original realm, document,
 storage object, module and callable. The decorator invokes the wrapper once;
