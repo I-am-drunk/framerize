@@ -81,6 +81,14 @@ def _refuse():
     raise ResidentRefused('resident authorization refused') from None
 
 
+def _v2_selected(value):
+    return (type(value) is dict and set(value) == {'complete', *SDK_COUNTERS}
+        and value['complete'] is True and value['v2'] == 1
+        and value['v3'] == 0 and value['missing'] == 0
+        and all(type(value[key]) is int and 0 <= value[key] <= 1000
+                for key in SDK_COUNTERS))
+
+
 def _text(value, limit):
     return (type(value) is str and 0 < len(value) <= limit
         and len(value.encode('utf-8', 'strict')) <= limit
@@ -527,6 +535,7 @@ RESIDENT_CAPTURE_JS = r"""input => {
   const record = field(window, '__fzResidentWrapper');
   return Object.freeze({realm: window, doc: document, storage: window.localStorage,
     record, module: field(window, '__fzCastleM'), callable: field(record, 'callable'),
+    sdkIdentity: field(window, '__fzResidentV2Device'),
     check: __RESIDENT_PIN_CHECK__});
 }""".replace('__RESIDENT_PIN_CHECK__', RESIDENT_PIN_JS)
 
@@ -579,6 +588,66 @@ RESIDENT_SDK_OBSERVER_JS = r"""async input => {
     };
   } catch { return unavailable; }
 }"""
+
+RESIDENT_WARM_IDENTITY_JS = r"""async (module, url, call) => {
+  const field = (object, key) => object && Object.getOwnPropertyDescriptor(object, key)?.value;
+  let capture, observe, retained = false;
+  try {
+    capture = {realm: window, doc: document, storage: window.localStorage,
+      module, callable: field(module, 'a'), url};
+    const prior = field(window, '__fzResidentV2Device');
+    retained = !!prior && Object.isFrozen(prior) && Object.keys(capture).every(
+      key => field(prior, key) === capture[key]);
+    if (!retained)
+      observe = await (__RESIDENT_SDK_OBSERVER__)({wrapper_url: url, wrapper_export: 'a'});
+  } catch {}
+  const token = await call();
+  if (retained) return token;
+  try {
+    const sdk = observe?.(), device = capture.storage.getItem('__cuid');
+    if (typeof token === 'string' && token.length > 500 && sdk?.complete
+        && sdk.v2 === 1 && sdk.v3 === 0 && sdk.missing === 0
+        && capture.realm === window && capture.doc === document
+        && capture.storage === window.localStorage && capture.module === module
+        && capture.callable === field(module, 'a')
+        && typeof device === 'string'
+        && /^[0-9a-f]{12}[0-5][0-9a-f]{3}[89ab][0-9a-f]{15}$/.test(device)) {
+      window.__fzResidentV2Device = Object.freeze({...capture, device});
+    }
+  } catch {}
+  return token;
+}""".replace('__RESIDENT_SDK_OBSERVER__', RESIDENT_SDK_OBSERVER_JS)
+
+RESIDENT_SDK_IDENTITY_JS = r"""(pin, input) => {
+  try {
+    if (!pin.check(pin, input)) return null;
+    const field = (object, key) => object && Object.getOwnPropertyDescriptor(object, key)?.value;
+    const record = pin.sdkIdentity;
+    if (!record || !Object.isFrozen(record)
+        || record !== field(window, '__fzResidentV2Device')) return null;
+    for (const key of ['realm', 'doc', 'storage', 'module', 'callable'])
+      if (field(record, key) !== pin[key]) return null;
+    const device = field(record, 'device');
+    return field(record, 'url') === input.wrapper_url
+      && input.wrapper_export === 'a' && typeof device === 'string'
+      && /^[0-9a-f]{12}[0-5][0-9a-f]{3}[89ab][0-9a-f]{15}$/.test(device)
+      ? device : null;
+  } catch { return null; }
+}"""
+
+def observe_warm_identity(source):
+    """Decorate existing calls only; preserve their receiver and retry policy."""
+    for expression, module, url in (
+        ('window.__fzCastleM.a()', 'window.__fzCastleM',
+         'window.__fzResidentWrapper?.url'),
+        ('m.a()', 'm', 'window.__fzResidentWrapper?.url'),
+        ('fresh.a()', 'fresh', 'url'),
+    ):
+        source = source.replace('await ' + expression,
+            'await (' + RESIDENT_WARM_IDENTITY_JS + ')(' + module + ', ' + url
+            + ', () => ' + expression + ')')
+    return source
+
 
 RESIDENT_PINNED_MINT_JS = r"""async (pin, input) => {
   if (!pin.check(pin, input)) return {ok: false, code: 'resident_context'};
@@ -727,6 +796,7 @@ class _CrossoverOperation(_Operation):
         self.phase, self.pin, self.context = 'new', None, None
         self.baseline_digest = self.rate = None
         self.sdk_rate_held = False
+        self.sdk_device, self.baseline_v2 = None, False
 
     async def phase_call(self, req):
         action = req['action']
@@ -833,12 +903,25 @@ class _CrossoverOperation(_Operation):
         rate.note(acc, rate.key)
         acc.last_mint = time.monotonic()
 
+    async def checked_sdk_device(self):
+        if not self.baseline_v2:
+            _refuse()
+        await self.check_pin()
+        device = await self.rpc(self.pin.evaluate, RESIDENT_SDK_IDENTITY_JS,
+                                self.arguments())
+        if (type(device) is not str or not re.fullmatch(
+                r'[0-9a-f]{12}[0-5][0-9a-f]{3}[89ab][0-9a-f]{15}', device)):
+            _refuse()
+        await self.check_pin()
+        return device
+
     async def begin_native_sdk(self):
         await self.prepare_rate()
         await self.rate.lock.acquire()
         self.sdk_rate_held = True
+        self.sdk_device = await self.checked_sdk_device()
         await self.charge_locked()
-        self.payload = self.context_payload('sdk_admitted')
+        self.payload = self.context_payload('sdk_admitted', sdk_device=self.sdk_device)
 
     async def complete_native_sdk(self):
         # The daemon calls this only after joining its separately owned worker.
@@ -847,8 +930,10 @@ class _CrossoverOperation(_Operation):
             _refuse()
         self.binding.acc.last_mint = time.monotonic()
         await self.check_pin()
+        if await self.checked_sdk_device() != self.sdk_device:
+            _refuse()
         self.admitted()
-        self.payload = self.context_payload('sdk_complete')
+        self.payload = self.context_payload('sdk_complete', sdk_device=self.sdk_device)
         self.release_sdk_rate()
 
     def release_sdk_rate(self):
@@ -870,6 +955,8 @@ class _CrossoverOperation(_Operation):
                                                     self.arguments())
                     if type(value) is dict and 'sdk' in value:
                         sdk = value.pop('sdk')
+                    if phase == 'baseline':
+                        self.baseline_v2 = _v2_selected(sdk)
                     return value
                 finally:
                     _resident_sdk_evidence(self.identity['lease'], phase, sdk)
@@ -956,4 +1043,5 @@ class _CrossoverOperation(_Operation):
             self.release_sdk_rate()
         receipt = await super().complete(native_state, resume)
         self.spec = self.context = self.baseline_digest = self.rate = None
+        self.sdk_device = None
         return receipt

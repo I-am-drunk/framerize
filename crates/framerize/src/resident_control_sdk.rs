@@ -37,10 +37,11 @@ fn failure(error: offline_worker_owner::Failure) -> Failure {
 }
 
 pub(super) async fn mint(worker: &V2Worker, page: &CapturedPage,
-    target: &CredentialTarget, control: &PreparationControl, deadline: Instant,
+    sdk_device: &wire::SdkDevice, target: &CredentialTarget,
+    control: &PreparationControl, deadline: Instant,
     report: &mut Report) -> Result<offline_worker_owner::Minted<V2Metadata>, Failure> {
     active_until(control, deadline)?;
-    let device = SavedDevice::new(page.device_id.clone()).map_err(|_| Failure::Context)?;
+    let device = SavedDevice::new(sdk_device.value().to_owned()).map_err(|_| Failure::Context)?;
     let mut run = worker.begin_with_device(Target { project_id: target.project.0.clone(),
         path: target.path.into(), page_url: page.page_url.clone() }, &device,
         deadline.into_std()).map_err(|_| Failure::Mint)?;

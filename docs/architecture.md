@@ -1,5 +1,17 @@
 # Serving architecture and branch policy
 
+Resident-enabled hosts retain separate private V2 identity metadata after an
+observed successful wrapper call. It binds the original realm, document,
+storage object, module and callable. The decorator invokes the wrapper once;
+an SDK exception cannot trigger another call through observer error handling.
+The SDK seed is never inferred by normalizing the HTTP device. SDK admission
+requires a complete V2 baseline observation and the same retained record.
+The private begin/complete replies carry `sdk_device`; the daemon validates
+its shape and equality after child join. Only the isolated worker receives
+that seed. Current cookies, HTTP device, bearer, rate owner and cleanup checks
+remain separate. Missing metadata refuses the SDK leg. Ordinary serving still
+needs a distinct host-bound SDK-seed grant before using this identity scheme.
+
 The resident SDK coordinator explicitly cancels its worker before awaiting
 completion when the cancellation branch wins. This also covers an immediately
 ready stop before the result future has been polled and installed its drop
