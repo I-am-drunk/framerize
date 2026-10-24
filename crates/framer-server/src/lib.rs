@@ -3087,7 +3087,13 @@ async fn run(
         }
     }
     let response: Result<Json<InferenceOutcome>, ApiError> = outcome.map(Json)
-        .map_err(|error| ApiError::Internal(error.to_string()));
+        .map_err(|error| match error {
+            framer_core::error::CoreError::AccountCooling(cooldown) =>
+                ApiError::AccountCooling { retry_after_secs: cooldown.retry_after_secs },
+            framer_core::error::CoreError::AccountNotReady =>
+                ApiError::ServingCapacity("account is not ready".into()),
+            error => ApiError::Internal(error.to_string()),
+        });
     Ok(operation_ownership::completed_response(response.into_response(), cleanup_confirmed))
 }
 

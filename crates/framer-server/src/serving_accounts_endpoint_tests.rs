@@ -3,6 +3,8 @@
 mod explicit_account_admission;
 #[path = "api_run_ownership_tests.rs"]
 mod api_run_ownership;
+#[path = "api_run_capacity_tests.rs"]
+mod api_run_capacity;
 #[path = "local_request_completion_tests.rs"]
 mod local_request_completion;
 #[path = "account_import_identity_tests.rs"]
