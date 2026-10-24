@@ -356,3 +356,210 @@ async fn dropped_stream_preflight_refusal_does_not_seal_admission() {
     assert!(String::from_utf8_lossy(&body).contains("response.completed"));
     assert!(!ownership.gate.stats().unwrap().unconfirmed);
 }
+
+#[tokio::test(flavor = "current_thread")]
+async fn disconnected_first_permit_wait_releases_stream_request_before_permit() {
+    first_permit_disconnect(true).await;
+}
+
+#[tokio::test(flavor = "current_thread")]
+async fn disconnected_first_permit_wait_releases_nonstream_request_before_permit() {
+    first_permit_disconnect(false).await;
+}
+
+async fn first_permit_disconnect(stream: bool) {
+    for messages in [true, false] {
+        let mut f = fixture::Fixture::new();
+        f.state = with_owned_operations(f.state, 32).unwrap();
+        let ownership = f.state.operation_ownership.clone().unwrap();
+        let model = if messages { "claude-opus-5-5" } else { "gpt-6-astra" };
+        let first_key = f.key(0, model);
+        let peer_key = f.key(1, model);
+        let first_permit = f.state.gate.acquire(&first_key).await;
+        let before = serde_json::to_value(f.state.state.list().await.unwrap()).unwrap();
+        let app = crate::router(f.state.clone(), "/nonexistent-fixture-web");
+        let task = tokio::spawn(app.clone().oneshot(cooldown_request(&f, messages, stream, 0)));
+        // On this current-thread fixture, the load returns before the handler
+        // yields on the occupied first permit. Do not skip another identity.
+        let loaded = tokio::time::timeout(WAIT, f.loads.recv()).await.unwrap().unwrap();
+        assert_eq!(loaded, f.accounts[0].framer_user_id);
+        f.no_call();
+        assert_eq!(ownership.gate.stats().unwrap().active, 2);
+        let snapshot = f.state.serving_accounts.residents.snapshot().unwrap();
+        assert_eq!(snapshot.residents.len(), 1);
+        assert_eq!(snapshot.residents[0].account, f.accounts[0].id);
+        assert_eq!(snapshot.residents[0].users, 1);
+        assert!(!snapshot.residents[0].uncertain);
+        task.abort();
+        let cancelled = tokio::time::timeout(WAIT, task).await.unwrap().unwrap_err();
+        assert!(cancelled.is_cancelled());
+        // Cancellation must drain without borrowing the test's held permit.
+        tokio::time::timeout(WAIT, async {
+            while ownership.gate.stats().unwrap().active > 1 { tokio::task::yield_now().await; }
+        }).await.expect("disconnected request retained its owner behind the first permit");
+        assert_eq!(ownership.gate.stats().unwrap().active, 1);
+        assert!(!ownership.gate.stats().unwrap().unconfirmed);
+        assert!(f.state.gate.acquire_now(&first_key).await.is_none());
+        let snapshot = f.state.serving_accounts.residents.snapshot().unwrap();
+        assert_eq!(snapshot.residents.len(), 1);
+        assert_eq!(snapshot.residents[0].account, f.accounts[0].id);
+        assert_eq!(snapshot.residents[0].users, 0);
+        assert!(!snapshot.residents[0].uncertain);
+        // Full record equality preserves state; write-attempt count is unobserved.
+        // Identical-value upserts cannot be ruled out by these snapshots.
+        assert_eq!(serde_json::to_value(f.state.state.list().await.unwrap()).unwrap(), before);
+        f.no_call();
+        assert!(matches!(f.loads.try_recv(), Err(tokio::sync::mpsc::error::TryRecvError::Empty)));
+        assert!(f.state.wave.check().is_none());
+        let task = tokio::spawn(app.oneshot(cooldown_request(&f, messages, stream, 1)));
+        let call = f.next().await;
+        assert_eq!(call.account, f.accounts[1].id);
+        assert_eq!(call.kind, if messages { "messages" } else { "responses" });
+        let loaded = tokio::time::timeout(WAIT, f.loads.recv()).await.unwrap().unwrap();
+        assert_eq!(loaded, f.accounts[1].framer_user_id);
+        assert!(f.state.gate.acquire_now(&first_key).await.is_none());
+        assert!(f.state.gate.acquire_now(&peer_key).await.is_none());
+        f.no_call();
+        call.reply.send(Ok(fixture::success(call.kind))).ok().unwrap();
+        tokio::time::timeout(WAIT, call.dropped).await.unwrap().unwrap();
+        let response = tokio::time::timeout(WAIT, task).await.unwrap().unwrap().unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+        let body = tokio::time::timeout(WAIT, to_bytes(response.into_body(), 65536))
+            .await.unwrap().unwrap();
+        if stream { assert_recovery_output(&body, messages, false); }
+        else { assert_cooldown_peer_output(&body, messages); }
+        tokio::time::timeout(WAIT, async {
+            while ownership.gate.stats().unwrap().active > 1 { tokio::task::yield_now().await; }
+        }).await.unwrap();
+        assert_eq!(ownership.gate.stats().unwrap().active, 1); // Retained host only.
+        assert!(!ownership.gate.stats().unwrap().unconfirmed);
+        let snapshot = f.state.serving_accounts.residents.snapshot().unwrap();
+        assert_eq!(snapshot.residents.len(), 2);
+        for account in &f.accounts {
+            let slot = snapshot.residents.iter().find(|slot| slot.account == account.id).unwrap();
+            assert_eq!(slot.users, 0);
+            assert!(!slot.uncertain);
+        }
+        assert_eq!(serde_json::to_value(f.state.state.list().await.unwrap()).unwrap(), before);
+        f.no_call();
+        assert!(matches!(f.loads.try_recv(), Err(tokio::sync::mpsc::error::TryRecvError::Empty)));
+        assert!(f.state.wave.check().is_none());
+        assert!(f.state.gate.acquire_now(&first_key).await.is_none());
+        drop(f.state.gate.acquire_now(&peer_key).await.expect("peer permit leaked"));
+        let mut ticket = ownership.seal().unwrap();
+        let proof = tokio::time::timeout(WAIT, ticket.wait_application()).await.unwrap().unwrap();
+        ownership.check_application_drained(&proof).unwrap();
+        drop(proof);
+        ticket.cancel_before_control().unwrap();
+        // Only release the test permit after both requests have drained.
+        drop(first_permit);
+        drop(f.state.gate.acquire_now(&first_key).await.expect("cancelled waiter retained permit"));
+    }
+}
+
+#[tokio::test(flavor = "current_thread")]
+async fn disconnected_nonstream_repick_wait_preserves_risk_cooldown_and_open_admission() {
+    nonstream_repick_disconnect(false).await;
+}
+
+#[tokio::test(flavor = "current_thread")]
+async fn disconnected_nonstream_repick_wait_preserves_prior_unknown_cleanup_fence() {
+    nonstream_repick_disconnect(true).await;
+}
+
+async fn nonstream_repick_disconnect(unknown_cleanup: bool) {
+    for messages in [true, false] {
+        let mut f = fixture::Fixture::new();
+        f.state = with_owned_operations(f.state, 32).unwrap();
+        let ownership = f.state.operation_ownership.clone().unwrap();
+        let model = if messages { "claude-opus-5-5" } else { "gpt-6-astra" };
+        let first_key = f.key(0, model);
+        let peer_key = f.key(1, model);
+        let peer_permit = f.state.gate.acquire(&peer_key).await;
+        let app = crate::router(f.state.clone(), "/nonexistent-fixture-web");
+        let task = tokio::spawn(app.oneshot(cooldown_request(&f, messages, false, 0)));
+        let first = f.next().await;
+        assert_eq!(first.account, f.accounts[0].id);
+        assert_eq!(first.kind, if messages { "messages" } else { "responses" });
+        let loaded = tokio::time::timeout(WAIT, f.loads.recv()).await.unwrap().unwrap();
+        assert_eq!(loaded, f.accounts[0].framer_user_id);
+        assert!(f.state.gate.acquire_now(&first_key).await.is_none());
+        f.no_call();
+        let error = if unknown_cleanup { "host-lifecycle-unconfirmed: inert first account" }
+            else { "risk-refused" };
+        first.reply.send(Err(error.into())).ok().unwrap();
+        tokio::time::timeout(WAIT, first.dropped).await.unwrap().unwrap();
+        // The synchronous load reaches the held B permit before this task resumes.
+        let loaded = tokio::time::timeout(WAIT, f.loads.recv()).await.unwrap().unwrap();
+        assert_eq!(loaded, f.accounts[1].framer_user_id);
+        f.no_call();
+        assert_eq!(ownership.gate.stats().unwrap().active, 2);
+        assert!(!ownership.gate.stats().unwrap().unconfirmed);
+        assert!(f.state.gate.acquire_now(&peer_key).await.is_none());
+        drop(f.state.gate.acquire_now(&first_key).await.expect("A permit did not release"));
+        let snapshot = f.state.serving_accounts.residents.snapshot().unwrap();
+        assert_eq!(snapshot.residents.len(), 2);
+        let a = snapshot.residents.iter().find(|slot| slot.account == first.account).unwrap();
+        let b = snapshot.residents.iter().find(|slot| slot.account == f.accounts[1].id).unwrap();
+        assert_eq!(a.users, 0);
+        assert_eq!(a.uncertain, unknown_cleanup);
+        assert_eq!(b.users, 1);
+        assert!(!b.uncertain);
+        let records = f.state.state.list().await.unwrap();
+        let a = records.iter().find(|account| account.id == first.account).unwrap();
+        assert_eq!(a.state, framer_core::account::AccountState::Ready);
+        assert_eq!(a.consecutive_failures, u32::from(!unknown_cleanup));
+        assert_eq!(a.cooldown_step, u32::from(!unknown_cleanup));
+        assert_eq!(a.cooling_until_ms.is_some(), !unknown_cleanup);
+        let b = records.iter().find(|account| account.id == f.accounts[1].id).unwrap();
+        assert_eq!(serde_json::to_value(b).unwrap(), serde_json::to_value(&f.accounts[1]).unwrap());
+        let post_a = serde_json::to_value(&records).unwrap();
+        task.abort();
+        let cancelled = tokio::time::timeout(WAIT, task).await.unwrap().unwrap_err();
+        assert!(cancelled.is_cancelled());
+        tokio::time::timeout(WAIT, async {
+            while ownership.gate.stats().unwrap().active > 1 { tokio::task::yield_now().await; }
+        }).await.expect("repick request retained its owner behind B's held permit");
+        assert_eq!(ownership.gate.stats().unwrap().active, 1); // Retained host only.
+        assert_eq!(ownership.gate.stats().unwrap().unconfirmed, unknown_cleanup);
+        assert!(f.state.gate.acquire_now(&peer_key).await.is_none());
+        let snapshot = f.state.serving_accounts.residents.snapshot().unwrap();
+        assert_eq!(snapshot.residents.len(), 2);
+        let a = snapshot.residents.iter().find(|slot| slot.account == first.account).unwrap();
+        let b = snapshot.residents.iter().find(|slot| slot.account == f.accounts[1].id).unwrap();
+        assert_eq!(a.users, 0);
+        assert_eq!(a.uncertain, unknown_cleanup);
+        assert_eq!(b.users, 0);
+        assert!(!b.uncertain);
+        assert_eq!(b.status, framer_core::resident_pool::ResidentStatus::Idle);
+        // Full records preserve the completed A outcome. Write-attempt count is
+        // unobserved; equality does not rule out identical-value upserts.
+        assert_eq!(serde_json::to_value(f.state.state.list().await.unwrap()).unwrap(), post_a);
+        f.no_call();
+        assert!(matches!(f.loads.try_recv(), Err(tokio::sync::mpsc::error::TryRecvError::Empty)));
+        assert!(f.state.wave.check().is_none());
+        if unknown_cleanup {
+            assert!(matches!(ownership.seal(), Err(GateError::Unconfirmed)));
+            assert!(matches!(ownership.gate.admit(OperationKind::Inference),
+                Err(GateError::Unconfirmed)));
+        } else {
+            let mut ticket = ownership.seal().unwrap();
+            let proof = tokio::time::timeout(WAIT, ticket.wait_application()).await.unwrap().unwrap();
+            ownership.check_application_drained(&proof).unwrap();
+            drop(proof);
+            ticket.cancel_before_control().unwrap();
+            let admitted = ownership.gate.admit(OperationKind::Inference).unwrap();
+            admitted.complete().unwrap();
+            assert!(!ownership.gate.stats().unwrap().sealed);
+        }
+        assert_eq!(ownership.gate.stats().unwrap().active, 1);
+        assert_eq!(ownership.gate.stats().unwrap().unconfirmed, unknown_cleanup);
+        // The cancelled request drained before releasing this independent permit.
+        drop(peer_permit);
+        drop(f.state.gate.acquire_now(&peer_key).await.expect("B permit retained after drain"));
+        drop(f.state.gate.acquire_now(&first_key).await.expect("A permit retained after drain"));
+        f.no_call();
+        assert!(matches!(f.loads.try_recv(), Err(tokio::sync::mpsc::error::TryRecvError::Empty)));
+        assert_eq!(serde_json::to_value(f.state.state.list().await.unwrap()).unwrap(), post_a);
+    }
+}

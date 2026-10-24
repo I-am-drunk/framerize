@@ -3,6 +3,25 @@
 Updated 2026-10-24. The normal service remains browser-based. Publishing these
 branches does not change the running service.
 
+The six-path pre-inference input `330bedb8` is integrated. All 13 selected
+tests pass (`73571c33`, peak 12,488,704 bytes), covering 65 parameterized
+scenarios. Compilation passes (`3f0eb215`, peak 431,255,552 bytes). The batch
+covers initial-acquisition cleanup proof, normal JSON extraction failures,
+disconnect during initial and later nonstream permit waits, and the existing
+admitted-call cancellation control. Original errors, paid forwarding, prior
+cleanup uncertainty and cooldown are retained. Exact pins, selected cases,
+zero swap/limit events and removed groups were independently verified.
+Earlier source-matched selections were not rerun. Equal account snapshots
+do not establish zero identical-value writes. Pure-validation refusals and
+the initial post-permit ServingCapacity case remain separate known gaps.
+
+The changed server library and integrated executable also build successfully
+(`eb206c93`, `1867120f`), reusing the unchanged qualified dependencies. Link
+peak was 457,428,992 bytes with zero swap. Source bindings and process cleanup
+were independently verified. The executable was not run or deployed; the
+protected browser service, normal-endpoint recovery and native acceptance
+remain separate from this qualification.
+
 The three-path streaming follow-up `46d307d8` is integrated over the qualified
 account-policy input. All five selected cases pass (`d26026df`, peak 12,603,392
 bytes), covering ten scenarios across both normal routes: later success or
@@ -27,8 +46,8 @@ single inference attempt while checking cleanup, resident capacity and next
 admission after consumed or discarded responses. Unconfirmed close remains
 fenced; a confirmed refusal before close leaves admission open. Both phases
 independently verified source/input pins, zero swap/limit events and cleanup.
-No prior 47/24/8 or streaming-five selection was repeated. The two initial
-inference acquisition sites remain a separately owned correction.
+No prior 47/24/8 or streaming-five selection was repeated. Initial acquisition
+is covered by the combined pre-inference qualification recorded above.
 
 The changed server library and integrated executable also compile
 (`3a3987db`, `fb450b18`), reusing the unchanged qualified dependency libraries.

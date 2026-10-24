@@ -169,3 +169,141 @@ fn assert_original_error(body: &[u8], route: Route, stream: bool) {
     assert_eq!(error["message"], "fixture risk-refused");
     assert_eq!(error["type"], "api_error");
 }
+
+#[tokio::test]
+async fn initial_failed_close_preserves_refusal_and_fences_admission() {
+    check_initial_admission(RepickClose::Error).await;
+}
+
+#[tokio::test]
+async fn initial_unconfirmed_close_preserves_refusal_and_fences_admission() {
+    check_initial_admission(RepickClose::Unconfirmed).await;
+}
+
+#[tokio::test]
+async fn initial_busy_before_close_preserves_refusal_without_fencing() {
+    check_initial_admission(RepickClose::BeforeCloseBusy).await;
+}
+
+async fn check_initial_admission(mode: RepickClose) {
+    for route in [Route::Free, Route::Native] {
+        for stream in [false, true] {
+            for consume in [false, true] {
+                initial_admission_case(mode, route, stream, consume).await;
+            }
+        }
+    }
+}
+
+fn assert_no_initial_inference(ports: &Ports) {
+    assert_eq!(ports.request_started.load(Ordering::SeqCst), 0);
+    assert_eq!(ports.request_drops.load(Ordering::SeqCst), 0);
+    assert_eq!(ports.request_finished.load(Ordering::SeqCst), 0);
+    assert_eq!(ports.request_steps.load(Ordering::SeqCst), 0);
+    assert!(ports.observed_chats.lock().unwrap().is_empty());
+    assert_eq!(ports.account_writes.load(Ordering::SeqCst), 0);
+    assert_eq!(ports.setting_writes.load(Ordering::SeqCst), 0);
+    assert_eq!(ports.max_live.load(Ordering::SeqCst), 1);
+    let live = ports.live.lock().unwrap();
+    assert_eq!(live.len(), 1);
+    assert!(live.contains_key(&id(1)));
+}
+
+fn assert_initial_refusal(body: &[u8], mode: RepickClose) {
+    let message = match mode {
+        RepickClose::Error => "fixture close failure",
+        RepickClose::Unconfirmed => "previous account browser has not confirmed closure",
+        RepickClose::BeforeCloseBusy => "account browser is still busy or its identity changed",
+    };
+    let value: Value = serde_json::from_slice(body).unwrap();
+    assert_eq!(value, json!({"error":{"code":"framerize_pool_busy",
+        "message":message,"retry_after_seconds":1}}));
+}
+
+async fn initial_admission_case(mode: RepickClose, route: Route, stream: bool, consume: bool) {
+    let (mut state, ports) = fixture(1, 2);
+    activated(&state, 1).await;
+    let before = records(&ports);
+    let initial_mints = ports.mint_routes.lock().unwrap().clone();
+    assert_eq!(initial_mints.len(), 1);
+    assert_eq!(initial_mints[0].0, id(1));
+    let (ownership, gate) = ServingOwnership::new_with_host_factory(
+        state.wave.clone(), 32, |gate| gate).unwrap();
+    state.operation_ownership = Some(ownership.clone());
+    let uncertain = !matches!(mode, RepickClose::BeforeCloseBusy);
+    *ports.close_mode.lock().unwrap() = match mode {
+        RepickClose::Error => CloseMode::Error,
+        RepickClose::Unconfirmed => CloseMode::Unconfirmed,
+        RepickClose::BeforeCloseBusy => CloseMode::Confirm,
+    };
+    if !uncertain { *ports.status_mode.lock().unwrap() = StatusMode::Busy; }
+    ports.gate_close.store(uncertain, Ordering::SeqCst);
+    let app = crate::router(state.clone(), "/fixture-no-web");
+    let mut request = repick_request(route, stream);
+    request.headers_mut().insert("x-framerize-account", id(2).0.to_string().parse().unwrap());
+    let task = tokio::spawn(app.clone().oneshot(request));
+    if uncertain {
+        until(|| ports.events.lock().unwrap().contains(&("close_started", id(1)))).await;
+        let resident = slot(&state, id(1));
+        assert!(resident.close_started);
+        assert_eq!(resident.replacement, Some(id(2)));
+        assert!(!task.is_finished());
+        assert!(gate.stats().unwrap().active > 1);
+        assert_no_initial_inference(&ports);
+        assert_eq!(*ports.mint_routes.lock().unwrap(), initial_mints);
+        ports.close_gate.add_permits(1);
+    }
+    let response = tokio::time::timeout(Duration::from_secs(2), task)
+        .await.unwrap().unwrap().unwrap();
+    assert_eq!(response.status(), StatusCode::SERVICE_UNAVAILABLE,
+        "{mode:?} {route:?} stream={stream} consume={consume}");
+    assert_eq!(response.headers()["retry-after"], "1");
+    assert_eq!(response.headers()["content-type"], "application/json");
+    assert!(!response.body().is_end_stream(), "exercise an unread refusal body");
+    if consume {
+        let body = tokio::time::timeout(Duration::from_secs(2),
+            to_bytes(response.into_body(), 4096)).await.unwrap().unwrap();
+        assert_initial_refusal(&body, mode);
+    } else { drop(response); }
+    until(|| gate.stats().unwrap().active == 1).await;
+    assert_eq!(gate.stats().unwrap().unconfirmed, uncertain,
+        "{mode:?} {route:?} stream={stream} consume={consume}");
+    let snapshot = state.serving_accounts.residents.snapshot().unwrap();
+    assert_eq!(snapshot.occupied, 1);
+    assert_eq!(snapshot.residents.len(), 1);
+    let resident = &snapshot.residents[0];
+    assert_eq!(resident.account, id(1));
+    assert_eq!(resident.users, 0);
+    assert_eq!(resident.uncertain, uncertain);
+    assert_eq!(resident.replacement, None);
+    assert_eq!(records(&ports), before);
+    assert!(state.wave.check().is_none());
+    assert_no_initial_inference(&ports);
+    assert_eq!(*ports.mint_routes.lock().unwrap(), initial_mints);
+    let mut expected_events = vec![("status", id(1)), ("mint", id(1)), ("status", id(1))];
+    if uncertain { expected_events.push(("close_started", id(1))); }
+    assert_eq!(*ports.events.lock().unwrap(), expected_events);
+    if uncertain { assert!(matches!(ownership.seal(), Err(GateError::Unconfirmed))); }
+    else {
+        let mut ticket = ownership.seal().unwrap();
+        let proof = tokio::time::timeout(Duration::from_secs(2), ticket.wait_application())
+            .await.unwrap().unwrap();
+        ownership.check_application_drained(&proof).unwrap();
+        drop(proof);
+        ticket.cancel_before_control().unwrap();
+    }
+    let probe = Request::builder().uri("/api/hello").body(Body::empty()).unwrap();
+    let response = tokio::time::timeout(Duration::from_secs(2), app.oneshot(probe))
+        .await.unwrap().unwrap();
+    assert_eq!(response.status(), if uncertain { StatusCode::SERVICE_UNAVAILABLE }
+        else { StatusCode::OK });
+    let body = to_bytes(response.into_body(), 1024).await.unwrap();
+    assert_eq!(body.as_ref(), if uncertain { b"operation admission closed".as_slice() }
+        else { b"ok".as_slice() });
+    assert_eq!(gate.stats().unwrap().active, 1); // The unmanaged host stays retained.
+    assert_eq!(gate.stats().unwrap().unconfirmed, uncertain);
+    assert_eq!(records(&ports), before);
+    assert_eq!(*ports.events.lock().unwrap(), expected_events);
+    assert_eq!(*ports.mint_routes.lock().unwrap(), initial_mints);
+    assert_no_initial_inference(&ports);
+}

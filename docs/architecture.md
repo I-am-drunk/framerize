@@ -12,8 +12,19 @@ Account acquisition during repick now returns cleanup evidence separately from
 its result. All four inference loops retain that evidence while preserving the
 original client error. Failed or unconfirmed eviction keeps admission fenced;
 a confirmed refusal before closing the browser does not. Three routed cases
-and two acquisition controls pass. The two initial inference acquisition sites
-still use the older result-only wrapper and remain a separate correction.
+and two acquisition controls pass. Initial inference acquisition now preserves
+the same cleanup proof, so a confirmed local refusal does not fence later
+requests while an uncertain close still does.
+
+Normal JSON extraction failures retain their original response and explicitly
+complete local ownership after extraction finishes. Paid forwarding keeps its
+existing handling. The HTTP waiter's lifetime also notifies initial permit
+waits and later nonstream permit waits of disconnect. Those waits release local
+residency before the held permit becomes available; already admitted calls
+still finish through the existing join and cleanup path. Earlier uncertainty
+and recorded cooldown survive cancellation. Thirteen selected tests pass.
+Pure validation refusals and the initial post-permit ServingCapacity refusal
+remain separate known completion gaps; this batch does not qualify them.
 
 Explicit account requests now require a Ready account with a complete current
 scope. Selection and the pre-call lookup retain cooldown and cleanup fences;
