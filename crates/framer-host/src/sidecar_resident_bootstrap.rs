@@ -57,6 +57,21 @@ struct Reply {
     browser_settled: bool,
 }
 
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct UnavailableReply {
+    version: u8,
+    account: String,
+    application_generation: u64,
+    bootstrap: String,
+    project: String,
+    path: String,
+    proxy_revision: u64,
+    status: String,
+    stage: String,
+    browser_settled: bool,
+}
+
 impl SidecarBridge {
     /// Caller retains application admission across this entire operation.
     /// An error after sending has unknown cleanup; it must retain that fence.
@@ -94,14 +109,14 @@ impl SidecarBridge {
             fields, Duration::from_secs(3), false, Some(incarnation)).await
             .map_err(|_| BootstrapError::Unconfirmed)?;
         let result = checked(value, account, generation, incarnation, bootstrap,
-            revision, project, path)?;
+            revision, project, path);
         let mut inner = self.inner.lock().await;
         let host = inner.as_mut().ok_or(BootstrapError::Unconfirmed)?;
         if host.incarnation != incarnation || !host.healthy.load(Ordering::Acquire)
             || !matches!(host.child.try_wait(), Ok(None)) {
             return Err(BootstrapError::Unconfirmed);
         }
-        Ok(result)
+        result
     }
 }
 
@@ -130,6 +145,16 @@ fn wrapper(url: &str, export: &str) -> bool {
 fn checked(value: Value, account: AccountId, generation: ApplicationGeneration,
     incarnation: Uuid, bootstrap: Uuid, revision: u64, project: &str, path: &str)
     -> Result<ResidentBootstrap, BootstrapError> {
+    if value.get("status").is_some() {
+        let r: UnavailableReply = serde_json::from_value(value)
+            .map_err(|_| BootstrapError::Unconfirmed)?;
+        return Err(if r.version == 2 && r.account == account.0.to_string()
+            && r.application_generation == generation.0 && r.bootstrap == bootstrap.to_string()
+            && r.project == project && r.path == path && r.proxy_revision == revision
+            && r.status == "unavailable" && r.stage == "provenance" && r.browser_settled {
+            BootstrapError::Unavailable
+        } else { BootstrapError::Unconfirmed });
+    }
     if !value.as_object().is_some_and(|o| o.contains_key("effective_proxy")) {
         return Err(BootstrapError::Unconfirmed);
     }
