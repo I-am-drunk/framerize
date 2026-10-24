@@ -1,0 +1,56 @@
+{
+  "accepted": true,
+  "cgroup_absent": true,
+  "changed_files": [
+    "offline_mint.mjs",
+    "worker.mjs",
+    "warnings.mjs"
+  ],
+  "classification": {
+    "other": 0,
+    "process": 1,
+    "vm_loader_origin": 1,
+    "vm_modules": 1
+  },
+  "limitation": "One instrumented sample identifies its warning, not the cause of any live 403.",
+  "memory_events": {
+    "high": 0,
+    "low": 0,
+    "max": 0,
+    "oom": 0,
+    "oom_group_kill": 0,
+    "oom_kill": 0
+  },
+  "parent_source_manifest_sha256": "7ce29b07969bdcb97a1875cc73ad5ca0ef0d1370bafd98b599ab834278f6156a",
+  "patch_sha256": "f58307b68b3b2355ad76561f2166a1ac7f2e7d12c1c63697fc99e09c8e122792",
+  "raw_token_retained": false,
+  "receipt_sha256": "e5f6e40593e028f6f592ac6bd61ca31ebe8d6cf743e05604d819bf2c361dc7b2",
+  "resources": {
+    "memory.current": 6459392,
+    "memory.max": 134217728,
+    "memory.peak": 70115328,
+    "memory.swap.current": 0,
+    "memory.swap.max": 0,
+    "memory.swap.peak": 0,
+    "pids.current": 1,
+    "pids.max": 32,
+    "pids.peak": 12
+  },
+  "scope": "synthetic diagnostic, no authenticated request",
+  "source_manifest_sha256": "178794b480ae563e6bc85b747a95958e19135fc4ba2bdca3e8bec862adfdc666",
+  "unit_absent": true,
+  "warning_text_retained": false,
+  "worker": {
+    "accepted": true,
+    "authenticated_delivery": false,
+    "handoff_ms": 152.99339400000008,
+    "owner_elapsed_ms": 2792.4960300000002,
+    "sdk_elapsed_ms": 1895.761763,
+    "sdk_method_ms": 941.851791,
+    "synthetic": true,
+    "token_discarded": true,
+    "worker_absent": true,
+    "worker_joined": true,
+    "worker_pid": 3
+  }
+}

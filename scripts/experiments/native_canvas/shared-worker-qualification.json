@@ -1,0 +1,93 @@
+{
+  "accepted": true,
+  "deployment_status": "not deployed",
+  "mounted_sha256": "860823f77ffdceb888f4f03c019237570b56b625bd9f769c8e2e16e2c76c67c6",
+  "results": {
+    "owned-1": {
+      "memory_events": {
+        "high": 0,
+        "low": 0,
+        "max": 0,
+        "oom": 0,
+        "oom_group_kill": 0,
+        "oom_kill": 0
+      },
+      "receipt_sha256": "cfa3ec05104365501c3a6d130d14b1770199ad71ddb558b1747984704ee40dc4",
+      "resources": {
+        "memory.current": 6475776,
+        "memory.max": 134217728,
+        "memory.peak": 85839872,
+        "memory.swap.current": 0,
+        "memory.swap.max": 0,
+        "memory.swap.peak": 0,
+        "pids.current": 1,
+        "pids.max": 32,
+        "pids.peak": 13
+      },
+      "result": {
+        "accepted": true,
+        "authenticated_delivery": false,
+        "handoff_ms": 133.6451920000004,
+        "owner_elapsed_ms": 2974.078896,
+        "sdk_elapsed_ms": 2063.6404340000004,
+        "sdk_method_ms": 1089.168996,
+        "synthetic": true,
+        "token_discarded": true,
+        "worker_absent": true,
+        "worker_joined": true,
+        "worker_pid": 3
+      }
+    },
+    "tests-1": {
+      "memory_events": {
+        "high": 0,
+        "low": 0,
+        "max": 0,
+        "oom": 0,
+        "oom_group_kill": 0,
+        "oom_kill": 0
+      },
+      "receipt_sha256": "c8907ec95d01d7aa6b3f139c350f90ff2d50440efb392997faf127df138c6760",
+      "resources": {
+        "memory.current": 6729728,
+        "memory.max": 134217728,
+        "memory.peak": 74346496,
+        "memory.swap.current": 0,
+        "memory.swap.max": 0,
+        "memory.swap.peak": 0,
+        "pids.current": 1,
+        "pids.max": 32,
+        "pids.peak": 13
+      },
+      "result": {
+        "accepted": true,
+        "synthetic": true,
+        "tests_only": true
+      }
+    }
+  },
+  "scope": "synthetic components and SDK owner; no authenticated HTTP",
+  "sdk_exchange_receipt_sha256": "d5cd2505ddca2442c41bf420b03904ef41a1d17949012aa407a3fd514d56ed3d",
+  "sdk_worker_sha256": "cb1716096c87eff9d6f2296bbac1302c0b3c58e404226b15cd45cd223c4addab",
+  "source_sha256": "3a001f1e28eb853ab7d62c7ffc4160c253a9c4b87669159d3a157b906ed4ff2a",
+  "sources": {
+    "branch.mjs": "f15988087c28b558d31d587dd7e04f3cb5134e8a66c23b46bfc81d9f39eab165",
+    "device.mjs": "904b8f1ed021bd04900776478efe4e45355cc343039961fb99ad710157b3bec3",
+    "device_tests.mjs": "67dcec10e5288c9bdc54cde23ef890a81b300cd67f1eb0261b0293696eaf090c",
+    "environment_tests.mjs": "456853e67c4a46e1036daf5eea5607e47dd6420d5812f294d01fa8cca5940a89",
+    "offline_mint.mjs": "2c429f3523cb6a45e44123151e052ed8790190df5663d602f380ab0f3ffd45e5",
+    "pins.mjs": "3c70d427c4992ac073b7134da68384ed31455c8a17bdeb7da76fd9b36155340d",
+    "protocol.mjs": "dde1a6c3f77b8795e7c6c6bbb2ba5fed57c97aee8e038ebf8801c525954c7efe",
+    "resources.mjs": "0b97c4ce53ea71bfc5f1b7f8c589e1930f59fe17f4d2bf470c02ace0a58e45da",
+    "resources_tests.mjs": "b2613cbe93e2c19d1101b45a51a4d72e77f1e647b35eb2ccb1f8a6ba4aa3eece",
+    "sdk_loader.mjs": "4e829e25bb807ddf02871e0cb7a3c6221bcf9833b8cf3f627f5b0a701b23e2b8",
+    "shared_runtime.mjs": "0db4393f24644108c9942a29c51ed304567beff94f3e84575f070213a45bdb87",
+    "shared_workers.mjs": "92ad0188afe06e9fa2ccbf5dd0908ffe9bcd09bf528989a5201e37314bc2ba8a",
+    "shared_workers_tests.mjs": "060a6b7568351af88b548924c741c40c213ef777e82a6128cebda1658894f547",
+    "source_tests.mjs": "ea85f0255b50cb7c4a8c1070c80ca38ff970e6a0173bee7a1ead092533aa47bc",
+    "worker.mjs": "7de54cff2a240820ab5e66532a1955d4bca5b6ab814a60b4310886f18918707c"
+  },
+  "tests_run": 8,
+  "tokens_retained": false,
+  "worker_config_sha256": "53feb09161d4b7ddb0fed67c50c0622662f8739b1fe4053f6ecac88ad165f0fb"
+}

@@ -1,0 +1,29 @@
+--- a/scripts/offline_worker/offline_mint.mjs
++++ b/scripts/offline_worker/offline_mint.mjs
+@@ -0,0 +1 @@
++import { observeWarning } from './warnings.mjs';
+@@ -42 +43 @@
+-    const warning = () => { graphics.process_warnings++; diagnostic(); };
++    const warning = value => { graphics.process_warnings++; observeWarning(value); diagnostic(); };
+--- a/scripts/offline_worker/worker.mjs
++++ b/scripts/offline_worker/worker.mjs
+@@ -0,0 +1 @@
++import { warnings } from './warnings.mjs';
+@@ -19 +20 @@
+-  fs.writeFileSync('/out/graphics.json', JSON.stringify({ ...graphics, status: metadata.status, failure_phase: metadata.failure_phase, branch: metadata.branch }) + '\n', { flag: 'wx', mode: 0o600 });
++  fs.writeFileSync('/out/graphics.json', JSON.stringify({ ...graphics, warning_classification: warnings, status: metadata.status, failure_phase: metadata.failure_phase, branch: metadata.branch }) + '\n', { flag: 'wx', mode: 0o600 });
+--- /dev/null
++++ b/scripts/offline_worker/warnings.mjs
+@@ -0,0 +1,12 @@
++// Diagnostic fixture only. Retain categories and counts, never warning text.
++export const warnings = { process: 0, vm_modules: 0, vm_loader_origin: 0, other: 0 };
++export function observeWarning(warning) {
++  warnings.process++;
++  const vm = warning instanceof Error && warning.name === 'ExperimentalWarning'
++    && warning.message === 'VM Modules is an experimental feature and might change at any time';
++  if (vm) warnings.vm_modules++;
++  else warnings.other++;
++  if (vm && typeof warning.stack === 'string'
++      && warning.stack.includes('node:internal/vm/module:')
++      && /\/sdk_loader\.mjs:\d+:\d+/.test(warning.stack)) warnings.vm_loader_origin++;
++}
