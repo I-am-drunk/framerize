@@ -968,7 +968,14 @@ async fn free_complete(
         hdr(headers, "x-framerize-account").as_deref(),
     ).map_err(operation_ownership::completed_preflight)?;
     let residency = RequestResidency::new(lease_account(&s, account.id).await?);
-    let account = current_account(&s, account.id).await?;
+    let account = match current_account(&s, account.id).await {
+        Ok(account) => account,
+        Err(error @ (ApiError::Cooling { .. } | ApiError::AccountCooling { .. })) => {
+            return Ok(operation_ownership::completed_response(
+                axum::response::IntoResponse::into_response(error), true));
+        },
+        Err(error) => return Err(error),
+    };
     let mut session = s
         .sessions
         .load(&account.framer_user_id)
@@ -988,7 +995,14 @@ async fn free_complete(
     let gate_model = anthro["model"].as_str().unwrap_or("unknown").to_string();
     let mut gate_key = format!("{}:{gate_model}", scope_team.0);
     let mut first_permit = Some(s.gate.acquire(&gate_key).await);
-    current_account(&s, account.id).await?;
+    match current_account(&s, account.id).await {
+        Ok(_) => {},
+        Err(error @ (ApiError::Cooling { .. } | ApiError::AccountCooling { .. })) => {
+            return Ok(operation_ownership::completed_response(
+                axum::response::IntoResponse::into_response(error), true));
+        },
+        Err(error) => return Err(error),
+    }
 
     let mk_cfg = |team: &framer_core::ids::TeamId| framer_core::port::ChainConfig {
         max_total_tokens: Some(max_tokens),
@@ -1054,6 +1068,7 @@ async fn free_complete(
             let mut cfg2 = cfg;
             let mut tried: Vec<String> = Vec::new();
             let mut acct_attempt = 0u32;
+            let mut cleanup_confirmed = true;
             let result = loop {
                 if let Err(error) = cfg2.check_cancelled() { break Err(error); }
                 let permit = match first_permit.take() {
@@ -1081,6 +1096,7 @@ async fn free_complete(
                     )
                     .await;
                 drop(permit);
+                cleanup_confirmed &= !matches!(&r, Err(error) if pool_control::cleanup_unconfirmed(error));
                 let r = residency.observe_result(account.id, r);
                 if !matches!(&r, Err(error) if error == "client cancelled") {
                     record_account_health(&s2, &account, &r).await;
@@ -1144,7 +1160,7 @@ async fn free_complete(
                 };
                 ev.emit();
             }
-            result
+            (result, cleanup_confirmed)
         }).map_err(|_| ApiError::ServingCapacity("operation admission closed".into()))?;
 
         let open_frames = convert::stream_open(dialect, &client_model, &msg_id);
@@ -1484,7 +1500,14 @@ async fn native_complete(
         hdr(headers, "x-framerize-account").as_deref(),
     ).map_err(operation_ownership::completed_preflight)?;
     let residency = RequestResidency::new(lease_account(&s, account.id).await?);
-    let account = current_account(&s, account.id).await?;
+    let account = match current_account(&s, account.id).await {
+        Ok(account) => account,
+        Err(error @ (ApiError::Cooling { .. } | ApiError::AccountCooling { .. })) => {
+            return Ok(operation_ownership::completed_response(
+                axum::response::IntoResponse::into_response(error), true));
+        },
+        Err(error) => return Err(error),
+    };
     let mut session = s
         .sessions
         .load(&account.framer_user_id)
@@ -1502,7 +1525,14 @@ async fn native_complete(
     let gate_model = convert::to_openrouter_id(&client_model);
     let mut gate_key = format!("{}:{gate_model}", scope_team.0);
     let mut first_permit = Some(s.gate.acquire(&gate_key).await);
-    current_account(&s, account.id).await?;
+    match current_account(&s, account.id).await {
+        Ok(_) => {},
+        Err(error @ (ApiError::Cooling { .. } | ApiError::AccountCooling { .. })) => {
+            return Ok(operation_ownership::completed_response(
+                axum::response::IntoResponse::into_response(error), true));
+        },
+        Err(error) => return Err(error),
+    }
 
     let cancelled = operation_ownership::request_cancelled();
     let mk_cfg = |team: &framer_core::ids::TeamId| framer_core::port::ChainConfig {
@@ -1560,6 +1590,7 @@ async fn native_complete(
             let mut cfg2 = cfg;
             let mut tried: Vec<String> = Vec::new();
             let mut acct_attempt = 0u32;
+            let mut cleanup_confirmed = true;
             let result = loop {
                 if let Err(error) = cfg2.check_cancelled() { break Err(error); }
                 let permit = match first_permit.take() {
@@ -1587,6 +1618,7 @@ async fn native_complete(
                     )
                     .await;
                 drop(permit);
+                cleanup_confirmed &= !matches!(&r, Err(error) if pool_control::cleanup_unconfirmed(error));
                 let r = residency.observe_result(account.id, r);
                 if !matches!(&r, Err(error) if error == "client cancelled") {
                     record_account_health(&s2, &account, &r).await;
@@ -1647,7 +1679,7 @@ async fn native_complete(
                 Err(e) => ev.error(e),
             };
             ev.emit();
-            result
+            (result, cleanup_confirmed)
         }).map_err(|_| ApiError::ServingCapacity("operation admission closed".into()))?;
 
         let open_frames = convert::stream_open(dialect, &client_model, &logical_id);

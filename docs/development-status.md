@@ -3,6 +3,22 @@
 Updated 2026-10-24. The normal service remains browser-based. Publishing these
 branches does not change the running service.
 
+The three-path streaming follow-up `46d307d8` is integrated over the qualified
+account-policy input. All five selected cases pass (`d26026df`, peak 12,603,392
+bytes), covering ten scenarios across both normal routes: later success or
+plain error cannot erase earlier unknown cleanup, disconnect joins the producer,
+and an initial known cooldown refusal leaves subsequent admission open.
+Test compilation passes (`01011882`, peak 689,569,792 bytes). The prior 47-case
+selection was not rerun. All selected names, pinned inputs, zero swap/limit
+events and absent process groups were independently verified.
+
+Only the changed server library and executable were rebuilt. Both pass
+(`5cf58557` and `b7038622`), reusing source-matched, previously qualified core,
+host, API and store libraries. Link peak was 590,610,432 bytes with zero swap.
+No new executable was run or deployed. Failed account-acquisition cleanup during
+repick remains a separately owned source correction. Native acceptance and
+normal-service streaming acceptance are still unverified.
+
 The account-policy candidate `43fca821` is integrated, retaining the previously
 qualified client corrections and newer documentation. All 47 selected cases
 pass: 20 rotation/cooldown cases (`482719c7`), 18 explicit-admission and request-
