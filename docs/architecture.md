@@ -17,6 +17,13 @@ the observation unavailable, and strict consumers must reject incomplete data.
 The core compilation and five focused append fixtures pass. This has not changed
 the running service's retained core library or rebuilt its dependent executable.
 
+The future structure collector decodes each selected event with the shared
+duplicate-key rejection hook before checking its envelope or pairing records.
+Repeated keys at any depth fail with a fixed error; escaped duplicate names
+also fail. Successful JSON decoding alone does not validate the record schema
+or prove capture provenance. The decoder retains the existing 32 MiB input
+bound and exports no partial record on failure.
+
 Native response-head diagnostics attach status, fixed HTTP-version and content-
 encoding categories to the existing send invocation counter. They run after
 headers arrive and before the unchanged response admission checks. Encoding

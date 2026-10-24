@@ -55,9 +55,14 @@ The comparator now raises its fixed failure after leaving the exception handler,
 so the caught error is not retained as its context. All 17 cases pass (`a489c417`,
 peak 22,474,752 bytes), including direct context/cause checks. No swap or limit
 events occurred; inputs were unchanged and the test group exited. This makes
-no guarantee about traceback-local erasure. Next, reject duplicate JSON keys
-at the collector's decode boundary before pairing; qualify it with synthetic
-records. No private log read or live request is needed for that correction.
+no guarantee about traceback-local erasure. The future collector now rejects
+duplicate JSON keys before envelope checks and pairing. Its shared decoder
+passes six synthetic cases (`ed4313ae`, peak 17,043,456 bytes), including nested
+and escaped duplicates, fixed errors and successful pairing. Inputs matched;
+no swap or limit events occurred and the test group exited. No private log
+was read. The next capture-package step is linking the qualified writer into
+its dependent binary and freezing the strict decoder with the collector.
+Actual native capture and accepted native inference remain unverified.
 
 The request-path correction is integrated as `216350e`. Its exact 19-case
 qualification is reused from receipt `65937832`: all pass, 17,039,360-byte peak,
