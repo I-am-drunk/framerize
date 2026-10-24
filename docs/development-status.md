@@ -25,6 +25,12 @@ starting the older staged daemon on success. All 28 inert finalization cases
 pass, including refusal of incomplete cleanup and mismatched history. The first
 test launch used a relative path and did not reach the fixture; the corrected
 absolute-path run passed. Standalone and offline-worker validation remain open.
+The corrected standalone daemon now compiles against the validated API and
+current observer. Its retained core, server, store and worker library sources
+match the current source. Build peak was 480,161,792 bytes with zero swap or
+limit events. Two isolated CLI startup checks pass. Candidate SHA-256 starts
+`688cec05`; it is not installed or running. Authenticated offline delivery and
+streaming validation remain open.
 
 A traced offline SDK probe identified the browser crash: PulseAudio requests a
 64 MiB shared-memory file, but the comparison runner allowed only 32 MiB.
