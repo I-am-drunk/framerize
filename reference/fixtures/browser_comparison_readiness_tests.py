@@ -277,7 +277,7 @@ class BrowserComparisonReadinessTests(unittest.IsolatedAsyncioTestCase):
         for check, change in cases:
             with self.subTest(check=check):
                 value = self.fixture()
-                value.after_ready = lambda value=value, change=change: change(value)
+                value.after_policy = lambda value=value, change=change: change(value)
                 with self.assertRaisesRegex(RuntimeError, "^browser comparison failed$"):
                     await value.prepare_context()
                 self.assertTrue(value.disposed)

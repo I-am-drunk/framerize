@@ -17,6 +17,15 @@ BASELINE_SECONDS = 30
 COMPARISON_READY_SECONDS = 10
 COMPARISON_DISPOSE_SECONDS = 2
 COMPARISON_PROBE_SECONDS = 1
+COMPARISON_POLICY_SECONDS = 2
+POLICY_STAGES = ('policy_preflight', 'policy_pre_context', 'policy_import',
+    'policy_export', 'policy_engine', 'policy_project', 'policy_space',
+    'policy_check', 'policy_post_context', 'policy_result', 'policy_disabled',
+    'policy_ready', 'policy_rpc_timeout', 'policy_rpc_error',
+    'policy_scope_refused', 'policy_reply_invalid')
+POLICY_CHECKS = ('policy_known', 'ai_disabled', 'policy_project_match',
+    'policy_space_match', 'policy_page_match', 'policy_device_match',
+    'policy_engine_match')
 READINESS_STAGES = ('editor_wait_timeout', 'editor_wait_error',
     'editor_dispose_timeout', 'editor_dispose_error', 'editor_scope_refused',
     'editor_rpc_timeout', 'editor_rpc_error')
@@ -36,10 +45,10 @@ DIAGNOSTIC_STAGES = frozenset(('account_start', 'context_inputs', 'cookie_seed',
     'baseline_header_after_mint_membership', 'baseline_header_after_mint_values',
     'baseline_result', 'baseline_bound_after_fetch', 'mint_rpc',
     'mint_rpc_target_closed', 'mint_rpc_timeout', 'mint_rpc_error',
-    'mint_reply_invalid', *MINT_FAILURE_MARKS.values(), *READINESS_STAGES))
+    'mint_reply_invalid', *MINT_FAILURE_MARKS.values(), *READINESS_STAGES, *POLICY_STAGES))
 DIAGNOSTIC_CHECKS = ('device_valid', 'device_cookie_match', 'login_match',
                      'page_match', 'url_unchanged', 'device_cookie_present',
-                     'device_cookie_unique', *READINESS_CHECKS)
+                     'device_cookie_unique', *READINESS_CHECKS, *POLICY_CHECKS)
 SDK_COUNTERS = ('v3', 'v2', 'missing', 'module_load_timeout', 'module_load_error',
                 'configuration_timeout', 'configuration_error', 'token_generation_timeout',
                 'token_generation_error', 'sdk_timeout', 'sdk_error')
@@ -363,6 +372,75 @@ COMPARISON_READY = """({project, diagnose = false}) => {
   return diagnose ? checks : true;
 }"""
 
+COMPARISON_POLICY = """async ({project, page_url}) => {
+  let stage = 'policy_pre_context';
+  const checks = {policy_known: false};
+  const finish = () => ({stage, ...checks});
+  const object = value => value !== null && typeof value === 'object' && !Array.isArray(value);
+  try {
+    const device = localStorage.getItem('__cuid');
+    const pageMatches = () => location.href === page_url;
+    const deviceMatches = () => typeof device === 'string' && device.length > 0 &&
+      localStorage.getItem('__cuid') === device;
+    checks.policy_page_match = pageMatches();
+    checks.policy_device_match = deviceMatches();
+    if (!checks.policy_page_match || !checks.policy_device_match) return finish();
+    stage = 'policy_import';
+    const em = await import('https://app.framerstatic.com/chunk-WC34TENX.mjs');
+    stage = 'policy_export';
+    if (typeof em.a !== 'function') return finish();
+    stage = 'policy_engine';
+    const engine = em.a();
+    if (!object(engine)) return finish();
+    stage = 'policy_import';
+    const policy = await import('https://app.framerstatic.com/chunk-5PNX2WXY.mjs');
+    stage = 'policy_export';
+    if (typeof policy.c !== 'function') return finish();
+    stage = 'policy_project';
+    const store = engine.stores?.projectStore, loaded = store?.project;
+    checks.policy_project_match = object(loaded) && store.projectId === project && loaded.id === project;
+    if (!checks.policy_project_match) return finish();
+    stage = 'policy_space';
+    const user = engine.stores?.sessionStore?.user, id = loaded.space?.id;
+    const memberships = () => Array.isArray(user?.spaces) ?
+      user.spaces.filter(value => object(value) && value.id === id) : [];
+    const matches = memberships(), space = matches[0], kind = space?.scope;
+    // 2Z4UPA7G export b gates configuration reads on organization scope.
+    const organization = kind === 'organization';
+    const config = organization ? space.configuration : undefined;
+    checks.policy_space_match = typeof id === 'string' && id.length > 0 &&
+      matches.length === 1 && (kind === 'user' || (organization && object(config)));
+    if (!checks.policy_space_match) return finish();
+    const configured = organization ? config.disableAi : undefined;
+    if (configured !== undefined && typeof configured !== 'boolean') return finish();
+    const bound = () => {
+      checks.policy_page_match = pageMatches();
+      checks.policy_device_match = deviceMatches();
+      checks.policy_engine_match = em.a() === engine;
+      checks.policy_project_match = engine.stores?.projectStore === store &&
+        store.project === loaded && store.projectId === project && loaded.id === project;
+      const current = memberships();
+      checks.policy_space_match = engine.stores?.sessionStore?.user === user &&
+        loaded.space?.id === id && current.length === 1 && current[0] === space &&
+        space.scope === kind && (!organization ||
+          (space.configuration === config && Object.is(config.disableAi, configured)));
+      return Object.entries(checks).every(([key, value]) => key === 'policy_known' || value);
+    };
+    stage = 'policy_pre_context';
+    if (!bound()) return finish();
+    stage = 'policy_check';
+    const disabled = policy.c(engine);
+    stage = 'policy_post_context';
+    if (!bound()) return finish();
+    stage = 'policy_result';
+    if (typeof disabled !== 'boolean') return finish();
+    checks.policy_known = true;
+    checks.ai_disabled = disabled;
+    stage = disabled ? 'policy_disabled' : 'policy_ready';
+    return finish();
+  } catch { return finish(); }
+}"""
+
 COMPARISON_SNAPSHOT = """() => ({
   url: location.href, device: localStorage.getItem('__cuid')
 })"""
@@ -460,6 +538,49 @@ def comparison_owner(host, account, scope):
             or acc._observed_scope is not scope):
         raise ValueError("comparison owner changed")
     return acc
+
+
+async def comparison_policy(scope, page, project):
+    comparison_mark(scope, 'policy_preflight')
+    page_url = page.url
+    if not page_matches(page_url, project):
+        comparison_mark(scope, 'policy_pre_context', policy_known=False, policy_page_match=False)
+        raise RuntimeError('comparison policy unavailable')
+    # One bounded read; the original scope retains a pending RPC on cancellation.
+    try:
+        result = await comparison_rpc(scope, lambda: page.evaluate('mw:' + COMPARISON_POLICY,
+            {'project': project, 'page_url': page_url}), COMPARISON_POLICY_SECONDS)
+    except asyncio.CancelledError:
+        raise
+    except Exception as error:
+        if (scope.failure or scope.stopped.is_set()
+                or getattr(scope, 'rpc_admission_closed', False)):
+            stage = 'policy_scope_refused'
+        else:
+            stage = ('policy_rpc_timeout' if type(error).__name__ == 'TimeoutError'
+                     else 'policy_rpc_error')
+        comparison_mark(scope, stage, policy_known=False)
+        raise RuntimeError('comparison policy unavailable') from None
+
+    if (type(result) is not dict or type(result.get('stage')) is not str
+            or result['stage'] not in POLICY_STAGES
+            or set(result) - {'stage', *POLICY_CHECKS}
+            or type(result.get('policy_known')) is not bool
+            or (result['stage'] not in ('policy_ready', 'policy_disabled')
+                and (result['policy_known'] or 'ai_disabled' in result))
+            or any(type(value) is not bool for key, value in result.items() if key != 'stage')):
+        comparison_mark(scope, 'policy_reply_invalid', policy_known=False)
+        raise RuntimeError('comparison policy unavailable')
+    facts = {key: value for key, value in result.items() if key != 'stage'}
+    expected = dict.fromkeys(POLICY_CHECKS, True)
+    expected['ai_disabled'] = result['stage'] == 'policy_disabled'
+    if result['stage'] in ('policy_ready', 'policy_disabled') and facts != expected:
+        comparison_mark(scope, 'policy_reply_invalid', policy_known=False)
+        raise RuntimeError('comparison policy unavailable')
+    comparison_mark(scope, result['stage'], **facts)
+    if result['stage'] != 'policy_ready':
+        raise RuntimeError('comparison policy unavailable')
+    return facts
 
 
 async def comparison_readiness_probe(scope, page, project):
@@ -624,6 +745,7 @@ async def comparison_context(host, account, scope, request):
         wait_until="domcontentloaded", timeout=45000), 46)
     comparison_mark(scope, 'editor_readiness')
     await comparison_editor_ready(scope, acc.page, project)
+    policy = await comparison_policy(scope, acc.page, project)
     url, device, header = await comparison_snapshot(scope, acc, project, path, login)
     state = {"identity": scope.identity(), "account": account, "acc": acc,
              "page": acc.page, "context": acc.ctx, "browser": acc.browser,
@@ -640,7 +762,7 @@ async def comparison_context(host, account, scope, request):
     acc.page.on("framenavigated", navigated)
     scope.comparison = state
     scope.comparison_next = "context_ready"
-    comparison_mark(scope, 'context_ready')
+    comparison_mark(scope, 'context_ready', **policy)
     return comparison_reply(state, "baseline_context", header)
 
 

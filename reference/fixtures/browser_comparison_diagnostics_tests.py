@@ -25,7 +25,10 @@ CHECKS = ("device_valid", "device_cookie_match", "login_match", "page_match", "u
           "device_cookie_present", "device_cookie_unique")
 READINESS_CHECKS = ('project_match', 'history_object', 'timestamp_valid',
                    'transient_absent', 'canvas_view', 'branch_valid', 'scope_valid', 'device_present')
-ALL_CHECKS = (*CHECKS, *READINESS_CHECKS)
+POLICY_CHECKS = ('policy_known', 'ai_disabled', 'policy_project_match',
+                'policy_space_match', 'policy_page_match', 'policy_device_match',
+                'policy_engine_match')
+ALL_CHECKS = (*CHECKS, *READINESS_CHECKS, *POLICY_CHECKS)
 BASELINE_STAGES = ("baseline_header_before_mint", "baseline_mint", "baseline_bound_after_mint",
                    "baseline_header_after_mint", "baseline_fetch_args", "baseline_fetch",
                    "baseline_result", "baseline_bound_after_fetch")
@@ -41,7 +44,11 @@ STAGES = {"account_start", "context_inputs", "cookie_seed", "navigation", "devic
           "mint_invalid_token",
           "baseline_header_before_mint_order", "baseline_header_before_mint_membership",
           "baseline_header_before_mint_values", "baseline_header_after_mint_order",
-          "baseline_header_after_mint_membership", "baseline_header_after_mint_values"}
+          "baseline_header_after_mint_membership", "baseline_header_after_mint_values",
+          "policy_preflight", "policy_pre_context", "policy_import", "policy_export",
+          "policy_engine", "policy_project", "policy_space", "policy_check",
+          "policy_post_context", "policy_result", "policy_disabled", "policy_ready",
+          "policy_rpc_timeout", "policy_rpc_error", "policy_scope_refused", "policy_reply_invalid"}
 
 
 class DiagnosticHarness(FIXTURE.Harness):
@@ -273,7 +280,8 @@ class ComparisonDiagnosticWorkflowTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_page_mismatch_reports_snapshot_validation_flags(self):
         value = self.fixture()
-        value.page.goto_result = "https://framer.com/projects/another-project-" + SECRET
+        value.after_policy = lambda: setattr(value.page, 'url',
+            "https://framer.com/projects/another-project-" + SECRET)
         checks = dict.fromkeys(CHECKS, True)
         checks["page_match"] = False
         await self.assert_context_failure(value, "snapshot_validate", **checks)
@@ -347,7 +355,10 @@ class ComparisonDiagnosticWorkflowTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(value.scope.comparison_phase, "complete")
         common = {"event": "browser.comparison.command", "outcome": "returned"}
         validated = dict(common, stage="snapshot_validate", **dict.fromkeys(CHECKS, True))
-        self.assertEqual(value.events, [dict(common, stage="context_ready"), validated, validated])
+        policy = dict.fromkeys(POLICY_CHECKS, True)
+        policy['ai_disabled'] = False
+        self.assertEqual(value.events, [dict(common, stage="context_ready", **policy),
+                                      validated, validated])
         names = [call[0] for call in value.calls]
         self.assertEqual(names.count("goto"), 1)
         self.assertEqual(names.count("add_cookies"), 1)

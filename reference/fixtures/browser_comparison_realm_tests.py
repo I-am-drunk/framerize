@@ -61,7 +61,9 @@ class BrowserComparisonRealmTests(unittest.IsolatedAsyncioTestCase):
         await value.native()
         scripts = [script for script, _ in value.evaluations]
         self.assertEqual(set(scripts), {"mw:" + C.COMPARISON_SNAPSHOT,
-            "mw:" + C.COMPARISON_MINT, "mw:" + C.COMPARISON_FETCH})
+            "mw:" + C.COMPARISON_MINT, "mw:" + C.COMPARISON_FETCH,
+            "mw:" + C.COMPARISON_POLICY})
+        self.assertEqual(scripts.count("mw:" + C.COMPARISON_POLICY), 1)
         self.assertGreater(scripts.count("mw:" + C.COMPARISON_SNAPSHOT), 1)
         self.assertEqual(scripts.count("mw:" + C.COMPARISON_MINT), 2)
         self.assertEqual(scripts.count("mw:" + C.COMPARISON_FETCH), 1)

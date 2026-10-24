@@ -74,6 +74,7 @@ class Harness(OLD.Harness):
         self.fetch_started, self.fetch_release = asyncio.Event(), asyncio.Event()
         self.fetch_release.set()
         self.mints, self.fetches, self.context_reply = 0, 0, None
+        self.after_policy = None
 
     async def wait_for_function(self, script, *, arg, timeout, polling):
         # A successful browser reply; this fixture does not evaluate JavaScript.
@@ -82,6 +83,15 @@ class Harness(OLD.Harness):
         return ReadinessHandle(self.calls)
 
     async def evaluate(self, script, args=None):
+        if script == "mw:" + C.COMPARISON_POLICY:
+            assert args == {'project': OLD.PROJECT, 'page_url': self.page.url}
+            self.calls.append(('policy',))
+            if self.after_policy is not None:
+                self.after_policy()
+            return {'stage': 'policy_ready', 'policy_known': True, 'ai_disabled': False,
+                    'policy_project_match': True, 'policy_space_match': True,
+                    'policy_page_match': True, 'policy_device_match': True,
+                    'policy_engine_match': True}
         if script == "mw:" + C.COMPARISON_SNAPSHOT:
             return {"url": self.page.url, "device": self.page.device}
         if script == "mw:" + C.COMPARISON_MINT:
