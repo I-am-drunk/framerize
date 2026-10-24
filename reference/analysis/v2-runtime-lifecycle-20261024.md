@@ -56,7 +56,7 @@ The replacement case exercises the adapter's existing one-live-worker quota;
 the dedicated mint profile still requires exactly one started and joined
 worker before token release.
 
-Exact next action: the runtime owner qualifies the revised inert adapter suite
+Pending qualification: the runtime owner runs the revised inert adapter suite
 using its existing owned test environment:
 
 ```sh
@@ -64,3 +64,46 @@ node --experimental-vm-modules --test reference/fixtures/offline_v2_dedicated_wo
 ```
 
 Any actual-thread qualification or package activation remains owner-held.
+
+Further source inspection found a separate image-collector realm mismatch.
+`v2_runtime.mjs` imports the factory as Node ESM, calls `factory(sdk)`, then
+passes the JSDOM window to `configure`. That argument does not rebind the
+factory's lexical globals. Both image round-trip collectors use the supplied
+window for canvas creation but use bare `new Image` for image construction.
+The factory contains exactly those two `Image` identifiers and no binding
+for them. They resolve in the importing module's global environment.
+
+In the same pinned factory, byte ranges are zero-based and end-exclusive:
+
+- `r[gE]`: `[410593,411555)`, bare constructor at `411115`.
+- `r[EE]`: `[411556,413706)`, bare constructor at `413101`.
+- Registrations through `r[D5]` begin at `479932` and `480136`.
+- `r[D5]`: `[394403,394689)` catches synchronous collector exceptions and
+  invokes its completion callback with the undefined-result sentinel.
+
+Both collectors test canvas/context availability first. If they reach a bare
+constructor without a global `Image`, the synchronous failure precedes image
+loading. It can therefore complete through the guarded fallback with zero
+PNG requests. The earlier zero-attempt observations do not prove this path ran.
+
+The pinned JSDOM `Window.js` defines `Image` at line 733 and installs it on
+that window at line 752. Its SHA-256 is
+`cfd16270beb33c10564b3474fd2e184b902f66f35eee2cab9191c699e36b4287`.
+The V2 entry/runtime sources install no `Image` on Node's global object.
+Passing or changing a function's receiver cannot change these lexical lookups.
+The separate canvas-prototype probe at `408310` also uses bare
+`HTMLCanvasElement` and `CanvasRenderingContext2D` inside catches.
+
+This is source evidence of distinct lookup environments, not an observed
+exception or a demonstrated cause of R14's refusal. Canvas and worker success
+remain valid. No SDK, browser, test, private state or runtime was executed.
+
+Exact next action: the runtime owner uses an inert factory-shaped module to
+compare bare `Image` lookup with the supplied `window.Image` under the existing
+loader. This needs no SDK or inference call. A candidate correction would
+evaluate the unchanged, verified factory module in the operation's own JSDOM
+VM context, using `vm.SourceTextModule` and the genuine window objects.
+It must be qualified separately before changing the selected profile.
+Do not assign synthetic constructors or copy one account's globals into Node.
+The factory, native identities, source hashes, quotas and deadlines remain
+unchanged in this source contribution; runtime/operation edits stay owner-held.
