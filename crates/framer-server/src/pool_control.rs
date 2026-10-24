@@ -10,6 +10,13 @@ fn busy(error: impl std::fmt::Display) -> ApiError {
     ApiError::PoolBusy(error.to_string())
 }
 
+// A failed admission may still own an unresolved close or observation.
+// Preserve that evidence separately from the error reported to the caller.
+pub(super) struct AcquisitionOutcome<T> {
+    pub(super) result: Result<T, ApiError>,
+    pub(super) cleanup_confirmed: bool,
+}
+
 async fn confirm_resident_status(browser: &dyn BrowserBridge, lease: ResidentLease)
     -> Result<ResidentLease, ApiError> {
     use framer_core::browser_lifecycle::BrowserAccountState as State;
@@ -126,20 +133,30 @@ async fn management_inner(s: &AppState, id: AccountId, browser: bool, reconcile:
 }
 
 pub(super) async fn lease_account(s: &AppState, id: AccountId) -> Result<ResidentLease, ApiError> {
-    let idle = s.serving_accounts.residents.idle_ids().map_err(busy)?;
-    let accounts = s.state.list().await.map_err(ApiError::Internal)?;
-    if !accounts.iter().any(|account| account.id == id) {
-        return Err(ApiError::InvalidRequest("account not found".into()));
-    }
-    let now = framer_core::rotation::now_ms();
-    let preferred = idle.iter().find(|victim| accounts.iter().any(|account|
-        account.id == **victim && (!s.serving_accounts.allows(victim) || !account.is_available_at(now))))
-        .copied();
-    let lease = s.serving_accounts.acquire(s.browser.as_ref(), id, preferred, Some(s.state.as_ref())).await?;
-    if s.state.get(id).await.map_err(ApiError::Internal)?.is_none() {
-        return Err(ApiError::InvalidRequest("account was removed before admission".into()));
-    }
-    Ok(lease)
+    lease_account_observed(s, id).await.result
+}
+
+pub(super) async fn lease_account_observed(s: &AppState, id: AccountId) -> AcquisitionOutcome<ResidentLease> {
+    let mut cleanup_confirmed = true;
+    let result = async {
+        let idle = s.serving_accounts.residents.idle_ids().map_err(busy)?;
+        let accounts = s.state.list().await.map_err(ApiError::Internal)?;
+        if !accounts.iter().any(|account| account.id == id) {
+            return Err(ApiError::InvalidRequest("account not found".into()));
+        }
+        let now = framer_core::rotation::now_ms();
+        let preferred = idle.iter().find(|victim| accounts.iter().any(|account|
+            account.id == **victim && (!s.serving_accounts.allows(victim) || !account.is_available_at(now))))
+            .copied();
+        let acquired = s.serving_accounts.acquire_observed(s.browser.as_ref(), id, preferred, Some(s.state.as_ref())).await;
+        cleanup_confirmed = acquired.cleanup_confirmed;
+        let lease = acquired.result?;
+        if s.state.get(id).await.map_err(ApiError::Internal)?.is_none() {
+            return Err(ApiError::InvalidRequest("account was removed before admission".into()));
+        }
+        Ok(lease)
+    }.await;
+    AcquisitionOutcome { result, cleanup_confirmed }
 }
 
 pub(super) async fn park(State(s): State<AppState>, Json(body): Json<AccountBody>)
@@ -329,7 +346,15 @@ async fn finish_park(browser: &dyn BrowserBridge, mut ticket: ParkTicket) -> Res
 impl ServingAccountPolicy {
     pub(super) async fn acquire(&self, browser: &dyn BrowserBridge, id: AccountId,
         preferred_idle: Option<AccountId>, existing: Option<&dyn framer_core::StateStore>) -> Result<ResidentLease, ApiError> {
-        tokio::time::timeout(Duration::from_secs(25), async {
+        self.acquire_observed(browser, id, preferred_idle, existing).await.result
+    }
+
+    async fn acquire_observed(&self, browser: &dyn BrowserBridge, id: AccountId,
+        preferred_idle: Option<AccountId>, existing: Option<&dyn framer_core::StateStore>) -> AcquisitionOutcome<ResidentLease> {
+        // This survives timeout cancellation. Before reservation there is no
+        // new cleanup to prove; a live ticket or observation changes that.
+        let mut cleanup_confirmed = true;
+        let result = tokio::time::timeout(Duration::from_secs(25), async {
             let deadline = tokio::time::Instant::now() + Duration::from_secs(2);
             loop {
                 let operation = self.operation.lock().await;
@@ -352,17 +377,26 @@ impl ServingAccountPolicy {
                 let protected: Vec<_> = mutations.into_iter().collect();
                 match self.residents.try_acquire_excluding(id, preferred_idle, &protected) {
                     Ok(Acquire::Lease(lease)) => {
+                        cleanup_confirmed = false;
                         drop(operation);
-                        return confirm_resident_status(browser, lease).await;
+                        let result = confirm_resident_status(browser, lease).await;
+                        cleanup_confirmed = result.is_ok();
+                        return result;
                     },
                     Ok(Acquire::Evict(mut ticket)) => {
+                        cleanup_confirmed = false;
                         drop(operation);
                         let expected = match browser.browser_status(&ticket.victim()).await {
                             Ok(status) => status,
-                            Err(error) => { ticket.cancel_before_io().map_err(busy)?; return Err(busy(error)); }
+                            Err(error) => {
+                                ticket.cancel_before_io().map_err(busy)?;
+                                cleanup_confirmed = true;
+                                return Err(busy(error));
+                            }
                         };
                         if expected.account_id != ticket.victim() || expected.active_commands != 0 {
                             ticket.cancel_before_io().map_err(busy)?;
+                            cleanup_confirmed = true;
                             return Err(busy("account browser is still busy or its identity changed"));
                         }
                         ticket.close_started().map_err(busy)?;
@@ -372,7 +406,9 @@ impl ServingAccountPolicy {
                             return Err(busy("previous account browser has not confirmed closure"));
                         }
                         let lease = ticket.confirm_close().map_err(busy)?;
-                        return confirm_resident_status(browser, lease).await;
+                        let result = confirm_resident_status(browser, lease).await;
+                        cleanup_confirmed = result.is_ok();
+                        return result;
                     }
                     Err(PoolError::NoIdleSlot | PoolError::AccountBusy) if tokio::time::Instant::now() < deadline => {}
                     Err(error) => return Err(busy(error)),
@@ -380,6 +416,7 @@ impl ServingAccountPolicy {
                 drop(operation);
                 tokio::time::sleep(Duration::from_millis(50)).await;
             }
-        }).await.map_err(|_| busy("account admission timed out; occupied slots are retained"))?
+        }).await.unwrap_or_else(|_| Err(busy("account admission timed out; occupied slots are retained")));
+        AcquisitionOutcome { result, cleanup_confirmed }
     }
 }

@@ -28,6 +28,8 @@ mod native_control_tests;
 
 #[path = "pool_ownership_tests.rs"]
 mod ownership_merge_tests;
+#[path = "pool_repick_cleanup_tests.rs"]
+mod repick_cleanup;
 
 // The existing endpoint fixture is private and intentionally denies valid I/O.
 // Match its boxed-future convention without adding an async-trait dependency.

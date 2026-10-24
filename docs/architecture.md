@@ -6,8 +6,14 @@ cannot erase an earlier unconfirmed cleanup. The observer preserves the actual
 client result and joins the same task after disconnect. Initial known cooldown
 refusals explicitly complete their local request, including after the first
 permit, so discarding the response does not close later admission. Five focused
-streaming/cooldown cases pass. Failed account-acquisition cleanup during repick
-remains a separate source correction; these results do not close that gap.
+streaming/cooldown cases pass.
+
+Account acquisition during repick now returns cleanup evidence separately from
+its result. All four inference loops retain that evidence while preserving the
+original client error. Failed or unconfirmed eviction keeps admission fenced;
+a confirmed refusal before closing the browser does not. Three routed cases
+and two acquisition controls pass. The two initial inference acquisition sites
+still use the older result-only wrapper and remain a separate correction.
 
 Explicit account requests now require a Ready account with a complete current
 scope. Selection and the pre-call lookup retain cooldown and cleanup fences;
