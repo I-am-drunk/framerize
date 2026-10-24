@@ -15,6 +15,15 @@ clean/published source checkouts; branches and frozen evidence were retained.
 No live request, service deployment or change to frozen R16 accompanies this
 source integration.
 
+The final two-file HTTP isolation fixture from `90cc001` is integrated and
+qualified. API test compilation passes (`c0dcaefc`, peak 322,371,584 bytes),
+and all eight send cases pass (`bb73da8d`, peak 15,646,720 bytes). The new case
+holds two distinct account/session requests, verifies independent credentials
+on the wire, cancels/joins A while B retains admission, then completes B once.
+Crossed account, session and token-owner inputs cannot reach either server.
+Both phases had zero swap/limit events, unchanged inputs and removed groups.
+This uses synthetic loopback traffic only; production code and R16 are unchanged.
+
 The outstanding goal is a fresh, valid browserless mint followed by accepted
 native Framer inference, with matched identity and egress, account isolation,
 cooldowns, joined cleanup, streaming, latency and measured memory use preserved.
