@@ -21,7 +21,7 @@ MINT_FAILURE_MARKS = {'pre_context': 'mint_pre_context', 'dynamic_import': 'mint
     'post_context': 'mint_post_context', 'post_page': 'mint_post_page',
     'post_device': 'mint_post_device', 'invalid_token': 'mint_invalid_token'}
 DIAGNOSTIC_STAGES = frozenset(('account_start', 'context_inputs', 'cookie_seed',
-    'navigation', 'device_readiness', 'snapshot_page', 'snapshot_cookies', 'snapshot_header',
+    'navigation', 'device_readiness', 'editor_readiness', 'snapshot_page', 'snapshot_cookies', 'snapshot_header',
     'snapshot_validate', 'context_ready', 'baseline', 'native_token',
     'baseline_header_before_mint', 'baseline_mint', 'baseline_bound_after_mint',
     'baseline_header_after_mint', 'baseline_fetch_args', 'baseline_fetch',
@@ -293,7 +293,22 @@ def comparison_bodies(request, project):
     return baseline, native
 
 
-COMPARISON_READY = """() => {
+COMPARISON_READY = """({project}) => {
+  const url = new URL(location.href);
+  const prefix = '/projects/';
+  const path = url.pathname.replace(/[/]$/, '');
+  const tail = path.slice(prefix.length);
+  if (url.origin !== 'https://framer.com' || url.username || url.password ||
+      !path.startsWith(prefix) || tail.includes('/') ||
+      !(tail === project || tail.endsWith('--' + project))) return false;
+  const state = history.state;
+  const object = value => value !== null && typeof value === 'object' && !Array.isArray(value);
+  const identifier = value => typeof value === 'string' && value.length > 0 && value.length <= 256;
+  if (!object(state) || !Number.isFinite(state.timestamp) || state.timestamp <= 0 ||
+      state.isTransient !== undefined) return false;
+  const value = state.value;
+  if (!object(value) || value.mainView !== 0 ||
+      !identifier(value.activeScopeId) || !identifier(value.branchId)) return false;
   const device = localStorage.getItem('__cuid');
   return typeof device === 'string' && device.length > 0;
 }"""
@@ -347,12 +362,13 @@ def comparison_owner(host, account, scope):
     return acc
 
 
-async def comparison_device_ready(scope, page):
+async def comparison_editor_ready(scope, page, project):
     async def wait_and_dispose():
-        # This embedded poller only reads origin storage. The mw: entry prefix
+        # A fresh page's editor history is written after its initial URL update.
+        # This poller reads browser state only. The mw: entry prefix
         # belongs to direct evaluate calls, not to this predicate.
         handle = await page.wait_for_function(COMPARISON_READY,
-            timeout=COMPARISON_READY_SECONDS * 1000, polling=100)
+            arg={'project': project}, timeout=COMPARISON_READY_SECONDS * 1000, polling=100)
         await asyncio.wait_for(asyncio.shield(scope.rpc(handle.dispose())),
                                COMPARISON_DISPOSE_SECONDS)
 
@@ -458,8 +474,8 @@ async def comparison_context(host, account, scope, request):
     await comparison_rpc(scope, lambda: acc.page.goto(
         "https://framer.com/projects/" + project,
         wait_until="domcontentloaded", timeout=45000), 46)
-    comparison_mark(scope, 'device_readiness')
-    await comparison_device_ready(scope, acc.page)
+    comparison_mark(scope, 'editor_readiness')
+    await comparison_editor_ready(scope, acc.page, project)
     url, device, header = await comparison_snapshot(scope, acc, project, path, login)
     state = {"identity": scope.identity(), "account": account, "acc": acc,
              "page": acc.page, "context": acc.ctx, "browser": acc.browser,

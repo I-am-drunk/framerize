@@ -26,7 +26,8 @@ CHECKS = ("device_valid", "device_cookie_match", "login_match", "page_match", "u
 BASELINE_STAGES = ("baseline_header_before_mint", "baseline_mint", "baseline_bound_after_mint",
                    "baseline_header_after_mint", "baseline_fetch_args", "baseline_fetch",
                    "baseline_result", "baseline_bound_after_fetch")
-STAGES = {"account_start", "context_inputs", "cookie_seed", "navigation", "device_readiness", "snapshot_page",
+STAGES = {"account_start", "context_inputs", "cookie_seed", "navigation", "device_readiness",
+          "editor_readiness", "snapshot_page",
           "snapshot_cookies", "snapshot_header", "snapshot_validate", "context_ready",
           "baseline", "native_token", *BASELINE_STAGES,
           "mint_rpc", "mint_rpc_target_closed", "mint_rpc_timeout", "mint_rpc_error",

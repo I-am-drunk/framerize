@@ -75,9 +75,10 @@ class Harness(OLD.Harness):
         self.fetch_release.set()
         self.mints, self.fetches, self.context_reply = 0, 0, None
 
-    async def wait_for_function(self, script, *, timeout, polling):
+    async def wait_for_function(self, script, *, arg, timeout, polling):
         # A successful browser reply; this fixture does not evaluate JavaScript.
-        self.calls.append(("wait_for_function", script, timeout, polling))
+        assert arg == {'project': OLD.PROJECT}
+        self.calls.append(("wait_for_function", script, timeout, polling, arg))
         return ReadinessHandle(self.calls)
 
     async def evaluate(self, script, args=None):

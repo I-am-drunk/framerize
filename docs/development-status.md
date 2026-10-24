@@ -68,11 +68,16 @@ swap and limit events were zero. The protected browser was unchanged. The
 outside finisher kept the isolated service stopped and preserved the full
 cooldown history. This trial does not establish an SDK token or HTTP defect.
 
-Preparation currently waits for DOMContentLoaded and a nonempty device ID,
-then binds the exact URL. Existing host source documents the editor's later
-bare-ID to slugged-project redirect. Whether that specific redirect occurred
-in R13 is unobserved. The next source investigation is a reliable project
-readiness condition before binding; the post-mint equality guard stays strict.
+Preparation now waits for the fresh editor page to publish its initial
+canvas history state before binding the exact URL. Saved current application
+source places this publication after the initial URL and query rewrite.
+The check also requires the expected project and existing device storage;
+all later equality guards stay strict. It applies only to the fresh page,
+not restored history, and does not guarantee permanent URL stability.
+All 84 focused Python cases and eight exact-JavaScript cases pass with
+networking disabled. The tests cover delayed binding, timeout/cancellation,
+wrong projects, incomplete/transient history and existing mint/cleanup paths.
+This is tested source, not yet a live result or proof of R13's redirect cause.
 
 Preparation now records fixed phases immediately through the existing sidecar
 log, instead of retaining them only in memory until command completion. All

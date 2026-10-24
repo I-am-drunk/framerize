@@ -80,7 +80,8 @@ class BrowserComparisonRealmTests(unittest.IsolatedAsyncioTestCase):
         value = self.fixture()
         await value.prepare_context()
         ready = [call for call in value.calls if call[0] == "wait_for_function"]
-        self.assertEqual(ready, [("wait_for_function", C.COMPARISON_READY, 10000, 100)])
+        self.assertEqual(ready, [("wait_for_function", C.COMPARISON_READY, 10000, 100,
+                                 {'project': F.OLD.PROJECT})])
         self.assertFalse(ready[0][1].startswith("mw:"))
         names = [call[0] for call in value.calls]
         self.assertLess(names.index("goto"), names.index("wait_for_function"))

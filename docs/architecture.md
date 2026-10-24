@@ -94,7 +94,13 @@ preserving the 1 GiB browser startup guard and separate host reserve. The
 initial authenticated preparation failed before minting or inference because
 device storage was absent at the immediate post-navigation snapshot. Page
 navigation completion alone does not establish application or SDK readiness.
-The comparison now waits up to ten seconds for a nonempty stored device ID.
+The comparison waits up to ten seconds for a nonempty stored device ID and
+the fresh editor page's initial canvas history state, published after its
+first URL rewrite. It requires the expected project URL, a finite positive
+timestamp, no transient marker, canvas view, and nonempty branch/scope IDs.
+This signal depends on creating a fresh page without restored history. It
+does not guarantee that the URL will never change; later exact page, device
+and cookie checks remain mandatory.
 The wait and handle disposal remain owned through cancellation; a two-second
 disposal timeout refuses continuation while retaining cleanup ownership.
 The unchanged snapshot then validates the actual device, cookie, login and
