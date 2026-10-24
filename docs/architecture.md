@@ -83,6 +83,11 @@ the scope still owns an unfinished evaluation. Progress cannot change the
 policy verdict or extend its two-second deadline. A missing label is unknown,
 since telemetry can fail or be delayed. A received label establishes only that
 the instrumented evaluation reached that point.
+Public asset URLs identify a particular application build. A successful fetch
+of an older immutable URL does not establish that the current page loaded it.
+Comparison module pins must follow the current public entry's import graph.
+The October 24 refresh uses policy `chunk-3W5IVLGF.mjs` export `c` and wrapper
+`chunk-WA4HVE2H.mjs` export `b`; the engine getter and V3 SDK asset are unchanged.
 
 The comparison must run the public SDK in the page's own JavaScript realm.
 The offline failure was Firefox's rejection of TypedArray access across an
