@@ -1,5 +1,12 @@
 # Serving architecture and branch policy
 
+The private resident client exchanges one length-prefixed request and one
+fixed diagnostic report with an already-enabled local owner. It verifies the
+socket UID and identity, keeps both directions open until report completion,
+and never retries. A client timeout or partial write leaves settlement
+unknown; the daemon still owns cancellation and cleanup. Tokens, bearer
+strings and cookie headers are not client inputs or report fields.
+
 The private resident bootstrap command reads only the retained HTTP-200
 page's current wrapper, device, URL and actual launch route. It reserves that
 account during its bounded read, retains pending RPCs through waiter loss,

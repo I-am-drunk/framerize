@@ -3,6 +3,14 @@
 Updated 2026-10-24. The normal service remains browser-based. Publishing these
 branches does not change the running service.
 
+A private one-request client is now implemented for the resident socket. It
+validates the local socket owner and the fixed report schema, sends no second
+request, and reports lost or partial exchanges as unknown. Its ten inert
+fixtures are frozen but unrun: the 128 MiB runner was refused before execution
+by the existing memory reserve. Python syntax checks pass. This does not
+activate the socket or run a token crossover. Usage and result semantics are
+in [resident-control.md](resident-control.md).
+
 The Python version 2 resident protocol is now implemented in source. Acquire
 captures context without minting; the baseline uses one cached-wrapper token;
 only an accepted baseline enables a separate native-token mint. One retained
