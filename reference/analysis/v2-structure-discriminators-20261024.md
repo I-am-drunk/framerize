@@ -39,8 +39,8 @@ the runtime owner performed every execution, without SDK, private or live input.
 R15's reported browser 200/native 403 outcome still lacks a native projection.
 The observer now borrows the same token after joined mint and same-device
 confirmation, before unchanged deadline and authorization checks. Root retains
-the next action: qualify its shared-writer correction `42f6ee1` after coordinated
-activation. That correction and five fixtures remain **UNCOMPILED/UNRUN**.
+the next action: qualify its shared-writer correction `42f6ee1`.
+That correction and five fixtures remain **UNCOMPILED/UNRUN** in the saved receipt.
 Any later actual native observation, lease and live execution remain owner-held.
 
 ## Source binding and scope
@@ -402,9 +402,9 @@ Transport/config owner: `mcp:a94287af-9994-4882-abc3-5108e653cc34`.
 
 | Action | Owner | Required input | Last verified evidence |
 | --- | --- | --- | --- |
-| Capture actual native-token structure | Runtime owner named above | Writer qualification after coordinated activation, then an owner-authorized observation using the original token and lease | Observer `1395bdc` is qualified offline; writer `42f6ee1` remains unrun. R15 browser HTTP 200/output and native Castle 403 still have no actual native projection. `db1eb359` remains separate synthetic evidence. |
+| Capture actual native-token structure | Runtime owner named above | Writer qualification, then an owner-authorized observation using the original token and lease | Observer `1395bdc` is qualified offline; writer `42f6ee1` remains unrun in the saved receipt. R15 browser HTTP 200/output and native Castle 403 still have no actual native projection. `db1eb359` remains separate synthetic evidence. |
 | Extend the source mapping | This structure lane | Newly supplied structural projection or a specific source correction | All supplied differences mapped through `6e751e6`; owner reports all 16 unchanged comparator cases passing. |
-| Activate the goal-status policy in existing T3 sessions | Transport/config owner | Approved activation, verified live enforcement, then user-controlled resume of the same goal with identity and accounting retained | `d17fe60` records passing isolated checks. The transport owner's existing live session subsequently accepted a required blocked transition. Other live sessions remain unverified. |
+| Verify recovery across the six existing sessions | Transport/config owner | Per-session identity/accounting comparison and loaded-hook evidence | This structure session is ACTIVE with matching native identity, objective and creation time, retained usage, and one denied non-mutating probe. This does not establish the other five sessions' results. |
 
 The isolated fixture denied a nested blocked transition after same-process
 configuration reload and retained its goal through cold resume. This does not
@@ -421,6 +421,15 @@ This was a required transition, not a diagnostic attempt or completion claim.
 The full objective, original goal identity, creation time and accounting were
 retained. This establishes a live enforcement failure in that session; it does
 not measure another session or change another owner's work.
+
+User-authorized recovery supersedes the earlier quiet window. This session's
+native ID, exact objective and creation time match the saved preload, and its
+usage counters are retained. One `policy_probe` call was rejected with
+`Goal blocking guard loaded; non-mutating activation probe.` A subsequent
+`get_goal` returned ACTIVE. The separate internal goal UUID is not exposed by
+that tool and was not independently re-read here. The receipt was sent to
+transport. Continue authorized source work; no further restart or hook change
+is assigned to this lane.
 
 Keep the current anti-blocking guidance until the config owner verifies live
 activation, then remove only its redundant wording.
