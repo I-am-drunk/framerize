@@ -120,7 +120,14 @@ def page_matches(url, project):
         if not path.startswith(prefix):
             return False
         last = path[len(prefix):]
-        return "/" not in last and (last == project or last.endswith("--" + project))
+        if "/" in last:
+            return False
+        if last == project or last.endswith("--" + project):
+            return True
+        # Framer's project URL builder appends an optional access token.
+        linked = re.fullmatch(
+            r"(?:(?:[A-Za-z0-9]+-)*[A-Za-z0-9]+--)?([A-Za-z0-9]{20})-[A-Za-z0-9]+", last)
+        return linked is not None and linked[1] == project
     except ValueError:
         return False
 
@@ -309,9 +316,11 @@ COMPARISON_READY = """({project, diagnose = false}) => {
   const prefix = '/projects/';
   const path = url.pathname.replace(/[/]$/, '');
   const tail = path.slice(prefix.length);
+  const linked = tail.match(/^(?:(?:[A-Za-z0-9]+-)*[A-Za-z0-9]+--)?([A-Za-z0-9]{20})-[A-Za-z0-9]+$/);
   if (!check('project_match', url.origin === 'https://framer.com' &&
       !url.username && !url.password && path.startsWith(prefix) && !tail.includes('/') &&
-      (tail === project || tail.endsWith('--' + project)))) return false;
+      (tail === project || tail.endsWith('--' + project) ||
+       (linked !== null && linked[1] === project)))) return false;
   const state = history.state;
   const object = value => value !== null && typeof value === 'object' && !Array.isArray(value);
   const identifier = value => typeof value === 'string' && value.length > 0 && value.length <= 256;

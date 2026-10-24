@@ -19,13 +19,32 @@ const state = () => ({ timestamp: 123456, value: {
 const checkNames = ['project_match', 'history_object', 'timestamp_valid', 'transient_absent',
   'canvas_view', 'branch_valid', 'scope_valid', 'device_present'];
 
-function ready(value = state(), href = page, device = 'fixture-device', diagnose = false) {
+function ready(value = state(), href = page, device = 'fixture-device', diagnose = false, expected = project) {
   const poll = new Function('location', 'history', 'localStorage', 'URL',
     'return (' + literal + ');')({ href }, { state: value }, {
       getItem(key) { assert.equal(key, '__cuid'); return device; },
     }, URL);
-  return poll({ project, diagnose });
+  return poll({ project: expected, diagnose });
 }
+
+test('project access links preserve the exact project identity', () => {
+  const id = 'AB12cd34EF56gh78IJ90';
+  for (const path of [id + '-fixtureAccess1', 'My-Site--' + id + '-fixtureAccess1']) {
+    const url = 'https://framer.com/projects/' + path + '?node=fixture';
+    assert.equal(ready(state(), url, 'device', false, id), true);
+    assert.equal(ready(state(), url, 'device', true, id).project_match, true);
+    assert.equal(ready(state(), url, 'device', false, 'ZZ12cd34EF56gh78IJ90'), false);
+  }
+});
+
+test('malformed access links and an ID only in the title cannot pass', () => {
+  const id = 'AB12cd34EF56gh78IJ90';
+  for (const path of [id + '-', id + '-bad_suffix', id + '-bad-suffix',
+    id + '-fixture/child', id + '%2Dfixture', 'Bad_Title--' + id + '-fixture',
+    id + '--ZZ12cd34EF56gh78IJ90-fixture']) {
+    assert.equal(ready(state(), 'https://framer.com/projects/' + path, 'device', false, id), false);
+  }
+});
 
 test('diagnostic mode returns only the eight readiness booleans', () => {
   const checks = ready(state(), page, 'private-fixture-device', true);
