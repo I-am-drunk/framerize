@@ -16,7 +16,11 @@ The loader now reads an explicit export pin. Its historical default remains
 synthetic SDK run plus early owner-cancellation checks. All 14 module files
 are verified by the enclosing runner and child loader. Six SDK files and
 the full dependency manifest are also direct owner pins, keeping its
-existing 64-pin limit. The current-wrapper candidate is not yet deployed.
+existing 64-pin limit. The isolated instance now selects this bundle with
+the same application binary and routing. Its one live request still received
+Framer's security 403. Cleanup, actual history restoration and the unchanged
+browser service were verified; the second request did not run. The wrapper
+update does not establish authenticated delivery or live interruption.
 See `reference/analysis/castle-current-selection-2026-10-24.md`.
 
 The experimental `native_gl` probes use installed EGL/GLES with a private
