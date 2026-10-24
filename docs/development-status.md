@@ -20,6 +20,11 @@ ownership and the new envelope cases. The first focused build failed because
 the test-selection script omitted complementary cfg branches; its corrected
 snapshot passed without a production change. Next, integrate the passive
 app AI-policy preflight and freeze a fresh comparison against R16's history.
+R17 remains unrun. Its finalizer now parks both comparison outcomes instead of
+starting the older staged daemon on success. All 28 inert finalization cases
+pass, including refusal of incomplete cleanup and mismatched history. The first
+test launch used a relative path and did not reach the fixture; the corrected
+absolute-path run passed. Standalone and offline-worker validation remain open.
 
 A traced offline SDK probe identified the browser crash: PulseAudio requests a
 64 MiB shared-memory file, but the comparison runner allowed only 32 MiB.
