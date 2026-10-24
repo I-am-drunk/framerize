@@ -41,9 +41,14 @@ accepted structures (`b4d75a8b`, peak 57,516,032 bytes). Strict record pairing
 passes all 15 cases (`201bfcaf`, peak 22,142,976 bytes). All groups exited with
 zero swap or limit events; inputs were verified unchanged. No SDK, private
 token or live request was used. Actual native capture remains unmeasured.
-Next, correct and qualify the shared event writer: formatting JSON directly
-into the append file can interleave fragments with sidecar output. This source
-finding does not establish that R15 contained a corrupt line or explain its 403.
+The shared event writer correction is now source-only: it buffers JSON plus
+newline and makes one append attempt, refusing short writes without a suffix
+retry. Five focused fixtures cover large escaped records, short writes, write
+and flush errors, and independent append handles. They remain uncompiled/unrun
+while coordinated session activation is in progress. Next, qualify this fix
+and its core integration after the activation result. No new run is launched
+during that window. The source finding does not establish a corrupt R15 line
+or explain its 403. No running service or frozen package changed.
 
 The request-path correction is integrated as `216350e`. Its exact 19-case
 qualification is reused from receipt `65937832`: all pass, 17,039,360-byte peak,
