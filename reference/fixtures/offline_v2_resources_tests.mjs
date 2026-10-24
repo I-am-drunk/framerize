@@ -33,7 +33,7 @@ test('v2_constructor_preserves_options_and_binds_local_png_loader', () => {
   assert.equal(dom.options.runScripts, 'outside-only');
   assert.equal(dom.options.virtualConsole, virtualConsole);
   assert.ok(dom.options.resources instanceof ResourceLoader);
-  assert.deepEqual(dom.options.resources.options, { userAgent: 'Framerize/0.1' });
+  assert.deepEqual(dom.options.resources.options, {});
 });
 
 test('v2_png_loader_returns_bounded_bytes_without_parent_fetch', async () => {

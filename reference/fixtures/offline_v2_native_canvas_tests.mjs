@@ -15,6 +15,15 @@ function load(image, source) {
   });
 }
 
+test('v2_png_window_preserves_the_default_navigator_user_agent', () => {
+  const url = 'https://framer.com/projects/fixture';
+  const baseline = new jsdom.JSDOM('', { url, runScripts: 'outside-only' });
+  const actual = createV2Window(jsdom, url, new jsdom.VirtualConsole());
+  try {
+    assert.equal(actual.window.navigator.userAgent, baseline.window.navigator.userAgent);
+  } finally { actual.window.close(); baseline.window.close(); }
+});
+
 test('v2_window_decodes_native_canvas_png_without_changing_page_capabilities', async () => {
   const url = 'https://framer.com/projects/fixture?retained=1';
   const dom = createV2Window(jsdom, url, new jsdom.VirtualConsole());

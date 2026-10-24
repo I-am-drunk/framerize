@@ -35,7 +35,7 @@ export function createV2Window({ JSDOM, ResourceLoader }, url, virtualConsole) {
   const V2Resources = pngResources(ResourceLoader);
   return new JSDOM('<!doctype html><html><head></head><body></body></html>', {
     url, runScripts: 'outside-only', virtualConsole,
-    resources: new V2Resources(),
+    resources: new V2Resources({}),
   });
 }
 

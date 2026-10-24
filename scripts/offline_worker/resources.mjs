@@ -2,7 +2,7 @@
 export function pngResources(ResourceLoader) {
   return class extends ResourceLoader {
     #images = 0;
-    constructor() { super({ userAgent: 'Framerize/0.1' }); }
+    constructor(options = { userAgent: 'Framerize/0.1' }) { super(options); }
     fetch(url) {
       if (typeof url !== 'string' || url.length > 87406) return null;
       const match = /^data:image\/png;base64,([A-Za-z0-9+/]*={0,2})$/.exec(url);
