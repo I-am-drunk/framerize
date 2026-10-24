@@ -3,18 +3,32 @@
 Updated 2026-10-24. The normal service remains browser-based. Publishing these
 branches does not change the running service.
 
-The comparison with corrected resource limits still failed during
-preparation, with no baseline or native report. Browser cleanup was confirmed;
-the native account retained its `Cleanup` failure. Peak usage was 176 tasks
-and 1,090,396,160 bytes, with no memory or task-limit events. The original
-failed result and account fence remain preserved.
+The latest isolated comparison (R5) identifies a preparation failure: the
+project page and login cookie matched, but device storage was not ready at
+the immediate post-navigation snapshot. This occurred before controlled
+bearer acquisition, token minting or inference. It does not explain earlier
+upstream security refusals. The bounded diagnostics retain stages and boolean
+checks only; their ten regression and ten privacy cases passed before use.
 
-A diagnostic-only source change adds fixed preparation stages and five
-boolean context checks to the sidecar log. It preserves generic public errors
-and all acceptance checks. Ten affected regression cases and ten new
-diagnostic/privacy cases pass. It has not yet been selected by a live attempt.
+R5 confirmed browser cleanup, while the native account retained its
+`Cleanup` failure. Peak usage was 186 tasks and 1,101,819,904 bytes, with zero
+recorded swap or memory/task-limit events. The child exited naturally and its
+group was removed. A separate exact-invocation journal check resolved physical
+ownership while retaining the logical failure, unknown remote outcome and
+full cooldown. The protected browser service remains unchanged; the isolated
+service stays stopped and fenced.
 
-The next admitted comparison reached browser startup but exhausted its
+The readiness correction waits up to ten seconds for an actual stored device
+ID, then disposes the JavaScript handle before validating the original
+snapshot. It does not mint, write device state or repeat navigation. All 46
+focused Python cases pass, including late readiness, timeout, cancellation,
+disposal failure and final context mismatch. The exact helper also passes
+two network-isolated tests in a real browser: delayed synthetic storage and
+the actual ten-second timeout. That run peaked at 167 tasks and 863,322,112
+bytes, with zero swap/events and confirmed group removal. Earlier fixture
+failures are preserved. The corrected authenticated comparison is still unrun.
+
+The earlier R3 comparison reached browser startup but exhausted its
 96-task child limit. It returned no baseline or native result. Both logical
 cleanup flags were false; the child exited naturally and its process group
 was removed. The isolated account remains stopped and fenced, with the

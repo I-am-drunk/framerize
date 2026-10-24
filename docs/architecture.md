@@ -43,12 +43,21 @@ checked current jar and uses the normal native envelope serializer. It closes
 the native account before sealing the browser scope. The ordinary credential
 source does not issue the baseline request.
 
-The first live comparison (R1) refused at memory admission before browser
-launch and retained its `Cleanup` failure. The isolated service on port 8788
-is stopped and fenced; the protected browser remains unchanged. Local
-containment validation passed with the larger 1.5 GiB child and 2 GiB controller
-caps, preserving the 1 GiB browser startup guard and separate host reserve.
-Full browser startup and inference under those caps remain unverified.
+The isolated service on port 8788 is stopped and fenced for the comparison;
+the protected browser remains unchanged. Local containment and signed-out
+public-page startup passed with the 1.5 GiB child and 2 GiB controller caps,
+preserving the 1 GiB browser startup guard and separate host reserve. The
+latest authenticated preparation failed before minting or inference because
+device storage was absent at the immediate post-navigation snapshot. Page
+navigation completion alone does not establish application or SDK readiness.
+The comparison now waits up to ten seconds for a nonempty stored device ID.
+The wait and handle disposal remain owned through cancellation; a two-second
+disposal timeout refuses continuation while retaining cleanup ownership.
+The unchanged snapshot then validates the actual device, cookie, login and
+page together. Readiness does not write device state or invoke the SDK.
+Logical cleanup failure remains separate from a later journal-bound proof
+that the owned process and group exited; the latter retains reserved attempts
+and extends cooldown through physical closure.
 
 The contextual browser credential source validates the returned account,
 target and current cookie jar before requesting a bearer with that jar.
