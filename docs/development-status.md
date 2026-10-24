@@ -3,6 +3,16 @@
 Updated 2026-10-24. The normal service remains browser-based. Publishing these
 branches does not change the running service.
 
+Resident mint-branch diagnostics now pass 59 focused Python cases and three
+JavaScript fixture scripts. They read the existing wrapper's matching cached
+logger and emit only fixed counters, window coverage, phase and lease ID.
+Observer failures do not change token validation or mint fallback behavior.
+These diagnostics have not been deployed or used for a live mint. The saved
+successful control below cannot establish V2 or V3; its report had no branch
+observation. The next control needs a supported owner with these diagnostics
+and the separate native-output completion report. The existing owner remains
+resident and fenced, with no hot reload or duplicate request.
+
 The matched resident browser/native control succeeded at 15:55 UTC on October
 24. Normal browser inference produced model output; the paired browser baseline
 was accepted with HTTP 200, and a separately minted fresh token from that same

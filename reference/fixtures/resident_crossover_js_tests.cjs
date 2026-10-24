@@ -13,7 +13,8 @@ function literal(name) {
 const pinSource = literal('RESIDENT_PIN_JS');
 const captureSource = literal('RESIDENT_CAPTURE_JS').replace('__RESIDENT_PIN_CHECK__', pinSource);
 const originalMint = literal('RESIDENT_MINT_JS');
-const mintSource = literal('RESIDENT_PINNED_MINT_JS').replace('__RESIDENT_MINT__', originalMint);
+const mintSource = literal('RESIDENT_PINNED_MINT_JS').replace('__RESIDENT_MINT__', originalMint)
+  .replace('__RESIDENT_SDK_OBSERVER__', literal('RESIDENT_SDK_OBSERVER_JS'));
 const fetchSource = literal('RESIDENT_FETCH_JS');
 const wrapper = 'https://app.framerstatic.com/chunk-5LKSDTQ5.mjs';
 const args = () => ({wrapper_url: wrapper, wrapper_export: 'a',
@@ -178,7 +179,8 @@ async function main() {
   assert.equal(injected.realm.calls.length, 0);
   process.stdout.write('resident crossover exact-JS fixtures passed\n');
 }
-main().catch(() => {
+module.exports = {fixture, args, mintSource, deferred};
+if (require.main === module) main().catch(() => {
   process.stderr.write('resident crossover exact-JS fixtures failed\n');
   process.exitCode = 1;
 });

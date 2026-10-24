@@ -1,5 +1,19 @@
 # Serving architecture and branch policy
 
+The resident v2 mint RPC observes only the logger dependency already loaded by
+the proven cached `chunk-5LKSDTQ5.mjs` export `a`. Its logger is
+`chunk-VJ7UYMJI.mjs`, distinct from the comparison wrapper's dependency.
+Each owned mint emits a `resident.mint.sdk` event with lease ID, baseline/native
+phase, fixed V2/V3/missing and failure counters, and buffer-window coverage.
+No log messages, error payloads, token contents or cookies leave the page in
+this metadata. The observer changes no logger settings or SDK fallback.
+Unsupported wrappers or malformed observations report unavailable; gaps or
+lost buffer anchors report incomplete coverage. Neither result alters token
+acceptance. Counters alone do not attest a branch when coverage is incomplete
+or competing labels appear. Metadata is stripped before strict token-result
+validation and is emitted inside the retained RPC owner, including when its
+waiter disappears or a later context check refuses. V1 is unchanged.
+
 Provenance listeners use ordinary functions retained in the listener ledger.
 Playwright caches callback wrappers on their owners; passing bound methods of
 the slotted provenance record prevented registration. The retained function

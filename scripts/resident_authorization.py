@@ -39,12 +39,13 @@ import hashlib
 import json
 import math
 import re
+import sys
 import time
 import uuid
 from urllib.parse import urlsplit
 
 from contextual_authorization import cookies_for_url, snapshot_header, login_cookie
-from contextual_authorization import baseline_result, comparison_json
+from contextual_authorization import baseline_result, comparison_json, SDK_COUNTERS
 from resident_activity import ActivityLedger, ResidentRefused
 
 COMMAND = 'resident_authorization_once'
@@ -57,6 +58,23 @@ IDENTITY = frozenset(('version', 'account', 'application_generation',
 ROUTES = frozenset(('/ai/v3/responses/', '/ai/v3/messages/', '/ai/v3/chat/',
     '/ai/v3/openai/responses/', '/ai/v3/anthropic/messages/'))
 _FAILED = object()
+
+
+def _resident_sdk_evidence(lease, phase, value):
+    """Fixed facts only; reporting failure must not affect the mint verdict."""
+    try:
+        if not _uuid(lease) or phase not in ('baseline', 'native'):
+            return
+        facts = {'event': 'resident.mint.sdk', 'lease': lease,
+                 'phase': phase, 'available': False}
+        if (type(value) is dict and set(value) == {'complete', *SDK_COUNTERS}
+                and type(value['complete']) is bool
+                and all(type(value[key]) is int and 0 <= value[key] <= 1000
+                        for key in SDK_COUNTERS)):
+            facts.update(available=True, **value)
+        print(json.dumps(facts), file=sys.stderr, flush=True)
+    except Exception:
+        pass
 
 
 def _refuse():
@@ -510,11 +528,66 @@ RESIDENT_CAPTURE_JS = r"""input => {
     check: __RESIDENT_PIN_CHECK__});
 }""".replace('__RESIDENT_PIN_CHECK__', RESIDENT_PIN_JS)
 
+RESIDENT_SDK_OBSERVER_JS = r"""async input => {
+  const unavailable = () => null;
+  try {
+    if (input.wrapper_export !== 'a' || !/^https:\/\/app\.framerstatic\.com\/chunk-5LKSDTQ5\.mjs(?:\?cb=[0-9]{1,20})?$/.test(input.wrapper_url))
+      return unavailable;
+    // This exact wrapper statically imported this dependency in this realm.
+    // Never change logging levels, buffer capacity, or SDK fallback behavior.
+    const lm = await import('https://app.framerstatic.com/chunk-VJ7UYMJI.mjs');
+    const logger = lm.i('castle');
+    const valid = records => {
+      if (!Array.isArray(records) || records.length > 1000) return false;
+      let prior = -1;
+      for (const r of records) {
+        if (!r || !Number.isSafeInteger(r.id) || r.id <= prior) return false;
+        prior = r.id;
+      }
+      return true;
+    };
+    const initial = lm.h();
+    if (!valid(initial)) return unavailable;
+    const anchor = initial.at(-1), since = anchor?.id ?? -1;
+    return () => {
+      const records = lm.h();
+      if (!valid(records)) return null;
+      const out = {complete: since < 0 || records.includes(anchor),
+        v3: 0, v2: 0, missing: 0};
+      const phases = {'module load': 'module_load', configuration: 'configuration',
+        'token generation': 'token_generation', SDK: 'sdk'};
+      for (const phase of Object.values(phases))
+        for (const failure of ['timeout', 'error']) out[phase + '_' + failure] = 0;
+      let last = since;
+      for (const r of records) {
+        if (r.id <= since) continue;
+        if (r.id !== last + 1) out.complete = false;
+        last = r.id;
+        if (r.logger !== logger) continue;
+        if (!Array.isArray(r.parts)) return null;
+        if (r.parts[0] === 'Using Castle v3 token') out.v3++;
+        if (r.parts[0] === 'Using Castle v2 token') out.v2++;
+        if (r.parts[0] === 'No Castle token available') out.missing++;
+        const tags = r.parts[2];
+        if (tags?.castleVersion === 'v3' && Object.hasOwn(phases, tags.castlePhase)
+            && ['timeout', 'error'].includes(tags.castleFailure))
+          out[phases[tags.castlePhase] + '_' + tags.castleFailure]++;
+      }
+      return out;
+    };
+  } catch { return unavailable; }
+}"""
+
 RESIDENT_PINNED_MINT_JS = r"""async (pin, input) => {
   if (!pin.check(pin, input)) return {ok: false, code: 'resident_context'};
+  const observe = await (__RESIDENT_SDK_OBSERVER__)(input);
+  if (!pin.check(pin, input)) return {ok: false, code: 'resident_context'};
   const result = await (__RESIDENT_MINT__)(input);
-  return pin.check(pin, input) ? result : {ok: false, code: 'resident_context'};
-}""".replace('__RESIDENT_MINT__', RESIDENT_MINT_JS)
+  let sdk = null;
+  try { sdk = observe(); } catch {}
+  return {...(pin.check(pin, input) ? result : {ok: false, code: 'resident_context'}), sdk};
+}""".replace('__RESIDENT_MINT__', RESIDENT_MINT_JS).replace(
+    '__RESIDENT_SDK_OBSERVER__', RESIDENT_SDK_OBSERVER_JS)
 
 RESIDENT_FETCH_JS = r"""async (pin, input) => {
   const out = {status: null, content_type: null, body: '', bytes: 0,
@@ -747,9 +820,19 @@ class _CrossoverOperation(_Operation):
             # Conservatively charge each attempted genuine mint, even on failure.
             rate.note(acc, rate.key)
             acc.last_mint = time.monotonic()
+            phase = 'baseline' if self.phase == 'baseline_pending' else 'native'
+            async def mint_owned():
+                sdk = None
+                try:
+                    value = await self.pin.evaluate(RESIDENT_PINNED_MINT_JS,
+                                                    self.arguments())
+                    if type(value) is dict and 'sdk' in value:
+                        sdk = value.pop('sdk')
+                    return value
+                finally:
+                    _resident_sdk_evidence(self.identity['lease'], phase, sdk)
             try:
-                result = await self.rpc(self.pin.evaluate, RESIDENT_PINNED_MINT_JS,
-                                        self.arguments())
+                result = await self.rpc(mint_owned)
             finally:
                 acc.last_mint = time.monotonic()
             if (type(result) is not dict or set(result) != {'ok', 'token'}
