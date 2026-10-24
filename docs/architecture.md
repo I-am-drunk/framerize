@@ -1,5 +1,14 @@
 # Serving architecture and branch policy
 
+Startup recovery now distinguishes an unused transfer from a restored one.
+A controller-owned start condition remains closed throughout reassignment.
+The decision binds boot, controller, source generation, full account inventory,
+snapshot, destination and loaded unit. Two observations require a completed
+stop, no manager job and no remaining processes. Any claim, restore, acceptance
+or ambiguous temporary marker forbids snapshot reuse. A candidate that has
+restored state still requires a fresh capture for rollback. This is qualified
+with inert failures; real state transfer and stream acceptance remain pending.
+
 Normal-stream acceptance correlates the server-generated operation header
 with its root registration, original producer join and both successful
 releases. Actual generated text must precede the test disconnect. Confirmed
