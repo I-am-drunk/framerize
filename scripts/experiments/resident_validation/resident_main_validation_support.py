@@ -11,17 +11,55 @@ from commands import build, required_sources
 from inventory import CASE
 
 EXTRA = {'main-tests-compile': 768, 'main-tests-run': 256, 'main-link-compile': 768}
+SOCKET_CASES = (
+    'peer_identity_requires_exact_effective_uid',
+    'parent_metadata_requires_ownership_and_exact_mode',
+    'every_context_field_is_required_without_defaults',
+    'only_two_free_routes_are_supported',
+    'extra_top_level_context_is_rejected',
+    'structured_credentials_are_refused_at_any_depth',
+    'duplicate_keys_and_escaped_credential_names_are_refused',
+    'malformed_json_trailing_documents_and_oversize_are_refused',
+    'plan_validation_rejects_streaming_and_invalid_payloads',
+    'identity_turn_and_numeric_bounds_are_enforced',
+    'serialization_contains_only_fixed_report_fields',
+    'cleanup_join_cannot_upgrade_unconfirmed_report',
+    'refusal_and_failure_names_are_fixed_facts',
+    'zero_and_oversize_prefixes_refuse_before_body_allocation',
+    'truncated_prefix_and_body_refuse',
+    'read_deadline_is_not_extended_by_partial_input',
+    'exact_frame_cap_and_big_endian_prefix_are_supported',
+    'a_second_frame_is_never_consumed_as_part_of_the_first',
+    'report_uses_one_length_prefixed_json_frame_then_eof',
+    'bind_is_private_and_drop_removes_its_own_socket',
+    'bind_never_creates_parent_or_accepts_relative_paths',
+    'bind_refuses_original_path_beyond_unix_address_capacity',
+    'bind_refuses_existing_file_and_dangling_symlink',
+    'existing_socket_is_never_taken_over',
+    'symlinked_parent_and_permissive_directory_are_refused',
+    'cleanup_preserves_a_replacement_socket',
+    'cleanup_preserves_a_symlink_to_the_original_socket',
+    'cleanup_uses_pinned_parent_after_a_directory_rename',
+    'exact_identity_and_context_are_preserved',
+    'parser_refuses_integer_rounded_by_browser_baseline',
+    'parser_keeps_exactly_representable_request_numbers',
+)
 
 def preparation_files():
     return [Path(__file__).resolve(), ROOT / 'prepare_resident_main_validation.py', *SUPPORT.glob('*.py')]
 
 def main_cases(directory):
     cases = []
-    for name, prefix, count in [('resident_socket_tests.rs', 'resident_socket::tests::', 29),
-                                 ('resident_startup_tests.rs', 'resident_startup_tests::', 3)]:
+    startup = ('ordinary_startup_has_no_resident_control_socket',
+               'resident_control_requires_an_explicit_socket_path',
+               'resident_control_cannot_share_an_offline_session_owner')
+    assert len(SOCKET_CASES) == 31
+    for name, prefix, expected in [('resident_socket_tests.rs', 'resident_socket::tests::', SOCKET_CASES),
+                                  ('resident_startup_tests.rs', 'resident_startup_tests::', startup)]:
         names = CASE.findall((directory / 'src' / name).read_text())
-        assert len(names) == len(set(names)) == count, 'review changed inventory'
-        cases.extend(prefix + name for name in names)
+        assert len(names) == len(set(names)) == len(expected), 'review changed inventory'
+        assert set(names) == set(expected), 'review changed case identities'
+        cases.extend(prefix + name for name in expected)
     return cases
 
 def fixture_text(name, text):
