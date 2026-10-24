@@ -2175,6 +2175,26 @@ class Host:
     async def handle(self, req):
         if self._observed is not None:
             req = self._observed_command(req)
+        if (req.get("cmd") == "browser_baseline_once" or
+                (req.get("cmd") == "prepare_inference_authorization" and "purpose" in req)):
+            try:
+                if self._observed is None:
+                    raise RuntimeError("comparison requires observation")
+                from contextual_authorization import comparison_command, validate_comparison_request
+                validate_comparison_request(req)
+                account = req.get("account", "")
+                if req.get("purpose") != "baseline_context":
+                    scope = self._observed.accounts[account]
+                    state = scope.comparison
+                    if (state is None or self.accounts.get(account) is not state["acc"]
+                            or self.lifecycles[account].phase != "resident"):
+                        raise RuntimeError("comparison account changed")
+                async with self._use_account(account, req.get("proxy")):
+                    return await comparison_command(self, account, req)
+            except asyncio.CancelledError:
+                raise
+            except Exception:
+                raise RuntimeError("browser comparison failed") from None
         if req.get("cmd") == "prepare_inference_authorization":
             if self._observed is None:
                 raise RuntimeError("contextual authorization requires an observed scope")
