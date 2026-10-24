@@ -7,18 +7,29 @@ use framer_api::experimental_native::{
     native_account::AccountScope,
     native_http::NativeEgress,
 };
-use super::{offline_worker::OfflineWorkerMinter, offline_worker_owner::Worker,
+use super::{offline_worker::{OfflineWorkerMinter, WorkerBackend},
+    offline_worker_owner::{V2Worker, Worker},
     one_shot_control::{Failure, SourceBuilder}};
 
 pub(crate) struct OfflineSource {
-    worker: Arc<Worker>,
+    worker: WorkerBackend,
     target: OfflineMintTarget,
     bridge: Arc<dyn BrowserBridge>,
 }
 impl OfflineSource {
+    pub(crate) fn from_worker(worker: WorkerBackend, target: OfflineMintTarget,
+        bridge: Arc<dyn BrowserBridge>) -> Self {
+        Self { worker, target, bridge }
+    }
+
     pub(crate) fn new(worker: impl Into<Arc<Worker>>, target: OfflineMintTarget,
         bridge: Arc<dyn BrowserBridge>) -> Self {
-        Self { worker: worker.into(), target, bridge }
+        Self { worker: WorkerBackend::V3(worker.into()), target, bridge }
+    }
+
+    pub(crate) fn new_v2(worker: impl Into<Arc<V2Worker>>, target: OfflineMintTarget,
+        bridge: Arc<dyn BrowserBridge>) -> Self {
+        Self { worker: WorkerBackend::V2(worker.into()), target, bridge }
     }
 }
 impl SourceBuilder for OfflineSource {
@@ -36,7 +47,7 @@ impl SourceBuilder for OfflineSource {
         if device.account != scope.account() { return Err(Failure::MissingAuthority); }
         let route = proxy.as_deref().map(NativeEgress::Proxy).unwrap_or(NativeEgress::Direct);
         let api = BoundControlClient::new(scope.clone(), route).map_err(|_| Failure::Source)?;
-        let minter = OfflineWorkerMinter::with_device(scope, self.worker.clone(),
+        let minter = OfflineWorkerMinter::with_backend(scope, self.worker.clone(),
             self.bridge.clone(), device).map_err(|_| Failure::MissingAuthority)?;
         let source = OfflineSessionSource::new(Arc::new(api), self.target.clone(),
             Arc::new(minter)).map_err(|_| Failure::Source)?;

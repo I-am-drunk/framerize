@@ -3,6 +3,17 @@
 Updated 2026-10-24. The normal service remains browser-based. Publishing these
 branches does not change the running service.
 
+Branch `integrate/ordinary-v2-identity-20261024` assembles the 15 executable
+paths from ordinary-V2 candidate `fe500a0` onto qualified `0b1107c`.
+It retains the current server corrections and browser-only ownership startup.
+The assembly is source-only and has not been compiled or executed. Prior
+shared-worker and post-handoff results belong to the separate candidate.
+This branch is the common base for the observed SDK identity transfer.
+The existing ordinary V2 path still lacks that producer and can fall back to
+the HTTP device value; it must not be presented as identity-proven serving.
+Host and Rust owners will supply a checked transfer tied to the account,
+session, incarnation and original grant. No live activation is authorized.
+
 The two-path native HTTP input `bb2e807b` is integrated over the qualified
 local/static server. All five selected tests pass (`84dbed12`, peak 12,423,168
 bytes), covering 62 scenarios. Test compilation passes (`82d3808f`, peak

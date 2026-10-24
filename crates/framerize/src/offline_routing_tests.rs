@@ -10,6 +10,9 @@ mod credit;
 #[path = "offline_routing_startup_tests.rs"]
 mod startup;
 
+#[path = "offline_v2_configuration_tests.rs"]
+mod v2_configuration;
+
 struct Metadata { identity: port::Identity, proxy: Option<String>, missing: bool }
 impl Contexts for Metadata {
     fn contains_account(&self, account: AccountId) -> bool { self.identity.account == account }

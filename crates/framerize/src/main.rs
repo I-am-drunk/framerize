@@ -54,6 +54,10 @@ struct Cli {
     cmd: Cmd,
 }
 
+#[cfg(feature = "native-dispatch")]
+#[derive(Clone, Copy, Debug, clap::ValueEnum)]
+enum OfflineSdk { V3, V2 }
+
 #[derive(Subcommand)]
 enum Cmd {
     /// Run the daemon (REST + SSE + web UI + /anthropic + /openai compat).
@@ -97,6 +101,11 @@ enum Cmd {
         #[cfg(feature = "native-dispatch")]
         #[arg(long)]
         offline_worker_config: Option<String>,
+        /// Explicit SDK version for the ordinary offline serving path.
+        #[cfg(feature = "native-dispatch")]
+        #[arg(long, value_enum, requires = "offline_worker_config",
+            conflicts_with_all = ["resident_control_socket", "resident_v2_worker_config"])]
+        offline_sdk: Option<OfflineSdk>,
         /// Route compatible client requests using explicit per-request context.
         #[cfg(feature = "native-dispatch")]
         #[arg(long)]
@@ -288,6 +297,8 @@ fn resolve_pool_config(default: framer_server::PoolConfig, saved: Option<&str>,
 mod pool_startup_tests;
 #[cfg(all(test, feature = "native-dispatch"))]
 mod resident_startup_tests;
+#[cfg(all(test, feature = "native-dispatch"))]
+mod offline_sdk_startup_tests;
 
 /// Register saved per-account proxies before any browser can start.
 async fn load_proxies(state: &AppState) -> Result<(), String> {
@@ -306,12 +317,14 @@ async fn main() {
         Cmd::Daemon { listen, web_dir, db, chrome, engine, profiles, sidecar_script,
             active_pool_size, eligible_accounts, browser_request_ownership,
             #[cfg(feature = "native-dispatch")] offline_worker_config,
+            #[cfg(feature = "native-dispatch")] offline_sdk,
             #[cfg(feature = "native-dispatch")] offline_routing_config,
             #[cfg(feature = "native-dispatch")] resident_control_socket,
             #[cfg(feature = "native-dispatch")] resident_v2_worker_config } => {
             #[cfg(feature = "native-dispatch")]
             if resident_control_socket.is_some()
-                && (offline_worker_config.is_some() || offline_routing_config.is_some()) {
+                && (offline_worker_config.is_some() || offline_routing_config.is_some()
+                    || offline_sdk.is_some()) {
                 eprintln!("resident controls require exclusive startup session ownership");
                 std::process::exit(1);
             }
@@ -351,7 +364,12 @@ async fn main() {
             #[cfg(feature = "native-dispatch")]
             let resident = built.resident;
             #[cfg(feature = "native-dispatch")]
-            let (state, offline_worker) = match offline_http::configure(
+            let configure_offline = match offline_sdk {
+                Some(OfflineSdk::V2) => offline_http::configure_v2,
+                _ => offline_http::configure,
+            };
+            #[cfg(feature = "native-dispatch")]
+            let (state, offline_worker) = match configure_offline(
                 state, offline_worker_config.as_deref(), offline_routing_config.as_deref()) {
                 Ok(value) => value,
                 Err(error) => {
