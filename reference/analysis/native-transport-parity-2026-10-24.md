@@ -116,9 +116,17 @@ All ten validity and integration cases are UNRUN here. Four added cases use
 the existing bounded loopback fixture to cover short-lifetime rejection,
 sufficient-lifetime retention, unchanged ordinary admission, and cancellation
 after auth starts. They check the current jar and absence of another auth call.
-Next action is owner qualification of the six pure checks and
-`resident_control::tests::deadline_tests`, plus the existing auth/resident
-regressions. No build, test, SDK, browser or live request ran in this checkout.
+Owner receipt `cf723fc9` reports successful production/test API compilation
+and all 28 focused cases: six pure validity, four deadline integration and
+18 existing resident cases. No build, test, SDK, browser or live request ran here.
+The owner reports test peak memory of 16,629,760 bytes, compile peaks of
+294,805,504 and 364,277,760 bytes, zero swap/events and the qualification unit
+absent after completion. These are owner results, not local measurements.
+The source commits `917aeb9` and `ad31379` are integrated on `browserless`
+as `3834b71` and `3b13923`, respectively. Qualification closes the pending
+fixture work; it does not establish a fresh accepted browserless inference.
+The owner's next stated action is source publication, with no deployment or
+live retry from this change.
 The integrated head-facts source is `browserless` commit `9caa57d`;
 its subsequent owner qualification is recorded above.
 
@@ -148,3 +156,4 @@ between the two documentation landmarks. It does not bind either frozen
 executable to that exact checkout, prove identical wire bytes, or establish
 the same TLS, DNS, egress or backend state. Those require the runtime owner's
 existing build and comparison evidence. No fresh live comparison is implied.
+The lineage note `3964361` is integrated on `browserless` as `31d31a5`.
