@@ -4,7 +4,7 @@
 use crate::account::{AccountState, ManagedAccount};
 use crate::credits;
 use crate::error::CoreError;
-use crate::port::{BrowserBridge, FramerClient, SessionStore, StateStore, WorkspaceSpec};
+use crate::port::{BrowserBridge, FramerClient, Session, SessionStore, StateStore, WorkspaceSpec};
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -96,6 +96,7 @@ pub async fn run(
         .clone()
         .ok_or_else(|| CoreError::Framer("no current project — create one in the workspace".into()))?;
 
+    check_inference_admission(deps, account, &session).await?;
     match deps
         .client
         .run_inference(&session, deps.browser, &account.id, &project, req)
@@ -108,12 +109,12 @@ pub async fn run(
         Ok(InferenceResult::Exhausted { .. }) => {
             // Fail closed: rotate to another credited workspace, retry exactly once.
             credits::rotate_workspace(deps, account, &session).await?;
-            // The project lives in the old workspace; a fresh one is required in
-            // the new workspace (project-creation endpoint not yet captured).
+            // Rotation resolved an existing project in the new workspace.
             let project = account
                 .current_project
                 .clone()
                 .ok_or_else(|| CoreError::Framer("no project after rotation".into()))?;
+            check_inference_admission(deps, account, &session).await?;
             match deps
                 .client
                 .run_inference(&session, deps.browser, &account.id, &project, req)
@@ -131,6 +132,34 @@ pub async fn run(
         }
         Err(e) => Err(inference_error(deps, account, e).await),
     }
+}
+
+// Check after workspace awaits; never hold the update lock over inference.
+async fn check_inference_admission(
+    deps: &Deps<'_>, account: &ManagedAccount, session: &Session,
+) -> Result<(), CoreError> {
+    let _update = deps.account_updates.lock().await;
+    let current = deps.state.get(account.id).await.map_err(CoreError::Store)?
+        .ok_or_else(|| CoreError::NotEligible("account removed before inference".into()))?;
+    if current.id != account.id || current.framer_user_id != account.framer_user_id
+        || current.framer_user_id != session.active_user
+        || current.castle_device_id != account.castle_device_id
+        || current.current_team != account.current_team
+        || current.current_project != account.current_project || current.proxy != account.proxy {
+        return Err(CoreError::NotEligible("account scope changed before inference".into()));
+    }
+    let now = crate::rotation::now_ms();
+    if let Some(until) = current.cooling_until_ms.filter(|until| *until > now) {
+        return Err(CoreError::NotEligible(format!(
+            "account-cooling:{}", until.saturating_sub(now).div_ceil(1000),
+        )));
+    }
+    if !current.is_eligible() {
+        return Err(CoreError::NotEligible(
+            "account is not ready or is missing its current team or project".into(),
+        ));
+    }
+    Ok(())
 }
 
 async fn inference_error(

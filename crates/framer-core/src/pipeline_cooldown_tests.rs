@@ -289,6 +289,78 @@ async fn risk_refused_after_402_rotation_uses_same_cooldown_without_third_attemp
 }
 
 #[tokio::test]
+async fn cooldown_recorded_during_first_inference_prevents_402_retry() {
+    let mut current = account(1);
+    let mut newer = current.clone();
+    newer.cooling_until_ms = Some(crate::rotation::now_ms() + 3_600_000);
+    newer.cooldown_step = 3;
+    newer.consecutive_failures = 7;
+    newer.alias = "newer cooldown label".into();
+    let first = Reply { result: Ok(exhausted()),
+        change: Some(Change::Replace(newer.clone())) };
+    let fixture = Fixture::new(&current, vec![first]);
+    let mut expected = newer;
+    expected.current_team = operation_scope(true).current_team;
+    expected.current_project = operation_scope(true).current_project;
+    expected.extra_workspaces.clear();
+    assert!(matches!(fixture.run(&mut current).await, Err(CoreError::NotEligible(_))));
+    assert_record_eq(&current, &expected);
+    assert_record_eq(&fixture.stored(current.id).unwrap(), &expected);
+    assert!(current.is_eligible());
+    assert!(!current.is_available_at(crate::rotation::now_ms()));
+    assert!(current.is_available_at(current.cooling_until_ms.unwrap()));
+    fixture.assert_finished(&["load", "run:initial", "me", "usage", "upsert"]);
+}
+
+#[tokio::test]
+async fn nonready_recorded_during_first_inference_prevents_402_retry() {
+    let mut current = account(1);
+    let mut newer = current.clone();
+    newer.state = AccountState::Quarantined;
+    newer.cooldown_step = 2;
+    newer.consecutive_failures = 4;
+    newer.alias = "newer lifecycle label".into();
+    let first = Reply { result: Ok(exhausted()),
+        change: Some(Change::Replace(newer.clone())) };
+    let fixture = Fixture::new(&current, vec![first]);
+    let mut expected = newer;
+    expected.current_team = operation_scope(true).current_team;
+    expected.current_project = operation_scope(true).current_project;
+    expected.extra_workspaces.clear();
+    assert!(matches!(fixture.run(&mut current).await, Err(CoreError::NotEligible(_))));
+    assert_record_eq(&current, &expected);
+    assert_record_eq(&fixture.stored(current.id).unwrap(), &expected);
+    assert!(!current.is_eligible());
+    assert!(!current.is_available_at(crate::rotation::now_ms()));
+    fixture.assert_finished(&["load", "run:initial", "me", "usage", "upsert"]);
+}
+
+#[tokio::test]
+async fn ready_record_replacement_preserves_one_successful_402_retry() {
+    let mut current = account(1);
+    let mut newer = current.clone();
+    newer.cooling_until_ms = Some(42); // Expired cooldown remains admissible.
+    newer.cooldown_step = 3;
+    newer.consecutive_failures = 7;
+    newer.alias = "newer ready label".into();
+    let first = Reply { result: Ok(exhausted()),
+        change: Some(Change::Replace(newer.clone())) };
+    let fixture = Fixture::new(&current, vec![first, reply(Ok(completed()))]);
+    let mut expected = newer;
+    expected.current_team = operation_scope(true).current_team;
+    expected.current_project = operation_scope(true).current_project;
+    expected.extra_workspaces.clear();
+    let outcome = fixture.run(&mut current).await.expect("ready retry must complete");
+    assert_eq!(outcome.text, "inert response");
+    assert_eq!(outcome.chat_session, "inert-chat");
+    assert_eq!(outcome.credits_remaining, Some(100.0));
+    assert_record_eq(&current, &expected);
+    assert_record_eq(&fixture.stored(current.id).unwrap(), &expected);
+    assert!(current.is_available_at(crate::rotation::now_ms()));
+    fixture.assert_finished(&expected_calls(true, false));
+}
+
+#[tokio::test]
 async fn risk_refused_preserves_longer_current_deadline_and_newer_fields() {
     for rotated in [false, true] {
         let mut current = account(1);
