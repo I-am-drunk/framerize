@@ -89,7 +89,14 @@ synthetic page: both JavaScript realms saw the page-authored history and the
 normal readiness wait/disposal completed. This excludes basic field-access
 incompatibility in that fixture. It does not identify R14's failure: its single
 stage still covers predicate waiting, browser RPC, handle disposal and scope
-checks. The next change distinguishes those failures with bounded diagnostics.
+checks. The integrated diagnostics distinguish wait, handle-disposal, scope
+and outer-RPC failures. Only a settled wait timeout permits one additional
+read-only probe, bounded to one second and eight boolean facts. A successful
+probe cannot turn the original timeout into acceptance. All 97 focused Python
+cases and 11 exact-JavaScript cases pass with networking disabled, including
+cancellation, late completion, malformed replies and diagnostic privacy.
+The next action is to bind the prepared R15 comparison to this tested source
+and run it after fresh resource admission and the full preserved cooldown.
 The matching missing-history control also behaved as expected in a real
 browser: both realms returned false, the wait raised `TimeoutError`, and
 the browser exited cleanly with no swap or limit events. These two controls
@@ -100,7 +107,7 @@ log, instead of retaining them only in memory until command completion. All
 76 distinct focused Python cases pass, including bounded output, privacy,
 pending-mint visibility, cancellation ownership and reading the actual file
 sink before a command completes. These records do not certify a send or
-cleanup. The change is published source and has not run in a live comparison.
+cleanup. The change is published and its phase records were retained in R14.
 The saved application source rules out both its generic loading latch and a
 slug-only URL check as complete readiness signals: the latch has other false
 states, and the router also updates selected-scope query state.
