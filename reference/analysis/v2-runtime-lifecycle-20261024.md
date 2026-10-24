@@ -1,8 +1,8 @@
-# V2 dedicated-worker cleanup ownership
+# V2 worker cleanup and factory realm ownership
 
-Branch: `goal/browserless-v2-runtime`. Source base: `71b6326`.
-Status: source correction and six inert regression cases prepared; all cases
-UNRUN here. Runtime owner `544711e3-0b76-4cb4-9732-124a0486847e` retains
+Branch: `goal/browserless-v2-runtime`. Realm fixture source base: `1faffdd3`.
+Status: worker correction delivered; three no-SDK realm cases prepared, UNRUN
+here. Runtime owner `544711e3-0b76-4cb4-9732-124a0486847e` retains
 qualification, integration, private state, accounts, services and requests.
 
 The user reports R14 used dedicated configuration `8ab12cbb`: normal browser
@@ -56,14 +56,16 @@ The replacement case exercises the adapter's existing one-live-worker quota;
 the dedicated mint profile still requires exactly one started and joined
 worker before token release.
 
-Pending qualification: the runtime owner runs the revised inert adapter suite
-using its existing owned test environment:
+Owner-reported qualification: all 19 revised inert cases passed (`2cf7cae5`),
+with a 47,435,776-byte peak, zero swap/limit events and absent unit afterward.
+The prior two real-thread results are reused. None were run in this checkout.
+The adapter entry remains:
 
 ```sh
 node --experimental-vm-modules --test reference/fixtures/offline_v2_dedicated_workers_tests.mjs
 ```
 
-Any actual-thread qualification or package activation remains owner-held.
+Further qualification and package activation remain owner-held.
 
 Further source inspection found a separate image-collector realm mismatch.
 `v2_runtime.mjs` imports the factory as Node ESM, calls `factory(sdk)`, then
@@ -98,12 +100,35 @@ This is source evidence of distinct lookup environments, not an observed
 exception or a demonstrated cause of R14's refusal. Canvas and worker success
 remain valid. No SDK, browser, test, private state or runtime was executed.
 
-Exact next action: the runtime owner uses an inert factory-shaped module to
-compare bare `Image` lookup with the supplied `window.Image` under the existing
-loader. This needs no SDK or inference call. A candidate correction would
+The new `reference/fixtures/offline_v2_factory_realm_tests.mjs` supplies that
+inert discriminator using actual `createV2Window` and the owner's pinned
+native-canvas JSDOM. This needs no SDK or inference call. A candidate correction would
 evaluate the unchanged, verified factory module in the operation's own JSDOM
 VM context, using `vm.SourceTextModule` and the genuine window objects.
 It must be qualified separately before changing the selected profile.
 Do not assign synthetic constructors or copy one account's globals into Node.
 The factory, native identities, source hashes, quotas and deadlines remain
 unchanged in this source contribution; runtime/operation edits stay owner-held.
+
+The three cases evaluate the same tiny, import-free ESM factory first through
+Node's data-URL import and then through `vm.SourceTextModule` with
+`context: dom.getInternalVMContext()`. Expected facts distinguish bare lookup
+from the supplied window's constructors, for both ordinary calls and explicit
+window receivers. The two-window case checks that passing the other window or
+using it as receiver does not transfer constructor or document ownership.
+These are fixture expectations, not measured results. All three cases are
+UNRUN here; source review and Git whitespace checks are the only local checks.
+
+The factory returns fixed type strings and identity booleans only. Availability
+checks retain native 2D canvas, absent WebGL and `CanvasRenderingContext2D`
+global, absent workers/OffscreenCanvas/animation frames, and a hidden document.
+No constructors are assigned, no source SDK is read or evaluated, no pixel or
+exception values are recorded, and each created window closes in `finally`.
+The separate runtime module loader and its fixtures remain the owner's work.
+
+Exact next action: the owner qualifies these three cases in its existing
+native-canvas pinned package with the unchanged V2 constructor:
+
+```sh
+node --experimental-vm-modules --test reference/fixtures/offline_v2_factory_realm_tests.mjs
+```
