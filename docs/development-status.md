@@ -7,10 +7,14 @@ Current public model helpers close two request questions: GPT-4.1 selects no
 provider override, and its model spelling agrees with our native request.
 The ordinary browser chooser uses Chat for that model, while the isolated
 trial uses Responses. This limits the comparison; it does not establish that
-Responses is invalid or caused the security refusal. The other session is
-checking the separate SDK initialization/error contract. No new request or
-runtime change accompanied this source diagnosis. See
-`reference/analysis/native-model-contract-2026-10-24.md`.
+Responses is invalid or caused the security refusal. The joint SDK trace
+establishes that token creation starts deferred initialization itself; a
+separate warmup call is not the missing prerequisite. A permanently pending
+collector triggers the wrapper's deadline/fallback, not a successful V3 token.
+Completed V3 output still does not reveal the remote security decision.
+No new request or runtime change accompanied this diagnosis. See
+`reference/analysis/native-model-contract-2026-10-24.md` and
+`reference/analysis/browserless-refusal-diagnosis-2026-10-24.md`.
 
 The current OpenRouter Responses mapper also copies outer `sessionId` into
 `request.session_id`. The native request builder now does the same for that

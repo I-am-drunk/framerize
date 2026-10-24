@@ -13,6 +13,20 @@ serialization. A resolved token operation therefore does not establish
 complete browser functionality or server acceptance. The old worker's missing
 SharedWorker finding must not be applied to the later worker implementation.
 
+The independent initialization trace closes a further question: the token
+operation drains the SDK's deferred-start queue itself. It does not need a
+separate page-load or warmup call to start that queued work. The queue's catch
+does not manufacture a token. In the demonstrated timer-scheduling failure
+path it leaves a collector pending; the current wrapper's deadline then
+fails V3 and tries V2. That permanently pending path is incompatible with a
+completed V3-only result. This does not exclude recoverable setup exceptions
+or diagnostic fields within a completed token.
+
+Exact V3 `3337eba7` UTF-16 spans: queue `[28284,28371)`, readiness scheduling
+`[29571,29944)`, collector `[198303,198902)`, token-start call at `211468`.
+Current wrapper `c32148dc` bytes `[553819,556632)` bind its deadlines,
+configuration, error flag and fallback. These were read without execution.
+
 Castle's official Browser SDK documentation explicitly excludes mocked DOMs
 such as JSDOM. Our worker is outside that supported environment. This is a
 documented integration limitation, not identification of the exact server
