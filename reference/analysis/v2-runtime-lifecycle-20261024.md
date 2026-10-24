@@ -248,3 +248,40 @@ cleanup, with no actual native-token projection. `db1eb359` remains synthetic.
 Future runtime source direction remains owner-held. This dependency neither
 completes nor establishes a blocker for the shared goal. This note queues no
 execution or inference request.
+
+The worker-reply realm boundary is now traced at message ingress. In the pinned
+factory, `t[s4]=X(i(32063,34815))` at source bytes 396620 onward decodes as
+inert text to the admitted 1,031-character dedicated-worker script. Its SHA-256
+is `11bba9bb64764c19f44154854b4ec9f66756a6ef95de25ef1a804db38c30b9bd`,
+the exact script admitted by the existing runtime. It constructs arrays for
+both normal replies and its caught-error reply. The first normal array includes
+navigator values and a languages array; the second carries high-entropy results.
+This describes source structure, not observed values or successful execution.
+
+The adapter passes the Node worker's message directly as `MessageEvent.data`.
+JSDOM's `MessageEventInit.js:15` uses Web IDL `any`, whose conversion returns
+the original value (`webidl-conversions/lib/index.js:166`). `Event-impl.js:16`
+stores that value, and `MessageEvent.js:248` returns it. This path performs no
+conversion to a window-realm Array. Existing window event ownership is retained.
+
+The dedicated reply handler `r[Ib]`, bytes `[431159,431896)`, first reads
+`Array[X(p9)]`. Static string decoding resolves `X(p9)` to `isArray`
+(`p9` assignment at 118371, pool `[3295,3315)`). `Array.isArray` accepts arrays
+from another realm; this check does not require window Array prototype identity.
+The fallback tag decodes to `[object Array]` (`A9` at 118387, pool `[3315,3355)`).
+Thus the retained Node array is not refused solely for its realm at this ingress.
+This does not establish downstream value parity or explain a Castle refusal.
+No payload conversion, constructor copying or runtime patch is justified here.
+
+The factory's existing REA record is
+`ev_db2b0896c9c56156aa251b2a3f14b9b2e2a482291a67382cb72608aff6d4b663`.
+Its source analysis timed out with incomplete coverage and was not repeated.
+This finding uses direct pinned-source reads and static string-data decoding;
+no SDK code was evaluated. All test and runtime execution remains UNRUN here.
+
+Dependency SHA-256 bindings for the message-ingress trace:
+
+- `jsdom/lib/jsdom/living/generated/MessageEventInit.js`: `f556bd31ab9047c186a0002feeadf35a5f8374ad8f1272ab6b082b5a21c6a270`.
+- `jsdom/lib/jsdom/living/generated/MessageEvent.js`: `fc1e07e1ce960a01dac6655b20b407e6209586c4cd9353b0abe5f112b4f309c7`.
+- `jsdom/lib/jsdom/living/events/Event-impl.js`: `5b0225f05d06a200aaa8e0760cfcb4df3ccb04d73c2bacc951a053f33e7aa90e`.
+- `webidl-conversions/lib/index.js`: `c3b203d992b46905b610d240313d72e96d04b756942d9612878104ee12b107d4`.
