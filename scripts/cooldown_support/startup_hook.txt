@@ -12,7 +12,7 @@
         if hashlib.sha256((_support / _name).read_bytes()).hexdigest() != _expected:
             raise RuntimeError('cooldown support source changed')
     for _support_module in ('resident_activity', 'contextual_authorization',
-                            'resident_authorization'):
+                            'resident_authorization', 'resident_bootstrap'):
         _resident_spec = _handoff_import.spec_from_file_location(_support_module,
             _support / (_support_module + '.py'))
         _resident_module = _handoff_import.module_from_spec(_resident_spec)

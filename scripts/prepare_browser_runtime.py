@@ -17,6 +17,7 @@ def prepare(destination):
     files['resident_activity.py'] = scripts / 'resident_activity.py'
     files['contextual_authorization.py'] = scripts / 'contextual_authorization.py'
     files['resident_authorization.py'] = scripts / 'resident_authorization.py'
+    files['resident_bootstrap.py'] = scripts / 'resident_bootstrap.py'
     pins = {name: hashlib.sha256(path.read_bytes()).hexdigest()
             for name, path in files.items()}
     manifest = (json.dumps(pins, sort_keys=True, indent=2) + '\n').encode()

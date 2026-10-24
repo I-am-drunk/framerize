@@ -713,9 +713,11 @@ class ResidentBrowserHttp200:
     """Private completed browser HTTP 200 evidence, not parsed inference success."""
     __slots__ = ("host", "account", "acc", "life", "generation", "incarnation",
                  "page", "context", "browser", "project", "launch", "owner",
-                 "invalid", "listeners")
+                 "invalid", "listeners", "provenance")
 
     def __init__(self, host, account, acc, page, project):
+        import uuid
+        self.provenance = str(uuid.uuid4())
         self.host, self.account, self.acc = host, account, acc
         self.life, self.generation = acc.lifecycle, host.generation
         self.incarnation = self.life.incarnation
@@ -2499,6 +2501,11 @@ class Host:
                 pass
 
     async def handle(self, req):
+        if req.get("cmd") == "resident_authorization_bootstrap":
+            if self._observed is not None or getattr(self, "_resident_control", None) is None:
+                raise RuntimeError("resident control is unavailable")
+            from resident_bootstrap import command
+            return await command(self, req)
         if req.get("cmd") == "resident_authorization_once":
             control = getattr(self, "_resident_control", None)
             if self._observed is not None or control is None:
