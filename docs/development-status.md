@@ -3,6 +3,15 @@
 Updated 2026-10-24. The normal service remains browser-based. Publishing these
 branches does not change the running service.
 
+The matched resident browser/native control succeeded at 15:55 UTC on October
+24. Normal browser inference produced model output; the paired browser baseline
+was accepted with HTTP 200, and a separately minted fresh token from that same
+context was accepted by native HTTP with status 200. Both bodies completed and
+cleanup was confirmed. The native report certifies a JSON object, not parsed
+model output or streaming. The isolated owner remains resident and fenced;
+the protected service stayed unchanged. Browserless token minting and the
+full streaming, tool, latency and memory objectives remain unproven.
+
 An isolated resident-enabled owner now runs the validated binary and explicit
 sidecar bundle. One normal browser request returned HTTP 200 with model output.
 The subsequent crossover stopped before its baseline or native request. A
@@ -21,9 +30,9 @@ of the observed callback failure.
 One initial new fixture lacked a cooldown constant; its response was changed
 to HTTP 500 to test listener cleanup without exercising unrelated cooldowns.
 Fixed bootstrap reason diagnostics also pass 11 focused inert cases. These
-changes are not yet deployed. Next: retire the verified idle isolated owner
-with its current rate history preserved, activate the corrected sidecar, and
-establish a working browser page before one fresh crossover. The protected
+changes are deployed only in the isolated owner used for the successful
+control above. The old owner was retired after verified idle capture, with
+its current rate history restored to the new owner. The protected
 browser service remains unchanged; no SDK cause has been established.
 
 The resident admission fix now rejects competing ordinary requests before
@@ -38,8 +47,8 @@ host and API libraries, 17 coordinator/adapter cases, 33 host cases, 17 API case
 The ten private-client cases also pass. The first API archive build hit the
 32 MiB file limit; omitting unused LLVM bitcode produced passing API and server
 libraries without raising limits. Earlier failed evidence remains preserved.
-The live browser/native crossover has not run. The protected running host has
-no mechanism to activate this protocol in its existing process.
+The successful isolated control is described above. The protected running host
+has no mechanism to activate this protocol in its existing process.
 
 Fresh r3 validation bundles now bind the current production source: 15
 coordinator plus two adapter cases, 31 socket plus three CLI cases, and 130

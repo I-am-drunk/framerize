@@ -1,20 +1,33 @@
 # Experimental resident crossover
 
-This code is on `browserless`. An isolated owner has been started with the
-validated binary and explicit sidecar bundle. Its normal browser request
-returned HTTP 200 with model output. The following crossover stopped before
-either comparison request: `failure=cleanup`, `baseline_status=null`,
-`native_invoked=false`, and `cleanup_confirmed=false`. The owner remains
-running with admission fenced. Read-only inspection and the installed
-Playwright mapper isolated a listener-registration failure in our provenance
-record. The source fix passes focused checks but requires a new owner; no
-in-memory replacement or token replay is supported. The protected browser service remains unchanged. An existing
-owner cannot gain this protocol through source replacement. The selected
-account must already have an idle, successful browser page in that owner.
-The option requires the `native-dispatch` build and `--engine camoufox`.
-Offline-worker and offline-routing options cannot share this startup owner.
-The integrated daemon now links, and all 31 socket and three CLI cases pass.
-The protected running service still has no resident-control socket enabled.
+The matched browser/native control succeeded on 2026-10-24 at 15:55 UTC.
+A normal browser request first returned HTTP 200 with model output. Under one
+retained resident lease, the browser baseline then returned an accepted HTTP
+200 response and native HTTP returned 200 using its own fresh, unchanged token.
+Both bodies completed; native returned a JSON object and cleanup was confirmed.
+The complete paired operation took about 2.95 seconds, including its browser
+baseline. This is not a measurement of native-only latency.
+
+This proves the matched browser-token/native-HTTP path for this isolated
+account and request. The native report does not certify parsed model output,
+streaming, tool use, browserless token minting or memory savings. Final host
+admission remains fenced as designed; the browser and owning daemon remain
+resident. The protected browser service was unchanged.
+
+The prior attempt stopped before either comparison send because our slotted
+provenance object could not accept Playwright's callback-cache attributes.
+Retained ordinary-function callbacks fix registration and removal. No SDK
+change was needed. A separate cookie-order correction permits harmless
+reordering of distinct names while preserving duplicate precedence, original
+wire headers, values and membership checks.
+
+This code is on `browserless`. An existing owner cannot gain the protocol or
+these corrections through source replacement. The successful run used a new
+isolated owner after the prior owner's idle state and rate history were
+captured. Select an idle, successful browser page in that owner. The option
+requires `native-dispatch` and `--engine camoufox`; offline-worker and
+offline-routing options cannot share it. The protected running service has
+no resident-control socket enabled.
 
 For an isolated owner, select the installed Camoufox virtual environment
 explicitly with `FRAMERIZE_PYTHON`. System Python may start the sidecar but
