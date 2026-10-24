@@ -15,25 +15,63 @@ use framer_api::experimental_native::control_authorization::{
 };
 use framer_core::{port::{BrowserBridge, CastleToken},
     native_device::{DeviceFailure, DeviceGrant}};
-use super::offline_worker_owner::{Cleanup, Failure, Worker};
+use super::offline_worker_owner::{Cleanup, Failure, Run, V2Worker, Worker};
+
+#[path = "offline_v2_seed.rs"]
+mod v2_seed;
+pub(crate) use v2_seed::V2SeedBinding;
+
+#[derive(Clone)]
+pub(crate) enum WorkerBackend {
+    V3(Arc<Worker>),
+    V2(Arc<V2Worker>),
+}
+
+impl From<Arc<Worker>> for WorkerBackend {
+    fn from(worker: Arc<Worker>) -> Self { Self::V3(worker) }
+}
+
+impl From<Arc<V2Worker>> for WorkerBackend {
+    fn from(worker: Arc<V2Worker>) -> Self { Self::V2(worker) }
+}
 
 pub struct OfflineWorkerMinter {
     scope: AccountScope,
-    worker: Arc<Worker>,
+    worker: WorkerBackend,
     device: Option<(Arc<dyn BrowserBridge>, Arc<DeviceGrant>)>,
+    sdk_seed: Option<V2SeedBinding>,
 }
 
 impl OfflineWorkerMinter {
     /// Inert construction. Each issuance creates a new, isolated SDK process.
     #[cfg(test)]
     pub fn new(scope: AccountScope, worker: Arc<Worker>) -> Self {
-        Self { scope, worker, device: None }
+        Self { scope, worker: WorkerBackend::V3(worker), device: None, sdk_seed: None }
     }
 
     pub fn with_device(scope: AccountScope, worker: Arc<Worker>,
         bridge: Arc<dyn BrowserBridge>, grant: Arc<DeviceGrant>) -> Result<Self, Failure> {
+        Self::with_backend(scope, WorkerBackend::V3(worker), bridge, grant)
+    }
+
+    pub fn with_v2_device(scope: AccountScope, worker: Arc<V2Worker>,
+        bridge: Arc<dyn BrowserBridge>, grant: Arc<DeviceGrant>) -> Result<Self, Failure> {
+        Self::with_backend(scope, WorkerBackend::V2(worker), bridge, grant)
+    }
+
+    pub(crate) fn with_backend(scope: AccountScope, worker: WorkerBackend,
+        bridge: Arc<dyn BrowserBridge>, grant: Arc<DeviceGrant>) -> Result<Self, Failure> {
         if grant.account != scope.account() { return Err(Failure::Identity); }
-        Ok(Self { scope, worker, device: Some((bridge, grant)) })
+        Ok(Self { scope, worker, device: Some((bridge, grant)), sdk_seed: None })
+    }
+
+    pub(crate) fn with_v2_seed(scope: AccountScope, worker: Arc<V2Worker>,
+        bridge: Arc<dyn BrowserBridge>, grant: Arc<DeviceGrant>, seed: V2SeedBinding)
+        -> Result<Self, Failure> {
+        if !seed.belongs_to(&grant) { return Err(Failure::Identity); }
+        let mut minter = Self::with_v2_device(scope, worker, bridge, grant)?;
+        minter.sdk_seed = Some(seed);
+        Ok(minter)
     }
 }
 
@@ -121,13 +159,34 @@ impl OfflineWorkerMinter {
             path: target.path().to_owned(),
             page_url: target.page_url().to_owned(),
         };
-        let started = match &self.device {
-            Some((_, grant)) => match super::offline_worker_owner::SavedDevice::new(grant.device.clone()) {
-                Ok(device) => self.worker.begin_with_device(target, &device, control.deadline().into_std()),
-                Err(error) => Err(error),
-            },
-            None => self.worker.begin(target, control.deadline().into_std()),
+        let device = self.device.as_ref().map(|(_, grant)|
+            super::offline_worker_owner::SavedDevice::new(grant.device.clone())).transpose();
+        let device = match device {
+            Ok(value) => value,
+            Err(error) => return PreparationResult::finished(Err(failure(error))),
         };
+        let deadline = control.deadline().into_std();
+        match &self.worker {
+            WorkerBackend::V3(worker) => {
+                let started = match device {
+                    Some(device) => worker.begin_with_device(target, &device, deadline),
+                    None => worker.begin(target, deadline),
+                };
+                self.finish_worker(started, control).await
+            }
+            WorkerBackend::V2(worker) => {
+                let device = self.sdk_seed.as_ref().map(V2SeedBinding::device)
+                    .or(device.as_ref());
+                let Some(device) = device else {
+                    return PreparationResult::finished(Err(PreparationFailure::Rejected));
+                };
+                self.finish_worker(worker.begin_with_device(target, device, deadline), control).await
+            }
+        }
+    }
+
+    async fn finish_worker<M: Send + 'static>(&self, started: Result<Run<M>, Failure>,
+        control: &PreparationControl) -> PreparationResult<MintedCastle> {
         let mut run = match started {
             Ok(run) => run,
             Err(error) => return PreparationResult::finished(Err(failure(error))),
@@ -148,8 +207,11 @@ impl OfflineWorkerMinter {
                 }
             }
         };
-        // Dropping the result wait above requests cancellation. Its separate
-        // completion remains owned until the actual supervisor and child join.
+        // The result future may not have been polled, so its drop guard may
+        // not exist yet. Signal the child before awaiting the same owner.
+        if matches!(&result, Err(PreparationFailure::Cancelled | PreparationFailure::Deadline)) {
+            run.cancel();
+        }
         let cleanup = completion.wait().await;
         if cleanup == Cleanup::Unconfirmed {
             return PreparationResult::unconfirmed();

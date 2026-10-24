@@ -1,5 +1,13 @@
 # Serving architecture and branch policy
 
+The separate ordinary-V2 integration branch adds explicit `--offline-sdk v2`
+selection to the current startup and server code. The SDK seed consumer from
+`fe500a0` is included, but the host observation producer and checked transfer
+across browser closure are not yet implemented. This source assembly does
+not establish native readiness and does not change the browserless branch
+or the running service. Missing, foreign or stale observation proof must be
+rejected by the forthcoming producer/consumer implementation.
+
 Native HTTP completion is separate from admitted native cleanup. Local
 refusals and fully assembled nonstream responses carry HTTP completion,
 while `PoolAdmission` retains its independent cleanup child. Acquisition

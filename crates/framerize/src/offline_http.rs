@@ -9,7 +9,7 @@ use framer_core::{ids::{AccountId, FramerUserId, ProjectId, TeamId},
 use framer_server::AppState;
 use serde::Deserialize;
 use std::{net::SocketAddr, sync::Arc, time::Duration};
-use super::offline_worker_owner::Worker;
+use super::offline_worker::WorkerBackend;
 
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -22,7 +22,7 @@ struct Input {
 }
 
 #[derive(Clone)]
-pub(crate) struct Runtime { worker: Arc<Worker>, sessions: Sessions, routing: bool }
+pub(crate) struct Runtime { worker: WorkerBackend, sessions: Sessions, routing: bool }
 #[derive(Clone)]
 struct Endpoint { state: AppState, runtime: Runtime }
 
@@ -32,17 +32,28 @@ mod tests;
 
 pub(crate) fn configure(state: AppState, path: Option<&str>, routing_path: Option<&str>)
     -> Result<(AppState, Option<Runtime>), &'static str> {
+    configure_with(state, path, routing_path, false)
+}
+
+pub(crate) fn configure_v2(state: AppState, path: Option<&str>, routing_path: Option<&str>)
+    -> Result<(AppState, Option<Runtime>), &'static str> {
+    if path.is_none() { return Err("V2 serving requires its worker config"); }
+    configure_with(state, path, routing_path, true)
+}
+
+fn configure_with(state: AppState, path: Option<&str>, routing_path: Option<&str>, v2: bool)
+    -> Result<(AppState, Option<Runtime>), &'static str> {
     if path.is_none() && routing_path.is_some() { return Err("offline routing requires its worker"); }
     let Some(path) = path else { return Ok((state, None)); };
     let routing = routing_path.map(super::offline_routing_config::load).transpose()?;
     if routing.is_some() && state.native_dispatch.is_some() {
         return Err("offline routing provider already installed");
     }
-    let worker = super::offline_config::load(path)?;
+    let worker = if v2 { WorkerBackend::V2(Arc::new(super::offline_config::load_v2(path)?)) }
+        else { WorkerBackend::V3(Arc::new(super::offline_config::load(path)?)) };
     let mut state = framer_server::operation_ownership::with_owned_operations(state, 256)
         .map_err(|_| "offline serving ownership unavailable")?;
     let sessions = Sessions::install(&mut state)?;
-    let worker = Arc::new(worker);
     if let Some((policy, streaming)) = routing {
         let provider = super::offline_routing::Provider::new(state.clone(), sessions.clone(),
             worker.clone(), Arc::new(super::offline_request_context::Current), policy, streaming)

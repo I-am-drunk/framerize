@@ -52,11 +52,12 @@ struct Shared {
 pub(crate) struct Provider(Arc<Shared>);
 impl Provider {
     pub(crate) fn new(state: AppState, sessions: Sessions,
-        worker: Arc<super::offline_worker_owner::Worker>, contexts: Arc<dyn Contexts>,
+        worker: impl Into<super::offline_worker::WorkerBackend>, contexts: Arc<dyn Contexts>,
         policy: Policy, streaming: Option<port::StreamingPolicy>) -> Result<Self, DispatchError> {
+        let worker = worker.into();
         let bridge = state.browser.clone();
         Self::with_sources(state, sessions, contexts, policy, streaming,
-            Arc::new(move |target| Arc::new(super::offline_source::OfflineSource::new(
+            Arc::new(move |target| Arc::new(super::offline_source::OfflineSource::from_worker(
                 worker.clone(), target, bridge.clone()))))
     }
 

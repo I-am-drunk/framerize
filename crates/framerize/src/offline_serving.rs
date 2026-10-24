@@ -11,7 +11,7 @@ use framer_server::{AppState, native_control::{self, AdmittedControl, HealthOutc
 use futures::{future::BoxFuture, FutureExt};
 use std::{panic::AssertUnwindSafe, sync::Arc};
 use tokio::{sync::{oneshot, watch}, time::Instant};
-use super::{offline_source::OfflineSource, offline_worker_owner::Worker,
+use super::{offline_source::OfflineSource, offline_worker::WorkerBackend,
     one_shot_control::SourceBuilder, offline_sessions::Sessions, offline_device::DeviceLease};
 
 #[cfg(test)]
@@ -73,9 +73,9 @@ pub(crate) struct Run {
 }
 impl Run { pub(crate) fn cancel(&self) { self.stop.cancel(); } }
 
-pub(crate) fn launch(state: AppState, request: Request, worker: Arc<Worker>, sessions: Sessions)
+pub(crate) fn launch(state: AppState, request: Request, worker: impl Into<WorkerBackend>, sessions: Sessions)
     -> Result<Run, DispatchError> {
-    let source = Arc::new(OfflineSource::new(worker, request.target, state.browser.clone()));
+    let source = Arc::new(OfflineSource::from_worker(worker.into(), request.target, state.browser.clone()));
     launch_with_source(state, request.spec, source, sessions)
 }
 

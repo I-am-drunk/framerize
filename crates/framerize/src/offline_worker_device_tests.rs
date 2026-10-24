@@ -4,6 +4,9 @@ use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use tokio::sync::Semaphore;
 use framer_api::experimental_native::native_account::{ClientError, CloseError, CloseObserver};
 
+#[path = "offline_worker_v2_tests.rs"]
+mod v2;
+
 struct Fixture {
     root: PathBuf,
     worker: Arc<Worker>,
@@ -17,9 +20,9 @@ impl Fixture {
             ("worker.mjs", include_bytes!("../../../scripts/tests/fixtures/device_mint_pending.mjs"),
                 "3dc511b8e330c8106a60040a25383afa14cc3ac74f6c804c49b288487f024933"),
             ("protocol.mjs", include_bytes!("../../../scripts/offline_worker/protocol.mjs"),
-                "dde1a6c3f77b8795e7c6c6bbb2ba5fed57c97aee8e038ebf8801c525954c7efe"),
+                "13ad5f0d8b29a5beaf3dcf7c16398f6d3de98069515b6a8ba8fe8e29502d68df"),
             ("device.mjs", include_bytes!("../../../scripts/offline_worker/device.mjs"),
-                "904b8f1ed021bd04900776478efe4e45355cc343039961fb99ad710157b3bec3"),
+                "a41e26307400a61ac212f469880108321004f533d210a2aa83a39faca8aeb74f"),
         ];
         let mut pins = vec![pin(PathBuf::from(NODE),
             "53fb205ae78805130177e24bcb459a69a1518c8d98f8965f31d85aae7ea840fc")];
