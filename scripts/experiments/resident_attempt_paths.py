@@ -13,6 +13,26 @@ def _run(node):
             and node.func.value.id == 'resident_control_client')
 
 
+def _uses_request_path(call):
+    names = ('path', 'request', 'wait_seconds')
+    if len(call.args) > len(names) or any(isinstance(arg, ast.Starred) for arg in call.args):
+        return False
+    bound = dict(zip(names, call.args))
+    for keyword in call.keywords:
+        if keyword.arg not in names or keyword.arg in bound:
+            return False
+        bound[keyword.arg] = keyword.value
+    if set(bound) != set(names):
+        return False
+    value = bound['request']
+    if isinstance(value, ast.Call):
+        if (not isinstance(value.func, ast.Name) or value.func.id != 'str'
+                or len(value.args) != 1 or value.keywords):
+            return False
+        value = value.args[0]
+    return isinstance(value, ast.Name) and value.id == 'request_path'
+
+
 def _check(tree, expected):
     functions = [node for node in ast.walk(tree)
                  if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
@@ -41,7 +61,7 @@ def _check(tree, expected):
             or value.right.value != 'private/' + expected):
         raise ValueError()
     calls = [node for node in nodes if _run(node)]
-    if len(calls) != 1:
+    if len(calls) != 1 or not _uses_request_path(calls[0]):
         raise ValueError()
     if not any(position > index and getattr(node, 'value', None) is calls[0]
                for position, node in enumerate(function.body)):
@@ -49,10 +69,12 @@ def _check(tree, expected):
 
 
 def check_request_path(source: str, expected_basename: str) -> None:
-    """Require the literal path before the single direct control call.
+    """Require the literal path to supply the single direct control call.
 
     Accept only the generated, undecorated synchronous function shape. Both
     statements must be in its direct body; nested assignments are ambiguous.
+    The call must bind its request parameter to request_path or one plain
+    str(request_path) conversion, without argument unpacking or duplicates.
     This checks source structure, not runtime globals or execution safety.
     Source is bounded to 256 Ki characters. All ordinary refusals raise only
     ValueError('resident-attempt-path'), without the parser's exception text.
