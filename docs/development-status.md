@@ -11,18 +11,25 @@ is free. This does not claim exhaustive transient descendant capture. A
 separate receipt parser accepts the fixture's interleaved logging; the tests
 were not repeated. The prior 79 V2 results and production binary are unchanged.
 
-The normal-browser rollout proposal now binds the qualified `95f29867`
-executable, explicit ownership startup, seven support files and rollback.
-Its staged package passes static byte/mode/source checks; it has not run.
-V2 is not a prerequisite. Protected-service approval remains outstanding.
-Direct correlated evidence of post-disconnect cleanup and ownership release
-must still be bound before full normal-stream acceptance can be claimed.
-See `reference/analysis/normal-browser-admission-rollout-20261024.md`.
-Source follow-up is now assigned for a concrete ordering gap: the completion
-verdict precedes producer task completion, and a dropped body does not observe
-the original join. Shared join observation and correlated release evidence
-will be qualified separately; the current package is preserved. See
-`reference/analysis/normal-browser-joined-completion-followup-20261024.md`.
+The original-join correction is integrated as `e7da66e`. All 26 selected
+cases pass in disjoint 6, 6 and 14 case projections with unchanged limits.
+The original combined compile reached its 768 MiB limit; that result is
+preserved. Split compile peaks were 457,482,240, 480,702,464 and 604,119,040
+bytes, with zero swap and no memory-limit events. The server builds
+(`a15b20ad`) and executable links (`9fc32074`, binary `314c3190`). All eight
+successful jobs and the initial failed compile are collected.
+The new normal rollout proposal binds that executable, seven source-exact
+Python modules, explicit ownership startup, joined acceptance and rollback.
+Its eight-file package passes static checks and has not run. The earlier
+`95f29867` package is preserved. Protected-service permission remains required.
+See `reference/analysis/normal-browser-joined-qualification-20261024.md`.
+
+The separate native package retains binary `6012de1c`. Its exact reviewed
+staging invocation passed once: 20 runtime files and 16 source inputs match,
+including the generated host, 11 support modules and six adjacent imports.
+Peak memory was 61,972,480 bytes under 128 MiB, with zero swap/events. Its
+terminal and captured processes are collected. Neither application package
+has been launched, and native acceptance remains unverified.
 
 The ordinary-V2 integration branch now includes browserless `95f2986`,
 including the qualified legacy and typed-capacity corrections. Only the two
@@ -34,7 +41,8 @@ build. The newer typed-capacity and router work is preserved. All 31 Rust
 cases pass (`292133be`), as do all 48 Python/Node cases (`4f1b5d34`). Test
 compilation passes (`1884a4c5`), all four dependent libraries rebuild, and the
 production executable links (`cbf5e604`, binary `6012de1c`). The explicit
-prepared host remains required for runtime; its package is not yet staged.
+prepared host remains required for runtime; its package is now staged as
+recorded above, without application execution.
 The intermediate core compiles (`6459710f`) with a 167,043,072-byte peak under
 the existing 512 MiB limit, zero swap and no resource-limit events. Its launcher
 is collected, captured child absent and group removed. Exact core-source
