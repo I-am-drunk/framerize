@@ -3,6 +3,17 @@
 Updated 2026-10-24. The normal service remains browser-based. Publishing these
 branches does not change the running service.
 
+The R11 normal-browser proof returned local HTTP 500 without model output,
+so the paired baseline and isolated-V2/native leg did not run. Its no-status
+record cannot distinguish a failed fetch from a failed response-body read.
+On `fix/ai-post-failure-phase`, AI POST failures now retain validated phase
+and observed header-status diagnostics in the existing event, linked by job
+ID and stripped before the reply. Status `-1`, retries, rate accounting and
+provenance rules are preserved. Five actual-script JS cases, six host/event
+cases and 21 existing provenance cases pass with networking disabled. No live
+request was repeated. This source is not deployed and does not establish the
+cause of R11; integration preserving the pending RPC diagnostics is next.
+
 R10 returned complete HTTP 200 from the normal browser and paired baseline,
 then stopped locally because the isolated V2 worker observed changed device
 storage. Native HTTP was never invoked; cleanup was confirmed. Saved evidence

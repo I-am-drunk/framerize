@@ -1,5 +1,13 @@
 # Serving architecture and branch policy
 
+AI POST job failures retain the stage (`fetch` or `body`) and any status
+observed after fetch resolves. Both failures still return status `-1`; a
+received head never grants completion, provenance or retry authority. The
+host removes these diagnostic fields before replying and adds only validated
+phase/status facts and the existing opaque job ID to `ai.post`. Missing or
+invalid facts add no diagnostic fields. Poll timeouts remain unattributed.
+Raw exceptions and response contents are not added to the event.
+
 Resident-enabled hosts retain separate private V2 identity metadata after an
 observed successful wrapper call. It binds the original realm, document,
 storage object, module and callable. The decorator invokes the wrapper once;
