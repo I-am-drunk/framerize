@@ -129,6 +129,22 @@ where T: Send + 'static, F: Future<Output = T> + Send + 'static {
 #[derive(Clone)]
 pub(crate) struct ResponseCompletion(Shared<BoxFuture<'static, bool>>);
 
+/// A detached operation reports its own cleanup even after its parent's HTTP
+/// body has gone. Aborting or losing the verdict leaves this child unconfirmed.
+pub(crate) fn spawn_with_cleanup<T, F>(scope: Option<&Arc<ServingOwnership>>,
+    kind: OperationKind, future: F) -> Result<tokio::task::JoinHandle<T>, GateError>
+where T: Send + 'static, F: Future<Output = (T, bool)> + Send + 'static {
+    let Some(scope) = scope else {
+        return Ok(tokio::spawn(async move { future.await.0 }));
+    };
+    let owner = scope.owner(kind)?;
+    Ok(tokio::spawn(CURRENT.scope(owner.clone(), async move {
+        let (result, confirmed) = future.await;
+        if confirmed { owner.finish(); }
+        result
+    })))
+}
+
 impl ResponseCompletion {
     pub(crate) fn from_receiver(receiver: tokio::sync::oneshot::Receiver<bool>) -> Self {
         Self(async move { receiver.await.unwrap_or(false) }.boxed().shared())

@@ -10,11 +10,55 @@ fn busy(error: impl std::fmt::Display) -> ApiError {
     ApiError::PoolBusy(error.to_string())
 }
 
-// A failed admission may still own an unresolved close or observation.
+// A completed call may still own an unresolved close or observation.
 // Preserve that evidence separately from the error reported to the caller.
-pub(super) struct AcquisitionOutcome<T> {
+pub(super) struct CleanupOutcome<T> {
     pub(super) result: Result<T, ApiError>,
     pub(super) cleanup_confirmed: bool,
+}
+
+pub(super) type AcquisitionOutcome<T> = CleanupOutcome<T>;
+
+impl<T: axum::response::IntoResponse> axum::response::IntoResponse for CleanupOutcome<T> {
+    fn into_response(self) -> axum::response::Response {
+        super::operation_ownership::completed_response(
+            axum::response::IntoResponse::into_response(self.result), self.cleanup_confirmed)
+    }
+}
+
+#[derive(Clone)]
+pub(super) struct CleanupEvidence(std::sync::Arc<std::sync::atomic::AtomicBool>);
+
+impl CleanupEvidence {
+    pub(super) fn new() -> Self { Self(std::sync::Arc::new(std::sync::atomic::AtomicBool::new(true))) }
+    pub(super) fn confirmed(&self) -> bool { self.0.load(std::sync::atomic::Ordering::Relaxed) }
+    pub(super) fn include(&self, confirmed: bool) {
+        if !confirmed { self.0.store(false, std::sync::atomic::Ordering::Relaxed); }
+    }
+    pub(super) fn outcome<T>(&self, outcome: CleanupOutcome<T>) -> Result<T, ApiError> {
+        self.include(outcome.cleanup_confirmed);
+        outcome.result
+    }
+    pub(super) fn external<T>(&self, result: Result<T, String>) -> Result<T, String> {
+        self.include(!matches!(&result, Err(error) if cleanup_unconfirmed(error)));
+        result
+    }
+    pub(super) fn core<T>(&self, result: Result<T, framer_core::error::CoreError>)
+        -> Result<T, framer_core::error::CoreError> {
+        self.include(!matches!(&result, Err(framer_core::error::CoreError::Framer(error))
+            if cleanup_unconfirmed(error)));
+        result
+    }
+    pub(super) fn finish<T>(&self, result: Result<T, ApiError>) -> CleanupOutcome<T> {
+        CleanupOutcome { result, cleanup_confirmed: self.confirmed() }
+    }
+    pub(super) fn admission<T>(&self, result: Result<T, ApiError>) -> Result<T, ApiError> {
+        if let Err(error) = &result {
+            self.include(matches!(error, ApiError::Cooling { .. }
+                | ApiError::AccountCooling { .. } | ApiError::ServingCapacity(_)));
+        }
+        result
+    }
 }
 
 async fn confirm_resident_status(browser: &dyn BrowserBridge, lease: ResidentLease)
@@ -104,15 +148,37 @@ impl Drop for Management {
     }
 }
 
+impl Management {
+    pub(super) fn observe_result<T>(&self, result: Result<T, String>) -> Result<T, String> {
+        match &self._lease {
+            Some(lease) => observe_lease_result(lease, result),
+            None => result,
+        }
+    }
+}
+
 pub(super) async fn management(s: &AppState, id: AccountId, browser: bool)
     -> Result<Management, ApiError> {
     management_inner(s, id, browser, false).await
 }
 
+pub(super) async fn management_observed(s: &AppState, id: AccountId, browser: bool)
+    -> CleanupOutcome<Management> {
+    management_inner_observed(s, id, browser, false).await
+}
+
 async fn management_inner(s: &AppState, id: AccountId, browser: bool, reconcile: bool)
     -> Result<Management, ApiError> {
+    management_inner_observed(s, id, browser, reconcile).await.result
+}
+
+async fn management_inner_observed(s: &AppState, id: AccountId, browser: bool, reconcile: bool)
+    -> CleanupOutcome<Management> {
+    let cleanup = CleanupEvidence::new();
+    let result = async {
     let lease = if browser {
-        Some(s.serving_accounts.acquire(s.browser.as_ref(), id, None, None).await?)
+        Some(cleanup.outcome(s.serving_accounts.acquire_observed(
+            s.browser.as_ref(), id, None, None).await)?)
     } else { None };
     let operation = s.serving_accounts.operation.lock().await;
     if s.serving_accounts.pending_config.read().map_err(busy)?.is_some() {
@@ -130,6 +196,8 @@ async fn management_inner(s: &AppState, id: AccountId, browser: bool, reconcile:
     }
     drop(operation);
     Ok(Management { account: id, mutations, _lease: lease })
+    }.await;
+    cleanup.finish(result)
 }
 
 pub(super) async fn lease_account(s: &AppState, id: AccountId) -> Result<ResidentLease, ApiError> {
@@ -159,14 +227,29 @@ pub(super) async fn lease_account_observed(s: &AppState, id: AccountId) -> Acqui
     AcquisitionOutcome { result, cleanup_confirmed }
 }
 
-pub(super) async fn park(State(s): State<AppState>, Json(body): Json<AccountBody>)
+pub(super) async fn park(state: State<AppState>, body: Json<AccountBody>)
     -> Result<Json<serde_json::Value>, ApiError> {
-    let _management = management_inner(&s, body.account_id, false, true).await?;
-    tokio::time::timeout(Duration::from_secs(20),
-        s.serving_accounts.park_managed(s.browser.as_ref(), body.account_id))
-        .await.map_err(|_| busy("account close timed out; its slot is retained"))??;
+    park_observed(state, body).await.result
+}
+
+pub(super) async fn park_observed(State(s): State<AppState>, Json(body): Json<AccountBody>)
+    -> CleanupOutcome<Json<serde_json::Value>> {
+    let cleanup = CleanupEvidence::new();
+    let result = async {
+    let _management = cleanup.outcome(management_inner_observed(&s, body.account_id, false, true).await)?;
+    let parked = tokio::time::timeout(Duration::from_secs(20),
+        s.serving_accounts.park_managed_observed(s.browser.as_ref(), body.account_id)).await;
+    match parked {
+        Ok(parked) => cleanup.outcome(parked)?,
+        Err(_) => {
+            cleanup.include(false);
+            return Err(busy("account close timed out; its slot is retained"));
+        }
+    }
     Ok(Json(serde_json::json!({"account_id":body.account_id,"status":"parked",
         "eligible":s.serving_accounts.allows(&body.account_id)})))
+    }.await;
+    cleanup.finish(result)
 }
 
 #[derive(Deserialize)]
@@ -184,18 +267,27 @@ pub(super) async fn config(State(s): State<AppState>) -> Json<PoolConfig> {
     Json(s.serving_accounts.config())
 }
 
-pub(super) async fn activate(State(s): State<AppState>, Json(body): Json<AccountBody>)
+pub(super) async fn activate(state: State<AppState>, body: Json<AccountBody>)
     -> Result<Json<serde_json::Value>, ApiError> {
+    activate_observed(state, body).await.result
+}
+
+pub(super) async fn activate_observed(State(s): State<AppState>, Json(body): Json<AccountBody>)
+    -> CleanupOutcome<Json<serde_json::Value>> {
+    let cleanup = CleanupEvidence::new();
+    let result = async {
     let accounts = s.state.list().await.map_err(ApiError::Internal)?;
     s.serving_accounts.select(accounts, Some(&body.account_id.0.to_string()))?;
     if let Some(remaining) = s.wave.check() {
         return Err(ApiError::Cooling { retry_after_secs: remaining.as_secs().saturating_add(1) });
     }
-    let lease = lease_account(&s, body.account_id).await?;
-    super::current_account(&s, body.account_id).await?;
-    observe_lease_result(&lease, s.browser.castle_token(&body.account_id).await)
-        .map_err(ApiError::Internal)?;
+    let lease = cleanup.outcome(lease_account_observed(&s, body.account_id).await)?;
+    cleanup.admission(super::current_account(&s, body.account_id).await)?;
+    let result = cleanup.external(s.browser.castle_token(&body.account_id).await);
+    observe_lease_result(&lease, result).map_err(ApiError::Internal)?;
     Ok(Json(serde_json::json!({"account_id":body.account_id,"status":"active"})))
+    }.await;
+    cleanup.finish(result)
 }
 
 pub async fn prewarm_accounts(s: AppState) {
@@ -213,8 +305,15 @@ pub async fn prewarm_accounts(s: AppState) {
     }
 }
 
-pub(super) async fn configure(State(s): State<AppState>, Json(update): Json<ConfigUpdate>)
+pub(super) async fn configure(state: State<AppState>, body: Json<ConfigUpdate>)
     -> Result<Json<PoolConfig>, ApiError> {
+    configure_observed(state, body).await.result
+}
+
+pub(super) async fn configure_observed(State(s): State<AppState>, Json(update): Json<ConfigUpdate>)
+    -> CleanupOutcome<Json<PoolConfig>> {
+    let cleanup = CleanupEvidence::new();
+    let result = async {
     let policy = &s.serving_accounts;
     let _configuration = policy.configuration.lock().await;
     let old = policy.config();
@@ -247,7 +346,9 @@ pub(super) async fn configure(State(s): State<AppState>, Json(update): Json<Conf
     let _pending = PendingConfig::new(policy, next.clone())?;
     let tickets = reserve_config(policy, &next)?;
     drop(operation);
-    apply_config(&s, next, tickets).await.map(Json)
+    apply_config(&s, next, tickets, &cleanup).await.map(Json)
+    }.await;
+    cleanup.finish(result)
 }
 
 struct PendingConfig<'a>(&'a ServingAccountPolicy);
@@ -293,10 +394,11 @@ fn reserve_config(policy: &ServingAccountPolicy, next: &PoolConfig) -> Result<Qu
     Ok(queued)
 }
 
-async fn apply_config(s: &AppState, next: PoolConfig, mut tickets: QueuedParks) -> Result<PoolConfig, ApiError> {
+async fn apply_config(s: &AppState, next: PoolConfig, mut tickets: QueuedParks,
+    cleanup: &CleanupEvidence) -> Result<PoolConfig, ApiError> {
     let policy = &s.serving_accounts;
     while let Some(ticket) = tickets.0.pop_front() {
-        finish_park(s.browser.as_ref(), ticket).await?;
+        cleanup.outcome(finish_park_observed(s.browser.as_ref(), ticket).await)?;
     }
     let json = serde_json::to_string(&next).map_err(|e| ApiError::Internal(e.to_string()))?;
     let _operation = policy.operation.lock().await;
@@ -309,6 +411,13 @@ async fn apply_config(s: &AppState, next: PoolConfig, mut tickets: QueuedParks) 
 impl ServingAccountPolicy {
     /// The caller retains this account's management guard during the close.
     pub(super) async fn park_managed(&self, browser: &dyn BrowserBridge, id: AccountId) -> Result<(), ApiError> {
+        self.park_managed_observed(browser, id).await.result
+    }
+
+    pub(super) async fn park_managed_observed(&self, browser: &dyn BrowserBridge, id: AccountId)
+        -> CleanupOutcome<()> {
+        let cleanup = CleanupEvidence::new();
+        let result = async {
         let operation = self.operation.lock().await;
         let ticket = match self.residents.begin_park(id) {
             Ok(ticket) => ticket,
@@ -316,7 +425,9 @@ impl ServingAccountPolicy {
             Err(error) => return Err(busy(error)),
         };
         drop(operation);
-        finish_park(browser, ticket).await
+        cleanup.outcome(finish_park_observed(browser, ticket).await)
+        }.await;
+        cleanup.finish(result)
     }
 }
 
@@ -324,15 +435,21 @@ impl ServingAccountPolicy {
 #[path = "pool_control_tests.rs"]
 mod tests;
 
-async fn finish_park(browser: &dyn BrowserBridge, mut ticket: ParkTicket) -> Result<(), ApiError> {
-    tokio::time::timeout(Duration::from_secs(20), async {
+async fn finish_park_observed(browser: &dyn BrowserBridge, mut ticket: ParkTicket) -> CleanupOutcome<()> {
+    let mut cleanup_confirmed = false;
+    let result = tokio::time::timeout(Duration::from_secs(20), async {
         let id = ticket.victim();
         let expected = match browser.browser_status(&id).await {
             Ok(status) => status,
-            Err(error) => { ticket.cancel_before_io().map_err(busy)?; return Err(busy(error)); }
+            Err(error) => {
+                ticket.cancel_before_io().map_err(busy)?;
+                cleanup_confirmed = true;
+                return Err(busy(error));
+            }
         };
         if expected.account_id != id || expected.active_commands != 0 {
             ticket.cancel_before_io().map_err(busy)?;
+            cleanup_confirmed = true;
             return Err(busy("account browser is busy or its identity changed"));
         }
         ticket.close_started().map_err(busy)?;
@@ -340,8 +457,11 @@ async fn finish_park(browser: &dyn BrowserBridge, mut ticket: ParkTicket) -> Res
         if !result.confirms_absence(&expected) {
             return Err(busy("account browser closure is unconfirmed; its slot is retained"));
         }
-        ticket.confirm_close().map_err(busy)
-    }).await.map_err(|_| busy("account close timed out; its slot is retained"))?
+        ticket.confirm_close().map_err(busy)?;
+        cleanup_confirmed = true;
+        Ok(())
+    }).await.unwrap_or_else(|_| Err(busy("account close timed out; its slot is retained")));
+    CleanupOutcome { result, cleanup_confirmed }
 }
 
 impl ServingAccountPolicy {
