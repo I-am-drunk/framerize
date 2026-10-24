@@ -57,6 +57,11 @@ observed login-token response returned HTTP 200 and no cookie updates;
 inference still returned 403. This excludes lost response cookies for that
 attempt without changing the cookie protocol.
 
+An offline experiment now inspects only the pinned SDK's outer frame lengths
+before the existing private-pipe handoff. It leaves the SDK, production minter
+and token contents unchanged. A complete frame does not authenticate a token
+or certify its environment; it only excludes missing outer sections.
+
 An update of an enrolled isolated instance transfers its actual in-memory
 rate history. The controller holds the idle application and sidecar, writes
 a private snapshot, and verifies old-process absence before replacing the

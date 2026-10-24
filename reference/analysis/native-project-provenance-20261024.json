@@ -1,0 +1,21 @@
+{
+  "status": "SELECTED_PROJECT_VISIBLE",
+  "upstream_gets": 1,
+  "dashboard": {
+    "requests": 1,
+    "redirects_followed": 0,
+    "http_status": 200,
+    "bytes": 4508,
+    "projects_array": true,
+    "project_count": 2,
+    "selected_project_matches": 1,
+    "completed": true,
+    "elapsed_ms": 233.73459302820265
+  },
+  "protected_browser_unchanged": true,
+  "original_selection_unchanged": true,
+  "result_sha256": "a502266367d735221442212cbf397203db71c72f27befd7216ced1d468f17e61",
+  "teardown_sha256": "0ec5f847a74ffecaca200fc11cbb9422777b9a3fae1b651243a18afff954e98b",
+  "inference_requested": false,
+  "ai_entitlement": "NOT_ESTABLISHED"
+}

@@ -37,9 +37,18 @@ and pool idle were confirmed, and no second request ran. The browser service
 remained unchanged. Discarded login-response cookies do not explain this attempt.
 The supplied agent category, feature name and step match the browser rules;
 the client derives the prompt and fresh turn/session IDs for each request.
-This local consistency check does not establish project access or entitlement.
-The next check is the existing provenance of the selected project and team,
-before choosing another live experiment.
+One separate bounded dashboard GET returned HTTP 200 and the original selected
+project exactly once in its project list. Project visibility is established;
+AI entitlement and the reason for the security rejection remain unresolved.
+
+A new offline framing probe also excludes a prefix-only result in one synthetic
+SDK run. The unchanged SDK produced a complete 3,951-byte frame with 36 clock
+bytes and 3,913 protected payload bytes. Four parser cases pass. The existing
+owner joined the worker and discarded its token; group peak was 86,765,568
+bytes with zero swap/events and verified teardown. Production code is unchanged.
+This does not inspect the token from a rejected live request. The source trace
+identifies the SDK's empty-frame overflow as a clock-metadata limit, not a
+browser-feature-size limit. See `scripts/experiments/native_envelope`.
 
 The deployable graphics worker is now integrated in browserless source and
 validated in a separate pinned bundle. All 34 component cases and a synthetic

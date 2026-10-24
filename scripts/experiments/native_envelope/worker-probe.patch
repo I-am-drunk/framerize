@@ -1,0 +1,18 @@
+--- a/worker.mjs
++++ b/worker.mjs
+@@ -1,3 +1,4 @@
++import { inspectEnvelope } from './envelope.mjs';
+ import fs from 'node:fs';
+ import { performance } from 'node:perf_hooks';
+ import { pathToFileURL } from 'node:url';
+@@ -23,7 +24,9 @@
+     if (!Number.isFinite(metadata.mint_to_handoff_ms)
+         || metadata.mint_to_handoff_ms < 0 || metadata.mint_to_handoff_ms > 2000)
+       throw new Error('token-age');
+-    try { makeTokenWriter(4)(result.token.take()); }
++    const value = result.token.take();
++    fs.writeFileSync('/out/envelope.json', JSON.stringify(inspectEnvelope(value)), { flag: 'wx', mode: 0o600 });
++    try { makeTokenWriter(4)(value); }
+     finally { tokenClosed = true; }
+     metadata.mint_to_handoff_ms = performance.now() - result.minted_at;
+     if (metadata.mint_to_handoff_ms > 2000) throw new Error('token-age');

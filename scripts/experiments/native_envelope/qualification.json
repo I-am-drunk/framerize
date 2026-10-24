@@ -1,0 +1,48 @@
+{
+  "envelope": {
+    "clock_bytes": 36,
+    "decoded_bytes": 3951,
+    "format_matches": true,
+    "payload_bytes": 3913
+  },
+  "input_manifest_sha256": "860823f77ffdceb888f4f03c019237570b56b625bd9f769c8e2e16e2c76c67c6",
+  "live_acceptance": false,
+  "production_changed": false,
+  "results": {
+    "owned-1": {
+      "peak_bytes": 86765568,
+      "receipt_sha256": "50c8470ad5dbe5e39587f0b66449599c8dcd5f76593f97fb70b219e5af1e367a",
+      "result": {
+        "accepted": true,
+        "authenticated_delivery": false,
+        "handoff_ms": 182.2742189999999,
+        "owner_elapsed_ms": 2953.583263,
+        "sdk_elapsed_ms": 2051.171163,
+        "sdk_method_ms": 1027.570607,
+        "synthetic": true,
+        "token_discarded": true,
+        "worker_absent": true,
+        "worker_joined": true,
+        "worker_pid": 3
+      }
+    },
+    "tests-1": {
+      "peak_bytes": 19161088,
+      "receipt_sha256": "18c47c2be913d1989ed4e6be55ece52feeb7683e50be786113d75d910337826a",
+      "result": {
+        "accepted": true,
+        "synthetic": true,
+        "tests_only": true
+      }
+    }
+  },
+  "source_manifest_sha256": "985a8631a4fd3173cbbbdb38f9729c59c2bad022e48115ebf1d6af44f2b141c7",
+  "source_trace_sha256": "1461fcfc24306911258f1e351d1073377cb1c66bdbd6e48bd866cc547768caae",
+  "sources": {
+    "envelope.mjs": "fa52d160d52d99ef001ced046aa0c1adf6bc5b7e863a9d3cd622ed9bac6604f6",
+    "envelope_tests.mjs": "a49c94fe493036411d5d33fc77d54cdbabaa521ca2b22a9e0046e7255404751b",
+    "worker-probe.patch": "21f0679869989e6bc0a025282deffa1cdbfefac767b2e6d8a38670fe00a207a6"
+  },
+  "status": "SYNTHETIC_FRAMING_CONFIRMED",
+  "tests": 4
+}
