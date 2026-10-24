@@ -563,3 +563,83 @@ async fn nonstream_repick_disconnect(unknown_cleanup: bool) {
         assert_eq!(serde_json::to_value(f.state.state.list().await.unwrap()).unwrap(), post_a);
     }
 }
+
+#[tokio::test(flavor = "current_thread")]
+async fn discarded_first_permit_lifecycle_refusal_keeps_stream_admission_open() {
+    first_permit_lifecycle_refusal(true).await;
+}
+
+#[tokio::test(flavor = "current_thread")]
+async fn discarded_first_permit_lifecycle_refusal_keeps_nonstream_admission_open() {
+    first_permit_lifecycle_refusal(false).await;
+}
+
+async fn first_permit_lifecycle_refusal(stream: bool) {
+    for messages in [true, false] {
+        let mut f = fixture::Fixture::new();
+        f.state = with_owned_operations(f.state, 32).unwrap();
+        let ownership = f.state.operation_ownership.clone().unwrap();
+        let model = if messages { "claude-opus-5-5" } else { "gpt-6-astra" };
+        let first_key = f.key(0, model);
+        let peer_key = f.key(1, model);
+        let first_permit = f.state.gate.acquire(&first_key).await;
+        let app = crate::router(f.state.clone(), "/nonexistent-fixture-web");
+        let task = tokio::spawn(app.clone().oneshot(cooldown_request(&f, messages, stream, 0)));
+        let loaded = tokio::time::timeout(WAIT, f.loads.recv()).await.unwrap().unwrap();
+        assert_eq!(loaded, f.accounts[0].framer_user_id);
+        f.no_call();
+        assert_eq!(ownership.gate.stats().unwrap().active, 2);
+        assert!(f.state.gate.acquire_now(&first_key).await.is_none());
+        let mut unavailable = f.accounts[0].clone();
+        unavailable.state = framer_core::account::AccountState::Quarantined;
+        f.state.state.upsert(&unavailable).await.unwrap();
+        let before = serde_json::to_value(f.state.state.list().await.unwrap()).unwrap();
+        drop(first_permit);
+        let response = tokio::time::timeout(WAIT, task).await.unwrap().unwrap().unwrap();
+        assert_eq!(response.status(), StatusCode::SERVICE_UNAVAILABLE);
+        assert_eq!(response.headers()[axum::http::header::CONTENT_TYPE], "text/plain; charset=utf-8");
+        assert!(!response.body().is_end_stream(), "exercise an unread lifecycle refusal");
+        f.no_call();
+        assert!(matches!(f.loads.try_recv(), Err(tokio::sync::mpsc::error::TryRecvError::Empty)));
+        drop(response);
+        assert_eq!(ownership.gate.stats().unwrap().active, 1); // Retained host only.
+        assert!(!ownership.gate.stats().unwrap().unconfirmed);
+        let snapshot = f.state.serving_accounts.residents.snapshot().unwrap();
+        assert_eq!(snapshot.residents.len(), 1);
+        assert_eq!(snapshot.residents[0].account, unavailable.id);
+        assert_eq!(snapshot.residents[0].users, 0);
+        assert!(!snapshot.residents[0].uncertain);
+        // Full record equality observes state; write-attempt count is unobserved.
+        assert_eq!(serde_json::to_value(f.state.state.list().await.unwrap()).unwrap(), before);
+        assert!(f.state.wave.check().is_none());
+        drop(f.state.gate.acquire_now(&first_key).await.expect("refused account retained permit"));
+        let task = tokio::spawn(app.oneshot(cooldown_request(&f, messages, stream, 1)));
+        let call = f.next().await;
+        assert_eq!(call.account, f.accounts[1].id);
+        assert_eq!(call.kind, if messages { "messages" } else { "responses" });
+        let loaded = tokio::time::timeout(WAIT, f.loads.recv()).await.unwrap().unwrap();
+        assert_eq!(loaded, f.accounts[1].framer_user_id);
+        assert!(f.state.gate.acquire_now(&peer_key).await.is_none());
+        f.no_call();
+        call.reply.send(Ok(fixture::success(call.kind))).ok().unwrap();
+        tokio::time::timeout(WAIT, call.dropped).await.unwrap().unwrap();
+        let response = tokio::time::timeout(WAIT, task).await.unwrap().unwrap().unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+        let body = tokio::time::timeout(WAIT, to_bytes(response.into_body(), 65536))
+            .await.unwrap().unwrap();
+        if stream { assert_recovery_output(&body, messages, false); }
+        else { assert_cooldown_peer_output(&body, messages); }
+        tokio::time::timeout(WAIT, async {
+            while ownership.gate.stats().unwrap().active > 1 { tokio::task::yield_now().await; }
+        }).await.unwrap();
+        assert_eq!(ownership.gate.stats().unwrap().active, 1);
+        assert!(!ownership.gate.stats().unwrap().unconfirmed);
+        let snapshot = f.state.serving_accounts.residents.snapshot().unwrap();
+        assert_eq!(snapshot.residents.len(), 2);
+        assert!(snapshot.residents.iter().all(|slot| slot.users == 0 && !slot.uncertain));
+        assert_eq!(serde_json::to_value(f.state.state.list().await.unwrap()).unwrap(), before);
+        drop(f.state.gate.acquire_now(&peer_key).await.expect("peer permit retained after completion"));
+        f.no_call();
+        assert!(matches!(f.loads.try_recv(), Err(tokio::sync::mpsc::error::TryRecvError::Empty)));
+    }
+}

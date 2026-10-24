@@ -3,6 +3,22 @@
 Updated 2026-10-24. The normal service remains browser-based. Publishing these
 branches does not change the running service.
 
+The three-path local-refusal input `345a9271` is integrated. All three selected
+tests pass (`33a2d86b`, peak 12,238,848 bytes), covering 16 scenarios. Test
+compilation passes (`0b872675`, peak 429,654,016 bytes). Pure validation errors
+retain their original response and release local ownership; an account becoming
+unavailable during its first permit wait also releases ownership after an
+unread refusal. An independent account then completes successfully. Exact
+pins, selected cases, zero swap/limit events and removed groups were verified.
+The prior 13-case batch was not rerun. The two metered-policy branches and
+earlier pre-session rechecks have no new direct fixture discriminator.
+
+The changed server library and integrated executable also build successfully
+(`5d2cc33f`, `9e42450b`), reusing the unchanged qualified dependencies. Link
+peak was 448,905,216 bytes with zero swap. Independent verification accepted
+the source bindings, limits and process cleanup. No executable was launched
+or deployed; normal-service recovery and native acceptance remain unverified.
+
 The six-path pre-inference input `330bedb8` is integrated. All 13 selected
 tests pass (`73571c33`, peak 12,488,704 bytes), covering 65 parameterized
 scenarios. Compilation passes (`3f0eb215`, peak 431,255,552 bytes). The batch
@@ -13,7 +29,7 @@ cleanup uncertainty and cooldown are retained. Exact pins, selected cases,
 zero swap/limit events and removed groups were independently verified.
 Earlier source-matched selections were not rerun. Equal account snapshots
 do not establish zero identical-value writes. Pure-validation refusals and
-the initial post-permit ServingCapacity case remain separate known gaps.
+the initial post-permit ServingCapacity case are covered separately above.
 
 The changed server library and integrated executable also build successfully
 (`eb206c93`, `1867120f`), reusing the unchanged qualified dependencies. Link
