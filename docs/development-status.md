@@ -3,6 +3,18 @@
 Updated 2026-10-24. The normal service remains browser-based. Publishing these
 branches does not change the running service.
 
+The next owned control, R7, also succeeded on October 24. Its browser baseline
+returned accepted HTTP 200, and native HTTP returned 200 with completed,
+nonempty model text. Cleanup was confirmed. Both mint logger windows had
+complete coverage and recorded one V2 selection, zero V3 selections and zero
+fixed failure counters. This proves the observed successful V2 crossover;
+it does not explain prior offline V3 refusals or attest browserless minting.
+The isolated owner remains resident and fenced; the protected service stayed
+unchanged. A local request-filename collision occurred after the normal request
+and before any control send. The unsent control then ran through the same
+owner on its successful resident page, without repeating normal inference.
+Streaming, tools, browserless token generation and memory targets remain open.
+
 The native report now includes `native_output_complete`, requiring bounded
 response EOF, HTTP 200, JSON and the same route-specific completion/nonempty
 text fields as the browser baseline. Seven output cases, the socket schema
@@ -11,17 +23,17 @@ content is exported. This fact is independent of cleanup, and the matching
 14-field client must be used. The prior R6 result remains JSON-object evidence
 only. The new executable reuses the validated unchanged Rust libraries;
 activation must select the explicit current sidecar because the host library's
-embedded Python predates these updates. This update is not deployed yet.
+embedded Python predates these updates. R7 used this update only in the
+isolated owner described above.
 
 Resident mint-branch diagnostics now pass 59 focused Python cases and three
 JavaScript fixture scripts. They read the existing wrapper's matching cached
 logger and emit only fixed counters, window coverage, phase and lease ID.
 Observer failures do not change token validation or mint fallback behavior.
-These diagnostics have not been deployed or used for a live mint. The saved
-successful control below cannot establish V2 or V3; its report had no branch
-observation. The next control needs a supported owner with these diagnostics
-and the separate native-output completion report. The existing owner remains
-resident and fenced, with no hot reload or duplicate request.
+R7 used these diagnostics and the native-output report in its supported
+isolated owner. The earlier R6 control below cannot establish V2 or V3;
+its report had no branch observation. The R7 owner remains resident and
+fenced, with no hot reload or duplicate request.
 
 The matched resident browser/native control succeeded at 15:55 UTC on October
 24. Normal browser inference produced model output; the paired browser baseline
