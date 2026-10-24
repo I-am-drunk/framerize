@@ -6,10 +6,14 @@ branches does not change the running service.
 The response-excerpt correction from `c2aa393` is integrated in source.
 All five sites now truncate at a valid UTF-8 boundary inside the existing
 500-byte or 120-byte limit. The refusal policy and fixed sentinel are unchanged.
-An isolated API build and the exact eleven `classify::tests` cases are prepared
-with the new module and public refusal fixture pinned. They remain UNRUN:
-available disk is below the unchanged 1 GiB execution reserve. No live request,
-service deployment or change to frozen R16 accompanies this source integration.
+API test compilation passes (`9cfc2add`, peak 292,302,848 bytes), as do all eleven
+`classify::tests` cases (`338fcb1d`, peak 11,927,552 bytes). The test covers every
+interior cut of two-, three- and four-byte characters at the 500-byte boundary.
+Both phases used pinned input, no network and zero swap, with verified cleanup.
+The disk prerequisite was recovered by removing six explicitly released,
+clean/published source checkouts; branches and frozen evidence were retained.
+No live request, service deployment or change to frozen R16 accompanies this
+source integration.
 
 The outstanding goal is a fresh, valid browserless mint followed by accepted
 native Framer inference, with matched identity and egress, account isolation,
