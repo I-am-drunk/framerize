@@ -11,6 +11,10 @@ It acknowledges a result only after the external window owner records it.
 Forced cleanup is never delivery acceptance. Account exclusion and
 restoration remain with that window owner; the parent library does not start
 or stop services.
+The next standalone controller defers service startup until it has left its
+read-only sandbox and confirmed the comparison group is absent. Clean refused
+comparisons retain the stopped owner and full derived cooldown history;
+starting an idle service between failed attempts is unnecessary.
 
 The process owner accepts an explicit task limit up to 256 within a parent
 limit up to 320. Its default remains 96. A network-isolated blank-browser
@@ -55,9 +59,10 @@ The wait and handle disposal remain owned through cancellation; a two-second
 disposal timeout refuses continuation while retaining cleanup ownership.
 The unchanged snapshot then validates the actual device, cookie, login and
 page together. Readiness does not write device state or invoke the SDK.
-The next live attempt passed storage readiness but failed device-cookie
-matching against the API host. Page-visible storage and cookies selected for
-a different host are distinct observations; that binding is under investigation.
+The corrected live comparison passed storage readiness and all cookie, login
+and page checks. It still refused locally before any inference transport start.
+Fixed, allowlisted stages separate header equality, minting, rebinding, fetch
+setup and result handling without exposing cookies, tokens or exception text.
 The adapter now re-filters returned cookies using exact host-only/domain
 semantics, path boundaries and the secure flag. The driver otherwise includes
 host-only parent cookies when selecting for a subdomain. Device matching still

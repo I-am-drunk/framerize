@@ -3,13 +3,22 @@
 Updated 2026-10-24. The normal service remains browser-based. Publishing these
 branches does not change the running service.
 
-The latest isolated comparison (R6) passed device readiness. Its stored device,
-login, project page and unchanged URL checks passed, but the device cookie did
-not match the API-host cookie selection. It stopped before controlled bearer
-acquisition, minting or inference. Cookie scope remains under investigation. Two new bounded diagnostic fields
-distinguish a missing API device cookie from duplicates; all 13 diagnostic
-cases pass. Acceptance checks remain unchanged;
-this result does not identify the cause of earlier upstream 403s.
+The latest isolated comparison (R8) passed device readiness and all seven
+cookie, login and page checks. It returned a settled baseline preparation
+failure with zero inference transport starts; native inference was not
+attempted. This does not identify a Castle or HTTP failure. Fixed diagnostic
+stages now distinguish the two jar checks, minting, rebinding, fetch setup and
+result handling. All 48 targeted comparison and diagnostic cases pass.
+
+R8 confirmed account and browser cleanup. Its child exited naturally and the
+group was removed, with a peak of 1,221,373,952 bytes and 179 tasks and zero
+recorded swap or limit events. Automatic service restoration then failed at
+process inspection inside the test sandbox. An outside recovery armed the
+idle instance, and a separate verified shutdown preserved its unused handoff
+and all cooldown history. The isolated service is stopped; the protected
+browser service is unchanged. The next controller keeps clean refusals
+stopped and performs any successful-comparison restoration outside the sandbox.
+That controller is prepared but not yet run.
 
 A network-isolated browser fixture reproduced a local cookie-selection defect:
 the SDK's host-only and domain cookie pair becomes two entries in Playwright's
@@ -20,9 +29,9 @@ conflicting values. All 82 affected Python cases and 16 exact-fetch JavaScript
 cases pass. The corrected selection and fetch also pass in the real browser
 using synthetic cookies and intercepted responses, with no SDK or account.
 That run peaked at 528,543,744 bytes, with zero swap/events and group removal.
-The fix is not yet validated by an authenticated comparison.
+R8 subsequently passed the live context and cookie checks; inference remains unverified.
 
-R6 confirmed browser cleanup and natural child exit, with the group removed.
+The earlier R6 confirmed browser cleanup and natural child exit, with the group removed.
 The native account still retained `Cleanup`. Peak usage was 179 tasks and
 1,210,380,288 bytes, with zero recorded swap or memory/task-limit events.
 The protected browser is unchanged and the isolated account remains fenced.
