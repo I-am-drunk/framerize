@@ -12,6 +12,12 @@ Forced cleanup is never delivery acceptance. Account exclusion and
 restoration remain with that window owner; the parent library does not start
 or stop services.
 
+The process owner accepts an explicit task limit up to 192 within a parent
+limit up to 256. Its default remains 96. A network-isolated blank-browser
+startup peaked at 151 tasks and closed normally under the larger limit.
+Task capacity and memory admission are checked independently; neither is
+proof that authenticated inference or browser cleanup will succeed.
+
 The comparison coordinator uses an internal control-client factory so its
 request ordering can be tested without external authentication. The normal
 entry always constructs `BoundControlClient` with the selected account and

@@ -20,7 +20,7 @@ def require(value):
 class Child:
     def __init__(self, binary, environment, *, memory_bytes, tasks=96):
         require(type(memory_bytes) is int and 0 < memory_bytes <= 1536 * 1024**2)
-        require(type(tasks) is int and 1 <= tasks <= 96)
+        require(type(tasks) is int and 1 <= tasks <= 192)
         self.binary, self.environment = str(binary), dict(environment)
         self.memory_bytes, self.tasks = memory_bytes, tasks
         self.process = self.socket = self.group = None
@@ -43,7 +43,7 @@ class Child:
         require((parent / 'memory.swap.max').read_text().strip() == '0')
         require((parent / 'memory.swap.current').read_text().strip() == '0')
         parent_tasks = (parent / 'pids.max').read_text().strip()
-        require(parent_tasks.isdecimal() and self.tasks < int(parent_tasks) <= 128)
+        require(parent_tasks.isdecimal() and self.tasks < int(parent_tasks) <= 256)
         require(not any(int(v) for _, v in
                         (line.split() for line in (parent / 'memory.events').read_text().splitlines())))
         require(set((parent / 'cgroup.procs').read_text().split()) == {str(os.getpid())})
