@@ -1,0 +1,76 @@
+{
+  "live_effect": "unknown; no request made with this correction",
+  "peak_bytes": {
+    "send-api-run": 31047680,
+    "send-api-tests-compile": 870481920
+  },
+  "prior_live_timing": {
+    "client_start_to_send_ms": 6063.448429107666,
+    "limit": "Wall-clock event timestamps to client observation, not a packet trace or server-side timing.",
+    "receipt_sha256": "daf5a22ee9283da8a8012593542710bbd497c0ff865a41efe767c659b1f37472",
+    "send_to_client_headers_ms": 111.51385307312012
+  },
+  "result_sha256": {
+    "send-api-run": "5d9b1e33d517a230aaa40f3f9cc2387f58a8d0aee57fe9631ecb653f48318243",
+    "send-api-tests-compile": "fe9f44bbd63e8dd8d4d5618723cba230777706dc37e25de88e869e2908d6a830"
+  },
+  "source_files": {
+    "experimental_native/native_account.rs": "adaae48a6e5ede3eed34988d656e76036d9a345cea24c7dcc8cd943664eed355",
+    "experimental_native/supplier_context_tests.rs": "5eb3d20e38dba06114c91f5fe4faad306be8a1edd07c8f75684949a370f2bde0",
+    "native_dispatch/fixture.rs": "6d78d27a44a53fdcef6ee01500bb29a4d39f7eb82a60ca59cb7391a5c1173e2c"
+  },
+  "source_mapper": {
+    "finding": "OpenRouter Responses LK sets request.session_id from metadata.sessionId before serialization.",
+    "limits": "Static source only. No proof this field caused any security refusal.",
+    "mapper_character_span": [
+      2634,
+      2835
+    ],
+    "mapper_sha256": "3ae20aa7b936d41ca8cfa2e8a5a0fcb41f77141d3f95188a31041c20dca1320e",
+    "parent_evidence_id": "ev_ad75d7f72fc51036bebdc1e293987e3bf4a447865b6fcd7b435b0073fa3f9a58",
+    "responses_excerpt_sha256": "8cd1008a9a4c6d8d4de4e4993bd4974329b935df746ede47f995c49e48dc0f91"
+  },
+  "status": "PASSED_FOCUSED_NOT_DEPLOYED",
+  "test_cases": [
+    "experimental_native::authorization::supplier_context_tests::current_cookies_remain_local_on_both_free_routes_without_mutating_private_session",
+    "experimental_native::authorization::supplier_context_tests::foreign_current_jar_is_rejected_before_native_transport",
+    "experimental_native::authorization::supplier_context_tests::observed_target_cancellation_keeps_both_original_work_and_cleanup",
+    "experimental_native::authorization::supplier_context_tests::responses_wire_session_uses_bound_context_without_changing_other_routes",
+    "experimental_native::control_authorization::offline_authorization::tests::actual_project_page_and_supported_route_are_required",
+    "experimental_native::control_authorization::offline_authorization::tests::another_account_generation_cannot_use_the_source",
+    "experimental_native::control_authorization::offline_authorization::tests::authentication_failure_does_not_mint_or_fall_back",
+    "experimental_native::control_authorization::offline_authorization::tests::conflicting_device_refuses_before_authentication_or_mint",
+    "experimental_native::control_authorization::offline_authorization::tests::declared_device_must_match_the_joined_mint",
+    "experimental_native::control_authorization::offline_authorization::tests::different_project_is_rejected_before_authentication_or_mint",
+    "experimental_native::control_authorization::offline_authorization::tests::dropped_waiter_keeps_mint_owned_until_join_then_suppresses_token",
+    "experimental_native::control_authorization::offline_authorization::tests::empty_and_oversize_tokens_never_become_credentials",
+    "experimental_native::control_authorization::offline_authorization::tests::exact_target_issues_once_without_browser_cookie_state",
+    "experimental_native::control_authorization::offline_authorization::tests::future_mint_timestamp_is_rejected_after_join",
+    "experimental_native::control_authorization::offline_authorization::tests::saved_device_follows_the_joined_mint_into_request_cookies",
+    "experimental_native::control_authorization::offline_authorization::tests::scope_tests::joined_result_from_a_different_account_is_never_relabelled",
+    "experimental_native::control_authorization::offline_authorization::tests::scope_tests::joined_result_from_a_retired_generation_is_never_relabelled",
+    "experimental_native::control_authorization::offline_authorization::tests::scope_tests::retired_minter_cannot_supply_a_new_generation_of_the_same_account",
+    "experimental_native::control_authorization::offline_authorization::tests::scope_tests::same_target_cannot_pair_a_different_accounts_minter",
+    "experimental_native::control_authorization::offline_authorization::tests::targetless_entry_never_falls_back_to_browser_or_default_target",
+    "experimental_native::control_authorization::offline_authorization::tests::token_with_unconfirmed_cleanup_keeps_account_closed",
+    "experimental_native::control_authorization::tests::explicit_direct_auth_sends_only_the_bound_cookie_to_token_path",
+    "experimental_native::native_http::send_tests::inference_retains_bearer_and_native_origin_without_session_cookies",
+    "experimental_native::native_http::send_tests::omitted_wire_cookie_still_requires_valid_local_credentials",
+    "experimental_native::native_http::send_tests::send_is_counted_before_headers_and_cancellation_joins",
+    "experimental_native::native_http::send_tests::transport_failure_without_headers_is_counted_and_closed",
+    "experimental_native::native_http::send_tests::unpolled_precancelled_and_invalid_requests_never_connect",
+    "native_dispatch::composed_budget_tests::composed_body_drop_reports_before_delayed_real_cleanup",
+    "native_dispatch::composed_budget_tests::composed_failed_native_cleanup_keeps_original_capacity_quarantined",
+    "native_dispatch::composed_budget_tests::composed_success_cleanup_waits_for_bytes_retained_after_eof",
+    "native_dispatch::composed_stream_tests::composed_responses_preserve_boundaries_that_current_chain_merges",
+    "native_dispatch::composed_stream_tests::composed_stream_waits_for_real_headers_and_first_body",
+    "native_dispatch::raw_stream_tests::raw_stream_body_drop_keeps_capacity_until_real_owner_tail",
+    "native_dispatch::raw_stream_tests::raw_stream_cleanup_retains_capacity_for_bytes_after_eof",
+    "native_dispatch::raw_stream_tests::raw_stream_deadline_before_headers_has_no_success_handoff",
+    "native_dispatch::raw_stream_tests::raw_stream_failed_native_cleanup_quarantines_until_shutdown",
+    "native_dispatch::raw_stream_tests::raw_stream_slow_account_does_not_consume_other_accounts_credits",
+    "transport::control_response_evidence::tests::absent_cookies_are_distinct_from_truncated_evidence",
+    "transport::control_response_evidence::tests::cookie_evidence_is_bounded_and_names_are_case_sensitive",
+    "transport::control_response_evidence::tests::response_cookie_values_and_unknown_names_cannot_enter_evidence"
+  ]
+}

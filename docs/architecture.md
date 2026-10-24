@@ -5,6 +5,12 @@ maintained fallback. `browserless` is the separate development branch for the
 native transport and short-lived SDK worker. A Git push does not deploy either
 version or restart the running service.
 
+The native OpenRouter Responses envelope binds its nested `request.session_id`
+to the outer conversation `sessionId`, matching the current upstream mapper.
+The bound conversation replaces a conflicting payload session ID. Other
+routes retain their payloads. This correction has forty passing focused cases
+but is not yet deployed or established as a fix for the security refusal.
+
 The current upstream application uses different credential modes for login
 and inference: its login-token GET includes cookies, while its cross-origin
 AI POST sends the bearer and Castle token without cookies. The native source

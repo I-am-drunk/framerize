@@ -3,6 +3,20 @@
 Updated 2026-10-24. The normal service remains browser-based. Publishing these
 branches does not change the running service.
 
+The current OpenRouter Responses mapper also copies outer `sessionId` into
+`request.session_id`. The native request builder now does the same for that
+route. Forty focused cases pass, including absent/conflicting nested IDs and
+preservation of other routes, payload fields, authentication and cleanup.
+The test build peaked at 870,481,920 bytes; tests at 31,047,680 bytes, with zero
+swap/events and verified teardown. This change is not deployed or live-tested.
+The existing isolated binary remains `3e9398d8` with worker `693051b1`.
+
+The last failed request's saved timing separates 6,063 ms before native send
+from approximately 112 ms between send and client-observed 403 headers.
+This points toward early request/security rejection; it does not identify
+the rejecting server check. Do not treat the six-second total as inference
+time. Consolidate remaining request-contract differences before another trial.
+
 The current public AI consumer has now been traced. Its bearer acquisition
 includes cookies, while the cross-origin inference request uses the default
 credential mode and omits them. A native source correction removes cookies

@@ -182,7 +182,11 @@ async fn current_cookies_remain_local_on_both_free_routes_without_mutating_priva
         assert!(!headers.lines().any(|line| line.split_once(':')
             .is_some_and(|(name, _)| name.eq_ignore_ascii_case("cookie"))));
         assert!(!headers.contains(CURRENT));
-        assert_eq!(body["request"], payload);
+        let mut expected_payload = payload;
+        if matches!(dialect, Dialect::OpenRouterResponses) {
+            expected_payload["session_id"] = json!(binding().chat_session);
+        }
+        assert_eq!(body["request"], expected_payload);
         assert_eq!(body["projectId"], binding().project.0);
         assert_eq!(body["sessionId"], binding().chat_session);
         assert_eq!(body["turnId"], binding().context.turn_id);
@@ -191,6 +195,31 @@ async fn current_cookies_remain_local_on_both_free_routes_without_mutating_priva
         let original = client.prepare_owned(&scope, Instant::now() + BOUND,
             |session, _| async move { PreparationResult::finished(Ok(session.cookie_header)) }).unwrap();
         assert_eq!(timeout(BOUND, original).await.unwrap().unwrap(), session().cookie_header);
+        timeout(BOUND, client.close_account(&scope).unwrap()).await.unwrap().unwrap();
+    }
+}
+
+#[tokio::test]
+async fn responses_wire_session_uses_bound_context_without_changing_other_routes() {
+    for (dialect, supplied, expected) in [
+        (Dialect::OpenRouterResponses, None, Some("actual-fixture-conversation")),
+        (Dialect::OpenRouterResponses, Some("foreign-session"), Some("actual-fixture-conversation")),
+        (Dialect::OpenAiResponses, None, None),
+        (Dialect::OpenRouterMessages, Some("message-session"), Some("message-session")),
+    ] {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let (client, scope) = open(listener.local_addr().unwrap());
+        let mut payload = json!({"model":"fixture-model", "stream":false, "input":"keep"});
+        if let Some(value) = supplied { payload["session_id"] = json!(value); }
+        let probe = Probe::new();
+        let authorized = issue(&client, &scope, &probe, dialect, &payload).await;
+        let worker = tokio::spawn(serve(listener));
+        deliver(&client, &scope, dialect, payload.clone(), authorized).await;
+        let (_, body) = timeout(BOUND, worker).await.unwrap().unwrap();
+        assert_eq!(body["sessionId"], "actual-fixture-conversation");
+        assert_eq!(body["request"]["session_id"].as_str(), expected);
+        if let Some(value) = expected { payload["session_id"] = json!(value); }
+        assert_eq!(body["request"], payload);
         timeout(BOUND, client.close_account(&scope).unwrap()).await.unwrap().unwrap();
     }
 }

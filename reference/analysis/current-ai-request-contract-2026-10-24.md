@@ -37,6 +37,26 @@ confirmed cleanup and unchanged browser service. See
 `native-inference-credentials-live-20261024.json`. The compatibility difference
 was real, but its correction alone did not resolve the refusal.
 
+The same saved Responses excerpt shows that `LK` copies metadata `sessionId`
+into nested `request.session_id` before serialization, replacing a supplied
+payload value. The native builder previously omitted this mapping. It now
+applies it only for OpenRouter Responses. Forty focused cases pass, including
+an actual loopback request with a conflicting ID and other-route preservation.
+This is a source correction, not an explanation for the consumed 403.
+
+The consumed cookie-corrected trial spent approximately 6,063 ms before the
+`native.http.send` event, followed by 112 ms to client-observed 403 headers.
+These are saved wall-clock observations, not server or packet timings.
+The response classifier requires the exact `request_blocked` reason and
+security-check message. It is not merely treating every HTTP 403 as Castle.
+Neither that envelope nor public SDK source exposes the rejecting server rule.
+
+Saved dashboard evidence already confirms that the selected project is visible
+to the isolated login. Repeating that check would not prove AI entitlement.
+The current payload also has other differences, including optional provider
+settings and outer model metadata. Their necessity is unestablished; do not
+change billing categories or fabricate page activity to imitate another path.
+
 Evidence is saved in scratch `native-ai-consumer-current-r1`. Four exact
 source excerpts total 13,366 bytes. REA parent `ev_ad75d7f72fc51036bebdc1e293987e3bf4a447865b6fcd7b435b0073fa3f9a58`
 parsed them without execution or parse failure. Its semantic graph remains
