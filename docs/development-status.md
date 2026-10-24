@@ -3,7 +3,27 @@
 Updated 2026-10-24. The normal service remains browser-based. Publishing these
 branches does not change the running service.
 
-The latest isolated comparison (R9) reached the browser mint operation and
+The latest isolated comparison (R10) stopped before minting because its cookie
+header differed from the snapshot used to acquire the bearer. No inference
+transport started, and native inference did not run. Account and browser
+cleanup were confirmed; the child exited naturally and its group was removed.
+Peak usage was 1,227,051,008 bytes and 182 tasks, with zero swap or limit events.
+The controller preserved the stopped isolated owner and full cooldown history.
+The protected browser was unchanged. The result does not distinguish cookie
+ordering from changed cookie content and does not explain R9's mint failure.
+
+Comparison snapshots now serialize cookies in stable name order after the
+existing validation, preserving duplicate-name precedence and values. Exact
+header equality still gates both baseline checks. Fixed diagnostics distinguish
+ordering, membership and value changes without exposing cookie data. Ordinary
+authorization is unchanged. All 73 focused Python cases pass, including twelve
+new ordering cases; the unchanged mint JavaScript reuses its prior browser
+validation. Fourteen synthetic tests of R11's stopped-state adoption and
+outside finish path also pass. R11 is prepared with the tested helper; its next
+live attempt requires the full R10 cooldown and fresh account/resource checks.
+Authenticated delivery and streaming acceptance remain incomplete.
+
+The earlier isolated comparison (R9) reached the browser mint operation and
 failed there before any inference transport started. Its saved stage is
 `baseline_mint`; native inference did not run. Account closure was confirmed,
 but browser cleanup was not. The child exited naturally and its group was
