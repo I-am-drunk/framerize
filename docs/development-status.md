@@ -32,6 +32,18 @@ user-agent difference explicitly recorded. Neither result justifies a live
 retry by itself. Next, use the existing V2 comparison evidence to select another
 concrete runtime difference, preserving R13 and its retained owner.
 
+A separate socket-denied observation of the current V2 runtime recorded its
+initial readiness callback with setup count zero and asynchronous count one.
+The token method completed once, device state was preserved, and the child
+joined. The debugger-instrumented group peaked at 130,375,680 bytes with no
+swap or memory-limit events; its timing is not a performance benchmark.
+Source tracing explains a possible counter residue: the first dedicated-worker
+registration expects two replies, while its handled unavailable-worker path
+reports one failure. The counter alone therefore does not prove work is still
+running or justify a warm-up delay. An isolated source task now prepares a
+dormant real Node worker adapter for bounded qualification. No live retry or
+change to ordinary serving is queued, and this does not identify R13's cause.
+
 R12 completed an isolated-V2 request that was refused. The normal browser
 and paired browser baseline returned complete HTTP 200 model output. The
 isolated V2 component completed under the observed SDK identity, its child
