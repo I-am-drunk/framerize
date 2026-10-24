@@ -51,6 +51,10 @@ The runner binds only its own temporary directory at `/tmp` inside the sandbox
 so socket fixtures use connectable paths. The receipt checker requires that
 exact mount; host `/tmp` is hidden and all previous resource limits remain.
 
-Status: source preparation, syntax checks and frozen-input preservation pass.
-Compiler and test phases are unrun. The prepared supplement does not activate
+Current execution uses worker/main r4 and library r2 after the reservation fix.
+The server selection contains eight cases: two existing resident-admission
+cases, three reservation regressions, and three existing negative-status cases.
+Core and server-test compilation and all eight server cases pass. Python r3
+passes 130 cases and three JavaScript scripts; its sources are unchanged.
+Other current Rust phases are pending. The prepared supplement does not activate
 resident control or establish browserless inference success.

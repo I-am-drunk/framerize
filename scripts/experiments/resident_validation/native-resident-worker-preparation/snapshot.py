@@ -4,7 +4,13 @@ from common import *
 from inventory import RESIDENT, MAIN_REQUIRED, CASE, resident_cases, require_main_modules
 
 SERVER_CASES = ['resident_control_refuses_missing_or_busy_slot_without_browser_io',
-                'resident_control_retains_management_and_cleanup_fences']
+                'resident_control_retains_management_and_cleanup_fences',
+                'resident_reservation_survives_cancelled_model_wait',
+                'resident_reservation_outlives_pool_until_cleanup_settles']
+POOL_CASES = ['uncertain_observation_does_not_drop_an_existing_request_lease',
+              'failed_or_mismatched_status_cannot_admit_a_resident',
+              'delayed_healthy_status_cannot_bypass_another_requests_uncertainty']
+RESERVATION_CASES = ['resident_reservation_rejects_competing_admission_without_poisoning']
 
 def snapshot(b):
     b.mkdir(mode=0o700)
@@ -51,7 +57,9 @@ def snapshot(b):
         resident_fixture_sha256=sha(b / 'resident_fixture.rs'),
         resident_cases=cases, resident_case_counts=dict(coordinator=15, bootstrap_adapter=2),
         main_required_modules=list(MAIN_REQUIRED),
-        server_cases=['pool_control::tests::native_control_tests::' + n for n in SERVER_CASES],
+        server_cases=['pool_control::tests::native_control_tests::' + n for n in SERVER_CASES]
+            + ['pool_control::tests::' + n for n in POOL_CASES]
+            + ['pool_control::tests::native_control_tests::reservation::' + n for n in RESERVATION_CASES],
         limits='Inert seams only. No installed owner, live handoff or memory claim.'))
 
 def server_fixture(b):
@@ -64,10 +72,10 @@ def server_fixture(b):
         if path.name != 'pool_control.rs':
             text = text.replace('#[cfg(test)]', '#[cfg(any())]')
         if path.name in ('pool_control_tests.rs', 'native_control_tests.rs'):
-            keep = SERVER_CASES if path.name == 'native_control_tests.rs' else []
+            keep = SERVER_CASES if path.name == 'native_control_tests.rs' else POOL_CASES
             text = CASE.sub(lambda m: m.group(0) if m.group(1) in keep else
                             '#[cfg(any())]\n' + m.group(0), text)
-            disabled = ('native_merge_tests', 'ownership_merge_tests') if not keep else ('updates', 'routing')
+            disabled = ('native_merge_tests', 'ownership_merge_tests') if path.name == 'pool_control_tests.rs' else ('updates', 'routing')
             for name in disabled:
                 needle = 'mod ' + name + ';'
                 assert text.count(needle) == 1, 'fixture module boundary changed'
@@ -77,6 +85,8 @@ def server_fixture(b):
             changes[str(path.relative_to(target))] = dict(
                 before_sha256=sha(source / path.relative_to(target)), after_sha256=sha(path))
     assert set(SERVER_CASES) <= set(CASE.findall((source / 'native_control_tests.rs').read_text()))
+    assert set(POOL_CASES) <= set(CASE.findall((source / 'pool_control_tests.rs').read_text()))
+    assert set(RESERVATION_CASES) == set(CASE.findall((source / 'native_control_reservation_tests.rs').read_text()))
     return changes
 
 def validate_snapshot(b):
