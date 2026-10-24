@@ -5,6 +5,14 @@ maintained fallback. `browserless` is the separate development branch for the
 native transport and short-lived SDK worker. A Git push does not deploy either
 version or restart the running service.
 
+SDK integration binds the wrapper's export and dependency graph as well as
+its asset bytes. The October 24 public app selects a newer wrapper whose
+token generator is export `b`; its export `a` initializes the SDK. The frozen
+native worker calls export `a` of the older wrapper. Although both select the
+same V3 SDK and public key, changing file pins alone is incompatible. A new
+bundle needs separate lifecycle and resource qualification before selection.
+See `reference/analysis/castle-current-selection-2026-10-24.md`.
+
 The experimental `native_gl` probes use installed EGL/GLES with a private
 surfaceless buffer and explicit teardown. They do not create browser processes
 or use the live display. The subsequent Mesa WebGL port also passes shader
