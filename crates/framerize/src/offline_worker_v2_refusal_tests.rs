@@ -36,8 +36,10 @@ impl BrowserBridge for RefusingHost {
 fn refusing_minter(scope: &AccountScope, worker: Arc<V2Worker>,
     observed: &Arc<Bridge>, before_launch: bool) -> Arc<OfflineWorkerMinter> {
     let host = Arc::new(RefusingHost { observed: observed.clone(), before_launch });
-    Arc::new(OfflineWorkerMinter::with_v2_device(scope.clone(), worker,
-        host, observed.grant.clone()).unwrap())
+    let seed = V2SeedBinding::new(observed.grant.clone(),
+        SavedDevice::new("00112233445546778899aabbccddeeff".into()).unwrap());
+    Arc::new(OfflineWorkerMinter::with_v2_seed(scope.clone(), worker,
+        host, observed.grant.clone(), seed).unwrap())
 }
 
 #[tokio::test]
