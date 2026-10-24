@@ -16,14 +16,53 @@ const state = () => ({ timestamp: 123456, value: {
   mainView: 0, branchId: 'main', activeScopeId: 'fixture-node',
   collectionItemId: null, overlay: null,
 } });
+const checkNames = ['project_match', 'history_object', 'timestamp_valid', 'transient_absent',
+  'canvas_view', 'branch_valid', 'scope_valid', 'device_present'];
 
-function ready(value = state(), href = page, device = 'fixture-device') {
+function ready(value = state(), href = page, device = 'fixture-device', diagnose = false) {
   const poll = new Function('location', 'history', 'localStorage', 'URL',
     'return (' + literal + ');')({ href }, { state: value }, {
       getItem(key) { assert.equal(key, '__cuid'); return device; },
     }, URL);
-  return poll({ project });
+  return poll({ project, diagnose });
 }
+
+test('diagnostic mode returns only the eight readiness booleans', () => {
+  const checks = ready(state(), page, 'private-fixture-device', true);
+  assert.deepEqual(checks, Object.fromEntries(checkNames.map(name => [name, true])));
+  const missing = ready(null, page, 'private-fixture-device', true);
+  assert.deepEqual(missing, {
+    project_match: true, history_object: false, timestamp_valid: false, transient_absent: false,
+    canvas_view: false, branch_valid: false, scope_valid: false, device_present: true,
+  });
+  assert.equal(JSON.stringify([checks, missing]).includes('private-fixture'), false);
+});
+
+test('probe facts and predicate agree on each refused readiness condition', () => {
+  const cases = [
+    ['project_match', state(), 'https://framer.com/projects/other', 'device'],
+    ['history_object', null, page, 'device'],
+    ['timestamp_valid', { ...state(), timestamp: 0 }, page, 'device'],
+    ['transient_absent', { ...state(), isTransient: false }, page, 'device'],
+    ['canvas_view', { ...state(), value: { ...state().value, mainView: '0' } }, page, 'device'],
+    ['branch_valid', { ...state(), value: { ...state().value, branchId: '' } }, page, 'device'],
+    ['scope_valid', { ...state(), value: { ...state().value, activeScopeId: '' } }, page, 'device'],
+    ['device_present', state(), page, ''],
+  ];
+  for (const [failed, value, href, device] of cases) {
+    const checks = ready(value, href, device, true);
+    assert.equal(checks[failed], false, failed);
+    assert.equal(Object.values(checks).every(value => typeof value === 'boolean'), true);
+    assert.equal(ready(value, href, device), Object.values(checks).every(value => value === true));
+  }
+});
+
+test('failed state access throws instead of fabricating diagnostic facts', () => {
+  const value = state();
+  Object.defineProperty(value, 'timestamp', { get() { throw new Error('private-fixture'); } });
+  assert.throws(() => ready(value, page, 'device', true));
+  assert.throws(() => ready(value));
+});
 
 test('completed canvas state permits the expected full project URL', () => {
   assert.equal(ready(), true);
@@ -85,5 +124,6 @@ test('the predicate reads frozen state without rewriting it', () => {
   Object.freeze(value.value); Object.freeze(value);
   const before = JSON.stringify(value);
   assert.equal(ready(value), true);
+  assert.equal(Object.values(ready(value, page, 'fixture-device', true)).every(Boolean), true);
   assert.equal(JSON.stringify(value), before);
 });

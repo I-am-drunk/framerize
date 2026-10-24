@@ -16,6 +16,12 @@ COMPARISON_SECONDS = 180
 BASELINE_SECONDS = 30
 COMPARISON_READY_SECONDS = 10
 COMPARISON_DISPOSE_SECONDS = 2
+COMPARISON_PROBE_SECONDS = 1
+READINESS_STAGES = ('editor_wait_timeout', 'editor_wait_error',
+    'editor_dispose_timeout', 'editor_dispose_error', 'editor_scope_refused',
+    'editor_rpc_timeout', 'editor_rpc_error')
+READINESS_CHECKS = ('project_match', 'history_object', 'timestamp_valid',
+    'transient_absent', 'canvas_view', 'branch_valid', 'scope_valid', 'device_present')
 MINT_FAILURE_MARKS = {'pre_context': 'mint_pre_context', 'dynamic_import': 'mint_import',
     'export_validation': 'mint_export', 'wrapper_call': 'mint_wrapper_call',
     'post_context': 'mint_post_context', 'post_page': 'mint_post_page',
@@ -30,10 +36,10 @@ DIAGNOSTIC_STAGES = frozenset(('account_start', 'context_inputs', 'cookie_seed',
     'baseline_header_after_mint_membership', 'baseline_header_after_mint_values',
     'baseline_result', 'baseline_bound_after_fetch', 'mint_rpc',
     'mint_rpc_target_closed', 'mint_rpc_timeout', 'mint_rpc_error',
-    'mint_reply_invalid', *MINT_FAILURE_MARKS.values()))
+    'mint_reply_invalid', *MINT_FAILURE_MARKS.values(), *READINESS_STAGES))
 DIAGNOSTIC_CHECKS = ('device_valid', 'device_cookie_match', 'login_match',
                      'page_match', 'url_unchanged', 'device_cookie_present',
-                     'device_cookie_unique')
+                     'device_cookie_unique', *READINESS_CHECKS)
 
 
 def comparison_mark(scope, stage, **checks):
@@ -293,24 +299,33 @@ def comparison_bodies(request, project):
     return baseline, native
 
 
-COMPARISON_READY = """({project}) => {
+COMPARISON_READY = """({project, diagnose = false}) => {
+  const checks = {};
+  const check = (name, condition) => {
+    checks[name] = condition;
+    return diagnose || condition;
+  };
   const url = new URL(location.href);
   const prefix = '/projects/';
   const path = url.pathname.replace(/[/]$/, '');
   const tail = path.slice(prefix.length);
-  if (url.origin !== 'https://framer.com' || url.username || url.password ||
-      !path.startsWith(prefix) || tail.includes('/') ||
-      !(tail === project || tail.endsWith('--' + project))) return false;
+  if (!check('project_match', url.origin === 'https://framer.com' &&
+      !url.username && !url.password && path.startsWith(prefix) && !tail.includes('/') &&
+      (tail === project || tail.endsWith('--' + project)))) return false;
   const state = history.state;
   const object = value => value !== null && typeof value === 'object' && !Array.isArray(value);
   const identifier = value => typeof value === 'string' && value.length > 0 && value.length <= 256;
-  if (!object(state) || !Number.isFinite(state.timestamp) || state.timestamp <= 0 ||
-      state.isTransient !== undefined) return false;
-  const value = state.value;
-  if (!object(value) || value.mainView !== 0 ||
-      !identifier(value.activeScopeId) || !identifier(value.branchId)) return false;
+  if (!check('history_object', object(state))) return false;
+  if (!check('timestamp_valid', object(state) && Number.isFinite(state.timestamp) &&
+      state.timestamp > 0)) return false;
+  if (!check('transient_absent', object(state) && state.isTransient === undefined)) return false;
+  const value = object(state) ? state.value : undefined;
+  if (!check('canvas_view', object(value) && value.mainView === 0)) return false;
+  if (!check('scope_valid', object(value) && identifier(value.activeScopeId))) return false;
+  if (!check('branch_valid', object(value) && identifier(value.branchId))) return false;
   const device = localStorage.getItem('__cuid');
-  return typeof device === 'string' && device.length > 0;
+  if (!check('device_present', typeof device === 'string' && device.length > 0)) return false;
+  return diagnose ? checks : true;
 }"""
 
 COMPARISON_SNAPSHOT = """() => ({
@@ -362,19 +377,67 @@ def comparison_owner(host, account, scope):
     return acc
 
 
+async def comparison_readiness_probe(scope, page, project):
+    # Diagnostic only, after a settled wait timeout. Missing facts stay unknown.
+    try:
+        result = await comparison_rpc(scope, lambda: page.evaluate('mw:' + COMPARISON_READY,
+            {'project': project, 'diagnose': True}), COMPARISON_PROBE_SECONDS)
+    except asyncio.CancelledError:
+        raise
+    except Exception:
+        return
+    if (type(result) is dict and set(result) == set(READINESS_CHECKS)
+            and all(type(result[key]) is bool for key in READINESS_CHECKS)):
+        comparison_mark(scope, 'editor_wait_timeout', **result)
+
+
 async def comparison_editor_ready(scope, page, project):
+    failure_stage = None
+
     async def wait_and_dispose():
+        nonlocal failure_stage
         # A fresh page's editor history is written after its initial URL update.
         # This poller reads browser state only. The mw: entry prefix
         # belongs to direct evaluate calls, not to this predicate.
-        handle = await page.wait_for_function(COMPARISON_READY,
-            arg={'project': project}, timeout=COMPARISON_READY_SECONDS * 1000, polling=100)
-        await asyncio.wait_for(asyncio.shield(scope.rpc(handle.dispose())),
-                               COMPARISON_DISPOSE_SECONDS)
+        try:
+            handle = await page.wait_for_function(COMPARISON_READY,
+                arg={'project': project}, timeout=COMPARISON_READY_SECONDS * 1000, polling=100)
+        except asyncio.CancelledError:
+            raise
+        except Exception as error:
+            failure_stage = ('editor_wait_timeout' if type(error).__name__ == 'TimeoutError'
+                             else 'editor_wait_error')
+            raise
+        try:
+            await asyncio.wait_for(asyncio.shield(scope.rpc(handle.dispose())),
+                                   COMPARISON_DISPOSE_SECONDS)
+        except asyncio.CancelledError:
+            raise
+        except Exception as error:
+            failure_stage = ('editor_dispose_timeout' if type(error).__name__ == 'TimeoutError'
+                             else 'editor_dispose_error')
+            raise
 
     # Both RPCs stay owned after caller cancellation or a disposal timeout.
-    await comparison_rpc(scope, wait_and_dispose,
-                         COMPARISON_READY_SECONDS + COMPARISON_DISPOSE_SECONDS)
+    try:
+        await comparison_rpc(scope, wait_and_dispose,
+                             COMPARISON_READY_SECONDS + COMPARISON_DISPOSE_SECONDS)
+    except asyncio.CancelledError:
+        raise
+    except Exception as error:
+        if failure_stage is None:
+            if (scope.failure or scope.stopped.is_set()
+                    or getattr(scope, 'rpc_admission_closed', False)):
+                failure_stage = 'editor_scope_refused'
+            else:
+                failure_stage = ('editor_rpc_timeout' if type(error).__name__ == 'TimeoutError'
+                                 else 'editor_rpc_error')
+        comparison_mark(scope, failure_stage)
+        if failure_stage == 'editor_wait_timeout':
+            # Outside the shielded wait: late completion after cancellation or
+            # the outer deadline can never start a diagnostic read.
+            await comparison_readiness_probe(scope, page, project)
+        raise
 
 
 def comparison_cookie_header(rows):

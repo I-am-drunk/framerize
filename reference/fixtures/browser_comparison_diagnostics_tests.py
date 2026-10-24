@@ -23,11 +23,16 @@ C = FIXTURE.C
 SECRET = "private-diagnostic-sentinel"
 CHECKS = ("device_valid", "device_cookie_match", "login_match", "page_match", "url_unchanged",
           "device_cookie_present", "device_cookie_unique")
+READINESS_CHECKS = ('project_match', 'history_object', 'timestamp_valid',
+                   'transient_absent', 'canvas_view', 'branch_valid', 'scope_valid', 'device_present')
+ALL_CHECKS = (*CHECKS, *READINESS_CHECKS)
 BASELINE_STAGES = ("baseline_header_before_mint", "baseline_mint", "baseline_bound_after_mint",
                    "baseline_header_after_mint", "baseline_fetch_args", "baseline_fetch",
                    "baseline_result", "baseline_bound_after_fetch")
 STAGES = {"account_start", "context_inputs", "cookie_seed", "navigation", "device_readiness",
-          "editor_readiness", "snapshot_page",
+          "editor_readiness", "editor_wait_timeout", "editor_wait_error",
+          "editor_dispose_timeout", "editor_dispose_error", "editor_scope_refused",
+          "editor_rpc_timeout", "editor_rpc_error", "snapshot_page",
           "snapshot_cookies", "snapshot_header", "snapshot_validate", "context_ready",
           "baseline", "native_token", *BASELINE_STAGES,
           "mint_rpc", "mint_rpc_target_closed", "mint_rpc_timeout", "mint_rpc_error",
@@ -85,7 +90,7 @@ class ComparisonEvidenceTests(unittest.TestCase):
         self.assertEqual(C.comparison_evidence(scope), {"stage": "unknown", "device_valid": True})
 
     def test_evidence_keeps_only_the_five_exact_boolean_fields(self):
-        booleans = {key: index % 2 == 0 for index, key in enumerate(CHECKS)}
+        booleans = {key: index % 2 == 0 for index, key in enumerate(ALL_CHECKS)}
         private = {key: SECRET for key in ("token", "cookie_header", "device", "page_url",
                                           "content", "exception", "unknown")}
         scope = SimpleNamespace(comparison_diagnostic_stage="snapshot_validate",
@@ -93,7 +98,7 @@ class ComparisonEvidenceTests(unittest.TestCase):
         self.assertEqual(C.comparison_evidence(scope), {"stage": "snapshot_validate", **booleans})
         for value in (0, 1, 0.0, 1.0, None, "true", SECRET, [], {}, object()):
             with self.subTest(type=type(value).__name__):
-                scope.comparison_diagnostic_checks = dict(private, **dict.fromkeys(CHECKS, value))
+                scope.comparison_diagnostic_checks = dict(private, **dict.fromkeys(ALL_CHECKS, value))
                 self.assertEqual(C.comparison_evidence(scope), {"stage": "snapshot_validate"})
 
     def test_evidence_rejects_unknown_stages_and_nonplain_check_mappings(self):
@@ -132,8 +137,8 @@ class ComparisonDiagnosticWorkflowTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(event["event"], "browser.comparison.command")
             self.assertIn(event["outcome"], ("returned", "failed"))
             self.assertIn(event["stage"], STAGES | {"unknown"})
-            self.assertLessEqual(set(event), {"event", "outcome", "stage", *CHECKS})
-            for key in set(event) & set(CHECKS):
+            self.assertLessEqual(set(event), {"event", "outcome", "stage", *ALL_CHECKS})
+            for key in set(event) & set(ALL_CHECKS):
                 self.assertIs(type(event[key]), bool)
         encoded = json.dumps(value.events)
         for private in (SECRET, FIXTURE.OLD.LOGIN, FIXTURE.DEVICE, FIXTURE.OLD.PROJECT,
