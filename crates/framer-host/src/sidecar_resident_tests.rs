@@ -9,6 +9,243 @@ use tokio::sync::{mpsc, Mutex};
 
 const ACCOUNT: &str = "00000000-0000-4000-8000-000000000001";
 const LEASE: &str = "00000000-0000-4000-8000-000000000002";
+const PROVENANCE: &str = "00000000-0000-4000-8000-000000000003";
+
+fn expected_v2_frame(id: u64, extra: Value) -> Value {
+    let mut frame = expected_frame(id, extra);
+    frame["version"] = json!(2);
+    frame
+}
+
+#[test]
+fn v2_baseline_body_checks_serialized_bytes_and_nested_tokens() {
+    let at_limit = json!({"x": "a".repeat(64 * 1024 - 8)});
+    assert_eq!(serde_json::to_vec(&at_limit).unwrap().len(), 64 * 1024);
+    assert!(baseline_body(&at_limit));
+    assert!(!baseline_body(&json!({"x": "a".repeat(64 * 1024 - 7)})));
+    assert!(baseline_body(&json!({"x": "é".repeat((64 * 1024 - 8) / 2)})));
+    assert!(!baseline_body(&json!({"x": "é".repeat((64 * 1024 - 8) / 2 + 1)})));
+    assert!(!baseline_body(&json!({"x": "\n".repeat(64 * 1024 / 2)})));
+    for invalid in [Value::Null, json!([]), json!("object required"),
+        json!({"castleToken": null}), json!({"nested": [{"castleToken": "fixture"}]})] {
+        assert!(!baseline_body(&invalid));
+    }
+    let mut nested = json!({});
+    for _ in 0..65 { nested = json!({"x": nested}); }
+    assert!(!baseline_body(&nested));
+}
+
+#[tokio::test]
+async fn v2_emits_exact_ordered_frames_without_resetting_deadline() {
+    let mut f = fixture(Some(Ok(json!(true)))).await;
+    let mut rpc = ResidentRpc::bind(&f.owner, identity()).await.unwrap().into_v2();
+    let _ = rpc.acquire(acquire(45_000).unwrap(), PROVENANCE).await.unwrap();
+    let deadline = rpc.deadline().unwrap();
+    let body = json!({"turnId": "baseline-turn", "stream": false,
+        "messages": [{"role": "user", "content": "synthetic π"}]});
+    let _ = rpc.baseline("synthetic-bearer", &body).await.unwrap();
+    assert_eq!(rpc.deadline(), Some(deadline));
+    let _ = rpc.mint_native().await.unwrap();
+    assert_eq!(rpc.deadline(), Some(deadline));
+    let _ = rpc.finish(ResidentAdmission::Fenced).await.unwrap();
+    assert_eq!(rpc.deadline(), Some(deadline));
+    let expected = [
+        json!({"action": "acquire", "project": "project", "path": "/fixture",
+            "wrapper_url": "https://fixture.invalid/wrapper.mjs", "wrapper_export": "b",
+            "cookie_header": "session=synthetic-only", "budget_ms": 45_000,
+            "provenance": PROVENANCE}),
+        json!({"action": "baseline", "bearer": "synthetic-bearer", "body": body}),
+        json!({"action": "mint_native"}),
+        json!({"action": "finish", "native_state": "settled", "admission": "fenced"}),
+    ];
+    for (index, extra) in expected.into_iter().enumerate() {
+        assert_eq!(f.frames.try_recv().unwrap(), expected_v2_frame(index as u64 + 1, extra));
+    }
+    assert!(f.frames.try_recv().is_err());
+    close(&f.owner, f.reader).await;
+}
+
+#[tokio::test]
+async fn v2_refuses_skipped_and_repeated_phases_without_writing() {
+    let mut f = fixture(Some(Ok(json!(true)))).await;
+    let mut rpc = ResidentRpc::bind(&f.owner, identity()).await.unwrap().into_v2();
+    assert_eq!(rpc.baseline("fixture", &json!({})).await.err(), Some(ResidentError::OutOfOrder));
+    assert_eq!(rpc.mint_native().await.err(), Some(ResidentError::OutOfOrder));
+    assert_eq!(rpc.finish(ResidentAdmission::Fenced).await.err(), Some(ResidentError::OutOfOrder));
+    assert_no_command(&mut f).await;
+    let _ = rpc.acquire(acquire(45_000).unwrap(), PROVENANCE).await.unwrap();
+    assert_eq!(rpc.acquire(acquire(45_000).unwrap(), PROVENANCE).await.err(),
+        Some(ResidentError::OutOfOrder));
+    assert_eq!(rpc.mint_native().await.err(), Some(ResidentError::OutOfOrder));
+    let _ = rpc.baseline("fixture", &json!({})).await.unwrap();
+    assert_eq!(rpc.baseline("fixture", &json!({})).await.err(), Some(ResidentError::OutOfOrder));
+    let _ = rpc.mint_native().await.unwrap();
+    assert_eq!(rpc.mint_native().await.err(), Some(ResidentError::OutOfOrder));
+    let _ = rpc.finish(ResidentAdmission::Fenced).await.unwrap();
+    assert_eq!(rpc.discard(ResidentDiscard::Unknown).await.err(), Some(ResidentError::OutOfOrder));
+    assert_eq!(rpc.acquire(acquire(45_000).unwrap(), PROVENANCE).await.err(),
+        Some(ResidentError::OutOfOrder));
+    for action in ["acquire", "baseline", "mint_native", "finish"] {
+        assert_eq!(f.frames.try_recv().unwrap()["action"], action);
+    }
+    assert!(f.frames.try_recv().is_err());
+    close(&f.owner, f.reader).await;
+}
+
+#[tokio::test]
+async fn v2_validates_private_inputs_before_any_command() {
+    let mut f = fixture(Some(Ok(json!(true)))).await;
+    let mut rpc = ResidentRpc::bind(&f.owner, identity()).await.unwrap().into_v2();
+    for provenance in ["", "synthetic", "00000000-0000-0000-0000-000000000000",
+        "00000000000040008000000000000003"] {
+        assert_eq!(rpc.acquire(acquire(45_000).unwrap(), provenance).await.err(),
+            Some(ResidentError::InvalidAcquire));
+        assert!(rpc.deadline().is_none());
+    }
+    assert_no_command(&mut f).await;
+    let _ = rpc.acquire(acquire(45_000).unwrap(), PROVENANCE).await.unwrap();
+    f.frames.try_recv().unwrap();
+    for bearer in [String::new(), "x".repeat(16 * 1024 + 1), "bad\nvalue".into()] {
+        assert_eq!(rpc.baseline(&bearer, &json!({})).await.err(),
+            Some(ResidentError::InvalidBaseline));
+    }
+    for body in [json!([]), json!({"castleToken": "fixture"}),
+        json!({"x": "a".repeat(64 * 1024)})] {
+        assert_eq!(rpc.baseline("fixture", &body).await.err(),
+            Some(ResidentError::InvalidBaseline));
+    }
+    assert!(f.frames.try_recv().is_err());
+    let _ = rpc.baseline(&"x".repeat(16 * 1024), &json!({})).await.unwrap();
+    assert_eq!(f.frames.try_recv().unwrap()["action"], "baseline");
+    close(&f.owner, f.reader).await;
+}
+
+#[tokio::test]
+async fn v2_expiry_refuses_new_work_but_still_allows_fenced_settlement() {
+    let mut f = fixture(Some(Ok(json!(true)))).await;
+    let mut rpc = ResidentRpc::bind(&f.owner, identity()).await.unwrap().into_v2();
+    let _ = rpc.acquire(acquire(45_000).unwrap(), PROVENANCE).await.unwrap();
+    f.frames.try_recv().unwrap();
+    let expired = tokio::time::Instant::now() - Duration::from_secs(1);
+    rpc.deadline = Some(expired);
+    assert_eq!(rpc.baseline("fixture", &json!({})).await.err(), Some(ResidentError::Deadline));
+    assert_eq!(rpc.deadline(), Some(expired));
+    assert_eq!(rpc.mint_native().await.err(), Some(ResidentError::OutOfOrder));
+    assert!(f.frames.try_recv().is_err());
+    let _ = rpc.discard(ResidentDiscard::Unknown).await.unwrap();
+    assert_eq!(f.frames.try_recv().unwrap(), expected_v2_frame(2,
+        json!({"action": "discard", "native_state": "unknown"})));
+    assert_eq!(rpc.deadline(), Some(expired));
+    close(&f.owner, f.reader).await;
+}
+
+#[tokio::test]
+async fn v2_failed_acquire_is_not_retryable_and_never_unlocks_baseline() {
+    let mut f = fixture(Some(Err("synthetic private error".into()))).await;
+    let mut rpc = ResidentRpc::bind(&f.owner, identity()).await.unwrap().into_v2();
+    assert_eq!(rpc.acquire(acquire(45_000).unwrap(), PROVENANCE).await.err(),
+        Some(ResidentError::Unconfirmed));
+    let deadline = rpc.deadline();
+    assert_eq!(rpc.acquire(acquire(45_000).unwrap(), PROVENANCE).await.err(),
+        Some(ResidentError::OutOfOrder));
+    assert_eq!(rpc.baseline("fixture", &json!({})).await.err(), Some(ResidentError::OutOfOrder));
+    assert_eq!(rpc.mint_native().await.err(), Some(ResidentError::OutOfOrder));
+    assert_eq!(rpc.deadline(), deadline);
+    assert_eq!(f.frames.try_recv().unwrap()["action"], "acquire");
+    assert!(f.frames.try_recv().is_err());
+    assert_eq!(rpc.discard(ResidentDiscard::Unknown).await.err(), Some(ResidentError::Unconfirmed));
+    assert_eq!(f.frames.try_recv().unwrap()["action"], "discard");
+    assert_eq!(rpc.finish(ResidentAdmission::Fenced).await.err(), Some(ResidentError::OutOfOrder));
+    assert!(f.frames.try_recv().is_err());
+    close(&f.owner, f.reader).await;
+}
+
+async fn answer_next(f: &mut Fixture,
+    work: impl std::future::Future<Output = Result<ResidentReply, ResidentError>>,
+    reply: Result<Value, String>) -> Result<ResidentReply, ResidentError> {
+    tokio::pin!(work);
+    let frame = tokio::select! {
+        _ = &mut work => panic!("silent fixture answered without injection"),
+        frame = f.frames.recv() => frame.unwrap(),
+        _ = tokio::time::sleep(Duration::from_secs(2)) => panic!("no fixture frame"),
+    };
+    let pending = f.owner.inner.lock().await.as_ref().unwrap().pending.clone();
+    let sender = pending.lock().unwrap().remove(&frame["id"].as_u64().unwrap()).unwrap();
+    sender.send(reply).unwrap();
+    tokio::time::timeout(Duration::from_secs(2), work).await.unwrap()
+}
+
+#[tokio::test]
+async fn v2_failed_baseline_and_mint_never_replay_the_phase() {
+    for failed_mint in [false, true] {
+        let mut f = fixture(None).await;
+        let mut rpc = ResidentRpc::bind(&f.owner, identity()).await.unwrap().into_v2();
+        let _ = answer_next(&mut f, rpc.acquire(acquire(45_000).unwrap(), PROVENANCE),
+            Ok(json!(true))).await.unwrap();
+        if failed_mint {
+            let _ = answer_next(&mut f, rpc.baseline("fixture", &json!({})),
+                Ok(json!(true))).await.unwrap();
+            assert_eq!(answer_next(&mut f, rpc.mint_native(), Err("private".into())).await.err(),
+                Some(ResidentError::Unconfirmed));
+        } else {
+            assert_eq!(answer_next(&mut f, rpc.baseline("fixture", &json!({})),
+                Err("private".into())).await.err(), Some(ResidentError::Unconfirmed));
+        }
+        assert_eq!(rpc.baseline("fixture", &json!({})).await.err(), Some(ResidentError::OutOfOrder));
+        assert_eq!(rpc.mint_native().await.err(), Some(ResidentError::OutOfOrder));
+        assert!(f.frames.try_recv().is_err());
+        let _ = answer_next(&mut f, rpc.discard(ResidentDiscard::Unknown),
+            Ok(json!(true))).await.unwrap();
+        close(&f.owner, f.reader).await;
+    }
+}
+
+#[tokio::test]
+async fn v2_dropped_baseline_waiter_stays_consumed_and_requires_settlement() {
+    let mut f = fixture(None).await;
+    let mut rpc = ResidentRpc::bind(&f.owner, identity()).await.unwrap().into_v2();
+    let _ = answer_next(&mut f, rpc.acquire(acquire(45_000).unwrap(), PROVENANCE),
+        Ok(json!(true))).await.unwrap();
+    let body = json!({"stream": false});
+    let mut waiter = Box::pin(rpc.baseline("fixture", &body));
+    let frame = tokio::select! {
+        _ = &mut waiter => panic!("silent peer answered"),
+        frame = f.frames.recv() => frame.unwrap(),
+        _ = tokio::time::sleep(Duration::from_secs(2)) => panic!("no baseline frame"),
+    };
+    let id = frame["id"].as_u64().unwrap();
+    let pending = f.owner.inner.lock().await.as_ref().unwrap().pending.clone();
+    assert!(pending.lock().unwrap().contains_key(&id));
+    drop(waiter);
+    assert!(!pending.lock().unwrap().contains_key(&id));
+    assert_eq!(f.cancellations.try_recv().unwrap(), id);
+    assert_eq!(rpc.baseline("fixture", &body).await.err(), Some(ResidentError::OutOfOrder));
+    assert_eq!(rpc.mint_native().await.err(), Some(ResidentError::OutOfOrder));
+    assert!(f.frames.try_recv().is_err());
+    let _ = answer_next(&mut f, rpc.discard(ResidentDiscard::Unknown),
+        Ok(json!(true))).await.unwrap();
+    close(&f.owner, f.reader).await;
+}
+
+#[tokio::test]
+async fn bootstrap_binding_rejects_replacement_without_command_or_rebinding() {
+    let mut f = fixture(Some(Ok(json!(true)))).await;
+    let captured = f.owner.inner.lock().await.as_ref().unwrap().incarnation;
+    let rpc = ResidentRpc::bind_existing(&f.owner, identity(), captured).await.unwrap();
+    assert_eq!(rpc.sidecar_incarnation, captured);
+    assert_eq!(ResidentRpc::bind_existing(&f.owner, identity(), Uuid::nil()).await.err(),
+        Some(ResidentError::InvalidIdentity));
+    let replacement = Uuid::new_v4();
+    f.owner.inner.lock().await.as_mut().unwrap().incarnation = replacement;
+    assert_eq!(ResidentRpc::bind_existing(&f.owner, identity(), captured).await.err(),
+        Some(ResidentError::Unconfirmed));
+    assert_eq!(rpc.acquire(acquire(45_000).unwrap()).await.err(),
+        Some(ResidentError::Unconfirmed));
+    let compatible = ResidentRpc::bind(&f.owner, identity()).await.unwrap();
+    assert_eq!(compatible.sidecar_incarnation, replacement);
+    assert_no_command(&mut f).await;
+    close(&f.owner, f.reader).await;
+}
 
 fn identity() -> ResidentIdentity {
     ResidentIdentity::new(AccountId(Uuid::parse_str(ACCOUNT).unwrap()),

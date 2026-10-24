@@ -1,12 +1,12 @@
-//! Experimental wire client only. The host command is not implemented here.
+//! Private wire clients. Replies still require strict owner-side validation.
 //!
 //! A daemon worker must retain the whole acquire/native/finish operation across
 //! client disconnects. Dropping an RPC future removes its pending reply and
 //! requests best-effort cancellation; a started frame still finishes writing.
 //! Neither cancellation, timeout, a reply, nor dropping this handle proves
 //! browser/native settlement or permits releasing an account fence.
-//! Lease exclusivity, single use, reply validation and the retained daemon
-//! worker are not implemented by this helper. They remain required integration.
+//! Version 1 remains a transport-only API. Version 2 additionally orders each
+//! single-use phase and retains one absolute acquire/baseline/mint deadline.
 use super::{observer::ApplicationGeneration, SidecarBridge};
 use framer_core::ids::AccountId;
 use serde::Serialize;
@@ -50,6 +50,19 @@ impl ResidentRpc {
     /// The bridge must have opted into this generation before its first startup.
     pub async fn bind(owner: &Arc<SidecarBridge>, identity: ResidentIdentity)
         -> Result<Self, ResidentError> {
+        Self::bind_inner(owner, identity, None).await
+    }
+
+    /// Bind only the exact sidecar incarnation observed by private bootstrap.
+    /// A replacement cannot supply a new lease for the captured page identity.
+    pub async fn bind_existing(owner: &Arc<SidecarBridge>, identity: ResidentIdentity,
+        expected_incarnation: Uuid) -> Result<Self, ResidentError> {
+        if expected_incarnation.is_nil() { return Err(ResidentError::InvalidIdentity); }
+        Self::bind_inner(owner, identity, Some(expected_incarnation)).await
+    }
+
+    async fn bind_inner(owner: &Arc<SidecarBridge>, identity: ResidentIdentity,
+        expected_incarnation: Option<Uuid>) -> Result<Self, ResidentError> {
         let expected = owner.resident_application_generation
             .ok_or(ResidentError::Unconfirmed)?;
         if identity.application_generation != expected {
@@ -58,7 +71,8 @@ impl ResidentRpc {
         let _admission = owner.admit_unscoped().map_err(|_| ResidentError::Unconfirmed)?;
         let mut inner = owner.inner.lock().await;
         let sidecar = inner.as_mut().ok_or(ResidentError::Unconfirmed)?;
-        if !sidecar.healthy.load(Ordering::Acquire)
+        if expected_incarnation.is_some_and(|expected| sidecar.incarnation != expected)
+            || !sidecar.healthy.load(Ordering::Acquire)
             || !matches!(sidecar.child.try_wait(), Ok(None)) {
             return Err(ResidentError::Unconfirmed);
         }
@@ -72,14 +86,12 @@ impl ResidentRpc {
     pub async fn acquire(&self, request: ResidentAcquire)
         -> Result<ResidentReply, ResidentError> {
         let timeout = Duration::from_millis(request.budget_ms);
-        let mut fields = self.identity.fields("acquire");
-        fields["project"] = json!(request.project);
-        fields["path"] = json!(request.path);
-        fields["wrapper_url"] = json!(request.wrapper_url);
-        fields["wrapper_export"] = json!(request.wrapper_export);
-        fields["cookie_header"] = json!(request.cookie_header);
-        fields["budget_ms"] = json!(request.budget_ms);
-        self.call(fields, timeout).await
+        self.call(request.fields(&self.identity), timeout).await
+    }
+
+    /// Consume this handle to select the ordered v2 protocol for its lease.
+    pub fn into_v2(self) -> ResidentRpcV2 {
+        ResidentRpcV2 { rpc: self, phase: V2Phase::New, deadline: None }
     }
 
     /// The owner must already have proved native settlement before calling this.
@@ -114,6 +126,9 @@ impl ResidentRpc {
 pub enum ResidentError {
     InvalidIdentity,
     InvalidAcquire,
+    InvalidBaseline,
+    OutOfOrder,
+    Deadline,
     OwnerUnavailable,
     Unconfirmed,
 }
@@ -172,6 +187,17 @@ pub struct ResidentAcquire {
 }
 
 impl ResidentAcquire {
+    fn fields(self, identity: &ResidentIdentity) -> Value {
+        let mut fields = identity.fields("acquire");
+        fields["project"] = json!(self.project);
+        fields["path"] = json!(self.path);
+        fields["wrapper_url"] = json!(self.wrapper_url);
+        fields["wrapper_export"] = json!(self.wrapper_export);
+        fields["cookie_header"] = json!(self.cookie_header);
+        fields["budget_ms"] = json!(self.budget_ms);
+        fields
+    }
+
     /// Limits: project/export 128 B, path/URL 8 KiB, cookie header 16 KiB.
     pub fn new(project: String, path: String, wrapper_url: String,
         wrapper_export: String, cookie_header: String, budget_ms: u64)
@@ -184,6 +210,125 @@ impl ResidentAcquire {
         }
         Ok(Self { project, path, wrapper_url, wrapper_export, cookie_header, budget_ms })
     }
+}
+
+/// No Clone or Debug: this handle owns private single-use protocol state.
+/// Phase progress only records transport completion, never baseline acceptance.
+/// The caller must validate every reply before advancing; Python independently
+/// enforces lease ownership, successful baseline ordering and single use.
+pub struct ResidentRpcV2 {
+    rpc: ResidentRpc,
+    phase: V2Phase,
+    deadline: Option<tokio::time::Instant>,
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum V2Phase { New, Pending, Acquired, Baselined, Minted, Closed }
+
+impl ResidentRpcV2 {
+    /// The original acquire deadline, including queueing and all later work.
+    /// Cleanup may outlive it; work never receives a fresh budget.
+    pub fn deadline(&self) -> Option<tokio::time::Instant> { self.deadline }
+
+    /// Settlement has a separate transport timeout, never a new work budget.
+    pub async fn finish(&mut self, admission: ResidentAdmission)
+        -> Result<ResidentReply, ResidentError> {
+        let mut fields = self.fields("finish");
+        fields["native_state"] = json!("settled");
+        fields["admission"] = json!(admission);
+        self.close(fields).await
+    }
+
+    pub async fn discard(&mut self, native_state: ResidentDiscard)
+        -> Result<ResidentReply, ResidentError> {
+        let mut fields = self.fields("discard");
+        fields["native_state"] = json!(native_state);
+        self.close(fields).await
+    }
+
+    async fn close(&mut self, fields: Value) -> Result<ResidentReply, ResidentError> {
+        if matches!(self.phase, V2Phase::New | V2Phase::Closed) {
+            return Err(ResidentError::OutOfOrder);
+        }
+        self.phase = V2Phase::Closed;
+        self.rpc.call(fields, CONTROL_TIMEOUT).await
+    }
+
+    /// Borrow the retained bearer; this operation cannot mint native credentials.
+    pub async fn baseline(&mut self, bearer: &str, body: &Value)
+        -> Result<ResidentReply, ResidentError> {
+        if self.phase != V2Phase::Acquired { return Err(ResidentError::OutOfOrder); }
+        if !bounded_text(bearer, 16 * 1024) || !baseline_body(body) {
+            return Err(ResidentError::InvalidBaseline);
+        }
+        let mut fields = self.fields("baseline");
+        fields["bearer"] = json!(bearer);
+        fields["body"] = body.clone();
+        self.step(V2Phase::Acquired, V2Phase::Baselined, fields).await
+    }
+
+    pub async fn mint_native(&mut self) -> Result<ResidentReply, ResidentError> {
+        self.step(V2Phase::Baselined, V2Phase::Minted, self.fields("mint_native")).await
+    }
+
+    async fn step(&mut self, expected: V2Phase, next: V2Phase, fields: Value)
+        -> Result<ResidentReply, ResidentError> {
+        if self.phase != expected { return Err(ResidentError::OutOfOrder); }
+        // An error or dropped future never makes a phase retryable.
+        self.phase = V2Phase::Pending;
+        let deadline = self.deadline.ok_or(ResidentError::OutOfOrder)?;
+        let remaining = deadline.saturating_duration_since(tokio::time::Instant::now());
+        if remaining.is_zero() { return Err(ResidentError::Deadline); }
+        let reply = self.rpc.call(fields, remaining).await?;
+        if tokio::time::Instant::now() >= deadline { return Err(ResidentError::Deadline); }
+        self.phase = next;
+        Ok(reply)
+    }
+
+    pub async fn acquire(&mut self, request: ResidentAcquire, provenance: &str)
+        -> Result<ResidentReply, ResidentError> {
+        if self.phase != V2Phase::New { return Err(ResidentError::OutOfOrder); }
+        if !Uuid::parse_str(provenance).is_ok_and(|id|
+            !id.is_nil() && id.to_string() == provenance) {
+            return Err(ResidentError::InvalidAcquire);
+        }
+        self.deadline = Some(tokio::time::Instant::now()
+            + Duration::from_millis(request.budget_ms));
+        let mut fields = request.fields(&self.rpc.identity);
+        fields["version"] = json!(2);
+        fields["provenance"] = json!(provenance);
+        self.step(V2Phase::New, V2Phase::Acquired, fields).await
+    }
+
+    fn fields(&self, action: &str) -> Value {
+        let mut fields = self.rpc.identity.fields(action);
+        fields["version"] = json!(2);
+        fields
+    }
+}
+
+fn baseline_body(value: &Value) -> bool {
+    fn plain(value: &Value, depth: usize) -> bool {
+        if depth > 64 { return false; }
+        match value {
+            Value::Object(map) => !map.contains_key("castleToken")
+                && map.values().all(|value| plain(value, depth + 1)),
+            Value::Array(array) => array.iter().all(|value| plain(value, depth + 1)),
+            _ => true,
+        }
+    }
+    struct Bounded(usize);
+    impl std::io::Write for Bounded {
+        fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
+            if bytes.len() > (64 * 1024usize).saturating_sub(self.0) {
+                return Err(std::io::Error::other("resident body exceeds limit"));
+            }
+            self.0 += bytes.len();
+            Ok(bytes.len())
+        }
+        fn flush(&mut self) -> std::io::Result<()> { Ok(()) }
+    }
+    value.is_object() && plain(value, 0) && serde_json::to_writer(Bounded(0), value).is_ok()
 }
 
 #[cfg(test)]
