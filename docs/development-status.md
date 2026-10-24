@@ -1,5 +1,21 @@
 # Development status
 
+Normal-rollout preflight exposed malformed event-log records. Six focused
+reader cases now pass; plan `ad5f21ad` preserves the approved rollout and adds
+only the corrected reader binding. The old plan and authentication evidence
+are retained. Actual active work and a cooldown, not the parser, now hold the
+rollout. No stop/start or stream test has run. See
+`reference/analysis/normal-rollout-quiescence-20261024.md`.
+
+The user delegated the first ordinary-V2 identity choice. The selected path is
+a fresh verified sign-in under the current contract, followed by the existing
+observed SDK call. Saved cookies alone remain insufficient. No sign-in, mint
+or native inference has been performed by this selection.
+An empty host still needs a valid rate-state admission path: normal login
+creates history which the separate initial-enrollment endpoint refuses to
+overwrite. This independent source prerequisite is recorded in
+`reference/analysis/ordinary-v2-first-login-rate-boundary-20261024.md`.
+
 The generated native host now passes its actual entrypoint and command loop
 with empty isolated state. Native-open without restored ownership is refused,
 status remains unchanged, and EOF exits cleanly without persistent files.
