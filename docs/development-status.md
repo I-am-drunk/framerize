@@ -3,6 +3,23 @@
 Updated 2026-10-24. The normal service remains browser-based. Publishing these
 branches does not change the running service.
 
+The two-path pipeline admission input `b7aed0f5` is integrated. All seven
+selected tests pass (`aae27a4c`, peak 11,575,296 bytes), covering 35 scenarios.
+Test compilation passes (`59eeca16`, peak 231,718,912 bytes). A cooldown or
+non-Ready state recorded during the first call prevents the 402 retry; replacing
+the account with an eligible Ready record still permits one successful retry.
+Four affected controls preserve result and cooldown handling. Independent
+verification accepted exact inputs, case selection, zero swap/limit events and
+removed process groups. The core and its host, API, store and server dependents
+also build successfully. The integrated executable links (`303d97e2`, peak
+461,455,360 bytes with zero swap); its inputs and cleanup were verified.
+There is no new initial-workspace-await discriminator. The update lock ends
+before inference, and `/api/run` still maps these refusals to HTTP 500 pending
+its separate endpoint correction. No executable launch or service change.
+The current protected command would still leave request ownership disabled.
+The explicit browser-only startup option and the remaining shared-router
+completion groups require separate qualification before any reviewed rollout.
+
 The three-path local-refusal input `345a9271` is integrated. All three selected
 tests pass (`33a2d86b`, peak 12,238,848 bytes), covering 16 scenarios. Test
 compilation passes (`0b872675`, peak 429,654,016 bytes). Pure validation errors
