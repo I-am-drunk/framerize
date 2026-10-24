@@ -3,6 +3,15 @@
 Updated 2026-10-24. The normal service remains browser-based. Publishing these
 branches does not change the running service.
 
+Current-main validation is now prepared in a separate immutable local snapshot.
+It covers all 28 socket and three CLI cases plus a linked daemon build, reusing
+only verified builds from the current dependency graph. Preparation syntax,
+exact fixture inventories and preservation of the earlier frozen inputs pass.
+No compiler or test ran. At 14:55 UTC on October 24, available host memory was
+260,587,520 bytes; the first compiler phase requires 2,741,140,684 bytes under
+the existing reserves. Its launcher was not retried. The next executable step
+remains the prepared core build once sufficient memory is available.
+
 The private resident socket and optional daemon startup wiring are now
 integrated in source. The native-dispatch build accepts an explicit local
 socket with the Camoufox engine and refuses simultaneous offline ownership.

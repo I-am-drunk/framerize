@@ -6,6 +6,9 @@ the entire frame at 96 KiB and admits four connections. It installs one shared
 session boundary and cannot coexist with offline-worker ownership. Disconnects
 request cancellation while retained work joins; an unconfirmed shutdown keeps
 the runtime alive. Its source is integrated but has not been compiled.
+Validation now has separate prepared phases for the actual main's socket/CLI
+fixtures and a linked executable. The metadata-only check remains a distinct
+step; none of these artifacts by itself proves a live resident handoff.
 
 The private resident client exchanges one length-prefixed request and one
 fixed diagnostic report with an already-enabled local owner. It verifies the
