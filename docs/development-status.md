@@ -87,8 +87,13 @@ result; its retained owner and rate history are unchanged.
 The explicit dedicated resident worker entry and its immutable source package
 are prepared but have not run through the resident control. Five inert hook
 cases pass for observing the original browser mint without replacing its
-result, failure or cancellation. The actual browser observer and diagnostic
-host package are still being prepared. No R14 activation or request has run.
+result, failure or cancellation. The passive browser observer passes all
+thirteen synthetic cases, including invalid context, decoder failure, copy
+isolation and token privacy. Its isolated suite peaked at 17,244,160 bytes with
+no swap or limit events and confirmed process-group cleanup. The diagnostic
+host and immutable R14 launch files are prepared with the qualified dedicated
+worker profile. R14 has not activated or made a request yet; existing runtime
+ownership and rate checks still apply.
 
 R12 completed an isolated-V2 request that was refused. The normal browser
 and paired browser baseline returned complete HTTP 200 model output. The
