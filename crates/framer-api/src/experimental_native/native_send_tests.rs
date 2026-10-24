@@ -55,6 +55,26 @@ fn inference_retains_bearer_and_native_origin_without_session_cookies() {
 }
 
 #[test]
+fn resident_control_sends_exact_current_jar_and_serving_headers_once() {
+    let server = Server::with_resident_headers(vec![Expected { path: PATH,
+        envelope: json!({"stream": true, "castleToken": "fixture-token"}),
+        reply: Reply::json(json!({"fixture": "complete"})) }], false);
+    run(async {
+        let (client, account, mut session, body) = inputs(server.address);
+        session.cookie_header = "session=fixture-application; __cuid=fixture-device; fixture=one; fixture=two".into();
+        let client = client.with_resident_browser_headers();
+        let response = client.ai_post(&account, PATH,
+            AccountRequestAuth::new(account, &session, "fixture-application-bearer"),
+            &body, token(account), NativeCancellation::new()).await.unwrap();
+        assert_eq!(response.0, 200);
+        assert_eq!(client.in_flight.load(Ordering::Acquire), 0);
+    });
+    let ended = server.finish();
+    assert_eq!(ended.fault, None);
+    assert_eq!((ended.accepted, ended.requests, ended.headers, ended.replies), (1, 1, 1, 1));
+}
+
+#[test]
 fn send_is_counted_before_headers_and_cancellation_joins() {
     let server = Server::with_held_headers(vec![Expected { path: PATH,
         envelope: json!({"stream": true, "castleToken": "fixture-token"}),
@@ -87,10 +107,42 @@ fn send_is_counted_before_headers_and_cancellation_joins() {
 }
 
 #[test]
+fn resident_control_cancellation_still_joins_without_response_headers() {
+    let server = Server::with_resident_headers(vec![Expected { path: PATH,
+        envelope: json!({"stream": true, "castleToken": "fixture-token"}),
+        reply: Reply::json(json!({})) }], true);
+    run(async {
+        let (client, account, mut session, body) = inputs(server.address);
+        session.cookie_header = "session=fixture-application; __cuid=fixture-device; fixture=one; fixture=two".into();
+        let client = client.with_resident_browser_headers();
+        let cancel = NativeCancellation::new();
+        let NativeTrackedRequest { mut response, closed } = client.ai_post_stream_tracked(
+            &account, PATH, AccountRequestAuth::new(account, &session, "fixture-application-bearer"),
+            &body, token(account), cancel.clone());
+        tokio::time::timeout(STEP, async {
+            while server.shared.requests.load(Ordering::Acquire) == 0 {
+                assert!((&mut response).now_or_never().is_none());
+                tokio::time::sleep(TICK).await;
+            }
+        }).await.unwrap();
+        cancel.cancel();
+        assert_eq!(response.await.err().as_deref(), Some(CANCELLED));
+        assert_eq!(closed.await, Ok(()));
+        wait_for(&server.shared.peer_eof).await;
+        assert_eq!(client.in_flight.load(Ordering::Acquire), 0);
+    });
+    let ended = server.finish();
+    assert_eq!(ended.fault, None);
+    assert_eq!((ended.accepted, ended.requests, ended.headers, ended.peer_eof), (1, 1, 0, 1));
+}
+
+#[test]
 fn omitted_wire_cookie_still_requires_valid_local_credentials() {
     let server = Server::new(vec![]);
     run(async {
+      for resident in [false, true] {
         let (client, account, mut session, body) = inputs(server.address);
+        let client = if resident { client.with_resident_browser_headers() } else { client };
         for (header, expected) in [
             ("", "native-http: request credentials missing"),
             ("session=fixture\r\nx-injected: value", "native-http: invalid cookie header"),
@@ -103,6 +155,7 @@ fn omitted_wire_cookie_still_requires_valid_local_credentials() {
             assert_eq!(request.closed.await, Ok(()));
             assert_eq!(client.in_flight.load(Ordering::Acquire), 0);
         }
+      }
     });
     let ended = server.finish();
     assert_eq!((ended.accepted, ended.requests), (0, 0));
