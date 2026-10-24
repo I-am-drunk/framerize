@@ -42,8 +42,9 @@ class ReadinessHarness(D.DiagnosticHarness):
         self.ready_error = self.dispose_error = self.dispose_cancelled = self.disposed = False
         self.after_ready, self.snapshots = None, 0
 
-    async def wait_for_function(self, script, *, timeout, polling):
-        self.calls.append(("wait_for_function", script, timeout, polling))
+    async def wait_for_function(self, script, *, arg, timeout, polling):
+        assert arg == {'project': D.FIXTURE.OLD.PROJECT}
+        self.calls.append(("wait_for_function", script, timeout, polling, arg))
         self.ready_started.set()
         await self.ready_release.wait()
         if self.ready_error:
@@ -88,7 +89,7 @@ class BrowserComparisonReadinessTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(value.scope.comparison_phase, "failed")
         self.assertIsNone(value.scope.comparison)
         self.assertEqual(value.events, [{"event": "browser.comparison.command",
-            "outcome": "failed", "stage": "device_readiness"}])
+            "outcome": "failed", "stage": "editor_readiness"}])
         self.assertNotIn(SECRET, json.dumps(value.events))
 
     async def test_delayed_readiness_disposes_before_snapshot_and_keeps_one_shot_pair(self):
@@ -99,7 +100,7 @@ class BrowserComparisonReadinessTests(unittest.IsolatedAsyncioTestCase):
         task = asyncio.create_task(value.prepare_context())
         self.tasks.append(task)
         await asyncio.wait_for(value.ready_started.wait(), 2)
-        self.assertEqual(C.comparison_evidence(value.scope), {"stage": "device_readiness"})
+        self.assertEqual(C.comparison_evidence(value.scope), {"stage": "editor_readiness"})
         self.assertEqual((value.snapshots, value.mints, value.fetches), (0, 0, 0))
         value.page.device = D.FIXTURE.DEVICE
         value.ready_release.set()
@@ -113,7 +114,7 @@ class BrowserComparisonReadinessTests(unittest.IsolatedAsyncioTestCase):
         self.assertNotIn("token", context)
         ready = [call for call in value.calls if call[0] == "wait_for_function"]
         self.assertEqual(len(ready), 1)
-        self.assertEqual(ready[0][2:], (10000, 100))
+        self.assertEqual(ready[0][2:], (10000, 100, {'project': D.FIXTURE.OLD.PROJECT}))
         self.assertTrue((await value.baseline())["accepted"])
         await value.native()
         self.assertEqual((value.mints, value.fetches), (2, 1))
@@ -133,6 +134,22 @@ class BrowserComparisonReadinessTests(unittest.IsolatedAsyncioTestCase):
         with self.assertRaises(ValueError):
             await value.prepare_context()
         self.assertEqual(sum(call[0] == "wait_for_function" for call in value.calls), 1)
+
+    async def test_initial_routing_finishes_before_the_full_url_is_bound(self):
+        value = self.fixture()
+        value.ready_release.clear()
+        task = asyncio.create_task(value.prepare_context())
+        self.tasks.append(task)
+        await asyncio.wait_for(value.ready_started.wait(), 2)
+        self.assertIsNone(value.scope.comparison)
+        self.assertEqual((value.snapshots, value.mints, value.fetches), (0, 0, 0))
+        url = 'https://framer.com/projects/Fixture--' + D.FIXTURE.OLD.PROJECT + '?node=selected'
+        value.page.url = url
+        value.ready_release.set()
+        result = await asyncio.wait_for(task, 2)
+        self.assertEqual(result['page_url'], url)
+        self.assertEqual(value.scope.comparison['url'], url)
+        self.assertEqual((value.snapshots, value.mints, value.fetches), (1, 0, 0))
 
     async def test_cancelled_readiness_retains_rpc_until_late_handle_is_disposed(self):
         value = self.fixture()
