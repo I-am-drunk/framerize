@@ -3,6 +3,15 @@
 Updated 2026-10-24. The normal service remains browser-based. Publishing these
 branches does not change the running service.
 
+The resident SDK coordinator now explicitly signals worker cancellation even
+when cancellation wins before the result future's first poll. Both focused
+regressions pass: no child starts for a pending launch, and a started inert
+child is reaped promptly. The fixtures also drain the original completion
+before asserting their result. Current main test compilation passes, using
+the already validated unchanged libraries. This correction is not deployed
+in the queued R10 control, whose frozen executable and inputs remain unchanged.
+The shared ordinary-serving adapter and V2 selector remain separate candidates.
+
 R9 completed its normal browser request with HTTP 200 and model output, then
 refused the crossover because current-document provenance was unavailable.
 It sent no baseline, SDK mint or native request. The generic bootstrap error

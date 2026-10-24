@@ -2,6 +2,29 @@
 use super::*;
 use offline_worker_owner::{Cleanup, SavedDevice, Target, V2Worker, V2Metadata};
 
+#[cfg(test)]
+#[path = "resident_sdk_cancel_tests.rs"]
+mod cancel_tests;
+
+async fn wait_for_result(run: &mut offline_worker_owner::Run<V2Metadata>,
+    stop: impl std::future::Future<Output = ()>)
+    -> Result<offline_worker_owner::Minted<V2Metadata>, Failure> {
+    let result = {
+        let wait = run.result();
+        tokio::pin!(wait);
+        tokio::select! {
+            biased;
+            _ = stop => Err(Failure::Cancelled),
+            result = &mut wait => result.map_err(failure),
+        }
+    };
+    // An immediately ready stop can win before result() installs its drop guard.
+    if matches!(result, Err(Failure::Cancelled | Failure::Deadline)) {
+        run.cancel();
+    }
+    result
+}
+
 fn failure(error: offline_worker_owner::Failure) -> Failure {
     if let offline_worker_owner::Failure::V2WorkerStage(stage) = error {
         let mut event = framer_core::observability::Event::new("resident.v2.failed")
@@ -23,15 +46,7 @@ pub(super) async fn mint(worker: &V2Worker, page: &CapturedPage,
         deadline.into_std()).map_err(|_| Failure::Mint)?;
     report.cleanup_confirmed = false;
     let completion = run.completion();
-    let result = {
-        let wait = run.result();
-        tokio::pin!(wait);
-        tokio::select! {
-            biased;
-            _ = cancelled(control, deadline) => Err(Failure::Cancelled),
-            result = &mut wait => result.map_err(failure),
-        }
-    }; // Dropping a cancelled result waiter requests worker cancellation.
+    let result = wait_for_result(&mut run, cancelled(control, deadline)).await;
     let cleanup = completion.wait().await;
     report.cleanup_confirmed = cleanup != Cleanup::Unconfirmed;
     if !report.cleanup_confirmed { return Err(Failure::Cleanup); }
