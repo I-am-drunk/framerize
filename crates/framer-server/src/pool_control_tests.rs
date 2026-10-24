@@ -30,6 +30,10 @@ mod native_control_tests;
 mod ownership_merge_tests;
 #[path = "pool_repick_cleanup_tests.rs"]
 mod repick_cleanup;
+#[path = "legacy_request_completion_tests.rs"]
+mod legacy_request_completion;
+#[path = "legacy_pool_completion_tests.rs"]
+mod legacy_pool_completion;
 
 // The existing endpoint fixture is private and intentionally denies valid I/O.
 // Match its boxed-future convention without adding an async-trait dependency.
@@ -75,6 +79,14 @@ struct Ports {
     cleanup_after_content: AtomicBool,
     plain_json: AtomicBool,
     inference_error: Mutex<Option<String>>,
+    proxy_calls: Mutex<Vec<(FramerUserId, AccountId, ProjectId, String, String)>>,
+    proxy_chunks: Mutex<Option<[Bytes; 2]>>,
+    proxy_error: Mutex<Option<String>>,
+    mint_control: Mutex<Option<(AccountId, tokio::sync::oneshot::Receiver<Result<(), String>>)>>,
+    auth_begin_reply: Mutex<Option<Result<(), String>>>,
+    auth_complete_reply: Mutex<Option<Result<(String, Value), String>>>,
+    rotate_reply: Mutex<Option<Result<(), String>>>,
+    remove_reply: Mutex<Option<Result<(), String>>>,
     session_error: Mutex<Option<String>>,
     gate_close: AtomicBool,
     close_gate: Semaphore,
@@ -116,6 +128,10 @@ impl Ports {
             cleanup_after_content: AtomicBool::new(false),
             plain_json: AtomicBool::new(false),
             inference_error: Mutex::new(None), session_error: Mutex::new(None),
+            proxy_calls: Mutex::new(Vec::new()), proxy_chunks: Mutex::new(None),
+            proxy_error: Mutex::new(None), mint_control: Mutex::new(None),
+            auth_begin_reply: Mutex::new(None), auth_complete_reply: Mutex::new(None),
+            rotate_reply: Mutex::new(None), remove_reply: Mutex::new(None),
             gate_close: AtomicBool::new(false), close_gate: Semaphore::new(0),
             request_gate: Semaphore::new(0), fail_first_account: AtomicBool::new(false),
             free_overload_once: AtomicBool::new(false),
@@ -150,6 +166,16 @@ impl BrowserBridge for Ports {
     fn castle_token<'s, 'b, 'a>(&'s self, account: &'b AccountId) -> BoxFuture<'a, Result<CastleToken, String>>
     where 's: 'a, 'b: 'a, Self: 'a {
         Box::pin(async move {
+            let control = {
+                let mut slot = self.mint_control.lock().unwrap();
+                if slot.as_ref().is_some_and(|(target, _)| target == account) {
+                    slot.take().map(|(_, control)| control)
+                } else { None }
+            };
+            if let Some(control) = control {
+                self.event("mint_wait", *account);
+                control.await.expect("fixture mint control dropped")?;
+            }
             if *account == id(1) && self.cleanup_on_mint.load(Ordering::SeqCst) {
                 self.event("cleanup_unconfirmed", *account);
                 return Err("account browser cleanup is unconfirmed; retry after cleanup".into());
@@ -226,8 +252,33 @@ impl BrowserBridge for Ports {
             Ok(())
         })
     }
-    denied!(auth_begin<'b, 'c>(_account: &'b AccountId, _email: &'c str) -> Result<(), String>);
-    denied!(auth_complete<'b, 'c>(_account: &'b AccountId, _token: &'c str) -> Result<(String, Value), String>);
+    fn auth_begin<'s, 'b, 'c, 'a>(&'s self, account: &'b AccountId, _email: &'c str)
+        -> BoxFuture<'a, Result<(), String>>
+    where 's: 'a, 'b: 'a, 'c: 'a, Self: 'a {
+        Box::pin(async move {
+            self.event("auth_begin", *account);
+            self.auth_begin_reply.lock().unwrap().take()
+                .expect("unexpected fixture I/O: auth_begin")
+        })
+    }
+    fn auth_complete<'s, 'b, 'c, 'a>(&'s self, account: &'b AccountId, _token: &'c str)
+        -> BoxFuture<'a, Result<(String, Value), String>>
+    where 's: 'a, 'b: 'a, 'c: 'a, Self: 'a {
+        Box::pin(async move {
+            self.event("auth_complete", *account);
+            self.auth_complete_reply.lock().unwrap().take()
+                .expect("unexpected fixture I/O: auth_complete")
+        })
+    }
+    fn rotate_identity<'s, 'b, 'a>(&'s self, account: &'b AccountId)
+        -> BoxFuture<'a, Result<(), String>>
+    where 's: 'a, 'b: 'a, Self: 'a {
+        Box::pin(async move {
+            self.event("rotate_identity", *account);
+            self.rotate_reply.lock().unwrap().take()
+                .unwrap_or(Ok(()))
+        })
+    }
 }
 
 impl StateStore for Ports {
@@ -263,7 +314,17 @@ impl StateStore for Ports {
             Ok(())
         })
     }
-    denied!(remove<>(_id: AccountId) -> Result<(), String>);
+    fn remove<'s, 'a>(&'s self, id: AccountId) -> BoxFuture<'a, Result<(), String>>
+    where 's: 'a, Self: 'a {
+        Box::pin(async move {
+            self.event("remove", id);
+            self.account_writes.fetch_add(1, Ordering::SeqCst);
+            self.remove_reply.lock().unwrap().take()
+                .expect("unexpected fixture I/O: remove")?;
+            self.records.lock().unwrap().retain(|account| account.id != id);
+            Ok(())
+        })
+    }
 }
 
 impl SessionStore for Ports {
@@ -386,32 +447,38 @@ impl FramerClient for Ports {
     }
     fn proxy<'s, 'b, 'c, 'd, 'e, 'f, 'g, 'a>(
         &'s self, session: &'b Session, browser: &'c dyn BrowserBridge, account: &'d AccountId,
-        _project: &'e ProjectId, _dialect: &'f str, _payload: Value, _chat: &'g str,
+        project: &'e ProjectId, dialect: &'f str, _payload: Value, chat: &'g str,
     ) -> BoxFuture<'a, Result<ProxyResponse, String>>
     where 's: 'a, 'b: 'a, 'c: 'a, 'd: 'a, 'e: 'a, 'f: 'a, 'g: 'a, Self: 'a {
         Box::pin(async move {
             let _drop = CountDrop(self.request_drops.clone());
+            self.proxy_calls.lock().unwrap().push((session.active_user.clone(), *account,
+                project.clone(), dialect.into(), chat.into()));
+            let chunks = self.proxy_chunks.lock().unwrap().take();
             self.request_started.fetch_add(1, Ordering::SeqCst);
             assert_eq!(session.active_user.0, format!("user-{}", account.0.as_u128()));
             browser.castle_token(account).await?;
             self.step().await;
             self.step().await;
             self.request_finished.fetch_add(1, Ordering::SeqCst);
+            if let Some(error) = self.proxy_error.lock().unwrap().take() { return Err(error); }
             let plain_json = self.plain_json.load(Ordering::SeqCst);
             let state = (self.response_gate.clone(), CountDrop(self.response_drops.clone()), 0,
-                self.cleanup_after_content.load(Ordering::SeqCst));
-            let stream = futures::stream::unfold(state, move |(gate, held, n, cleanup)| async move {
+                self.cleanup_after_content.load(Ordering::SeqCst), chunks);
+            let stream = futures::stream::unfold(state, move |(gate, held, n, cleanup, chunks)| async move {
                 if n == 2 { return None; }
                 gate.acquire().await.unwrap().forget();
                 if n == 1 && cleanup {
                     return Some((Err("account browser cleanup is unconfirmed; retry after cleanup".into()),
-                        (gate, held, n + 1, cleanup)));
+                        (gate, held, n + 1, cleanup, chunks)));
                 }
                 let bytes = if plain_json {
                     if n == 0 { b"{\"fixture\":".as_slice() } else { b"true}".as_slice() }
                 } else if n == 0 { b"data: {\"fixture\":true}\n\n".as_slice() }
                     else { b"data: [DONE]\n\n".as_slice() };
-                Some((Ok::<Bytes, String>(Bytes::from_static(bytes)), (gate, held, n + 1, cleanup)))
+                let bytes = chunks.as_ref().map_or_else(|| Bytes::from_static(bytes),
+                    |chunks| chunks[n].clone());
+                Some((Ok::<Bytes, String>(bytes), (gate, held, n + 1, cleanup, chunks)))
             });
             let content_type = if plain_json { "application/json" } else { "text/event-stream" };
             Ok(ProxyResponse { status: 200, content_type: content_type.into(),

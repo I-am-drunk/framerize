@@ -3,6 +3,24 @@
 Updated 2026-10-24. The normal service remains browser-based. Publishing these
 branches does not change the running service.
 
+The six-path legacy completion input `397c9ed5` is integrated over `0b1107c`.
+All 33 selected tests pass (`a2512ffa`, peak 16,248,832 bytes), covering 283
+source-enumerated scenarios. Compilation passes (`2f402c7c`, peak 511,803,392
+bytes). Paid aggregate output completes after collection; raw output completes
+after EOF and producer join. Early disposal remains unconfirmed. Management
+and import operations retain cleanup evidence separately from original
+results, and pending import children keep their own completion verdict.
+The first paid permit wait now notices disconnect, preserving any prior
+uncertainty while allowing an independent account to proceed. Fifteen new
+cases and 18 affected controls pass with exact selection and source bindings,
+zero swap and resource-limit events. Shared execution locking was explicit.
+Production server compilation and executable linking pass (`e3613b9e`,
+`60a445ba`), with peaks of 385,220,608 and 444,715,008 bytes and zero swap.
+All four launchers were collected; process groups were removed and captured
+child PIDs were absent. These fixtures do not prove service rollout or native
+acceptance. Ordinary V2 remains a separate assembly while its host and Rust
+owners implement the identity transfer.
+
 The two-path native HTTP input `bb2e807b` is integrated over the qualified
 local/static server. All five selected tests pass (`84dbed12`, peak 12,423,168
 bytes), covering 62 scenarios. Test compilation passes (`82d3808f`, peak
