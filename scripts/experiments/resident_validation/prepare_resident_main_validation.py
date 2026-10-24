@@ -29,7 +29,7 @@ def prepare(b, phase):
         scope='Focused current-main socket/CLI tests or linked executable; no activation.',
         source_acceptance='UNCOMPILED_UNRUN until matching bounded phase receipts pass.',
         dependency_pin_scope='Verified current-graph rlibs and pinned direct externs; sysroot/transitive cache trusted.',
-        capture_policy='Exactly 28 socket and 3 CLI cases, one test thread; linking does not run main.')
+        capture_policy='Exactly 29 socket and 3 CLI cases, one test thread; linking does not run main.')
     contract['argv_without_manifest_digest'] = [
         '--unit=framerize-browserless-' + b.name.removeprefix('native-') + '-' + phase + '-20261024-r1'
         if arg.startswith('--unit=') else '--property=MemoryMax=' + str(EXTRA[phase]) + 'M'
@@ -52,8 +52,8 @@ def prepare(b, phase):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('--directory', default='native-resident-main-validation-r1')
-    parser.add_argument('--base', default='native-resident-worker-validation-r1')
+    parser.add_argument('--directory', default='native-resident-main-validation-r2')
+    parser.add_argument('--base', default='native-resident-worker-validation-r2')
     action = parser.add_mutually_exclusive_group(required=True)
     action.add_argument('--snapshot', action='store_true')
     action.add_argument('--phase', choices=EXTRA)
