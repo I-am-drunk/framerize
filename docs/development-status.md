@@ -3,6 +3,18 @@
 Updated 2026-10-24. The normal service remains browser-based. Publishing these
 branches does not change the running service.
 
+The R8 live control established accepted, complete HTTP 200 from the normal
+browser and its paired baseline. The isolated worker then rejected input
+before running the V2 component, so native HTTP was not invoked. Cleanup was
+confirmed and the protected service stayed unchanged. The current page was
+Framer's `/projects/` dashboard, which the resident worker's URL predicate
+incorrectly excluded. The explicit resident V2 entry now accepts that exact
+path, preserving the supplied URL and provenance-owned project authority.
+Ordinary worker validation remains unchanged. All 47 focused JavaScript cases
+pass, including the dashboard regression and origin/path/device refusals.
+The corrected worker bundle still needs owned activation and a new matched
+control; R8 itself provides no isolated-SDK or upstream-acceptance evidence.
+
 The retained resident control now has an explicit V2 worker path in source.
 It charges the existing rate owner before worker launch, joins the child, and
 checks the same document and jar afterward without another browser mint.

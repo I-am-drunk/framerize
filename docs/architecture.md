@@ -11,8 +11,8 @@ without minting. Only that checked context permits native HTTP, using the same
 bearer and current jar. SDK freshness preserves the worker's pre-spawn origin.
 Worker and HTTP settlement both contribute to final cleanup; Python's browser
 receipt cannot certify the external worker. Any SDK error stops the comparison.
-The explicit V2 worker also accepts the captured `/login` URL without replacing
-it with a constructed editor URL. Project authority still comes from resident
+The explicit V2 worker also accepts the captured `/login` and exact `/projects/` dashboard URLs
+without replacing them with a constructed editor URL. Project authority still comes from resident
 HTTP-200 provenance; default worker URL admission remains unchanged.
 
 `V2Worker` explicitly selects the direct V2 handoff protocol. It shares the
