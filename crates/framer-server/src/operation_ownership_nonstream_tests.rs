@@ -13,7 +13,11 @@ async fn nonstream_unknown_cleanup_stays_fenced_after_body_drop_or_consumption()
         } else { None };
         let task = tokio::spawn(app.clone().oneshot(fixture_request(&f, false)));
         let call = f.next().await;
-        call.reply.send(Err("host-lifecycle-unconfirmed: fixture lost".into())).ok().unwrap();
+        let prefix = "host-lifecycle-unconfirmed: ";
+        let error = format!("{prefix}{}é", "a".repeat(119 - prefix.len()));
+        assert_eq!(error.find('é'), Some(119));
+        assert_eq!(error.len(), 121);
+        call.reply.send(Err(error)).ok().unwrap();
         let expected = if let Some(permit) = blocked {
             f.loaded(1).await;
             let mut cooling = f.accounts[1].clone();

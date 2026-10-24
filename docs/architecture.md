@@ -8,6 +8,15 @@ sentinel. API test compilation and all eleven classifier cases pass in the
 isolated runner. This correction does not change security acceptance or the
 frozen R16 executable.
 
+The pipeline records a risk-refusal deadline against the current account on
+either inference attempt. It preserves concurrent lifecycle state and longer
+deadlines, and rejects a changed account scope. Nine inert cases qualify this
+behavior. The integrated server source also marks completed local read
+handlers before their HEAD bodies are discarded, and bounds diagnostic
+excerpts at UTF-8 boundaries. Resident response decoding removes exactly one
+initial BOM after raw-byte collection. The server and decoding changes still
+require their focused qualification before deployment.
+
 The loopback HTTP fixtures hold requests from two account/session owners at
 once. Cancelling one joins its connection while the other retains its permit
 and completes. Each server checks its own synthetic bearer and token bytes,

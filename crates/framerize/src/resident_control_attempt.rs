@@ -249,10 +249,17 @@ async fn cancelled(control: &PreparationControl, deadline: Instant) {
     }
 }
 
+// Collection bounds raw bytes first. Match the browser's fatal TextDecoder:
+// remove one initial BOM, preserve interior characters, reject invalid UTF-8.
+fn response_text(bytes: &[u8]) -> Option<&str> {
+    std::str::from_utf8(bytes).ok()
+        .map(|text| text.strip_prefix('\u{feff}').unwrap_or(text))
+}
+
 // Match the browser's completion/text fields without exporting response content.
 fn output_facts(bytes: &[u8], path: &str, status: u16, json: bool) -> (bool, bool) {
     if !json { return (false, false); }
-    let parsed = serde_json::from_slice::<Value>(bytes).ok();
+    let parsed = response_text(bytes).and_then(|text| serde_json::from_str::<Value>(text).ok());
     let object = parsed.as_ref().is_some_and(Value::is_object);
     let complete = status == 200 && object
         && parsed.as_ref().is_some_and(|value| output_complete(value, path));
@@ -298,7 +305,7 @@ async fn collect(mut response: framer_api::experimental_native::native_http::Nat
     (report.json_object, report.native_output_complete) =
         output_facts(&bytes, path, response.status, json);
     if response.status == 403 {
-        if let Ok(text) = std::str::from_utf8(&bytes) {
+        if let Some(text) = response_text(&bytes) {
             report.refusal = Some(framer_api::classify::observe_403(text,
                 started.elapsed().as_millis().min(u128::from(u64::MAX)) as u64));
         }

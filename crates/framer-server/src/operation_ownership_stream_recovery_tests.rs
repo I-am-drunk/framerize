@@ -27,19 +27,29 @@ async fn discarded_messages_wave_refusal_keeps_cooldown_without_sealing() {
 }
 
 #[tokio::test]
-async fn hello_head_and_discarded_get_preserve_running_stream_and_admission() {
+async fn read_only_heads_and_discarded_gets_preserve_running_stream_and_admission() {
     let mut f = fixture::Fixture::new();
     f.state = with_owned_operations(f.state, 32).unwrap();
     let ownership = f.state.operation_ownership.clone().unwrap();
     let app = crate::router(f.state.clone(), "/nonexistent-fixture-web");
     let stream = app.clone().oneshot(fixture_request(&f, true)).await.unwrap();
     let call = f.next().await;
-    for path in ["/anthropic/api/hello", "/openai/api/hello", "/api/hello"] {
+    for (path, content_type, length) in [
+        ("/anthropic/api/hello", "text/plain; charset=utf-8", Some("2")),
+        ("/openai/api/hello", "text/plain; charset=utf-8", Some("2")),
+        ("/api/hello", "text/plain; charset=utf-8", Some("2")),
+        ("/api/accounts", "application/json", None),
+        ("/api/pool", "application/json", None),
+        ("/api/pool/config", "application/json", None),
+    ] {
         for method in ["HEAD", "GET"] {
             let response = app.clone().oneshot(HttpRequest::builder().method(method)
                 .uri(path).body(Body::empty()).unwrap()).await.unwrap();
             assert_eq!(response.status(), StatusCode::OK);
-            assert_eq!(response.headers()[axum::http::header::CONTENT_LENGTH], "2");
+            assert_eq!(response.headers()[axum::http::header::CONTENT_TYPE], content_type);
+            if let Some(length) = length {
+                assert_eq!(response.headers()[axum::http::header::CONTENT_LENGTH], length);
+            }
             if method == "HEAD" {
                 assert!(to_bytes(response.into_body(), 16).await.unwrap().is_empty());
             } else { drop(response); }

@@ -1,5 +1,5 @@
 //! Inert response bytes only. No SDK, browser, credentials or HTTP transport.
-use super::output_facts;
+use super::{output_facts, response_text};
 use serde_json::{json, Value};
 
 const RESPONSES: &str = "/ai/v3/responses/";
@@ -13,6 +13,47 @@ fn facts(value: &Value, path: &str) -> (bool, bool) {
 fn responses_report_completed_nonempty_model_text() {
     assert_eq!(facts(&response(), RESPONSES), (true, true));
     assert_eq!(facts(&json!({"ok":true}), RESPONSES), (true, false));
+}
+
+#[test]
+fn response_decoding_accepts_one_initial_bom() {
+    let json = serde_json::to_string(&response()).unwrap();
+    let wire = format!("\u{feff}{json}");
+    assert_eq!(response_text(wire.as_bytes()), Some(json.as_str()));
+    assert_eq!(output_facts(wire.as_bytes(), RESPONSES, 200, true), (true, true));
+    assert_eq!(output_facts(wire.as_bytes(), RESPONSES, 403, true), (true, false));
+}
+
+#[test]
+fn response_decoding_rejects_double_or_noninitial_bom_before_json() {
+    let json = serde_json::to_string(&response()).unwrap();
+    for prefix in ["\u{feff}\u{feff}", " \u{feff}", "\n\u{feff}"] {
+        let wire = format!("{prefix}{json}");
+        assert_eq!(output_facts(wire.as_bytes(), RESPONSES, 200, true), (false, false));
+    }
+}
+
+#[test]
+fn response_decoding_preserves_bom_inside_json_text() {
+    let mut value = response();
+    value["output"][0]["content"][0]["text"] = json!("inside\u{feff}text");
+    let json = serde_json::to_string(&value).unwrap();
+    for prefix in ["", "\u{feff}"] {
+        let wire = format!("{prefix}{json}");
+        assert_eq!(response_text(wire.as_bytes()), Some(json.as_str()));
+        assert_eq!(output_facts(wire.as_bytes(), RESPONSES, 200, true), (true, true));
+    }
+}
+
+#[test]
+fn response_decoding_rejects_invalid_utf8_after_bom() {
+    for invalid in [b"\xff".as_slice(), b"\xe2\x82", b"\xed\xa0\x80"] {
+        let mut wire = b"\xef\xbb\xbf{\"text\":\"".to_vec();
+        wire.extend_from_slice(invalid);
+        wire.extend_from_slice(b"\"}");
+        assert_eq!(response_text(&wire), None);
+        assert_eq!(output_facts(&wire, RESPONSES, 200, true), (false, false));
+    }
 }
 
 #[test]
