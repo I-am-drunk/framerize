@@ -28,7 +28,9 @@ the saved live evidence cannot say whether any were returned. The diagnostic
 emits only HTTP status and bounded counts for session, device, other and malformed
 cookie headers. It never records values or unknown cookie names and does not
 change cookie handling. All 20 focused authorization and privacy cases pass.
-It is not yet built into the running executable. Its next use is to distinguish
+The application build passes with API peak 570,425,344 bytes and link peak
+409,485,312 bytes, zero swap/events and clean teardown. Binary `d950da60` is
+staged and has not replaced the running executable. Its next use is to distinguish
 missing cookie propagation from an absent response update, not to claim a fix.
 
 The deployable graphics worker is now integrated in browserless source and
