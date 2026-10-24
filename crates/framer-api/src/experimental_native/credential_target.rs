@@ -36,8 +36,21 @@ impl CredentialTarget {
         let path = url.path().trim_end_matches('/');
         let Some(project) = path.strip_prefix("/projects/") else { return false; };
         !project.contains('/') && (project == self.project.0
-            || project.ends_with(&format!("--{}", self.project.0)))
+            || project.ends_with(&format!("--{}", self.project.0))
+            || matches_project_access_link(project, &self.project.0))
     }
+}
+
+fn matches_project_access_link(segment: &str, expected: &str) -> bool {
+    let alphanumeric = |s: &str| !s.is_empty() && s.bytes().all(|b| b.is_ascii_alphanumeric());
+    if expected.len() != 20 || !alphanumeric(expected) { return false; }
+    let Some((with_id, access)) = segment.rsplit_once('-') else { return false; };
+    if !alphanumeric(access) { return false; }
+    let (slug, id) = match with_id.rsplit_once("--") {
+        Some((slug, id)) => (Some(slug), id),
+        None => (None, with_id),
+    };
+    id == expected && slug.map_or(true, |s| s.split('-').all(alphanumeric))
 }
 
 /// A bounded jar snapshot tied to the exact private session that seeded it.

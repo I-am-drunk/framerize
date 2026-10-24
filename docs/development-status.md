@@ -95,8 +95,27 @@ read-only probe, bounded to one second and eight boolean facts. A successful
 probe cannot turn the original timeout into acceptance. All 97 focused Python
 cases and 11 exact-JavaScript cases pass with networking disabled, including
 cancellation, late completion, malformed replies and diagnostic privacy.
-The next action is to bind the prepared R15 comparison to this tested source
-and run it after fresh resource admission and the full preserved cooldown.
+R15 then confirmed a wait timeout: the expected-project URL check was false
+while all seven editor-history and device checks were true. Both comparison
+legs remained absent. The child exited naturally, browser closure was confirmed,
+and the same native preparation fence retained the logical `Cleanup` result.
+Peak group usage was 1,043,345,408 bytes with 193 tasks, zero swap and no limit
+events. Physical closure and the full cooldown history were preserved; the
+protected browser was unchanged.
+
+Public routing source exposed a separate concrete compatibility bug: Framer
+can append a project access token after its ID, but all three local URL
+checks required the ID at the end. The correction parses that additional
+form and still compares the exact ID. All 126 focused Python and 13 exact-JS
+cases pass. All 16 Rust credential-target cases pass as well. The focused
+build peaked at 427,413,504 bytes; earlier full test builds stopped at their
+1 GiB and 1.5 GiB caps and remain recorded as failures. R15 did not retain the actual URL,
+so this source defect is not yet established as that run's cause. The next
+step is to finish Rust validation and integrate the owned cleanup correction
+before preparing another bounded comparison. The cleanup source is integrated:
+failed preparation now waits on one shared, strictly matched browser closure
+before reporting settled rejection. Unconfirmed closure still retains the
+native fence. Its seven new cases and updated executable remain unvalidated.
 The matching missing-history control also behaved as expected in a real
 browser: both realms returned false, the wait raised `TimeoutError`, and
 the browser exited cleanly with no swap or limit events. These two controls

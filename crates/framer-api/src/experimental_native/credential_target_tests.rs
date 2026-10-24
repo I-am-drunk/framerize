@@ -215,6 +215,22 @@ fn project_page_rejects_wrong_origin_and_userinfo() {
 }
 
 #[test]
+fn project_access_links_preserve_exact_identity() {
+    let target = target(PROJECT, "/ai/v3/responses/");
+    for stem in [PROJECT.to_owned(), format!("My-Site--{PROJECT}")] {
+        assert!(target.matches_page(&format!(
+            "https://framer.com/projects/{stem}-fixtureAccess1?node=fixture")));
+    }
+    for path in [format!("{PROJECT}-"), format!("{PROJECT}-bad_suffix"),
+        format!("{PROJECT}-bad-suffix"), format!("{PROJECT}-fixture/child"),
+        format!("{PROJECT}%2Dfixture"), format!("Bad_Title--{PROJECT}-fixture"),
+        format!("{PROJECT}--ZZ12cd34EF56gh78IJ90-fixture"),
+        "My-Site--ZZ12cd34EF56gh78IJ90-fixture".into()] {
+        assert!(!target.matches_page(&format!("https://framer.com/projects/{path}")));
+    }
+}
+
+#[test]
 fn page_validation_retains_bounds_and_supported_target_requirement() {
     let valid = target(PROJECT, "/ai/v3/responses/");
     let too_long = format!("https://framer.com/projects/{PROJECT}?{}", "x".repeat(4096));

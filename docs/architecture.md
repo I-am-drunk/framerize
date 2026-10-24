@@ -11,6 +11,11 @@ It acknowledges a result only after the external window owner records it.
 Forced cleanup is never delivery acceptance. Account exclusion and
 restoration remain with that window owner; the parent library does not start
 or stop services.
+Failed comparison preparation shares the original browser cleanup observer
+with finalization. The retained preparation worker requests stop and awaits
+its matching verdict before returning a settled rejection. An unconfirmed
+verdict still retains the native reservation; an error reply alone cannot
+release it. The successful comparison keeps its existing cleanup order.
 Comparison preparation also writes bounded phase records through the existing
 sidecar file sink. Each record has an opaque trace, sequence, fixed purpose and
 fixed stage; no account, URL, cookie, token or prompt is included. The 128-record
@@ -111,6 +116,11 @@ Cancellation or an outer deadline cannot schedule a late probe. No raw page,
 device, cookie or exception data is exported.
 The unchanged snapshot then validates the actual device, cookie, login and
 page together. Readiness does not write device state or invoke the SDK.
+Framer project URLs can contain an access-token suffix after the project ID.
+The page checks recognize the public builder's alphanumeric suffix grammar
+and compare the parsed 20-character ID exactly. A project ID appearing only
+in the title cannot satisfy that additional form. The full URL is retained
+privately for the existing exact equality checks; diagnostics expose no suffix.
 The corrected live comparison passed storage readiness and all cookie, login
 and page checks. It still refused locally before any inference transport start.
 Fixed, allowlisted stages separate header equality, minting, rebinding, fetch
