@@ -3,6 +3,21 @@
 Updated 2026-10-24. The normal service remains browser-based. Publishing these
 branches does not change the running service.
 
+The two-path native HTTP input `bb2e807b` is integrated over the qualified
+local/static server. All five selected tests pass (`84dbed12`, peak 12,423,168
+bytes), covering 62 scenarios. Test compilation passes (`82d3808f`, peak
+392,339,456 bytes). Local refusals and completed nonstream output release HTTP
+ownership while admitted native cleanup keeps its independent owner. A timed
+out acquisition remains unconfirmed. The cases cover consumed and discarded
+bodies, delayed cleanup and waiter disconnect; existing stream observers
+remain unchanged. Exact inputs, selection, zero swap/limit events and removed
+groups were independently verified. The first runner attempt refused a unit
+name mismatch before compilation; the corrected preparation preserves it.
+The server build and executable link pass (`8ea7d239`, `c839fcae`); link
+peak was 531,582,976 bytes with zero swap. Their inputs and cleanup were verified.
+This does not supply the ordinary-V2 observation transfer or prove native
+acceptance. No executable launch or service change occurred.
+
 The six-path local/static input `3ab7c169` is integrated. All eight selected
 tests pass (`f7040c99`, peak 13,422,592 bytes), covering 128 scenarios.
 Compilation passes (`3124668c`, peak 428,265,472 bytes). Completed local

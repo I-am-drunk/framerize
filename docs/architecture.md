@@ -1,5 +1,15 @@
 # Serving architecture and branch policy
 
+Native HTTP completion is separate from admitted native cleanup. Local
+refusals and fully assembled nonstream responses carry HTTP completion,
+while `PoolAdmission` retains its independent cleanup child. Acquisition
+returns typed cleanup evidence; a timeout before that evidence arrives keeps
+ownership unconfirmed. Existing successful-stream observers remain in place.
+Five selected tests pass across 62 consumed/discarded response, acquisition,
+delayed-cleanup and waiter-disconnect scenarios on the integrated server.
+This does not establish a supported ordinary-V2 observation transfer or live
+native acceptance.
+
 Completed local responses and JSON extraction failures carry explicit request
 completion. Successful extraction makes no promise about subsequent handler
 work. Static-file responses use a dedicated body wrapper that releases its
@@ -7,7 +17,7 @@ inner body before reporting EOF, error or disposal. Merely returning file
 headers does not complete ownership. Eight selected local/static and paid
 control tests pass across 128 scenarios. They retain the unmanaged-host
 barrier and do not establish OS descriptor closure or in-flight file-error
-behavior. Legacy/admin and native HTTP completion remain separate groups.
+behavior. Legacy/admin completion remains a separate group.
 
 `/api/run` carries acquisition and inference cleanup evidence into its HTTP
 response. Discarding completed output or a local refusal releases ownership;
