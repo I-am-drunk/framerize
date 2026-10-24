@@ -1,6 +1,261 @@
 use super::*;
 
 #[tokio::test]
+async fn discarded_first_permit_cooldown_keeps_stream_admission_open() {
+    first_permit_cooldown(true).await;
+}
+
+#[tokio::test]
+async fn discarded_first_permit_cooldown_keeps_nonstream_admission_open() {
+    first_permit_cooldown(false).await;
+}
+
+async fn first_permit_cooldown(stream: bool) {
+    for messages in [true, false] {
+        let mut f = fixture::Fixture::new();
+        f.state = with_owned_operations(f.state, 32).unwrap();
+        let ownership = f.state.operation_ownership.clone().unwrap();
+        let model = if messages { "claude-opus-5-5" } else { "gpt-6-astra" };
+        let first_permit = f.state.gate.acquire(&f.key(0, model)).await;
+        let app = crate::router(f.state.clone(), "/nonexistent-fixture-web");
+        let task = tokio::spawn(app.clone().oneshot(cooldown_request(&f, messages, stream, 0)));
+        // Session load follows the initial Ready check. The first permit is still held.
+        // Require the next notification so an unexpected identity cannot be skipped.
+        let loaded = tokio::time::timeout(WAIT, f.loads.recv()).await.unwrap().unwrap();
+        assert_eq!(loaded, f.accounts[0].framer_user_id);
+        f.no_call();
+        let mut cooling = f.accounts[0].clone();
+        cooling.cooling_until_ms = Some(framer_core::rotation::now_ms() + 60_000);
+        f.state.state.upsert(&cooling).await.unwrap();
+        let before = serde_json::to_value(f.state.state.list().await.unwrap()).unwrap();
+        drop(first_permit);
+        let response = tokio::time::timeout(WAIT, task).await.unwrap().unwrap().unwrap();
+        assert_eq!(response.status(), StatusCode::SERVICE_UNAVAILABLE);
+        let retry: u64 = response.headers()[axum::http::header::RETRY_AFTER]
+            .to_str().unwrap().parse().unwrap();
+        assert!((1..=30).contains(&retry));
+        assert!(!response.body().is_end_stream(), "exercise an unread refusal body");
+        f.no_call();
+        assert!(f.loads.try_recv().is_err());
+        drop(response);
+        assert_eq!(ownership.gate.stats().unwrap().active, 1); // Retained host only.
+        assert!(!ownership.gate.stats().unwrap().unconfirmed);
+        assert_eq!(serde_json::to_value(f.state.state.list().await.unwrap()).unwrap(), before);
+        let snapshot = f.state.serving_accounts.residents.snapshot().unwrap();
+        assert_eq!(snapshot.residents.len(), 1);
+        assert_eq!(snapshot.residents[0].account, cooling.id);
+        assert_eq!(snapshot.residents[0].users, 0);
+        assert!(!snapshot.residents[0].uncertain);
+        drop(f.state.gate.acquire_now(&f.key(0, model)).await.expect("first permit leaked"));
+        let task = tokio::spawn(app.oneshot(cooldown_request(&f, messages, stream, 1)));
+        let call = f.next().await;
+        assert_eq!(call.account, f.accounts[1].id);
+        assert_eq!(call.kind, if messages { "messages" } else { "responses" });
+        let loaded = tokio::time::timeout(WAIT, f.loads.recv()).await.unwrap().unwrap();
+        assert_eq!(loaded, f.accounts[1].framer_user_id);
+        call.reply.send(Ok(fixture::success(call.kind))).ok().unwrap();
+        tokio::time::timeout(WAIT, call.dropped).await.unwrap().unwrap();
+        let response = tokio::time::timeout(WAIT, task).await.unwrap().unwrap().unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+        let body = tokio::time::timeout(WAIT, to_bytes(response.into_body(), 65536))
+            .await.unwrap().unwrap();
+        if stream { assert_recovery_output(&body, messages, false); }
+        else { assert_cooldown_peer_output(&body, messages); }
+        tokio::time::timeout(WAIT, async {
+            while ownership.gate.stats().unwrap().active > 1 { tokio::task::yield_now().await; }
+        }).await.unwrap();
+        assert_eq!(ownership.gate.stats().unwrap().active, 1);
+        assert!(!ownership.gate.stats().unwrap().unconfirmed);
+        assert_eq!(serde_json::to_value(f.state.state.list().await.unwrap()).unwrap(), before);
+        let snapshot = f.state.serving_accounts.residents.snapshot().unwrap();
+        assert_eq!(snapshot.residents.len(), 2);
+        assert!(snapshot.residents.iter().all(|slot| slot.users == 0 && !slot.uncertain));
+        drop(f.state.gate.acquire_now(&f.key(1, model)).await.expect("peer permit leaked"));
+        f.no_call();
+        assert!(f.loads.try_recv().is_err());
+    }
+}
+
+fn cooldown_request(f: &fixture::Fixture, messages: bool, stream: bool, index: usize)
+    -> HttpRequest<Body> {
+    let (path, payload) = if messages {
+        ("/anthropic/v1/messages", serde_json::json!({"model":"claude-opus-5-5",
+            "messages":[{"role":"user","content":"fixture"}],"max_tokens":16,"stream":stream}))
+    } else {
+        ("/openai/v1/responses", serde_json::json!({"model":"gpt-6-astra",
+            "input":"fixture","stream":stream}))
+    };
+    HttpRequest::builder().method("POST").uri(path)
+        .header("content-type", "application/json")
+        .header("x-framerize-account", f.accounts[index].id.0.to_string())
+        .header("x-framerize-session", "fixture-conversation")
+        .body(Body::from(payload.to_string())).unwrap()
+}
+
+fn assert_cooldown_peer_output(body: &[u8], messages: bool) {
+    let value: serde_json::Value = serde_json::from_slice(body).unwrap();
+    if messages {
+        assert_eq!(value["content"][0]["text"], "fixture");
+        assert_eq!(value["stop_reason"], "end_turn");
+    } else {
+        assert_eq!(value["output"][0]["content"][0]["text"], "fixture");
+        assert_eq!(value["status"], "completed");
+    }
+    assert_eq!(value["usage"]["output_tokens"], 1);
+}
+
+#[derive(Clone, Copy)]
+enum RecoveryEnd { Eof, Disconnect, Error }
+
+#[tokio::test]
+async fn repicked_stream_success_keeps_prior_unknown_cleanup_fenced() {
+    for messages in [true, false] { recovery(messages, RecoveryEnd::Eof).await; }
+}
+
+#[tokio::test]
+async fn disconnected_repicked_stream_joins_success_and_keeps_prior_cleanup_fenced() {
+    for messages in [true, false] { recovery(messages, RecoveryEnd::Disconnect).await; }
+}
+
+#[tokio::test]
+async fn repicked_stream_plain_error_preserves_result_and_prior_cleanup_fence() {
+    for messages in [true, false] { recovery(messages, RecoveryEnd::Error).await; }
+}
+
+fn recovery_request(f: &fixture::Fixture, messages: bool) -> HttpRequest<Body> {
+    if !messages { return fixture_request(f, true); }
+    HttpRequest::builder().method("POST").uri("/anthropic/v1/messages")
+        .header("content-type", "application/json")
+        .header("x-framerize-account", f.accounts[0].id.0.to_string())
+        .header("x-framerize-session", "fixture-conversation")
+        .body(Body::from(serde_json::json!({"model":"claude-opus-5-5",
+            "messages":[{"role":"user","content":"fixture"}],
+            "max_tokens":16,"stream":true}).to_string())).unwrap()
+}
+
+fn assert_recovery_output(body: &[u8], messages: bool, failed: bool) {
+    let text = std::str::from_utf8(body).unwrap();
+    let events: Vec<serde_json::Value> = text.lines()
+        .filter_map(|line| line.strip_prefix("data: "))
+        .map(|data| serde_json::from_str(data).unwrap()).collect();
+    assert!(!text.contains("host-lifecycle-unconfirmed"));
+    if failed {
+        let kind = if messages { "error" } else { "response.failed" };
+        let errors: Vec<_> = events.iter().filter(|event| event["type"] == kind).collect();
+        assert_eq!(errors.len(), 1);
+        let error = if messages { &errors[0]["error"] } else { &errors[0]["response"]["error"] };
+        assert_eq!(error["message"], "inert-final-error");
+        if !messages { assert_eq!(errors[0]["response"]["status"], "failed"); }
+        assert!(!events.iter().any(|event|
+            event["type"] == "message_stop" || event["type"] == "response.completed"));
+        return;
+    }
+    assert!(!events.iter().any(|event|
+        event["type"] == "error" || event["type"] == "response.failed"));
+    if messages {
+        let text: String = events.iter().filter(|event| event["type"] == "content_block_delta")
+            .map(|event| event["delta"]["text"].as_str().unwrap()).collect();
+        assert_eq!(text, "fixture");
+        let endings: Vec<_> = events.iter().filter(|event| event["type"] == "message_delta").collect();
+        assert_eq!(endings.len(), 1);
+        assert_eq!(endings[0]["delta"]["stop_reason"], "end_turn");
+        assert_eq!(endings[0]["usage"]["output_tokens"], 1);
+        assert_eq!(events.iter().filter(|event| event["type"] == "message_stop").count(), 1);
+    } else {
+        let endings: Vec<_> = events.iter().filter(|event| event["type"] == "response.completed").collect();
+        assert_eq!(endings.len(), 1);
+        assert_eq!(endings[0]["response"]["status"], "completed");
+        assert_eq!(endings[0]["response"]["output"][0]["content"][0]["text"], "fixture");
+        assert_eq!(endings[0]["response"]["usage"]["output_tokens"], 1);
+    }
+}
+
+async fn recovery(messages: bool, end: RecoveryEnd) {
+    let mut f = fixture::Fixture::new();
+    f.state = with_owned_operations(f.state, 32).unwrap();
+    let ownership = f.state.operation_ownership.clone().unwrap();
+    let mut next_account = f.accounts[1].clone();
+    next_account.consecutive_failures = 3;
+    f.state.state.upsert(&next_account).await.unwrap();
+    let model = if messages { "claude-opus-5-5" } else { "gpt-6-astra" };
+    let app = crate::router(f.state.clone(), "/nonexistent-fixture-web");
+    let response = tokio::time::timeout(WAIT, app.clone().oneshot(recovery_request(&f, messages)))
+        .await.unwrap().unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    let first = f.next().await;
+    assert_eq!(first.account, f.accounts[0].id);
+    assert_eq!(first.kind, if messages { "messages" } else { "responses" });
+    let loaded = tokio::time::timeout(WAIT, f.loads.recv()).await.unwrap().unwrap();
+    assert_eq!(loaded, f.accounts[0].framer_user_id);
+    first.reply.send(Err("host-lifecycle-unconfirmed: inert first account".into())).ok().unwrap();
+    tokio::time::timeout(WAIT, first.dropped).await.unwrap().unwrap();
+    // Keep the response connected until the replacement actually starts.
+    let second = f.next().await;
+    assert_eq!(second.account, f.accounts[1].id);
+    assert_eq!(second.kind, first.kind);
+    let loaded = tokio::time::timeout(WAIT, f.loads.recv()).await.unwrap().unwrap();
+    assert_eq!(loaded, f.accounts[1].framer_user_id);
+    assert_eq!(ownership.gate.stats().unwrap().active, 3); // Host, body, producer.
+    assert!(f.state.gate.acquire_now(&f.key(1, model)).await.is_none());
+    let snapshot = f.state.serving_accounts.residents.snapshot().unwrap();
+    assert!(snapshot.residents.iter().any(|slot|
+        slot.account == first.account && slot.uncertain && slot.users == 0));
+    assert!(snapshot.residents.iter().any(|slot|
+        slot.account == second.account && !slot.uncertain && slot.users == 1));
+    let mut response = Some(response);
+    if matches!(end, RecoveryEnd::Disconnect) {
+        drop(response.take());
+        assert!(!second.reply.is_closed(), "disconnect cancelled the in-flight call");
+        assert_eq!(ownership.gate.stats().unwrap().active, 3);
+        assert!(f.state.gate.acquire_now(&f.key(1, model)).await.is_none());
+    }
+    let reply = if matches!(end, RecoveryEnd::Error) {
+        Err("inert-final-error".to_string())
+    } else { Ok(fixture::success(second.kind)) };
+    second.reply.send(reply).ok().unwrap();
+    tokio::time::timeout(WAIT, second.dropped).await.unwrap().unwrap();
+    if let Some(response) = response {
+        let body = tokio::time::timeout(WAIT, to_bytes(response.into_body(), 65536))
+            .await.unwrap().unwrap();
+        assert_recovery_output(&body, messages, matches!(end, RecoveryEnd::Error));
+    }
+    // Port return alone is insufficient: wait for the owned producer/body to release.
+    tokio::time::timeout(WAIT, async {
+        while ownership.gate.stats().unwrap().active > 1 { tokio::task::yield_now().await; }
+    }).await.unwrap();
+    assert_eq!(ownership.gate.stats().unwrap().active, 1); // Retained host only.
+    assert!(ownership.gate.stats().unwrap().unconfirmed);
+    assert!(matches!(ownership.seal(), Err(GateError::Unconfirmed)));
+    f.no_call();
+    let snapshot = f.state.serving_accounts.residents.snapshot().unwrap();
+    let first_slot = snapshot.residents.iter().find(|slot| slot.account == first.account).unwrap();
+    let second_slot = snapshot.residents.iter().find(|slot| slot.account == second.account).unwrap();
+    assert!(first_slot.uncertain);
+    assert_eq!(first_slot.users, 0);
+    assert!(!second_slot.uncertain);
+    assert_eq!(second_slot.users, 0);
+    assert_eq!(second_slot.status, framer_core::resident_pool::ResidentStatus::Idle);
+    for index in [0, 1] {
+        let permit = f.state.gate.acquire_now(&f.key(index, model)).await.expect("attempt slot leaked");
+        drop(permit);
+    }
+    let current = f.state.state.get(second.account).await.unwrap().unwrap();
+    // Even after disconnect, only processing B's success can clear its seeded failures.
+    // A plain error preserves them, independently of the global cleanup fence.
+    let expected_failures = if matches!(end, RecoveryEnd::Error) { 3 } else { 0 };
+    assert_eq!(current.consecutive_failures, expected_failures);
+    let mut request = recovery_request(&f, messages);
+    request.headers_mut().insert("x-framerize-account",
+        second.account.0.to_string().parse().unwrap());
+    let refusal = tokio::time::timeout(WAIT, app.oneshot(request)).await.unwrap().unwrap();
+    assert_eq!(refusal.status(), StatusCode::SERVICE_UNAVAILABLE);
+    assert_eq!(to_bytes(refusal.into_body(), 1024).await.unwrap().as_ref(),
+        b"operation admission closed");
+    f.no_call();
+    assert!(f.loads.try_recv().is_err());
+}
+
+#[tokio::test]
 async fn discarded_messages_wave_refusal_keeps_cooldown_without_sealing() {
     let mut f = fixture::Fixture::new();
     f.state = with_owned_operations(f.state, 32).unwrap();
