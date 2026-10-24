@@ -18,6 +18,12 @@ produces a separate release record with server-generated operation IDs.
 All 26 selected cases pass. The reviewed normal launch selects ownership and
 a pinned Python host explicitly. The rollout keeps the unmanaged-host barrier
 and requires same-generation live join and release evidence after approval.
+Normal rollout approval does not substitute for preserving the installed
+host's device-limit ledger. Account cooldowns and host device cooldowns,
+request windows and mint spacing are separate state. The selected raw host
+must receive the latter through a bound transfer or an explicit expiry proof
+before the old generation can retire. Its lazy browser loader retains the
+linear Python pipe installer; no additional memory patch is required.
 
 The separate ordinary-V2 integration branch adds explicit `--offline-sdk v2`
 selection and includes the final producer, consumer and support source from
