@@ -129,14 +129,16 @@ pub(crate) fn completed_response(mut response: Response, confirmed: bool) -> Res
 
 /// Observe the existing producer task. Cooperative cancellation must stop its
 /// next attempt; this signal only resolves after its in-flight work returns.
+/// The producer retains cleanup evidence from every attempt separately from
+/// its final client result.
 pub(crate) fn spawn_observed<T, F>(scope: Option<&Arc<ServingOwnership>>,
     kind: OperationKind, future: F)
     -> Result<(tokio::task::JoinHandle<Result<T, String>>, ResponseCompletion), GateError>
-where T: Send + 'static, F: Future<Output = Result<T, String>> + Send + 'static {
+where T: Send + 'static, F: Future<Output = (Result<T, String>, bool)> + Send + 'static {
     let (done, completed) = tokio::sync::oneshot::channel();
     let task = spawn(scope, kind, async move {
-        let result = future.await;
-        let confirmed = result.as_ref().err()
+        let (result, cleanup_confirmed) = future.await;
+        let confirmed = cleanup_confirmed && result.as_ref().err()
             .map_or(true, |error| !crate::pool_control::cleanup_unconfirmed(error));
         let _ = done.send(confirmed);
         result

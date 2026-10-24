@@ -1,5 +1,14 @@
 # Serving architecture and branch policy
 
+Streaming producers retain cleanup evidence from every inference attempt until
+the existing producer task finishes. A later successful repick or plain error
+cannot erase an earlier unconfirmed cleanup. The observer preserves the actual
+client result and joins the same task after disconnect. Initial known cooldown
+refusals explicitly complete their local request, including after the first
+permit, so discarding the response does not close later admission. Five focused
+streaming/cooldown cases pass. Failed account-acquisition cleanup during repick
+remains a separate source correction; these results do not close that gap.
+
 Explicit account requests now require a Ready account with a complete current
 scope. Selection and the pre-call lookup retain cooldown and cleanup fences;
 they never substitute another account. Workspace rotation resolves an existing
