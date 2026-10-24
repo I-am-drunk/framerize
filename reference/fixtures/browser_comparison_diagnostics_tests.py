@@ -33,6 +33,7 @@ BASELINE_STAGES = ("baseline_header_before_mint", "baseline_mint", "baseline_bou
                    "baseline_header_after_mint", "baseline_fetch_args", "baseline_fetch",
                    "baseline_result", "baseline_bound_after_fetch")
 STAGES = {"account_start", "context_inputs", "cookie_seed", "navigation", "device_readiness",
+          "context_settling", "context_settled", "context_settle_timeout", "context_settle_drift",
           "editor_readiness", "editor_wait_timeout", "editor_wait_error",
           "editor_dispose_timeout", "editor_dispose_error", "editor_scope_refused",
           "editor_rpc_timeout", "editor_rpc_error", "snapshot_page",
