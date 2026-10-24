@@ -112,6 +112,21 @@ fn malformed_nonfinite_or_oversized_input_has_no_completion() {
     assert!(completed(&bytes, 1000).is_none());
 }
 
+#[test]
+fn duplicate_failure_keys_cannot_mask_failure() {
+    let mut value = report();
+    value["device_failure"] = json!("local_value");
+    for suffix in [br#","device_failure":null}"#.as_slice(),
+        br#","device_\u0066ailure":null}"#] {
+        let mut bytes = serde_json::to_vec(&value).unwrap();
+        assert_eq!(bytes.pop(), Some(b'}'));
+        bytes.extend_from_slice(suffix);
+        let decoded: Value = serde_json::from_slice(&bytes).unwrap();
+        assert!(decoded["device_failure"].is_null());
+        assert!(completed(&bytes, 1000).is_none());
+    }
+}
+
 fn decode(value: &Value, budget: u64) -> Option<V2OperationMetadata> {
     completed(&serde_json::to_vec(value).unwrap(), budget)
 }
