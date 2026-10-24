@@ -23,8 +23,8 @@ for native HTTP only after baseline acceptance. Both bodies are fixed up
 front and may differ only in their distinct caller-supplied turn IDs.
 The original scope and cleanup observer remain owned across the pair.
 The Python and Rust host interfaces have passed inert tests. An explicit pair
-coordinator now connects them to native dispatch; its compilation and live
-comparison remain pending. The coordinator obtains each bearer from the
+coordinator now connects them to native dispatch and passes focused lifecycle
+and refusal tests. The parent controller and live comparison remain pending. The coordinator obtains each bearer from the
 checked current jar and uses the normal native envelope serializer. It closes
 the native account before sealing the browser scope. The ordinary credential
 source does not issue the baseline request.

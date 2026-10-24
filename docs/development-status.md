@@ -3,42 +3,24 @@
 Updated 2026-10-24. The normal service remains browser-based. Publishing these
 branches does not change the running service.
 
-The exact in-page fetch now passes all 13 inert JavaScript cases under the
-128 MiB cap (34,738,176-byte peak, zero swap and confirmed test-group removal).
-The first pair coordinator compiles. Its dropped-waiter fixture and a new
-internal control-client injection point are source-only, pending validation.
-Production still constructs the normal account-bound client; the injection
-point lets an inert fixture reach baseline refusal without real bearer HTTP.
-No live comparison has run, and neither service was changed.
+The isolated comparison child compiles and its boundary tests pass. The 21
+coordinator/child cases passed first; two additional browser-refusal cases now
+pass, including a dropped caller. The refusal prevents native authorization,
+and final publication waits for account and browser cleanup. Four tests of
+the real executable also pass: oversized/truncated input, unknown plan fields
+and a wrong start nonce. Those tests never start a browser or load an account.
 
-A standalone comparison child is now prepared as a Cargo example. It accepts
-one plan through an inherited parent socket, receives the session only after
-admission, and returns bounded results for parent-owned cooldown handling.
-It opens no listener and has no service restart path. This source and its five
-inert boundary fixtures are uncompiled; the external controller remains pending.
+The standalone child build peaked at 253,706,240 bytes. The two additional
+Rust tests peaked at 79,204,352 bytes; real-process tests at 21,770,240 bytes.
+The saved checks confirm zero swap/events and test-group removal. Existing
+Python (28), exact-fetch JavaScript (13), host (48) and API (47) results are
+reused. This is local validation, not authenticated delivery.
 
-Python comparison implementation `712e497` is integrated. Its 28 inert cases
-pass. The Rust host now requires two observer command slots so a continuation
-can join the previous command after its reply becomes visible; 48 host cases
-pass with that change. The separate baseline-bearer and supplied-token helpers
-pass 47 focused authentication/request cases. No live request ran.
-
-The explicit Rust pair coordinator is implemented but remains uncompiled.
-It binds both envelopes through the native serializer, retains the browser
-scope until native account cleanup, stops after baseline failure, and leaves
-admission and cooldown publication with the outer controller. Its standalone
-controller wiring and live acceptance are still pending. These are separate
-limits from the passing host and Python fixtures.
-
-The Rust comparison host interface now compiles and passes 47 selected
-tests, including seven new contract cases and existing observer lifecycle
-cases. Baseline rejection, uncertainty, changed cookies and repeat token
-issuance cannot admit a native-token command. JSON body types and distinct
-turn IDs are checked. Build peak was 390,381,568 bytes; tests peaked at
-48,492,544 bytes, with zero swap/events and verified teardown. The first
-compile failure is retained: it exposed two missing module paths and an
-outdated test-library selection, both corrected. Python integration and
-the pair coordinator are pending. No browser, SDK or live request ran.
+The parent controller is still being implemented. It must retain account
+exclusion, resource limits and cooldown publication through child teardown.
+The child has no listener or service-management path. It receives the session
+only through an inherited private socket after parent admission. No live
+comparison has run; both running services remain untouched.
 
 No authenticated browser-token/native-HTTP control was found in the searched
 records. The existing browser adapter is not wired into serving and creates a
