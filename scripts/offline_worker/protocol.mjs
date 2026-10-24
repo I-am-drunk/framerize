@@ -21,8 +21,11 @@ export function validateInput(input) {
   if (url.origin !== 'https://framer.com' || url.username || url.password || url.port)
     throw new Error('target');
   const project = url.pathname.replace(/\/+$/, '').replace(/^\/projects\//, '');
+  const linked = /^(?:(?:[A-Za-z0-9]+-)*[A-Za-z0-9]+--)?([A-Za-z0-9]{20})-[A-Za-z0-9]+$/.exec(project);
+  const matches = project === target.project_id || project.endsWith('--' + target.project_id)
+    || linked?.[1] === target.project_id;
   if (!url.pathname.startsWith('/projects/') || project.includes('/')
-      || !(project === target.project_id || project.endsWith('--' + target.project_id)))
+      || !matches)
     throw new Error('target');
   const device = input.version === 2 ? new SavedDevice(input.device) : undefined;
   return Object.freeze({ version: input.version, budget_ms: input.budget_ms,
