@@ -1,5 +1,12 @@
 # Serving architecture and branch policy
 
+The optional Linux resident socket is bound at daemon startup, before serving
+or prewarm. It requires an owned private directory and a same-UID peer, caps
+the entire frame at 96 KiB and admits four connections. It installs one shared
+session boundary and cannot coexist with offline-worker ownership. Disconnects
+request cancellation while retained work joins; an unconfirmed shutdown keeps
+the runtime alive. Its source is integrated but has not been compiled.
+
 The private resident client exchanges one length-prefixed request and one
 fixed diagnostic report with an already-enabled local owner. It verifies the
 socket UID and identity, keeps both directions open until report completion,

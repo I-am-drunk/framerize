@@ -19,6 +19,8 @@ mod one_shot_control;
 #[cfg(feature = "native-dispatch")]
 mod resident_control;
 #[cfg(feature = "native-dispatch")]
+mod resident_socket;
+#[cfg(feature = "native-dispatch")]
 extern crate offline_worker_owner;
 #[cfg(feature = "native-dispatch")]
 mod offline_worker;
@@ -92,6 +94,10 @@ enum Cmd {
         #[cfg(feature = "native-dispatch")]
         #[arg(long)]
         offline_routing_config: Option<String>,
+        /// Enable private resident crossover control on a local Unix socket.
+        #[cfg(feature = "native-dispatch")]
+        #[arg(long, conflicts_with_all = ["offline_worker_config", "offline_routing_config"])]
+        resident_control_socket: Option<std::path::PathBuf>,
     },
     /// Log in a Framer account: sends the magic-link email, then prompts for
     /// the #token from the emailed link. Talks to the running daemon.
@@ -133,11 +139,23 @@ enum Cmd {
     Api(cli_control::ApiArgs),
 }
 
+struct BuiltState {
+    state: AppState,
+    #[cfg(feature = "native-dispatch")]
+    resident: Option<Arc<resident_control::StartupOwner>>,
+}
+
 async fn build_state(db: &str, chrome: &str, profiles: &str, engine: &str,
     active_pool_size: Option<usize>, eligible_accounts: Option<&str>,
-    sidecar_script: Option<std::path::PathBuf>) -> Result<AppState, String> {
+    sidecar_script: Option<std::path::PathBuf>,
+    #[cfg(feature = "native-dispatch")] resident_controls: bool,
+) -> Result<BuiltState, String> {
     if sidecar_script.is_some() && engine != "camoufox" {
         return Err("--sidecar-script requires --engine camoufox".into());
+    }
+    #[cfg(feature = "native-dispatch")]
+    if resident_controls && engine != "camoufox" {
+        return Err("resident controls require --engine camoufox".into());
     }
     // Parse once before opening stores or constructing any browser bridge.
     let startup_policy = framer_server::ServingAccountPolicy::from_env()?;
@@ -160,6 +178,8 @@ async fn build_state(db: &str, chrome: &str, profiles: &str, engine: &str,
     )?);
     let client = Arc::new(framer_api::HttpFramerClient::new());
     framer_core::observability::init(profiles);
+    #[cfg(feature = "native-dispatch")]
+    let mut resident_bridge = None;
     let browser: Arc<dyn framer_core::port::BrowserBridge> = match engine {
         "full-chrome" => Arc::new(CdpBridge::with_engine(chrome, profiles, framer_host::EngineKind::FullChrome)),
         "headless-shell" => Arc::new(CdpBridge::with_engine(chrome, profiles, framer_host::EngineKind::HeadlessShell)),
@@ -167,14 +187,28 @@ async fn build_state(db: &str, chrome: &str, profiles: &str, engine: &str,
         "camoufox" => {
             let bridge = framer_host::sidecar::SidecarBridge::new(
                 framer_host::sidecar::default_sidecar_root(profiles));
-            Arc::new(match sidecar_script {
+            let bridge = match sidecar_script {
                 Some(script) => bridge.with_script(script)?,
                 None => bridge,
-            })
+            };
+            #[cfg(feature = "native-dispatch")]
+            let bridge = {
+                let mut bridge = bridge;
+                if resident_controls {
+                    let generation = (uuid::Uuid::new_v4().as_u128() as u64).max(1);
+                    bridge.configure_resident_controls(
+                        framer_host::sidecar::observer::ApplicationGeneration(generation))?;
+                }
+                bridge
+            };
+            let bridge = Arc::new(bridge);
+            #[cfg(feature = "native-dispatch")]
+            if resident_controls { resident_bridge = Some(bridge.clone()); }
+            bridge
         },
         other => return Err(format!("unknown --engine {other} (full-chrome|headless-shell|attach|camoufox)")),
     };
-    Ok(AppState {
+    let state = AppState {
         operation_ownership: None,
         #[cfg(feature = "native-dispatch")]
         native_dispatch: None,
@@ -185,7 +219,19 @@ async fn build_state(db: &str, chrome: &str, profiles: &str, engine: &str,
         gate: std::sync::Arc::new(framer_core::gate::ConcurrencyGate::new()),
         wave: std::sync::Arc::new(framer_core::wave::WaveGuard::new()),
         serving_accounts,
-    })
+    };
+    #[cfg(feature = "native-dispatch")]
+    let (state, resident) = match resident_bridge {
+        Some(bridge) => {
+            let mut state = framer_server::operation_ownership::with_owned_operations(state, 256)
+                .map_err(|_| "resident application ownership unavailable".to_owned())?;
+            let owner = resident_control::StartupOwner::install(&mut state, bridge)
+                .map_err(|_| "resident session ownership unavailable".to_owned())?;
+            (state, Some(owner))
+        }
+        None => (state, None),
+    };
+    Ok(BuiltState { state, #[cfg(feature = "native-dispatch")] resident })
 }
 
 /// Apply explicit startup flags after the saved runtime configuration.
@@ -210,6 +256,8 @@ fn resolve_pool_config(default: framer_server::PoolConfig, saved: Option<&str>,
 
 #[cfg(test)]
 mod pool_startup_tests;
+#[cfg(all(test, feature = "native-dispatch"))]
+mod resident_startup_tests;
 
 /// Register saved per-account proxies before any browser can start.
 async fn load_proxies(state: &AppState) -> Result<(), String> {
@@ -228,21 +276,45 @@ async fn main() {
         Cmd::Daemon { listen, web_dir, db, chrome, engine, profiles, sidecar_script,
             active_pool_size, eligible_accounts,
             #[cfg(feature = "native-dispatch")] offline_worker_config,
-            #[cfg(feature = "native-dispatch")] offline_routing_config } => {
-            let state = match build_state(&db, &chrome, &profiles, &engine,
-                active_pool_size, eligible_accounts.as_deref(), sidecar_script).await {
-                Ok(s) => s,
-                Err(e) => {
-                    eprintln!("failed to initialize: {e}");
+            #[cfg(feature = "native-dispatch")] offline_routing_config,
+            #[cfg(feature = "native-dispatch")] resident_control_socket } => {
+            #[cfg(feature = "native-dispatch")]
+            if resident_control_socket.is_some()
+                && (offline_worker_config.is_some() || offline_routing_config.is_some()) {
+                eprintln!("resident controls require exclusive startup session ownership");
+                std::process::exit(1);
+            }
+            #[cfg(feature = "native-dispatch")]
+            let bound_resident_socket = match resident_control_socket.as_deref()
+                .map(resident_socket::BoundSocket::bind).transpose() {
+                Ok(socket) => socket,
+                Err(_) => {
+                    eprintln!("resident control socket unavailable");
                     std::process::exit(1);
                 }
             };
+            let built = match build_state(&db, &chrome, &profiles, &engine,
+                active_pool_size, eligible_accounts.as_deref(), sidecar_script,
+                #[cfg(feature = "native-dispatch")] resident_control_socket.is_some(),
+            ).await {
+                Ok(s) => s,
+                Err(e) => {
+                    eprintln!("failed to initialize: {e}");
+                    #[cfg(feature = "native-dispatch")]
+                    drop(bound_resident_socket);
+                    std::process::exit(1);
+                }
+            };
+            let state = built.state;
+            #[cfg(feature = "native-dispatch")]
+            let resident = built.resident;
             #[cfg(feature = "native-dispatch")]
             let (state, offline_worker) = match offline_http::configure(
                 state, offline_worker_config.as_deref(), offline_routing_config.as_deref()) {
                 Ok(value) => value,
                 Err(error) => {
                     eprintln!("failed to initialize: {error}");
+                    drop(bound_resident_socket);
                     std::process::exit(1);
                 }
             };
@@ -256,16 +328,22 @@ async fn main() {
                 .and_then(|result| result);
             if let Err(error) = proxies {
                 eprintln!("failed to initialize: {error}");
+                #[cfg(feature = "native-dispatch")]
+                drop(bound_resident_socket);
                 std::process::exit(1);
             }
             if let Err(error) = start_prewarm(&state) {
                 eprintln!("{error}");
+                #[cfg(feature = "native-dispatch")]
+                drop(bound_resident_socket);
                 std::process::exit(1);
             }
             let addr = match listen.parse() {
                 Ok(a) => a,
                 Err(e) => {
                     eprintln!("bad --listen {listen}: {e}");
+                    #[cfg(feature = "native-dispatch")]
+                    drop(bound_resident_socket);
                     std::process::exit(1);
                 }
             };
@@ -275,9 +353,14 @@ async fn main() {
                 .field("engine", engine.clone())
                 .emit();
             #[cfg(feature = "native-dispatch")]
-            let result = match offline_worker {
-                Some(worker) => offline_http::serve(state, worker, &web_dir, addr).await,
-                None => framer_server::serve(state, &web_dir, addr).await,
+            let result = match (resident, bound_resident_socket) {
+                (Some(owner), Some(socket)) =>
+                    resident_socket::serve(state, owner, socket, &web_dir, addr).await,
+                (None, None) => match offline_worker {
+                    Some(worker) => offline_http::serve(state, worker, &web_dir, addr).await,
+                    None => framer_server::serve(state, &web_dir, addr).await,
+                },
+                _ => Err(std::io::Error::other("resident startup binding incomplete")),
             };
             #[cfg(not(feature = "native-dispatch"))]
             let result = framer_server::serve(state, &web_dir, addr).await;
