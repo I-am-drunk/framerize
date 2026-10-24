@@ -27,6 +27,20 @@ Exact V3 `3337eba7` UTF-16 spans: queue `[28284,28371)`, readiness scheduling
 Current wrapper `c32148dc` bytes `[553819,556632)` bind its deadlines,
 configuration, error flag and fallback. These were read without execution.
 
+The peer's final note adds two limits to local success checks. The inspected
+configuration guard rejects a missing publishable key; it does not establish
+that the key belongs to the server's Castle environment. The wrapper passes
+an `onError` callback, but silence from it is not a documented guarantee of
+complete signal collection. The wrapper separately enforces its own error
+and deadline checks. None exposes the backend's token-validation result.
+
+The final independent note is bound by SHA-256
+`80f55999b628a5538ea97edcf25a19987f61df10992c52800cc4dd43a397ad0c`,
+with verification
+`3c2e66564020fa3fdca4d335ae93b47f57a72cbd8a6ffe211fc97afb0594f933`.
+Its exact token prologue is UTF-16 `[211468,211498)`; configuration release
+is `[292366,292384)`. Root rehashed both note and verification unchanged.
+
 Castle's official Browser SDK documentation explicitly excludes mocked DOMs
 such as JSDOM. Our worker is outside that supported environment. This is a
 documented integration limitation, not identification of the exact server
