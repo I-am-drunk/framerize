@@ -3,6 +3,15 @@
 Updated 2026-10-24. The normal service remains browser-based. Publishing these
 branches does not change the running service.
 
+Public asset comparison on October 24 confirms wrapper drift: current Framer
+selects `chunk-VPFQZMNG.mjs`; the native worker retains `chunk-5LKSDTQ5.mjs`.
+The selected V3 SDK bytes and public key still match. The new wrapper changes
+token export, dependencies and default V3 timeout, so a filename-only update
+is incompatible. No current-wrapper candidate has been executed or deployed.
+This does not attribute the security 403. Next, qualify its exact dependency
+and export contract separately; graphics cancellation also remains pending.
+See `reference/analysis/castle-current-selection-2026-10-24.md`.
+
 The native graphics SDK integration now passes with the deployable sources,
 peaking at 120,934,400 bytes, with zero swap or memory events and confirmed
 worker/group teardown. It generated and discarded a synthetic token.
