@@ -1,5 +1,12 @@
 # Serving architecture and branch policy
 
+Generated-host startup is now checked through the actual entrypoint rather
+than definition imports alone. With no pending transfer or account state,
+the package installs native ownership, refuses an unowned native request and
+exits on EOF. The isolated check uses pinned system Python sources and fresh
+bytecode prefixes. It does not exercise restoration, browser dependencies,
+the Rust process owner or cleanup with active work.
+
 The assembled daemon accepts explicit ordinary-V2 worker configuration in an
 empty isolated instance. Its offline input gate and normal hello route remain
 available together. This startup evidence does not create SDK identity proof.
