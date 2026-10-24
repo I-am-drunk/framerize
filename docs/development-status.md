@@ -20,9 +20,17 @@ The single subsequent socket-denied synthetic V2 observation completed in
 child and discarded token. Peak cgroup memory was 111,439,872 bytes (106.3 MiB),
 with zero swap or memory-limit events. The qualified observer recorded zero
 resource attempts, deliveries or refusals: this SDK call never used the new
-loader. This closes a capability gap but supplies no reason for a live retry.
-Next, use the existing V2 comparison evidence to select another concrete runtime
-difference; preserve R13 and its retained owner until a new control is justified.
+loader. A source follow-up found that this initial integration also changed
+navigator.userAgent through the shared loader default. V2 now retains its
+original JSDOM default; the existing V3 user agent remains unchanged. Fourteen
+focused checks pass, including both user-agent contracts and real PNG decoding.
+The corrected synthetic observation again recorded zero resource attempts. It
+completed in 1,229 ms (998 ms in the method), peaked at 110,182,400 bytes
+(105.1 MiB), preserved device state and joined cleanly with zero swap or limit
+events. Its token was discarded. The first result remains preserved with its
+user-agent difference explicitly recorded. Neither result justifies a live
+retry by itself. Next, use the existing V2 comparison evidence to select another
+concrete runtime difference, preserving R13 and its retained owner.
 
 R12 completed an isolated-V2 request that was refused. The normal browser
 and paired browser baseline returned complete HTTP 200 model output. The

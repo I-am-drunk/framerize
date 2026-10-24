@@ -16,6 +16,12 @@ const png = () => {
   finally { window.window.close(); }
 };
 
+test('default_offline_window_preserves_its_existing_user_agent', () => {
+  const dom = makeWindow();
+  try { assert.equal(dom.window.navigator.userAgent, 'Framerize/0.1'); }
+  finally { dom.window.close(); }
+});
+
 test('native_canvas_png_roundtrip_keeps_unsupported_contexts_absent', async () => {
   const dom = makeWindow();
   try {

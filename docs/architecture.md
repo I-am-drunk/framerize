@@ -5,6 +5,10 @@ at most four local PNGs per window, each at most 64 KiB and 262,144 pixels,
 with either dimension at most 2,048. Other URLs never reach the parent loader.
 This enables native image decoding without network or filesystem fetching;
 visual mode, workers, SDK configuration and deadlines remain unchanged.
+The V2 constructor passes empty loader options so JSDOM retains its original
+default navigator user agent. The shared loader's existing user-agent default
+remains available to the V3 constructor. JSDOM derives navigator.userAgent
+from this loader even when no resource is fetched.
 
 V2 verifies its pinned SDK, settlement helper and DOM dependencies before and
 after the operation using streamed SHA-256 reads with a 64 KiB buffer. Native
