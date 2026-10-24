@@ -11,7 +11,12 @@ removed, peaking at 1,366,941,696 bytes and 186 tasks with zero swap or limit
 events. A matched same-boot journal resolved physical ownership while keeping
 the logical `Cleanup` failure and full cooldown. The protected browser is
 unchanged, and the isolated service remains stopped. Inner mint and outer
-browser-RPC diagnostics are being prepared before another live comparison.
+browser-RPC diagnostics now pass 61 focused Python cases. Eight real-browser
+cases also pass with networking disabled and synthetic modules, separating
+six JavaScript failure stages from a closed-page RPC failure. That probe
+peaked at 681,689,088 bytes and 172 tasks, with zero swap or limit events and
+confirmed process-group removal. These results validate diagnostics, not SDK
+or authenticated inference. Another live comparison remains pending.
 
 The earlier isolated comparison (R8) passed device readiness and all seven
 cookie, login and page checks. It returned a settled baseline preparation

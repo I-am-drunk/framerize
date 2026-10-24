@@ -66,6 +66,11 @@ setup and result handling without exposing cookies, tokens or exception text.
 The subsequent live failure is localized to the browser mint call. A lost
 browser connection and a JavaScript failure inside that call require separate
 diagnostics; neither establishes the cause of earlier remote refusals.
+The mint expression returns its unchanged success object or a fixed failure
+stage for context checks, import, export lookup, wrapper call or token
+validation. Python separately classifies target-closed, timeout and other RPC
+exceptions before rethrowing. Cancellation retains its pending RPC owner.
+Neither channel exports exception text, stack traces or failure-path tokens.
 The adapter now re-filters returned cookies using exact host-only/domain
 semantics, path boundaries and the secure flag. The driver otherwise includes
 host-only parent cookies when selecting for a subdomain. Device matching still
