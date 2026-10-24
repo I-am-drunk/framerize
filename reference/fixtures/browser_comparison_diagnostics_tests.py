@@ -1,4 +1,4 @@
-"""UNRUN diagnostic fixtures based on 4c94803; no browser or SDK execution.
+"""Inert diagnostic fixtures; UNRUN by the source-only author.
 
 Reuses the comparison fakes and extracts the actual Host.handle method.
 Only the runtime owner runs these cases. A returned command event is not
@@ -23,9 +23,12 @@ C = FIXTURE.C
 SECRET = "private-diagnostic-sentinel"
 CHECKS = ("device_valid", "device_cookie_match", "login_match", "page_match", "url_unchanged",
           "device_cookie_present", "device_cookie_unique")
+BASELINE_STAGES = ("baseline_header_before_mint", "baseline_mint", "baseline_bound_after_mint",
+                   "baseline_header_after_mint", "baseline_fetch_args", "baseline_fetch",
+                   "baseline_result", "baseline_bound_after_fetch")
 STAGES = {"account_start", "context_inputs", "cookie_seed", "navigation", "device_readiness", "snapshot_page",
           "snapshot_cookies", "snapshot_header", "snapshot_validate", "context_ready",
-          "baseline", "native_token"}
+          "baseline", "native_token", *BASELINE_STAGES}
 
 
 class DiagnosticHarness(FIXTURE.Harness):
@@ -138,6 +141,106 @@ class ComparisonDiagnosticWorkflowTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(value.scope.comparison_phase, "failed")
         self.assert_public_events(value)
 
+    async def assert_pre_send_failure(self, value, stage, mints):
+        result = await value.baseline()
+        self.assertEqual(result["failure"], "preparation")
+        self.assertFalse(result["accepted"])
+        self.assertIsNone(result["status"])
+        self.assertEqual((result["body_bytes"], result["transport_starts"],
+                          result["transport_finishes"]), (0, 0, 0))
+        self.assertTrue(result["fetch_settled"])
+        self.assertEqual((value.mints, value.fetches), (mints, 0))
+        self.assertEqual(value.scope.comparison_phase, "failed")
+        self.assertEqual(value.events[-1], dict(event="browser.comparison.command",
+                                              outcome="returned", stage=stage))
+        self.assert_public_events(value)
+
+    def change_after_mint(self, value, change):
+        evaluate = value.page.evaluate
+
+        async def changed(script, args=None):
+            result = await evaluate(script, args)
+            if script == C.COMPARISON_MINT:
+                change()
+            return result
+
+        value.page.evaluate = changed
+
+    async def test_baseline_first_header_drift_reports_stage_before_any_mint(self):
+        value = self.fixture()
+        await value.prepare_context()
+        value.context.rows.append({"name": "private_cookie", "value": SECRET})
+        await self.assert_pre_send_failure(value, "baseline_header_before_mint", 0)
+
+    async def test_baseline_mint_error_reports_stage_without_private_exception(self):
+        value = self.fixture()
+        await value.prepare_context()
+        value.page.fail_sdk = True
+        await self.assert_pre_send_failure(value, "baseline_mint", 1)
+
+    async def test_baseline_after_mint_header_drift_reports_separate_stage(self):
+        value = self.fixture()
+        await value.prepare_context()
+        self.change_after_mint(value, lambda: value.context.rows.append(
+            {"name": "private_cookie", "value": SECRET}))
+        await self.assert_pre_send_failure(value, "baseline_header_after_mint", 1)
+
+    async def test_baseline_binding_refusal_after_mint_is_distinct_from_header_drift(self):
+        value = self.fixture()
+        await value.prepare_context()
+        self.change_after_mint(value, lambda: setattr(value.scope, "generation", 8))
+        await self.assert_pre_send_failure(value, "baseline_bound_after_mint", 1)
+
+    async def test_baseline_fetch_rpc_error_keeps_unknown_outcome_and_stage(self):
+        value = self.fixture()
+        await value.prepare_context()
+        value.fetch_error = True
+        result = await value.baseline()
+        self.assertEqual(result["failure"], "unconfirmed")
+        self.assertFalse(result["accepted"] or result["fetch_settled"])
+        self.assertIsNone(result["transport_starts"])
+        self.assertIsNone(result["transport_finishes"])
+        self.assertEqual((value.mints, value.fetches), (1, 1))
+        self.assertEqual(value.scope.failure, "comparison_fetch_unconfirmed")
+        self.assertEqual(value.events[-1], dict(event="browser.comparison.command",
+                                              outcome="returned", stage="baseline_fetch"))
+        self.assert_public_events(value)
+
+    async def test_baseline_malformed_result_reports_stage_and_preserves_fencing(self):
+        value = self.fixture()
+        await value.prepare_context()
+        value.fetch_result = {"token": SECRET, "exception": SECRET}
+        result = await value.baseline()
+        self.assertEqual(result["failure"], "protocol")
+        self.assertFalse(result["accepted"] or result["fetch_settled"])
+        self.assertEqual((value.mints, value.fetches), (1, 1))
+        self.assertEqual(value.scope.failure, "comparison_fetch_unconfirmed")
+        self.assertEqual(value.events[-1], dict(event="browser.comparison.command",
+                                              outcome="returned", stage="baseline_result"))
+        self.assertNotIn(SECRET, json.dumps(result))
+        self.assert_public_events(value)
+
+    async def test_baseline_cancelled_mint_keeps_stage_and_owned_pending_rpc(self):
+        value = self.fixture()
+        await value.prepare_context()
+        value.page.sdk_release.clear()
+        task = asyncio.create_task(value.baseline())
+        self.tasks.append(task)
+        await asyncio.wait_for(value.page.sdk_started.wait(), 1)
+        task.cancel()
+        with self.assertRaises(asyncio.CancelledError):
+            await task
+        self.assertEqual(C.comparison_evidence(value.scope), {"stage": "baseline_mint"})
+        self.assertEqual(value.scope.failure, "comparison_cancelled")
+        self.assertTrue(value.scope.pending)
+        self.assertEqual((value.mints, value.fetches), (1, 0))
+        self.assertEqual(len(value.events), 1)
+        value.page.sdk_release.set()
+        await asyncio.wait_for(value.scope.drain(), 1)
+        self.assertFalse(value.scope.pending)
+        self.assertEqual(value.fetches, 0)
+        self.assert_public_events(value)
+
     async def test_missing_device_reports_snapshot_validation_flags(self):
         value = self.fixture()
 
@@ -213,7 +316,11 @@ class ComparisonDiagnosticWorkflowTests(unittest.IsolatedAsyncioTestCase):
         value = self.fixture()
         context = await value.prepare_context()
         self.assertEqual((value.mints, value.fetches), (0, 0))
-        baseline = await value.baseline()
+        with patch.object(C, "comparison_mark", wraps=C.comparison_mark) as marks:
+            baseline = await value.baseline()
+        stages = [call.args[1] for call in marks.call_args_list]
+        self.assertEqual([stage for stage in stages if stage.startswith("baseline")],
+                         ["baseline", *BASELINE_STAGES])
         self.assertTrue(baseline["accepted"] and baseline["complete_json"] and baseline["nonempty_text"])
         self.assertEqual((value.mints, value.fetches), (1, 1))
         native = await value.native()
@@ -241,7 +348,7 @@ class ComparisonDiagnosticWorkflowTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(value.scope.comparison_phase, "failed")
         self.assertEqual(value.events[-1], dict(
             event="browser.comparison.command", outcome="returned",
-            stage="snapshot_validate", **dict.fromkeys(CHECKS, True)))
+            stage="baseline_result"))
         self.assert_public_events(value)
 
 

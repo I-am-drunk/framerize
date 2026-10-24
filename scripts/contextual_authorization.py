@@ -18,7 +18,10 @@ COMPARISON_READY_SECONDS = 10
 COMPARISON_DISPOSE_SECONDS = 2
 DIAGNOSTIC_STAGES = frozenset(('account_start', 'context_inputs', 'cookie_seed',
     'navigation', 'device_readiness', 'snapshot_page', 'snapshot_cookies', 'snapshot_header',
-    'snapshot_validate', 'context_ready', 'baseline', 'native_token'))
+    'snapshot_validate', 'context_ready', 'baseline', 'native_token',
+    'baseline_header_before_mint', 'baseline_mint', 'baseline_bound_after_mint',
+    'baseline_header_after_mint', 'baseline_fetch_args', 'baseline_fetch',
+    'baseline_result', 'baseline_bound_after_fetch'))
 DIAGNOSTIC_CHECKS = ('device_valid', 'device_cookie_match', 'login_match',
                      'page_match', 'url_unchanged', 'device_cookie_present',
                      'device_cookie_unique')
@@ -625,24 +628,32 @@ async def comparison_baseline(host, account, scope, request):
     out = baseline_evidence(state)
     try:
         state, acc, header = await comparison_bound(host, account, scope, request, "baseline")
+        comparison_mark(scope, 'baseline_header_before_mint')
         if header != request["cookie_header"]:
             raise ValueError("comparison bearer jar changed")
+        comparison_mark(scope, 'baseline_mint')
         token = await comparison_mint(scope, state, acc)
+        comparison_mark(scope, 'baseline_bound_after_mint')
         _, _, header = await comparison_bound(host, account, scope, request, "baseline")
+        comparison_mark(scope, 'baseline_header_after_mint')
         if header != request["cookie_header"]:
             raise ValueError("comparison bearer jar changed")
+        comparison_mark(scope, 'baseline_fetch_args')
         args = {"page_url": state["url"], "device": state["device"],
                 "path": state["path"], "body": state["baseline"], "token": token,
                 "bearer": request["bearer"], "timeout_ms": BASELINE_SECONDS * 1000,
                 "byte_limit": COMPARISON_BYTES}
         out.update(transport_starts=None, transport_finishes=None, fetch_settled=False)
+        comparison_mark(scope, 'baseline_fetch')
         raw = await comparison_rpc(scope, lambda: acc.page.evaluate(COMPARISON_FETCH, args),
                                    BASELINE_SECONDS + 2)
+        comparison_mark(scope, 'baseline_result')
         out = baseline_result(state, raw)
         del raw, args, token
         if not out["fetch_settled"]:
             scope.fail("comparison_fetch_unconfirmed")
         elif out["accepted"]:
+            comparison_mark(scope, 'baseline_bound_after_fetch')
             await comparison_bound(host, account, scope, request, "baseline")
             scope.comparison_next = "baseline_passed"
         return out
