@@ -78,43 +78,46 @@ Source and staged-diff review are the only local verification. Shared status
 docs, live activation and interpretation of the next comparison remain owned
 by the coordinators. The full browserless goal remains active and unfulfilled.
 
-A separate source finding concerns retained bearer lifetime.
-`control_authorization.rs::bearer` admits `expiresAt > now + 30 seconds` and
-returns only the token string. `ResidentBearer` does not retain expiry;
+The original retained-bearer source admitted `expiresAt > now + 30 seconds`
+and returned only the token string. `ResidentBearer` did not retain expiry;
 `begin_resident_mint` and `resident_token` recheck context but not bearer time.
 The resident RPC budget permits 45 seconds. A hypothetical bearer admitted
 with 31 seconds remaining can expire during a 32-second browser baseline
 (for example, a 3-second mint and 29-second fetch, within its 30-second fetch
 timeout), while a separate native mint still satisfies its freshness guard.
-Thus the source's minimum expiry and overall deadline are not sufficient
+Thus the original minimum expiry and overall deadline were not sufficient
 to establish bearer validity at native dispatch for every admitted response.
 Historical evidence in `castle-contract-2026-10-05.md` reports a 600-second
 AI JWT lifetime. No short-lived bearer was observed here, so this is a source
-boundary case, not an explanation of R14. A possible correction is to require
+boundary case, not an explanation of R14. The source correction now requires
 the initial bearer lifetime to cover the retained control deadline, without
-refreshing or changing the bearer between arms. Ownership was requested from
-both coordinators; no admission rule or credential type has been changed.
+refreshing or changing the bearer between arms.
 
-A dormant candidate now lives in `resident_bearer_validity.rs` with six
-deterministic cases in `resident_bearer_validity_tests.rs`. No serving module
-references it, so its presence changes no admission, dispatch or cleanup.
+The pure check lives in `resident_bearer_validity.rs` with six deterministic
+cases in `resident_bearer_validity_tests.rs`. It was prepared dormant in
+`917aeb9` and is now wired into the resident bearer acquisition only.
 It takes only parsed expiry milliseconds, current wall-clock milliseconds,
 and the remaining monotonic control budget. It keeps the 30-second minimum,
 requires lifetime beyond the full remaining budget, and reserves one extra
 millisecond for truncation of the supplied wall-clock sample. Expired,
 overflowing or zero-budget inputs refuse. No credential strings are inputs.
 
-The candidate must be called with a monotonic remaining-budget sample taken
-before the wall-clock sample. A future integration belongs immediately after
-the initial owned auth response is parsed, before the browser baseline.
-It must preserve one auth request, the same bearer across arms, current
+The integration takes its monotonic remaining-budget sample before its
+wall-clock sample, after the single auth response and existing cancellation
+and egress checks, before publishing the bearer for the browser baseline.
+It preserves one auth request, the same bearer across arms, current
 account/jar/egress binding, and all existing cancellation and cleanup checks.
-This helper alone does not close the gap or establish live bearer validity.
+The private acquisition result retains expiry metadata without Debug or
+serialization. Ordinary bearer callers keep their original expiry policy.
+An insufficient resident lifetime returns settled preparation rejection.
+This source change does not establish live bearer validity or acceptance.
 
-All six candidate cases are UNRUN here. The owner can compile the standalone
-test module with `rustc --edition=2021 --test` and run the resulting artifact
-inside its existing qualification boundary. Neither step was performed in
-this checkout. Next action is owner qualification of this candidate, followed
-by an explicitly reserved integration into the resident auth path if adopted.
+All ten validity and integration cases are UNRUN here. Four added cases use
+the existing bounded loopback fixture to cover short-lifetime rejection,
+sufficient-lifetime retention, unchanged ordinary admission, and cancellation
+after auth starts. They check the current jar and absence of another auth call.
+Next action is owner qualification of the six pure checks and
+`resident_control::tests::deadline_tests`, plus the existing auth/resident
+regressions. No build, test, SDK, browser or live request ran in this checkout.
 The integrated head-facts source is now `browserless` commit `9caa57d`;
 that source integration alone does not attest compilation or fixture success.

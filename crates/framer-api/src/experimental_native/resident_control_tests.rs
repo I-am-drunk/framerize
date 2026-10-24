@@ -7,6 +7,9 @@ use crate::experimental_native::native_http::{AccountRequestAuth, NativeCancella
 use std::time::Duration;
 use tokio::io::AsyncWriteExt;
 
+#[path = "resident_bearer_deadline_tests.rs"]
+mod deadline_tests;
+
 const PAGE: &str = "https://framer.com/login";
 const DEVICE: &str = "Raw-Device_01";
 const JAR: &str = "session=fixture-only-cookie; __cuid=Raw-Device_01; current=fresh";

@@ -257,7 +257,7 @@ impl BoundControlClient {
         }
         let current = Session { active_user: grant.session.active_user.clone(),
             cookie_header: grant.current_header.clone() };
-        let value = match self.bearer(&grant.context.scope, &current).await {
+        let value = match self.bearer_with_expiry(&grant.context.scope, &current).await {
             Ok(value) => value,
             Err(_) => return PreparationResult::unconfirmed(),
         };
@@ -267,7 +267,12 @@ impl BoundControlClient {
         if !grant.context.scope.matches_egress(&grant.context.launch_egress.as_native()) {
             return PreparationResult::finished(Err(PreparationFailure::Rejected));
         }
-        PreparationResult::finished(Ok(ResidentBearer { grant, value }))
+        let remaining = control.deadline().saturating_duration_since(tokio::time::Instant::now());
+        if !resident_bearer_validity::covers_resident_deadline(value.expires_at_ms,
+            chrono::Utc::now().timestamp_millis(), remaining) {
+            return PreparationResult::finished(Err(PreparationFailure::Rejected));
+        }
+        PreparationResult::finished(Ok(ResidentBearer { grant, value: value.value }))
     }
 }
 
