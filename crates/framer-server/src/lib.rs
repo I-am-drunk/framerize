@@ -2,7 +2,7 @@
 //! `framer-core`. No account logic lives here. Also serves the built web UI and the
 //! compat surfaces for Claude Code (`/anthropic`) and Codex (`/openai`).
 
-use axum::extract::State;
+use axum::extract::{rejection::JsonRejection, State};
 use axum::http::StatusCode;
 use axum::routing::{get, post};
 use axum::{Json, Router};
@@ -627,8 +627,17 @@ fn rand_u32() -> u32 {
 async fn anthropic_messages(
     State(s): State<AppState>,
     headers: axum::http::HeaderMap,
-    Json(payload): Json<serde_json::Value>,
+    payload: Result<Json<serde_json::Value>, JsonRejection>,
 ) -> Result<axum::response::Response, ApiError> {
+    let Json(payload) = match payload {
+        Ok(payload) => payload,
+        Err(error) => {
+            let response = axum::response::IntoResponse::into_response(error);
+            return Ok(if hdr(&headers, "x-framerize-mode").as_deref() == Some("paid") {
+                response
+            } else { operation_ownership::completed_response(response, true) });
+        }
+    };
     if hdr(&headers, "x-framerize-mode").as_deref() != Some("paid") {
         return free_complete(s, &headers, ClientDialect::AnthropicMessages, payload).await;
     }
@@ -644,8 +653,17 @@ async fn anthropic_messages(
 async fn openai_responses(
     State(s): State<AppState>,
     headers: axum::http::HeaderMap,
-    Json(payload): Json<serde_json::Value>,
+    payload: Result<Json<serde_json::Value>, JsonRejection>,
 ) -> Result<axum::response::Response, ApiError> {
+    let Json(payload) = match payload {
+        Ok(payload) => payload,
+        Err(error) => {
+            let response = axum::response::IntoResponse::into_response(error);
+            return Ok(if hdr(&headers, "x-framerize-mode").as_deref() == Some("paid") {
+                response
+            } else { operation_ownership::completed_response(response, true) });
+        }
+    };
     if hdr(&headers, "x-framerize-mode").as_deref() != Some("paid") {
         return free_complete(s, &headers, ClientDialect::OpenAiResponses, payload).await;
     }
@@ -661,8 +679,17 @@ async fn openai_responses(
 async fn openai_chat(
     State(s): State<AppState>,
     headers: axum::http::HeaderMap,
-    Json(payload): Json<serde_json::Value>,
+    payload: Result<Json<serde_json::Value>, JsonRejection>,
 ) -> Result<axum::response::Response, ApiError> {
+    let Json(payload) = match payload {
+        Ok(payload) => payload,
+        Err(error) => {
+            let response = axum::response::IntoResponse::into_response(error);
+            return Ok(if hdr(&headers, "x-framerize-mode").as_deref() == Some("paid") {
+                response
+            } else { operation_ownership::completed_response(response, true) });
+        }
+    };
     if hdr(&headers, "x-framerize-mode").as_deref() != Some("paid") {
         return free_complete(s, &headers, ClientDialect::OpenAiChat, payload).await;
     }
@@ -973,7 +1000,12 @@ async fn free_complete(
         pool,
         hdr(headers, "x-framerize-account").as_deref(),
     ).map_err(operation_ownership::completed_preflight)?;
-    let residency = RequestResidency::new(lease_account(&s, account.id).await?);
+    let acquired = pool_control::lease_account_observed(&s, account.id).await;
+    let residency = RequestResidency::new(match acquired.result {
+        Ok(lease) => lease,
+        Err(error) => return Ok(operation_ownership::completed_response(
+            axum::response::IntoResponse::into_response(error), acquired.cleanup_confirmed)),
+    });
     let account = match current_account(&s, account.id).await {
         Ok(account) => account,
         Err(error @ (ApiError::Cooling { .. } | ApiError::AccountCooling { .. })) => {
@@ -1000,7 +1032,17 @@ async fn free_complete(
     // rotated workspace (one account now spans multiple workspace budgets).
     let gate_model = anthro["model"].as_str().unwrap_or("unknown").to_string();
     let mut gate_key = format!("{}:{gate_model}", scope_team.0);
-    let mut first_permit = Some(s.gate.acquire(&gate_key).await);
+    let mut first_permit = Some(tokio::select! {
+        biased;
+        _ = operation_ownership::request_disconnected() => {
+            let (status, body) = convert::error_json(dialect, "client cancelled");
+            let response = axum::response::IntoResponse::into_response(ShapedApiError(
+                StatusCode::from_u16(status).unwrap_or(StatusCode::INTERNAL_SERVER_ERROR), body,
+            ));
+            return Ok(operation_ownership::completed_response(response, true));
+        }
+        permit = s.gate.acquire(&gate_key) => permit,
+    });
     match current_account(&s, account.id).await {
         Ok(_) => {},
         Err(error @ (ApiError::Cooling { .. } | ApiError::AccountCooling { .. })) => {
@@ -1270,7 +1312,14 @@ async fn free_complete(
         // Re-acquire per attempt so a retry waits for the narrowed limit.
         let permit = match first_permit.take() {
             Some(permit) => permit,
-            None => s.gate.acquire(&gate_key).await,
+            None => tokio::select! {
+                biased;
+                _ = operation_ownership::request_disconnected() => {
+                    result = Err("client cancelled".into());
+                    break 'account_retry;
+                }
+                permit = s.gate.acquire(&gate_key) => permit,
+            },
         };
         if let Err(error) = cfg.check_cancelled() {
             result = Err(error);
@@ -1509,7 +1558,12 @@ async fn native_complete(
         pool,
         hdr(headers, "x-framerize-account").as_deref(),
     ).map_err(operation_ownership::completed_preflight)?;
-    let residency = RequestResidency::new(lease_account(&s, account.id).await?);
+    let acquired = pool_control::lease_account_observed(&s, account.id).await;
+    let residency = RequestResidency::new(match acquired.result {
+        Ok(lease) => lease,
+        Err(error) => return Ok(operation_ownership::completed_response(
+            axum::response::IntoResponse::into_response(error), acquired.cleanup_confirmed)),
+    });
     let account = match current_account(&s, account.id).await {
         Ok(account) => account,
         Err(error @ (ApiError::Cooling { .. } | ApiError::AccountCooling { .. })) => {
@@ -1534,7 +1588,17 @@ async fn native_complete(
     // and the chain's rotated workspace (multi-workspace goose).
     let gate_model = convert::to_openrouter_id(&client_model);
     let mut gate_key = format!("{}:{gate_model}", scope_team.0);
-    let mut first_permit = Some(s.gate.acquire(&gate_key).await);
+    let mut first_permit = Some(tokio::select! {
+        biased;
+        _ = operation_ownership::request_disconnected() => {
+            let (status, body) = convert::error_json(dialect, "client cancelled");
+            let response = axum::response::IntoResponse::into_response(ShapedApiError(
+                StatusCode::from_u16(status).unwrap_or(StatusCode::INTERNAL_SERVER_ERROR), body,
+            ));
+            return Ok(operation_ownership::completed_response(response, true));
+        }
+        permit = s.gate.acquire(&gate_key) => permit,
+    });
     match current_account(&s, account.id).await {
         Ok(_) => {},
         Err(error @ (ApiError::Cooling { .. } | ApiError::AccountCooling { .. })) => {
@@ -1767,7 +1831,13 @@ async fn native_complete(
         if let Err(error) = cfg.check_cancelled() { break Err(error); }
         let permit = match first_permit.take() {
             Some(permit) => permit,
-            None => s.gate.acquire(&gate_key).await,
+            None => tokio::select! {
+                biased;
+                _ = operation_ownership::request_disconnected() => {
+                    break 'account_retry Err("client cancelled".into());
+                }
+                permit = s.gate.acquire(&gate_key) => permit,
+            },
         };
         if let Err(error) = cfg.check_cancelled() { break Err(error); }
         if let Err(error) = current_account(&s, account.id).await {
