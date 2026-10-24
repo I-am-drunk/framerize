@@ -12,6 +12,12 @@ reproduces the cause: it writes callback metadata onto the slotted provenance
 object, raising AttributeError during listener registration. Plain-function
 listeners correct this without changing identity or navigation guards.
 All 21 existing provenance cases and three real-Playwright callback cases pass.
+The supplied cookie-order fix is integrated as well. It compares validated
+snapshots in stable name order while retaining the original wire header and
+duplicate-name order. Its seven cases, 29 crossover cases and 11 bootstrap
+cases pass together. Changed values, membership and duplicate precedence
+still refuse. This closes a separate possible setup refusal, not the cause
+of the observed callback failure.
 One initial new fixture lacked a cooldown constant; its response was changed
 to HTTP 500 to test listener cleanup without exercising unrelated cooldowns.
 Fixed bootstrap reason diagnostics also pass 11 focused inert cases. These
