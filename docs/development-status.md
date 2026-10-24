@@ -3,6 +3,22 @@
 Updated 2026-10-24. The normal service remains browser-based. Publishing these
 branches does not change the running service.
 
+R13 tested the native-canvas V2 package through the owned resident control.
+The normal browser and paired browser baseline returned HTTP 200 with output.
+The isolated V2 worker completed, joined, and reached native HTTP, which again
+returned complete 403 JSON with Framer's Castle security envelope. Exact
+binary, configuration and live command bindings were verified. Cleanup was
+confirmed; the resident host remains fenced and the protected service is
+unchanged. No retry is queued. Native canvas alone did not establish upstream
+acceptance. The full isolated service peaked at 1,801,216,000 bytes with no
+swap or memory-limit events, so the whole-service memory target remains open.
+
+The next source task connects V2 window construction to the existing bounded
+inline-PNG loader. Canvas rendering currently exists without that image-loading
+path. This is a known missing capability, not an established cause of R13.
+Qualification must retain the SDK, identity, deadline and cleanup checks before
+considering another owned control.
+
 R12 completed an isolated-V2 request that was refused. The normal browser
 and paired browser baseline returned complete HTTP 200 model output. The
 isolated V2 component completed under the observed SDK identity, its child
@@ -21,9 +37,8 @@ change, the second canvas run peaked at 108,212,224 bytes (103.2 MiB), with no
 memory-limit events or swap. It minted once in 1,033 ms, preserved the device,
 and joined the child. The failed first result remains preserved. This is local
 component evidence, not upstream acceptance or whole-service memory evidence.
-The next control requires an explicitly packaged canvas V2 worker and the
-existing owned retirement, rate-history and account checks. No new control
-has been activated.
+R13 used the explicitly packaged canvas V2 worker after the existing owned
+retirement, rate-history and account checks. Its refusal is recorded above.
 
 The R11 normal-browser proof returned local HTTP 500 without model output,
 so the paired baseline and isolated-V2/native leg did not run. Its no-status
