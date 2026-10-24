@@ -111,6 +111,131 @@ def comparison_attach_progress(scope, request, emit):
         emit('browser.comparison.sdk', trace=scope.comparison_progress_id,
              purpose=purpose, mint=count + 1, **facts)
     scope.comparison_sdk_emit = sdk_emit
+    def startup_emit(phase, facts):
+        count = getattr(scope, 'comparison_startup_sequence', 0)
+        if count >= 4:
+            return
+        scope.comparison_startup_sequence = count + 1
+        emit('browser.comparison.startup', trace=scope.comparison_progress_id,
+             sequence=count + 1, phase=phase, **facts)
+    scope.comparison_startup_emit = startup_emit
+
+
+def comparison_public_module(url):
+    if type(url) is not str or len(url) > 256:
+        return None
+    match = re.fullmatch(r'https://app[.]framerstatic[.]com/'
+        r'((?:web[.]|chunk-)[A-Z0-9]{8}[.]mjs)', url)
+    return match[1] if match else None
+
+
+class ComparisonStartup:
+    """Passive, bounded observations of the owned page's initial navigation."""
+    def __init__(self, scope, page):
+        self.scope, self.page = scope, page
+        self.active, self.complete, self.available = True, True, False
+        self.pending, self.listeners = {}, []
+        self.facts = dict(domcontentloaded=False, load=False, document_status=None,
+            module_started=0, module_finished=0, module_failed=0, module_http_error=0,
+            policy_requested=False, wrapper_requested=False, page_errors=0,
+            web_entries=[], failed_modules=[])
+        bindings = [('request', self.request), ('response', self.response),
+            ('requestfinished', lambda value: self.settled(value, False)),
+            ('requestfailed', lambda value: self.settled(value, True)),
+            ('domcontentloaded', lambda *_: self.facts.update(domcontentloaded=True)),
+            ('load', lambda *_: self.facts.update(load=True)),
+            ('pageerror', lambda _: self.bump('page_errors'))]
+        try:
+            if not callable(getattr(page, 'remove_listener', None)):
+                self.complete = False
+                return
+            for event, callback in bindings:
+                def guarded(*args, callback=callback):
+                    if self.active:
+                        try:
+                            callback(*args)
+                        except Exception:
+                            self.complete = False
+                self.listeners.append((event, guarded))
+                page.on(event, guarded)
+            self.available = True
+        except Exception:
+            self.complete = False
+
+    def bump(self, key):
+        if self.facts[key] >= 512:
+            self.complete = False
+            return False
+        self.facts[key] += 1
+        return True
+
+    def remember(self, key, name):
+        if name not in self.facts[key]:
+            if len(self.facts[key]) < 8:
+                self.facts[key].append(name)
+            else:
+                self.complete = False
+
+    def request(self, request):
+        name = comparison_public_module(request.url)
+        if name is None:
+            return
+        if request in self.pending or not self.bump('module_started'):
+            self.complete = False
+            return
+        self.pending[request] = name
+        if name.startswith('web.'):
+            self.remember('web_entries', name)
+        if name == 'chunk-3W5IVLGF.mjs':
+            self.facts['policy_requested'] = True
+        if name == comparison_public_module(COMPARISON_WRAPPER):
+            self.facts['wrapper_requested'] = True
+
+    def response(self, response):
+        request, status = response.request, response.status
+        if type(status) is not int or not 100 <= status <= 599:
+            self.complete = False
+            return
+        if request.is_navigation_request() and request.frame == self.page.main_frame:
+            self.facts['document_status'] = status
+        if comparison_public_module(request.url) is not None:
+            if request not in self.pending:
+                self.complete = False
+            if status >= 400:
+                self.bump('module_http_error')
+                self.remember('failed_modules', comparison_public_module(request.url))
+
+    def settled(self, request, failed):
+        name = self.pending.pop(request, None)
+        if name is None:
+            if comparison_public_module(request.url) is not None:
+                self.complete = False
+            return
+        self.bump('module_failed' if failed else 'module_finished')
+        if failed:
+            self.remember('failed_modules', name)
+
+    def emit(self, phase):
+        if phase not in ('navigation', 'readiness', 'policy', 'finished'):
+            return
+        try:
+            callback = getattr(self.scope, 'comparison_startup_emit', None)
+            if callback is not None:
+                callback(phase, dict(self.facts, available=self.available,
+                    tracking_complete=self.complete, module_pending=len(self.pending),
+                    web_entries=list(self.facts['web_entries']),
+                    failed_modules=list(self.facts['failed_modules'])))
+        except Exception:
+            pass
+
+    def close(self):
+        self.active = False
+        for event, callback in self.listeners:
+            try:
+                self.page.remove_listener(event, callback)
+            except Exception:
+                self.complete = False
+        self.pending.clear()
 
 
 def comparison_evidence(scope):
@@ -791,6 +916,16 @@ def validate_comparison_request(request):
 
 
 async def comparison_context(host, account, scope, request):
+    acc = comparison_owner(host, account, scope)
+    startup = ComparisonStartup(scope, acc.page)
+    try:
+        return await _comparison_context(host, account, scope, request, startup)
+    finally:
+        startup.emit('finished')
+        startup.close()
+
+
+async def _comparison_context(host, account, scope, request, startup):
     comparison_mark(scope, 'context_inputs')
     acc = comparison_owner(host, account, scope)
     project, path = comparison_target(request)
@@ -804,9 +939,12 @@ async def comparison_context(host, account, scope, request):
     await comparison_rpc(scope, lambda: acc.page.goto(
         "https://framer.com/projects/" + project,
         wait_until="domcontentloaded", timeout=45000), 46)
+    startup.emit('navigation')
     comparison_mark(scope, 'editor_readiness')
     await comparison_editor_ready(scope, acc.page, project)
+    startup.emit('readiness')
     policy = await comparison_policy(scope, acc.page, project)
+    startup.emit('policy')
     url, device, header = await comparison_snapshot(scope, acc, project, path, login)
     state = {"identity": scope.identity(), "account": account, "acc": acc,
              "page": acc.page, "context": acc.ctx, "browser": acc.browser,

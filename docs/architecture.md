@@ -26,6 +26,15 @@ fixed stage; no account, URL, cookie, token or prompt is included. The 128-recor
 cap is explicit. A phase marks local code entry, not an upstream send or completed
 cleanup. Missing records and sink failures remain unknown, and logging never
 changes RPC or cleanup ownership.
+Comparison preparation also observes the existing page's initial document and
+public module events. Four bounded snapshots distinguish observed HTTP errors,
+request failures and pending modules. Asset names must match the public host
+and the restricted `web` or `chunk` filename form; private URLs, response bodies,
+headers and error messages are excluded. Tracking is capped at 512 modules and
+eight names per list. Missing events, observer failures and capacity overflow
+limit coverage. These records do not prove module evaluation, an SDK branch or
+an inference send. Observers detach when preparation returns or is cancelled;
+the original scope still owns any pending browser RPC.
 The standalone controller defers service startup until it has left its
 read-only sandbox and confirmed the comparison group is absent. Clean refused
 comparisons retain the stopped owner and full derived cooldown history;

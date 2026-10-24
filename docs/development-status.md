@@ -68,9 +68,27 @@ wrapper body are unchanged; their asset dependencies changed. Comparison pins
 now follow the new selection. The host, API and comparison executable build
 successfully, and all 140 Python plus 61 JavaScript checks pass. Build peaks
 were 403,652,608, 663,179,264 and 450,957,312 bytes respectively, with zero swap
-or limit events and absent groups. No later live result is claimed, and this
-does not establish the cause of earlier HTTP 403s. Next, freeze R19 against
-the corrected executable and admit it using R18's preserved history.
+or limit events and absent groups.
+R19 then failed at `editor_wait_timeout`, before policy evaluation or SDK use.
+The diagnostic read matched the project URL but found no history object or
+device storage. Neither inference leg ran. Both cleanup receipts completed;
+the child exited naturally, its group was absent, and peak usage was
+1,001,054,208 bytes with zero swap or limit events. The protected browser was
+unchanged and the isolated owner remains parked with its full history.
+The new saved router and web entry retain the old local readiness logic;
+their dependency URLs changed. This does not establish the actual page's
+loaded graph or explain the earlier HTTP 403s.
+
+Passive startup diagnostics now count the owned page's document events,
+public module requests, failures and pending loads, plus JavaScript errors.
+Only restricted public asset basenames and fixed fields leave the observer.
+All 149 focused Python cases pass. The isolated browser fixture also passes,
+distinguishing pending, HTTP-failed and network-failed modules, document
+events and a JavaScript error. It closed cleanly at a 513,777,664-byte peak,
+with zero swap or limit events. Two earlier probe failures exposed a callback
+signature error in these new diagnostics; the corrected handlers accept the
+page argument and the fixture now reproduces it. No acceptance, deadline or
+retry behavior changed. Next, build the observer into the bounded comparison.
 
 A traced offline SDK probe identified the browser crash: PulseAudio requests a
 64 MiB shared-memory file, but the comparison runner allowed only 32 MiB.

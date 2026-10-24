@@ -57,6 +57,7 @@ class DiagnosticHarness(FIXTURE.Harness):
         self.events = []
         self.progress = []
         self.sdk_events = []
+        self.startup_events = []
         self.host._observed_command = lambda request: request
         self.host.lifecycles[self.account_id].phase = "resident"
         self.host._use_account = self.use_account
@@ -64,6 +65,7 @@ class DiagnosticHarness(FIXTURE.Harness):
 
     def emit(self, event, **fields):
         target = (self.progress if event == 'browser.comparison.progress' else
+                  self.startup_events if event == 'browser.comparison.startup' else
                   self.sdk_events if event == 'browser.comparison.sdk' else self.events)
         target.append(dict(event=event, **fields))
 
