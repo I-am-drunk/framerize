@@ -69,6 +69,15 @@ def _text(value, limit):
         and not any(ord(c) < 32 or 127 <= ord(c) <= 159 for c in value))
 
 
+def _same_cookie_snapshot(actual, expected):
+    # Both headers were validated by snapshot_header. Compare stable name order
+    # while retaining the original header for transport and duplicate precedence.
+    def ordered(snapshot):
+        header, device = snapshot
+        return device, sorted(header.split('; '), key=lambda part: part.partition('=')[0])
+    return ordered(actual) == ordered(expected)
+
+
 def _positive(value):
     return type(value) is int and 0 < value < 2 ** 64
 
@@ -680,11 +689,11 @@ class _CrossoverOperation(_Operation):
             provenance=self.binding.provenance, **fields)
 
     async def check_pin(self):
-        if await self.snapshot() != self.context:
+        if not _same_cookie_snapshot(await self.snapshot(), self.context):
             _refuse()
         if await self.rpc(self.pin.evaluate, RESIDENT_PIN_JS, self.arguments()) is not True:
             _refuse()
-        if await self.snapshot() != self.context:
+        if not _same_cookie_snapshot(await self.snapshot(), self.context):
             _refuse()
 
     async def capture(self):
