@@ -64,6 +64,14 @@ including a frame matching the public castle-rs golden digest. It returns
 private bytes to its caller, has no logging and is not connected to serving. Field-level
 parsing and private structural comparison remain pending; no private token was
 decoded and no live request followed this work.
+The report projection now passes eleven focused synthetic cases, including
+duplicate and escaped JSON keys, malformed metadata, structural accounting,
+fixed-error privacy and input-buffer clearing. The isolated suite peaked at
+17,055,744 bytes with zero swap or limit events; its process group is gone.
+The prior seven frame-decoder cases are reused unchanged. The next dependency
+is the separately owned five-group parser, followed by its focused validation
+and a bounded structural observation. No additional SDK call or live request
+was made for these projection checks.
 
 R12 completed an isolated-V2 request that was refused. The normal browser
 and paired browser baseline returned complete HTTP 200 model output. The

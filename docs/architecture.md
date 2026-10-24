@@ -1,5 +1,15 @@
 # Serving architecture and branch policy
 
+The isolated V2 diagnostic report projection consumes a bounded private-pipe
+report and exports only fixed operation metadata, resource counters and field
+structure. Structural entries contain group ID, field ID, type and encoded
+byte length. The five group headers plus field lengths must account for the
+consumed section exactly. Duplicate JSON keys, unknown fields and malformed
+facts refuse the report with a fixed error. Mutable input buffers are cleared
+on both outcomes; this is not a secure-erasure guarantee for Python strings.
+The projection grants no token, authentication or dispatch authority and is
+not connected to serving. The parser and private-pipe owner remain separate.
+
 V2 window construction uses the existing bounded inline-PNG loader. It accepts
 at most four local PNGs per window, each at most 64 KiB and 262,144 pixels,
 with either dimension at most 2,048. Other URLs never reach the parent loader.
