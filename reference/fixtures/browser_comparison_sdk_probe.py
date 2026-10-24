@@ -89,6 +89,7 @@ async def check(browser, emit, mint_expression, modules, public_key):
         assert result["stage"] in {"import", "initialize", "device_ready", "mint",
                                    "finished", "pre_context", "dynamic_import",
                                    "export_validation", "wrapper_call", "post_context",
+                                   "post_page", "post_device",
                                    "invalid_token", "rpc_target_closed", "rpc_timeout", "rpc_error"}
         assert type(result["accepted"]) is bool
         emit("sdk_" + result["stage"])

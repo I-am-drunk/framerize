@@ -18,7 +18,8 @@ COMPARISON_READY_SECONDS = 10
 COMPARISON_DISPOSE_SECONDS = 2
 MINT_FAILURE_MARKS = {'pre_context': 'mint_pre_context', 'dynamic_import': 'mint_import',
     'export_validation': 'mint_export', 'wrapper_call': 'mint_wrapper_call',
-    'post_context': 'mint_post_context', 'invalid_token': 'mint_invalid_token'}
+    'post_context': 'mint_post_context', 'post_page': 'mint_post_page',
+    'post_device': 'mint_post_device', 'invalid_token': 'mint_invalid_token'}
 DIAGNOSTIC_STAGES = frozenset(('account_start', 'context_inputs', 'cookie_seed',
     'navigation', 'device_readiness', 'snapshot_page', 'snapshot_cookies', 'snapshot_header',
     'snapshot_validate', 'context_ready', 'baseline', 'native_token',
@@ -288,8 +289,9 @@ COMPARISON_MINT = """async ({url, entry, device, page_url}) => {
     const token = await module[entry]();
     stage = 'post_context';
     const after = location.href;
-    if (after !== page_url || localStorage.getItem('__cuid') !== device)
-      throw new Error('context');
+    if (after !== page_url) return {failure_stage: 'post_page'};
+    if (localStorage.getItem('__cuid') !== device)
+      return {failure_stage: 'post_device'};
     stage = 'invalid_token';
     if (typeof token !== 'string' || !token || token.length > 16 * 1024)
       throw new Error('token');
