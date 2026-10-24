@@ -14,8 +14,10 @@ COMPARISON_EXPORT = "b"
 COMPARISON_BYTES = 64 * 1024
 COMPARISON_SECONDS = 180
 BASELINE_SECONDS = 30
+COMPARISON_READY_SECONDS = 10
+COMPARISON_DISPOSE_SECONDS = 2
 DIAGNOSTIC_STAGES = frozenset(('account_start', 'context_inputs', 'cookie_seed',
-    'navigation', 'snapshot_page', 'snapshot_cookies', 'snapshot_header',
+    'navigation', 'device_readiness', 'snapshot_page', 'snapshot_cookies', 'snapshot_header',
     'snapshot_validate', 'context_ready', 'baseline', 'native_token'))
 DIAGNOSTIC_CHECKS = ('device_valid', 'device_cookie_match', 'login_match',
                      'page_match', 'url_unchanged')
@@ -224,6 +226,11 @@ def comparison_bodies(request, project):
     return baseline, native
 
 
+COMPARISON_READY = """() => {
+  const device = localStorage.getItem('__cuid');
+  return typeof device === 'string' && device.length > 0;
+}"""
+
 COMPARISON_SNAPSHOT = """() => ({
   url: location.href, device: localStorage.getItem('__cuid')
 })"""
@@ -251,6 +258,18 @@ def comparison_owner(host, account, scope):
             or acc._observed_scope is not scope):
         raise ValueError("comparison owner changed")
     return acc
+
+
+async def comparison_device_ready(scope, page):
+    async def wait_and_dispose():
+        handle = await page.wait_for_function(COMPARISON_READY,
+            timeout=COMPARISON_READY_SECONDS * 1000, polling=100)
+        await asyncio.wait_for(asyncio.shield(scope.rpc(handle.dispose())),
+                               COMPARISON_DISPOSE_SECONDS)
+
+    # Both RPCs stay owned after caller cancellation or a disposal timeout.
+    await comparison_rpc(scope, wait_and_dispose,
+                         COMPARISON_READY_SECONDS + COMPARISON_DISPOSE_SECONDS)
 
 
 async def comparison_snapshot(scope, acc, project, path, login):
@@ -324,6 +343,8 @@ async def comparison_context(host, account, scope, request):
     await comparison_rpc(scope, lambda: acc.page.goto(
         "https://framer.com/projects/" + project,
         wait_until="domcontentloaded", timeout=45000), 46)
+    comparison_mark(scope, 'device_readiness')
+    await comparison_device_ready(scope, acc.page)
     url, device, header = await comparison_snapshot(scope, acc, project, path, login)
     state = {"identity": scope.identity(), "account": account, "acc": acc,
              "page": acc.page, "context": acc.ctx, "browser": acc.browser,
