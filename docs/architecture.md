@@ -23,8 +23,13 @@ waits and later nonstream permit waits of disconnect. Those waits release local
 residency before the held permit becomes available; already admitted calls
 still finish through the existing join and cleanup path. Earlier uncertainty
 and recorded cooldown survive cancellation. Thirteen selected tests pass.
-Pure validation refusals and the initial post-permit ServingCapacity refusal
-remain separate known completion gaps; this batch does not qualify them.
+Pure validation refusals now explicitly complete before account work begins.
+Initial account rechecks also complete a typed ServingCapacity refusal while
+retaining the existing handling of unknown cleanup and other failures. Three
+additional tests cover 16 local-refusal and post-permit lifecycle scenarios,
+including unread error responses and successful subsequent admission. The two
+metered-policy branches and earlier pre-session rechecks remain source-inspected
+without a new direct fixture discriminator.
 
 Explicit account requests now require a Ready account with a complete current
 scope. Selection and the pre-call lookup retain cooldown and cleanup fences;
