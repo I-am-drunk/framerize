@@ -77,7 +77,19 @@ not restored history, and does not guarantee permanent URL stability.
 All 84 focused Python cases and eight exact-JavaScript cases pass with
 networking disabled. The tests cover delayed binding, timeout/cancellation,
 wrong projects, incomplete/transient history and existing mint/cleanup paths.
-This is tested source, not yet a live result or proof of R13's redirect cause.
+The first live use, R14, stopped at editor readiness before returning its
+initial context. No baseline or native result was produced. Browser cleanup
+was confirmed; account cleanup was not, so the original `Cleanup` failure
+and isolation fence remain. The child exited naturally, its group was removed,
+and peak usage was 1,062,060,032 bytes with 194 tasks and no swap or limit
+events. Exact system records establish physical closure and the full reserved
+cooldown was extended through that closure. The protected browser is unchanged.
+The exact predicate then passed in a network-disabled real browser with a
+synthetic page: both JavaScript realms saw the page-authored history and the
+normal readiness wait/disposal completed. This excludes basic field-access
+incompatibility in that fixture. It does not identify R14's failure: its single
+stage still covers predicate waiting, browser RPC, handle disposal and scope
+checks. The next change distinguishes those failures with bounded diagnostics.
 
 Preparation now records fixed phases immediately through the existing sidecar
 log, instead of retaining them only in memory until command completion. All
