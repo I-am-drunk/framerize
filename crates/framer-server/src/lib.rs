@@ -99,6 +99,9 @@ mod stream_ownership_tests;
 #[cfg(test)]
 mod permit_lifetime_tests;
 
+#[cfg(test)]
+mod upstream_health_tests;
+
 /// Keep the producer owned by its response body, including before the first poll.
 fn proxy_response_stream(
     rx: tokio::sync::mpsc::Receiver<Result<framer_core::port::ProxyResponse, String>>,
@@ -152,6 +155,23 @@ async fn hello() -> axum::response::Response {
         axum::response::IntoResponse::into_response("ok"), true)
 }
 
+// These local reads have finished before their assembled bodies can be
+// discarded. Keep this proof separate from all mutation and inference routes.
+async fn accounts_read(state: State<AppState>) -> axum::response::Response {
+    operation_ownership::completed_response(
+        axum::response::IntoResponse::into_response(accounts(state).await), true)
+}
+
+async fn pool_read(state: State<AppState>) -> axum::response::Response {
+    operation_ownership::completed_response(
+        axum::response::IntoResponse::into_response(pool_shape(state).await), true)
+}
+
+async fn pool_config_read(state: State<AppState>) -> axum::response::Response {
+    operation_ownership::completed_response(
+        axum::response::IntoResponse::into_response(pool_control::config(state).await), true)
+}
+
 /// Install application metadata inside the existing owned handler task.
 pub fn router_with_request_layer(state: AppState, web_dir: &str,
     layer: impl FnOnce(Router) -> Router) -> Router {
@@ -160,9 +180,10 @@ pub fn router_with_request_layer(state: AppState, web_dir: &str,
         // Claude Code connection-warming probe (gateway protocol: safe to
         // answer or reject; we answer 200).
         .route("/hello", get(hello).head(hello))
-        .route("/accounts", get(accounts))
-        .route("/pool", get(pool_shape))
-        .route("/pool/config", get(pool_control::config).post(pool_control::configure))
+        .route("/accounts", get(accounts_read).head(accounts_read))
+        .route("/pool", get(pool_read).head(pool_read))
+        .route("/pool/config", get(pool_config_read).head(pool_config_read)
+            .post(pool_control::configure))
         .route("/pool/activate", post(pool_control::activate))
         .route("/pool/park", post(pool_control::park))
         .route("/accounts/remove", post(remove_account))
@@ -748,6 +769,14 @@ fn chain_admission_error(error: ApiError) -> String {
     }
 }
 
+fn upstream_error_excerpt(error: &str) -> &str {
+    let mut end = error.len().min(240);
+    while !error.is_char_boundary(end) {
+        end -= 1;
+    }
+    &error[..end]
+}
+
 async fn record_account_health<T>(
     s: &AppState,
     account: &framer_core::account::ManagedAccount,
@@ -803,7 +832,7 @@ async fn record_account_health<T>(
             eprintln!(
                 "[upstream] {}: provider refused (NOT account health): {}",
                 &account.id.0.to_string()[..8],
-                &e[..e.len().min(240)],
+                upstream_error_excerpt(e),
             );
             return;
         }
