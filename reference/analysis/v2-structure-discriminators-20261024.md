@@ -399,7 +399,7 @@ Transport/config owner: `mcp:a94287af-9994-4882-abc3-5108e653cc34`.
 | --- | --- | --- | --- |
 | Qualify the actual native-token observation | Runtime owner named above | Rust port `56c9455`, borrowed-token observer and owner-run qualification | R15 browser HTTP 200/output; realm V2/native Castle 403; cleanup confirmed. Its actual native token has no projection. `db1eb359` remains separate synthetic evidence. |
 | Extend the source mapping | This structure lane | Newly supplied structural projection or a specific source correction | All supplied differences mapped through `6e751e6`; owner reports all 16 unchanged comparator cases passing. |
-| Activate the goal-status policy in existing T3 sessions | Transport/config owner | Verified live activation without losing goal identity or accounting | `d17fe60` records passing isolated hook, reload and resume checks. Activation in the five existing T3 sessions remains unverified. |
+| Activate the goal-status policy in existing T3 sessions | Transport/config owner | Approved activation, verified live enforcement, then user-controlled resume of the same goal with identity and accounting retained | `d17fe60` records passing isolated checks. The transport owner's existing live session subsequently accepted a required blocked transition. Other live sessions remain unverified. |
 
 The isolated fixture denied a nested blocked transition after same-process
 configuration reload and retained its goal through cold resume. This does not
@@ -408,8 +408,17 @@ that starting a fresh turn without the explicit reload still allowed the blocked
 call on a disposable fixture goal. Its pinned-source trace identifies SIGHUP as
 graceful shutdown, not config reload; no live signal or shared-goal change occurred.
 Neither mechanism supplies the missing live-activation evidence.
-Keep the current anti-blocking guidance until the
-config owner verifies activation, then remove only its redundant wording.
+
+The transport owner subsequently reported an accepted blocked transition in its
+existing live session after three consecutive turns with no authorized action.
+The still-loaded native requirement prevailed over the conversation guidance.
+This was a required transition, not a diagnostic attempt or completion claim.
+The full objective, original goal identity, creation time and accounting were
+retained. This establishes a live enforcement failure in that session; it does
+not measure another session or change another owner's work.
+
+Keep the current anti-blocking guidance until the config owner verifies live
+activation, then remove only its redundant wording.
 Retain concrete progress, action ownership/input/evidence, full-outcome completion,
 runtime guards and accounting preservation. No status-only loops, session polling,
 duplicate execution or invented work are authorized. Do not edit stored objectives.
