@@ -1,5 +1,10 @@
 # Serving architecture and branch policy
 
+The resident coordinator validates the final browser body before acquiring
+its lease. A local baseline validation error cannot create external work and
+preserves already-confirmed preparation cleanup. Transport and ownership
+uncertainty still fence the native generation.
+
 The resident baseline carries only the existing refusal policy and evidence
 basis across its private reply boundary. Strict decoding binds these facts to
 the lease and original context. The coordinator records them before refusing

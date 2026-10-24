@@ -281,6 +281,37 @@ async fn dropped_waiter_retains_capacity_until_actual_settlement() { retained_ca
 async fn deadline_retains_capacity_until_actual_settlement() { retained_cancel(false, true).await; }
 
 #[tokio::test]
+async fn local_baseline_rejection_preserves_only_confirmed_native_cleanup() {
+    use framer_host::sidecar::resident::ResidentError;
+    for (error, previously_settled, expected) in [
+        (ResidentError::InvalidBaseline, true, true),
+        (ResidentError::InvalidBaseline, false, false),
+        (ResidentError::Unconfirmed, true, false),
+        (ResidentError::OwnerUnavailable, true, false),
+        (ResidentError::Deadline, true, false),
+        (ResidentError::OutOfOrder, true, false),
+    ] {
+        let native = NativeAccountClient::new().unwrap();
+        let scope = native.open_account(framer_core::ids::AccountId::new(),
+            framer_core::port::Session {
+                active_user: framer_core::ids::FramerUserId("fixture-user".into()),
+                cookie_header: "session=fixture".into(),
+            }, NativeHttpLimits::default(), owner::egress(&None)).unwrap();
+        let pending = native.prepare_owned::<(), _, _>(&scope,
+            Instant::now() + Duration::from_secs(2), move |_, _| async move {
+                PreparationResult {
+                    value: Err(PreparationFailure::Rejected),
+                    cleanup_confirmed: attempt::baseline_rejection_settled(error, previously_settled),
+                }
+            }).unwrap();
+        assert!(tokio::time::timeout(Duration::from_secs(2), pending).await.unwrap().is_err());
+        let closed = native.close_account(&scope).unwrap();
+        assert_eq!(tokio::time::timeout(Duration::from_secs(2), closed).await.unwrap().is_ok(),
+            expected, "{error:?}, previously settled: {previously_settled}");
+    }
+}
+
+#[tokio::test]
 async fn captured_fallback_proxy_is_distinct_from_logical_configuration() {
     let native = NativeAccountClient::new().unwrap();
     let effective = Some("http://127.0.0.1:1".to_owned());
