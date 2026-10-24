@@ -1,5 +1,11 @@
 # Serving architecture and branch policy
 
+Resident crossover bodies reject numeric magnitudes above 9007199254740991
+before admission and again at the Python baseline boundary. The shared Rust
+body check also covers the prepared envelope. This conservative range prevents
+full-width Rust integers from becoming different values in browser JSON.
+It applies to the experimental crossover, not other native request dialects.
+
 The resident coordinator validates the final browser body before acquiring
 its lease. A local baseline validation error cannot create external work and
 preserves already-confirmed preparation cleanup. Transport and ownership

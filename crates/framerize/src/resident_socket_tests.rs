@@ -343,3 +343,29 @@ fn exact_identity_and_context_are_preserved() {
     assert_eq!(baseline, "fixture-browser");
     assert!(matches!(spec.route, FreeRoute::Responses));
 }
+
+fn schema_minimum_input(minimum: Value) -> Value {
+    let mut value = input();
+    value["request"]["tools"] = json!([{"type": "function", "name": "bounds",
+        "parameters": {"type": "object", "properties": {
+            "count": {"type": "number", "minimum": minimum}}}}]);
+    value
+}
+
+// UNRUN regression: the shared resident body guard rejects lossy browser inputs.
+#[test]
+fn parser_refuses_integer_rounded_by_browser_baseline() {
+    for minimum in [json!(9_007_199_254_740_993_u64), json!(-9_007_199_254_740_993_i64)] {
+        assert!(parsed(&schema_minimum_input(minimum)).is_err());
+    }
+}
+
+#[test]
+fn parser_keeps_exactly_representable_request_numbers() {
+    for minimum in [json!(-9_007_199_254_740_991_i64), json!(0),
+        json!(9_007_199_254_740_991_u64), json!(0.25)] {
+        let (spec, _) = parsed(&schema_minimum_input(minimum.clone())).unwrap();
+        assert_eq!(spec.payload["tools"][0]["parameters"]["properties"]
+            ["count"]["minimum"], minimum);
+    }
+}

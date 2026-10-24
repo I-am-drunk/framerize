@@ -17,6 +17,19 @@ fn expected_v2_frame(id: u64, extra: Value) -> Value {
     frame
 }
 
+fn lossy_baseline_numbers() -> Vec<Value> {
+    let mut numbers = vec![json!(9_007_199_254_740_992_u64),
+        json!(-9_007_199_254_740_992_i64), json!(9_007_199_254_740_993_u64),
+        json!(-9_007_199_254_740_993_i64), json!(u64::MAX), json!(i64::MIN)];
+    for spelling in ["9007199254740992.0", "-9007199254740992.0",
+        "9007199254740993.0", "-9007199254740993.0",
+        "9.007199254740993e15", "-9.007199254740993e15",
+        "9007199254740992.5", "-9007199254740992.5", "1e100", "-1e100"] {
+        numbers.push(serde_json::from_str(spelling).unwrap());
+    }
+    numbers
+}
+
 #[test]
 fn v2_baseline_body_checks_serialized_bytes_and_nested_tokens() {
     let at_limit = json!({"x": "a".repeat(64 * 1024 - 8)});
@@ -29,6 +42,21 @@ fn v2_baseline_body_checks_serialized_bytes_and_nested_tokens() {
     for invalid in [Value::Null, json!([]), json!("object required"),
         json!({"castleToken": null}), json!({"nested": [{"castleToken": "fixture"}]})] {
         assert!(!baseline_body(&invalid));
+    }
+    for number in lossy_baseline_numbers() {
+        let body = json!({"request": {"tools": [{"parameters": {"minimum": number}}]}});
+        assert_eq!(ResidentRpcV2::validate_baseline_body(&body),
+            Err(ResidentError::InvalidBaseline));
+    }
+    for spelling in ["-9007199254740991", "0", "9007199254740991",
+        "-9007199254740991.0", "9007199254740991.0",
+        "-9.007199254740991e15", "9.007199254740991e15",
+        "0.25", "-0.25", "0.1", "-0.0", "true", "false", "null"] {
+        let value: Value = serde_json::from_str(spelling).unwrap();
+        let body = json!({"request": {"tools": [{"parameters": {"minimum": value}}]}});
+        let before = body.clone();
+        assert_eq!(ResidentRpcV2::validate_baseline_body(&body), Ok(()));
+        assert_eq!(body, before);
     }
     let mut nested = json!({});
     for _ in 0..65 { nested = json!({"x": nested}); }
@@ -118,6 +146,11 @@ async fn v2_validates_private_inputs_before_any_command() {
     }
     for body in [json!([]), json!({"castleToken": "fixture"}),
         json!({"x": "a".repeat(64 * 1024)})] {
+        assert_eq!(rpc.baseline("fixture", &body).await.err(),
+            Some(ResidentError::InvalidBaseline));
+    }
+    for number in lossy_baseline_numbers() {
+        let body = json!({"request": {"tools": [{"parameters": {"minimum": number}}]}});
         assert_eq!(rpc.baseline("fixture", &body).await.err(),
             Some(ResidentError::InvalidBaseline));
     }

@@ -3,6 +3,15 @@
 Updated 2026-10-24. The normal service remains browser-based. Publishing these
 branches does not change the running service.
 
+Resident request numbers now stay within JavaScript's safe integer magnitude,
+including decimal and exponent forms. One Rust body validator is reused by
+socket parsing, launch admission and final-body preflight; the Python baseline
+boundary applies the same limit. Values are refused rather than rounded.
+The two supplied parser regressions are integrated, bringing socket coverage
+to 31 source cases. Existing host/Python cases cover nested limits and ordinary
+fractions. These changes are uncompiled and unrun and do not explain any saved
+HTTP refusal.
+
 Resident baseline bodies are now checked after turn-ID substitution and
 before lease acquisition. An explicit local `InvalidBaseline` preserves
 previously confirmed preparation cleanup; other RPC errors remain unconfirmed.
