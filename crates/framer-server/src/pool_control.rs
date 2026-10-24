@@ -221,7 +221,8 @@ pub(super) async fn configure(State(s): State<AppState>, Json(update): Json<Conf
     let mut next = old.clone();
     if let Some(capacity) = update.active_capacity { next.active_capacity = capacity; }
     if let Some(eligible) = update.eligible_accounts { next.eligible_accounts = eligible; }
-    next.validate().map_err(ApiError::InvalidRequest)?;
+    next.validate().map_err(ApiError::InvalidRequest)
+        .map_err(super::operation_ownership::completed_preflight)?;
     let operation = policy.operation.lock().await;
     if !policy.mutations.lock().map_err(busy)?.is_empty() {
         return Err(busy("account management is in progress"));

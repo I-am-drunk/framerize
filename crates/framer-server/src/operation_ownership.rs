@@ -129,6 +129,12 @@ where T: Send + 'static, F: Future<Output = T> + Send + 'static {
 #[derive(Clone)]
 pub(crate) struct ResponseCompletion(Shared<BoxFuture<'static, bool>>);
 
+impl ResponseCompletion {
+    pub(crate) fn from_receiver(receiver: tokio::sync::oneshot::Receiver<bool>) -> Self {
+        Self(async move { receiver.await.unwrap_or(false) }.boxed().shared())
+    }
+}
+
 /// Only for an already assembled response with an observed cleanup outcome.
 pub(crate) fn completed_response(mut response: Response, confirmed: bool) -> Response {
     response.extensions_mut().insert(ResponseCompletion(
