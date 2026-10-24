@@ -88,7 +88,9 @@ class BrowserComparisonRealmTests(unittest.IsolatedAsyncioTestCase):
         names = [call[0] for call in value.calls]
         self.assertLess(names.index("goto"), names.index("wait_for_function"))
         self.assertLess(names.index("dispose_readiness"), names.index("realm_evaluate"))
-        self.assertEqual(value.evaluations, [("mw:" + C.COMPARISON_SNAPSHOT, None)])
+        self.assertEqual(value.evaluations, [
+            ("mw:" + C.COMPARISON_POLICY, {"project": F.OLD.PROJECT, "page_url": F.OLD.PAGE_URL}),
+            ("mw:" + C.COMPARISON_SNAPSHOT, None)])
         seeds = [call[1] for call in value.calls if call[0] == "add_cookies"]
         self.assertEqual([[row["name"] for row in rows] for rows in seeds], [["session"]])
         self.assertEqual((value.mints, value.fetches), (0, 0))

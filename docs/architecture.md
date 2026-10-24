@@ -68,6 +68,12 @@ credits-experiment header remains unbound. Native inference uses that same
 default header contract; authentication retains its required CSRF marker.
 The direct and OpenRouter Responses envelopes keep `model` inside `request`
 and omit its redundant top-level copy. Other dialects retain their envelopes.
+Before the initial comparison snapshot, a two-second owned evaluation reads
+the app's exact AI policy through its cached engine and policy modules. It
+binds the current project, space membership, page and device, then rechecks
+them after the policy call. Personal spaces need no organization configuration.
+Unknown scope, missing context or disabled AI refuses preparation before any
+bearer acquisition or mint. Cancellation retains ownership of a pending RPC.
 
 The comparison must run the public SDK in the page's own JavaScript realm.
 The offline failure was Firefox's rejection of TypedArray access across an
