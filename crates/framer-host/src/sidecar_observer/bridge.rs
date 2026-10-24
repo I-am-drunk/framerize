@@ -116,7 +116,7 @@ impl BrowserBridge for ScopedBridge {
 
 struct StopOnDrop { state: Arc<state::ScopeState>, armed: bool }
 
-fn take_context_authorization(mut value: Value,
+pub(super) fn take_context_authorization(mut value: Value,
     request: framer_core::port::BrowserAuthorizationRequest<'_>)
     -> Result<framer_core::port::BrowserAuthorization, String> {
     if value["source"] != "framer_wrapper_direct" || value["path"] != request.path
@@ -147,7 +147,7 @@ impl ScopedBridge {
         Ok(())
     }
 
-    async fn call(&self, account: &AccountId, cmd: &'static str,
+    pub(super) async fn call(&self, account: &AccountId, cmd: &'static str,
         fields: impl FnOnce() -> Value + Send) -> Result<Value, String> {
         self.check_account(account)?;
         let guard = self.state.begin(&self.registry).map_err(|e| e.to_string())?;

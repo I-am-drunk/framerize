@@ -59,6 +59,8 @@ mod bridge;
 mod protocol;
 #[path = "sidecar_observer/process.rs"]
 mod process;
+#[path = "sidecar_observer/comparison.rs"]
+pub mod comparison;
 #[cfg(test)]
 #[path = "sidecar_observer/tests.rs"]
 mod tests;

@@ -12,6 +12,14 @@ egress and request context as well as retain the browser cleanup observer.
 The native User-Agent agrees with its worker; the browser's distinct network
 stack remains an unisolated variable in the observed security refusals.
 
+The explicit comparison host interface has three phases: bind a browser
+context without minting, run one browser baseline, then issue a fresh token
+for native HTTP only after baseline acceptance. Both bodies are fixed up
+front and may differ only in their distinct caller-supplied turn IDs.
+The original scope and cleanup observer remain owned across the pair.
+This interface has passed inert tests; the pair coordinator and live
+comparison remain pending.
+
 The contextual browser credential source validates the returned account,
 target and current cookie jar before requesting a bearer with that jar.
 It timestamps the browser token before bearer acquisition, so that wait

@@ -3,6 +3,16 @@
 Updated 2026-10-24. The normal service remains browser-based. Publishing these
 branches does not change the running service.
 
+The Rust comparison host interface now compiles and passes 47 selected
+tests, including seven new contract cases and existing observer lifecycle
+cases. Baseline rejection, uncertainty, changed cookies and repeat token
+issuance cannot admit a native-token command. JSON body types and distinct
+turn IDs are checked. Build peak was 390,381,568 bytes; tests peaked at
+48,492,544 bytes, with zero swap/events and verified teardown. The first
+compile failure is retained: it exposed two missing module paths and an
+outdated test-library selection, both corrected. Python integration and
+the pair coordinator are pending. No browser, SDK or live request ran.
+
 No authenticated browser-token/native-HTTP control was found in the searched
 records. The existing browser adapter is not wired into serving and creates a
 new browser context. It cannot yet isolate token generation from transport.
