@@ -1,8 +1,10 @@
 # Current V2 structural discriminators, 2026-10-24
 
 Source milestone on `goal/browserless-fingerprint-structure`, based on
-`71b6326`. The new comparator and its synthetic fixtures are **UNRUN**.
-Only source inspection, static constant derivation and diff review ran here.
+`71b6326`. The runtime owner reports all 16 comparator cases **PASS**,
+17,321,984 bytes peak memory, zero swap/events and the unit absent afterward.
+Tests remain **UNRUN in this source checkout**. Only source inspection,
+static constant derivation and diff review ran here.
 All tests, builds, SDK/browser execution and private/runtime work belong to
 owner `544711e3-0b76-4cb4-9732-124a0486847e`. Shared status docs stay with that owner.
 
@@ -68,6 +70,80 @@ cannot reveal the ratio, timing quality or reason for omission.
 
 These mappings guide diagnosis of genuine behavior only. They provide no
 evidence for spoofing identities, overriding APIs or weakening acceptance.
+
+## Remaining ten shared changes
+
+The following owner-supplied tuples are `(type, byte_length)`, ordered from
+the prior synthetic SDK observation to R14's accepted browser baseline.
+They add no R14 SDK observation or causal attribution. All names and offsets
+below come from the same pinned factory, not a historical field-name table.
+
+**0/0: (4,2) to (3,2), navigator platform.** `r[Hs]` (183776) reads
+`navigator.platform`; its collector at 483801 selects an index from the
+current platform list or a transformed string when absent from that list.
+The reported types distinguish string versus indexed representation.
+The string-side length includes zero encoded payload bytes, which does not
+establish the original unnormalized property value or the browser's index.
+
+**0/1: (3,2) to (4,2), navigator vendor.** `r[ew]` (183818) reads
+`navigator.vendor`; collector 484017 uses its own two-entry lookup list with
+the same index/string fallback. This changes representation in the opposite
+direction from 0/0. Neither index nor original vendor text is in the report.
+
+**0/4: (7,5) to (7,7), screen dimension pairs.** The collector near 484823
+encodes `(screen.width, screen.availWidth)` and
+`(screen.height, screen.availHeight)` through `r[l3]` (462214).
+Its helper compares masked integers: the first is masked to 15 bits, the
+second to 16 bits. Equal pairs occupy two bytes, unequal pairs four bytes.
+Including the field header, lengths 5 and 7 distinguish two compact pairs
+from one compact pair. They do not identify the unequal pair or actual sizes;
+the readers also replace falsy properties with zero.
+
+**0/12: (7,75) to (7,83), navigator user agent.** `r[Dd]` (183902)
+reads `navigator.userAgent`. Collector 486359 supplies it to the bounded
+long-string encoder `r[h7]` (180002), with a source cap of 512 bytes.
+The observed lengths differ in the encoded representation of that property.
+They do not reveal the UA text or establish its agreement with HTTP identity.
+
+**0/29: (3,2) to (4,50), generated runtime error message.** `r[ng]`
+(380468) deliberately accesses a property on an absent array element and
+returns the caught exception's message. Collector 497441 chooses a known
+message's index or the transformed-string fallback. This is an engine-error
+representation change; it does not reveal the message or identify a 403 cause.
+
+**7/18: (7,5) to (7,7), window dimension pairs.** Collector 490599
+encodes `(innerWidth, outerWidth)` and `(innerHeight, outerHeight)` through
+the same `r[l3]` helper. The 0/4 compact-pair interpretation and masking limits
+apply, but these are window dimensions, not the screen properties in 0/4.
+
+**8/24: (4,38) to (4,54), Intl prototype-error diagnostic.** `r[ET]`
+(447388) attempts `Object.setPrototypeOf(window.Intl, window.Intl)` when
+`Intl` is present. On error it takes the first stack line, limited to 50
+string code units; other paths retain fixed absent/no-error markers.
+Collector 491476 encodes every returned variant as a transformed string.
+The shared type cannot distinguish those branches or recover the stack text.
+
+**8/28: (5,3) to (5,2), enumerable window-key count.** `r[cF]`
+(457824) obtains `window.Object.keys(window)`, then returns its count and a
+separate hash. `r[QF]` sends the count to field 28 at 471830. The width change
+distinguishes the two packed-integer size classes after encoder clamping.
+It does not reveal the exact count, key names, hash or capability set.
+
+**9/0: (4,10) to (5,2), navigator getter-error aggregation.** `r[pT]`
+(445778) attempts to obtain selected navigator prototype getters and invoke
+them with an invalid receiver. It collects exception stacks, including lookup
+failures, counts distinct captured stack values and compares selected results
+to a reference. The collector at 492283 encodes
+the structured result's count as type 5; the fallback at 492600 uses type 4.
+The reported tags distinguish those output paths, not stack contents or the
+number of successful getters. The count is not a count of available APIs.
+
+**9/1: (4,6) to (4,34), companion getter-difference list.** On the same
+structured path, collector 492468 serializes the property-name list whose
+captured stacks differ from the selected reference. The fallback at 492756
+uses a fixed marker instead. Both are type-4 strings. Read this jointly with
+9/0's branch: the lengths do not reveal which property names, how many names,
+or which errors appeared, and length alone cannot identify the fallback.
 
 ## Additional encoder limits
 
@@ -135,9 +211,11 @@ detached output, malformed-input privacy and canonical output keys.
 They reuse the existing parser and do not create a second decoder.
 
 The frame/parser/projection/observer qualifications documented in
-`docs/development-status.md` remain prior owner evidence for unchanged code;
-they do not qualify this new comparator. All new fixtures remain **UNRUN** here.
-Next action: the runtime owner qualifies this exact fixture entry before
-using the helper on existing projected facts. Any future matched observation
-or runtime change remains the owner's separate decision. The shared goal is
-still a fresh valid mint and accepted native inference with all retained guards.
+`docs/development-status.md` remain prior owner evidence for unchanged code.
+The owner now separately reports the 16 comparator cases passing; no test or
+runtime execution occurred in this source lane. Subsequent changes here only
+extend the source note and reuse that qualification for unchanged tooling.
+Next action: the runtime owner uses the mapped differences to choose the next
+bounded discriminator. Any future matched observation or runtime change stays
+with that owner. The shared goal remains a fresh valid mint and accepted native
+inference with all retained guards.
