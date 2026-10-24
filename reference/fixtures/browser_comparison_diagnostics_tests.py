@@ -28,7 +28,10 @@ BASELINE_STAGES = ("baseline_header_before_mint", "baseline_mint", "baseline_bou
                    "baseline_result", "baseline_bound_after_fetch")
 STAGES = {"account_start", "context_inputs", "cookie_seed", "navigation", "device_readiness", "snapshot_page",
           "snapshot_cookies", "snapshot_header", "snapshot_validate", "context_ready",
-          "baseline", "native_token", *BASELINE_STAGES}
+          "baseline", "native_token", *BASELINE_STAGES,
+          "mint_rpc", "mint_rpc_target_closed", "mint_rpc_timeout", "mint_rpc_error",
+          "mint_reply_invalid", "mint_pre_context", "mint_import", "mint_export",
+          "mint_wrapper_call", "mint_post_context", "mint_invalid_token"}
 
 
 class DiagnosticHarness(FIXTURE.Harness):
@@ -176,7 +179,7 @@ class ComparisonDiagnosticWorkflowTests(unittest.IsolatedAsyncioTestCase):
         value = self.fixture()
         await value.prepare_context()
         value.page.fail_sdk = True
-        await self.assert_pre_send_failure(value, "baseline_mint", 1)
+        await self.assert_pre_send_failure(value, "mint_rpc_error", 1)
 
     async def test_baseline_after_mint_header_drift_reports_separate_stage(self):
         value = self.fixture()
@@ -230,7 +233,7 @@ class ComparisonDiagnosticWorkflowTests(unittest.IsolatedAsyncioTestCase):
         task.cancel()
         with self.assertRaises(asyncio.CancelledError):
             await task
-        self.assertEqual(C.comparison_evidence(value.scope), {"stage": "baseline_mint"})
+        self.assertEqual(C.comparison_evidence(value.scope), {"stage": "mint_rpc"})
         self.assertEqual(value.scope.failure, "comparison_cancelled")
         self.assertTrue(value.scope.pending)
         self.assertEqual((value.mints, value.fetches), (1, 0))

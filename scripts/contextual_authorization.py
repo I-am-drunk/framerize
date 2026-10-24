@@ -16,12 +16,17 @@ COMPARISON_SECONDS = 180
 BASELINE_SECONDS = 30
 COMPARISON_READY_SECONDS = 10
 COMPARISON_DISPOSE_SECONDS = 2
+MINT_FAILURE_MARKS = {'pre_context': 'mint_pre_context', 'dynamic_import': 'mint_import',
+    'export_validation': 'mint_export', 'wrapper_call': 'mint_wrapper_call',
+    'post_context': 'mint_post_context', 'invalid_token': 'mint_invalid_token'}
 DIAGNOSTIC_STAGES = frozenset(('account_start', 'context_inputs', 'cookie_seed',
     'navigation', 'device_readiness', 'snapshot_page', 'snapshot_cookies', 'snapshot_header',
     'snapshot_validate', 'context_ready', 'baseline', 'native_token',
     'baseline_header_before_mint', 'baseline_mint', 'baseline_bound_after_mint',
     'baseline_header_after_mint', 'baseline_fetch_args', 'baseline_fetch',
-    'baseline_result', 'baseline_bound_after_fetch'))
+    'baseline_result', 'baseline_bound_after_fetch', 'mint_rpc',
+    'mint_rpc_target_closed', 'mint_rpc_timeout', 'mint_rpc_error',
+    'mint_reply_invalid', *MINT_FAILURE_MARKS.values()))
 DIAGNOSTIC_CHECKS = ('device_valid', 'device_cookie_match', 'login_match',
                      'page_match', 'url_unchanged', 'device_cookie_present',
                      'device_cookie_unique')
@@ -266,14 +271,33 @@ COMPARISON_SNAPSHOT = """() => ({
   url: location.href, device: localStorage.getItem('__cuid')
 })"""
 
-COMPARISON_MINT = """async ({url, entry, device}) => {
-  const before = location.href;
-  if (localStorage.getItem('__cuid') !== device) throw new Error('context');
-  const module = await import(url);
-  if (typeof module[entry] !== 'function') throw new Error('wrapper');
-  const token = await module[entry]();
-  if (localStorage.getItem('__cuid') !== device) throw new Error('context');
-  return {before, after: location.href, token};
+COMPARISON_MINT = """async ({url, entry, device, page_url}) => {
+  let stage = 'pre_context';
+  try {
+    const before = location.href;
+    if (before !== page_url || localStorage.getItem('__cuid') !== device)
+      throw new Error('context');
+    stage = 'dynamic_import';
+    const module = await import(url);
+    stage = 'export_validation';
+    if (typeof module[entry] !== 'function') throw new Error('wrapper');
+    stage = 'wrapper_call';
+    const token = await module[entry]();
+    stage = 'post_context';
+    const after = location.href;
+    if (after !== page_url || localStorage.getItem('__cuid') !== device)
+      throw new Error('context');
+    stage = 'invalid_token';
+    if (typeof token !== 'string' || !token || token.length > 16 * 1024)
+      throw new Error('token');
+    // TextEncoder replaces lone surrogates; Python's strict UTF-8 rejects them.
+    encodeURIComponent(token);
+    if (new TextEncoder().encode(token).byteLength > 16 * 1024)
+      throw new Error('token');
+    return {before, after, token};
+  } catch {
+    return {failure_stage: stage};
+  }
 }"""
 
 
@@ -423,14 +447,40 @@ async def comparison_bound(host, account, scope, request, leg):
 
 
 async def comparison_mint(scope, state, acc):
-    result = await comparison_rpc(scope, lambda: acc.page.evaluate(COMPARISON_MINT, {
-        "url": state["wrapper_url"], "entry": state["wrapper_export"],
-        "device": state["device"]}))
-    if (type(result) is not dict or result.get("before") != state["url"]
-            or result.get("after") != state["url"] or type(result.get("token")) is not str
-            or not result["token"] or len(result["token"].encode()) > LIMIT):
-        raise ValueError("comparison mint unavailable")
-    return result["token"]
+    comparison_mark(scope, 'mint_rpc')
+    try:
+        result = await comparison_rpc(scope, lambda: acc.page.evaluate(COMPARISON_MINT, {
+            "url": state["wrapper_url"], "entry": state["wrapper_export"],
+            "device": state["device"], "page_url": state["url"]}))
+    except asyncio.CancelledError:
+        raise
+    except Exception as error:
+        # Classification only, without importing the optional browser library.
+        stage = {'TargetClosedError': 'mint_rpc_target_closed',
+                 'TimeoutError': 'mint_rpc_timeout'}.get(type(error).__name__, 'mint_rpc_error')
+        comparison_mark(scope, stage)
+        raise
+    stage = 'mint_reply_invalid'
+    if type(result) is dict:
+        if set(result) == {'failure_stage'}:
+            failure = result['failure_stage']
+            if type(failure) is str:
+                stage = MINT_FAILURE_MARKS.get(failure, stage)
+        elif set(result) == {'before', 'after', 'token'}:
+            if result['before'] != state['url']:
+                stage = 'mint_pre_context'
+            elif result['after'] != state['url']:
+                stage = 'mint_post_context'
+            else:
+                stage = 'mint_invalid_token'
+                token = result['token']
+                try:
+                    if type(token) is str and token and len(token.encode()) <= LIMIT:
+                        return token
+                except UnicodeError:
+                    pass
+    comparison_mark(scope, stage)
+    raise ValueError("comparison mint unavailable")
 
 
 async def comparison_native(host, account, scope, request):
