@@ -1,0 +1,18 @@
+{
+  "status": "PASSED_FOCUSED_NOT_DEPLOYED",
+  "authenticated_delivery": false,
+  "records": {
+    "send-api-tests-compile": {
+      "result_sha256": "e83016aa2f7b4a0e2ef7d5ed91cc8cd40a0b8d5644d671738b57c431393b6023",
+      "peak_bytes": 947232768,
+      "task_peak": 12,
+      "cases": 0
+    },
+    "send-api-run": {
+      "result_sha256": "c5f3d7f8776f52c3fc640a116b27591fd9afed1e3aaf38983f0bc49246d3814b",
+      "peak_bytes": 33083392,
+      "task_peak": 5,
+      "cases": 39
+    }
+  }
+}

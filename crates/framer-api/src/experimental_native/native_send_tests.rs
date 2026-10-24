@@ -32,7 +32,7 @@ async fn wait_for(count: &AtomicUsize) {
 }
 
 #[test]
-fn request_carries_framer_origin_and_truthful_native_user_agent() {
+fn inference_retains_bearer_and_native_origin_without_session_cookies() {
     let server = Server::new(vec![Expected { path: PATH,
         envelope: json!({"stream": true, "castleToken": "fixture-token"}),
         reply: Reply::json(json!({"fixture": "complete"})) }]);
@@ -83,6 +83,29 @@ fn send_is_counted_before_headers_and_cancellation_joins() {
     });
     let ended = server.finish();
     assert_eq!((ended.accepted, ended.requests, ended.headers, ended.peer_eof), (1, 1, 0, 1));
+    assert_eq!(ended.fault, None);
+}
+
+#[test]
+fn omitted_wire_cookie_still_requires_valid_local_credentials() {
+    let server = Server::new(vec![]);
+    run(async {
+        let (client, account, mut session, body) = inputs(server.address);
+        for (header, expected) in [
+            ("", "native-http: request credentials missing"),
+            ("session=fixture\r\nx-injected: value", "native-http: invalid cookie header"),
+        ] {
+            session.cookie_header = header.into();
+            let request = client.ai_post_stream_tracked(&account, PATH,
+                AccountRequestAuth::new(account, &session, "fixture-application-bearer"),
+                &body, token(account), NativeCancellation::new());
+            assert_eq!(request.response.await.err().as_deref(), Some(expected));
+            assert_eq!(request.closed.await, Ok(()));
+            assert_eq!(client.in_flight.load(Ordering::Acquire), 0);
+        }
+    });
+    let ended = server.finish();
+    assert_eq!((ended.accepted, ended.requests), (0, 0));
     assert_eq!(ended.fault, None);
 }
 
