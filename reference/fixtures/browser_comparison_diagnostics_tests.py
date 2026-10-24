@@ -22,7 +22,7 @@ SPEC.loader.exec_module(FIXTURE)
 C = FIXTURE.C
 SECRET = "private-diagnostic-sentinel"
 CHECKS = ("device_valid", "device_cookie_match", "login_match", "page_match", "url_unchanged")
-STAGES = {"account_start", "context_inputs", "cookie_seed", "navigation", "snapshot_page",
+STAGES = {"account_start", "context_inputs", "cookie_seed", "navigation", "device_readiness", "snapshot_page",
           "snapshot_cookies", "snapshot_header", "snapshot_validate", "context_ready",
           "baseline", "native_token"}
 
@@ -139,7 +139,13 @@ class ComparisonDiagnosticWorkflowTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_missing_device_reports_snapshot_validation_flags(self):
         value = self.fixture()
-        value.page.device = None
+
+        async def ready_then_disappears(script, **options):
+            handle = await FIXTURE.Harness.wait_for_function(value, script, **options)
+            value.page.device = None
+            return handle
+
+        value.page.wait_for_function = ready_then_disappears
         checks = dict.fromkeys(CHECKS, True)
         checks.update(device_valid=False, device_cookie_match=False)
         await self.assert_context_failure(value, "snapshot_validate", **checks)

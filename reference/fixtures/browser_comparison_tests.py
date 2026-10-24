@@ -42,6 +42,14 @@ def wire(value=None, **changes):
     return result
 
 
+class ReadinessHandle:
+    def __init__(self, calls):
+        self.calls = calls
+
+    async def dispose(self):
+        self.calls.append(("dispose_readiness",))
+
+
 class Harness(OLD.Harness):
     def __init__(self):
         super().__init__()
@@ -58,6 +66,7 @@ class Harness(OLD.Harness):
         self.page.events = {}
         self.page.on = lambda event, callback: self.page.events.setdefault(event, []).append(callback)
         self.page.evaluate = self.evaluate
+        self.page.wait_for_function = self.wait_for_function
         self.context.rows = [{"name": "session", "value": OLD.LOGIN},
                              {"name": "__cuid", "value": DEVICE}]
         self.body, self.native_body = envelope("baseline-turn"), envelope("native-turn")
@@ -65,6 +74,11 @@ class Harness(OLD.Harness):
         self.fetch_started, self.fetch_release = asyncio.Event(), asyncio.Event()
         self.fetch_release.set()
         self.mints, self.fetches, self.context_reply = 0, 0, None
+
+    async def wait_for_function(self, script, *, timeout, polling):
+        # A successful browser reply; this fixture does not evaluate JavaScript.
+        self.calls.append(("wait_for_function", script, timeout, polling))
+        return ReadinessHandle(self.calls)
 
     async def evaluate(self, script, args=None):
         if script == C.COMPARISON_SNAPSHOT:
