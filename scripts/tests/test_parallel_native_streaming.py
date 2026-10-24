@@ -74,9 +74,10 @@ class StreamingTests(unittest.TestCase):
         value = await_state(stream, lambda state: state['finished'])
         details = value['response_failure']
         self.assertEqual(set(details), {'native_error_code', 'content_kind', 'json_valid',
-            'json_bytes', 'json_truncated', 'framer_security_envelope'})
+            'json_bytes', 'json_truncated', 'framer_security_envelope', 'body_framing'})
         self.assertTrue(details['framer_security_envelope'])
         self.assertTrue(details['json_valid'])
+        self.assertEqual(details['body_framing'], 'complete')
         self.assertEqual(details['json_bytes'], len(body))
         self.assertIsNone(value['response_error_code'])
         self.assertEqual(value['read_error'], 'stream_http_status')
@@ -105,8 +106,54 @@ class StreamingTests(unittest.TestCase):
             value = await_state(stream, lambda state: state['finished'])
             self.assertEqual(value['response_failure']['content_kind'], category)
             self.assertIsNone(value['response_failure']['json_bytes'])
+            self.assertEqual(value['response_failure']['body_framing'], 'unobserved')
             self.assertFalse(value['response_failure']['framer_security_envelope'])
             self.assertNotIn('private-marker', str(value))
+
+    def test_error_json_validity_is_separate_from_http_completeness(self):
+        body = b'{"error":{"type":"native_dispatch_error","code":"Body"}}'
+        for extra, expected in [(0, 'complete'), (1, 'incomplete')]:
+            with self.subTest(extra_bytes=extra):
+                stream, _, _ = self.stream(body,
+                    b'Content-Length: ' + str(len(body) + extra).encode(),
+                    status=b'502 Bad Gateway', content_type=b'application/json')
+                value = await_state(stream, lambda state: state['finished'])
+                details = value['response_failure']
+                self.assertEqual(details['body_framing'], expected)
+                self.assertTrue(details['json_valid'])
+                self.assertFalse(details['json_truncated'])
+                self.assertEqual(details['native_error_code'], 'Body')
+                self.assertEqual(value['read_error'], 'stream_http_status')
+                self.assertFalse(value['eof'])
+
+    def test_error_framing_covers_chunked_and_close_delimited_bodies(self):
+        body = b'{"error":{"type":"native_dispatch_error","code":"Body"}}'
+        chunk = f'{len(body):x}\r\n'.encode() + body + b'\r\n'
+        cases = [(body, b'', 'complete'),
+            (chunk + b'0\r\n\r\n', b'Transfer-Encoding: chunked', 'complete'),
+            (chunk, b'Transfer-Encoding: chunked', 'incomplete')]
+        for wire, framing, expected in cases:
+            with self.subTest(framing=framing, expected=expected):
+                stream, _, _ = self.stream(wire, framing, status=b'502 Bad Gateway',
+                    content_type=b'application/json')
+                value = await_state(stream, lambda state: state['finished'])
+                details = value['response_failure']
+                self.assertEqual(details['body_framing'], expected)
+                self.assertTrue(details['json_valid'])
+                self.assertEqual(details['native_error_code'], 'Body')
+                self.assertEqual(value['read_error'], 'stream_http_status')
+                self.assertFalse(value['eof'])
+
+    def test_error_capture_limit_does_not_claim_http_incompleteness(self):
+        body = b' ' * 8193
+        for length, expected in [(8193, 'complete'), (8194, 'unobserved')]:
+            stream, _, _ = self.stream(body, b'Content-Length: ' + str(length).encode(),
+                status=b'502 Bad Gateway', content_type=b'application/json')
+            value = await_state(stream, lambda state: state['finished'])
+            self.assertEqual(value['response_failure']['body_framing'], expected)
+            self.assertTrue(value['response_failure']['json_truncated'])
+            self.assertFalse(value['response_failure']['json_valid'])
+            self.assertEqual(value['read_error'], 'stream_http_status')
 
     def test_cancel_shuts_down_detached_socket_after_real_text(self):
         frame = event('response.output_text.delta', delta='started')

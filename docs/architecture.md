@@ -5,6 +5,12 @@ maintained fallback. `browserless` is the separate development branch for the
 native transport and short-lived SDK worker. A Git push does not deploy either
 version or restart the running service.
 
+The native live-check client records HTTP error-body framing separately from
+JSON validity and the capture limit. Its fixed categories are `complete`,
+`incomplete` and `unobserved`. Recognizing an error envelope does not prove
+the HTTP body finished, and neither observation proves server cleanup.
+Non-200 responses remain failures regardless of these diagnostic fields.
+
 Request compatibility depends on the selected model and endpoint together.
 The current public chooser sends GPT-4.1 through Chat, while our isolated
 trial uses Responses. The Responses serializer is an endpoint-format

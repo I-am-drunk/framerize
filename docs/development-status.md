@@ -3,6 +3,18 @@
 Updated 2026-10-24. The normal service remains browser-based. Publishing these
 branches does not change the running service.
 
+The conversation-ID correction now has a verified staged executable,
+`2a0de595`. Its API build peaked at 639,279,104 bytes and final link at
+629,932,032 bytes, with zero swap/events and verified teardown. The existing
+forty request/authentication/cleanup cases are reused. It is not deployed.
+
+The live-check client's error report now separates valid JSON from completed
+HTTP framing. A peer can send valid JSON and close before its declared length;
+the report now records that as incomplete. Thirty-five synthetic streaming,
+workflow and timing tests pass, including fixed-length, chunked, close-delimited
+and capture-limit cases. All non-200 responses still fail. This diagnostic
+improvement does not identify or resolve the upstream security refusal.
+
 Current public model helpers close two request questions: GPT-4.1 selects no
 provider override, and its model spelling agrees with our native request.
 The ordinary browser chooser uses Chat for that model, while the isolated
