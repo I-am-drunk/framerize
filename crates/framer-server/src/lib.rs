@@ -955,18 +955,18 @@ async fn free_complete(
                     )
                     .await;
                 }
-                return Err(ApiError::Internal(format!(
+                return Err(operation_ownership::completed_preflight(ApiError::Internal(format!(
                     "model {client_model} is a direct-route model (OpenAI Responses API, metered) — call /openai/v1/responses for it"
-                )));
+                ))));
             }
-            return Err(ApiError::Internal(format!(
+            return Err(operation_ownership::completed_preflight(ApiError::Internal(format!(
                 "model {client_model} is metered-only (direct route) and metered access is disabled on this gateway (set FRAMERIZE_ALLOW_METERED=1 to allow spend). Free alternatives: gpt-6-astra, gpt-4.1, kimi-k3, gemini-2.5-flash, and the Claude roster."
-            )));
+            ))));
         }
         convert::ModelRoute::Unavailable(reason) => {
-            return Err(ApiError::Internal(format!(
+            return Err(operation_ownership::completed_preflight(ApiError::Internal(format!(
                 "model {client_model} is not available on this gateway: {reason}"
-            )));
+            ))));
         }
         convert::ModelRoute::FreePassthrough => {}
     }
@@ -988,7 +988,8 @@ async fn free_complete(
     }
 
     // Client request → faithful Anthropic Messages payload (model normalized).
-    let anthro = convert::to_anthropic_request(dialect, &payload).map_err(ApiError::Internal)?;
+    let anthro = convert::to_anthropic_request(dialect, &payload)
+        .map_err(ApiError::Internal).map_err(operation_ownership::completed_preflight)?;
 
     if let Some(remaining) = s.wave.check() {
         return Err(operation_ownership::completed_preflight(ApiError::Cooling {
@@ -1008,7 +1009,8 @@ async fn free_complete(
     });
     let account = match current_account(&s, account.id).await {
         Ok(account) => account,
-        Err(error @ (ApiError::Cooling { .. } | ApiError::AccountCooling { .. })) => {
+        Err(error @ (ApiError::Cooling { .. } | ApiError::AccountCooling { .. }
+            | ApiError::ServingCapacity(_))) => {
             return Ok(operation_ownership::completed_response(
                 axum::response::IntoResponse::into_response(error), true));
         },
@@ -1045,7 +1047,8 @@ async fn free_complete(
     });
     match current_account(&s, account.id).await {
         Ok(_) => {},
-        Err(error @ (ApiError::Cooling { .. } | ApiError::AccountCooling { .. })) => {
+        Err(error @ (ApiError::Cooling { .. } | ApiError::AccountCooling { .. }
+            | ApiError::ServingCapacity(_))) => {
             return Ok(operation_ownership::completed_response(
                 axum::response::IntoResponse::into_response(error), true));
         },
@@ -1528,7 +1531,8 @@ async fn native_complete(
 ) -> Result<axum::response::Response, ApiError> {
     let client_model = payload["model"].as_str().unwrap_or_default().to_string();
     let mut native_payload = if dialect == ClientDialect::OpenAiChat {
-        convert::chat_to_responses_request(&payload).map_err(ApiError::Internal)?
+        convert::chat_to_responses_request(&payload)
+            .map_err(ApiError::Internal).map_err(operation_ownership::completed_preflight)?
     } else {
         payload.clone()
     };
@@ -1566,7 +1570,8 @@ async fn native_complete(
     });
     let account = match current_account(&s, account.id).await {
         Ok(account) => account,
-        Err(error @ (ApiError::Cooling { .. } | ApiError::AccountCooling { .. })) => {
+        Err(error @ (ApiError::Cooling { .. } | ApiError::AccountCooling { .. }
+            | ApiError::ServingCapacity(_))) => {
             return Ok(operation_ownership::completed_response(
                 axum::response::IntoResponse::into_response(error), true));
         },
@@ -1601,7 +1606,8 @@ async fn native_complete(
     });
     match current_account(&s, account.id).await {
         Ok(_) => {},
-        Err(error @ (ApiError::Cooling { .. } | ApiError::AccountCooling { .. })) => {
+        Err(error @ (ApiError::Cooling { .. } | ApiError::AccountCooling { .. }
+            | ApiError::ServingCapacity(_))) => {
             return Ok(operation_ownership::completed_response(
                 axum::response::IntoResponse::into_response(error), true));
         },

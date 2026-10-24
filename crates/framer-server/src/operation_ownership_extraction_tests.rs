@@ -185,6 +185,64 @@ async fn aborted_http_waiter_keeps_gated_extraction_owned_until_read_failure() {
 }
 
 #[tokio::test]
+async fn local_preflight_refusals_keep_original_response_and_release_ownership() {
+    const UNAVAILABLE: &str = concat!(
+        "model gpt-4o is not available on this gateway: ",
+        "blocked by the gateway's upstream guardrails (404) on every route. ",
+        "Working free models: claude-opus-5-5, claude-sonnet-5-5, claude-haiku-4-5, ",
+        "gpt-4.1, gpt-4.1-mini, gemini-2.5-flash, gemini-3-flash-preview",
+    );
+    let cases = [
+        (ROUTES[0], r#"{"model":"gpt-4o","messages":[]}"#, UNAVAILABLE),
+        (ROUTES[1], r#"{"model":"gpt-4o","input":"fixture"}"#, UNAVAILABLE),
+        (ROUTES[2], r#"{"model":"gpt-4o","messages":[]}"#, UNAVAILABLE),
+        (ROUTES[0], r#"{"model":"claude-opus-5-5"}"#, "messages is required"),
+        (ROUTES[2], r#"{"model":"gpt-6-astra","n":2,"messages":[{"role":"user","content":"fixture"}]}"#,
+            "n != 1 is not supported on this gateway"),
+        (ROUTES[2], r#"{"model":"gpt-6-astra"}"#, "messages is required"),
+    ];
+    for (route, payload, expected_text) in cases {
+        for consume in [false, true] {
+            let mut f = fixture::Fixture::new();
+            let before = serde_json::to_value(f.state.state.list().await.unwrap()).unwrap();
+            // Pin the original text independently of both router modes.
+            let original = tokio::time::timeout(WAIT,
+                crate::router(f.state.clone(), "/nonexistent-fixture-web").oneshot(
+                    route_request(route, &f, Body::from(payload), true)))
+                .await.unwrap().unwrap();
+            let (parts, body) = original.into_parts();
+            assert_eq!(parts.status, StatusCode::INTERNAL_SERVER_ERROR);
+            assert_eq!(parts.headers["content-type"], "text/plain; charset=utf-8");
+            let expected = tokio::time::timeout(WAIT, to_bytes(body, 65536))
+                .await.unwrap().unwrap();
+            assert!(!expected.is_empty());
+            assert_eq!(expected.as_ref(), expected_text.as_bytes());
+            assert_pristine(&mut f, &before).await;
+            f.state = with_owned_operations(f.state, 32).unwrap();
+            let ownership = f.state.operation_ownership.clone().unwrap();
+            let app = crate::router(f.state.clone(), "/nonexistent-fixture-web");
+            let response = tokio::time::timeout(WAIT, app.clone().oneshot(
+                route_request(route, &f, Body::from(payload), true)))
+                .await.unwrap().unwrap();
+            assert_eq!(response.status(), parts.status, "{route:?}");
+            assert_eq!(response.headers().get("content-type"), parts.headers.get("content-type"));
+            assert!(!response.body().is_end_stream());
+            assert_eq!(response.body().size_hint().exact(), Some(expected.len() as u64));
+            assert_eq!(ownership.gate.stats().unwrap().active, 2);
+            assert_pristine(&mut f, &before).await;
+            if consume {
+                let bytes = tokio::time::timeout(WAIT, to_bytes(response.into_body(), 65536))
+                    .await.unwrap().unwrap();
+                assert_eq!(bytes, expected);
+            } else { drop(response); }
+            finish_application_drain(&ownership, ownership.seal().unwrap()).await;
+            assert_pristine(&mut f, &before).await;
+            subsequent_admission(&mut f, app, route).await;
+        }
+    }
+}
+
+#[tokio::test]
 async fn paid_paths_and_normal_paid_overrides_still_dispatch_to_proxy() {
     for route in ROUTES {
         for prefixed in [false, true] {
