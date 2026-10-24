@@ -42,6 +42,14 @@ the original AccountScope. Neither type logs or serializes private material.
 Missing proof refuses before worker launch. HTTP device and rate ownership
 stay separate; there is no production HTTP-device fallback for V2.
 
+The source retains one checked proof for its original grant and AccountScope.
+Composed responses reuse the source across chunks; a second attachment after
+the first mint would be refused by the host's required sequence-zero guard.
+Concurrent preparations share the initial transfer, then borrow the same proof.
+Each reuse checks the exact Session and scope. A failed or abandoned transfer
+retains its refusal or uncertainty, preventing a duplicate attachment attempt.
+The host still revalidates every mint and joined finish and owns each rate charge.
+
 Admission rechecks the proof through the host. After worker join, finish checks
 the same proof and awaits the existing host acknowledgement. Cancellation
 still joins; failed or lost acknowledgement remains unconfirmed. Restart or
@@ -49,7 +57,7 @@ replacement cannot authorize a stale host/lease/observation. The producer owns
 its lifecycle checks; no consumer shape check substitutes for them.
 
 New inert selection prefix: `offline_worker::tests::device::v2::seed_handoff::`.
-The nine test names are:
+The thirteen test names are:
 
 - `sdk_transfer_keeps_exact_seed_session_and_original_grant`
 - `sdk_admission_requires_original_lease_and_both_proof_ids`
@@ -60,6 +68,10 @@ The nine test names are:
 - `sdk_source_transfer_failure_preserves_cleanup_without_credential_request`
 - `sdk_cancelled_transfer_retains_settlement_and_unknown_cleanup`
 - `sdk_proof_completion_retains_join_ack_and_stale_refusal`
+- `sdk_one_transfer_supports_two_joined_mints`
+- `sdk_cached_transfer_keeps_session_scope_and_host_checks`
+- `sdk_concurrent_preparations_share_one_transfer`
+- `sdk_failed_or_abandoned_transfer_is_not_repeated`
 
 They cover 26 malformed transfer inputs, exact SDK/HTTP separation, session
 and allocation mismatch, separate account-scope owners, receipt echoes,
@@ -71,8 +83,12 @@ host. Six cases cross explicit cancellation or waiter disposal with a valid
 proof, local refusal or unknown transfer result. They require preparation and
 account close to await transfer settlement, preserve unknown cleanup, and start
 no worker or credential connection. A loopback-only proxy guard prevents an
-accidental request from reaching Framer. Production code remains `edda775`;
-this supplement changes only the inert handoff fixture and this report.
+accidental request from reaching Framer. That cancellation-only supplement,
+`83bab713`, left production code at `edda775`.
+Four later cases cover two separately joined mints under one transferred proof,
+foreign scope/session refusal, stale host admission, concurrent initialization,
+and preservation of rejected, unconfirmed or abandoned transfer outcomes.
+The synthetic host now refuses reattachment after a mint, matching the producer.
 The two approved legacy setup helpers now supply explicit synthetic seeds.
 The five original seed cases remain byte-identical in
 `offline_worker_v2_seed_tests.rs`, blob
@@ -87,8 +103,12 @@ Read-only Git comparison confirms all eleven consumer source/fixture paths,
 including the five original seed cases, match this lane at `83bab713`.
 The producer/helper code matches `56284770`; package code matches `9e966b07`.
 This verifies source composition only, not publication, compilation or execution.
-Next action: runtime owner 544711e3 qualifies intake's candidate and a freshly
-prepared explicit host package. The full native acceptance, account isolation,
+The proof-reuse correction is a separate delta after `22b62e8`; candidate
+`8381616` still retransfers for each preparation and does not contain that fix.
+Its producer/helper and private wire remain the correction's unchanged inputs.
+Next action: intake applies the narrow proof-reuse delta; runtime owner
+544711e3 qualifies that resulting candidate and a freshly prepared explicit
+host package. The full native acceptance, account isolation,
 matched-egress, cooldown and joined-cleanup outcome still needs runtime evidence.
 No service, eligibility, marker, frozen R16 or startup change is made here.
 Structure's opt-in native installer supplies the helper; its prepared package
