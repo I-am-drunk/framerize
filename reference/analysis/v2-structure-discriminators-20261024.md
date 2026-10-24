@@ -367,3 +367,16 @@ accounting; do not clear, recreate or narrow it to close this source task.
 The outcome remains a fresh valid mint and accepted native Framer inference,
 with verified account isolation, matched identity/egress, cooldowns and joined
 cleanup. Prompt guidance and actual app enforcement must be reported separately.
+
+## Outstanding actions and evidence
+
+The policy addendum reached all five participating threads. These were conversation
+instructions; persisted objective strings, goal identities and accounting were
+unchanged. The runtime lane acknowledged it in lifecycle-note commit `f3aa327`.
+Transport/config owner: `mcp:a94287af-9994-4882-abc3-5108e653cc34`.
+
+| Action | Owner | Required input | Last verified evidence |
+| --- | --- | --- | --- |
+| Qualify the next native inference comparison | Runtime owner named above | Owner-qualified package, fresh mint and retained account, egress and rate authority | R14 browser HTTP 200/output; isolated V2/native Castle 403; cleanup confirmed. `db1eb359` is socket-denied synthetic evidence only. |
+| Extend the source mapping | This structure lane | Newly supplied structural projection or a specific source correction | All supplied differences mapped through `6e751e6`; owner reports all 16 unchanged comparator cases passing. |
+| Enforce the requested goal-status policy in T3 | Transport/config owner | Verified enforcement change and accounting-preservation result | Guidance delivery is confirmed. Native enforcement remains unverified; do not use `/goal edit` while accounting preservation is unverified. |
