@@ -111,11 +111,20 @@ cases pass. All 16 Rust credential-target cases pass as well. The focused
 build peaked at 427,413,504 bytes; earlier full test builds stopped at their
 1 GiB and 1.5 GiB caps and remain recorded as failures. R15 did not retain the actual URL,
 so this source defect is not yet established as that run's cause. The next
-step is to finish Rust validation and integrate the owned cleanup correction
-before preparing another bounded comparison. The cleanup source is integrated:
+step is to finish cleanup validation before another bounded comparison.
+The cleanup source is integrated:
 failed preparation now waits on one shared, strictly matched browser closure
 before reporting settled rejection. Unconfirmed closure still retains the
-native fence. Its seven new cases and updated executable remain unvalidated.
+native fence. The API and updated executable compile successfully. The first
+13-case run passed eight cases, including matching closure and a dropped
+caller. Three cases lacked a required inert fixture file. Two negative cases
+exposed a separate issue: the deliberately retained process owner never
+reaped its sidecar after natural exit. The corrected setup and production
+reaper now pass all 13 cases. The negative cases verify both actual child
+reaping and continued refusal of that account afterward. The matched-close
+and dropped-caller cases verify retained work finishes before publication.
+The next isolated comparison will use the updated child and URL validation;
+authenticated delivery remains unverified.
 The matching missing-history control also behaved as expected in a real
 browser: both realms returned false, the wait raised `TimeoutError`, and
 the browser exited cleanly with no swap or limit events. These two controls

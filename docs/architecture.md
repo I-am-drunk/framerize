@@ -16,6 +16,10 @@ with finalization. The retained preparation worker requests stop and awaits
 its matching verdict before returning a settled rejection. An unconfirmed
 verdict still retains the native reservation; an error reply alone cannot
 release it. The successful comparison keeps its existing cleanup order.
+An unconfirmed observer keeps its account fence even after its original
+sidecar exits. The owner reaps that natural exit without signaling the child
+or accepting a cleanup receipt. Waiting for exit does not hold the process
+lifecycle lock between checks.
 Comparison preparation also writes bounded phase records through the existing
 sidecar file sink. Each record has an opaque trace, sequence, fixed purpose and
 fixed stage; no account, URL, cookie, token or prompt is included. The 128-record
