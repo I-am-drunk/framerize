@@ -7,9 +7,14 @@ Public asset comparison on October 24 confirms wrapper drift: current Framer
 selects `chunk-VPFQZMNG.mjs`; the native worker retains `chunk-5LKSDTQ5.mjs`.
 The selected V3 SDK bytes and public key still match. The new wrapper changes
 token export, dependencies and default V3 timeout, so a filename-only update
-is incompatible. No current-wrapper candidate has been executed or deployed.
-This does not attribute the security 403. Next, qualify its exact dependency
-and export contract separately; graphics cancellation also remains pending.
+is incompatible. The loader now selects its pinned export explicitly.
+Seven focused cases pass; the old-loader control retains three expected
+failures. The current 14-module candidate passes one synthetic SDK run with
+confirmed cleanup at 122,941,440 bytes, zero swap and zero memory events.
+Early cancellation and owner-drop checks also pass, without establishing
+the SDK phase. The candidate is staged and has not been deployed.
+This does not attribute the security 403. Next, use the guarded isolated
+configuration update for the distinct current-wrapper live attempt.
 See `reference/analysis/castle-current-selection-2026-10-24.md`.
 
 The native graphics SDK integration now passes with the deployable sources,

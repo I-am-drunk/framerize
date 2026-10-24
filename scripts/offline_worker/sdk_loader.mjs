@@ -1,7 +1,7 @@
 import fs from 'node:fs';
 import vm from 'node:vm';
 import { createHash } from 'node:crypto';
-import { ASSETS, DOM, CDN, MODULES, SUPPORT, DOM_PINS } from './pins.mjs';
+import { ASSETS, DOM, CDN, MODULES, SUPPORT, DOM_PINS, WRAPPER_MINT_EXPORT } from './pins.mjs';
 
 export function verifyInputs() {
   const inputs = [...Object.values(MODULES).map(([name, , hash]) => [ASSETS + '/' + name, hash]),
@@ -74,9 +74,9 @@ export class SdkModules {
   }
   mint() {
     const wrapper = this.#modules.get('wrapper');
-    if (wrapper.status !== 'evaluated' || typeof wrapper.namespace.a !== 'function')
+    if (wrapper.status !== 'evaluated' || typeof wrapper.namespace[WRAPPER_MINT_EXPORT] !== 'function')
       throw new Error('wrapper-unavailable');
-    return wrapper.namespace.a();
+    return wrapper.namespace[WRAPPER_MINT_EXPORT]();
   }
   loggerEntries() {
     const logger = this.#modules.get('logger');

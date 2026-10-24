@@ -11,6 +11,12 @@ token generator is export `b`; its export `a` initializes the SDK. The frozen
 native worker calls export `a` of the older wrapper. Although both select the
 same V3 SDK and public key, changing file pins alone is incompatible. A new
 bundle needs separate lifecycle and resource qualification before selection.
+The loader now reads an explicit export pin. Its historical default remains
+`a`; the separate current-wrapper candidate selects `b` and has passed a
+synthetic SDK run plus early owner-cancellation checks. All 14 module files
+are verified by the enclosing runner and child loader. Six SDK files and
+the full dependency manifest are also direct owner pins, keeping its
+existing 64-pin limit. The current-wrapper candidate is not yet deployed.
 See `reference/analysis/castle-current-selection-2026-10-24.md`.
 
 The experimental `native_gl` probes use installed EGL/GLES with a private

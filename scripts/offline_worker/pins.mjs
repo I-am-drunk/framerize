@@ -4,6 +4,7 @@ export const ASSETS = ROOT + '/framer-page-fixture/assets';
 export const DOM = ROOT + '/browserless-wire-20261020/genuine-dom';
 export const HISTORY = ROOT + '/browserless-wire-20261020';
 export const CDN = 'https://app.framerstatic.com/';
+export const WRAPPER_MINT_EXPORT = 'a';
 export const PUBLIC_KEY = 'pk_xYqGbB61EcFiSh4LUshpT4DGoEQMKQMB';
 export const MODULES = Object.freeze({
   wrapper: ['chunk-5LKSDTQ5.mjs', ['timeout', 'logger', 'bundler'],
