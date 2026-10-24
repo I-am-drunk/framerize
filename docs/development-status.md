@@ -3,6 +3,17 @@
 Updated 2026-10-24. The normal service remains browser-based. Publishing these
 branches does not change the running service.
 
+The comparison now records bounded SDK branch/failure counters without token
+or error contents. Its inference headers use the public caller's default
+`application/json` and omit `X-Requested-By`. All 106 focused Python cases and
+30 exact-JavaScript cases pass in a network-isolated, memory-capped runner.
+Two initial fixture failures (data-URL quoting and module identity) remain
+recorded; production code did not change to satisfy them. Logger eviction and
+concurrent page activity limit what the counters prove. R16 remains a refused
+browser baseline; these changes have not had another live test.
+Next, align the native inference headers before another comparison, preserving
+the separate authentication header contract and all R16 cooldown history.
+
 A traced offline SDK probe identified the browser crash: PulseAudio requests a
 64 MiB shared-memory file, but the comparison runner allowed only 32 MiB.
 `ftruncate` returned `EFBIG`, followed by SIGXFSZ. The corrected tracing probe
