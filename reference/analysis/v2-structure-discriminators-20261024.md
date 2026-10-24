@@ -69,6 +69,28 @@ cannot reveal the ratio, timing quality or reason for omission.
 These mappings guide diagnosis of genuine behavior only. They provide no
 evidence for spoofing identities, overriding APIs or weakening acceptance.
 
+## Additional encoder limits
+
+For the 7/15 type-4 path, `r[p5]` (179104) first applies `r[Wd]` (165453):
+surrogate pairs become spaces, selected controls are removed, and whitespace
+becomes spaces. It then encodes at most 251 UTF-8 bytes for this salted path.
+`r[ZM]` (170372) packs four-byte words with zero-filled unused bytes; `Ph`
+(87409) preserves the word count; `r[Hy]` (170188) expands every word to four
+bytes. The field's structural length is therefore `2 + 4 * ceil(L / 4)`,
+where `L` is the normalized, bounded UTF-8 byte count, not the original text.
+The reported length 42 constrains `L` to 37..40. It identifies neither the
+message nor its original character count. No payload was decoded to derive this.
+
+For 7/23, `r[jE]` requires a callable `performance.now` and a defined
+`HTMLCanvasElement`. Each measured helper still guards canvas/context creation
+and can skip its drawing loop. Timing surrounds the helper, so a nonzero ratio
+does not independently prove that drawing happened. A zero duration on either
+side produces zero; other ratios are rounded to three decimal places before
+the collector's truthy-only emission. An omitted field therefore does not
+separate zero/rounded-zero timing from an unmet prerequisite or a caught error.
+This is a source-level limitation of this field as a capability discriminator,
+not a measurement of either R14's browser or its isolated worker.
+
 ## What the comparison can and cannot distinguish
 
 `compare_structures(baseline, native)` accepts the existing projection shapes.
