@@ -50,6 +50,10 @@ fn failure(value: Failure) -> PreparationFailure {
             | Failure::Protocol => PreparationFailure::Rejected,
         Failure::Runtime | Failure::Spawn => PreparationFailure::Unavailable,
         Failure::Io | Failure::Worker => PreparationFailure::WorkerLost,
+        Failure::WorkerStage(stage) => {
+            tracing::warn!(stage = stage.as_str(), "offline SDK worker failed");
+            PreparationFailure::WorkerLost
+        }
     }
 }
 
