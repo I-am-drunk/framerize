@@ -3,6 +3,28 @@
 Updated 2026-10-24. The normal service remains browser-based. Publishing these
 branches does not change the running service.
 
+R14 also reached native HTTP with the explicit dedicated-worker V2 profile.
+The normal browser request and paired browser baseline returned HTTP 200
+with output. The isolated SDK completed and native HTTP returned complete
+403 JSON with Framer's Castle security envelope. Cleanup was confirmed;
+the isolated owner remains fenced and the protected service is unchanged.
+The live binary, command and configuration matched their bindings. Peak
+group memory was 1,699,512,320 bytes, with no swap or memory-limit events.
+An initial request-file collision stopped before the paired control. The
+existing recovery path sent that previously unsent pair once on the same
+resident page, without repeating the successful normal request.
+
+The passive observer captured 104 fields occupying 800 fingerprint bytes
+from the accepted browser baseline, with a complete V2 selection window.
+Comparison with the prior synthetic SDK observation (88 fields, 563 bytes)
+finds 17 browser-only fields, one synthetic-only field and 12 shared fields
+with differing types or lengths. This is a comparison across those two
+observations, not a capture of R14's SDK token or evidence of a refusal cause.
+No raw token or decoded field payload was retained. Type tags can themselves
+encode Boolean branches; equal lengths do not establish equal payloads.
+Next, use these differences to select source-backed discriminators while
+preserving the retained owner and rate history. No repeated request is queued.
+
 R13 tested the native-canvas V2 package through the owned resident control.
 The normal browser and paired browser baseline returned HTTP 200 with output.
 The isolated V2 worker completed, joined, and reached native HTTP, which again
@@ -92,8 +114,8 @@ thirteen synthetic cases, including invalid context, decoder failure, copy
 isolation and token privacy. Its isolated suite peaked at 17,244,160 bytes with
 no swap or limit events and confirmed process-group cleanup. The diagnostic
 host and immutable R14 launch files are prepared with the qualified dedicated
-worker profile. R14 has not activated or made a request yet; existing runtime
-ownership and rate checks still apply.
+worker profile. R14 subsequently ran under the existing runtime ownership and
+rate checks, with the concrete result recorded above.
 
 R12 completed an isolated-V2 request that was refused. The normal browser
 and paired browser baseline returned complete HTTP 200 model output. The
