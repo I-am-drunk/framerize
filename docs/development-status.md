@@ -30,8 +30,16 @@ cookie headers. It never records values or unknown cookie names and does not
 change cookie handling. All 20 focused authorization and privacy cases pass.
 The application build passes with API peak 570,425,344 bytes and link peak
 409,485,312 bytes, zero swap/events and clean teardown. Binary `d950da60` is
-staged and has not replaced the running executable. Its next use is to distinguish
-missing cookie propagation from an absent response update, not to claim a fix.
+now active only in the isolated instance. One diagnostic request obtained its
+login token with HTTP 200 and no Set-Cookie headers, then received the same
+complete security 403 from inference after 3.70 seconds to headers. Cleanup
+and pool idle were confirmed, and no second request ran. The browser service
+remained unchanged. Discarded login-response cookies do not explain this attempt.
+The supplied agent category, feature name and step match the browser rules;
+the client derives the prompt and fresh turn/session IDs for each request.
+This local consistency check does not establish project access or entitlement.
+The next check is the existing provenance of the selected project and team,
+before choosing another live experiment.
 
 The deployable graphics worker is now integrated in browserless source and
 validated in a separate pinned bundle. All 34 component cases and a synthetic
