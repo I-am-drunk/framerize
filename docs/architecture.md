@@ -74,6 +74,15 @@ binds the current project, space membership, page and device, then rechecks
 them after the policy call. Personal spaces need no organization configuration.
 Unknown scope, missing context or disabled AI refuses preparation before any
 bearer acquisition or mint. Cancellation retains ownership of a pending RPC.
+The evaluation emits at most seven fixed progress labels through a temporary
+page-console listener, covering entry, each import and the policy call. A random
+per-call prefix binds those labels to that evaluation; neither the prefix nor
+other console contents enter the progress log. Labels must advance in order.
+The listener is disabled and removed when the caller settles or cancels, while
+the scope still owns an unfinished evaluation. Progress cannot change the
+policy verdict or extend its two-second deadline. A missing label is unknown,
+since telemetry can fail or be delayed. A received label establishes only that
+the instrumented evaluation reached that point.
 
 The comparison must run the public SDK in the page's own JavaScript realm.
 The offline failure was Firefox's rejection of TypedArray access across an

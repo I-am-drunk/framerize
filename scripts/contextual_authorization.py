@@ -18,6 +18,8 @@ COMPARISON_READY_SECONDS = 10
 COMPARISON_DISPOSE_SECONDS = 2
 COMPARISON_PROBE_SECONDS = 1
 COMPARISON_POLICY_SECONDS = 2
+POLICY_PROGRESS = ('policy_eval_entry', 'policy_engine_import', 'policy_engine_loaded',
+    'policy_module_import', 'policy_module_loaded', 'policy_call', 'policy_evaluated')
 POLICY_STAGES = ('policy_preflight', 'policy_pre_context', 'policy_import',
     'policy_export', 'policy_engine', 'policy_project', 'policy_space',
     'policy_check', 'policy_post_context', 'policy_result', 'policy_disabled',
@@ -45,7 +47,8 @@ DIAGNOSTIC_STAGES = frozenset(('account_start', 'context_inputs', 'cookie_seed',
     'baseline_header_after_mint_membership', 'baseline_header_after_mint_values',
     'baseline_result', 'baseline_bound_after_fetch', 'mint_rpc',
     'mint_rpc_target_closed', 'mint_rpc_timeout', 'mint_rpc_error',
-    'mint_reply_invalid', *MINT_FAILURE_MARKS.values(), *READINESS_STAGES, *POLICY_STAGES))
+    'mint_reply_invalid', *MINT_FAILURE_MARKS.values(), *READINESS_STAGES, *POLICY_STAGES,
+    *POLICY_PROGRESS))
 DIAGNOSTIC_CHECKS = ('device_valid', 'device_cookie_match', 'login_match',
                      'page_match', 'url_unchanged', 'device_cookie_present',
                      'device_cookie_unique', *READINESS_CHECKS, *POLICY_CHECKS)
@@ -372,7 +375,13 @@ COMPARISON_READY = """({project, diagnose = false}) => {
   return diagnose ? checks : true;
 }"""
 
-COMPARISON_POLICY = """async ({project, page_url}) => {
+COMPARISON_POLICY = """async ({project, page_url, progress_key}) => {
+  const progress = phase => {
+    try {
+      if (typeof progress_key === 'string') console.debug(progress_key + phase);
+    } catch {} // Telemetry never changes the policy decision.
+  };
+  progress('policy_eval_entry');
   let stage = 'policy_pre_context';
   const checks = {policy_known: false};
   const finish = () => ({stage, ...checks});
@@ -386,14 +395,18 @@ COMPARISON_POLICY = """async ({project, page_url}) => {
     checks.policy_device_match = deviceMatches();
     if (!checks.policy_page_match || !checks.policy_device_match) return finish();
     stage = 'policy_import';
+    progress('policy_engine_import');
     const em = await import('https://app.framerstatic.com/chunk-WC34TENX.mjs');
+    progress('policy_engine_loaded');
     stage = 'policy_export';
     if (typeof em.a !== 'function') return finish();
     stage = 'policy_engine';
     const engine = em.a();
     if (!object(engine)) return finish();
     stage = 'policy_import';
+    progress('policy_module_import');
     const policy = await import('https://app.framerstatic.com/chunk-5PNX2WXY.mjs');
+    progress('policy_module_loaded');
     stage = 'policy_export';
     if (typeof policy.c !== 'function') return finish();
     stage = 'policy_project';
@@ -429,7 +442,9 @@ COMPARISON_POLICY = """async ({project, page_url}) => {
     stage = 'policy_pre_context';
     if (!bound()) return finish();
     stage = 'policy_check';
+    progress('policy_call');
     const disabled = policy.c(engine);
+    progress('policy_evaluated');
     stage = 'policy_post_context';
     if (!bound()) return finish();
     stage = 'policy_result';
@@ -540,6 +555,46 @@ def comparison_owner(host, account, scope):
     return acc
 
 
+def comparison_policy_progress(scope, page):
+    key = 'framerize-policy:' + secrets.token_hex(16) + ':'
+    active, last = True, -1
+
+    def observe(message):
+        nonlocal last
+        try:
+            if not active or message.type != 'debug':
+                return
+            text = message.text
+            if type(text) is not str or not text.startswith(key):
+                return
+            phase = text[len(key):]
+            if phase not in POLICY_PROGRESS or POLICY_PROGRESS.index(phase) <= last:
+                return
+            last = POLICY_PROGRESS.index(phase)
+            emit = getattr(scope, 'comparison_progress', None)
+            if emit is not None:
+                emit(phase)
+        except Exception:
+            pass
+
+    def close():
+        nonlocal active
+        active = False
+        try:
+            page.remove_listener('console', observe)
+        except Exception:
+            pass
+
+    try:
+        if not callable(getattr(page, 'remove_listener', None)):
+            return None, close
+        page.on('console', observe)
+    except Exception:
+        close()
+        return None, close
+    return key, close
+
+
 async def comparison_policy(scope, page, project):
     comparison_mark(scope, 'policy_preflight')
     page_url = page.url
@@ -547,9 +602,13 @@ async def comparison_policy(scope, page, project):
         comparison_mark(scope, 'policy_pre_context', policy_known=False, policy_page_match=False)
         raise RuntimeError('comparison policy unavailable')
     # One bounded read; the original scope retains a pending RPC on cancellation.
+    progress_key, close_progress = comparison_policy_progress(scope, page)
+    args = {'project': project, 'page_url': page_url}
+    if progress_key is not None:
+        args['progress_key'] = progress_key
     try:
         result = await comparison_rpc(scope, lambda: page.evaluate('mw:' + COMPARISON_POLICY,
-            {'project': project, 'page_url': page_url}), COMPARISON_POLICY_SECONDS)
+            args), COMPARISON_POLICY_SECONDS)
     except asyncio.CancelledError:
         raise
     except Exception as error:
@@ -561,6 +620,8 @@ async def comparison_policy(scope, page, project):
                      else 'policy_rpc_error')
         comparison_mark(scope, stage, policy_known=False)
         raise RuntimeError('comparison policy unavailable') from None
+    finally:
+        close_progress()
 
     if (type(result) is not dict or type(result.get('stage')) is not str
             or result['stage'] not in POLICY_STAGES
