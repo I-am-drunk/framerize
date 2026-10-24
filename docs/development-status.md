@@ -9,8 +9,12 @@ through cleanup; genuine status failures still retain their uncertainty fence.
 The current core and focused server fixture compile, and all eight selected
 admission tests pass, including cancellation, cleanup and negative-status cases.
 The unchanged Python r3 bundle also passes all 130 cases and three JavaScript
-scripts with zero swap or limit events and confirmed runner cleanup. Remaining
-Rust dependencies, worker/socket fixtures and executable linking are in progress.
+scripts with zero swap or limit events and confirmed runner cleanup. The current
+host and API libraries, 17 coordinator/adapter cases, 33 host cases, 17 API cases,
+34 socket/startup cases, and the linked production daemon now pass validation.
+The ten private-client cases also pass. The first API archive build hit the
+32 MiB file limit; omitting unused LLVM bitcode produced passing API and server
+libraries without raising limits. Earlier failed evidence remains preserved.
 The live browser/native crossover has not run. The protected running host has
 no mechanism to activate this protocol in its existing process.
 

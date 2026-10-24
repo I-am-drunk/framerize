@@ -6,7 +6,8 @@ binary before starting an owner with `--resident-control-socket`. The selected
 account must already have an idle, successful browser page in that owner.
 The option requires the `native-dispatch` build and `--engine camoufox`.
 Offline-worker and offline-routing options cannot share this startup owner.
-The socket's 29 fixtures and three CLI cases are currently uncompiled and unrun.
+The integrated daemon now links, and all 31 socket and three CLI cases pass.
+The protected running service still has no resident-control socket enabled.
 
 The private client is `scripts/resident_control_client.py`. It sends one
 request to the existing Unix socket and prints only fixed diagnostic facts.
@@ -55,9 +56,7 @@ output, streaming support or memory savings. Preserve those distinctions when
 interpreting the fixed report. Final host admission remains fenced by the
 current coordinator policy.
 
-The ten client fixtures are frozen and unrun. The 128 MiB isolated runner was
-refused before execution by the existing memory reserve; syntax checks pass.
-Their entry is:
+The ten client fixtures pass in the 128 MiB isolated runner. Their entry is:
 
 ```sh
 python3 reference/fixtures/resident_control_client_tests.py

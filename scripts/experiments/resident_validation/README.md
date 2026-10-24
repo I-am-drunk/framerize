@@ -56,5 +56,10 @@ The server selection contains eight cases: two existing resident-admission
 cases, three reservation regressions, and three existing negative-status cases.
 Core and server-test compilation and all eight server cases pass. Python r3
 passes 130 cases and three JavaScript scripts; its sources are unchanged.
-Other current Rust phases are pending. The prepared supplement does not activate
-resident control or establish browserless inference success.
+Worker r5 reuses exact validated r4 outputs and builds API/server without unused
+LLVM bitcode to keep archives below the unchanged 32 MiB limit. The explicit
+reuse and bitcode-adjustment helpers are archived here. All selected current
+Rust cases and the linked production executable now pass; library tests use
+library r2 and main uses main r5. The ten private-client cases also pass.
+These results do not activate resident control or establish browserless
+inference success.
