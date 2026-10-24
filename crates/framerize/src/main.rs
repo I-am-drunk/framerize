@@ -86,6 +86,13 @@ enum Cmd {
         /// Eligible accounts: all, none, or comma-separated full UUIDs.
         #[arg(long)]
         eligible_accounts: Option<String>,
+        /// Track browser request cleanup without enabling native routing.
+        #[arg(long)]
+        #[cfg_attr(feature = "native-dispatch", arg(conflicts_with_all = [
+            "offline_worker_config", "offline_routing_config",
+            "resident_control_socket", "resident_v2_worker_config"
+        ]))]
+        browser_request_ownership: bool,
         /// Enable the explicit offline complete-JSON endpoint with pinned runtime inputs.
         #[cfg(feature = "native-dispatch")]
         #[arg(long)]
@@ -150,9 +157,25 @@ struct BuiltState {
     resident: Option<Arc<resident_control::StartupOwner>>,
 }
 
+fn configure_browser_request_ownership(state: AppState, enabled: bool)
+    -> Result<AppState, String> {
+    if !enabled { return Ok(state); }
+    #[cfg(feature = "native-dispatch")]
+    if state.native_dispatch.is_some() {
+        return Err("browser request ownership requires browser routing".into());
+    }
+    framer_server::operation_ownership::with_owned_operations(state, 256)
+        .map_err(|error| format!("browser request ownership unavailable: {error:?}"))
+}
+
+#[cfg(test)]
+#[path = "browser_request_ownership_startup_tests.rs"]
+mod browser_request_ownership_startup_tests;
+
 async fn build_state(db: &str, chrome: &str, profiles: &str, engine: &str,
     active_pool_size: Option<usize>, eligible_accounts: Option<&str>,
     sidecar_script: Option<std::path::PathBuf>,
+    browser_request_ownership: bool,
     #[cfg(feature = "native-dispatch")] resident_controls: bool,
     #[cfg(feature = "native-dispatch")] resident_sdk: Option<Arc<offline_worker_owner::V2Worker>>,
 ) -> Result<BuiltState, String> {
@@ -226,6 +249,7 @@ async fn build_state(db: &str, chrome: &str, profiles: &str, engine: &str,
         wave: std::sync::Arc::new(framer_core::wave::WaveGuard::new()),
         serving_accounts,
     };
+    let state = configure_browser_request_ownership(state, browser_request_ownership)?;
     #[cfg(feature = "native-dispatch")]
     let (state, resident) = match resident_bridge {
         Some(bridge) => {
@@ -280,7 +304,7 @@ async fn main() {
     let cli = Cli::parse();
     match cli.cmd {
         Cmd::Daemon { listen, web_dir, db, chrome, engine, profiles, sidecar_script,
-            active_pool_size, eligible_accounts,
+            active_pool_size, eligible_accounts, browser_request_ownership,
             #[cfg(feature = "native-dispatch")] offline_worker_config,
             #[cfg(feature = "native-dispatch")] offline_routing_config,
             #[cfg(feature = "native-dispatch")] resident_control_socket,
@@ -311,6 +335,7 @@ async fn main() {
             };
             let built = match build_state(&db, &chrome, &profiles, &engine,
                 active_pool_size, eligible_accounts.as_deref(), sidecar_script,
+                browser_request_ownership,
                 #[cfg(feature = "native-dispatch")] resident_control_socket.is_some(),
                 #[cfg(feature = "native-dispatch")] resident_sdk,
             ).await {

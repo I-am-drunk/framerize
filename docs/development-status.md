@@ -3,6 +3,17 @@
 Updated 2026-10-24. The normal service remains browser-based. Publishing these
 branches does not change the running service.
 
+The two-file browser startup input `121d770a` is integrated. All five selected
+tests pass (`b36564d4`, peak 14,446,592 bytes); test compilation passes
+(`df140c78`, peak 353,198,080 bytes). The explicit option enables ownership
+without enabling native routing. Tests preserve default behavior, reject
+mixed modes, retain the host retirement barrier and serve the normal hello
+routes. Exact bindings, selection, zero swap/limit events and process cleanup
+were verified. The executable links against unchanged qualified libraries
+(`b9114054`, peak 452,710,400 bytes, zero swap). Selected support closure, remaining shared-router corrections and
+normal-port interrupted/subsequent streams remain rollout prerequisites.
+No protected-service change or executable launch was performed.
+
 The two-path pipeline admission input `b7aed0f5` is integrated. All seven
 selected tests pass (`aae27a4c`, peak 11,575,296 bytes), covering 35 scenarios.
 Test compilation passes (`59eeca16`, peak 231,718,912 bytes). A cooldown or
@@ -17,8 +28,8 @@ There is no new initial-workspace-await discriminator. The update lock ends
 before inference, and `/api/run` still maps these refusals to HTTP 500 pending
 its separate endpoint correction. No executable launch or service change.
 The current protected command would still leave request ownership disabled.
-The explicit browser-only startup option and the remaining shared-router
-completion groups require separate qualification before any reviewed rollout.
+The startup option is qualified above. Its actual startup/support binding and
+the remaining shared-router completion groups precede any reviewed rollout.
 
 The three-path local-refusal input `345a9271` is integrated. All three selected
 tests pass (`33a2d86b`, peak 12,238,848 bytes), covering 16 scenarios. Test
