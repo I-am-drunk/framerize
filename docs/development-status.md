@@ -1,5 +1,18 @@
 # Development status
 
+The assembled native worker now passes one isolated startup rejection check
+through the exact qualified Rust process owner. Its unchanged Node executable,
+worker entry and configuration reject invalid input before an SDK operation.
+The original worker joins and exits. Runtime peak memory was 25,579,520 bytes
+under 128 MiB, with zero swap and no memory or task limit events. All 1,917
+bound inputs match before and after, including the private library snapshot
+mounted read-only at the required location. Compile and runtime jobs are
+collected. This is startup and rejection evidence, not a valid mint or inference.
+The normal rollout remains authorized and unexecuted while the previously
+requested terminal authentication is pending. A fresh hold and positive
+endpoint quiescence remain required. See
+`reference/analysis/ordinary-v2-worker-startup-20261024.md`.
+
 The normal-rollout controller now fences startup while it changes ownership
 of saved host limits. A failed start can reuse a transfer only when two checks
 prove it is still unused, the original generation is gone, the manager has no

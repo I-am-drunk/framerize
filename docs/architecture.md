@@ -1,5 +1,14 @@
 # Serving architecture and branch policy
 
+Native worker startup can be checked without presenting an account or valid
+SDK seed. The standalone rejection check uses the real V2 process owner,
+private descriptors, original Node flags and child sandbox. An invalid target
+must produce the V2 input-stage refusal before SDK operation metadata exists.
+Acceptance also requires the same child's joined completion and absence.
+The outer check uses private process and network namespaces and mounts its
+verified library snapshot read-only. This check does not exercise lazy SDK
+imports, valid observation transfer, minting or account-owned inference.
+
 Startup recovery now distinguishes an unused transfer from a restored one.
 A controller-owned start condition remains closed throughout reassignment.
 The decision binds boot, controller, source generation, full account inventory,
