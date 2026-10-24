@@ -54,6 +54,11 @@ fn failure(value: Failure) -> PreparationFailure {
             tracing::warn!(stage = stage.as_str(), "offline SDK worker failed");
             PreparationFailure::WorkerLost
         }
+        Failure::V2WorkerStage(stage) => {
+            tracing::warn!(stage = stage.phase(), operation = stage.operation(),
+                device = stage.device(), "offline V2 worker failed");
+            PreparationFailure::WorkerLost
+        }
     }
 }
 

@@ -3,6 +3,19 @@
 Updated 2026-10-24. The normal service remains browser-based. Publishing these
 branches does not change the running service.
 
+The separate V2 worker now passes private token transport and joined-child
+qualification. One socket-denied synthetic SDK invocation completed its method
+in 604 ms, component in 1,210 ms, and private handoff in 6 ms. Conservative token
+age was 1,272 ms; the token was discarded. The owned group peaked at 129,159,168
+bytes with no swap or limit events, and the runner confirmed unit removal.
+All 57 Rust owner cases and eight JavaScript handoff cases pass. The V3 worker
+keeps its existing acceptance rules; V2 has a separate exact decoder and fixed
+failure categories. This does not establish account-bound upstream acceptance.
+The adapter's new diagnostic match arm awaits its next compilation.
+Next, bind V2 to the retained resident lease with pre-worker rate admission and
+post-join context verification, preserving the current jar, bearer and original
+worker timestamp. No running browser has been changed.
+
 A separate direct V2 component now completes one actual unchanged SDK call
 with a synthetic UUID-shaped saved device. The method took 597 ms and the
 component took 1,142 ms. Storage and cookie identity remained unchanged;

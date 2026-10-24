@@ -1,5 +1,13 @@
 # Serving architecture and branch policy
 
+`V2Worker` explicitly selects the direct V2 handoff protocol. It shares the
+owned subprocess supervisor with `Worker`, whose default remains V3-only.
+Typed results are released only after private frame validation, exact metadata
+validation and child join. Freshness begins before spawn, never when buffered
+bytes are read. V2 failures retain only fixed phase/device labels. A synthetic
+socket-denied qualification has exercised the complete private transport;
+account binding and resident rate admission remain the next integration step.
+
 The separate `v2_operation`/`v2_runtime` component invokes the retained genuine
 V2 factory's configured-instance API. It requires a saved device, calls the
 token method once, preserves the supplied target URL, and rejects changed
