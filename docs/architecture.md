@@ -47,7 +47,7 @@ The isolated service on port 8788 is stopped and fenced for the comparison;
 the protected browser remains unchanged. Local containment and signed-out
 public-page startup passed with the 1.5 GiB child and 2 GiB controller caps,
 preserving the 1 GiB browser startup guard and separate host reserve. The
-latest authenticated preparation failed before minting or inference because
+initial authenticated preparation failed before minting or inference because
 device storage was absent at the immediate post-navigation snapshot. Page
 navigation completion alone does not establish application or SDK readiness.
 The comparison now waits up to ten seconds for a nonempty stored device ID.
@@ -55,6 +55,9 @@ The wait and handle disposal remain owned through cancellation; a two-second
 disposal timeout refuses continuation while retaining cleanup ownership.
 The unchanged snapshot then validates the actual device, cookie, login and
 page together. Readiness does not write device state or invoke the SDK.
+The next live attempt passed storage readiness but failed device-cookie
+matching against the API host. Page-visible storage and cookies selected for
+a different host are distinct observations; that binding is under investigation.
 Logical cleanup failure remains separate from a later journal-bound proof
 that the owned process and group exited; the latter retains reserved attempts
 and extends cooldown through physical closure.

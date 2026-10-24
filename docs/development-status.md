@@ -3,7 +3,18 @@
 Updated 2026-10-24. The normal service remains browser-based. Publishing these
 branches does not change the running service.
 
-The latest isolated comparison (R5) identifies a preparation failure: the
+The latest isolated comparison (R6) passed device readiness. Its stored device,
+login, project page and unchanged URL checks passed, but the device cookie did
+not match the API-host cookie selection. It stopped before controlled bearer
+acquisition, minting or inference. Cookie scope remains under investigation;
+this result does not identify the cause of earlier upstream 403s.
+
+R6 confirmed browser cleanup and natural child exit, with the group removed.
+The native account still retained `Cleanup`. Peak usage was 179 tasks and
+1,210,380,288 bytes, with zero recorded swap or memory/task-limit events.
+The protected browser is unchanged and the isolated account remains fenced.
+
+The earlier isolated comparison (R5) identified a preparation failure: the
 project page and login cookie matched, but device storage was not ready at
 the immediate post-navigation snapshot. This occurred before controlled
 bearer acquisition, token minting or inference. It does not explain earlier
