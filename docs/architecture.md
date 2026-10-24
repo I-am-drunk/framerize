@@ -5,6 +5,11 @@ It permits the captured login-page URL without relaxing comparison editor
 checks, binds the effective launch route, and consumes one retained bearer.
 Its token timestamp starts before acquire. These types validate context;
 the daemon must retain the host lease and prove browser/native settlement.
+An additive `ResidentMint` ticket consumes and rechecks that bearer immediately
+before a separate native mint. Authorization preserves the ticket's timestamp,
+including the entire mint RPC, instead of charging an earlier browser baseline
+against the new token's lifetime. This API is source-only until validated and
+wired to the real baseline sequence.
 
 The private resident RPC client binds the daemon's existing SidecarBridge and
 checks its incarnation while selecting the pipe and registering the reply.
@@ -25,12 +30,33 @@ the public-app contract. This option does not supply a resident browser lease,
 change User-Agent or TLS, or select a proxy. A working-context comparison must
 retain its own account, page, device, bearer and cleanup ownership.
 
-The standalone `resident_activity` ownership primitive reserves one account
+The `resident_activity` ownership primitive reserves one account
 without a global lock. Closed or cancelled callers do not discard registered
 RPC ownership. A cached completion waits for those RPCs; unknown native
 settlement fences the account. Operation identifiers have bounded, non-evicting
-replay protection. This primitive is tested but is not yet wired into ordinary
-host commands, background activity or a live resident-control endpoint.
+replay protection. Host commands, creation, cleanup, heartbeat and page activity
+now use the account ledger. Pending raw RPCs remain owned after waiter loss;
+uncertain activity refuses resident acquisition without stopping other accounts.
+
+The private Python resident operation selects only retained browser HTTP-200
+provenance and calls its proven cached wrapper once. It never creates a page,
+navigates, repairs a cache, uses token pooling or falls back to a forged token.
+Its acquire/finish/discard lifetime retains the account through native settlement.
+Startup configuration must supply the application generation before the bridge
+starts. Ambient environment alone cannot enable it through the Rust bridge.
+Embedded scripts and the optional runtime package include its dependencies.
+These source changes do not modify an already-running Python host, and the
+existing serving owner has no hot-add mechanism for this operation.
+
+The resident control coordinator has a source-only retained worker and strict
+private reply validation. Its server admission selects only an idle existing
+resident slot, without allocating or evicting a browser. The worker retains
+capacity and pool ownership through cancellation, transport joins and health
+publication. Concrete bootstrap and browser-baseline owners are not supplied,
+so no endpoint invokes it. The planned version 2 sequence reserves first,
+runs the browser baseline with one retained bearer, and only then mints the
+native token. Version 1 acquisition still mints immediately and is unsuitable
+for that paired sequence.
 
 `main` is the browser-based service. `browser-based` preserves that path as a
 maintained fallback. `browserless` is the separate development branch for the

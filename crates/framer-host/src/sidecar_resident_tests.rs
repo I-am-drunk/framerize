@@ -46,6 +46,10 @@ fn acquire_budget_and_private_fields_are_bounded_before_serialization() {
 fn common_identity_rejects_missing_or_unbounded_identity() {
     let account = AccountId(Uuid::parse_str(ACCOUNT).unwrap());
     let lease = Uuid::parse_str(LEASE).unwrap();
+    assert!(matches!(ResidentIdentity::new(account, ApplicationGeneration(0),
+        "python-generation".into(), 9, lease), Err(ResidentError::InvalidIdentity)));
+    assert!(ResidentIdentity::new(account, ApplicationGeneration(u64::MAX),
+        "python-generation".into(), 9, lease).is_ok());
     for host in [String::new(), "x".repeat(129), "host\n".into()] {
         assert!(matches!(ResidentIdentity::new(account, ApplicationGeneration(37),
             host, 9, lease), Err(ResidentError::InvalidIdentity)));
@@ -61,6 +65,140 @@ fn common_identity_rejects_missing_or_unbounded_identity() {
         "x".repeat(128), 9, lease).is_ok());
 }
 
+// Inspect command construction only, without changing the parent environment.
+fn assert_child_generation(bridge: &SidecarBridge, expected: Option<&str>) {
+    use std::ffi::OsStr;
+    let key = OsStr::new(super::super::RESIDENT_GENERATION_ENV);
+    let mut command = Command::new("never-launched-resident-fixture");
+    command.env(key, "999");
+    bridge.configure_resident_environment(&mut command);
+    assert_eq!(command.as_std().get_envs().collect::<Vec<_>>(),
+        vec![(key, expected.map(OsStr::new))]);
+}
+
+#[test]
+fn default_bridge_disables_resident_controls_and_removes_ambient_generation() {
+    let root = std::env::temp_dir().join(format!("uncreated-resident-{}", Uuid::new_v4()));
+    let bridge = SidecarBridge::new(&root);
+    assert_eq!(bridge.resident_application_generation, None);
+    assert_child_generation(&bridge, None);
+    assert!(bridge.inner.try_lock().unwrap().is_none());
+    assert!(bridge.startup_attempted.get().is_none());
+    assert!(!root.exists());
+}
+
+#[test]
+fn explicit_positive_generation_replaces_ambient_value_without_starting() {
+    for generation in [1, u64::MAX] {
+        let mut bridge = SidecarBridge::new("unused-resident-fixture");
+        bridge.configure_resident_controls(ApplicationGeneration(generation)).unwrap();
+        assert_eq!(bridge.resident_application_generation,
+            Some(ApplicationGeneration(generation)));
+        assert_child_generation(&bridge, Some(&generation.to_string()));
+        assert!(bridge.inner.try_lock().unwrap().is_none());
+        assert!(bridge.startup_attempted.get().is_none());
+    }
+}
+
+#[test]
+fn zero_generation_never_enables_or_replaces_resident_configuration() {
+    let mut bridge = SidecarBridge::new("unused-resident-fixture");
+    assert!(bridge.configure_resident_controls(ApplicationGeneration(0)).is_err());
+    assert_eq!(bridge.resident_application_generation, None);
+    bridge.configure_resident_controls(ApplicationGeneration(37)).unwrap();
+    assert!(bridge.configure_resident_controls(ApplicationGeneration(0)).is_err());
+    assert_eq!(bridge.resident_application_generation, Some(ApplicationGeneration(37)));
+}
+
+#[test]
+fn attempted_startup_freezes_resident_configuration_even_without_a_child() {
+    for generation in [None, Some(ApplicationGeneration(37))] {
+        let mut bridge = SidecarBridge::new("unused-resident-fixture");
+        if let Some(generation) = generation {
+            bridge.configure_resident_controls(generation).unwrap();
+        }
+        bridge.startup_attempted.set(()).unwrap();
+        assert!(bridge.configure_resident_controls(ApplicationGeneration(38)).is_err());
+        assert_eq!(bridge.resident_application_generation, generation);
+        assert!(bridge.inner.try_lock().unwrap().is_none());
+    }
+}
+
+#[test]
+fn observed_mode_cannot_opt_into_resident_controls() {
+    let mut bridge = SidecarBridge::new("unused-resident-fixture");
+    bridge.mode = super::super::observer::ProcessMode::Observed {
+        script: "unused-observed-fixture.py".into(), profile_nonce: Uuid::new_v4(),
+    };
+    assert!(bridge.configure_resident_controls(ApplicationGeneration(37)).is_err());
+    assert_eq!(bridge.resident_application_generation, None);
+    assert_child_generation(&bridge, None);
+}
+
+struct ScriptFixture(std::path::PathBuf);
+
+impl ScriptFixture {
+    fn new() -> Self {
+        let root = std::env::temp_dir().join(format!("resident-scripts-{}", Uuid::new_v4()));
+        std::fs::create_dir(&root).unwrap();
+        Self(root.canonicalize().unwrap())
+    }
+}
+
+impl Drop for ScriptFixture {
+    fn drop(&mut self) { let _ = std::fs::remove_dir_all(&self.0); }
+}
+
+fn bundled_scripts() -> [(&'static str, &'static str); 4] {
+    use super::super::{CONTEXTUAL_AUTHORIZATION, RESIDENT_ACTIVITY,
+        RESIDENT_AUTHORIZATION, SCRIPT};
+    [("camoufox_host.py", SCRIPT), ("resident_activity.py", RESIDENT_ACTIVITY),
+        ("resident_authorization.py", RESIDENT_AUTHORIZATION),
+        ("contextual_authorization.py", CONTEXTUAL_AUTHORIZATION)]
+}
+
+#[test]
+fn embedded_host_refreshes_all_three_resident_support_modules() {
+    let root = ScriptFixture::new();
+    let bridge = SidecarBridge::new(&root.0);
+    let directory = root.0.join(".bin");
+    let script = directory.join("camoufox_host.py");
+    for _ in 0..2 {
+        bridge.extract_embedded_script(&script).unwrap();
+        for (name, source) in bundled_scripts() {
+            let path = directory.join(name);
+            assert_eq!(std::fs::read_to_string(&path).unwrap(), source);
+            std::fs::write(path, "# stale fixture\n").unwrap();
+        }
+    }
+    assert!(bridge.inner.try_lock().unwrap().is_none());
+}
+
+#[test]
+fn explicit_and_observed_overrides_keep_their_own_support_modules() {
+    for observed in [false, true] {
+        let root = ScriptFixture::new();
+        let script = root.0.join("camoufox_host.py");
+        for (name, _) in bundled_scripts() {
+            std::fs::write(root.0.join(name), "# caller-owned fixture\n").unwrap();
+        }
+        let mut bridge = SidecarBridge::new(root.0.join("state"));
+        if observed {
+            bridge.mode = super::super::observer::ProcessMode::Observed {
+                script: script.clone(), profile_nonce: Uuid::new_v4(),
+            };
+        } else {
+            bridge = bridge.with_script(&script).unwrap();
+        }
+        bridge.extract_embedded_script(&script).unwrap();
+        for (name, _) in bundled_scripts() {
+            assert_eq!(std::fs::read_to_string(root.0.join(name)).unwrap(),
+                "# caller-owned fixture\n");
+        }
+        assert!(!bridge.state_root.exists());
+    }
+}
+
 struct Fixture {
     owner: Arc<SidecarBridge>,
     frames: mpsc::UnboundedReceiver<Value>,
@@ -70,6 +208,15 @@ struct Fixture {
 
 // Synthetic pipe peer only: no host script, browser, SDK, account or network.
 async fn fixture(reply: Option<Result<Value, String>>) -> Fixture {
+    fixture_with_generation(reply, Some(ApplicationGeneration(37))).await
+}
+
+async fn fixture_with_generation(reply: Option<Result<Value, String>>,
+    generation: Option<ApplicationGeneration>) -> Fixture {
+    let mut bridge = SidecarBridge::new("unused-resident-fixture");
+    if let Some(generation) = generation {
+        bridge.configure_resident_controls(generation).unwrap();
+    }
     let mut child = Command::new("python3").args(["-u", "-c",
         "import sys\nfor line in sys.stdin:\n sys.stdout.write(line)\n sys.stdout.flush()"])
         .stdin(Stdio::piped()).stdout(Stdio::piped()).kill_on_drop(true).spawn().unwrap();
@@ -92,7 +239,7 @@ async fn fixture(reply: Option<Result<Value, String>>) -> Fixture {
         }
     });
     let (cancel, cancellations) = mpsc::channel(8);
-    let owner = Arc::new(SidecarBridge::new("unused-resident-fixture"));
+    let owner = Arc::new(bridge);
     *owner.inner.lock().await = Some(Sidecar {
         child, stdin, pending, cancel, next_id: Arc::new(AtomicU64::new(0)),
         capability: Arc::new(Mutex::new(None)),
@@ -130,6 +277,30 @@ fn expected_frame(id: u64, extra: Value) -> Value {
 }
 
 #[tokio::test]
+async fn disabled_and_mismatched_generations_cannot_bind_a_running_sidecar() {
+    for generation in [None, Some(ApplicationGeneration(38))] {
+        let mut f = fixture_with_generation(Some(Ok(json!(true))), generation).await;
+        let expected = if generation.is_some() { ResidentError::InvalidIdentity }
+            else { ResidentError::Unconfirmed };
+        assert_eq!(ResidentRpc::bind(&f.owner, identity()).await.err(), Some(expected));
+        assert_no_command(&mut f).await;
+        close(&f.owner, f.reader).await;
+    }
+}
+
+#[tokio::test]
+async fn late_opt_in_retains_the_existing_bridge_and_child() {
+    let mut f = fixture_with_generation(Some(Ok(json!(true))), None).await;
+    let bridge = Arc::get_mut(&mut f.owner).unwrap();
+    let pid = bridge.inner.get_mut().as_ref().unwrap().child.id();
+    assert!(bridge.configure_resident_controls(ApplicationGeneration(37)).is_err());
+    assert_eq!(bridge.resident_application_generation, None);
+    assert_eq!(bridge.inner.get_mut().as_ref().unwrap().child.id(), pid);
+    assert_no_command(&mut f).await;
+    close(&f.owner, f.reader).await;
+}
+
+#[tokio::test]
 async fn typed_actions_emit_exact_bounded_frames() {
     let mut f = fixture(Some(Ok(json!(true)))).await;
     let rpc = ResidentRpc::bind(&f.owner, identity()).await.unwrap();
@@ -160,7 +331,9 @@ async fn typed_actions_emit_exact_bounded_frames() {
 #[tokio::test]
 async fn missing_sidecar_cannot_be_bound_or_started() {
     let root = std::env::temp_dir().join(format!("uncreated-resident-{}", Uuid::new_v4()));
-    let owner = Arc::new(SidecarBridge::new(&root));
+    let mut bridge = SidecarBridge::new(&root);
+    bridge.configure_resident_controls(ApplicationGeneration(37)).unwrap();
+    let owner = Arc::new(bridge);
     assert!(matches!(ResidentRpc::bind(&owner, identity()).await,
         Err(ResidentError::Unconfirmed)));
     assert!(owner.inner.lock().await.is_none());
@@ -275,7 +448,7 @@ async fn dropped_waiter_only_requests_cancel_and_never_claims_settlement() {
 
 #[tokio::test]
 async fn ordinary_rpc_keeps_default_framing_reply_and_error_behavior() {
-    let mut f = fixture(Some(Ok(json!({"fixture": true})))).await;
+    let mut f = fixture_with_generation(Some(Ok(json!({"fixture": true}))), None).await;
     for (index, start_missing) in [true, false].into_iter().enumerate() {
         let reply = f.owner.call_with_policy("ordinary", json!({"id": 77,
             "cmd": "ignored", "body": "synthetic"}), CONTROL_TIMEOUT, start_missing)

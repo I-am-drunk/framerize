@@ -2,6 +2,7 @@
 import ast
 import asyncio
 import os
+import sys
 import tempfile
 import time
 import types
@@ -10,6 +11,8 @@ import uuid
 from collections import deque
 from contextlib import asynccontextmanager
 from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "scripts"))
 
 
 class FakeBrowser:
@@ -69,6 +72,7 @@ class ResidentLifecycleTests(unittest.IsolatedAsyncioTestCase):
             verify_close_protocol=lambda: None, BROWSER_STARTUP_RESERVE=1024,
             memory_snapshot=lambda: {"allocation_headroom_bytes": 1048576},
             MemoryPressureError=RuntimeError)
+        self.ns["browser_runtime"] = lambda: (self.ns["AsyncNewBrowser"], None)
         exec(compile(ast.Module(body=selected, type_ignores=[]), str(source), "exec"), self.ns)
         self.host = self.ns["Host"]()
         self.real_launch = self.host._launch

@@ -37,6 +37,8 @@ class ObserverPoolLifecycleTests(unittest.IsolatedAsyncioTestCase):
             MemoryPressureError=RuntimeError, DEVICE_POOL=1, RESERVE_PER_DAY=0,
             async_playwright=lambda: types.SimpleNamespace(start=self.start_driver),
             AsyncNewBrowser=self.new_browser, CASTLE_CHUNK="https://framer.com/fixture.js")
+        self.ns["browser_runtime"] = lambda: (
+            self.ns["AsyncNewBrowser"], self.ns["async_playwright"])
         source = self.root_source()
         names = {"BrowserCloseReceipt", "AccountLifecycle", "Account", "Host"}
         selected = [n for n in ast.parse(source.read_text()).body

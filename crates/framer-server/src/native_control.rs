@@ -140,6 +140,18 @@ async fn current(s: &AppState, identity: &Identity)
 /// No account repick, new coordinator, session read, or credential issuance.
 pub async fn admit(s: &AppState, identity: Identity, model: &str, deadline: Instant)
     -> Result<AdmittedControl, DispatchError> {
+    admit_with_policy(s, identity, model, deadline, false).await
+}
+
+/// Resident controls must not allocate a browser slot or select an eviction.
+/// The eventual host lease independently validates the actual live objects.
+pub async fn admit_existing(s: &AppState, identity: Identity, model: &str, deadline: Instant)
+    -> Result<AdmittedControl, DispatchError> {
+    admit_with_policy(s, identity, model, deadline, true).await
+}
+
+async fn admit_with_policy(s: &AppState, identity: Identity, model: &str,
+    deadline: Instant, existing_only: bool) -> Result<AdmittedControl, DispatchError> {
     let remaining = deadline.saturating_duration_since(Instant::now());
     if remaining.is_zero() || remaining > Duration::from_secs(60)
         || model.is_empty() || model.len() > 256 || model.chars().any(char::is_control)
@@ -153,18 +165,33 @@ pub async fn admit(s: &AppState, identity: Identity, model: &str, deadline: Inst
     let model = model.to_owned();
     crate::operation_ownership::run(Some(&ownership),
         framer_core::operation_gate::OperationKind::Inference,
-        async move { admit_registered(&state, identity, &model, deadline).await })
+        async move { admit_registered(&state, identity, &model, deadline, existing_only).await })
         .await.map_err(|_| error(FailureKind::Ineligible))?
 }
 
+async fn retain_existing_slot(s: &AppState, account: framer_core::ids::AccountId)
+    -> Result<ResidentLease, DispatchError> {
+    let _operation = s.serving_accounts.operation.lock().await;
+    if s.serving_accounts.pending_config.read()
+            .map_err(|_| error(FailureKind::Ineligible))?.is_some()
+        || s.serving_accounts.mutations.lock()
+            .map_err(|_| error(FailureKind::Ineligible))?.contains(&account)
+        || !s.serving_accounts.allows(&account) {
+        return Err(error(FailureKind::Ineligible));
+    }
+    s.serving_accounts.residents.try_acquire_idle_existing(account)
+        .map_err(|_| error(FailureKind::Ineligible))
+}
+
 async fn admit_registered(s: &AppState, identity: Identity, model: &str,
-    deadline: Instant) -> Result<AdmittedControl, DispatchError> {
+    deadline: Instant, existing_only: bool) -> Result<AdmittedControl, DispatchError> {
     let ownership = s.operation_ownership.as_ref()
         .ok_or_else(|| error(FailureKind::Ineligible))?;
     tokio::time::timeout_at(deadline, async {
         let account = current(s, &identity).await?;
-        let resident = crate::lease_account(s, identity.account).await
-            .map_err(|_| error(FailureKind::Ineligible))?;
+        let resident = if existing_only { retain_existing_slot(s, identity.account).await? }
+            else { crate::lease_account(s, identity.account).await
+                .map_err(|_| error(FailureKind::Ineligible))? };
         let operation = ownership.native_cleanup()
             .map_err(|_| error(FailureKind::Ineligible))?;
         let pool = PoolAdmission::new(resident, Some(operation));

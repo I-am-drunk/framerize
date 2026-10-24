@@ -172,7 +172,7 @@ DEFAULT_UBO = object()
 
 
 async def launch_fixture(observed, explicit=None, saved=None, *, comparison_phase=None, memory_addon=None):
-    calls, launches, browser = [], [], object()
+    calls, launches, browser = [], [], SimpleNamespace()
 
     async def new_browser(driver, **kwargs):
         launches.append(kwargs)
@@ -181,6 +181,10 @@ async def launch_fixture(observed, explicit=None, saved=None, *, comparison_phas
     async def initialize(account, profile, value):
         calls.append(("initialize", account, profile, value))
         return value
+
+    async def rpc(account, call, *args, **kwargs):
+        assert account == ACCOUNT
+        return await call(*args, **kwargs)
 
     @asynccontextmanager
     async def allocation(reserve):
@@ -197,7 +201,7 @@ async def launch_fixture(observed, explicit=None, saved=None, *, comparison_phas
         proxies={} if saved is None else {ACCOUNT: saved}, _memory_addon=memory_addon,
         _memory_browser=None, _playwright=object(), _allocation=allocation,
         _browser_runtime=(new_browser, None),
-        _initialize_account=initialize,
+        _initialize_account=initialize, _rpc=rpc,
         lifecycles={ACCOUNT: SimpleNamespace(incarnation=1)},
         _observed_scope=lambda account: scope if observed else None,
         _observed=SimpleNamespace(accounts={ACCOUNT: scope}) if observed else None,

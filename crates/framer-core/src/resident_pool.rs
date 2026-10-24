@@ -114,6 +114,18 @@ impl ResidentPool {
         -> Result<Acquire, PoolError> {
         self.try_acquire_excluding(account, preferred_idle, &[])
     }
+    /// Retain an idle healthy slot without allocating or selecting a victim.
+    /// This is accounting only; the caller must also bind the live host objects.
+    pub fn try_acquire_idle_existing(&self, account: AccountId) -> Result<ResidentLease, PoolError> {
+        let mut inner = self.lock()?;
+        let slot = inner.slots.iter_mut().find(|slot| slot.account == account)
+            .ok_or(PoolError::NotResident)?;
+        if slot.users != 0 || !matches!(slot.state, SlotState::Resident) {
+            return Err(PoolError::AccountBusy);
+        }
+        slot.users = slot.users.checked_add(1).ok_or(PoolError::Unavailable)?;
+        Ok(ResidentLease { pool: self.clone(), account, release_on_drop: true })
+    }
     /// Accounts undergoing a management operation cannot be eviction victims.
     pub fn try_acquire_excluding(&self, account: AccountId, preferred_idle: Option<AccountId>,
         protected: &[AccountId]) -> Result<Acquire, PoolError> {

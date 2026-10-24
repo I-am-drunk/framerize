@@ -128,6 +128,14 @@ pub struct ResidentBearer {
     value: String,
 }
 
+/// One native mint begun after bearer acquisition and the browser baseline.
+/// The owner creates this before sending its mint RPC and keeps the same lease.
+/// It cannot be cloned or restamped after an IPC result arrives.
+pub struct ResidentMint {
+    bearer: ResidentBearer,
+    started_at: Instant,
+}
+
 impl ResidentBearer {
     pub fn as_str(&self) -> &str { &self.value }
 }
@@ -168,6 +176,30 @@ impl ResidentGrant {
 }
 
 impl BoundControlClient {
+    pub fn begin_resident_mint(&self, retained: ResidentBearer, session: &Session,
+        actual: ResidentObservation<'_>, control: &PreparationControl)
+        -> Result<ResidentMint, PreparationFailure> {
+        if control.is_cancelled() { return Err(PreparationFailure::Cancelled); }
+        if session.active_user != retained.grant.session.active_user
+            || session.cookie_header != retained.grant.session.cookie_header
+            || actual.cookie_header != retained.grant.current_header
+            || retained.value.is_empty() || retained.value.len() > CREDENTIAL_LIMIT {
+            return Err(PreparationFailure::Rejected);
+        }
+        retained.grant.context.check(self, session, &actual)?;
+        Ok(ResidentMint { bearer: retained, started_at: Instant::now() })
+    }
+
+    /// Consume the mint ticket after rechecking the post-mint observation.
+    /// No auth request occurs, and time spent in the mint RPC remains counted.
+    pub fn authorize_resident_mint(&self, mint: ResidentMint, session: &Session,
+        actual: ResidentObservation<'_>, token: CastleToken, control: &PreparationControl)
+        -> Result<PreparedCredentials, PreparationFailure> {
+        let ResidentMint { mut bearer, started_at } = mint;
+        bearer.grant.context.acquire_started_at = started_at;
+        self.authorize_resident_token(bearer, session, actual, token, control)
+    }
+
     /// Recheck the post-mint observation against the retained lease context
     /// and exact bearer jar. Synchronous and consumed once: no second auth call.
     /// This returns credentials only. It never permits release of a host fence.

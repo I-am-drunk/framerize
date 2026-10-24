@@ -78,7 +78,7 @@ class RuntimeIsolation(unittest.TestCase):
         class InstanceHost(Host):
             pass
         namespace = dict(Host=InstanceHost, AccountLifecycle=SimpleNamespace,
-            ROOT=str(self.devices), Path=Path, sys=sys, hashlib=hashlib, json=json,
+            ROOT=str(self.devices), Path=Path, sys=sys, os=os, hashlib=hashlib, json=json,
             __file__=str(script), MINT_GAP_S=2.5, DEV_WINDOW_S=600,
             DEV_WINDOW_CAP=180, DEV_COOLDOWN_S=600)
         exec(compile(hook, str(script), 'exec'), namespace)

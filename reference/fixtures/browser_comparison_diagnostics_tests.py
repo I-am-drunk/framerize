@@ -62,7 +62,10 @@ class DiagnosticHarness(FIXTURE.Harness):
         self.host._observed_command = lambda request: request
         self.host.lifecycles[self.account_id].phase = "resident"
         self.host._use_account = self.use_account
-        self.handle = FIXTURE.OLD.host_method("handle", {"asyncio": asyncio, "emit": self.emit})
+        namespace = {"asyncio": asyncio, "emit": self.emit}
+        self.handle = FIXTURE.OLD.host_method("handle", namespace)
+        self.host._handle_account_command = FIXTURE.OLD.host_method(
+            "_handle_account_command", namespace).__get__(self.host)
 
     def emit(self, event, **fields):
         target = (self.progress if event == 'browser.comparison.progress' else

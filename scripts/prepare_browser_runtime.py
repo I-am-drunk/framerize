@@ -14,6 +14,9 @@ def prepare(destination):
              'private_state.py')
     files = {name: source / name for name in names}
     files['native_device.py'] = scripts / 'native_device.py'
+    files['resident_activity.py'] = scripts / 'resident_activity.py'
+    files['contextual_authorization.py'] = scripts / 'contextual_authorization.py'
+    files['resident_authorization.py'] = scripts / 'resident_authorization.py'
     pins = {name: hashlib.sha256(path.read_bytes()).hexdigest()
             for name, path in files.items()}
     manifest = (json.dumps(pins, sort_keys=True, indent=2) + '\n').encode()

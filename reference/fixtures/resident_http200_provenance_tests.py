@@ -2,6 +2,7 @@
 import ast
 import asyncio
 import os
+import sys
 import tempfile
 import time
 import types
@@ -10,6 +11,8 @@ import uuid
 from contextlib import asynccontextmanager
 from pathlib import Path
 from unittest.mock import patch
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "scripts"))
 
 
 class Events:
@@ -126,6 +129,7 @@ class ResidentHttp200Tests(unittest.IsolatedAsyncioTestCase):
         host, seen = self.host, {}
         host.proxies = {"account": account_proxy} if account_proxy else {}
         host._playwright, host._memory_browser = object(), None
+        host._driver_start_task = None
         host._memory_addon = {"path": "synthetic-addon", "excluded_default": "synthetic"}
         scope = types.SimpleNamespace(comparison_phase="context_pending",
             begin_launch=lambda: None, browser_started=lambda browser: object())
