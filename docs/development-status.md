@@ -11,6 +11,12 @@ Production still constructs the normal account-bound client; the injection
 point lets an inert fixture reach baseline refusal without real bearer HTTP.
 No live comparison has run, and neither service was changed.
 
+A standalone comparison child is now prepared as a Cargo example. It accepts
+one plan through an inherited parent socket, receives the session only after
+admission, and returns bounded results for parent-owned cooldown handling.
+It opens no listener and has no service restart path. This source and its five
+inert boundary fixtures are uncompiled; the external controller remains pending.
+
 Python comparison implementation `712e497` is integrated. Its 28 inert cases
 pass. The Rust host now requires two observer command slots so a continuation
 can join the previous command after its reply becomes visible; 48 host cases
