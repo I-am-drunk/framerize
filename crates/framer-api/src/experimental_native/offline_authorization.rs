@@ -51,6 +51,9 @@ impl MintedCastle {
 pub trait OfflineMinter: Send + Sync {
     /// Immutable owner of this minter, including its account generation.
     fn scope(&self) -> &AccountScope;
+    /// Saved device already owned by this source, before credential acquisition.
+    /// The joined mint must return the same device when one is declared here.
+    fn saved_device(&self) -> Option<&str>;
     fn mint<'a>(&'a self, target: &'a OfflineMintTarget,
         control: &'a PreparationControl)
         -> BoxFuture<'a, PreparationResult<MintedCastle>>;
@@ -60,6 +63,7 @@ pub struct OfflineSessionSource {
     api: Arc<BoundControlClient>,
     target: OfflineMintTarget,
     minter: Arc<dyn OfflineMinter>,
+    device: Option<String>,
 }
 impl OfflineSessionSource {
     /// Inert construction. Route, session and account authority stay upstream.
@@ -68,7 +72,8 @@ impl OfflineSessionSource {
         if !api.expected.same_generation(minter.scope()) {
             return Err("offline mint: minter account generation mismatch".into());
         }
-        Ok(Self { api, target, minter })
+        let device = minter.saved_device().map(str::to_owned);
+        Ok(Self { api, target, minter, device })
     }
 
     async fn issue_bound(&self, scope: &AccountScope, session: &Session,
@@ -84,8 +89,12 @@ impl OfflineSessionSource {
         if control.is_cancelled() {
             return PreparationResult::finished(Err(PreparationFailure::Cancelled));
         }
-        // Same private one-shot auth boundary as the reviewed browser control.
-        let bearer = match self.api.bearer(scope, session).await {
+        let control_session = match self.control_session(session) {
+            Ok(value) => value,
+            Err(error) => return PreparationResult::finished(Err(error)),
+        };
+        // Keep the stored login unchanged; both requests use this saved device.
+        let bearer = match self.api.bearer(scope, control_session.as_ref().unwrap_or(session)).await {
             Ok(value) => value,
             Err(_) => return PreparationResult::unconfirmed(),
         };
@@ -98,6 +107,12 @@ impl OfflineSessionSource {
 }
 
 impl OfflineSessionSource {
+    fn control_session(&self, session: &Session) -> Result<Option<Session>, PreparationFailure> {
+        self.device.as_deref().map(|device| {
+            CurrentRequestCookies::from_saved_device(session, device)?.into_session(session)
+        }).transpose().map_err(|_| PreparationFailure::Rejected)
+    }
+
     fn finish_mint(&self, scope: &AccountScope, session: &Session, control: &PreparationControl,
         bearer: String, minted: PreparationResult<MintedCastle>)
         -> PreparationResult<PreparedCredentials> {
@@ -107,7 +122,8 @@ impl OfflineSessionSource {
         }
         let value = minted.value.and_then(|minted| {
             if !minted.scope.same_generation(scope)
-                || !self.minter.scope().same_generation(scope) {
+                || !self.minter.scope().same_generation(scope)
+                || self.device.is_some() && minted.device.as_deref() != self.device.as_deref() {
                 return Err(PreparationFailure::Rejected);
             }
             let current_cookies = minted.device.as_deref()

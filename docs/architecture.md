@@ -37,6 +37,15 @@ Generated hosts locate cooldown state from their canonical
 They continue to reject stale or changed handoffs within their own instance.
 An empty isolated instance can validate startup without claiming inference.
 
+The offline credential source snapshots its minter's already-granted device
+at construction. Before bearer acquisition it derives a bounded temporary
+cookie context from that device and the stored login. After worker cleanup,
+the returned device must match the declared one before inference credentials
+are released. Both HTTP requests therefore carry the same saved device without
+rewriting the login store. A conflicting cookie fails before authentication
+or minting; token, generation, account and cleanup checks remain in force.
+This candidate is locally validated and is not yet in the isolated executable.
+
 An update of an enrolled isolated instance transfers its actual in-memory
 rate history. The controller holds the idle application and sidecar, writes
 a private snapshot, and verifies old-process absence before replacing the

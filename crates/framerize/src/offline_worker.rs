@@ -56,6 +56,10 @@ fn failure(value: Failure) -> PreparationFailure {
 impl OfflineMinter for OfflineWorkerMinter {
     fn scope(&self) -> &AccountScope { &self.scope }
 
+    fn saved_device(&self) -> Option<&str> {
+        self.device.as_ref().map(|(_, grant)| grant.device.as_str())
+    }
+
     fn mint<'a>(&'a self, target: &'a OfflineMintTarget,
         control: &'a PreparationControl)
         -> BoxFuture<'a, PreparationResult<MintedCastle>> {
