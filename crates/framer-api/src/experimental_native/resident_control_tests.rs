@@ -183,7 +183,7 @@ fn retained_fixture(api: &BoundControlClient, scope: &AccountScope) -> ResidentB
     ResidentBearer { grant: grant(api, scope, Instant::now()), value: "fixture-bearer".into() }
 }
 
-async fn separate_mint_age(delay: Duration, max_age: Duration, accepted: bool) {
+async fn separate_mint_age(delay: Duration, max_age: Duration, accepted: bool, sdk: bool) {
     let (client, scope) = scope(NativeEgress::Direct);
     let api = BoundControlClient::new(scope.clone(), NativeEgress::Direct).unwrap();
     let expected = scope.clone();
@@ -193,10 +193,14 @@ async fn separate_mint_age(delay: Duration, max_age: Duration, accepted: bool) {
                 Instant::now() - Duration::from_secs(60)), value: "fixture-bearer".into() };
             let mint = api.begin_resident_mint(retained, &session,
                 observation(&identity(&expected), &target()), &control).unwrap();
+            let sdk_origin = Instant::now();
             tokio::time::sleep(delay).await;
-            PreparationResult::finished(api.authorize_resident_mint(mint, &session,
+            PreparationResult::finished(if sdk { api.authorize_resident_sdk_mint(mint, &session,
                 observation(&identity(&expected), &target()),
-                CastleToken("fixture-token".into()), &control))
+                CastleToken("fixture-token".into()), sdk_origin, &control)
+            } else { api.authorize_resident_mint(mint, &session,
+                observation(&identity(&expected), &target()),
+                CastleToken("fixture-token".into()), &control) })
         }).unwrap();
     let prepared = tokio::time::timeout(BOUND, pending).await.unwrap().unwrap();
     let sink = listener().await;
@@ -225,12 +229,18 @@ async fn separate_mint_age(delay: Duration, max_age: Duration, accepted: bool) {
 
 #[tokio::test]
 async fn native_mint_starts_after_old_bearer_and_baseline_without_reauth() {
-    separate_mint_age(Duration::ZERO, Duration::from_secs(10), true).await;
+    separate_mint_age(Duration::ZERO, Duration::from_secs(10), true, false).await;
 }
 
 #[tokio::test]
 async fn separate_mint_roundtrip_is_not_restamped_on_authorization() {
-    separate_mint_age(Duration::from_millis(60), Duration::from_millis(20), false).await;
+    separate_mint_age(Duration::from_millis(60), Duration::from_millis(20), false, false).await;
+}
+
+#[tokio::test]
+async fn resident_sdk_keeps_current_jar_and_original_worker_age() {
+    separate_mint_age(Duration::ZERO, Duration::from_secs(10), true, true).await;
+    separate_mint_age(Duration::from_millis(60), Duration::from_millis(20), false, true).await;
 }
 
 #[tokio::test]

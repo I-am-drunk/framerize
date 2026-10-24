@@ -36,11 +36,19 @@ pub(crate) fn read(path: &str) -> Result<Vec<u8>, &'static str> {
 }
 
 pub(crate) fn load(path: &str) -> Result<Worker, &'static str> {
+    Worker::new(specification(path)?).map_err(|_| "invalid offline worker specification")
+}
+
+pub(crate) fn load_v2(path: &str) -> Result<super::offline_worker_owner::V2Worker, &'static str> {
+    super::offline_worker_owner::V2Worker::new(specification(path)?)
+        .map_err(|_| "invalid V2 worker specification")
+}
+
+fn specification(path: &str) -> Result<Specification, &'static str> {
     let bytes = read(path)?;
     let config: Config = serde_json::from_slice(&bytes).map_err(|_| "invalid offline runtime config")?;
     let pins = config.pins.into_iter().map(|pin|
         Ok(FilePin { path: pin.path, sha256: digest(&pin.sha256)? }))
         .collect::<Result<Vec<_>, &'static str>>()?;
-    Worker::new(Specification { node: config.node, entry: config.entry, pins })
-        .map_err(|_| "invalid offline worker specification")
+    Ok(Specification { node: config.node, entry: config.entry, pins })
 }

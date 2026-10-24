@@ -11,6 +11,28 @@ const ACCOUNT: &str = "00000000-0000-4000-8000-000000000001";
 const LEASE: &str = "00000000-0000-4000-8000-000000000002";
 const PROVENANCE: &str = "00000000-0000-4000-8000-000000000003";
 
+#[tokio::test]
+async fn sdk_phases_consume_native_branch_and_keep_original_deadline() {
+    let mut f = fixture(Some(Ok(json!(true)))).await;
+    let mut rpc = ResidentRpc::bind(&f.owner, identity()).await.unwrap().into_v2();
+    assert!(matches!(rpc.begin_native_sdk().await, Err(ResidentError::OutOfOrder)));
+    rpc.acquire(acquire(45_000).unwrap(), PROVENANCE).await.unwrap();
+    rpc.baseline("fixture-bearer", &json!({})).await.unwrap();
+    let deadline = rpc.deadline();
+    assert!(matches!(rpc.complete_native_sdk().await, Err(ResidentError::OutOfOrder)));
+    rpc.begin_native_sdk().await.unwrap();
+    assert!(matches!(rpc.mint_native().await, Err(ResidentError::OutOfOrder)));
+    assert!(matches!(rpc.begin_native_sdk().await, Err(ResidentError::OutOfOrder)));
+    rpc.complete_native_sdk().await.unwrap();
+    assert_eq!(rpc.deadline(), deadline);
+    assert!(matches!(rpc.complete_native_sdk().await, Err(ResidentError::OutOfOrder)));
+    rpc.finish(ResidentAdmission::Fenced).await.unwrap();
+    let actions = ["acquire", "baseline", "begin_native_sdk", "complete_native_sdk", "finish"];
+    for action in actions { assert_eq!(f.frames.try_recv().unwrap()["action"], action); }
+    assert!(f.frames.try_recv().is_err());
+    close(&f.owner, f.reader).await;
+}
+
 fn expected_v2_frame(id: u64, extra: Value) -> Value {
     let mut frame = expected_frame(id, extra);
     frame["version"] = json!(2);

@@ -6,7 +6,7 @@ const INFERENCE_PATHS = Object.freeze([
   '/ai/v3/openai/responses/', '/ai/v3/anthropic/messages/',
 ]);
 
-export function validateInput(input) {
+export function validateInput(input, residentPage = false) {
   const fields = input?.version === 2 ? 'budget_ms,device,target,version' : 'budget_ms,target,version';
   if (!input || Object.keys(input).sort().join(',') !== fields
       || ![1, 2].includes(input.version) || !Number.isInteger(input.budget_ms)
@@ -24,8 +24,12 @@ export function validateInput(input) {
   const linked = /^(?:(?:[A-Za-z0-9]+-)*[A-Za-z0-9]+--)?([A-Za-z0-9]{20})-[A-Za-z0-9]+$/.exec(project);
   const matches = project === target.project_id || project.endsWith('--' + target.project_id)
     || linked?.[1] === target.project_id;
-  if (!url.pathname.startsWith('/projects/') || project.includes('/')
-      || !matches)
+  // Only the explicit resident V2 entry may use the captured login document.
+  // Its project authority belongs to the retained HTTP-200 provenance owner.
+  const residentLogin = residentPage === true && input.version === 2
+    && url.pathname === '/login';
+  if (!residentLogin && (!url.pathname.startsWith('/projects/') || project.includes('/')
+      || !matches))
     throw new Error('target');
   const device = input.version === 2 ? new SavedDevice(input.device) : undefined;
   return Object.freeze({ version: input.version, budget_ms: input.budget_ms,

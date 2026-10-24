@@ -223,7 +223,7 @@ pub struct ResidentRpcV2 {
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
-enum V2Phase { New, Pending, Acquired, Baselined, Minted, Closed }
+enum V2Phase { New, Pending, Acquired, Baselined, SdkAdmitted, Minted, Closed }
 
 impl ResidentRpcV2 {
     /// The original acquire deadline, including queueing and all later work.
@@ -276,6 +276,20 @@ impl ResidentRpcV2 {
 
     pub async fn mint_native(&mut self) -> Result<ResidentReply, ResidentError> {
         self.step(V2Phase::Baselined, V2Phase::Minted, self.fields("mint_native")).await
+    }
+
+    /// Charges the resident rate owner before starting a separate SDK worker.
+    /// This consumes the same native phase as mint_native, without a browser mint.
+    pub async fn begin_native_sdk(&mut self) -> Result<ResidentReply, ResidentError> {
+        self.step(V2Phase::Baselined, V2Phase::SdkAdmitted,
+            self.fields("begin_native_sdk")).await
+    }
+
+    /// Call only after joining the separately owned worker, then validate the
+    /// returned context. This performs no mint and supplies no token.
+    pub async fn complete_native_sdk(&mut self) -> Result<ResidentReply, ResidentError> {
+        self.step(V2Phase::SdkAdmitted, V2Phase::Minted,
+            self.fields("complete_native_sdk")).await
     }
 
     async fn step(&mut self, expected: V2Phase, next: V2Phase, fields: Value)

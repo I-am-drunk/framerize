@@ -4,8 +4,8 @@ import { deviceFailureKind } from './device.mjs';
 
 export class LegacyV2Operation {
   #input; #runtime; #used = false;
-  constructor(input, runtime) {
-    this.#input = validateInput(input);
+  constructor(input, runtime, residentPage = false) {
+    this.#input = validateInput(input, residentPage);
     if (this.#input.version !== 2) throw new Error('saved-device-required');
     this.#runtime = runtime;
   }

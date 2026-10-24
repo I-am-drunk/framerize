@@ -2,6 +2,29 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { LegacyV2Operation } from '../../scripts/offline_worker/v2_operation.mjs';
 import { createLegacyV2Minter } from '../../scripts/offline_worker/v2_runtime.mjs';
+import { validateInput } from '../../scripts/offline_worker/protocol.mjs';
+
+test('resident_v2_preserves_the_exact_captured_login_url', async () => {
+  const h = harness(), value = input();
+  value.target.url = 'https://framer.com/login?fixture=1';
+  assert.throws(() => validateInput(value));
+  assert.throws(() => new LegacyV2Operation(value, h.runtime));
+  const result = await new LegacyV2Operation(value, h.runtime, true).mint();
+  assert.equal(result.metadata.status, 'passed');
+  assert.equal(h.state.url, value.target.url);
+  assert.equal(h.state.calls, 1);
+});
+
+test('resident_login_exception_keeps_origin_path_and_device_guards', () => {
+  for (const url of ['https://other.invalid/login', 'http://framer.com/login',
+    'https://framer.com/login/other', 'https://framer.com/projects/other']) {
+    const value = input(); value.target.url = url;
+    assert.throws(() => new LegacyV2Operation(value, harness().runtime, true));
+  }
+  const value = input(); value.target.url = 'https://framer.com/login';
+  delete value.device; value.version = 1;
+  assert.throws(() => new LegacyV2Operation(value, harness().runtime, true));
+});
 
 const input = () => ({ version: 2, budget_ms: 1000, device: { id: 'a'.repeat(32) },
   target: { project_id: 'offline-fixture', path: '/ai/v3/responses/',

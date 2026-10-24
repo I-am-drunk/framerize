@@ -68,3 +68,4 @@ const runtime = Object.freeze({
   },
 });
 export function createLegacyV2Minter(input) { return new LegacyV2Operation(input, runtime); }
+export function createResidentV2Minter(input) { return new LegacyV2Operation(input, runtime, true); }
