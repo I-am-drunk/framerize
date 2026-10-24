@@ -1,5 +1,6 @@
 //! Fixture-injected native dispatch, selected before all legacy forwarding.
 use super::AppState;
+use super::operation_ownership::completed_response;
 use axum::http::{HeaderMap, HeaderValue, StatusCode};
 use axum::response::Response;
 use framer_core::convert::{self, ClientDialect, ModelRoute};
@@ -28,18 +29,22 @@ pub(super) async fn raw(s: &AppState, dialect: &str, headers: &HeaderMap,
         "anthropic-messages" => ClientDialect::AnthropicMessages,
         "openai-responses" => ClientDialect::OpenAiResponses,
         "openrouter-chat" => ClientDialect::OpenAiChat,
-        _ => return failure(DispatchError::new(FailureKind::InvalidRequest)),
+        _ => return finish(Err(DispatchError::new(FailureKind::InvalidRequest)), true),
     };
-    let session = match conversation(headers) { Ok(value) => value, Err(error) => return failure(error) };
-    finish(dispatch(s, dialect, true, super::hdr(headers, "x-framerize-account"),
-        Some(session), payload).await)
+    let session = match conversation(headers) { Ok(value) => value, Err(error) => return finish(Err(error), true) };
+    let mut http_completed = true;
+    let result = dispatch(s, dialect, true, super::hdr(headers, "x-framerize-account"),
+        Some(session), payload, &mut http_completed).await;
+    finish(result, http_completed)
 }
 
 pub(super) async fn chain(s: &AppState, headers: &HeaderMap,
     dialect: ClientDialect, payload: Value) -> Response {
-    let session = match conversation(headers) { Ok(value) => value, Err(error) => return failure(error) };
-    finish(dispatch(s, dialect, false, super::hdr(headers, "x-framerize-account"),
-        Some(session), payload).await)
+    let session = match conversation(headers) { Ok(value) => value, Err(error) => return finish(Err(error), true) };
+    let mut http_completed = true;
+    let result = dispatch(s, dialect, false, super::hdr(headers, "x-framerize-account"),
+        Some(session), payload, &mut http_completed).await;
+    finish(result, http_completed)
 }
 
 fn conversation(headers: &HeaderMap) -> Result<String, DispatchError> {
@@ -49,8 +54,10 @@ fn conversation(headers: &HeaderMap) -> Result<String, DispatchError> {
         .ok_or_else(|| DispatchError::new(FailureKind::MissingContext))
 }
 
-fn finish(result: Result<Response, DispatchError>) -> Response {
-    result.unwrap_or_else(failure)
+fn finish(result: Result<Response, DispatchError>, http_completed: bool) -> Response {
+    // Successful streams retain their own observers. This proof covers HTTP
+    // ownership only; PoolAdmission retains independent native cleanup.
+    result.unwrap_or_else(|error| completed_response(failure(error), http_completed))
 }
 
 struct Prepared {
@@ -137,7 +144,8 @@ fn prepare(dialect: ClientDialect, paid: bool, mut payload: Value, policy: &Poli
 }
 
 async fn dispatch(s: &AppState, dialect: ClientDialect, paid: bool,
-    account_hint: Option<String>, session_hint: Option<String>, payload: Value)
+    account_hint: Option<String>, session_hint: Option<String>, payload: Value,
+    http_completed: &mut bool)
     -> Result<Response, DispatchError> {
     let started = Instant::now();
     let provider = s.native_dispatch.as_ref()
@@ -168,9 +176,14 @@ async fn dispatch(s: &AppState, dialect: ClientDialect, paid: bool,
         team: account.current_team.clone().ok_or_else(|| DispatchError::new(FailureKind::InvalidScope))?,
         project: account.current_project.clone().ok_or_else(|| DispatchError::new(FailureKind::InvalidScope))?,
         chat_session: session.clone() };
-    let resident = tokio::time::timeout_at(deadline, super::lease_account(s, identity.account))
-        .await.map_err(|_| DispatchError::new(FailureKind::Deadline))?
-        .map_err(|_| DispatchError::new(FailureKind::Ineligible))?;
+    // Acquisition precedes the native guardian and may start a close. A
+    // cancelled acquisition cannot supply its typed cleanup proof.
+    *http_completed = false;
+    let acquired = tokio::time::timeout_at(deadline,
+        super::pool_control::lease_account_observed(s, identity.account))
+        .await.map_err(|_| DispatchError::new(FailureKind::Deadline))?;
+    *http_completed = acquired.cleanup_confirmed;
+    let resident = acquired.result.map_err(|_| DispatchError::new(FailureKind::Ineligible))?;
     let owner = s.operation_ownership.as_ref().map(|scope| scope.native_cleanup())
         .transpose().map_err(|_| DispatchError::new(FailureKind::Ineligible))?;
     let admission = framer_core::native_dispatch::PoolAdmission::new(resident, owner);
@@ -281,7 +294,8 @@ fn response(body: Vec<u8>, status: u16, content_type: &str, session: &str,
     response.headers_mut().insert("x-framerize-session", HeaderValue::from_str(session)
         .map_err(|_| DispatchError::new(FailureKind::MissingContext))?);
     response.extensions_mut().insert(Arc::new(attempts));
-    Ok(response)
+    // Nonstream output is assembled only after await_run joins cleanup.
+    Ok(completed_response(response, true))
 }
 
 fn failure(mut error: DispatchError) -> Response {
@@ -333,3 +347,7 @@ mod serving_policy_tests;
 #[cfg(test)]
 #[path = "native_context_tests.rs"]
 mod context_tests;
+
+#[cfg(test)]
+#[path = "native_http_completion_tests.rs"]
+mod http_completion_tests;
