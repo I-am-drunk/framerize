@@ -5,6 +5,7 @@ import { pathToFileURL } from 'node:url';
 import { performance } from 'node:perf_hooks';
 import { DOM, DOM_PINS, HISTORY, PUBLIC_KEY, SUPPORT } from './pins.mjs';
 import { LegacyV2Operation } from './v2_operation.mjs';
+import { pngResources } from './resources.mjs';
 
 const FACTORY = HISTORY + '/runtime/framer-v2-factory.mjs';
 const FACTORY_HASH = 'df5a150be914e7d267126f35de92934993e7930f18c3fd00bf79a86bd788ec58';
@@ -30,6 +31,14 @@ export function verifyV2Inputs() {
   }
 }
 
+export function createV2Window({ JSDOM, ResourceLoader }, url, virtualConsole) {
+  const V2Resources = pngResources(ResourceLoader);
+  return new JSDOM('<!doctype html><html><head></head><body></body></html>', {
+    url, runScripts: 'outside-only', virtualConsole,
+    resources: new V2Resources(),
+  });
+}
+
 const runtime = Object.freeze({
   now: () => performance.now(), verify: verifyV2Inputs,
   admit() {
@@ -53,13 +62,11 @@ const runtime = Object.freeze({
   },
   async createWindow(url, report) {
     const require = createRequire(import.meta.url);
-    const { JSDOM, VirtualConsole } = require(DOM + '/node_modules/jsdom/lib/api.js');
+    const { JSDOM, ResourceLoader, VirtualConsole } = require(DOM + '/node_modules/jsdom/lib/api.js');
     const console = new VirtualConsole();
     for (const name of ['warn', 'error', 'jsdomError'])
       console.on(name, () => count(report, 'diagnostics'));
-    const dom = new JSDOM('<!doctype html><html><head></head><body></body></html>', {
-      url, runScripts: 'outside-only', virtualConsole: console,
-    });
+    const dom = createV2Window({ JSDOM, ResourceLoader }, url, console);
     dom.window.addEventListener('error', () => count(report, 'async_errors'));
     return dom;
   },
