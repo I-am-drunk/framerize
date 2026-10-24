@@ -12,12 +12,15 @@ use sha2::{Digest, Sha256};
 #[path = "worker_io.rs"] mod pipe;
 #[path = "worker_sandbox.rs"] mod sandbox;
 #[path = "worker_metadata.rs"] mod metadata;
+#[path = "worker_failure.rs"] mod failure;
+pub use failure::WorkerStage;
 #[path = "worker_device.rs"] mod device;
 pub use metadata::Metadata;
 pub use device::SavedDevice;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum Failure { Configuration, Runtime, Deadline, Cancelled, Input, Identity, Spawn, Io, Worker, Protocol }
+pub enum Failure { Configuration, Runtime, Deadline, Cancelled, Input, Identity, Spawn, Io, Worker,
+    WorkerStage(WorkerStage), Protocol }
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Cleanup { NotStarted, Joined { pid: u32 }, Unconfirmed }
 
@@ -241,7 +244,10 @@ async fn supervise(spec: Arc<Specification>, input: Vec<u8>, budget_ms: u64,
             let result = (|| {
                 if *cancel.borrow() { return Err(Failure::Cancelled); }
                 if Instant::now() >= deadline { return Err(Failure::Deadline); }
-                if !status.success() || pid == 0 { return Err(Failure::Worker); }
+                if pid == 0 { return Err(Failure::Worker); }
+                if !status.success() {
+                    return Err(failure::from_exit(status.code(), &safe));
+                }
                 let metadata = metadata::accept_mode(&safe, budget_ms, device_required)
                     .ok_or(Failure::Protocol)?;
                 let token = metadata::token(bytes).ok_or(Failure::Protocol)?;
