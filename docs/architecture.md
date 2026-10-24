@@ -7,6 +7,13 @@ the public-app contract. This option does not supply a resident browser lease,
 change User-Agent or TLS, or select a proxy. A working-context comparison must
 retain its own account, page, device, bearer and cleanup ownership.
 
+The standalone `resident_activity` ownership primitive reserves one account
+without a global lock. Closed or cancelled callers do not discard registered
+RPC ownership. A cached completion waits for those RPCs; unknown native
+settlement fences the account. Operation identifiers have bounded, non-evicting
+replay protection. This primitive is tested but is not yet wired into ordinary
+host commands, background activity or a live resident-control endpoint.
+
 `main` is the browser-based service. `browser-based` preserves that path as a
 maintained fallback. `browserless` is the separate development branch for the
 native transport and short-lived SDK worker. A Git push does not deploy either

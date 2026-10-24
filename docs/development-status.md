@@ -18,6 +18,13 @@ The active daemon has no safe existing resident-token handoff endpoint.
 Resident ownership and activation remain separate work; no live crossover
 result or SDK attribution is claimed.
 
+Eight inert async cases now pass for the standalone resident activity ledger:
+mutual exclusion, retained RPCs after caller cancellation, retained completion
+after waiter loss, account-local fencing, replay/capacity refusal and invalid
+admission. Peak was 16,465,920 bytes with zero swap or limit events and confirmed
+runner removal. Host dispatch/background integration is still pending; these
+tests do not establish a working resident-token handoff.
+
 The comparison now records bounded SDK branch/failure counters without token
 or error contents. Its inference headers use the public caller's default
 `application/json` and omit `X-Requested-By`. All 106 focused Python cases and
