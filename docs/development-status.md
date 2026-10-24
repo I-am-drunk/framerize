@@ -3,6 +3,13 @@
 Updated 2026-10-24. The normal service remains browser-based. Publishing these
 branches does not change the running service.
 
+No authenticated browser-token/native-HTTP control was found in the searched
+records. The existing browser adapter is not wired into serving, creates a
+new browser context, and obtains its bearer before browser preparation.
+It cannot yet isolate token generation from transport. Root owns the missing
+matched, isolated comparison; the protected browser remains untouched. See
+`reference/analysis/browser-token-transport-control-2026-10-24.md`.
+
 The conversation-ID correction now has a verified staged executable,
 `2a0de595`. Its API build peaked at 639,279,104 bytes and final link at
 629,932,032 bytes, with zero swap/events and verified teardown. The existing

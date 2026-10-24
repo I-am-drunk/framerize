@@ -5,6 +5,13 @@ maintained fallback. `browserless` is the separate development branch for the
 native transport and short-lived SDK worker. A Git push does not deploy either
 version or restart the running service.
 
+Browser-token control code is currently a source capability, not a serving
+mode or a completed live comparison. Its observed profile is independent of
+the running browser, and a matched experiment must preserve device, bearer,
+egress and request context as well as retain the browser cleanup observer.
+The native User-Agent agrees with its worker; the browser's distinct network
+stack remains an unisolated variable in the observed security refusals.
+
 The native live-check client records HTTP error-body framing separately from
 JSON validity and the capture limit. Its fixed categories are `complete`,
 `incomplete` and `unobserved`. Recognizing an error envelope does not prove
