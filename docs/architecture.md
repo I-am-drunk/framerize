@@ -17,9 +17,12 @@ comparisons retain the stopped owner and full derived cooldown history;
 starting an idle service between failed attempts is unnecessary.
 
 The comparison unit's process resource limits propagate to its child and browser
-through fork and exec. Its 32 MiB RLIMIT_FSIZE caused a SIGXFSZ exit during an
-offline SDK mint, even though the memory cgroup recorded no limit events.
-File-size admission therefore needs separate qualification from memory.
+through fork and exec. A traced offline SDK mint requested a 64 MiB PulseAudio
+memfd with `ftruncate`. The old 32 MiB RLIMIT_FSIZE rejected it with `EFBIG`,
+then the browser exited with SIGXFSZ. At 64 MiB the browser instead closed
+normally, although a later context-binding guard refused the mint result.
+File-size admission therefore needs separate qualification from memory;
+this cap correction alone does not establish accepted tokens or delivery.
 The separately launched service does not explicitly set that file-size limit;
 its manager default is not established by the comparison's source.
 

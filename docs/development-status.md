@@ -3,14 +3,19 @@
 Updated 2026-10-24. The normal service remains browser-based. Publishing these
 branches does not change the running service.
 
-A separate offline SDK probe now reproduces a local browser loss during minting.
-It uses the saved public modules in an empty context with networking disabled.
-Setup succeeds, then the browser exits with SIGXFSZ under the comparison
-runner's 32 MiB file-size limit. This identifies a local resource limit, not
-the cause of earlier HTTP 403 responses. The offending allocation and a
-sufficient bounded replacement limit remain unverified. R11 remains unrun
-pending that local qualification. Earlier probe failures are retained, including
-an omitted public-key fixture and a syscall probe's executable-path assertion.
+A traced offline SDK probe identified the browser crash: PulseAudio requests a
+64 MiB shared-memory file, but the comparison runner allowed only 32 MiB.
+`ftruncate` returned `EFBIG`, followed by SIGXFSZ. The corrected tracing probe
+uses the pinned Linux `camoufox-bin` executable. Its predecessor's wrong-path
+assertion and the original failures remain preserved.
+
+At exactly 64 MiB the browser closed normally, with no file-size failure,
+zero memory/task-limit events and no swap. Peak group usage was 841,531,392
+bytes and 175 tasks. The mint result still failed its later `post_context`
+binding check; accepted minting and authenticated delivery are not established.
+All probes use saved public modules, an empty context and disabled networking.
+The live comparison remains unrun while the context mismatch is investigated.
+This crash diagnosis does not establish the cause of earlier HTTP 403s.
 
 The latest isolated comparison (R10) stopped before minting because its cookie
 header differed from the snapshot used to acquire the bearer. No inference
