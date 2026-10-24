@@ -130,6 +130,18 @@ browser: both realms returned false, the wait raised `TimeoutError`, and
 the browser exited cleanly with no swap or limit events. These two controls
 used synthetic pages without networking, SDK code or account data.
 
+Live comparison R16 passed editor readiness and the page, device and cookie
+checks around minting. Its browser baseline sent one request and received a
+complete 231-byte JSON security refusal, HTTP 403. The native leg was therefore
+not sent. Account and browser cleanup both succeeded; the child exited
+naturally and its group was removed. Peak usage was 1,221,050,368 bytes with
+188 tasks, zero swap and no limit events. The protected browser was unchanged,
+and the isolated service remains stopped with its full cooldown history.
+This establishes that the isolated browser baseline also fails. It does not
+identify an offline SDK or native inference-transport defect. Remaining work
+is to compare this baseline's setup and request contract with the normal
+browser flow and identify its live SDK branch without exposing token data.
+
 Preparation now records fixed phases immediately through the existing sidecar
 log, instead of retaining them only in memory until command completion. All
 76 distinct focused Python cases pass, including bounded output, privacy,
