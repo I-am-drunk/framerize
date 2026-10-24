@@ -23,7 +23,10 @@ the parent records counts, not the message contents. One worker and four ports
 are permitted per window, with no cross-window sharing or network script load.
 Before token handoff, the minter requires the expected reply and waits for
 thread termination. Component coverage includes cancellation during active
-JavaScript execution. This bundle is qualified locally and not yet deployed.
+JavaScript execution. The isolated service now selects this bundle. Its first
+request still received HTTP 403. The saved native events record one send and
+confirmed stream cleanup; no second request ran. The client's copied prior-day
+log path missed those events and its original report remains failed.
 
 The current parallel experiment keeps the live browser service unchanged.
 A browserless instance needs its own port, database, profiles, sessions, gate
@@ -254,6 +257,15 @@ explicit idle status with no pending replacement as well as zero users and
 no cleanup uncertainty. An empty pool is also allowed. Reports contain
 bounded counts and local error codes, without provider content. Failed
 sequences only observe existing cleanup and do not retry inference.
+
+Before sending, the checker also binds the planned event file's device/inode
+to one append-capable descriptor in the verified application process. It
+rechecks that descriptor on each poll. A copied log path from a previous
+generation therefore refuses before inference, even when that file still
+exists. The Rust logger retains its first-opened daily file for the process
+lifetime, so a calendar-date check would incorrectly reject long-running
+instances. Fresh plans must name the actual writer's file. This does not
+change the stream, pool, generation or bounded-read requirements.
 
 The checker starts each request's monotonic clock before sending its HTTP
 request. Stream snapshots record elapsed time to headers, first complete text,

@@ -30,10 +30,12 @@ class RunnerTests(unittest.TestCase):
         return result, json.loads(output.read_text())
 
     def binding(self):
-        return SimpleNamespace(root=self.root, plan={'invocation_id': 'a' * 32, 'events_path': ''})
+        return SimpleNamespace(root=self.root, pid=os.getpid(),
+                               plan={'invocation_id': 'a' * 32, 'events_path': ''})
 
     def test_different_report_name_does_not_allow_generation_replay(self):
-        events = SimpleNamespace(completed=[], send_invocations=[], send_snapshots=[], close=lambda: None)
+        events = SimpleNamespace(completed=[], send_invocations=[], send_snapshots=[],
+                                 bind_writer=lambda pid: None, close=lambda: None)
         with patch.object(runner, 'Binding', return_value=self.binding()):
             with patch.object(runner, 'Events', return_value=events):
                 with patch.object(runner, 'run') as run:
@@ -55,11 +57,32 @@ class RunnerTests(unittest.TestCase):
         self.assertNotIn('private-value', json.dumps(report))
         run.assert_not_called()
 
+    def test_stale_daily_log_refuses_before_any_request_or_cleanup_wait(self):
+        logs = self.root / 'profiles/.logs'
+        logs.mkdir(parents=True)
+        old = logs / 'events-2026-10-23.ndjson'
+        old.write_text('')
+        self.enterContext((logs / 'events-2026-10-24.ndjson').open('ab'))
+        binding = self.binding()
+        binding.plan['events_path'] = str(old)
+        with patch.object(runner, 'Binding', return_value=binding):
+            with patch.object(runner, 'run') as run:
+                with patch.object(runner, 'observe_failed_cleanup') as observe:
+                    code, report = self.invoke('stale-log.json')
+        self.assertEqual(code, 1)
+        self.assertEqual(report['error_code'], 'event_writer_mismatch')
+        self.assertEqual(report['post_calls'], 0)
+        self.assertNotIn('cleanup_after_error', report)
+        run.assert_not_called()
+        observe.assert_not_called()
+
     def test_failure_still_observes_existing_cleanup_without_retry(self):
         scenario = Scenario()
         scenario.binding.root = self.root
+        scenario.binding.pid = os.getpid()
         scenario.binding.plan = {'invocation_id': 'b' * 32, 'events_path': ''}
         scenario.events.close = lambda: None
+        scenario.events.bind_writer = lambda pid: None
 
         def fail(binding, events, report):
             scenario.send(binding, True, report).close(cancel=True)

@@ -27,9 +27,26 @@ the thread before handing off the token. Eight focused cases pass, including
 cancellation while the thread is executing JavaScript. The unchanged SDK
 returned its expected worker reply in a separate instrumented check. A mint
 with the deployable sources also passed, peaking at 85,839,872 bytes with zero
-swap/memory events and verified teardown. This bundle is staged, not active.
-Next: select it through the existing isolated configuration-transfer path and
-perform one bounded live check. The browser service remains excluded.
+swap/memory events and verified teardown. This bundle is now selected only by
+the isolated instance. Its first request made one upstream send and received
+another complete HTTP 403 security envelope, after 3.69 seconds to headers.
+No second request ran. Adding SharedWorker support did not resolve the refusal.
+
+The client reported a cleanup timeout because its copied plan still named the
+previous day's log after the application restarted after midnight. The correct
+saved log contains one send and confirmed native stream cleanup. That recovers
+the missing stream evidence, but does not retroactively pass the client or
+prove final pool quiescence. The original failed report remains intact.
+
+The client now checks that the planned log is open for append by the exact
+application process before sending, and rechecks the descriptor while reading.
+Seventeen focused cases pass, including a stale daily path refusing before
+any request, a valid older log remaining usable, and changed-writer refusal.
+The isolated test group peaked at 17,084,416 bytes with zero swap/memory events
+and verified teardown. This client correction is source-tested, not activated
+by another live attempt. The next execution plan must bind the actual writer's
+log and use the corrected client; neither the date nor an inherited filename
+is sufficient. Further live work still requires a concrete changed hypothesis.
 
 The remaining process warning is now identified as Node's experimental
 VM-module notice, originating in our SDK loader. The diagnostic retained only

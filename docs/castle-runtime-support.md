@@ -82,7 +82,11 @@ It reads navigator metadata and replies through a message port. A subsequent
 bundle executes that unmodified script in a real Node worker thread, retaining
 the native user agent and absent userAgentData. The SDK received the expected
 reply, and thread cleanup passed. Eight component cases and a deployable-bundle
-mint pass within the existing group cap. This bundle is not yet live; it does
-not establish Framer acceptance or make JSDOM an officially supported runtime.
+mint pass within the existing group cap. The isolated instance now selects
+this bundle. Its first live request still received the complete HTTP 403
+security envelope after one upstream send. Correct-day saved events confirm
+native stream cleanup; the original client's stale-log timeout remains a
+failed report. SharedWorker support did not resolve the refusal or make JSDOM
+an officially supported runtime. No second request ran.
 The JSDOM support limit was already recorded on October 20 and was reconfirmed,
 not new. The protected browser service remains unchanged.

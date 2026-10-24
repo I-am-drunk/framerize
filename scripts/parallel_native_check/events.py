@@ -34,6 +34,13 @@ def clean_sends(value):
     return dict(value, observed_at_unix=time.time())
 
 
+def append_writer(fd):
+    fields = dict(line.split(':', 1) for line in
+                  (fd.parent.parent / 'fdinfo' / fd.name).read_text().splitlines())
+    flags = int(fields['flags'].strip(), 8)
+    return flags & os.O_APPEND and flags & os.O_ACCMODE in (os.O_WRONLY, os.O_RDWR)
+
+
 class Events:
     def __init__(self, path, root):
         self.path = Path(path)
@@ -49,8 +56,26 @@ class Events:
         self.send_invocations = []
         self.send_snapshots = []
         self.refusals = 0
+        self.writer = None
+
+    def bind_writer(self, pid):
+        require(type(pid) is int and pid > 0, 'event_writer_pid')
+        matches = []
+        for fd in (Path('/proc') / str(pid) / 'fd').iterdir():
+            try:
+                info = fd.stat()
+                if (info.st_dev, info.st_ino) == self.identity and append_writer(fd):
+                    matches.append(fd)
+            except FileNotFoundError:
+                continue
+        require(len(matches) == 1, 'event_writer_mismatch')
+        self.writer = matches[0]
 
     def poll(self):
+        if self.writer is not None:
+            info = self.writer.stat()
+            require((info.st_dev, info.st_ino) == self.identity and append_writer(self.writer),
+                    'event_writer_changed')
         info = self.path.stat()
         require((info.st_dev, info.st_ino) == self.identity and
                 info.st_size >= self.stream.tell(), 'event_file_changed')
