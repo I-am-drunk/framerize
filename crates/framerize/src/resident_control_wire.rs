@@ -65,16 +65,28 @@ pub(super) fn minted(binding: &Binding, page: &CapturedPage, header: &str,
 pub(super) struct Acquired {
     pub header: String,
 }
+#[derive(PartialEq, Eq)]
+pub(super) struct SdkDevice(String);
+impl SdkDevice {
+    pub(super) fn value(&self) -> &str { &self.0 }
+}
 pub(super) fn sdk_context(binding: &Binding, page: &CapturedPage, header: &str,
-    value: Value, state: &str) -> Result<(), Failure> {
-    if !matches!(state, "sdk_admitted" | "sdk_complete") || !keys(&value, CONTEXT)
+    mut value: Value, state: &str) -> Result<SdkDevice, Failure> {
+    let extras = [CONTEXT, &["sdk_device"]].concat();
+    if !matches!(state, "sdk_admitted" | "sdk_complete") || !keys(&value, &extras)
         || !context_matches(binding, page, &value)
         || value["state"].as_str() != Some(state)
         || value["browser_settled"].as_bool() != Some(true)
         || value["cookie_header"].as_str() != Some(header) {
         return Err(Failure::Context);
     }
-    Ok(())
+    let device = take_text(&mut value, "sdk_device")?;
+    let bytes = device.as_bytes();
+    if bytes.len() != 32 || !bytes.iter().all(|c| c.is_ascii_digit() || (b'a'..=b'f').contains(c))
+        || !(b'0'..=b'5').contains(&bytes[12]) || !b"89ab".contains(&bytes[16]) {
+        return Err(Failure::Context);
+    }
+    Ok(SdkDevice(device))
 }
 
 pub(super) fn acquired(binding: &Binding, page: &CapturedPage, mut value: Value)

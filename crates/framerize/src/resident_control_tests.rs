@@ -4,17 +4,26 @@ use std::time::Duration;
 use tokio::sync::Semaphore;
 
 const HEADER: &str = "session=fixture; __cuid=fixture-device";
+const SDK_DEVICE: &str = "0123456789ab4def8123456789abcdef";
 
 #[test]
 fn sdk_context_requires_exact_owned_snapshot_and_no_token() {
     for state in ["sdk_admitted", "sdk_complete"] {
         let (binding, page, mut value) = fixture();
         value["state"] = json!(state);
-        assert!(wire::sdk_context(&binding, &page, HEADER, value.clone(), state).is_ok());
+        value["sdk_device"] = json!(SDK_DEVICE);
+        let device = wire::sdk_context(&binding, &page, HEADER, value.clone(), state).unwrap();
+        assert_eq!(device.value(), SDK_DEVICE);
+        assert_ne!(device.value(), page.device_id);
         for (key, change) in [("cookie_header", json!("different")),
             ("browser_settled", json!(false)), ("provenance", json!("different")),
             ("page_url", json!("https://framer.com/login?different")),
             ("effective_proxy", json!("http://other.invalid")),
+            ("sdk_device", Value::Null), ("sdk_device", json!("fixture-device")),
+            ("sdk_device", json!("01234567-89ab-4def-8123-456789abcdef")),
+            ("sdk_device", json!("0123456789ab6def8123456789abcdef")),
+            ("sdk_device", json!("0123456789ab4def7123456789abcdef")),
+            ("sdk_device", json!("0123456789AB4def8123456789abcdef")),
             ("token", json!("unexpected-token")), ("state", json!("minted"))] {
             let mut changed = value.clone();
             changed[key] = change;

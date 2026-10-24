@@ -3,11 +3,27 @@ import asyncio
 import unittest
 import resident_crossover_tests as base
 from resident_activity import ResidentRefused
-from resident_authorization import IDENTITY, validate_request
+from resident_authorization import (IDENTITY, validate_request,
+    RESIDENT_SDK_IDENTITY_JS, RESIDENT_PINNED_MINT_JS, SDK_COUNTERS)
+
+SDK_DEVICE = '0123456789ab4def8123456789abcdef'
 
 
 class ResidentSdkAdmissionTests(unittest.IsolatedAsyncioTestCase):
-    asyncSetUp = base.ResidentCrossoverTests.asyncSetUp
+    async def asyncSetUp(self):
+        await base.ResidentCrossoverTests.asyncSetUp(self)
+        self.sdk_device = SDK_DEVICE
+        self.sdk_evidence = dict.fromkeys(SDK_COUNTERS, 0) | dict(complete=True, v2=1)
+        original = self.page.pin.evaluate
+        async def evaluate(source, args):
+            if source == RESIDENT_SDK_IDENTITY_JS:
+                await self.page.step('sdk_identity', args)
+                return self.sdk_device
+            result = await original(source, args)
+            if source == RESIDENT_PINNED_MINT_JS:
+                result['sdk'] = self.sdk_evidence
+            return result
+        self.page.pin.evaluate = evaluate
     asyncTearDown = base.ResidentCrossoverTests.asyncTearDown
     phase = base.ResidentCrossoverTests.phase
     baseline = base.ResidentCrossoverTests.baseline
@@ -29,6 +45,10 @@ class ResidentSdkAdmissionTests(unittest.IsolatedAsyncioTestCase):
         done = await self.complete()
         self.assertEqual(done['state'], 'sdk_complete')
         self.assertEqual(done['cookie_header'], baseline['cookie_header'])
+        self.assertEqual(begun['sdk_device'], SDK_DEVICE)
+        self.assertEqual(done['sdk_device'], SDK_DEVICE)
+        self.assertEqual(done['device'], baseline['device'])
+        self.assertNotEqual(done['device'], done['sdk_device'])
         self.assertEqual(len(self.acc.dev_reqs[None]), 2)
         self.assertEqual(len(self.page.tokens), 1)
         self.assertEqual(sum(k == 'fetch' for k, _ in self.page.calls), 1)
@@ -105,6 +125,30 @@ class ResidentSdkAdmissionTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(self.life.activity.fenced)
         self.assertFalse(self.acc.mint_lock.locked())
         self.assertEqual(len(self.page.tokens), 1)
+
+    async def test_missing_sdk_identity_refuses_without_new_charge(self):
+        await self.passed()
+        self.sdk_device = None
+        with self.assertRaises(ResidentRefused):
+            await self.begin()
+        self.assertEqual(len(self.acc.dev_reqs[None]), 1)
+        self.assertEqual(len(self.page.tokens), 1)
+
+    async def test_incomplete_baseline_branch_refuses_sdk(self):
+        self.sdk_evidence['complete'] = False
+        await self.passed()
+        with self.assertRaises(ResidentRefused):
+            await self.begin()
+        self.assertEqual(len(self.acc.dev_reqs[None]), 1)
+
+    async def test_changed_sdk_identity_after_join_refuses(self):
+        await self.passed()
+        await self.begin()
+        self.sdk_device = '1123456789ab4def8123456789abcdef'
+        with self.assertRaises(ResidentRefused):
+            await self.complete()
+        self.assertEqual(len(self.page.tokens), 1)
+        self.assertEqual(len(self.acc.dev_reqs[None]), 2)
 
     async def test_cancelled_begin_retains_and_joins_rate_lock_owner(self):
         await self.passed()

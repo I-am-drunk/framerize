@@ -153,15 +153,16 @@ async fn execute(operation: &Operation, spec: Specification, baseline_turn: Stri
     let (token, origin) = if let Some(worker) = &capture.sdk {
         report.cleanup_confirmed = false;
         let reply = rpc.begin_native_sdk().await.map_err(|_| Failure::Mint)?;
-        wire::sdk_context(&operation.binding, page, &acquired.header,
+        let sdk_device = wire::sdk_context(&operation.binding, page, &acquired.header,
             reply.into_unverified_value(), "sdk_admitted")?;
         report.cleanup_confirmed = true;
-        let minted = sdk::mint(worker, page, &target, control, deadline, report).await?;
+        let minted = sdk::mint(worker, page, &sdk_device, &target, control, deadline, report).await?;
         let origin = minted.freshness_origin;
         report.cleanup_confirmed = false;
         let reply = rpc.complete_native_sdk().await.map_err(|_| Failure::Context)?;
-        wire::sdk_context(&operation.binding, page, &acquired.header,
+        let confirmed_device = wire::sdk_context(&operation.binding, page, &acquired.header,
             reply.into_unverified_value(), "sdk_complete")?;
+        if confirmed_device != sdk_device { return Err(Failure::Context); }
         report.cleanup_confirmed = true;
         (framer_core::port::CastleToken(minted.into_token()), Some(origin))
     } else {

@@ -3,6 +3,21 @@
 Updated 2026-10-24. The normal service remains browser-based. Publishing these
 branches does not change the running service.
 
+R10 returned complete HTTP 200 from the normal browser and paired baseline,
+then stopped locally because the isolated V2 worker observed changed device
+storage. Native HTTP was never invoked; cleanup was confirmed. Saved evidence
+shows the supplied device is the original hyphenated UUID, which the selected
+V2 SDK does not accept. No SDK identity was available in the old host's cache.
+The resident source now captures a separate observed V2 warmup identity and
+binds it through worker admission and post-join verification. It preserves
+the current HTTP cookie/device and refuses missing or replaced metadata.
+All 71 focused Python cases, 18 Rust coordinator/cancellation cases, and five
+JavaScript fixtures pass, including actual decorated host warm/mint strings.
+The first new JS fixture lacked a completion watchdog; its incomplete result
+is preserved and superseded by the explicit completed run. The production
+daemon also links. Isolated-owner activation is next; a live V2 mint using
+this identity binding remains unqualified.
+
 The resident SDK coordinator now explicitly signals worker cancellation even
 when cancellation wins before the result future's first poll. Both focused
 regressions pass: no child starts for a pending launch, and a started inert

@@ -1048,15 +1048,18 @@ class Host:
                 os.environ.get("FRAMERIZE_OBSERVED_PROFILE_NONCE"))
         self.resident_application_generation = None
         self._resident_control = None
+        self._resident_scripts = {}
         generation = os.environ.get("FRAMERIZE_RESIDENT_APPLICATION_GENERATION")
         if generation is not None:
             if (self._observed is not None or not generation.isascii()
                     or not generation.isdecimal() or len(generation) > 20
                     or not 0 < int(generation) < 2**64):
                 raise RuntimeError("invalid resident startup binding")
-            from resident_authorization import ResidentControl
+            from resident_authorization import ResidentControl, observe_warm_identity
             self.resident_application_generation = int(generation)
             self._resident_control = ResidentControl(self)
+            self._resident_scripts = {source: observe_warm_identity(source)
+                                      for source in (WARM_JS, MINT_JS)}
 
     @asynccontextmanager
     async def _activity(self, account):
@@ -1077,6 +1080,10 @@ class Host:
     async def _rpc(self, account, call, *args, **kwargs):
         if self._observed is not None:
             return await call(*args, **kwargs)
+        if args and type(args[0]) is str:
+            source = getattr(self, '_resident_scripts', {}).get(args[0])
+            if source is not None:
+                args = (source, *args[1:])
         life = self.lifecycles[account]
         activity = life.activity.activity()
         async def actual():
