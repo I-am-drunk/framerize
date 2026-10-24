@@ -84,6 +84,11 @@ upstream acceptance. No account, browser, service or Framer request was made.
 Next, obtain the same bounded structural evidence from an owned working-browser
 mint before drawing conclusions about differences. R13 remains the latest live
 result; its retained owner and rate history are unchanged.
+The explicit dedicated resident worker entry and its immutable source package
+are prepared but have not run through the resident control. Five inert hook
+cases pass for observing the original browser mint without replacing its
+result, failure or cancellation. The actual browser observer and diagnostic
+host package are still being prepared. No R14 activation or request has run.
 
 R12 completed an isolated-V2 request that was refused. The normal browser
 and paired browser baseline returned complete HTTP 200 model output. The
