@@ -1,5 +1,14 @@
 # Serving architecture and branch policy
 
+The separate `v2_operation`/`v2_runtime` component invokes the retained genuine
+V2 factory's configured-instance API. It requires a saved device, calls the
+token method once, preserves the supplied target URL, and rejects changed
+device state, late completion or failed cleanup. Output is private and
+single-use. Its metadata labels direct V2 API selection explicitly; it does
+not claim normal wrapper selection. A fresh, bounded, socket-denied process
+must own each operation. It is not connected to the existing V3 worker or
+serving path, and component completion alone cannot prove child settlement.
+
 Offline worker target validation accepts the existing bound 20-character
 project ID plus alphanumeric access suffix, including the supported slug form.
 It preserves the supplied URL exactly and retains origin and route checks.
