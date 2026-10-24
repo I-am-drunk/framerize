@@ -6,7 +6,7 @@ use framer_api::native_dispatch::complete_json::{CompletedJson, FreeRoute};
 pub(super) async fn run(spec: Specification, baseline_turn: String, selected: Selection,
     native: NativeAccountClient, scope: AccountScope, client: ComparisonClient,
     permit: OwnedSemaphorePermit, saved: Arc<Mutex<Report>>,
-    factory: Arc<dyn control::ControlFactory>) -> Result<(), Failure> {
+    factory: Arc<dyn control::ControlFactory>, cleanup: cleanup::Completion) -> Result<(), Failure> {
     let deadline = spec.deadline;
     let target = CredentialTarget { project: spec.identity.project.clone(), path: match spec.route {
         FreeRoute::Responses => "/ai/v3/responses/", FreeRoute::Messages => "/ai/v3/messages/",
@@ -23,7 +23,7 @@ pub(super) async fn run(spec: Specification, baseline_turn: String, selected: Se
         waiters: 2, user_id_bytes: 256, total_user_bytes: 256 }).map_err(|_| Failure::Bootstrap)?;
     bootstrap(&leases, &selected.identity).await?;
     let context = baseline(&native, &scope, client, comparison, api.clone(), &target,
-        deadline, saved.clone()).await?;
+        deadline, saved.clone(), cleanup).await?;
     if !saved.lock().unwrap().baseline.as_ref().is_some_and(|b| b.accepted) {
         return Err(Failure::Dispatch);
     }
@@ -42,7 +42,8 @@ pub(super) async fn run(spec: Specification, baseline_turn: String, selected: Se
 
 async fn baseline(native: &NativeAccountClient, scope: &AccountScope, client: ComparisonClient,
     plan: ComparisonPlan, api: Arc<dyn control::Control>, target: &CredentialTarget,
-    deadline: tokio::time::Instant, saved: Arc<Mutex<Report>>) -> Result<ComparisonContext, Failure> {
+    deadline: tokio::time::Instant, saved: Arc<Mutex<Report>>, cleanup: cleanup::Completion)
+    -> Result<ComparisonContext, Failure> {
     let target = CredentialTarget { project: target.project.clone(), path: target.path };
     let expected = scope.clone();
     let pending = native.prepare_owned(scope, deadline, move |session, control| async move {
@@ -50,7 +51,7 @@ async fn baseline(native: &NativeAccountClient, scope: &AccountScope, client: Co
             return PreparationResult::finished(Err(PreparationFailure::Cancelled));
         }
         let mut context = match client.prepare(plan, &session.cookie_header).await {
-            Ok(value) => value, Err(_) => return PreparationResult::unconfirmed(),
+            Ok(value) => value, Err(_) => return cleanup.failed_prepare().await,
         };
         let header = context.cookie_header().to_owned();
         let bearer = api.bearer(&expected, &session, &target,

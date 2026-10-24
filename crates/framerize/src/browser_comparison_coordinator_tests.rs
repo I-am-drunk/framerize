@@ -6,6 +6,9 @@ use framer_api::experimental_native::authorization::{CredentialTarget, PreparedC
 use framer_core::port::BrowserAuthorization;
 use futures::FutureExt;
 
+#[path = "browser_comparison_preparation_tests.rs"]
+mod preparation;
+
 const BOUND: Duration = Duration::from_secs(3);
 
 #[derive(Debug, PartialEq, Eq)]
