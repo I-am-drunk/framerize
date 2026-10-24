@@ -202,6 +202,28 @@ parsed those three files as inert text, with zero parse failures. Semantic
 coverage is partial and its unknown limit was reached; 493 other files were
 outside selection. The ordering conclusion uses the exact source chain above.
 
+The realm profile also changes timer ownership. All 12 `setTimeout` and 12
+`clearTimeout` identifiers in the pinned factory are bare calls, with no local
+binding. Examples are the deferred helper at byte 158300, timeout callbacks
+at 393735 and 431691/432451, and deferred calls at
+537730/538451. These resolve in Node for the default profile and in the owned
+window for the explicit realm profile. Passing `window` to `configure` alone
+does not change the default profile's timer ownership.
+
+The same pinned JSDOM `Window.js` owns a timer map at line 521, registers each
+Node timer at lines 600-601, and skips callbacks removed from that map at line
+573. `window.close()` calls `stopAllTimers()` at line 878; that function clears
+every registered Node timer and the map at lines 682-686. A pending bare Node
+timer from the default factory is outside this window map. A bare timer from
+the own-window factory uses it, without replacing Node globals or changing
+the SDK's requested delays. This is source-derived lifecycle behavior.
+
+No pending timer, missed deadline or unjoined process was observed by this
+trace. The existing outer deadline, cancellation and process join remain
+required for both profiles; window closure alone is not a child-join receipt.
+No timer shim, delay adjustment, extra execution or new acceptance claim is
+introduced. This also supplies no attribution for the diagnostic count or 403.
+
 Dependent action: runtime owner `544711e3-0b76-4cb4-9732-124a0486847e`
 selects the next comparison. Required input is the owner-qualified realm
 package plus retained account, identity, egress, cooldown and cleanup checks.
