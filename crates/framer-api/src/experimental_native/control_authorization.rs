@@ -21,6 +21,14 @@ mod credit_control;
 #[path = "control_authorization_tests.rs"]
 mod tests;
 
+#[path = "resident_bearer_validity.rs"]
+mod resident_bearer_validity;
+
+struct ControlBearer {
+    value: String,
+    expires_at_ms: i64,
+}
+
 pub struct BoundControlClient {
     expected: AccountScope,
     transport: crate::transport::Transport,
@@ -35,6 +43,11 @@ impl BoundControlClient {
     }
 
     async fn bearer(&self, scope: &AccountScope, session: &Session) -> Result<String, String> {
+        self.bearer_with_expiry(scope, session).await.map(|bearer| bearer.value)
+    }
+
+    async fn bearer_with_expiry(&self, scope: &AccountScope, session: &Session)
+        -> Result<ControlBearer, String> {
         if !self.expected.same_generation(scope) || scope.active_user() != &session.active_user {
             return Err("control authorization: account generation mismatch".into());
         }
@@ -48,7 +61,7 @@ impl BoundControlClient {
         if expires.timestamp_millis() <= chrono::Utc::now().timestamp_millis() + 30_000 {
             return Err("control authorization: expired token".into());
         }
-        Ok(bearer.to_owned())
+        Ok(ControlBearer { value: bearer.to_owned(), expires_at_ms: expires.timestamp_millis() })
     }
 }
 

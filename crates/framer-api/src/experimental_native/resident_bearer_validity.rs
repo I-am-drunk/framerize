@@ -1,4 +1,4 @@
-//! Dormant pure admission candidate. Not wired into any serving module.
+//! Pure lifetime check before admitting a retained resident bearer.
 //! Inputs come from the owned auth response and its current control deadline.
 //! This cannot prove token authenticity, account binding or HTTP acceptance.
 use std::time::Duration;
