@@ -62,6 +62,10 @@ fn preparation_pipe(mode: &str) -> RefusalPipe {
 
 async fn failed_prepare_case(mode: &str, drop_waiter: bool) {
     let pipe = preparation_pipe(mode);
+    // Matching cases still rely on dropping the last public bridge handles.
+    // Negative cases retain admission authority to check the logical fence.
+    let retained = (mode != "matching")
+        .then(|| pipe.observer.as_ref().unwrap().clone());
     let id = identity();
     let (store, _, _) = fixture(&id, None);
     let control = Arc::new(RefusalControl {
@@ -134,10 +138,18 @@ async fn failed_prepare_case(mode: &str, drop_waiter: bool) {
         assert_eq!(std::fs::read_to_string(pipe.trace.join("closure_commands")).unwrap(),
             if matched { "scope_stop\nscope_forget\n" } else { "scope_stop\n" });
     }).catch_unwind().await;
+    let captured = control.scope.lock().unwrap().as_ref()
+        .map(|scope| (scope.account(), ApplicationGeneration(scope.generation())));
     pipe.release("release_prepare");
     pipe.release("release_rpc");
     pipe.finish().await;
     if let Err(panic) = outcome { std::panic::resume_unwind(panic); }
+    if let Some(observer) = retained {
+        let (account, generation) = captured.expect("native scope was captured");
+        assert!(matches!(observer.comparison_scope(account, generation),
+            Err(ObserverError::AccountUnconfirmed)),
+            "natural child reaping reopened the unconfirmed account");
+    }
 }
 
 #[tokio::test]

@@ -35,8 +35,14 @@ impl Drop for Temp {
 
 fn unopened(account: AccountId, generation: u64) -> (Temp, ObservedAccountScope) {
     let root = std::env::temp_dir().join(format!("comparison-no-launch-{}", uuid::Uuid::new_v4()));
-    std::fs::create_dir(&root).unwrap();
-    let script = root.join("unused.py");
+    let mut directory = std::fs::DirBuilder::new();
+    #[cfg(unix)] {
+        use std::os::unix::fs::DirBuilderExt;
+        directory.mode(0o700);
+    }
+    directory.create(&root).unwrap();
+    // The constructor requires this sibling even though no process may start.
+    let script = root.join("observed_sidecar.py");
     std::fs::write(&script, "raise AssertionError('must not start')\n").unwrap();
     let bridge = Arc::new(SidecarBridge::new_observed_one_shot(&root, script).unwrap());
     let factory = bridge.observer_factory(ObserverLimits {
