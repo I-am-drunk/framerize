@@ -1,4 +1,6 @@
 //! Handler admission fixtures. These ports never perform external I/O.
+#[path = "explicit_account_admission_tests.rs"]
+mod explicit_account_admission;
 #[path = "account_import_identity_tests.rs"]
 mod import_identity;
 #[cfg(feature = "native-dispatch")]
@@ -33,6 +35,8 @@ struct FixturePorts {
     native_result: Mutex<Option<Result<framer_core::native_device::DeviceEnrollment,
         framer_core::native_device::DeviceFailure>>>,
     native_calls: Mutex<Vec<(AccountId, FramerUserId, String)>>,
+    run_reply: Mutex<Option<InferenceResult>>,
+    run_calls: Mutex<Vec<(FramerUserId, AccountId, ProjectId)>>,
 }
 
 impl FixturePorts {
@@ -123,7 +127,21 @@ impl FramerClient for FixturePorts {
 
     denied!("client", request_magic_link<'b, 'c>(_email: &'b str, _castle: &'c CastleToken) -> Result<(), String>);
     denied!("client", complete_magic_link<'b, 'c>(_token: &'b str, _castle: &'c CastleToken) -> Result<Session, String>);
-    denied!("client", run_inference<'b, 'c, 'd, 'e, 'f>(_session: &'b Session, _browser: &'c dyn BrowserBridge, _account: &'d AccountId, _project: &'e ProjectId, _req: &'f InferenceRequest) -> Result<InferenceResult, String>);
+    fn run_inference<'s, 'b, 'c, 'd, 'e, 'f, 'a>(&'s self,
+        session: &'b Session, _browser: &'c dyn BrowserBridge, account: &'d AccountId,
+        project: &'e ProjectId, _req: &'f InferenceRequest)
+        -> BoxFuture<'a, Result<InferenceResult, String>>
+    where 's: 'a, 'b: 'a, 'c: 'a, 'd: 'a, 'e: 'a, 'f: 'a, Self: 'a {
+        Box::pin(async move {
+            let reply = self.run_reply.lock().unwrap().take()
+                .unwrap_or_else(|| self.unexpected("client"));
+            self.client_calls.fetch_add(1, Ordering::SeqCst);
+            self.run_calls.lock().unwrap().push((
+                session.active_user.clone(), *account, project.clone(),
+            ));
+            Ok(reply)
+        })
+    }
     denied!("client", proxy<'b, 'c, 'd, 'e, 'f, 'g>(_session: &'b Session, _browser: &'c dyn BrowserBridge, _account: &'d AccountId, _project: &'e ProjectId, _dialect: &'f str, _payload: Value, _chat: &'g str) -> Result<ProxyResponse, String>);
     denied!("client", freechat_long<'b, 'c, 'd, 'e, 'f, 'g, 'h>(_session: &'b Session, _browser: &'c dyn BrowserBridge, _account: &'d AccountId, _project: &'e ProjectId, _payload: Value, _cfg: &'f ChainConfig, _chat: &'g str, _events: Option<&'h (dyn Fn(ChainEvent) + Send + Sync)>) -> Result<AssembledResponse, String>);
     denied!("client", native_long<'b, 'c, 'd, 'e, 'f, 'g, 'h>(_session: &'b Session, _browser: &'c dyn BrowserBridge, _account: &'d AccountId, _project: &'e ProjectId, _payload: Value, _cfg: &'f ChainConfig, _chat: &'g str, _events: Option<&'h (dyn Fn(ChainEvent) + Send + Sync)>) -> Result<AssembledResponses, String>);
@@ -201,6 +219,8 @@ fn fixture(import: bool) -> (AppState, Arc<FixturePorts>) {
         native_session: Mutex::new(None),
         native_result: Mutex::new(None),
         native_calls: Mutex::new(Vec::new()),
+        run_reply: Mutex::new(None),
+        run_calls: Mutex::new(Vec::new()),
     });
     let state = AppState {
         operation_ownership: None,

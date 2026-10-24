@@ -757,6 +757,11 @@ async fn current_account(s: &AppState, id: AccountId) -> Result<ManagedAccount, 
     if let Some(until) = account.cooling_until_ms.filter(|until| *until > now) {
         return Err(ApiError::AccountCooling { retry_after_secs: until.saturating_sub(now).div_ceil(1000) });
     }
+    if !account.is_eligible() {
+        return Err(ApiError::ServingCapacity(
+            "account is not ready or is missing its current team or project".into(),
+        ));
+    }
     Ok(account)
 }
 
@@ -1225,18 +1230,36 @@ async fn free_complete(
     // Without this the gate only protects LATER requests -- the ones already
     // in flight when the cap was hit still die (measured: 100 parallel ->
     // 37/100 with a gate that correctly walked 48->24->12->6).
+    let cancelled = operation_ownership::request_cancelled();
+    cfg.cancelled = cancelled.clone();
     let mut result;
+    let mut cleanup_confirmed = true;
     let mut tried_accounts: Vec<String> = Vec::new();
     let mut acct_attempt = 0u32;
     'account_retry: loop {
     let mut attempt = 0u32;
     loop {
+        if let Err(error) = cfg.check_cancelled() {
+            result = Err(error);
+            break 'account_retry;
+        }
         // Re-acquire per attempt so a retry waits for the narrowed limit.
         let permit = match first_permit.take() {
             Some(permit) => permit,
             None => s.gate.acquire(&gate_key).await,
         };
-        current_account(&s, account.id).await?;
+        if let Err(error) = cfg.check_cancelled() {
+            result = Err(error);
+            break 'account_retry;
+        }
+        if let Err(error) = current_account(&s, account.id).await {
+            return Ok(operation_ownership::completed_response(
+                axum::response::IntoResponse::into_response(error), cleanup_confirmed));
+        }
+        if let Err(error) = cfg.check_cancelled() {
+            result = Err(error);
+            break 'account_retry;
+        }
         result = s
             .client
             .freechat_long(
@@ -1251,6 +1274,11 @@ async fn free_complete(
             )
             .await;
         drop(permit);
+        // Later success cannot confirm cleanup lost by an earlier attempt.
+        cleanup_confirmed &= !matches!(&result, Err(error) if pool_control::cleanup_unconfirmed(error));
+        result = residency.observe_result(account.id, result);
+        // Retain the completed call's health outcome even after disconnect.
+        record_account_health(&s, &account, &result).await;
         // ONLY 429 is retryable here. A 403 risk-refusal must NOT be retried:
         // every attempt mints another Castle token from the same device, and
         // repeated minting from a device that is already being refused is
@@ -1260,7 +1288,7 @@ async fn free_complete(
         // upstream by the per-account mint gate, not recovered here.
         let overloaded = matches!(&result, Err(e)
             if e.contains("retryable 429") || e.contains("too many concurrent"));
-        if !overloaded || attempt >= 5 {
+        if cfg.is_cancelled() || !overloaded || attempt >= 5 {
             break;
         }
         s.gate.on_overloaded(&gate_key).await;
@@ -1279,17 +1307,15 @@ async fn free_complete(
     // died all morning while 7 healthy accounts idled. Nothing reaches the
     // client on the non-stream path until the chain completes, so a refusal
     // is always safe to retry on a fresh account. The health mark lands first
-    // (below), so the repick never selects the same account twice.
-    result = residency.observe_result(account.id, result);
+    // (above), so the repick never selects the same account twice.
+    if cfg.is_cancelled() { break; }
     if matches!(&result, Err(e) if should_retry_account(e)) && acct_attempt < 2 {
         tried_accounts.push(account.id.0.to_string());
-        // Mark BEFORE re-picking: the store must know this account is poisoned
-        // so every later request steers away, not just this one.
-        record_account_health(&s, &account, &result).await;
         drop(residency.take());
         match pick_fresh_account(&s, &tried_accounts).await {
             Ok((next, lease)) => {
                 residency.replace(lease);
+                if cfg.is_cancelled() { break; }
                 {
                     use framer_core::observability::Event;
                     Event::new("ai.chain.repick")
@@ -1308,6 +1334,7 @@ async fn free_complete(
                 scope_team = scope.team.clone();
                 gate_key = format!("{}:{gate_model}", scope_team.0);
                 cfg = mk_cfg(&scope_team);
+                cfg.cancelled = cancelled.clone();
                 chat_session = hdr(headers, "x-framerize-session")
                     .unwrap_or_else(|| stable_session(&account.id));
                 acct_attempt += 1;
@@ -1331,13 +1358,6 @@ async fn free_complete(
         }
         Err(_) => {}
     }
-
-    // Record ACCOUNT health. This route previously recorded none at all, so a
-    // Castle-poisoned account stayed state=ready with failures=0 forever and
-    // rotation kept feeding it: measured 2026-10-04, one account served 69
-    // consecutive posts at 100% 403 while the gate sat at its ceiling of 64.
-    // The gate was never the problem; the missing feedback loop was.
-    record_account_health(&s, &account, &result).await;
 
     // canonical ai.chain event (credit-use proof lives here: metered_chunks)
     {
@@ -1363,16 +1383,24 @@ async fn free_complete(
         Ok(r) => r,
         Err(e) => {
             let (status, body) = convert::error_json(dialect, &e);
-            return Ok(axum::response::IntoResponse::into_response(ShapedApiError(
+            let response = axum::response::IntoResponse::into_response(ShapedApiError(
                 StatusCode::from_u16(status).unwrap_or(StatusCode::INTERNAL_SERVER_ERROR),
                 body,
-            )));
+            ));
+            return Ok(operation_ownership::completed_response(response,
+                cleanup_confirmed && !pool_control::cleanup_unconfirmed(&e)));
         }
     };
 
     let body = convert::render_json_with(dialect, &result, &client_model, &custom_tools);
+    let body = match serde_json::to_string(&body) {
+        Ok(body) => body,
+        Err(error) => return Ok(operation_ownership::completed_response(
+            axum::response::IntoResponse::into_response(ApiError::Internal(error.to_string())),
+            cleanup_confirmed)),
+    };
     let mut resp = axum::response::Response::new(axum::body::Body::from(
-        serde_json::to_string(&body).map_err(|e| ApiError::Internal(e.to_string()))?,
+        body,
     ));
     resp.headers_mut().insert(
         axum::http::header::CONTENT_TYPE,
@@ -1382,7 +1410,7 @@ async fn free_complete(
         "x-framerize-session",
         chat_session.parse().unwrap_or(axum::http::HeaderValue::from_static("")),
     );
-    Ok(resp)
+    Ok(operation_ownership::completed_response(resp, cleanup_confirmed))
 }
 
 /// The OpenAI-native free path (docs/native-chains.md): Responses clients
