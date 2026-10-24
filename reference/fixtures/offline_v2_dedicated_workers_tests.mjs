@@ -49,6 +49,7 @@ const descriptors = window => [Object.getOwnPropertyDescriptors(window),
   Object.getOwnPropertyDescriptors(window.URL)];
 async function fixture(t, source = script, admitted = source, { closeFailure = false } = {}) {
   const threads = [], window = fakeWindow(), before = descriptors(window);
+  const launches = new EventEmitter();
   let resolveStarted;
   const started = new Promise(resolve => { resolveStarted = resolve; });
   class Thread extends EventEmitter {
@@ -56,6 +57,7 @@ async function fixture(t, source = script, admitted = source, { closeFailure = f
       super(); this.url = url; this.options = options; this.posts = []; this.stops = 0;
       this.stdout = this.stderr = { resume() {} };
       threads.push(this); resolveStarted(this);
+      launches.emit('started', this);
     }
     postMessage(value) { this.posts.push(value); }
     terminate() { this.stops++; return Promise.resolve(0); }
@@ -70,7 +72,8 @@ async function fixture(t, source = script, admitted = source, { closeFailure = f
     if (closeFailure) await assert.rejects(closing, /^Error: worker cleanup$/);
     else await closing;
   });
-  return { window, before, bridge, url, started, threads, install };
+  return { window, before, bridge, url, started, threads, install,
+    nextStarted: () => new Promise(resolve => launches.once('started', resolve)) };
 }
 const check = (name, run) => test(name, { timeout: 5000 }, run);
 
@@ -200,6 +203,36 @@ check('v2_worker_close_waits_for_termination_after_exit_removed_live_slot', asyn
   assert.deepEqual({ ...h.bridge.stats() }, { started: 1, joined: 1, errors: 0, messages: 0 });
 });
 
+check('v2_worker_replacement_preserves_old_cleanup_and_one_live_admission', async t => {
+  const h = await fixture(t), worker = new h.window.Worker(h.url);
+  const first = await h.started, gate = terminationGate(first);
+  worker.terminate(); await gate.entered;
+  try {
+    assert.throws(() => new h.window.Worker(h.url), /Worker limit/);
+    first.exit();
+    const started = h.nextStarted();
+    new h.window.Worker(h.url);
+    const second = await started;
+    assert.throws(() => new h.window.Worker(h.url), /Worker limit/);
+    let settled = false;
+    const closing = h.bridge.close();
+    closing.then(() => { settled = true; }, () => { settled = true; });
+    await turn();
+    assert.equal(second.stops, 1);
+    second.exit(); await turn();
+    assert.equal(settled, false);
+    assert.equal(h.bridge.stats().joined, 2);
+    assert.notEqual(h.window.Worker, h.before[0].Worker.value);
+  } finally {
+    gate.resolve(0);
+    const closing = h.bridge.close();
+    for (const thread of h.threads) thread.exit();
+    await closing;
+  }
+  assert.deepEqual(descriptors(h.window), h.before);
+  assert.deepEqual({ ...h.bridge.stats() }, { started: 2, joined: 2, errors: 0, messages: 0 });
+});
+
 check('v2_worker_failed_termination_still_waits_for_exit', async t => {
   const h = await fixture(t, script, script, { closeFailure: true });
   new h.window.Worker(h.url);
@@ -234,6 +267,52 @@ check('v2_worker_retains_termination_failure_after_exit_' + timing, async t => {
   assert.equal(thread.stops, 1);
   assert.deepEqual(descriptors(h.window), h.before);
   assert.deepEqual({ ...h.bridge.stats() }, { started: 1, joined: 1, errors: 0, messages: 0 });
+});
+
+check('v2_worker_cleanup_failure_isolated_between_two_windows', async t => {
+  const h = await fixture(t, script, script, { closeFailure: true });
+  const window = fakeWindow(), before = descriptors(window);
+  const owner = h.install(window, hash(script));
+  const url = window.URL.createObjectURL(new window.Blob([script]));
+  t.after(async () => {
+    const closing = owner.close();
+    for (const thread of h.threads) thread.exit();
+    await closing;
+  });
+  const firstWorker = new h.window.Worker(h.url), first = await h.started;
+  assert.throws(() => new h.window.Worker(url));
+  assert.throws(() => new window.Worker(h.url));
+  h.window.URL.revokeObjectURL(url);
+  assert.ok(resolveObjectURL(url));
+  const started = h.nextStarted(), secondWorker = new window.Worker(url);
+  const second = await started, gate = terminationGate(first);
+  firstWorker.terminate(); await gate.entered; first.exit();
+  const rejected = assert.rejects(h.bridge.close(), /^Error: worker cleanup$/);
+  try {
+    assert.ok(resolveObjectURL(url));
+    await turn();
+    assert.equal(second.stops, 0);
+    assert.notEqual(window.Worker, before[0].Worker.value);
+    const messages = [];
+    secondWorker.onmessage = event => messages.push(event.data);
+    second.emit('message', 'second-window');
+    assert.deepEqual(messages, ['second-window']);
+    assert.equal(h.bridge.stats().messages, 0);
+    gate.reject(new Error('private-marker')); await rejected;
+    assert.equal(second.stops, 0);
+    const closing = owner.close();
+    await turn(); assert.equal(second.stops, 1);
+    second.exit(); await closing;
+    assert.deepEqual(descriptors(window), before);
+    assert.deepEqual(descriptors(h.window), h.before);
+    assert.deepEqual({ ...owner.stats() }, { started: 1, joined: 1, errors: 0, messages: 1 });
+    assert.deepEqual({ ...h.bridge.stats() }, { started: 1, joined: 1, errors: 0, messages: 0 });
+  } finally {
+    gate.reject(new Error('private-marker'));
+    const closing = owner.close();
+    for (const thread of h.threads) thread.exit();
+    await Promise.all([rejected, closing]);
+  }
 });
 
 check('v2_worker_errors_are_generic_and_still_joined', async t => {
