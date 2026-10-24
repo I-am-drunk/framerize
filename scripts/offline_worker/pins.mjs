@@ -1,4 +1,5 @@
 const ROOT = '/home/tjninja/.t3/scratch/2026-10-18-i-keep-getting-this-error-0486847e/investigation';
+export const GRAPHICS = null;
 export const ASSETS = ROOT + '/framer-page-fixture/assets';
 export const DOM = ROOT + '/browserless-wire-20261020/genuine-dom';
 export const HISTORY = ROOT + '/browserless-wire-20261020';

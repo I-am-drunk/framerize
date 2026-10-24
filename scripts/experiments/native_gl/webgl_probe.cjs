@@ -60,6 +60,7 @@ try {
     const gl = create(64, 64, { depth: false, stencil: false });
     assert.ok(gl, 'surfaceless WebGL context');
     contexts.push(gl);
+    assert.equal(NativeWebGL.activeContexts(), i + 1);
     const debug = gl.getExtension('WEBGL_debug_renderer_info');
     assert.ok(debug);
     assert.equal(gl.getExtension('WEBGL_debug_shaders'), null);
@@ -78,6 +79,7 @@ try {
   const destroyed = contexts[0].getExtension('STACKGL_destroy_context').destroy();
   contexts[0] = null;
   assert.equal(destroyed, true);
+  assert.equal(NativeWebGL.activeContexts(), 1);
   assert.match(contexts[1].getParameter(contexts[1].RENDERER), /llvmpipe/);
   checks.push('other_context_survives_close');
 } finally {

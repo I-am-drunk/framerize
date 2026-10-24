@@ -9,8 +9,13 @@ The experimental `native_gl` probes use installed EGL/GLES with a private
 surfaceless buffer and explicit teardown. They do not create browser processes
 or use the live display. The subsequent Mesa WebGL port also passes shader
 rendering and bounded HTML canvas tests within the 128 MiB component cap.
-Its bridge owns at most two contexts, preserves context types and confirms
-native teardown. It is not yet part of the SDK worker.
+Its bridge permits at most two live contexts and eight total creations per
+window, preserves context types and confirms native teardown. An optional,
+separately pinned SDK graphics bundle now passes synthetic owner validation.
+The JavaScript wrapper creates no redundant native context. The bridge avoids
+retaining discarded canvases, while native disposal failures remain sticky
+until final cleanup. Graphics statistics stay outside the worker protocol.
+The running services have not selected this WebGL bundle yet.
 
 The native worker can select a separately pinned graphics dependency bundle
 through its existing worker configuration. Its bounded PNG loader is shared

@@ -3,7 +3,9 @@ import { createRequire } from 'node:module';
 import { pathToFileURL } from 'node:url';
 import { performance } from 'node:perf_hooks';
 import { TextEncoder } from 'node:util';
-import { DOM, PUBLIC_KEY, SUPPORT } from './pins.mjs';
+import { DOM, PUBLIC_KEY, SUPPORT, GRAPHICS } from './pins.mjs';
+import { loadGraphics } from './graphics_loader.mjs';
+import { installWebGL } from './canvas_webgl.mjs';
 import { SdkModules, verifyInputs } from './sdk_loader.mjs';
 import { validateInput, OpaqueToken } from './protocol.mjs';
 import { observeBranch, exactV3 } from './branch.mjs';
@@ -37,7 +39,7 @@ export class OfflineCastleMinter {
     if (this.#input.version === 2) Object.assign(report, {
       device_storage_seeded: false, device_storage_unchanged: false,
     });
-    let phase = 'input-identity', dom, modules, inspector, settlement, value, mintedAt, verifyDevice, sharedWorkers, dedicatedWorkers;
+    let phase = 'input-identity', dom, modules, inspector, settlement, value, mintedAt, verifyDevice, sharedWorkers, dedicatedWorkers, nativeGraphics, graphics;
     const asynchronousError = () => { report.async_errors = Math.min(1000000, report.async_errors + 1); };
     const diagnostic = () => { report.diagnostics = Math.min(1000000, report.diagnostics + 1); };
     process.on('unhandledRejection', asynchronousError);
@@ -60,6 +62,12 @@ export class OfflineCastleMinter {
       const console = new jsdom.VirtualConsole();
       for (const name of ['warn', 'error', 'jsdomError']) console.on(name, diagnostic);
       dom = createOfflineWindow(jsdom, this.#input.target.url, console);
+      if (GRAPHICS) {
+        phase = 'graphics';
+        nativeGraphics = loadGraphics(GRAPHICS);
+        graphics = installWebGL(dom.window, nativeGraphics.create,
+          nativeGraphics.cleanup, nativeGraphics.activeContexts);
+      }
       if (this.#input.device) {
         phase = 'device-storage';
         verifyDevice = this.#input.device.seed(dom.window);
@@ -131,6 +139,14 @@ export class OfflineCastleMinter {
       if (verifyDevice) {
         try { verifyDevice(); report.device_storage_unchanged = true; }
         catch { report.failure_phase ??= 'device-storage'; }
+      }
+      if (graphics) {
+        try {
+          const state = graphics.close();
+          if (!state.created || state.created !== state.destroyed || state.errors || state.refused)
+            report.failure_phase ??= 'graphics';
+          nativeGraphics.verify();
+        } catch { report.failure_phase ??= 'graphics-cleanup'; }
       }
       if (dom) {
         try { dom.window.close(); report.window_closed = true; }

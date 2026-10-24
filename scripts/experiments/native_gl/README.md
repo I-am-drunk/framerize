@@ -53,7 +53,21 @@ resource and ownership checks with real JSDOM/canvas at 103,636,992 bytes.
 Both used the unchanged 128 MiB cap, zero swap/events and verified group absence.
 Earlier setup, resource and cleanup-wrapper failures remain in the qualification.
 
-`canvas_webgl.mjs` bounds each window to two native contexts and one million
-total pixels. It preserves 2D/WebGL exclusivity and restores the original method
-after verified native cleanup. These components are not yet integrated into the
-SDK worker. No live delivery result follows from these tests.
+Apply `lifetime.patch` after `mesa.patch` for the subsequent SDK integration.
+It removes a redundant native allocation in the public JavaScript wrapper,
+exposes the actual live-context count, returns free native allocator pages,
+and preserves cleanup failures even when disposal occurs during collection.
+
+`canvas_webgl.mjs` bounds each window to two live native contexts, eight total
+creations and one million cumulative pixels. It preserves 2D/WebGL exclusivity,
+does not retain discarded canvases, rejects a second owner and restores the
+original method after verified native cleanup. The updated rendering and eight
+canvas checks cover exact native counts and retained/discarded canvas lifetimes.
+
+`worker-qualification.json` retains the failed setup, memory and integration
+runs. The final instrumented SDK run created five contexts, refused none and
+passed at 131,796,992 bytes. The deployable version omits diagnostic files and
+passes at 120,934,400 bytes. Both used the existing owner, discarded the token,
+recorded zero swap/memory events and verified group absence. Graphics status
+does not add fields to the strict worker metadata protocol. These are synthetic
+results; neither service nor an account was touched and no live delivery is proven.
