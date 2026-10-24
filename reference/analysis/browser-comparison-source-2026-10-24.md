@@ -60,3 +60,23 @@ It covers sequence and replay, separate turn IDs, drift at both barriers,
 refusal and completion, bounded private evidence, cancellation and real
 observer phase promotion. It loads only inert fixtures and fake page/RPC ports.
 These new tests and all candidate Python/JavaScript remain UNRUN here.
+
+## Exact-fetch JavaScript fixture
+
+The additive `reference/fixtures/browser_comparison_fetch_tests.mjs` contains
+13 inert cases and remains UNRUN by its author. It reads the exact unescaped
+`COMPARISON_FETCH` literal without importing the Python module, then supplies
+fake fetch, page, storage, timer and reader ports. It requires only Node's
+built-in modules and uses no SDK, account, browser, service or network access.
+
+Cases cover both route URLs, unchanged envelope values, the explicit credential
+mode, absence of an inference Cookie header, one fetch, context drift, split
+UTF-8, byte bounds, incomplete encoding, absent bodies, 403 preservation,
+fetch/read timeouts, awaited reader cancellation and uncertain cleanup. Raw
+exceptions and synthetic credentials must not enter the returned metadata.
+Response text here stays inside the private fetch layer; the Python fixtures
+separately cover its removal from public baseline evidence.
+
+The execution owner can select this exact file with Node's test runner under
+its existing isolation and caps. This adds no runtime approval or review gate.
+Production source and the original 28 Python cases remain unchanged.
