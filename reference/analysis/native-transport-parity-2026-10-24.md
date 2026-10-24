@@ -77,3 +77,20 @@ test environment. The new cases need no sockets, SDK or private inputs.
 Source and staged-diff review are the only local verification. Shared status
 docs, live activation and interpretation of the next comparison remain owned
 by the coordinators. The full browserless goal remains active and unfulfilled.
+
+A separate source finding concerns retained bearer lifetime.
+`control_authorization.rs::bearer` admits `expiresAt > now + 30 seconds` and
+returns only the token string. `ResidentBearer` does not retain expiry;
+`begin_resident_mint` and `resident_token` recheck context but not bearer time.
+The resident RPC budget permits 45 seconds. A hypothetical bearer admitted
+with 31 seconds remaining can expire during a 32-second browser baseline
+(for example, a 3-second mint and 29-second fetch, within its 30-second fetch
+timeout), while a separate native mint still satisfies its freshness guard.
+Thus the source's minimum expiry and overall deadline are not sufficient
+to establish bearer validity at native dispatch for every admitted response.
+Historical evidence in `castle-contract-2026-10-05.md` reports a 600-second
+AI JWT lifetime. No short-lived bearer was observed here, so this is a source
+boundary case, not an explanation of R14. A possible correction is to require
+the initial bearer lifetime to cover the retained control deadline, without
+refreshing or changing the bearer between arms. Ownership was requested from
+both coordinators; no admission rule or credential type has been changed.
