@@ -150,6 +150,11 @@ impl ServingAccountPolicy {
             if !Self::residency_allows(&snapshot, &account.id, &protected) {
                 return Err(ApiError::PoolBusy("account has no admissible resident capacity or cleanup is unconfirmed".into()));
             }
+            if !account.is_eligible() {
+                return Err(ApiError::ServingCapacity(
+                    "account is not ready or is missing its current team or project".into(),
+                ));
+            }
             return Ok(account);
         }
         // Retain preserves input order. The existing selector still owns all

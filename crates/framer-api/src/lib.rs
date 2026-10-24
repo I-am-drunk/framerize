@@ -35,6 +35,8 @@ mod workspace;
 mod cooldown_tests;
 #[cfg(test)]
 mod chain_cancellation_tests;
+#[cfg(test)]
+mod project_collection_tests;
 
 use async_trait::async_trait;
 use framer_core::ids::{AccountId, TeamId};
@@ -261,7 +263,7 @@ impl FramerClient for HttpFramerClient {
         // collect any object carrying an id that looks like a project id rather
         // than hardcoding one shape.
         let mut out = Vec::new();
-        collect_project_ids(&v, &mut out);
+        collect_project_ids(&v, team, &mut out);
         Ok(out)
     }
 
@@ -333,10 +335,16 @@ impl FramerClient for HttpFramerClient {
 /// `items`, `collection.items`), so this looks for the INVARIANT instead: a
 /// 20-char base62 `id` on an object that also looks like a project. Being
 /// shape-agnostic here means a dashboard tweak degrades to "found nothing"
-/// rather than a parse error.
-fn collect_project_ids(v: &serde_json::Value, out: &mut Vec<framer_core::ids::ProjectId>) {
+/// rather than a parse error. Absent team metadata relies on the team-bound
+/// route; explicit contradictions reject the object and all its descendants.
+fn collect_project_ids(
+    v: &serde_json::Value, team: &TeamId, out: &mut Vec<framer_core::ids::ProjectId>,
+) {
     match v {
         serde_json::Value::Object(map) => {
+            if map.get("teamId").is_some_and(|id| id.as_str() != Some(team.0.as_str())) {
+                return;
+            }
             if let Some(id) = map.get("id").and_then(|i| i.as_str()) {
                 let looks_like_project = id.len() == 20
                     && id.chars().all(|c| c.is_ascii_alphanumeric())
@@ -349,12 +357,12 @@ fn collect_project_ids(v: &serde_json::Value, out: &mut Vec<framer_core::ids::Pr
                 }
             }
             for child in map.values() {
-                collect_project_ids(child, out);
+                collect_project_ids(child, team, out);
             }
         }
         serde_json::Value::Array(items) => {
             for child in items {
-                collect_project_ids(child, out);
+                collect_project_ids(child, team, out);
             }
         }
         _ => {}
