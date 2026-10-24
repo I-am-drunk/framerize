@@ -3,6 +3,13 @@
 Updated 2026-10-24. The normal service remains browser-based. Publishing these
 branches does not change the running service.
 
+A source review found that navigation after a settled baseline fetch could
+erase its observed HTTP status when the context check refused. The resident
+operation now preserves validated fetch facts before propagating that refusal.
+Acceptance stays false and native mint remains fenced. This correction passes
+syntax and whitespace checks but is not executed; the independent navigation
+regression fixture is pending integration.
+
 A private one-request client is now implemented for the resident socket. It
 validates the local socket owner and the fixed report schema, sends no second
 request, and reports lost or partial exchanges as unknown. Its ten inert

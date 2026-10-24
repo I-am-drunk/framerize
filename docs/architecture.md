@@ -76,6 +76,10 @@ own token. Only an accepted, settled baseline permits the second mint; that
 token must differ from the first. Existing device pacing and cooldown accounting
 still apply. Finalization joins handle disposal and all retained browser RPCs.
 Version 1 still mints during acquire and is not used for this ordered pair.
+The returned baseline fetch is recorded separately from the later admission
+check. If the document changes after a settled fetch, its validated HTTP status
+and completion facts remain diagnostic evidence while context refusal still
+prevents acceptance and native minting. No raw body enters the public report.
 
 The resident control coordinator has a source-only retained worker and strict
 private reply validation. Its server admission selects only an idle existing
