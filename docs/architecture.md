@@ -60,7 +60,10 @@ concurrent page calls may contribute records. Observation cannot change mint
 acceptance, issue a retry, or escape the existing owned RPC and deadline.
 The browser baseline uses `application/json` and no `X-Requested-By`, matching
 the selected public AI caller's default header construction. The conditional
-credits-experiment header remains unbound. Authentication has its own contract.
+credits-experiment header remains unbound. Native inference uses that same
+default header contract; authentication retains its required CSRF marker.
+The direct and OpenRouter Responses envelopes keep `model` inside `request`
+and omit its redundant top-level copy. Other dialects retain their envelopes.
 
 The comparison must run the public SDK in the page's own JavaScript realm.
 The offline failure was Firefox's rejection of TypedArray access across an

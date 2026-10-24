@@ -11,8 +11,15 @@ Two initial fixture failures (data-URL quoting and module identity) remain
 recorded; production code did not change to satisfy them. Logger eviction and
 concurrent page activity limit what the counters prove. R16 remains a refused
 browser baseline; these changes have not had another live test.
-Next, align the native inference headers before another comparison, preserving
-the separate authentication header contract and all R16 cooldown history.
+Native inference now uses the same JSON header and omits `X-Requested-By`.
+Both Responses routes also omit the redundant outer `model`, keeping the
+required model inside `request`. Messages retain their existing envelope.
+The API and comparison executable compile; all 24 focused Rust cases pass,
+including actual loopback headers, authentication, cancellation, current-jar
+ownership and the new envelope cases. The first focused build failed because
+the test-selection script omitted complementary cfg branches; its corrected
+snapshot passed without a production change. Next, integrate the passive
+app AI-policy preflight and freeze a fresh comparison against R16's history.
 
 A traced offline SDK probe identified the browser crash: PulseAudio requests a
 64 MiB shared-memory file, but the comparison runner allowed only 32 MiB.
