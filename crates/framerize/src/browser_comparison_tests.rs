@@ -2,6 +2,9 @@ use super::*;
 use super::super::comparison as pair;
 use framer_host::sidecar::{SidecarBridge, observer::{ObserverFactory, ObserverLimits}};
 
+#[path = "browser_comparison_coordinator_tests.rs"]
+mod coordinator;
+
 struct Temp(std::path::PathBuf);
 impl Drop for Temp {
     fn drop(&mut self) { std::fs::remove_dir_all(&self.0).unwrap(); }
