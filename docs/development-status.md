@@ -116,6 +116,10 @@ no swap or limit events and confirmed process-group cleanup. The diagnostic
 host and immutable R14 launch files are prepared with the qualified dedicated
 worker profile. R14 subsequently ran under the existing runtime ownership and
 rate checks, with the concrete result recorded above.
+A subsequent observer correction rejects disguised string-subclass keys.
+All fourteen synthetic cases pass, with a 17,362,944-byte peak, zero swap or
+limit events and confirmed cleanup. This is qualified source for future
+packages; R14's frozen host and recorded result are unchanged.
 
 R12 completed an isolated-V2 request that was refused. The normal browser
 and paired browser baseline returned complete HTTP 200 model output. The

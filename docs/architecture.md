@@ -52,6 +52,9 @@ labels. Ordinary decoder errors emit unavailable structure; emission errors
 are contained without retry. Control-flow exceptions propagate. An explicit
 diagnostic host package binds these modules by hash at startup; the normal
 host does not install them.
+The observer also requires exact string keys after structural validation, so
+string subclasses cannot compare equal to an allowed name while serializing
+different text. Only the genuine parser's plain keys reach emitted facts.
 
 V2 verifies its pinned SDK, settlement helper and DOM dependencies before and
 after the operation using streamed SHA-256 reads with a 64 KiB buffer. Native
