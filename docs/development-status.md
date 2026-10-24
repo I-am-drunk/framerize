@@ -3,6 +3,15 @@
 Updated 2026-10-24. The normal service remains browser-based. Publishing these
 branches does not change the running service.
 
+The Python version 2 resident protocol is now implemented in source. Acquire
+captures context without minting; the baseline uses one cached-wrapper token;
+only an accepted baseline enables a separate native-token mint. One retained
+lease, exact context checks and the original deadline cover the sequence.
+Twenty-nine new Python cases and one exact-JavaScript fixture are unrun.
+Version 1 remains available with its original acquire behavior. Chat has no
+accepted completion rule in this protocol and refuses continuation. Rust
+coordination and future-startup activation are still being integrated.
+
 Resident bootstrap is implemented in source. It reads the retained successful
 browser's metadata through the existing owner, checks the exact sidecar and
 proxy-registration generation, and returns no token or cookie header. The
