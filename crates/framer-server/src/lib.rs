@@ -1309,7 +1309,7 @@ async fn free_complete(
             };
             {
                 use framer_core::observability::Event;
-                let mut ev = Event::new("ai.chain")
+                let mut ev = operation_ownership::correlate_chain(Event::new("ai.chain"))
                     .account(&account.id)
                     .field("model", log_model)
                     .field("dialect", format!("{dialect:?}"))
@@ -1858,7 +1858,8 @@ async fn native_complete(
                 }
                 break r;
             };
-            let mut ev = framer_core::observability::Event::new("ai.chain")
+            let mut ev = operation_ownership::correlate_chain(
+                framer_core::observability::Event::new("ai.chain"))
                 .account(&account.id)
                 .field("model", log_model)
                 .field("dialect", format!("{dialect:?}"))
