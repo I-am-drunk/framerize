@@ -10,6 +10,11 @@ default navigator user agent. The shared loader's existing user-agent default
 remains available to the V3 constructor. JSDOM derives navigator.userAgent
 from this loader even when no resource is fetched.
 
+V2 runtimes may provide an asynchronous `closeWorkers` owner hook. The operation
+awaits that hook before its final device verification and window closure. A
+join failure refuses the token while retaining window cleanup. Runtimes without
+workers keep their existing path; adding the hook alone activates no worker.
+
 V2 verifies its pinned SDK, settlement helper and DOM dependencies before and
 after the operation using streamed SHA-256 reads with a 64 KiB buffer. Native
 libraries are never loaded wholesale just to hash them. Read failures still

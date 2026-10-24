@@ -59,6 +59,10 @@ export class LegacyV2Operation {
     }
     finally {
       accepting = false;
+      if (dom && runtime.closeWorkers) {
+        try { await runtime.closeWorkers(dom); }
+        catch { metadata.failure_phase ??= 'cleanup'; }
+      }
       if (verifyDevice) {
         try { verifyDevice(); metadata.device_storage_unchanged = true; }
         catch (error) {
