@@ -12,6 +12,7 @@ mod scope_tests;
 
 struct Minter {
     scope: AccountScope,
+    device: Option<String>,
     calls: AtomicUsize,
     joined: AtomicUsize,
     outcome: Mutex<Option<PreparationResult<MintedCastle>>>,
@@ -20,12 +21,14 @@ struct Minter {
 }
 impl Minter {
     fn new(scope: &AccountScope, outcome: PreparationResult<MintedCastle>) -> Self {
-        Self { scope: scope.clone(), calls: AtomicUsize::new(0), joined: AtomicUsize::new(0),
+        let device = outcome.value.as_ref().ok().and_then(|minted| minted.device.clone());
+        Self { scope: scope.clone(), device, calls: AtomicUsize::new(0), joined: AtomicUsize::new(0),
             outcome: Mutex::new(Some(outcome)), started: Notify::new(), release: None }
     }
 }
 impl OfflineMinter for Minter {
     fn scope(&self) -> &AccountScope { &self.scope }
+    fn saved_device(&self) -> Option<&str> { self.device.as_deref() }
     fn mint<'a>(&'a self, target: &'a OfflineMintTarget, _: &'a PreparationControl)
         -> BoxFuture<'a, PreparationResult<MintedCastle>> {
         async move {
@@ -107,8 +110,50 @@ async fn saved_device_follows_the_joined_mint_into_request_cookies() {
         "session=fixture-only-cookie".into()));
     assert_eq!(minter.calls.load(Ordering::SeqCst), 1);
     assert_eq!(minter.joined.load(Ordering::SeqCst), 1);
-    assert!(!fixture::result(server).await.contains("__cuid="));
+    assert!(fixture::result(server).await
+        .contains("cookie: session=fixture-only-cookie; __cuid=saved-device\r\n"));
     close(&client, &account).await;
+}
+
+#[tokio::test]
+async fn conflicting_device_refuses_before_authentication_or_mint() {
+    let (client, original) = scope(NativeEgress::Direct);
+    close(&client, &original).await;
+    let mut session = fixture::session();
+    session.cookie_header.push_str("; __cuid=other-device");
+    let account = client.open_account(original.account(), session,
+        crate::experimental_native::native_http::NativeHttpLimits::default(), NativeEgress::Direct).unwrap();
+    let listener = listener().await;
+    let result = minted(&account, "fixture-token".into()).with_saved_device("saved-device".into());
+    let minter = Arc::new(Minter::new(&account, PreparationResult::finished(Ok(result))));
+    let source = source(&account, listener.local_addr().unwrap(), minter.clone());
+    assert_eq!(prepare(&client, &account, source, target()).await.unwrap_err(),
+        PreparationFailure::Rejected);
+    assert_eq!(minter.calls.load(Ordering::SeqCst), 0);
+    assert!(tokio::time::timeout(std::time::Duration::from_millis(20),
+        listener.accept()).await.is_err());
+    close(&client, &account).await;
+}
+
+#[tokio::test]
+async fn declared_device_must_match_the_joined_mint() {
+    for returned in [None, Some("changed-device")] {
+        let (client, account) = scope(NativeEgress::Direct);
+        let listener = listener().await;
+        let mut result = minted(&account, "fixture-token".into());
+        result.device = returned.map(str::to_owned);
+        let mut fake = Minter::new(&account, PreparationResult::finished(Ok(result)));
+        fake.device = Some("saved-device".into());
+        let minter = Arc::new(fake);
+        let source = source(&account, listener.local_addr().unwrap(), minter.clone());
+        let server = auth(listener);
+        assert_eq!(prepare(&client, &account, source, target()).await.unwrap_err(),
+            PreparationFailure::Rejected);
+        assert_eq!(minter.calls.load(Ordering::SeqCst), 1);
+        assert_eq!(minter.joined.load(Ordering::SeqCst), 1);
+        assert!(fixture::result(server).await.contains("__cuid=saved-device"));
+        close(&client, &account).await;
+    }
 }
 
 #[tokio::test]

@@ -1,0 +1,32 @@
+{
+  "status": "SOURCE_TESTED_APPLICATION_BUILD_PENDING",
+  "live_tested": false,
+  "scope": "Same declared device in bearer and inference cookies; stored login unchanged.",
+  "cases": [
+    "experimental_native::control_authorization::offline_authorization::tests::actual_project_page_and_supported_route_are_required",
+    "experimental_native::control_authorization::offline_authorization::tests::another_account_generation_cannot_use_the_source",
+    "experimental_native::control_authorization::offline_authorization::tests::authentication_failure_does_not_mint_or_fall_back",
+    "experimental_native::control_authorization::offline_authorization::tests::conflicting_device_refuses_before_authentication_or_mint",
+    "experimental_native::control_authorization::offline_authorization::tests::declared_device_must_match_the_joined_mint",
+    "experimental_native::control_authorization::offline_authorization::tests::different_project_is_rejected_before_authentication_or_mint",
+    "experimental_native::control_authorization::offline_authorization::tests::dropped_waiter_keeps_mint_owned_until_join_then_suppresses_token",
+    "experimental_native::control_authorization::offline_authorization::tests::empty_and_oversize_tokens_never_become_credentials",
+    "experimental_native::control_authorization::offline_authorization::tests::exact_target_issues_once_without_browser_cookie_state",
+    "experimental_native::control_authorization::offline_authorization::tests::future_mint_timestamp_is_rejected_after_join",
+    "experimental_native::control_authorization::offline_authorization::tests::saved_device_follows_the_joined_mint_into_request_cookies",
+    "experimental_native::control_authorization::offline_authorization::tests::scope_tests::joined_result_from_a_different_account_is_never_relabelled",
+    "experimental_native::control_authorization::offline_authorization::tests::scope_tests::joined_result_from_a_retired_generation_is_never_relabelled",
+    "experimental_native::control_authorization::offline_authorization::tests::scope_tests::retired_minter_cannot_supply_a_new_generation_of_the_same_account",
+    "experimental_native::control_authorization::offline_authorization::tests::scope_tests::same_target_cannot_pair_a_different_accounts_minter",
+    "experimental_native::control_authorization::offline_authorization::tests::targetless_entry_never_falls_back_to_browser_or_default_target",
+    "experimental_native::control_authorization::offline_authorization::tests::token_with_unconfirmed_cleanup_keeps_account_closed"
+  ],
+  "compile_peak_bytes": 847159296,
+  "test_peak_bytes": 32190464,
+  "receipts": {
+    "result-send-api-tests-compile.json": "8180a5c5dbbc5d06845c0827e9001a8b8a48ee2cd805b23c487588eb0168884a",
+    "result-send-api-run.json": "219070ebcec474105fc359f85221113ccfa8905e7b6c0b4ebdf77b88e1e820f8",
+    "source-delta.json": "eb7bd2eb990cfc939581bd3fb7fdf42aa798702391e0359f279593e56fe75ef5",
+    "session-shape.json": "00170c329bce48b93502850ed9549f907c4301eb363818e5e217b7d26cf743cb"
+  }
+}

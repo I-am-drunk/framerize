@@ -3,6 +3,19 @@
 Updated 2026-10-24. The normal service remains browser-based. Publishing these
 branches does not change the running service.
 
+A cookie-alignment candidate now carries the admitted device into the bearer
+request as well as the later inference request. The isolated stored login has
+only the session cookie; the previous native source added the device after
+bearer acquisition. The candidate derives a temporary request context, keeps
+the saved login unchanged, and rejects a joined mint that returns a different
+or missing declared device. Authentication failure still prevents minting.
+All 17 focused source/authorization cases pass, including conflict-before-work
+and changed-device-after-join cases. Compilation peaked at 847,159,296 bytes;
+tests peaked at 32,190,464 bytes, with zero swap/memory events and clean teardown.
+Full application build and live validation remain pending. The cookie difference
+is established; its role in the 403 is not. The browser control also starts from
+a stored session, so this is a compatibility hypothesis rather than attribution.
+
 The deployable graphics worker is now integrated in browserless source and
 validated in a separate pinned bundle. All 34 component cases and a synthetic
 mint through the existing owner pass. The mint peaks at 84516864 bytes with
