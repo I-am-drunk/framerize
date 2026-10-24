@@ -16,12 +16,14 @@ fn supplied() -> BrowserAuthorization {
 }
 struct Browser {
     calls: Mutex<Vec<(AccountId, String, String, String)>>,
+    reply: Mutex<Option<BrowserAuthorization>>,
     entered: tokio::sync::Semaphore,
     release: tokio::sync::Semaphore,
 }
 impl Browser {
     fn new(held: bool) -> Arc<Self> {
         Arc::new(Self { calls: Mutex::new(Vec::new()),
+            reply: Mutex::new(Some(supplied())),
             entered: tokio::sync::Semaphore::new(0),
             release: tokio::sync::Semaphore::new(usize::from(!held)) })
     }
@@ -35,7 +37,7 @@ impl BrowserBridge for Browser {
             request.path.into(), request.cookie_header.into()));
         self.entered.add_permits(1);
         self.release.acquire().await.unwrap().forget();
-        Ok(supplied())
+        Ok(self.reply.lock().unwrap().take().expect("one browser preparation"))
     }
     async fn castle_token(&self, _: &AccountId) -> Result<CastleToken, String> {
         panic!("contextual source must not use legacy mint")
@@ -56,8 +58,7 @@ async fn contextual_source_forwards_target_and_current_cookies_without_legacy_mi
     let (client, account) = scope(NativeEgress::Direct);
     let server = listener().await;
     let api = Arc::new(bound(&account, server.local_addr().unwrap(), NativeEgress::Direct));
-    let worker = serve_once(server, response(200, &token().to_string(), ""));
-    let browser = Browser::new(false);
+    let browser = Browser::new(true);
     let source = BoundBrowserSessionSource::new(api, browser.clone());
     let expected = account.clone();
     let pending = client.prepare_owned(&account, tokio::time::Instant::now() + BOUND,
@@ -70,20 +71,24 @@ async fn contextual_source_forwards_target_and_current_cookies_without_legacy_mi
             assert_eq!(session.cookie_header, "session=fixture-only-cookie");
             PreparationResult::finished(Ok(current.cookie_header))
         }).unwrap();
+    tokio::time::timeout(BOUND, browser.entered.acquire()).await.unwrap().unwrap().forget();
+    assert!(server.accept().now_or_never().is_none());
+    browser.release.add_permits(1);
+    let worker = serve_once(server, response(200, &token().to_string(), ""));
     assert_eq!(tokio::time::timeout(BOUND, pending).await.unwrap().unwrap(),
         "session=fixture-only-cookie; current=fresh");
-    result(worker).await;
+    let sent = result(worker).await.to_ascii_lowercase();
+    assert!(sent.contains("\r\ncookie: session=fixture-only-cookie; current=fresh\r\n"));
     assert_eq!(*browser.calls.lock().unwrap(), vec![(account.account(),
         target().project.0, target().path.into(), session().cookie_header)]);
     close(&client, &account).await;
 }
 
 #[tokio::test]
-async fn contextual_material_rejects_mismatched_route_page_and_login() {
+async fn contextual_material_rejects_mismatched_route_page_and_login_before_bearer() {
     let (client, account) = scope(NativeEgress::Direct);
     let server = listener().await;
     let api = Arc::new(bound(&account, server.local_addr().unwrap(), NativeEgress::Direct));
-    let source = BoundBrowserSessionSource::new(api, Browser::new(false));
     let requested = account.clone();
     let pending = client.prepare_owned(&account, tokio::time::Instant::now() + BOUND,
         move |session, control| async move {
@@ -98,8 +103,10 @@ async fn contextual_material_rejects_mismatched_route_page_and_login() {
                     5 => value.cookie_header = "session=other-login".into(),
                     _ => value.cookie_header = "session=fixture-only-cookie; session=fixture-only-cookie".into(),
                 }
-                let result = source.finish_contextual(requested.account(), &session,
-                    &target(), &control, "fixture-bearer".into(), value);
+                let browser = Browser::new(false);
+                *browser.reply.lock().unwrap() = Some(value);
+                let source = BoundBrowserSessionSource::new(api.clone(), browser);
+                let result = source.issue_for_target(&requested, &session, &target(), &control).await;
                 assert!(result.cleanup_confirmed);
                 assert!(matches!(result.value, Err(PreparationFailure::Rejected)));
             }
@@ -145,7 +152,6 @@ async fn cancelled_contextual_waiter_retains_original_preparation_until_browser_
     let (client, account) = scope(NativeEgress::Direct);
     let server = listener().await;
     let api = Arc::new(bound(&account, server.local_addr().unwrap(), NativeEgress::Direct));
-    let worker = serve_once(server, response(200, &token().to_string(), ""));
     let browser = Browser::new(true);
     let source = BoundBrowserSessionSource::new(api, browser.clone());
     let expected = account.clone();
@@ -154,7 +160,7 @@ async fn cancelled_contextual_waiter_retains_original_preparation_until_browser_
             source.issue_for_target(&expected, &session, &target(), &control).await
         }).unwrap();
     tokio::time::timeout(BOUND, browser.entered.acquire()).await.unwrap().unwrap().forget();
-    result(worker).await;
+    assert!(server.accept().now_or_never().is_none());
     let completion = pending.completion();
     drop(pending);
     let closing = client.close_account(&account).unwrap();
@@ -164,4 +170,8 @@ async fn cancelled_contextual_waiter_retains_original_preparation_until_browser_
     tokio::time::timeout(BOUND, completion).await.unwrap().unwrap();
     tokio::time::timeout(BOUND, closing).await.unwrap().unwrap();
     assert_eq!(browser.calls.lock().unwrap().len(), 1);
+    assert!(server.accept().now_or_never().is_none());
 }
+
+#[path = "contextual_expiry_tests.rs"]
+mod expiry_tests;
