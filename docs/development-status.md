@@ -17,9 +17,23 @@ security envelope after 3.56 seconds to client headers. Cleanup was confirmed;
 there was no second request or admission refusal. The protected browser service
 remained unchanged. The isolated service's lifetime peak was 93,794,304 bytes,
 with zero sampled swap; this is not successful-delivery memory or latency.
-Canvas support alone did not resolve this refusal. Next: classify the remaining
-unclassified synthetic worker warning with bounded diagnostics, before choosing
-any further compatibility change. The consumed request will not be replayed.
+Canvas support alone did not resolve this refusal. The consumed request will
+not be replayed.
+
+The next worker bundle now supplies a real SharedWorker exchange using a Node
+worker thread and native message ports. It admits only the pinned SDK script,
+retains the native user agent, leaves browser-only metadata absent, and joins
+the thread before handing off the token. Eight focused cases pass, including
+cancellation while the thread is executing JavaScript. The unchanged SDK
+returned its expected worker reply in a separate instrumented check. A mint
+with the deployable sources also passed, peaking at 85,839,872 bytes with zero
+swap/memory events and verified teardown. This bundle is staged, not active.
+Next: select it through the existing isolated configuration-transfer path and
+perform one bounded live check. The browser service remains excluded.
+
+The remaining process warning is now identified as Node's experimental
+VM-module notice, originating in our SDK loader. The diagnostic retained only
+counts, and found no other process warning. It supplies no fix for the 403.
 
 The official Castle documentation has now been checked against our worker.
 Its Browser SDK requires a browser, and its 3.0 migration guide explicitly
@@ -50,7 +64,7 @@ The first integration minted but failed the resource check at the unchanged
 128 MiB cap. Applying the existing 64 KiB verification-buffer implementation
 to the larger native-library inputs yields a passing second run: 84398080
 bytes group peak, 12 tasks, zero memory events/swap, two local PNGs and zero
-JSDOM errors. One process warning remains unclassified. The unchanged private
+JSDOM errors. The process warning is classified above. The unchanged private
 token pipe, device checks, joined worker, discarded token and final unit/group
 absence all pass. No Rust build, account action or Framer request ran.
 The later deployable bundle omits experimental diagnostic output and is selected

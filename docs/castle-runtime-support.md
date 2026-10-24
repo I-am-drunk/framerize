@@ -53,7 +53,7 @@ catch that converts a rejected operation into another complete token string.
 Individual capability checks can instead resolve diagnostic values: the
 missing SharedWorker and failed canvas-context paths both do so. Those values
 enter fields in the ordinary serialization path without an outer error.
-Our worker explicitly requires SharedWorker to be absent. This establishes
+The worker used for that trace required SharedWorker to be absent. This establishes
 why outer success does not imply complete browser behavior; it still does
 not classify the actual token or explain the remote decision.
 
@@ -67,13 +67,22 @@ private-pipe/cleanup checks. Its first integration hit the 128 MiB group cap;
 the retained 64 KiB file-verification buffer corrects that allocation issue
 without changing the hash inventory. The passing run peaks at 84398080 bytes,
 with zero swap/memory events and verified process/group absence. One process
-warning remains unclassified. Tokens were discarded without retention.
+warning was initially unclassified. A later isolated diagnostic identifies it
+as Node's experimental VM-module notice from our SDK loader. No other process
+warning was observed, and no warning text or tokens were retained.
 This qualifies a local component, not the complete browser environment or
-Framer acceptance. SharedWorker and WebGL remain absent. The qualified variant
+Framer acceptance. SharedWorker and WebGL were absent in that variant. The qualified variant
 is now selected by the isolated instance, with experimental output removed.
 Its first real request still received the complete HTTP 403 security envelope;
 cleanup was confirmed and no second request ran. Canvas support alone was
-insufficient. The next independent measurement is to classify the remaining
-process warning in a bounded synthetic worker without retaining token bytes.
+insufficient.
+
+The exact SharedWorker script is now decoded by inert string-table arithmetic.
+It reads navigator metadata and replies through a message port. A subsequent
+bundle executes that unmodified script in a real Node worker thread, retaining
+the native user agent and absent userAgentData. The SDK received the expected
+reply, and thread cleanup passed. Eight component cases and a deployable-bundle
+mint pass within the existing group cap. This bundle is not yet live; it does
+not establish Framer acceptance or make JSDOM an officially supported runtime.
 The JSDOM support limit was already recorded on October 20 and was reconfirmed,
 not new. The protected browser service remains unchanged.

@@ -1,5 +1,14 @@
 This source adds explicit saved-device storage to the isolated worker.
 
+The SharedWorker adapter executes the pinned SDK worker script in a real Node
+worker thread with native message ports. Only bounded, locally registered Blob
+URLs are admitted. Each window allows one worker and four connections; separate
+windows do not share state. The worker reports the truthful Framerize/0.1 user
+agent and leaves userAgentData absent. It cannot load a network script.
+Mint completion requires the expected reply and joined thread cleanup. The
+128 MiB group bound remains authoritative; Node command-line heap settings can
+override the worker's requested per-isolate heap limit.
+
 The browserless worker now permits bounded inline PNGs for a separately pinned
 native canvas bundle. External URLs, local files and other data formats remain
 refused. Each window has its own four-image quota; each PNG is limited to

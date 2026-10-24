@@ -8,6 +8,7 @@ import { SdkModules, verifyInputs } from './sdk_loader.mjs';
 import { validateInput, OpaqueToken } from './protocol.mjs';
 import { observeBranch, exactV3 } from './branch.mjs';
 import { pngResources } from './resources.mjs';
+import { installSharedWorkers } from './shared_workers.mjs';
 
 export function createOfflineWindow({ JSDOM, ResourceLoader }, url, virtualConsole) {
   const OfflineResources = pngResources(ResourceLoader);
@@ -35,7 +36,7 @@ export class OfflineCastleMinter {
     if (this.#input.version === 2) Object.assign(report, {
       device_storage_seeded: false, device_storage_unchanged: false,
     });
-    let phase = 'input-identity', dom, modules, inspector, settlement, value, mintedAt, verifyDevice;
+    let phase = 'input-identity', dom, modules, inspector, settlement, value, mintedAt, verifyDevice, sharedWorkers;
     const asynchronousError = () => { report.async_errors = Math.min(1000000, report.async_errors + 1); };
     const diagnostic = () => { report.diagnostics = Math.min(1000000, report.diagnostics + 1); };
     process.on('unhandledRejection', asynchronousError);
@@ -70,12 +71,14 @@ export class OfflineCastleMinter {
       if (dom.window.TextEncoder !== TextEncoder) throw new Error('encoding');
       dom.window.addEventListener('error', asynchronousError);
       dom.window.castlePublishableAPIKey = PUBLIC_KEY;
+      sharedWorkers = installSharedWorkers(dom.window,
+        'cb1716096c87eff9d6f2296bbac1302c0b3c58e404226b15cd45cd223c4addab');
       if (typeof dom.window.requestAnimationFrame !== 'function'
           || typeof dom.window.cancelAnimationFrame !== 'function'
           || dom.window.document.hidden !== false
           || dom.window.document.visibilityState !== 'visible'
           || typeof dom.window.Worker !== 'undefined'
-          || typeof dom.window.SharedWorker !== 'undefined'
+          || dom.window.SharedWorker !== sharedWorkers.SharedWorker
           || typeof dom.window.OffscreenCanvas !== 'undefined'
           || typeof dom.window.indexedDB !== 'undefined') throw new Error('environment');
       phase = 'module-link';
@@ -102,6 +105,14 @@ export class OfflineCastleMinter {
         throw new Error('mint');
     } catch { report.failure_phase = phase; }
     finally {
+      if (sharedWorkers) {
+        try {
+          const state = await sharedWorkers.close();
+          if (state.started !== 1 || state.joined !== 1 || state.errors !== 0
+              || state.messages !== 1 || state.sdk_replies !== 1)
+            report.failure_phase ??= 'shared-worker';
+        } catch { report.failure_phase ??= 'cleanup'; }
+      }
       if (verifyDevice) {
         try { verifyDevice(); report.device_storage_unchanged = true; }
         catch { report.failure_phase ??= 'device-storage'; }

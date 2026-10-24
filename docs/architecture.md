@@ -16,6 +16,15 @@ instance now selects that bundle with the same application binary and routing.
 Its first live request still returned a complete HTTP 403 security envelope;
 cleanup and restoration were confirmed, and no second request ran.
 
+A subsequent selectable bundle adds a bounded SharedWorker adapter. A real
+Node worker thread runs only the exact pinned SDK Blob script in a VM context
+with the native application user agent. Native MessagePorts carry its reply;
+the parent records counts, not the message contents. One worker and four ports
+are permitted per window, with no cross-window sharing or network script load.
+Before token handoff, the minter requires the expected reply and waits for
+thread termination. Component coverage includes cancellation during active
+JavaScript execution. This bundle is qualified locally and not yet deployed.
+
 The current parallel experiment keeps the live browser service unchanged.
 A browserless instance needs its own port, database, profiles, sessions, gate
 state and log directory, plus an account outside the live service's scope.

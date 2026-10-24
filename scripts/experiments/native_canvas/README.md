@@ -38,8 +38,8 @@ The second run changes only file verification among worker modules. It uses
 the existing 64 KiB hashing-buffer implementation instead of allocating each
 entire native library. It passes at 84398080 bytes of group peak memory and
 12 tasks, with zero memory events or swap. Two local PNGs were loaded; JSDOM
-errors and console warnings/errors were zero. One unclassified process warning
-remains. V3 selection, device preservation, token handoff/discard, worker join
+errors and console warnings/errors were zero. One process warning was retained
+for the later diagnostic below. V3 selection, device preservation, token handoff/discard, worker join
 and absence all passed. The outer unit and group were absent afterward.
 
 sdk-worker.patch reconstructs the experimental worker delta with
@@ -51,8 +51,18 @@ manifest. This is not an npm lockfile. Machine-specific dependency paths and
 pins are outside this portable patch. sdk-worker-qualification.json binds the
 saved result and records its limits. No Rust rebuild was needed.
 
-No authenticated request, application deployment or complete-service memory
-measurement ran. SharedWorker and WebGL remain absent; Castle still does not
-document JSDOM as supported. Next: package this qualified dependency/worker
-variant for the isolated instance while retaining account history and browser
-protection, then qualify real delivery under the existing request controls.
+These initial qualifications did not include an authenticated request or
+complete-service measurement. The later deployable bundle and its live refusal
+are recorded in the development status. SharedWorker and WebGL remain absent;
+Castle still does not document JSDOM as supported.
+
+A separate diagnostic now identifies the single process warning as Node's
+experimental VM-module notice. Its stack category includes the internal VM
+module constructor and our SDK loader. No other process warning was observed.
+`warning-probe.patch` applies to the exact synthetic R2 source bound by
+`warning-qualification.json`; it records counts only, without warning text,
+stacks or token contents. It is not an application patch.
+The instrumented mint passed with joined cleanup and an absent unit/group,
+70,115,328 bytes group peak and zero swap/memory events. This single diagnostic
+sample is not a demonstrated memory saving. The warning does not supply a
+correction for the live HTTP 403 and does not justify repeating that request.
