@@ -1,5 +1,23 @@
 # Development status
 
+The normal-rollout controller now fences startup while it changes ownership
+of saved host limits. A failed start can reuse a transfer only when two checks
+prove it is still unused, the original generation is gone, the manager has no
+pending job, and the entire service scope is empty. Any restore claim or
+ambiguous publication refuses reuse. The original snapshot and request are
+preserved before the rollback target changes. Failure cleanup closes the fence.
+
+Fifty-eight focused checks pass across five isolated jobs, retaining the
+128 MiB memory limit, no swap and private network/filesystem isolation. These
+cover the predicate, actual evidence adapter, state publication and controller
+failure paths, plus the terminal authentication adapter. All jobs are collected.
+The exact 15-file release and original service generation were reverified.
+Plan `9f3c55fc` is statically ready; it has not run. Administrator authentication
+for the read-only memory descriptor is not cached. A bound terminal helper is
+prepared, and a fresh client hold plus positive quiescence are still required.
+No service stop/start, live stream or native activation occurred in this work.
+See `reference/analysis/normal-rollout-startup-recovery-20261024.md`.
+
 The normal-stream acceptance client now checks actual generated text before
 disconnect and correlates the response's opaque operation ID with the original
 producer join and both successful releases. Ten new synthetic checks and one
