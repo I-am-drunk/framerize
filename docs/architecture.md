@@ -28,6 +28,12 @@ request still received HTTP 403. The saved native events record one send and
 confirmed stream cleanup; no second request ran. The client's copied prior-day
 log path missed those events and its original report remains failed.
 
+A staged worker bundle also implements the SDK's dedicated Worker path. Two
+isolated Node threads execute only the pinned timing and feature scripts.
+Their replies are forwarded unchanged; only counts enter diagnostic evidence.
+The minter waits for both threads to exit before token handoff. The existing
+native identity, resource limits and separate SharedWorker remain in force.
+
 The current parallel experiment keeps the live browser service unchanged.
 A browserless instance needs its own port, database, profiles, sessions, gate
 state and log directory, plus an account outside the live service's scope.
