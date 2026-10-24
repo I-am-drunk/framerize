@@ -14,9 +14,13 @@ and changed-device-after-join cases. Compilation peaked at 847,159,296 bytes;
 tests peaked at 32,190,464 bytes, with zero swap/memory events and clean teardown.
 The full application build also passes: API peak 574,832,640 bytes and final
 link peak 429,305,856 bytes, with zero swap/events and clean teardown. Binary
-`c358abfc` is staged; isolated deployment and live validation remain pending.
-The cookie difference is established; its role in the 403 is not. The browser control also starts from
-a stored session, so this is a compatibility hypothesis rather than attribution.
+`c358abfc` now runs only in the isolated instance, with its real history restored.
+One live request made one upstream send and received a complete Framer security
+403 after 4.18 seconds to headers. Cleanup and final pool idle were confirmed;
+no second request ran and the browser service remained unchanged. The corrected
+log binding observed this result directly. Aligning the cookies did not resolve
+the refusal. This generation peaked at 135,573,504 bytes with zero sampled swap;
+these are failed-request measurements, not successful delivery measurements.
 
 The deployable graphics worker is now integrated in browserless source and
 validated in a separate pinned bundle. All 34 component cases and a synthetic
