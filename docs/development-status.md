@@ -3,6 +3,27 @@
 Updated 2026-10-24. The normal service remains browser-based. Publishing these
 branches does not change the running service.
 
+The account-policy candidate `43fca821` is integrated, retaining the previously
+qualified client corrections and newer documentation. All 47 selected cases
+pass: 20 rotation/cooldown cases (`482719c7`), 18 explicit-admission and request-
+completion cases (`d7e9cef7`), and nine project-collection cases (`e8a634ac`).
+The three test compilations pass (`b618cd9d`, `3224ac05`, `53c3470d`). Every
+phase independently verified its inputs, zero swap/limit events and removed
+process groups. No isolation, shared-worker or post-handoff tests were rerun.
+
+Explicit requests now require the selected account to remain Ready with a
+complete scope. Rotation publishes a matching team/project pair only after
+resolving an existing project, and preserves concurrent health and cooldown
+changes. Nonstream Messages cleanup survives disconnect without retrying or
+repicking an account. Contradictory project-team metadata is rejected; absent
+metadata still relies on the requested team route. These are synthetic fixture
+results, not deployment or successful native Framer inference.
+
+The updated core, host, API, store and server libraries also compile together.
+The integrated executable links successfully (`5601979f`, peak 523,464,704
+bytes), with unchanged input pins, zero swap/limit events and verified cleanup.
+It has not been executed or deployed.
+
 The response-excerpt correction from `c2aa393` is integrated in source.
 All five sites now truncate at a valid UTF-8 boundary inside the existing
 500-byte or 120-byte limit. The refusal policy and fixed sentinel are unchanged.

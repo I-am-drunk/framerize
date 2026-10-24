@@ -1,5 +1,20 @@
 # Serving architecture and branch policy
 
+Explicit account requests now require a Ready account with a complete current
+scope. Selection and the pre-call lookup retain cooldown and cleanup fences;
+they never substitute another account. Workspace rotation resolves an existing
+project before atomically publishing the team/project pair. It rejects stale
+account or saved-scope state, preserves concurrent health changes, and removes
+the promoted team from the extra rotation slots. Project collection rejects
+explicitly contradictory team metadata; absent metadata still relies on the
+team-bound route.
+
+Nonstream Messages requests retain ownership until the current call finishes
+after disconnect. Cancellation prevents retries and account repicks. Completed
+responses report cleanup explicitly, while an earlier unknown cleanup remains
+unconfirmed even if a later call succeeds. The 47 selected admission, rotation,
+cooldown, project-collection and nonstream cases pass with synthetic inputs.
+
 Error-response excerpts share a private UTF-8-safe prefix helper. It keeps the
 existing 500-byte and 120-byte bounds while backing up to a character boundary,
 so formatting a multibyte response cannot panic at the truncation point.

@@ -33,7 +33,11 @@ fn account(index: u8) -> ManagedAccount {
         castle_device_id: format!("cooldown-device-{index}"), proxy: None,
         current_team: Some(TeamId(format!("cooldown-team-{index}"))),
         current_project: Some(ProjectId(format!("cooldown-project-{index}"))),
-        extra_workspaces: vec![], state: AccountState::Ready,
+        extra_workspaces: if index == 1 { vec![WorkspaceScope {
+            team: TeamId("cooldown-rotated-team".into()),
+            project: ProjectId("cooldown-rotated-project".into()),
+        }] } else { vec![] },
+        state: AccountState::Ready,
         credit: Some(credit()), consecutive_failures: 0,
         cooldown_step: 0, cooling_until_ms: None,
     }
@@ -150,7 +154,11 @@ impl FramerClient for Fixture {
     async fn run_inference(&self, session: &Session, _: &dyn BrowserBridge,
         id: &AccountId, project: &ProjectId, request: &InferenceRequest)
         -> Result<InferenceResult, String> {
-        self.record("run");
+        self.record(match project.0.as_str() {
+            "cooldown-project-1" => "run:initial",
+            "cooldown-rotated-project" => "run:rotated",
+            _ => panic!("inference used an unexpected fixture project"),
+        });
         assert_session(session);
         assert_eq!(*id, account(1).id);
         assert_eq!(Some(project), self.stored(*id).unwrap().current_project.as_ref());
@@ -218,15 +226,19 @@ fn script(rotated: bool, last: Reply) -> Vec<Reply> {
 
 fn expected_calls(rotated: bool, final_write: bool) -> Vec<&'static str> {
     let mut calls = if rotated {
-        vec!["load", "run", "me", "usage", "upsert", "run"]
-    } else { vec!["load", "run"] };
+        vec!["load", "run:initial", "me", "usage", "upsert", "run:rotated"]
+    } else { vec!["load", "run:initial"] };
     if final_write { calls.push("upsert"); }
     calls
 }
 
 fn operation_scope(rotated: bool) -> ManagedAccount {
     let mut current = account(1);
-    if rotated { current.current_team = Some(TeamId("cooldown-rotated-team".into())); }
+    if rotated {
+        current.current_team = Some(TeamId("cooldown-rotated-team".into()));
+        current.current_project = Some(ProjectId("cooldown-rotated-project".into()));
+        current.extra_workspaces.clear();
+    }
     current
 }
 
@@ -268,6 +280,8 @@ async fn risk_refused_after_402_rotation_uses_same_cooldown_without_third_attemp
     assert_risk(fixture.run(&mut current).await);
     assert_window(&current, start, crate::rotation::now_ms(), 2);
     assert_eq!(current.current_team, operation_scope(true).current_team);
+    assert_eq!(current.current_project, operation_scope(true).current_project);
+    assert!(current.extra_workspaces.is_empty());
     assert_eq!(current.cooldown_step, 3);
     assert_eq!(current.consecutive_failures, 5);
     assert_record_eq(&fixture.stored(current.id).unwrap(), &current);
@@ -380,6 +394,8 @@ async fn non_risk_errors_do_not_add_or_clear_risk_cooldown() {
                 current.consecutive_failures = 4;
                 let mut expected = current.clone();
                 expected.current_team = operation_scope(rotated).current_team;
+                expected.current_project = operation_scope(rotated).current_project;
+                expected.extra_workspaces = operation_scope(rotated).extra_workspaces;
                 let fixture = Fixture::new(&current, script(rotated, reply(Err(cause.into()))));
                 assert!(matches!(fixture.run(&mut current).await,
                     Err(CoreError::Framer(ref message)) if message == cause));
