@@ -25,9 +25,9 @@ class Events:
     def remove_listener(self, name, callback):
         self.listeners[name].remove(callback)
 
-    def fire(self, name):
+    def fire(self, name, *args):
         for callback in tuple(self.listeners.get(name, ())):
-            callback()
+            callback(*args)
 
 
 class Browser(Events):
@@ -50,6 +50,7 @@ class Page(Events):
     def __init__(self, context):
         super().__init__()
         self.context, self.closed = context, False
+        self.main_frame = object()
         context.pages.append(self)
 
     def is_closed(self):
@@ -124,6 +125,10 @@ class ResidentHttp200Tests(unittest.IsolatedAsyncioTestCase):
     def candidate(self):
         return self.host._capture_browser_http200(
             "account", self.acc, self.device.page, "project")
+
+    def assert_no_watchers(self):
+        for source in (self.device.page, self.device.ctx, self.acc.browser):
+            self.assertFalse(any(source.listeners.values()))
 
     async def launch_fixture(self, account_proxy=None, global_proxy=None, comparison=False):
         host, seen = self.host, {}
@@ -225,6 +230,7 @@ class ResidentHttp200Tests(unittest.IsolatedAsyncioTestCase):
             with self.subTest(status=status):
                 self.host._record_browser_http200(self.acc, self.candidate(), {"status": status})
                 self.assertIsNone(self.acc.completed_browser_http200)
+                self.assert_no_watchers()
 
     def test_page_context_and_browser_close_clear_provenance(self):
         for source, event in ((self.device.page, "close"), (self.device.ctx, "close"),
@@ -235,11 +241,28 @@ class ResidentHttp200Tests(unittest.IsolatedAsyncioTestCase):
                 source.fire(event)
                 self.assertIsNone(self.acc._completed_browser_http200)
 
+    async def test_main_frame_navigation_clears_completed_http200(self):
+        await self.host._handle(self.request())
+        evidence = self.acc.completed_browser_http200
+        self.assertIsNotNone(evidence)
+        self.device.page.fire("framenavigated", self.device.page.main_frame)
+        self.assertIsNone(self.acc._completed_browser_http200)
+        self.assertTrue(evidence.invalid)
+        self.assert_no_watchers()
+
+    async def test_subframe_navigation_preserves_completed_http200(self):
+        await self.host._handle(self.request())
+        evidence = self.acc.completed_browser_http200
+        self.device.page.fire("framenavigated", object())
+        self.assertIs(self.acc.completed_browser_http200, evidence)
+
     def test_replacement_clears_record_when_read(self):
         self.host._record_browser_http200(self.acc, self.candidate(), {"status": 200})
+        evidence = self.acc.completed_browser_http200
         self.device.page = Page(self.device.ctx)
         self.assertIsNone(self.acc.completed_browser_http200)
         self.assertIsNone(self.acc._completed_browser_http200)
+        self.assertEqual(evidence.listeners, [])
 
     def test_new_completion_detaches_old_watchers_and_other_account_survives(self):
         other = self.make_account("other")
@@ -255,10 +278,41 @@ class ResidentHttp200Tests(unittest.IsolatedAsyncioTestCase):
 
     async def test_replaced_page_while_send_is_pending_does_not_publish(self):
         self.release.clear()
+        original_page = self.device.page
         task = asyncio.create_task(self.host._handle(self.request()))
         try:
             await asyncio.wait_for(self.entered.wait(), 1)
             self.device.page = Page(self.device.ctx)
+        finally:
+            self.release.set()
+        self.assertEqual((await asyncio.wait_for(task, 1))["status"], 200)
+        self.assertIsNone(self.acc.completed_browser_http200)
+        self.assertEqual((len(self.sends), len(self.mints)), (1, 1))
+        self.assertFalse(any(original_page.listeners.values()))
+        self.assert_no_watchers()
+
+    async def test_main_frame_navigation_during_send_prevents_publication(self):
+        self.release.clear()
+        page = self.device.page
+        task = asyncio.create_task(self.host._handle(self.request()))
+        try:
+            await asyncio.wait_for(self.entered.wait(), 1)
+            self.assertEqual(len(page.listeners["framenavigated"]), 1)
+            page.fire("framenavigated", page.main_frame)
+            self.assert_no_watchers()
+        finally:
+            self.release.set()
+        self.assertEqual((await asyncio.wait_for(task, 1))["status"], 200)
+        self.assertIsNone(self.acc.completed_browser_http200)
+        self.assertEqual((len(self.sends), len(self.mints)), (1, 1))
+
+    async def test_close_during_send_prevents_publication(self):
+        self.release.clear()
+        task = asyncio.create_task(self.host._handle(self.request()))
+        try:
+            await asyncio.wait_for(self.entered.wait(), 1)
+            self.device.ctx.fire("close")
+            self.assert_no_watchers()
         finally:
             self.release.set()
         self.assertEqual((await asyncio.wait_for(task, 1))["status"], 200)
@@ -276,6 +330,7 @@ class ResidentHttp200Tests(unittest.IsolatedAsyncioTestCase):
             await task
         self.assertIsNone(self.acc.completed_browser_http200)
         self.assertEqual(len(self.releases), 1)
+        self.assert_no_watchers()
 
     async def test_observation_failure_does_not_change_send(self):
         def unavailable(*args):
@@ -286,6 +341,18 @@ class ResidentHttp200Tests(unittest.IsolatedAsyncioTestCase):
         self.assertIsNone(self.acc.completed_browser_http200)
         self.assertEqual((len(self.sends), len(self.mints), len(self.releases)), (1, 1, 1))
         self.assertNotIn("synthetic-private-error", repr(self.events))
+        self.assert_no_watchers()
+
+    async def test_partial_watch_failure_detaches_and_preserves_send(self):
+        def unavailable(*args):
+            raise RuntimeError("synthetic-private-subscribe-error")
+        self.device.ctx.on = unavailable
+        result = await self.host._handle(self.request())
+        self.assertEqual(result["status"], 200)
+        self.assertIsNone(self.acc.completed_browser_http200)
+        self.assertEqual((len(self.sends), len(self.mints), len(self.releases)), (1, 1, 1))
+        self.assert_no_watchers()
+        self.assertNotIn("synthetic-private-subscribe-error", repr(self.events))
 
     async def test_send_failure_propagates_without_provenance(self):
         async def fail(*args):
@@ -295,6 +362,7 @@ class ResidentHttp200Tests(unittest.IsolatedAsyncioTestCase):
             await self.host._handle(self.request())
         self.assertIsNone(self.acc.completed_browser_http200)
         self.assertEqual(len(self.releases), 1)
+        self.assert_no_watchers()
 
     def test_changed_bound_identities_never_publish(self):
         mutations = {
@@ -304,6 +372,7 @@ class ResidentHttp200Tests(unittest.IsolatedAsyncioTestCase):
             "incarnation": lambda: setattr(self.acc.lifecycle, "incarnation", 8),
             "browser": lambda: setattr(self.acc, "browser", Browser()),
             "context": lambda: setattr(self.device, "ctx", Context(self.acc.browser)),
+            "main_frame": lambda: setattr(self.device.page, "main_frame", object()),
             "project": lambda: setattr(self.acc, "project", "other"),
             "registry": lambda: self.acc.dev_objs.clear(),
             "launch": lambda: setattr(self.acc, "resident_launch", None),
@@ -320,6 +389,8 @@ class ResidentHttp200Tests(unittest.IsolatedAsyncioTestCase):
                 mutate()
                 self.host._record_browser_http200(self.acc, candidate, {"status": 200})
                 self.assertIsNone(self.acc.completed_browser_http200)
+                self.assertTrue(candidate.invalid)
+                self.assertEqual(candidate.listeners, [])
 
 
 if __name__ == "__main__":

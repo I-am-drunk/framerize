@@ -713,7 +713,7 @@ class ResidentBrowserHttp200:
     """Private completed browser HTTP 200 evidence, not parsed inference success."""
     __slots__ = ("host", "account", "acc", "life", "generation", "incarnation",
                  "page", "context", "browser", "project", "launch", "owner",
-                 "invalid", "listeners", "provenance")
+                 "frame", "invalid", "listeners", "provenance")
 
     def __init__(self, host, account, acc, page, project):
         import uuid
@@ -722,6 +722,7 @@ class ResidentBrowserHttp200:
         self.life, self.generation = acc.lifecycle, host.generation
         self.incarnation = self.life.incarnation
         self.page, self.context, self.browser = page, page.context, acc.browser
+        self.frame = page.main_frame
         self.project, self.launch = project, acc.resident_launch
         self.owner = acc if page is acc.page else next(
             (d for d in acc.dev_objs.values() if d.page is page), None)
@@ -744,7 +745,8 @@ class ResidentBrowserHttp200:
                 and self.owner.ctx is self.context
                 and (self.owner is self.acc or any(
                     d is self.owner for d in self.acc.dev_objs.values()))
-                and self.page.context is self.context and self.context.browser is self.browser
+                and self.page.context is self.context and self.page.main_frame is self.frame
+                and self.context.browser is self.browser
                 and any(p is self.page for p in self.context.pages)
                 and any(c is self.context for c in self.browser.contexts)
                 and not self.page.is_closed() and self.browser.is_connected())
@@ -753,14 +755,21 @@ class ResidentBrowserHttp200:
 
     def watch(self):
         try:
-            for source, event in ((self.page, "close"), (self.context, "close"),
-                                  (self.browser, "disconnected")):
-                callback = self.invalidate
+            for source, event, callback in (
+                    (self.page, "framenavigated", self.navigated),
+                    (self.page, "close", self.invalidate),
+                    (self.context, "close", self.invalidate),
+                    (self.browser, "disconnected", self.invalidate)):
                 self.listeners.append((source, event, callback))
                 source.on(event, callback)
             return self.current()
         except Exception:
             return False
+
+    def navigated(self, frame):
+        # Also invalidates same-URL reloads; subframe navigation is unrelated.
+        if frame is self.frame:
+            self.invalidate()
 
     def invalidate(self, *_):
         self.invalid = True
@@ -2423,12 +2432,18 @@ class Host:
                 await asyncio.sleep(30)
 
     def _capture_browser_http200(self, account, acc, page, project):
+        evidence = None
         try:
             acc.completed_browser_http200
             evidence = ResidentBrowserHttp200(self, account, acc, page, project)
-            return evidence if evidence.current() else None
+            # Subscribe before the send yields, without making a page RPC.
+            if evidence.current() and evidence.watch():
+                return evidence
         except Exception:
-            return None
+            pass
+        if evidence is not None:
+            evidence.invalidate()
+        return None
 
     def _record_browser_http200(self, acc, evidence, result):
         # The poller returns only after r.text() completes. No inference parsing.
@@ -2437,13 +2452,12 @@ class Host:
             if (evidence is not None and type(result) is dict
                     and type(result.get("status")) is int and result["status"] == 200
                     and evidence.current()):
-                if evidence.watch():
-                    acc.clear_browser_http200()
-                    acc._completed_browser_http200 = evidence
-                else:
-                    evidence.invalidate()
+                acc.clear_browser_http200()
+                acc._completed_browser_http200 = evidence
         except Exception:
-            if evidence is not None:
+            pass
+        finally:
+            if evidence is not None and acc._completed_browser_http200 is not evidence:
                 evidence.invalidate()
 
     def _ctx(self, account):
@@ -2697,11 +2711,15 @@ class Host:
                             pass
                         evidence = self._capture_browser_http200(
                             account, acc, fire_page, req["body"].get("projectId"))
-                        r = await self._run_job(
-                            fire_page, req["path"], req["body"], tok,
-                            req.get("bearer"), job, used_dev, min(180.0, est_s),
-                        )
-                        self._record_browser_http200(acc, evidence, r)
+                        completed = None
+                        try:
+                            completed = await self._run_job(
+                                fire_page, req["path"], req["body"], tok,
+                                req.get("bearer"), job, used_dev, min(180.0, est_s),
+                            )
+                        finally:
+                            self._record_browser_http200(acc, evidence, completed)
+                        r = completed
                         r["_fetch_ms"] = int((time.monotonic() - fetch_t0) * 1000)
                     finally:
                         # release only after the response fully arrived — the
