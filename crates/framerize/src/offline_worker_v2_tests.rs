@@ -7,6 +7,9 @@ mod host_refusal;
 #[path = "offline_worker_v2_seed_tests.rs"]
 mod seed_binding;
 
+#[path = "offline_v2_seed_handoff_tests.rs"]
+mod seed_handoff;
+
 fn fixture() -> (Fixture, Arc<V2Worker>) {
     fixture_with_operation(
         include_bytes!("../../../reference/fixtures/offline_v2_worker_fake.mjs"),
@@ -37,8 +40,10 @@ fn fixture_with_operation(operation: &[u8], operation_hash: &str)
 
 fn minter(scope: &AccountScope, worker: Arc<V2Worker>, bridge: &Arc<Bridge>)
     -> Arc<OfflineWorkerMinter> {
-    Arc::new(OfflineWorkerMinter::with_v2_device(scope.clone(), worker,
-        bridge.clone(), bridge.grant.clone()).unwrap())
+    let seed = V2SeedBinding::new(bridge.grant.clone(),
+        SavedDevice::new("00112233445546778899aabbccddeeff".into()).unwrap());
+    Arc::new(OfflineWorkerMinter::with_v2_seed(scope.clone(), worker,
+        bridge.clone(), bridge.grant.clone(), seed).unwrap())
 }
 
 fn release(fixture: &Fixture) { fs::write(fixture.root.join("release"), b"ready").unwrap(); }

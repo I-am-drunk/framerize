@@ -1,10 +1,51 @@
 use super::*;
-use framer_core::native_device::{DeviceEnrollment, DeviceFailure, DeviceGrant, valid_device_id};
+use framer_core::native_device::{DeviceEnrollment, DeviceFailure, DeviceGrant, NativeSdkSeed,
+    valid_device_id};
 use std::time::Duration;
+use framer_core::port::Session;
 
 fn fields(grant: &DeviceGrant) -> Value {
     json!({"account": grant.account.0, "lease": grant.lease,
         "generation": grant.host_generation})
+}
+
+fn sdk_fields(proof: &NativeSdkSeed) -> Value {
+    let mut input = fields(proof.grant());
+    input["session_id"] = json!(proof.session_id());
+    input["observation_id"] = json!(proof.observation_id());
+    input
+}
+
+impl SidecarBridge {
+    pub(super) async fn native_sdk_seed(&self, grant: Arc<DeviceGrant>, session: &Session)
+        -> Result<NativeSdkSeed, DeviceFailure> {
+        let mut input = fields(&grant);
+        input["user"] = json!(session.active_user.0);
+        input["session_cookie"] = json!(session.cookie_header);
+        let value = self.native_rpc("native_device_sdk_seed", input,
+            Duration::from_secs(5), false).await?;
+        NativeSdkSeed::from_wire(grant, session, value)
+    }
+
+    pub(super) async fn native_sdk_mint(&self, proof: &NativeSdkSeed, budget_ms: u64)
+        -> Result<u64, DeviceFailure> {
+        if !(1..=16000).contains(&budget_ms) { return Err(DeviceFailure::Rejected); }
+        let mut input = sdk_fields(proof);
+        input["budget_ms"] = json!(budget_ms);
+        let value = self.native_rpc("native_device_mint", input,
+            Duration::from_millis(budget_ms + 1000), false).await?;
+        proof.admission_from_wire(&value)
+    }
+
+    pub(super) async fn native_sdk_minted(&self, proof: &NativeSdkSeed,
+        sequence: u64, joined: bool) -> Result<bool, DeviceFailure> {
+        let mut input = sdk_fields(proof);
+        input["sequence"] = json!(sequence);
+        input["joined"] = json!(joined);
+        let value = self.native_rpc("native_device_minted", input,
+            Duration::from_secs(5), false).await?;
+        proof.completion_from_wire(&value)
+    }
 }
 
 impl SidecarBridge {

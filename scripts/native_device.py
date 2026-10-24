@@ -10,6 +10,7 @@ import time
 import uuid
 from collections import deque
 from pathlib import Path
+import sdk_seed_observation as sdk_seed
 
 
 class Rejected(RuntimeError):
@@ -71,6 +72,7 @@ class Grant:
         self.minting = False
         self.waiting = False
         self.uncertain = False
+        self.sdk_observation = None
 
 
 class NativeDevices:
@@ -192,6 +194,9 @@ class NativeDevices:
 
     async def mint(self, request):
         life, grant = self.grant(request)
+        require(sdk_seed.matching_request(grant, request)
+                and sdk_seed.ready(self.host, request['account'], life, grant),
+                'native SDK observation unavailable')
         require(not grant.waiting and not grant.minting, 'native mint already owned')
         budget = request['budget_ms']
         require(type(budget) is int and 1 <= budget <= 16000, 'invalid native mint budget')
@@ -205,6 +210,9 @@ class NativeDevices:
                 await asyncio.wait_for(self.sleep(gap), max(0, deadline - self.clock()))
             require(self.clock() < deadline, 'native mint admission expired')
             require(self.grant(request) == (life, grant), 'native owner changed')
+            require(sdk_seed.matching_request(grant, request)
+                    and sdk_seed.ready(self.host, request['account'], life, grant),
+                    'native SDK observation changed')
             devices, digest = saved_devices(self.root, request['account'])
             require(digest == grant.digest and grant.device in devices, 'saved device changed')
             now, queue = self.check_rate(life, grant)
@@ -212,7 +220,7 @@ class NativeDevices:
             queue.append(now)
             grant.minting = True
             return dict(generation=self.host.generation, lease=request['lease'],
-                        sequence=grant.sequence)
+                        sequence=grant.sequence, **sdk_seed.echo(grant))
         finally:
             grant.waiting = False
             if acquired and not grant.minting:
@@ -220,12 +228,13 @@ class NativeDevices:
 
     def minted(self, request):
         life, grant = self.grant(request)
+        require(sdk_seed.matching_request(grant, request), 'native SDK identity mismatch')
         require(type(request['sequence']) is int and request['sequence'] == grant.sequence
                 and grant.minting, 'native mint identity mismatch')
         require(type(request['joined']) is bool, 'native cleanup evidence required')
         if not request['joined']:
             grant.uncertain = True
-            return dict(confirmed=False, ready=False)
+            return dict(confirmed=False, ready=False, **sdk_seed.echo(grant))
         life.last_mint = max(life.last_mint, finite(self.clock()))
         grant.minting = False
         life.native_mint_lock.release()
@@ -235,7 +244,8 @@ class NativeDevices:
         except (OSError, ValueError, RuntimeError):
             ready = False
         ready = ready and life.cooling.get(grant.device, 0) <= self.clock()
-        return dict(confirmed=True, ready=ready)
+        ready = ready and sdk_seed.ready(self.host, request['account'], life, grant)
+        return dict(confirmed=True, ready=ready, **sdk_seed.echo(grant))
 
     def close(self, request):
         life, grant = self.grant(request)
@@ -258,6 +268,11 @@ class NativeDevices:
             return self.enroll(request)
         if command == 'native_device_open':
             return self.open(request)
+        if command == 'native_device_sdk_seed':
+            life, grant = self.grant(request)
+            proof = sdk_seed.attach(self.host, request, life, grant)
+            require(proof is not None, 'native SDK observation unavailable')
+            return proof
         if command == 'native_device_mint':
             return await self.mint(request)
         if command == 'native_device_minted':
@@ -269,19 +284,28 @@ class NativeDevices:
 
 def install(host_type, root, **policy):
     from contextlib import asynccontextmanager
+    host_type._sdk_seed_enabled = True
+    host_type._sdk_seed = sdk_seed
     original_handle = host_type.handle
     original_use = host_type._use_account
     original_status = host_type._browser_status
     original_finish_close = host_type._finish_close
 
     async def finish_close(host, account, life, acc):
-        closed = await original_finish_close(host, account, life, acc)
+        try:
+            closed = await original_finish_close(host, account, life, acc)
+        except BaseException:
+            sdk_seed.invalidate_observation(host, account)
+            raise
         if closed and acc is not None:
             require(host.lifecycles.get(account) is life and life.phase == 'absent'
                     and account not in host.accounts and life.browser is None
                     and life.close_receipt is None, 'browser closure identity changed')
             # Preserve the actual final selection, after all browser work joins.
             life.restored_primary_device = acc.primary_dev
+            sdk_seed.transfer_closed(host, account, life, acc)
+        elif not closed:
+            sdk_seed.invalidate_observation(host, account)
         return closed
 
     async def handle(host, request):

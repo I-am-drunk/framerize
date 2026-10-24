@@ -630,6 +630,22 @@ impl BrowserBridge for SidecarBridge {
         self.native_close(grant, joined, risk_refused).await
     }
 
+    async fn transfer_native_sdk_seed(&self,
+        grant: Arc<framer_core::native_device::DeviceGrant>, session: &framer_core::port::Session)
+        -> Result<framer_core::native_device::NativeSdkSeed, framer_core::native_device::DeviceFailure> {
+        self.native_sdk_seed(grant, session).await
+    }
+
+    async fn admit_native_sdk_mint(&self, proof: &framer_core::native_device::NativeSdkSeed,
+        budget_ms: u64) -> Result<u64, framer_core::native_device::DeviceFailure> {
+        self.native_sdk_mint(proof, budget_ms).await
+    }
+
+    async fn finish_native_sdk_mint(&self, proof: &framer_core::native_device::NativeSdkSeed,
+        sequence: u64, joined: bool) -> Result<bool, framer_core::native_device::DeviceFailure> {
+        self.native_sdk_minted(proof, sequence, joined).await
+    }
+
     fn supports_browser_lifecycle(&self) -> bool { true }
 
     async fn browser_status(&self, account: &AccountId)
