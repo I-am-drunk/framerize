@@ -3,14 +3,28 @@
 Updated 2026-10-24. The normal service remains browser-based. Publishing these
 branches does not change the running service.
 
-A separate direct V2 component now uses the unchanged retained Framer SDK
-factory and its configured-instance API with a supplied saved device. Its 14
-inert cases pass, covering exact invocation, private single-use output, device
-drift, deadline and cleanup refusal. An initial fake-window cleanup mismatch
-was corrected without changing production code. The component has no serving
-or native-send integration yet and has not run the SDK. The existing V3 worker
-and its acceptance policy are unchanged. Next is one bounded component run
-with a synthetic device, then an owner-bound handoff if that result qualifies.
+A separate direct V2 component now completes one actual unchanged SDK call
+with a synthetic UUID-shaped saved device. The method took 597 ms and the
+component took 1,142 ms. Storage and cookie identity remained unchanged;
+the window closed and the child exited and was reaped without forced cleanup.
+All sockets were denied, no account was loaded, and the token was discarded.
+The owned group peaked at 88,027,136 bytes with no swap or limit events.
+Nineteen nonfatal DOM diagnostic events were recorded; asynchronous faults
+and late settlements were zero. This proves component completion, not native
+HTTP acceptance or a production memory reduction.
+
+The earlier all-`a` synthetic device failed the storage check. That value
+does not satisfy the SDK's UUID-shaped validation, but the earlier result
+does not identify the exact failing read. Fixed device-failure categories now
+distinguish local storage reads/values and cookie reads/counts/values without
+exporting their contents. All 19 focused component fixtures pass. The SDK,
+identity guards, method count and deadlines are unchanged. The next step is
+private, age-preserving transport into an account-owned native preparation.
+The component is not connected to serving, and V3 acceptance is unchanged.
+
+Failed V3 worker exits now retain an allowlisted stage only after the child
+joins. Cancellation, deadline precedence and success validation are unchanged.
+That Rust integration is source-only and awaits its focused compilation/tests.
 
 The offline worker now accepts the same bound project access-link URLs as
 the native credential target. Six new URL cases and 19 existing worker-source

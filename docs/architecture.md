@@ -8,6 +8,11 @@ single-use. Its metadata labels direct V2 API selection explicitly; it does
 not claim normal wrapper selection. A fresh, bounded, socket-denied process
 must own each operation. It is not connected to the existing V3 worker or
 serving path, and component completion alone cannot prove child settlement.
+Its fixed `device_failure` category is derived from private verifier-error
+identity. Arbitrary SDK error properties cannot supply a category. A separate
+socket-denied run with a synthetic UUID-shaped device has verified component
+completion, unchanged storage and joined child cleanup; its token was discarded.
+Private transport and account binding remain separate requirements.
 
 Offline worker target validation accepts the existing bound 20-character
 project ID plus alphanumeric access suffix, including the supported slug form.
