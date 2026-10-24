@@ -26,6 +26,23 @@ this cap correction alone does not establish accepted tokens or delivery.
 The separately launched service does not explicitly set that file-size limit;
 its manager default is not established by the comparison's source.
 
+The public SDK wrapper may fall back from V3 to V2. In the offline fixture,
+V3 token generation errors and V2 initialization replaces the V3 UUID with
+a fresh identity. Do not treat this as formatting normalization or loosen
+the comparison's device equality check. Awaiting wrapper export `a` also
+does not establish initialization completion: that export starts the cached
+import/configuration promise without returning it. Branch diagnostics can
+reduce the existing logger buffer in-page to fixed counters without
+exporting tokens, error objects or storage values.
+
+The comparison must run the public SDK in the page's own JavaScript realm.
+The offline failure was Firefox's rejection of TypedArray access across an
+Xray wrapper. Camoufox's documented `main_world_eval=True` launch option and
+`mw:` evaluation prefix let the unchanged SDK complete one V3 mint with
+stable page/device identity. This qualifies the local caller correction;
+authenticated delivery still requires a separate comparison. The regular
+service's launch and evaluation settings remain separate.
+
 The process owner accepts an explicit task limit up to 256 within a parent
 limit up to 320. Its default remains 96. A network-isolated blank-browser
 startup peaked at 151 tasks and closed normally under the larger limit.
