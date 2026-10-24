@@ -1,4 +1,14 @@
 // An explicitly supplied saved value. This module never creates an identity.
+const failureKinds = new WeakMap();
+function changed(kind) {
+  const error = new Error('device-storage-changed');
+  failureKinds.set(error, kind);
+  return error;
+}
+export function deviceFailureKind(error) {
+  return failureKinds.get(error) ?? null;
+}
+
 export class SavedDevice {
   #value; #seeded = false;
   constructor(input) {
@@ -18,11 +28,16 @@ export class SavedDevice {
     window.document.cookie = '__cuid=' + this.#value
       + '; Domain=.framer.com; Path=/; Secure; SameSite=None';
     const verify = () => {
-      const values = window.document.cookie.split(';').map(part => part.trim())
-        .filter(part => part.startsWith('__cuid='));
-      if (storage.getItem('__cuid') !== this.#value || values.length !== 1
-          || values[0] !== '__cuid=' + this.#value)
-        throw new Error('device-storage-changed');
+      let values, value;
+      try {
+        values = window.document.cookie.split(';').map(part => part.trim())
+          .filter(part => part.startsWith('__cuid='));
+      } catch { throw changed('cookie_read'); }
+      try { value = storage.getItem('__cuid'); }
+      catch { throw changed('local_read'); }
+      if (value !== this.#value) throw changed('local_value');
+      if (values.length !== 1) throw changed('cookie_count');
+      if (values[0] !== '__cuid=' + this.#value) throw changed('cookie_value');
     };
     verify();
     return verify;

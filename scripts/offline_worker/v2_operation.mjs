@@ -1,5 +1,6 @@
 // Direct genuine V2 API component. It does not replace the V3 worker.
 import { validateInput, OpaqueToken } from './protocol.mjs';
+import { deviceFailureKind } from './device.mjs';
 
 export class LegacyV2Operation {
   #input; #runtime; #used = false;
@@ -13,7 +14,8 @@ export class LegacyV2Operation {
     this.#used = true;
     const input = this.#input, runtime = this.#runtime, started = runtime.now();
     const metadata = { version: 1, sdk: 'framer-embedded-v2', selection: 'configured-api',
-      status: 'failed', failure_phase: null, configure_calls: 0, token_method_calls: 0,
+      status: 'failed', failure_phase: null, device_failure: null,
+      configure_calls: 0, token_method_calls: 0,
       device_storage_seeded: false, device_storage_unchanged: false,
       window_closed: false, sources_unchanged: false, async_errors: 0,
       diagnostics: 0, late_settlements: 0, method_ms: 0, elapsed_ms: 0 };
@@ -51,12 +53,18 @@ export class LegacyV2Operation {
       if (settlement.outcome !== 'fulfilled' || settlement.nonempty_string !== true
           || metadata.method_ms > remaining)
         throw new Error('mint');
-    } catch { metadata.failure_phase = phase; }
+    } catch (error) {
+      metadata.failure_phase = phase;
+      metadata.device_failure = deviceFailureKind(error);
+    }
     finally {
       accepting = false;
       if (verifyDevice) {
         try { verifyDevice(); metadata.device_storage_unchanged = true; }
-        catch { metadata.failure_phase ??= 'device-storage'; }
+        catch (error) {
+          metadata.failure_phase ??= 'device-storage';
+          metadata.device_failure ??= deviceFailureKind(error);
+        }
       }
       if (dom) {
         try { dom.window.close(); metadata.window_closed = true; }

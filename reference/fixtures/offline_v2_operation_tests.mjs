@@ -35,10 +35,20 @@ function harness() {
     run: () => new LegacyV2Operation(input(), runtime).mint() };
 }
 
+function afterMint(h, change) {
+  const invoke = h.instance.createRequestToken;
+  h.instance.createRequestToken = function() {
+    const result = invoke.call(this);
+    change();
+    return result;
+  };
+}
+
 test('exact_receiver_one_call_saved_identity_and_private_token', async () => {
   const h = harness(); const operation = new LegacyV2Operation(input(), h.runtime);
   const r = await operation.mint();
   assert.equal(r.metadata.status, 'passed');
+  assert.equal(r.metadata.device_failure, null);
   assert.equal(h.state.url, input().target.url);
   assert.equal(h.window.localStorage.getItem('__cuid'), input().device.id);
   assert.equal(h.state.calls, 1); assert.equal(h.state.closed, 1);
@@ -69,13 +79,15 @@ async function refused(h, phase, calls = 1) {
   assert.equal(h.state.calls, calls); assert.equal(h.state.closed, 1);
   assert.equal(h.state.removed, 1);
   assert.equal(JSON.stringify(r.metadata).includes('private-error'), false);
+  assert.equal(JSON.stringify(r.metadata).includes(input().device.id), false);
   return r;
 }
 
 test('configuration_failure_still_closes_and_never_mints', async () => {
   const h = harness();
   h.runtime.configure = async () => { throw new Error('private-error'); };
-  await refused(h, 'configure', 0);
+  const r = await refused(h, 'configure', 0);
+  assert.equal(r.metadata.device_failure, null);
 });
 test('configuration_device_drift_refuses_before_mint', async () => {
   const h = harness(); const configure = h.runtime.configure;
@@ -83,7 +95,8 @@ test('configuration_device_drift_refuses_before_mint', async () => {
     const result = await configure(...args);
     h.window.localStorage.setItem('__cuid', 'different'); return result;
   };
-  await refused(h, 'configure', 0);
+  const r = await refused(h, 'configure', 0);
+  assert.equal(r.metadata.device_failure, 'local_value');
 });
 test('mint_device_drift_discards_result', async () => {
   const h = harness(); const invoke = h.instance.createRequestToken;
@@ -91,8 +104,61 @@ test('mint_device_drift_discards_result', async () => {
     const result = invoke.call(this);
     h.window.document.cookie = '__cuid=different'; return result;
   };
-  await refused(h, 'device-storage');
+  const r = await refused(h, 'device-storage');
+  assert.equal(r.metadata.device_failure, 'cookie_value');
 });
+test('identical_device_cookie_rows_refuse_without_local_value_drift', async () => {
+  const h = harness(), pair = '__cuid=' + input().device.id;
+  afterMint(h, () => Object.defineProperty(h.window.document, 'cookie', {
+    get: () => pair + '; ' + pair,
+  }));
+  const r = await refused(h, 'device-storage');
+  assert.equal(r.metadata.device_failure, 'cookie_count');
+  assert.equal(h.window.localStorage.getItem('__cuid'), input().device.id);
+});
+
+test('missing_device_cookie_reports_count_without_local_value_drift', async () => {
+  const h = harness();
+  afterMint(h, () => { h.window.document.cookie = 'other=fixture'; });
+  const r = await refused(h, 'device-storage');
+  assert.equal(r.metadata.device_failure, 'cookie_count');
+  assert.equal(h.window.localStorage.getItem('__cuid'), input().device.id);
+});
+
+test('device_getter_failures_report_only_fixed_categories', async () => {
+  for (const kind of ['cookie_read', 'local_read']) {
+    const h = harness(), fail = () => { throw new Error('private-error'); };
+    afterMint(h, () => {
+      if (kind === 'cookie_read')
+        Object.defineProperty(h.window.document, 'cookie', { get: fail });
+      else h.window.localStorage.getItem = fail;
+    });
+    const r = await refused(h, 'device-storage');
+    assert.equal(r.metadata.device_failure, kind);
+  }
+});
+
+test('foreign_error_properties_cannot_forge_device_diagnostics', async () => {
+  const h = harness();
+  h.runtime.configure = async () => {
+    throw Object.assign(new Error('device-storage-changed'), {
+      kind: 'cookie_value', device_failure: 'cookie_value',
+    });
+  };
+  const r = await refused(h, 'configure', 0);
+  assert.equal(r.metadata.device_failure, null);
+});
+
+test('local_value_mismatch_keeps_priority_over_cookie_count', async () => {
+  const h = harness(), pair = '__cuid=' + input().device.id;
+  afterMint(h, () => {
+    h.window.localStorage.setItem('__cuid', 'different');
+    Object.defineProperty(h.window.document, 'cookie', { get: () => pair + '; ' + pair });
+  });
+  const r = await refused(h, 'device-storage');
+  assert.equal(r.metadata.device_failure, 'local_value');
+});
+
 test('non_thenable_return_cannot_pass', async () => {
   const h = harness();
   h.instance.createRequestToken = () => { h.state.calls++; return 'fixture-token'; };
