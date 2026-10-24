@@ -3,6 +3,14 @@
 Updated 2026-10-24. The normal service remains browser-based. Publishing these
 branches does not change the running service.
 
+The normal-browser rollout proposal now binds the qualified `95f29867`
+executable, explicit ownership startup, seven support files and rollback.
+Its staged package passes static byte/mode/source checks; it has not run.
+V2 is not a prerequisite. Protected-service approval remains outstanding.
+Direct correlated evidence of post-disconnect cleanup and ownership release
+must still be bound before full normal-stream acceptance can be claimed.
+See `reference/analysis/normal-browser-admission-rollout-20261024.md`.
+
 The ordinary-V2 integration branch now includes browserless `95f2986`,
 including the qualified legacy and typed-capacity corrections. Only the two
 status documents conflicted; both sets of results are retained below. This

@@ -1,5 +1,11 @@
 # Serving architecture and branch policy
 
+Normal-browser admission rollout and ordinary-V2 acceptance are independent.
+The reviewed normal launch selects browser-request ownership and a pinned
+Python host explicitly. Fixture success does not attest a live registration
+release: the existing chain log precedes that transition. The rollout keeps
+the unmanaged-host retirement barrier and requires separate runtime evidence.
+
 The separate ordinary-V2 integration branch adds explicit `--offline-sdk v2`
 selection to the current startup and server code. The SDK seed consumer from
 `fe500a0` is included, but the host observation producer and checked transfer
