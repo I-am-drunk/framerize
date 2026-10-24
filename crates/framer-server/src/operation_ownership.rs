@@ -34,11 +34,22 @@ pub(crate) async fn request_disconnected() {
     }
 }
 
+/// Correlate only opted-in work. Client headers never supply this identity.
+pub(crate) fn correlate_chain(event: framer_core::observability::Event)
+    -> framer_core::observability::Event {
+    match CURRENT.try_with(|owner| owner.request_id.clone()) {
+        Ok(id) => event.request_id(&id),
+        Err(_) => event,
+    }
+}
+
 pub struct ServingOwnership {
     gate: OperationGate,
     _guard: ControlGuard,
     // No release API: existing raw BrowserBridge cannot supply closure proof.
     _unmanaged_host: LegacyHostOwner,
+    #[cfg(test)]
+    observation_sink: Mutex<Option<Arc<dyn Fn(serde_json::Value) + Send + Sync>>>,
 }
 impl ServingOwnership {
     /// Construct host ownership with this exact gate. The retained host barrier
@@ -56,7 +67,10 @@ impl ServingOwnership {
     pub fn new_unmanaged(wave: Arc<WaveGuard>, limit: usize) -> Result<Arc<Self>, GateError> {
         let (gate, host) = OperationGate::new_with_legacy_host(limit)?;
         Ok(Arc::new(Self { _guard: ControlGuard::bind(gate.clone(), wave),
-            gate, _unmanaged_host: host }))
+            gate, _unmanaged_host: host,
+            #[cfg(test)]
+            observation_sink: Mutex::new(None),
+        }))
     }
     /// Seal rejects new work, but wait cannot reach Held while unmanaged host
     /// ownership persists. External close remains an explicit unsatisfied fact.
@@ -69,8 +83,18 @@ impl ServingOwnership {
     }
     fn owner(self: &Arc<Self>, kind: OperationKind) -> Result<Arc<OwnerContext>, GateError> {
         let owner = self.registration(kind)?;
-        Ok(Arc::new(OwnerContext { owner: Mutex::new(Some(owner)), scope: self.clone(),
-            preflight_completed: std::sync::atomic::AtomicBool::new(false) }))
+        let operation_id = uuid::Uuid::new_v4().to_string();
+        let parent = CURRENT.try_with(|parent|
+            (parent.request_id.clone(), parent.operation_id.clone())).ok();
+        let context = Arc::new(OwnerContext {
+            kind: owner.kind(), request_id: parent.as_ref().map(|p| p.0.clone())
+                .unwrap_or_else(|| operation_id.clone()),
+            parent_operation_id: parent.map(|p| p.1), operation_id,
+            owner: Mutex::new(Some(owner)), scope: self.clone(),
+            preflight_completed: std::sync::atomic::AtomicBool::new(false),
+        });
+        context.observe("operation.registered", "active", None);
+        Ok(context)
     }
     fn registration(self: &Arc<Self>, kind: OperationKind) -> Result<OperationOwner, GateError> {
         match CURRENT.try_with(|parent| {
@@ -89,6 +113,8 @@ impl ServingOwnership {
 
 struct OwnerContext {
     owner: Mutex<Option<OperationOwner>>, scope: Arc<ServingOwnership>,
+    request_id: String, operation_id: String, parent_operation_id: Option<String>,
+    kind: OperationKind,
     preflight_completed: std::sync::atomic::AtomicBool,
 }
 
@@ -100,13 +126,55 @@ pub(crate) fn completed_preflight<E>(error: E) -> E {
     error
 }
 impl OwnerContext {
+    fn observe(&self, event: &'static str, outcome: &'static str, confirmed: Option<bool>) {
+        // Diagnostics must never turn a completed operation into a panic/drop.
+        let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            let fields = serde_json::json!({
+                "event": event, "request_id": self.request_id,
+                "operation_id": self.operation_id,
+                "parent_operation_id": self.parent_operation_id,
+                "kind": format!("{:?}", self.kind), "outcome": outcome,
+                "cleanup_confirmed": confirmed,
+            });
+            #[cfg(test)]
+            {
+                let sink = self.scope.observation_sink.lock().ok()
+                    .and_then(|slot| slot.clone());
+                if let Some(sink) = sink { sink(fields.clone()); }
+            }
+            let mut record = framer_core::observability::Event::new(event);
+            if let Some(fields) = fields.as_object() {
+                for (key, value) in fields { record = record.field(key, value.clone()); }
+            }
+            record.emit();
+        }));
+    }
     fn child(&self) -> Result<OperationOwner, GateError> {
         self.owner.lock().map_err(|_| GateError::Poisoned)?.as_ref()
             .ok_or(GateError::Unconfirmed)?.register_cleanup()
     }
-    fn finish(&self) {
-        if let Ok(mut slot) = self.owner.lock() {
-            if let Some(owner) = slot.take() { let _ = owner.complete(); }
+    fn finish(&self) -> bool {
+        let owner = match self.owner.lock() {
+            Ok(mut slot) => slot.take(),
+            Err(_) => return false,
+        };
+        let Some(owner) = owner else { return false; };
+        let completed = owner.complete().is_ok();
+        if completed {
+            self.observe("operation.released", "confirmed", Some(true));
+        } else {
+            self.observe("operation.unresolved", "completion_error", Some(false));
+        }
+        completed
+    }
+}
+impl Drop for OwnerContext {
+    fn drop(&mut self) {
+        let owner = self.owner.get_mut().unwrap_or_else(|e| e.into_inner()).take();
+        if owner.is_some() {
+            // Set the gate fence before reporting unresolved registration.
+            drop(owner);
+            self.observe("operation.unresolved", "dropped", Some(false));
         }
     }
 }
@@ -128,6 +196,26 @@ where T: Send + 'static, F: Future<Output = T> + Send + 'static {
 
 #[derive(Clone)]
 pub(crate) struct ResponseCompletion(Shared<BoxFuture<'static, bool>>);
+
+type JoinedResult<T> = Result<Result<T, String>, tokio::task::JoinError>;
+
+/// The body alone takes the original result. Its cleanup observer shares only
+/// a verdict, so neither T nor JoinError needs to be cloned or substituted.
+pub(crate) struct ObservedJoin<T> {
+    result: BoxFuture<'static, JoinedResult<T>>,
+    #[cfg(test)]
+    abort: tokio::task::AbortHandle,
+}
+impl<T> Future for ObservedJoin<T> {
+    type Output = JoinedResult<T>;
+    fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
+        self.get_mut().result.as_mut().poll(cx)
+    }
+}
+#[cfg(test)]
+impl<T> ObservedJoin<T> {
+    fn abort_handle(&self) -> tokio::task::AbortHandle { self.abort.clone() }
+}
 
 /// A detached operation reports its own cleanup even after its parent's HTTP
 /// body has gone. Aborting or losing the verdict leaves this child unconfirmed.
@@ -164,17 +252,49 @@ pub(crate) fn completed_response(mut response: Response, confirmed: bool) -> Res
 /// its final client result.
 pub(crate) fn spawn_observed<T, F>(scope: Option<&Arc<ServingOwnership>>,
     kind: OperationKind, future: F)
-    -> Result<(tokio::task::JoinHandle<Result<T, String>>, ResponseCompletion), GateError>
+    -> Result<(ObservedJoin<T>, ResponseCompletion), GateError>
 where T: Send + 'static, F: Future<Output = (Result<T, String>, bool)> + Send + 'static {
-    let (done, completed) = tokio::sync::oneshot::channel();
-    let task = spawn(scope, kind, async move {
-        let (result, cleanup_confirmed) = future.await;
-        let confirmed = cleanup_confirmed && result.as_ref().err()
-            .map_or(true, |error| !crate::pool_control::cleanup_unconfirmed(error));
-        let _ = done.send(confirmed);
-        result
-    })?;
-    Ok((task, ResponseCompletion(async move { completed.await.unwrap_or(false) }.boxed().shared())))
+    let owner = scope.map(|scope| scope.owner(kind)).transpose()?;
+    let task = match &owner {
+        Some(owner) => tokio::spawn(CURRENT.scope(owner.clone(), future)),
+        None => tokio::spawn(future),
+    };
+    #[cfg(test)]
+    let abort = task.abort_handle();
+    let (send_result, receive_result) = tokio::sync::oneshot::channel();
+    let completion = observe_join(task, owner, send_result).boxed().shared();
+    let joined = completion.clone();
+    let result = async move {
+        joined.await;
+        receive_result.await.expect("original join result stored before completion")
+    }.boxed();
+    Ok((ObservedJoin { result, #[cfg(test)] abort }, ResponseCompletion(completion)))
+}
+
+// Polled by the body or its retained disposal observer. There is one original
+// producer handle, and its child registration outlives that handle's join.
+async fn observe_join<T>(task: tokio::task::JoinHandle<(Result<T, String>, bool)>,
+    owner: Option<Arc<OwnerContext>>, send_result: tokio::sync::oneshot::Sender<JoinedResult<T>>)
+    -> bool {
+    let (result, mut confirmed, outcome) = match task.await {
+        Ok((result, cleanup_confirmed)) => {
+            let confirmed = cleanup_confirmed && result.as_ref().err()
+                .map_or(true, |error| !crate::pool_control::cleanup_unconfirmed(error));
+            let outcome = if result.is_ok() { "ok" } else { "error" };
+            (Ok(result), confirmed, outcome)
+        }
+        Err(error) => {
+            let outcome = if error.is_cancelled() { "cancelled" } else { "panicked" };
+            (Err(error), false, outcome)
+        }
+    };
+    if let Some(owner) = &owner {
+        owner.observe("operation.joined", outcome, Some(confirmed));
+        if confirmed { confirmed = owner.finish(); }
+    }
+    drop(owner); // An uncertain child fences admission before completion resolves.
+    let _ = send_result.send(result);
+    confirmed
 }
 
 pub async fn run<T, F>(scope: Option<&Arc<ServingOwnership>>, kind: OperationKind, future: F)
@@ -206,6 +326,7 @@ pub async fn middleware(State(scope): State<Option<Arc<ServingOwnership>>>,
             return (StatusCode::SERVICE_UNAVAILABLE, "operation admission closed").into_response();
         },
     };
+    let request_id = owner.request_id.clone();
     let (present, client) = tokio::sync::watch::channel(());
     let task = tokio::spawn(CLIENT.scope(client, CURRENT.scope(owner.clone(), async move {
         // Handler remains owned even when the HTTP result waiter disappears.
@@ -227,10 +348,14 @@ pub async fn middleware(State(scope): State<Option<Arc<ServingOwnership>>>,
     })));
     let result = task.await;
     drop(present);
-    match result {
+    let mut response = match result {
         Ok(response) => response,
         Err(_) => (StatusCode::INTERNAL_SERVER_ERROR, "operation completion unconfirmed").into_response(),
+    };
+    if let Ok(value) = request_id.parse() {
+        response.headers_mut().insert("x-framerize-operation-id", value);
     }
+    response
 }
 
 struct OwnedBody {
