@@ -126,18 +126,29 @@ pub async fn run(
                         "exhausted again after rotation: {reason}"
                     )))
                 }
-                Err(e) => Err(CoreError::Framer(e)),
+                Err(e) => Err(inference_error(deps, account, e).await),
             }
         }
-        Err(e) if e == "risk-refused" => {
-            // Castle refusal is transient. Cool down; never quarantine.
-            deps.update(account, |current| {
-                current.state = AccountState::CoolingDown;
-                current.cooldown_step = current.cooldown_step.saturating_add(1);
-            }).await?;
-            Err(CoreError::RiskRefused(e))
-        }
-        Err(e) => Err(CoreError::Framer(e)),
+        Err(e) => Err(inference_error(deps, account, e).await),
+    }
+}
+
+async fn inference_error(
+    deps: &Deps<'_>,
+    account: &mut ManagedAccount,
+    error: String,
+) -> CoreError {
+    if error != "risk-refused" {
+        return CoreError::Framer(error);
+    }
+    match deps.update(account, |current| {
+        // Preserve current lifecycle state and any longer cooldown.
+        let previous = current.cooling_until_ms.unwrap_or(0);
+        current.note_risk_refused(crate::rotation::now_ms());
+        current.cooling_until_ms = Some(previous.max(current.cooling_until_ms.unwrap_or(0)));
+    }).await {
+        Ok(()) => CoreError::RiskRefused(error),
+        Err(error) => error,
     }
 }
 
@@ -147,3 +158,7 @@ pub(crate) fn default_workspace_spec() -> WorkspaceSpec {
         name: "Framerize".to_string(),
     }
 }
+
+#[cfg(test)]
+#[path = "pipeline_cooldown_tests.rs"]
+mod cooldown_tests;

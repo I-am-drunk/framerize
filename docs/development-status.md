@@ -51,8 +51,16 @@ after failed exit, and retain cleanup through cancellation. Compilation passes
 events and absent groups. These use synthetic sessions and fake workers;
 ordinary-V2 serving and actual-native acceptance remain unqualified.
 
-The response-decoding and read-only HEAD corrections remain separate source
-inputs for the next native qualification batch.
+The eight-path client-correctness candidate `29781d33` is integrated in source.
+It preserves current account state while recording risk-refusal deadlines on
+both inference attempts, marks completed local read handlers before HEAD body
+removal, handles one initial response BOM, and keeps server error excerpts on
+UTF-8 boundaries. All nine inert cooldown cases pass (`1ab8cfde`, peak
+11,935,744 bytes), with test compilation passing (`75bb543e`, peak 441,163,776
+bytes) and core library compilation passing (`63abdad1`, peak 176,738,304 bytes).
+The exact core in `57f3cd07` is byte-identical to this candidate. Pins are
+unchanged, with zero swap/limit events and absent groups. The other fifteen
+selected cases and the complete integrated package remain unqualified.
 
 The outstanding goal is a fresh, valid browserless mint followed by accepted
 native Framer inference, with matched identity and egress, account isolation,
