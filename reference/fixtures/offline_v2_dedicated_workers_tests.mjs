@@ -47,7 +47,7 @@ function fakeWindow() {
 }
 const descriptors = window => [Object.getOwnPropertyDescriptors(window),
   Object.getOwnPropertyDescriptors(window.URL)];
-async function fixture(t, source = script, admitted = source) {
+async function fixture(t, source = script, admitted = source, { closeFailure = false } = {}) {
   const threads = [], window = fakeWindow(), before = descriptors(window);
   let resolveStarted;
   const started = new Promise(resolve => { resolveStarted = resolve; });
@@ -67,11 +67,20 @@ async function fixture(t, source = script, admitted = source) {
   t.after(async () => {
     const closing = bridge.close();
     for (const thread of threads) thread.exit();
-    await closing;
+    if (closeFailure) await assert.rejects(closing, /^Error: worker cleanup$/);
+    else await closing;
   });
   return { window, before, bridge, url, started, threads, install };
 }
 const check = (name, run) => test(name, { timeout: 5000 }, run);
+
+function terminationGate(thread) {
+  let enter, resolve, reject;
+  const entered = new Promise(done => { enter = done; });
+  const pending = new Promise((done, fail) => { resolve = done; reject = fail; });
+  thread.terminate = () => { thread.stops++; enter(); return pending; };
+  return { entered, resolve, reject };
+}
 
 check('v2_worker_scope_and_digest_refuse_without_hook_mutation', async t => {
   const h = await fixture(t), window = fakeWindow(), before = descriptors(window);
@@ -170,6 +179,61 @@ check('v2_worker_close_waits_for_exit_after_termination_promise', async t => {
   thread.exit(); await closing;
   assert.deepEqual({ ...h.bridge.stats() }, { started: 1, joined: 1, errors: 0, messages: 0 });
   assert.deepEqual(descriptors(h.window), h.before);
+});
+
+check('v2_worker_close_waits_for_termination_after_exit_removed_live_slot', async t => {
+  const h = await fixture(t), worker = new h.window.Worker(h.url);
+  const thread = await h.started, gate = terminationGate(thread);
+  worker.terminate(); await gate.entered; thread.exit();
+  let settled = false;
+  const closing = h.bridge.close();
+  closing.then(() => { settled = true; }, () => { settled = true; });
+  try {
+    await turn();
+    assert.equal(settled, false);
+    assert.equal(h.bridge.stats().joined, 1);
+    assert.notEqual(h.window.Worker, h.before[0].Worker.value);
+    assert.equal(closing, h.bridge.close());
+    worker.terminate(); assert.equal(thread.stops, 1);
+  } finally { gate.resolve(0); await closing; }
+  assert.deepEqual(descriptors(h.window), h.before);
+  assert.deepEqual({ ...h.bridge.stats() }, { started: 1, joined: 1, errors: 0, messages: 0 });
+});
+
+check('v2_worker_failed_termination_still_waits_for_exit', async t => {
+  const h = await fixture(t, script, script, { closeFailure: true });
+  new h.window.Worker(h.url);
+  const thread = await h.started, gate = terminationGate(thread);
+  let settled = false;
+  const closing = h.bridge.close();
+  closing.then(() => { settled = true; }, () => { settled = true; });
+  await gate.entered; gate.reject(new Error('private-marker'));
+  try {
+    await turn();
+    assert.equal(settled, false);
+    assert.equal(h.bridge.stats().joined, 0);
+    assert.notEqual(h.window.Worker, h.before[0].Worker.value);
+  } finally { thread.exit(); await assert.rejects(closing, /^Error: worker cleanup$/); }
+  assert.deepEqual(descriptors(h.window), h.before);
+  assert.equal(h.bridge.stats().joined, 1);
+  assert.equal(h.bridge.stats().errors, 0);
+});
+
+for (const timing of ['before_close', 'during_close'])
+check('v2_worker_retains_termination_failure_after_exit_' + timing, async t => {
+  const h = await fixture(t, script, script, { closeFailure: true });
+  const worker = new h.window.Worker(h.url);
+  const thread = await h.started, gate = terminationGate(thread);
+  worker.terminate(); await gate.entered; thread.exit();
+  if (timing === 'before_close') { gate.reject(new Error('private-marker')); await turn(); }
+  const closing = h.bridge.close();
+  const rejected = assert.rejects(closing, /^Error: worker cleanup$/);
+  if (timing === 'during_close') gate.reject(new Error('private-marker'));
+  await rejected;
+  assert.equal(closing, h.bridge.close());
+  assert.equal(thread.stops, 1);
+  assert.deepEqual(descriptors(h.window), h.before);
+  assert.deepEqual({ ...h.bridge.stats() }, { started: 1, joined: 1, errors: 0, messages: 0 });
 });
 
 check('v2_worker_errors_are_generic_and_still_joined', async t => {

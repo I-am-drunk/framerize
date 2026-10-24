@@ -16,8 +16,10 @@ export function installV2DedicatedWorkers(window, admittedScriptSha256) {
       || typeof admittedScriptSha256 !== 'string'
       || !/^[a-f0-9]{64}$/.test(admittedScriptSha256)) throw new Error('worker scope');
   const urls = new Map(), slots = new Set(), listeners = new WeakMap();
+  // Exit releases live admission, but an initiated stop still owns its result.
+  const stopping = new Set();
   const counts = { started: 0, joined: 0, errors: 0, messages: 0 };
-  let closed = false, closing;
+  let closed = false, closing, cleanupFailed = false;
   function fail(slot) {
     if (slot.failed || slot.stopped || closed) return;
     slot.failed = true; counts.errors++;
@@ -55,7 +57,8 @@ export function installV2DedicatedWorkers(window, admittedScriptSha256) {
   }
   function stop(slot) {
     slot.stopped = true;
-    slot.stopping ??= (async () => {
+    if (slot.stopping) return slot.stopping;
+    slot.stopping = (async () => {
       await slot.ready;
       if (!slot.worker || slot.exited) return;
       let failed = false;
@@ -63,7 +66,11 @@ export function installV2DedicatedWorkers(window, admittedScriptSha256) {
       await slot.joined;
       if (failed) throw new Error('worker cleanup');
     })();
-    slot.stopping.catch(() => {});
+    stopping.add(slot.stopping);
+    slot.stopping.then(() => stopping.delete(slot.stopping), () => {
+      cleanupFailed = true;
+      stopping.delete(slot.stopping);
+    });
     return slot.stopping;
   }
   class DedicatedWorker extends window.EventTarget {
@@ -137,9 +144,10 @@ export function installV2DedicatedWorkers(window, admittedScriptSha256) {
       closed = true;
       for (const url of urls.keys()) revokeURL(url);
       urls.clear();
-      closing = Promise.allSettled([...slots].map(stop)).then(results => {
+      for (const slot of slots) stop(slot);
+      closing = Promise.allSettled([...stopping]).then(results => {
         const restored = restore();
-        if (!restored || counts.started !== counts.joined
+        if (!restored || cleanupFailed || counts.started !== counts.joined
             || results.some(result => result.status === 'rejected'))
           throw new Error('worker cleanup');
         installed.delete(window);
