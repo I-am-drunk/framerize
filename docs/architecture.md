@@ -14,8 +14,11 @@ deadlines, and rejects a changed account scope. Nine inert cases qualify this
 behavior. The integrated server source also marks completed local read
 handlers before their HEAD bodies are discarded, and bounds diagnostic
 excerpts at UTF-8 boundaries. Resident response decoding removes exactly one
-initial BOM after raw-byte collection. The server and decoding changes still
-require their focused qualification before deployment.
+initial BOM after raw-byte collection, preserving the raw-size limit and strict
+UTF-8 decoding. Four server cases and eleven response-output cases now pass,
+including rejection of doubled or misplaced BOMs and malformed UTF-8. The
+integrated executable links against the rebuilt dependency graph. It has not
+been launched or deployed; these checks do not establish native acceptance.
 
 The loopback HTTP fixtures hold requests from two account/session owners at
 once. Cancelling one joins its connection while the other retains its permit

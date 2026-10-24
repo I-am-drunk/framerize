@@ -59,8 +59,23 @@ UTF-8 boundaries. All nine inert cooldown cases pass (`1ab8cfde`, peak
 11,935,744 bytes), with test compilation passing (`75bb543e`, peak 441,163,776
 bytes) and core library compilation passing (`63abdad1`, peak 176,738,304 bytes).
 The exact core in `57f3cd07` is byte-identical to this candidate. Pins are
-unchanged, with zero swap/limit events and absent groups. The other fifteen
-selected cases and the complete integrated package remain unqualified.
+unchanged, with zero swap/limit events and absent groups.
+
+The remaining fifteen selected cases now pass, completing all 24 for this
+candidate. Four server cases pass (`e18dadf9`, peak 12,234,752 bytes), covering
+completed read-only HEAD requests, UTF-8 diagnostics and unknown-cleanup
+fencing. Eleven response-output cases pass (`df24c87d`, peak 11,771,904 bytes),
+with test compilation passing (`21857278`, peak 287,657,984 bytes). They cover
+one initial BOM, invalid UTF-8, misplaced or doubled BOMs, and the distinction
+between completed model text and incomplete, error or tool-only responses.
+
+Host, API, store and server libraries were rebuilt from the integrated source;
+the production executable links successfully (`6191637a`, peak 534,614,016
+bytes). Independent verification confirms unchanged inputs, zero swap/limit
+events and absent groups. The prior 20 unchanged server controls and eight
+native HTTP isolation cases remain valid and were not rerun. No new executable
+was launched or deployed. Actual service recovery and native acceptance remain
+unverified.
 
 The outstanding goal is a fresh, valid browserless mint followed by accepted
 native Framer inference, with matched identity and egress, account isolation,
