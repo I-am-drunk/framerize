@@ -111,6 +111,7 @@ class ResidentCrossoverTests(unittest.IsolatedAsyncioTestCase):
         self.acc._completed_browser_http200.provenance = PROVENANCE
         self.life.cooling, self.life.requests = {}, {}
         self.acc.dev_cooling, self.acc.dev_reqs = self.life.cooling, self.life.requests
+        self.acc.token_pool = {}
         self.acc.last_mint, self.acc.mint_lock = 0.0, asyncio.Lock()
         self.control = ResidentControl(self.host)
         self.req.update(version=2, provenance=PROVENANCE)
