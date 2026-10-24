@@ -1,5 +1,15 @@
 # Development status
 
+The generated native host now passes its actual entrypoint and command loop
+with empty isolated state. Native-open without restored ownership is refused,
+status remains unchanged, and EOF exits cleanly without persistent files.
+The corrected bytecode-isolated run peaks at 46,804,992 bytes under 128 MiB,
+with zero swap and no limit events. All 732 inputs match; both jobs are
+collected. The initial functional pass and its unpinned-bytecode limitation
+are preserved. This covers explicit system Python startup, not the installed
+browser environment, real identity transfer or minting. See
+`reference/analysis/ordinary-v2-host-startup-20261024.md`.
+
 The packaged native daemon now passes an isolated startup check with explicit
 V2 configuration, a fresh empty database and no eligible accounts. Health,
 empty-account listing, offline input rejection and `/api/hello` pass. Peak
