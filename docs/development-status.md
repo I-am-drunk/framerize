@@ -3,6 +3,16 @@
 Updated 2026-10-24. The normal service remains browser-based. Publishing these
 branches does not change the running service.
 
+The comparison with corrected resource limits still failed during
+preparation, with no baseline or native report. Browser cleanup was confirmed;
+the native account retained its `Cleanup` failure. Peak usage was 176 tasks
+and 1,090,396,160 bytes, with no memory or task-limit events. The original
+failed result and account fence remain preserved.
+
+A diagnostic-only source change adds fixed preparation stages and five
+boolean context checks to the sidecar log. It preserves generic public errors
+and all acceptance checks. It is not yet tested or selected by a live attempt.
+
 The next admitted comparison reached browser startup but exhausted its
 96-task child limit. It returned no baseline or native result. Both logical
 cleanup flags were false; the child exited naturally and its process group

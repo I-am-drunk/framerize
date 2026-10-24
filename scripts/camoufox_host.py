@@ -2177,12 +2177,16 @@ class Host:
             req = self._observed_command(req)
         if (req.get("cmd") == "browser_baseline_once" or
                 (req.get("cmd") == "prepare_inference_authorization" and "purpose" in req)):
+            from contextual_authorization import comparison_evidence, comparison_mark
+            scope = None
             try:
                 if self._observed is None:
                     raise RuntimeError("comparison requires observation")
                 from contextual_authorization import comparison_command, validate_comparison_request
                 validate_comparison_request(req)
                 account = req.get("account", "")
+                scope = self._observed.accounts[account]
+                comparison_mark(scope, 'account_start')
                 if req.get("purpose") != "baseline_context":
                     scope = self._observed.accounts[account]
                     state = scope.comparison
@@ -2190,10 +2194,13 @@ class Host:
                             or self.lifecycles[account].phase != "resident"):
                         raise RuntimeError("comparison account changed")
                 async with self._use_account(account, req.get("proxy")):
-                    return await comparison_command(self, account, req)
+                    result = await comparison_command(self, account, req)
+                    emit('browser.comparison.command', outcome='returned', **comparison_evidence(scope))
+                    return result
             except asyncio.CancelledError:
                 raise
             except Exception:
+                emit('browser.comparison.command', outcome='failed', **comparison_evidence(scope))
                 raise RuntimeError("browser comparison failed") from None
         if req.get("cmd") == "prepare_inference_authorization":
             if self._observed is None:
