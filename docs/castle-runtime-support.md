@@ -60,8 +60,8 @@ not classify the actual token or explain the remote decision.
 A separate [native canvas fixture](../scripts/experiments/native_canvas/README.md)
 now passes real drawing, bounded PNG round-trip and input-refusal checks.
 Its first run found incorrect context-type caching in JSDOM; the retained
-dependency patch corrects that behavior for the native 2D backend. Neither
-running service uses this experiment. The subsequent synthetic SDK integration
+dependency patch corrects that behavior for the native 2D backend.
+The subsequent synthetic SDK integration
 now passes with two local PNGs, zero JSDOM errors and the unchanged V3/device/
 private-pipe/cleanup checks. Its first integration hit the 128 MiB group cap;
 the retained 64 KiB file-verification buffer corrects that allocation issue
@@ -69,8 +69,11 @@ without changing the hash inventory. The passing run peaks at 84398080 bytes,
 with zero swap/memory events and verified process/group absence. One process
 warning remains unclassified. Tokens were discarded without retention.
 This qualifies a local component, not the complete browser environment or
-Framer acceptance. SharedWorker and WebGL remain absent. Next: package the
-qualified variant for the isolated instance while preserving real account
-history and the protected browser, before another bounded live check.
+Framer acceptance. SharedWorker and WebGL remain absent. The qualified variant
+is now selected by the isolated instance, with experimental output removed.
+Its first real request still received the complete HTTP 403 security envelope;
+cleanup was confirmed and no second request ran. Canvas support alone was
+insufficient. The next independent measurement is to classify the remaining
+process warning in a bounded synthetic worker without retaining token bytes.
 The JSDOM support limit was already recorded on October 20 and was reconfirmed,
-not new. The application worker and both services remain unchanged.
+not new. The protected browser service remains unchanged.

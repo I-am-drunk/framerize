@@ -11,7 +11,10 @@ by the deployable worker and component tests, with an independent quota per
 window. Verification streams each file through a 64 KiB buffer. The standalone
 owner validates the exact bundle without rebuilding the application or loading
 accounts. Selection on the isolated service remains an owned runtime change;
-the browser service's worker/configuration paths are excluded.
+the browser service's worker/configuration paths are excluded. The isolated
+instance now selects that bundle with the same application binary and routing.
+Its first live request still returned a complete HTTP 403 security envelope;
+cleanup and restoration were confirmed, and no second request ran.
 
 The current parallel experiment keeps the live browser service unchanged.
 A browserless instance needs its own port, database, profiles, sessions, gate
@@ -126,8 +129,9 @@ component with the unchanged JITless owner and private token handoff. Native
 library hashes use a reusable 64 KiB buffer; the whole-file variant reached
 the 128 MiB group limit and remains rejected. The buffered variant passes
 with zero memory events and verified joined cleanup. Its dependency overlay
-and diagnostic output are experimental. Neither the application worker nor
-the running isolated service selects it, and no Framer acceptance is proven.
+and diagnostic output remain experimental. The deployable bundle removes that
+output while retaining the qualified graphics and buffered verification. The
+isolated service selects this bundle; Framer acceptance remains unproven.
 For the composed adapter, text is rendered after upstream JSON is complete.
 The interruption check therefore waits for the actual send and successful
 stream headers, then disconnects while the body remains open. It separately
