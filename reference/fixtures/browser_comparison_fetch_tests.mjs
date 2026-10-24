@@ -100,7 +100,9 @@ test('one fetch preserves the envelope and public caller credential mode', { tim
     assert.deepEqual(JSON.parse(options.body), {
       ...JSON.parse(value.input.body), castleToken: value.input.token });
     assert.equal(options.headers.authorization, 'Bearer ' + value.input.bearer);
-    assert.equal(options.headers['x-requested-by'], 'Framer');
+    assert.equal(options.headers['x-requested-by'], undefined);
+    assert.deepEqual(Object.keys(options.headers).sort(), ['authorization', 'content-type']);
+    assert.equal(options.headers['content-type'], 'application/json');
     assert.equal(Object.keys(options.headers).some(name => name.toLowerCase() === 'cookie'), false);
     assert.equal(result.status, 200);
     assert.equal(result.body, '{"id":"fixture-result"}');

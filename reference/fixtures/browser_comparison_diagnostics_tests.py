@@ -49,13 +49,15 @@ class DiagnosticHarness(FIXTURE.Harness):
         super().__init__()
         self.events = []
         self.progress = []
+        self.sdk_events = []
         self.host._observed_command = lambda request: request
         self.host.lifecycles[self.account_id].phase = "resident"
         self.host._use_account = self.use_account
         self.handle = FIXTURE.OLD.host_method("handle", {"asyncio": asyncio, "emit": self.emit})
 
     def emit(self, event, **fields):
-        target = self.progress if event == 'browser.comparison.progress' else self.events
+        target = (self.progress if event == 'browser.comparison.progress' else
+                  self.sdk_events if event == 'browser.comparison.sdk' else self.events)
         target.append(dict(event=event, **fields))
 
     @asynccontextmanager

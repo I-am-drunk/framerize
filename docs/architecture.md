@@ -52,6 +52,16 @@ exporting tokens, error objects or storage values. Post-mint page and device
 inequality have separate fixed diagnostics; getter failures retain a generic
 context-check stage. All three paths refuse continuation.
 
+Comparison mints read the wrapper's existing cached logger dependency in that
+same realm. Only fixed branch/failure counters and buffer coverage leave the
+page, with at most two observations per scope. Missing or malformed metadata
+stays unknown. These are window counts, not proof of a returned token's kind:
+concurrent page calls may contribute records. Observation cannot change mint
+acceptance, issue a retry, or escape the existing owned RPC and deadline.
+The browser baseline uses `application/json` and no `X-Requested-By`, matching
+the selected public AI caller's default header construction. The conditional
+credits-experiment header remains unbound. Authentication has its own contract.
+
 The comparison must run the public SDK in the page's own JavaScript realm.
 The offline failure was Firefox's rejection of TypedArray access across an
 Xray wrapper. Camoufox's documented `main_world_eval=True` launch option and

@@ -144,7 +144,7 @@ class ComparisonMintDiagnosticsTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual((value.mints, value.fetches), (2, 1))
         self.assertNotEqual(native["token"], value.fetch_args["token"])
         expected = {"url": C.COMPARISON_WRAPPER, "entry": C.COMPARISON_EXPORT,
-                    "device": F.DEVICE, "page_url": F.OLD.PAGE_URL}
+                    "device": F.DEVICE, "page_url": F.OLD.PAGE_URL, "observe_sdk": True}
         self.assertEqual(value.mint_inputs, [expected, expected])
         self.assertEqual(value.scope.comparison_phase, "complete")
         self.assertEqual([call[0] for call in value.calls].count("goto"), 1)

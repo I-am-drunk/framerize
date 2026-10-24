@@ -40,6 +40,24 @@ DIAGNOSTIC_STAGES = frozenset(('account_start', 'context_inputs', 'cookie_seed',
 DIAGNOSTIC_CHECKS = ('device_valid', 'device_cookie_match', 'login_match',
                      'page_match', 'url_unchanged', 'device_cookie_present',
                      'device_cookie_unique', *READINESS_CHECKS)
+SDK_COUNTERS = ('v3', 'v2', 'missing', 'module_load_timeout', 'module_load_error',
+                'configuration_timeout', 'configuration_error', 'token_generation_timeout',
+                'token_generation_error', 'sdk_timeout', 'sdk_error')
+
+
+def comparison_sdk_evidence(scope, value):
+    facts = {'available': False}
+    if (type(value) is dict and set(value) == {'complete', *SDK_COUNTERS}
+            and type(value['complete']) is bool
+            and all(type(value[key]) is int and 0 <= value[key] <= 1000
+                    for key in SDK_COUNTERS)):
+        facts = {'available': True, **value}
+    try:
+        emit = getattr(scope, 'comparison_sdk_emit', None)
+        if emit is not None:
+            emit(facts)
+    except Exception:
+        pass
 
 
 def comparison_mark(scope, stage, **checks):
@@ -73,6 +91,14 @@ def comparison_attach_progress(scope, request, emit):
              stage=stage, at_limit=scope.comparison_progress_sequence == 128)
 
     scope.comparison_progress = progress
+    def sdk_emit(facts):
+        count = getattr(scope, 'comparison_sdk_sequence', 0)
+        if count >= 2:
+            return
+        scope.comparison_sdk_sequence = count + 1
+        emit('browser.comparison.sdk', trace=scope.comparison_progress_id,
+             purpose=purpose, mint=count + 1, **facts)
+    scope.comparison_sdk_emit = sdk_emit
 
 
 def comparison_evidence(scope):
@@ -341,8 +367,15 @@ COMPARISON_SNAPSHOT = """() => ({
   url: location.href, device: localStorage.getItem('__cuid')
 })"""
 
-COMPARISON_MINT = """async ({url, entry, device, page_url}) => {
+COMPARISON_MINT = """async ({url, entry, device, page_url, observe_sdk = false}) => {
   let stage = 'pre_context';
+  let observe = () => null;
+  const finish = value => {
+    if (!observe_sdk) return value;
+    let sdk = null;
+    try { sdk = observe(); } catch {}
+    return {...value, sdk};
+  };
   try {
     const before = location.href;
     if (before !== page_url || localStorage.getItem('__cuid') !== device)
@@ -351,13 +384,56 @@ COMPARISON_MINT = """async ({url, entry, device, page_url}) => {
     const module = await import(url);
     stage = 'export_validation';
     if (typeof module[entry] !== 'function') throw new Error('wrapper');
+    if (observe_sdk) {
+      try {
+        // The pinned wrapper already loaded this exact dependency. This
+        // cached import and read stay inside the existing owned mint RPC.
+        const lm = await import('https://app.framerstatic.com/chunk-WBI6GGAG.mjs');
+        const logger = lm.i('castle'), initial = lm.h();
+        if (!Array.isArray(initial) || initial.length > 1000) throw 0;
+        let prior = -1;
+        for (const record of initial) {
+          if (!Number.isSafeInteger(record.id) || record.id <= prior) throw 0;
+          prior = record.id;
+        }
+        const since = initial.at(-1)?.id ?? -1;
+        if (!Number.isSafeInteger(since) || since < -1) throw 0;
+        observe = () => {
+          const records = lm.h();
+          if (!Array.isArray(records) || records.length > 1000) return null;
+          let previous = -1;
+          for (const record of records) {
+            if (!Number.isSafeInteger(record.id) || record.id <= previous) return null;
+            previous = record.id;
+          }
+          const out = {complete: records.length ? records[0].id <= since + 1 && previous >= since : since < 0,
+            v3: 0, v2: 0, missing: 0};
+          const phases = {'module load': 'module_load', configuration: 'configuration',
+            'token generation': 'token_generation', SDK: 'sdk'};
+          for (const phase of Object.values(phases))
+            for (const failure of ['timeout', 'error']) out[phase + '_' + failure] = 0;
+          for (const record of records) {
+            if (record.id <= since || record.logger !== logger) continue;
+            if (!Array.isArray(record.parts)) return null;
+            if (record.parts[0] === 'Using Castle v3 token') out.v3++;
+            if (record.parts[0] === 'Using Castle v2 token') out.v2++;
+            if (record.parts[0] === 'No Castle token available') out.missing++;
+            const tags = record.parts[2];
+            if (tags?.castleVersion === 'v3' && Object.hasOwn(phases, tags.castlePhase)
+                && ['timeout', 'error'].includes(tags.castleFailure))
+              out[phases[tags.castlePhase] + '_' + tags.castleFailure]++;
+          }
+          return out;
+        };
+      } catch {}
+    }
     stage = 'wrapper_call';
     const token = await module[entry]();
     stage = 'post_context';
     const after = location.href;
-    if (after !== page_url) return {failure_stage: 'post_page'};
+    if (after !== page_url) return finish({failure_stage: 'post_page'});
     if (localStorage.getItem('__cuid') !== device)
-      return {failure_stage: 'post_device'};
+      return finish({failure_stage: 'post_device'});
     stage = 'invalid_token';
     if (typeof token !== 'string' || !token || token.length > 16 * 1024)
       throw new Error('token');
@@ -365,9 +441,9 @@ COMPARISON_MINT = """async ({url, entry, device, page_url}) => {
     encodeURIComponent(token);
     if (new TextEncoder().encode(token).byteLength > 16 * 1024)
       throw new Error('token');
-    return {before, after, token};
+    return finish({before, after, token});
   } catch {
-    return {failure_stage: stage};
+    return finish({failure_stage: stage});
   }
 }"""
 
@@ -597,7 +673,7 @@ async def comparison_mint(scope, state, acc):
     try:
         result = await comparison_rpc(scope, lambda: acc.page.evaluate("mw:" + COMPARISON_MINT, {
             "url": state["wrapper_url"], "entry": state["wrapper_export"],
-            "device": state["device"], "page_url": state["url"]}))
+            "device": state["device"], "page_url": state["url"], "observe_sdk": True}))
     except asyncio.CancelledError:
         raise
     except Exception as error:
@@ -606,6 +682,8 @@ async def comparison_mint(scope, state, acc):
                  'TimeoutError': 'mint_rpc_timeout'}.get(type(error).__name__, 'mint_rpc_error')
         comparison_mark(scope, stage)
         raise
+    sdk = result.pop('sdk', None) if type(result) is dict else None
+    comparison_sdk_evidence(scope, sdk)
     stage = 'mint_reply_invalid'
     if type(result) is dict:
         if set(result) == {'failure_stage'}:
@@ -662,8 +740,8 @@ COMPARISON_FETCH = """async (input) => {
     result.started = 1;
     const response = await fetch('https://api.framer.com' + input.path, {
       method: 'POST', credentials: 'same-origin', redirect: 'error', cache: 'no-store',
-      headers: {'content-type': 'application/json; charset=utf-8',
-        'x-requested-by': 'Framer', authorization: 'Bearer ' + input.bearer},
+      headers: {'content-type': 'application/json',
+        authorization: 'Bearer ' + input.bearer},
       body: JSON.stringify(payload), signal: controller.signal
     });
     result.status = response.status;

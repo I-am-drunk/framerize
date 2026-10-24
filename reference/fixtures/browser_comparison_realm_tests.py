@@ -69,7 +69,7 @@ class BrowserComparisonRealmTests(unittest.IsolatedAsyncioTestCase):
             if script == "mw:" + C.COMPARISON_MINT:
                 self.assertEqual(args, {"url": C.COMPARISON_WRAPPER,
                     "entry": C.COMPARISON_EXPORT, "device": F.DEVICE,
-                    "page_url": F.OLD.PAGE_URL})
+                    "page_url": F.OLD.PAGE_URL, "observe_sdk": True})
         self.assertEqual(json.loads(value.fetch_args["body"]), value.body)
         self.assertEqual(value.fetch_args["device"], F.DEVICE)
         self.assertEqual(value.fetch_args["page_url"], F.OLD.PAGE_URL)
