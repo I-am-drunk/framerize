@@ -3,6 +3,15 @@
 Updated 2026-10-24. The normal service remains browser-based. Publishing these
 branches does not change the running service.
 
+Current public model helpers close two request questions: GPT-4.1 selects no
+provider override, and its model spelling agrees with our native request.
+The ordinary browser chooser uses Chat for that model, while the isolated
+trial uses Responses. This limits the comparison; it does not establish that
+Responses is invalid or caused the security refusal. The other session is
+checking the separate SDK initialization/error contract. No new request or
+runtime change accompanied this source diagnosis. See
+`reference/analysis/native-model-contract-2026-10-24.md`.
+
 The current OpenRouter Responses mapper also copies outer `sessionId` into
 `request.session_id`. The native request builder now does the same for that
 route. Forty focused cases pass, including absent/conflicting nested IDs and
