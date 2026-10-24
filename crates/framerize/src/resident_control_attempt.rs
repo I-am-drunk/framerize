@@ -12,6 +12,10 @@ use framer_host::sidecar::{observer::ApplicationGeneration, resident::{
 use futures::StreamExt;
 use serde_json::Value;
 
+#[cfg(test)]
+#[path = "resident_output_tests.rs"]
+mod output_tests;
+
 pub(super) struct Operation {
     capture: Arc<Capture>,
     binding: wire::Binding,
@@ -195,7 +199,7 @@ async fn send(operation: &Operation, http: &NativeHttp, path: &str, body: &Value
     let result = {
         let work = async {
             let response = response.await.map_err(|_| Failure::Native)?;
-            collect(response, started, report).await
+            collect(response, path, started, report).await
         };
         tokio::pin!(work);
         tokio::select! {
@@ -217,8 +221,41 @@ async fn cancelled(control: &PreparationControl, deadline: Instant) {
     }
 }
 
+// Match the browser's completion/text fields without exporting response content.
+fn output_facts(bytes: &[u8], path: &str, status: u16, json: bool) -> (bool, bool) {
+    if !json { return (false, false); }
+    let parsed = serde_json::from_slice::<Value>(bytes).ok();
+    let object = parsed.as_ref().is_some_and(Value::is_object);
+    let complete = status == 200 && object
+        && parsed.as_ref().is_some_and(|value| output_complete(value, path));
+    (object, complete)
+}
+
+fn output_complete(value: &Value, path: &str) -> bool {
+    if !value["id"].as_str().is_some_and(|id| !id.is_empty())
+        || !value["error"].is_null() { return false; }
+    match path {
+        "/ai/v3/responses/" => value["status"].as_str() == Some("completed")
+            && value["incomplete_details"].is_null()
+            && value["output"].as_array().is_some_and(|items| items.iter().any(|item|
+                item["type"].as_str() == Some("message")
+                    && item["content"].as_array().is_some_and(|blocks|
+                        blocks.iter().any(|block| text_present(block, "output_text"))))),
+        "/ai/v3/messages/" => matches!(value["stop_reason"].as_str(),
+            Some("end_turn" | "stop_sequence" | "tool_use"))
+            && value["content"].as_array().is_some_and(|blocks|
+                blocks.iter().any(|block| text_present(block, "text"))),
+        _ => false,
+    }
+}
+
+fn text_present(block: &Value, kind: &str) -> bool {
+    block["type"].as_str() == Some(kind)
+        && block["text"].as_str().is_some_and(|text| !text.trim().is_empty())
+}
+
 async fn collect(mut response: framer_api::experimental_native::native_http::NativeResponse,
-    started: std::time::Instant, report: &mut Report) -> Result<(), Failure> {
+    path: &str, started: std::time::Instant, report: &mut Report) -> Result<(), Failure> {
     const LIMIT: usize = 64 * 1024;
     report.status = Some(response.status);
     let json = response.content_type.as_deref().is_some_and(|value|
@@ -230,8 +267,8 @@ async fn collect(mut response: framer_api::experimental_native::native_http::Nat
         bytes.extend_from_slice(&chunk);
     }
     report.body_complete = true;
-    report.json_object = json && serde_json::from_slice::<Value>(&bytes)
-        .is_ok_and(|value| value.is_object());
+    (report.json_object, report.native_output_complete) =
+        output_facts(&bytes, path, response.status, json);
     if response.status == 403 {
         if let Ok(text) = std::str::from_utf8(&bytes) {
             report.refusal = Some(framer_api::classify::observe_403(text,

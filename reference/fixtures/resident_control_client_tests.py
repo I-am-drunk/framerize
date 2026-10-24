@@ -60,6 +60,23 @@ class ClientTests(unittest.TestCase):
         self.assertEqual(peer.sent, [b'fixture request'])
         self.assertEqual(peer.read_sizes[-1], 1)
 
+    def test_model_output_fact_preserves_later_cleanup_failure(self):
+        value = report()
+        value.update(native_output_complete=True, native_invoked=True, status=200,
+                     body_complete=True, json_object=True, failure='cleanup')
+        self.assertEqual(self.exchange(Peer(framed(value))), value)
+        self.assertFalse(value['cleanup_confirmed'])
+
+    def test_model_output_fact_requires_matching_response_facts(self):
+        for key, bad in [('native_invoked', False), ('status', 403),
+                         ('body_complete', False), ('json_object', False)]:
+            value = report()
+            value.update(native_output_complete=True, native_invoked=True, status=200,
+                         body_complete=True, json_object=True)
+            value[key] = bad
+            with self.assertRaises(ValueError):
+                self.exchange(Peer(framed(value)))
+
     def test_partial_send_failure_is_never_retried(self):
         class Partial(Peer):
             def sendall(self, value):
@@ -82,7 +99,8 @@ class ClientTests(unittest.TestCase):
     def test_report_rejects_extra_private_fields_and_invalid_fact_types(self):
         for key, bad in [('token', 'private-token'), ('status', True),
                          ('status', 200.0), ('cleanup_confirmed', 1),
-                         ('failure', 'private-error'), ('refusal_policy', [])]:
+                         ('failure', 'private-error'), ('refusal_policy', []),
+                         ('native_output_complete', 1)]:
             value = report()
             value[key] = bad
             with self.assertRaises(ValueError):
@@ -93,6 +111,12 @@ class ClientTests(unittest.TestCase):
             client.checked_report(b'{"status":200,"status":403}')
         with self.assertRaises(ValueError):
             self.exchange(Peer(framed(report()) + b'private-extra-frame'))
+
+    def test_model_output_fact_is_required_in_current_wire_schema(self):
+        value = report()
+        del value['native_output_complete']
+        with self.assertRaises(ValueError):
+            self.exchange(Peer(framed(value)))
 
     def test_absolute_deadline_prevents_any_send(self):
         peer = Peer(framed(report()))

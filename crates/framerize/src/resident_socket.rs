@@ -315,7 +315,8 @@ struct Facts {
     failure: Option<&'static str>, baseline_accepted: bool,
     baseline_status: Option<u16>, baseline_body_complete: bool,
     baseline_json_object: bool, native_invoked: bool, status: Option<u16>,
-    body_complete: bool, json_object: bool, refusal_policy: Option<&'static str>,
+    body_complete: bool, json_object: bool, native_output_complete: bool,
+    refusal_policy: Option<&'static str>,
     refusal_basis: Option<&'static str>, cleanup_confirmed: bool, host_fenced: bool,
 }
 
@@ -338,6 +339,7 @@ fn facts(report: &Report) -> Facts {
         baseline_body_complete: report.baseline_body_complete,
         baseline_json_object: report.baseline_json_object, native_invoked: report.native_invoked,
         status: report.status, body_complete: report.body_complete, json_object: report.json_object,
+        native_output_complete: report.native_output_complete,
         cleanup_confirmed: report.cleanup_confirmed, host_fenced: report.host_fenced,
         refusal_policy: report.refusal.map(|r| match r.policy {
             Refusal::Castle => "castle", Refusal::Upstream => "upstream",

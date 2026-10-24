@@ -42,6 +42,8 @@ pub(crate) struct Report {
     pub status: Option<u16>,
     pub body_complete: bool,
     pub json_object: bool,
+    /// Completed nonempty model text in this response; independent of cleanup.
+    pub native_output_complete: bool,
     pub refusal: Option<framer_api::classify::RefusalObservation>,
     pub cleanup_confirmed: bool,
     pub host_fenced: bool,
