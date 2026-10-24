@@ -3,6 +3,19 @@
 Updated 2026-10-24. The normal service remains browser-based. Publishing these
 branches does not change the running service.
 
+The next admitted comparison reached browser startup but exhausted its
+96-task child limit. It returned no baseline or native result. Both logical
+cleanup flags were false; the child exited naturally and its process group
+was removed. The isolated account remains stopped and fenced, with the
+reservation retained. The protected browser service remained unchanged.
+
+A subsequent blank-browser test passed with a 192-task child inside a
+256-task controller. It opened a fresh context and blank page, evaluated a
+constant and closed normally. Peak usage was 151 tasks and 524,369,920 bytes,
+with no recorded swap or memory/task-limit events. This test had no account,
+SDK invocation or external network. The 1.5 GiB child and 2 GiB controller
+memory limits are unchanged. Signed-in delivery remains unverified.
+
 The isolated comparison child compiles and its boundary tests pass. The 21
 coordinator/child cases passed first; two additional browser-refusal cases now
 pass, including a dropped caller. The refusal prevents native authorization,
