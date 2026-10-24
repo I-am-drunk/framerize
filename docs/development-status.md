@@ -25,6 +25,9 @@ starting the older staged daemon on success. All 28 inert finalization cases
 pass, including refusal of incomplete cleanup and mismatched history. The first
 test launch used a relative path and did not reach the fixture; the corrected
 absolute-path run passed. Standalone and offline-worker validation remain open.
+Seven additional controller cases verify that the outer result reports success
+only after the paired result and preserved history succeed. Missing restoration,
+publication failure or a changed protected browser still reports failure.
 The corrected standalone daemon now compiles against the validated API and
 current observer. Its retained core, server, store and worker library sources
 match the current source. Build peak was 480,161,792 bytes with zero swap or
