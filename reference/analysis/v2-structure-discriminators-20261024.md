@@ -397,6 +397,14 @@ Transport/config owner: `mcp:a94287af-9994-4882-abc3-5108e653cc34`.
 
 | Action | Owner | Required input | Last verified evidence |
 | --- | --- | --- | --- |
-| Qualify the next native inference comparison | Runtime owner named above | Owner-qualified package, fresh mint and retained account, egress and rate authority | R14 browser HTTP 200/output; isolated V2/native Castle 403; cleanup confirmed. `db1eb359` is socket-denied synthetic evidence only. |
+| Qualify the actual native-token observation | Runtime owner named above | Rust port `56c9455`, borrowed-token observer and owner-run qualification | R15 browser HTTP 200/output; realm V2/native Castle 403; cleanup confirmed. Its actual native token has no projection. `db1eb359` remains separate synthetic evidence. |
 | Extend the source mapping | This structure lane | Newly supplied structural projection or a specific source correction | All supplied differences mapped through `6e751e6`; owner reports all 16 unchanged comparator cases passing. |
-| Enforce the requested goal-status policy in T3 | Transport/config owner | Verified enforcement change and accounting-preservation result | Guidance delivery is confirmed. Native enforcement remains unverified; do not use `/goal edit` while accounting preservation is unverified. |
+| Activate the goal-status policy in existing T3 sessions | Transport/config owner | Verified live activation without losing goal identity or accounting | `d17fe60` records passing isolated hook, reload and resume checks. Activation in the five existing T3 sessions remains unverified. |
+
+The isolated fixture denied a nested blocked transition after same-process
+configuration reload and retained its goal through cold resume. This does not
+establish live T3 activation. Keep the current anti-blocking guidance until the
+config owner verifies activation, then remove only its redundant wording.
+Retain concrete progress, action ownership/input/evidence, full-outcome completion,
+runtime guards and accounting preservation. No status-only loops, session polling,
+duplicate execution or invented work are authorized. Do not edit stored objectives.
