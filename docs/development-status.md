@@ -13,11 +13,16 @@ unchanged. No retry is queued. Native canvas alone did not establish upstream
 acceptance. The full isolated service peaked at 1,801,216,000 bytes with no
 swap or memory-limit events, so the whole-service memory target remains open.
 
-The next source task connects V2 window construction to the existing bounded
-inline-PNG loader. Canvas rendering currently exists without that image-loading
-path. This is a known missing capability, not an established cause of R13.
-Qualification must retain the SDK, identity, deadline and cleanup checks before
-considering another owned control.
+V2 window construction now uses the existing bounded inline-PNG loader. All
+30 focused cases pass, including a real native canvas-to-PNG image round trip.
+The single subsequent socket-denied synthetic V2 observation completed in
+1,241 ms (1,003 ms in the token method), with unchanged device state, joined
+child and discarded token. Peak cgroup memory was 111,439,872 bytes (106.3 MiB),
+with zero swap or memory-limit events. The qualified observer recorded zero
+resource attempts, deliveries or refusals: this SDK call never used the new
+loader. This closes a capability gap but supplies no reason for a live retry.
+Next, use the existing V2 comparison evidence to select another concrete runtime
+difference; preserve R13 and its retained owner until a new control is justified.
 
 R12 completed an isolated-V2 request that was refused. The normal browser
 and paired browser baseline returned complete HTTP 200 model output. The
