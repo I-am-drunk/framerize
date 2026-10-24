@@ -260,3 +260,42 @@ test('timeout_then_late_token_never_becomes_a_handoff', async () => {
   assert.equal(r.metadata.late_settlements, 1);
   assert.equal(JSON.stringify(r).includes('late-private-token'), false);
 });
+
+test('worker_join_finishes_before_identity_check_window_close_and_token_release', async () => {
+  const h = harness(); let joined, entered, completed = false;
+  const entry = new Promise(resolve => { entered = resolve; });
+  const gate = new Promise(resolve => { joined = resolve; });
+  h.runtime.closeWorkers = async dom => {
+    assert.equal(dom.window, h.window); entered(); await gate;
+  };
+  const pending = h.run().then(value => { completed = true; return value; });
+  try {
+    await entry;
+    assert.equal(completed, false);
+    assert.equal(h.state.closed, 0);
+    assert.equal(h.state.removed, 0);
+  } finally { joined(); }
+  const result = await pending;
+  assert.equal(result.metadata.status, 'passed');
+  assert.equal(h.state.closed, 1);
+  assert.equal(h.state.calls, 1);
+  assert.equal(result.token.take(), 'fixture-token');
+});
+
+test('failed_worker_join_refuses_token_but_still_closes_window', async () => {
+  const h = harness();
+  h.runtime.closeWorkers = async () => { throw new Error('private-error'); };
+  const result = await refused(h, 'cleanup');
+  assert.equal(result.metadata.window_closed, true);
+});
+
+test('identity_changes_during_worker_join_refuse_the_token', async () => {
+  const h = harness();
+  h.runtime.closeWorkers = async () => {
+    await Promise.resolve();
+    h.window.localStorage.setItem('__cuid', 'changed-during-join');
+  };
+  const result = await refused(h, 'device-storage');
+  assert.equal(result.metadata.device_failure, 'local_value');
+  assert.equal(result.metadata.device_storage_unchanged, false);
+});

@@ -43,6 +43,10 @@ reports one failure. The counter alone therefore does not prove work is still
 running or justify a warm-up delay. An isolated source task now prepares a
 dormant real Node worker adapter for bounded qualification. No live retry or
 change to ordinary serving is queued, and this does not identify R13's cause.
+The operation now supports a worker-owner cleanup hook before its final device
+check and window closure. All 25 operation cases pass, including blocked join,
+failed join and identity drift during join. The hook remains dormant until a
+runtime supplies a worker owner; no new SDK call was used to validate it.
 
 R12 completed an isolated-V2 request that was refused. The normal browser
 and paired browser baseline returned complete HTTP 200 model output. The
