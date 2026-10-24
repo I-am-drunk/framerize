@@ -1,5 +1,11 @@
 # Serving architecture and branch policy
 
+The resident SDK coordinator explicitly cancels its worker before awaiting
+completion when the cancellation branch wins. This also covers an immediately
+ready stop before the result future has been polled and installed its drop
+guard. The same completion still owns child reaping; cancellation never grants
+cleanup confirmation by itself.
+
 Bootstrap can return a strict unavailable receipt when its constructor finds
 no current-document proof before acquiring a lease. The host binds every
 identity field and rechecks sidecar incarnation before classifying that call
