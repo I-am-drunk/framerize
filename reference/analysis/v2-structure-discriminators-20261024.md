@@ -1,8 +1,10 @@
 # Current V2 structural discriminators, 2026-10-24
 
-Source milestone on `goal/browserless-fingerprint-structure`, based on
-`71b6326`. The runtime owner reports all 16 comparator cases **PASS**,
-17,321,984 bytes peak memory, zero swap/events and the unit absent afterward.
+Source mappings began on `goal/browserless-fingerprint-structure`, based on
+`71b6326`. The runtime owner now reports all 17 comparator cases **PASS**
+(`a489c417`) and all 15 combined projection cases **PASS** (`014e8aaf`).
+Exact qualification details and source integrations appear below. Accepted
+browserless inference and actual native-token structure remain unverified.
 Tests remain **UNRUN in this source checkout**. Only source inspection,
 static constant derivation and diff review ran here.
 All tests, builds, SDK/browser execution and private/runtime work belong to
@@ -38,9 +40,11 @@ the runtime owner performed every execution, without SDK, private or live input.
 
 R15's reported browser 200/native 403 outcome still lacks a native projection.
 The observer now borrows the same token after joined mint and same-device
-confirmation, before unchanged deadline and authorization checks. Root retains
-the next action: qualify its shared-writer correction `42f6ee1`.
-That correction and five fixtures remain **UNCOMPILED/UNRUN** in the saved receipt.
+confirmation, before unchanged deadline and authorization checks. The runtime
+owner qualified shared-writer correction `42f6ee1`: core compilation `44393cbd`,
+fixture compilation `84aae788` and all five cases `21393fe8` **PASS**. Each phase
+had zero swap/limit events and confirmed group cleanup. This does not rebuild
+the retained executable or activate a service; all execution is **UNRUN here**.
 Any later actual native observation, lease and live execution remain owner-held.
 
 ## Source binding and scope
@@ -367,17 +371,18 @@ grants minting, dispatch, retry, provenance or acceptance authority.
 
 Exact owner-only fixture entry:
 `python3 -B reference/fixtures/v2_structure_compare_tests.py`.
-Sixteen synthetic cases cover unavailable/empty inputs, Boolean-tag changes,
+Seventeen synthetic cases cover unavailable/empty inputs, Boolean-tag changes,
 unchanged totals with changed fields, group identity, equal-length payload
 collisions, bitset buckets, dimension-pair ordering, packed-integer widths,
-detached output, malformed-input privacy and canonical output keys.
+detached output, malformed-input privacy, canonical output keys and absent
+exception context/cause after refusal.
 They reuse the existing parser and do not create a second decoder.
 
 The frame/parser/projection/observer qualifications documented in
 `docs/development-status.md` remain prior owner evidence for unchanged code.
-The owner now separately reports the 16 comparator cases passing; no test or
-runtime execution occurred in this source lane. Subsequent changes here only
-extend the source note and reuse that qualification for unchanged tooling.
+The initial 16 comparator cases passed (`29d78f1e`), with a 17,321,984-byte peak,
+zero swap/events and unit absent. The later 17-case qualification is recorded
+below. No test or runtime execution occurred in this source lane.
 Mappings through `6e751e6` are integrated on `browserless` as `24a846d`,
 following the earlier `b93a425` integration. This completes the supplied
 source mappings, not the shared browserless outcome. Native acceptance is
@@ -386,9 +391,8 @@ owner `544711e3-0b76-4cb4-9732-124a0486847e`.
 
 Next source action: map a newly supplied structural difference or correct a
 specific source finding. Record a dependency with its owner, required input
-and last verified evidence. A completed lane or pending owner action does not
-justify voluntarily blocking the shared goal. Keep its full objective and
-accounting; do not clear, recreate or narrow it to close this source task.
+and last verified evidence. Keep the full objective and accounting; do not clear,
+recreate or narrow the goal to close this source task.
 The outcome remains a fresh valid mint and accepted native Framer inference,
 with verified account isolation, matched identity/egress, cooldowns and joined
 cleanup. Prompt guidance and actual app enforcement must be reported separately.
@@ -402,37 +406,38 @@ Transport/config owner: `mcp:a94287af-9994-4882-abc3-5108e653cc34`.
 
 | Action | Owner | Required input | Last verified evidence |
 | --- | --- | --- | --- |
-| Capture actual native-token structure | Runtime owner named above | Writer qualification, then an owner-authorized observation using the original token and lease | Observer `1395bdc` is qualified offline; writer `42f6ee1` remains unrun in the saved receipt. R15 browser HTTP 200/output and native Castle 403 still have no actual native projection. `db1eb359` remains separate synthetic evidence. |
-| Extend the source mapping | This structure lane | Newly supplied structural projection or a specific source correction | All supplied differences mapped through `6e751e6`; owner reports all 16 unchanged comparator cases passing. |
-| Verify recovery across the six existing sessions | Transport/config owner | Per-session identity/accounting comparison and loaded-hook evidence | This structure session is ACTIVE with matching native identity, objective and creation time, retained usage, and one denied non-mutating probe. This does not establish the other five sessions' results. |
+| Capture actual native-token structure | Runtime owner named above | Owner-qualified package and explicitly authorized observation using the original token and lease | Observer `1395bdc` and writer `42f6ee1` are qualified offline. R15 browser HTTP 200/output and native Castle 403 still have no actual native projection. `db1eb359` remains separate synthetic evidence; no live retry is queued. |
+| Extend the source mapping | This structure lane | Newly supplied structural projection or a specific source correction | All supplied differences mapped through `6e751e6`; owner reports 17 comparator cases PASS (`a489c417`) and 15 projection cases PASS (`014e8aaf`). |
+| Restore transport's original native binding | Admission/T3 repair owner | Supported reattachment and preventive source fix, preserving the original goal | At `303f00e`, hook activation was verified in all six sessions. Transport alone used a replacement binding; its original goal remained intact/BLOCKED. No global restart is scheduled. |
 
+The following activation failures and isolated checks are historical evidence.
 The isolated fixture denied a nested blocked transition after same-process
-configuration reload and retained its goal through cold resume. This does not
+configuration reload and retained its goal through cold resume. That did not
 establish live T3 activation. Transport's negative control in `9146049` showed
 that starting a fresh turn without the explicit reload still allowed the blocked
 call on a disposable fixture goal. Its pinned-source trace identifies SIGHUP as
 graceful shutdown, not config reload; no live signal or shared-goal change occurred.
-Neither mechanism supplies the missing live-activation evidence.
+Neither mechanism supplied live-activation evidence.
 
 The transport owner subsequently reported an accepted blocked transition in its
 existing live session after three consecutive turns with no authorized action.
 The still-loaded native requirement prevailed over the conversation guidance.
 This was a required transition, not a diagnostic attempt or completion claim.
 The full objective, original goal identity, creation time and accounting were
-retained. This establishes a live enforcement failure in that session; it does
-not measure another session or change another owner's work.
+retained. This established a live enforcement failure in that session at that
+time; it did not measure another session or change another owner's work.
 
-User-authorized recovery supersedes the earlier quiet window. This session's
-native ID, exact objective and creation time match the saved preload, and its
-usage counters are retained. One `policy_probe` call was rejected with
-`Goal blocking guard loaded; non-mutating activation probe.` A subsequent
-`get_goal` returned ACTIVE. The separate internal goal UUID is not exposed by
-that tool and was not independently re-read here. The receipt was sent to
-transport. Continue authorized source work; no further restart or hook change
-is assigned to this lane.
+Current recovery evidence is transport commit `303f00e`: all six existing
+sessions denied one non-mutating `policy_probe` through the installed hook.
+The original goals in all five other sessions were ACTIVE with unchanged
+objectives and retained accounting. Transport also verified the internal goal
+IDs in the saved preload. This structure session's own receipt matched its
+native ID, objective and creation time, with retained usage and ACTIVE status.
 
-Keep the current anti-blocking guidance until the config owner verifies live
-activation, then remove only its redundant wording.
+Transport's replacement native binding remains a separate repair action above;
+the installed hook does not repair that association. The earlier quiet window
+is retired. Continue authorized source work without another probe or restart.
+
 Retain concrete progress, action ownership/input/evidence, full-outcome completion,
 runtime guards and accounting preservation. No status-only loops, session polling,
 duplicate execution or invented work are authorized. Do not edit stored objectives.
@@ -449,13 +454,27 @@ The runtime owner reports all 17 cases PASS in receipt `a489c417`, with a
 22,474,752-byte peak, zero swap/events and unit absent. No cases ran here.
 Owner fixture entry: `python3 -B reference/fixtures/v2_structure_compare_tests.py`.
 
-## Projection error-context correction
+## Projection boundary corrections
 
 Branch `fix/token-projection-error-context` starts from exact parent
-`48ea42c0a5ed1a9115f2708bf7571df6b67a7502`. Only the report failure wrapper
-changes: its fixed error follows the handler and unchanged `finally` cleanup.
-The validators, successful results and schemas remain unchanged. The 12 inert
-cases are **UNRUN here**, including context/cause assertions and a control-flow
-failure that must propagate while mutable input is cleared. This is exception
-chaining hygiene, not a promise of erasing traceback locals or immutable strings.
-Next owner entry: `python3 -B reference/fixtures/v2_token_projection_tests.py`.
+`48ea42c0a5ed1a9115f2708bf7571df6b67a7502`. Commit `7ca35a9` changes the failure
+wrapper: its fixed error follows the handler and unchanged `finally` cleanup.
+Its 12 inert cases included context/cause assertions and a control-flow failure
+that must propagate while mutable input is cleared. This is exception chaining
+hygiene, not a promise of erasing traceback locals or immutable strings.
+
+Follow-up `88282d6`, based on `7ca35a97a7ada09a16866bdaac796af8038cae16`,
+requires plain string keys in each detached entry after `_structure` validation.
+Together with the existing exact-key-set check, this keeps emitted names
+canonical. Three added cases cover ordinary subclasses and disguised aliases
+of all four entry keys, plus unchanged nonempty parser output. Refusals retain
+input clearing and absent context/cause. `_pairs`, `_structure`, `_metadata`,
+successful output, and `finally raw.clear` remain unchanged.
+
+The runtime owner integrated these as `6e965e3` and `f39e92e`, then qualified
+all 15 combined cases **PASS**. Exact receipt:
+`014e8aaf11a3aab4164ba2de5e65573d79e5d41b6cc5475bc07d18d06d259bb3`.
+Peak memory was 17,879,040 bytes, with zero swap, memory or pids events, unchanged
+inputs and the group absent afterward. All 15 cases remain **UNRUN here**;
+the receipt belongs to the runtime owner and makes no live-acceptance claim.
+Owner fixture entry: `python3 -B reference/fixtures/v2_token_projection_tests.py`.
