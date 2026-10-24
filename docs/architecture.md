@@ -49,6 +49,9 @@ byte length. The five group headers plus field lengths must account for the
 consumed section exactly. Duplicate JSON keys, unknown fields and malformed
 facts refuse the report with a fixed error. Mutable input buffers are cleared
 on both outcomes; this is not a secure-erasure guarantee for Python strings.
+After validation, the projection refuses non-plain entry keys so equal string
+subclasses cannot emit different text. Fixed errors are raised after the handler
+and input clearing, without retaining the caught exception as their context.
 The projection grants no token, authentication or dispatch authority and is
 not connected to serving. The parser and private-pipe owner remain separate.
 The diagnostic parser reads exactly groups 0/4/7/8/9, with bounded generic
