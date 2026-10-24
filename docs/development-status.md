@@ -18,8 +18,12 @@ The API and comparison executable compile; all 24 focused Rust cases pass,
 including actual loopback headers, authentication, cancellation, current-jar
 ownership and the new envelope cases. The first focused build failed because
 the test-selection script omitted complementary cfg branches; its corrected
-snapshot passed without a production change. Next, integrate the passive
-app AI-policy preflight and freeze a fresh comparison against R16's history.
+snapshot passed without a production change. The passive app AI-policy
+preflight is now integrated. All 136 focused Python and 58 JavaScript cases
+pass, including personal spaces without organization configuration. One stale
+realm-test expectation was corrected to include the new policy evaluation;
+the original failed result is retained. Next, freeze a fresh comparison
+against R16's full history and recheck admission.
 R17 remains unrun. Its finalizer now parks both comparison outcomes instead of
 starting the older staged daemon on success. All 28 inert finalization cases
 pass, including refusal of incomplete cleanup and mismatched history. The first
