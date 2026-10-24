@@ -14,6 +14,7 @@ use sha2::{Digest, Sha256};
 #[path = "worker_metadata.rs"] mod metadata;
 #[path = "worker_failure.rs"] mod failure;
 pub use failure::WorkerStage;
+#[path = "worker_v2_metadata.rs"] pub mod v2_metadata;
 #[path = "worker_device.rs"] mod device;
 pub use metadata::Metadata;
 pub use device::SavedDevice;
