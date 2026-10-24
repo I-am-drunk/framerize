@@ -16,6 +16,16 @@ token/current cookie_header/page_url/device/effective_proxy (None is direct).
 Finish/discard return only identity, state='released' or 'fenced', and
 browser_settled. Their retained completion has no deadline-based release.
 
+Version 2 adds a provenance UUID to acquire and every context-bearing reply.
+It acquires a read-only snapshot and private wrapper handle, with no token.
+Baseline takes identity/action/bearer/body, mints once and consumes one fetch.
+Only an accepted, unchanged baseline enables identity/action mint_native once.
+Both mints use existing host spacing, device cooldowns and request accounting.
+The original acquire deadline spans every phase; waiter loss fences admission
+while raw RPC and phase owners finish. Final receipts keep only identity,
+state and browser_settled. The retained JS handle is disposed without closing
+the browser. No live activation or validation is claimed by this source.
+
 The selected HTTP-200 page may be /login. Project authority comes solely
 from the completed response provenance. No editor readiness is consulted.
 Wrapper metadata must be a frozen data record created at the actual cache
@@ -25,16 +35,22 @@ retain the native operation until its settlement; this module proves neither
 native settlement nor page-script quiescence beyond its observed barriers.
 """
 import asyncio
+import hashlib
+import json
+import math
 import re
+import time
 import uuid
 from urllib.parse import urlsplit
 
 from contextual_authorization import cookies_for_url, snapshot_header, login_cookie
+from contextual_authorization import baseline_result, comparison_json
 from resident_activity import ActivityLedger, ResidentRefused
 
 COMMAND = 'resident_authorization_once'
 LIMIT = 16 * 1024
 MAX_BUDGET_MS = 45_000
+BODY_LIMIT = 64 * 1024
 IDENTITY = frozenset(('version', 'account', 'application_generation',
     'host_generation', 'account_incarnation', 'lease'))
 # Exact inference routes from crates/framer-api/src/routes; no utility routes.
@@ -72,6 +88,9 @@ def validate_request(request):
                              'cookie_header', 'budget_ms'},
                   'finish': {'native_state', 'admission'},
                   'discard': {'native_state'}}
+        if type(request.get('version')) is int and request['version'] == 2:
+            extras.update(baseline={'bearer', 'body'}, mint_native=set())
+            extras['acquire'] = extras['acquire'] | {'provenance'}
         if type(action) is not str or action not in extras:
             _refuse()
         required = IDENTITY | {'action'} | extras[action]
@@ -82,7 +101,7 @@ def validate_request(request):
         if 'id' in request and (type(request['id']) is not int
                                or not 0 <= request['id'] < 2 ** 64):
             _refuse()
-        if (type(request['version']) is not int or request['version'] != 1
+        if (type(request['version']) is not int or request['version'] not in (1, 2)
                 or not _uuid(request['account']) or not _uuid(request['lease'])
                 or not _positive(request['application_generation'])
                 or not _positive(request['account_incarnation'])
@@ -90,6 +109,12 @@ def validate_request(request):
             _refuse()
         if action == 'acquire':
             _validate_acquire(request)
+            if request['version'] == 2 and not _uuid(request['provenance']):
+                _refuse()
+        elif action == 'baseline':
+            return _validate_baseline(request)
+        elif action == 'mint_native':
+            pass
         elif action == 'finish':
             if (type(request['native_state']) is not str or request['native_state'] != 'settled'
                     or type(request['admission']) is not str
@@ -100,6 +125,31 @@ def validate_request(request):
         return dict(request)
     except (ValueError, TypeError, AttributeError, OverflowError):
         _refuse()
+
+
+def _validate_baseline(req):
+    if not _text(req['bearer'], LIMIT) or type(req['body']) is not dict:
+        _refuse()
+    def plain(value, depth=0):
+        if depth > 64:
+            _refuse()
+        if type(value) is dict:
+            if any(type(k) is not str or k == 'castleToken' for k in value):
+                _refuse()
+            for item in value.values():
+                plain(item, depth + 1)
+        elif type(value) is list:
+            for item in value:
+                plain(item, depth + 1)
+        elif value is not None and type(value) not in (str, int, float, bool):
+            _refuse()
+    plain(req['body'])
+    body = json.dumps(req['body'], ensure_ascii=False, allow_nan=False,
+                      separators=(',', ':'))
+    if len(body.encode('utf-8', 'strict')) > BODY_LIMIT:
+        _refuse()
+    # Own a deep wire copy; a caller cannot change the body after admission.
+    return dict(req, body=json.loads(body))
 
 
 def _validate_acquire(req):
@@ -256,8 +306,16 @@ class ResidentControl:
         req = validate_request(request)
         try:
             if req['action'] == 'acquire':
+                if req['version'] == 2:
+                    binding = _CrossoverBinding(self, req)
+                    lease = binding.ledger.acquire(req['lease'])
+                    op = _CrossoverOperation(self, req, binding, lease)
+                    lease._resident_operation = op
+                    return await op.phase_call(req)
                 return await self._acquire(req)
             op = self._lookup(req)
+            if req['action'] in ('baseline', 'mint_native'):
+                return await op.phase_call(req)
             op.close(req['native_state'], req.get('admission', 'resume') == 'resume')
             return dict(await asyncio.shield(op.completion))
         except Exception:
@@ -409,3 +467,298 @@ class _Operation:
             if self.owner.done():
                 self.binding = None
         return dict(self.identity, state=state, browser_settled=settled)
+
+
+RESIDENT_PIN_JS = r"""(pin, input) => {
+  try {
+    const field = (object, key) => Object.getOwnPropertyDescriptor(object, key)?.value;
+    return !!pin && pin.realm === window && pin.doc === document
+      && pin.storage === window.localStorage && location.href === input.page_url
+      && pin.storage.getItem('__cuid') === input.device
+      && field(window, '__fzResidentWrapper') === pin.record
+      && field(window, '__fzCastleM') === pin.module
+      && !!pin.record && Object.isFrozen(pin.record)
+      && field(pin.record, 'realm') === pin.realm
+      && field(pin.record, 'module') === pin.module
+      && field(pin.record, 'url') === input.wrapper_url
+      && field(pin.record, 'entry') === input.wrapper_export
+      && typeof pin.callable === 'function'
+      && field(pin.record, 'callable') === pin.callable
+      && field(pin.module, input.wrapper_export) === pin.callable;
+  } catch (_) { return false; }
+}"""
+
+RESIDENT_CAPTURE_JS = r"""input => {
+  const field = (object, key) => object && Object.getOwnPropertyDescriptor(object, key)?.value;
+  const record = field(window, '__fzResidentWrapper');
+  return Object.freeze({realm: window, doc: document, storage: window.localStorage,
+    record, module: field(window, '__fzCastleM'), callable: field(record, 'callable'),
+    check: __RESIDENT_PIN_CHECK__});
+}""".replace('__RESIDENT_PIN_CHECK__', RESIDENT_PIN_JS)
+
+RESIDENT_PINNED_MINT_JS = r"""async (pin, input) => {
+  if (!pin.check(pin, input)) return {ok: false, code: 'resident_context'};
+  const result = await (__RESIDENT_MINT__)(input);
+  return pin.check(pin, input) ? result : {ok: false, code: 'resident_context'};
+}""".replace('__RESIDENT_MINT__', RESIDENT_MINT_JS)
+
+RESIDENT_FETCH_JS = r"""async (pin, input) => {
+  const out = {status: null, content_type: null, body: '', bytes: 0,
+    complete: false, started: 0, finished: 0, settled: false,
+    failure: null, elapsed_ms: 0};
+  const controller = new AbortController(), start = performance.now();
+  const timer = setTimeout(() => controller.abort(), input.timeout_ms);
+  let reader;
+  try {
+    if (!pin.check(pin, input)) {out.failure = 'context_changed'; return out;}
+    const payload = JSON.parse(input.body);
+    if (!payload || Array.isArray(payload) || typeof payload !== 'object'
+        || Object.hasOwn(payload, 'castleToken')) throw new Error('body');
+    payload.castleToken = input.token;
+    out.started = 1;
+    const response = await fetch('https://api.framer.com' + input.path, {
+      method: 'POST', credentials: 'include', redirect: 'error', cache: 'no-store',
+      headers: {'Content-Type': 'application/json; charset=utf-8',
+        'X-Requested-By': 'Framer', Authorization: 'Bearer ' + input.bearer},
+      body: JSON.stringify(payload), signal: controller.signal
+    });
+    out.status = response.status;
+    out.content_type = (response.headers.get('content-type') || '').slice(0, 256);
+    if (!response.body) {out.failure = 'body'; return out;}
+    reader = response.body.getReader();
+    const decoder = new TextDecoder('utf-8', {fatal: true});
+    while (true) {
+      const chunk = await reader.read();
+      if (chunk.done) {
+        out.body += decoder.decode(); out.complete = true; break;
+      }
+      if (chunk.value.byteLength > 65536 - out.bytes) {
+        out.failure = 'response_limit'; out.body = ''; return out;
+      }
+      out.bytes += chunk.value.byteLength;
+      out.body += decoder.decode(chunk.value, {stream: true});
+    }
+    if (!pin.check(pin, input)) out.failure = 'context_changed';
+  } catch (_) {
+    out.failure = controller.signal.aborted ? 'timeout' : 'transport';
+    out.body = '';
+  } finally {
+    // Keep the abort timer alive until body cancellation itself settles.
+    controller.abort();
+    try {
+      if (reader) {await reader.cancel(); reader.releaseLock();}
+      out.settled = true; out.finished = out.started;
+    } catch (_) {out.failure = 'unconfirmed'; out.settled = false;}
+    if (out.settled && !pin.check(pin, input)) out.failure = 'context_changed';
+    clearTimeout(timer);
+    out.elapsed_ms = Math.max(0, Math.trunc(performance.now() - start));
+  }
+  return out;
+}"""
+
+
+class _CrossoverBinding(_Binding):
+    def __init__(self, control, req):
+        self.provenance = req['provenance']
+        super().__init__(control, req)
+
+    def check(self):
+        super().check()
+        if getattr(self.evidence, 'provenance', None) != self.provenance:
+            _refuse()
+
+
+class _ResidentRate:
+    """Use the existing host policy without importing or entering that host."""
+    def __init__(self, binding, device):
+        self.binding, self.device = binding, device
+        host, acc = binding.control.host, binding.acc
+        self.window, self.note = host._request_window, host._note_request
+        policy = getattr(self.window, '__func__', self.window).__globals__
+        self.gap, self.capacity = policy['MINT_GAP_S'], policy['DEV_WINDOW_CAP']
+        if (type(self.gap) not in (int, float) or not math.isfinite(self.gap)
+                or self.gap < 0 or type(self.capacity) is not int or self.capacity <= 0):
+            _refuse()
+        self.lock, self.cooling, self.requests = acc.mint_lock, acc.dev_cooling, acc.dev_reqs
+        self.key = None if binding.owner is acc else device
+
+    def check(self):
+        b, acc, now = self.binding, self.binding.acc, time.monotonic()
+        b.check()
+        if (acc.mint_lock is not self.lock or acc.dev_cooling is not self.cooling
+                or acc.dev_reqs is not self.requests or self.cooling is not b.life.cooling
+                or self.requests is not b.life.requests):
+            _refuse()
+        for key in {self.key, self.device}:
+            if (self.cooling.get(key, 0) > now
+                    or len(self.window(acc, key, now)) >= self.capacity):
+                _refuse()
+
+
+class _CrossoverOperation(_Operation):
+    def __init__(self, control, req, binding, lease):
+        super().__init__(control, req, binding, lease)
+        self.phase, self.pin, self.context = 'new', None, None
+        self.baseline_digest = self.rate = None
+
+    async def phase_call(self, req):
+        action = req['action']
+        expected = {'acquire': 'new', 'baseline': 'acquired',
+                    'mint_native': 'baseline_passed'}
+        if (self.phase != expected.get(action) or self.closed or self.failed
+                or (self.owner is not None and not self.owner.done())):
+            _refuse()
+        self.admitted()
+        self.phase = action + '_pending'
+        self.owner = self.control._retain(self.run_phase(action, req))
+        try:
+            remaining = self.deadline - asyncio.get_running_loop().time()
+            await asyncio.wait_for(asyncio.shield(self.owner), max(0, remaining))
+            if self.closed or self.payload is None:
+                _refuse()
+            if action != 'baseline':
+                self.admitted()
+            payload, self.payload = self.payload, None
+            self.phase = ('baseline_passed' if payload['accepted'] else 'rejected') \
+                if action == 'baseline' else payload['state']
+            return payload
+        except BaseException:
+            self.close('unknown', False)
+            raise
+
+    def arguments(self):
+        return dict(wrapper_url=self.spec['wrapper_url'],
+            wrapper_export=self.spec['wrapper_export'],
+            page_url=self.binding.page_url, device=self.context[1])
+
+    def context_payload(self, state, **fields):
+        return dict(self.identity, state=state, browser_settled=not self.browser_unknown,
+            cookie_header=self.context[0], device=self.context[1],
+            page_url=self.binding.page_url, effective_proxy=self.binding.launch[2],
+            provenance=self.binding.provenance, **fields)
+
+    async def check_pin(self):
+        if await self.snapshot() != self.context:
+            _refuse()
+        if await self.rpc(self.pin.evaluate, RESIDENT_PIN_JS, self.arguments()) is not True:
+            _refuse()
+        if await self.snapshot() != self.context:
+            _refuse()
+
+    async def capture(self):
+        self.context = await self.snapshot()
+        # Publish the handle inside the raw RPC owner, even if its waiter dies.
+        async def capture_owned():
+            self.pin = await self.binding.page.evaluate_handle(
+                RESIDENT_CAPTURE_JS, self.arguments())
+        await self.rpc(capture_owned)
+        await self.check_pin()
+        self.payload = self.context_payload('acquired')
+
+    async def run_phase(self, action, req):
+        try:
+            if action == 'acquire':
+                await self.capture()
+            elif action == 'baseline':
+                await self.baseline(req)
+            else:
+                await self.mint_native()
+        except BaseException as error:
+            if isinstance(error, asyncio.CancelledError):
+                self.browser_unknown = True
+            self.failed = True
+            self.fence()
+            if action == 'baseline':
+                if self.payload is None:
+                    self.payload = self.context_payload('baseline_complete',
+                        status=None, body_complete=False, json_object=False, accepted=False)
+                self.payload.update(accepted=False, browser_settled=not self.browser_unknown)
+
+    async def charged_mint(self):
+        await self.check_pin()
+        if self.rate is None:
+            self.rate = _ResidentRate(self.binding, self.context[1])
+        rate, acc = self.rate, self.binding.acc
+        async with rate.lock:
+            rate.check()
+            if (type(acc.last_mint) not in (int, float)
+                    or not math.isfinite(acc.last_mint) or acc.last_mint < 0):
+                _refuse()
+            gap = rate.gap - (time.monotonic() - acc.last_mint)
+            if gap > 0:
+                if gap >= self.deadline - asyncio.get_running_loop().time():
+                    _refuse()
+                await asyncio.sleep(gap)
+            await self.check_pin()
+            rate.check()
+            self.admitted()
+            # Conservatively charge each attempted genuine mint, even on failure.
+            rate.note(acc, rate.key)
+            acc.last_mint = time.monotonic()
+            try:
+                result = await self.rpc(self.pin.evaluate, RESIDENT_PINNED_MINT_JS,
+                                        self.arguments())
+            finally:
+                acc.last_mint = time.monotonic()
+            if (type(result) is not dict or set(result) != {'ok', 'token'}
+                    or result['ok'] is not True or not _text(result['token'], LIMIT)):
+                _refuse()
+            await self.check_pin()
+            return result['token']
+
+    async def baseline(self, req):
+        token = await self.charged_mint()
+        self.baseline_digest = hashlib.sha256(token.encode()).digest()
+        args = dict(self.arguments(), path=self.spec['path'], bearer=req['bearer'],
+            body=json.dumps(req['body'], ensure_ascii=False, allow_nan=False,
+                            separators=(',', ':')), token=token,
+            timeout_ms=max(1, min(30_000, int(1000 * (
+                self.deadline - asyncio.get_running_loop().time())))))
+        raw = await self.rpc(self.pin.evaluate, RESIDENT_FETCH_JS, args)
+        aliases = {'/ai/v3/openai/responses/': '/ai/v3/responses/',
+                   '/ai/v3/anthropic/messages/': '/ai/v3/messages/'}
+        path = aliases.get(self.spec['path'], self.spec['path'])
+        evidence = baseline_result(dict(handle=self.identity['lease'],
+            project=self.spec['project'], path=path), raw)
+        if not evidence['fetch_settled']:
+            self.browser_unknown = True
+            self.fence()
+        json_object = False
+        if evidence['response_complete']:
+            try:
+                json_object = type(comparison_json(raw['body'])) is dict
+            except (ValueError, TypeError, RecursionError):
+                pass
+        self.payload = self.context_payload('baseline_complete', status=evidence['status'],
+            body_complete=evidence['response_complete'], json_object=json_object, accepted=False)
+        if evidence['status'] == 403 and raw.get('elapsed_ms', 4000) < 4000:
+            self.control.host._cool_device(self.binding.acc, self.rate.key,
+                                            self.identity['account'])
+        await self.check_pin()
+        self.payload['accepted'] = evidence['accepted'] and path in (
+            '/ai/v3/responses/', '/ai/v3/messages/')
+        if not self.payload['accepted']:
+            self.failed = True
+
+    async def mint_native(self):
+        token = await self.charged_mint()
+        if hashlib.sha256(token.encode()).digest() == self.baseline_digest:
+            _refuse()
+        self.payload = self.context_payload('minted', token=token)
+
+    async def complete(self, native_state, resume):
+        try:
+            await asyncio.shield(self.owner)
+            await asyncio.gather(*(asyncio.shield(task)
+                for task in tuple(self.ledger.pending)), return_exceptions=True)
+            if self.pin is not None:
+                # Disposal releases only our JS handle, never a page or browser.
+                # It is retained and joined even when the caller is cancelled.
+                await asyncio.shield(self.ledger.track(self.pin.dispose))
+                self.pin = None
+        except BaseException:
+            self.browser_unknown = True
+            self.fence()
+        receipt = await super().complete(native_state, resume)
+        self.spec = self.context = self.baseline_digest = self.rate = None
+        return receipt

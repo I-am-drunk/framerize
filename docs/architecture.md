@@ -51,7 +51,7 @@ now use the account ledger. Pending raw RPCs remain owned after waiter loss;
 uncertain activity refuses resident acquisition without stopping other accounts.
 
 The private Python resident operation selects only retained browser HTTP-200
-provenance and calls its proven cached wrapper once. It never creates a page,
+provenance and calls its proven cached wrapper once per mint. It never creates a page,
 navigates, repairs a cache, uses token pooling or falls back to a forged token.
 Its acquire/finish/discard lifetime retains the account through native settlement.
 Startup configuration must supply the application generation before the bridge
@@ -59,6 +59,14 @@ starts. Ambient environment alone cannot enable it through the Rust bridge.
 Embedded scripts and the optional runtime package include its dependencies.
 These source changes do not modify an already-running Python host, and the
 existing serving owner has no hot-add mechanism for this operation.
+
+Version 2 retains one wrapper handle across snapshot-only acquire, a real
+browser baseline and a separate native mint. The baseline includes the current
+jar using the serving browser's credentials/header contract and consumes its
+own token. Only an accepted, settled baseline permits the second mint; that
+token must differ from the first. Existing device pacing and cooldown accounting
+still apply. Finalization joins handle disposal and all retained browser RPCs.
+Version 1 still mints during acquire and is not used for this ordered pair.
 
 The resident control coordinator has a source-only retained worker and strict
 private reply validation. Its server admission selects only an idle existing
