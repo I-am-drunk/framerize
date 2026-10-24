@@ -1,7 +1,28 @@
 # V2 worker cleanup and factory realm ownership
 
+The shared goal is a fresh valid browserless mint and accepted native Framer
+inference, with verified account isolation, matched identity/egress, cooldowns
+and joined cleanup. Every lane contributes to that same outcome. A delivered
+source change or passing synthetic operation does not complete the goal.
+Accepted native inference remains unverified in the evidence recorded here.
+
+The user's shared-goal policy prohibits voluntary blocked transitions because
+a lane finished, a reply is pending, a cooldown applies, local work is exhausted
+or another owner must act. Record the dependent action, its owner, required
+input and last verified evidence. Continue concrete authorized work without
+repeated status-only turns, session polling, duplicate runs or invented tasks.
+Pause only on the user's request; complete only after verifying the full goal.
+
+Preserve the existing goal identity, full objective and usage accounting. Do
+not clear/recreate the goal or use `/goal edit` until an accounting-preserving
+path is verified. This policy updates guidance, not the stored objective.
+The structure lane owns prompt propagation; the transport lane owns T3
+enforcement and AGENTS changes. Prompt text cannot override a higher-priority
+native tool requirement: disclose any actual conflict and resolve enforcement
+with the config owner. This note is not evidence that enforcement has changed.
+
 Branch: `goal/browserless-v2-runtime`. Realm fixture source base: `1faffdd3`.
-Status: worker correction and three no-SDK realm cases qualified by the owner.
+Source status: worker correction and three no-SDK realm cases owner-qualified.
 Tests and SDK/runtime execution remain UNRUN here. Owner
 `544711e3-0b76-4cb4-9732-124a0486847e` retains
 qualification, integration, private state, accounts, services and requests.
@@ -182,7 +203,11 @@ parsed those three files as inert text, with zero parse failures. Semantic
 coverage is partial and its unknown limit was reached; 493 other files were
 outside selection. The ordering conclusion uses the exact source chain above.
 
-Exact next action: the runtime owner selects the next comparison using its
-qualified realm profile and retained account, identity, egress, cooldown and
-cleanup evidence. Future runtime source direction is also owner-held. This
-lane adds no execution or inference request; the full goal remains active.
+Dependent action: runtime owner `544711e3-0b76-4cb4-9732-124a0486847e`
+selects the next comparison. Required input is the owner-qualified realm
+package plus retained account, identity, egress, cooldown and cleanup checks.
+Last verified evidence is synthetic receipt `db1eb359`, joined with its token
+discarded; the last live result recorded here is R14's native 403 refusal.
+Future runtime source direction remains owner-held. This dependency neither
+completes nor establishes a blocker for the shared goal. This note queues no
+execution or inference request.
