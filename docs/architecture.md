@@ -5,22 +5,23 @@ The final ordinary-V2 source input `838f7dbb` retains one checked transfer for
 the original grant/session/scope, including concurrent preparations. Failed
 or abandoned transfers are not repeated. Per-mint host checks and joined
 finish remain. Producer route and primary-observation corrections are also
-integrated. This final source still awaits its selected qualification.
+integrated. Its 31 Rust and 48 Python/Node synthetic cases pass, and the
+production executable links. Prepared-host staging and live acceptance remain.
 The reviewed normal launch selects browser-request ownership and a pinned
 Python host explicitly. Fixture success does not attest a live registration
 release: the existing chain log precedes that transition. The rollout keeps
 the unmanaged-host retirement barrier and requires separate runtime evidence.
 
 The separate ordinary-V2 integration branch adds explicit `--offline-sdk v2`
-selection and now includes the intermediate producer, consumer and support
-package from `8381616`. Missing, foreign or stale SDK observation proof is
+selection and includes the final producer, consumer and support source from
+`838f7dbb`. Missing, foreign or stale SDK observation proof is
 rejected instead of substituting an HTTP device value. Published producer
-corrections cover ambient-proxy route mismatch and unrelated-page invalidation;
-their final integration remains pending. The consumer must transfer once per
+corrections cover ambient-proxy route mismatch and unrelated-page invalidation.
+The consumer transfers once per
 original grant/session and retain that checked proof across response chunks.
-Repeated attachment after the grant sequence advances is refused. A consumer
-correction is in progress; per-mint host validation and rate ownership remain.
-This assembly is unqualified and does not change the browserless branch or
+Repeated attachment after the grant sequence advances is refused; cached proof
+supports later preparations while per-mint checks and rate ownership remain.
+This source/build qualification does not change the browserless branch or
 running service. The ten startup passes belong to the earlier `3d52cde`
 assembly; they are not qualification of this transfer implementation.
 The selected transfer contract requires one read-only retained-anchor check

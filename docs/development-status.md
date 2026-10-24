@@ -22,21 +22,20 @@ status documents conflicted; both sets of results are retained below. This
 merge does not repeat their tests or extend those results to the SDK transfer.
 Final transfer input `838f7dbb` is now integrated. All 22 incoming paths match
 their owner bindings, while all 37 core files match the completed intermediate
-build. The newer typed-capacity and router work is preserved. Qualification
-will cover 31 bound Rust cases and 48 Python/Node cases; none has run yet on
-this final input. The explicit prepared host remains required for runtime.
-Intermediate transfer assembly `8381616` is now integrated: all 21 incoming
-paths match and the 27 selected Rust cases match their published fixtures.
+build. The newer typed-capacity and router work is preserved. All 31 Rust
+cases pass (`292133be`), as do all 48 Python/Node cases (`4f1b5d34`). Test
+compilation passes (`1884a4c5`), all four dependent libraries rebuild, and the
+production executable links (`cbf5e604`, binary `6012de1c`). The explicit
+prepared host remains required for runtime; its package is not yet staged.
 The intermediate core compiles (`6459710f`) with a 167,043,072-byte peak under
 the existing 512 MiB limit, zero swap and no resource-limit events. Its launcher
-is collected, captured child absent and group removed. Reuse requires exact
-core-source equality with the final assembly. Final qualification remains open:
-producer route/primary corrections are published separately, and Transport is
-fixing repeated proof attachment during later response chunks. The checked
-proof must be retained for its original grant/session while each mint keeps
-host revalidation and rate ownership. The provisional 27-case selection has
-not run and will be rebound to the corrected source. No runtime package is
-accepted by this intermediate compile.
+is collected, captured child absent and group removed. Exact core-source
+equality with final integration `8b5a43c` permits reuse. All seven subsequent
+Rust build/test jobs used the shared lock and original limits; captured PIDs
+are absent and units/groups removed. Python terminal, recorded stage PID and
+group cleanup are verified, but its separate external full-PID snapshot was
+missed before completion. That limitation is retained, with no repeat run.
+See `reference/analysis/ordinary-v2-transfer-qualification-20261024.md`.
 
 Branch `integrate/ordinary-v2-identity-20261024` assembles the 15 executable
 paths from ordinary-V2 candidate `fe500a0` onto qualified `0b1107c`.
@@ -52,14 +51,14 @@ and post-handoff results belong to the separate candidate.
 The owners retain fixed base `3d52cde` while this branch combines their work
 with the qualified server corrections. The new checked transfer is tied to
 account, session, incarnation and original grant; HTTP-device fallback is
-removed from the V2 seed path. It remains unqualified. No live activation is
+removed from the V2 seed path. Synthetic qualification passes. No live activation is
 authorized by this integration.
 The selected source contract adds one read-only validation of retained SDK
 anchors immediately before the existing browser close, within its remaining
 deadline. Failed validation refuses transfer without preventing close/join.
 Successful validation plus joined close is a point-in-time guarantee, not
 proof of continuous JavaScript equality or quiescence during close. This
-producer/consumer contract remains unqualified here.
+producer/consumer contract still requires native runtime acceptance.
 
 The six-path typed-capacity input `2f165027` is integrated over `41484eb`.
 Seven core cases pass (`4e10d73d`, 44 source-enumerated scenarios), and six
