@@ -17,6 +17,8 @@ use serde_json::Value;
 mod output_tests;
 #[path = "resident_control_sdk.rs"]
 mod sdk;
+#[path = "resident_control_structure.rs"]
+mod structure;
 
 pub(super) struct Operation {
     capture: Arc<Capture>,
@@ -173,6 +175,9 @@ async fn execute(operation: &Operation, spec: Specification, baseline_turn: Stri
         report.cleanup_confirmed = true;
         (minted.token, None)
     };
+    // Observe the joined, host-confirmed SDK mint without copying its token.
+    // Authorization and send remain separate evidence and may still refuse.
+    if origin.is_some() { structure::record(&token.0, operation.binding.lease); }
     active_until(control, deadline)?;
     let observation = ResidentObservation::from_unverified_reply(&identity, &target.project,
         target.path, &page.page_url, &page.device_id, &acquired.header,

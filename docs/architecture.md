@@ -1,13 +1,15 @@
 # Serving architecture and branch policy
 
-The experimental resident SDK path currently has browser-baseline structural
-observations and separate synthetic worker observations. Those do not describe
-the actual token consumed by a live native request. A bounded Rust projection
-is being prepared for that exact caller boundary; it is not yet wired or
-qualified. It must retain only group/field IDs, type tags and encoded lengths,
-reuse the existing token and lease, and leave all admission and cleanup checks
-in place. Type tags carry limited semantics; matching structure cannot prove
-matching payloads or upstream acceptance.
+The experimental resident SDK path now borrows its existing token after child
+join and same-device host confirmation for a bounded Rust structural projection.
+It emits only group/field IDs, type tags and encoded lengths under the original
+lease. Existing deadline, authorization and send checks follow unchanged.
+The decoder, observer and strict same-lease pairing are qualified offline;
+they have not captured the native token from a live request. R15 still has only
+browser-baseline structure. Type tags carry limited semantics; matching
+structure cannot prove matching payloads or upstream acceptance. Event capture
+also depends on the shared append writer; malformed or missing records cannot
+be replaced with an earlier synthetic observation.
 
 Native response-head diagnostics attach status, fixed HTTP-version and content-
 encoding categories to the existing send invocation counter. They run after
