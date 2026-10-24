@@ -3,6 +3,15 @@
 Updated 2026-10-24. The normal service remains browser-based. Publishing these
 branches does not change the running service.
 
+A separate direct V2 component now uses the unchanged retained Framer SDK
+factory and its configured-instance API with a supplied saved device. Its 14
+inert cases pass, covering exact invocation, private single-use output, device
+drift, deadline and cleanup refusal. An initial fake-window cleanup mismatch
+was corrected without changing production code. The component has no serving
+or native-send integration yet and has not run the SDK. The existing V3 worker
+and its acceptance policy are unchanged. Next is one bounded component run
+with a synthetic device, then an owner-bound handoff if that result qualifies.
+
 The offline worker now accepts the same bound project access-link URLs as
 the native credential target. Six new URL cases and 19 existing worker-source
 cases pass with networking disabled. The original URL and all origin, project,

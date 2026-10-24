@@ -1,0 +1,70 @@
+import fs from 'node:fs';
+import { createHash } from 'node:crypto';
+import { createRequire } from 'node:module';
+import { pathToFileURL } from 'node:url';
+import { performance } from 'node:perf_hooks';
+import { DOM, DOM_PINS, HISTORY, PUBLIC_KEY, SUPPORT } from './pins.mjs';
+import { LegacyV2Operation } from './v2_operation.mjs';
+
+const FACTORY = HISTORY + '/runtime/framer-v2-factory.mjs';
+const FACTORY_HASH = 'df5a150be914e7d267126f35de92934993e7930f18c3fd00bf79a86bd788ec58';
+const count = (report, name) => { report[name] = Math.min(1000000, report[name] + 1); };
+export function verifyV2Inputs() {
+  const files = [[FACTORY, FACTORY_HASH], SUPPORT.settle,
+    ...Object.entries(DOM_PINS).map(([name, hash]) => [DOM + '/' + name, hash])];
+  for (const [path, expected] of files) {
+    if (createHash('sha256').update(fs.readFileSync(path)).digest('hex') !== expected)
+      throw new Error('input-identity');
+  }
+}
+
+const runtime = Object.freeze({
+  now: () => performance.now(), verify: verifyV2Inputs,
+  admit() {
+    const status = fs.readFileSync('/proc/self/status', 'utf8');
+    if (process.version !== 'v24.13.0' || !/^NoNewPrivs:\s+1$/m.test(status)
+        || !/^Seccomp:\s+2$/m.test(status)
+        || !process.execArgv.includes('--max-old-space-size=96'))
+      throw new Error('runtime');
+  },
+  observe(report) {
+    const failed = () => count(report, 'async_errors');
+    const warning = () => count(report, 'diagnostics');
+    process.on('unhandledRejection', failed);
+    process.on('uncaughtExceptionMonitor', failed);
+    process.on('warning', warning);
+    return () => {
+      process.removeListener('unhandledRejection', failed);
+      process.removeListener('uncaughtExceptionMonitor', failed);
+      process.removeListener('warning', warning);
+    };
+  },
+  async createWindow(url, report) {
+    const require = createRequire(import.meta.url);
+    const { JSDOM, VirtualConsole } = require(DOM + '/node_modules/jsdom/lib/api.js');
+    const console = new VirtualConsole();
+    for (const name of ['warn', 'error', 'jsdomError'])
+      console.on(name, () => count(report, 'diagnostics'));
+    const dom = new JSDOM('<!doctype html><html><head></head><body></body></html>', {
+      url, runScripts: 'outside-only', virtualConsole: console,
+    });
+    dom.window.addEventListener('error', () => count(report, 'async_errors'));
+    return dom;
+  },
+  async configure(window, report) {
+    const { default: factory } = await import(pathToFileURL(FACTORY));
+    const sdk = {};
+    factory(sdk);
+    report.configure_calls++;
+    return sdk.configure({ pk: PUBLIC_KEY, window });
+  },
+  async settle(invoke, budget) {
+    const { settleOnce } = await import(pathToFileURL(SUPPORT.settle[0]));
+    return settleOnce(invoke, budget);
+  },
+  async drain() {
+    await new Promise(resolve => setImmediate(resolve));
+    await new Promise(resolve => setImmediate(resolve));
+  },
+});
+export function createLegacyV2Minter(input) { return new LegacyV2Operation(input, runtime); }
