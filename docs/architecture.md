@@ -1,5 +1,11 @@
 # Serving architecture and branch policy
 
+The resident API accepts a typed lease context and actual current cookie jar.
+It permits the captured login-page URL without relaxing comparison editor
+checks, binds the effective launch route, and consumes one retained bearer.
+Its token timestamp starts before acquire. These types validate context;
+the daemon must retain the host lease and prove browser/native settlement.
+
 The private resident RPC client binds the daemon's existing SidecarBridge and
 checks its incarnation while selecting the pipe and registering the reply.
 It cannot start a missing sidecar. Bounded acquire/finish/discard requests use

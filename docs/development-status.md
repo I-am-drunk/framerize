@@ -3,6 +3,15 @@
 Updated 2026-10-24. The normal service remains browser-based. Publishing these
 branches does not change the running service.
 
+The resident API binding compiles and passes all 14 focused inert cases.
+It checks the captured page, lease identity, current jar and launch route,
+retains one bearer for both arms, and preserves token age from before acquire.
+Test peak was 13,635,584 bytes with zero swap or limit events and confirmed
+runner removal. Earlier build admission/cap failures remain recorded. The
+successful build required a narrow expected-source correction for an excluded
+old loopback fixture. These checks do not establish a live owner handoff or
+upstream acceptance. Host and daemon integration remain separate work.
+
 The generation-bound resident RPC client compiles and passes all 10 focused
 inert tests. These cover exact frames, missing/replaced/dead owners, ordinary
 RPC compatibility and cancellation ownership. Test peak was 12,668,928 bytes,
