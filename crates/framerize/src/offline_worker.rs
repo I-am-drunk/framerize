@@ -19,7 +19,7 @@ use super::offline_worker_owner::{Cleanup, Failure, Run, V2Worker, Worker};
 
 #[path = "offline_v2_seed.rs"]
 mod v2_seed;
-pub(crate) use v2_seed::V2SeedBinding;
+pub(crate) use v2_seed::{V2SeedBinding, V2SeedTransfer};
 
 #[derive(Clone)]
 pub(crate) enum WorkerBackend {
