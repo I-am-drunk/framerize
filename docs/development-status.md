@@ -90,6 +90,10 @@ normal readiness wait/disposal completed. This excludes basic field-access
 incompatibility in that fixture. It does not identify R14's failure: its single
 stage still covers predicate waiting, browser RPC, handle disposal and scope
 checks. The next change distinguishes those failures with bounded diagnostics.
+The matching missing-history control also behaved as expected in a real
+browser: both realms returned false, the wait raised `TimeoutError`, and
+the browser exited cleanly with no swap or limit events. These two controls
+used synthetic pages without networking, SDK code or account data.
 
 Preparation now records fixed phases immediately through the existing sidecar
 log, instead of retaining them only in memory until command completion. All
