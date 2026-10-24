@@ -3,6 +3,25 @@
 Updated 2026-10-24. The normal service remains browser-based. Publishing these
 branches does not change the running service.
 
+Three source milestones are qualified for future packages. Dedicated-worker
+cleanup now retains pending termination promises after worker exit and preserves
+termination failures. All 17 inert cases and both real-thread cases pass, with
+a 73,641,984-byte peak and no swap or limit events. The structural comparator
+passes all 16 cases (17,321,984-byte peak). It distinguishes missing observations
+from empty structure and reports only field presence, type and encoded length.
+The pinned-source interpretation note maps four group-7 differences, including
+the limits of Boolean tags, transformed-string lengths and timing-field omission.
+
+Native HTTP now emits fixed response-head facts linked to its existing send
+counter before local encoding/size checks. Production and test compilation pass;
+all seven projection and seven existing send cases pass. Compilation peaked at
+539,000,832 bytes; the test run peaked at 14,729,216 bytes. No swap or limit events
+occurred, and all qualification process groups exited. Request construction,
+acceptance and cleanup are unchanged. These facts cannot explain R14's completed
+403 response, and none of these source updates changes its frozen runtime.
+Next, measure the available Node and JSDOM constructors behind the observed
+lexical-versus-supplied-window distinction without another SDK or live request.
+
 R14 also reached native HTTP with the explicit dedicated-worker V2 profile.
 The normal browser request and paired browser baseline returned HTTP 200
 with output. The isolated SDK completed and native HTTP returned complete
