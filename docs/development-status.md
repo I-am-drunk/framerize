@@ -3,16 +3,14 @@
 Updated 2026-10-24. The normal service remains browser-based. Publishing these
 branches does not change the running service.
 
-Native graphics feasibility is now measured without a browser. The installed
-EGL driver can create a real offscreen context and render shader-driven pixels,
-but full rendering hit the 128 MiB limit; an alternative renderer was OOM-killed.
-A separate context/query-only run passed at 55,771,136 bytes with zero swap or
-memory events and verified teardown. That is a component result, not a Node/SDK
-integration or delivery result. Next is a direct native binding measurement.
-See `scripts/experiments/native_gl`; neither running service changed.
-The direct Node/EGL query binding subsequently passed at 47,398,912 bytes,
-with driver field hashes matching Python, lifetime checks and clean teardown.
-DOM/SDK integration and full WebGL behavior remain untested.
+A genuine Mesa WebGL implementation now passes rendering, native-identity and
+cleanup checks at 93,655,040 bytes. Its bounded HTML canvas bridge passes six
+checks with real JSDOM/canvas at 103,636,992 bytes. Both retain the 128 MiB cap,
+zero swap/events and verified teardown. Collection before native context
+allocation resolves the tested combined-memory failure. Earlier failures and
+standalone native-query measurements remain preserved. SDK integration is the
+next step; no live request or service change followed from these component tests.
+See `scripts/experiments/native_gl` for the exact patch and saved-result bindings.
 
 A new bundle fills the SDK's separate dedicated Worker API gap. Its
 two pinned scripts now run in real Node threads with the native user agent.

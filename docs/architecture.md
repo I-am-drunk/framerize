@@ -7,8 +7,10 @@ version or restart the running service.
 
 The experimental `native_gl` probes use installed EGL/GLES with a private
 surfaceless buffer and explicit teardown. They do not create browser processes
-or use the live display. Context queries fit the 128 MiB component cap; full
-shader rendering does not yet qualify. They are not part of the SDK worker.
+or use the live display. The subsequent Mesa WebGL port also passes shader
+rendering and bounded HTML canvas tests within the 128 MiB component cap.
+Its bridge owns at most two contexts, preserves context types and confirms
+native teardown. It is not yet part of the SDK worker.
 
 The native worker can select a separately pinned graphics dependency bundle
 through its existing worker configuration. Its bounded PNG loader is shared
