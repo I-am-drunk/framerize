@@ -3,6 +3,14 @@
 Updated 2026-10-24. The normal service remains browser-based. Publishing these
 branches does not change the running service.
 
+The separate launch-route fixture is integrated as `46a2352`. Its four cases
+pass (`5ddaf7aa`) with a 36,515,840-byte peak under the retained 128 MiB cap,
+zero swap and no memory-limit events. The launcher, direct unit client and
+recorded stage have exited; the unit and cgroup are gone and the shared lock
+is free. This does not claim exhaustive transient descendant capture. A
+separate receipt parser accepts the fixture's interleaved logging; the tests
+were not repeated. The prior 79 V2 results and production binary are unchanged.
+
 The normal-browser rollout proposal now binds the qualified `95f29867`
 executable, explicit ownership startup, seven support files and rollback.
 Its staged package passes static byte/mode/source checks; it has not run.

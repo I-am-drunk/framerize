@@ -7,6 +7,10 @@ or abandoned transfers are not repeated. Per-mint host checks and joined
 finish remain. Producer route and primary-observation corrections are also
 integrated. Its 31 Rust and 48 Python/Node synthetic cases pass, and the
 production executable links. Prepared-host staging and live acceptance remain.
+Four additional inert launch tests cover direct and ambient routes, registered
+route precedence, and environment changes during launch. They exercise the
+real launch/close methods with synthetic factories; they do not prove process
+cleanup or network behavior.
 The reviewed normal launch selects browser-request ownership and a pinned
 Python host explicitly. Fixture success does not attest a live registration
 release: the existing chain log precedes that transition. The rollout keeps
