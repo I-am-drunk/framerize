@@ -1,6 +1,6 @@
 # Development status
 
-Updated 2026-10-23. The normal service remains browser-based. Publishing these
+Updated 2026-10-24. The normal service remains browser-based. Publishing these
 branches does not change the running service.
 
 The deployable graphics worker is now integrated in browserless source and
@@ -10,9 +10,16 @@ zero swap/memory events, discarded token, joined worker and absent unit/group.
 The fixture-only output is removed. A per-window quota retains the bounded PNG
 policy; external/file/other data resources stay disabled. No Rust rebuild is
 needed because the current application accepts explicit worker configuration.
-The bundle is not deployed yet. Next: transfer the isolated instance's real
-history, select this bundle, and perform the bounded real-request check.
-The protected browser service and its configuration remain unchanged.
+The isolated instance now selects this bundle. Its real history was transferred
+and restoration verified, without changing the application binary or routing.
+One live request made one upstream send and received the complete HTTP 403
+security envelope after 3.56 seconds to client headers. Cleanup was confirmed;
+there was no second request or admission refusal. The protected browser service
+remained unchanged. The isolated service's lifetime peak was 93,794,304 bytes,
+with zero sampled swap; this is not successful-delivery memory or latency.
+Canvas support alone did not resolve this refusal. Next: classify the remaining
+unclassified synthetic worker warning with bounded diagnostics, before choosing
+any further compatibility change. The consumed request will not be replayed.
 
 The official Castle documentation has now been checked against our worker.
 Its Browser SDK requires a browser, and its 3.0 migration guide explicitly
@@ -46,11 +53,9 @@ bytes group peak, 12 tasks, zero memory events/swap, two local PNGs and zero
 JSDOM errors. One process warning remains unclassified. The unchanged private
 token pipe, device checks, joined worker, discarded token and final unit/group
 absence all pass. No Rust build, account action or Framer request ran.
-The application worker and both services still do not use this experiment.
-Next: package the qualified dependency/worker variant for the isolated
-instance, retaining actual account history and the protected browser service,
-before the next bounded real-delivery check. Unsupported JSDOM remains a
-documented limitation; this local success does not resolve the live 403.
+The later deployable bundle omits experimental diagnostic output and is selected
+only by the isolated instance, as recorded above. Unsupported JSDOM remains a
+documented limitation; the local success did not resolve the live 403.
 
 The enrollment build is running in its separate loopback instance on port
 8788. A legitimate independent login and its observed device have been imported
