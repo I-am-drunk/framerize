@@ -1,5 +1,7 @@
 """Private read-only bootstrap for an existing resident page. No SDK call."""
 import asyncio
+import json
+import sys
 from resident_activity import ResidentRefused
 from resident_authorization import (
     _text, _positive, _uuid, _valid_page_url, _validate_acquire, ROUTES, LIMIT,
@@ -10,8 +12,14 @@ COMMAND = 'resident_authorization_bootstrap'
 FIELDS = frozenset(('version', 'account', 'application_generation', 'bootstrap',
                     'project', 'path', 'proxy_revision'))
 
-def refuse():
-    raise ResidentRefused('resident bootstrap refused') from None
+class BootstrapRefused(ResidentRefused):
+    def __init__(self, stage):
+        super().__init__('resident bootstrap refused')
+        self.stage = stage
+
+
+def refuse(stage='request'):
+    raise BootstrapRefused(stage) from None
 
 def validate(req):
     try:
@@ -63,14 +71,17 @@ class Bootstrap:
         self.check()
         self.page_url, self.session = self.evidence.page.url, self.acc.session_cookie
         self.ledger = self.life.activity
-        self.lease = self.ledger.acquire(req['bootstrap'])
+        try:
+            self.lease = self.ledger.acquire(req['bootstrap'])
+        except ResidentRefused:
+            refuse('activity')
 
     def check(self):
         host, req, acc, life, e = self.host, self.req, self.acc, self.life, self.evidence
         if (acc is None or life is None or e is None or not e.current()
                 or host.accounts.get(req['account']) is not acc
                 or host.lifecycles.get(req['account']) is not life):
-            refuse()
+            refuse('provenance')
         if (host._closed or host._observed is not None
                 or host.resident_application_generation != req['application_generation']
                 or e.host is not host or e.account != req['account'] or e.acc is not acc
@@ -83,11 +94,11 @@ class Bootstrap:
                 or type(e.launch) is not tuple or len(e.launch) != 4
                 or e.launch[3] is not False
                 or (e.launch[2] is not None and not _text(e.launch[2], LIMIT))):
-            refuse()
+            refuse('account_state')
         if self.lease is not None and (life.activity is not self.ledger
                 or self.ledger.current is not self.lease or self.ledger.fenced
                 or e.page.url != self.page_url or acc.session_cookie != self.session):
-            refuse()
+            refuse('lease_state')
 
     async def rpc(self, call, *args):
         self.check()
@@ -108,20 +119,22 @@ class Bootstrap:
                 or type(self.session) is not tuple or len(self.session) != 2
                 or self.session[0] != 'session' or login_cookie(header) != self.session[1]
                 or (self.evidence.owner is not self.acc and self.evidence.owner.id != devices[0])):
-            refuse()
+            refuse('cookie_context')
         return header, devices[0]
 
     async def run(self):
         try:
             if not _valid_page_url(self.page_url):
-                refuse()
+                refuse('page_url')
             before = await self.snapshot()
             data = await self.rpc(self.evidence.page.evaluate, READ_JS)
             if (type(data) is not dict or set(data) != {
                     'ok', 'page_url', 'device', 'wrapper_url', 'wrapper_export'}
                     or data['ok'] is not True or data['page_url'] != self.page_url
-                    or data['device'] != before[1] or await self.snapshot() != before):
-                refuse()
+                    or data['device'] != before[1]):
+                refuse('wrapper_state')
+            if await self.snapshot() != before:
+                refuse('changed_snapshot')
             _validate_acquire(dict(project=self.req['project'], path=self.req['path'],
                 wrapper_url=data['wrapper_url'], wrapper_export=data['wrapper_export'],
                 cookie_header=before[0], budget_ms=2000))
@@ -137,7 +150,7 @@ class Bootstrap:
         finally:
             receipt = await self.lease.settle('unknown' if self.unknown else 'not_started', True)
         if receipt.state != 'released' or not receipt.browser_settled:
-            refuse()
+            refuse('settlement')
         return dict(result, browser_settled=True)
 
 
@@ -156,5 +169,13 @@ async def command(host, request):
                 done.exception()
         task.add_done_callback(completed)
         return await asyncio.wait_for(asyncio.shield(task), 2)
-    except Exception:
-        refuse()
+    except Exception as error:
+        stage = ('timeout' if isinstance(error, asyncio.TimeoutError)
+                 else error.stage if isinstance(error, BootstrapRefused)
+                 else 'internal')
+        try:
+            print(json.dumps({'event': 'resident.bootstrap.refused',
+                              'stage': stage}), file=sys.stderr, flush=True)
+        except Exception:
+            pass
+        refuse(stage)

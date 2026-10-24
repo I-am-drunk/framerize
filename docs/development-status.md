@@ -3,6 +3,23 @@
 Updated 2026-10-24. The normal service remains browser-based. Publishing these
 branches does not change the running service.
 
+An isolated resident-enabled owner now runs the validated binary and explicit
+sidecar bundle. One normal browser request returned HTTP 200 with model output.
+The subsequent crossover stopped before its baseline or native request. A
+read-only observation found no retained provenance, active Python commands,
+pending RPCs or resident lease. The installed Playwright callback mapper
+reproduces the cause: it writes callback metadata onto the slotted provenance
+object, raising AttributeError during listener registration. Plain-function
+listeners correct this without changing identity or navigation guards.
+All 21 existing provenance cases and three real-Playwright callback cases pass.
+One initial new fixture lacked a cooldown constant; its response was changed
+to HTTP 500 to test listener cleanup without exercising unrelated cooldowns.
+Fixed bootstrap reason diagnostics also pass 11 focused inert cases. These
+changes are not yet deployed. Next: retire the verified idle isolated owner
+with its current rate history preserved, activate the corrected sidecar, and
+establish a working browser page before one fresh crossover. The protected
+browser service remains unchanged; no SDK cause has been established.
+
 The resident admission fix now rejects competing ordinary requests before
 their browser-status probe. It retains the existing account-management guard
 through cleanup; genuine status failures still retain their uncertainty fence.
