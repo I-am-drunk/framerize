@@ -12,7 +12,7 @@ const end = source.indexOf('"""', start + marker.length);
 const literal = source.slice(start + marker.length, end);
 assert.equal(literal.includes('\\'), false);
 const ENGINE = 'https://app.framerstatic.com/chunk-WC34TENX.mjs';
-const POLICY = 'https://app.framerstatic.com/chunk-5PNX2WXY.mjs';
+const POLICY = 'https://app.framerstatic.com/chunk-3W5IVLGF.mjs';
 const PROJECT = 'fixture-project', PAGE = 'https://framer.com/projects/' + PROJECT;
 const PRIVATE = 'private-policy-fixture';
 const keys = ['policy_known', 'ai_disabled', 'policy_project_match',

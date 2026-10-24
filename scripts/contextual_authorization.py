@@ -9,7 +9,7 @@ from urllib.parse import urlsplit
 API = "https://api.framer.com"
 ROUTES = frozenset(("/ai/v3/responses/", "/ai/v3/messages/"))
 LIMIT = 16 * 1024
-COMPARISON_WRAPPER = "https://app.framerstatic.com/chunk-VPFQZMNG.mjs"
+COMPARISON_WRAPPER = "https://app.framerstatic.com/chunk-WA4HVE2H.mjs"
 COMPARISON_EXPORT = "b"
 COMPARISON_BYTES = 64 * 1024
 COMPARISON_SECONDS = 180
@@ -405,7 +405,7 @@ COMPARISON_POLICY = """async ({project, page_url, progress_key}) => {
     if (!object(engine)) return finish();
     stage = 'policy_import';
     progress('policy_module_import');
-    const policy = await import('https://app.framerstatic.com/chunk-5PNX2WXY.mjs');
+    const policy = await import('https://app.framerstatic.com/chunk-3W5IVLGF.mjs');
     progress('policy_module_loaded');
     stage = 'policy_export';
     if (typeof policy.c !== 'function') return finish();

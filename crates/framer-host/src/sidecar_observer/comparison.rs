@@ -62,7 +62,7 @@ impl ComparisonClient {
             json!({"purpose": "baseline_context", "project": &plan.project.0,
                 "path": &plan.path, "cookie_header": cookie_header,
                 "body": &plan.baseline, "native_body": &plan.native,
-                "wrapper_url": "https://app.framerstatic.com/chunk-VPFQZMNG.mjs",
+                "wrapper_url": "https://app.framerstatic.com/chunk-WA4HVE2H.mjs",
                 "wrapper_export": "b"})).await.map_err(|_| FAILURE)?;
         if value["source"] != SOURCE || value["purpose"] != "baseline_context"
             || value["project"] != plan.project.0 || value["path"] != plan.path {

@@ -56,7 +56,21 @@ An isolated browser also delivered the full sequence on success and stopped
 at the correct import label in two deliberately stalled cases. Both timeouts
 kept the RPC owned until context closure; all three contexts closed cleanly.
 Peak group memory was 593,379,328 bytes with no swap or limit events.
-Next, bind this diagnostic to a fresh comparison using R17's preserved history.
+R18 then reached evaluation entry, loaded the engine module and timed out while
+importing the shared policy module. It never reached the policy getter or either
+inference leg. Both cleanup receipts completed; peak group memory was
+1,098,117,120 bytes, with zero swap or limit events. The protected browser was
+unchanged and the isolated owner is parked with its full history.
+The fresh public entry now selects `web.MNQWRMGH.mjs`, policy
+`chunk-3W5IVLGF.mjs` and wrapper `chunk-WA4HVE2H.mjs`. Our old module URLs still
+served valid files, but belonged to the earlier graph. The policy getter and
+wrapper body are unchanged; their asset dependencies changed. Comparison pins
+now follow the new selection. The host, API and comparison executable build
+successfully, and all 140 Python plus 61 JavaScript checks pass. Build peaks
+were 403,652,608, 663,179,264 and 450,957,312 bytes respectively, with zero swap
+or limit events and absent groups. No later live result is claimed, and this
+does not establish the cause of earlier HTTP 403s. Next, freeze R19 against
+the corrected executable and admit it using R18's preserved history.
 
 A traced offline SDK probe identified the browser crash: PulseAudio requests a
 64 MiB shared-memory file, but the comparison runner allowed only 32 MiB.
