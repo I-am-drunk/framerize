@@ -622,14 +622,13 @@ impl NativeHttp {
         // Recheck age immediately before dispatch. No mint/retry is attempted.
         self.validate_request(account, path, &auth, &castle)?;
         let request = self.client.post(format!("{}{path}", self.base))
-            .header(CONTENT_TYPE, "application/json; charset=utf-8")
+            .header(CONTENT_TYPE, "application/json")
             // Inference belongs to the Framer application origin. Keep the
             // truthful native User-Agent and transport; this is not a browser.
             .header(ORIGIN, "https://framer.com")
             // The API is cross-origin. Send only the public application origin,
             // without inventing or disclosing a project page or query string.
             .header(REFERER, "https://framer.com/")
-            .header("x-requested-by", "Framer")
             .header("accept", "*/*")
             .header("accept-encoding", "identity")
             .header(AUTHORIZATION, bearer)

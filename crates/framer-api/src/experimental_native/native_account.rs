@@ -5,6 +5,10 @@
 pub const CAPACITY: usize = 10;
 
 #[cfg(test)]
+#[path = "request_envelope_tests.rs"]
+mod request_envelope_tests;
+
+#[cfg(test)]
 #[path = "idle_shutdown_tests.rs"]
 mod idle_shutdown_tests;
 
@@ -126,7 +130,12 @@ impl RequestContext {
             ("userPrompt", Value::String(self.user_prompt)),
             ("model", model), ("request", self.payload),
         ];
-        let body = Value::Object(pairs.into_iter().map(|(k, v)| (k.to_owned(), v)).collect());
+        // Both public Responses callers keep model inside request only.
+        // Other dialects retain their independently established envelopes.
+        let responses = matches!(route.id, "direct-responses" | "openrouter-responses");
+        let body = Value::Object(pairs.into_iter()
+            .filter(|(key, _)| !responses || *key != "model")
+            .map(|(k, v)| (k.to_owned(), v)).collect());
         Ok((route.path.to_owned(), body))
     }
 }

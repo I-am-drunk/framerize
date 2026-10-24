@@ -268,7 +268,9 @@ impl Peer {
         let body: Value = serde_json::from_slice(&self.request[end..])
             .map_err(|_| "application request JSON")?;
         if head.lines().any(|line| line.split_once(':')
-            .is_some_and(|(name, _)| name.eq_ignore_ascii_case("cookie")))
+            .is_some_and(|(name, _)| name.eq_ignore_ascii_case("cookie")
+                || name.eq_ignore_ascii_case("x-requested-by")))
+            || header_value(head, "content-type")? != "application/json"
             || header_value(head, "authorization")? != "Bearer fixture-application-bearer"
             || header_value(head, "origin")? != "https://framer.com"
             || header_value(head, "referer")? != "https://framer.com/"
