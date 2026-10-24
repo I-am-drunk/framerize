@@ -14,8 +14,10 @@ be replaced with an earlier synthetic observation.
 The source event writer now builds a complete JSON line before one append
 attempt. It does not retry a partial append as fragments. Failure still leaves
 the observation unavailable, and strict consumers must reject incomplete data.
-The core compilation and five focused append fixtures pass. This has not changed
-the running service's retained core library or rebuilt its dependent executable.
+The core compilation and five focused append fixtures pass. A new capture binary
+links this core with rebuilt host, API, store and server libraries. It also includes
+the qualified response-head facts, bearer deadline check and native observer.
+The binary is staged; the running service is unchanged.
 
 The future structure collector decodes each selected event with the shared
 duplicate-key rejection hook before checking its envelope or pairing records.

@@ -71,6 +71,15 @@ disguised string keys, genuine parser output and control-flow exceptions. Inputs
 were unchanged, swap and limit events were zero, and the process group exited.
 Shared validators remain unchanged. This is synthetic qualification only.
 
+The capture executable is now rebuilt with the qualified writer and current
+host, API, store and server sources. All five compilation/link phases pass;
+the final link receipt is `3874154a`, binary SHA-256 `fe48a036`, with a
+608,927,744-byte peak. Every phase had zero swap/limit events and joined cleanup.
+The API build includes the qualified bearer-deadline and response-head changes;
+the final executable includes the native structure observer. This is a staged
+binary, not a deployment or new inference. The next attempt must also freeze
+the collector with its JSON decoder, pair helper and projection dependency.
+
 The request-path correction is integrated as `216350e`. Its exact 19-case
 qualification is reused from receipt `65937832`: all pass, 17,039,360-byte peak,
 zero swap/limit events and process group absent. The preflight now checks the
