@@ -70,4 +70,7 @@ passed at 131,796,992 bytes. The deployable version omits diagnostic files and
 passes at 120,934,400 bytes. Both used the existing owner, discarded the token,
 recorded zero swap/memory events and verified group absence. Graphics status
 does not add fields to the strict worker metadata protocol. These are synthetic
-results; neither service nor an account was touched and no live delivery is proven.
+results. The subsequent owned isolated update and live check are recorded in
+`live-result.json`: one upstream send still returned Framer security 403,
+cleanup was confirmed and no second request ran. The browser service was
+unchanged. No successful delivery is established.
