@@ -63,7 +63,14 @@ The corrected live comparison passed storage readiness and all cookie, login
 and page checks. It still refused locally before any inference transport start.
 Fixed, allowlisted stages separate header equality, minting, rebinding, fetch
 setup and result handling without exposing cookies, tokens or exception text.
-The subsequent live failure is localized to the browser mint call. A lost
+Comparison snapshots sort validated cookies by exact name, preserving the
+relative order of duplicate names. Both baseline barriers still compare the
+complete serialized header exactly against the bearer snapshot. Mismatch
+diagnostics distinguish ordering, membership and values; incoming headers are
+not normalized. Ordinary authorization retains its original serialization.
+R10 stopped at the first equality barrier, before inference, and does not yet
+identify which kind of mismatch occurred.
+The earlier R9 live failure is localized to the browser mint call. A lost
 browser connection and a JavaScript failure inside that call require separate
 diagnostics; neither establishes the cause of earlier remote refusals.
 The mint expression returns its unchanged success object or a fixed failure
