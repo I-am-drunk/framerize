@@ -6,15 +6,18 @@ the original grant/session/scope, including concurrent preparations. Failed
 or abandoned transfers are not repeated. Per-mint host checks and joined
 finish remain. Producer route and primary-observation corrections are also
 integrated. Its 31 Rust and 48 Python/Node synthetic cases pass, and the
-production executable links. Prepared-host staging and live acceptance remain.
+production executable links. Its prepared host and full first-party import
+closure are now staged and validated; native runtime acceptance remains.
 Four additional inert launch tests cover direct and ambient routes, registered
 route precedence, and environment changes during launch. They exercise the
 real launch/close methods with synthetic factories; they do not prove process
 cleanup or network behavior.
-The reviewed normal launch selects browser-request ownership and a pinned
-Python host explicitly. Fixture success does not attest a live registration
-release: the existing chain log precedes that transition. The rollout keeps
-the unmanaged-host retirement barrier and requires separate runtime evidence.
+The normal-route correction now shares the original producer join between
+the response and its cleanup observer. Successful registration completion
+produces a separate release record with server-generated operation IDs.
+All 26 selected cases pass. The reviewed normal launch selects ownership and
+a pinned Python host explicitly. The rollout keeps the unmanaged-host barrier
+and requires same-generation live join and release evidence after approval.
 
 The separate ordinary-V2 integration branch adds explicit `--offline-sdk v2`
 selection and includes the final producer, consumer and support source from
