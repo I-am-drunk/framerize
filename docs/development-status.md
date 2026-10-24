@@ -3,6 +3,15 @@
 Updated 2026-10-24. The normal service remains browser-based. Publishing these
 branches does not change the running service.
 
+A separate offline SDK probe now reproduces a local browser loss during minting.
+It uses the saved public modules in an empty context with networking disabled.
+Setup succeeds, then the browser exits with SIGXFSZ under the comparison
+runner's 32 MiB file-size limit. This identifies a local resource limit, not
+the cause of earlier HTTP 403 responses. The offending allocation and a
+sufficient bounded replacement limit remain unverified. R11 remains unrun
+pending that local qualification. Earlier probe failures are retained, including
+an omitted public-key fixture and a syscall probe's executable-path assertion.
+
 The latest isolated comparison (R10) stopped before minting because its cookie
 header differed from the snapshot used to acquire the bearer. No inference
 transport started, and native inference did not run. Account and browser
@@ -20,7 +29,8 @@ authorization is unchanged. All 73 focused Python cases pass, including twelve
 new ordering cases; the unchanged mint JavaScript reuses its prior browser
 validation. Fourteen synthetic tests of R11's stopped-state adoption and
 outside finish path also pass. R11 is prepared with the tested helper; its next
-live attempt requires the full R10 cooldown and fresh account/resource checks.
+live attempt requires local file-limit qualification, the full R10 cooldown,
+and fresh account/resource checks.
 Authenticated delivery and streaming acceptance remain incomplete.
 
 The earlier isolated comparison (R9) reached the browser mint operation and

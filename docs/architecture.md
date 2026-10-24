@@ -16,6 +16,13 @@ read-only sandbox and confirmed the comparison group is absent. Clean refused
 comparisons retain the stopped owner and full derived cooldown history;
 starting an idle service between failed attempts is unnecessary.
 
+The comparison unit's process resource limits propagate to its child and browser
+through fork and exec. Its 32 MiB RLIMIT_FSIZE caused a SIGXFSZ exit during an
+offline SDK mint, even though the memory cgroup recorded no limit events.
+File-size admission therefore needs separate qualification from memory.
+The separately launched service does not explicitly set that file-size limit;
+its manager default is not established by the comparison's source.
+
 The process owner accepts an explicit task limit up to 256 within a parent
 limit up to 320. Its default remains 96. A network-isolated blank-browser
 startup peaked at 151 tasks and closed normally under the larger limit.
