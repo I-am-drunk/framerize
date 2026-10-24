@@ -30,6 +30,10 @@ The standalone controller defers service startup until it has left its
 read-only sandbox and confirmed the comparison group is absent. Clean refused
 comparisons retain the stopped owner and full derived cooldown history;
 starting an idle service between failed attempts is unnecessary.
+The R17 controller also parks a successful comparison. Its compiled child is
+separate from the older staged daemon. Browser-token delivery cannot authorize
+starting that daemon or certify offline SDK delivery. Standalone deployment
+requires its own corrected executable and validation.
 
 The comparison unit's process resource limits propagate to its child and browser
 through fork and exec. A traced offline SDK mint requested a 64 MiB PulseAudio
