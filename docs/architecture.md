@@ -4,9 +4,10 @@ The experimental resident SDK path now borrows its existing token after child
 join and same-device host confirmation for a bounded Rust structural projection.
 It emits only group/field IDs, type tags and encoded lengths under the original
 lease. Existing deadline, authorization and send checks follow unchanged.
-The decoder, observer and strict same-lease pairing are qualified offline;
-they have not captured the native token from a live request. R15 still has only
-browser-baseline structure. Type tags carry limited semantics; matching
+The decoder, observer and strict same-lease pairing are qualified offline.
+R16 captured baseline and native structure under one lease, with 30 differences;
+its native request was refused. R15 has only browser-baseline structure.
+Type tags carry limited semantics; matching
 structure cannot prove matching payloads or upstream acceptance. Event capture
 also depends on the shared append writer; malformed or missing records cannot
 be replaced with an earlier synthetic observation.
@@ -17,7 +18,7 @@ the observation unavailable, and strict consumers must reject incomplete data.
 The core compilation and five focused append fixtures pass. A new capture binary
 links this core with rebuilt host, API, store and server libraries. It also includes
 the qualified response-head facts, bearer deadline check and native observer.
-The binary is staged; the running service is unchanged.
+The binary was used for the isolated R16 attempt. The normal service is unchanged.
 
 The future structure collector decodes each selected event with the shared
 duplicate-key rejection hook before checking its envelope or pairing records.

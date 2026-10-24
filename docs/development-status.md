@@ -17,7 +17,22 @@ thread. Its older detached goal remains preserved. The old reattachment plan
 is retired and must not overwrite the new goal. T3 source qualification stays
 separate from the Framer runtime work.
 
-R15 completed with normal browser HTTP 200, browser-baseline HTTP 200 and
+R16 completed with normal browser HTTP 200, browser-baseline HTTP 200 and
+native HTTP 403 with the complete Castle security envelope. Cleanup was
+confirmed, the isolated host remains fenced, and the protected service was
+unchanged. Result `16bce73b` binds the intended `fe48a036` executable and
+unchanged realm configuration `514c442b`; all 2,013 activation inputs matched
+afterward. Peak group memory was 1,545,809,920 bytes, with zero swap or memory
+limit events. Actual cooldown history and the isolated owner are retained.
+
+The new observer captured the actual token structure for both phases of R16:
+baseline 105 fields/807 bytes and native 90 fields/567 bytes, paired by lease.
+The qualified comparator reports 30 structural differences. This closes the
+missing native-observation gap; it does not explain the refusal or establish
+native acceptance. No token or decoded field payload was saved. No live retry
+is queued while these new structural facts are assessed.
+
+R15 previously completed with normal browser HTTP 200, browser-baseline HTTP 200 and
 explicit window-realm native HTTP 403. The native response was complete JSON
 with Framer's Castle security envelope. Cleanup was confirmed, the isolated
 host remains fenced, and the protected service was unchanged. The live command,
@@ -42,7 +57,7 @@ The synthetic Rust/Python comparison passes all 231 inputs, including 115
 accepted structures (`b4d75a8b`, peak 57,516,032 bytes). Strict record pairing
 passes all 15 cases (`201bfcaf`, peak 22,142,976 bytes). All groups exited with
 zero swap or limit events; inputs were verified unchanged. No SDK, private
-token or live request was used. Actual native capture remains unmeasured.
+token or live request was used. These fixtures preceded the R16 capture above.
 The shared event writer now buffers JSON plus newline and makes one append
 attempt, refusing short writes without a suffix retry. Core compilation passed
 (`44393cbd`, peak 350,724,096 bytes), as did fixture compilation (`84aae788`,
@@ -63,7 +78,7 @@ and escaped duplicates, fixed errors and successful pairing. Inputs matched;
 no swap or limit events occurred and the test group exited. No private log
 was read. The qualified writer is now linked into the staged capture binary;
 R16 freezes the strict decoder with the collector and its helper dependencies.
-Actual native capture and accepted native inference remain unverified.
+Accepted native inference remains unverified.
 
 The report projection also rejects non-plain entry keys after validation and
 raises fixed failures only after clearing mutable input and leaving the caught
@@ -87,9 +102,9 @@ projection module are frozen together. Package binding is `4c8e143f`, diagnostic
 binding `1ddef66c`. Six synthetic full-collector cases pass (`e26b541b`), covering
 day selection, lease pairing, unavailable native data, duplicate keys, detached
 timestamp errors and ambiguous records. Peak memory was 17,993,728 bytes, with
-zero swap or limit events, unchanged inputs and the test group removed. A prior
-disk preflight refusal ran no cases; disposable caches were reclaimed without
-changing the reserve. No R16 retirement, SDK execution or request has run.
+zero swap or limit events, unchanged inputs and the test group removed. Prior
+disk preflight refusals ran no cases or requests; disposable caches were reclaimed
+without changing the reserve. The subsequent R16 outcome is recorded above.
 
 The request-path correction is integrated as `216350e`. Its exact 19-case
 qualification is reused from receipt `65937832`: all pass, 17,039,360-byte peak,
