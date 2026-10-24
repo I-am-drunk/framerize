@@ -2,14 +2,15 @@
 //! into "switch workspace and keep going".
 //!
 //! Framer credits are WORKSPACE-scoped (per team), so rotation means switching
-//! `current_team` to another team the account owns that still has credits —
-//! or creating a fresh one (endpoint not yet captured, see framer-api/workspace.rs).
+//! the team/project pair to another credited team and its existing project.
+//! Resolution must succeed before either member of that pair is published.
 
 use crate::account::ManagedAccount;
 use crate::error::CoreError;
-use crate::ids::TeamId;
-use crate::pipeline::{default_workspace_spec, Deps};
+use crate::ids::{ProjectId, TeamId};
+use crate::pipeline::Deps;
 use crate::port::Session;
+use crate::workspace::CreditSnapshot;
 
 /// Ensure the account points at a credited workspace. Cheap path: keep the current
 /// team if its cached snapshot still shows credits.
@@ -18,6 +19,9 @@ pub async fn ensure_workspace(
     account: &mut ManagedAccount,
     session: &Session,
 ) -> Result<TeamId, CoreError> {
+    if session.active_user != account.framer_user_id {
+        return Err(CoreError::NotEligible("workspace session owner mismatch".into()));
+    }
     if let Some(team) = account.current_team.clone() {
         match &account.credit {
             Some(credit) if !credit.looks_exhausted() => return Ok(team),
@@ -40,13 +44,16 @@ pub async fn ensure_workspace(
     rotate_workspace(deps, account, session).await
 }
 
-/// Point the account at another of its teams with credits, else create one.
+/// Select another credited team and resolve its existing project before publishing.
 pub async fn rotate_workspace(
     deps: &Deps<'_>,
     account: &mut ManagedAccount,
     session: &Session,
 ) -> Result<TeamId, CoreError> {
-    // 1. Existing teams with credits (from /web/users/me spaces[].ownerId).
+    if session.active_user != account.framer_user_id {
+        return Err(CoreError::NotEligible("workspace session owner mismatch".into()));
+    }
+    // Existing teams with credits (from /web/users/me spaces[].ownerId).
     let me = deps.client.me(session).await.map_err(CoreError::Framer)?;
     if let Some(spaces) = me["spaces"].as_array() {
         for space in spaces {
@@ -57,27 +64,59 @@ pub async fn rotate_workspace(
             }
             if let Ok(snap) = deps.client.usage(session, &team).await {
                 if !snap.looks_exhausted() {
-                    deps.update(account, |current| {
-                        current.current_team = Some(team.clone());
-                        current.credit = Some(snap);
-                    }).await?;
+                    let project = existing_project(deps, account, session, &team).await?;
+                    publish_workspace(deps, account, &team, project, snap).await?;
                     return Ok(team);
                 }
             }
         }
     }
 
-    // 2. Fresh workspace (create-team endpoint not yet captured — see port docs).
-    let team = deps
-        .client
-        .create_workspace(session, &default_workspace_spec())
-        .await
-        .map_err(CoreError::Framer)?;
-    deps.update(account, |current| {
-        current.current_team = Some(team.clone());
-        current.credit = None;
-    }).await?;
-    Ok(team)
+    // Creating a team cannot supply a verified existing project for that team.
+    Err(CoreError::NotEligible("no other credited workspace with an existing project".into()))
+}
+
+async fn existing_project(
+    deps: &Deps<'_>, account: &ManagedAccount, session: &Session, team: &TeamId,
+) -> Result<ProjectId, CoreError> {
+    // Extra scopes were resolved for this account during provisioning.
+    if let Some(scope) = account.extra_workspaces.iter()
+        .find(|scope| &scope.team == team && !scope.project.0.is_empty()) {
+        return Ok(scope.project.clone());
+    }
+    deps.client.team_projects(session, team).await.map_err(CoreError::Framer)?
+        .into_iter().find(|project| !project.0.is_empty())
+        .ok_or_else(|| CoreError::NotEligible("credited workspace has no existing project".into()))
+}
+
+async fn publish_workspace(
+    deps: &Deps<'_>, account: &mut ManagedAccount, team: &TeamId,
+    project: ProjectId, snapshot: CreditSnapshot,
+) -> Result<(), CoreError> {
+    let _update = deps.account_updates.lock().await;
+    let mut current = deps.state.get(account.id).await.map_err(CoreError::Store)?
+        .ok_or_else(|| CoreError::NotEligible("account removed during rotation".into()))?;
+    // Recheck the operation's identity and primary scope under the same lock as
+    // health writers. Preserve unrelated scopes and current health fields.
+    if current.id != account.id || current.framer_user_id != account.framer_user_id
+        || current.castle_device_id != account.castle_device_id
+        || current.current_team != account.current_team
+        || current.current_project != account.current_project || current.proxy != account.proxy {
+        return Err(CoreError::NotEligible("account scope changed during rotation".into()));
+    }
+    // Cached project authority must not outlive a concurrent scope replacement.
+    if !current.extra_workspaces.iter().map(|scope| (&scope.team, &scope.project))
+        .eq(account.extra_workspaces.iter().map(|scope| (&scope.team, &scope.project))) {
+        return Err(CoreError::NotEligible("account workspace scopes changed during rotation".into()));
+    }
+    current.current_team = Some(team.clone());
+    current.current_project = Some(project);
+    current.credit = Some(snapshot);
+    // The promoted team now has a primary slot, not a second round-robin slot.
+    current.extra_workspaces.retain(|scope| &scope.team != team);
+    deps.state.upsert(&current).await.map_err(CoreError::Store)?;
+    *account = current;
+    Ok(())
 }
 
 /// One workspace's credit verdict.
@@ -178,6 +217,10 @@ pub async fn admit(
     }).await?;
     Ok(fresh.team.clone())
 }
+
+#[cfg(test)]
+#[path = "credits_rotation_tests.rs"]
+mod rotation_tests;
 
 #[cfg(test)]
 mod tests {
