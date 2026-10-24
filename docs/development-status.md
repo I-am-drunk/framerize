@@ -22,6 +22,15 @@ log binding observed this result directly. Aligning the cookies did not resolve
 the refusal. This generation peaked at 135,573,504 bytes with zero sampled swap;
 these are failed-request measurements, not successful delivery measurements.
 
+A source-tested diagnostic now records whether the login-token response
+contains cookie updates. The existing control transport discards those headers;
+the saved live evidence cannot say whether any were returned. The diagnostic
+emits only HTTP status and bounded counts for session, device, other and malformed
+cookie headers. It never records values or unknown cookie names and does not
+change cookie handling. All 20 focused authorization and privacy cases pass.
+It is not yet built into the running executable. Its next use is to distinguish
+missing cookie propagation from an absent response update, not to claim a fix.
+
 The deployable graphics worker is now integrated in browserless source and
 validated in a separate pinned bundle. All 34 component cases and a synthetic
 mint through the existing owner pass. The mint peaks at 84516864 bytes with

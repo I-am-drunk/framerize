@@ -1,0 +1,34 @@
+{
+  "status": "SOURCE_TESTED_NOT_DEPLOYED",
+  "cases": [
+    "experimental_native::control_authorization::offline_authorization::tests::actual_project_page_and_supported_route_are_required",
+    "experimental_native::control_authorization::offline_authorization::tests::another_account_generation_cannot_use_the_source",
+    "experimental_native::control_authorization::offline_authorization::tests::authentication_failure_does_not_mint_or_fall_back",
+    "experimental_native::control_authorization::offline_authorization::tests::conflicting_device_refuses_before_authentication_or_mint",
+    "experimental_native::control_authorization::offline_authorization::tests::declared_device_must_match_the_joined_mint",
+    "experimental_native::control_authorization::offline_authorization::tests::different_project_is_rejected_before_authentication_or_mint",
+    "experimental_native::control_authorization::offline_authorization::tests::dropped_waiter_keeps_mint_owned_until_join_then_suppresses_token",
+    "experimental_native::control_authorization::offline_authorization::tests::empty_and_oversize_tokens_never_become_credentials",
+    "experimental_native::control_authorization::offline_authorization::tests::exact_target_issues_once_without_browser_cookie_state",
+    "experimental_native::control_authorization::offline_authorization::tests::future_mint_timestamp_is_rejected_after_join",
+    "experimental_native::control_authorization::offline_authorization::tests::saved_device_follows_the_joined_mint_into_request_cookies",
+    "experimental_native::control_authorization::offline_authorization::tests::scope_tests::joined_result_from_a_different_account_is_never_relabelled",
+    "experimental_native::control_authorization::offline_authorization::tests::scope_tests::joined_result_from_a_retired_generation_is_never_relabelled",
+    "experimental_native::control_authorization::offline_authorization::tests::scope_tests::retired_minter_cannot_supply_a_new_generation_of_the_same_account",
+    "experimental_native::control_authorization::offline_authorization::tests::scope_tests::same_target_cannot_pair_a_different_accounts_minter",
+    "experimental_native::control_authorization::offline_authorization::tests::targetless_entry_never_falls_back_to_browser_or_default_target",
+    "experimental_native::control_authorization::offline_authorization::tests::token_with_unconfirmed_cleanup_keeps_account_closed",
+    "transport::control_response_evidence::tests::absent_cookies_are_distinct_from_truncated_evidence",
+    "transport::control_response_evidence::tests::cookie_evidence_is_bounded_and_names_are_case_sensitive",
+    "transport::control_response_evidence::tests::response_cookie_values_and_unknown_names_cannot_enter_evidence"
+  ],
+  "receipt_sha256": {
+    "send-api-tests-compile": "18db75b71037dd8e724e4f0c3b54abf5037d3dcf0c8a017f828a278761bc18ba",
+    "send-api-run": "6ce15749fc58344dfa95233556d1df2b12722a70a3c49a12ab6c66f0d1eb8164"
+  },
+  "peak_bytes": {
+    "send-api-tests-compile": 634011648,
+    "send-api-run": 31965184
+  },
+  "live_tested": false
+}
