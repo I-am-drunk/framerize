@@ -225,6 +225,8 @@ async fn bind_is_private_and_drop_removes_its_own_socket() {
     assert_eq!(metadata.mode() & 0o7777, 0o600);
     assert_eq!(metadata.uid(), fs::metadata(&temp.0).unwrap().uid());
     assert!(platform::own_socket(&metadata, platform::ObjectId::of(&metadata)));
+    let client = tokio::net::UnixStream::connect(&path).await.unwrap();
+    drop(client);
     drop(bound);
     assert!(!path.exists());
 }
@@ -235,6 +237,20 @@ async fn bind_never_creates_parent_or_accepts_relative_paths() {
     assert!(BoundSocket::bind(&missing.join("socket")).is_err());
     assert!(!missing.exists());
     assert!(BoundSocket::bind(Path::new("relative.sock")).is_err());
+}
+
+#[tokio::test]
+async fn bind_refuses_original_path_beyond_unix_address_capacity() {
+    use std::os::unix::{ffi::OsStrExt, fs::DirBuilderExt};
+    let temp = Temp::new();
+    for name in ["x".repeat(108), "é".repeat(25)] {
+        let parent = temp.0.join(name);
+        fs::DirBuilder::new().mode(0o700).create(&parent).unwrap();
+        let path = parent.join("control.sock");
+        assert!(path.as_os_str().as_bytes().len() > 107);
+        assert!(BoundSocket::bind(&path).is_err());
+        assert!(!path.exists());
+    }
 }
 
 #[tokio::test]

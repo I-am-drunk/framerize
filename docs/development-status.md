@@ -4,7 +4,7 @@ Updated 2026-10-24. The normal service remains browser-based. Publishing these
 branches does not change the running service.
 
 Current-main validation is now prepared in a separate immutable local snapshot.
-It covers all 28 socket and three CLI cases plus a linked daemon build, reusing
+It covers all 29 socket and three CLI cases plus a linked daemon build, reusing
 only verified builds from the current dependency graph. Preparation syntax,
 exact fixture inventories and preservation of the earlier frozen inputs pass.
 No compiler or test ran. At 14:55 UTC on October 24, available host memory was
@@ -12,10 +12,17 @@ No compiler or test ran. At 14:55 UTC on October 24, available host memory was
 the existing reserves. Its launcher was not retried. The next executable step
 remains the prepared core build once sufficient memory is available.
 
+A subsequent socket review found that the short internal bind alias could
+hide an unusably long client path. Startup now rejects original paths beyond
+Linux's 107-byte limit. The new case covers ASCII and multibyte paths; the
+positive case connects through the actual public path. Source review passes,
+but execution is pending. Refreshed r2 snapshots preserve the earlier inputs
+and give the main fixture a private, short temporary path inside its sandbox.
+
 The private resident socket and optional daemon startup wiring are now
 integrated in source. The native-dispatch build accepts an explicit local
 socket with the Camoufox engine and refuses simultaneous offline ownership.
-The socket has 28 inert cases and the CLI binding has three, all uncompiled
+The socket has 29 inert cases and the CLI binding has three, all uncompiled
 and unrun. Client/server field sets and the frame cap match in a static check;
 this is not executable protocol validation or a live crossover.
 

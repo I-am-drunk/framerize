@@ -2,7 +2,9 @@
 
 The optional Linux resident socket is bound at daemon startup, before serving
 or prewarm. It requires an owned private directory and a same-UID peer, caps
-the entire frame at 96 KiB and admits four connections. It installs one shared
+the entire frame at 96 KiB and admits four connections. The original socket
+path is limited to Linux's 107-byte address capacity before binding through
+the pinned directory. It installs one shared
 session boundary and cannot coexist with offline-worker ownership. Disconnects
 request cancellation while retained work joins; an unconfirmed shutdown keeps
 the runtime alive. Its source is integrated but has not been compiled.

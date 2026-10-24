@@ -6,7 +6,7 @@ SUPPORT = ROOT / 'native-resident-worker-preparation'
 sys.path.insert(0, str(SUPPORT))
 from common import *
 from snapshot import validate_snapshot
-from adapters import install
+from adapters import install, replace
 from commands import build, required_sources
 from inventory import CASE
 
@@ -17,7 +17,7 @@ def preparation_files():
 
 def main_cases(directory):
     cases = []
-    for name, prefix, count in [('resident_socket_tests.rs', 'resident_socket::tests::', 28),
+    for name, prefix, count in [('resident_socket_tests.rs', 'resident_socket::tests::', 29),
                                  ('resident_startup_tests.rs', 'resident_startup_tests::', 3)]:
         names = CASE.findall((directory / 'src' / name).read_text())
         assert len(names) == len(set(names)) == count, 'review changed inventory'
@@ -54,11 +54,33 @@ def freeze(b, base):
     PHASES.clear()
     PHASES.update({p: ('framerize', 'run' if p.endswith('-run') else 'test', cap, ()) for p, cap in EXTRA.items()})
     install(b)
+    short_temporary_root(b)
     launcher = b / 'launch_prepared.py'
     text = launcher.read_text().replace('(HERE / "serial.lock")', '(Path(' + repr(str(base)) + ') / "serial.lock")')
     ast.parse(text)
     launcher.write_text(text)
     validate(b)
+
+def short_temporary_root(b):
+    path = b / 'run_validation.py'
+    text = path.read_text()
+    insertion = '    module = types.ModuleType("accepted_dispatch_fixture_runner")'
+    changes = [('"--setenv", "TMPDIR", str(scratch),', '"--setenv", "TMPDIR", "/tmp",'),
+               ('"--bind", str(runtime), str(runtime), "--chdir", str(runtime),',
+                '"--bind", str(runtime), str(runtime), "--bind", str(scratch), "/tmp", "--chdir", str(runtime),')]
+    code = ''.join('    assert source.count(' + repr(old) + ') == 1\n'
+                   '    source = source.replace(' + repr(old) + ', ' + repr(new) + ')\n'
+                   for old, new in changes)
+    text = replace(text, insertion, code + insertion)
+    ast.parse(text)
+    path.write_text(text)
+    path = b / 'receipt_checks.py'
+    text = replace(path.read_text(), '"--setenv", "TMPDIR", str(runtime / "tmp"),',
+                   '"--setenv", "TMPDIR", "/tmp",')
+    text = replace(text, '"--bind", str(runtime), str(runtime), "--chdir", str(runtime)]',
+                   '"--bind", str(runtime), str(runtime), "--bind", str(runtime / "tmp"), "/tmp", "--chdir", str(runtime)]')
+    ast.parse(text)
+    path.write_text(text)
 
 def validate(b):
     item = read(b / 'main-binding.json')

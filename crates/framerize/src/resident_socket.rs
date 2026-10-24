@@ -56,7 +56,7 @@ mod tests;
 mod platform {
     use super::*;
     use std::{fs::{self, File, OpenOptions, Metadata},
-        os::{fd::AsRawFd, unix::fs::{MetadataExt, OpenOptionsExt, PermissionsExt}},
+        os::{fd::AsRawFd, unix::{ffi::OsStrExt, fs::{MetadataExt, OpenOptionsExt, PermissionsExt}}},
         path::{Component, PathBuf}};
     use tokio::net::{UnixListener, UnixStream};
 
@@ -80,7 +80,10 @@ mod platform {
     impl BoundSocket {
         pub(crate) fn bind(socket: &Path) -> io::Result<Self> {
             // No process-wide umask change, mkdir, stale-path removal or retry.
-            if !socket.is_absolute() || socket.components().any(|c|
+            // Clients use this path, not the shorter /proc alias used to bind.
+            // Linux sun_path holds 108 bytes, including the trailing NUL.
+            if !socket.is_absolute() || socket.as_os_str().as_bytes().len() > 107
+                || socket.components().any(|c|
                 matches!(c, Component::ParentDir | Component::CurDir)) { return Err(refused()); }
             let parent = socket.parent().ok_or_else(refused)?;
             let name = socket.file_name().ok_or_else(refused)?;

@@ -6,7 +6,7 @@ binary before starting an owner with `--resident-control-socket`. The selected
 account must already have an idle, successful browser page in that owner.
 The option requires the `native-dispatch` build and `--engine camoufox`.
 Offline-worker and offline-routing options cannot share this startup owner.
-The socket's 28 fixtures and three CLI cases are currently uncompiled and unrun.
+The socket's 29 fixtures and three CLI cases are currently uncompiled and unrun.
 
 The private client is `scripts/resident_control_client.py`. It sends one
 request to the existing Unix socket and prints only fixed diagnostic facts.
@@ -15,7 +15,8 @@ a request. The daemon owns the browser baseline, separate native token mint,
 native send and settlement. Both tokens remain private to that operation.
 
 The socket must have mode `0600` in an existing, canonical `0700` directory
-owned by the invoking user. The client verifies the connected peer's UID and
+owned by the invoking user. The full socket path must be at most 107 bytes.
+The client verifies the connected peer's UID and
 the socket identity before writing. Its request file must be a regular `0600`
 file owned by that user; a symlink is refused. Keep the file outside Git.
 
