@@ -168,7 +168,10 @@ def host_initializer():
     return host_method("_initialize_account", {"Account": FakeAccount})
 
 
-async def launch_fixture(observed, explicit=None, saved=None, *, comparison_phase=None):
+DEFAULT_UBO = object()
+
+
+async def launch_fixture(observed, explicit=None, saved=None, *, comparison_phase=None, memory_addon=None):
     calls, launches, browser = [], [], object()
 
     async def new_browser(driver, **kwargs):
@@ -191,7 +194,7 @@ async def launch_fixture(observed, explicit=None, saved=None, *, comparison_phas
         fail=lambda reason: calls.append(("fail", reason)),
     )
     host = SimpleNamespace(
-        proxies={} if saved is None else {ACCOUNT: saved}, _memory_addon=None,
+        proxies={} if saved is None else {ACCOUNT: saved}, _memory_addon=memory_addon,
         _memory_browser=None, _playwright=object(), _allocation=allocation,
         _browser_runtime=(new_browser, None),
         _initialize_account=initialize,
@@ -208,7 +211,9 @@ async def launch_fixture(observed, explicit=None, saved=None, *, comparison_phas
         time=SimpleNamespace(monotonic=lambda: 0), BROWSER_STARTUP_RESERVE=1,
         trace=lambda *args: None, emit=lambda *args, **kwargs: None,
         AsyncNewBrowser=new_browser, BrowserCloseReceipt=lambda value: object()))
-    result = await launch(host, ACCOUNT, explicit)
+    addons = SimpleNamespace(DefaultAddons=SimpleNamespace(UBO=DEFAULT_UBO))
+    with patch.dict(sys.modules, {"camoufox.addons": addons}):
+        result = await launch(host, ACCOUNT, explicit)
     return host, result, launches, calls
 
 

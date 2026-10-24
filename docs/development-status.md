@@ -30,8 +30,22 @@ and recorded swap and limit events were zero. These findings qualify the
 local caller correction, not the cause of earlier HTTP 403s. The correction
 is now integrated only for the reserved comparison browser. All 148 focused
 Python cases pass, including ordinary authorization, cleanup, cookie checks
-and six new realm-selection cases. The next live comparison is frozen as R12
-with the qualified 64 MiB file cap; it remains unrun.
+and six new realm-selection cases.
+
+Live comparison R12 was killed at its 1.5 GiB child memory limit before it
+saved a result. Request count and remote outcome remain unknown. Same-boot
+system records and process-group absence establish physical closure; they do
+not establish application cleanup or delivery. The protected browser's
+generation was unchanged. The isolated service stays stopped, and the full
+reserved history was preserved and extended through physical closure.
+The kernel selected the browser's WebExtensions process, with about 612 MiB
+anonymous resident memory. Offline R23 excluded default uBlock using the
+supported launch option. Its unchanged SDK completed one V3 mint with stable
+identity, no fallback or error, and clean teardown. Group peak was 614,293,504
+bytes, compared with R22's 833,970,176 bytes, about 210 MiB lower in these two
+empty-fixture samples. This does not establish the real page's peak. The
+comparison-only exclusion is being integrated; ordinary browsers and explicit
+prepared addons retain their existing configuration.
 
 The latest isolated comparison (R10) stopped before minting because its cookie
 header differed from the snapshot used to acquire the bearer. No inference

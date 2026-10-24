@@ -1938,6 +1938,9 @@ class Host:
                 # Only the reserved comparison launch opts into page-owned SDK state.
                 if getattr(scope, "comparison_phase", None) == "context_pending":
                     kwargs["main_world_eval"] = True
+                    if self._memory_addon is None:
+                        from camoufox.addons import DefaultAddons
+                        kwargs["exclude_addons"] = [DefaultAddons.UBO]
                 scope.begin_launch()
             try:
                 if self._playwright is None:
