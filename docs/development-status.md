@@ -3,6 +3,18 @@
 Updated 2026-10-24. The normal service remains browser-based. Publishing these
 branches does not change the running service.
 
+The six-path local/static input `3ab7c169` is integrated. All eight selected
+tests pass (`f7040c99`, peak 13,422,592 bytes), covering 128 scenarios.
+Compilation passes (`3124668c`, peak 428,265,472 bytes). Completed local
+responses, extraction failures and explicit pre-work refusals release request
+ownership. Static responses retain it until their inner body is consumed or
+disposed. Full, unread and partial GET plus HEAD cases pass, as do the existing
+paid dispatch and interrupted-call controls. Exact inputs, selection, zero
+swap/limit events and removed groups were independently verified. These cases
+do not simulate an in-flight file-read failure or prove OS descriptor closure.
+The server rebuild and executable link pass (`fe73c9fc`, `62f41c47`); link
+peak was 461,238,272 bytes with zero swap. No service was changed.
+
 The six-path `/api/run` input `61d2e64b` is integrated. All 17 selected tests
 pass (`fa69eea2`, peak 12,496,896 bytes), covering 41 scenarios. Compilation
 passes (`755ecbf5`, peak 439,271,424 bytes). The selection covers completed
@@ -12,7 +24,7 @@ changed explicit-account and direct controls. Original errors and the
 unmanaged-host barrier remain. Exact inputs, selection, zero swap/limit events
 and removed process groups were independently verified. The server rebuild
 and executable link pass (`bea01ccd`, link peak 454,189,056 bytes, zero swap).
-No prior suite was repeated by parentage. Local/static/admin
+No prior suite was repeated by parentage. Legacy/admin
 completion and typed capacity mapping remain separate source inputs; no
 normal-service activation or successful native request is claimed.
 

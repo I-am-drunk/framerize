@@ -172,6 +172,74 @@ async fn pool_config_read(state: State<AppState>) -> axum::response::Response {
         axum::response::IntoResponse::into_response(pool_control::config(state).await), true)
 }
 
+// Extraction has finished before this branch returns. A successfully extracted
+// body carries no completion promise about the handler that will consume it.
+async fn json_request<T, F, R>(state: State<AppState>,
+    body: Result<Json<T>, JsonRejection>,
+    handler: impl FnOnce(State<AppState>, Json<T>) -> F) -> axum::response::Response
+where F: std::future::Future<Output = R>, R: axum::response::IntoResponse {
+    use axum::response::IntoResponse;
+    match body {
+        Ok(body) => handler(state, body).await.into_response(),
+        Err(error) => operation_ownership::completed_response(error.into_response(), true),
+    }
+}
+
+async fn dedupe_request(state: State<AppState>, body: Json<DedupeBody>)
+    -> axum::response::Response {
+    use axum::response::IntoResponse;
+    let preview = !body.0.apply;
+    let response = dedupe_accounts(state, body).await.into_response();
+    if preview { operation_ownership::completed_response(response, true) }
+    else { response }
+}
+
+// Only ServeDir uses this wrapper. Release the local body before reporting its
+// disposal; this is not evidence about an upstream stream or OS descriptor close.
+struct LocalFileBody {
+    body: Option<axum::body::Body>,
+    completed: Option<tokio::sync::oneshot::Sender<bool>>,
+}
+
+impl LocalFileBody {
+    fn finish(&mut self) {
+        drop(self.body.take());
+        if let Some(completed) = self.completed.take() { let _ = completed.send(true); }
+    }
+}
+
+impl Drop for LocalFileBody {
+    fn drop(&mut self) { self.finish(); }
+}
+
+impl http_body::Body for LocalFileBody {
+    type Data = axum::body::Bytes;
+    type Error = axum::Error;
+    fn poll_frame(mut self: std::pin::Pin<&mut Self>, cx: &mut std::task::Context<'_>)
+        -> std::task::Poll<Option<Result<http_body::Frame<Self::Data>, Self::Error>>> {
+        let Some(body) = self.body.as_mut() else { return std::task::Poll::Ready(None); };
+        let frame = http_body::Body::poll_frame(std::pin::Pin::new(body), cx);
+        if matches!(&frame, std::task::Poll::Ready(None | Some(Err(_)))) { self.finish(); }
+        frame
+    }
+    fn is_end_stream(&self) -> bool {
+        self.body.as_ref().map_or(true, http_body::Body::is_end_stream)
+    }
+    fn size_hint(&self) -> http_body::SizeHint {
+        self.body.as_ref().map_or_else(http_body::SizeHint::default, http_body::Body::size_hint)
+    }
+}
+
+async fn local_file_response(request: axum::extract::Request,
+    next: axum::middleware::Next) -> axum::response::Response {
+    let (mut parts, body) = next.run(request).await.into_parts();
+    let (completed, receiver) = tokio::sync::oneshot::channel();
+    parts.extensions.insert(operation_ownership::ResponseCompletion::from_receiver(receiver));
+    axum::response::Response::from_parts(parts, axum::body::Body::new(LocalFileBody {
+        body: Some(body), completed: Some(completed),
+    }))
+}
+
 /// Install application metadata inside the existing owned handler task.
 pub fn router_with_request_layer(state: AppState, web_dir: &str,
     layer: impl FnOnce(Router) -> Router) -> Router {
@@ -183,17 +251,17 @@ pub fn router_with_request_layer(state: AppState, web_dir: &str,
         .route("/accounts", get(accounts_read).head(accounts_read))
         .route("/pool", get(pool_read).head(pool_read))
         .route("/pool/config", get(pool_config_read).head(pool_config_read)
-            .post(pool_control::configure))
-        .route("/pool/activate", post(pool_control::activate))
-        .route("/pool/park", post(pool_control::park))
-        .route("/accounts/remove", post(remove_account))
-        .route("/accounts/dedupe", post(dedupe_accounts))
-        .route("/accounts/begin", post(begin_login))
-        .route("/accounts/complete", post(complete_login))
-        .route("/accounts/import", post(import_account))
+            .post(|state, body| json_request(state, body, pool_control::configure)))
+        .route("/pool/activate", post(|state, body| json_request(state, body, pool_control::activate)))
+        .route("/pool/park", post(|state, body| json_request(state, body, pool_control::park)))
+        .route("/accounts/remove", post(|state, body| json_request(state, body, remove_account)))
+        .route("/accounts/dedupe", post(|state, body| json_request(state, body, dedupe_request)))
+        .route("/accounts/begin", post(|state, body| json_request(state, body, begin_login)))
+        .route("/accounts/complete", post(|state, body| json_request(state, body, complete_login)))
+        .route("/accounts/import", post(|state, body| json_request(state, body, import_account)))
         .route("/run", post(run_request));
     #[cfg(feature = "native-dispatch")]
-    let api = api.route("/accounts/native/enroll", post(native_enrollment::enroll));
+    let api = api.route("/accounts/native/enroll", post(native_enrollment::enroll_request));
     let api = api.with_state(state.clone());
 
     // Compat surfaces: thin translating proxies onto Framer's native dialect
@@ -231,12 +299,16 @@ pub fn router_with_request_layer(state: AppState, web_dir: &str,
         .nest("/anthropic", anthropic_paid)
         .nest("/openai", openai_paid);
 
+    let files = Router::new().fallback_service(ServeDir::new(web_dir));
+    let files = if state.operation_ownership.is_some() {
+        files.layer(axum::middleware::from_fn(local_file_response))
+    } else { files };
     let router = Router::new()
         .nest("/api", api)
         .nest("/anthropic", anthropic)
         .nest("/openai", openai)
         .nest("/paid", paid)
-        .fallback_service(ServeDir::new(web_dir));
+        .fallback_service(files);
     layer(router)
         .layer(axum::middleware::from_fn_with_state(
             state.operation_ownership.clone(), operation_ownership::middleware))
@@ -633,9 +705,7 @@ async fn anthropic_messages(
         Ok(payload) => payload,
         Err(error) => {
             let response = axum::response::IntoResponse::into_response(error);
-            return Ok(if hdr(&headers, "x-framerize-mode").as_deref() == Some("paid") {
-                response
-            } else { operation_ownership::completed_response(response, true) });
+            return Ok(operation_ownership::completed_response(response, true));
         }
     };
     if hdr(&headers, "x-framerize-mode").as_deref() != Some("paid") {
@@ -659,9 +729,7 @@ async fn openai_responses(
         Ok(payload) => payload,
         Err(error) => {
             let response = axum::response::IntoResponse::into_response(error);
-            return Ok(if hdr(&headers, "x-framerize-mode").as_deref() == Some("paid") {
-                response
-            } else { operation_ownership::completed_response(response, true) });
+            return Ok(operation_ownership::completed_response(response, true));
         }
     };
     if hdr(&headers, "x-framerize-mode").as_deref() != Some("paid") {
@@ -685,9 +753,7 @@ async fn openai_chat(
         Ok(payload) => payload,
         Err(error) => {
             let response = axum::response::IntoResponse::into_response(error);
-            return Ok(if hdr(&headers, "x-framerize-mode").as_deref() == Some("paid") {
-                response
-            } else { operation_ownership::completed_response(response, true) });
+            return Ok(operation_ownership::completed_response(response, true));
         }
     };
     if hdr(&headers, "x-framerize-mode").as_deref() != Some("paid") {
@@ -1999,7 +2065,12 @@ fn anthro_model_for_log(dialect: ClientDialect, payload: &Value) -> String {
 
 /// Anthropic count_tokens shape; character-based estimate (≈4 chars/token) —
 /// the same fallback Claude Code applies when the endpoint is absent.
-async fn count_tokens(Json(body): Json<serde_json::Value>) -> Json<serde_json::Value> {
+async fn count_tokens(body: Result<Json<Value>, JsonRejection>) -> axum::response::Response {
+    use axum::response::IntoResponse;
+    let Json(body) = match body {
+        Ok(body) => body,
+        Err(error) => return operation_ownership::completed_response(error.into_response(), true),
+    };
     let chars: usize = body["messages"]
         .as_array()
         .map(|ms| {
@@ -2021,15 +2092,21 @@ async fn count_tokens(Json(body): Json<serde_json::Value>) -> Json<serde_json::V
         })
         .unwrap_or(0)
         + body["system"].as_str().map(|s| s.len()).unwrap_or(0);
-    Json(serde_json::json!({ "input_tokens": (chars / 4).max(1) }))
+    operation_ownership::completed_response(
+        Json(serde_json::json!({ "input_tokens": (chars / 4).max(1) })).into_response(), true)
 }
 
 /// Paid-path wrappers: the metered streaming passthroughs, mounted at /paid/*.
 async fn anthropic_messages_paid(
     State(s): State<AppState>,
     headers: axum::http::HeaderMap,
-    Json(payload): Json<serde_json::Value>,
+    payload: Result<Json<Value>, JsonRejection>,
 ) -> Result<axum::response::Response, ApiError> {
+    let Json(payload) = match payload {
+        Ok(payload) => payload,
+        Err(error) => return Ok(operation_ownership::completed_response(
+            axum::response::IntoResponse::into_response(error), true)),
+    };
     compat_forward_headers(
         s,
         "anthropic-messages",
@@ -2042,8 +2119,13 @@ async fn anthropic_messages_paid(
 async fn openai_responses_paid(
     State(s): State<AppState>,
     headers: axum::http::HeaderMap,
-    Json(payload): Json<serde_json::Value>,
+    payload: Result<Json<Value>, JsonRejection>,
 ) -> Result<axum::response::Response, ApiError> {
+    let Json(payload) = match payload {
+        Ok(payload) => payload,
+        Err(error) => return Ok(operation_ownership::completed_response(
+            axum::response::IntoResponse::into_response(error), true)),
+    };
     compat_forward_headers(
         s,
         "openai-responses",
@@ -2056,8 +2138,13 @@ async fn openai_responses_paid(
 async fn openai_chat_paid(
     State(s): State<AppState>,
     headers: axum::http::HeaderMap,
-    Json(payload): Json<serde_json::Value>,
+    payload: Result<Json<Value>, JsonRejection>,
 ) -> Result<axum::response::Response, ApiError> {
+    let Json(payload) = match payload {
+        Ok(payload) => payload,
+        Err(error) => return Ok(operation_ownership::completed_response(
+            axum::response::IntoResponse::into_response(error), true)),
+    };
     compat_forward_headers(
         s,
         "openrouter-chat",
@@ -2386,7 +2473,8 @@ async fn begin_login(
     State(s): State<AppState>,
     Json(body): Json<BeginLoginBody>,
 ) -> Result<&'static str, ApiError> {
-    s.serving_accounts.require(&body.account_id)?;
+    s.serving_accounts.require(&body.account_id)
+        .map_err(operation_ownership::completed_preflight)?;
     let _management = pool_control::management(&s, body.account_id, true).await?;
     // Mint + signin happen INSIDE the account's browser: api.framer.com
     // validates request/environment consistency (Origin/UA/TLS vs the Castle
@@ -2432,7 +2520,8 @@ async fn complete_login(
     State(s): State<AppState>,
     Json(body): Json<CompleteLoginBody>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
-    s.serving_accounts.require(&body.account_id)?;
+    s.serving_accounts.require(&body.account_id)
+        .map_err(operation_ownership::completed_preflight)?;
     let _management = pool_control::management(&s, body.account_id, true).await?;
     // In-page token exchange; returns the session cookie read out of the
     // browser jar via CDP plus the in-page /web/users/me payload.
@@ -2621,7 +2710,8 @@ async fn import_account(
 ) -> Result<Json<serde_json::Value>, ApiError> {
     if body.expected_framer_user_id.as_ref()
         .is_some_and(|user| user.trim().is_empty() || user.len() > 128) {
-        return Err(ApiError::InvalidRequest("expected Framer user is invalid".into()));
+        return Err(operation_ownership::completed_preflight(
+            ApiError::InvalidRequest("expected Framer user is invalid".into())));
     }
     let management = pool_control::management(&s, body.account_id, false).await?;
     let cookie_header = if body.session_cookie.starts_with("session=") {

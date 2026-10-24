@@ -16,6 +16,11 @@ fn refused(message: &str) -> Failure {
     (ApiError::InvalidRequest(message.into()), true)
 }
 
+pub(super) async fn enroll_request(state: State<AppState>,
+    body: Result<Json<EnrollmentBody>, JsonRejection>) -> axum::response::Response {
+    super::json_request(state, body, enroll).await
+}
+
 pub(super) async fn enroll(
     State(state): State<AppState>,
     Json(body): Json<EnrollmentBody>,
