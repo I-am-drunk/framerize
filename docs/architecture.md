@@ -1,5 +1,11 @@
 # Serving architecture and branch policy
 
+Resident native-output evidence is separate from HTTP/JSON and cleanup facts.
+Only bounded EOF plus HTTP 200 JSON with completed, nonempty model text sets
+`native_output_complete`. Unknown routes, incomplete responses, error objects
+and tool-only output do not. It does not change request admission or transport
+acceptance. The private socket and client use the same strict 14-field schema.
+
 The resident v2 mint RPC observes only the logger dependency already loaded by
 the proven cached `chunk-5LKSDTQ5.mjs` export `a`. Its logger is
 `chunk-VJ7UYMJI.mjs`, distinct from the comparison wrapper's dependency.
@@ -13,6 +19,9 @@ acceptance. Counters alone do not attest a branch when coverage is incomplete
 or competing labels appear. Metadata is stripped before strict token-result
 validation and is emitted inside the retained RPC owner, including when its
 waiter disappears or a later context check refuses. V1 is unchanged.
+The wrapper can fall back to V2 when its initial V3 readiness wait expires
+without emitting a V3 error record. Absence of a failure counter proves no
+initialization or timing claim; SDK deadlines and fallback stay unchanged.
 
 Provenance listeners use ordinary functions retained in the listener ledger.
 Playwright caches callback wrappers on their owners; passing bound methods of

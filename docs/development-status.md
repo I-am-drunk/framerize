@@ -3,6 +3,16 @@
 Updated 2026-10-24. The normal service remains browser-based. Publishing these
 branches does not change the running service.
 
+The native report now includes `native_output_complete`, requiring bounded
+response EOF, HTTP 200, JSON and the same route-specific completion/nonempty
+text fields as the browser baseline. Seven output cases, the socket schema
+case and all 13 private-client cases pass; the updated daemon links. No response
+content is exported. This fact is independent of cleanup, and the matching
+14-field client must be used. The prior R6 result remains JSON-object evidence
+only. The new executable reuses the validated unchanged Rust libraries;
+activation must select the explicit current sidecar because the host library's
+embedded Python predates these updates. This update is not deployed yet.
+
 Resident mint-branch diagnostics now pass 59 focused Python cases and three
 JavaScript fixture scripts. They read the existing wrapper's matching cached
 logger and emit only fixed counters, window coverage, phase and lease ID.
