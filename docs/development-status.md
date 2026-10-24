@@ -10,6 +10,11 @@ V2 is not a prerequisite. Protected-service approval remains outstanding.
 Direct correlated evidence of post-disconnect cleanup and ownership release
 must still be bound before full normal-stream acceptance can be claimed.
 See `reference/analysis/normal-browser-admission-rollout-20261024.md`.
+Source follow-up is now assigned for a concrete ordering gap: the completion
+verdict precedes producer task completion, and a dropped body does not observe
+the original join. Shared join observation and correlated release evidence
+will be qualified separately; the current package is preserved. See
+`reference/analysis/normal-browser-joined-completion-followup-20261024.md`.
 
 The ordinary-V2 integration branch now includes browserless `95f2986`,
 including the qualified legacy and typed-capacity corrections. Only the two
