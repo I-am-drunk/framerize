@@ -9,7 +9,7 @@ use framer_api::experimental_native::{
     native_account::{AccountScope, PreparationControl, PreparationFailure, PreparationResult},
     native_http::NativeEgress,
 };
-use super::{offline_worker::{OfflineWorkerMinter, V2SeedBinding, WorkerBackend},
+use super::{offline_worker::{OfflineWorkerMinter, V2SeedBinding, V2SeedTransfer, WorkerBackend},
     offline_worker_owner::{V2Worker, Worker},
     one_shot_control::{Failure, SourceBuilder}};
 
@@ -51,6 +51,7 @@ impl SourceBuilder for OfflineSource {
         let api = BoundControlClient::new(scope.clone(), route).map_err(|_| Failure::Source)?;
         if let WorkerBackend::V2(worker) = &self.worker {
             return Ok(Arc::new(V2ProofSource {
+                transfer: V2SeedTransfer::new(scope.clone(), device.clone()),
                 scope, worker: worker.clone(), bridge: self.bridge.clone(), grant: device,
                 api: Arc::new(api), target: self.target.clone(),
             }));
@@ -68,6 +69,7 @@ struct V2ProofSource {
     worker: Arc<V2Worker>,
     bridge: Arc<dyn BrowserBridge>,
     grant: Arc<DeviceGrant>,
+    transfer: V2SeedTransfer,
     api: Arc<BoundControlClient>,
     target: OfflineMintTarget,
 }
@@ -84,7 +86,7 @@ impl V2ProofSource {
         if control.is_cancelled() {
             return PreparationResult::finished(Err(PreparationFailure::Cancelled));
         }
-        let proof = match self.bridge.transfer_native_sdk_seed(self.grant.clone(), session).await {
+        let proof = match self.transfer.get(scope, session, self.bridge.as_ref()).await {
             Ok(proof) => proof,
             Err(DeviceFailure::Rejected) =>
                 return PreparationResult::finished(Err(PreparationFailure::Rejected)),

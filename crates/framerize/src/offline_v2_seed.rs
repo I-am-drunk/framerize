@@ -1,5 +1,6 @@
 use std::sync::Arc;
-use framer_core::{native_device::{DeviceGrant, NativeSdkSeed}, port::Session};
+use framer_core::{native_device::{DeviceFailure, DeviceGrant, NativeSdkSeed},
+    port::{BrowserBridge, Session}};
 use framer_api::experimental_native::native_account::AccountScope;
 use super::super::offline_worker_owner::SavedDevice;
 
@@ -7,7 +8,7 @@ use super::super::offline_worker_owner::SavedDevice;
 pub(crate) struct V2SeedBinding {
     grant: Arc<DeviceGrant>,
     seed: SavedDevice,
-    proof: Option<NativeSdkSeed>,
+    proof: Option<Arc<NativeSdkSeed>>,
     scope: Option<AccountScope>,
 }
 
@@ -18,7 +19,8 @@ impl V2SeedBinding {
     }
 
     pub(crate) fn from_proof(scope: &AccountScope, grant: Arc<DeviceGrant>, session: &Session,
-        proof: NativeSdkSeed) -> Result<Self, super::Failure> {
+        proof: impl Into<Arc<NativeSdkSeed>>) -> Result<Self, super::Failure> {
+        let proof = proof.into();
         if !proof.matches(&grant, session) || scope.account() != grant.account
             || scope.active_user() != &session.active_user {
             return Err(super::Failure::Identity);
@@ -32,8 +34,54 @@ impl V2SeedBinding {
     }
 
     pub(super) fn device(&self) -> &SavedDevice { &self.seed }
-    pub(super) fn proof(&self) -> Option<&NativeSdkSeed> { self.proof.as_ref() }
+    pub(super) fn proof(&self) -> Option<&NativeSdkSeed> { self.proof.as_deref() }
     pub(super) fn belongs_to_scope(&self, scope: &AccountScope) -> bool {
         self.scope.as_ref().is_none_or(|bound| bound.same_generation(scope))
+    }
+}
+
+enum TransferState {
+    Idle,
+    Bound(Arc<NativeSdkSeed>),
+    Failed(DeviceFailure),
+}
+
+/// A host attachment belongs to the whole original grant, not one mint.
+pub(crate) struct V2SeedTransfer {
+    scope: AccountScope,
+    grant: Arc<DeviceGrant>,
+    state: tokio::sync::Mutex<TransferState>,
+}
+
+impl V2SeedTransfer {
+    pub(crate) fn new(scope: AccountScope, grant: Arc<DeviceGrant>) -> Self {
+        Self { scope, grant, state: tokio::sync::Mutex::new(TransferState::Idle) }
+    }
+
+    pub(crate) async fn get(&self, scope: &AccountScope, session: &Session,
+        bridge: &dyn BrowserBridge) -> Result<Arc<NativeSdkSeed>, DeviceFailure> {
+        if !self.scope.same_generation(scope) || scope.account() != self.grant.account
+            || scope.active_user() != &session.active_user {
+            return Err(DeviceFailure::Rejected);
+        }
+        let mut state = self.state.lock().await;
+        match &*state {
+            TransferState::Bound(proof) => return if proof.matches(&self.grant, session) {
+                Ok(proof.clone())
+            } else { Err(DeviceFailure::Rejected) },
+            TransferState::Failed(error) => return Err(*error),
+            TransferState::Idle => {}
+        }
+        // If this future is lost or panics, no later caller may repeat the transfer.
+        *state = TransferState::Failed(DeviceFailure::Unconfirmed);
+        let result = bridge.transfer_native_sdk_seed(self.grant.clone(), session).await
+            .and_then(|proof| if proof.matches(&self.grant, session) {
+                Ok(Arc::new(proof))
+            } else { Err(DeviceFailure::Unconfirmed) });
+        *state = match &result {
+            Ok(proof) => TransferState::Bound(proof.clone()),
+            Err(error) => TransferState::Failed(*error),
+        };
+        result
     }
 }
