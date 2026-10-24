@@ -85,6 +85,47 @@ class ResidentAttemptPathsTests(unittest.TestCase):
                       (ASSIGN, CALL.replace('resident_control_client', 'alias'))):
             self.rejected(support(*lines))
 
+    def test_correct_assignment_cannot_hide_a_stale_request_argument(self):
+        stale = ("str(R / 'private/resident-request-r13.json')",
+                 "'private/resident-request-r13.json'", 'other_path', 'str(other_path)')
+        for argument in stale:
+            self.rejected(support(ASSIGN, CALL.replace('str(request_path)', argument)))
+
+    def test_positional_and_keyword_forms_bind_the_same_request_path(self):
+        arguments = ('CONTROL_SOCKET, request_path, 120',
+                     'path=CONTROL_SOCKET, request=str(request_path), wait_seconds=120',
+                     'CONTROL_SOCKET, wait_seconds=120, request=request_path')
+        for args in arguments:
+            call = 'resident_control_client.run(' + args + ')'
+            self.assertIsNone(check_request_path(support(ASSIGN, call), EXPECTED))
+
+    def test_request_conversion_must_be_one_plain_str_call(self):
+        dynamic = ('str(request_path, "utf8")', 'str(object=request_path)',
+                   'str(str(request_path))', 'str(*[request_path])',
+                   'str(request_path, **options)', 'f"{request_path}"',
+                   'request_path.as_posix()', 'str(request_path) + suffix')
+        for argument in dynamic:
+            self.rejected(support(ASSIGN, CALL.replace('str(request_path)', argument)))
+
+    def test_missing_duplicate_and_unpacked_request_bindings_refuse(self):
+        arguments = ('CONTROL_SOCKET, request_path',
+                     'CONTROL_SOCKET, request_path, 120, other',
+                     'CONTROL_SOCKET, request_path, 120, request=other',
+                     '*prefix, request_path, 120',
+                     'CONTROL_SOCKET, *(request_path, 120)',
+                     'CONTROL_SOCKET, request_path, 120, **options',
+                     'CONTROL_SOCKET, request_path, 120, unknown=other',
+                     'CONTROL_SOCKET, request=request_path, request=other, wait_seconds=120')
+        for args in arguments:
+            self.rejected(support(ASSIGN, 'resident_control_client.run(' + args + ')'))
+
+    def test_request_path_in_another_parameter_does_not_supply_request(self):
+        arguments = ('str(request_path), str(CONTROL_SOCKET), 120',
+                     'str(CONTROL_SOCKET), 120, str(request_path)',
+                     'path=request_path, request=other_path, wait_seconds=120')
+        for args in arguments:
+            self.rejected(support(ASSIGN, 'resident_control_client.run(' + args + ')'))
+
     def test_function_scope_is_unique_module_level_and_undecorated(self):
         valid = support(ASSIGN, CALL)
         for source in ('pass', valid + valid, '@decorate\n' + valid,
