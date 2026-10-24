@@ -9,11 +9,12 @@ cooldowns, joined cleanup, streaming, latency and measured memory use preserved.
 Completed source tasks and dependencies on another owner do not complete or
 block that shared outcome. Goal identity and accumulated accounting are retained.
 
-T3 hook enforcement is still not active in every existing session. The transport
-owner reports that its required native `blocked` transition was accepted after
-the isolated hook tests passed. This affects that lane, not the runtime owner's
-work or the shared outcome. Keep the policy guidance and original goal identity;
-the config owner retains coordinated activation and any user-controlled resume.
+The recovery owner reports the fixed hook denial in all six live sessions
+(`303f00e`). This runtime session also verified its original active goal and
+nondecreasing accounting against the preload. The prior quiet window is retired.
+Transport's original goal remains intact under an older native binding; its
+guarded reattach repair belongs to the admission lane and does not hold other
+work. No further provider restart or objective recreation is planned.
 
 R15 completed with normal browser HTTP 200, browser-baseline HTTP 200 and
 explicit window-realm native HTTP 403. The native response was complete JSON
@@ -41,14 +42,22 @@ accepted structures (`b4d75a8b`, peak 57,516,032 bytes). Strict record pairing
 passes all 15 cases (`201bfcaf`, peak 22,142,976 bytes). All groups exited with
 zero swap or limit events; inputs were verified unchanged. No SDK, private
 token or live request was used. Actual native capture remains unmeasured.
-The shared event writer correction is now source-only: it buffers JSON plus
-newline and makes one append attempt, refusing short writes without a suffix
-retry. Five focused fixtures cover large escaped records, short writes, write
-and flush errors, and independent append handles. They remain uncompiled/unrun
-while coordinated session activation is in progress. Next, qualify this fix
-and its core integration after the activation result. No new run is launched
-during that window. The source finding does not establish a corrupt R15 line
-or explain its 403. No running service or frozen package changed.
+The shared event writer now buffers JSON plus newline and makes one append
+attempt, refusing short writes without a suffix retry. Core compilation passed
+(`44393cbd`, peak 350,724,096 bytes), as did fixture compilation (`84aae788`,
+127,766,528 bytes) and all five tests (`21393fe8`, 12,193,792 bytes). They cover
+large escaped records, short writes, write/flush errors and independent append
+handles. All phases had zero swap/limit events and confirmed group cleanup.
+This does not rebuild the retained executable or change a running service.
+The source finding does not establish a corrupt R15 line or explain its 403.
+
+The comparator now raises its fixed failure after leaving the exception handler,
+so the caught error is not retained as its context. All 17 cases pass (`a489c417`,
+peak 22,474,752 bytes), including direct context/cause checks. No swap or limit
+events occurred; inputs were unchanged and the test group exited. This makes
+no guarantee about traceback-local erasure. Next, reject duplicate JSON keys
+at the collector's decode boundary before pairing; qualify it with synthetic
+records. No private log read or live request is needed for that correction.
 
 The request-path correction is integrated as `216350e`. Its exact 19-case
 qualification is reused from receipt `65937832`: all pass, 17,039,360-byte peak,

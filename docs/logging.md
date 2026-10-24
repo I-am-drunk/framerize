@@ -18,8 +18,9 @@ write with a suffix that could follow a sidecar record. A short write or error i
 lost evidence and is ignored by serving; consumers must still reject missing or
 malformed records. This is not a cross-process lock, a durability guarantee, or
 an atomicity promise for every filesystem. Existing sidecar writing is unchanged.
-This correction and its five focused fixtures are source-only and unrun pending
-the coordinated session reload. The running service keeps its existing writer.
+The core and focused fixture compilations pass. All five fixtures pass, including
+independent append handles and short-write/error paths. The running service
+keeps its existing writer until a separately validated package is activated.
 
 ## Schema
 

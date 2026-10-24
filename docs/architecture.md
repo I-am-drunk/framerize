@@ -14,8 +14,8 @@ be replaced with an earlier synthetic observation.
 The source event writer now builds a complete JSON line before one append
 attempt. It does not retry a partial append as fragments. Failure still leaves
 the observation unavailable, and strict consumers must reject incomplete data.
-This correction awaits focused qualification after the coordinated session
-reload; it has not changed the running service's retained core library.
+The core compilation and five focused append fixtures pass. This has not changed
+the running service's retained core library or rebuilt its dependent executable.
 
 Native response-head diagnostics attach status, fixed HTTP-version and content-
 encoding categories to the existing send invocation counter. They run after
