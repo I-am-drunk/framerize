@@ -38,3 +38,12 @@ starts `596382c9`. Three earlier harness failures are retained: a stale unit
 name and two memory-cap refusals while rehashing historical build inputs.
 The successful run reused verified build provenance and the exact test binary.
 No new live mint, inference, service restart or token read was performed.
+
+The HTTP-200 provenance patch now passes 16 inert cases. It captures the exact
+pre-send tuple, publishes only after an integer 200 response completes, and
+invalidates closure/replacement. Actual launch proxy and realm capability are
+captured on the live account. No browser evaluation is added by this helper.
+The fixture includes pending/cancelled sends, stale identities and observer
+failure. The result is completed HTTP 200 evidence, not parsed success or SDK
+provenance. Network-isolated peak was 31,678,464 bytes, zero swap/limit events,
+and the runner was removed. Resident activity and acquisition remain pending.

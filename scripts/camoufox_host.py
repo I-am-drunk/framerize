@@ -690,6 +690,69 @@ class BrowserCloseReceipt:
         self.closed = True
 
 
+class ResidentBrowserHttp200:
+    """Private completed browser HTTP 200 evidence, not parsed inference success."""
+    __slots__ = ("host", "account", "acc", "life", "generation", "incarnation",
+                 "page", "context", "browser", "project", "launch", "owner",
+                 "invalid", "listeners")
+
+    def __init__(self, host, account, acc, page, project):
+        self.host, self.account, self.acc = host, account, acc
+        self.life, self.generation = acc.lifecycle, host.generation
+        self.incarnation = self.life.incarnation
+        self.page, self.context, self.browser = page, page.context, acc.browser
+        self.project, self.launch = project, acc.resident_launch
+        self.owner = acc if page is acc.page else next(
+            (d for d in acc.dev_objs.values() if d.page is page), None)
+        self.invalid, self.listeners = False, []
+
+    def current(self):
+        try:
+            return (not self.invalid and not self.acc.closing
+                and self.host.generation == self.generation
+                and self.host.accounts.get(self.account) is self.acc
+                and self.host.lifecycles.get(self.account) is self.life
+                and self.acc.lifecycle is self.life and self.life.phase == "resident"
+                and self.life.incarnation == self.incarnation
+                and self.life.browser is self.browser and self.acc.browser is self.browser
+                and self.launch is not None and self.acc.resident_launch is self.launch
+                and self.launch[0] is self.browser and self.launch[1] == self.incarnation
+                and type(self.project) is str and 0 < len(self.project) <= 256
+                and self.acc.project == self.project
+                and self.owner is not None and self.owner.page is self.page
+                and self.owner.ctx is self.context
+                and (self.owner is self.acc or any(
+                    d is self.owner for d in self.acc.dev_objs.values()))
+                and self.page.context is self.context and self.context.browser is self.browser
+                and any(p is self.page for p in self.context.pages)
+                and any(c is self.context for c in self.browser.contexts)
+                and not self.page.is_closed() and self.browser.is_connected())
+        except Exception:
+            return False
+
+    def watch(self):
+        try:
+            for source, event in ((self.page, "close"), (self.context, "close"),
+                                  (self.browser, "disconnected")):
+                callback = self.invalidate
+                self.listeners.append((source, event, callback))
+                source.on(event, callback)
+            return self.current()
+        except Exception:
+            return False
+
+    def invalidate(self, *_):
+        self.invalid = True
+        if self.acc._completed_browser_http200 is self:
+            self.acc._completed_browser_http200 = None
+        listeners, self.listeners = self.listeners, []
+        for source, event, callback in listeners:
+            try:
+                source.remove_listener(event, callback)
+            except Exception:
+                pass
+
+
 class AccountLifecycle:
     """Small same-host ledger; browser eviction must not reset device limits."""
     def __init__(self):
@@ -752,6 +815,19 @@ class Account:
         self.tasks = set()
         self.last_gc = 0.0
         self.gc_page = 0
+        self._completed_browser_http200 = None
+        self.resident_launch = None  # Private (browser, incarnation, proxy, main_world_eval).
+
+    @property
+    def completed_browser_http200(self):
+        evidence = self._completed_browser_http200
+        if evidence is not None and not evidence.current():
+            evidence.invalidate()
+        return self._completed_browser_http200
+
+    def clear_browser_http200(self):
+        if self._completed_browser_http200 is not None:
+            self._completed_browser_http200.invalidate()
 
     @property
     def reserve_day(self):
@@ -965,6 +1041,9 @@ class Host:
         elif (scope.launch_started or acc is not None or life.phase != "absent"
                 or life.browser is not None or life.close_receipt is not None):
             raise RuntimeError("observed launch cleanup is unconfirmed")
+        if acc is not None:
+            acc.clear_browser_http200()
+            acc.resident_launch = None
         self.accounts.pop(scope.account, None)
         life.browser = life.close_receipt = None
         life.phase = "absent"
@@ -1125,6 +1204,8 @@ class Host:
                 acc.last_used = time.monotonic()
 
     async def _dispose_account(self, acc):
+        acc.clear_browser_http200()
+        acc.resident_launch = None
         acc.closing = True
         tasks = tuple(acc.tasks)
         for task in tasks:
@@ -1198,6 +1279,8 @@ class Host:
     def _start_close(self, account, life, acc):
         life.phase = "closing"
         if acc is not None:
+            acc.clear_browser_http200()
+            acc.resident_launch = None
             acc.closing = True
         registered = asyncio.get_running_loop().create_future()
         async def finish():
@@ -1560,6 +1643,9 @@ class Host:
     async def _prepare_device(self, acc, account, d):
         dev = d.id
         if d.page is not None and d.page.is_closed():
+            evidence = acc._completed_browser_http200
+            if evidence is not None and evidence.owner is d:
+                acc.clear_browser_http200()
             if d.ctx is not None:
                 await d.ctx.close()
             d.page, d.ctx, d.warm = None, None, False
@@ -1952,6 +2038,8 @@ class Host:
                 raise
             # Each launch still has its own process, profile, configuration,
             # proxy and storage. Only the Playwright transport is shared.
+            launch_state = (life.incarnation, px or None,
+                            kwargs.get("main_world_eval", False) is True)
             try:
                 browser = await AsyncNewBrowser(self._playwright, **kwargs)
             except BaseException:
@@ -1966,7 +2054,9 @@ class Host:
             try:
                 life.close_receipt = (scope.browser_started(browser) if scope is not None
                                       else BrowserCloseReceipt(browser))
-                return await self._initialize_account(account, profile, browser)
+                acc = await self._initialize_account(account, profile, browser)
+                acc.resident_launch = (browser, *launch_state)
+                return acc
             except BaseException:
                 if scope is not None:
                     life.phase = "unconfirmed"
@@ -2029,6 +2119,10 @@ class Host:
                     trace(f"{account[:8]}: editor context restored ({acc.editor_url.split('/')[-1][:12]}...)")
         except Exception:
             pass
+        previous = self.accounts.get(account)
+        if previous is not None:
+            previous.clear_browser_http200()
+            previous.resident_launch = None
         self.accounts[account] = acc
         self._track_task(acc, self._human_loop(account, page), page=page)
         # Device pool (the concurrency goose): persisted uuids per account,
@@ -2142,6 +2236,30 @@ class Host:
                 raise
             except Exception:
                 await asyncio.sleep(30)
+
+    def _capture_browser_http200(self, account, acc, page, project):
+        try:
+            acc.completed_browser_http200
+            evidence = ResidentBrowserHttp200(self, account, acc, page, project)
+            return evidence if evidence.current() else None
+        except Exception:
+            return None
+
+    def _record_browser_http200(self, acc, evidence, result):
+        # The poller returns only after r.text() completes. No inference parsing.
+        try:
+            acc.completed_browser_http200  # Prune stale prior evidence even on refusal.
+            if (evidence is not None and type(result) is dict
+                    and type(result.get("status")) is int and result["status"] == 200
+                    and evidence.current()):
+                if evidence.watch():
+                    acc.clear_browser_http200()
+                    acc._completed_browser_http200 = evidence
+                else:
+                    evidence.invalidate()
+        except Exception:
+            if evidence is not None:
+                evidence.invalidate()
 
     def _ctx(self, account):
         return self.accounts[account].ctx
@@ -2353,10 +2471,13 @@ class Host:
                             est_s = max(60.0, float(tok_n) / 10.0 * 3.0)
                         except Exception:
                             pass
+                        evidence = self._capture_browser_http200(
+                            account, acc, fire_page, req["body"].get("projectId"))
                         r = await self._run_job(
                             fire_page, req["path"], req["body"], tok,
                             req.get("bearer"), job, used_dev, min(180.0, est_s),
                         )
+                        self._record_browser_http200(acc, evidence, r)
                         r["_fetch_ms"] = int((time.monotonic() - fetch_t0) * 1000)
                     finally:
                         # release only after the response fully arrived — the

@@ -1,5 +1,11 @@
 # Serving architecture and branch policy
 
+Completed normal browser HTTP 200 responses retain an in-memory record of
+the actual page, context, browser, project and lifecycle incarnation selected
+before the send. The record also binds the launch proxy and realm capability.
+Closure and replacement invalidate it. This record does not establish parsed
+inference success or SDK provenance, and does not expose a resident RPC.
+
 The native transport has an explicit resident-browser header option for
 controlled comparisons. It includes the supplied current cookie jar, the
 serving host's JSON content type and `X-Requested-By`. The default still follows
