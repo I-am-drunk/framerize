@@ -27,7 +27,22 @@ Tests and SDK/runtime execution remain UNRUN here. Owner
 `544711e3-0b76-4cb4-9732-124a0486847e` retains
 qualification, integration, private state, accounts, services and requests.
 
-The user reports R14 used dedicated configuration `8ab12cbb`: normal browser
+Latest published live evidence is R15, receipt `8580c020`, recorded in
+`d389216`: normal and baseline browser requests returned 200; the explicit
+window-realm native request returned complete Castle 403 JSON. Cleanup was
+confirmed, the isolated host stayed fenced and the protected service was
+unchanged. Binary `345cf340`, realm package `514c442b` and all 1,441 activation
+inputs matched. Peak group memory was 1,584,971,776 bytes, with zero swap or
+limit events. No repeat request is queued.
+
+R15's browser baseline has 105 fields/817 bytes; its actual native token was
+not projected. The earlier synthetic realm receipt `db1eb359` describes a
+different token and cannot supply that missing native observation. Neither
+matching capabilities nor the available structural comparison establishes
+why R15 was refused. The owner has assigned the bounded exact-token projection
+port to the structure lane and retains caller integration and qualification.
+
+Earlier R14 used dedicated configuration `8ab12cbb`: normal browser
 and paired baseline returned 200 with output; isolated V2 completed and joined,
 then native HTTP returned complete 403 Castle JSON. Cleanup was confirmed,
 with no worker-stage failure. Group peak was 1,699,512,320 bytes, without swap
@@ -225,10 +240,11 @@ No timer shim, delay adjustment, extra execution or new acceptance claim is
 introduced. This also supplies no attribution for the diagnostic count or 403.
 
 Dependent action: runtime owner `544711e3-0b76-4cb4-9732-124a0486847e`
-selects the next comparison. Required input is the owner-qualified realm
-package plus retained account, identity, egress, cooldown and cleanup checks.
-Last verified evidence is synthetic receipt `db1eb359`, joined with its token
-discarded; the last live result recorded here is R14's native 403 refusal.
+integrates and qualifies the planned projection at the actual native caller.
+Required input is the structure lane's bounded decoder and the existing token
+and lease, with all account, identity, egress, cooldown and cleanup checks kept.
+Last verified live evidence is R15 receipt `8580c020`: native 403 and confirmed
+cleanup, with no actual native-token projection. `db1eb359` remains synthetic.
 Future runtime source direction remains owner-held. This dependency neither
 completes nor establishes a blocker for the shared goal. This note queues no
 execution or inference request.
