@@ -5,6 +5,12 @@ maintained fallback. `browserless` is the separate development branch for the
 native transport and short-lived SDK worker. A Git push does not deploy either
 version or restart the running service.
 
+Request compatibility depends on the selected model and endpoint together.
+The current public chooser sends GPT-4.1 through Chat, while our isolated
+trial uses Responses. The Responses serializer is an endpoint-format
+reference, not proof of an equivalent current browser request for that model.
+Public selection requests no GPT-4.1 provider override; none is invented.
+
 The native OpenRouter Responses envelope binds its nested `request.session_id`
 to the outer conversation `sessionId`, matching the current upstream mapper.
 The bound conversation replaces a conflicting payload session ID. Other
