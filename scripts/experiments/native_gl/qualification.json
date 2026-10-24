@@ -1,0 +1,74 @@
+{
+  "limitations": [
+    "No Node/WebGL binding or SDK integration tested.",
+    "No complete installed-library closure claimed.",
+    "No account, live service or delivery acceptance."
+  ],
+  "runs": [
+    {
+      "cgroup_absent": true,
+      "label": "llvmpipe_full_draw",
+      "outputs": {
+        "admission.json": "dbdd0e0ce5022b7b8a16c015ee2099579902a31620b21a4b089289010b1c9759",
+        "inputs.json": "9cec3142028c2a6d50950b95b1b51fb03c7e16d67ca2fad1fdbaad24fa5d7b20",
+        "outer.log": "9fa848844814e93e95630dc95d683674812acf042cb881db39d1c06f84d243d8",
+        "parent.json": "b26681a90c5b78829eecbaae595d26caf8ef3ee3c9eff34b5e37b4721a7716c9",
+        "probe.json": "5d20645a063edd4a395760e6d033ee493c2a8dd6b75fb3b4ea275042719f1d05",
+        "probe.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "result.json": "17ff2ed3002a5befef54f34a5489dfc03d67b45d96b899f4782d3f5c9dff2a78"
+      },
+      "passed": false,
+      "resources": {
+        "memory.peak": 134217728,
+        "memory.swap.current": 0,
+        "memory.swap.peak": 0,
+        "pids.peak": 6
+      },
+      "unit_absent": true
+    },
+    {
+      "absence_receipt_sha256": "e1595d54c0f0acceeb2a3244aa162b3c073d760f00664d41f4c05de232b4b046",
+      "cgroup_absent": false,
+      "failure": "systemd reports oom-kill; no inner result; separate expected-cgroup absence recorded",
+      "label": "softpipe_full_draw",
+      "outputs": {
+        "admission.json": "2bd3f7c7fe665e41652dc97a9bf915aadad369ab2cb1463acb4f1700ccc01ed1",
+        "inputs.json": "889fb6b87792f8383aa4f7a832ab8d6fbc4664b21664e633a6e47812d93c1022",
+        "outer.log": "b87ee4e192051ed29e9ce42c957ab914036548244f95d53dd53a05bd9004fa01",
+        "probe.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "result.json": "d1d18b74bb485669872072f3b02297ae32c9179716f20aebf7fb5e8af7b79189"
+      },
+      "passed": false,
+      "resources": null,
+      "unit_absent": true
+    },
+    {
+      "cgroup_absent": true,
+      "label": "llvmpipe_context_queries",
+      "outputs": {
+        "admission.json": "f01acf37499f3b95c803541b837e22e8e83ad5e10ebd295fe8e9286aa38f08a0",
+        "inputs.json": "b13260ceb8bfbccaff813772dadf788e76ba62304cdf9be8468eb5a6f31b4b90",
+        "outer.log": "664ba747a562128da7a51a62bf01dc4b98dd0eb35a5f4f5b59ef26823d0f45ef",
+        "parent.json": "5ee34284c58ff832fc1be375f67a6be6b1a5669bec44972696d0408c45ca8311",
+        "probe.json": "fa236af580af74e98a80affb73d14102d480db6526686294380595f86b28b50c",
+        "probe.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "result.json": "957b65fb697edf48d639d512c8bb141c9ad662db5b26170a13ce9d638096e480",
+        "started.json": "94193aeffefaed8dc036d3ad67979b5f349411ecbaf2d28c32a07157582fb4bc"
+      },
+      "passed": true,
+      "resources": {
+        "memory.peak": 55771136,
+        "memory.swap.current": 0,
+        "memory.swap.peak": 0,
+        "pids.peak": 6
+      },
+      "unit_absent": true
+    }
+  ],
+  "source_sha256": {
+    "egl.py": "abaa3fe1c7efa213c142a8a4184a7e6807801d7807fe5adc76d271c04accafb0",
+    "probe.py": "4fa7b97062c4074ce97911f7759c7ea1f32dac8017a3527d1fa211778a71ca65",
+    "query_probe.py": "be837b2340aac3293ac3c9b1bb46bd9222a577d9d626a28c1acf4b306fc45fae"
+  },
+  "status": "PARTIAL_COMPONENT_QUALIFICATION"
+}

@@ -3,6 +3,14 @@
 Updated 2026-10-24. The normal service remains browser-based. Publishing these
 branches does not change the running service.
 
+Native graphics feasibility is now measured without a browser. The installed
+EGL driver can create a real offscreen context and render shader-driven pixels,
+but full rendering hit the 128 MiB limit; an alternative renderer was OOM-killed.
+A separate context/query-only run passed at 55,771,136 bytes with zero swap or
+memory events and verified teardown. That is a component result, not a Node/SDK
+integration or delivery result. Next is a direct native binding measurement.
+See `scripts/experiments/native_gl`; neither running service changed.
+
 A new bundle fills the SDK's separate dedicated Worker API gap. Its
 two pinned scripts now run in real Node threads with the native user agent.
 Eight focused cases pass, including active cancellation and private errors.
