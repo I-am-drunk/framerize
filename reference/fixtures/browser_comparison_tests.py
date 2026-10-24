@@ -14,6 +14,8 @@ SPEC = importlib.util.spec_from_file_location(
 OLD = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(OLD)
 C = OLD.CONTEXT
+# Legacy cases use an already-settled jar. Dedicated settling cases set time bounds.
+C.COMPARISON_SETTLE_SECONDS = 0
 DEVICE = "fixture-observed-device"
 
 OBSERVER_SPEC = importlib.util.spec_from_file_location(

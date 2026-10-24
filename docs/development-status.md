@@ -90,6 +90,29 @@ signature error in these new diagnostics; the corrected handlers accept the
 page argument and the fixture now reproduces it. No acceptance, deadline or
 retry behavior changed. Next, build the observer into the bounded comparison.
 
+The observer host, API and comparison executable then built successfully.
+R20 loaded the current web entry and 456 observed public modules without
+asset failures or JavaScript errors. The policy check returned known and
+enabled. The baseline then refused at `baseline_header_before_mint_values`:
+its current cookie snapshot differed from the snapshot used for its bearer.
+It made zero inference sends and never reached comparison minting. Both
+cleanup receipts completed; the child exited naturally with its group absent.
+Peak usage was 1,239,252,992 bytes with zero swap or limit events. The protected
+browser stayed unchanged and the isolated owner is parked with full history.
+Source provenance shows that the supplied header was the original context
+reply. The fresh snapshot passed exact session and device checks, so this
+mismatch involves another cookie name. Its identity and writer are unknown;
+no cookie contents were exported. Neither Castle nor native HTTP is implicated
+by this local refusal.
+An initial full-cookie settling step now passes all 154 focused Python cases.
+It requires one second of equal snapshots within five seconds, with stable
+page, device and login. Later full-header comparisons remain exact. This is
+a bounded startup measure, not proof that cookies will remain unchanged.
+The first run had one fixture expectation failure: an existing snapshot
+guard caught injected drift before the new sampler did. The corrected case
+retains refusal and cleanup assertions. Browser and JavaScript evidence is
+reused for unchanged operations; no later authenticated result is claimed.
+
 A traced offline SDK probe identified the browser crash: PulseAudio requests a
 64 MiB shared-memory file, but the comparison runner allowed only 32 MiB.
 `ftruncate` returned `EFBIG`, followed by SIGXFSZ. The corrected tracing probe

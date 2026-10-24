@@ -18,6 +18,9 @@ COMPARISON_READY_SECONDS = 10
 COMPARISON_DISPOSE_SECONDS = 2
 COMPARISON_PROBE_SECONDS = 1
 COMPARISON_POLICY_SECONDS = 2
+COMPARISON_SETTLE_SECONDS = 1
+COMPARISON_SETTLE_LIMIT = 5
+COMPARISON_SETTLE_POLL = 0.25
 POLICY_PROGRESS = ('policy_eval_entry', 'policy_engine_import', 'policy_engine_loaded',
     'policy_module_import', 'policy_module_loaded', 'policy_call', 'policy_evaluated')
 POLICY_STAGES = ('policy_preflight', 'policy_pre_context', 'policy_import',
@@ -38,6 +41,7 @@ MINT_FAILURE_MARKS = {'pre_context': 'mint_pre_context', 'dynamic_import': 'mint
     'post_context': 'mint_post_context', 'post_page': 'mint_post_page',
     'post_device': 'mint_post_device', 'invalid_token': 'mint_invalid_token'}
 DIAGNOSTIC_STAGES = frozenset(('account_start', 'context_inputs', 'cookie_seed',
+    'context_settling', 'context_settled', 'context_settle_timeout', 'context_settle_drift',
     'navigation', 'device_readiness', 'editor_readiness', 'snapshot_page', 'snapshot_cookies', 'snapshot_header',
     'snapshot_validate', 'context_ready', 'baseline', 'native_token',
     'baseline_header_before_mint', 'baseline_mint', 'baseline_bound_after_mint',
@@ -880,6 +884,31 @@ async def comparison_snapshot(scope, acc, project, path, login):
     return snap["url"], device, header
 
 
+async def comparison_settled_snapshot(scope, acc, project, path, login):
+    comparison_mark(scope, 'context_settling')
+    async def settle():
+        first = previous = await comparison_snapshot(scope, acc, project, path, login)
+        since = time.monotonic()
+        while time.monotonic() - since < COMPARISON_SETTLE_SECONDS:
+            await asyncio.sleep(COMPARISON_SETTLE_POLL)
+            current = await comparison_snapshot(scope, acc, project, path, login)
+            if current[:2] != first[:2]:
+                comparison_mark(scope, 'context_settle_drift')
+                raise ValueError('comparison context changed')
+            if current[2] != previous[2]:
+                since = time.monotonic()
+            previous = current
+        return previous
+
+    try:
+        result = await asyncio.wait_for(settle(), COMPARISON_SETTLE_LIMIT)
+    except asyncio.TimeoutError:
+        comparison_mark(scope, 'context_settle_timeout')
+        raise
+    comparison_mark(scope, 'context_settled')
+    return result
+
+
 def comparison_target(request):
     project, path = request.get("project"), request.get("path")
     if (type(project) is not str or not re.fullmatch(r"[A-Za-z0-9_-]{1,256}", project)
@@ -945,7 +974,7 @@ async def _comparison_context(host, account, scope, request, startup):
     startup.emit('readiness')
     policy = await comparison_policy(scope, acc.page, project)
     startup.emit('policy')
-    url, device, header = await comparison_snapshot(scope, acc, project, path, login)
+    url, device, header = await comparison_settled_snapshot(scope, acc, project, path, login)
     state = {"identity": scope.identity(), "account": account, "acc": acc,
              "page": acc.page, "context": acc.ctx, "browser": acc.browser,
              "project": project, "path": path, "url": url, "device": device,

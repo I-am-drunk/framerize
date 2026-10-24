@@ -35,6 +35,11 @@ eight names per list. Missing events, observer failures and capacity overflow
 limit coverage. These records do not prove module evaluation, an SDK branch or
 an inference send. Observers detach when preparation returns or is cancelled;
 the original scope still owns any pending browser RPC.
+Before binding the initial comparison context, a bounded sampler requires
+one second of matching full cookie headers. Sampling stops after five seconds
+and rejects observed page, device or login drift. Cancellation retains any
+pending snapshot RPC in the existing scope. This only samples startup
+stability; the pre-mint and post-mint full-header comparisons remain required.
 The standalone controller defers service startup until it has left its
 read-only sandbox and confirmed the comparison group is absent. Clean refused
 comparisons retain the stopped owner and full derived cooldown history;
