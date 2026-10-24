@@ -1,5 +1,13 @@
 # Serving architecture and branch policy
 
+The core pipeline rechecks current account identity, saved scope, readiness and
+cooldown after workspace awaits and immediately before either inference call.
+It releases the account update lock before external work. This prevents a retry
+using an account that became unavailable during the preceding call; it does not
+make the check and external call atomic. Seven selected tests pass, including
+three new retry cases and four affected controls. The HTTP `/api/run` mapping
+of these refusals remains a separate correction.
+
 Streaming producers retain cleanup evidence from every inference attempt until
 the existing producer task finishes. A later successful repick or plain error
 cannot erase an earlier unconfirmed cleanup. The observer preserves the actual
