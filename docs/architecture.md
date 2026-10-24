@@ -15,6 +15,13 @@ awaits that hook before its final device verification and window closure. A
 join failure refuses the token while retaining window cleanup. Runtimes without
 workers keep their existing path; adding the hook alone activates no worker.
 
+An explicit `createDedicatedV2Minter` profile installs a bounded worker owner
+before SDK configuration. It admits the exact selected worker script by hash
+and uses genuine Node worker capabilities. The existing V2 constructors keep
+their behavior. The explicit profile requires one started and joined worker,
+two delivered messages and zero worker errors before it can release a token.
+This is a local completion condition, not evidence of upstream acceptance.
+
 V2 verifies its pinned SDK, settlement helper and DOM dependencies before and
 after the operation using streamed SHA-256 reads with a 64 KiB buffer. Native
 libraries are never loaded wholesale just to hash them. Read failures still
