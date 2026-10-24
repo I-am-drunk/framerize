@@ -15,9 +15,27 @@ events and absent process groups were independently verified.
 Only the changed server library and executable were rebuilt. Both pass
 (`5cf58557` and `b7038622`), reusing source-matched, previously qualified core,
 host, API and store libraries. Link peak was 590,610,432 bytes with zero swap.
-No new executable was run or deployed. Failed account-acquisition cleanup during
-repick remains a separately owned source correction. Native acceptance and
+No new executable was run or deployed. The subsequent account-repick correction
+is recorded below. Native acceptance and
 normal-service streaming acceptance are still unverified.
+
+The four-path repick-acquisition input `a34bd3cd` is integrated. Its three new
+router cases pass across 24 scenarios, and both directly affected acquisition
+controls pass (`59abbf9d`, peak 12,500,992 bytes). Compilation passes (`326be3ce`,
+peak 408,113,152 bytes). The cases preserve the original client error and the
+single inference attempt while checking cleanup, resident capacity and next
+admission after consumed or discarded responses. Unconfirmed close remains
+fenced; a confirmed refusal before close leaves admission open. Both phases
+independently verified source/input pins, zero swap/limit events and cleanup.
+No prior 47/24/8 or streaming-five selection was repeated. The two initial
+inference acquisition sites remain a separately owned correction.
+
+The changed server library and integrated executable also compile
+(`3a3987db`, `fb450b18`), reusing the unchanged qualified dependency libraries.
+Link peak was 456,814,592 bytes, with unchanged pins, zero swap/limit events
+and removed groups. The executable has not been run or deployed. The existing
+browser service remains protected; isolated results cannot establish its
+normal-endpoint interruption and subsequent-stream acceptance.
 
 The account-policy candidate `43fca821` is integrated, retaining the previously
 qualified client corrections and newer documentation. All 47 selected cases
