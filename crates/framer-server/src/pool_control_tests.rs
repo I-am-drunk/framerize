@@ -746,7 +746,10 @@ async fn typed_pipeline_cleanup_fences_only_the_held_account() {
     let outcome = crate::run(State(state.clone()), Json(crate::RunBody {
         account_id: id(1), prompt: "fixture".into(), model: None, chat_session: None,
     })).await;
-    assert!(matches!(outcome, Err(ApiError::Internal(_))));
+    let response = outcome.unwrap();
+    assert_eq!(response.status(), axum::http::StatusCode::INTERNAL_SERVER_ERROR);
+    let body = to_bytes(response.into_body(), 4096).await.unwrap();
+    assert_eq!(body.as_ref(), b"framer: account browser cleanup is unconfirmed; retry after cleanup");
     assert!(slot(&state, id(1)).uncertain);
     assert!(!slot(&state, id(2)).uncertain);
     assert_eq!(ports.request_started.load(Ordering::SeqCst), 1);
@@ -773,7 +776,12 @@ async fn typed_pipeline_store_and_unrelated_errors_do_not_fence() {
         let outcome = crate::run(State(state.clone()), Json(crate::RunBody {
             account_id: id(1), prompt: "fixture".into(), model: None, chat_session: None,
         })).await;
-        assert!(matches!(outcome, Err(ApiError::Internal(_))));
+        let response = outcome.unwrap();
+        assert_eq!(response.status(), axum::http::StatusCode::INTERNAL_SERVER_ERROR);
+        let body = to_bytes(response.into_body(), 4096).await.unwrap();
+        let expected = if store_error { format!("store: {local}") }
+            else { format!("framer: upstream 500: {local}") };
+        assert_eq!(body.as_ref(), expected.as_bytes());
         assert!(!slot(&state, id(1)).uncertain);
         assert_eq!(ports.request_started.load(Ordering::SeqCst), usize::from(!store_error));
         assert!(!ports.events.lock().unwrap().iter().any(|event| event.0 == "close_started"));
@@ -1239,12 +1247,18 @@ async fn unknown_account_rejection_does_not_evict_any_of_six_resident_browsers()
         let before = records(&ports);
         let live = ports.live.lock().unwrap().clone();
         let events = ports.events.lock().unwrap().clone();
-        let result = if through_run {
-            crate::run(State(state.clone()), Json(crate::RunBody {
+        if through_run {
+            let response = crate::run(State(state.clone()), Json(crate::RunBody {
                 account_id: id(999), prompt: "fixture".into(), model: None, chat_session: None,
-            })).await.map(|_| ())
-        } else { lease_account(&state, id(999)).await.map(|_| ()) };
-        assert!(matches!(result, Err(ApiError::InvalidRequest(_))));
+            })).await.unwrap();
+            assert_eq!(response.status(), axum::http::StatusCode::BAD_REQUEST);
+            let body = to_bytes(response.into_body(), 4096).await.unwrap();
+            assert_eq!(serde_json::from_slice::<Value>(&body).unwrap(),
+                json!({"error":{"code":"invalid_request","message":"account not found"}}));
+        } else {
+            assert!(matches!(lease_account(&state, id(999)).await,
+                Err(ApiError::InvalidRequest(_))));
+        }
         assert_eq!(*ports.live.lock().unwrap(), live);
         assert_eq!(*ports.events.lock().unwrap(), events);
         let snapshot = state.serving_accounts.residents.snapshot().unwrap();

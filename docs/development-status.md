@@ -3,6 +3,19 @@
 Updated 2026-10-24. The normal service remains browser-based. Publishing these
 branches does not change the running service.
 
+The six-path `/api/run` input `61d2e64b` is integrated. All 17 selected tests
+pass (`fa69eea2`, peak 12,496,896 bytes), covering 41 scenarios. Compilation
+passes (`755ecbf5`, peak 439,271,424 bytes). The selection covers completed
+output, disabled accounts, malformed requests, acquisition failures and
+unknown inference cleanup with consumed and discarded response bodies, plus
+changed explicit-account and direct controls. Original errors and the
+unmanaged-host barrier remain. Exact inputs, selection, zero swap/limit events
+and removed process groups were independently verified. The server rebuild
+and executable link pass (`bea01ccd`, link peak 454,189,056 bytes, zero swap).
+No prior suite was repeated by parentage. Local/static/admin
+completion and typed capacity mapping remain separate source inputs; no
+normal-service activation or successful native request is claimed.
+
 The two-file browser startup input `121d770a` is integrated. All five selected
 tests pass (`b36564d4`, peak 14,446,592 bytes); test compilation passes
 (`df140c78`, peak 353,198,080 bytes). The explicit option enables ownership
