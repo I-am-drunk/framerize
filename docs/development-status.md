@@ -17,9 +17,16 @@ status documents conflicted; both sets of results are retained below. This
 merge does not repeat their tests or extend those results to the SDK transfer.
 Intermediate transfer assembly `8381616` is now integrated: all 21 incoming
 paths match and the 27 selected Rust cases match their published fixtures.
-The Rust core can be built independently. Final Python qualification awaits
-the ambient-proxy and unrelated-page observation corrections from its owners.
-No transfer case has run, and this is not a ready runtime package.
+The intermediate core compiles (`6459710f`) with a 167,043,072-byte peak under
+the existing 512 MiB limit, zero swap and no resource-limit events. Its launcher
+is collected, captured child absent and group removed. Reuse requires exact
+core-source equality with the final assembly. Final qualification remains open:
+producer route/primary corrections are published separately, and Transport is
+fixing repeated proof attachment during later response chunks. The checked
+proof must be retained for its original grant/session while each mint keeps
+host revalidation and rate ownership. The provisional 27-case selection has
+not run and will be rebound to the corrected source. No runtime package is
+accepted by this intermediate compile.
 
 Branch `integrate/ordinary-v2-identity-20261024` assembles the 15 executable
 paths from ordinary-V2 candidate `fe500a0` onto qualified `0b1107c`.

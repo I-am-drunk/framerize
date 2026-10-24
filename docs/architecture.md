@@ -9,8 +9,12 @@ the unmanaged-host retirement barrier and requires separate runtime evidence.
 The separate ordinary-V2 integration branch adds explicit `--offline-sdk v2`
 selection and now includes the intermediate producer, consumer and support
 package from `8381616`. Missing, foreign or stale SDK observation proof is
-rejected instead of substituting an HTTP device value. Two producer corrections
-remain pending: ambient-proxy route mismatch and unrelated-page invalidation.
+rejected instead of substituting an HTTP device value. Published producer
+corrections cover ambient-proxy route mismatch and unrelated-page invalidation;
+their final integration remains pending. The consumer must transfer once per
+original grant/session and retain that checked proof across response chunks.
+Repeated attachment after the grant sequence advances is refused. A consumer
+correction is in progress; per-mint host validation and rate ownership remain.
 This assembly is unqualified and does not change the browserless branch or
 running service. The ten startup passes belong to the earlier `3d52cde`
 assembly; they are not qualification of this transfer implementation.
