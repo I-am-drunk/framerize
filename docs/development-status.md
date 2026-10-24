@@ -59,7 +59,22 @@ the generic post-context stage, and no identity or token data is exposed. The
 next bounded comparison uses these diagnostics and the qualified addon exclusion
 after the full uncertainty cooldown; authenticated delivery is still unverified.
 
-The latest isolated comparison (R10) stopped before minting because its cookie
+The next isolated trial, R13, completed without a memory-limit event. It
+refused locally at `mint_post_page`: the page URL changed during the mint.
+The report records zero baseline inference starts and no native attempt.
+Account and browser cleanup completed, the child exited naturally, and its
+group was removed. Peak group usage was 1,036,296,192 bytes with 195 tasks;
+swap and limit events were zero. The protected browser was unchanged. The
+outside finisher kept the isolated service stopped and preserved the full
+cooldown history. This trial does not establish an SDK token or HTTP defect.
+
+Preparation currently waits for DOMContentLoaded and a nonempty device ID,
+then binds the exact URL. Existing host source documents the editor's later
+bare-ID to slugged-project redirect. Whether that specific redirect occurred
+in R13 is unobserved. The next source investigation is a reliable project
+readiness condition before binding; the post-mint equality guard stays strict.
+
+The earlier isolated comparison (R10) stopped before minting because its cookie
 header differed from the snapshot used to acquire the bearer. No inference
 transport started, and native inference did not run. Account and browser
 cleanup were confirmed; the child exited naturally and its group was removed.
