@@ -11,6 +11,12 @@ It acknowledges a result only after the external window owner records it.
 Forced cleanup is never delivery acceptance. Account exclusion and
 restoration remain with that window owner; the parent library does not start
 or stop services.
+Comparison preparation also writes bounded phase records through the existing
+sidecar file sink. Each record has an opaque trace, sequence, fixed purpose and
+fixed stage; no account, URL, cookie, token or prompt is included. The 128-record
+cap is explicit. A phase marks local code entry, not an upstream send or completed
+cleanup. Missing records and sink failures remain unknown, and logging never
+changes RPC or cleanup ownership.
 The standalone controller defers service startup until it has left its
 read-only sandbox and confirmed the comparison group is absent. Clean refused
 comparisons retain the stopped owner and full derived cooldown history;

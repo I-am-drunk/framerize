@@ -40,6 +40,33 @@ def comparison_mark(scope, stage, **checks):
     scope.comparison_diagnostic_stage = stage if stage in DIAGNOSTIC_STAGES else 'unknown'
     scope.comparison_diagnostic_checks = {key: checks[key] for key in DIAGNOSTIC_CHECKS
         if type(checks.get(key)) is bool}
+    try:
+        callback = getattr(scope, 'comparison_progress', None)
+        if callback is not None:
+            callback(scope.comparison_diagnostic_stage)
+    except Exception:
+        pass  # Diagnostic loss must never change request or cleanup ownership.
+
+
+def comparison_attach_progress(scope, request, emit):
+    purpose = request.get('purpose')
+    if request.get('cmd') == 'browser_baseline_once':
+        purpose = 'baseline'
+    if purpose not in ('baseline_context', 'baseline', 'native_token'):
+        purpose = 'unknown'
+    if not hasattr(scope, 'comparison_progress_id'):
+        scope.comparison_progress_id = secrets.token_hex(16)
+        scope.comparison_progress_sequence = 0
+
+    def progress(stage):
+        if scope.comparison_progress_sequence >= 128:
+            return
+        scope.comparison_progress_sequence += 1
+        emit('browser.comparison.progress', trace=scope.comparison_progress_id,
+             sequence=scope.comparison_progress_sequence, purpose=purpose,
+             stage=stage, at_limit=scope.comparison_progress_sequence == 128)
+
+    scope.comparison_progress = progress
 
 
 def comparison_evidence(scope):

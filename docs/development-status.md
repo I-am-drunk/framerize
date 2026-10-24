@@ -74,6 +74,15 @@ bare-ID to slugged-project redirect. Whether that specific redirect occurred
 in R13 is unobserved. The next source investigation is a reliable project
 readiness condition before binding; the post-mint equality guard stays strict.
 
+Preparation now records fixed phases immediately through the existing sidecar
+log, instead of retaining them only in memory until command completion. All
+75 focused Python cases pass, including bounded output, privacy, pending-mint
+visibility and cancellation ownership. These records do not certify a send or
+cleanup. The change is published source and has not run in a live comparison.
+The saved application source rules out both its generic loading latch and a
+slug-only URL check as complete readiness signals: the latch has other false
+states, and the router also updates selected-scope query state.
+
 The earlier isolated comparison (R10) stopped before minting because its cookie
 header differed from the snapshot used to acquire the bearer. No inference
 transport started, and native inference did not run. Account and browser

@@ -2183,7 +2183,8 @@ class Host:
             req = self._observed_command(req)
         if (req.get("cmd") == "browser_baseline_once" or
                 (req.get("cmd") == "prepare_inference_authorization" and "purpose" in req)):
-            from contextual_authorization import comparison_evidence, comparison_mark
+            from contextual_authorization import (comparison_evidence, comparison_mark,
+                                                   comparison_attach_progress)
             scope = None
             try:
                 if self._observed is None:
@@ -2192,6 +2193,7 @@ class Host:
                 validate_comparison_request(req)
                 account = req.get("account", "")
                 scope = self._observed.accounts[account]
+                comparison_attach_progress(scope, req, emit)
                 comparison_mark(scope, 'account_start')
                 if req.get("purpose") != "baseline_context":
                     scope = self._observed.accounts[account]
