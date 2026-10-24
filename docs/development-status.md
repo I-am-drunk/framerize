@@ -16,6 +16,18 @@ The saved checks confirm zero swap/events and test-group removal. Existing
 Python (28), exact-fetch JavaScript (13), host (48) and API (47) results are
 reused. This is local validation, not authenticated delivery.
 
+The first live comparison stopped at local memory admission. Its 768 MiB
+child cap could not satisfy the host's unchanged 1 GiB startup-headroom
+requirement. The child exited and its cgroup was removed without swap or
+memory events; no baseline or native result was obtained. The original
+Cleanup failure is retained. The protected browser service is unchanged.
+The isolated service remains held with its original history preserved.
+
+The comparison process owner now supports a 1.5 GiB child inside a 2 GiB
+controller, with the host reserve checked separately. A focused local test
+confirmed those limits and descendant teardown. The next live attempt must
+also resolve the prior prelaunch fence and honor the reserved cooldown.
+
 The parent wire helper and sequence now pass 25 protocol and nine lifecycle/
 history cases. Two real-process tests also confirm graceful rejection and
 containment of a stuck descendant in a separate process group. The controller

@@ -11,6 +11,10 @@ from browser_comparison_process import Child
 
 
 def run(case, binary):
+    label = case
+    memory = (1536 if case == 'large-descendant' else 128) * 1024**2
+    if case == 'large-descendant':
+        case = 'descendant'
     with tempfile.TemporaryDirectory() as temporary:
         if case == 'descendant':
             binary = Path(temporary) / 'inert-child'
@@ -21,7 +25,7 @@ def run(case, binary):
                 'signal.pause()\n')
             binary.chmod(0o700)
         owner = Child(binary, {'PATH': '/usr/bin:/bin', 'PYTHONDONTWRITEBYTECODE': '1'},
-                      memory_bytes=128 * 1024**2, tasks=16)
+                      memory_bytes=memory, tasks=16)
         try:
             sock = owner.launch()
             sock.settimeout(3)
@@ -42,11 +46,11 @@ def run(case, binary):
         assert result['forced'] == (case == 'descendant')
         assert result['exit_code'] == (-9 if case == 'descendant' else 2)
         usage = result['resources']
-        assert usage['memory.peak'] <= 128 * 1024**2
+        assert usage['memory.peak'] <= memory == usage['memory.max']
         assert not any(usage['memory.events'].values())
         assert not any(usage['pids.events'].values())
         assert usage['memory.swap.current'] == 0
-        print(json.dumps(dict(case=case, accepted=True, cleanup=result)))
+        print(json.dumps(dict(case=label, accepted=True, cleanup=result)))
 
 
 if __name__ == '__main__':

@@ -19,7 +19,7 @@ def require(value):
 
 class Child:
     def __init__(self, binary, environment, *, memory_bytes, tasks=96):
-        require(type(memory_bytes) is int and 0 < memory_bytes <= 768 * 1024**2)
+        require(type(memory_bytes) is int and 0 < memory_bytes <= 1536 * 1024**2)
         require(type(tasks) is int and 1 <= tasks <= 96)
         self.binary, self.environment = str(binary), dict(environment)
         self.memory_bytes, self.tasks = memory_bytes, tasks
@@ -39,7 +39,7 @@ class Child:
         require(re.fullmatch(r'framerize-browser-comparison-[a-z0-9-]+\.service', parent.name))
         require(parent.resolve(strict=True) == parent)
         cap = (parent / 'memory.max').read_text().strip()
-        require(cap.isdecimal() and self.memory_bytes < int(cap) <= 1024**3)
+        require(cap.isdecimal() and self.memory_bytes < int(cap) <= 2 * 1024**3)
         require((parent / 'memory.swap.max').read_text().strip() == '0')
         require((parent / 'memory.swap.current').read_text().strip() == '0')
         parent_tasks = (parent / 'pids.max').read_text().strip()
