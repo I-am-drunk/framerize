@@ -1,5 +1,11 @@
 # Development status
 
+Continuing 8787 traffic was traced to the shared Codex backend that also runs
+this investigation. Nine inert checks now qualify a separate scheduler for
+the unchanged rollout controller, allowing model traffic to stop during the
+transition. The real rollout is still unrun. See
+`reference/analysis/normal-rollout-self-dependency-20261024.md`.
+
 Normal-rollout preflight exposed malformed event-log records. Six focused
 reader cases now pass; plan `ad5f21ad` preserves the approved rollout and adds
 only the corrected reader binding. The old plan and authentication evidence

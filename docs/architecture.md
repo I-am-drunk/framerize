@@ -1,5 +1,10 @@
 # Serving architecture and branch policy
 
+Normal rollout control must account for the agent's own provider using the
+protected endpoint. A separately scheduled controller permits a quiet agent
+while retaining positive request, cooldown and recovery checks. Coordination
+delivery alone never establishes endpoint quiescence.
+
 The selected first-run identity path is a fresh verified sign-in under the
 existing ordinary-V2 contract. This selection does not add a saved-session
 verification path or treat imported cookies as identity proof.
