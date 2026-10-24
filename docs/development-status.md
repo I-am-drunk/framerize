@@ -43,9 +43,21 @@ anonymous resident memory. Offline R23 excluded default uBlock using the
 supported launch option. Its unchanged SDK completed one V3 mint with stable
 identity, no fallback or error, and clean teardown. Group peak was 614,293,504
 bytes, compared with R22's 833,970,176 bytes, about 210 MiB lower in these two
-empty-fixture samples. This does not establish the real page's peak. The
-comparison-only exclusion is being integrated; ordinary browsers and explicit
-prepared addons retain their existing configuration.
+empty-fixture samples. This does not establish the real page's peak.
+
+The comparison-only exclusion is integrated and all 149 focused inert cases
+pass. Ordinary browsers and explicit prepared addons retain their settings. A fresh
+signed-out public login page also loaded, remained open for 20 seconds and
+closed cleanly, peaking at 683,372,544 bytes with zero swap or limit events.
+That test supplied no account and blocked AI endpoints. The authenticated
+project page's memory remains unverified. R12's surviving command log records
+a post-mint context-check failure before the later memory kill, so the two
+failures remain separate. The post-mint diagnostic now distinguishes page
+drift from device drift without weakening either check. All 61 focused Python
+cases and six exact-JavaScript inert cases pass. Check exceptions still retain
+the generic post-context stage, and no identity or token data is exposed. The
+next bounded comparison uses these diagnostics and the qualified addon exclusion
+after the full uncertainty cooldown; authenticated delivery is still unverified.
 
 The latest isolated comparison (R10) stopped before minting because its cookie
 header differed from the snapshot used to acquire the bearer. No inference

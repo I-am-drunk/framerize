@@ -33,7 +33,9 @@ the comparison's device equality check. Awaiting wrapper export `a` also
 does not establish initialization completion: that export starts the cached
 import/configuration promise without returning it. Branch diagnostics can
 reduce the existing logger buffer in-page to fixed counters without
-exporting tokens, error objects or storage values.
+exporting tokens, error objects or storage values. Post-mint page and device
+inequality have separate fixed diagnostics; getter failures retain a generic
+context-check stage. All three paths refuse continuation.
 
 The comparison must run the public SDK in the page's own JavaScript realm.
 The offline failure was Firefox's rejection of TypedArray access across an
@@ -42,6 +44,11 @@ Xray wrapper. Camoufox's documented `main_world_eval=True` launch option and
 stable page/device identity. This qualifies the local caller correction;
 authenticated delivery still requires a separate comparison. The regular
 service's launch and evaluation settings remain separate.
+
+The reserved comparison launch excludes Camoufox's default uBlock addon when
+no prepared addon is explicitly configured. Ordinary browsers retain their
+existing settings. This reduces avoidable extension memory in the temporary
+control browser; it does not change the native worker or the public SDK.
 
 The process owner accepts an explicit task limit up to 256 within a parent
 limit up to 320. Its default remains 96. A network-isolated blank-browser
