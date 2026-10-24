@@ -34,6 +34,9 @@ pub use closure::{NativeTrackedRequest, NativeResponseFuture, NativeClosed, Nati
 #[path = "native_send_evidence.rs"]
 pub(crate) mod send_evidence;
 
+#[path = "native_transport_facts.rs"]
+mod transport_facts;
+
 /// Headers and an on-demand raw stream. Native HTTP exposes a real usage
 /// header even when browser CORS would have hidden it.
 pub struct NativeResponse {
@@ -660,7 +663,7 @@ impl NativeHttp {
         let request = if self.resident_browser_headers {
             request.header(COOKIE, cookie).header("x-requested-by", "Framer")
         } else { request };
-        send_evidence::invoked()?;
+        let invocation = send_evidence::invoked()?;
         let send = request.send();
         let send_cancellation = cancellation.clone();
         let cancelled = send_cancellation.cancelled();
@@ -669,6 +672,9 @@ impl NativeHttp {
             futures::future::Either::Left(_) => return Err(CANCELLED.into()),
             futures::future::Either::Right((result, _)) => result.map_err(transport_error)?,
         };
+        // Observe the received head even if local encoding/size checks refuse it.
+        // These fixed facts grant no acceptance or cleanup authority.
+        send_evidence::received(invocation, response.status(), response.version(), response.headers());
         // Do not feed compressed bytes to SSE consumers or allocate an
         // unbounded decompression buffer. The request explicitly asks identity.
         for encoding in response.headers().get_all("content-encoding").iter() {

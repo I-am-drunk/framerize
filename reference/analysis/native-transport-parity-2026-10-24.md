@@ -1,0 +1,79 @@
+# Native transport response-head evidence
+
+Branch: `goal/browserless-native-transport`, based on `71b6326`.
+Source-only preparation. All builds, fixtures and runtime execution are UNRUN
+in this checkout. The runtime owner retains integration and validation.
+
+Latest owner report: R14 returned normal-browser and paired-baseline HTTP 200
+with output. The explicitly configured dedicated V2 worker completed without
+worker failures; native dispatch returned complete HTTP 403 JSON with the
+Castle security envelope. Cleanup was confirmed and exact live command,
+binary and configuration were bound. The protected service is unchanged;
+no live retry is queued. This report supersedes R13 as the latest live result.
+
+The earlier R7 browser-mint/native-HTTP control returned completed model output
+(`docs/architecture.md`). Neither R7 nor R14 identifies the cause of the
+isolated SDK refusal. No private captures or jars were read for this work.
+
+`crates/framerize/src/resident_control_attempt.rs` constructs one NativeHttp
+before selecting the browser or isolated SDK mint. Both paths converge on the
+same sender, retained bearer and current API-selected jar. The native client
+and bearer client use the captured effective proxy, including an observed
+direct launch, rather than a replacement configured fallback.
+`experimental_native/resident_control.rs` rechecks account generation, target,
+page, device, exact bearer jar and captured egress before releasing credentials.
+The SDK path also verifies the observed seed after joined worker completion.
+Source binding is not a new live proof of account isolation or remote egress.
+
+The closed credentials/include, JSON-header, cookie-order and model-serializer
+findings are reused. Those implementations and fixtures were not changed.
+The worker lifecycle, field decoder and runtime collector are separately owned.
+
+Remaining source-supported transport distinctions:
+
+- NativeHttp uses reqwest, HTTP/1 and the truthful `Framerize/0.1` user agent.
+  A browser uses its own TLS and HTTP stack; its negotiated version is not
+  established by this source inspection. Neither fingerprint is changed here.
+- NativeHttp explicitly requests identity encoding and refuses other encodings.
+  The browser fetch leaves compression negotiation and decoding to its stack.
+- The browser baseline uses `cache: 'no-store'` and `redirect: 'error'`.
+  NativeHttp has no browser cache and does not follow redirects, but exposes
+  a received redirect status to its caller instead of a browser fetch error.
+- NativeHttp supplies an origin-only Referer. The browser selects its referrer
+  and automatic request metadata under browser policy and applies CORS.
+- NativeHttp owns an account-specific connection pool, separate from the
+  browser and bearer client pools. Equal captured proxy configuration alone
+  does not attest equal remote exit IP, DNS resolution or TLS behavior.
+
+The concrete diagnostic gap is after response headers arrive: encoding or
+advertised-size rejection can occur before NativeResponse exposes its status.
+The new `native.http.head` event precedes those checks and carries the existing
+process-local send `invocation` plus exactly three `head` fields:
+`status`, `http_version`, and `content_encoding`. HTTP versions use fixed labels
+`http_09`, `http_10`, `http_11`, `http_2`, `http_3`, or `other`.
+Encoding categories are `absent`, `identity`, `other`, `invalid`, or `unavailable`.
+Inspection reads at most eight encoding values and 512 total value bytes.
+Exceeding either bound yields `unavailable`; the original policy still runs.
+Raw headers, exception strings, response content, account identifiers, proxy
+addresses and request credentials are never copied into these facts.
+
+The existing send event and counter semantics are unchanged. All dispatch,
+encoding, size, cancellation, response acceptance and cleanup decisions remain
+in their original code paths; the new projection does not authorize anything.
+
+A recorded head establishes a received response head, including before a
+local body-policy refusal. It does not establish body completion, model output,
+token validity or joined cleanup. A missing head is inconclusive: logging is
+best effort and cancellation can win before the response is observed. The
+invocation is process-local, not an account or lease identity. The runtime
+owner must bind it to the existing owned comparison and process evidence.
+For R14, the complete 403 is already stronger response evidence. This patch
+does not diagnose its cause or justify another live attempt.
+
+Next action: the runtime owner may qualify the seven pure projection cases
+under `experimental_native::native_http::transport_facts::tests` and the
+existing `experimental_native::native_http::send_tests` slice in its owned
+test environment. The new cases need no sockets, SDK or private inputs.
+Source and staged-diff review are the only local verification. Shared status
+docs, live activation and interpretation of the next comparison remain owned
+by the coordinators. The full browserless goal remains active and unfulfilled.
