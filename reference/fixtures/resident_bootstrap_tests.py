@@ -13,15 +13,14 @@ import resident_bootstrap as bootstrap
 
 
 class ResidentBootstrapTests(unittest.IsolatedAsyncioTestCase):
-    async def test_missing_provenance_reports_only_fixed_reason(self):
+    async def test_missing_provenance_has_bound_no_work_receipt(self):
         self.acc._completed_browser_http200 = None
-        output = io.StringIO()
-        with contextlib.redirect_stderr(output):
-            with self.assertRaisesRegex(fixture.ResidentRefused,
-                                        '^resident bootstrap refused$'):
-                await bootstrap.command(self.host, self.request)
-        self.assertEqual(json.loads(output.getvalue()), {
-            'event': 'resident.bootstrap.refused', 'stage': 'provenance'})
+        result = await bootstrap.command(self.host, self.request)
+        self.assertEqual(result, dict(self.request, status='unavailable',
+            stage='provenance', browser_settled=True))
+        self.assertIsNone(self.life.activity.current)
+        self.assertFalse(self.life.activity.fenced)
+        self.assertFalse(getattr(self.host, '_resident_bootstrap_tasks', set()))
         self.assertEqual((len(self.page.calls), len(self.context.calls)), (0, 0))
 
     async def test_private_rpc_error_is_not_logged(self):
@@ -82,8 +81,8 @@ class ResidentBootstrapTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_missing_provenance_never_selects_another_page(self):
         self.acc._completed_browser_http200 = None
-        with self.assertRaises(fixture.ResidentRefused):
-            await bootstrap.command(self.host, self.request)
+        result = await bootstrap.command(self.host, self.request)
+        self.assertEqual(result['status'], 'unavailable')
         self.assertEqual((len(self.page.calls), len(self.context.calls)), (0, 0))
 
     async def test_busy_account_refuses_without_reading_page(self):
@@ -132,10 +131,17 @@ class ResidentBootstrapTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(raw.done())
         self.assertIsNone(self.life.activity.current)
 
-    async def test_actual_launch_realm_required_without_new_evaluation_mode(self):
-        self.acc.resident_launch = (self.browser, 1, None, True)
+    async def test_late_provenance_loss_is_not_a_no_work_receipt(self):
+        self.page.hook = self.acc._completed_browser_http200.invalidate
         with self.assertRaises(fixture.ResidentRefused):
             await bootstrap.command(self.host, self.request)
+        self.assertEqual(len(self.page.calls), 1)
+        self.assertIsNone(self.life.activity.current)
+
+    async def test_actual_launch_realm_required_without_new_evaluation_mode(self):
+        self.acc.resident_launch = (self.browser, 1, None, True)
+        result = await bootstrap.command(self.host, self.request)
+        self.assertEqual(result['status'], 'unavailable')
         self.assertEqual(len(self.page.calls), 0)
 
 

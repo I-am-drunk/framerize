@@ -1,5 +1,11 @@
 # Serving architecture and branch policy
 
+Bootstrap can return a strict unavailable receipt when its constructor finds
+no current-document proof before acquiring a lease. The host binds every
+identity field and rechecks sidecar incarnation before classifying that call
+as having no pending work. This grants no context or token authority. RPC,
+post-acquisition and malformed replies keep the existing uncertainty fence.
+
 The private resident control can select V2 with `--resident-v2-worker-config`
 alongside its socket option. Invalid configuration fails startup; ordinary
 serving and resident controls without this option keep their existing paths.

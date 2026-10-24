@@ -157,7 +157,15 @@ class Bootstrap:
 async def command(host, request):
     req = validate(request)
     try:
-        operation = Bootstrap(host, req)
+        try:
+            operation = Bootstrap(host, req)
+        except BootstrapRefused as error:
+            # Constructor provenance refusal precedes lease acquisition and RPCs.
+            # Later provenance failures still follow the uncertain error path.
+            if error.stage != 'provenance':
+                raise
+            return dict({key: req[key] for key in FIELDS}, status='unavailable',
+                        stage='provenance', browser_settled=True)
         task = asyncio.create_task(operation.run())
         owners = getattr(host, '_resident_bootstrap_tasks', None)
         if owners is None:

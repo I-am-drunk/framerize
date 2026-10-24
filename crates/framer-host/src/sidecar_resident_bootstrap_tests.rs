@@ -87,3 +87,36 @@ async fn unavailable_owner_never_starts_or_registers_a_host() {
     assert!(bridge.inner.lock().await.is_none());
     assert!(bridge.routes.lock().await.is_empty());
 }
+
+fn unavailable() -> Value {
+    json!({"version":2, "account":Uuid::from_u128(1), "application_generation":4,
+        "bootstrap":Uuid::from_u128(2), "project":"fixture-project",
+        "path":"/ai/v3/responses/", "proxy_revision":7, "status":"unavailable",
+        "stage":"provenance", "browser_settled":true})
+}
+
+#[test]
+fn only_exact_pre_acquire_refusal_confirms_no_work() {
+    assert!(matches!(check(unavailable()), Err(BootstrapError::Unavailable)));
+    for (key, value) in [
+        ("version", json!(1)), ("account", json!(Uuid::from_u128(9))),
+        ("application_generation", json!(5)), ("bootstrap", json!(Uuid::from_u128(9))),
+        ("project", json!("other")), ("path", json!("/ai/v3/messages/")),
+        ("proxy_revision", json!(8)), ("status", json!("failed")),
+        ("stage", json!("internal")), ("stage", json!("timeout")),
+        ("browser_settled", json!(false)), ("browser_settled", json!(1)),
+    ] {
+        let mut reply = unavailable(); reply[key] = value;
+        assert!(matches!(check(reply), Err(BootstrapError::Unconfirmed)), "{key}");
+    }
+}
+
+#[test]
+fn no_work_receipt_requires_all_fields_and_rejects_extras() {
+    for key in unavailable().as_object().unwrap().keys() {
+        let mut reply = unavailable(); reply.as_object_mut().unwrap().remove(key);
+        assert!(matches!(check(reply), Err(BootstrapError::Unconfirmed)), "{key}");
+    }
+    let mut reply = unavailable(); reply["token"] = json!("private-fixture");
+    assert!(matches!(check(reply), Err(BootstrapError::Unconfirmed)));
+}

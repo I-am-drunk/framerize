@@ -3,6 +3,16 @@
 Updated 2026-10-24. The normal service remains browser-based. Publishing these
 branches does not change the running service.
 
+R9 completed its normal browser request with HTTP 200 and model output, then
+refused the crossover because current-document provenance was unavailable.
+It sent no baseline, SDK mint or native request. The generic bootstrap error
+left Rust cleanup unconfirmed even though the Python constructor had acquired
+no lease or pending work. A new exact, identity-bound unavailable receipt
+covers only that pre-acquisition provenance refusal. Later failures retain
+uncertainty. Twelve focused Python and 36 host tests pass; host/API libraries
+and the production daemon compile. R9's original failure remains preserved;
+the correction awaits replacement-owner activation and a new control.
+
 The R8 live control established accepted, complete HTTP 200 from the normal
 browser and its paired baseline. The isolated worker then rejected input
 before running the V2 component, so native HTTP was not invoked. Cleanup was
