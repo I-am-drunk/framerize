@@ -22,9 +22,14 @@ snapshot passed without a production change. The passive app AI-policy
 preflight is now integrated. All 136 focused Python and 58 JavaScript cases
 pass, including personal spaces without organization configuration. One stale
 realm-test expectation was corrected to include the new policy evaluation;
-the original failed result is retained. Next, freeze a fresh comparison
-against R16's full history and recheck admission.
-R17 remains unrun. Its finalizer now parks both comparison outcomes instead of
+the original failed result is retained.
+R17 then reached editor readiness but failed at `policy_rpc_timeout`, before
+bearer acquisition, mint or either inference request. Account and browser
+cleanup both completed; the child exited naturally and its group was absent.
+Peak group memory was 1,280,491,520 bytes with zero swap or limit events.
+The protected browser was unchanged and the isolated owner remains parked
+with its full cooldown history. The policy result is unknown.
+Its finalizer now parks both comparison outcomes instead of
 starting the older staged daemon on success. All 28 inert finalization cases
 pass, including refusal of incomplete cleanup and mismatched history. The first
 test launch used a relative path and did not reach the fixture; the corrected
@@ -38,6 +43,20 @@ match the current source. Build peak was 480,161,792 bytes with zero swap or
 limit events. Two isolated CLI startup checks pass. Candidate SHA-256 starts
 `688cec05`; it is not installed or running. Authenticated offline delivery and
 streaming validation remain open.
+
+A network-disabled browser probe ran the exact readiness and policy code
+against synthetic modules and page state. The cached-module case completed in
+8.2 ms; first-time imports completed in 62.8 ms. Both returned an allowed policy,
+retained no pending RPC and closed normally. Peak group memory was 553,127,936
+bytes with zero swap or limit events. This qualifies the basic evaluation path
+in that fixture, not the real page's workload or the cause of R17's timeout.
+The policy now emits up to seven fixed progress labels without changing its
+deadline or decision. All 140 focused Python and 61 JavaScript cases pass.
+An isolated browser also delivered the full sequence on success and stopped
+at the correct import label in two deliberately stalled cases. Both timeouts
+kept the RPC owned until context closure; all three contexts closed cleanly.
+Peak group memory was 593,379,328 bytes with no swap or limit events.
+Next, bind this diagnostic to a fresh comparison using R17's preserved history.
 
 A traced offline SDK probe identified the browser crash: PulseAudio requests a
 64 MiB shared-memory file, but the comparison runner allowed only 32 MiB.

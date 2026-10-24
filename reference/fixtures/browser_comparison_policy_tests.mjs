@@ -29,7 +29,7 @@ function fixture() {
   const user = {spaces: [space]};
   const original = {stores: {projectStore: store, sessionStore: {user}}};
   const state = {engine: original, page: PAGE, device: PRIVATE, space, store, user,
-    imports: [], calls: 0, forbidden: 0, policyResult: false};
+    imports: [], calls: 0, forbidden: 0, policyResult: false, progress: []};
   const forbid = () => { state.forbidden++; throw new Error(PRIVATE); };
   const engineModule = {a: () => state.engine, b: forbid, c: forbid, d: forbid};
   const policyModule = {c: engine => {
@@ -48,9 +48,13 @@ function fixture() {
   const localStorage = {getItem(key) { assert.equal(key, '__cuid'); return state.device; },
     setItem: forbid, removeItem: forbid, clear: forbid};
   const check = new Function('location', 'localStorage', 'importPort', 'fetch',
-    'XMLHttpRequest', 'return (' + expression + ');')(
-      location, localStorage, importPort, forbid, forbid);
-  return {state, engineModule, policyModule, run: () => check({project: PROJECT, page_url: PAGE})};
+    'XMLHttpRequest', 'console', 'return (' + expression + ');')(
+      location, localStorage, importPort, forbid, forbid, {debug: value => {
+        if (state.progressError) throw new Error(PRIVATE);
+        state.progress.push(value);
+      }});
+  return {state, engineModule, policyModule, run: () => check({project: PROJECT,
+    page_url: PAGE, progress_key: state.progressEnabled ? 'fixture:' : undefined})};
 }
 
 test('page drift or missing device refuses before either import', async () => {
@@ -193,4 +197,35 @@ test('true disableAi returns a fixed refusal without changing the policy', async
   assert.equal(value.state.space.configuration.disableAi, true);
   assert.equal(value.state.forbidden, 0);
   safe(result);
+});
+
+test('progress contains only ordered fixed labels and does not change the result', async () => {
+  const value = fixture(); value.state.progressEnabled = true;
+  assert.deepEqual(await value.run(), accepted);
+  assert.deepEqual(value.state.progress, ['policy_eval_entry', 'policy_engine_import',
+    'policy_engine_loaded', 'policy_module_import', 'policy_module_loaded',
+    'policy_call', 'policy_evaluated'].map(x => 'fixture:' + x));
+});
+
+test('throwing console telemetry cannot prevent a valid policy result', async () => {
+  const value = fixture(); value.state.progressEnabled = true; value.state.progressError = true;
+  assert.deepEqual(await value.run(), accepted);
+  assert.equal(value.state.calls, 1);
+});
+
+test('a pending import leaves the corresponding marker without claiming completion', async () => {
+  for (const target of [ENGINE, POLICY]) {
+    const value = fixture(); value.state.progressEnabled = true;
+    let release, reached;
+    const gate = new Promise(resolve => { release = resolve; });
+    const started = new Promise(resolve => { reached = resolve; });
+    value.state.duringImport = async url => { if (url === target) { reached(); await gate; } };
+    const pending = value.run();
+    await started;
+    const stage = target === ENGINE ? 'policy_engine_import' : 'policy_module_import';
+    assert.equal(value.state.progress.at(-1), 'fixture:' + stage);
+    assert.equal(value.state.calls, 0);
+    release();
+    assert.deepEqual(await pending, accepted);
+  }
 });
