@@ -31,7 +31,10 @@ STAGES = {"account_start", "context_inputs", "cookie_seed", "navigation", "devic
           "baseline", "native_token", *BASELINE_STAGES,
           "mint_rpc", "mint_rpc_target_closed", "mint_rpc_timeout", "mint_rpc_error",
           "mint_reply_invalid", "mint_pre_context", "mint_import", "mint_export",
-          "mint_wrapper_call", "mint_post_context", "mint_invalid_token"}
+          "mint_wrapper_call", "mint_post_context", "mint_invalid_token",
+          "baseline_header_before_mint_order", "baseline_header_before_mint_membership",
+          "baseline_header_before_mint_values", "baseline_header_after_mint_order",
+          "baseline_header_after_mint_membership", "baseline_header_after_mint_values"}
 
 
 class DiagnosticHarness(FIXTURE.Harness):
@@ -173,7 +176,7 @@ class ComparisonDiagnosticWorkflowTests(unittest.IsolatedAsyncioTestCase):
         value = self.fixture()
         await value.prepare_context()
         value.context.rows.append({"name": "private_cookie", "value": SECRET})
-        await self.assert_pre_send_failure(value, "baseline_header_before_mint", 0)
+        await self.assert_pre_send_failure(value, "baseline_header_before_mint_membership", 0)
 
     async def test_baseline_mint_error_reports_stage_without_private_exception(self):
         value = self.fixture()
@@ -186,7 +189,7 @@ class ComparisonDiagnosticWorkflowTests(unittest.IsolatedAsyncioTestCase):
         await value.prepare_context()
         self.change_after_mint(value, lambda: value.context.rows.append(
             {"name": "private_cookie", "value": SECRET}))
-        await self.assert_pre_send_failure(value, "baseline_header_after_mint", 1)
+        await self.assert_pre_send_failure(value, "baseline_header_after_mint_membership", 1)
 
     async def test_baseline_binding_refusal_after_mint_is_distinct_from_header_drift(self):
         value = self.fixture()

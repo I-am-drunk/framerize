@@ -389,7 +389,8 @@ class BrowserComparisonTests(unittest.IsolatedAsyncioTestCase):
         await value.baseline()
         value.context.rows.append({"name": "another", "value": "current-value"})
         result = await value.native()
-        self.assertTrue(result["cookie_header"].endswith("another=current-value"))
+        self.assertEqual(result["cookie_header"],
+            "__cuid=" + DEVICE + "; another=current-value; session=" + OLD.LOGIN)
 
     async def test_cancel_during_mint_cannot_start_baseline_fetch(self):
         value = self.fixture()
