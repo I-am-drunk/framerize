@@ -81,9 +81,16 @@ not a production-observation or new-candidate qualification.
 
 All tests/builds, SDK/browser execution, private reads and live actions are
 UNRUN here. Verification is source review, diff checking and blob comparison.
-Next action: intake composes this Rust delta with Structure's matching producer;
-runtime owner 544711e3 qualifies the assembled source and its prepared host
-package. No service, eligibility, marker, frozen R16 or startup change is made.
+Committed integration candidate `838161646f90f10e543e2a431bf72b17cbcca7f5`
+has exact parent `3d52cde09bf4c3e9d1a7b934e3ecbacea755767a`.
+Read-only Git comparison confirms all eleven consumer source/fixture paths,
+including the five original seed cases, match this lane at `83bab713`.
+The producer/helper code matches `56284770`; package code matches `9e966b07`.
+This verifies source composition only, not publication, compilation or execution.
+Next action: runtime owner 544711e3 qualifies intake's candidate and a freshly
+prepared explicit host package. The full native acceptance, account isolation,
+matched-egress, cooldown and joined-cleanup outcome still needs runtime evidence.
+No service, eligibility, marker, frozen R16 or startup change is made here.
 Structure's opt-in native installer supplies the helper; its prepared package
 must include `sdk_seed_observation.py` alongside `native_device.py`.
 The ordinary embedded host stays independent; no embedding expansion is needed.
@@ -98,8 +105,13 @@ before and after mint admission wait and at joined finish. This covers route
 replacement without new wire fields or browser reads. The Rust implementation
 is unchanged.
 
-This is source coverage, not executed qualification. The existing inert
-`test_host_incarnation_and_route_replacement_refuse_old_proof` case changes
-the revision after attachment; there is no separately executed pre-open
-refusal evidence. The producer's 21 new cases and combined transfer remain
-UNRUN here. Native acceptance remains unverified.
+This is source coverage, not executed qualification. Producer follow-ups
+`8b3dd4f` and `50e04cc`, included in the candidate, extend the original 21-case
+inventory to 23 and correct fixture callbacks to the current close contract.
+`test_preopen_route_registration_checks_retained_observation` and
+`test_effective_route_change_without_revision_refuses_attachment` add seven
+synthetic scenarios before native open or proof attachment. They cover revision
+changes, effective-route changes, restoration of an earlier route, and unchanged
+registration. The existing post-attachment replacement case remains.
+All producer cases and the combined transfer remain UNRUN here; the new cases
+do not supply executed pre-open refusal evidence. Native acceptance is unverified.

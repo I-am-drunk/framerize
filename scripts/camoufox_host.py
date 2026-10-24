@@ -809,6 +809,8 @@ class AccountLifecycle:
         self.phase = "absent"
         self.browser = None
         self.close_receipt = None
+        self._sdk_launch_route = None
+        self._sdk_launch_browser = None
         self.close_task = None
         self.active_commands = 0
         self.cooling = {}
@@ -1177,6 +1179,7 @@ class Host:
             acc.resident_launch = None
         self.accounts.pop(scope.account, None)
         life.browser = life.close_receipt = None
+        life._sdk_launch_browser = None
         life.phase = "absent"
         # Keep the same device windows, pacing and revisioned proxy route.
 
@@ -1485,6 +1488,7 @@ class Host:
                 raise RuntimeError("browser ownership changed during cleanup")
             self.accounts.pop(account, None)
             life.browser = None
+            life._sdk_launch_browser = None
             life.close_receipt = None
             life.phase = "absent"
             return True
@@ -2142,6 +2146,7 @@ class Host:
             if account in self.accounts:
                 return self.accounts[account]
             life.incarnation += 1
+            life._sdk_launch_route = life._sdk_launch_browser = None
             if getattr(self, '_sdk_seed', None) is not None:
                 self._sdk_seed.invalidate(self, account)
             life.phase = "starting"
@@ -2286,6 +2291,8 @@ class Host:
                 # Retain both the handle and its matching cleanup receipt before
                 # returning to a waiter that may already have been cancelled.
                 life.browser = created
+                life._sdk_launch_route = (launch_state[0], launch_state[1])
+                life._sdk_launch_browser = created
                 life.close_receipt = (scope.browser_started(created) if scope is not None
                                       else BrowserCloseReceipt(created))
                 return created
