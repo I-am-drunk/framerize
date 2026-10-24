@@ -36,6 +36,15 @@ and uses genuine Node worker capabilities. The existing V2 constructors keep
 their behavior. The explicit profile requires one started and joined worker,
 two delivered messages and zero worker errors before it can release a token.
 This is a local completion condition, not evidence of upstream acceptance.
+`v2_dedicated_worker.mjs` is a separate explicit resident entry for that profile.
+It keeps the existing private handoff protocol and enables the already-bound
+resident page URLs. The original V2 worker entry remains unchanged.
+
+The experimental resident structure hook wraps the existing `charged_mint`
+method only when an explicit diagnostic package installs it. It observes a
+successful result synchronously and returns the same token. Original failures
+and cancellation propagate without observation; ordinary observer failures do
+not affect the mint. This hook installs nothing when imported.
 
 V2 verifies its pinned SDK, settlement helper and DOM dependencies before and
 after the operation using streamed SHA-256 reads with a 64 KiB buffer. Native
