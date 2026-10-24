@@ -25,3 +25,12 @@ The normal service and both live stream checks remain untouched at this point.
 The coordinated execution window is 23:42 through 23:57 UTC. Its preparatory
 hold is separate from that 900-second interval. Actual runtime checks remain
 required regardless of delivered hold notices. T3 replacement remains held.
+
+The first scheduled attempt ended at 23:47:01 UTC without starting its
+authentication helper or rollout controller. The following sample confirmed
+the exact original service, idle residents, zero active requests and no
+ingress sockets, with 273,380 ms of cooldown remaining. A 403 at 23:41:40
+fell within a forced return to model execution during the tool wait. The
+first waiting strategy therefore did not create uninterrupted agent quiet.
+The next attempt retains the same source and uses a continuous interruptible
+sleep while tool-only monitoring continues. Neither live test was consumed.

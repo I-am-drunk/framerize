@@ -1,5 +1,12 @@
 # Development status
 
+The first scheduled rollout was refused before authentication handoff or
+service mutation. At collection the original service was idle and exact,
+but an account cooldown still had 273 seconds remaining. A model request
+during a forced tool-wake interval had triggered another refusal. The next
+attempt needs uninterrupted agent quiet, with the same qualified controller
+and a fresh coordination window. Both live acceptance checks remain unspent.
+
 Continuing 8787 traffic was traced to the shared Codex backend that also runs
 this investigation. Nine inert checks now qualify a separate scheduler for
 the unchanged rollout controller, allowing model traffic to stop during the
