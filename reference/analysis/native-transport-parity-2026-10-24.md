@@ -94,3 +94,27 @@ boundary case, not an explanation of R14. A possible correction is to require
 the initial bearer lifetime to cover the retained control deadline, without
 refreshing or changing the bearer between arms. Ownership was requested from
 both coordinators; no admission rule or credential type has been changed.
+
+A dormant candidate now lives in `resident_bearer_validity.rs` with six
+deterministic cases in `resident_bearer_validity_tests.rs`. No serving module
+references it, so its presence changes no admission, dispatch or cleanup.
+It takes only parsed expiry milliseconds, current wall-clock milliseconds,
+and the remaining monotonic control budget. It keeps the 30-second minimum,
+requires lifetime beyond the full remaining budget, and reserves one extra
+millisecond for truncation of the supplied wall-clock sample. Expired,
+overflowing or zero-budget inputs refuse. No credential strings are inputs.
+
+The candidate must be called with a monotonic remaining-budget sample taken
+before the wall-clock sample. A future integration belongs immediately after
+the initial owned auth response is parsed, before the browser baseline.
+It must preserve one auth request, the same bearer across arms, current
+account/jar/egress binding, and all existing cancellation and cleanup checks.
+This helper alone does not close the gap or establish live bearer validity.
+
+All six candidate cases are UNRUN here. The owner can compile the standalone
+test module with `rustc --edition=2021 --test` and run the resulting artifact
+inside its existing qualification boundary. Neither step was performed in
+this checkout. Next action is owner qualification of this candidate, followed
+by an explicitly reserved integration into the resident auth path if adopted.
+The integrated head-facts source is now `browserless` commit `9caa57d`;
+that source integration alone does not attest compilation or fixture success.
