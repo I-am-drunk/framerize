@@ -88,3 +88,25 @@ const runtime = Object.freeze({
 });
 export function createLegacyV2Minter(input) { return new LegacyV2Operation(input, runtime); }
 export function createResidentV2Minter(input) { return new LegacyV2Operation(input, runtime, true); }
+
+export function createDedicatedV2Minter(input, residentPage = false) {
+  let owner;
+  const dedicated = Object.freeze({ ...runtime,
+    async createWindow(url, report) {
+      const dom = await runtime.createWindow(url, report);
+      try {
+        const { installV2DedicatedWorkers } = await import('./v2_dedicated_workers.mjs');
+        owner = installV2DedicatedWorkers(dom.window,
+          '11bba9bb64764c19f44154854b4ec9f66756a6ef95de25ef1a804db38c30b9bd');
+        return dom;
+      } catch (error) { dom.window.close(); throw error; }
+    },
+    async closeWorkers() {
+      await owner.close();
+      const state = owner.stats();
+      if (state.started !== 1 || state.joined !== 1 || state.errors !== 0
+          || state.messages !== 2) throw new Error('dedicated-worker-completion');
+    },
+  });
+  return new LegacyV2Operation(input, dedicated, residentPage);
+}

@@ -47,6 +47,16 @@ The operation now supports a worker-owner cleanup hook before its final device
 check and window closure. All 25 operation cases pass, including blocked join,
 failed join and identity drift during join. The hook remains dormant until a
 runtime supplies a worker owner; no new SDK call was used to validate it.
+The explicit dedicated-worker profile passes 13 inert cases and two real
+Node-thread cases, with a 72,491,008-byte peak and zero swap or limit events.
+One subsequent socket-denied synthetic SDK operation also passed: one token
+call, unchanged device, one joined worker with two replies, and no worker
+errors. The operation completed in 985 ms (729 ms in the token method), with
+a 119,996,416-byte group peak under the unchanged 160 MiB cap. No swap or
+limit events occurred; the child joined and the token was discarded. PNG
+resource attempts remained zero. These single-run timings are observations,
+not a latency benchmark. Ordinary V2 construction and R13 remain unchanged;
+this result proves local completion, not upstream acceptance.
 
 R12 completed an isolated-V2 request that was refused. The normal browser
 and paired browser baseline returned complete HTTP 200 model output. The
