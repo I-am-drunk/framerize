@@ -1,5 +1,8 @@
 """Inert owner-bootstrap tests; fake RPCs only, no browser or SDK."""
 import asyncio
+import contextlib
+import io
+import json
 from pathlib import Path
 import sys
 import unittest
@@ -10,6 +13,27 @@ import resident_bootstrap as bootstrap
 
 
 class ResidentBootstrapTests(unittest.IsolatedAsyncioTestCase):
+    async def test_missing_provenance_reports_only_fixed_reason(self):
+        self.acc._completed_browser_http200 = None
+        output = io.StringIO()
+        with contextlib.redirect_stderr(output):
+            with self.assertRaisesRegex(fixture.ResidentRefused,
+                                        '^resident bootstrap refused$'):
+                await bootstrap.command(self.host, self.request)
+        self.assertEqual(json.loads(output.getvalue()), {
+            'event': 'resident.bootstrap.refused', 'stage': 'provenance'})
+        self.assertEqual((len(self.page.calls), len(self.context.calls)), (0, 0))
+
+    async def test_private_rpc_error_is_not_logged(self):
+        self.page.error = RuntimeError('synthetic-private-detail')
+        output = io.StringIO()
+        with contextlib.redirect_stderr(output):
+            with self.assertRaises(fixture.ResidentRefused):
+                await bootstrap.command(self.host, self.request)
+        self.assertEqual(json.loads(output.getvalue()), {
+            'event': 'resident.bootstrap.refused', 'stage': 'internal'})
+        self.assertTrue(self.life.activity.fenced)
+
     async def asyncSetUp(self):
         await fixture.ResidentAuthorizationTests.asyncSetUp(self)
         self.host.proxy_revisions = {}

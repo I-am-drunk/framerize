@@ -1,5 +1,16 @@
 # Serving architecture and branch policy
 
+Provenance listeners use ordinary functions retained in the listener ledger.
+Playwright caches callback wrappers on their owners; passing bound methods of
+the slotted provenance record prevented registration. The retained function
+identities support both registration and removal without weakening navigation,
+closure or object-continuity checks.
+
+Bootstrap refusals emit a fixed stage label while retaining the generic private
+RPC error and all existing context checks. Raw exceptions, cookies and wrapper
+results are excluded from diagnostic output. These source diagnostics cannot
+be added to an already-running host by replacing its files.
+
 After a settled fast-403 baseline, resident cooling uses the captured account
 history only while its lease, lifecycle and all mutable containers still match.
 Document invalidation does not discard that consequence. Replaced accounts,

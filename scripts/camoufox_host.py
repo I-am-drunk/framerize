@@ -754,12 +754,21 @@ class ResidentBrowserHttp200:
             return False
 
     def watch(self):
+        # Playwright caches wrapper metadata on bound-method owners. This
+        # slotted record cannot accept those attributes; ordinary functions
+        # keep the adapter cache while listeners retains their exact identity.
+        def navigated(frame):
+            self.navigated(frame)
+
+        def invalidated(*args):
+            self.invalidate(*args)
+
         try:
             for source, event, callback in (
-                    (self.page, "framenavigated", self.navigated),
-                    (self.page, "close", self.invalidate),
-                    (self.context, "close", self.invalidate),
-                    (self.browser, "disconnected", self.invalidate)):
+                    (self.page, "framenavigated", navigated),
+                    (self.page, "close", invalidated),
+                    (self.context, "close", invalidated),
+                    (self.browser, "disconnected", invalidated)):
                 self.listeners.append((source, event, callback))
                 source.on(event, callback)
             return self.current()

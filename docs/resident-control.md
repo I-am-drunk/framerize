@@ -1,13 +1,33 @@
 # Experimental resident crossover
 
-This code is on `browserless` and is not deployed. The current running owner
-cannot gain this protocol through source replacement. Validate the integrated
-binary before starting an owner with `--resident-control-socket`. The selected
+This code is on `browserless`. An isolated owner has been started with the
+validated binary and explicit sidecar bundle. Its normal browser request
+returned HTTP 200 with model output. The following crossover stopped before
+either comparison request: `failure=cleanup`, `baseline_status=null`,
+`native_invoked=false`, and `cleanup_confirmed=false`. The owner remains
+running with admission fenced. Read-only inspection and the installed
+Playwright mapper isolated a listener-registration failure in our provenance
+record. The source fix passes focused checks but requires a new owner; no
+in-memory replacement or token replay is supported. The protected browser service remains unchanged. An existing
+owner cannot gain this protocol through source replacement. The selected
 account must already have an idle, successful browser page in that owner.
 The option requires the `native-dispatch` build and `--engine camoufox`.
 Offline-worker and offline-routing options cannot share this startup owner.
 The integrated daemon now links, and all 31 socket and three CLI cases pass.
 The protected running service still has no resident-control socket enabled.
+
+For an isolated owner, select the installed Camoufox virtual environment
+explicitly with `FRAMERIZE_PYTHON`. System Python may start the sidecar but
+fail its lazy browser import. When the protected state directory is masked,
+mount only the required virtual environment read-only through that mask.
+
+The cooldown-restoration controller and sidecar must be able to verify each
+other's process identities. An external controller failed this check across
+the bubblewrap user-namespace boundary. Running the controller and daemon in
+the same isolated namespace allowed restoration to complete. Use a fresh
+private socket path after a failed startup; the daemon refuses an existing
+socket rather than taking it over. These are local activation prerequisites,
+not evidence about Castle or upstream HTTP behavior.
 
 The private client is `scripts/resident_control_client.py`. It sends one
 request to the existing Unix socket and prints only fixed diagnostic facts.
