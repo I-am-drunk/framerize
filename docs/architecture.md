@@ -1,5 +1,23 @@
 # Serving architecture and branch policy
 
+Native response-head diagnostics attach status, fixed HTTP-version and content-
+encoding categories to the existing send invocation counter. They run after
+headers arrive and before the unchanged response admission checks. Encoding
+inspection is bounded to eight values and 512 bytes; excess becomes unavailable.
+No raw headers or response contents are emitted. A head does not prove body
+completion, acceptance or cleanup, and absence of the event is inconclusive.
+
+Dedicated-worker cleanup tracks initiated stop promises separately from live
+worker slots. Exit can free the one-worker admission slot without erasing an
+outstanding termination obligation. Close waits for those obligations and actual
+exit, preserves failures, and restores only its owned window hooks.
+
+The pure structural comparator validates both projected observations before
+reporting field presence, type or encoded-length differences. Unavailable and
+empty observations remain distinct. Its output contains no decoded payload;
+type tags can still reveal Boolean encoding branches, and equal encoded lengths
+do not establish equal values. This diagnostic does not select SDK behavior.
+
 The isolated V2 diagnostic report projection consumes a bounded private-pipe
 report and exports only fixed operation metadata, resource counters and field
 structure. Structural entries contain group ID, field ID, type and encoded
