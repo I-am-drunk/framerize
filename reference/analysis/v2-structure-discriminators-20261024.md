@@ -445,5 +445,17 @@ the handler, matching the pair helper without changing validation or output.
 The 17 inert cases remain **UNRUN here**. Malformed inputs and an injected error
 check absent context/cause, not only suppressed display. This changes exception
 chaining; it does not erase input references retained in Python traceback locals.
-Next action belongs to the runtime owner: qualify with
-`python3 -B reference/fixtures/v2_structure_compare_tests.py`.
+The runtime owner reports all 17 cases PASS in receipt `a489c417`, with a
+22,474,752-byte peak, zero swap/events and unit absent. No cases ran here.
+Owner fixture entry: `python3 -B reference/fixtures/v2_structure_compare_tests.py`.
+
+## Projection error-context correction
+
+Branch `fix/token-projection-error-context` starts from exact parent
+`48ea42c0a5ed1a9115f2708bf7571df6b67a7502`. Only the report failure wrapper
+changes: its fixed error follows the handler and unchanged `finally` cleanup.
+The validators, successful results and schemas remain unchanged. The 12 inert
+cases are **UNRUN here**, including context/cause assertions and a control-flow
+failure that must propagate while mutable input is cleared. This is exception
+chaining hygiene, not a promise of erasing traceback locals or immutable strings.
+Next owner entry: `python3 -B reference/fixtures/v2_token_projection_tests.py`.

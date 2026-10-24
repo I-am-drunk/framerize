@@ -120,7 +120,9 @@ def project_report(raw, describe):
         return {'metadata': dict(meta), 'token_discarded': token is not None,
                 'canvas_verified': True, 'resources': dict(resources), 'structure': shape}
     except Exception:
-        raise ValueError('token-projection') from None
+        pass
     finally:
         if type(raw) is bytearray:
             raw.clear()
+    # Detach the caught failure after leaving its handler and clearing input.
+    raise ValueError('token-projection') from None

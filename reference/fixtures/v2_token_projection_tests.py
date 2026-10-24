@@ -31,9 +31,11 @@ def raw(value):
 class ProjectionTests(unittest.TestCase):
     def rejected(self, value, describe=lambda token: SHAPE):
         data = raw(value)
-        with self.assertRaisesRegex(ValueError, '^token-projection$'):
+        with self.assertRaisesRegex(ValueError, '^token-projection$') as caught:
             PROJECTION.project_report(data, describe)
         self.assertEqual(data, b'')
+        self.assertIsNone(caught.exception.__context__)
+        self.assertIsNone(caught.exception.__cause__)
 
     def test_duplicate_keys_including_escaped_names_are_rejected(self):
         text = json.dumps(report())
@@ -145,8 +147,22 @@ class ProjectionTests(unittest.TestCase):
         except ValueError as error:
             self.assertEqual(error.args, ('token-projection',))
             self.assertTrue(error.__suppress_context__)
+            self.assertIsNone(error.__context__)
+            self.assertIsNone(error.__cause__)
         else:
             self.fail('decoder failure was accepted')
+        self.assertEqual(data, b'')
+
+    def test_control_flow_failure_propagates_and_still_clears_input(self):
+        class Cancelled(BaseException):
+            pass
+        failure = Cancelled()
+        def interrupted(token):
+            raise failure
+        data = raw(report())
+        with self.assertRaises(Cancelled) as caught:
+            PROJECTION.project_report(data, interrupted)
+        self.assertIs(caught.exception, failure)
         self.assertEqual(data, b'')
 
     def test_structure_requires_bounded_distinct_ordered_fields_and_exact_size(self):
