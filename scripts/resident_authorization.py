@@ -89,6 +89,26 @@ def _v2_selected(value):
                 for key in SDK_COUNTERS))
 
 
+def rpc_failure_facts(call, error):
+    """Classify locally; never export exception text or supplied properties."""
+    method = getattr(call, '__name__', '')
+    if method not in ('evaluate', 'evaluate_handle', 'goto', 'wait_for_selector'):
+        method = 'other'
+    text = str(error).lower()
+    category = 'other'
+    for label, fragments in (
+        ('navigation', ('execution context was destroyed', 'cannot find context')),
+        ('closed', ('target page, context or browser has been closed', 'target closed')),
+        ('module_load', ('dynamically imported module', 'importing a module',
+                         'error loading a module', 'module specifier')),
+        ('timeout', ('timeout',)),
+    ):
+        if any(fragment in text for fragment in fragments):
+            category = label
+            break
+    return dict(method=method, category=category)
+
+
 def _text(value, limit):
     return (type(value) is str and 0 < len(value) <= limit
         and len(value.encode('utf-8', 'strict')) <= limit
