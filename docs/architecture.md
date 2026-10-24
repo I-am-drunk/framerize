@@ -10,8 +10,10 @@ and inference: its login-token GET includes cookies, while its cross-origin
 AI POST sends the bearer and Castle token without cookies. The native source
 now follows that separation while retaining local session and device binding
 and rejecting malformed credentials. This source correction has compiled
-and passed 39 focused cases. Its deployable build is pending. The browser
-service's custom fetch shim is unchanged.
+and passed 39 focused cases. Its executable passed the full build and is now
+selected only by the isolated instance. A single live request still returned
+Framer's security 403. Cleanup and account-history restoration were verified;
+no second request ran. The browser service's custom fetch shim is unchanged.
 
 SDK integration binds the wrapper's export and dependency graph as well as
 its asset bytes. The October 24 public app selects a newer wrapper whose
