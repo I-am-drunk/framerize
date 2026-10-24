@@ -15,6 +15,22 @@ transfer while preserving cleanup. Export also requires the same retained
 account, session, incarnation, observation and original grant. This checks a
 specific pre-close point; it does not establish continuous page quiescence.
 
+The pipeline represents current cooldown and non-Ready lifecycle refusals
+with distinct capacity errors after identity and scope validation. `/api/run`
+maps only these errors to its existing HTTP 503 responses. Unrelated errors
+retain their original category; response mapping never infers capacity from
+error text. Thirteen selected core and router cases cover the distinction.
+The update lock still ends before inference, so admission is not atomic with
+the subsequent external call.
+
+Legacy paid output and administrative operations carry cleanup evidence
+separately from their original results. Raw response completion requires EOF
+and the same producer's join; early disposal remains unconfirmed. Import
+warmup has an independent cleanup child that an HTTP response cannot finish.
+A disconnected first paid permit wait releases local residency while keeping
+earlier uncertainty. Thirty-three selected tests cover these paths and the
+affected permit, producer, pool and import controls.
+
 Native HTTP completion is separate from admitted native cleanup. Local
 refusals and fully assembled nonstream responses carry HTTP completion,
 while `PoolAdmission` retains its independent cleanup child. Acquisition

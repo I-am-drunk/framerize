@@ -3,6 +3,13 @@
 Updated 2026-10-24. The normal service remains browser-based. Publishing these
 branches does not change the running service.
 
+The ordinary-V2 integration branch now includes browserless `95f2986`,
+including the qualified legacy and typed-capacity corrections. Only the two
+status documents conflicted; both sets of results are retained below. This
+merge does not repeat their tests or extend those results to the forthcoming
+SDK observation transfer. The producer, consumer and support-package sources
+remain a separate pending integration and qualification input.
+
 Branch `integrate/ordinary-v2-identity-20261024` assembles the 15 executable
 paths from ordinary-V2 candidate `fe500a0` onto qualified `0b1107c`.
 It retains the current server corrections and browser-only ownership startup.
@@ -25,6 +32,41 @@ deadline. Failed validation refuses transfer without preventing close/join.
 Successful validation plus joined close is a point-in-time guarantee, not
 proof of continuous JavaScript equality or quiescence during close. This
 producer/consumer contract remains unimplemented and unqualified here.
+
+The six-path typed-capacity input `2f165027` is integrated over `41484eb`.
+Seven core cases pass (`4e10d73d`, 44 source-enumerated scenarios), and six
+actual-router cases pass (`fb86a3c6`, 40 scenarios). A current cooldown or
+non-Ready lifecycle produces a typed capacity refusal; `/api/run` maps only
+those variants to its existing HTTP 503 responses. Full cooldown seconds
+remain in the response while Retry-After stays bounded to 1..30 seconds.
+Missing or changed scope, foreign sessions and unrelated upstream errors
+retain their existing category, even when error text mentions capacity.
+Ready controls still succeed. Test compilation passes (`9cf35e3f` core,
+`98f246d7` server). Core, host, API, store and server libraries rebuild, and
+the final executable links (`2d4b2617`, peak 449,380,352 bytes). All ten jobs
+used shared execution locking and capped isolated runners; their source and
+output bindings, zero swap and resource-limit events, terminal states and
+absent child processes were verified. This does not establish service rollout
+or native acceptance. The ordinary V2 producer/consumer package remains the
+next separate integration input.
+
+The six-path legacy completion input `397c9ed5` is integrated over `0b1107c`.
+All 33 selected tests pass (`a2512ffa`, peak 16,248,832 bytes), covering 283
+source-enumerated scenarios. Compilation passes (`2f402c7c`, peak 511,803,392
+bytes). Paid aggregate output completes after collection; raw output completes
+after EOF and producer join. Early disposal remains unconfirmed. Management
+and import operations retain cleanup evidence separately from original
+results, and pending import children keep their own completion verdict.
+The first paid permit wait now notices disconnect, preserving any prior
+uncertainty while allowing an independent account to proceed. Fifteen new
+cases and 18 affected controls pass with exact selection and source bindings,
+zero swap and resource-limit events. Shared execution locking was explicit.
+Production server compilation and executable linking pass (`e3613b9e`,
+`60a445ba`), with peaks of 385,220,608 and 444,715,008 bytes and zero swap.
+All four launchers were collected; process groups were removed and captured
+child PIDs were absent. These fixtures do not prove service rollout or native
+acceptance. Ordinary V2 remains a separate assembly while its host and Rust
+owners implement the identity transfer.
 
 The two-path native HTTP input `bb2e807b` is integrated over the qualified
 local/static server. All five selected tests pass (`84dbed12`, peak 12,423,168
