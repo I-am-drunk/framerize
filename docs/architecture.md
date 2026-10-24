@@ -1,5 +1,13 @@
 # Serving architecture and branch policy
 
+The pipeline represents current cooldown and non-Ready lifecycle refusals
+with distinct capacity errors after identity and scope validation. `/api/run`
+maps only these errors to its existing HTTP 503 responses. Unrelated errors
+retain their original category; response mapping never infers capacity from
+error text. Thirteen selected core and router cases cover the distinction.
+The update lock still ends before inference, so admission is not atomic with
+the subsequent external call.
+
 Legacy paid output and administrative operations carry cleanup evidence
 separately from their original results. Raw response completion requires EOF
 and the same producer's join; early disposal remains unconfirmed. Import

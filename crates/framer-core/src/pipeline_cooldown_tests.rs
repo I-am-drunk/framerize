@@ -246,6 +246,17 @@ fn assert_risk(result: Result<InferenceOutcome, CoreError>) {
     assert!(matches!(result, Err(CoreError::RiskRefused(ref cause)) if cause == "risk-refused"));
 }
 
+fn assert_cooling_between(result: Result<InferenceOutcome, CoreError>,
+    until: u64, before: u64, after: u64) {
+    let Err(CoreError::AccountCooling(cooldown)) = result else {
+        panic!("expected typed local cooldown");
+    };
+    let minimum = until.saturating_sub(after).div_ceil(1000).max(1);
+    let maximum = until.saturating_sub(before).div_ceil(1000);
+    assert!((minimum..=maximum).contains(&cooldown.retry_after_secs));
+    assert!(cooldown.retry_after_secs > 30, "core must retain the full deadline");
+}
+
 fn assert_window(current: &ManagedAccount, start: u64, end: u64, prior_step: u32) {
     let until = current.cooling_until_ms.expect("risk refusal must record an expiry");
     let backoff = ManagedAccount::cooldown_backoff_ms(prior_step);
@@ -303,7 +314,10 @@ async fn cooldown_recorded_during_first_inference_prevents_402_retry() {
     expected.current_team = operation_scope(true).current_team;
     expected.current_project = operation_scope(true).current_project;
     expected.extra_workspaces.clear();
-    assert!(matches!(fixture.run(&mut current).await, Err(CoreError::NotEligible(_))));
+    let before = crate::rotation::now_ms();
+    let result = fixture.run(&mut current).await;
+    assert_cooling_between(result, expected.cooling_until_ms.unwrap(),
+        before, crate::rotation::now_ms());
     assert_record_eq(&current, &expected);
     assert_record_eq(&fixture.stored(current.id).unwrap(), &expected);
     assert!(current.is_eligible());
@@ -327,12 +341,75 @@ async fn nonready_recorded_during_first_inference_prevents_402_retry() {
     expected.current_team = operation_scope(true).current_team;
     expected.current_project = operation_scope(true).current_project;
     expected.extra_workspaces.clear();
-    assert!(matches!(fixture.run(&mut current).await, Err(CoreError::NotEligible(_))));
+    assert!(matches!(fixture.run(&mut current).await, Err(CoreError::AccountNotReady)));
     assert_record_eq(&current, &expected);
     assert_record_eq(&fixture.stored(current.id).unwrap(), &expected);
     assert!(!current.is_eligible());
     assert!(!current.is_available_at(crate::rotation::now_ms()));
     fixture.assert_finished(&["load", "run:initial", "me", "usage", "upsert"]);
+}
+
+#[tokio::test]
+async fn initial_inference_capacity_refusal_has_typed_cause() {
+    for kind in ["cooldown", "nonready", "both"] {
+        let mut current = account(1);
+        let mut newer = current.clone();
+        if kind != "nonready" { newer.cooling_until_ms = Some(u64::MAX); }
+        if kind != "cooldown" { newer.state = AccountState::Quarantined; }
+        let fixture = Fixture::new(&newer, vec![]);
+        let before = crate::rotation::now_ms();
+        let result = fixture.run(&mut current).await;
+        if kind == "nonready" {
+            assert!(matches!(result, Err(CoreError::AccountNotReady)));
+        } else {
+            assert_cooling_between(result, u64::MAX, before, crate::rotation::now_ms());
+        }
+        assert_record_eq(&current, &account(1));
+        assert_record_eq(&fixture.stored(current.id).unwrap(), &newer);
+        fixture.assert_finished(&["load"]);
+    }
+}
+
+#[tokio::test]
+async fn invalid_admission_scope_is_not_typed_capacity() {
+    for dimension in ["removed", "user", "device", "team", "project", "proxy",
+        "session", "missing-team", "missing-project"] {
+        let mut current = account(1);
+        let mut newer = current.clone();
+        newer.state = AccountState::Quarantined;
+        newer.cooling_until_ms = Some(u64::MAX);
+        let mut session = Session { active_user: current.framer_user_id.clone(),
+            cookie_header: "session=inert".into() };
+        match dimension {
+            "user" => newer.framer_user_id = FramerUserId("changed-user".into()),
+            "device" => newer.castle_device_id = "changed-device".into(),
+            "team" => newer.current_team = Some(TeamId("changed-team".into())),
+            "project" => newer.current_project = Some(ProjectId("changed-project".into())),
+            "proxy" => newer.proxy = Some("http://changed.invalid:8080".into()),
+            "session" => session.active_user = FramerUserId("changed-user".into()),
+            "missing-team" => { current.current_team = None; newer.current_team = None; }
+            "missing-project" => { current.current_project = None; newer.current_project = None; }
+            "removed" => {}
+            _ => unreachable!(),
+        }
+        let fixture = Fixture::new(&newer, vec![]);
+        if dimension == "removed" {
+            fixture.records.lock().unwrap().retain(|a| a.id != current.id);
+        }
+        let deps = Deps { client: &fixture, browser: &fixture, sessions: &fixture,
+            state: &fixture, account_updates: &fixture.updates };
+        let expected = match dimension {
+            "removed" => "account removed before inference",
+            "missing-team" | "missing-project" =>
+                "account is not ready or is missing its current team or project",
+            _ => "account scope changed before inference",
+        };
+        assert!(matches!(super::check_inference_admission(&deps, &current, &session).await,
+            Err(CoreError::NotEligible(ref cause)) if cause == expected), "{dimension}");
+        if dimension == "removed" { assert!(fixture.stored(current.id).is_none()); }
+        else { assert_record_eq(&fixture.stored(current.id).unwrap(), &newer); }
+        fixture.assert_finished(&[]);
+    }
 }
 
 #[tokio::test]

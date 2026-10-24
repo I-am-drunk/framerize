@@ -3,6 +3,23 @@
 Updated 2026-10-24. The normal service remains browser-based. Publishing these
 branches does not change the running service.
 
+The six-path typed-capacity input `2f165027` is integrated over `41484eb`.
+Seven core cases pass (`4e10d73d`, 44 source-enumerated scenarios), and six
+actual-router cases pass (`fb86a3c6`, 40 scenarios). A current cooldown or
+non-Ready lifecycle produces a typed capacity refusal; `/api/run` maps only
+those variants to its existing HTTP 503 responses. Full cooldown seconds
+remain in the response while Retry-After stays bounded to 1..30 seconds.
+Missing or changed scope, foreign sessions and unrelated upstream errors
+retain their existing category, even when error text mentions capacity.
+Ready controls still succeed. Test compilation passes (`9cf35e3f` core,
+`98f246d7` server). Core, host, API, store and server libraries rebuild, and
+the final executable links (`2d4b2617`, peak 449,380,352 bytes). All ten jobs
+used shared execution locking and capped isolated runners; their source and
+output bindings, zero swap and resource-limit events, terminal states and
+absent child processes were verified. This does not establish service rollout
+or native acceptance. The ordinary V2 producer/consumer package remains the
+next separate integration input.
+
 The six-path legacy completion input `397c9ed5` is integrated over `0b1107c`.
 All 33 selected tests pass (`a2512ffa`, peak 16,248,832 bytes), covering 283
 source-enumerated scenarios. Compilation passes (`2f402c7c`, peak 511,803,392
