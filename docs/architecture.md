@@ -5,6 +5,12 @@ maintained fallback. `browserless` is the separate development branch for the
 native transport and short-lived SDK worker. A Git push does not deploy either
 version or restart the running service.
 
+The standalone comparison parent owns a private child cgroup, the framed
+socket sequence and final process teardown. It acknowledges a result only
+after the external window owner records it. Forced cleanup is never delivery
+acceptance. Account exclusion and restoration remain with that window owner;
+the parent library does not control either running service.
+
 The comparison coordinator uses an internal control-client factory so its
 request ordering can be tested without external authentication. The normal
 entry always constructs `BoundControlClient` with the selected account and

@@ -16,7 +16,16 @@ The saved checks confirm zero swap/events and test-group removal. Existing
 Python (28), exact-fetch JavaScript (13), host (48) and API (47) results are
 reused. This is local validation, not authenticated delivery.
 
-The parent controller is still being implemented. It must retain account
+The parent wire helper and sequence now pass 25 protocol and nine lifecycle/
+history cases. Two real-process tests also confirm graceful rejection and
+containment of a stuck descendant in a separate process group. The controller
+uses a dedicated bounded cgroup and retains failed or uncertain outcomes.
+The pure history helper preserves the original snapshot, reserves both request
+slots and extends cooldown through cleanup. These are local tests only.
+The first test package omitted a support dependency; a second launcher had a
+wrong path. Both failures are retained; the corrected focused run passed.
+
+The live admission/restore adapter is still being implemented. It must retain account
 exclusion, resource limits and cooldown publication through child teardown.
 The child has no listener or service-management path. It receives the session
 only through an inherited private socket after parent admission. No live
