@@ -35,6 +35,7 @@ class Account(SimpleNamespace):
 class Page:
     def __init__(self, context):
         self.context, self.url = context, URL
+        self.main_frame = object()
         self.entered, self.release = asyncio.Event(), asyncio.Event()
         self.release.set()
         self.calls, self.hook, self.error = [], None, None

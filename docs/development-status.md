@@ -12,8 +12,11 @@ before execution by the unchanged protected-memory reserve. Five new Rust
 cases are also unrun. Python syntax and whitespace checks pass; rustfmt is
 not installed. This does not activate the running host or prove a crossover.
 The next integration is the asynchronous startup-owned capture adapter and
-version 2 baseline/native-mint sequence. Document-continuity hardening is
-being supplied separately and remains pending.
+version 2 baseline/native-mint sequence. Document-continuity hardening is now
+integrated from the supplied patch: listeners start before the send, and
+main-frame navigation, including same-URL reload, invalidates provenance.
+Refusal, failure and cancellation detach unfinished observations. The updated
+21-case provenance fixture and its shared fake-page adaptation are unrun.
 
 The private resident Python operation and its host activity integration are
 implemented. Saved isolated checks pass for 26 host activity cases, 25 private
