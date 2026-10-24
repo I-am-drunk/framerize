@@ -3,6 +3,18 @@
 Updated 2026-10-24. The normal service remains browser-based. Publishing these
 branches does not change the running service.
 
+The current public AI consumer has now been traced. Its bearer acquisition
+includes cookies, while the cross-origin inference request uses the default
+credential mode and omits them. A native source correction removes cookies
+only from inference, preserving bearer authentication and local session/device
+validation. Its test binary compiles and all 39 focused cases pass, including
+the retained cookie-bearing login and malformed-credential refusal. Compile
+peak was 947,232,768 bytes; tests peaked at 33,083,392 bytes, with zero
+swap or memory events and verified teardown. The deployable build is pending.
+The running isolated binary is unchanged. This is a compatibility
+correction, not an established explanation for the security refusal.
+See `reference/analysis/current-ai-request-contract-2026-10-24.md`.
+
 Public asset comparison on October 24 confirms wrapper drift: current Framer
 selects `chunk-VPFQZMNG.mjs`; the native worker retains `chunk-5LKSDTQ5.mjs`.
 The selected V3 SDK bytes and public key still match. The new wrapper changes

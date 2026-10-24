@@ -13,7 +13,7 @@ use framer_core::ids::{AccountId, FramerUserId};
 use framer_core::port::{CastleToken, Session};
 use futures::task::AtomicWaker;
 use futures::{Future, Stream};
-use reqwest::header::{HeaderValue, AUTHORIZATION, CONTENT_TYPE, COOKIE, ORIGIN, REFERER};
+use reqwest::header::{HeaderValue, AUTHORIZATION, CONTENT_TYPE, ORIGIN, REFERER};
 use serde_json::Value;
 use std::io::{self, Write};
 use std::pin::Pin;
@@ -614,9 +614,11 @@ impl NativeHttp {
         let mut bearer = HeaderValue::from_str(&format!("Bearer {}", auth.bearer))
             .map_err(|_| "native-http: invalid authorization header".to_owned())?;
         bearer.set_sensitive(true);
-        let mut cookie = HeaderValue::from_str(&auth.session.cookie_header)
+        // Retain local credential validation. The public app includes cookies
+        // for bearer acquisition, but its cross-origin inference fetch uses
+        // the default same-origin mode, so only its bearer travels here.
+        HeaderValue::from_str(&auth.session.cookie_header)
             .map_err(|_| "native-http: invalid cookie header".to_owned())?;
-        cookie.set_sensitive(true);
         // Recheck age immediately before dispatch. No mint/retry is attempted.
         self.validate_request(account, path, &auth, &castle)?;
         let request = self.client.post(format!("{}{path}", self.base))
@@ -631,7 +633,6 @@ impl NativeHttp {
             .header("accept", "*/*")
             .header("accept-encoding", "identity")
             .header(AUTHORIZATION, bearer)
-            .header(COOKIE, cookie)
             .body(wire);
         send_evidence::invoked()?;
         let send = request.send();

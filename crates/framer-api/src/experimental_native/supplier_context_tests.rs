@@ -166,7 +166,7 @@ async fn deliver(client: &NativeAccountClient, scope: &AccountScope,
 }
 
 #[tokio::test]
-async fn current_cookies_reach_both_free_routes_without_mutating_private_session() {
+async fn current_cookies_remain_local_on_both_free_routes_without_mutating_private_session() {
     for dialect in [Dialect::OpenRouterResponses, Dialect::OpenRouterMessages] {
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
         let (client, scope) = open(listener.local_addr().unwrap());
@@ -179,7 +179,9 @@ async fn current_cookies_reach_both_free_routes_without_mutating_private_session
         deliver(&client, &scope, dialect, payload.clone(), authorized).await;
         let (headers, body) = timeout(BOUND, worker).await.unwrap().unwrap();
         assert!(headers.starts_with(&format!("POST {} HTTP/1.1\r\n", dialect.path())));
-        assert!(headers.lines().any(|line| line == format!("cookie: {CURRENT}")));
+        assert!(!headers.lines().any(|line| line.split_once(':')
+            .is_some_and(|(name, _)| name.eq_ignore_ascii_case("cookie"))));
+        assert!(!headers.contains(CURRENT));
         assert_eq!(body["request"], payload);
         assert_eq!(body["projectId"], binding().project.0);
         assert_eq!(body["sessionId"], binding().chat_session);

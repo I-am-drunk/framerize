@@ -5,6 +5,14 @@ maintained fallback. `browserless` is the separate development branch for the
 native transport and short-lived SDK worker. A Git push does not deploy either
 version or restart the running service.
 
+The current upstream application uses different credential modes for login
+and inference: its login-token GET includes cookies, while its cross-origin
+AI POST sends the bearer and Castle token without cookies. The native source
+now follows that separation while retaining local session and device binding
+and rejecting malformed credentials. This source correction has compiled
+and passed 39 focused cases. Its deployable build is pending. The browser
+service's custom fetch shim is unchanged.
+
 SDK integration binds the wrapper's export and dependency graph as well as
 its asset bytes. The October 24 public app selects a newer wrapper whose
 token generator is export `b`; its export `a` initializes the SDK. The frozen
@@ -81,8 +89,9 @@ The offline credential source snapshots its minter's already-granted device
 at construction. Before bearer acquisition it derives a bounded temporary
 cookie context from that device and the stored login. After worker cleanup,
 the returned device must match the declared one before inference credentials
-are released. Both HTTP requests therefore carry the same saved device without
-rewriting the login store. A conflicting cookie fails before authentication
+are released. The same saved device remains bound locally without rewriting
+the login store. The inference-cookie correction above removes its transmission
+on that request only. A conflicting cookie fails before authentication
 or minting; token, generation, account and cleanup checks remain in force.
 This candidate has passed focused tests and the full application build and is
 selected by the isolated instance. Its first live request still received a
