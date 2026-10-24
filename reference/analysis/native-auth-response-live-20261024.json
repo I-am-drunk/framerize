@@ -1,0 +1,37 @@
+{
+  "auth_response": [
+    {
+      "device_count": 0,
+      "malformed_count": 0,
+      "other_count": 0,
+      "session_count": 0,
+      "set_cookie_count": 0,
+      "status": 200,
+      "truncated": false
+    }
+  ],
+  "binary_sha256": "d950da605604d132a837811ca19341a1b1e999d1ab6baee3ebf35c23228a4779",
+  "cleanup_confirmed": true,
+  "controller_group_absent": true,
+  "controller_peak_bytes": 80809984,
+  "entitlement": "NOT_ESTABLISHED",
+  "headers_elapsed_ms": 3704.9427470192313,
+  "inference_status": 403,
+  "limit": "One failed request. No successful delivery, interruption or full-load measurement.",
+  "metadata_consistent": true,
+  "native_peak_bytes": 107479040,
+  "post_calls": 1,
+  "project_membership": "NOT_ESTABLISHED",
+  "protected_browser_unchanged": true,
+  "receipt_sha256": {
+    "auth_response": "3c7e2f2cefe5669814ab3fefc1901c54bbad5919c94ef425dd0561b4ea39b7ea",
+    "client": "9ef9783d89559c2f16b54c3aca6ea4baab13efca5339d6073440eecfd4d37b49",
+    "controller": "65b2c1ede011a07298f87758306b2ad424e948f97dafc812a6f4692ad79eedcf",
+    "launch": "44c9f846cf54e428faaa12259c0921d26e7b93320f7923ac569cd5aab4f0b510",
+    "metadata": "f837b40174ee1d92f5616b3d345b7edf203f6c791d84cbe5380bfb8ed8313a65"
+  },
+  "status": "LIVE_SECURITY_REFUSAL",
+  "upstream_send_invocations": [
+    1
+  ]
+}

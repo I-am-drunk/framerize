@@ -52,7 +52,10 @@ The native control transport can emit a value-free response-cookie summary
 at its AI-token endpoint. It caps classification at 64 headers and records
 truncation explicitly. This diagnostic preserves the existing response and
 credential handling. The diagnostic has passed focused tests and the full
-application build, and remains staged rather than deployed.
+application build and is selected only by the isolated instance. Its first
+observed login-token response returned HTTP 200 and no cookie updates;
+inference still returned 403. This excludes lost response cookies for that
+attempt without changing the cookie protocol.
 
 An update of an enrolled isolated instance transfers its actual in-memory
 rate history. The controller holds the idle application and sidecar, writes
