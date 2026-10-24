@@ -265,10 +265,50 @@ test('a chunk beyond the byte bound is discarded and settled once', { timeout: 1
   assert.equal(value.released, 1);
 });
 
+test('two matching visible device cookies permit exactly one fetch', { timeout: 1000 }, async () => {
+  const value = new BrowserFixture();
+  value.cookie += '; __cuid=fixture-device';
+  const result = await value.run();
+  assert.equal(value.calls.length, 1);
+  assert.equal(result.failure, null);
+  assert.equal(result.status, 200);
+  assert.equal(result.complete, true);
+  assert.equal(result.started, 1);
+  assert.equal(result.finished, 1);
+  assert.equal(result.settled, true);
+  assert.equal(value.cancelled, 1);
+  assert.equal(value.released, 1);
+});
+
+test('a conflicting second visible device cookie refuses before fetch', { timeout: 1000 }, async () => {
+  const value = new BrowserFixture();
+  value.cookie += '; __cuid=conflicting-device';
+  const result = await value.run();
+  assert.equal(result.failure, 'context_changed');
+  assert.equal(result.started, 0);
+  assert.equal(result.finished, 0);
+  assert.equal(result.settled, true);
+  assert.equal(value.calls.length, 0);
+  assert.equal(value.cleared, 1);
+});
+
+test('absent or empty visible device cookies refuse before fetch', { timeout: 1000 }, async () => {
+  for (const cookie of ['', '__cuid=']) {
+    const value = new BrowserFixture();
+    value.cookie = cookie;
+    const result = await value.run();
+    assert.equal(result.failure, 'context_changed');
+    assert.equal(result.started, 0);
+    assert.equal(result.finished, 0);
+    assert.equal(result.settled, true);
+    assert.equal(value.calls.length, 0);
+    assert.equal(value.cleared, 1);
+  }
+});
+
 test('changed page or observed device prevents any fetch', { timeout: 1000 }, async () => {
   const changes = [value => { value.page.href += '?changed'; },
-    value => { value.device = 'other'; }, value => { value.cookie = ''; },
-    value => { value.cookie += '; __cuid=fixture-device'; }];
+    value => { value.device = 'other'; }];
   for (const change of changes) {
     const value = new BrowserFixture();
     change(value);
