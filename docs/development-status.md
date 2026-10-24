@@ -16,16 +16,19 @@ The saved checks confirm zero swap/events and test-group removal. Existing
 Python (28), exact-fetch JavaScript (13), host (48) and API (47) results are
 reused. This is local validation, not authenticated delivery.
 
-The first live comparison stopped at local memory admission. Its 768 MiB
-child cap could not satisfy the host's unchanged 1 GiB startup-headroom
-requirement. The child exited and its cgroup was removed without swap or
-memory events; no baseline or native result was obtained. The original
-Cleanup failure is retained. The protected browser service is unchanged.
-The isolated service remains held with its original history preserved.
+The first live comparison (R1) refused before browser launch at local memory
+admission. Its 768 MiB child cap could not satisfy the host's unchanged
+1 GiB startup-headroom requirement. The child exited and its cgroup was
+removed without swap or memory events; no baseline or native result was
+obtained. The original `Cleanup` failure is retained. The protected browser
+service is unchanged.
+The isolated service on port 8788 remains stopped and fenced, with its
+original history preserved.
 
 The comparison process owner now supports a 1.5 GiB child inside a 2 GiB
 controller, with the host reserve checked separately. A focused local test
-confirmed those limits and descendant teardown. The next live attempt must
+confirmed those limits and descendant teardown. Full browser startup and
+inference under the larger caps remain unverified. The next live attempt must
 also resolve the prior prelaunch fence and honor the reserved cooldown.
 
 The parent wire helper and sequence now pass 25 protocol and nine lifecycle/
@@ -37,11 +40,12 @@ slots and extends cooldown through cleanup. These are local tests only.
 The first test package omitted a support dependency; a second launcher had a
 wrong path. Both failures are retained; the corrected focused run passed.
 
-The live admission/restore adapter is still being implemented. It must retain account
-exclusion, resource limits and cooldown publication through child teardown.
-The child has no listener or service-management path. It receives the session
-only through an inherited private socket after parent admission. No live
-comparison has run; both running services remain untouched.
+The standalone parent is implemented and locally tested. The admission/restore
+adapter retains account exclusion, resource limits and cooldown publication
+through child teardown. The child has no listener or service-management path;
+it receives the session only through an inherited private socket after parent
+admission. R2 stopped-account adoption and execution remain with the runtime
+owner. R1 produced no completed browser baseline or native inference result.
 
 No authenticated browser-token/native-HTTP control was found in the searched
 records. The existing browser adapter is not wired into serving and creates a
