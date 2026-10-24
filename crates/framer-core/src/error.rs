@@ -55,6 +55,13 @@ pub enum CoreError {
     NoSession,
     #[error("account not eligible: {0}")]
     NotEligible(String),
+    /// Local deadline refusal after account, session and scope checks.
+    /// Carries the full remaining seconds; callers bound their retry interval.
+    #[error(transparent)]
+    AccountCooling(AccountCooldown),
+    /// Local lifecycle refusal for an otherwise complete, matching scope.
+    #[error("account is not ready")]
+    AccountNotReady,
     #[error("workspace creation not permitted for this account")]
     CannotCreateWorkspace,
     /// Castle risk refusal (HTTP 403 on /ai/v3/*). Transient — cool down.
