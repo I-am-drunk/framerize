@@ -32,6 +32,8 @@ type PendingReplies =
 pub mod observer;
 #[path = "sidecar_retirement.rs"]
 pub mod retirement;
+#[path = "sidecar_resident.rs"]
+pub mod resident;
 #[path = "sidecar_tasks.rs"]
 mod tasks;
 
@@ -450,9 +452,20 @@ impl SidecarBridge {
     async fn call_with_policy(
         &self,
         cmd: &str,
+        fields: Value,
+        timeout: std::time::Duration,
+        start_missing: bool,
+    ) -> Result<Value, String> {
+        self.call_with_incarnation(cmd, fields, timeout, start_missing, None).await
+    }
+
+    async fn call_with_incarnation(
+        &self,
+        cmd: &str,
         mut fields: Value,
         timeout: std::time::Duration,
         start_missing: bool,
+        expected_incarnation: Option<uuid::Uuid>,
     ) -> Result<Value, String> {
         let _admission = self.admit_unscoped()?;
         let started = std::time::Instant::now();
@@ -464,6 +477,10 @@ impl SidecarBridge {
             }
             let mut guard = self.inner.lock().await;
             let s = guard.as_mut().ok_or("sidecar unavailable")?;
+            // Check under the same lock as pipe selection and reply registration.
+            if expected_incarnation.is_some_and(|expected| expected != s.incarnation) {
+                return Err("sidecar incarnation changed".into());
+            }
             if !s.healthy.load(Ordering::Acquire) || !matches!(s.child.try_wait(), Ok(None)) {
                 return Err("host-lifecycle-unconfirmed: sidecar exited; browser cleanup is unconfirmed".into());
             }
