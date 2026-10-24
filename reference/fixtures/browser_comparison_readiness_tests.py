@@ -54,7 +54,7 @@ class ReadinessHarness(D.DiagnosticHarness):
         return ControlledHandle(self)
 
     async def evaluate(self, script, args=None):
-        if script == C.COMPARISON_SNAPSHOT:
+        if script == "mw:" + C.COMPARISON_SNAPSHOT:
             self.snapshots += 1
             assert self.disposed, "snapshot must follow handle disposal"
         return await super().evaluate(script, args)

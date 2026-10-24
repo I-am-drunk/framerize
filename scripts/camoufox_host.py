@@ -1935,6 +1935,9 @@ class Host:
             scope = self._observed_scope(account)
             life = self.lifecycles[account]
             if scope is not None:
+                # Only the reserved comparison launch opts into page-owned SDK state.
+                if getattr(scope, "comparison_phase", None) == "context_pending":
+                    kwargs["main_world_eval"] = True
                 scope.begin_launch()
             try:
                 if self._playwright is None:

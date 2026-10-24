@@ -81,9 +81,9 @@ class Harness(OLD.Harness):
         return ReadinessHandle(self.calls)
 
     async def evaluate(self, script, args=None):
-        if script == C.COMPARISON_SNAPSHOT:
+        if script == "mw:" + C.COMPARISON_SNAPSHOT:
             return {"url": self.page.url, "device": self.page.device}
-        if script == C.COMPARISON_MINT:
+        if script == "mw:" + C.COMPARISON_MINT:
             self.mints += 1
             self.page.sdk_started.set()
             await self.page.sdk_release.wait()
@@ -91,7 +91,7 @@ class Harness(OLD.Harness):
                 raise RuntimeError("private-fixture-mint-error")
             return {"before": self.page.url, "after": self.page.url,
                     "token": "private-fixture-token-" + str(self.mints)}
-        if script == C.COMPARISON_FETCH:
+        if script == "mw:" + C.COMPARISON_FETCH:
             self.fetches += 1
             self.fetch_args = args
             self.fetch_started.set()
