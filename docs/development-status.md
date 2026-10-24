@@ -3,6 +3,14 @@
 Updated 2026-10-24. The normal service remains browser-based. Publishing these
 branches does not change the running service.
 
+The exact in-page fetch now passes all 13 inert JavaScript cases under the
+128 MiB cap (34,738,176-byte peak, zero swap and confirmed test-group removal).
+The first pair coordinator compiles. Its dropped-waiter fixture and a new
+internal control-client injection point are source-only, pending validation.
+Production still constructs the normal account-bound client; the injection
+point lets an inert fixture reach baseline refusal without real bearer HTTP.
+No live comparison has run, and neither service was changed.
+
 Python comparison implementation `712e497` is integrated. Its 28 inert cases
 pass. The Rust host now requires two observer command slots so a continuation
 can join the previous command after its reply becomes visible; 48 host cases

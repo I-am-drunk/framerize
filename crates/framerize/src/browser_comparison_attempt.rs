@@ -5,7 +5,8 @@ use framer_api::native_dispatch::complete_json::{CompletedJson, FreeRoute};
 
 pub(super) async fn run(spec: Specification, baseline_turn: String, selected: Selection,
     native: NativeAccountClient, scope: AccountScope, client: ComparisonClient,
-    permit: OwnedSemaphorePermit, saved: Arc<Mutex<Report>>) -> Result<(), Failure> {
+    permit: OwnedSemaphorePermit, saved: Arc<Mutex<Report>>,
+    factory: Arc<dyn control::ControlFactory>) -> Result<(), Failure> {
     let deadline = spec.deadline;
     let target = CredentialTarget { project: spec.identity.project.clone(), path: match spec.route {
         FreeRoute::Responses => "/ai/v3/responses/", FreeRoute::Messages => "/ai/v3/messages/",
@@ -16,8 +17,7 @@ pub(super) async fn run(spec: Specification, baseline_turn: String, selected: Se
     baseline_body["turnId"] = serde_json::Value::String(baseline_turn);
     let comparison = ComparisonPlan::new(target.project.clone(), target.path,
         baseline_body, native_body).map_err(|_| Failure::Context)?;
-    let egress = selected.proxy.as_deref().map(NativeEgress::Proxy).unwrap_or(NativeEgress::Direct);
-    let api = Arc::new(BoundControlClient::new(scope.clone(), egress).map_err(|_| Failure::Source)?);
+    let api = factory.build(scope.clone(), selected.proxy.as_deref())?;
     client.set_proxy(selected.proxy).await.map_err(|_| Failure::Source)?;
     let leases = AccountLeaseCoordinator::new(LeaseLimits { accounts: 1, users: 1,
         waiters: 2, user_id_bytes: 256, total_user_bytes: 256 }).map_err(|_| Failure::Bootstrap)?;
@@ -41,7 +41,7 @@ pub(super) async fn run(spec: Specification, baseline_turn: String, selected: Se
 }
 
 async fn baseline(native: &NativeAccountClient, scope: &AccountScope, client: ComparisonClient,
-    plan: ComparisonPlan, api: Arc<BoundControlClient>, target: &CredentialTarget,
+    plan: ComparisonPlan, api: Arc<dyn control::Control>, target: &CredentialTarget,
     deadline: tokio::time::Instant, saved: Arc<Mutex<Report>>) -> Result<ComparisonContext, Failure> {
     let target = CredentialTarget { project: target.project.clone(), path: target.path };
     let expected = scope.clone();
@@ -53,7 +53,7 @@ async fn baseline(native: &NativeAccountClient, scope: &AccountScope, client: Co
             Ok(value) => value, Err(_) => return PreparationResult::unconfirmed(),
         };
         let header = context.cookie_header().to_owned();
-        let bearer = api.browser_context_bearer(&expected, &session, &target,
+        let bearer = api.bearer(&expected, &session, &target,
             context.page_url(), &header, &control).await;
         let bearer = match bearer.value {
             Ok(value) => value,

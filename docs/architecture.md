@@ -5,6 +5,11 @@ maintained fallback. `browserless` is the separate development branch for the
 native transport and short-lived SDK worker. A Git push does not deploy either
 version or restart the running service.
 
+The comparison coordinator uses an internal control-client factory so its
+request ordering can be tested without external authentication. The normal
+entry always constructs `BoundControlClient` with the selected account and
+egress; no configuration switch exposes a substitute client.
+
 Browser-token control code is currently a source capability, not a serving
 mode or a completed live comparison. Its observed profile is independent of
 the running browser, and a matched experiment must preserve device, bearer,
