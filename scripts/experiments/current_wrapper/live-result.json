@@ -1,0 +1,64 @@
+{
+  "admission_refusals": 0,
+  "authenticated_delivery": false,
+  "binary_sha256": "d950da605604d132a837811ca19341a1b1e999d1ab6baee3ebf35c23228a4779",
+  "cancel_stream": {
+    "bytes": 0,
+    "done_marker": false,
+    "eof": false,
+    "events": 0,
+    "finished": true,
+    "first_text_elapsed_ms": null,
+    "headers_at_unix": 1792804983.3782806,
+    "headers_elapsed_ms": 5242.902393918484,
+    "read_error": "stream_http_status",
+    "reader_finished_elapsed_ms": 5243.000443791971,
+    "request_started_at_unix": 1792804978.1353815,
+    "response_error_code": null,
+    "response_failure": {
+      "content_kind": "json",
+      "framer_security_envelope": true,
+      "json_bytes": 231,
+      "json_truncated": false,
+      "json_valid": true,
+      "native_error_code": null
+    },
+    "status": 403,
+    "terminal_completions": 0,
+    "terminal_elapsed_ms": null,
+    "text_characters": 0
+  },
+  "cleanup_after_error": {
+    "confirmed": true
+  },
+  "controller_group_absent": true,
+  "controller_resources": {
+    "memory.events": "low 0\nhigh 0\nmax 0\noom 0\noom_kill 0\noom_group_kill 0",
+    "memory.peak": "58302464",
+    "memory.swap.current": "0",
+    "pids.peak": "3"
+  },
+  "history_restoration_verified": true,
+  "limits": "Native memory peak is a service lifetime counter for a refused request, not delivered-stream memory or latency.",
+  "native_samples": {
+    "memory.current": 27705344,
+    "memory.peak": 140722176,
+    "memory.swap.current": 0,
+    "pids.current": 7,
+    "pids.peak": 17
+  },
+  "observed_at_unix": 1792804983.9627507,
+  "outcome": "FRAMER_SECURITY_403",
+  "post_calls": 1,
+  "protected_browser_unchanged": true,
+  "send_invocations": [
+    1
+  ],
+  "source_receipts": {
+    "inputs.json": "b5755a72e8d5207408919e0cee8ef12300853817a00bdc80ca20e82672700c90",
+    "launch-result.json": "afb986939cdb3af15efd232806dd29aaa0598fc3810228769d673281a579b6be",
+    "live-result.json": "78650f1a0c4de1b4b07e50f31d158950a43c737ad760bd300606c86358f50101",
+    "result.json": "48b25fabb06ee80f41d0b7f9cb61c539aa5f87c2a08f3b1905c3a9380c31e155"
+  },
+  "worker_config_sha256": "693051b1bdba3e884f1caf3b1f3c551f3b12b4c85c0fe4cedb8acc5f6ea14688"
+}

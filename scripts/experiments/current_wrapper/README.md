@@ -18,6 +18,11 @@ its unchanged 64-file limit. The enclosing runner and child loader verify all
 14 module files before SDK evaluation. No dependency check is skipped.
 Both units and groups were absent after every saved run.
 
-This is synthetic qualification, not authenticated delivery. No service was
-changed. The candidate needs the existing owned configuration update and
-fresh account, history, resource and cleanup checks before a live attempt.
+`qualification.json` retains the original synthetic result. The subsequent
+guarded update selected this bundle only on the isolated instance, preserving
+its application binary and routing. `live-result.json` records one POST and
+one upstream send, a complete Framer security 403 after 5.24 seconds to
+headers, confirmed cleanup and real history restoration. No second request
+ran. The protected browser service remained unchanged. Native lifetime peak
+was 140,722,176 bytes with zero sampled swap; this is refused-request evidence,
+not successful delivery or live interruption.

@@ -12,9 +12,16 @@ Seven focused cases pass; the old-loader control retains three expected
 failures. The current 14-module candidate passes one synthetic SDK run with
 confirmed cleanup at 122,941,440 bytes, zero swap and zero memory events.
 Early cancellation and owner-drop checks also pass, without establishing
-the SDK phase. The candidate is staged and has not been deployed.
-This does not attribute the security 403. Next, use the guarded isolated
-configuration update for the distinct current-wrapper live attempt.
+the SDK phase. The guarded update now selects this wrapper only on the
+isolated instance. One POST made one upstream send and received another
+complete 231-byte Framer security 403, with 5.24 seconds to headers.
+Cleanup, real history restoration and the unchanged browser service were
+verified; no second request ran. Native lifetime peak was 140,722,176 bytes
+with zero sampled swap. The controller exited and its group was absent.
+Updating the wrapper alone did not resolve the refusal. Authenticated
+delivery and live interruption remain unverified. Next, examine the saved
+browser caller's initialization contract and independent native transport
+gaps without replaying this request.
 See `reference/analysis/castle-current-selection-2026-10-24.md`.
 
 The native graphics SDK integration now passes with the deployable sources,
