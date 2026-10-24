@@ -11,6 +11,8 @@ use std::sync::Mutex;
 mod attempt;
 #[path = "browser_comparison_source.rs"]
 mod source;
+#[path = "browser_comparison_control.rs"]
+pub(crate) mod control;
 
 pub(crate) trait ComparisonWindow: Send + Sync {
     /// Exclude conflicting work and admit this bounded pair before private I/O.
@@ -38,6 +40,11 @@ pub(crate) struct Dependencies {
 
 pub(crate) fn launch(spec: Specification, baseline_turn: String, deps: Dependencies)
     -> Result<FutureResult<'static, Report>, Failure> {
+    launch_with_control(spec, baseline_turn, deps, Arc::new(control::BoundFactory))
+}
+
+pub(crate) fn launch_with_control(spec: Specification, baseline_turn: String, deps: Dependencies,
+    factory: Arc<dyn control::ControlFactory>) -> Result<FutureResult<'static, Report>, Failure> {
     Plan::validate(&spec).map_err(|_| Failure::Context)?;
     if baseline_turn.is_empty() || baseline_turn.len() > 256
         || baseline_turn.chars().any(char::is_control)
@@ -47,7 +54,7 @@ pub(crate) fn launch(spec: Specification, baseline_turn: String, deps: Dependenc
     let runtime = tokio::runtime::Handle::try_current().map_err(|_| Failure::OwnerLost)?;
     let (sender, receiver) = oneshot::channel();
     drop(runtime.spawn(async move {
-        let report = run(spec, baseline_turn, deps).await;
+        let report = run(spec, baseline_turn, deps, factory).await;
         let _ = sender.send(report);
     }));
     Ok(Box::pin(async move { receiver.await.unwrap_or_else(|_| Report {
@@ -55,12 +62,13 @@ pub(crate) fn launch(spec: Specification, baseline_turn: String, deps: Dependenc
     }) }))
 }
 
-async fn run(spec: Specification, baseline_turn: String, deps: Dependencies) -> Report {
+async fn run(spec: Specification, baseline_turn: String, deps: Dependencies,
+    factory: Arc<dyn control::ControlFactory>) -> Report {
     let authority = deps.authority.clone();
     let mut report = match authority.admit().await {
         Ok(selected) if selected.identity == spec.identity
             && same_context(&selected.context, &spec.context) => {
-                owned(spec, baseline_turn, selected, deps).await
+                owned(spec, baseline_turn, selected, deps, factory).await
             }
         Ok(_) => Report { failure: Some(Failure::Context), ..Report::default() },
         Err(error) => return Report { failure: Some(error), ..Report::default() },
@@ -72,7 +80,7 @@ async fn run(spec: Specification, baseline_turn: String, deps: Dependencies) -> 
 }
 
 async fn owned(spec: Specification, baseline_turn: String, selected: Selection,
-    deps: Dependencies) -> Report {
+    deps: Dependencies, factory: Arc<dyn control::ControlFactory>) -> Report {
     let mut report = Report::default();
     let Ok(native) = NativeAccountClient::new() else {
         report.failure = Some(Failure::Session); return report;
@@ -86,7 +94,7 @@ async fn owned(spec: Specification, baseline_turn: String, selected: Selection,
         NativeHttpLimits::default(), egress).await {
         Ok(scope) => {
             report = execute(spec, baseline_turn, selected, &native, &scope,
-                deps.observer, deps.permit).await;
+                deps.observer, deps.permit, factory).await;
         }
         Err(_) => report.failure = Some(Failure::Session),
     }
@@ -99,7 +107,7 @@ async fn owned(spec: Specification, baseline_turn: String, selected: Selection,
 
 async fn execute(spec: Specification, baseline_turn: String, selected: Selection,
     native: &NativeAccountClient, scope: &AccountScope, observer: ObserverFactory,
-    permit: OwnedSemaphorePermit) -> Report {
+    permit: OwnedSemaphorePermit, factory: Arc<dyn control::ControlFactory>) -> Report {
     let saved = Arc::new(Mutex::new(Report::default()));
     let opened = observer.comparison_scope(scope.account(), ApplicationGeneration(scope.generation()));
     let mut cleanup = None;
@@ -111,7 +119,7 @@ async fn execute(spec: Specification, baseline_turn: String, selected: Selection
             let task_report = saved.clone();
             let result = tokio::spawn(async move {
                 attempt::run(spec, baseline_turn, selected, task_native, task_scope,
-                    opened.client, permit, task_report).await
+                    opened.client, permit, task_report, factory).await
             }).await;
             saved.lock().unwrap().failure = match result {
                 Ok(Ok(())) => None,

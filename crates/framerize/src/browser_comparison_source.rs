@@ -5,7 +5,7 @@ use framer_core::port::Session;
 use futures::{future::BoxFuture, FutureExt};
 
 pub(super) struct Source {
-    pub api: Arc<BoundControlClient>,
+    pub api: Arc<dyn control::Control>,
     pub context: tokio::sync::Mutex<ComparisonContext>,
     pub scope: AccountScope,
     pub target: CredentialTarget,
@@ -32,7 +32,7 @@ impl CredentialSource for Source {
             let supplied = match context.native_token().await {
                 Ok(value) => value, Err(_) => return PreparationResult::unconfirmed(),
             };
-            self.api.authorize_browser_token(scope, session, target, control, supplied).await
+            self.api.authorize(scope, session, target, control, supplied).await
         }.boxed()
     }
 }
