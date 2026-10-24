@@ -9,6 +9,12 @@ cooldowns, joined cleanup, streaming, latency and measured memory use preserved.
 Completed source tasks and dependencies on another owner do not complete or
 block that shared outcome. Goal identity and accumulated accounting are retained.
 
+T3 hook enforcement is still not active in every existing session. The transport
+owner reports that its required native `blocked` transition was accepted after
+the isolated hook tests passed. This affects that lane, not the runtime owner's
+work or the shared outcome. Keep the policy guidance and original goal identity;
+the config owner retains coordinated activation and any user-controlled resume.
+
 R15 completed with normal browser HTTP 200, browser-baseline HTTP 200 and
 explicit window-realm native HTTP 403. The native response was complete JSON
 with Framer's Castle security envelope. Cleanup was confirmed, the isolated
@@ -21,10 +27,23 @@ The R15 browser baseline projected to 105 fields/817 bytes. Five entries differ
 from R14's accepted baseline: 0/12, 7/23, 7/25, 7/26 and 9/9. Comparing R15
 with the prior synthetic realm observation gives 30 differences. Neither
 comparison contains R15's native token structure or establishes refusal cause.
-The next source task is a bounded native-token structure projection. The
-structure lane owns the pure Rust decoder port; the runtime owner retains
-caller integration, qualification and any later controlled experiment. No new
-mint, identity override, live retry or request admission rule is part of that port.
+The bounded native-token projection is now integrated and qualified offline.
+All 40 Rust cases pass (19 decoder, three observer and 18 existing resident/
+cancellation cases), receipt `4849df69`, peak 14,753,792 bytes. Test compilation
+`5778defc` and production linking `4105dbb7` pass against the retained runtime
+library graph, with peaks of 368,992,256 and 452,526,080 bytes. This does not
+rebuild or activate all newer API changes. The observer borrows the original
+token after joined mint and same-device confirmation, before unchanged
+authorization and deadline checks.
+
+The synthetic Rust/Python comparison passes all 231 inputs, including 115
+accepted structures (`b4d75a8b`, peak 57,516,032 bytes). Strict record pairing
+passes all 15 cases (`201bfcaf`, peak 22,142,976 bytes). All groups exited with
+zero swap or limit events; inputs were verified unchanged. No SDK, private
+token or live request was used. Actual native capture remains unmeasured.
+Next, correct and qualify the shared event writer: formatting JSON directly
+into the append file can interleave fragments with sidecar output. This source
+finding does not establish that R15 contained a corrupt line or explain its 403.
 
 The request-path correction is integrated as `216350e`. Its exact 19-case
 qualification is reused from receipt `65937832`: all pass, 17,039,360-byte peak,
