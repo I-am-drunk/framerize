@@ -1,14 +1,21 @@
 import asyncio
+import ast
 from collections import deque
 from types import SimpleNamespace
-from fixture import Fixture, ACCOUNT
+from fixture import Fixture, ACCOUNT, SOURCE, host_node
 from native_device import install
+from resident_activity import ActivityLedger
 from test_ownership import host_type
 
 
 class HandoffTests(Fixture):
     def prepare_close(self, fail=False):
         Host = host_type()
+        node = next(n for n in host_node.body
+                    if isinstance(n, ast.FunctionDef) and n.name == '_retain_resident_fence')
+        namespace = {}
+        exec(compile(ast.Module(body=[node], type_ignores=[]), str(SOURCE), 'exec'), namespace)
+        Host._retain_resident_fence = namespace['_retain_resident_fence']
         install(Host, self.root, gap=2.5, window=600, capacity=180,
                 cooldown=600, clock=lambda: self.now, sleep=self.sleep)
         host = Host()
@@ -19,9 +26,12 @@ class HandoffTests(Fixture):
         self.life.phase, self.life.incarnation = 'closing', 1
         self.life.browser = browser
         self.life.close_receipt = SimpleNamespace(browser=browser)
+        self.life.activity, self.life.resident_uncertain = ActivityLedger(), None
         del self.life.restored_primary_device
         started, finish = asyncio.Event(), asyncio.Event()
-        async def dispose(current):
+        async def dispose(current, account):
+            self.assertIs(current, acc)
+            self.assertEqual(account, ACCOUNT)
             started.set()
             await finish.wait()
             if fail:
@@ -41,6 +51,8 @@ class HandoffTests(Fixture):
         self.assertFalse(hasattr(self.life, 'restored_primary_device'))
         finish.set()
         self.assertTrue(await closing)
+        self.assertIsNone(self.life.resident_uncertain)
+        self.assertFalse(self.life.activity.activities)
         opened = await host.handle(dict(self.request, cmd='native_device_open'))
         self.assertEqual(opened['device'], 'fixture-other')
         self.assertIs(self.life.requests, history)
@@ -57,6 +69,7 @@ class HandoffTests(Fixture):
         finish.set()
         self.assertFalse(await closing)
         self.assertEqual(self.life.phase, 'unconfirmed')
+        self.assertEqual(self.life.activity.activities, {self.life.resident_uncertain})
         self.assertFalse(hasattr(self.life, 'restored_primary_device'))
         self.assertEqual(await host.handle(dict(self.request, cmd='native_device_open')),
                          {'rejected': True})
