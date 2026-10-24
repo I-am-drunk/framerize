@@ -4,6 +4,10 @@
 use framer_core::port::Session;
 use serde_json::Value;
 
+#[cfg(feature = "experimental-native")]
+#[path = "control_response_evidence.rs"]
+mod control_response_evidence;
+
 pub const API: &str = "https://api.framer.com";
 
 pub struct Transport {
@@ -122,6 +126,9 @@ impl Transport {
             .header("x-requested-by", "Framer").header(name, value);
         let mut response = request.send().await
             .map_err(|_| "control authorization: transport failed".to_owned())?;
+        if path == "/auth/ai/access-token" {
+            control_response_evidence::emit(response.status().as_u16(), response.headers());
+        }
         if response.status().as_u16() != 200 {
             return Err(format!("control authorization: HTTP {}", response.status().as_u16()));
         }

@@ -48,6 +48,11 @@ This candidate has passed focused tests and the full application build and is
 selected by the isolated instance. Its first live request still received a
 security 403. The same attempt confirmed cleanup and pool idle; no retry ran.
 
+The native control transport can emit a value-free response-cookie summary
+at its AI-token endpoint. It caps classification at 64 headers and records
+truncation explicitly. This diagnostic preserves the existing response and
+credential handling; its source-tested version is not yet deployed.
+
 An update of an enrolled isolated instance transfers its actual in-memory
 rate history. The controller holds the idle application and sidecar, writes
 a private snapshot, and verifies old-process absence before replacing the
