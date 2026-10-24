@@ -103,6 +103,12 @@ does not guarantee that the URL will never change; later exact page, device
 and cookie checks remain mandatory.
 The wait and handle disposal remain owned through cancellation; a two-second
 disposal timeout refuses continuation while retaining cleanup ownership.
+Fixed diagnostic stages distinguish wait, disposal, scope and outer-RPC
+failures. After a settled wait timeout, one scope-owned, one-second read
+evaluates the same predicate for eight boolean facts. Invalid or unavailable
+probe results remain unknown; even all-true facts cannot accept the timeout.
+Cancellation or an outer deadline cannot schedule a late probe. No raw page,
+device, cookie or exception data is exported.
 The unchanged snapshot then validates the actual device, cookie, login and
 page together. Readiness does not write device state or invoke the SDK.
 The corrected live comparison passed storage readiness and all cookie, login
