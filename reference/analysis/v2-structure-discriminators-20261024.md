@@ -13,7 +13,7 @@ output; dedicated V2/native returned a complete Castle 403; cleanup confirmed.
 The passive browser baseline observation has 104 fields and consumes 800 bytes.
 The earlier socket-denied synthetic SDK observation has 88 fields and 563 bytes.
 Root reports 17 browser-only fields, one synthetic-only field and 12 changed
-shared fields. All 30 supplied differing rows have collector mappings below.
+shared fields. All 30 differing rows in that comparison have mappings below.
 These are different observations, **not a paired capture of
 R14's browser and R14's SDK**. No private inputs were read in this source lane.
 No further live retry is queued. These findings do not establish acceptance.
@@ -243,9 +243,45 @@ The inline producer selected by `r[sF]` (473251) reads the worker navigator's
 without `navigator.userAgentData`. Missing/failed worker setup, missing report
 or null/undefined slot values can omit the corresponding fields.
 The same factory can instead select a configured external worker URL. The
-projection does not identify which producer ran, so the inline slot-12 meaning
-is conditional on that binding. Neither width reveals UA text, a marker value,
+configuration path at 550931 copies a non-null/undefined own `swUrl` option
+to internal `ou`; the branch at 473691 uses that option when truthy and
+otherwise constructs the inline Blob worker. This closes the source option
+mapping without establishing the option used by the saved observations.
+The projection does not identify which producer ran, so the inline slot-12
+meaning is conditional on that binding. Neither width reveals UA text, a marker value,
 HTTP identity agreement or a reason for the native refusal.
+
+## Later own-JSDOM synthetic observation
+
+The owner reports socket-denied result `db1eb359` with the same SDK bytes,
+synthetic identity, URL and budget, but explicit own-JSDOM factory evaluation.
+It has 90 fields/567 bytes and two PNG attempts, both delivered, none rejected.
+The token was discarded and the child joined. These are supplied owner facts;
+this source checkout performed no run and read no runtime capture.
+
+Compared with prior synthetic `4a5cf5e6`, the owner found exactly two additions:
+8/13 and 8/14, both `(5,2)`. Every other projected field/type/length is unchanged.
+Against historical R14 browser `472150ef`, 8/13 remains different because its
+browser shape is `(5,3)`, and 8/14 is synthetic-only. The owner reports 31
+differing rows in that comparison. It is still not a paired R14 SDK capture.
+No live inference, field values or causal/acceptance conclusion follows.
+
+**8/14: new synthetic (5,2), absent in the two older observations.**
+`r[gE]` (410593) fills a 10-by-10 image with random RGB values and fixed opaque
+alpha, sums its RGB components, and writes it to a canvas. It assigns a load
+handler to a bare `new Image` before setting its source to the canvas data URL.
+On load it draws the image back, reads the pixels, sums their RGB components,
+and returns `abs(sum_after - sum_before)`. The collector near 480050 sends
+that result through the existing type-5 packed-integer path, including zero.
+
+This statistic differs from 8/13's sum of individual absolute differences.
+Opposing RGB changes can cancel, and alpha changes do not enter 8/14's sum.
+Even an actual zero result would not prove identical pixels; `(5,2)` reveals
+only the smaller packed width and does not establish zero. Missing prerequisites,
+construction/readback failure or an unobserved load callback can omit the field.
+The older browser's omission therefore identifies neither pixel behavior nor
+the cause of any failed collection. The two delivered PNGs and new field
+presence establish no browser-equivalent rendering or upstream acceptance.
 
 ## Additional encoder limits
 
@@ -317,8 +353,8 @@ The frame/parser/projection/observer qualifications documented in
 The owner now separately reports the 16 comparator cases passing; no test or
 runtime execution occurred in this source lane. Subsequent changes here only
 extend the source note and reuse that qualification for unchanged tooling.
-Next action: integrate these remaining 16 mappings into the owner's source
-branch alongside the unchanged qualified comparator. Constructor/realm
+Next action: integrate the 8/14 mapping and supplied `db1eb359` comparison
+limits into the owner's source branch alongside the unchanged comparator. Realm
 qualification and any future matched observation or runtime change stay with
 that owner. The shared goal remains a fresh valid mint and accepted native
 inference with all retained guards.
