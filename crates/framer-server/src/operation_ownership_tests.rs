@@ -27,6 +27,8 @@ mod nonstream;
 
 #[path = "operation_ownership_stream_recovery_tests.rs"]
 mod stream_recovery;
+#[path = "operation_ownership_extraction_tests.rs"]
+mod extraction;
 
 #[tokio::test]
 async fn every_mutating_and_inference_route_rejects_before_ports_after_seal() {
