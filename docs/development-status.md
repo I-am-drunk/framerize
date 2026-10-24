@@ -42,6 +42,15 @@ only A. B can be admitted again. Both phases verified unchanged inputs, zero
 swap/limit events and removed groups. The frozen candidate includes the
 ordinary-V2 source stack, which is not promoted into this runtime branch by
 these tests. This is inert fixture qualification, not an SDK or live request.
+
+The same `fe500a0` candidate also passes the three post-handoff lifecycle
+cases: wait for child exit and host acknowledgment, discard a valid token
+after failed exit, and retain cleanup through cancellation. Compilation passes
+(`e77ffad1`, peak 395,350,016 bytes), and all three cases pass (`66dca8f8`, peak
+24,629,248 bytes). Both phases verified unchanged inputs, zero swap/limit
+events and absent groups. These use synthetic sessions and fake workers;
+ordinary-V2 serving and actual-native acceptance remain unqualified.
+
 The response-decoding and read-only HEAD corrections remain separate source
 inputs for the next native qualification batch.
 

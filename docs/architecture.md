@@ -209,6 +209,10 @@ the child joins, completes B with a distinct seed, and then cancels A or loses
 A's acknowledgment. Both cases preserve B's admission while settling or
 fencing A. This qualifies the candidate's owner boundary with inert workers;
 it does not integrate that source stack into ordinary serving on this branch.
+Three additional inert post-handoff cases verify that success waits for child
+exit and host acknowledgment, failed exit discards a valid token, and
+cancellation retains cleanup. These establish the candidate's tested handoff
+behavior, without establishing SDK or upstream acceptance.
 
 The separate `v2_operation`/`v2_runtime` component invokes the retained genuine
 V2 factory's configured-instance API. It requires a saved device, calls the
