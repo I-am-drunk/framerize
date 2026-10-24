@@ -37,7 +37,13 @@ staging invocation passed once: 20 runtime files and 16 source inputs match,
 including the generated host, 11 support modules and six adjacent imports.
 Peak memory was 61,972,480 bytes under 128 MiB, with zero swap/events. Its
 terminal and captured processes are collected. Neither application package
-has been launched, and native acceptance remains unverified.
+has started a host or worker, and native acceptance remains unverified.
+The native package subsequently passed its isolated CLI help and all 18
+Python definition imports (`77161c4f`), with a 30,105,600-byte peak and zero
+swap or limit events. All recorded process identities are absent and the
+unit is collected; the external snapshot missed transient descendants of
+the 1.73-second run. The 1,234-entry external library snapshot is copied and
+verified but has not been mounted or used by a worker.
 
 The ordinary-V2 integration branch now includes browserless `95f2986`,
 including the qualified legacy and typed-capacity corrections. Only the two
