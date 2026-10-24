@@ -10,7 +10,12 @@ Host replacement separately preserves device cooldowns, request windows,
 mint spacing, primary-device selection and daily reserve usage. Account
 cooldown expiry does not prove that host state can be discarded. The normal
 package's proposed entrypoint retains the existing identity-bound, single-use
-restoration mechanism without enabling native routing.
+restoration mechanism without enabling native routing. Five inert compatibility
+cases now pass for the packaged host and support. The prepared controller
+requires a fresh state capture for rollback after a replacement has run; it
+does not replay an older consumed snapshot. Seventeen inert decision tests
+cover its new failure paths, but the full operational controller and actual
+restoration still need qualification.
 
 Normal-browser admission rollout and ordinary-V2 acceptance are independent.
 The final ordinary-V2 source input `838f7dbb` retains one checked transfer for
