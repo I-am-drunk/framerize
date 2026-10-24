@@ -1,5 +1,10 @@
 # Serving architecture and branch policy
 
+The isolated R7 control verified completed model output through native HTTP
+using a fresh token from its working resident browser. Complete logger windows
+recorded V2 for both paired mints. This validates that transport handoff;
+it does not validate browserless token generation or change the default service.
+
 Resident native-output evidence is separate from HTTP/JSON and cleanup facts.
 Only bounded EOF plus HTTP 200 JSON with completed, nonempty model text sets
 `native_output_complete`. Unknown routes, incomplete responses, error objects
