@@ -76,8 +76,9 @@ readiness condition before binding; the post-mint equality guard stays strict.
 
 Preparation now records fixed phases immediately through the existing sidecar
 log, instead of retaining them only in memory until command completion. All
-75 focused Python cases pass, including bounded output, privacy, pending-mint
-visibility and cancellation ownership. These records do not certify a send or
+76 distinct focused Python cases pass, including bounded output, privacy,
+pending-mint visibility, cancellation ownership and reading the actual file
+sink before a command completes. These records do not certify a send or
 cleanup. The change is published source and has not run in a live comparison.
 The saved application source rules out both its generic loading latch and a
 slug-only URL check as complete readiness signals: the latch has other false

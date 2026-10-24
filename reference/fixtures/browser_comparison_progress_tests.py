@@ -1,8 +1,12 @@
 """Inert checks for bounded, privacy-preserving preparation checkpoints."""
 import asyncio
+import ast
 import importlib.util
 import json
+import os
 from pathlib import Path
+import tempfile
+import time
 from types import SimpleNamespace
 import unittest
 
@@ -14,6 +18,25 @@ C = D.C
 
 
 class ProgressTests(unittest.TestCase):
+    def test_real_file_sink_is_readable_before_command_completion(self):
+        source = Path(__file__).parents[2] / 'scripts/camoufox_host.py'
+        tree = ast.parse(source.read_text())
+        node = next(n for n in tree.body if isinstance(n, ast.FunctionDef) and n.name == 'emit')
+        with tempfile.TemporaryDirectory() as directory:
+            namespace = {'LOG_DIR': directory, 'os': os, 'time': time, 'json': json}
+            exec(compile(ast.Module(body=[node], type_ignores=[]), str(source), 'exec'), namespace)
+            scope = SimpleNamespace()
+            C.comparison_attach_progress(scope, {'purpose': 'baseline_context'}, namespace['emit'])
+            C.comparison_mark(scope, 'context_ready', token=D.SECRET)
+            files = list(Path(directory).glob('events-*.ndjson'))
+            self.assertEqual(len(files), 1)
+            rows = [json.loads(line) for line in files[0].read_text().splitlines()]
+            self.assertEqual(len(rows), 1)
+            self.assertEqual(rows[0]['event'], 'browser.comparison.progress')
+            self.assertEqual(rows[0]['stage'], 'context_ready')
+            self.assertEqual(rows[0]['sequence'], 1)
+            self.assertNotIn(D.SECRET, files[0].read_text())
+
     def test_sequence_persists_across_commands_and_payload_is_allowlisted(self):
         scope, events = SimpleNamespace(), []
         def emit(event, **fields): events.append(dict(event=event, **fields))
