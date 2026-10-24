@@ -63,17 +63,16 @@ reported in development status. No qualification or SDK execution was repeated.
 
 The first four inert cases cover pending termination after exit, failure before
 close, failure during close, and failed termination still awaiting exit.
-They also check restoration and truthful counters. All nineteen adapter cases
-remain UNRUN here. Only source review, the factory hash and Git whitespace
-checks were performed; no builds, tests, browser or runtime work ran here.
+They also check restoration and truthful counters. The owner qualified all
+nineteen adapter cases in receipt `2cf7cae5`; they were not rerun here.
 
 A fixture-only follow-up to `1a743756` adds two ownership cases. One admits
 a replacement only after its predecessor exits, then requires close to retain
 the predecessor's pending stop even after the replacement joins. The other
 uses one adapter module with two windows: URL ownership, message delivery,
 termination, restoration and cleanup failure must stay with their owner.
-Both are UNRUN. They model local ownership boundaries, not verified account
-isolation in a live service. Production source is unchanged by this follow-up.
+Both passed in that owner qualification. They model local ownership boundaries,
+not verified account isolation in a live service. This follow-up changes no production source.
 The replacement case exercises the adapter's existing one-live-worker quota;
 the dedicated mint profile still requires exactly one started and joined
 worker before token release.
@@ -89,9 +88,9 @@ node --experimental-vm-modules --test reference/fixtures/offline_v2_dedicated_wo
 
 Further qualification and package activation remain owner-held.
 
-Further source inspection found a separate image-collector realm mismatch.
-`v2_runtime.mjs` imports the factory as Node ESM, calls `factory(sdk)`, then
-passes the JSDOM window to `configure`. That argument does not rebind the
+Source inspection found an image-collector realm mismatch in the default Node
+profile: it imports the factory as Node ESM, calls `factory(sdk)`, then passes
+the JSDOM window to `configure`. That argument does not rebind the
 factory's lexical globals. Both image round-trip collectors use the supplied
 window for canvas creation but use bare `new Image` for image construction.
 The factory contains exactly those two `Image` identifiers and no binding
@@ -120,15 +119,15 @@ The separate canvas-prototype probe at `408310` also uses bare
 
 This is source evidence of distinct lookup environments, not an observed
 exception or a demonstrated cause of R14's refusal. Canvas and worker success
-remain valid. No SDK, browser, test, private state or runtime was executed.
+remain valid. No SDK, browser, test or runtime was executed in this checkout.
 
 The new `reference/fixtures/offline_v2_factory_realm_tests.mjs` supplies that
 inert discriminator using actual `createV2Window` and the owner's pinned
-native-canvas JSDOM. This needs no SDK or inference call. A candidate correction would
-evaluate the unchanged, verified factory module in the operation's own JSDOM
-VM context, using `vm.SourceTextModule` and the genuine window objects.
-It must be qualified separately before changing the selected profile.
-Do not assign synthetic constructors or copy one account's globals into Node.
+native-canvas JSDOM. This needs no SDK or inference call. The owner's separate
+`createRealmV2Minter` at `617ee44` evaluates the unchanged, verified factory in
+the operation's own JSDOM VM context through `vm.SourceTextModule`. Its
+synthetic qualification is recorded below; the default Node profile remains.
+Neither path assigns synthetic constructors or copies account globals into Node.
 The factory, native identities, source hashes, quotas and deadlines remain
 unchanged in this source contribution; runtime/operation edits stay owner-held.
 
@@ -138,8 +137,8 @@ Node's data-URL import and then through `vm.SourceTextModule` with
 from the supplied window's constructors, for both ordinary calls and explicit
 window receivers. The two-window case checks that passing the other window or
 using it as receiver does not transfer constructor or document ownership.
-These are fixture expectations, not measured results. All three cases are
-UNRUN here; source review and Git whitespace checks are the only local checks.
+The owner verified these assertions in receipt `2992def4`. Local work remained
+source review and Git whitespace checks; no qualification was repeated here.
 
 The factory returns fixed type strings and identity booleans only. Availability
 checks retain native 2D canvas, absent WebGL and `CanvasRenderingContext2D`
