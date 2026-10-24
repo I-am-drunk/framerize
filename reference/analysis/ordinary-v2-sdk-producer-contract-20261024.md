@@ -95,8 +95,8 @@ Pinned inputs at the common base:
 | `scripts/contextual_authorization.py` | `8ec7f3e5a1a85df72304fe47feefd316cf5d6949` |
 
 Qualification remains UNRUN in this source lane. The new
-`scripts/tests/native_device/test_sdk_seed_observation.py` contains 23 cases:
-17 Python lifecycle/wire cases and six synthetic JavaScript cases. They cover
+`scripts/tests/native_device/test_sdk_seed_observation.py` contains 24 cases:
+18 Python lifecycle/wire cases and six synthetic JavaScript cases. They cover
 verification absence, exact session binding, malformed validation, failed or
 cancelled close, late join after waiter loss, navigation/replacement, stale
 admission, stale joined finish, retained uncertainty and private reply shapes.
@@ -113,7 +113,7 @@ Direct in-memory route changes with no revision change also refuse attachment,
 both before native open and after open. Refusal emits only the fixed private
 rejection, attaches no observation and permits original-grant cleanup without
 charging a mint. These are unexecuted fixture expectations, not runtime evidence.
-The producer/helper bytes and existing private wire are unchanged by this delta.
+That fixture-only milestone left producer/helper bytes and private wire unchanged.
 
 Source-only correction after `8b3dd4fdacc91bd2631249da1adce4c48745a927`:
 the fixture disposal callbacks now accept the real `(account_object, account_id)`
@@ -121,7 +121,7 @@ arguments, including the late-join wrapper. The fixture extracts the unchanged
 host `_retain_resident_fence` method and uses the real `ActivityLedger` so failed
 or cancelled closure asserts retained ownership; successful closure checks its
 absence. The previous one-argument callbacks could not reach those assertions.
-The selection remains 23 cases, all UNRUN here. Production pins are unchanged.
+That milestone retained 23 cases, all UNRUN here, and left production pins unchanged.
 
 Owner entry: add `scripts` and `scripts/tests/native_device` to `PYTHONPATH`,
 then select `test_sdk_seed_observation` with the existing isolated unittest
@@ -129,6 +129,26 @@ runner. The six JS cases require Node for inert snippets. Existing native
 device component cases are relevant compatibility controls. No test, build,
 SDK, browser, private-state or live-request execution occurred here.
 
-Next action belongs to runtime 544711e3: combine the producer, Transport's
-strict consumer and the separately owned package closure, then qualify the
-selected source. The full browserless outcome and goal accounting remain open.
+The grouped follow-up uses exact parent `3a608c71444091a0cad6c70656fed69651cf600a`.
+It corrects premature invalidation by moving the observation drop below the
+existing account/phase/selected-owner/session-cookie checks. Other pages no
+longer erase the primary observation. An eligible primary call still replaces
+its predecessor. One new inert case covers both an in-flight and a completed
+primary observation, nonprimary/unowned pages, and a genuine replacement.
+
+The same follow-up records `_sdk_launch_route = (incarnation, effective_proxy)`
+inside the actual launch owner, with `_sdk_launch_browser` bound to the returned
+browser. The route is the exact proxy string passed at launch, or `None` for
+direct routing. Later environment changes cannot relabel it. Each observation
+pins that tuple's identity and requires its route to equal the registered route.
+Missing, replaced, malformed or mismatching launch evidence refuses transfer.
+Ordinary browser environment-proxy behavior is unchanged; ambient-only proxy
+routing cannot establish V2 proof for a declared direct native route.
+
+Live validation also checks the exact launch browser. Successful close clears
+the extra browser reference; the retained tuple contains no browser handle.
+V2 owns the separate ambient-route fixture. It and this lane's 24-case producer
+selection remain UNRUN here. No wire, Rust, SDK-call or private-state change.
+Runtime 544711e3 then owns qualification of the final producer, strict consumer,
+prepared package and selected fixtures. The full browserless outcome and goal
+accounting remain open.
