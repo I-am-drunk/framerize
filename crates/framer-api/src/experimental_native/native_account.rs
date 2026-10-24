@@ -95,7 +95,7 @@ impl SuppliedAuth {
 }
 
 impl RequestContext {
-    fn prepare(self) -> Result<(String, Value), ClientError> {
+    fn prepare(mut self) -> Result<(String, Value), ClientError> {
         if self.project.0.is_empty() || self.feature_category.is_empty()
             || self.feature_name.is_empty() || self.step.is_empty()
             || self.chat_session.is_empty() || self.turn_id.is_empty()
@@ -108,6 +108,12 @@ impl RequestContext {
         if !matches!(route.id, "direct-responses" | "direct-anthropic"
             | "openrouter-responses" | "openrouter-messages" | "openrouter-chat")
         { return Err(ClientError::InvalidContext); }
+        // The current Framer OpenRouter Responses mapper derives the nested
+        // session_id from its outer metadata, replacing any payload value.
+        // Other routes retain their payload unchanged.
+        if matches!(self.dialect, Dialect::OpenRouterResponses) {
+            self.payload["session_id"] = Value::String(self.chat_session.clone());
+        }
         // Move the request tree instead of cloning it through json!.
         let pairs = [
             ("projectId", Value::String(self.project.0)),

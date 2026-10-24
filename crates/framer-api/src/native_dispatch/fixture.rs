@@ -121,7 +121,8 @@ fn response_body() -> Value {
     })
 }
 
-fn expected(path: &'static str, payload: Value, index: u32, reply: Reply) -> Expected {
+fn expected(path: &'static str, mut payload: Value, index: u32, reply: Reply) -> Expected {
+    if path == "/ai/v3/responses/" { payload["session_id"] = json!(CHAT); }
     Expected {
         path,
         envelope: json!({
