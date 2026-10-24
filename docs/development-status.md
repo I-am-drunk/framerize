@@ -3,6 +3,15 @@
 Updated 2026-10-24. The normal service remains browser-based. Publishing these
 branches does not change the running service.
 
+A new staged bundle fills the SDK's separate dedicated Worker API gap. Its
+two pinned scripts now run in real Node threads with the native user agent.
+Eight focused cases pass, including active cancellation and private errors.
+The instrumented SDK run received the expected feature, entropy and timing
+replies and joined both workers. The deployable bundle also passes its eight
+cases and a synthetic SDK mint, peaking at 102,232,064 bytes with zero swap
+or memory events and verified teardown. It is not live-tested yet. The next
+action is the guarded worker-configuration update of the isolated instance.
+
 A cookie-alignment candidate now carries the admitted device into the bearer
 request as well as the later inference request. The isolated stored login has
 only the session cookie; the previous native source added the device after
