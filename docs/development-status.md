@@ -12,8 +12,10 @@ or missing declared device. Authentication failure still prevents minting.
 All 17 focused source/authorization cases pass, including conflict-before-work
 and changed-device-after-join cases. Compilation peaked at 847,159,296 bytes;
 tests peaked at 32,190,464 bytes, with zero swap/memory events and clean teardown.
-Full application build and live validation remain pending. The cookie difference
-is established; its role in the 403 is not. The browser control also starts from
+The full application build also passes: API peak 574,832,640 bytes and final
+link peak 429,305,856 bytes, with zero swap/events and clean teardown. Binary
+`c358abfc` is staged; isolated deployment and live validation remain pending.
+The cookie difference is established; its role in the 403 is not. The browser control also starts from
 a stored session, so this is a compatibility hypothesis rather than attribution.
 
 The deployable graphics worker is now integrated in browserless source and

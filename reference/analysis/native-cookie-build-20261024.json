@@ -1,0 +1,15 @@
+{
+  "status": "BUILD_PASSED_NOT_DEPLOYED",
+  "source_commit": "c955370d2d088392d0f4b3dfc2a1335d4316ea70",
+  "binary_sha256": "c358abfc25aae9082f9ee9c2210efb00e4f6d470db13a9f75f9735858ede1e31",
+  "receipt_sha256": {
+    "enrollment-api-compile": "bf3867b3d6eed2b52934174a3194e61f42a00a6833b79781c73babe440f44480",
+    "enrollment-main-compile": "721d3fb2c0119de26118e532fb34f255df6d0069f05333416294a93df7450a5c"
+  },
+  "peak_bytes": {
+    "enrollment-api-compile": 574832640,
+    "enrollment-main-compile": 429305856
+  },
+  "focused_cases_reused": 17,
+  "live_tested": false
+}
