@@ -16,6 +16,8 @@ const MAX_PEERS: usize = 4;
 const MAX_REQUEST: usize = 64 * 1024;
 const MAX_REPLY: usize = 32 * 1024;
 const DEFAULT_AUTHORIZATION: &str = "Bearer fixture-application-bearer";
+const DEFAULT_RESIDENT_COOKIE: &str =
+    "session=fixture-application; __cuid=fixture-device; fixture=one; fixture=two";
 
 #[derive(Clone)]
 pub(super) struct Expected {
@@ -72,7 +74,7 @@ impl Reply {
 pub(super) struct Shared {
     pub stop: AtomicBool,
     hold_headers: bool,
-    resident_headers: bool,
+    resident_cookie: Option<&'static str>,
     authorization: &'static str,
     pub release_headers: AtomicBool,
     pub release_body: AtomicBool,
@@ -101,24 +103,24 @@ pub(super) struct Server {
 
 impl Server {
     pub fn new(expected: Vec<Expected>) -> Self {
-        Self::create(expected, false, false, DEFAULT_AUTHORIZATION)
+        Self::create(expected, false, None, DEFAULT_AUTHORIZATION)
     }
 
     pub fn with_held_headers(expected: Vec<Expected>) -> Self {
-        Self::create(expected, true, false, DEFAULT_AUTHORIZATION)
+        Self::create(expected, true, None, DEFAULT_AUTHORIZATION)
     }
 
     pub fn with_resident_headers(expected: Vec<Expected>, hold_headers: bool) -> Self {
-        Self::create(expected, hold_headers, true, DEFAULT_AUTHORIZATION)
+        Self::create(expected, hold_headers, Some(DEFAULT_RESIDENT_COOKIE), DEFAULT_AUTHORIZATION)
     }
 
-    pub fn with_held_headers_and_authorization(
-        expected: Vec<Expected>, authorization: &'static str,
+    pub fn with_held_headers_and_credentials(
+        expected: Vec<Expected>, authorization: &'static str, resident_cookie: Option<&'static str>,
     ) -> Self {
-        Self::create(expected, true, false, authorization)
+        Self::create(expected, true, resident_cookie, authorization)
     }
 
-    fn create(expected: Vec<Expected>, hold_headers: bool, resident_headers: bool,
+    fn create(expected: Vec<Expected>, hold_headers: bool, resident_cookie: Option<&'static str>,
         authorization: &'static str) -> Self {
         assert!(expected.len() <= MAX_PEERS);
         let listener = TcpListener::bind((Ipv4Addr::LOCALHOST, 0))
@@ -126,7 +128,7 @@ impl Server {
         listener.set_nonblocking(true).expect("application nonblocking listener");
         let address = listener.local_addr().expect("application loopback address");
         assert!(matches!(address, SocketAddr::V4(a) if *a.ip() == Ipv4Addr::LOCALHOST));
-        let shared = Arc::new(Shared { hold_headers, resident_headers, authorization,
+        let shared = Arc::new(Shared { hold_headers, resident_cookie, authorization,
             ..Shared::default() });
         let state = shared.clone();
         let worker = thread::spawn(move || serve(listener, expected, state));
@@ -282,8 +284,8 @@ impl Peer {
             .map_err(|_| "application request header encoding")?;
         let body: Value = serde_json::from_slice(&self.request[end..])
             .map_err(|_| "application request JSON")?;
-        let contract_matches = if shared.resident_headers {
-            header_value(head, "cookie")? == "session=fixture-application; __cuid=fixture-device; fixture=one; fixture=two"
+        let contract_matches = if let Some(cookie) = shared.resident_cookie {
+            header_value(head, "cookie")? == cookie
                 && header_value(head, "content-type")? == "application/json; charset=utf-8"
                 && header_value(head, "x-requested-by")? == "Framer"
         } else {
