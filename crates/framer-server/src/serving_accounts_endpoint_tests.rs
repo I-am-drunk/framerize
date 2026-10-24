@@ -1,6 +1,8 @@
 //! Handler admission fixtures. These ports never perform external I/O.
 #[path = "explicit_account_admission_tests.rs"]
 mod explicit_account_admission;
+#[path = "api_run_ownership_tests.rs"]
+mod api_run_ownership;
 #[path = "account_import_identity_tests.rs"]
 mod import_identity;
 #[cfg(feature = "native-dispatch")]
@@ -36,6 +38,7 @@ struct FixturePorts {
         framer_core::native_device::DeviceFailure>>>,
     native_calls: Mutex<Vec<(AccountId, FramerUserId, String)>>,
     run_reply: Mutex<Option<InferenceResult>>,
+    run_error: Mutex<Option<String>>,
     run_calls: Mutex<Vec<(FramerUserId, AccountId, ProjectId)>>,
 }
 
@@ -133,6 +136,13 @@ impl FramerClient for FixturePorts {
         -> BoxFuture<'a, Result<InferenceResult, String>>
     where 's: 'a, 'b: 'a, 'c: 'a, 'd: 'a, 'e: 'a, 'f: 'a, Self: 'a {
         Box::pin(async move {
+            if let Some(error) = self.run_error.lock().unwrap().take() {
+                self.client_calls.fetch_add(1, Ordering::SeqCst);
+                self.run_calls.lock().unwrap().push((
+                    session.active_user.clone(), *account, project.clone(),
+                ));
+                return Err(error);
+            }
             let reply = self.run_reply.lock().unwrap().take()
                 .unwrap_or_else(|| self.unexpected("client"));
             self.client_calls.fetch_add(1, Ordering::SeqCst);
@@ -220,6 +230,7 @@ fn fixture(import: bool) -> (AppState, Arc<FixturePorts>) {
         native_result: Mutex::new(None),
         native_calls: Mutex::new(Vec::new()),
         run_reply: Mutex::new(None),
+        run_error: Mutex::new(None),
         run_calls: Mutex::new(Vec::new()),
     });
     let state = AppState {
