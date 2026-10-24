@@ -16,6 +16,13 @@ with no recorded swap or memory/task-limit events. This test had no account,
 SDK invocation or external network. The 1.5 GiB child and 2 GiB controller
 memory limits are unchanged. Signed-in delivery remains unverified.
 
+The signed-out public login startup now passes with a 256-task child and
+320-task controller. It reached the login form, evaluated a constant and
+closed the context and browser normally. Peak usage was 178 tasks and
+651,210,752 bytes, with no swap or memory/task-limit events. Earlier probe
+failures remain recorded. This supplied no account and made no inference
+request; it does not establish authenticated delivery.
+
 The isolated comparison child compiles and its boundary tests pass. The 21
 coordinator/child cases passed first; two additional browser-refusal cases now
 pass, including a dropped caller. The refusal prevents native authorization,
