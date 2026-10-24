@@ -4,6 +4,9 @@ This code is on `browserless` and is not deployed. The current running owner
 cannot gain this protocol through source replacement. Validate the integrated
 binary before starting an owner with `--resident-control-socket`. The selected
 account must already have an idle, successful browser page in that owner.
+The option requires the `native-dispatch` build and `--engine camoufox`.
+Offline-worker and offline-routing options cannot share this startup owner.
+The socket's 28 fixtures and three CLI cases are currently uncompiled and unrun.
 
 The private client is `scripts/resident_control_client.py`. It sends one
 request to the existing Unix socket and prints only fixed diagnostic facts.

@@ -3,6 +3,13 @@
 Updated 2026-10-24. The normal service remains browser-based. Publishing these
 branches does not change the running service.
 
+The private resident socket and optional daemon startup wiring are now
+integrated in source. The native-dispatch build accepts an explicit local
+socket with the Camoufox engine and refuses simultaneous offline ownership.
+The socket has 28 inert cases and the CLI binding has three, all uncompiled
+and unrun. Client/server field sets and the frame cap match in a static check;
+this is not executable protocol validation or a live crossover.
+
 A source review found that navigation after a settled baseline fetch could
 erase its observed HTTP status when the context check refused. The resident
 operation now preserves validated fetch facts before propagating that refusal.
@@ -28,8 +35,8 @@ was refused before execution by the existing protected-memory reserve. No
 test process started, and no pass is claimed for the new source.
 Version 1 remains available with its original acquire behavior. Chat has no
 accepted completion rule in this protocol and refuses continuation. Rust
-coordination is now implemented with an asynchronous bootstrap adapter;
-future-startup activation is still being integrated. The adapter installs one
+coordination is now implemented with an asynchronous bootstrap adapter and
+explicit future-startup activation. The adapter installs one
 shared session boundary and opens an exclusive native generation only after
 verified browser metadata. The Rust worker reserves application ownership
 before capture and joins capture, browser and native work through cancellation.
@@ -66,8 +73,8 @@ build and a smaller metadata-only check were refused before execution by the
 unchanged memory reserve. No compiler or test pass is claimed for this binding.
 The retained daemon worker remains source-only. It now uses verified bootstrap,
 snapshot-only acquire, one bearer, the browser baseline and a separate native
-mint under one retained lease. Startup/socket activation and executable
-validation remain pending. Existing serving processes remain untouched.
+mint under one retained lease. Startup/socket integration is source-complete;
+executable validation remains pending. Existing serving processes remain untouched.
 
 An additive resident mint ticket is now implemented in source with three new
 inert cases, all unrun. It rechecks the retained bearer and current jar before
