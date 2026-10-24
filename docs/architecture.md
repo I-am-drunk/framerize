@@ -1,5 +1,12 @@
 # Serving architecture and branch policy
 
+`/api/run` carries acquisition and inference cleanup evidence into its HTTP
+response. Discarding completed output or a local refusal releases ownership;
+consuming an error cannot clear an uncertain cleanup fence. JSON extraction
+rejections retain their original response and mark completed local work.
+Seventeen selected router and directly affected control tests pass. Typed
+capacity-to-HTTP mapping remains separate from this completion correction.
+
 The daemon has an explicit `--browser-request-ownership` option. It installs
 request ownership before proxy setup, prewarm and serving while retaining
 ordinary browser routing. Defaults remain unchanged, and mixed offline or

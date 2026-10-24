@@ -307,3 +307,123 @@ async fn initial_admission_case(mode: RepickClose, route: Route, stream: bool, c
     assert_eq!(*ports.mint_routes.lock().unwrap(), initial_mints);
     assert_no_initial_inference(&ports);
 }
+
+#[tokio::test]
+async fn api_run_failed_acquisition_preserves_refusal_and_fences_admission() {
+    for consume in [false, true] {
+        api_run_acquisition_case(RepickClose::Error, consume).await;
+    }
+}
+
+#[tokio::test]
+async fn api_run_unconfirmed_acquisition_preserves_refusal_and_fences_admission() {
+    for consume in [false, true] {
+        api_run_acquisition_case(RepickClose::Unconfirmed, consume).await;
+    }
+}
+
+#[tokio::test]
+async fn api_run_busy_before_close_preserves_refusal_without_fencing() {
+    for consume in [false, true] {
+        api_run_acquisition_case(RepickClose::BeforeCloseBusy, consume).await;
+    }
+}
+
+async fn api_run_acquisition_case(mode: RepickClose, consume: bool) {
+    let (mut state, ports) = fixture(1, 2);
+    activated(&state, 1).await;
+    let before = records(&ports);
+    let initial_mints = ports.mint_routes.lock().unwrap().clone();
+    assert_eq!(initial_mints, vec![(id(1), None)]);
+    let (ownership, gate) = ServingOwnership::new_with_host_factory(
+        state.wave.clone(), 32, |gate| gate).unwrap();
+    state.operation_ownership = Some(ownership.clone());
+    let uncertain = !matches!(mode, RepickClose::BeforeCloseBusy);
+    *ports.close_mode.lock().unwrap() = match mode {
+        RepickClose::Error => CloseMode::Error,
+        RepickClose::Unconfirmed => CloseMode::Unconfirmed,
+        RepickClose::BeforeCloseBusy => CloseMode::Confirm,
+    };
+    if !uncertain { *ports.status_mode.lock().unwrap() = StatusMode::Busy; }
+    ports.gate_close.store(uncertain, Ordering::SeqCst);
+    let app = crate::router(state.clone(), "/fixture-no-web");
+    let request = Request::builder().method("POST").uri("/api/run")
+        .header("content-type", "application/json")
+        .body(Body::from(json!({"account_id":id(2), "prompt":"inert acquisition",
+            "model":"gpt-6-astra", "chat_session":"inert-api-run"}).to_string())).unwrap();
+    let task = tokio::spawn(app.clone().oneshot(request));
+    if uncertain {
+        until(|| ports.events.lock().unwrap().contains(&("close_started", id(1)))).await;
+        let resident = slot(&state, id(1));
+        assert!(resident.close_started);
+        assert_eq!(resident.replacement, Some(id(2)));
+        assert!(!task.is_finished());
+        assert!(gate.stats().unwrap().active > 1);
+        assert_no_initial_inference(&ports);
+        assert_eq!(*ports.mint_routes.lock().unwrap(), initial_mints);
+        ports.close_gate.add_permits(1);
+    }
+    let response = tokio::time::timeout(Duration::from_secs(2), task)
+        .await.unwrap().unwrap().unwrap();
+    assert_eq!(response.status(), StatusCode::SERVICE_UNAVAILABLE, "{mode:?} {consume}");
+    assert_eq!(response.headers()["retry-after"], "1");
+    assert_eq!(response.headers()["content-type"], "application/json");
+    assert!(!response.body().is_end_stream());
+    if consume {
+        let body = to_bytes(response.into_body(), 4096).await.unwrap();
+        assert_initial_refusal(&body, mode);
+    } else { drop(response); }
+    until(|| gate.stats().unwrap().active == 1).await;
+    assert_eq!(gate.stats().unwrap().unconfirmed, uncertain, "{mode:?} {consume}");
+    let snapshot = state.serving_accounts.residents.snapshot().unwrap();
+    assert_eq!(snapshot.occupied, 1);
+    assert_eq!(snapshot.residents.len(), 1);
+    let resident = &snapshot.residents[0];
+    assert_eq!(resident.account, id(1));
+    assert_eq!(resident.users, 0);
+    assert_eq!(resident.uncertain, uncertain);
+    assert_eq!(resident.replacement, None);
+    assert_eq!(records(&ports), before); // Includes both requested B and retained A.
+    assert_eq!(resident.status, if uncertain {
+        framer_core::resident_pool::ResidentStatus::Uncertain
+    } else { framer_core::resident_pool::ResidentStatus::Idle });
+    assert!(state.wave.check().is_none());
+    assert_no_initial_inference(&ports);
+    assert_eq!(*ports.mint_routes.lock().unwrap(), initial_mints);
+    let mut expected_events = vec![("status", id(1)), ("mint", id(1)), ("status", id(1))];
+    if uncertain { expected_events.push(("close_started", id(1))); }
+    assert_eq!(*ports.events.lock().unwrap(), expected_events);
+    assert!(ownership.unmanaged_host_close_required());
+    if uncertain { assert!(matches!(ownership.seal(), Err(GateError::Unconfirmed))); }
+    else {
+        let mut ticket = ownership.seal().unwrap();
+        let proof = tokio::time::timeout(Duration::from_secs(2), ticket.wait_application())
+            .await.unwrap().unwrap();
+        ownership.check_application_drained(&proof).unwrap();
+        drop(proof);
+        {
+            let waiting = ticket.wait();
+            tokio::pin!(waiting);
+            assert!(futures::poll!(waiting.as_mut()).is_pending());
+        }
+        ticket.cancel_before_control().unwrap();
+    }
+    let probe = Request::builder().uri("/api/hello").body(Body::empty()).unwrap();
+    let response = tokio::time::timeout(Duration::from_secs(2), app.oneshot(probe))
+        .await.unwrap().unwrap();
+    assert_eq!(response.status(), if uncertain { StatusCode::SERVICE_UNAVAILABLE }
+        else { StatusCode::OK });
+    let body = to_bytes(response.into_body(), 1024).await.unwrap();
+    assert_eq!(body.as_ref(), if uncertain { b"operation admission closed".as_slice() }
+        else { b"ok".as_slice() });
+    assert_eq!(gate.stats().unwrap().active, 1);
+    assert_eq!(gate.stats().unwrap().unconfirmed, uncertain);
+    assert_eq!(records(&ports), before);
+    assert_eq!(*ports.events.lock().unwrap(), expected_events);
+    assert_eq!(*ports.mint_routes.lock().unwrap(), initial_mints);
+    assert!(ports.saved_sessions.lock().unwrap().is_empty());
+    assert!(ports.registered_proxies.lock().unwrap().is_empty());
+    assert_eq!(serde_json::to_value(state.serving_accounts.residents.snapshot().unwrap()).unwrap(),
+        serde_json::to_value(snapshot).unwrap());
+    assert_no_initial_inference(&ports);
+}

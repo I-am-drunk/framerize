@@ -1,5 +1,6 @@
 //! Explicit admission checks using the existing inert endpoint ports.
 use super::*;
+use axum::{body::to_bytes, http::StatusCode};
 use framer_core::account::AccountState;
 use framer_core::resident_pool::{Acquire, ResidentStatus};
 
@@ -115,8 +116,10 @@ async fn api_run_non_ready_refuses_before_session_or_client_io() {
             }
             let before = records(&ports);
             let result = crate::run(State(state.clone()), Json(run_body())).await;
-            assert!(matches!(result, Err(ApiError::ServingCapacity(_))),
-                "{lifecycle:?} was not refused for lifecycle at {deadline:?}");
+            let response = result.unwrap();
+            assert_eq!(response.status(), StatusCode::SERVICE_UNAVAILABLE);
+            let bytes = to_bytes(response.into_body(), 4096).await.unwrap();
+            assert_eq!(bytes.as_ref(), b"account is not ready or is missing its current team or project");
             assert_unchanged_without_io(&ports, &before);
             assert_no_request_lease_or_peer(&state);
         }
@@ -130,7 +133,10 @@ async fn api_run_ready_preserves_active_deadline_before_io() {
     ports.records.lock().unwrap()[0].cooling_until_ms = Some(u64::MAX);
     let before = records(&ports);
     let result = crate::run(State(state.clone()), Json(run_body())).await;
-    assert!(matches!(result, Err(ApiError::AccountCooling { .. })));
+    let response = result.unwrap();
+    assert_eq!(response.status(), StatusCode::SERVICE_UNAVAILABLE);
+    let body: Value = serde_json::from_slice(&to_bytes(response.into_body(), 4096).await.unwrap()).unwrap();
+    assert_eq!(body["error"]["code"], "framerize_account_cooling");
     assert_unchanged_without_io(&ports, &before);
     assert_no_request_lease_or_peer(&state);
 }
@@ -146,8 +152,10 @@ async fn api_run_ready_without_active_deadline_reaches_only_the_session_boundary
         *ports.native_session.lock().unwrap() = Some(None);
         let before = records(&ports);
         let result = crate::run(State(state.clone()), Json(run_body())).await;
-        assert!(matches!(result, Err(ApiError::Internal(message))
-            if message == framer_core::error::CoreError::NoSession.to_string()));
+        let response = result.unwrap();
+        assert_eq!(response.status(), StatusCode::INTERNAL_SERVER_ERROR);
+        let bytes = to_bytes(response.into_body(), 4096).await.unwrap();
+        assert_eq!(bytes.as_ref(), framer_core::error::CoreError::NoSession.to_string().as_bytes());
         assert_eq!(ports.session_calls.load(Ordering::SeqCst), 1);
         assert_eq!(ports.client_calls.load(Ordering::SeqCst), 0);
         assert_eq!(ports.browser_calls.load(Ordering::SeqCst), 0);
@@ -183,7 +191,9 @@ async fn api_run_ready_completes_once_with_matched_identity_and_releases_lease()
     *ports.run_reply.lock().unwrap() = Some(InferenceResult::Completed(outcome));
     let before = records(&ports);
     let result = crate::run(State(state.clone()), Json(run_body())).await.unwrap();
-    assert_eq!(serde_json::to_value(result.0).unwrap(), expected);
+    assert_eq!(result.status(), StatusCode::OK);
+    let actual: Value = serde_json::from_slice(&to_bytes(result.into_body(), 4096).await.unwrap()).unwrap();
+    assert_eq!(actual, expected);
     assert_eq!(*ports.run_calls.lock().unwrap(), vec![(target.framer_user_id,
         target.id, target.current_project.unwrap())]);
     assert!(ports.run_reply.lock().unwrap().is_none());
@@ -216,7 +226,10 @@ async fn ready_explicit_selection_and_run_require_a_complete_current_scope() {
         assert!(matches!(state.serving_accounts.select_at(pool, Some(&requested), 10_000),
             Err(ApiError::ServingCapacity(_))));
         let result = crate::run(State(state.clone()), Json(run_body())).await;
-        assert!(matches!(result, Err(ApiError::ServingCapacity(_))));
+        let response = result.unwrap();
+        assert_eq!(response.status(), StatusCode::SERVICE_UNAVAILABLE);
+        let bytes = to_bytes(response.into_body(), 4096).await.unwrap();
+        assert_eq!(bytes.as_ref(), b"account is not ready or is missing its current team or project");
         assert_unchanged_without_io(&ports, &before);
         assert_no_request_lease_or_peer(&state);
     }
@@ -234,7 +247,10 @@ async fn ready_explicit_preserves_management_fence_until_owner_release() {
     assert!(matches!(state.serving_accounts.select_at(pool.clone(), Some(&requested), 10_000),
         Err(ApiError::PoolBusy(_))));
     let result = crate::run(State(state.clone()), Json(run_body())).await;
-    assert!(matches!(result, Err(ApiError::PoolBusy(_))));
+    let response = result.unwrap();
+    assert_eq!(response.status(), StatusCode::SERVICE_UNAVAILABLE);
+    let body: Value = serde_json::from_slice(&to_bytes(response.into_body(), 4096).await.unwrap()).unwrap();
+    assert_eq!(body["error"]["code"], "framerize_pool_busy");
     assert!(state.serving_accounts.mutations.lock().unwrap().contains(&account(1).id));
     assert!(state.serving_accounts.residents.snapshot().unwrap().residents.is_empty());
     assert_unchanged_without_io(&ports, &before);
@@ -314,7 +330,10 @@ async fn api_run_ready_keeps_existing_wave_backoff_before_io() {
     assert!(state.wave.check().is_some());
     let before = records(&ports);
     let result = crate::run(State(state.clone()), Json(run_body())).await;
-    assert!(matches!(result, Err(ApiError::Cooling { .. })));
+    let response = result.unwrap();
+    assert_eq!(response.status(), StatusCode::SERVICE_UNAVAILABLE);
+    let body: Value = serde_json::from_slice(&to_bytes(response.into_body(), 4096).await.unwrap()).unwrap();
+    assert_eq!(body["error"]["code"], "framerize_cooling");
     assert!(state.wave.check().is_some());
     assert_unchanged_without_io(&ports, &before);
     assert_no_request_lease_or_peer(&state);

@@ -191,7 +191,7 @@ pub fn router_with_request_layer(state: AppState, web_dir: &str,
         .route("/accounts/begin", post(begin_login))
         .route("/accounts/complete", post(complete_login))
         .route("/accounts/import", post(import_account))
-        .route("/run", post(run));
+        .route("/run", post(run_request));
     #[cfg(feature = "native-dispatch")]
     let api = api.route("/accounts/native/enroll", post(native_enrollment::enroll));
     let api = api.with_state(state.clone());
@@ -2837,13 +2837,39 @@ struct RunBody {
     chat_session: Option<String>,
 }
 
+async fn run_request(
+    state: State<AppState>,
+    body: Result<Json<RunBody>, JsonRejection>,
+) -> Result<axum::response::Response, ApiError> {
+    match body {
+        Ok(body) => run(state, body).await,
+        Err(error) => Ok(operation_ownership::completed_response(
+            axum::response::IntoResponse::into_response(error), true)),
+    }
+}
+
 async fn run(
     State(s): State<AppState>,
     Json(body): Json<RunBody>,
-) -> Result<Json<InferenceOutcome>, ApiError> {
-    s.serving_accounts.require(&body.account_id)?;
-    let residency = lease_account(&s, body.account_id).await?;
-    let mut account = current_account(&s, body.account_id).await?;
+) -> Result<axum::response::Response, ApiError> {
+    use axum::response::IntoResponse;
+    s.serving_accounts.require(&body.account_id)
+        .map_err(operation_ownership::completed_preflight)?;
+    let acquired = pool_control::lease_account_observed(&s, body.account_id).await;
+    let mut cleanup_confirmed = acquired.cleanup_confirmed;
+    let residency = match acquired.result {
+        Ok(lease) => lease,
+        Err(error) => return Ok(operation_ownership::completed_response(
+            error.into_response(), acquired.cleanup_confirmed)),
+    };
+    let mut account = match current_account(&s, body.account_id).await {
+        Ok(account) => account,
+        Err(error) => {
+            let confirmed = cleanup_confirmed && matches!(&error, ApiError::Cooling { .. }
+                | ApiError::AccountCooling { .. } | ApiError::ServingCapacity(_));
+            return Ok(operation_ownership::completed_response(error.into_response(), confirmed));
+        }
+    };
 
     let deps = Deps {
         client: s.client.as_ref(),
@@ -2864,13 +2890,21 @@ async fn run(
         chat_session: body.chat_session,
     };
     let outcome = pipeline::run(&deps, &mut account, &req).await;
+    if matches!(&outcome, Err(framer_core::error::CoreError::Store(_))) {
+        cleanup_confirmed = false;
+    }
     if let Err(framer_core::error::CoreError::Framer(error)) = &outcome {
         if pool_control::cleanup_unconfirmed(error) {
-            residency.mark_unconfirmed().map_err(|e| ApiError::PoolBusy(e.to_string()))?;
+            cleanup_confirmed = false;
+            if let Err(error) = residency.mark_unconfirmed() {
+                return Ok(operation_ownership::completed_response(
+                    ApiError::PoolBusy(error.to_string()).into_response(), false));
+            }
         }
     }
-    let outcome = outcome.map_err(|e| ApiError::Internal(e.to_string()))?;
-    Ok(Json(outcome))
+    let response: Result<Json<InferenceOutcome>, ApiError> = outcome.map(Json)
+        .map_err(|error| ApiError::Internal(error.to_string()));
+    Ok(operation_ownership::completed_response(response.into_response(), cleanup_confirmed))
 }
 
 #[derive(Debug)]
