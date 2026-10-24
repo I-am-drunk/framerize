@@ -6,7 +6,9 @@ branches does not change the running service.
 The latest isolated comparison (R6) passed device readiness. Its stored device,
 login, project page and unchanged URL checks passed, but the device cookie did
 not match the API-host cookie selection. It stopped before controlled bearer
-acquisition, minting or inference. Cookie scope remains under investigation;
+acquisition, minting or inference. Cookie scope remains under investigation. Two new bounded diagnostic fields
+distinguish a missing API device cookie from duplicates; all 13 diagnostic
+cases pass. Acceptance checks remain unchanged;
 this result does not identify the cause of earlier upstream 403s.
 
 R6 confirmed browser cleanup and natural child exit, with the group removed.
@@ -37,7 +39,7 @@ disposal failure and final context mismatch. The exact helper also passes
 two network-isolated tests in a real browser: delayed synthetic storage and
 the actual ten-second timeout. That run peaked at 167 tasks and 863,322,112
 bytes, with zero swap/events and confirmed group removal. Earlier fixture
-failures are preserved. The corrected authenticated comparison is still unrun.
+failures are preserved. The subsequent R6 result is recorded above; authenticated delivery remains unverified.
 
 The earlier R3 comparison reached browser startup but exhausted its
 96-task child limit. It returned no baseline or native result. Both logical
