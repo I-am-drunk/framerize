@@ -353,8 +353,17 @@ The frame/parser/projection/observer qualifications documented in
 The owner now separately reports the 16 comparator cases passing; no test or
 runtime execution occurred in this source lane. Subsequent changes here only
 extend the source note and reuse that qualification for unchanged tooling.
-Next action: integrate the 8/14 mapping and supplied `db1eb359` comparison
-limits into the owner's source branch alongside the unchanged comparator. Realm
-qualification and any future matched observation or runtime change stay with
-that owner. The shared goal remains a fresh valid mint and accepted native
-inference with all retained guards.
+Mappings through `6e751e6` are integrated on `browserless` as `24a846d`,
+following the earlier `b93a425` integration. This completes the supplied
+source mappings, not the shared browserless outcome. Native acceptance is
+still unproven. Runtime qualification, requests and cleanup remain with
+owner `544711e3-0b76-4cb4-9732-124a0486847e`.
+
+Next source action: map a newly supplied structural difference or correct a
+specific source finding. Record a dependency with its owner, required input
+and last verified evidence. A completed lane or pending owner action does not
+justify voluntarily blocking the shared goal. Keep its full objective and
+accounting; do not clear, recreate or narrow it to close this source task.
+The outcome remains a fresh valid mint and accepted native Framer inference,
+with verified account isolation, matched identity/egress, cooldowns and joined
+cleanup. Prompt guidance and actual app enforcement must be reported separately.
