@@ -1,8 +1,9 @@
 # V2 worker cleanup and factory realm ownership
 
 Branch: `goal/browserless-v2-runtime`. Realm fixture source base: `1faffdd3`.
-Status: worker correction delivered; three no-SDK realm cases prepared, UNRUN
-here. Runtime owner `544711e3-0b76-4cb4-9732-124a0486847e` retains
+Status: worker correction and three no-SDK realm cases qualified by the owner.
+Tests and SDK/runtime execution remain UNRUN here. Owner
+`544711e3-0b76-4cb4-9732-124a0486847e` retains
 qualification, integration, private state, accounts, services and requests.
 
 The user reports R14 used dedicated configuration `8ab12cbb`: normal browser
@@ -122,13 +123,66 @@ UNRUN here; source review and Git whitespace checks are the only local checks.
 The factory returns fixed type strings and identity booleans only. Availability
 checks retain native 2D canvas, absent WebGL and `CanvasRenderingContext2D`
 global, absent workers/OffscreenCanvas/animation frames, and a hidden document.
-No constructors are assigned, no source SDK is read or evaluated, no pixel or
-exception values are recorded, and each created window closes in `finally`.
+The fixture assigns no constructors, reads or evaluates no SDK source, records
+no pixel or exception values, and closes each created window in `finally`.
 The separate runtime module loader and its fixtures remain the owner's work.
 
-Exact next action: the owner qualifies these three cases in its existing
-native-canvas pinned package with the unchanged V2 constructor:
+The owner qualified these three cases in its existing native-canvas pinned
+package with the unchanged V2 constructor, using:
 
 ```sh
 node --experimental-vm-modules --test reference/fixtures/offline_v2_factory_realm_tests.mjs
 ```
+
+Owner receipt `2992def4` reports all three passing, peak 63,397,888 bytes,
+zero swap/limit events and absent unit. Integration is `1a7d0df`. This confirms
+bare `Image`/`HTMLCanvasElement` absence in Node and genuine own-window lookup;
+global `CanvasRenderingContext2D` remains absent. Nothing was rerun here.
+
+The owner's explicit `createRealmV2Minter` at `617ee44` then passed one
+socket-denied synthetic SDK operation, receipt `db1eb359`: two PNG attempts,
+two delivered and zero rejected, versus zero attempts previously. It reported
+90 fields/567 bytes versus 88/563, with only additions 8/13 and 8/14, both
+type 5 and length 2. One configure/mint took 799 ms in the method and 1,074 ms
+overall, preserved the device, joined and discarded its token. Peak was
+116,617,216 bytes with zero swap/limit events. Diagnostics were 1, async/late
+were 0; the diagnostic count has no attribution. No live request was made.
+
+A further static sequencing check resolves one possible callback concern.
+The factory's `r[k6]` and `r[L6]` decode to `onload` and `src`, respectively
+(assignments at bytes 148947 and 148995; string-table spans 16635:16651 and
+16675:16683). In the two collector ranges recorded above, `r[gE]` installs
+`onload` before assigning `src`; `r[EE]` assigns `src` first, then installs
+`onload` before returning. Both construct their image with bare `new Image`.
+
+For an admitted PNG, `resources.mjs` returns a native resolved Promise.
+JSDOM `HTMLImageElement-impl.js:116` routes it through the per-document loader.
+That loader queues it at line 77, and `resource-queue.js:115` invokes processing
+from `request.then`. The per-document loader then dispatches `load` in another
+Promise reaction at lines 55-57, after native image decoding. This chain cannot
+deliver `load` synchronously inside the earlier `src` setter. The differing
+assignment order therefore supplies no missed-callback defect on this path.
+This is source reasoning, not a new callback observation or an acceptance claim.
+
+Refusal is distinct: when the bounded loader returns `null`, the per-document
+loader returns at lines 23-24 without queuing either event. Decode failure uses
+its error path; these two collector bodies install no image `onerror` handler.
+Neither possibility was observed here. No callback, timeout, quota or SDK
+change is proposed. Window closure and process join retain their existing
+owners; this source trace does not treat image delivery as proof of cleanup.
+
+JSDOM source SHA-256 bindings for that trace:
+
+- `HTMLImageElement-impl.js`: `e06dce97f0ee93c9ded67201a20f1069e2f38b2c023e2c77da1307782ccdcfe2`.
+- `per-document-resource-loader.js`: `2437ba53ffecae4feb156890652dbc3d9f8697da1d522a579fd4b7325af083ac`.
+- `resource-queue.js`: `526b1c0cb48b2bbab812f18580026e88314a41cb0b8dd9fb0f011a4bed0d7691`.
+
+REA Evidence `ev_0932efa46003be8a7a01d77772520f7405e23f33c8f56af12dc24f163ae975c5`
+parsed those three files as inert text, with zero parse failures. Semantic
+coverage is partial and its unknown limit was reached; 493 other files were
+outside selection. The ordering conclusion uses the exact source chain above.
+
+Exact next action: the runtime owner selects the next comparison using its
+qualified realm profile and retained account, identity, egress, cooldown and
+cleanup evidence. Future runtime source direction is also owner-held. This
+lane adds no execution or inference request; the full goal remains active.
