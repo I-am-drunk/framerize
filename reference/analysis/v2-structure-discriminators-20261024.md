@@ -28,15 +28,20 @@ transforms, all 36 raw layouts, and the strict `consumed < inner.len()` check.
 The final `ff` must remain outside the consumed groups; event contents are not
 parsed. Input is capped at 16,384 bytes and output at 155 entries.
 
-All 19 Rust cases are **UNRUN**, including the saved synthetic frame vectors,
-complete synthetic compositions, malformed inputs and checked-index boundaries.
-Static source comparison confirms all 36 type-7 keys and 15 fixed widths match
-the qualified Python source. No Rust build, test, SDK or private capture ran here.
+Owner integration `1395bdc` is qualified offline: all 40 Rust cases pass
+(`4849df69`), covering 19 decoder, three observer and 18 resident/cancel cases.
+Production linking passes (`4105dbb7`) against the retained runtime library graph;
+this does not qualify or activate all newer API changes. Rust/Python parity
+passes all 231 synthetic inputs, including 115 accepted structures (`b4d75a8b`).
+Strict pairing passes all 15 cases (`201bfcaf`). Tests remain **UNRUN here**;
+the runtime owner performed every execution, without SDK, private or live input.
 
 R15's reported browser 200/native 403 outcome still lacks a native projection.
-Next action belongs to the runtime owner: qualify these cases and integrate the
-borrowed-token observer in its explicit resident SDK path. Parent wiring, lease,
-deadline, same-device completion and live execution remain owner-held.
+The observer now borrows the same token after joined mint and same-device
+confirmation, before unchanged deadline and authorization checks. Root retains
+the next action: qualify its shared-writer correction `42f6ee1` after coordinated
+activation. That correction and five fixtures remain **UNCOMPILED/UNRUN**.
+Any later actual native observation, lease and live execution remain owner-held.
 
 ## Source binding and scope
 
@@ -397,7 +402,7 @@ Transport/config owner: `mcp:a94287af-9994-4882-abc3-5108e653cc34`.
 
 | Action | Owner | Required input | Last verified evidence |
 | --- | --- | --- | --- |
-| Qualify the actual native-token observation | Runtime owner named above | Rust port `56c9455`, borrowed-token observer and owner-run qualification | R15 browser HTTP 200/output; realm V2/native Castle 403; cleanup confirmed. Its actual native token has no projection. `db1eb359` remains separate synthetic evidence. |
+| Capture actual native-token structure | Runtime owner named above | Writer qualification after coordinated activation, then an owner-authorized observation using the original token and lease | Observer `1395bdc` is qualified offline; writer `42f6ee1` remains unrun. R15 browser HTTP 200/output and native Castle 403 still have no actual native projection. `db1eb359` remains separate synthetic evidence. |
 | Extend the source mapping | This structure lane | Newly supplied structural projection or a specific source correction | All supplied differences mapped through `6e751e6`; owner reports all 16 unchanged comparator cases passing. |
 | Activate the goal-status policy in existing T3 sessions | Transport/config owner | Approved activation, verified live enforcement, then user-controlled resume of the same goal with identity and accounting retained | `d17fe60` records passing isolated checks. The transport owner's existing live session subsequently accepted a required blocked transition. Other live sessions remain unverified. |
 
