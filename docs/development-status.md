@@ -8,9 +8,11 @@ coordinator plus two adapter cases, 31 socket plus three CLI cases, and 130
 Python cases plus three JavaScript fixture scripts. Preparation, exact source
 binding and inventory checks pass. The core compiler phase is prepared but
 unlaunched. At 15:07 UTC on October 24, available memory was 335,552,512 bytes
-with no free swap; its unchanged requirement is 2,741,140,684 bytes. Separate
-current host/API unit validation still needs preparation. No test, build,
-browser call or deployment ran for these milestones.
+with no free swap; its unchanged requirement is 2,741,140,684 bytes. A separate
+library snapshot now prepares all 33 host and 17 resident API unit cases,
+preserving the selected test files and the r3 bundles. It requires successful
+current dependency builds before preparing each compile/run phase. No test,
+build, browser call or deployment ran for these milestones.
 
 Resident fast-403 cooling now survives document invalidation after the fetch.
 The update requires the original lease, account, lifecycle, browser/device and
