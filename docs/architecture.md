@@ -44,7 +44,8 @@ the returned device must match the declared one before inference credentials
 are released. Both HTTP requests therefore carry the same saved device without
 rewriting the login store. A conflicting cookie fails before authentication
 or minting; token, generation, account and cleanup checks remain in force.
-This candidate is locally validated and is not yet in the isolated executable.
+This candidate has passed focused tests and the full application build. Its
+staged executable is not yet selected by the isolated instance.
 
 An update of an enrolled isolated instance transfers its actual in-memory
 rate history. The controller holds the idle application and sidecar, writes
