@@ -13,7 +13,8 @@ output; dedicated V2/native returned a complete Castle 403; cleanup confirmed.
 The passive browser baseline observation has 104 fields and consumes 800 bytes.
 The earlier socket-denied synthetic SDK observation has 88 fields and 563 bytes.
 Root reports 17 browser-only fields, one synthetic-only field and 12 changed
-shared fields. These are different observations, **not a paired capture of
+shared fields. All 30 supplied differing rows have collector mappings below.
+These are different observations, **not a paired capture of
 R14's browser and R14's SDK**. No private inputs were read in this source lane.
 No further live retry is queued. These findings do not establish acceptance.
 
@@ -145,6 +146,107 @@ uses a fixed marker instead. Both are type-4 strings. Read this jointly with
 9/0's branch: the lengths do not reveal which property names, how many names,
 or which errors appeared, and length alone cannot identify the fallback.
 
+## Remaining sixteen browser-only rows
+
+These owner-supplied rows complete the 17 browser-only fields, including 7/12
+above. They compare saved synthetic result `4a5cf5e6` with R14 browser baseline
+`472150ef`, not R14 SDK data. No comparison was repeated and no payload decoded.
+Tuples below remain `(type, byte_length)`; source meanings do not add value
+output to the comparator or establish the reason for an observed omission.
+
+**0/9: (7,6), MIME-type inventory; 0/10: (7,6), plugin inventory.**
+`r[lw]` (184820) reads `navigator.mimeTypes` and takes each entry's `type`.
+`r[sw]` (185145) reads `navigator.plugins` and concatenates each entry's name,
+description, length and filename. Collectors near 485450 and 485750 encode
+nonempty arrays as a count byte and four-byte hash of sorted, joined entries.
+The six-byte field includes its header. Empty arrays or failed collection
+produce no field; presence reveals neither the count nor individual entries.
+The equal widths of these two different inventories establish no equality.
+
+**0/14: (7,3), media-device kind flags.** `r[rg]` (375481) conditionally calls
+`navigator.mediaDevices.enumerateDevices`. Its three flags distinguish video
+input/video, audio input, and audio input/audio; collector 482577 reverses the
+source array into that order and bit-packs it. No device IDs or labels are
+used. The helper initializes three flags before awaiting the result, so a
+rejection, empty device list or later failure can still emit the same shape.
+An unmet API/engine guard or earlier failure can omit it. Presence does not
+prove successful enumeration, permissions or available hardware.
+
+**0/23: (3,2), navigator build ID.** `r[bw]` (186346) reads
+`navigator.buildID`; collector 495964 uses a lookup with a string fallback.
+The reported type identifies the indexed representation. Absence is
+compatible with an unavailable value; the tag is not browser attestation.
+
+**4/19: (7,6), CSS selector probe groups.** `r[dT]` (439296) groups the
+hardcoded selector probes from `r[eT]` (436336). `r[lT]` (439980) creates
+elements, appends them, checks `offsetParent` asynchronously, then removes
+the container. A group matches if any of its probe elements lacks that parent.
+
+The call at 502019 sends matching group indices through `r[NF]` (459985),
+which emits a count byte and four-byte hash only for a nonempty list.
+Absence cannot distinguish no matches from failed/incomplete collection.
+Layout behavior can affect the predicate; this is not proof of an installed
+content blocker, and neither matching indices nor their count are projected.
+
+**7/20: (3,2), screen orientation type; 7/21: (5,2), orientation angle.**
+`r[xE]` (430194) reads `screen.orientation.type` and `.angle`; the collector
+near 490000 uses an orientation-name lookup/string fallback and a packed
+integer, respectively. Missing orientation or undefined/null properties can
+omit fields; zero angle is included. These tags reveal no angle or direction.
+
+**7/24: (4,6), default voice language; 7/25, 7/26 and 7/27: each (5,2),
+voice counts; 7/28: (3,2), voice-derived platform category.** `r[_E]`
+(424112) requires `speechSynthesis`, callable `getVoices` and the
+`onvoiceschanged` property. It collects immediately and again on that event.
+`r[Zb]` (423321) supplies the fields to collector 480464 onward:
+
+- 24 takes the default voice's language prefix before the first hyphen.
+- 25 counts all voices; 26 counts voices whose `localService` is truthy.
+- 27 counts voice names containing the source's `Google` substring.
+- 28 uses `r[ZE]` (422464) to classify voice names against ordered patterns.
+
+An empty voice list can still emit zero counts while omitting language and
+category. No default voice can omit 24 independently of the counts.
+Missing APIs or collection failures can omit the whole set. Type 3 identifies
+the category lookup path, not the host's actual platform; equal packed widths
+do not establish equal counts, and the language text remains unobserved.
+
+**8/12: (2,1), ordinary/offscreen canvas serialization comparison.** `r[TE]`
+(413707) draws the same shapes/text into ordinary and offscreen 2D canvases,
+copies the offscreen result to another ordinary canvas, then compares their
+`toDataURL()` strings. Collector 488682 enables explicit-false inclusion.
+
+Type 2 therefore exposes the truthy branch without decoding a payload.
+An unmet prerequisite or caught failure can omit this field; absence cannot
+be reported as the other Boolean branch. The comparison does not establish
+correct rendering, identical runtimes or upstream acceptance.
+
+**8/13: (5,3), canvas image round-trip difference sum.** `r[EE]` (411556)
+draws a 200-by-200 canvas, assigns its data URL to a bare `new Image`, then
+compares the original pixel array with the image redrawn on a second canvas.
+It returns the sum of absolute per-channel differences; collector 480283
+encodes that sum as a packed integer. Zero is included when returned.
+
+Missing canvas/context/pixels, failed construction, no observed load callback
+or unequal pixel-array lengths can prevent a numeric result. The three-byte
+field identifies the larger packed width after clamping, not the sum or pixel
+contents. This source trace neither observes a constructor failure nor proposes
+an override; constructor qualification remains with the runtime owner.
+
+**9/9: (4,82), SharedWorker reply slot 2; 9/19: (4,6), reply slot 12.**
+`r[YE]` (431897) handles a shared worker's message port. Its callback near
+477612 accepts report discriminator 2 and passes slot 2 to field 9; collector
+478991 passes slot 12 to field 19. Both use transformed-string encoding.
+
+The inline producer selected by `r[sF]` (473251) reads the worker navigator's
+`userAgent` into slot 2. It sets slot 12 to a fixed marker only on its branch
+without `navigator.userAgentData`. Missing/failed worker setup, missing report
+or null/undefined slot values can omit the corresponding fields.
+The same factory can instead select a configured external worker URL. The
+projection does not identify which producer ran, so the inline slot-12 meaning
+is conditional on that binding. Neither width reveals UA text, a marker value,
+HTTP identity agreement or a reason for the native refusal.
+
 ## Additional encoder limits
 
 For the 7/15 type-4 path, `r[p5]` (179104) first applies `r[Wd]` (165453):
@@ -215,7 +317,8 @@ The frame/parser/projection/observer qualifications documented in
 The owner now separately reports the 16 comparator cases passing; no test or
 runtime execution occurred in this source lane. Subsequent changes here only
 extend the source note and reuse that qualification for unchanged tooling.
-Next action: the runtime owner uses the mapped differences to choose the next
-bounded discriminator. Any future matched observation or runtime change stays
-with that owner. The shared goal remains a fresh valid mint and accepted native
+Next action: integrate these remaining 16 mappings into the owner's source
+branch alongside the unchanged qualified comparator. Constructor/realm
+qualification and any future matched observation or runtime change stay with
+that owner. The shared goal remains a fresh valid mint and accepted native
 inference with all retained guards.
