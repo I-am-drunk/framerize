@@ -13,7 +13,7 @@ MODE = "observed_one_shot_v1"
 PROTOCOL = 1
 MAX_RECORDS = 512
 SUPPORTED = frozenset(("begin", "complete", "mint", "ai_post", "set_cookie",
-                       "prepare_inference_authorization"))
+                       "prepare_inference_authorization", "browser_baseline_once"))
 
 
 def identifier(value):
@@ -127,6 +127,10 @@ class Scope:
         self.browsers = []
         self.launch_started = self.rpc_admission_closed = False
         self.contextual_authorization = False
+        self.comparison_phase = None
+        self.comparison_next = "failed"
+        self.comparison = None
+        self.comparison_tail = None
         self.lifecycle = self.lifecycle_incarnation = None
         self.route_bound = False
         self.proxy, self.proxy_revision = None, 0
@@ -384,7 +388,13 @@ class ObservedHost:
             return
         if cmd not in SUPPORTED or scope.sealed.is_set() or len(self.commands) >= self.command_limit:
             raise ValueError("unsupported command or closed admission")
-        if cmd == "prepare_inference_authorization":
+        comparison = (cmd == "browser_baseline_once" or "purpose" in req
+                      or scope.comparison_phase is not None)
+        previous = None
+        if comparison:
+            from contextual_authorization import reserve_comparison
+            previous = reserve_comparison(scope, req)
+        elif cmd == "prepare_inference_authorization":
             if scope.commands or scope.launch_started or scope.contextual_authorization:
                 raise ValueError("contextual authorization requires an unused scope")
             scope.contextual_authorization = True
@@ -393,8 +403,10 @@ class ObservedHost:
         gate = asyncio.Event()
         # Install reservations before the first possible poll of the task.
         self.commands[request_id] = scope.commands[request_id] = None
-        task = asyncio.create_task(self.serve(req, scope, gate))
+        task = asyncio.create_task(self.serve(req, scope, gate, previous, comparison))
         self.commands[request_id] = scope.commands[request_id] = task
+        if comparison:
+            scope.comparison_tail = task
         def finished(done):
             self.commands.pop(request_id, None)
             scope.commands.pop(request_id, None)
@@ -413,11 +425,17 @@ class ObservedHost:
         self.accounts.pop(scope.account)
         await self.reply(request_id, dict(scope.identity(), forgotten=True, finish=scope.finish))
 
-    async def serve(self, req, scope, gate):
+    async def serve(self, req, scope, gate, previous=None, comparison=False):
         await gate.wait()
         request_id = req["id"]
         result = None
         try:
+            if previous is not None:
+                try:
+                    await asyncio.shield(previous)
+                except Exception:
+                    scope.fail("comparison_predecessor_unconfirmed")
+                    raise RuntimeError("comparison predecessor unconfirmed") from None
             if scope.stopped.is_set():
                 raise RuntimeError("observed scope stopped before command start")
             result = await self.host.handle(req)
@@ -429,6 +447,12 @@ class ObservedHost:
             out = {"id": request_id, "ok": False, "error": str(exc)[:800]}
         finally:
             req = None
+            if comparison:
+                # Publish the next phase before the reply is observable. A
+                # continuation still joins this exact writer-owning command
+                # before it can touch the browser or mint another token.
+                scope.comparison_phase = scope.comparison_next
+                scope.comparison_next = "failed"
         # Stops never cancel this supervisor or its complete-frame writer.
         await self.writer.send(out)
         out = result = None
