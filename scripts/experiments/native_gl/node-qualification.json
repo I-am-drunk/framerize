@@ -1,0 +1,28 @@
+{
+  "cgroup_absent": true,
+  "dependency_pins_sha256": "8dedd4ca8a0798deb92fa21e9260c89c766aa2e094caa09ddd94ab3b40bb3556",
+  "independent_query_hashes_match": true,
+  "limits": "Standalone Node/EGL only; no DOM, SDK, WebGL implementation, service or delivery acceptance.",
+  "receipt_sha256": {
+    "admission.json": "8d0b1c15ffd46dc801f3fd583b1cf0155aa04667149267a0af766b8bc976f9ea",
+    "inputs.json": "db677d2e26cd42f6d8e8aea9ba21090b1056e790138d2ff35827071c08d0ef31",
+    "outer.log": "96e9f29ab4d0e5654efb2dd745e0fb8aa1d5343c8187c1a715c453cfa2cc3750",
+    "parent.json": "0e500c575f302428d6724fdabd6356f21d16049fb3b7dd2a7e1e1d06769f02b5",
+    "probe.json": "a8972f9f8a798ee13c6cfaaa267ca4ac9c58ec180169a94d4be4da7b85796e55",
+    "probe.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "result.json": "06070897f50ad1434b95eb7c6592798449dafe402f4b705b6defde417416edc9",
+    "started.json": "7df66d636540494db8d1782ace6fc8db5bba1476fb3fb4d08d103f18544d6724"
+  },
+  "resources": {
+    "memory.peak": 47398912,
+    "memory.swap.current": 0,
+    "memory.swap.peak": 0,
+    "pids.peak": 12
+  },
+  "source_sha256": {
+    "egl.mjs": "860595fce331e172aec48c9522aa6bcc7a12b0014857c5cb7512150f3cd13946",
+    "node_probe.mjs": "4d5a0eb101274c6c51959108a0006cedf55bcffbc9b6d4b8181a73ad4b6a946b"
+  },
+  "status": "NODE_COMPONENT_PASSED",
+  "unit_absent": true
+}

@@ -23,3 +23,12 @@ memory reserve, 128 MiB group limit, no swap, 32 tasks and bounded lifetime.
 is hashed, not replaced with a claimed browser or GPU identity. The next step
 is a direct Node binding measurement with genuine driver results and explicit
 cleanup. No new live request is justified by these component results alone.
+
+The direct Node binding (`egl.mjs`) now passes a separate bounded probe with
+Node 24, JIT disabled and Koffi 3.3.3. It peaks at 47,398,912 bytes with zero
+swap/events and verified teardown. Driver field hashes match the independent
+Python query. The probe also checks exclusive context ownership, refusal after
+close and repeated close. Dependencies were integrity-checked and unpacked in
+the isolated fixture without running package installation scripts.
+This remains a native query component, with no DOM, SDK or WebGL integration.
+`node-qualification.json` binds its sources, dependencies and saved results.
