@@ -26,6 +26,17 @@ also fail. Successful JSON decoding alone does not validate the record schema
 or prove capture provenance. The decoder retains the existing 32 MiB input
 bound and exports no partial record on failure.
 
+The R16 capture package binds the intended executable in the daemon command
+and expected-image constant, then checks the captured process image before
+requests and again during collection. The collector and its JSON, pairing and
+projection dependencies form a separate frozen closure from the compiled graph.
+Synthetic full-collector tests exercise this closure with private state hidden
+and network disabled. They do not establish live capture or native acceptance.
+Each attempt starts a fresh daemon with the bound profiles directory. This
+matters because the event writer keeps its initially opened UTC date filename
+for its process lifetime. Event UUIDs identify individual diagnostic records;
+baseline/native pairing uses the resident lease, not a common request UUID.
+
 Native response-head diagnostics attach status, fixed HTTP-version and content-
 encoding categories to the existing send invocation counter. They run after
 headers arrive and before the unchanged response admission checks. Encoding
