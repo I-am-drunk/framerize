@@ -60,11 +60,18 @@ JavaScript equality or page-script quiescence during the close interval.
 
 The native host attaches the transferred record to its original grant object
 under the original lease. Rust keeps its exact original `Arc<DeviceGrant>`.
+`attach` is legal only at sequence zero, before the first admitted mint and
+while no mint is waiting or running. The consumer must retain that checked
+proof for later calls under the same grant and unchanged session, rather than
+repeat the private seed transfer. Each later mint receives a new sequence and
+still performs the host admission and joined-finish checks. A replacement grant
+requires its own attachment; proof from another grant cannot be reused.
 The existing `native_device_mint` and `native_device_minted` messages add
 `session_id` and `observation_id` only for SDK-bound grants. Their replies echo
 both identities, including `ready=false`. Admission rechecks the retained
-record before and after the existing lock/spacing wait; it adds no read or
-rate charge. Joined finish releases the existing mint lock and reports
+record before and after the existing lock/spacing wait. These proof checks add
+no read or extra rate charge; ordinary mint accounting remains in effect.
+Joined finish releases the existing mint lock and reports
 `ready=false` if the record became stale. Generic close remains available
 for cleanup and retains the original risk-refusal cooldown policy.
 
