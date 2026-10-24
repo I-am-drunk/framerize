@@ -2,7 +2,7 @@
 //! The outer controller owns admission, cooldown publication and process exit.
 use super::*;
 use framer_api::experimental_native::control_authorization::BoundControlClient;
-use framer_host::sidecar::observer::{ApplicationGeneration, CleanupOutcome, ObserverFactory};
+use framer_host::sidecar::observer::{ApplicationGeneration, ObserverFactory};
 use framer_host::sidecar::observer::comparison::{BaselineReport, ComparisonClient,
     ComparisonContext, ComparisonPlan};
 use std::sync::Mutex;
@@ -11,6 +11,8 @@ use std::sync::Mutex;
 mod attempt;
 #[path = "browser_comparison_source.rs"]
 mod source;
+#[path = "browser_comparison_cleanup.rs"]
+mod cleanup;
 #[path = "browser_comparison_control.rs"]
 pub(crate) mod control;
 
@@ -113,13 +115,14 @@ async fn execute(spec: Specification, baseline_turn: String, selected: Selection
     let mut cleanup = None;
     match opened {
         Ok(opened) => {
-            cleanup = Some((opened.control, opened.cleanup));
+            let completion = cleanup::Completion::new(opened.control, opened.cleanup);
+            cleanup = Some(completion.clone());
             let task_native = native.clone();
             let task_scope = scope.clone();
             let task_report = saved.clone();
             let result = tokio::spawn(async move {
                 attempt::run(spec, baseline_turn, selected, task_native, task_scope,
-                    opened.client, permit, task_report, factory).await
+                    opened.client, permit, task_report, factory, completion).await
             }).await;
             saved.lock().unwrap().failure = match result {
                 Ok(Ok(())) => None,
@@ -135,14 +138,8 @@ async fn execute(spec: Specification, baseline_turn: String, selected: Selection
     let mut report = std::mem::take(&mut *saved.lock().unwrap());
     report.account_closed = account_closed;
     if !account_closed { report.failure = Some(Failure::Cleanup); }
-    if let Some((control, cleanup)) = cleanup {
-        if report.failure.is_some() { control.request_stop(); }
-        else { control.seal_for_account_teardown(); }
-        report.browser_cleanup_confirmed = match cleanup.wait().await {
-            CleanupOutcome::NotStarted { .. } => true,
-            CleanupOutcome::Closed(receipt) => control.matches_closed_receipt(&receipt),
-            CleanupOutcome::Unconfirmed(_) => false,
-        };
+    if let Some(cleanup) = cleanup {
+        report.browser_cleanup_confirmed = cleanup.finish(report.failure.is_some()).await;
         if !report.browser_cleanup_confirmed { report.failure = Some(Failure::Cleanup); }
     }
     report
