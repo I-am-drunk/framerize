@@ -45,6 +45,13 @@ method only when an explicit diagnostic package installs it. It observes a
 successful result synchronously and returns the same token. Original failures
 and cancellation propagate without observation; ordinary observer failures do
 not affect the mint. This hook installs nothing when imported.
+The passive observer validates a canonical non-nil resident lease and fixed
+phase before calling either port. It describes the original token once and
+emits only copied, validated field structure plus availability and lease/phase
+labels. Ordinary decoder errors emit unavailable structure; emission errors
+are contained without retry. Control-flow exceptions propagate. An explicit
+diagnostic host package binds these modules by hash at startup; the normal
+host does not install them.
 
 V2 verifies its pinned SDK, settlement helper and DOM dependencies before and
 after the operation using streamed SHA-256 reads with a 64 KiB buffer. Native
