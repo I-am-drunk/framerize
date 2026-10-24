@@ -21,7 +21,8 @@ FIXTURE = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(FIXTURE)
 C = FIXTURE.C
 SECRET = "private-diagnostic-sentinel"
-CHECKS = ("device_valid", "device_cookie_match", "login_match", "page_match", "url_unchanged")
+CHECKS = ("device_valid", "device_cookie_match", "login_match", "page_match", "url_unchanged",
+          "device_cookie_present", "device_cookie_unique")
 STAGES = {"account_start", "context_inputs", "cookie_seed", "navigation", "device_readiness", "snapshot_page",
           "snapshot_cookies", "snapshot_header", "snapshot_validate", "context_ready",
           "baseline", "native_token"}
@@ -155,6 +156,28 @@ class ComparisonDiagnosticWorkflowTests(unittest.IsolatedAsyncioTestCase):
         value.page.goto_result = "https://framer.com/projects/another-project-" + SECRET
         checks = dict.fromkeys(CHECKS, True)
         checks["page_match"] = False
+        await self.assert_context_failure(value, "snapshot_validate", **checks)
+
+    async def test_absent_api_device_cookie_is_distinct_from_mismatch(self):
+        value = self.fixture()
+        value.context.rows = value.context.rows[:1]
+        checks = dict.fromkeys(CHECKS, True)
+        checks.update(device_cookie_match=False, device_cookie_present=False,
+                      device_cookie_unique=False)
+        await self.assert_context_failure(value, "snapshot_validate", **checks)
+
+    async def test_duplicate_api_device_cookie_is_distinct_from_mismatch(self):
+        value = self.fixture()
+        value.context.rows.append(dict(value.context.rows[1]))
+        checks = dict.fromkeys(CHECKS, True)
+        checks.update(device_cookie_match=False, device_cookie_unique=False)
+        await self.assert_context_failure(value, "snapshot_validate", **checks)
+
+    async def test_different_api_device_cookie_reports_no_cookie_value(self):
+        value = self.fixture()
+        value.context.rows[1]["value"] = SECRET
+        checks = dict.fromkeys(CHECKS, True)
+        checks.update(device_cookie_match=False)
         await self.assert_context_failure(value, "snapshot_validate", **checks)
 
     async def test_header_failure_has_no_stale_validation_flags(self):

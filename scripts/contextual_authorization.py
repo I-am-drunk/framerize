@@ -20,7 +20,8 @@ DIAGNOSTIC_STAGES = frozenset(('account_start', 'context_inputs', 'cookie_seed',
     'navigation', 'device_readiness', 'snapshot_page', 'snapshot_cookies', 'snapshot_header',
     'snapshot_validate', 'context_ready', 'baseline', 'native_token'))
 DIAGNOSTIC_CHECKS = ('device_valid', 'device_cookie_match', 'login_match',
-                     'page_match', 'url_unchanged')
+                     'page_match', 'url_unchanged', 'device_cookie_present',
+                     'device_cookie_unique')
 
 
 def comparison_mark(scope, stage, **checks):
@@ -283,6 +284,7 @@ async def comparison_snapshot(scope, acc, project, path, login):
     devices = [row["value"] for row in rows if row.get("name") == "__cuid"]
     comparison_mark(scope, 'snapshot_validate',
         device_valid=type(device) is str and bool(device) and len(device.encode()) <= 256,
+        device_cookie_present=bool(devices), device_cookie_unique=len(devices) == 1,
         device_cookie_match=devices == [device], login_match=login_cookie(header) == login,
         page_match=page_matches(snap.get("url") if type(snap) is dict else None, project),
         url_unchanged=type(snap) is dict and snap.get("url") == acc.page.url)
