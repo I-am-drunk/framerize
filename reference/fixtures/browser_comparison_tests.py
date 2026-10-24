@@ -463,7 +463,8 @@ class BrowserComparisonTests(unittest.IsolatedAsyncioTestCase):
                 yield value.account
 
             value.host._use_account = use_account
-            handle = OLD.host_method("handle", {"asyncio": asyncio})
+            handle = OLD.host_method("handle", {"asyncio": asyncio,
+                "emit": lambda *args, **kwargs: None})
             req = dict(value.scope.identity(), **value.bound_fields(value.body),
                        cmd="browser_baseline_once", bearer="private-fixture-bearer",
                        cookie_header=value.context_reply["cookie_header"])
