@@ -320,6 +320,8 @@ def comparison_owner(host, account, scope):
 
 async def comparison_device_ready(scope, page):
     async def wait_and_dispose():
+        # This embedded poller only reads origin storage. The mw: entry prefix
+        # belongs to direct evaluate calls, not to this predicate.
         handle = await page.wait_for_function(COMPARISON_READY,
             timeout=COMPARISON_READY_SECONDS * 1000, polling=100)
         await asyncio.wait_for(asyncio.shield(scope.rpc(handle.dispose())),
@@ -356,7 +358,7 @@ def comparison_header_mismatch(scope, actual, expected, stage):
 
 async def comparison_snapshot(scope, acc, project, path, login):
     comparison_mark(scope, 'snapshot_page')
-    snap = await comparison_rpc(scope, lambda: acc.page.evaluate(COMPARISON_SNAPSHOT))
+    snap = await comparison_rpc(scope, lambda: acc.page.evaluate("mw:" + COMPARISON_SNAPSHOT))
     comparison_mark(scope, 'snapshot_cookies')
     rows = await comparison_rpc(scope, lambda: acc.ctx.cookies(API + path))
     rows = cookies_for_url(rows, API + path)
@@ -476,7 +478,7 @@ async def comparison_bound(host, account, scope, request, leg):
 async def comparison_mint(scope, state, acc):
     comparison_mark(scope, 'mint_rpc')
     try:
-        result = await comparison_rpc(scope, lambda: acc.page.evaluate(COMPARISON_MINT, {
+        result = await comparison_rpc(scope, lambda: acc.page.evaluate("mw:" + COMPARISON_MINT, {
             "url": state["wrapper_url"], "entry": state["wrapper_export"],
             "device": state["device"], "page_url": state["url"]}))
     except asyncio.CancelledError:
@@ -726,7 +728,7 @@ async def comparison_baseline(host, account, scope, request):
                 "byte_limit": COMPARISON_BYTES}
         out.update(transport_starts=None, transport_finishes=None, fetch_settled=False)
         comparison_mark(scope, 'baseline_fetch')
-        raw = await comparison_rpc(scope, lambda: acc.page.evaluate(COMPARISON_FETCH, args),
+        raw = await comparison_rpc(scope, lambda: acc.page.evaluate("mw:" + COMPARISON_FETCH, args),
                                    BASELINE_SECONDS + 2)
         comparison_mark(scope, 'baseline_result')
         out = baseline_result(state, raw)

@@ -166,7 +166,7 @@ class ComparisonDiagnosticWorkflowTests(unittest.IsolatedAsyncioTestCase):
 
         async def changed(script, args=None):
             result = await evaluate(script, args)
-            if script == C.COMPARISON_MINT:
+            if script == "mw:" + C.COMPARISON_MINT:
                 change()
             return result
 

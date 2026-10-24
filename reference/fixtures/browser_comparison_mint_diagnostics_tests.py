@@ -49,7 +49,7 @@ class ComparisonMintDiagnosticsTests(unittest.IsolatedAsyncioTestCase):
 
         async def controlled(script, args=None):
             result = await evaluate(script, args)
-            if script == C.COMPARISON_MINT:
+            if script == "mw:" + C.COMPARISON_MINT:
                 value.mint_inputs.append(args)
                 if after is not None:
                     after()

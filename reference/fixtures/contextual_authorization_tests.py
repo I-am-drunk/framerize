@@ -168,7 +168,7 @@ def host_initializer():
     return host_method("_initialize_account", {"Account": FakeAccount})
 
 
-async def launch_fixture(observed, explicit=None, saved=None):
+async def launch_fixture(observed, explicit=None, saved=None, *, comparison_phase=None):
     calls, launches, browser = [], [], object()
 
     async def new_browser(driver, **kwargs):
@@ -185,6 +185,7 @@ async def launch_fixture(observed, explicit=None, saved=None):
         yield
 
     scope = SimpleNamespace(
+        contextual_authorization=True, comparison_phase=comparison_phase,
         begin_launch=lambda: calls.append(("begin_launch",)),
         browser_started=lambda value: calls.append(("browser_started", value)),
         fail=lambda reason: calls.append(("fail", reason)),
