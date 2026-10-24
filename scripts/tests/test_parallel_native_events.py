@@ -1,4 +1,5 @@
 import json
+import os
 from pathlib import Path
 import tempfile
 import unittest
@@ -8,6 +9,36 @@ from parallel_native_check.support import Refusal
 
 
 class EventsTests(unittest.TestCase):
+    def test_prior_day_writer_remains_valid_across_midnight(self):
+        path, events = self.source(name='events-2026-10-23.ndjson')
+        writer = self.enterContext(path.open('ab'))
+        events.bind_writer(os.getpid())
+        writer.write(json.dumps({'event': 'native.http.send', 'invocation': 1}).encode() + b'\n')
+        writer.flush()
+        events.poll()
+        self.assertEqual(events.send_invocations, [1])
+
+    def test_restart_to_new_daily_log_rejects_stale_plan(self):
+        path, events = self.source(name='events-2026-10-23.ndjson')
+        self.enterContext(path.with_name('events-2026-10-24.ndjson').open('ab'))
+        with self.assertRaisesRegex(Refusal, 'event_writer_mismatch'):
+            events.bind_writer(os.getpid())
+
+    def test_read_only_open_file_cannot_attest_to_writer(self):
+        path, events = self.source()
+        self.enterContext(path.open('rb'))
+        with self.assertRaisesRegex(Refusal, 'event_writer_mismatch'):
+            events.bind_writer(os.getpid())
+
+    def test_writer_replaced_after_binding_refuses_further_observation(self):
+        path, events = self.source()
+        writer = self.enterContext(path.open('ab'))
+        events.bind_writer(os.getpid())
+        other = self.enterContext(path.with_name('replacement.ndjson').open('ab'))
+        os.dup2(other.fileno(), writer.fileno())
+        with self.assertRaisesRegex(Refusal, 'event_writer_changed'):
+            events.poll()
+
     def test_exact_send_and_cleanup_records_are_bounded_and_retained(self):
         path, events = self.source()
         with path.open('a') as stream:
@@ -38,11 +69,11 @@ class EventsTests(unittest.TestCase):
             with self.subTest(value=value), self.assertRaises(Refusal):
                 clean_sends(value)
 
-    def source(self, history=''):
+    def source(self, history='', name='events.jsonl'):
         root = Path(self.enterContext(tempfile.TemporaryDirectory()))
         logs = root / 'profiles/.logs'
         logs.mkdir(parents=True)
-        path = logs / 'events.jsonl'
+        path = logs / name
         path.write_text(history)
         events = Events(path, root)
         self.addCleanup(events.close)

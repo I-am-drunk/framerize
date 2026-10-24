@@ -39,6 +39,7 @@ def main():
         require(sha(args.plan) == args.plan_sha256, 'plan_changed')
         claim_attempt(binding, started)
         events = Events(binding.plan['events_path'], binding.root)
+        events.bind_writer(binding.pid)
         run(binding, events, report)
     except BaseException as error:
         report['accepted'] = False
