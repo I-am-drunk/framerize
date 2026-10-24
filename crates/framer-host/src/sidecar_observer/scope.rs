@@ -150,9 +150,30 @@ async fn supervise(base: Arc<SidecarBridge>, registry: Arc<Registry>, mut guard:
         // Retain the original child, slot and account fence. A replacement
         // process cannot reconcile this generation. Runtime shutdown is not
         // a successful cleanup receipt.
+        let incarnation = state.lock_phase().connection.as_ref().map(|c| c.incarnation);
+        if let Some(incarnation) = incarnation {
+            reap_natural_exit(&base, incarnation).await;
+        }
         let retained = (base, registry);
         std::future::pending::<()>().await;
         drop(retained);
     }
     guard.finished = true;
+}
+
+// Reaping an exited leader releases its kernel resources, not its account
+// reservation. Never signal a live child or hold the lifecycle lock while idle.
+async fn reap_natural_exit(base: &SidecarBridge, incarnation: Uuid) {
+    loop {
+        {
+            let mut inner = base.inner.lock().await;
+            let Some(host) = inner.as_mut() else { return; };
+            if host.incarnation != incarnation { return; }
+            match host.child.try_wait() {
+                Ok(None) => {},
+                Ok(Some(_)) | Err(_) => return,
+            }
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+    }
 }
