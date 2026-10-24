@@ -15,14 +15,23 @@ use crate::native_dispatch::http_stream::NativeStreamObservers;
 mod native_stream_evidence;
 
 tokio::task_local! { static CURRENT: Arc<OwnerContext>; }
-tokio::task_local! { static CLIENT: Arc<tokio::sync::oneshot::Sender<()>>; }
+tokio::task_local! { static CLIENT: tokio::sync::watch::Receiver<()>; }
 
 /// Cancels future attempts when the HTTP waiter disappears, not current work.
 pub(crate) fn request_cancelled() -> Option<Arc<dyn Fn() -> bool + Send + Sync>> {
     CLIENT.try_with(|client| {
         let client = client.clone();
-        Arc::new(move || client.is_closed()) as Arc<dyn Fn() -> bool + Send + Sync>
+        Arc::new(move || client.has_changed().is_err()) as Arc<dyn Fn() -> bool + Send + Sync>
     }).ok()
+}
+
+/// The HTTP waiter owns the only sender. Its drop wakes local admission waits.
+/// No value is sent, so closure is the only notification; polling cannot miss it.
+pub(crate) async fn request_disconnected() {
+    match CLIENT.try_with(Clone::clone) {
+        Ok(mut client) => { let _ = client.changed().await; }
+        Err(_) => std::future::pending::<()>().await,
+    }
 }
 
 pub struct ServingOwnership {
@@ -175,8 +184,8 @@ pub async fn middleware(State(scope): State<Option<Arc<ServingOwnership>>>,
             return (StatusCode::SERVICE_UNAVAILABLE, "operation admission closed").into_response();
         },
     };
-    let (client, present) = tokio::sync::oneshot::channel();
-    let task = tokio::spawn(CLIENT.scope(Arc::new(client), CURRENT.scope(owner.clone(), async move {
+    let (present, client) = tokio::sync::watch::channel(());
+    let task = tokio::spawn(CLIENT.scope(client, CURRENT.scope(owner.clone(), async move {
         // Handler remains owned even when the HTTP result waiter disappears.
         // Auth/session/state mutation futures are not cancelled by that drop.
         let response = next.run(request).await;
