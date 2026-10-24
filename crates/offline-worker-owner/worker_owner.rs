@@ -15,13 +15,15 @@ use sha2::{Digest, Sha256};
 #[path = "worker_failure.rs"] mod failure;
 pub use failure::WorkerStage;
 #[path = "worker_v2_metadata.rs"] pub mod v2_metadata;
+#[path = "worker_v2.rs"] mod v2;
+pub use v2::{V2Worker, V2Metadata, V2WorkerStage};
 #[path = "worker_device.rs"] mod device;
 pub use metadata::Metadata;
 pub use device::SavedDevice;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Failure { Configuration, Runtime, Deadline, Cancelled, Input, Identity, Spawn, Io, Worker,
-    WorkerStage(WorkerStage), Protocol }
+    WorkerStage(WorkerStage), V2WorkerStage(V2WorkerStage), Protocol }
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Cleanup { NotStarted, Joined { pid: u32 }, Unconfirmed }
 
@@ -34,15 +36,15 @@ pub struct Worker {
     first_read_delay: Option<Duration>,
 }
 
-pub struct Minted {
+pub struct Minted<M = Metadata> {
     token: String,
     /// Conservative lower bound on SDK generation, captured before spawn.
     pub freshness_origin: Instant,
     /// Read-time diagnostic only. Buffered bytes can be older than this time.
     pub received_at: Instant,
-    pub metadata: Metadata,
+    pub metadata: M,
 }
-impl Minted {
+impl<M> Minted<M> {
     pub fn into_token(self) -> String { self.token }
 }
 
@@ -50,10 +52,10 @@ impl Minted {
 pub struct Completion(Shared<BoxFuture<'static, Cleanup>>);
 impl Completion { pub async fn wait(self) -> Cleanup { self.0.await } }
 
-pub struct Run {
+pub struct Run<M = Metadata> {
     deadline: Instant,
     pid: Arc<AtomicU32>,
-    result: Option<oneshot::Receiver<Result<Minted, Failure>>>,
+    result: Option<oneshot::Receiver<Result<Minted<M>, Failure>>>,
     completion: Completion,
     cancel: watch::Sender<bool>,
 }
@@ -61,15 +63,15 @@ struct CancelOnDrop(Option<watch::Sender<bool>>);
 impl Drop for CancelOnDrop {
     fn drop(&mut self) { if let Some(sender) = &self.0 { sender.send_replace(true); } }
 }
-impl Drop for Run { fn drop(&mut self) { self.cancel(); } }
-impl Run {
+impl<M> Drop for Run<M> { fn drop(&mut self) { self.cancel(); } }
+impl<M> Run<M> {
     /// Diagnostic only. Ownership stays with the private Child handle.
     pub fn started_pid(&self) -> Option<u32> {
         match self.pid.load(Ordering::Acquire) { 0 => None, pid => Some(pid) }
     }
     pub fn cancel(&self) { self.cancel.send_replace(true); }
     pub fn completion(&self) -> Completion { self.completion.clone() }
-    pub async fn result(&mut self) -> Result<Minted, Failure> {
+    pub async fn result(&mut self) -> Result<Minted<M>, Failure> {
         let receive = self.result.take().ok_or(Failure::Runtime)?;
         let mut guard = CancelOnDrop(Some(self.cancel.clone()));
         let result = receive.await.unwrap_or(Err(Failure::Worker));
@@ -108,6 +110,13 @@ impl Worker {
 
     fn begin_input(&self, target: Target, device: Option<&SavedDevice>,
         deadline: Instant) -> Result<Run, Failure> {
+        self.begin_protocol(target, device, deadline, metadata::accept_mode, failure::from_exit)
+    }
+
+    fn begin_protocol<M: Send + 'static>(&self, target: Target,
+        device: Option<&SavedDevice>, deadline: Instant,
+        accept: fn(&[u8], u64, bool) -> Option<M>,
+        failed: fn(Option<i32>, &[u8]) -> Failure) -> Result<Run<M>, Failure> {
         let now = Instant::now();
         let deadline = deadline.min(now + Duration::from_secs(16));
         let budget_ms = deadline.saturating_duration_since(now).as_millis() as u64;
@@ -124,7 +133,7 @@ impl Worker {
         #[cfg(not(test))]
         let first_read_delay = None;
         let task = runtime.spawn(supervise(spec, input, budget_ms, deadline,
-            receiver, sender, pid.clone(), first_read_delay, device_required));
+            receiver, sender, pid.clone(), first_read_delay, device_required, accept, failed));
         let completion = Completion(async move {
             task.await.unwrap_or(Cleanup::Unconfirmed)
         }.boxed().shared());
@@ -199,10 +208,12 @@ fn spawn(spec: &Specification) -> std::io::Result<Spawned> {
     Ok(Spawned { child, input, token, metadata })
 }
 
-async fn supervise(spec: Arc<Specification>, input: Vec<u8>, budget_ms: u64,
+async fn supervise<M: Send + 'static>(spec: Arc<Specification>, input: Vec<u8>, budget_ms: u64,
     deadline: Instant, mut cancel: watch::Receiver<bool>,
-    sender: oneshot::Sender<Result<Minted, Failure>>, started: Arc<AtomicU32>,
-    _first_read_delay: Option<Duration>, device_required: bool) -> Cleanup {
+    sender: oneshot::Sender<Result<Minted<M>, Failure>>, started: Arc<AtomicU32>,
+    _first_read_delay: Option<Duration>, device_required: bool,
+    accept: fn(&[u8], u64, bool) -> Option<M>,
+    failed: fn(Option<i32>, &[u8]) -> Failure) -> Cleanup {
     let until = tokio::time::Instant::from_std(deadline);
     let verified = tokio::select! {
         biased;
@@ -247,9 +258,9 @@ async fn supervise(spec: Arc<Specification>, input: Vec<u8>, budget_ms: u64,
                 if Instant::now() >= deadline { return Err(Failure::Deadline); }
                 if pid == 0 { return Err(Failure::Worker); }
                 if !status.success() {
-                    return Err(failure::from_exit(status.code(), &safe));
+                    return Err(failed(status.code(), &safe));
                 }
-                let metadata = metadata::accept_mode(&safe, budget_ms, device_required)
+                let metadata = accept(&safe, budget_ms, device_required)
                     .ok_or(Failure::Protocol)?;
                 let token = metadata::token(bytes).ok_or(Failure::Protocol)?;
                 let received_at = received_at.ok_or(Failure::Protocol)?;
