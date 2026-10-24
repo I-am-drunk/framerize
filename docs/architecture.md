@@ -15,7 +15,9 @@ separately pinned SDK graphics bundle now passes synthetic owner validation.
 The JavaScript wrapper creates no redundant native context. The bridge avoids
 retaining discarded canvases, while native disposal failures remain sticky
 until final cleanup. Graphics statistics stay outside the worker protocol.
-The running services have not selected this WebGL bundle yet.
+The isolated instance now selects this WebGL bundle. Its first request still
+returned Framer's security 403; cleanup and restored history were verified.
+The browser service remains unchanged.
 
 The native worker can select a separately pinned graphics dependency bundle
 through its existing worker configuration. Its bounded PNG loader is shared
