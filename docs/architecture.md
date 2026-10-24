@@ -16,6 +16,10 @@ requires a fresh state capture for rollback after a replacement has run; it
 does not replay an older consumed snapshot. Seventeen inert decision tests
 cover its new failure paths, but the full operational controller and actual
 restoration still need qualification.
+The controller checks the declared quiet-window start and expiry at both
+capture boundaries. Its forward path verifies restored limits before the
+stream pair. An inactive staged release is distinct from service activation;
+failed-start recovery must be bound before the plan becomes executable.
 
 Normal-browser admission rollout and ordinary-V2 acceptance are independent.
 The final ordinary-V2 source input `838f7dbb` retains one checked transfer for

@@ -18,6 +18,15 @@ fresh-capture rollback ordering. Result `23a7b56f` and its exact source snapshot
 are retained. The launcher and full controller remain unqualified preparation.
 The live pair remains unspent and no live service changed.
 
+The 15-file package is now copied and independently verified in a separate,
+inactive release. Five additional quiet-window cases pass on the integrated
+callback, six launcher/runtime-binding cases pass, and two forward-flow
+cases pass with external effects stubbed. The forward flow verifies state
+before issuing the stream pair and refuses a stop when the capture window
+expires. All four new jobs are collected. Failed-start recovery before a
+replacement host exists remains an explicit preparation gap; the controller
+plan remains unready. No real transfer, restart or live stream has occurred.
+
 Updated 2026-10-24. The normal service remains browser-based. Publishing these
 branches does not change the running service.
 
