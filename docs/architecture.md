@@ -202,6 +202,13 @@ bytes are read. V2 failures retain only fixed phase/device labels. A synthetic
 socket-denied qualification has exercised the complete private transport;
 account binding and resident rate admission remain the next integration step.
 
+The separate ordinary-V2 candidate has an additional account-bound SDK-seed
+grant. Its shared-worker fixture keeps A's host acknowledgment pending after
+the child joins, completes B with a distinct seed, and then cancels A or loses
+A's acknowledgment. Both cases preserve B's admission while settling or
+fencing A. This qualifies the candidate's owner boundary with inert workers;
+it does not integrate that source stack into ordinary serving on this branch.
+
 The separate `v2_operation`/`v2_runtime` component invokes the retained genuine
 V2 factory's configured-instance API. It requires a saved device, calls the
 token method once, preserves the supplied target URL, and rejects changed

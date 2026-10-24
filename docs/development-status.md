@@ -24,6 +24,18 @@ Crossed account, session and token-owner inputs cannot reach either server.
 Both phases had zero swap/limit events, unchanged inputs and removed groups.
 This uses synthetic loopback traffic only; production code and R16 are unchanged.
 
+The separate ordinary-V2 candidate `fe500a0` now passes both shared-worker
+account-isolation cases. Compilation passes (`43a69a78`, peak 362,864,640 bytes),
+and the two-case run passes (`4b6d6e37`, peak 25,038,848 bytes). The same worker
+serves distinct account/SDK seeds: A's child joins while host acknowledgment
+remains pending, B completes, and cancellation or lost acknowledgment affects
+only A. B can be admitted again. Both phases verified unchanged inputs, zero
+swap/limit events and removed groups. The frozen candidate includes the
+ordinary-V2 source stack, which is not promoted into this runtime branch by
+these tests. This is inert fixture qualification, not an SDK or live request.
+The resident HTTP isolation extension and response-decoding correction remain
+separate source inputs for the next native qualification batch.
+
 The outstanding goal is a fresh, valid browserless mint followed by accepted
 native Framer inference, with matched identity and egress, account isolation,
 cooldowns, joined cleanup, streaming, latency and measured memory use preserved.
