@@ -59,6 +59,15 @@ decompilation can establish inputs and local failure paths; it cannot recover
 an undisclosed server decision. No extra request is justified merely by a
 newly generated string or another locally passing browser-API substitute.
 
+The downstream source trace found no discarded upstream explanation. API
+`native_dispatch/errors.rs` retains the upstream body and attempt metadata;
+server `native_dispatch::failure` forwards that body, status and content type.
+The production lifetime guardian also retains completed-attempt metadata when
+cleanup fails. Streaming body completion and cleanup remain separate evidence.
+Local authorization failures are reduced to a fixed category instead of exposing
+supplier strings. That limits local diagnostics, but cannot account for this
+request's observed remote 403. No error-handling change follows from this trace.
+
 Sources: the pinned SDK return trace `7b06782a`; saved public
 [Browser SDK docs](https://docs.castle.io/docs/sdk-browser),
 [integration guide](https://docs.castle.io/docs/integration-guide), and
