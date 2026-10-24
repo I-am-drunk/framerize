@@ -1,0 +1,31 @@
+{
+  "admission_refusals": 0,
+  "binary_sha256": "d950da605604d132a837811ca19341a1b1e999d1ab6baee3ebf35c23228a4779",
+  "cleanup_confirmed": true,
+  "controller_resources": {
+    "memory.events": "low 0\nhigh 0\nmax 0\noom 0\noom_kill 0\noom_group_kill 0",
+    "memory.peak": "52494336",
+    "memory.swap.current": "0",
+    "pids.peak": "3"
+  },
+  "headers_elapsed_ms": 3801.1120120063424,
+  "history_restoration_verified": true,
+  "http_status": 403,
+  "limits": "Refused request only; no successful delivery, cancellation or latency acceptance.",
+  "live_accepted": false,
+  "native_lifetime_peak_bytes": 122404864,
+  "native_send_invocations": [
+    1
+  ],
+  "post_calls": 1,
+  "protected_browser_unchanged": true,
+  "receipt_sha256": {
+    "launch-result.json": "d05bc3f90c9c40f56d631fad155d2905ee0a3368f393c8b5abff70deaa37f61b",
+    "live-result.json": "2f1700144eb9b377d576e39f8c88511127405a0ef0a1840442c1c335be69c132",
+    "result.json": "d25820846f2c51257f24aec7472520cbe47cbb0ef08f5c4e9201e3ddfd197126",
+    "staging.json": "651add66338b0f80585d9d291f664672d96b51ed70702678a7af913c25c99eac"
+  },
+  "sampled_swap_bytes": 0,
+  "status": "LIVE_REFUSED",
+  "worker_configuration_sha256": "ecf02aa39f2c122a2dbc0aaa5d0ce7a159d407674b95eb1adbc7de8bdf43a712"
+}

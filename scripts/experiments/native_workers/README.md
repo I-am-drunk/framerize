@@ -24,7 +24,10 @@ The production modules use `dedicated_*` filenames under `offline_worker`.
 Their separately pinned bundle passes the same eight cases and a synthetic
 SDK run without diagnostic-file output. Peak was 102,232,064 bytes under the
 existing 128 MiB limit, with zero swap/events and verified group teardown.
-The bundle is staged; authenticated delivery remains unverified.
+The isolated instance now selects the bundle. Its live check made one upstream
+send, received the complete security 403, and confirmed cleanup without a second
+request or browser-service change. `live-result.json` retains sanitized results
+and saved receipt hashes. Authenticated delivery remains unverified.
 
 `qualification.json` retains the exact result hashes and the first failed
 test-loader result. That failure was a missing brace in the test helper.
