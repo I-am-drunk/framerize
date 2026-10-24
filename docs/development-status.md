@@ -3,6 +3,14 @@
 Updated 2026-10-24. The normal service remains browser-based. Publishing these
 branches does not change the running service.
 
+Resident fast-403 cooling now survives document invalidation after the fetch.
+The update requires the original lease, account, lifecycle, browser/device and
+history/token containers; replacement state receives no late mutation. The
+existing timing predicate and refusal classification are unchanged. Four
+supplied inert cases are integrated, with a fifth covering token-pool
+replacement and the navigation case strengthened to use the real listener.
+All five remain unrun; source syntax and whitespace checks pass.
+
 Resident request numbers now stay within JavaScript's safe integer magnitude,
 including decimal and exponent forms. One Rust body validator is reused by
 socket parsing, launch admission and final-body preflight; the Python baseline
@@ -28,8 +36,8 @@ HTTP 403 to an SDK defect. Both supplied five-case navigation/refusal fixtures
 are integrated; existing Rust and Python cases cover the new field and reject
 malformed replies. Syntax and whitespace checks pass; execution is pending.
 Earlier r2 validation snapshots predate this change and must not be run as
-current evidence. Local device cooling after document invalidation remains a
-separate issue because its mutation needs surviving account/container identity.
+current evidence. Local device cooling after document invalidation is now
+corrected in source as described above, with execution still pending.
 
 Current-main validation is now prepared in a separate immutable local snapshot.
 It covers all 29 socket and three CLI cases plus a linked daemon build, reusing

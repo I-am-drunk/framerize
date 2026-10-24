@@ -585,6 +585,7 @@ class _ResidentRate:
                 or self.gap < 0 or type(self.capacity) is not int or self.capacity <= 0):
             _refuse()
         self.lock, self.cooling, self.requests = acc.mint_lock, acc.dev_cooling, acc.dev_reqs
+        self.tokens, self.cool = acc.token_pool, host._cool_device
         self.key = None if binding.owner is acc else device
 
     def check(self):
@@ -598,6 +599,42 @@ class _ResidentRate:
             if (self.cooling.get(key, 0) > now
                     or len(self.window(acc, key, now)) >= self.capacity):
                 _refuse()
+
+
+    def cool_after_fetch(self, lease):
+        # Cooling belongs to the captured account history, even if its document
+        # navigated. Never apply a late result to replacement owners or maps.
+        b, acc = self.binding, self.binding.acc
+        host, req, life = b.control.host, b.req, b.life
+        try:
+            if (host.accounts is not b.accounts or host.lifecycles is not b.lifecycles
+                    or b.accounts.get(req['account']) is not acc
+                    or b.lifecycles.get(req['account']) is not life
+                    or host.generation != req['host_generation']
+                    or host.resident_application_generation != req['application_generation']
+                    or host._closed or host._observed is not None
+                    or acc.lifecycle is not life or life.incarnation != req['account_incarnation']
+                    or life.activity is not b.ledger or b.ledger.current is not lease
+                    or life.phase != 'resident' or life.close_task is not None or acc.closing
+                    or life.resident_uncertain is not None
+                    or life.active_commands != 0 or acc.active_requests != 0
+                    or life.browser is not b.browser or acc.browser is not b.browser
+                    or acc.resident_launch is not b.launch or acc.session_cookie != b.session
+                    or acc.mint_lock is not self.lock or acc.token_pool is not self.tokens
+                    or acc.dev_cooling is not self.cooling or life.cooling is not self.cooling
+                    or acc.dev_reqs is not self.requests or life.requests is not self.requests
+                    or acc.project != req['project'] or b.owner.page is not b.page
+                    or b.owner.ctx is not b.context or b.page.context is not b.context
+                    or b.context.browser is not b.browser or b.page.is_closed()
+                    or not any(p is b.page for p in b.context.pages)
+                    or not any(c is b.context for c in b.browser.contexts)
+                    or not b.browser.is_connected()
+                    or (b.owner is not acc and (b.owner.id != self.device
+                        or not any(d is b.owner for d in acc.dev_objs.values())))):
+                return
+        except Exception:
+            return
+        self.cool(acc, self.key, req['account'])
 
 
 class _CrossoverOperation(_Operation):
@@ -752,9 +789,8 @@ class _CrossoverOperation(_Operation):
             # document. Only the unchanged admission path below can accept them.
             if raw is not _FAILED:
                 evidence = self.record_baseline(raw, path)
-        if evidence['status'] == 403 and raw.get('elapsed_ms', 4000) < 4000:
-            self.control.host._cool_device(self.binding.acc, self.rate.key,
-                                            self.identity['account'])
+                if evidence['status'] == 403 and raw.get('elapsed_ms', 4000) < 4000:
+                    self.rate.cool_after_fetch(self.lease)
         await self.check_pin()
         self.payload['accepted'] = evidence['accepted'] and path in (
             '/ai/v3/responses/', '/ai/v3/messages/')

@@ -1,5 +1,11 @@
 # Serving architecture and branch policy
 
+After a settled fast-403 baseline, resident cooling uses the captured account
+history only while its lease, lifecycle and all mutable containers still match.
+Document invalidation does not discard that consequence. Replaced accounts,
+device owners, history maps or token pools are never updated by the late reply.
+The strict document check still rejects native continuation.
+
 Resident crossover bodies reject numeric magnitudes above 9007199254740991
 before admission and again at the Python baseline boundary. The shared Rust
 body check also covers the prepared envelope. This conservative range prevents
