@@ -3,6 +3,13 @@
 Updated 2026-10-24. The normal service remains browser-based. Publishing these
 branches does not change the running service.
 
+The offline worker now accepts the same bound project access-link URLs as
+the native credential target. Six new URL cases and 19 existing worker-source
+cases pass with networking disabled. The original URL and all origin, project,
+route and device checks remain intact. This corrects a local pre-SDK refusal;
+it does not explain the earlier completed HTTP 403 responses. No live worker
+bundle has been updated; a future bundle must bind the changed source hashes.
+
 The next owned control, R7, also succeeded on October 24. Its browser baseline
 returned accepted HTTP 200, and native HTTP returned 200 with completed,
 nonempty model text. Cleanup was confirmed. Both mint logger windows had

@@ -1,5 +1,9 @@
 # Serving architecture and branch policy
 
+Offline worker target validation accepts the existing bound 20-character
+project ID plus alphanumeric access suffix, including the supported slug form.
+It preserves the supplied URL exactly and retains origin and route checks.
+
 The isolated R7 control verified completed model output through native HTTP
 using a fresh token from its working resident browser. Complete logger windows
 recorded V2 for both paired mints. This validates that transport handoff;
