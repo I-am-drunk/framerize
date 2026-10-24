@@ -5,21 +5,23 @@ maintained fallback. `browserless` is the separate development branch for the
 native transport and short-lived SDK worker. A Git push does not deploy either
 version or restart the running service.
 
-The standalone comparison parent owns a private child cgroup, the framed
-socket sequence and final process teardown. It acknowledges a result only
-after the external window owner records it. Forced cleanup is never delivery
-acceptance. Account exclusion and restoration remain with that window owner;
-the parent library does not control either running service.
+The standalone comparison parent is implemented and locally tested. It owns
+a private child cgroup, the framed socket sequence and final process teardown.
+It acknowledges a result only after the external window owner records it.
+Forced cleanup is never delivery acceptance. Account exclusion and
+restoration remain with that window owner; the parent library does not start
+or stop services.
 
 The comparison coordinator uses an internal control-client factory so its
 request ordering can be tested without external authentication. The normal
 entry always constructs `BoundControlClient` with the selected account and
 egress; no configuration switch exposes a substitute client.
 
-Browser-token control code is currently a source capability, not a serving
-mode or a completed live comparison. Its observed profile is independent of
-the running browser, and a matched experiment must preserve device, bearer,
-egress and request context as well as retain the browser cleanup observer.
+Browser-token control is implemented for a standalone comparison. A completed
+browser baseline/native inference result has not been obtained. Its observed
+profile is independent of the running browser, and a matched experiment must
+preserve device, bearer, egress and request context as well as retain the
+browser cleanup observer.
 The native User-Agent agrees with its worker; the browser's distinct network
 stack remains an unisolated variable in the observed security refusals.
 
@@ -30,10 +32,17 @@ front and may differ only in their distinct caller-supplied turn IDs.
 The original scope and cleanup observer remain owned across the pair.
 The Python and Rust host interfaces have passed inert tests. An explicit pair
 coordinator now connects them to native dispatch and passes focused lifecycle
-and refusal tests. The parent controller and live comparison remain pending. The coordinator obtains each bearer from the
+and refusal tests. The coordinator obtains each bearer from the
 checked current jar and uses the normal native envelope serializer. It closes
 the native account before sealing the browser scope. The ordinary credential
 source does not issue the baseline request.
+
+The first live comparison (R1) refused at memory admission before browser
+launch and retained its `Cleanup` failure. The isolated service on port 8788
+is stopped and fenced; the protected browser remains unchanged. Local
+containment validation passed with the larger 1.5 GiB child and 2 GiB controller
+caps, preserving the 1 GiB browser startup guard and separate host reserve.
+Full browser startup and inference under those caps remain unverified.
 
 The contextual browser credential source validates the returned account,
 target and current cookie jar before requesting a bearer with that jar.
