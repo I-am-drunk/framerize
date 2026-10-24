@@ -8,11 +8,15 @@ networking and no private runtime mounts. The original SSE parser is unchanged.
 Both jobs are collected; the captured launcher/client processes and groups are
 absent. This does not claim exhaustive transient descendant capture.
 
-The live pair remains unspent. The authorized normal rollout still needs the
-host ledger transfer and its fresh controller binding. Source review found
-the existing restoration support compatible with the new host; the combined
-host compatibility check and actual transfer have not run. The new controller
-is incomplete preparation and must not be executed. No live service changed.
+The normal-host package now passes five inert class/support compatibility
+cases. Its 15 files retain binary `314c3190`, generated host `f94e2d48`, and
+the existing cooldown support. The compatibility run peaked at 67,944,448
+bytes with zero swap and memory/task events. It skips the generated entrypoint
+and does not establish a real state transfer. Seventeen new inert controller
+checks pass for override cleanup, retained limits, recovery selection and
+fresh-capture rollback ordering. Result `23a7b56f` and its exact source snapshot
+are retained. The launcher and full controller remain unqualified preparation.
+The live pair remains unspent and no live service changed.
 
 Updated 2026-10-24. The normal service remains browser-based. Publishing these
 branches does not change the running service.
