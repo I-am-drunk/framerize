@@ -21,6 +21,13 @@ acceptance and cleanup are unchanged. These facts cannot explain R14's completed
 403 response, and none of these source updates changes its frozen runtime.
 Next, measure the available Node and JSDOM constructors behind the observed
 lexical-versus-supplied-window distinction without another SDK or live request.
+The separate attempt-path preflight now passes all 14 synthetic cases, including
+the exact stale R13 filename pattern behind R14's interrupted handoff. It parses
+source without executing it and remains a preparation tool. Peak memory was
+16,592,896 bytes. Two additional worker replacement/owner-isolation cases also
+pass with the revised 19-case inert suite (47,435,776-byte peak). Both suites had
+zero swap or limit events and confirmed process-group cleanup; the unchanged
+real-thread results are reused. These checks make no new upstream claim.
 
 R14 also reached native HTTP with the explicit dedicated-worker V2 profile.
 The normal browser request and paired browser baseline returned HTTP 200
