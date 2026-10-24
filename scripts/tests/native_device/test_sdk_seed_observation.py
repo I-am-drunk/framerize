@@ -66,6 +66,7 @@ class SeedObservationTests(Fixture):
             session_cookie=('session', 'fixture-sdk-session'), closing=False)
         host.accounts[ACCOUNT] = acc
         self.life.phase, self.life.incarnation, self.life.browser = 'resident', 1, browser
+        self.life._sdk_launch_route, self.life._sdk_launch_browser = (1, None), browser
         self.life.active_commands, self.life.native_grants = 0, {}
         self.life.native_mint_lock = asyncio.Lock()
         self.life.activity, self.life.resident_uncertain = ActivityLedger(), None
@@ -300,6 +301,7 @@ class SeedObservationTests(Fixture):
             with self.subTest(change=change):
                 self.prepare()
                 self.host.proxies[ACCOUNT], self.host.proxy_revisions[ACCOUNT] = original, 1
+                self.life._sdk_launch_route = (self.life.incarnation, original)
                 self.verify()
                 record = self.observe()
                 self.life.phase, self.acc.closing = 'closing', True
@@ -348,6 +350,34 @@ class SeedObservationTests(Fixture):
                 self.assertEqual(self.api.close(self.request), {'confirmed': True})
                 self.assertEqual(self.life.active_commands, 0)
                 self.assertEqual(self.events, ['validate', 'close'])
+
+    async def test_ineligible_pages_preserve_primary_until_eligible_replacement(self):
+        for completed in (False, True):
+            with self.subTest(completed=completed):
+                self.prepare()
+                self.verify()
+                record = sdk.begin_observation(self.host, ACCOUNT, self.page)
+                self.assertIsNotNone(record)
+                result = {'value': 'original-token', 'observation': {
+                    'observation_id': record.identity, 'seed': SEED}}
+                if completed:
+                    sdk.observed_result(record, result)
+                other = SimpleNamespace(id='fixture-other', page=object())
+                self.acc.dev_objs['fixture-other'] = other
+                for page in (other.page, object()):
+                    self.assertIsNone(sdk.begin_observation(self.host, ACCOUNT, page))
+                    self.assertIs(self.life._sdk_session.observation, record)
+                    self.assertTrue(record.live())
+                if not completed:
+                    sdk.observed_result(record, result)
+                self.assertEqual(record.seed, SEED)
+                replacement = self.observe()
+                self.assertTrue(record.invalid)
+                self.assertIsNone(record.seed)
+                self.assertIs(self.life._sdk_session.observation, replacement)
+                proof = await self.transfer()
+                self.assertEqual(proof['observation_id'], replacement.identity)
+                self.api.close(self.request)
 
     async def test_navigation_and_observation_replacement_revoke_old_record(self):
         self.prepare()

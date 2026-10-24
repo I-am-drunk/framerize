@@ -1,6 +1,11 @@
 # Serving architecture and branch policy
 
 Normal-browser admission rollout and ordinary-V2 acceptance are independent.
+The final ordinary-V2 source input `838f7dbb` retains one checked transfer for
+the original grant/session/scope, including concurrent preparations. Failed
+or abandoned transfers are not repeated. Per-mint host checks and joined
+finish remain. Producer route and primary-observation corrections are also
+integrated. This final source still awaits its selected qualification.
 The reviewed normal launch selects browser-request ownership and a pinned
 Python host explicitly. Fixture success does not attest a live registration
 release: the existing chain log precedes that transition. The rollout keeps

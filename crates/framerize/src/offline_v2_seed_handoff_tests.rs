@@ -65,6 +65,9 @@ impl BrowserBridge for ProofHost {
             self.transfer_release.acquire().await.unwrap().forget();
         }
         if let Some(failure) = self.transfer_failure { return Err(failure); }
+        if self.inner.admitted.load(Ordering::SeqCst) != 0 {
+            return Err(DeviceFailure::Rejected);
+        }
         Ok(self.proof())
     }
 
@@ -72,14 +75,26 @@ impl BrowserBridge for ProofHost {
         -> Result<u64, DeviceFailure> {
         self.verify(proof);
         if !self.current.load(Ordering::SeqCst) { return Err(DeviceFailure::Rejected); }
-        self.inner.admit_native_mint(proof.grant(), budget_ms).await
+        assert!((1..=16000).contains(&budget_ms));
+        let previous = self.inner.admitted.fetch_add(1, Ordering::SeqCst);
+        assert_eq!(previous, self.inner.finished.load(Ordering::SeqCst));
+        self.inner.replied.store(false, Ordering::SeqCst);
+        Ok(73 + previous as u64)
     }
 
     async fn finish_native_sdk_mint(&self, proof: &NativeSdkSeed,
         sequence: u64, joined: bool) -> Result<bool, DeviceFailure> {
         self.verify(proof);
-        let ready = self.inner.finish_native_mint(proof.grant(), sequence, joined).await?;
-        Ok(ready && self.current.load(Ordering::SeqCst))
+        assert!(joined, "host must receive joined worker cleanup");
+        let (pid, start) = self.inner.child.lock().unwrap().expect("observed worker");
+        assert_ne!(child_start(pid), Some(start), "worker must join before host finish");
+        let previous = self.inner.finished.fetch_add(1, Ordering::SeqCst);
+        assert_eq!(sequence, 73 + previous as u64);
+        self.inner.arriving.add_permits(1);
+        self.inner.acknowledge.acquire().await.unwrap().forget();
+        self.inner.replied.store(true, Ordering::SeqCst);
+        if self.inner.lost_reply { Err(DeviceFailure::Unconfirmed) }
+        else { Ok(self.current.load(Ordering::SeqCst)) }
     }
 
     async fn castle_token(&self, account: &AccountId) -> Result<CastleToken, String> {
@@ -415,4 +430,125 @@ fn check_completion(mode: u8, result: Result<MintedCastle, PreparationFailure>,
 #[tokio::test]
 async fn sdk_proof_completion_retains_join_ack_and_stale_refusal() {
     for mode in 0..4 { proof_completion_case(mode).await; }
+}
+
+#[tokio::test]
+async fn sdk_one_transfer_supports_two_joined_mints() {
+    let (client, scope) = account();
+    let host = ProofHost::new(&scope, false, None);
+    let transfer = V2SeedTransfer::new(scope.clone(), host.inner.grant.clone());
+    let original = transfer.get(&scope, &host.session, host.as_ref()).await.unwrap();
+    for expected in 1..=2 {
+        let (fixture, worker) = fixture();
+        let proof = transfer.get(&scope, &host.session, host.as_ref()).await.unwrap();
+        assert!(Arc::ptr_eq(&original, &proof));
+        let seed = V2SeedBinding::from_proof(&scope, host.inner.grant.clone(),
+            &host.session, proof).unwrap();
+        let minter = Arc::new(OfflineWorkerMinter::with_v2_seed(scope.clone(), worker,
+            host.clone(), host.inner.grant.clone(), seed).unwrap());
+        let mut pending = prepare(&client, &scope, minter, "success");
+        let completion = pending.completion();
+        host.inner.observe(&fixture).await;
+        release(&fixture);
+        tokio::time::timeout(Duration::from_secs(3), host.inner.arriving.acquire())
+            .await.unwrap().unwrap().forget();
+        let early = (&mut pending).now_or_never();
+        let held = early.is_none() && completion.clone().now_or_never().is_none();
+        host.inner.acknowledge.add_permits(1);
+        let result = match early {
+            Some(result) => result,
+            None => tokio::time::timeout(Duration::from_secs(3), pending).await.unwrap(),
+        };
+        tokio::time::timeout(Duration::from_secs(3), completion).await.unwrap().unwrap();
+        assert!(held, "each mint must retain its own host acknowledgement");
+        assert_eq!(result.unwrap().token.0, "fake-fixture-token");
+        assert_eq!(host.inner.admitted.load(Ordering::SeqCst), expected);
+        assert_eq!(host.inner.finished.load(Ordering::SeqCst), expected);
+    }
+    close(&client, &scope).await;
+    assert_eq!(host.transfers.load(Ordering::SeqCst), 1);
+}
+
+#[tokio::test]
+async fn sdk_cached_transfer_keeps_session_scope_and_host_checks() {
+    let (fixture, worker) = fixture();
+    let (client, scope) = account();
+    let host = ProofHost::new(&scope, false, None);
+    let transfer = V2SeedTransfer::new(scope.clone(), host.inner.grant.clone());
+    transfer.get(&scope, &host.session, host.as_ref()).await.unwrap();
+    for user_changed in [false, true] {
+        let mut changed = host.session.clone();
+        if user_changed { changed.active_user.0.push('x'); }
+        else { changed.cookie_header.push('x'); }
+        assert!(matches!(transfer.get(&scope, &changed, host.as_ref()).await,
+            Err(DeviceFailure::Rejected)));
+    }
+    let other = NativeAccountClient::new().unwrap();
+    let foreign = other.open_account(scope.account(), host.session.clone(),
+        NativeHttpLimits::default(), NativeEgress::Direct).unwrap();
+    assert!(matches!(transfer.get(&foreign, &host.session, host.as_ref()).await,
+        Err(DeviceFailure::Rejected)));
+    close(&other, &foreign).await;
+    let proof = transfer.get(&scope, &host.session, host.as_ref()).await.unwrap();
+    let seed = V2SeedBinding::from_proof(&scope, host.inner.grant.clone(), &host.session,
+        proof).unwrap();
+    host.current.store(false, Ordering::SeqCst);
+    let minter = Arc::new(OfflineWorkerMinter::with_v2_seed(scope.clone(), worker,
+        host.clone(), host.inner.grant.clone(), seed).unwrap());
+    let result = prepare(&client, &scope, minter, "success").await;
+    close(&client, &scope).await;
+    assert!(matches!(result, Err(PreparationFailure::Rejected)));
+    assert_eq!(host.transfers.load(Ordering::SeqCst), 1);
+    assert_eq!(host.inner.admitted.load(Ordering::SeqCst), 0);
+    assert!(!fixture.root.join("starts").exists());
+}
+
+#[tokio::test]
+async fn sdk_concurrent_preparations_share_one_transfer() {
+    let (client, scope) = account();
+    let host = ProofHost::new(&scope, false, None);
+    host.hold_transfer.store(true, Ordering::SeqCst);
+    let transfer = V2SeedTransfer::new(scope.clone(), host.inner.grant.clone());
+    let mut first = Box::pin(transfer.get(&scope, &host.session, host.as_ref()));
+    let mut second = Box::pin(transfer.get(&scope, &host.session, host.as_ref()));
+    let first_waited = first.as_mut().now_or_never().is_none();
+    let second_waited = second.as_mut().now_or_never().is_none();
+    let before_release = host.transfers.load(Ordering::SeqCst);
+    host.transfer_release.add_permits(2);
+    let (first, second) = tokio::time::timeout(Duration::from_secs(3), async {
+        tokio::join!(first, second)
+    }).await.unwrap();
+    close(&client, &scope).await;
+    assert!(first_waited && second_waited);
+    assert_eq!(before_release, 1);
+    assert!(Arc::ptr_eq(&first.unwrap(), &second.unwrap()));
+    assert_eq!(host.transfers.load(Ordering::SeqCst), 1);
+}
+
+#[tokio::test]
+async fn sdk_failed_or_abandoned_transfer_is_not_repeated() {
+    for failure in [DeviceFailure::Rejected, DeviceFailure::Unconfirmed] {
+        let (client, scope) = account();
+        let host = ProofHost::new(&scope, false, Some(failure));
+        let transfer = V2SeedTransfer::new(scope.clone(), host.inner.grant.clone());
+        for _ in 0..2 {
+            let result = transfer.get(&scope, &host.session, host.as_ref()).await;
+            assert!(matches!(result, Err(error) if error == failure));
+        }
+        close(&client, &scope).await;
+        assert_eq!(host.transfers.load(Ordering::SeqCst), 1);
+    }
+    let (client, scope) = account();
+    let host = ProofHost::new(&scope, false, None);
+    host.hold_transfer.store(true, Ordering::SeqCst);
+    let transfer = V2SeedTransfer::new(scope.clone(), host.inner.grant.clone());
+    let mut first = Box::pin(transfer.get(&scope, &host.session, host.as_ref()));
+    let started = first.as_mut().now_or_never().is_none();
+    drop(first);
+    let retry = tokio::time::timeout(Duration::from_secs(3),
+        transfer.get(&scope, &host.session, host.as_ref())).await.unwrap();
+    close(&client, &scope).await;
+    assert!(started);
+    assert!(matches!(retry, Err(DeviceFailure::Unconfirmed)));
+    assert_eq!(host.transfers.load(Ordering::SeqCst), 1);
 }

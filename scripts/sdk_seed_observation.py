@@ -141,13 +141,20 @@ class _Observation:
         self.identity = str(uuid.uuid4())
         self.revision = host.proxy_revisions.get(account, 0)
         self.proxy = host.proxies.get(account)
+        self.launch_route = getattr(session.life, '_sdk_launch_route', None)
         self.seed = None
         self.invalid = self.validated = self.joined = self.transferred = False
         self.listeners = []
 
     def bound(self):
+        launch = self.launch_route
         return (not self.invalid and _session(self.host, self.account) is self.session
                 and self.session.observation is self
+                and type(launch) is tuple and len(launch) == 2
+                and type(launch[0]) is int and launch[0] == self.session.incarnation
+                and (launch[1] is None or type(launch[1]) is str)
+                and launch[1] == self.proxy
+                and getattr(self.session.life, '_sdk_launch_route', None) is launch
                 and self.host.proxy_revisions.get(self.account, 0) == self.revision
                 and self.host.proxies.get(self.account) == self.proxy)
 
@@ -156,6 +163,7 @@ class _Observation:
             life = self.session.life
             return (self.bound() and self.host.accounts.get(self.account) is self.acc
                 and self.acc.lifecycle is life and life.browser is self.browser
+                and getattr(life, '_sdk_launch_browser', None) is self.browser
                 and self.acc.browser is self.browser and self.owner.page is self.page
                 and self.acc.primary_dev == self.http_device and self.owner.id == self.http_device
                 and self.owner.ctx is self.context and self.page.context is self.context
@@ -210,7 +218,6 @@ class _Observation:
 
 def begin_observation(host, account, page):
     session = _session(host, account)
-    _drop_observation(session)
     acc = host.accounts.get(account)
     if session is None or acc is None or acc.closing or session.life.phase != 'resident':
         return None
@@ -219,6 +226,7 @@ def begin_observation(host, account, page):
         return None
     if session_for_cookie(host, account, acc.session_cookie) is not session:
         return None
+    _drop_observation(session)
     record = _Observation(host, account, acc, owner, session)
     session.observation = record
     if not record.watch():
@@ -358,6 +366,7 @@ def transfer_closed(host, account, life, acc):
             or record.acc is not acc or session.life is not life
             or life.phase != 'absent' or account in host.accounts
             or life.browser is not None or life.close_receipt is not None
+            or getattr(life, '_sdk_launch_browser', None) is not None
             or life.active_commands or acc.primary_dev != record.http_device):
         record.invalidate()
         return

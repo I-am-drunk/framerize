@@ -20,6 +20,11 @@ The ordinary-V2 integration branch now includes browserless `95f2986`,
 including the qualified legacy and typed-capacity corrections. Only the two
 status documents conflicted; both sets of results are retained below. This
 merge does not repeat their tests or extend those results to the SDK transfer.
+Final transfer input `838f7dbb` is now integrated. All 22 incoming paths match
+their owner bindings, while all 37 core files match the completed intermediate
+build. The newer typed-capacity and router work is preserved. Qualification
+will cover 31 bound Rust cases and 48 Python/Node cases; none has run yet on
+this final input. The explicit prepared host remains required for runtime.
 Intermediate transfer assembly `8381616` is now integrated: all 21 incoming
 paths match and the 27 selected Rust cases match their published fixtures.
 The intermediate core compiles (`6459710f`) with a 167,043,072-byte peak under
