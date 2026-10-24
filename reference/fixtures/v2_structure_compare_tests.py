@@ -5,6 +5,7 @@ import json
 from pathlib import Path
 import sys
 import unittest
+from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / 'scripts' / 'experiments'))
 from v2_structure_compare import compare_structures as compare
@@ -129,6 +130,18 @@ class StructureComparisonTests(unittest.TestCase):
                     compare(left, right)
                 self.assertEqual(caught.exception.args, ('structure-comparison',))
                 self.assertTrue(caught.exception.__suppress_context__)
+                self.assertIsNone(caught.exception.__context__)
+                self.assertIsNone(caught.exception.__cause__)
+
+    def test_validator_error_context_and_cause_are_detached(self):
+        original = RuntimeError('synthetic-private-context')
+        with patch('v2_structure_compare._structure', side_effect=original):
+            with self.assertRaises(ValueError) as caught:
+                compare(shape(), None)
+        self.assertEqual(caught.exception.args, ('structure-comparison',))
+        self.assertIsNone(caught.exception.__context__)
+        self.assertIsNone(caught.exception.__cause__)
+        self.assertTrue(caught.exception.__suppress_context__)
 
     def test_full_five_group_bound_is_supported(self):
         value = shape(*((g, f, 1, 1) for g in (0, 4, 7, 8, 9) for f in range(31)))
