@@ -1,5 +1,12 @@
 # Serving architecture and branch policy
 
+Error-response excerpts share a private UTF-8-safe prefix helper. It keeps the
+existing 500-byte and 120-byte bounds while backing up to a character boundary,
+so formatting a multibyte response cannot panic at the truncation point.
+The five call sites retain their error prefixes, refusal policy and cooldown
+sentinel. This source correction does not change security acceptance or the
+frozen R16 executable; its isolated qualification is pending.
+
 The experimental resident SDK path now borrows its existing token after child
 join and same-device host confirmation for a bounded Rust structural projection.
 It emits only group/field IDs, type tags and encoded lengths under the original

@@ -3,6 +3,14 @@
 Updated 2026-10-24. The normal service remains browser-based. Publishing these
 branches does not change the running service.
 
+The response-excerpt correction from `c2aa393` is integrated in source.
+All five sites now truncate at a valid UTF-8 boundary inside the existing
+500-byte or 120-byte limit. The refusal policy and fixed sentinel are unchanged.
+An isolated API build and the exact eleven `classify::tests` cases are prepared
+with the new module and public refusal fixture pinned. They remain UNRUN:
+available disk is below the unchanged 1 GiB execution reserve. No live request,
+service deployment or change to frozen R16 accompanies this source integration.
+
 The outstanding goal is a fresh, valid browserless mint followed by accepted
 native Framer inference, with matched identity and egress, account isolation,
 cooldowns, joined cleanup, streaming, latency and measured memory use preserved.

@@ -180,7 +180,7 @@ async fn send(
             return Err(r.as_error(crate::routes::by_id("direct-responses").map(|r| r.path).unwrap_or("/ai/v3/openai/responses/"), &text));
         }
         s => {
-            let clipped = &text[..text.len().min(500)];
+            let clipped = crate::error_body::prefix(&text, 500);
             return Err(format!("retryable {s} on {}: {clipped}", crate::routes::by_id("direct-responses").map(|r| r.path).unwrap_or("/ai/v3/openai/responses/")));
         }
     }

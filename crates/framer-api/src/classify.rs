@@ -60,7 +60,7 @@ impl Refusal {
             // Exact sentinel — do not decorate (framer_core matches on equality).
             Refusal::Castle => "risk-refused".into(),
             Refusal::Upstream => {
-                let clipped = &body[..body.len().min(500)];
+                let clipped = crate::error_body::prefix(body, 500);
                 format!("upstream 403 on {path}: {clipped}")
             }
         }
@@ -217,6 +217,18 @@ mod tests {
         assert!(e.contains("No endpoints found"), "{e}");
         assert!(e.contains("/ai/v3/messages/"), "{e}");
         assert_ne!(e, "risk-refused");
+    }
+
+    #[test]
+    fn upstream_error_clipping_respects_utf8_boundaries() {
+        for scalar in ["é", "€", "💡"] {
+            for split in 1..scalar.len() {
+                let prefix = "x".repeat(500 - split);
+                let body = format!("{prefix}{scalar}trailer");
+                assert_eq!(Refusal::Upstream.as_error("/p", &body),
+                    format!("upstream 403 on /p: {prefix}"));
+            }
+        }
     }
 
     #[test]

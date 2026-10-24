@@ -251,7 +251,7 @@ async fn attempt(
                 let granted = text.contains("\"granted\":true") || text.contains("\"granted\": true");
                 eprintln!("[refund] turn {} — {}", &turn_id[..8.min(turn_id.len())], if granted { "GRANTED (charge reversed)" } else { "denied (quota exhausted)" });
             }
-            Ok((s, _, text)) => eprintln!("[refund] turn {} — HTTP {s}: {}", &turn_id[..8.min(turn_id.len())], &text[..text.len().min(120)]),
+            Ok((s, _, text)) => eprintln!("[refund] turn {} — HTTP {s}: {}", &turn_id[..8.min(turn_id.len())], crate::error_body::prefix(&text, 120)),
             Err(e) if cancelled.is_some() => return Err(e),
             Err(e) => eprintln!("[refund] turn {} — transport error: {e}", &turn_id[..8.min(turn_id.len())]),
         }
