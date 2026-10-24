@@ -113,6 +113,9 @@ def project_report(raw, describe):
             if type(token) is not str or not 0 < len(token) <= 16384:
                 raise ValueError()
             shape = _structure(describe(token))
+            # Equal keys may be string subclasses carrying different text.
+            if any(type(key) is not str for entry in shape['entries'] for key in entry):
+                raise ValueError()
         else:
             if token is not None:
                 raise ValueError()

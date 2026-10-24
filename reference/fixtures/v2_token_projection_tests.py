@@ -121,6 +121,48 @@ class ProjectionTests(unittest.TestCase):
         shape = copy.deepcopy(SHAPE); shape['entries'][0]['field_id'] = 'private-value'
         self.rejected(report(), lambda token: shape)
 
+    def test_structure_string_subclass_keys_are_rejected(self):
+        class Text(str):
+            pass
+        for key in SHAPE['entries'][0]:
+            with self.subTest(field=key):
+                shape = copy.deepcopy(SHAPE)
+                entry = shape['entries'][0]
+                entry[Text(key)] = entry.pop(key)
+                self.rejected(report(), lambda token: shape)
+
+    def test_disguised_structure_keys_are_rejected(self):
+        for key in SHAPE['entries'][0]:
+            with self.subTest(field=key):
+                class Key(str):
+                    def __hash__(self):
+                        return hash(key)
+                    def __eq__(self, other):
+                        return other == key
+                shape = copy.deepcopy(SHAPE)
+                entry = shape['entries'][0]
+                entry[Key('synthetic-key-text')] = entry.pop(key)
+                self.assertEqual(set(entry), set(SHAPE['entries'][0]))
+                self.assertIn('"synthetic-key-text"', json.dumps(shape))
+                self.rejected(report(), lambda token: shape)
+
+    def test_plain_parser_keys_preserve_nonempty_output(self):
+        parser = load('v2_token_structure')
+        entries, consumed = parser.parse_fingerprint_section(
+            bytes.fromhex('00010a008000e0010001200000ff'))
+        shape = {'entries': entries, 'consumed': consumed}
+        value = report()
+        data = raw(value)
+        result = PROJECTION.project_report(data, lambda token: shape)
+        self.assertEqual(data, b'')
+        self.assertEqual(result, {'metadata': value['metadata'], 'token_discarded': True,
+            'canvas_verified': True, 'resources': value['resources'], 'structure': {
+                'entries': [{'group_id': 0, 'field_id': 1, 'type': 2, 'byte_length': 1}],
+                'consumed': 11}})
+        self.assertTrue(all(type(key) is str for entry in result['structure']['entries']
+                            for key in entry))
+        self.assertIsNot(result['structure']['entries'][0], entries[0])
+
     def test_failed_operation_preserves_fixed_reason_without_decoding(self):
         value = report()
         value['_private_token'] = None
