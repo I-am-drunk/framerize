@@ -387,6 +387,16 @@ impl FreshCastleToken {
         Self { account, token, received_at: Instant::now() }
     }
 
+    /// Preserve the trusted resident owner's timestamp from before acquire.
+    /// Context validation does not establish mint provenance or lease cleanup.
+    pub(super) fn from_browser_at(account: AccountId, token: CastleToken,
+        received_at: Instant) -> Result<Self, String> {
+        if received_at > Instant::now() {
+            return Err("native-http: invalid browser acquire time".into());
+        }
+        Ok(Self { account, token, received_at })
+    }
+
     /// Fresh, unchanged output from this account's isolated SDK invocation.
     /// The caller establishes provenance and single use. This constructor
     /// does not establish browser execution or upstream token acceptance.

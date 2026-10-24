@@ -11,6 +11,9 @@ use std::sync::Arc;
 #[path = "contextual_control.rs"]
 mod contextual_control;
 
+#[path = "resident_control.rs"]
+pub mod resident_control;
+
 #[path = "credit_control.rs"]
 mod credit_control;
 
