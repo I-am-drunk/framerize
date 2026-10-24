@@ -18,14 +18,16 @@ the daemon must retain the host lease and prove browser/native settlement.
 An additive `ResidentMint` ticket consumes and rechecks that bearer immediately
 before a separate native mint. Authorization preserves the ticket's timestamp,
 including the entire mint RPC, instead of charging an earlier browser baseline
-against the new token's lifetime. This API is source-only until validated and
-wired to the real baseline sequence.
+against the new token's lifetime. The version 2 coordinator uses this ticket
+after the real browser baseline. This integration remains unvalidated.
 
 The private resident RPC client binds the daemon's existing SidecarBridge and
 checks its incarnation while selecting the pipe and registering the reply.
 It cannot start a missing sidecar. Bounded acquire/finish/discard requests use
-protocol version 1. Transport replies remain unverified until the resident
-owner validates them; cancellation alone does not establish settlement.
+protocol version 1. The ordered coordinator uses a separate version 2 state
+machine for snapshot-only acquire, baseline, native mint and finalization.
+Transport replies remain unverified until the resident owner validates them;
+cancellation alone does not establish settlement.
 
 Completed normal browser HTTP 200 responses retain an in-memory record of
 the actual page, context, browser, project and lifecycle incarnation selected
@@ -70,13 +72,14 @@ Version 1 still mints during acquire and is not used for this ordered pair.
 
 The resident control coordinator has a source-only retained worker and strict
 private reply validation. Its server admission selects only an idle existing
-resident slot, without allocating or evicting a browser. The worker retains
-capacity and pool ownership through cancellation, transport joins and health
-publication. Concrete bootstrap and browser-baseline owners are not supplied,
-so no endpoint invokes it. The planned version 2 sequence reserves first,
-runs the browser baseline with one retained bearer, and only then mints the
-native token. Version 1 acquisition still mints immediately and is unsuitable
-for that paired sequence.
+resident slot, without allocating or evicting a browser. The worker reserves
+capacity and pool ownership before asynchronous bootstrap, and retains them
+through cancellation, transport joins and health publication. The startup
+adapter installs one shared session boundary. It binds the exact bootstrap
+transport incarnation and opens a native account generation using the captured
+launch route. Version 2 runs the browser baseline with one retained bearer,
+then timestamps and mints the native token. Finalization keeps host admission
+fenced. No currently running owner gains this code through publication.
 
 `main` is the browser-based service. `browser-based` preserves that path as a
 maintained fallback. `browserless` is the separate development branch for the

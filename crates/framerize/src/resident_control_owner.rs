@@ -1,22 +1,34 @@
-//! Required private owner seams. No production implementation is supplied.
+//! Private ownership contract used by the optional startup adapter.
 use super::*;
-use framer_api::experimental_native::control_authorization::resident_control::ResidentBearer;
 use framer_host::sidecar::SidecarBridge;
-use serde_json::Value;
-use uuid::Uuid;
 
 /// The installed application owner must return already-owned, idle resources.
-/// This method must be inert: no get-or-create, browser start, mint or private
-/// store job. The native scope is transferred exclusively and will be closed.
+/// Capture may await private bootstrap metadata and an exclusive native scope;
+/// it must not get-or-create a browser, navigate, mint or issue inference.
+/// The native scope is transferred exclusively and will be closed.
 /// Binding an existing host after startup is not supported by this interface.
 pub(crate) trait Owner: Send + Sync {
-    fn capture(&self, identity: &Identity) -> Result<Capture, Failure>;
+    fn capture<'a>(&'a self, identity: &'a Identity,
+        configured_proxy: &'a Option<String>, path: &'static str, deadline: Instant)
+        -> BoxFuture<'a, Result<Capture, CaptureError>>;
+}
+
+/// Only proven pre-start refusal or joined cleanup may release admission.
+/// A timeout, dropped RPC waiter or metadata error alone is not that proof.
+#[derive(Clone, Copy, Debug)]
+pub(crate) struct CaptureError {
+    pub failure: Failure,
+    pub cleanup_confirmed: bool,
 }
 
 /// Truthful data retained by the host owner at the successful browser request.
 /// Configured routes and constructed editor URLs cannot populate these fields.
 /// No Debug/Clone: this is private context, not a reusable mint grant.
 pub(crate) struct CapturedPage {
+    /// Exact Rust-side transport incarnation from the successful bootstrap.
+    pub sidecar_incarnation: uuid::Uuid,
+    /// Exact retained HTTP-200 provenance UUID supplied by the host owner.
+    pub provenance: String,
     pub application_generation: u64,
     pub host_generation: String,
     pub account_incarnation: u64,
@@ -34,53 +46,12 @@ pub(crate) struct Capture {
     /// The owner must bind its configuration revision to this same snapshot.
     pub configured_proxy: Option<String>,
     /// Exact settled SidecarBridge proxy-registration revision, possibly zero.
-    /// Its source is currently private to the host crate; no value is inferred.
+    /// Returned by the host crate's checked bootstrap, never inferred here.
     pub configured_proxy_revision: u64,
     pub sidecar: Arc<SidecarBridge>,
     pub native: NativeAccountClient,
     pub scope: AccountScope,
     pub page: CapturedPage,
-    pub baseline: Arc<dyn BaselineOwner>,
-}
-
-pub(crate) struct BaselineInput<'a> {
-    pub identity: &'a Identity,
-    pub configured_proxy_revision: u64,
-    pub page: &'a CapturedPage,
-    pub lease: Uuid,
-    pub path: &'static str,
-    pub body: &'a Value,
-    pub cookie_header: &'a str,
-    pub bearer: &'a ResidentBearer,
-}
-
-/// Missing integration: an owned browser baseline under the SAME resident
-/// lease and exact retained bearer. It must not mint/use the native token,
-/// acquire a second bearer, start another observer or re-enter ordinary host
-/// activity admission. Report after actual RPC/fetch settlement, even on stop.
-/// The post-baseline observation must be freshly read under that lease.
-/// No current resident RPC implements this action; do not simulate acceptance.
-pub(crate) trait BaselineOwner: Send + Sync {
-    fn run<'a>(&'a self, input: BaselineInput<'a>, control: &'a PreparationControl)
-        -> BoxFuture<'a, PreparationResult<BaselineReceipt>>;
-}
-
-/// Private post-baseline snapshot from the same host operation, never caller
-/// input. Identity fields are checked against the original lease before use.
-pub(crate) struct BaselineReceipt {
-    pub accepted: bool,
-    pub status: Option<u16>,
-    pub identity: Identity,
-    pub configured_proxy_revision: u64,
-    pub path: String,
-    pub application_generation: u64,
-    pub host_generation: String,
-    pub account_incarnation: u64,
-    pub lease: Uuid,
-    pub page_url: String,
-    pub device_id: String,
-    pub cookie_header: String,
-    pub effective_proxy: Option<String>,
 }
 
 /// Mark before any independent work. Unknown completion consumes capacity

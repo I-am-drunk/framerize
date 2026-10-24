@@ -7,10 +7,18 @@ The Python version 2 resident protocol is now implemented in source. Acquire
 captures context without minting; the baseline uses one cached-wrapper token;
 only an accepted baseline enables a separate native-token mint. One retained
 lease, exact context checks and the original deadline cover the sequence.
-Twenty-nine new Python cases and one exact-JavaScript fixture are unrun.
+The current frozen bundle contains 115 Python cases and three exact-JavaScript
+fixture scripts, including the 29 new crossover cases. Its October 24 launch
+was refused before execution by the existing protected-memory reserve. No
+test process started, and no pass is claimed for the new source.
 Version 1 remains available with its original acquire behavior. Chat has no
 accepted completion rule in this protocol and refuses continuation. Rust
-coordination and future-startup activation are still being integrated.
+coordination is now implemented with an asynchronous bootstrap adapter;
+future-startup activation is still being integrated. The adapter installs one
+shared session boundary and opens an exclusive native generation only after
+verified browser metadata. The Rust worker reserves application ownership
+before capture and joins capture, browser and native work through cancellation.
+Its 14 coordinator cases and two adapter cases are uncompiled and unrun.
 
 Resident bootstrap is implemented in source. It reads the retained successful
 browser's metadata through the existing owner, checks the exact sidecar and
@@ -20,8 +28,9 @@ new Python cases are frozen but unrun: the 128 MiB test runner was refused
 before execution by the unchanged protected-memory reserve. Five new Rust
 cases are also unrun. Python syntax and whitespace checks pass; rustfmt is
 not installed. This does not activate the running host or prove a crossover.
-The next integration is the asynchronous startup-owned capture adapter and
-version 2 baseline/native-mint sequence. Document-continuity hardening is now
+The asynchronous startup-owned capture adapter and version 2
+baseline/native-mint sequence are now implemented in source, as described
+above. Document-continuity hardening is now
 integrated from the supplied patch: listeners start before the send, and
 main-frame navigation, including same-URL reload, invalidates provenance.
 Refusal, failure and cancellation detach unfinished observations. The updated
@@ -40,20 +49,16 @@ unvalidated. The original 26-case result remains evidence for the earlier source
 The Rust startup binding has 19 focused cases, currently unrun. The executable
 build and a smaller metadata-only check were refused before execution by the
 unchanged memory reserve. No compiler or test pass is claimed for this binding.
-The retained daemon worker is source-only: authoritative owner capture, a real
-browser baseline and an activation path are still absent. Its current ordering
-also mints the native token before bearer acquisition and baseline completion;
-that sequence must change before live use. Existing serving processes remain
-untouched. The next action is to integrate a version 2 snapshot-only acquire,
-real browser baseline and separate native mint under one retained lease, then
-qualify that integration and the pending launch correction.
+The retained daemon worker remains source-only. It now uses verified bootstrap,
+snapshot-only acquire, one bearer, the browser baseline and a separate native
+mint under one retained lease. Startup/socket activation and executable
+validation remain pending. Existing serving processes remain untouched.
 
 An additive resident mint ticket is now implemented in source with three new
 inert cases, all unrun. It rechecks the retained bearer and current jar before
 the native mint, timestamps that operation before IPC, and consumes the ticket
 after post-mint checks. Earlier API results below cover the published 14-case
-version; they do not validate this addition or its still-missing coordinator
-wiring.
+version; they do not validate this addition or its new coordinator wiring.
 
 The resident API binding compiles and passes all 14 focused inert cases.
 It checks the captured page, lease identity, current jar and launch route,

@@ -3,19 +3,40 @@ use serde_json::{json, Value};
 use std::time::Duration;
 use tokio::sync::Semaphore;
 
+const HEADER: &str = "session=fixture; __cuid=fixture-device";
+
+fn baseline_fixture() -> (wire::Binding, CapturedPage, Value) {
+    let (binding, page, mut value) = fixture();
+    value["state"] = json!("baseline_complete");
+    value["status"] = json!(200);
+    value["body_complete"] = json!(true);
+    value["json_object"] = json!(true);
+    value["accepted"] = json!(true);
+    (binding, page, value)
+}
+
+fn minted_fixture() -> (wire::Binding, CapturedPage, Value) {
+    let (binding, page, mut value) = fixture();
+    value["state"] = json!("minted");
+    value["token"] = json!("fixture-token");
+    (binding, page, value)
+}
+
 fn fixture() -> (wire::Binding, CapturedPage, Value) {
     let binding = wire::Binding { account: framer_core::ids::AccountId(uuid::Uuid::from_u128(1)),
         application: 17, host: "fixture-host".into(), incarnation: 3,
         lease: uuid::Uuid::from_u128(2) };
     let page = CapturedPage { application_generation: binding.application,
+        sidecar_incarnation: uuid::Uuid::from_u128(6),
+        provenance: uuid::Uuid::from_u128(7).to_string(),
         host_generation: binding.host.clone(), account_incarnation: binding.incarnation,
         page_url: "https://framer.com/login".into(), device_id: "fixture-device".into(),
         effective_proxy: None, wrapper_url: "https://app.framerstatic.com/chunk-AAAAAAAA.mjs".into(),
         wrapper_export: "b".into() };
-    let value = json!({"version": 1, "account": binding.account.0,
+    let value = json!({"version": 2, "account": binding.account.0,
         "application_generation": binding.application, "host_generation": binding.host,
         "account_incarnation": binding.incarnation, "lease": binding.lease,
-        "state": "acquired", "browser_settled": true, "token": "fixture-token",
+        "state": "acquired", "browser_settled": true, "provenance": page.provenance,
         "cookie_header": "session=fixture; __cuid=fixture-device",
         "page_url": page.page_url, "device": page.device_id, "effective_proxy": null});
     (binding, page, value)
@@ -25,20 +46,19 @@ fn fixture() -> (wire::Binding, CapturedPage, Value) {
 fn acquire_checks_actual_page_without_inventing_editor_url() {
     let (binding, page, value) = fixture();
     let acquired = wire::acquired(&binding, &page, value).unwrap();
-    assert_eq!(acquired.token.0, "fixture-token");
     assert_eq!(acquired.header, "session=fixture; __cuid=fixture-device");
 }
 
 #[test]
 fn acquire_rejects_identity_route_page_and_type_drift() {
     for (key, replacement) in [
-        ("version", json!(2)), ("account", json!(uuid::Uuid::from_u128(3))),
+        ("version", json!(1)), ("account", json!(uuid::Uuid::from_u128(3))),
         ("application_generation", json!(18)), ("host_generation", json!("other-host")),
         ("account_incarnation", json!(4)), ("lease", json!(uuid::Uuid::from_u128(4))),
         ("page_url", json!("https://framer.com/projects/guessed")),
         ("device", json!("other-device")), ("effective_proxy", json!("http://proxy.invalid")),
         ("browser_settled", json!(1)), ("state", json!("released")),
-        ("token", json!("bad\nvalue")), ("cookie_header", json!("")),
+        ("provenance", json!(uuid::Uuid::from_u128(8))), ("cookie_header", json!("")),
     ] {
         let (binding, page, mut value) = fixture();
         value[key] = replacement;
@@ -59,7 +79,7 @@ fn acquire_rejects_extra_and_missing_fields() {
 #[test]
 fn finish_requires_exact_fenced_browser_settlement() {
     let (binding, _, mut receipt) = fixture();
-    for key in ["token", "cookie_header", "page_url", "device", "effective_proxy"] {
+    for key in ["provenance", "cookie_header", "page_url", "device", "effective_proxy"] {
         receipt.as_object_mut().unwrap().remove(key);
     }
     receipt["state"] = json!("fenced");
@@ -75,26 +95,106 @@ fn finish_requires_exact_fenced_browser_settlement() {
 }
 
 #[test]
-fn baseline_requires_same_lease_bearer_jar_and_page() {
-    let (binding, page, _) = fixture();
-    let identity = Identity { account: binding.account,
-        user: framer_core::ids::FramerUserId("fixture-user".into()),
-        team: framer_core::ids::TeamId("fixture-team".into()),
-        project: framer_core::ids::ProjectId("fixture-project".into()),
-        chat_session: "fixture-conversation".into() };
-    let path = "/ai/v3/responses/";
-    let mut receipt = BaselineReceipt { accepted: true, status: Some(200),
-        identity: identity.clone(), configured_proxy_revision: 0, path: path.into(),
-        application_generation: binding.application, host_generation: binding.host.clone(),
-        account_incarnation: binding.incarnation, lease: binding.lease,
-        page_url: page.page_url.clone(), device_id: page.device_id.clone(),
-        cookie_header: "session=fixture".into(), effective_proxy: None };
-    assert!(wire::baseline_matches(&binding, &page, &identity, path, "session=fixture", &receipt));
-    receipt.path = "/ai/v3/messages/".into();
-    assert!(!wire::baseline_matches(&binding, &page, &identity, path, "session=fixture", &receipt));
-    receipt.path = path.into();
-    receipt.cookie_header.push_str("; added=value");
-    assert!(!wire::baseline_matches(&binding, &page, &identity, path, "session=fixture", &receipt));
+fn baseline_acceptance_requires_the_complete_successful_response() {
+    let (binding, page, value) = baseline_fixture();
+    let baseline = wire::baseline(&binding, &page, HEADER, value).unwrap();
+    assert!(baseline.permits_mint());
+    assert_eq!(baseline.header, HEADER);
+}
+
+#[test]
+fn v2_acquire_rejects_tokens_and_missing_or_invalid_provenance() {
+    for token in [json!("fixture-token"), Value::Null] {
+        let (binding, page, mut value) = fixture();
+        value["token"] = token;
+        assert!(wire::acquired(&binding, &page, value).is_err());
+    }
+    let (binding, mut page, mut value) = fixture();
+    value.as_object_mut().unwrap().remove("provenance");
+    assert!(wire::acquired(&binding, &page, value).is_err());
+    let (_, _, mut value) = fixture();
+    page.provenance = uuid::Uuid::nil().to_string();
+    value["provenance"] = json!(page.provenance);
+    assert!(wire::acquired(&binding, &page, value).is_err());
+}
+
+#[test]
+fn baseline_and_mint_reject_context_drift_even_with_success_flags() {
+    for (key, bad) in [
+        ("version", json!(1)), ("account", json!(uuid::Uuid::from_u128(8))),
+        ("application_generation", json!(18)), ("host_generation", json!("other")),
+        ("account_incarnation", json!(4)), ("lease", json!(uuid::Uuid::from_u128(8))),
+        ("provenance", json!(uuid::Uuid::from_u128(8))),
+        ("page_url", json!("https://framer.com/projects/guessed")),
+        ("device", json!("other")), ("effective_proxy", json!("http://proxy.invalid")),
+        ("cookie_header", json!("session=fixture; __cuid=fixture-device; drift=1")),
+    ] {
+        let (binding, page, mut baseline) = baseline_fixture();
+        baseline[key] = bad.clone();
+        assert!(wire::baseline(&binding, &page, HEADER, baseline).is_err(), "{key}");
+        let (_, _, mut minted) = minted_fixture();
+        minted[key] = bad;
+        assert!(wire::minted(&binding, &page, HEADER, minted).is_err(), "{key}");
+    }
+}
+
+#[test]
+fn baseline_failure_or_inconsistent_success_never_permits_mint() {
+    for (key, bad) in [("status", json!(403)), ("status", Value::Null),
+        ("body_complete", json!(false)), ("json_object", json!(false)),
+        ("browser_settled", json!(false))] {
+        let (binding, page, mut value) = baseline_fixture();
+        value[key] = bad;
+        assert!(wire::baseline(&binding, &page, HEADER, value.clone()).is_err());
+        value["accepted"] = json!(false);
+        let failed = wire::baseline(&binding, &page, HEADER, value).unwrap();
+        assert!(!failed.permits_mint());
+    }
+    let (binding, page, mut value) = baseline_fixture();
+    value["accepted"] = json!(false);
+    assert!(!wire::baseline(&binding, &page, HEADER, value).unwrap().permits_mint());
+}
+
+#[test]
+fn baseline_rejects_non_boolean_flags_and_non_http_status() {
+    for (key, bad) in [("status", json!(200.0)), ("status", json!(true)),
+        ("status", json!(-1)), ("status", json!(600)), ("status", json!("200")),
+        ("accepted", json!(1)), ("body_complete", json!(1)),
+        ("json_object", json!(1)), ("browser_settled", json!(1))] {
+        let (binding, page, mut value) = baseline_fixture();
+        value[key] = bad;
+        assert!(wire::baseline(&binding, &page, HEADER, value).is_err(), "{key}");
+    }
+}
+
+#[test]
+fn baseline_and_mint_require_exact_schema_and_current_token_context() {
+    let (binding, page, baseline) = baseline_fixture();
+    for key in baseline.as_object().unwrap().keys() {
+        let mut missing = baseline.clone();
+        missing.as_object_mut().unwrap().remove(key);
+        assert!(wire::baseline(&binding, &page, HEADER, missing).is_err());
+    }
+    let (_, _, minted) = minted_fixture();
+    let result = wire::minted(&binding, &page, HEADER, minted.clone()).unwrap();
+    assert_eq!(result.token.0, "fixture-token");
+    assert_eq!(result.header, HEADER);
+    for key in minted.as_object().unwrap().keys() {
+        let mut missing = minted.clone();
+        missing.as_object_mut().unwrap().remove(key);
+        assert!(wire::minted(&binding, &page, HEADER, missing).is_err());
+    }
+    for bad in [json!(""), json!("bad\nvalue"), json!("t".repeat(16 * 1024 + 1))] {
+        let mut value = minted.clone();
+        value["token"] = bad;
+        assert!(wire::minted(&binding, &page, HEADER, value).is_err());
+    }
+    let mut extra = baseline;
+    extra["token"] = json!("unexpected");
+    assert!(wire::baseline(&binding, &page, HEADER, extra).is_err());
+    let mut extra = minted;
+    extra["accepted"] = json!(true);
+    assert!(wire::minted(&binding, &page, HEADER, extra).is_err());
 }
 
 async fn retained_cancel(drop_waiter: bool, expired: bool) {

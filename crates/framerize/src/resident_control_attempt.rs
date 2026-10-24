@@ -7,7 +7,7 @@ use framer_api::experimental_native::{
 };
 use framer_core::port::Session;
 use framer_host::sidecar::{observer::ApplicationGeneration, resident::{
-    ResidentAcquire, ResidentAdmission, ResidentDiscard, ResidentIdentity, ResidentRpc,
+    ResidentAcquire, ResidentAdmission, ResidentDiscard, ResidentIdentity, ResidentRpc, ResidentRpcV2,
     MAX_BUDGET_MS}};
 use futures::StreamExt;
 use serde_json::Value;
@@ -15,7 +15,7 @@ use serde_json::Value;
 pub(super) struct Operation {
     capture: Arc<Capture>,
     binding: wire::Binding,
-    rpc: ResidentRpc,
+    rpc: tokio::sync::Mutex<ResidentRpcV2>,
     pub acquire_started: AtomicBool,
 }
 impl Operation {
@@ -28,19 +28,22 @@ impl Operation {
         let identity = ResidentIdentity::new(binding.account,
             ApplicationGeneration(binding.application), binding.host.clone(),
             binding.incarnation, binding.lease).map_err(|_| Failure::Context)?;
-        let rpc = ResidentRpc::bind(&capture.sidecar, identity).await
+        let rpc = ResidentRpc::bind_existing(&capture.sidecar, identity,
+            page.sidecar_incarnation).await
             .map_err(|_| Failure::MissingOwner)?;
-        Ok(Self { capture, binding, rpc, acquire_started: AtomicBool::new(false) })
+        Ok(Self { capture, binding, rpc: tokio::sync::Mutex::new(rpc.into_v2()),
+            acquire_started: AtomicBool::new(false) })
     }
     pub async fn settle(&self, native_settled: bool) -> bool {
         // Automatic resumption needs a reviewed policy. Keep host admission
         // fenced on both outcomes; this does not certify inference success.
+        let mut rpc = self.rpc.lock().await;
         let reply = if !native_settled {
-            self.rpc.discard(ResidentDiscard::Unknown).await
+            rpc.discard(ResidentDiscard::Unknown).await
         } else {
             // A settled preparation can still include a failed baseline.
             // finish(fenced) avoids implicitly requesting resume via discard.
-            self.rpc.finish(ResidentAdmission::Fenced).await
+            rpc.finish(ResidentAdmission::Fenced).await
         };
         reply.is_ok_and(|reply| wire::settled(&self.binding, reply.into_unverified_value()))
     }
@@ -57,6 +60,10 @@ pub(super) async fn run(operation: Arc<Operation>, spec: Specification,
 
 fn active(control: &PreparationControl) -> Result<(), Failure> {
     if control.is_cancelled() { Err(Failure::Cancelled) } else { Ok(()) }
+}
+fn active_until(control: &PreparationControl, deadline: Instant) -> Result<(), Failure> {
+    if Instant::now() >= deadline { return Err(Failure::Deadline); }
+    active(control)
 }
 fn target(spec: &Specification) -> CredentialTarget {
     CredentialTarget { project: spec.identity.project.clone(), path: match spec.route {
@@ -95,51 +102,72 @@ async fn execute(operation: &Operation, spec: Specification, baseline_turn: Stri
     active(control)?;
     operation.acquire_started.compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire)
         .map_err(|_| Failure::Acquire)?;
-    let reply = operation.rpc.acquire(request).await.map_err(|_| {
-        report.cleanup_confirmed = false; Failure::Acquire
-    })?;
+    let mut rpc = operation.rpc.lock().await;
+    report.cleanup_confirmed = false;
+    let reply = rpc.acquire(request, &page.provenance).await.map_err(|_| Failure::Acquire)?;
     let acquired = wire::acquired(&operation.binding, page, reply.into_unverified_value())?;
-    active(control)?;
+    report.cleanup_confirmed = true;
+    let deadline = rpc.deadline().ok_or(Failure::Acquire)?.min(control.deadline());
+    active_until(control, deadline)?;
     let observation = ResidentObservation::from_unverified_reply(&identity, &target.project,
         target.path, &page.page_url, &page.device_id, &acquired.header,
         owner::egress(&page.effective_proxy));
     let grant = ResidentGrant::new_checked(&api, context, session, observation)
         .map_err(|_| Failure::Context)?;
-    let bearer = api.resident_bearer(grant, control).await;
+    let bearer = {
+        let work = api.resident_bearer(grant, control);
+        tokio::pin!(work);
+        tokio::select! {
+            biased;
+            _ = tokio::time::sleep_until(deadline) => { control.cancel(); work.await }
+            value = &mut work => value,
+        }
+    };
     report.cleanup_confirmed &= bearer.cleanup_confirmed;
     let bearer = bearer.value.map_err(|_| Failure::Bearer)?;
     if !report.cleanup_confirmed { return Err(Failure::Cleanup); }
-    active(control)?;
-    let baseline = capture.baseline.run(BaselineInput {
-        identity: &capture.identity, page, lease: operation.binding.lease,
-        configured_proxy_revision: capture.configured_proxy_revision,
-        path: target.path, body: &baseline_body, cookie_header: &acquired.header,
-        bearer: &bearer,
-    }, control).await;
-    report.cleanup_confirmed &= baseline.cleanup_confirmed;
-    let baseline = baseline.value.map_err(|_| Failure::Baseline)?;
-    if !report.cleanup_confirmed || baseline.configured_proxy_revision != capture.configured_proxy_revision
-        || !wire::baseline_matches(&operation.binding,
-        page, &capture.identity, target.path, &acquired.header, &baseline) {
-        return Err(Failure::Baseline);
-    }
+    active_until(control, deadline)?;
+    report.cleanup_confirmed = false;
+    let reply = rpc.baseline(bearer.as_str(), &baseline_body).await
+        .map_err(|_| Failure::Baseline)?;
+    let baseline = wire::baseline(&operation.binding, page, &acquired.header,
+        reply.into_unverified_value())?;
+    report.cleanup_confirmed = baseline.browser_settled;
+    report.baseline_status = baseline.status;
+    report.baseline_body_complete = baseline.body_complete;
+    report.baseline_json_object = baseline.json_object;
+    if !baseline.permits_mint() { return Err(Failure::Baseline); }
     report.baseline_accepted = true;
-    active(control)?;
+    active_until(control, deadline)?;
     let observation = ResidentObservation::from_unverified_reply(&identity, &target.project,
-        target.path, &baseline.page_url, &baseline.device_id, &baseline.cookie_header,
-        owner::egress(&baseline.effective_proxy));
-    let credentials = api.authorize_resident_token(bearer, session, observation,
-        acquired.token, control).map_err(|_| Failure::Context)?;
+        target.path, &page.page_url, &page.device_id, &baseline.header,
+        owner::egress(&page.effective_proxy));
+    // This consumes the one bearer and stamps time BEFORE the native mint RPC.
+    let ticket = api.begin_resident_mint(bearer, session, observation, control)
+        .map_err(|_| Failure::Context)?;
+    report.cleanup_confirmed = false;
+    let reply = rpc.mint_native().await.map_err(|_| Failure::Mint)?;
+    let minted = wire::minted(&operation.binding, page, &acquired.header,
+        reply.into_unverified_value())?;
+    report.cleanup_confirmed = true;
+    active_until(control, deadline)?;
+    let observation = ResidentObservation::from_unverified_reply(&identity, &target.project,
+        target.path, &page.page_url, &page.device_id, &minted.header,
+        owner::egress(&page.effective_proxy));
+    let credentials = api.authorize_resident_mint(ticket, session, observation,
+        minted.token, control).map_err(|_| Failure::Context)?;
     let current = Session { active_user: session.active_user.clone(),
-        cookie_header: acquired.header };
-    send(operation, &http, target.path, &body, &current, credentials, control, report).await
+        cookie_header: minted.header };
+    drop(rpc);
+    send(operation, &http, target.path, &body, &current, credentials, control,
+        deadline, report).await
 }
 
 #[allow(clippy::too_many_arguments)]
 async fn send(operation: &Operation, http: &NativeHttp, path: &str, body: &Value,
     current: &Session, credentials: PreparedCredentials, control: &PreparationControl,
-    report: &mut Report) -> Result<(), Failure> {
-    active(control)?;
+    deadline: Instant, report: &mut Report) -> Result<(), Failure> {
+    active_until(control, deadline)?;
     if credentials.current_cookies.is_none() { return Err(Failure::Context); }
     let account = operation.binding.account;
     let cancel = NativeCancellation::new();
@@ -157,19 +185,20 @@ async fn send(operation: &Operation, http: &NativeHttp, path: &str, body: &Value
         tokio::pin!(work);
         tokio::select! {
             biased;
-            _ = cancelled(control) => { cancel.cancel(); work.await }
+            _ = cancelled(control, deadline) => { cancel.cancel(); work.await }
             value = &mut work => value,
         }
     };
     report.cleanup_confirmed &= closed.await.is_ok();
     if !report.cleanup_confirmed { return Err(Failure::Cleanup); }
-    active(control)?;
+    active_until(control, deadline)?;
     result
 }
 
-async fn cancelled(control: &PreparationControl) {
-    while !control.is_cancelled() {
-        tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+async fn cancelled(control: &PreparationControl, deadline: Instant) {
+    while active_until(control, deadline).is_ok() {
+        tokio::time::sleep_until(deadline.min(Instant::now()
+            + std::time::Duration::from_millis(20))).await;
     }
 }
 

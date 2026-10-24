@@ -14,16 +14,18 @@ use tokio::{sync::{oneshot, watch}, time::Instant};
 
 #[path = "resident_control_owner.rs"]
 mod owner;
+#[path = "resident_control_bootstrap.rs"]
+mod bootstrap;
+pub(crate) use bootstrap::StartupOwner;
 #[path = "resident_control_wire.rs"]
 mod wire;
 #[path = "resident_control_attempt.rs"]
 mod attempt;
-pub(crate) use owner::{BaselineInput, BaselineOwner, BaselineReceipt, Capture,
-    CapturedPage, Owner};
+pub(crate) use owner::{Capture, CaptureError, CapturedPage, Owner};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum Failure {
-    MissingOwner, Admission, Context, Acquire, Bearer, Baseline, Native,
+    MissingOwner, Admission, Context, Acquire, Bearer, Baseline, Mint, Native,
     Cancelled, Deadline, Publication, Cleanup, OwnerLost,
 }
 
@@ -33,6 +35,9 @@ pub(crate) enum Failure {
 pub(crate) struct Report {
     pub failure: Option<Failure>,
     pub baseline_accepted: bool,
+    pub baseline_status: Option<u16>,
+    pub baseline_body_complete: bool,
+    pub baseline_json_object: bool,
     pub native_invoked: bool,
     pub status: Option<u16>,
     pub body_complete: bool,
@@ -73,7 +78,8 @@ pub(crate) struct Run {
 impl Run { pub(crate) fn cancel(&self) { self.stop.cancel(); } }
 
 /// No default owner or URL route exists. The startup owner must explicitly
-/// supply both capture and baseline capabilities before this can be invoked.
+/// supply authoritative capture before this can be invoked. The baseline uses
+/// the same ordered private RPC lease as acquire and the separate native mint.
 pub(crate) fn launch(state: AppState, spec: Specification, baseline_turn: String,
     owner: Arc<dyn Owner>) -> Result<Run, Failure> {
     Plan::validate(&spec).map_err(|_| Failure::Context)?;
@@ -110,17 +116,36 @@ async fn owned(state: AppState, spec: Specification, baseline_turn: String,
     if let Some(failure) = stop.reason(spec.deadline) {
         return Report { cleanup_confirmed: true, ..Report::failed(failure) };
     }
-    let capture = match owner.capture(&admitted.identity) {
-        Ok(capture) => Arc::new(capture),
-        Err(failure) => return Report { cleanup_confirmed: true, ..Report::failed(failure) },
-    };
     let hold = owner::Hold::new(admitted);
-    let outcome = AssertUnwindSafe(session(&state, spec, baseline_turn, capture.clone(),
-        &hold, stop)).catch_unwind().await;
+    let path = match spec.route {
+        FreeRoute::Responses => "/ai/v3/responses/", FreeRoute::Messages => "/ai/v3/messages/",
+    };
+    let captured = AssertUnwindSafe(async {
+        // Cancellation never drops an in-flight bootstrap or exclusive scope job.
+        retain_until_settled(owner.capture(&hold.admitted().identity,
+            &hold.admitted().proxy, path, spec.deadline), &stop, spec.deadline, || {}).await
+    }).catch_unwind().await;
+    let capture = match captured {
+        Ok(Ok(capture)) => Arc::new(capture),
+        Ok(Err(error)) => {
+            let settled = error.cleanup_confirmed && hold.complete();
+            return Report { cleanup_confirmed: settled, ..Report::failed(error.failure) };
+        }
+        Err(_) => return Report::failed(Failure::OwnerLost),
+    };
+    let outcome = AssertUnwindSafe(async {
+        if let Some(failure) = stop.reason(spec.deadline) {
+            return Report { cleanup_confirmed: true, ..Report::failed(failure) };
+        }
+        session(&state, spec, baseline_turn, capture.clone(), &hold, stop).await
+    }).catch_unwind().await;
     let mut report = outcome.unwrap_or_else(|_| Report::failed(Failure::OwnerLost));
-    // Also attempted after a panic; lack of host settlement still retains Hold.
-    let closed = match capture.native.close_account(&capture.scope) {
-        Ok(closed) => closed.await.is_ok(), Err(_) => false,
+    // A final host receipt follows the session's native close. Early errors
+    // and panics still need this close attempt, while retaining uncertain Hold.
+    let closed = if report.host_fenced { true } else {
+        match capture.native.close_account(&capture.scope) {
+            Ok(closed) => closed.await.is_ok(), Err(_) => false,
+        }
     };
     report.cleanup_confirmed &= closed;
     if report.cleanup_confirmed {
@@ -201,7 +226,10 @@ async fn session(state: &AppState, spec: Specification, baseline_turn: String,
         HealthOutcome::RiskRefused
     } else { HealthOutcome::Unclassified };
     if admitted.completion.publish(state, &admitted.identity, &admitted.proxy, health)
-        .await.is_err() { report.failure = Some(Failure::Publication); }
+        .await.is_err() {
+        report.failure = Some(Failure::Publication);
+        report.cleanup_confirmed = false;
+    }
     if let Some(reason) = stop.reason(deadline) { report.failure = Some(reason); }
     if operation.acquire_started.load(Ordering::Acquire) {
         report.host_fenced = operation.settle(report.cleanup_confirmed).await;
