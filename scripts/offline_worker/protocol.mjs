@@ -24,11 +24,11 @@ export function validateInput(input, residentPage = false) {
   const linked = /^(?:(?:[A-Za-z0-9]+-)*[A-Za-z0-9]+--)?([A-Za-z0-9]{20})-[A-Za-z0-9]+$/.exec(project);
   const matches = project === target.project_id || project.endsWith('--' + target.project_id)
     || linked?.[1] === target.project_id;
-  // Only the explicit resident V2 entry may use the captured login document.
+  // Only the explicit resident V2 entry may use these captured app documents.
   // Its project authority belongs to the retained HTTP-200 provenance owner.
-  const residentLogin = residentPage === true && input.version === 2
-    && url.pathname === '/login';
-  if (!residentLogin && (!url.pathname.startsWith('/projects/') || project.includes('/')
+  const residentDocument = residentPage === true && input.version === 2
+    && (url.pathname === '/login' || url.pathname === '/projects/');
+  if (!residentDocument && (!url.pathname.startsWith('/projects/') || project.includes('/')
       || !matches))
     throw new Error('target');
   const device = input.version === 2 ? new SavedDevice(input.device) : undefined;

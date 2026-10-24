@@ -15,15 +15,31 @@ test('resident_v2_preserves_the_exact_captured_login_url', async () => {
   assert.equal(h.state.calls, 1);
 });
 
+test('resident_v2_preserves_the_exact_captured_dashboard_url', async () => {
+  const h = harness(), value = input();
+  value.target.url = 'https://framer.com/projects/?fixture=1';
+  assert.throws(() => validateInput(value));
+  assert.throws(() => new LegacyV2Operation(value, h.runtime));
+  const result = await new LegacyV2Operation(value, h.runtime, true).mint();
+  assert.equal(result.metadata.status, 'passed');
+  assert.equal(h.state.url, value.target.url);
+  assert.equal(h.state.calls, 1);
+});
+
 test('resident_login_exception_keeps_origin_path_and_device_guards', () => {
   for (const url of ['https://other.invalid/login', 'http://framer.com/login',
-    'https://framer.com/login/other', 'https://framer.com/projects/other']) {
+    'https://framer.com/login/other', 'https://framer.com/projects/other',
+    'https://framer.com/projects', 'https://framer.com/projects//',
+    'https://other.invalid/projects/', 'http://framer.com/projects/',
+    'https://user:pass@framer.com/projects/', 'https://framer.com:8443/projects/']) {
     const value = input(); value.target.url = url;
     assert.throws(() => new LegacyV2Operation(value, harness().runtime, true));
   }
-  const value = input(); value.target.url = 'https://framer.com/login';
-  delete value.device; value.version = 1;
-  assert.throws(() => new LegacyV2Operation(value, harness().runtime, true));
+  for (const url of ['https://framer.com/login', 'https://framer.com/projects/']) {
+    const value = input(); value.target.url = url;
+    delete value.device; value.version = 1;
+    assert.throws(() => new LegacyV2Operation(value, harness().runtime, true));
+  }
 });
 
 const input = () => ({ version: 2, budget_ms: 1000, device: { id: 'a'.repeat(32) },
