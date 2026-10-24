@@ -24,6 +24,9 @@ DIAGNOSTIC_STAGES = frozenset(('account_start', 'context_inputs', 'cookie_seed',
     'snapshot_validate', 'context_ready', 'baseline', 'native_token',
     'baseline_header_before_mint', 'baseline_mint', 'baseline_bound_after_mint',
     'baseline_header_after_mint', 'baseline_fetch_args', 'baseline_fetch',
+    'baseline_header_before_mint_order', 'baseline_header_before_mint_membership',
+    'baseline_header_before_mint_values', 'baseline_header_after_mint_order',
+    'baseline_header_after_mint_membership', 'baseline_header_after_mint_values',
     'baseline_result', 'baseline_bound_after_fetch', 'mint_rpc',
     'mint_rpc_target_closed', 'mint_rpc_timeout', 'mint_rpc_error',
     'mint_reply_invalid', *MINT_FAILURE_MARKS.values()))
@@ -327,6 +330,30 @@ async def comparison_device_ready(scope, page):
                          COMPARISON_READY_SECONDS + COMPARISON_DISPOSE_SECONDS)
 
 
+def comparison_cookie_header(rows):
+    # Validate first; stable name-only sorting preserves duplicate precedence.
+    header = snapshot_header(rows)
+    return '; '.join(sorted(header.split('; '), key=lambda part: part.partition('=')[0]))
+
+
+def comparison_header_mismatch(scope, actual, expected, stage):
+    """Describe a refusal without changing the exact header comparison."""
+    login_cookie(actual)
+    login_cookie(expected)
+    left = [tuple(part.strip().split('=', 1)) for part in actual.split(';')]
+    right = [tuple(part.strip().split('=', 1)) for part in expected.split(';')]
+    if sorted(name for name, _ in left) != sorted(name for name, _ in right):
+        difference = 'membership'
+    elif sorted(left) != sorted(right):
+        difference = 'values'
+    elif left != right:
+        difference = 'order'
+    else:
+        # Formatting alone is not evidence of a changed pair or its order.
+        return
+    comparison_mark(scope, stage + '_' + difference)
+
+
 async def comparison_snapshot(scope, acc, project, path, login):
     comparison_mark(scope, 'snapshot_page')
     snap = await comparison_rpc(scope, lambda: acc.page.evaluate(COMPARISON_SNAPSHOT))
@@ -334,7 +361,7 @@ async def comparison_snapshot(scope, acc, project, path, login):
     rows = await comparison_rpc(scope, lambda: acc.ctx.cookies(API + path))
     rows = cookies_for_url(rows, API + path)
     comparison_mark(scope, 'snapshot_header')
-    header = snapshot_header(rows)
+    header = comparison_cookie_header(rows)
     device = snap.get("device") if type(snap) is dict else None
     devices = [row["value"] for row in rows if row.get("name") == "__cuid"]
     comparison_mark(scope, 'snapshot_validate',
@@ -680,6 +707,8 @@ async def comparison_baseline(host, account, scope, request):
         state, acc, header = await comparison_bound(host, account, scope, request, "baseline")
         comparison_mark(scope, 'baseline_header_before_mint')
         if header != request["cookie_header"]:
+            comparison_header_mismatch(scope, header, request["cookie_header"],
+                                       'baseline_header_before_mint')
             raise ValueError("comparison bearer jar changed")
         comparison_mark(scope, 'baseline_mint')
         token = await comparison_mint(scope, state, acc)
@@ -687,6 +716,8 @@ async def comparison_baseline(host, account, scope, request):
         _, _, header = await comparison_bound(host, account, scope, request, "baseline")
         comparison_mark(scope, 'baseline_header_after_mint')
         if header != request["cookie_header"]:
+            comparison_header_mismatch(scope, header, request["cookie_header"],
+                                       'baseline_header_after_mint')
             raise ValueError("comparison bearer jar changed")
         comparison_mark(scope, 'baseline_fetch_args')
         args = {"page_url": state["url"], "device": state["device"],
