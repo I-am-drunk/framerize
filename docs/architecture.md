@@ -1,5 +1,11 @@
 # Serving architecture and branch policy
 
+V2 window construction uses the existing bounded inline-PNG loader. It accepts
+at most four local PNGs per window, each at most 64 KiB and 262,144 pixels,
+with either dimension at most 2,048. Other URLs never reach the parent loader.
+This enables native image decoding without network or filesystem fetching;
+visual mode, workers, SDK configuration and deadlines remain unchanged.
+
 V2 verifies its pinned SDK, settlement helper and DOM dependencies before and
 after the operation using streamed SHA-256 reads with a 64 KiB buffer. Native
 libraries are never loaded wholesale just to hash them. Read failures still
