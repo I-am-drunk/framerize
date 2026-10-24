@@ -71,6 +71,7 @@ impl Reply {
 pub(super) struct Shared {
     pub stop: AtomicBool,
     hold_headers: bool,
+    resident_headers: bool,
     pub release_headers: AtomicBool,
     pub release_body: AtomicBool,
     pub accepted: AtomicUsize,
@@ -98,21 +99,25 @@ pub(super) struct Server {
 
 impl Server {
     pub fn new(expected: Vec<Expected>) -> Self {
-        Self::create(expected, false)
+        Self::create(expected, false, false)
     }
 
     pub fn with_held_headers(expected: Vec<Expected>) -> Self {
-        Self::create(expected, true)
+        Self::create(expected, true, false)
     }
 
-    fn create(expected: Vec<Expected>, hold_headers: bool) -> Self {
+    pub fn with_resident_headers(expected: Vec<Expected>, hold_headers: bool) -> Self {
+        Self::create(expected, hold_headers, true)
+    }
+
+    fn create(expected: Vec<Expected>, hold_headers: bool, resident_headers: bool) -> Self {
         assert!(expected.len() <= MAX_PEERS);
         let listener = TcpListener::bind((Ipv4Addr::LOCALHOST, 0))
             .expect("application loopback bind");
         listener.set_nonblocking(true).expect("application nonblocking listener");
         let address = listener.local_addr().expect("application loopback address");
         assert!(matches!(address, SocketAddr::V4(a) if *a.ip() == Ipv4Addr::LOCALHOST));
-        let shared = Arc::new(Shared { hold_headers, ..Shared::default() });
+        let shared = Arc::new(Shared { hold_headers, resident_headers, ..Shared::default() });
         let state = shared.clone();
         let worker = thread::spawn(move || serve(listener, expected, state));
         Self { address, shared, worker: Some(worker) }
@@ -267,10 +272,17 @@ impl Peer {
             .map_err(|_| "application request header encoding")?;
         let body: Value = serde_json::from_slice(&self.request[end..])
             .map_err(|_| "application request JSON")?;
-        if head.lines().any(|line| line.split_once(':')
-            .is_some_and(|(name, _)| name.eq_ignore_ascii_case("cookie")
-                || name.eq_ignore_ascii_case("x-requested-by")))
-            || header_value(head, "content-type")? != "application/json"
+        let contract_matches = if shared.resident_headers {
+            header_value(head, "cookie")? == "session=fixture-application; __cuid=fixture-device; fixture=one; fixture=two"
+                && header_value(head, "content-type")? == "application/json; charset=utf-8"
+                && header_value(head, "x-requested-by")? == "Framer"
+        } else {
+            !head.lines().any(|line| line.split_once(':')
+                .is_some_and(|(name, _)| name.eq_ignore_ascii_case("cookie")
+                    || name.eq_ignore_ascii_case("x-requested-by")))
+                && header_value(head, "content-type")? == "application/json"
+        };
+        if !contract_matches
             || header_value(head, "authorization")? != "Bearer fixture-application-bearer"
             || header_value(head, "origin")? != "https://framer.com"
             || header_value(head, "referer")? != "https://framer.com/"

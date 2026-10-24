@@ -3,6 +3,21 @@
 Updated 2026-10-24. The normal service remains browser-based. Publishing these
 branches does not change the running service.
 
+The working browser service was checked through bounded, sanitized event
+samples on October 24: it was minting and completing HTTP 200 inferences.
+The running generation remained unchanged. Existing isolated comparisons do
+not reproduce its warm device context, wrapper or bearer acquisition, and
+both comparison arms omit cookies that the working service includes.
+An explicit native resident-browser header option is implemented. It sends
+the supplied current jar and the serving host's fixed inference headers;
+the default behavior is unchanged. All 26 focused Rust cases pass, including
+exact loopback headers and cancellation. Test peak was 15,253,504 bytes with
+zero swap or limit events. Three earlier harness failures are preserved;
+the successful run reused the exact verified binary and build provenance.
+The active daemon has no safe existing resident-token handoff endpoint.
+Resident ownership and activation remain separate work; no live crossover
+result or SDK attribution is claimed.
+
 The comparison now records bounded SDK branch/failure counters without token
 or error contents. Its inference headers use the public caller's default
 `application/json` and omit `X-Requested-By`. All 106 focused Python cases and

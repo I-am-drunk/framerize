@@ -13,7 +13,7 @@ use framer_core::ids::{AccountId, FramerUserId};
 use framer_core::port::{CastleToken, Session};
 use futures::task::AtomicWaker;
 use futures::{Future, Stream};
-use reqwest::header::{HeaderValue, AUTHORIZATION, CONTENT_TYPE, ORIGIN, REFERER};
+use reqwest::header::{HeaderValue, AUTHORIZATION, CONTENT_TYPE, COOKIE, ORIGIN, REFERER};
 use serde_json::Value;
 use std::io::{self, Write};
 use std::pin::Pin;
@@ -419,6 +419,7 @@ pub struct NativeHttp {
     limits: NativeHttpLimits,
     in_flight: Arc<AtomicUsize>,
     explicit_proxy: Option<String>,
+    resident_browser_headers: bool,
 }
 
 /// Select egress from this account's private configuration. No environment
@@ -429,6 +430,15 @@ pub enum NativeEgress<'a> {
 }
 
 impl NativeHttp {
+    /// Opt in to the serving browser's inference header contract for an
+    /// owner-managed comparison. The supplied Session must be its current,
+    /// API-selected jar, retained under the same resident-context lease.
+    /// This does not acquire that lease or reproduce browser TLS/HTTP behavior.
+    pub fn with_resident_browser_headers(mut self) -> Self {
+        self.resident_browser_headers = true;
+        self
+    }
+
     pub(super) fn matches_egress(&self, egress: &NativeEgress<'_>) -> bool {
         match egress {
             NativeEgress::Direct => self.explicit_proxy.is_none(),
@@ -485,6 +495,7 @@ impl NativeHttp {
         Ok(Self {
             account, active_user, client, base, limits, explicit_proxy,
             in_flight: Arc::new(AtomicUsize::new(0)),
+            resident_browser_headers: false,
         })
     }
 
@@ -614,15 +625,18 @@ impl NativeHttp {
         let mut bearer = HeaderValue::from_str(&format!("Bearer {}", auth.bearer))
             .map_err(|_| "native-http: invalid authorization header".to_owned())?;
         bearer.set_sensitive(true);
-        // Retain local credential validation. The public app includes cookies
-        // for bearer acquisition, but its cross-origin inference fetch uses
-        // the default same-origin mode, so only its bearer travels here.
-        HeaderValue::from_str(&auth.session.cookie_header)
+        // Default inference follows the public app's same-origin fetch mode.
+        // A resident-browser control explicitly uses its selected current jar.
+        let mut cookie = HeaderValue::from_str(&auth.session.cookie_header)
             .map_err(|_| "native-http: invalid cookie header".to_owned())?;
+        cookie.set_sensitive(true);
         // Recheck age immediately before dispatch. No mint/retry is attempted.
         self.validate_request(account, path, &auth, &castle)?;
+        let content_type = if self.resident_browser_headers {
+            "application/json; charset=utf-8"
+        } else { "application/json" };
         let request = self.client.post(format!("{}{path}", self.base))
-            .header(CONTENT_TYPE, "application/json")
+            .header(CONTENT_TYPE, content_type)
             // Inference belongs to the Framer application origin. Keep the
             // truthful native User-Agent and transport; this is not a browser.
             .header(ORIGIN, "https://framer.com")
@@ -633,6 +647,9 @@ impl NativeHttp {
             .header("accept-encoding", "identity")
             .header(AUTHORIZATION, bearer)
             .body(wire);
+        let request = if self.resident_browser_headers {
+            request.header(COOKIE, cookie).header("x-requested-by", "Framer")
+        } else { request };
         send_evidence::invoked()?;
         let send = request.send();
         let send_cancellation = cancellation.clone();

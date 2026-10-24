@@ -1,5 +1,12 @@
 # Serving architecture and branch policy
 
+The native transport has an explicit resident-browser header option for
+controlled comparisons. It includes the supplied current cookie jar, the
+serving host's JSON content type and `X-Requested-By`. The default still follows
+the public-app contract. This option does not supply a resident browser lease,
+change User-Agent or TLS, or select a proxy. A working-context comparison must
+retain its own account, page, device, bearer and cleanup ownership.
+
 `main` is the browser-based service. `browser-based` preserves that path as a
 maintained fallback. `browserless` is the separate development branch for the
 native transport and short-lived SDK worker. A Git push does not deploy either
