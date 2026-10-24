@@ -54,6 +54,12 @@ and uses genuine Node worker capabilities. The existing V2 constructors keep
 their behavior. The explicit profile requires one started and joined worker,
 two delivered messages and zero worker errors before it can release a token.
 This is a local completion condition, not evidence of upstream acceptance.
+The separate `createRealmV2Minter` profile evaluates the hash-verified, unchanged
+factory through `SourceTextModule` in that operation's JSDOM VM context. Its SDK
+export object belongs to the same window. It admits no module imports and copies
+no browser constructors into Node globals. Source evaluation has a synchronous
+timeout; the existing operation and child deadlines still bound the full work.
+The original dedicated profile continues to import the factory in Node.
 `v2_dedicated_worker.mjs` is a separate explicit resident entry for that profile.
 It keeps the existing private handoff protocol and enables the already-bound
 resident page URLs. The original V2 worker entry remains unchanged.

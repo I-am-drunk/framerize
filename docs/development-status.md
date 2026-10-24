@@ -29,6 +29,15 @@ pass with the revised 19-case inert suite (47,435,776-byte peak). Both suites ha
 zero swap or limit events and confirmed process-group cleanup; the unchanged
 real-thread results are reused. These checks make no new upstream claim.
 
+An explicit window-realm V2 profile is implemented but has not yet executed the
+SDK. Eight synthetic loader cases pass: hash and encoding rejection, static and
+dynamic import refusal, genuine window objects, isolated documents and fresh
+module state. The suite peaked at 67,801,088 bytes, with no swap or limit events
+and confirmed cleanup. Existing profiles retain Node module evaluation. The new
+profile changes where unchanged factory bytes execute; it does not synthesize
+constructors or modify navigator values. Its next qualification is one bounded,
+socket-denied synthetic operation with structural projection and token disposal.
+
 R14 also reached native HTTP with the explicit dedicated-worker V2 profile.
 The normal browser request and paired browser baseline returned HTTP 200
 with output. The isolated SDK completed and native HTTP returned complete
