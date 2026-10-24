@@ -5,7 +5,7 @@ import sys
 from resident_activity import ResidentRefused
 from resident_authorization import (
     _text, _positive, _uuid, _valid_page_url, _validate_acquire, ROUTES, LIMIT,
-    cookies_for_url, snapshot_header, login_cookie,
+    cookies_for_url, snapshot_header, login_cookie, _same_cookie_snapshot,
 )
 
 COMMAND = 'resident_authorization_bootstrap'
@@ -133,7 +133,7 @@ class Bootstrap:
                     or data['ok'] is not True or data['page_url'] != self.page_url
                     or data['device'] != before[1]):
                 refuse('wrapper_state')
-            if await self.snapshot() != before:
+            if not _same_cookie_snapshot(await self.snapshot(), before):
                 refuse('changed_snapshot')
             _validate_acquire(dict(project=self.req['project'], path=self.req['path'],
                 wrapper_url=data['wrapper_url'], wrapper_export=data['wrapper_export'],
