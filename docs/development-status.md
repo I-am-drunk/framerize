@@ -10,9 +10,17 @@ only from inference, preserving bearer authentication and local session/device
 validation. Its test binary compiles and all 39 focused cases pass, including
 the retained cookie-bearing login and malformed-credential refusal. Compile
 peak was 947,232,768 bytes; tests peaked at 33,083,392 bytes, with zero
-swap or memory events and verified teardown. The deployable build is pending.
-The running isolated binary is unchanged. This is a compatibility
-correction, not an established explanation for the security refusal.
+swap or memory events and verified teardown. The deployable build passed;
+API compilation peaked at 679,120,896 bytes and final link at 572,755,968 bytes.
+All 17 update-controller cases passed. Binary `3e9398d8` now runs only in the
+isolated instance, retaining worker `693051b1`. Its one live POST made one
+upstream send and received a complete 231-byte Framer security 403 after
+6.17 seconds to headers. Cleanup and account-history restoration were verified,
+with no second request and no change to the browser service. Native lifetime
+peak was 277,590,016 bytes with zero sampled swap; this is not a request-only
+measurement. The controller exited and its group was absent. Cookie omission
+alone did not resolve the refusal. Next, compare remaining current AI metadata
+semantics with native construction before selecting another experiment.
 See `reference/analysis/current-ai-request-contract-2026-10-24.md`.
 
 Public asset comparison on October 24 confirms wrapper drift: current Framer

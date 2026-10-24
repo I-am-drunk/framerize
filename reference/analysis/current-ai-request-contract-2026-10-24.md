@@ -10,7 +10,7 @@ Its shared serializer `Ja` (`UD`) calls current wrapper export `b` with
 the telemetry label `ai_request`, inserts `castleToken`, and adds `request`.
 Routes remain `/ai/v3/responses/` and `/ai/v3/openai/responses/`.
 
-The native client sends session and device cookies with inference. The
+Before correction `b57065b`, the native client sent cookies with inference. The
 public client explicitly uses `credentials: include` for bearer acquisition,
 but its separate inference fetch options omit credentials. The saved public
 bootstrap selects `https://api.framer.com` from `https://framer.com`.
@@ -29,6 +29,13 @@ Cookie transmission is a concrete compatibility difference. It does not
 establish the cause of the consumed security 403 or justify replaying it.
 Any native correction must retain local session/device ownership checks,
 cookie syntax checks, bearer acquisition, cooldowns and physical cleanup.
+
+Correction `b57065b` now omits inference cookies and passes 39 focused cases.
+The built executable `3e9398d8` was selected only on the isolated instance.
+Its one live request still returned a complete Framer security 403, with
+confirmed cleanup and unchanged browser service. See
+`native-inference-credentials-live-20261024.json`. The compatibility difference
+was real, but its correction alone did not resolve the refusal.
 
 Evidence is saved in scratch `native-ai-consumer-current-r1`. Four exact
 source excerpts total 13,366 bytes. REA parent `ev_ad75d7f72fc51036bebdc1e293987e3bf4a447865b6fcd7b435b0073fa3f9a58`
