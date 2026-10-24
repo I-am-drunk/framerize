@@ -12,6 +12,7 @@ fn baseline_fixture() -> (wire::Binding, CapturedPage, Value) {
     value["body_complete"] = json!(true);
     value["json_object"] = json!(true);
     value["accepted"] = json!(true);
+    value["refusal"] = Value::Null;
     (binding, page, value)
 }
 
@@ -99,6 +100,7 @@ fn baseline_acceptance_requires_the_complete_successful_response() {
     let (binding, page, value) = baseline_fixture();
     let baseline = wire::baseline(&binding, &page, HEADER, value).unwrap();
     assert!(baseline.permits_mint());
+    assert!(baseline.refusal.is_none());
     assert_eq!(baseline.header, HEADER);
 }
 
@@ -153,6 +155,33 @@ fn baseline_failure_or_inconsistent_success_never_permits_mint() {
     let (binding, page, mut value) = baseline_fixture();
     value["accepted"] = json!(false);
     assert!(!wire::baseline(&binding, &page, HEADER, value).unwrap().permits_mint());
+    use framer_api::classify::{Refusal, RefusalBasis};
+    for (policy, basis, expected_policy, expected_basis) in [
+        ("castle", "framer_security_envelope", Refusal::Castle, RefusalBasis::FramerSecurityEnvelope),
+        ("castle", "framer_marker", Refusal::Castle, RefusalBasis::FramerMarker),
+        ("upstream", "provider_marker", Refusal::Upstream, RefusalBasis::ProviderMarker),
+        ("castle", "elapsed_fallback", Refusal::Castle, RefusalBasis::ElapsedFallback),
+        ("upstream", "elapsed_fallback", Refusal::Upstream, RefusalBasis::ElapsedFallback),
+    ] {
+        for settled in [true, false] {
+            let (binding, page, mut value) = baseline_fixture();
+            value["status"] = json!(403);
+            value["accepted"] = json!(false);
+            value["browser_settled"] = json!(settled);
+            value["json_object"] = json!(false);
+            value["refusal"] = json!({"policy":policy, "basis":basis});
+            let baseline = wire::baseline(&binding, &page, HEADER, value).unwrap();
+            let mut report = Report::default();
+            assert_eq!(attempt::record_baseline(&mut report, &baseline), Err(Failure::Baseline));
+            let refusal = report.refusal.unwrap();
+            assert_eq!(refusal.policy, expected_policy);
+            assert_eq!(refusal.basis, expected_basis);
+            assert_eq!(report.baseline_status, Some(403));
+            assert_eq!(report.cleanup_confirmed, settled);
+            assert!(report.baseline_body_complete);
+            assert!(!report.baseline_accepted && !report.native_invoked);
+        }
+    }
 }
 
 #[test]
@@ -164,6 +193,28 @@ fn baseline_rejects_non_boolean_flags_and_non_http_status() {
         let (binding, page, mut value) = baseline_fixture();
         value[key] = bad;
         assert!(wire::baseline(&binding, &page, HEADER, value).is_err(), "{key}");
+    }
+    for bad in [json!(true), json!("castle"), json!([]), json!({}),
+        json!({"policy":"castle"}), json!({"basis":"framer_marker"}),
+        json!({"policy":"other", "basis":"framer_marker"}),
+        json!({"policy":"castle", "basis":"other"}),
+        json!({"policy":"castle", "basis":"provider_marker"}),
+        json!({"policy":"upstream", "basis":"framer_marker"}),
+        json!({"policy":"upstream", "basis":"framer_security_envelope"}),
+        json!({"policy":"castle", "basis":"framer_marker", "body":"private"})] {
+        let (binding, page, mut value) = baseline_fixture();
+        value["status"] = json!(403);
+        value["accepted"] = json!(false);
+        value["refusal"] = bad;
+        assert!(wire::baseline(&binding, &page, HEADER, value).is_err());
+    }
+    for (status, complete) in [(200, true), (500, true), (403, false)] {
+        let (binding, page, mut value) = baseline_fixture();
+        value["status"] = json!(status);
+        value["accepted"] = json!(false);
+        value["body_complete"] = json!(complete);
+        value["refusal"] = json!({"policy":"castle", "basis":"framer_marker"});
+        assert!(wire::baseline(&binding, &page, HEADER, value).is_err());
     }
 }
 

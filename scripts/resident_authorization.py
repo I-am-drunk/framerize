@@ -671,7 +671,8 @@ class _CrossoverOperation(_Operation):
             if action == 'baseline':
                 if self.payload is None:
                     self.payload = self.context_payload('baseline_complete',
-                        status=None, body_complete=False, json_object=False, accepted=False)
+                        status=None, body_complete=False, json_object=False,
+                        accepted=False, refusal=None)
                 self.payload.update(accepted=False, browser_settled=not self.browser_unknown)
 
     async def charged_mint(self):
@@ -719,7 +720,8 @@ class _CrossoverOperation(_Operation):
             except (ValueError, TypeError, RecursionError):
                 pass
         self.payload = self.context_payload('baseline_complete', status=evidence['status'],
-            body_complete=evidence['response_complete'], json_object=json_object, accepted=False)
+            body_complete=evidence['response_complete'], json_object=json_object,
+            accepted=False, refusal=evidence['refusal'])
         return evidence
 
     async def baseline(self, req):

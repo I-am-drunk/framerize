@@ -159,6 +159,15 @@ fn refusal_and_failure_names_are_fixed_facts() {
     assert_eq!(value["failure"], "native");
     assert_eq!(value["refusal_policy"], "castle");
     assert_eq!(value["refusal_basis"], "framer_security_envelope");
+    let baseline = Report { failure: Some(Failure::Baseline), baseline_status: Some(403),
+        baseline_body_complete: true, refusal: report.refusal, ..Report::default() };
+    let baseline_value = serde_json::to_value(facts(&baseline)).unwrap();
+    assert_eq!(baseline_value["failure"], "baseline");
+    assert_eq!(baseline_value["baseline_status"], 403);
+    assert_eq!(baseline_value["native_invoked"], false);
+    assert!(baseline_value["status"].is_null());
+    assert_eq!(baseline_value["refusal_policy"], "castle");
+    assert_eq!(baseline_value["refusal_basis"], "framer_security_envelope");
     for field in ["request", "reply", "token", "headers", "body", "account_id", "user_prompt"] {
         assert!(value.get(field).is_none());
     }

@@ -132,12 +132,7 @@ async fn execute(operation: &Operation, spec: Specification, baseline_turn: Stri
         .map_err(|_| Failure::Baseline)?;
     let baseline = wire::baseline(&operation.binding, page, &acquired.header,
         reply.into_unverified_value())?;
-    report.cleanup_confirmed = baseline.browser_settled;
-    report.baseline_status = baseline.status;
-    report.baseline_body_complete = baseline.body_complete;
-    report.baseline_json_object = baseline.json_object;
-    if !baseline.permits_mint() { return Err(Failure::Baseline); }
-    report.baseline_accepted = true;
+    record_baseline(report, &baseline)?;
     active_until(control, deadline)?;
     let observation = ResidentObservation::from_unverified_reply(&identity, &target.project,
         target.path, &page.page_url, &page.device_id, &baseline.header,
@@ -161,6 +156,18 @@ async fn execute(operation: &Operation, spec: Specification, baseline_turn: Stri
     drop(rpc);
     send(operation, &http, target.path, &body, &current, credentials, control,
         deadline, report).await
+}
+
+pub(super) fn record_baseline(report: &mut Report, baseline: &wire::Baseline)
+    -> Result<(), Failure> {
+    report.cleanup_confirmed = baseline.browser_settled;
+    report.baseline_status = baseline.status;
+    report.baseline_body_complete = baseline.body_complete;
+    report.baseline_json_object = baseline.json_object;
+    report.refusal = baseline.refusal;
+    if !baseline.permits_mint() { return Err(Failure::Baseline); }
+    report.baseline_accepted = true;
+    Ok(())
 }
 
 #[allow(clippy::too_many_arguments)]
