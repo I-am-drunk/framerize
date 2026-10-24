@@ -1,5 +1,11 @@
 # Serving architecture and branch policy
 
+The resident baseline carries only the existing refusal policy and evidence
+basis across its private reply boundary. Strict decoding binds these facts to
+the lease and original context. The coordinator records them before refusing
+native continuation, so later health publication can retain a browser refusal
+even when the page fails its post-fetch checks. No raw response is published.
+
 The optional Linux resident socket is bound at daemon startup, before serving
 or prewarm. It requires an owned private directory and a same-UID peer, caps
 the entire frame at 96 KiB and admits four connections. The original socket

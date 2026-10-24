@@ -102,6 +102,7 @@ pub(super) struct Baseline {
     pub body_complete: bool,
     pub json_object: bool,
     pub accepted: bool,
+    pub refusal: Option<framer_api::classify::RefusalObservation>,
 }
 impl Baseline {
     pub fn permits_mint(&self) -> bool {
@@ -112,7 +113,7 @@ impl Baseline {
 
 pub(super) fn baseline(binding: &Binding, page: &CapturedPage, header: &str,
     mut value: Value) -> Result<Baseline, Failure> {
-    let extras = [CONTEXT, &["status", "body_complete", "json_object", "accepted"]].concat();
+    let extras = [CONTEXT, &["status", "body_complete", "json_object", "accepted", "refusal"]].concat();
     if !keys(&value, &extras) || !context_matches(binding, page, &value)
         || value["state"].as_str() != Some("baseline_complete")
         || value["cookie_header"].as_str() != Some(header) {
@@ -126,11 +127,30 @@ pub(super) fn baseline(binding: &Binding, page: &CapturedPage, header: &str,
     let body_complete = flag(&value, "body_complete")?;
     let json_object = flag(&value, "json_object")?;
     let accepted = flag(&value, "accepted")?;
+    let refusal = refusal(&value["refusal"])?;
+    if refusal.is_some() && (status != Some(403) || !body_complete) {
+        return Err(Failure::Baseline);
+    }
     if accepted && !(browser_settled && status == Some(200) && body_complete && json_object) {
         return Err(Failure::Baseline);
     }
     Ok(Baseline { header: take_text(&mut value, "cookie_header")?, browser_settled,
-        status, body_complete, json_object, accepted })
+        status, body_complete, json_object, accepted, refusal })
+}
+
+fn refusal(value: &Value) -> Result<Option<framer_api::classify::RefusalObservation>, Failure> {
+    use framer_api::classify::{Refusal, RefusalBasis, RefusalObservation};
+    if value.is_null() { return Ok(None); }
+    if !value.as_object().is_some_and(|map| map.len() == 2) { return Err(Failure::Baseline); }
+    let (policy, basis) = match (value["policy"].as_str(), value["basis"].as_str()) {
+        (Some("upstream"), Some("provider_marker")) => (Refusal::Upstream, RefusalBasis::ProviderMarker),
+        (Some("castle"), Some("framer_security_envelope")) => (Refusal::Castle, RefusalBasis::FramerSecurityEnvelope),
+        (Some("castle"), Some("framer_marker")) => (Refusal::Castle, RefusalBasis::FramerMarker),
+        (Some("upstream"), Some("elapsed_fallback")) => (Refusal::Upstream, RefusalBasis::ElapsedFallback),
+        (Some("castle"), Some("elapsed_fallback")) => (Refusal::Castle, RefusalBasis::ElapsedFallback),
+        _ => return Err(Failure::Baseline),
+    };
+    Ok(Some(RefusalObservation { policy, basis }))
 }
 
 fn flag(value: &Value, key: &str) -> Result<bool, Failure> {

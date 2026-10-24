@@ -3,6 +3,17 @@
 Updated 2026-10-24. The normal service remains browser-based. Publishing these
 branches does not change the running service.
 
+Resident baseline replies now retain the existing refusal classification as
+fixed policy/basis labels. The strict Rust decoder validates those labels and
+records them before rejecting the baseline, allowing the existing risk-history
+publisher to apply its normal policy. This does not attribute the original
+HTTP 403 to an SDK defect. Both supplied five-case navigation/refusal fixtures
+are integrated; existing Rust and Python cases cover the new field and reject
+malformed replies. Syntax and whitespace checks pass; execution is pending.
+Earlier r2 validation snapshots predate this change and must not be run as
+current evidence. Local device cooling after document invalidation remains a
+separate issue because its mutation needs surviving account/container identity.
+
 Current-main validation is now prepared in a separate immutable local snapshot.
 It covers all 29 socket and three CLI cases plus a linked daemon build, reusing
 only verified builds from the current dependency graph. Preparation syntax,

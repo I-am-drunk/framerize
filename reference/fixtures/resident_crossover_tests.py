@@ -146,6 +146,7 @@ class ResidentCrossoverTests(unittest.IsolatedAsyncioTestCase):
         lease = self.life.activity.current
         baseline = await self.control.command(self.baseline())
         self.assertTrue(baseline['accepted'] and baseline['json_object'])
+        self.assertIsNone(baseline['refusal'])
         self.assertNotIn('token', baseline)
         native = await self.control.command(self.phase('mint_native'))
         self.assertEqual(native['token'], 'synthetic-token-2')
@@ -206,6 +207,7 @@ class ResidentCrossoverTests(unittest.IsolatedAsyncioTestCase):
         reply = await self.control.command(self.baseline())
         self.assertFalse(reply['accepted'])
         self.assertTrue(reply['browser_settled'])
+        self.assertIsNone(reply['refusal'])
         with self.assertRaises(ResidentRefused):
             await self.control.command(self.phase('mint_native'))
         self.assertEqual(len(self.page.tokens), 1)
@@ -284,6 +286,7 @@ class ResidentCrossoverTests(unittest.IsolatedAsyncioTestCase):
         await self.acquired()
         self.page.raise_at = 'fetch'
         reply = await self.control.command(self.baseline())
+        self.assertIsNone(reply['refusal'])
         self.assertFalse(reply['accepted'] or reply['browser_settled'])
         self.assertNotIn('private', repr(reply))
         self.assertTrue(self.life.activity.fenced)
@@ -391,7 +394,9 @@ class ResidentCrossoverTests(unittest.IsolatedAsyncioTestCase):
     async def test_fast_403_keeps_device_cooldown_and_never_mints_native(self):
         await self.acquired()
         self.page.raw = response({'error': 'refused'}, status=403)
-        self.assertFalse((await self.control.command(self.baseline()))['accepted'])
+        reply = await self.control.command(self.baseline())
+        self.assertFalse(reply['accepted'])
+        self.assertEqual(reply['refusal'], {'policy': 'castle', 'basis': 'elapsed_fallback'})
         self.assertGreater(self.acc.dev_cooling[None], time.monotonic())
         with self.assertRaises(ResidentRefused):
             await self.control.command(self.phase('mint_native'))
