@@ -1,5 +1,5 @@
 use super::*;
-use futures::FutureExt;
+use futures::{FutureExt, StreamExt};
 use serde_json::json;
 
 #[path = "../native_dispatch/loopback.rs"]
@@ -13,8 +13,13 @@ fn run(work: impl Future<Output = ()>) {
 }
 
 fn inputs(address: std::net::SocketAddr) -> (NativeHttp, AccountId, Session, Value) {
+    inputs_for_user(address, "fixture-user")
+}
+
+fn inputs_for_user(address: std::net::SocketAddr, user: &str)
+    -> (NativeHttp, AccountId, Session, Value) {
     let account = AccountId(uuid::Uuid::new_v4());
-    let user = FramerUserId("fixture-user".into());
+    let user = FramerUserId(user.into());
     let client = NativeHttp::for_loopback(account, user.clone(), address,
         NativeHttpLimits { request_timeout: STEP, connect_timeout: STEP, ..Default::default() }).unwrap();
     (client, account, Session { active_user: user,
@@ -22,7 +27,11 @@ fn inputs(address: std::net::SocketAddr) -> (NativeHttp, AccountId, Session, Val
 }
 
 fn token(account: AccountId) -> FreshCastleToken {
-    FreshCastleToken::from_sdk_output(account, CastleToken("fixture-token".into()))
+    token_with_value(account, "fixture-token")
+}
+
+fn token_with_value(account: AccountId, value: &str) -> FreshCastleToken {
+    FreshCastleToken::from_sdk_output(account, CastleToken(value.into()))
 }
 
 async fn wait_for(count: &AtomicUsize) {
@@ -134,6 +143,86 @@ fn resident_control_cancellation_still_joins_without_response_headers() {
     let ended = server.finish();
     assert_eq!(ended.fault, None);
     assert_eq!((ended.accepted, ended.requests, ended.headers, ended.peer_eof), (1, 1, 0, 1));
+}
+
+#[test]
+fn cancelling_one_account_preserves_another_accounts_request() {
+    let expected = |castle: &str| vec![Expected { path: PATH,
+        envelope: json!({"stream": true, "castleToken": castle}),
+        reply: Reply::json(json!({"fixture": "complete"})) }];
+    let first_server = Server::with_held_headers_and_authorization(
+        expected("fixture-first-token"), "Bearer fixture-first-bearer");
+    let second_server = Server::with_held_headers_and_authorization(
+        expected("fixture-second-token"), "Bearer fixture-second-bearer");
+    run(async {
+        let (first, first_account, first_session, first_body) =
+            inputs_for_user(first_server.address, "fixture-first-user");
+        let (second, second_account, second_session, second_body) =
+            inputs_for_user(second_server.address, "fixture-second-user");
+        assert_ne!(first_account, second_account);
+        assert_ne!(first_session.active_user, second_session.active_user);
+        let first_cancel = NativeCancellation::new();
+        let mut first_request = first.ai_post_stream_tracked(&first_account, PATH,
+            AccountRequestAuth::new(first_account, &first_session, "fixture-first-bearer"),
+            &first_body, token_with_value(first_account, "fixture-first-token"), first_cancel.clone());
+        let mut second_request = second.ai_post_stream_tracked(&second_account, PATH,
+            AccountRequestAuth::new(second_account, &second_session, "fixture-second-bearer"),
+            &second_body, token_with_value(second_account, "fixture-second-token"), NativeCancellation::new());
+        tokio::time::timeout(STEP, async {
+            loop {
+                assert!((&mut first_request.response).now_or_never().is_none());
+                assert!((&mut second_request.response).now_or_never().is_none());
+                if first_server.shared.requests.load(Ordering::Acquire) == 1
+                    && second_server.shared.requests.load(Ordering::Acquire) == 1 { break; }
+                tokio::time::sleep(TICK).await;
+            }
+        }).await.unwrap();
+        assert_eq!(first.in_flight.load(Ordering::Acquire), 1);
+        assert_eq!(second.in_flight.load(Ordering::Acquire), 1);
+        for (auth_account, session, token_account, error) in [
+            (first_account, &first_session, second_account, "native-http: account mismatch"),
+            (second_account, &first_session, second_account, "native-http: session identity mismatch"),
+            (second_account, &second_session, first_account, "native-http: account mismatch"),
+        ] {
+            let crossed = second.ai_post_stream_tracked(&second_account, PATH,
+                AccountRequestAuth::new(auth_account, session, "fixture-second-bearer"),
+                &second_body, token_with_value(token_account, "fixture-second-token"), NativeCancellation::new());
+            assert_eq!(crossed.response.await.err().as_deref(), Some(error));
+            assert_eq!(crossed.closed.await, Ok(()));
+        }
+        first_cancel.cancel();
+        assert_eq!(first_request.response.await.err().as_deref(), Some(CANCELLED));
+        assert_eq!(first_request.closed.await, Ok(()));
+        wait_for(&first_server.shared.peer_eof).await;
+        assert_eq!(first.in_flight.load(Ordering::Acquire), 0);
+        assert_eq!(second.in_flight.load(Ordering::Acquire), 1);
+        assert!((&mut second_request.response).now_or_never().is_none());
+        assert!((&mut second_request.closed).now_or_never().is_none());
+        assert_eq!(second_server.shared.requests.load(Ordering::Acquire), 1);
+        assert_eq!(second_server.shared.headers.load(Ordering::Acquire), 0);
+        second_server.shared.release_headers.store(true, Ordering::Release);
+        let mut response = tokio::time::timeout(STEP, second_request.response)
+            .await.unwrap().unwrap();
+        assert_eq!(response.status, 200);
+        let mut received = Vec::new();
+        tokio::time::timeout(STEP, async {
+            while let Some(chunk) = response.body.next().await {
+                received.extend_from_slice(&chunk.unwrap());
+            }
+        }).await.unwrap();
+        assert_eq!(serde_json::from_slice::<Value>(&received).unwrap(),
+            json!({"fixture": "complete"}));
+        assert_eq!(second_request.closed.await, Ok(()));
+        assert_eq!(second.in_flight.load(Ordering::Acquire), 0);
+    });
+    let first_ended = first_server.finish();
+    let second_ended = second_server.finish();
+    assert_eq!(first_ended.fault, None);
+    assert_eq!(second_ended.fault, None);
+    assert_eq!((first_ended.accepted, first_ended.requests, first_ended.headers,
+        first_ended.peer_eof), (1, 1, 0, 1));
+    assert_eq!((second_ended.accepted, second_ended.requests, second_ended.headers,
+        second_ended.replies), (1, 1, 1, 1));
 }
 
 #[test]

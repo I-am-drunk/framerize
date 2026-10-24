@@ -15,6 +15,7 @@ const SERVER_LIFE: Duration = Duration::from_secs(12);
 const MAX_PEERS: usize = 4;
 const MAX_REQUEST: usize = 64 * 1024;
 const MAX_REPLY: usize = 32 * 1024;
+const DEFAULT_AUTHORIZATION: &str = "Bearer fixture-application-bearer";
 
 #[derive(Clone)]
 pub(super) struct Expected {
@@ -72,6 +73,7 @@ pub(super) struct Shared {
     pub stop: AtomicBool,
     hold_headers: bool,
     resident_headers: bool,
+    authorization: &'static str,
     pub release_headers: AtomicBool,
     pub release_body: AtomicBool,
     pub accepted: AtomicUsize,
@@ -99,25 +101,33 @@ pub(super) struct Server {
 
 impl Server {
     pub fn new(expected: Vec<Expected>) -> Self {
-        Self::create(expected, false, false)
+        Self::create(expected, false, false, DEFAULT_AUTHORIZATION)
     }
 
     pub fn with_held_headers(expected: Vec<Expected>) -> Self {
-        Self::create(expected, true, false)
+        Self::create(expected, true, false, DEFAULT_AUTHORIZATION)
     }
 
     pub fn with_resident_headers(expected: Vec<Expected>, hold_headers: bool) -> Self {
-        Self::create(expected, hold_headers, true)
+        Self::create(expected, hold_headers, true, DEFAULT_AUTHORIZATION)
     }
 
-    fn create(expected: Vec<Expected>, hold_headers: bool, resident_headers: bool) -> Self {
+    pub fn with_held_headers_and_authorization(
+        expected: Vec<Expected>, authorization: &'static str,
+    ) -> Self {
+        Self::create(expected, true, false, authorization)
+    }
+
+    fn create(expected: Vec<Expected>, hold_headers: bool, resident_headers: bool,
+        authorization: &'static str) -> Self {
         assert!(expected.len() <= MAX_PEERS);
         let listener = TcpListener::bind((Ipv4Addr::LOCALHOST, 0))
             .expect("application loopback bind");
         listener.set_nonblocking(true).expect("application nonblocking listener");
         let address = listener.local_addr().expect("application loopback address");
         assert!(matches!(address, SocketAddr::V4(a) if *a.ip() == Ipv4Addr::LOCALHOST));
-        let shared = Arc::new(Shared { hold_headers, resident_headers, ..Shared::default() });
+        let shared = Arc::new(Shared { hold_headers, resident_headers, authorization,
+            ..Shared::default() });
         let state = shared.clone();
         let worker = thread::spawn(move || serve(listener, expected, state));
         Self { address, shared, worker: Some(worker) }
@@ -283,7 +293,7 @@ impl Peer {
                 && header_value(head, "content-type")? == "application/json"
         };
         if !contract_matches
-            || header_value(head, "authorization")? != "Bearer fixture-application-bearer"
+            || header_value(head, "authorization")? != shared.authorization
             || header_value(head, "origin")? != "https://framer.com"
             || header_value(head, "referer")? != "https://framer.com/"
             || header_value(head, "user-agent")? != "Framerize/0.1"

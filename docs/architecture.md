@@ -8,6 +8,13 @@ sentinel. API test compilation and all eleven classifier cases pass in the
 isolated runner. This correction does not change security acceptance or the
 frozen R16 executable.
 
+The loopback HTTP fixtures hold requests from two account/session owners at
+once. Cancelling one joins its connection while the other retains its permit
+and completes. Each server checks its own synthetic bearer and token bytes;
+crossed account, session and token-owner inputs are refused before connection.
+The final eight-case suite passes. This is local ownership and wire-isolation
+evidence, not external account acceptance.
+
 The experimental resident SDK path now borrows its existing token after child
 join and same-device host confirmation for a bounded Rust structural projection.
 It emits only group/field IDs, type tags and encoded lengths under the original
