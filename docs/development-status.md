@@ -10,6 +10,9 @@ A separate context/query-only run passed at 55,771,136 bytes with zero swap or
 memory events and verified teardown. That is a component result, not a Node/SDK
 integration or delivery result. Next is a direct native binding measurement.
 See `scripts/experiments/native_gl`; neither running service changed.
+The direct Node/EGL query binding subsequently passed at 47,398,912 bytes,
+with driver field hashes matching Python, lifetime checks and clean teardown.
+DOM/SDK integration and full WebGL behavior remain untested.
 
 A new bundle fills the SDK's separate dedicated Worker API gap. Its
 two pinned scripts now run in real Node threads with the native user agent.
