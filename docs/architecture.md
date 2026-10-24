@@ -1,5 +1,11 @@
 # Serving architecture and branch policy
 
+The private resident RPC client binds the daemon's existing SidecarBridge and
+checks its incarnation while selecting the pipe and registering the reply.
+It cannot start a missing sidecar. Bounded acquire/finish/discard requests use
+protocol version 1. Transport replies remain unverified until the resident
+owner validates them; cancellation alone does not establish settlement.
+
 Completed normal browser HTTP 200 responses retain an in-memory record of
 the actual page, context, browser, project and lifecycle incarnation selected
 before the send. The record also binds the launch proxy and realm capability.

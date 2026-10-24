@@ -3,6 +3,14 @@
 Updated 2026-10-24. The normal service remains browser-based. Publishing these
 branches does not change the running service.
 
+The generation-bound resident RPC client compiles and passes all 10 focused
+inert tests. These cover exact frames, missing/replaced/dead owners, ordinary
+RPC compatibility and cancellation ownership. Test peak was 12,668,928 bytes,
+with zero swap or limit events and confirmed runner removal. The original
+full host build was refused before execution by memory admission; a focused
+build passed under a 768 MiB cap. No resident command is activated by this
+transport helper, and its replies still require owner-side validation.
+
 The browser HTTP-200 provenance helper passes all 16 inert cases in a
 network-isolated runner. It binds the actual pre-send objects and invalidates
 closed or replaced objects without another mint, browser call or request.
