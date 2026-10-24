@@ -64,6 +64,13 @@ was read. The next capture-package step is linking the qualified writer into
 its dependent binary and freezing the strict decoder with the collector.
 Actual native capture and accepted native inference remain unverified.
 
+The report projection also rejects non-plain entry keys after validation and
+raises fixed failures only after clearing mutable input and leaving the caught
+handler. All 15 combined cases pass (`014e8aaf`, peak 17,879,040 bytes), including
+disguised string keys, genuine parser output and control-flow exceptions. Inputs
+were unchanged, swap and limit events were zero, and the process group exited.
+Shared validators remain unchanged. This is synthetic qualification only.
+
 The request-path correction is integrated as `216350e`. Its exact 19-case
 qualification is reused from receipt `65937832`: all pass, 17,039,360-byte peak,
 zero swap/limit events and process group absent. The preflight now checks the
