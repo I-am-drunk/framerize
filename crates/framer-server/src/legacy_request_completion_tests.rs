@@ -27,6 +27,99 @@ fn request(dialect: &str, header: bool, stream: bool, account: AccountId) -> Req
         "input":"fixture", "messages":[{"role":"user","content":"fixture"}]}).to_string())).unwrap()
 }
 
+// Regression for the uncancellable first paid permit at ff723aaa:lib.rs:498.
+// Requires the Server-owned correction; this source lane does not execute it.
+#[tokio::test(flavor = "current_thread")]
+async fn metered_first_permit_disconnect_drains_before_permit_release() {
+    for dialect in DIALECTS { for header in [false, true] { for stream in [false, true] {
+        let (mut state, ports, scope, gate) = setup().await;
+        state.gate = Arc::new(framer_core::gate::ConcurrencyGate::with_config(
+            framer_core::gate::GateConfig { initial: 1, min: 1, max: 1,
+                recover_ms: 100_000, relax_ms: 100_000, min_interval_ms: 0 }));
+        let key = format!("team-1:{}", framer_core::convert::to_openrouter_id("fixture"));
+        let held = state.gate.acquire(&key).await;
+        let before = records(&ports);
+        ports.pause_usage.store(true, Ordering::SeqCst);
+        let app = crate::router(state.clone(), "/fixture-no-web");
+        let waiter = tokio::spawn(app.oneshot(request(dialect, header, stream, id(1))));
+        until(|| ports.usage_captured.load(Ordering::SeqCst) == 1).await;
+        assert_eq!(ports.request_started.load(Ordering::SeqCst), 0);
+        ports.usage_gate.add_permits(1);
+        // On this current-thread fixture, the synchronous upsert returns before
+        // the handler yields at its occupied model permit. No new port seam.
+        until(|| ports.account_writes.load(Ordering::SeqCst) == 1).await;
+        assert!(!waiter.is_finished());
+        assert_eq!(gate.stats().unwrap().active, 2);
+        assert_eq!(slot(&state, id(1)).users, 1);
+        assert!(!slot(&state, id(1)).uncertain);
+        assert!(state.gate.acquire_now(&key).await.is_none());
+        waiter.abort();
+        let error = tokio::time::timeout(WAIT, waiter).await.unwrap().unwrap_err();
+        assert!(error.is_cancelled());
+        // Drain the application owner before releasing the test's A permit.
+        finished(&state, &scope, &gate, false, false).await;
+        assert_eq!(records(&ports), before);
+        assert!(ports.proxy_calls.lock().unwrap().is_empty());
+        assert_eq!(ports.request_started.load(Ordering::SeqCst), 0);
+        assert_eq!(ports.request_steps.load(Ordering::SeqCst), 0);
+        assert_eq!(ports.request_drops.load(Ordering::SeqCst), 0);
+        assert_eq!(ports.response_drops.load(Ordering::SeqCst), 0);
+        assert_eq!(ports.account_writes.load(Ordering::SeqCst), 1);
+        assert_eq!(ports.mint_routes.lock().unwrap().iter().map(|entry| entry.0)
+            .collect::<Vec<_>>(), vec![id(1)]);
+        assert!(state.gate.acquire_now(&key).await.is_none());
+        *ports.proxy_chunks.lock().unwrap() = Some(chunks(dialect));
+        ports.request_gate.add_permits(2);
+        ports.response_gate.add_permits(2);
+        let response = send(&state, request(dialect, header, stream, id(2))).await;
+        assert_eq!(response.status(), StatusCode::OK);
+        assert_eq!(response.headers()["x-framerize-session"], "paid-fixture-chat");
+        let bytes = tokio::time::timeout(WAIT, to_bytes(response.into_body(), 65536))
+            .await.unwrap().unwrap();
+        if stream { assert_eq!(bytes.as_ref(), chunks(dialect).concat().as_slice()); }
+        else { assert_eq!(serde_json::from_slice::<Value>(&bytes).unwrap(), outcome(dialect)); }
+        until(|| gate.stats().unwrap().active == 1).await;
+        assert!(!gate.stats().unwrap().unconfirmed);
+        let resident = slot(&state, id(2));
+        assert_eq!(resident.users, 0);
+        assert!(!resident.uncertain);
+        assert_eq!(state.serving_accounts.residents.snapshot().unwrap().occupied, 1);
+        let mut expected = before;
+        expected[1]["credit"] = json!({"available":1000.0,"funds":1,"grants":1,"allocated":1000.0});
+        assert_eq!(records(&ports), expected);
+        assert_eq!(ports.account_writes.load(Ordering::SeqCst), 2);
+        assert_eq!(*ports.proxy_calls.lock().unwrap(), vec![(FramerUserId("user-2".into()),
+            id(2), ProjectId("project-2".into()), dialect.into(), "paid-fixture-chat".into())]);
+        assert_eq!(ports.request_started.load(Ordering::SeqCst), 1);
+        assert_eq!(ports.request_finished.load(Ordering::SeqCst), 1);
+        assert_eq!(ports.request_steps.load(Ordering::SeqCst), 2);
+        assert_eq!(ports.request_drops.load(Ordering::SeqCst), 1);
+        assert_eq!(ports.response_drops.load(Ordering::SeqCst), 1);
+        assert_eq!(ports.setting_writes.load(Ordering::SeqCst), 0);
+        assert_eq!(ports.mint_routes.lock().unwrap().iter().map(|entry| entry.0)
+            .collect::<Vec<_>>(), vec![id(1), id(2)]);
+        assert_eq!(ports.max_live.load(Ordering::SeqCst), 1);
+        assert_eq!(ports.live.lock().unwrap().len(), 1);
+        assert!(ports.live.lock().unwrap().contains_key(&id(2)));
+        assert_eq!(ports.events.lock().unwrap().iter()
+            .filter(|event| **event == ("close_confirmed", id(1))).count(), 1);
+        let mut ticket = scope.seal().unwrap();
+        let proof = tokio::time::timeout(WAIT, ticket.wait_application()).await.unwrap().unwrap();
+        scope.check_application_drained(&proof).unwrap();
+        drop(proof);
+        {
+            let waiting = ticket.wait();
+            tokio::pin!(waiting);
+            assert!(futures::poll!(waiting.as_mut()).is_pending());
+        }
+        ticket.cancel_before_control().unwrap();
+        assert_eq!(gate.stats().unwrap().active, 1);
+        assert!(!gate.stats().unwrap().unconfirmed);
+        assert!(state.gate.acquire_now(&key).await.is_none());
+        drop(held);
+    } } }
+}
+
 async fn send(state: &AppState, request: Request<Body>) -> Response {
     tokio::time::timeout(WAIT, crate::router(state.clone(), "/fixture-no-web").oneshot(request))
         .await.unwrap().unwrap()

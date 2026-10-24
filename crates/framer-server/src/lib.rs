@@ -495,7 +495,13 @@ async fn compat_forward_observed(
         .as_ref()
         .map(|t| format!("{}:{gate_model}", t.0))
         .unwrap_or_else(|| "default".to_string());
-    let _permit = Arc::new(s.gate.acquire(&gate_key).await);
+    let _permit = Arc::new(tokio::select! {
+        biased;
+        _ = operation_ownership::request_disconnected() => {
+            return Err(ApiError::Internal("client cancelled".into()));
+        }
+        permit = s.gate.acquire(&gate_key) => permit,
+    });
     cleanup.admission(current_account(&s, account.id).await)?;
 
     // STREAMING CLIENTS: return immediately with an SSE response; the upstream
