@@ -27,8 +27,11 @@ SDK errors, or identity change. The public fixture configuration was placed
 in that same realm; no SDK bytes were changed. The browser exited normally,
 its group was absent, peak group usage was 833,970,176 bytes with 176 tasks,
 and recorded swap and limit events were zero. These findings qualify the
-local caller correction, not the cause of earlier HTTP 403s. Comparison-only
-integration and a live browser/native comparison remain pending.
+local caller correction, not the cause of earlier HTTP 403s. The correction
+is now integrated only for the reserved comparison browser. All 148 focused
+Python cases pass, including ordinary authorization, cleanup, cookie checks
+and six new realm-selection cases. The next live comparison is frozen as R12
+with the qualified 64 MiB file cap; it remains unrun.
 
 The latest isolated comparison (R10) stopped before minting because its cookie
 header differed from the snapshot used to acquire the bearer. No inference
