@@ -1,5 +1,12 @@
 # Serving architecture and branch policy
 
+V2 verifies its pinned SDK, settlement helper and DOM dependencies before and
+after the operation using streamed SHA-256 reads with a 64 KiB buffer. Native
+libraries are never loaded wholesale just to hash them. Read failures still
+close the descriptor and refuse the operation; hash mismatches retain the
+existing input-identity failure. This changes verification allocation only,
+not SDK selection, identity checks or the configured DOM dependency bundle.
+
 AI POST job failures retain the stage (`fetch` or `body`) and any status
 observed after fetch resolves. Both failures still return status `-1`; a
 received head never grants completion, provenance or retry authority. The

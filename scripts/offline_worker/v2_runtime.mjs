@@ -9,11 +9,23 @@ import { LegacyV2Operation } from './v2_operation.mjs';
 const FACTORY = HISTORY + '/runtime/framer-v2-factory.mjs';
 const FACTORY_HASH = 'df5a150be914e7d267126f35de92934993e7930f18c3fd00bf79a86bd788ec58';
 const count = (report, name) => { report[name] = Math.min(1000000, report[name] + 1); };
+export function hashV2Input(path) {
+  const digest = createHash('sha256'), buffer = Buffer.allocUnsafe(64 * 1024);
+  const descriptor = fs.openSync(path, 'r');
+  try {
+    for (;;) {
+      const count = fs.readSync(descriptor, buffer, 0, buffer.length, null);
+      if (count === 0) break;
+      digest.update(buffer.subarray(0, count));
+    }
+  } finally { fs.closeSync(descriptor); }
+  return digest.digest('hex');
+}
 export function verifyV2Inputs() {
   const files = [[FACTORY, FACTORY_HASH], SUPPORT.settle,
     ...Object.entries(DOM_PINS).map(([name, hash]) => [DOM + '/' + name, hash])];
   for (const [path, expected] of files) {
-    if (createHash('sha256').update(fs.readFileSync(path)).digest('hex') !== expected)
+    if (hashV2Input(path) !== expected)
       throw new Error('input-identity');
   }
 }

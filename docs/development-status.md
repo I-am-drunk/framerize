@@ -3,6 +3,28 @@
 Updated 2026-10-24. The normal service remains browser-based. Publishing these
 branches does not change the running service.
 
+R12 completed an isolated-V2 request that was refused. The normal browser
+and paired browser baseline returned complete HTTP 200 model output. The
+isolated V2 component completed under the observed SDK identity, its child
+joined, and native HTTP returned complete 403 JSON with Framer's Castle
+security envelope. Cleanup was confirmed and the resident host remains fenced.
+The explicit V2 configuration and exact binary were verified against the live
+launch. No retry was sent; the protected service remains unchanged. This closes
+the local setup gap, but browserless upstream acceptance remains unresolved.
+The next local experiment used the existing native-canvas DOM and a synthetic
+device, with every socket denied and the token discarded. V2 completed with
+zero diagnostics, but the first run hit its 160 MiB memory cap. The V2 input
+verifier still allocated entire native libraries for hashing. It now streams
+through a 64 KiB buffer, preserving the exact hashes and failure behavior.
+All 26 focused hashing and operation cases pass. With this sole execution
+change, the second canvas run peaked at 108,212,224 bytes (103.2 MiB), with no
+memory-limit events or swap. It minted once in 1,033 ms, preserved the device,
+and joined the child. The failed first result remains preserved. This is local
+component evidence, not upstream acceptance or whole-service memory evidence.
+The next control requires an explicitly packaged canvas V2 worker and the
+existing owned retirement, rate-history and account checks. No new control
+has been activated.
+
 The R11 normal-browser proof returned local HTTP 500 without model output,
 so the paired baseline and isolated-V2/native leg did not run. Its no-status
 record cannot distinguish a failed fetch from a failed response-body read.
@@ -11,12 +33,12 @@ and observed header-status diagnostics in the existing event, linked by job
 ID and stripped before the reply. Status `-1`, retries, rate accounting and
 provenance rules are preserved. Five actual-script JS cases, six host/event
 cases and 21 existing provenance cases pass with networking disabled. No live
-request was repeated. This source is not deployed and does not establish the
+request was repeated during those tests. The diagnostics do not establish the
 cause of R11. Both diagnostics are now integrated on `browserless`.
 The RPC observer emits only fixed method/category labels and preserves the
 original failure and uncertainty fence. Its five new tests and 31 existing
 activity/ownership cases pass. The unchanged Rust executable remains reusable;
-the next activation uses an explicitly packaged sidecar, with no hot reload.
+R12 used the explicitly packaged sidecar, with no hot reload.
 
 R10 returned complete HTTP 200 from the normal browser and paired baseline,
 then stopped locally because the isolated V2 worker observed changed device
