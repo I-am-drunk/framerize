@@ -3,14 +3,20 @@
 Updated 2026-10-24. The normal service remains browser-based. Publishing these
 branches does not change the running service.
 
-A new staged bundle fills the SDK's separate dedicated Worker API gap. Its
+A new bundle fills the SDK's separate dedicated Worker API gap. Its
 two pinned scripts now run in real Node threads with the native user agent.
 Eight focused cases pass, including active cancellation and private errors.
 The instrumented SDK run received the expected feature, entropy and timing
 replies and joined both workers. The deployable bundle also passes its eight
 cases and a synthetic SDK mint, peaking at 102,232,064 bytes with zero swap
-or memory events and verified teardown. It is not live-tested yet. The next
-action is the guarded worker-configuration update of the isolated instance.
+or memory events and verified teardown. The isolated instance now selects it.
+One live request made one upstream send and received the same complete Framer
+security 403 after 3.80 seconds to headers. Cleanup, restored history and the
+unchanged browser service were verified; no second request ran. Native lifetime
+peak was 122,404,864 bytes with zero sampled swap. These describe a refused
+request, not successful delivery or interruption. The next investigation is
+whether genuine native graphics can fill the remaining WebGL API gap without
+launching a browser. No further live request is justified by this result alone.
 
 A cookie-alignment candidate now carries the admitted device into the bearer
 request as well as the later inference request. The isolated stored login has
