@@ -118,7 +118,10 @@ prevents acceptance and native minting. No raw body enters the public report.
 
 The resident control coordinator has a source-only retained worker and strict
 private reply validation. Its server admission selects only an idle existing
-resident slot, without allocating or evicting a browser. The worker reserves
+resident slot, without allocating or evicting a browser. It retains the existing
+account-management exclusion through cleanup, so competing ordinary admission
+refuses before probing the reserved browser. Unknown status observations still
+fence ordinary slots. The worker reserves
 capacity and pool ownership before asynchronous bootstrap, and retains them
 through cancellation, transport joins and health publication. The startup
 adapter installs one shared session boundary. It binds the exact bootstrap

@@ -149,6 +149,59 @@ fn owned() -> (AppState, Arc<Ports>) {
     (crate::operation_ownership::with_owned_operations(state, 32).unwrap(), ports)
 }
 
+#[tokio::test]
+async fn resident_reservation_survives_cancelled_model_wait() {
+    let (state, ports) = owned();
+    drop(acquire(&state).await.unwrap());
+    ports.events.lock().unwrap().clear();
+    let held = state.gate.acquire("team-1:openai/gpt-4.1").await;
+    let pending = state.clone();
+    let task = tokio::spawn(async move {
+        crate::native_control::admit_existing(&pending, identity(), "gpt-4.1",
+            Instant::now() + Duration::from_secs(3)).await
+    });
+    until(|| slot(&state, id(1)).users == 1).await;
+    task.abort();
+    assert!(matches!(task.await, Err(error) if error.is_cancelled()));
+    *ports.status_mode.lock().unwrap() = StatusMode::Error;
+    assert!(matches!(lease_account(&state, id(1)).await, Err(ApiError::PoolBusy(_))));
+    assert!(ports.events.lock().unwrap().is_empty());
+    assert!(!slot(&state, id(1)).uncertain);
+    drop(held);
+    until(|| slot(&state, id(1)).users == 0).await;
+    *ports.status_mode.lock().unwrap() = StatusMode::Ready;
+    drop(lease_account(&state, id(1)).await.unwrap());
+    assert_eq!(*ports.events.lock().unwrap(), vec![("status", id(1))]);
+}
+
+#[tokio::test]
+async fn resident_reservation_outlives_pool_until_cleanup_settles() {
+    for settled in [true, false] {
+        let (state, ports) = owned();
+        drop(acquire(&state).await.unwrap());
+        let mut admitted = crate::native_control::admit_existing(&state, identity(), "gpt-4.1",
+            Instant::now() + Duration::from_secs(3)).await.unwrap();
+        admitted.pool.start();
+        admitted.completion.start();
+        admitted.pool.complete().unwrap();
+        ports.events.lock().unwrap().clear();
+        assert!(matches!(lease_account(&state, id(1)).await, Err(ApiError::PoolBusy(_))));
+        assert!(ports.events.lock().unwrap().is_empty());
+        drop(lease_account(&state, id(2)).await.unwrap());
+        if settled {
+            admitted.completion.complete().unwrap();
+            drop(lease_account(&state, id(1)).await.unwrap());
+            assert!(!slot(&state, id(1)).uncertain);
+        } else {
+            drop(admitted.completion);
+            assert!(slot(&state, id(1)).uncertain);
+            assert!(matches!(lease_account(&state, id(1)).await, Err(ApiError::PoolBusy(_))));
+            assert_eq!(*ports.events.lock().unwrap(), vec![("status", id(2))]);
+        }
+        drop(admitted.capacity);
+    }
+}
+
 async fn waiting(state: &AppState)
     -> (tokio::sync::OwnedSemaphorePermit,
         tokio::task::JoinHandle<Result<AdmittedControl, framer_core::native_dispatch::DispatchError>>) {
@@ -267,3 +320,6 @@ async fn control_outcomes_preserve_fresh_fields_cooldown_and_wave() {
     admitted.pool.complete().unwrap();
     admitted.completion.complete().unwrap();
 }
+
+#[path = "native_control_reservation_tests.rs"]
+mod reservation;

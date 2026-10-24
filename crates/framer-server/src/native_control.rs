@@ -19,6 +19,9 @@ pub struct ControlOwner {
     operation: Option<framer_core::operation_gate::OperationOwner>,
     resident: Option<ResidentLease>,
     started: bool,
+    // Reuse account-management exclusion through resident cleanup. Ordinary
+    // admission must refuse locally before probing the reserved browser.
+    _reservation: Option<crate::pool_control::Management>,
 }
 impl ControlOwner {
     pub fn start(&mut self) { self.started = true; }
@@ -52,7 +55,7 @@ pub fn retain_prepared(s: &AppState, identity: &Identity, pool: &PoolAdmission)
     let mut completion = ControlOwner {
         operation: Some(ownership.native_cleanup()
             .map_err(|_| error(FailureKind::Ineligible))?),
-        resident: None, started: false,
+        resident: None, started: false, _reservation: None,
     };
     require_resident(s, identity.account)?;
     completion.resident = Some(match s.serving_accounts.residents
@@ -170,17 +173,18 @@ async fn admit_with_policy(s: &AppState, identity: Identity, model: &str,
 }
 
 async fn retain_existing_slot(s: &AppState, account: framer_core::ids::AccountId)
-    -> Result<ResidentLease, DispatchError> {
+    -> Result<(ResidentLease, crate::pool_control::Management), DispatchError> {
+    let reservation = crate::pool_control::management(s, account, false).await
+        .map_err(|_| error(FailureKind::Ineligible))?;
     let _operation = s.serving_accounts.operation.lock().await;
     if s.serving_accounts.pending_config.read()
             .map_err(|_| error(FailureKind::Ineligible))?.is_some()
-        || s.serving_accounts.mutations.lock()
-            .map_err(|_| error(FailureKind::Ineligible))?.contains(&account)
         || !s.serving_accounts.allows(&account) {
         return Err(error(FailureKind::Ineligible));
     }
-    s.serving_accounts.residents.try_acquire_idle_existing(account)
-        .map_err(|_| error(FailureKind::Ineligible))
+    let resident = s.serving_accounts.residents.try_acquire_idle_existing(account)
+        .map_err(|_| error(FailureKind::Ineligible))?;
+    Ok((resident, reservation))
 }
 
 async fn admit_registered(s: &AppState, identity: Identity, model: &str,
@@ -189,16 +193,20 @@ async fn admit_registered(s: &AppState, identity: Identity, model: &str,
         .ok_or_else(|| error(FailureKind::Ineligible))?;
     tokio::time::timeout_at(deadline, async {
         let account = current(s, &identity).await?;
-        let resident = if existing_only { retain_existing_slot(s, identity.account).await? }
-            else { crate::lease_account(s, identity.account).await
-                .map_err(|_| error(FailureKind::Ineligible))? };
+        let (resident, reservation) = if existing_only {
+            let (resident, reservation) = retain_existing_slot(s, identity.account).await?;
+            (resident, Some(reservation))
+        } else {
+            (crate::lease_account(s, identity.account).await
+                .map_err(|_| error(FailureKind::Ineligible))?, None)
+        };
         let operation = ownership.native_cleanup()
             .map_err(|_| error(FailureKind::Ineligible))?;
         let pool = PoolAdmission::new(resident, Some(operation));
         let mut completion = ControlOwner {
             operation: Some(ownership.native_cleanup()
                 .map_err(|_| error(FailureKind::Ineligible))?),
-            resident: None, started: false,
+            resident: None, started: false, _reservation: reservation,
         };
         let key = format!("{}:{}", identity.team.0, convert::to_openrouter_id(model));
         let capacity = s.gate.acquire(&key).await;

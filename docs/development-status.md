@@ -3,6 +3,17 @@
 Updated 2026-10-24. The normal service remains browser-based. Publishing these
 branches does not change the running service.
 
+The resident admission fix now rejects competing ordinary requests before
+their browser-status probe. It retains the existing account-management guard
+through cleanup; genuine status failures still retain their uncertainty fence.
+The current core and focused server fixture compile, and all eight selected
+admission tests pass, including cancellation, cleanup and negative-status cases.
+The unchanged Python r3 bundle also passes all 130 cases and three JavaScript
+scripts with zero swap or limit events and confirmed runner cleanup. Remaining
+Rust dependencies, worker/socket fixtures and executable linking are in progress.
+The live browser/native crossover has not run. The protected running host has
+no mechanism to activate this protocol in its existing process.
+
 Fresh r3 validation bundles now bind the current production source: 15
 coordinator plus two adapter cases, 31 socket plus three CLI cases, and 130
 Python cases plus three JavaScript fixture scripts. Preparation, exact source
