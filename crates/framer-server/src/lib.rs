@@ -733,12 +733,18 @@ fn should_retry_account(error: &str) -> bool {
 async fn pick_fresh_account(
     s: &AppState,
     excluded: &[String],
-) -> Result<(ManagedAccount, framer_core::resident_pool::ResidentLease), ApiError> {
-    let pool = s.state.list().await.map_err(ApiError::Internal)?;
-    let account = s.serving_accounts.select_fresh(pool, excluded)?;
-    let lease = lease_account(s, account.id).await?;
-    let account = current_account(s, account.id).await?;
-    Ok((account, lease))
+) -> pool_control::AcquisitionOutcome<(ManagedAccount, framer_core::resident_pool::ResidentLease)> {
+    let mut cleanup_confirmed = true;
+    let result = async {
+        let pool = s.state.list().await.map_err(ApiError::Internal)?;
+        let account = s.serving_accounts.select_fresh(pool, excluded)?;
+        let acquired = pool_control::lease_account_observed(s, account.id).await;
+        cleanup_confirmed = acquired.cleanup_confirmed;
+        let lease = acquired.result?;
+        let account = current_account(s, account.id).await?;
+        Ok((account, lease))
+    }.await;
+    pool_control::AcquisitionOutcome { result, cleanup_confirmed }
 }
 
 async fn current_account(s: &AppState, id: AccountId) -> Result<ManagedAccount, ApiError> {
@@ -1106,7 +1112,9 @@ async fn free_complete(
                 if refusal && !emitted_content.load(std::sync::atomic::Ordering::Relaxed) && acct_attempt < 2 {
                     tried.push(account.id.0.to_string());
                     drop(residency.take());
-                    match pick_fresh_account(&s2, &tried).await {
+                    let acquired = pick_fresh_account(&s2, &tried).await;
+                    cleanup_confirmed &= acquired.cleanup_confirmed;
+                    match acquired.result {
                         Ok((next, lease)) => {
                             residency.replace(lease);
                             {
@@ -1328,7 +1336,9 @@ async fn free_complete(
     if matches!(&result, Err(e) if should_retry_account(e)) && acct_attempt < 2 {
         tried_accounts.push(account.id.0.to_string());
         drop(residency.take());
-        match pick_fresh_account(&s, &tried_accounts).await {
+        let acquired = pick_fresh_account(&s, &tried_accounts).await;
+        cleanup_confirmed &= acquired.cleanup_confirmed;
+        match acquired.result {
             Ok((next, lease)) => {
                 residency.replace(lease);
                 if cfg.is_cancelled() { break; }
@@ -1628,7 +1638,9 @@ async fn native_complete(
                 if refusal && !emitted_content.load(std::sync::atomic::Ordering::Relaxed) && acct_attempt < 2 {
                     tried.push(account.id.0.to_string());
                     drop(residency.take());
-                    match pick_fresh_account(&s2, &tried).await {
+                    let acquired = pick_fresh_account(&s2, &tried).await;
+                    cleanup_confirmed &= acquired.cleanup_confirmed;
+                    match acquired.result {
                         Ok((next, lease)) => {
                             residency.replace(lease);
                             {
@@ -1787,7 +1799,9 @@ async fn native_complete(
         if matches!(&r, Err(e) if should_retry_account(e)) && acct_attempt < 2 {
             tried_accounts.push(account.id.0.to_string());
             drop(residency.take());
-            match pick_fresh_account(&s, &tried_accounts).await {
+            let acquired = pick_fresh_account(&s, &tried_accounts).await;
+            cleanup_confirmed &= acquired.cleanup_confirmed;
+            match acquired.result {
                 Ok((next, lease)) => {
                     residency.replace(lease);
                     {
