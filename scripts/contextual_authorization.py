@@ -14,6 +14,27 @@ COMPARISON_EXPORT = "b"
 COMPARISON_BYTES = 64 * 1024
 COMPARISON_SECONDS = 180
 BASELINE_SECONDS = 30
+DIAGNOSTIC_STAGES = frozenset(('account_start', 'context_inputs', 'cookie_seed',
+    'navigation', 'snapshot_page', 'snapshot_cookies', 'snapshot_header',
+    'snapshot_validate', 'context_ready', 'baseline', 'native_token'))
+DIAGNOSTIC_CHECKS = ('device_valid', 'device_cookie_match', 'login_match',
+                     'page_match', 'url_unchanged')
+
+
+def comparison_mark(scope, stage, **checks):
+    scope.comparison_diagnostic_stage = stage if stage in DIAGNOSTIC_STAGES else 'unknown'
+    scope.comparison_diagnostic_checks = {key: checks[key] for key in DIAGNOSTIC_CHECKS
+        if type(checks.get(key)) is bool}
+
+
+def comparison_evidence(scope):
+    stage = getattr(scope, 'comparison_diagnostic_stage', None)
+    result = {'stage': stage if type(stage) is str and stage in DIAGNOSTIC_STAGES else 'unknown'}
+    checks = getattr(scope, 'comparison_diagnostic_checks', None)
+    if type(checks) is dict:
+        result.update({key: checks[key] for key in DIAGNOSTIC_CHECKS
+                       if type(checks.get(key)) is bool})
+    return result
 
 
 def reserve_comparison(scope, request):
@@ -233,11 +254,19 @@ def comparison_owner(host, account, scope):
 
 
 async def comparison_snapshot(scope, acc, project, path, login):
+    comparison_mark(scope, 'snapshot_page')
     snap = await comparison_rpc(scope, lambda: acc.page.evaluate(COMPARISON_SNAPSHOT))
+    comparison_mark(scope, 'snapshot_cookies')
     rows = await comparison_rpc(scope, lambda: acc.ctx.cookies(API + path))
+    comparison_mark(scope, 'snapshot_header')
     header = snapshot_header(rows)
     device = snap.get("device") if type(snap) is dict else None
     devices = [row["value"] for row in rows if row.get("name") == "__cuid"]
+    comparison_mark(scope, 'snapshot_validate',
+        device_valid=type(device) is str and bool(device) and len(device.encode()) <= 256,
+        device_cookie_match=devices == [device], login_match=login_cookie(header) == login,
+        page_match=page_matches(snap.get("url") if type(snap) is dict else None, project),
+        url_unchanged=type(snap) is dict and snap.get("url") == acc.page.url)
     if (type(device) is not str or not device or len(device.encode()) > 256
             or devices != [device] or login_cookie(header) != login
             or not page_matches(snap.get("url"), project)
@@ -282,13 +311,16 @@ def validate_comparison_request(request):
 
 
 async def comparison_context(host, account, scope, request):
+    comparison_mark(scope, 'context_inputs')
     acc = comparison_owner(host, account, scope)
     project, path = comparison_target(request)
     baseline, native = comparison_bodies(request, project)
     login = login_cookie(request["cookie_header"])
+    comparison_mark(scope, 'cookie_seed')
     await comparison_rpc(scope, lambda: acc.ctx.add_cookies([{
         "name": "session", "value": login, "domain": ".framer.com",
         "path": "/", "secure": True, "httpOnly": True}]))
+    comparison_mark(scope, 'navigation')
     await comparison_rpc(scope, lambda: acc.page.goto(
         "https://framer.com/projects/" + project,
         wait_until="domcontentloaded", timeout=45000), 46)
@@ -308,6 +340,7 @@ async def comparison_context(host, account, scope, request):
     acc.page.on("framenavigated", navigated)
     scope.comparison = state
     scope.comparison_next = "context_ready"
+    comparison_mark(scope, 'context_ready')
     return comparison_reply(state, "baseline_context", header)
 
 
@@ -347,6 +380,7 @@ async def comparison_mint(scope, state, acc):
 
 
 async def comparison_native(host, account, scope, request):
+    comparison_mark(scope, 'native_token')
     state, acc, _ = await comparison_bound(host, account, scope, request, "native")
     token = await comparison_mint(scope, state, acc)
     _, _, header = await comparison_bound(host, account, scope, request, "native")
@@ -535,6 +569,7 @@ def baseline_result(state, raw):
 
 
 async def comparison_baseline(host, account, scope, request):
+    comparison_mark(scope, 'baseline')
     state = scope.comparison
     out = baseline_evidence(state)
     try:
