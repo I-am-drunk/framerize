@@ -18,6 +18,26 @@ These are different observations, **not a paired capture of
 R14's browser and R14's SDK**. No private inputs were read in this source lane.
 No further live retry is queued. These findings do not establish acceptance.
 
+## Rust composition for the native observation gap
+
+The source port on `feat/resident-token-structure`, based on `be4ff76`, adds
+only `resident_token_structure.rs` and its adjacent test module, plus this note.
+Its `describe(&str) -> Option<Structure>` exports field structure and consumed
+length only. It preserves canonical base64url, V13 framing, XXTEA, both nibble
+transforms, all 36 raw layouts, and the strict `consumed < inner.len()` check.
+The final `ff` must remain outside the consumed groups; event contents are not
+parsed. Input is capped at 16,384 bytes and output at 155 entries.
+
+All 19 Rust cases are **UNRUN**, including the saved synthetic frame vectors,
+complete synthetic compositions, malformed inputs and checked-index boundaries.
+Static source comparison confirms all 36 type-7 keys and 15 fixed widths match
+the qualified Python source. No Rust build, test, SDK or private capture ran here.
+
+R15's reported browser 200/native 403 outcome still lacks a native projection.
+Next action belongs to the runtime owner: qualify these cases and integrate the
+borrowed-token observer in its explicit resident SDK path. Parent wiring, lease,
+deadline, same-device completion and live execution remain owner-held.
+
 ## Source binding and scope
 
 Mappings below use only the saved public Framer V2 factory with SHA-256
