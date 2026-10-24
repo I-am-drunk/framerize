@@ -387,6 +387,8 @@ fn parse(frame: &[u8], now: Instant) -> io::Result<(Specification, String)> {
         deadline: now + Duration::from_millis(input.timeout_ms),
     };
     Plan::validate(&spec).map_err(|_| refused())?;
+    framer_host::sidecar::resident::ResidentRpcV2::validate_baseline_body(&spec.payload)
+        .map_err(|_| refused())?;
     Ok((spec, input.baseline_turn_id))
 }
 

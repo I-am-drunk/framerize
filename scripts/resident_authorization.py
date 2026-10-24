@@ -141,6 +141,11 @@ def _validate_baseline(req):
         elif type(value) is list:
             for item in value:
                 plain(item, depth + 1)
+        elif type(value) in (int, float):
+            # Match the resident Rust body guard before browser JSON.parse.
+            # Exact type checks keep JSON booleans distinct from numbers.
+            if not -(2 ** 53 - 1) <= value <= 2 ** 53 - 1:
+                _refuse()
         elif value is not None and type(value) not in (str, int, float, bool):
             _refuse()
     plain(req['body'])

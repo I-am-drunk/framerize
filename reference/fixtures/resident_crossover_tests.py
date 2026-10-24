@@ -15,7 +15,7 @@ import resident_authorization_tests as v1
 from resident_activity import ResidentRefused
 from resident_authorization import (IDENTITY, BODY_LIMIT, ResidentControl,
     RESIDENT_CAPTURE_JS, RESIDENT_PIN_JS, RESIDENT_PINNED_MINT_JS,
-    RESIDENT_FETCH_JS, validate_request)
+    RESIDENT_FETCH_JS, _validate_baseline, validate_request)
 
 PROVENANCE = '44444444-4444-4444-8444-444444444444'
 MINT_GAP_S, DEV_WINDOW_CAP, DEV_WINDOW_S = 0.0, 3, 600.0
@@ -410,6 +410,21 @@ class ResidentCrossoverTests(unittest.IsolatedAsyncioTestCase):
             dict(self.req, provenance=None), dict(self.req, provenance='not-uuid'),
             {k: value for k, value in self.req.items() if k != 'provenance'},
             dict(self.req, version=1), dict(self.baseline(), version=1)]
+        numbers = [2 ** 53, -(2 ** 53), 2 ** 53 + 1, -(2 ** 53 + 1),
+            2 ** 64 - 1, -(2 ** 63)]
+        numbers.extend(json.loads(spelling) for spelling in (
+            '9007199254740992.0', '-9007199254740992.0',
+            '9007199254740993.0', '-9007199254740993.0',
+            '9.007199254740993e15', '-9.007199254740993e15',
+            '9007199254740992.5', '-9007199254740992.5', '1e100', '-1e100'))
+        numbers.extend((float('nan'), float('inf'), float('-inf')))
+        for number in numbers:
+            req = self.baseline(body={'request': {'tools': [
+                {'parameters': {'minimum': number}}]}})
+            with self.subTest(number=number):
+                with self.assertRaises(ResidentRefused):
+                    _validate_baseline(req)
+            invalid.append(req)
         for req in invalid:
             with self.subTest(action=req['action']):
                 with self.assertRaises(ResidentRefused):
@@ -424,6 +439,20 @@ class ResidentCrossoverTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(len(checked['body']['pad']), BODY_LIMIT - 10)
         with self.assertRaises(ResidentRefused):
             validate_request(self.baseline(body={'pad': 'é' * 32764}))
+        for spelling in ('-9007199254740991', '0', '9007199254740991',
+                '-9007199254740991.0', '9007199254740991.0',
+                '-9.007199254740991e15', '9.007199254740991e15',
+                '0.25', '-0.25', '0.1', '-0.0', 'true', 'false', 'null'):
+            value = json.loads(spelling)
+            body = {'request': {'tools': [{'parameters': {'minimum': value}}]}}
+            req = self.baseline(body=body)
+            with self.subTest(spelling=spelling):
+                for validate in (_validate_baseline, validate_request):
+                    checked = validate(req)
+                    actual = checked['body']['request']['tools'][0]['parameters']['minimum']
+                    self.assertEqual(actual, value)
+                    self.assertIs(type(actual), type(value))
+                    self.assertIsNot(checked['body']['request'], body['request'])
 
     async def test_discard_after_snapshot_releases_without_mint(self):
         await self.acquired()

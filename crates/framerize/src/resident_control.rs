@@ -83,6 +83,8 @@ impl Run { pub(crate) fn cancel(&self) { self.stop.cancel(); } }
 pub(crate) fn launch(state: AppState, spec: Specification, baseline_turn: String,
     owner: Arc<dyn Owner>) -> Result<Run, Failure> {
     Plan::validate(&spec).map_err(|_| Failure::Context)?;
+    framer_host::sidecar::resident::ResidentRpcV2::validate_baseline_body(&spec.payload)
+        .map_err(|_| Failure::Context)?;
     if baseline_turn.is_empty() || baseline_turn.len() > 256
         || baseline_turn.chars().any(char::is_control)
         || baseline_turn == spec.context.turn_id { return Err(Failure::Context); }

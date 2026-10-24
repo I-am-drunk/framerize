@@ -321,6 +321,19 @@ fn baseline_body(value: &Value) -> bool {
             Value::Object(map) => !map.contains_key("castleToken")
                 && map.values().all(|value| plain(value, depth + 1)),
             Value::Array(array) => array.iter().all(|value| plain(value, depth + 1)),
+            Value::Number(number) => {
+                // The browser parses this body as JavaScript Numbers. Bound
+                // floats too, so decimal/exponent spelling cannot bypass parity.
+                const MAX_SAFE: i64 = 9_007_199_254_740_991;
+                if let Some(value) = number.as_i64() {
+                    (-MAX_SAFE..=MAX_SAFE).contains(&value)
+                } else if let Some(value) = number.as_u64() {
+                    value <= MAX_SAFE as u64
+                } else {
+                    number.as_f64().is_some_and(|value|
+                        value.is_finite() && value.abs() <= MAX_SAFE as f64)
+                }
+            }
             _ => true,
         }
     }
