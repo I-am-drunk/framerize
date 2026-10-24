@@ -1,5 +1,13 @@
 # Serving architecture and branch policy
 
+The assembled daemon accepts explicit ordinary-V2 worker configuration in an
+empty isolated instance. Its offline input gate and normal hello route remain
+available together. This startup evidence does not create SDK identity proof.
+That proof currently requires a verified sign-in and a subsequent observed
+successful SDK call in the same host incarnation. Restored or imported cookies
+alone are deliberately insufficient. A saved-session verification path
+requires a distinct source decision.
+
 Native worker startup can be checked without presenting an account or valid
 SDK seed. The standalone rejection check uses the real V2 process owner,
 private descriptors, original Node flags and child sandbox. An invalid target

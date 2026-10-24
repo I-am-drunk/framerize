@@ -1,5 +1,16 @@
 # Development status
 
+The packaged native daemon now passes an isolated startup check with explicit
+V2 configuration, a fresh empty database and no eligible accounts. Health,
+empty-account listing, offline input rejection and `/api/hello` pass. Peak
+memory was 28,422,144 bytes under 128 MiB, with zero swap and no limit events.
+All 1,935 inputs remain exact. The first checker used the wrong hello URL;
+that collected failure is preserved. The corrected run is collected as well.
+No SDK, browser or live account was used. The next real native run requires
+a fresh verified sign-in under the current contract, or a separately selected
+verification path for saved sessions. See
+`reference/analysis/ordinary-v2-daemon-startup-20261024.md`.
+
 The assembled native worker now passes one isolated startup rejection check
 through the exact qualified Rust process owner. Its unchanged Node executable,
 worker entry and configuration reject invalid input before an SDK operation.
