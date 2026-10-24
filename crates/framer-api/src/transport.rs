@@ -174,14 +174,14 @@ async fn check(path: &str, resp: reqwest::Response) -> Result<reqwest::Response,
             if path.starts_with("/ai/") {
                 return Err(crate::classify::classify_403(&body, 0).as_error(path, &body));
             }
-            let clipped = &body[..body.len().min(500)];
+            let clipped = crate::error_body::prefix(&body, 500);
             Err(format!("retryable 403 on {path}: {clipped}"))
         }
         // Everything else: the response body is the only debugging signal we get
         // (a bare "retryable 400" hid why /auth/v4/signin rejected us once).
         s => {
             let body = resp.text().await.unwrap_or_default();
-            let clipped = &body[..body.len().min(500)];
+            let clipped = crate::error_body::prefix(&body, 500);
             Err(format!("retryable {s} on {path}: {clipped}"))
         }
     }

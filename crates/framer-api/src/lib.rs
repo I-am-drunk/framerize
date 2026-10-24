@@ -16,6 +16,7 @@ mod auth;
 pub mod classify;
 mod castle;
 mod credits;
+mod error_body;
 pub mod freechat;
 pub mod inference;
 mod login;
