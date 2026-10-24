@@ -1,5 +1,14 @@
 # Serving architecture and branch policy
 
+Completed local responses and JSON extraction failures carry explicit request
+completion. Successful extraction makes no promise about subsequent handler
+work. Static-file responses use a dedicated body wrapper that releases its
+inner body before reporting EOF, error or disposal. Merely returning file
+headers does not complete ownership. Eight selected local/static and paid
+control tests pass across 128 scenarios. They retain the unmanaged-host
+barrier and do not establish OS descriptor closure or in-flight file-error
+behavior. Legacy/admin and native HTTP completion remain separate groups.
+
 `/api/run` carries acquisition and inference cleanup evidence into its HTTP
 response. Discarding completed output or a local refusal releases ownership;
 consuming an error cannot clear an uncertain cleanup fence. JSON extraction
@@ -12,8 +21,8 @@ request ownership before proxy setup, prewarm and serving while retaining
 ordinary browser routing. Defaults remain unchanged, and mixed offline or
 resident options are rejected. Five focused startup tests pass, including
 normal hello routes and the retained unmanaged-host retirement barrier.
-This option does not itself qualify a rollout: remaining local, static-file
-and administrative completion groups inside the shared router still need
+This option does not itself qualify a rollout: remaining administrative
+completion groups inside the shared router still need
 qualification, along with the selected runtime support files.
 
 The core pipeline rechecks current account identity, saved scope, readiness and
