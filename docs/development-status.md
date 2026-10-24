@@ -3,6 +3,19 @@
 Updated 2026-10-24. The normal service remains browser-based. Publishing these
 branches does not change the running service.
 
+The native graphics SDK integration now passes with the deployable sources,
+peaking at 120,934,400 bytes, with zero swap or memory events and confirmed
+worker/group teardown. It generated and discarded a synthetic token. No live
+request or service change has followed. The instrumented version created five
+canvas contexts with no refusal. The bridge now allows two live contexts and
+eight total, and preserves native cleanup failures across garbage collection.
+A library wrapper had allocated a redundant native context; it now wraps the
+existing one. Rendering and eight canvas checks pass, including exact native
+counts, discarded-canvas collection, live-canvas preservation and owner refusal.
+The worker keeps graphics diagnostics outside its strict metadata protocol.
+Earlier memory and setup failures remain recorded in the new qualification.
+The next step is the existing guarded update of the isolated instance only.
+
 A genuine Mesa WebGL implementation now passes rendering, native-identity and
 cleanup checks at 93,655,040 bytes. Its bounded HTML canvas bridge passes six
 checks with real JSDOM/canvas at 103,636,992 bytes. Both retain the 128 MiB cap,

@@ -8,10 +8,14 @@ const create = require('/work/implementation');
 const { NativeWebGL } = require('/work/implementation/src/javascript/native-gl');
 const dom = new JSDOM('<!doctype html>');
 const original = dom.window.HTMLCanvasElement.prototype.getContext;
-const graphics = installWebGL(dom.window, create, NativeWebGL.cleanup);
+const graphics = installWebGL(dom.window, create, NativeWebGL.cleanup, NativeWebGL.activeContexts);
 const canvas = () => dom.window.document.createElement('canvas');
 const checks = [];
 try {
+  const other = new JSDOM('<!doctype html>');
+  assert.throws(() => installWebGL(other.window, create, NativeWebGL.cleanup, NativeWebGL.activeContexts), /owner active/);
+  other.window.close();
+  checks.push('second_owner_refused');
   const two = canvas();
   assert.ok(two.getContext('2d'));
   assert.equal(two.getContext('webgl'), null);
@@ -28,18 +32,38 @@ try {
   assert.throws(() => first.getContext('webgl'), /resource limit/);
   checks.push('bounded_resize');
   first.width = 32;
-  assert.ok(canvas().getContext('webgl'));
+  const second = canvas(), secondContext = second.getContext('webgl');
+  assert.ok(secondContext);
+  assert.equal(NativeWebGL.activeContexts(), 2);
   assert.throws(() => canvas().getContext('webgl'), /resource limit/);
+  assert.equal(second.getContext('webgl'), secondContext);
   checks.push('context_limit');
   const result = graphics.close();
   assert.deepEqual(result, { created: 2, destroyed: 2, refused: 2, errors: 0 });
   assert.equal(graphics.close(), result);
   assert.equal(dom.window.HTMLCanvasElement.prototype.getContext, original);
   checks.push('confirmed_cleanup_and_restore');
-  const next = installWebGL(dom.window, create, NativeWebGL.cleanup);
+  const next = installWebGL(dom.window, create, NativeWebGL.cleanup, NativeWebGL.activeContexts);
   assert.ok(canvas().getContext('webgl'));
   assert.deepEqual(next.close(), { created: 1, destroyed: 1, refused: 0, errors: 0 });
   checks.push('new_owner_after_cleanup');
+  const reclaim = installWebGL(dom.window, create, NativeWebGL.cleanup, NativeWebGL.activeContexts);
+  const discard = () => {
+    const element = canvas();
+    assert.ok(element.getContext('webgl'));
+    return new WeakRef(element);
+  };
+  const discarded = discard();
+  await new Promise(resolve => setImmediate(resolve));
+  const discardedAgain = discard();
+  await new Promise(resolve => setImmediate(resolve));
+  const retained = canvas(), retainedGl = retained.getContext('webgl');
+  assert.ok(retainedGl);
+  assert.equal(discarded.deref(), undefined);
+  assert.equal(discardedAgain.deref(), undefined);
+  assert.equal(retained.getContext('webgl'), retainedGl);
+  assert.deepEqual(reclaim.close(), { created: 3, destroyed: 3, refused: 0, errors: 0 });
+  checks.push('discarded_canvas_collected_live_canvas_preserved');
 } finally {
   graphics.close(); dom.window.close();
 }

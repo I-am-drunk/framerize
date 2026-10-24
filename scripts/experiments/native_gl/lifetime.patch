@@ -1,0 +1,88 @@
+--- a/src/native/webgl.cc
++++ b/src/native/webgl.cc
+@@ -3,11 +3,15 @@
+ #include <iostream>
+ 
+ #include "webgl.h"
++#if defined(__GLIBC__)
++#include <malloc.h>
++#endif
+ 
+ bool                   WebGLRenderingContext::HAS_DISPLAY = false;
+ EGLDisplay             WebGLRenderingContext::DISPLAY;
+ WebGLRenderingContext* WebGLRenderingContext::ACTIVE = NULL;
+ WebGLRenderingContext* WebGLRenderingContext::CONTEXT_LIST_HEAD = NULL;
++static bool DISPOSAL_FAILED = false;
+ 
+ const char* REQUIRED_EXTENSIONS[] = {
+   "GL_OES_packed_depth_stencil",
+@@ -237,6 +241,7 @@
+   surface = EGL_NO_SURFACE;
+   context = EGL_NO_CONTEXT;
+   state = GLCONTEXT_STATE_DESTROY;
++  DISPOSAL_FAILED = DISPOSAL_FAILED || !success;
+   return success;
+ }
+ 
+@@ -249,9 +254,18 @@
+   inst->setError((GLenum)(Nan::To<int32_t>(info[0]).ToChecked()));
+ }
+ 
++GL_METHOD(ActiveContexts) {
++  Nan::HandleScope();
++  info.GetIsolate()->LowMemoryNotification();
++  if (DISPOSAL_FAILED) return Nan::ThrowError("Graphics cleanup failed");
++  unsigned int count = 0;
++  for (auto* item = CONTEXT_LIST_HEAD; item; item = item->next) count++;
++  info.GetReturnValue().Set(count);
++}
++
+ GL_METHOD(DisposeAll) {
+   Nan::HandleScope();
+-  bool success = true;
++  bool success = !DISPOSAL_FAILED;
+ 
+   while(CONTEXT_LIST_HEAD) {
+     success = CONTEXT_LIST_HEAD->dispose() && success;
+@@ -270,6 +284,10 @@
+ 
+   // Reclaim unreachable JS data before allocating the native graphics context.
+   info.GetIsolate()->LowMemoryNotification();
++#if defined(__GLIBC__)
++  // Return free native allocator pages before the next graphics allocation.
++  malloc_trim(0);
++#endif
+ 
+   WebGLRenderingContext* instance = new WebGLRenderingContext(
+       Nan::To<int32_t>(info[0]).ToChecked()   //Width
+--- a/src/native/webgl.h
++++ b/src/native/webgl.h
+@@ -124,6 +124,7 @@
+   bool dispose();
+ 
+   static NAN_METHOD(DisposeAll);
++  static NAN_METHOD(ActiveContexts);
+ 
+   static NAN_METHOD(New);
+   static NAN_METHOD(Destroy);
+--- a/src/native/bindings.cc
++++ b/src/native/bindings.cc
+@@ -489,6 +489,7 @@
+ 
+   //Export helper methods for clean up and error handling
+   Nan::Export(target, "cleanup", WebGLRenderingContext::DisposeAll);
++  Nan::Export(target, "activeContexts", WebGLRenderingContext::ActiveContexts);
+   Nan::Export(target, "setError", WebGLRenderingContext::SetError);
+ }
+ 
+--- a/src/javascript/webgl-rendering-context.js
++++ b/src/javascript/webgl-rendering-context.js
+@@ -76,7 +76,7 @@
+ ]
+ 
+ function wrapContext (ctx) {
+-  const wrapper = new WebGLRenderingContext()
++  const wrapper = Object.create(WebGLRenderingContext.prototype)
+   bindPublics(Object.keys(ctx), wrapper, ctx, privateMethods)
+   bindPublics(Object.keys(ctx.constructor.prototype), wrapper, ctx, privateMethods)
+   bindPublics(Object.getOwnPropertyNames(ctx), wrapper, ctx, privateMethods)
