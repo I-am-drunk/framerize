@@ -17,9 +17,11 @@
 //!   text. Lengths and kinds are fine; values are not. Emails are masked.
 
 use serde_json::{json, Value};
-use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::sync::{Mutex, OnceLock};
+
+#[path = "observability_append.rs"]
+mod append;
 
 static LOG_DIR: OnceLock<PathBuf> = OnceLock::new();
 static WRITER: OnceLock<Mutex<std::fs::File>> = OnceLock::new();
@@ -155,8 +157,7 @@ impl Event {
     pub fn emit(self) {
         if let Some(f) = file_for_today() {
             if let Ok(mut f) = f.lock() {
-                let _ = writeln!(f, "{}", self.v);
-                let _ = f.flush();
+                let _ = append::event(&mut *f, &self.v);
             }
         }
     }

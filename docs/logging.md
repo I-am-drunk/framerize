@@ -12,6 +12,15 @@ standard field names, no secrets, retention, and a query interface.
 `FRAMERIZE_LOG_DIR`). Daily files; files older than 7 days are deleted at
 daemon start.
 
+The Rust writer serializes each event, including its newline, before one append
+attempt. It does not stream JSON fragments into the shared file or retry a short
+write with a suffix that could follow a sidecar record. A short write or error is
+lost evidence and is ignored by serving; consumers must still reject missing or
+malformed records. This is not a cross-process lock, a durability guarantee, or
+an atomicity promise for every filesystem. Existing sidecar writing is unchanged.
+This correction and its five focused fixtures are source-only and unrun pending
+the coordinated session reload. The running service keeps its existing writer.
+
 ## Schema
 
 One JSON object per line. Standard fields on every event:

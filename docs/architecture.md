@@ -11,6 +11,12 @@ structure cannot prove matching payloads or upstream acceptance. Event capture
 also depends on the shared append writer; malformed or missing records cannot
 be replaced with an earlier synthetic observation.
 
+The source event writer now builds a complete JSON line before one append
+attempt. It does not retry a partial append as fragments. Failure still leaves
+the observation unavailable, and strict consumers must reject incomplete data.
+This correction awaits focused qualification after the coordinated session
+reload; it has not changed the running service's retained core library.
+
 Native response-head diagnostics attach status, fixed HTTP-version and content-
 encoding categories to the existing send invocation counter. They run after
 headers arrive and before the unchanged response admission checks. Encoding
