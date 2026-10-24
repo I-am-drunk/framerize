@@ -109,7 +109,7 @@ fn proxy_response_stream(
 ) -> impl futures::Stream<Item = Result<axum::body::Bytes, String>> {
     futures::stream::unfold(
         (rx, None::<framer_core::port::ProxyResponse>, false, owner),
-        |(mut rx, mut up, drained, owner)| async move {
+        |(mut rx, mut up, drained, mut owner)| async move {
             loop {
                 if let Some(us) = &mut up {
                     // upstream arrived: yield its body chunks until exhausted
@@ -119,7 +119,7 @@ fn proxy_response_stream(
                         }
                         Some(Ok(_)) => continue,
                         Some(Err(e)) => return Some((Err(e), (rx, up, drained, owner))),
-                        None => return None,
+                        None => { let _ = (&mut owner).await; return None; },
                     }
                 }
                 tokio::select! {
@@ -132,7 +132,7 @@ fn proxy_response_stream(
                                 let msg = format!(": upstream error: {}\n\n", e.replace('\n', " "));
                                 return Some((Ok(axum::body::Bytes::from(msg)), (rx, None, true, owner)));
                             }
-                            None => return None,
+                            None => { let _ = (&mut owner).await; return None; },
                         }
                     }
                     _ = tokio::time::sleep(std::time::Duration::from_secs(8)) => {
@@ -142,6 +142,31 @@ fn proxy_response_stream(
             }
         },
     )
+}
+
+// Preserve raw/paid cancellation: only actual EOF can confirm this body.
+// An early drop closes the signal without a verdict; an error keeps it false.
+fn proxy_body<S>(stream: S, cleanup: pool_control::CleanupEvidence)
+    -> (axum::body::Body, operation_ownership::ResponseCompletion)
+where S: futures::Stream<Item = Result<axum::body::Bytes, String>> + Send + 'static {
+    use futures::StreamExt;
+    let (done, receiver) = tokio::sync::oneshot::channel();
+    let stream = futures::stream::unfold((Box::pin(stream), done, cleanup),
+        |(mut stream, done, cleanup)| async move {
+            match stream.next().await {
+                Some(chunk) => {
+                    if chunk.is_err() { cleanup.include(false); }
+                    Some((chunk, (stream, done, cleanup)))
+                }
+                None => {
+                    drop(stream);
+                    let _ = done.send(cleanup.confirmed());
+                    None
+                }
+            }
+        });
+    (axum::body::Body::from_stream(stream),
+        operation_ownership::ResponseCompletion::from_receiver(receiver))
 }
 
 pub fn router(state: AppState, web_dir: &str) -> Router {
@@ -183,15 +208,6 @@ where F: std::future::Future<Output = R>, R: axum::response::IntoResponse {
         Ok(body) => handler(state, body).await.into_response(),
         Err(error) => operation_ownership::completed_response(error.into_response(), true),
     }
-}
-
-async fn dedupe_request(state: State<AppState>, body: Json<DedupeBody>)
-    -> axum::response::Response {
-    use axum::response::IntoResponse;
-    let preview = !body.0.apply;
-    let response = dedupe_accounts(state, body).await.into_response();
-    if preview { operation_ownership::completed_response(response, true) }
-    else { response }
 }
 
 // Only ServeDir uses this wrapper. Release the local body before reporting its
@@ -251,14 +267,14 @@ pub fn router_with_request_layer(state: AppState, web_dir: &str,
         .route("/accounts", get(accounts_read).head(accounts_read))
         .route("/pool", get(pool_read).head(pool_read))
         .route("/pool/config", get(pool_config_read).head(pool_config_read)
-            .post(|state, body| json_request(state, body, pool_control::configure)))
-        .route("/pool/activate", post(|state, body| json_request(state, body, pool_control::activate)))
-        .route("/pool/park", post(|state, body| json_request(state, body, pool_control::park)))
-        .route("/accounts/remove", post(|state, body| json_request(state, body, remove_account)))
-        .route("/accounts/dedupe", post(|state, body| json_request(state, body, dedupe_request)))
-        .route("/accounts/begin", post(|state, body| json_request(state, body, begin_login)))
-        .route("/accounts/complete", post(|state, body| json_request(state, body, complete_login)))
-        .route("/accounts/import", post(|state, body| json_request(state, body, import_account)))
+            .post(|state, body| json_request(state, body, pool_control::configure_observed)))
+        .route("/pool/activate", post(|state, body| json_request(state, body, pool_control::activate_observed)))
+        .route("/pool/park", post(|state, body| json_request(state, body, pool_control::park_observed)))
+        .route("/accounts/remove", post(|state, body| json_request(state, body, remove_account_observed)))
+        .route("/accounts/dedupe", post(|state, body| json_request(state, body, dedupe_accounts_observed)))
+        .route("/accounts/begin", post(|state, body| json_request(state, body, begin_login_observed)))
+        .route("/accounts/complete", post(|state, body| json_request(state, body, complete_login_observed)))
+        .route("/accounts/import", post(|state, body| json_request(state, body, import_account_observed)))
         .route("/run", post(run_request));
     #[cfg(feature = "native-dispatch")]
     let api = api.route("/accounts/native/enroll", post(native_enrollment::enroll_request));
@@ -372,8 +388,13 @@ async fn compat_forward_headers(
     if s.native_dispatch.is_some() {
         return Ok(native_dispatch::raw(&s, dialect, headers, payload).await);
     }
-    compat_forward(s, dialect, hdr(headers, "x-framerize-account"),
-        hdr(headers, "x-framerize-session"), payload).await
+    let outcome = compat_forward_observed(s, dialect, hdr(headers, "x-framerize-account"),
+        hdr(headers, "x-framerize-session"), payload).await;
+    match outcome.result {
+        Ok(response) => Ok(response),
+        Err(error) => Ok(operation_ownership::completed_response(
+            axum::response::IntoResponse::into_response(error), outcome.cleanup_confirmed)),
+    }
 }
 
 async fn compat_forward(
@@ -381,8 +402,20 @@ async fn compat_forward(
     dialect: &'static str,
     account_hdr: Option<String>,
     session_hdr: Option<String>,
-    mut payload: serde_json::Value,
+    payload: serde_json::Value,
 ) -> Result<axum::response::Response, ApiError> {
+    compat_forward_observed(s, dialect, account_hdr, session_hdr, payload).await.result
+}
+
+async fn compat_forward_observed(
+    s: AppState,
+    dialect: &'static str,
+    account_hdr: Option<String>,
+    session_hdr: Option<String>,
+    mut payload: serde_json::Value,
+) -> pool_control::CleanupOutcome<axum::response::Response> {
+    let cleanup = pool_control::CleanupEvidence::new();
+    let result = async {
     // Long non-streaming generations hit idle cutoffs (observed ~21.6 s in one
     // environment; a ~60 s server cutoff is plausible). ALWAYS stream upstream
     // and aggregate for clients that asked for stream:false.
@@ -393,8 +426,8 @@ async fn compat_forward(
 
     let pool = s.state.list().await.map_err(ApiError::Internal)?;
     let account = s.serving_accounts.select(pool, account_hdr.as_deref())?;
-    let residency = lease_account(&s, account.id).await?;
-    let account = current_account(&s, account.id).await?;
+    let residency = cleanup.outcome(pool_control::lease_account_observed(&s, account.id).await)?;
+    let account = cleanup.admission(current_account(&s, account.id).await)?;
     let session = s
         .sessions
         .load(&account.framer_user_id)
@@ -418,7 +451,7 @@ async fn compat_forward(
             .ok()
             .and_then(|v| v.parse().ok())
             .unwrap_or(25.0);
-        match s.client.usage(&session, team).await {
+        match cleanup.external(s.client.usage(&session, team).await) {
             Ok(snap) => {
                 if snap.available < floor {
                     framer_core::observability::Event::new("credits.bond_block")
@@ -462,8 +495,14 @@ async fn compat_forward(
         .as_ref()
         .map(|t| format!("{}:{gate_model}", t.0))
         .unwrap_or_else(|| "default".to_string());
-    let _permit = Arc::new(s.gate.acquire(&gate_key).await);
-    current_account(&s, account.id).await?;
+    let _permit = Arc::new(tokio::select! {
+        biased;
+        _ = operation_ownership::request_disconnected() => {
+            return Err(ApiError::Internal("client cancelled".into()));
+        }
+        permit = s.gate.acquire(&gate_key) => permit,
+    });
+    cleanup.admission(current_account(&s, account.id).await)?;
 
     // STREAMING CLIENTS: return immediately with an SSE response; the upstream
     // call runs in a task while the body emits keepalive pings. Without this
@@ -480,24 +519,26 @@ async fn compat_forward(
         let gate2 = s.gate.clone();
         let gate_key2 = gate_key.clone();
         let producer_permit = _permit.clone();
-        let producer_residency = lease_account(&s, account.id).await?;
-        current_account(&s, account.id).await?;
+        let producer_residency = cleanup.outcome(pool_control::lease_account_observed(&s, account.id).await)?;
+        cleanup.admission(current_account(&s, account.id).await)?;
         let (tx, rx) = tokio::sync::mpsc::channel::<Result<framer_core::port::ProxyResponse, String>>(1);
-        let handle = AbortOnDrop(operation_ownership::spawn(s.operation_ownership.as_ref(),
+        let producer_cleanup = cleanup.clone();
+        let handle = AbortOnDrop(operation_ownership::spawn_with_cleanup(s.operation_ownership.as_ref(),
             framer_core::operation_gate::OperationKind::Inference, async move {
             let _producer_permit = producer_permit;
             let producer_residency = Arc::new(producer_residency);
-            let r = match current_account(&s2, account2.id).await {
+            let r = match producer_cleanup.admission(current_account(&s2, account2.id).await) {
                 Ok(_) => s2
                 .client
                 .proxy(&session2, s2.browser.as_ref(), &account2.id, &project2, &dialect2, payload, &chat2)
                 .await,
                 Err(error) => Err(chain_admission_error(error)),
             };
-            let r = pool_control::observe_lease_result(&producer_residency, r).map(|mut response| {
+            let stream_cleanup = producer_cleanup.clone();
+            let r = pool_control::observe_lease_result(&producer_residency, producer_cleanup.external(r)).map(|mut response| {
                 use futures::StreamExt;
                 response.stream = Box::pin(response.stream.map(move |chunk|
-                    pool_control::observe_lease_result(&producer_residency, chunk)));
+                    pool_control::observe_lease_result(&producer_residency, stream_cleanup.external(chunk))));
                 response
             });
             match &r {
@@ -511,9 +552,12 @@ async fn compat_forward(
                 Err(_) => {}
             }
             let _ = tx.send(r).await;
+            ((), producer_cleanup.confirmed())
         }).map_err(|_| ApiError::ServingCapacity("operation admission closed".into()))?);
         let stream = retain_owner(proxy_response_stream(rx, handle), (residency, _permit));
-        let mut resp = axum::response::Response::new(axum::body::Body::from_stream(stream));
+        let (body, completion) = proxy_body(stream, cleanup.clone());
+        let mut resp = axum::response::Response::new(body);
+        resp.extensions_mut().insert(completion);
         resp.headers_mut().insert(
             axum::http::header::CONTENT_TYPE,
             axum::http::HeaderValue::from_static("text/event-stream"),
@@ -538,7 +582,7 @@ async fn compat_forward(
         )
         .await;
 
-    let upstream = pool_control::observe_lease_result(&residency, upstream);
+    let upstream = pool_control::observe_lease_result(&residency, cleanup.external(upstream));
     let upstream = match upstream {
         Ok(u) => {
             s.gate.on_success(&gate_key).await;
@@ -567,7 +611,7 @@ async fn compat_forward(
         let mut buf = Vec::new();
         let mut stream = upstream.stream;
         while let Some(chunk) = stream.next().await {
-            buf.extend_from_slice(&pool_control::observe_lease_result(&residency, chunk)
+            buf.extend_from_slice(&pool_control::observe_lease_result(&residency, cleanup.external(chunk))
                 .map_err(ApiError::Internal)?);
         }
         let aggregated = aggregate_sse(dialect, &String::from_utf8_lossy(&buf));
@@ -583,7 +627,7 @@ async fn compat_forward(
             "x-framerize-session",
             chat_session.parse().unwrap_or(axum::http::HeaderValue::from_static("")),
         );
-        return Ok(resp);
+        return Ok(operation_ownership::completed_response(resp, cleanup.confirmed()));
     }
 
     // STREAMING HEARTBEAT (2026-10-05): the in-page transport returns the
@@ -602,8 +646,9 @@ async fn compat_forward(
     let stream = upstream.stream.map(move |chunk| {
         pool_control::observe_lease_result(&observer, chunk)
     });
-    let body = axum::body::Body::from_stream(retain_owner(stream, (residency, _permit)));
+    let (body, completion) = proxy_body(retain_owner(stream, (residency, _permit)), cleanup.clone());
     let mut resp = axum::response::Response::new(body);
+    resp.extensions_mut().insert(completion);
     *resp.status_mut() = status;
     resp.headers_mut().insert(
         axum::http::header::CONTENT_TYPE,
@@ -614,6 +659,8 @@ async fn compat_forward(
         chat_session.parse().unwrap_or(axum::http::HeaderValue::from_static("")),
     );
     Ok(resp)
+    }.await;
+    cleanup.finish(result)
 }
 
 /// Fold an upstream SSE stream into the dialect's non-streaming JSON response.
@@ -2170,6 +2217,7 @@ async fn populate_extra_scopes(
     s: &AppState,
     session: &framer_core::port::Session,
     account: &mut ManagedAccount,
+    cleanup: &pool_control::CleanupEvidence,
 ) {
     let deps = Deps {
         client: s.client.as_ref(),
@@ -2178,7 +2226,7 @@ async fn populate_extra_scopes(
         state: s.state.as_ref(),
         account_updates: &s.serving_accounts.health_update,
     };
-    let credited = match framer_core::credits::scan_workspaces(&deps, session).await {
+    let credited = match cleanup.core(framer_core::credits::scan_workspaces(&deps, session).await) {
         Ok(c) => c,
         Err(e) => {
             eprintln!("[provision] extra-scope scan failed (non-fatal): {e}");
@@ -2194,14 +2242,15 @@ async fn populate_extra_scopes(
         if w.snapshot.available <= 0.0 {
             continue; // 0-credit workspaces 402 on every route — not a scope
         }
-        let mut project = s
+        let project_result = s
             .client
             .team_projects(session, &w.team)
-            .await
+            .await;
+        let mut project = cleanup.external(project_result)
             .ok()
             .and_then(|ps| ps.into_iter().next());
         if project.is_none() {
-            match s.client.create_project(session, &w.team).await {
+            match cleanup.external(s.client.create_project(session, &w.team).await) {
                 Ok(p) => {
                     eprintln!("[provision] created project {} in extra workspace {}", p.0, &w.team.0[..8]);
                     project = Some(p);
@@ -2246,25 +2295,31 @@ struct RemoveBody {
 }
 
 /// Remove one account record.
-async fn remove_account(
-    State(s): State<AppState>,
-    Json(body): Json<RemoveBody>,
-) -> Result<Json<serde_json::Value>, ApiError> {
-    let _management = pool_control::management(&s, body.account_id, false).await?;
+async fn remove_account(state: State<AppState>, body: Json<RemoveBody>) -> Result<Json<serde_json::Value>, ApiError> {
+    remove_account_observed(state, body).await.result
+}
+
+async fn remove_account_observed(State(s): State<AppState>, Json(body): Json<RemoveBody>)
+    -> pool_control::CleanupOutcome<Json<serde_json::Value>> {
+    let cleanup = pool_control::CleanupEvidence::new();
+    let result = async {
+    let _management = cleanup.outcome(pool_control::management_observed(&s, body.account_id, false).await)?;
     let existing = s.state.get(body.account_id).await.map_err(ApiError::Internal)?;
     let Some(acc) = existing else {
         return Err(ApiError::Internal("account not found".into()));
     };
-    s.serving_accounts.park_managed(s.browser.as_ref(), body.account_id).await?;
+    cleanup.outcome(s.serving_accounts.park_managed_observed(s.browser.as_ref(), body.account_id).await)?;
     if body.wipe_profile {
         // Best effort: a missing browser profile must not block the removal.
-        let _ = s.browser.rotate_identity(&body.account_id).await;
+        let _ = cleanup.external(s.browser.rotate_identity(&body.account_id).await);
     }
     s.state.remove(body.account_id).await.map_err(ApiError::Internal)?;
     Ok(Json(serde_json::json!({
         "status": "removed",
         "account": acc.email.unwrap_or(acc.alias),
     })))
+    }.await;
+    cleanup.finish(result)
 }
 
 /// Find records that are genuinely redundant.
@@ -2287,10 +2342,14 @@ async fn remove_account(
 ///     a grave.
 ///
 /// Everything else is kept, including same-login siblings.
-async fn dedupe_accounts(
-    State(s): State<AppState>,
-    Json(body): Json<DedupeBody>,
-) -> Result<Json<serde_json::Value>, ApiError> {
+async fn dedupe_accounts(state: State<AppState>, body: Json<DedupeBody>) -> Result<Json<serde_json::Value>, ApiError> {
+    dedupe_accounts_observed(state, body).await.result
+}
+
+async fn dedupe_accounts_observed(State(s): State<AppState>, Json(body): Json<DedupeBody>)
+    -> pool_control::CleanupOutcome<Json<serde_json::Value>> {
+    let cleanup = pool_control::CleanupEvidence::new();
+    let result = async {
     let pool = s.state.list().await.map_err(ApiError::Internal)?;
     let now = framer_core::rotation::now_ms();
 
@@ -2356,14 +2415,14 @@ async fn dedupe_accounts(
     for (dup, why) in doomed {
         let name = dup.email.clone().unwrap_or_else(|| dup.alias.clone());
         if body.apply {
-            let _management = pool_control::management(&s, dup.id, false).await?;
+            let _management = cleanup.outcome(pool_control::management_observed(&s, dup.id, false).await)?;
             let current = s.state.get(dup.id).await.map_err(ApiError::Internal)?;
             let current = serde_json::to_value(current).map_err(|e| ApiError::Internal(e.to_string()))?;
             let expected = serde_json::to_value(Some(&dup)).map_err(|e| ApiError::Internal(e.to_string()))?;
             if current != expected {
                 return Err(ApiError::PoolBusy("account changed during deduplication; retry the preview".into()));
             }
-            s.serving_accounts.park_managed(s.browser.as_ref(), dup.id).await?;
+            cleanup.outcome(s.serving_accounts.park_managed_observed(s.browser.as_ref(), dup.id).await)?;
             s.state.remove(dup.id).await.map_err(ApiError::Internal)?;
         }
         removed.push(serde_json::json!({ "name": name, "reason": why }));
@@ -2376,6 +2435,8 @@ async fn dedupe_accounts(
         "removing": removed,
         "note": "Same-login siblings are KEPT: each has its own Castle device id,                  and spreading mints across devices is what stops 403 storms. Only                  dead records (no project) and device clones are redundant.",
     })))
+    }.await;
+    cleanup.finish(result)
 }
 
 #[derive(Deserialize)]
@@ -2469,20 +2530,25 @@ struct BeginLoginBody {
 
 /// Step 1 of adding an account: send the Framer magic-link email. The Castle token
 /// comes from the account's (not yet authed) webview via the BrowserBridge.
-async fn begin_login(
-    State(s): State<AppState>,
-    Json(body): Json<BeginLoginBody>,
-) -> Result<&'static str, ApiError> {
+async fn begin_login(state: State<AppState>, body: Json<BeginLoginBody>) -> Result<&'static str, ApiError> {
+    begin_login_observed(state, body).await.result
+}
+
+async fn begin_login_observed(State(s): State<AppState>, Json(body): Json<BeginLoginBody>)
+    -> pool_control::CleanupOutcome<&'static str> {
+    let cleanup = pool_control::CleanupEvidence::new();
+    let result = async {
     s.serving_accounts.require(&body.account_id)
         .map_err(operation_ownership::completed_preflight)?;
-    let _management = pool_control::management(&s, body.account_id, true).await?;
+    let _management = cleanup.outcome(pool_control::management_observed(&s, body.account_id, true).await)?;
     // Mint + signin happen INSIDE the account's browser: api.framer.com
     // validates request/environment consistency (Origin/UA/TLS vs the Castle
     // token's fingerprint) and 400s the bare-HTTP-client variant — observed.
     use framer_core::observability as obs;
     let t0 = std::time::Instant::now();
     let req_id = uuid::Uuid::new_v4().to_string();
-    let r = s.browser.auth_begin(&body.account_id, &body.email).await;
+    let r = _management.observe_result(cleanup.external(
+        s.browser.auth_begin(&body.account_id, &body.email).await));
     let mut ev = obs::Event::new("login.begin")
         .request_id(&req_id)
         .account(&body.account_id)
@@ -2495,6 +2561,8 @@ async fn begin_login(
     ev.emit();
     r.map_err(ApiError::Internal)?;
     Ok("sent")
+    }.await;
+    cleanup.finish(result)
 }
 
 #[derive(Deserialize)]
@@ -2516,13 +2584,17 @@ struct CompleteLoginBody {
 /// register the account: /web/users/me gives the user id + workspaces, and the
 /// ManagedAccount upsert makes inference routes work immediately after login.
 /// Links expire after 1 hour and are single-use.
-async fn complete_login(
-    State(s): State<AppState>,
-    Json(body): Json<CompleteLoginBody>,
-) -> Result<Json<serde_json::Value>, ApiError> {
+async fn complete_login(state: State<AppState>, body: Json<CompleteLoginBody>) -> Result<Json<serde_json::Value>, ApiError> {
+    complete_login_observed(state, body).await.result
+}
+
+async fn complete_login_observed(State(s): State<AppState>, Json(body): Json<CompleteLoginBody>)
+    -> pool_control::CleanupOutcome<Json<serde_json::Value>> {
+    let cleanup = pool_control::CleanupEvidence::new();
+    let result = async {
     s.serving_accounts.require(&body.account_id)
         .map_err(operation_ownership::completed_preflight)?;
-    let _management = pool_control::management(&s, body.account_id, true).await?;
+    let _management = cleanup.outcome(pool_control::management_observed(&s, body.account_id, true).await)?;
     // In-page token exchange; returns the session cookie read out of the
     // browser jar via CDP plus the in-page /web/users/me payload.
     use framer_core::observability as obs;
@@ -2532,6 +2604,7 @@ async fn complete_login(
         .browser
         .auth_complete(&body.account_id, &body.email_token)
         .await;
+    let r = _management.observe_result(cleanup.external(r));
     let mut ev = obs::Event::new("login.complete")
         .request_id(&req_id)
         .account(&body.account_id)
@@ -2554,7 +2627,7 @@ async fn complete_login(
     // Claim the second workspace's 500-credit grant BEFORE admission scans
     // (first TWO workspaces each get one, verified 2026-10-05). Best-effort.
     {
-        let _ = s.client.claim_workspace_grant(&session).await;
+        let _ = cleanup.external(s.client.claim_workspace_grant(&session).await);
     }
     let spaces = me["spaces"].as_array().cloned().unwrap_or_default();
     let first_org = spaces.iter().find(|sp| sp["scope"].as_str() == Some("organization")).cloned();
@@ -2632,7 +2705,7 @@ async fn complete_login(
     };
     let claimed = claimed_workspaces(&s, account.id).await?;
     let admission =
-        framer_core::credits::admit(&deps, &mut account, &session, &claimed).await;
+        cleanup.core(framer_core::credits::admit(&deps, &mut account, &session, &claimed).await);
     if let Err(e) = admission {
         account.state = framer_core::account::AccountState::Exhausted;
         s.state.upsert(&account).await.map_err(ApiError::Internal)?;
@@ -2643,7 +2716,7 @@ async fn complete_login(
     // needs a projectId and a fresh workspace has none.
     if account.current_project.is_none() {
         if let Some(team) = account.current_team.clone() {
-            match s.client.team_projects(&session, &team).await {
+            match cleanup.external(s.client.team_projects(&session, &team).await) {
                 Ok(projects) => {
                     if let Some(first) = projects.into_iter().next() {
                         account.current_project = Some(first);
@@ -2652,7 +2725,7 @@ async fn complete_login(
                 Err(e) => eprintln!("[login] project listing failed: {e}"),
             }
             if account.current_project.is_none() {
-                match s.client.create_project(&session, &team).await {
+                match cleanup.external(s.client.create_project(&session, &team).await) {
                     Ok(p) => {
                         eprintln!("[login] created project {}", p.0);
                         account.current_project = Some(p);
@@ -2664,7 +2737,7 @@ async fn complete_login(
     }
     // Multi-workspace goose: claim every other credited workspace as a rotated
     // scope (each carries its own 429 budget).
-    populate_extra_scopes(&s, &session, &mut account).await;
+    populate_extra_scopes(&s, &session, &mut account, &cleanup).await;
     s.state.upsert(&account).await.map_err(ApiError::Internal)?;
 
     Ok(Json(serde_json::json!({
@@ -2676,6 +2749,8 @@ async fn complete_login(
         "team": account.current_team.map(|t| t.0),
         "project": account.current_project.map(|p| p.0),
     })))
+    }.await;
+    cleanup.finish(result)
 }
 
 #[derive(Deserialize)]
@@ -2704,16 +2779,21 @@ struct ImportBody {
 
 /// Import an externally-minted session cookie: verify it against
 /// /web/users/me, then register the account exactly like complete_login.
-async fn import_account(
-    State(s): State<AppState>,
-    Json(body): Json<ImportBody>,
-) -> Result<Json<serde_json::Value>, ApiError> {
+async fn import_account(state: State<AppState>, body: Json<ImportBody>)
+    -> Result<Json<serde_json::Value>, ApiError> {
+    import_account_observed(state, body).await.result
+}
+
+async fn import_account_observed(State(s): State<AppState>, Json(body): Json<ImportBody>)
+    -> pool_control::CleanupOutcome<Json<serde_json::Value>> {
+    let cleanup = pool_control::CleanupEvidence::new();
+    let result = async {
     if body.expected_framer_user_id.as_ref()
         .is_some_and(|user| user.trim().is_empty() || user.len() > 128) {
         return Err(operation_ownership::completed_preflight(
             ApiError::InvalidRequest("expected Framer user is invalid".into())));
     }
-    let management = pool_control::management(&s, body.account_id, false).await?;
+    let management = cleanup.outcome(pool_control::management_observed(&s, body.account_id, false).await)?;
     let cookie_header = if body.session_cookie.starts_with("session=") {
         body.session_cookie.clone()
     } else {
@@ -2725,7 +2805,7 @@ async fn import_account(
         active_user: framer_core::ids::FramerUserId(String::new()),
         cookie_header: cookie_header.clone(),
     };
-    let me = s.client.me(&probe).await.map_err(ApiError::Internal)?;
+    let me = cleanup.external(s.client.me(&probe).await).map_err(ApiError::Internal)?;
     let user_id = me["id"]
         .as_str()
         .ok_or_else(|| ApiError::Internal("bad /web/users/me response (cookie invalid?)".into()))?;
@@ -2743,7 +2823,7 @@ async fn import_account(
     // (first TWO workspaces each get one, verified 2026-10-05). Best-effort:
     // admission below decides usability either way.
     if body.team_id.is_none() {
-        let _ = s.client.claim_workspace_grant(&session).await;
+        let _ = cleanup.external(s.client.claim_workspace_grant(&session).await);
     }
 
     let spaces = me["spaces"].as_array().cloned().unwrap_or_default();
@@ -2809,11 +2889,11 @@ async fn import_account(
     }
     if let Some(px) = &body.proxy {
         if account.proxy.as_ref() != Some(px) {
-            s.serving_accounts.park_managed(s.browser.as_ref(), body.account_id).await?;
+            cleanup.outcome(s.serving_accounts.park_managed_observed(s.browser.as_ref(), body.account_id).await)?;
         }
         account.proxy = Some(px.clone());
     }
-    s.browser.register_account_proxy(&body.account_id, account.proxy.clone()).await
+    cleanup.external(s.browser.register_account_proxy(&body.account_id, account.proxy.clone()).await)
         .map_err(ApiError::Internal)?;
     s.state.upsert(&account).await.map_err(ApiError::Internal)?;
 
@@ -2830,7 +2910,7 @@ async fn import_account(
         };
         let claimed = claimed_workspaces(&s, account.id).await?;
         if let Err(e) =
-            framer_core::credits::admit(&deps, &mut account, &session, &claimed).await
+            cleanup.core(framer_core::credits::admit(&deps, &mut account, &session, &claimed).await)
         {
             account.state = framer_core::account::AccountState::Exhausted;
             s.state.upsert(&account).await.map_err(ApiError::Internal)?;
@@ -2841,7 +2921,7 @@ async fn import_account(
         // unusable -- and was previously mistaken for dead by the dedupe sweep.
         if account.current_project.is_none() {
             if let Some(team) = account.current_team.clone() {
-                match s.client.team_projects(&session, &team).await {
+                match cleanup.external(s.client.team_projects(&session, &team).await) {
                     Ok(projects) => {
                         if let Some(first) = projects.into_iter().next() {
                             eprintln!(
@@ -2861,7 +2941,7 @@ async fn import_account(
         // workspace has none, and every AI call needs a projectId).
         if account.current_project.is_none() {
             if let Some(team) = account.current_team.clone() {
-                match s.client.create_project(&session, &team).await {
+                match cleanup.external(s.client.create_project(&session, &team).await) {
                     Ok(p) => {
                         eprintln!("[import] {}: created project {}", account.alias, p.0);
                         account.current_project = Some(p);
@@ -2873,7 +2953,7 @@ async fn import_account(
         }
         // Multi-workspace goose: claim every other credited workspace as a
         // rotated scope (each carries its own 429 budget).
-        populate_extra_scopes(&s, &session, &mut account).await;
+        populate_extra_scopes(&s, &session, &mut account, &cleanup).await;
         s.state.upsert(&account).await.map_err(ApiError::Internal)?;
     }
 
@@ -2889,17 +2969,29 @@ async fn import_account(
         let browser = s.browser.clone();
         let state = s.clone();
         let id = body.account_id;
-        let prewarm = operation_ownership::spawn(s.operation_ownership.as_ref(),
+        let prewarm = operation_ownership::spawn_with_cleanup(s.operation_ownership.as_ref(),
             framer_core::operation_gate::OperationKind::Background, async move {
-            let Ok(_lease) = lease_account(&state, id).await else { return; };
-            if current_account(&state, id).await.is_err() { return; }
+            let acquired = pool_control::lease_account_observed(&state, id).await;
+            let lease = match acquired.result {
+                Ok(lease) => lease,
+                Err(_) => return ((), acquired.cleanup_confirmed),
+            };
+            if let Err(error) = current_account(&state, id).await {
+                return ((), acquired.cleanup_confirmed && matches!(error,
+                    ApiError::Cooling { .. } | ApiError::AccountCooling { .. }
+                    | ApiError::ServingCapacity(_)));
+            }
             let t0 = std::time::Instant::now();
             let r = browser.castle_token(&id).await;
+            let confirmed = acquired.cleanup_confirmed
+                && !matches!(&r, Err(error) if pool_control::cleanup_unconfirmed(error));
+            let r = pool_control::observe_lease_result(&lease, r);
             framer_core::observability::Event::new("account.prewarm")
                 .account(&id)
                 .duration_ms(framer_core::observability::elapsed_ms(t0))
                 .outcome(if r.is_ok() { "ok" } else { "error" })
                 .emit();
+            ((), confirmed)
         });
         if prewarm.is_err() {
             framer_core::observability::Event::new("account.prewarm")
@@ -2915,6 +3007,8 @@ async fn import_account(
         "team": account.current_team.map(|t| t.0),
         "project": account.current_project.map(|p| p.0),
     })))
+    }.await;
+    cleanup.finish(result)
 }
 
 #[derive(Deserialize)]

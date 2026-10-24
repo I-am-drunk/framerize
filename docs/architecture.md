@@ -1,5 +1,13 @@
 # Serving architecture and branch policy
 
+Legacy paid output and administrative operations carry cleanup evidence
+separately from their original results. Raw response completion requires EOF
+and the same producer's join; early disposal remains unconfirmed. Import
+warmup has an independent cleanup child that an HTTP response cannot finish.
+A disconnected first paid permit wait releases local residency while keeping
+earlier uncertainty. Thirty-three selected tests cover these paths and the
+affected permit, producer, pool and import controls.
+
 Native HTTP completion is separate from admitted native cleanup. Local
 refusals and fully assembled nonstream responses carry HTTP completion,
 while `PoolAdmission` retains its independent cleanup child. Acquisition
