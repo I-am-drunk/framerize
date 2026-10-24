@@ -140,6 +140,33 @@ DIRECT_SDK = """async (sdk) => {
 }"""
 
 
+def cookies_for_url(rows, url):
+    """Correct the driver's suffix match for host-only cookies and paths."""
+    target = urlsplit(url)
+    if type(rows) is not list or len(rows) > 256 or not target.hostname:
+        raise ValueError("invalid cookie selection")
+    selected = []
+    for row in rows:
+        if type(row) is not dict:
+            raise ValueError("invalid cookie selection")
+        domain, path, secure = row.get("domain"), row.get("path"), row.get("secure")
+        if (type(domain) is not str or not domain or type(path) is not str
+                or not path.startswith("/") or type(secure) is not bool):
+            raise ValueError("invalid cookie scope")
+        domain = domain.lower()
+        host = target.hostname.lower()
+        if domain.startswith("."):
+            matches = host == domain[1:] or host.endswith(domain)
+        else:
+            matches = host == domain
+        request_path = target.path or "/"
+        path_matches = (request_path == path or request_path.startswith(
+            path if path.endswith("/") else path + "/"))
+        if matches and path_matches and (not secure or target.scheme == "https"):
+            selected.append(row)
+    return selected
+
+
 def snapshot_header(rows):
     if type(rows) is not list or len(rows) > 256:
         raise ValueError("invalid cookie snapshot")
@@ -193,7 +220,7 @@ async def _prepare(host, account, sdk_url, plan):
     if type(token) is not str or not token or len(token.encode()) > LIMIT:
         raise RuntimeError("SDK token unavailable")
     rows = await rpc(scope, lambda: context.cookies(API + path))
-    header = snapshot_header(rows)
+    header = snapshot_header(cookies_for_url(rows, API + path))
     if login_cookie(header) != login or not page_matches(page.url, project):
         raise RuntimeError("private session context changed")
     require_running(scope)
@@ -278,6 +305,7 @@ async def comparison_snapshot(scope, acc, project, path, login):
     snap = await comparison_rpc(scope, lambda: acc.page.evaluate(COMPARISON_SNAPSHOT))
     comparison_mark(scope, 'snapshot_cookies')
     rows = await comparison_rpc(scope, lambda: acc.ctx.cookies(API + path))
+    rows = cookies_for_url(rows, API + path)
     comparison_mark(scope, 'snapshot_header')
     header = snapshot_header(rows)
     device = snap.get("device") if type(snap) is dict else None
@@ -426,7 +454,7 @@ COMPARISON_FETCH = """async (input) => {
       .filter(p => p.startsWith('__cuid=')).map(p => p.slice(7));
     return location.href === input.page_url &&
       localStorage.getItem('__cuid') === input.device &&
-      devices.length === 1 && devices[0] === input.device;
+      devices.length > 0 && devices.every(value => value === input.device);
   };
   try {
     if (!sameContext()) { result.failure = 'context_changed'; return result; }

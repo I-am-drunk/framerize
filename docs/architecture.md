@@ -58,6 +58,12 @@ page together. Readiness does not write device state or invoke the SDK.
 The next live attempt passed storage readiness but failed device-cookie
 matching against the API host. Page-visible storage and cookies selected for
 a different host are distinct observations; that binding is under investigation.
+The adapter now re-filters returned cookies using exact host-only/domain
+semantics, path boundaries and the secure flag. The driver otherwise includes
+host-only parent cookies when selecting for a subdomain. Device matching still
+requires one eligible API cookie. In the page, multiple visible cookies are
+allowed only when every value equals the bound device; conflicting identities
+remain a refusal. This matches the SDK's host-only plus domain cookie writes.
 Logical cleanup failure remains separate from a later journal-bound proof
 that the owned process and group exited; the latter retains reserved attempts
 and extends cooldown through physical closure.

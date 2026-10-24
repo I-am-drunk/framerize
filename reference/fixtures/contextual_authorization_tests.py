@@ -113,7 +113,10 @@ class FakeContext:
             self.on_cookies()
         if self.changed_during_cookies is not None:
             self.page.url = self.changed_during_cookies
-        return self.rows
+        if type(self.rows) is not list:
+            return self.rows
+        return [dict(domain=".framer.com", path="/", secure=True) | row
+                if type(row) is dict else row for row in self.rows]
 
 
 class FakeBrowser:
@@ -189,6 +192,7 @@ async def launch_fixture(observed, explicit=None, saved=None):
     host = SimpleNamespace(
         proxies={} if saved is None else {ACCOUNT: saved}, _memory_addon=None,
         _memory_browser=None, _playwright=object(), _allocation=allocation,
+        _browser_runtime=(new_browser, None),
         _initialize_account=initialize,
         lifecycles={ACCOUNT: SimpleNamespace(incarnation=1)},
         _observed_scope=lambda account: scope if observed else None,

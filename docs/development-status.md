@@ -11,6 +11,17 @@ distinguish a missing API device cookie from duplicates; all 13 diagnostic
 cases pass. Acceptance checks remain unchanged;
 this result does not identify the cause of earlier upstream 403s.
 
+A network-isolated browser fixture reproduced a local cookie-selection defect:
+the SDK's host-only and domain cookie pair becomes two entries in Playwright's
+API-URL selection, although the browser sends only the domain cookie there.
+The adapter now applies exact host/domain, path and secure-cookie matching.
+The in-page guard accepts identical visible device cookies and still rejects
+conflicting values. All 82 affected Python cases and 16 exact-fetch JavaScript
+cases pass. The corrected selection and fetch also pass in the real browser
+using synthetic cookies and intercepted responses, with no SDK or account.
+That run peaked at 528,543,744 bytes, with zero swap/events and group removal.
+The fix is not yet validated by an authenticated comparison.
+
 R6 confirmed browser cleanup and natural child exit, with the group removed.
 The native account still retained `Cleanup`. Peak usage was 179 tasks and
 1,210,380,288 bytes, with zero recorded swap or memory/task-limit events.
