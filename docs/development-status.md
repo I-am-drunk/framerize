@@ -3,6 +3,13 @@
 Updated 2026-10-24. The normal service remains browser-based. Publishing these
 branches does not change the running service.
 
+The browser HTTP-200 provenance helper passes all 16 inert cases in a
+network-isolated runner. It binds the actual pre-send objects and invalidates
+closed or replaced objects without another mint, browser call or request.
+Peak was 31,678,464 bytes, with zero swap or limit events and confirmed runner
+removal. No serving process was changed. Resident acquisition still needs the
+activity integration and retained daemon-owned handoff.
+
 The working browser service was checked through bounded, sanitized event
 samples on October 24: it was minting and completing HTTP 200 inferences.
 The running generation remained unchanged. Existing isolated comparisons do
