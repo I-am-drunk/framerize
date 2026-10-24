@@ -72,6 +72,10 @@ The prior seven frame-decoder cases are reused unchanged. The next dependency
 is the separately owned five-group parser, followed by its focused validation
 and a bounded structural observation. No additional SDK call or live request
 was made for these projection checks.
+Two additional synthetic composition cases are prepared to exercise the frame
+decoder, group parser and projection together. They remain unrun until the
+separately owned parser is integrated. The private observation draft retains
+the existing socket denial, child owner and 160 MiB cap; it is not activated.
 
 R12 completed an isolated-V2 request that was refused. The normal browser
 and paired browser baseline returned complete HTTP 200 model output. The
