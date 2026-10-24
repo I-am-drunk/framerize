@@ -1018,6 +1018,7 @@ async def human_burst(page, rng, allow_click=True, rpc=None):
             pass
 
 class Host:
+    _sdk_seed = None  # Explicit native_device.install owns helper packaging.
     def __init__(self):
         os.makedirs(ROOT, exist_ok=True)
         self.accounts = {}  # account -> Account
@@ -1086,6 +1087,14 @@ class Host:
     async def _rpc(self, account, call, *args, **kwargs):
         if self._observed is not None:
             return await call(*args, **kwargs)
+        seed_record = None
+        if (getattr(self, '_sdk_seed_enabled', False)
+                and getattr(self, '_resident_control', None) is None
+                and args and type(args[0]) is str and args[0] in (WARM_JS, MINT_JS)
+                and getattr(call, '__name__', None) == 'evaluate'):
+            seed_record = self._sdk_seed.begin_observation(self, account, getattr(call, '__self__', None))
+            if seed_record is not None:
+                args = (self._sdk_seed.observation_source(args[0]), seed_record.arguments(), *args[1:])
         if args and type(args[0]) is str:
             source = getattr(self, '_resident_scripts', {}).get(args[0])
             if source is not None:
@@ -1094,8 +1103,11 @@ class Host:
         activity = life.activity.activity()
         async def actual():
             try:
-                return await call(*args, **kwargs)
+                result = await call(*args, **kwargs)
+                return self._sdk_seed.observed_result(seed_record, result) if seed_record is not None else result
             except BaseException as error:
+                if seed_record is not None:
+                    seed_record.invalidate()
                 if getattr(self, '_resident_control', None) is not None:
                     try:
                         from resident_authorization import rpc_failure_facts
@@ -1111,6 +1123,8 @@ class Host:
             return await asyncio.shield(task)
         except asyncio.CancelledError:
             # The raw RPC is still owned, including late-created objects.
+            if seed_record is not None:
+                seed_record.invalidate()
             self._retain_resident_fence(life)
             raise
 
@@ -1354,7 +1368,14 @@ class Host:
             await asyncio.gather(*tasks, return_exceptions=True)
         # Browser closure includes every context. Other accounts keep their
         # separate browsers and continue using the shared protocol driver.
-        await asyncio.wait_for(self._rpc(account, acc.lifecycle.close_receipt.close), 10)
+        close_receipt = acc.lifecycle.close_receipt
+        close_deadline = asyncio.get_running_loop().time() + 10
+        async def close_browser():
+            if getattr(self, '_sdk_seed', None) is None:
+                await close_receipt.close()
+            else:
+                await self._sdk_seed.close_with_observation(self, account, acc, close_receipt, close_deadline)
+        await asyncio.wait_for(self._rpc(account, close_browser), 10)
         acc.dev_objs.clear()
         acc.token_pool.clear()
         acc.forge_parts.clear()
@@ -1835,6 +1856,8 @@ class Host:
             if d.page is None:
                 ctx = await self._rpc(account, acc.browser.new_context)
                 try:
+                    seed_session = (self._sdk_seed.session_for_cookie(self, account, acc.session_cookie)
+                                    if getattr(self, '_sdk_seed', None) is not None else None)
                     await self._rpc(account, ctx.add_init_script,
                         f"try {{ localStorage.setItem('__cuid', {json.dumps(dev)}); }} catch(e) {{}}"
                     )
@@ -1845,6 +1868,8 @@ class Host:
                         cookies.append({"name": name, "value": value, "domain": ".framer.com",
                                         "path": "/", "secure": True, "httpOnly": True, "sameSite": "None"})
                     await self._rpc(account, ctx.add_cookies, cookies)
+                    if seed_session is not None:
+                        self._sdk_seed.context_seeded(self, account, seed_session, ctx)
                     page = await self._rpc(account, ctx.new_page)
                     await self._rpc(account, page.goto, LOGIN_URL, wait_until="domcontentloaded", timeout=90000)
                 except BaseException:
@@ -2117,6 +2142,8 @@ class Host:
             if account in self.accounts:
                 return self.accounts[account]
             life.incarnation += 1
+            if getattr(self, '_sdk_seed', None) is not None:
+                self._sdk_seed.invalidate(self, account)
             life.phase = "starting"
             if scope is not None:
                 scope.lifecycle_incarnation = life.incarnation
@@ -2628,6 +2655,8 @@ class Host:
             if not await self._close_account(account):
                 raise RuntimeError("account is busy or browser cleanup is unconfirmed")
             if req["cmd"] == "rotate":
+                if getattr(self, '_sdk_seed', None) is not None:
+                    self._sdk_seed.invalidate(self, account)
                 shutil.rmtree(os.path.join(ROOT, account), ignore_errors=True)
             return True
         if req.get("cmd") not in ("begin", "complete", "mint", "ai_post", "set_cookie", "eval"):
@@ -2654,6 +2683,9 @@ class Host:
                 return {"status": r["status"]}
         if cmd == "complete":
             async with self._page(account) as page:
+                acc = self.accounts[account]
+                seed_epoch = (self._sdk_seed.begin_session_change(self, account)
+                              if getattr(self, '_sdk_seed', None) is not None else None)
                 r = await self._rpc(account, page.evaluate, post_js("/auth/v4/continue", {"token": req["token"]}))
                 if not (200 <= r["status"] < 300):
                     raise RuntimeError("continue %s: %s" % (r["status"], r["body"][:400]))
@@ -2669,7 +2701,12 @@ class Host:
                     emit("auth.complete", account=account[:8], level="error", outcome="error", error="no session cookie after continue")
                     raise RuntimeError("no session cookie after continue")
                 emit("auth.complete", account=account[:8], outcome="ok")
-                return {"cookie_header": "session=" + session, "me": json.loads(me["body"])}
+                me_value = json.loads(me["body"])
+                if (seed_epoch is not None and type(me_value) is dict
+                        and sum(c.get('name') == 'session' for c in cookies) == 1):
+                    self._sdk_seed.record_verified_session(self, account, acc, seed_epoch,
+                                                     me_value.get('id'), 'session=' + session)
+                return {"cookie_header": "session=" + session, "me": me_value}
         if cmd == "mint":
             page, acc, queue_wait = await self._acquire(account)
             try:
@@ -2813,6 +2850,8 @@ class Host:
             # set_cookie waiting for a free page starves behind the very
             # requests it unblocks; measured: 300s timeouts across the board).
             acc = await self._account(account)
+            seed_session = (self._sdk_seed.cookie_change(self, account, req['value'])
+                            if req['name'] == 'session' and getattr(self, '_sdk_seed', None) is not None else None)
             await self._rpc(account, self._ctx(account).add_cookies, [{
                 "name": req["name"], "value": req["value"],
                 "domain": ".framer.com", "path": "/",
@@ -2822,6 +2861,8 @@ class Host:
             # in a device context must carry the account session.
             if req["name"] == "session":
                 acc.session_cookie = (req["name"], req["value"])
+                if seed_session is not None:
+                    self._sdk_seed.context_seeded(self, account, seed_session, acc.ctx)
                 for d in list(acc.dev_objs.values()):
                     if d.ctx is not None:
                         try:
@@ -2830,10 +2871,14 @@ class Host:
                                 "domain": ".framer.com", "path": "/",
                                 "secure": True, "httpOnly": True, "sameSite": "None",
                             }])
+                            if seed_session is not None:
+                                self._sdk_seed.context_seeded(self, account, seed_session, d.ctx)
                         except Exception:
                             pass
             return True
         if cmd == "eval":
+            if getattr(self, '_sdk_seed', None) is not None:
+                self._sdk_seed.invalidate(self, account)
             if self._observed is None:
                 # Arbitrary JS can schedule work after evaluation returns.
                 # No generic completion proof exists for that work.

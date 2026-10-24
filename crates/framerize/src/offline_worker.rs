@@ -68,7 +68,9 @@ impl OfflineWorkerMinter {
     pub(crate) fn with_v2_seed(scope: AccountScope, worker: Arc<V2Worker>,
         bridge: Arc<dyn BrowserBridge>, grant: Arc<DeviceGrant>, seed: V2SeedBinding)
         -> Result<Self, Failure> {
-        if !seed.belongs_to(&grant) { return Err(Failure::Identity); }
+        if !seed.belongs_to(&grant) || !seed.belongs_to_scope(&scope) {
+            return Err(Failure::Identity);
+        }
         let mut minter = Self::with_v2_device(scope, worker, bridge, grant)?;
         minter.sdk_seed = Some(seed);
         Ok(minter)
@@ -121,23 +123,36 @@ impl OfflineMinter for OfflineWorkerMinter {
 impl OfflineWorkerMinter {
     async fn issue(&self, target: &OfflineMintTarget, control: &PreparationControl)
         -> PreparationResult<MintedCastle> {
-        let Some((bridge, grant)) = &self.device else {
-            return self.issue_worker(target, control).await;
-        };
         if control.is_cancelled() {
             return PreparationResult::finished(Err(cancelled(control)));
         }
+        if matches!(&self.worker, WorkerBackend::V2(_)) && self.sdk_seed.is_none() {
+            return PreparationResult::finished(Err(PreparationFailure::Rejected));
+        }
+        let Some((bridge, grant)) = &self.device else {
+            return self.issue_worker(target, control).await;
+        };
         let budget = control.deadline().saturating_duration_since(tokio::time::Instant::now())
             .as_millis().min(16000) as u64;
         if budget == 0 { return PreparationResult::finished(Err(PreparationFailure::Deadline)); }
-        let sequence = match bridge.admit_native_mint(grant, budget).await {
+        let proof = self.sdk_seed.as_ref().and_then(V2SeedBinding::proof);
+        let admitted = match proof {
+            Some(proof) => bridge.admit_native_sdk_mint(proof, budget).await,
+            None => bridge.admit_native_mint(grant, budget).await,
+        };
+        let sequence = match admitted {
             Ok(sequence) => sequence,
             Err(DeviceFailure::Rejected) =>
                 return PreparationResult::finished(Err(PreparationFailure::Rejected)),
             Err(DeviceFailure::Unconfirmed) => return PreparationResult::unconfirmed(),
         };
         let result = self.issue_worker(target, control).await;
-        match bridge.finish_native_mint(grant, sequence, result.cleanup_confirmed).await {
+        let finished = match proof {
+            Some(proof) => bridge.finish_native_sdk_mint(proof, sequence,
+                result.cleanup_confirmed).await,
+            None => bridge.finish_native_mint(grant, sequence, result.cleanup_confirmed).await,
+        };
+        match finished {
             Ok(ready) if result.cleanup_confirmed => {
                 if control.is_cancelled() {
                     PreparationResult::finished(Err(cancelled(control)))
@@ -175,8 +190,7 @@ impl OfflineWorkerMinter {
                 self.finish_worker(started, control).await
             }
             WorkerBackend::V2(worker) => {
-                let device = self.sdk_seed.as_ref().map(V2SeedBinding::device)
-                    .or(device.as_ref());
+                let device = self.sdk_seed.as_ref().map(V2SeedBinding::device);
                 let Some(device) = device else {
                     return PreparationResult::finished(Err(PreparationFailure::Rejected));
                 };

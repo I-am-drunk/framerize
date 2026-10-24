@@ -7,14 +7,13 @@ release: the existing chain log precedes that transition. The rollout keeps
 the unmanaged-host retirement barrier and requires separate runtime evidence.
 
 The separate ordinary-V2 integration branch adds explicit `--offline-sdk v2`
-selection to the current startup and server code. The SDK seed consumer from
-`fe500a0` is included, but the host observation producer and checked transfer
-across browser closure are not yet implemented. This source assembly does
-not establish native readiness and does not change the browserless branch
-or the running service. Missing, foreign or stale observation proof must be
-rejected by the forthcoming producer/consumer implementation.
-Ten startup integration cases pass, and the assembled executable links using
-the current qualified libraries. No production executable or SDK was run.
+selection and now includes the intermediate producer, consumer and support
+package from `8381616`. Missing, foreign or stale SDK observation proof is
+rejected instead of substituting an HTTP device value. Two producer corrections
+remain pending: ambient-proxy route mismatch and unrelated-page invalidation.
+This assembly is unqualified and does not change the browserless branch or
+running service. The ten startup passes belong to the earlier `3d52cde`
+assembly; they are not qualification of this transfer implementation.
 The selected transfer contract requires one read-only retained-anchor check
 immediately before the existing joined browser close. Failure refuses seed
 transfer while preserving cleanup. Export also requires the same retained

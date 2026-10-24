@@ -14,9 +14,12 @@ See `reference/analysis/normal-browser-admission-rollout-20261024.md`.
 The ordinary-V2 integration branch now includes browserless `95f2986`,
 including the qualified legacy and typed-capacity corrections. Only the two
 status documents conflicted; both sets of results are retained below. This
-merge does not repeat their tests or extend those results to the forthcoming
-SDK observation transfer. The producer, consumer and support-package sources
-remain a separate pending integration and qualification input.
+merge does not repeat their tests or extend those results to the SDK transfer.
+Intermediate transfer assembly `8381616` is now integrated: all 21 incoming
+paths match and the 27 selected Rust cases match their published fixtures.
+The Rust core can be built independently. Final Python qualification awaits
+the ambient-proxy and unrelated-page observation corrections from its owners.
+No transfer case has run, and this is not a ready runtime package.
 
 Branch `integrate/ordinary-v2-identity-20261024` assembles the 15 executable
 paths from ordinary-V2 candidate `fe500a0` onto qualified `0b1107c`.
@@ -29,17 +32,17 @@ Measured peaks were 602,656,768 bytes for test compilation, 14,852,096 for tests
 and 523,440,128 for linking, with zero swap. Input bindings, selection and
 cleanup were verified. The executable was not launched. Prior shared-worker
 and post-handoff results belong to the separate candidate.
-This branch is the common base for the observed SDK identity transfer.
-The existing ordinary V2 path still lacks that producer and can fall back to
-the HTTP device value; it must not be presented as identity-proven serving.
-Host and Rust owners will supply a checked transfer tied to the account,
-session, incarnation and original grant. No live activation is authorized.
+The owners retain fixed base `3d52cde` while this branch combines their work
+with the qualified server corrections. The new checked transfer is tied to
+account, session, incarnation and original grant; HTTP-device fallback is
+removed from the V2 seed path. It remains unqualified. No live activation is
+authorized by this integration.
 The selected source contract adds one read-only validation of retained SDK
 anchors immediately before the existing browser close, within its remaining
 deadline. Failed validation refuses transfer without preventing close/join.
 Successful validation plus joined close is a point-in-time guarantee, not
 proof of continuous JavaScript equality or quiescence during close. This
-producer/consumer contract remains unimplemented and unqualified here.
+producer/consumer contract remains unqualified here.
 
 The six-path typed-capacity input `2f165027` is integrated over `41484eb`.
 Seven core cases pass (`4e10d73d`, 44 source-enumerated scenarios), and six
