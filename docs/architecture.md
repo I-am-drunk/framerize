@@ -11,7 +11,7 @@ It acknowledges a result only after the external window owner records it.
 Forced cleanup is never delivery acceptance. Account exclusion and
 restoration remain with that window owner; the parent library does not start
 or stop services.
-The next standalone controller defers service startup until it has left its
+The standalone controller defers service startup until it has left its
 read-only sandbox and confirmed the comparison group is absent. Clean refused
 comparisons retain the stopped owner and full derived cooldown history;
 starting an idle service between failed attempts is unnecessary.
@@ -63,6 +63,9 @@ The corrected live comparison passed storage readiness and all cookie, login
 and page checks. It still refused locally before any inference transport start.
 Fixed, allowlisted stages separate header equality, minting, rebinding, fetch
 setup and result handling without exposing cookies, tokens or exception text.
+The subsequent live failure is localized to the browser mint call. A lost
+browser connection and a JavaScript failure inside that call require separate
+diagnostics; neither establishes the cause of earlier remote refusals.
 The adapter now re-filters returned cookies using exact host-only/domain
 semantics, path boundaries and the secure flag. The driver otherwise includes
 host-only parent cookies when selecting for a subdomain. Device matching still
