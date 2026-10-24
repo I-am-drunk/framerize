@@ -7,6 +7,13 @@ across browser closure are not yet implemented. This source assembly does
 not establish native readiness and does not change the browserless branch
 or the running service. Missing, foreign or stale observation proof must be
 rejected by the forthcoming producer/consumer implementation.
+Ten startup integration cases pass, and the assembled executable links using
+the current qualified libraries. No production executable or SDK was run.
+The selected transfer contract requires one read-only retained-anchor check
+immediately before the existing joined browser close. Failure refuses seed
+transfer while preserving cleanup. Export also requires the same retained
+account, session, incarnation, observation and original grant. This checks a
+specific pre-close point; it does not establish continuous page quiescence.
 
 Native HTTP completion is separate from admitted native cleanup. Local
 refusals and fully assembled nonstream responses carry HTTP completion,
