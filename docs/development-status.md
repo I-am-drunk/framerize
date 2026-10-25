@@ -60,9 +60,10 @@ The native CLI now serves ledger-backed V3 with an existing migrated profile.
 Real upstream delivery is unverified. The service now watches the ledger's
 process exit and stops serving when that owner is lost. All five startup and
 seven ledger-process cases pass, including forced helper exit, listener closure
-and profile reuse; the native executable rebuilt successfully. Its updated
-archive check is pending. V2 requires its authenticated SDK proof; no fallback
-substitutes for it, and this CLI does not enable V2 serving.
+and profile reuse; the native executable rebuilt successfully. The updated
+`251eba5` native archive also passes all eight package lifecycle checks.
+V2 requires its authenticated SDK proof; no fallback substitutes for it,
+and this CLI does not enable V2 serving.
 
 First migration of legacy account history remains unresolved. The working
 browser service and its account state have not been changed by this rewrite.
