@@ -1,5 +1,11 @@
 # Development status
 
+Normal control-transport reliability changes from `a715a41a` are integrated.
+All ten selected tests pass with zero skips. The focused build used about
+137 MiB under the unchanged 768 MiB cap. This qualifies normal transport,
+not the full native feature graph. No new application package was built or
+deployed. See `reference/analysis/control-transport-qualification-20261025.md`.
+
 The two R5 post-start settling budgets now have a qualified 90-to-240-second
 correction. All seven selected inert tests passed, including 20 executed
 subcases and zero skips. The original readiness and failure checks remain.
@@ -17,14 +23,21 @@ startup settling check expired during sequential browser prewarming. The old
 binary is running; final rollback verification remains pending. No acceptance
 POST ran. See `reference/analysis/r5-rollout-result-20261025.md`.
 
+Recovery-only finalization subsequently reached quiet/restoration, then failed
+when the user-level verifier could not open the restored sidecar's memory.
+The temporary ingress restriction was removed, and all helper processes were
+collected. The previous binary is still running; final comparison and restart
+fence removal remain unfinished. A narrow authenticated descriptor-transfer
+correction is assigned. See `reference/analysis/r5-recovery-memory-read-20261025.md`.
+
 Independent transport test compilation on `a715a41a` failed before discovery:
 the prepared isolated source view omitted an existing cross-crate test include.
 That include closure was corrected in a new preparation. Its compile passed
 the missing-file problem but reached the existing 768 MiB memory limit; the
 supervisor stopped it before tests. No OOM kill occurred. All 1,642 inputs stayed
-unchanged and the failed job was collected. Lower-memory preparation is assigned
-without increasing the cap or changing the selected tests. No production defect
-was concluded from either preparation failure.
+unchanged and the failed job was collected. The third, focused preparation
+compiled successfully without increasing the cap or changing the selected
+tests. No production defect was concluded from either preparation failure.
 See `reference/analysis/control-transport-compile-gap-20261025.md`.
 
 The normal interruption repair now has a built candidate from qualified source
