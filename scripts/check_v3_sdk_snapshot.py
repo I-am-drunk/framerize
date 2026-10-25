@@ -13,6 +13,29 @@ import tempfile
 ROOT = Path(__file__).resolve().parents[1]
 
 
+def captured_value(value, depth=0):
+    if depth > 64:
+        raise ValueError('collector nesting')
+    kind = value['kind']
+    if kind == 'null':
+        return 'Value::Null'
+    if kind == 'undefined':
+        return 'Value::Undefined'
+    if kind == 'boolean' and type(value['value']) is bool:
+        return f'Value::Bool({str(value["value"]).lower()})'
+    if kind == 'number':
+        bits = struct.unpack('>Q',struct.pack('>d',float(value['value'])))[0]
+        return f'Value::Number(f64::from_bits({bits}))'
+    if kind == 'string':
+        units = value['units']
+        if not all(type(x) is int and 0 <= x <= 65535 for x in units):
+            raise ValueError('collector string')
+        return f'Value::String(vec!{units})'
+    if kind == 'array' and len(value['values']) <= 2048:
+        return 'Value::Array(vec!['+','.join(captured_value(x,depth+1) for x in value['values'])+'])'
+    raise ValueError('collector type')
+
+
 class Reader:
     def __init__(self, data):
         self.data, self.at, self.values = data, 0, 0
@@ -74,7 +97,7 @@ def check(snapshot, output):
     if len(raw) > 8*1024*1024:
         raise ValueError('snapshot size')
     data = json.loads(raw)
-    assert data['schema'] == 1 and data['synthetic'] is True
+    assert data['schema'] in (1, 2) and data['synthetic'] is True
     assert data['sdk_sha256'] == '3337eba7ffe614c2ebd9b2b8a55794f2e2445a9b3658d1af5eb7530152b72c71'
     assert all(type(x) is int and 0 <= x <= 255 for x in data['serialized'])
     serialized = bytes(data['serialized'])
@@ -83,15 +106,26 @@ def check(snapshot, output):
     assert reader.at == len(serialized)
     timestamp = data['timestamp_ms']
     assert type(timestamp) is int and abs(timestamp) <= 8640000000000000
+    apply, fields = [], []
+    if data['schema'] == 2:
+        assert set(data['collectors']) == {'worker','network'}
+        assert sorted(data['collector_order']) == ['network','worker']
+        for name in data['collector_order']:
+            position, variant = (242, 'SharedWorker') if name == 'worker' else (473, 'Network')
+            fields.append(position)
+            expression = captured_value(data['collectors'][name])
+            apply.append(f'values[{position}]=Value::Undefined;'
+                         f'apply_collector_result(&mut values,CollectorResult::{variant}({expression})).unwrap();')
     with tempfile.TemporaryDirectory(prefix='v3-sdk-snapshot-') as directory:
         path = Path(directory)
         (path/'serialized').write_bytes(serialized)
         module = json.dumps(str(ROOT/'crates/framer-native/src/castle/mod.rs'))
         source = f'''#![recursion_limit="2048"]
 #[allow(dead_code,unused_imports)] #[path={module}] mod castle;
-use castle::v3::{{Value,serialize,encode_collected}};
+use castle::v3::{{Value,serialize,encode_collected,apply_collector_result,CollectorResult}};
 #[test] fn normalized_snapshot_round_trip_and_encode() {{
-    let values=vec![{','.join(values)}];
+    let mut values=vec![{','.join(values)}];
+    {''.join(apply)}
     let expected=include_bytes!({json.dumps(str(path/'serialized'))});
     assert!(serialize(&values).unwrap()==expected,"snapshot representation differs");
     let token=encode_collected(&values,{timestamp}).unwrap();
@@ -106,6 +140,7 @@ use castle::v3::{{Value,serialize,encode_collected}};
         equal = hashlib.sha256(token).hexdigest() == data['token_sha256']
         equal = equal and len(token) == data['token_bytes']
     report = dict(schema=1,synthetic=True,normalized_snapshot_round_trip=True,
+                  collector_fields_compared=fields,
                   token_sha256_equal=equal,positions=len(values),values=reader.values,
                   serialized_bytes=len(serialized),token_bytes=data['token_bytes'],
                   snapshot_sha256=hashlib.sha256(raw).hexdigest())

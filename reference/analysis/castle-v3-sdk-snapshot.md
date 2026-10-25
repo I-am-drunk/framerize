@@ -27,9 +27,14 @@ Both runs joined and left no owned process; source bindings were unchanged.
 
 Tools: `scripts/castle_v3_snapshot.mjs` supplies the observation hooks;
 `scripts/castle_v3_snapshot_loader.mjs` is mounted as `/work/sdk_loader.mjs`
-over the pinned worker bundle. Mount the recorder and
+over the pinned worker bundle. Mount the recorder, its
+`scripts/castle_v3_snapshot_values.mjs` companion and
 `scripts/check_v3_sdk_snapshot.mjs` under `/probe`. Run only with the above
 sandbox and an empty writable `/out`; the loader is not a production change.
 In the isolated compiler view, run `python3 -I -B scripts/check_v3_sdk_snapshot.py
 /snapshot.json /out/comparison.json`. Keep snapshots and generated values
 out of Git. This SDK experiment is not part of ordinary CI.
+
+The current schema also captures two collector outcomes for the separate
+[collector-input comparison](castle-v3-collected-inputs.md). The checker
+still accepts the original byte-only snapshot schema described above.
