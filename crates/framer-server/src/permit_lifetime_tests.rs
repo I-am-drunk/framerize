@@ -13,6 +13,27 @@ const WAIT: Duration = Duration::from_secs(3);
 const MESSAGE_MODEL: &str = "claude-opus-5-5";
 const RESPONSE_MODEL: &str = "gpt-6-astra";
 
+#[tokio::test(flavor = "current_thread")]
+async fn unbound_stream_reselects_when_account_cools_before_producer_starts() {
+    for messages in [false, true] {
+        let mut f = Fixture::new();
+        f.accounts[1].cooling_until_ms = Some(framer_core::rotation::now_ms() + 600_000);
+        f.state.state.upsert(&f.accounts[1]).await.unwrap();
+        let response = chain(f.state.clone(), HeaderMap::new(), messages, true).await.unwrap();
+        f.accounts[0].cooling_until_ms = Some(framer_core::rotation::now_ms() + 600_000);
+        f.accounts[1].cooling_until_ms = None;
+        for account in &f.accounts { f.state.state.upsert(account).await.unwrap(); }
+        let first = f.state.state.get(f.accounts[0].id).await.unwrap().unwrap();
+        let call = f.next().await;
+        assert_eq!(call.account, f.accounts[1].id);
+        call.reply.send(Ok(success(call.kind))).ok().unwrap();
+        delivered(response).await;
+        assert_eq!(f.state.state.get(first.id).await.unwrap().unwrap().cooling_until_ms,
+            first.cooling_until_ms);
+        f.no_call();
+    }
+}
+
 async fn occupied(gate: &ConcurrencyGate, key: &str) {
     assert!(gate.acquire_now(key).await.is_none(), "active attempt lost its slot");
 }

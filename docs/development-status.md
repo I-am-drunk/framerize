@@ -23,6 +23,15 @@ removed. Current tests stay with the behavior they exercise.
 
 ## Validation
 
+The latest browser correction also covers account cooldown after opening a
+stream and a replacement account refusing admission while another peer is
+ready. Both defects were reproduced before their fixes on the narrow repair
+branch, where all 234 server checks pass. The equivalent changes here pass
+all 233 server checks, including finite selection and unknown-cleanup refusal.
+Explicit account choices, real cooldowns and inference retry limits remain
+unchanged. This branch is not deployed; these checks do not prove that all
+reported T3 continuation failures are resolved.
+
 A native request regression reproduced completed continuation text retaining
 the first fragment's incomplete item status. The shared merge now takes the
 latest supplied status while retaining the first identity and combined text.

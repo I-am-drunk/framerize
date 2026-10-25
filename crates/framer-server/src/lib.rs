@@ -907,13 +907,28 @@ async fn pick_fresh_account(
 ) -> pool_control::AcquisitionOutcome<(ManagedAccount, framer_core::resident_pool::ResidentLease)> {
     let mut cleanup_confirmed = true;
     let result = async {
-        let pool = s.state.list().await.map_err(ApiError::Internal)?;
-        let account = s.serving_accounts.select_fresh(pool, excluded)?;
-        let acquired = pool_control::lease_account_observed(s, account.id).await;
-        cleanup_confirmed = acquired.cleanup_confirmed;
-        let lease = acquired.result?;
-        let account = current_account(s, account.id).await?;
-        Ok((account, lease))
+        let mut pool = s.state.list().await.map_err(ApiError::Internal)?;
+        let candidates: Vec<_> = pool.iter().map(|account| account.id).collect();
+        let mut skipped = excluded.to_vec();
+        loop {
+            // Each original candidate is admitted at most once. A refused
+            // local admission has made no inference attempt on that account.
+            let account = s.serving_accounts.select_fresh(pool, &skipped)?;
+            skipped.push(account.id.0.to_string());
+            let acquired = pool_control::lease_account_observed(s, account.id).await;
+            cleanup_confirmed &= acquired.cleanup_confirmed;
+            let result = match acquired.result {
+                Ok(lease) => current_account(s, account.id).await.map(|account| (account, lease)),
+                Err(error) => Err(error),
+            };
+            match result {
+                Err(ApiError::AccountCooling { .. } | ApiError::PoolBusy(_)
+                    | ApiError::ServingCapacity(_)) if cleanup_confirmed => {},
+                result => return result,
+            }
+            pool = s.state.list().await.map_err(ApiError::Internal)?;
+            pool.retain(|account| candidates.contains(&account.id));
+        }
     }.await;
     pool_control::AcquisitionOutcome { result, cleanup_confirmed }
 }
@@ -1299,10 +1314,11 @@ async fn free_complete(
                     },
                 };
                 if let Err(error) = cfg2.check_cancelled() { break Err(error); }
-                if let Err(error) = current_account(&s2, account.id).await {
-                    break Err(chain_admission_error(error));
-                }
-                let r = s2
+                let admission = current_account(&s2, account.id).await;
+                let admitted = admission.is_ok();
+                let r = match admission {
+                    Err(error) => Err(chain_admission_error(error)),
+                    Ok(_) => s2
                     .client
                     .freechat_long(
                         &session,
@@ -1314,11 +1330,12 @@ async fn free_complete(
                         &chat_session2,
                         Some(&cb),
                     )
-                    .await;
+                    .await,
+                };
                 drop(permit);
                 cleanup_confirmed &= !matches!(&r, Err(error) if pool_control::cleanup_unconfirmed(error));
                 let r = residency.observe_result(account.id, r);
-                if !matches!(&r, Err(error) if error == "client cancelled") {
+                if admitted && !matches!(&r, Err(error) if error == "client cancelled") {
                     record_account_health(&s2, &account, &r).await;
                 }
                 if cfg2.is_cancelled() { break r; }
@@ -1878,10 +1895,11 @@ async fn native_complete(
                     },
                 };
                 if let Err(error) = cfg2.check_cancelled() { break Err(error); }
-                if let Err(error) = current_account(&s2, account.id).await {
-                    break Err(chain_admission_error(error));
-                }
-                let r = s2
+                let admission = current_account(&s2, account.id).await;
+                let admitted = admission.is_ok();
+                let r = match admission {
+                    Err(error) => Err(chain_admission_error(error)),
+                    Ok(_) => s2
                     .client
                     .native_long(
                         &session,
@@ -1893,11 +1911,12 @@ async fn native_complete(
                         &chat_session2,
                         Some(&cb),
                     )
-                    .await;
+                    .await,
+                };
                 drop(permit);
                 cleanup_confirmed &= !matches!(&r, Err(error) if pool_control::cleanup_unconfirmed(error));
                 let r = residency.observe_result(account.id, r);
-                if !matches!(&r, Err(error) if error == "client cancelled") {
+                if admitted && !matches!(&r, Err(error) if error == "client cancelled") {
                     record_account_health(&s2, &account, &r).await;
                 }
                 if cfg2.is_cancelled() { break r; }
