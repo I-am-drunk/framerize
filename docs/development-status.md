@@ -36,12 +36,25 @@ The isolated run has no network, account data or full SDK execution. Its first
 attempt lacked the compiler's `cc` symlink target; adding that toolchain path
 to the isolated view allowed the unchanged source comparison to pass.
 
-These primitives are not wired into serving and make no memory or acceptance
-claim. Native CI includes `python -I -B scripts/check_v3_encoding.py`; its
-hosted execution is still unverified. Next implement the typed serializer
-around it, resolving the pinned source's type tags and JavaScript coercion
-before comparing complete serialized arrays. Compression, collection and
-the final envelope remain separate unfinished parts of the replacement.
+The typed Rust serializer built on these primitives passes 528 complete-array
+comparisons against the original serializer and its source-exact helpers.
+The cases cover null/undefined, booleans, numeric boundaries, nonfinite values,
+negative zero, float bytes, canonical Base64, rejected Base64 padding, Latin-1,
+UTF-16, array-length boundaries and nested ordering. Repeated serialization
+produces the same bytes. No full SDK startup or live account was involved.
+
+Object fallback is an explicit input containing already-stringified JSON, or
+normalized null for an unavailable result. Its test verifies encoding that
+result, not native object-to-JSON normalization. That normalization is still
+unfinished, along with collection, compression and the final envelope.
+The first reference extraction and generated Rust fixture needed boundary and
+type-annotation fixes; both failures are retained. The final comparison passes.
+
+These components are not wired into serving and make no memory or acceptance
+claim. Native CI includes both `scripts/check_v3_encoding.py` and
+`scripts/check_v3_serialization.py`; hosted execution remains unverified.
+Next resolve the pinned compression contract and remaining object normalization,
+then compare the composed serialized and compressed bytes.
 
 The dedicated-worker cleanup correction from `759ef0d1` is integrated on
 the reorganized `24ebbdb` base. A focused regression fails on the old pool:

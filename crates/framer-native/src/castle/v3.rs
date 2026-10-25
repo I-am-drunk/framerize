@@ -2,6 +2,9 @@
 //!
 //! V3 names Framer's selected path, not a Castle package or token-format version.
 
+mod value;
+pub use value::{serialize, Value};
+
 /// Append the SDK's unsigned base-128 representation without shared state.
 ///
 /// Matches `R` and `G` in SDK SHA256
