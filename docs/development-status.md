@@ -37,9 +37,12 @@ test passed; the SDK capture was reused without starting another operation.
 The native collector-result integration writes SharedWorker position 242
 and all four network positions: 80, 469, 473 and 659, in source order.
 The related-address and protocol assignments pass 202 original-helper
-comparisons; 13 full-callback comparisons preserve earlier writes on later
+comparisons; 14 network-assignment comparisons preserve earlier writes on later
 failure. The existing 101 hash, 57 address and eight assignment comparisons
-also pass. These and refusal/preservation checks run as 23 native tests.
+also pass. These and refusal/preservation checks run as 25 native tests.
+`apply_network_result` now performs the four ordered assignments from one
+consumed observation, without rebuilding or cloning its record. It refuses
+missing destinations and retains the completed prefix on a later failure.
 Reusing the saved synthetic SDK capture, a further native test clears and
 rebuilds all five positions in source order, using the native unavailable
 network record. Its complete 5,412-byte

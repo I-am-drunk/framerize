@@ -81,3 +81,16 @@ The retained SDK capture passes a further test after rebuilding all five
 positions (80,469,473,659,242) and the complete unavailable network record.
 Its 5,412-byte serialization and 5,297-byte final output still match. No new
 SDK operation, live account, service action or RAM-saving claim follows.
+
+## Single network assignment entry point
+
+`apply_network_result` now consumes one observation and lazily transforms
+fields 40, 47, 38 and 18 into positions 80, 469, 473 and 659. It moves fields
+out of the supplied record instead of cloning it. Each destination is checked
+before its conversion; failure preserves earlier assignments and stops later
+ones. Individual `apply_collector_result` calls remain available.
+
+The changed code passes 25 focused tests, including 14 assignment-sequence
+comparisons, an object record and refusal to extend incomplete destinations.
+A further saved-snapshot test reproduces the full serialized and encoded
+output using the new entry point. Timing and live collection remain separate.

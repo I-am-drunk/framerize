@@ -28,6 +28,9 @@ def full_cases():
     result = [('complete',network(base)), ('empty',network({})),
               ('outer_null',NULL), ('missing_row',array([])),
               ('null_row',array([NULL]))]
+    object_value = shared['object_value']
+    result.append(('object_record', object_value([('0', object_value(
+        [(str(index), value) for index, value in base.items()]))])))
     for index in (40,47,38,18):
         result.append((f'array_field_{index}',network({**base,index:array([number(1)])})))
         result.append((f'empty_field_{index}',network({**base,index:string([])})))
@@ -68,15 +71,12 @@ fn base() -> Vec<Value> {{ (1000..1765).map(|n|Value::Number(n as f64)).collect(
     }}
 }}
 '''
-    variants = ['NetworkRelatedAddress','NetworkHash','Network','NetworkProtocols']
     for i,((name,(_,expr)),outcome) in enumerate(zip(full,expected[len(selected):])):
         assert outcome.get('error') in (None,'TypeError'), name
-        calls = ''.join(f'apply_collector_result(&mut values,CollectorResult::{v}({expr}))?;'
-                        for v in variants)
         ok = str('error' not in outcome).lower()
         source += f'''#[test] fn ordered_callback_{i}() {{
             let mut values=base();
-            let result=(||{{{calls} Ok::<(),CollectorError>(())}})();
+            let result=apply_network_result(&mut values,{expr});
             assert_eq!(result.is_ok(),{ok},"{name}");
             assert_eq!(serialize(&values).unwrap().as_slice(),&{outcome['bytes']},"{name}");
         }}
@@ -96,6 +96,21 @@ def refusal_tests():
 fn record(index:usize,value:Value)->Value {
     let mut row:Vec<_>=(0..56).map(|_|Value::Undefined).collect();
     row[index]=value; Value::Array(vec![Value::Array(row)])
+}
+#[test] fn ordered_assignment_refuses_growth_and_retains_the_completed_prefix() {
+    for missing in [80,469,473,659] {
+        let mut expected=base();
+        apply_network_result(&mut expected,Value::Null).unwrap();
+        expected.truncate(missing);
+        let mut values=base(); values.truncate(missing);
+        assert_eq!(apply_network_result(&mut values,Value::Null),
+            Err(CollectorError::MissingPosition(missing)));
+        assert_eq!(serialize(&values).unwrap(),serialize(&expected).unwrap());
+    }
+    let mut values=base(); let before=serialize(&values).unwrap();
+    assert_eq!(apply_network_result(&mut values,Value::JsonFailure),
+        Err(CollectorError::Network(NetworkValueError::NormalizedValue)));
+    assert_eq!(serialize(&values).unwrap(),before);
 }
 #[test] fn unsupported_fields_and_missing_positions_preserve_input() {
     let variants:[(fn(Value)->CollectorResult,usize,usize);2]=[
