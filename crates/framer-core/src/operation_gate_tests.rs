@@ -10,11 +10,11 @@ async fn all_registered_kinds_delay_drain_until_explicit_completion() {
         let owner = gate.admit(kind).unwrap();
         let mut ticket = gate.seal().unwrap();
         assert!(matches!(gate.admit(kind), Err(GateError::Sealed)));
-        assert!(tokio::time::timeout(std::time::Duration::from_millis(1),
-            ticket.wait()).await.is_err());
+        let mut draining = std::pin::pin!(ticket.wait());
+        assert!(futures::poll!(draining.as_mut()).is_pending());
         assert_eq!(gate.stats().unwrap().active, 1);
         owner.complete().unwrap();
-        let lease = ticket.wait().await.unwrap();
+        let lease = draining.await.unwrap();
         gate.check_held(&lease).unwrap();
     }
 }
@@ -26,10 +26,10 @@ async fn registered_cleanup_survives_parent_completion_during_seal() {
     let mut ticket = gate.seal().unwrap();
     let cleanup = parent.register_cleanup().unwrap();
     parent.complete().unwrap();
-    assert!(tokio::time::timeout(std::time::Duration::from_millis(1),
-        ticket.wait()).await.is_err());
+    let mut draining = std::pin::pin!(ticket.wait());
+    assert!(futures::poll!(draining.as_mut()).is_pending());
     cleanup.complete().unwrap();
-    let lease = ticket.wait().await.unwrap();
+    let lease = draining.await.unwrap();
     gate.check_held(&lease).unwrap();
 }
 
@@ -144,11 +144,11 @@ async fn dropped_result_waiter_does_not_complete_supervisor_owned_operation() {
     });
     drop(result);
     let mut ticket = gate.seal().unwrap();
-    assert!(tokio::time::timeout(std::time::Duration::from_millis(1),
-        ticket.wait()).await.is_err());
+    let mut draining = std::pin::pin!(ticket.wait());
+    assert!(futures::poll!(draining.as_mut()).is_pending());
     assert_eq!(gate.stats().unwrap().active, 1);
     release.send(()).unwrap();
     worker.await.unwrap();
-    let lease = ticket.wait().await.unwrap();
+    let lease = draining.await.unwrap();
     gate.check_held(&lease).unwrap();
 }

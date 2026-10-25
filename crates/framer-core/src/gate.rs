@@ -533,15 +533,15 @@ mod tests {
 
     #[tokio::test]
     async fn permits_bound_concurrency_and_release_on_drop() {
-        let g = Arc::new(gate(4, 4, 60_000));
+        let g = gate(4, 4, 60_000);
         let mut held = Vec::new();
         for _ in 0..4 {
             held.push(g.acquire("w1").await);
         }
-        let g2 = g.clone();
-        let waiter = tokio::spawn(async move { g2.acquire("w1").await });
-        tokio::time::sleep(Duration::from_millis(50)).await;
-        assert!(!waiter.is_finished(), "gate let a 5th request through a 4-wide limit");
+        let waiter = g.acquire("w1");
+        tokio::pin!(waiter);
+        assert!(futures::poll!(waiter.as_mut()).is_pending(),
+            "gate let a 5th request through a 4-wide limit");
 
         held.pop();
         assert!(
@@ -555,7 +555,7 @@ mod tests {
         // The subtle one: shrink cannot take permits that are currently held, so
         // it records debt and settles later. Without that, a 429 during
         // saturation would not actually reduce concurrency.
-        let g = Arc::new(gate(1, 4, 60_000));
+        let g = gate(1, 4, 60_000);
         let mut held = Vec::new();
         for _ in 0..4 {
             held.push(g.acquire("w1").await);
@@ -565,16 +565,15 @@ mod tests {
 
         // Release everything; the two owed permits must be absorbed, leaving 2.
         held.clear();
-        let _ = g.acquire("w1").await;
-        let a = g.acquire("w1").await;
-        drop(a);
-
-        let g2 = g.clone();
-        let waiter = tokio::spawn(async move { g2.acquire("w1").await });
-        tokio::time::sleep(Duration::from_millis(50)).await;
-        // One permit is still held by the first acquire above, so with a limit
-        // of 2 exactly one more may pass and a third must block.
-        let _ = waiter.await;
+        held.push(g.acquire("w1").await);
+        held.push(g.acquire("w1").await);
+        let waiter = g.acquire("w1");
+        tokio::pin!(waiter);
+        assert!(futures::poll!(waiter.as_mut()).is_pending(),
+            "a third request passed the reduced two-permit limit");
+        held.pop();
+        assert!(tokio::time::timeout(Duration::from_secs(2), waiter).await.is_ok(),
+            "waiter never acquired after a permit was released");
         assert_eq!(g.limit_of("w1").await, 2);
     }
 

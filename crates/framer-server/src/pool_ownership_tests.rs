@@ -1,5 +1,6 @@
 use super::*;
 use framer_core::operation_gate::{GateError, OperationKind};
+use futures::FutureExt;
 use tower::ServiceExt;
 
 fn owned(capacity: usize, saved: u128) -> (AppState, Arc<Ports>) {
@@ -28,7 +29,7 @@ async fn drained(state: &AppState) {
     let proof = tokio::time::timeout(Duration::from_secs(2), ticket.wait_application()).await.unwrap().unwrap();
     scope.check_application_drained(&proof).unwrap();
     drop(proof);
-    assert!(tokio::time::timeout(Duration::from_millis(5), ticket.wait()).await.is_err());
+    assert!(ticket.wait().now_or_never().is_none());
     ticket.cancel_before_control().unwrap();
 }
 
@@ -45,11 +46,12 @@ async fn startup_pool_close_remains_owned_after_waiter_drop_and_seal() {
     drop(task);
     let scope = state.operation_ownership.as_ref().unwrap();
     let mut ticket = scope.seal().unwrap();
-    assert!(tokio::time::timeout(Duration::from_millis(5), ticket.wait_application()).await.is_err());
+    let mut draining = Box::pin(ticket.wait_application());
+    assert!(draining.as_mut().now_or_never().is_none());
     assert!(slot(&state, id(1)).close_started);
     ports.records.lock().unwrap()[1].cooling_until_ms = Some(u64::MAX);
     ports.close_gate.add_permits(1);
-    let proof = tokio::time::timeout(Duration::from_secs(2), ticket.wait_application()).await.unwrap().unwrap();
+    let proof = tokio::time::timeout(Duration::from_secs(2), draining).await.unwrap().unwrap();
     scope.check_application_drained(&proof).unwrap();
     assert!(!ports.mint_routes.lock().unwrap().iter().any(|(account, _)| *account == id(2)));
     assert!(state.serving_accounts.residents.snapshot().unwrap().residents.iter().all(|slot| slot.users == 0));
@@ -88,13 +90,14 @@ async fn legacy_router_keeps_pool_and_application_owners_until_the_last_output_b
         assert_stream_residency(&state).await;
         let scope = state.operation_ownership.as_ref().unwrap();
         let mut ticket = scope.seal().unwrap();
-        assert!(tokio::time::timeout(Duration::from_millis(5), ticket.wait_application()).await.is_err());
+        let mut draining = Box::pin(ticket.wait_application());
+        assert!(draining.as_mut().now_or_never().is_none());
         ports.response_gate.add_permits(2);
         to_bytes(response.into_body(), 65536).await.unwrap();
         until(|| slot(&state, id(1)).users == 0).await;
-        let proof = tokio::time::timeout(Duration::from_secs(2), ticket.wait_application()).await.unwrap().unwrap();
+        let proof = tokio::time::timeout(Duration::from_secs(2), draining).await.unwrap().unwrap();
         scope.check_application_drained(&proof).unwrap();
         drop(proof);
-        assert!(tokio::time::timeout(Duration::from_millis(5), ticket.wait()).await.is_err());
+        assert!(ticket.wait().now_or_never().is_none());
     }
 }

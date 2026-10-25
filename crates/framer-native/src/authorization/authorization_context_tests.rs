@@ -106,16 +106,20 @@ async fn supplied_context_rejects_empty_or_oversized_binding() {
     let client = NativeAccountClient::new().unwrap();
     let scope = open(&client);
     let source = Source::new(false);
-    for index in 0..7 {
+    let invalid_bindings: [(&str, fn(&mut BoundAttemptContext)); 7] = [
+        ("empty project", |value| value.project.0.clear()),
+        ("empty conversation", |value| value.chat_session.clear()),
+        ("empty feature category", |value| value.context.feature_category.clear()),
+        ("empty feature name", |value| value.context.feature_name.clear()),
+        ("empty step", |value| value.context.step.clear()),
+        ("empty turn", |value| value.context.turn_id.clear()),
+        ("oversized prompt", |value| value.context.user_prompt = "x".repeat(4097)),
+    ];
+    for (name, invalidate) in invalid_bindings {
         let mut value = binding();
-        match index {
-            0 => value.project.0.clear(), 1 => value.chat_session.clear(),
-            2 => value.context.feature_category.clear(), 3 => value.context.feature_name.clear(),
-            4 => value.context.step.clear(), 5 => value.context.turn_id.clear(),
-            _ => value.context.user_prompt = "x".repeat(4097),
-        }
+        invalidate(&mut value);
         assert!(GenerationAuthorization::for_attempt(client.clone(), scope.clone(),
-            source.clone(), value).is_err());
+            source.clone(), value).is_err(), "{name}");
     }
     assert_eq!(source.calls.load(Ordering::SeqCst), 0);
     client.close_account(&scope).unwrap().await.unwrap();
@@ -154,11 +158,19 @@ async fn supplied_context_rejects_wrong_project_conversation_and_step_before_cre
     let payload = json!({"input":"fixture"});
     let project = binding().project;
     let wrong = ProjectId("other-project".into());
-    for index in 0..3 {
-        let mut request = prepared(&scope, &project, &payload);
-        match index { 0 => request.project = &wrong,
-            1 => request.chat_session = "other-thread", _ => request.step_index += 1 }
-        assert!(supplier.authorize(request).await.is_err());
+    let requests = [
+        ("wrong project", PreparedAttempt {
+            project: &wrong, ..prepared(&scope, &project, &payload)
+        }),
+        ("wrong conversation", PreparedAttempt {
+            chat_session: "other-thread", ..prepared(&scope, &project, &payload)
+        }),
+        ("wrong step", PreparedAttempt {
+            step_index: 3, ..prepared(&scope, &project, &payload)
+        }),
+    ];
+    for (name, request) in requests {
+        assert!(supplier.authorize(request).await.is_err(), "{name}");
     }
     assert_eq!(source.calls.load(Ordering::SeqCst), 0);
     client.close_account(&scope).unwrap().await.unwrap();
