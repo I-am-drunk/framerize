@@ -10,6 +10,13 @@ The request owner retains both child cleanup and native encoding completion.
 V2 keeps its separate token protocol. The normal browser service is unaffected.
 See [the handoff contract](../reference/analysis/native-collection-handoff.md).
 
+The separate `worker-smoke` example samples its own memory and that of its
+descendants while running one isolated operation. It checks process identity
+and membership around each sample and joins the sampler on completion.
+This instrumentation is not part of the serving path. See the
+[connected worker baseline](../reference/analysis/native-worker-memory.md)
+for measured scope, accounting rules and limitations.
+
 The private collection carries the same operation's SharedWorker and network
 receiver results. Rust reduces them into position 242 and network positions
 80, 469, 473 and 659 before encoding. Those SDK reductions and assignments
