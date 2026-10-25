@@ -18,7 +18,9 @@ Group native code by account, authorization, request, transport and worker.
 Use one direct owned request for the existing complete-JSON endpoint. Remove
 the general provider, binding map, mixed-route dispatch and fallback settings.
 Retain scope validation, cancellation, independent cleanup and refusal policy.
-Native streaming remains unfinished; its low-level framing code is retained.
+Native JSON and SSE endpoints now use that same owned request. Upstream output
+remains buffered; downstream SSE delivers completed chunks, with optional
+bounded continuation and a separate authorization context for each chunk.
 
 The API library owns Framer endpoint policy and pure payload helpers. Its
 browser-backed Responses chain is currently called `nativechain`; rename it
