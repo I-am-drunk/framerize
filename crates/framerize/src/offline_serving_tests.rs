@@ -328,6 +328,7 @@ impl BrowserBridge for Ports {
         self.device_users.fetch_add(1, Ordering::SeqCst);
         if mode == 2 { return Err(DeviceFailure::Unconfirmed); }
         Ok(DeviceGrant { account, lease: uuid::Uuid::new_v4(),
+            authority: framer_core::native_device::DeviceAuthority::Ledger,
             host_generation: "a".repeat(32), device: "fixture-device".into() })
     }
     async fn close_native_device(&self, grant: &framer_core::native_device::DeviceGrant,

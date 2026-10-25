@@ -1,6 +1,7 @@
 //! Inert source selection for the existing one-shot complete-JSON caller.
 use std::sync::Arc;
-use framer_core::{native_device::{DeviceFailure, DeviceGrant}, port::{BrowserBridge, Session}};
+use framer_core::{native_device::{DeviceAuthority, DeviceFailure, DeviceGrant},
+    port::{BrowserBridge, Session}};
 use futures::{future::BoxFuture, FutureExt};
 use framer_api::experimental_native::{
     authorization::{CredentialSource, CredentialMaterial, CredentialTarget,
@@ -49,10 +50,11 @@ impl SourceBuilder for OfflineSource {
         if device.account != scope.account() { return Err(Failure::MissingAuthority); }
         let route = proxy.as_deref().map(NativeEgress::Proxy).unwrap_or(NativeEgress::Direct);
         let api = BoundControlClient::new(scope.clone(), route).map_err(|_| Failure::Source)?;
-        if let WorkerBackend::V2(worker) = &self.worker {
-            return Ok(Arc::new(V2ProofSource {
+        if matches!(&self.worker, WorkerBackend::V2(_))
+            || device.authority == DeviceAuthority::Observation {
+            return Ok(Arc::new(DeviceProofSource {
                 transfer: V2SeedTransfer::new(scope.clone(), device.clone()),
-                scope, worker: worker.clone(), bridge: self.bridge.clone(), grant: device,
+                scope, worker: self.worker.clone(), bridge: self.bridge.clone(), grant: device,
                 api: Arc::new(api), target: self.target.clone(),
             }));
         }
@@ -64,9 +66,9 @@ impl SourceBuilder for OfflineSource {
     }
 }
 
-struct V2ProofSource {
+struct DeviceProofSource {
     scope: AccountScope,
-    worker: Arc<V2Worker>,
+    worker: WorkerBackend,
     bridge: Arc<dyn BrowserBridge>,
     grant: Arc<DeviceGrant>,
     transfer: V2SeedTransfer,
@@ -74,7 +76,7 @@ struct V2ProofSource {
     target: OfflineMintTarget,
 }
 
-impl V2ProofSource {
+impl DeviceProofSource {
     async fn issue_bound(&self, scope: &AccountScope, session: &Session,
         target: &CredentialTarget, control: &PreparationControl)
         -> PreparationResult<PreparedCredentials> {
@@ -96,7 +98,7 @@ impl V2ProofSource {
             Ok(seed) => seed,
             Err(_) => return PreparationResult::finished(Err(PreparationFailure::Rejected)),
         };
-        let minter = match OfflineWorkerMinter::with_v2_seed(self.scope.clone(), self.worker.clone(),
+        let minter = match OfflineWorkerMinter::with_host_proof(self.scope.clone(), self.worker.clone(),
             self.bridge.clone(), self.grant.clone(), seed) {
             Ok(minter) => minter,
             Err(_) => return PreparationResult::finished(Err(PreparationFailure::Rejected)),
@@ -107,7 +109,7 @@ impl V2ProofSource {
     }
 }
 
-impl CredentialSource for V2ProofSource {
+impl CredentialSource for DeviceProofSource {
     fn issue<'a>(&'a self, _: &'a AccountScope, _: &'a Session,
         _: &'a PreparationControl) -> BoxFuture<'a, PreparationResult<CredentialMaterial>> {
         async { PreparationResult::finished(Err(PreparationFailure::Rejected)) }.boxed()

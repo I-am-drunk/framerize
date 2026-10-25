@@ -2,6 +2,9 @@ use super::*;
 use framer_core::native_device::NativeSdkSeed;
 use serde_json::{json, Value};
 
+#[path = "offline_v3_authority_tests.rs"]
+mod v3_authority;
+
 const SEED: &str = "00112233445546778899aabbccddeeff";
 const SESSION_ID: &str = "70000000-0000-4000-8000-000000000001";
 const OBSERVATION_ID: &str = "70000000-0000-4000-8000-000000000002";
@@ -119,6 +122,7 @@ fn bound_minter(scope: &AccountScope, worker: Arc<V2Worker>, host: &Arc<ProofHos
 
 fn private_inputs() -> (Arc<DeviceGrant>, Session) {
     (Arc::new(DeviceGrant { account: AccountId(uuid::Uuid::new_v4()),
+        authority: DeviceAuthority::Observation,
         host_generation: "0123456789abcdef0123456789abcdef".into(),
         lease: uuid::Uuid::new_v4(), device: "http-device-only".into() }),
         Session { active_user: FramerUserId("proof-user".into()),
@@ -133,6 +137,7 @@ fn sdk_transfer_keeps_exact_seed_session_and_original_grant() {
     assert_eq!(proof.grant().device, "http-device-only");
     assert!(proof.matches(&grant, &session));
     let replacement = Arc::new(DeviceGrant { account: grant.account,
+        authority: grant.authority,
         host_generation: grant.host_generation.clone(), lease: grant.lease,
         device: grant.device.clone() });
     assert!(!proof.matches(&replacement, &session));
