@@ -1,7 +1,7 @@
 """Normal browser host entry point. Imports do not start browsers."""
 import asyncio
 from pathlib import Path
-from .release import verify_runtime
+from framerize_runtime.release import verify_runtime
 
 def main(script):
     verify_runtime(Path(script).resolve().parent)

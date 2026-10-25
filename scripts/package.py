@@ -12,6 +12,24 @@ import tempfile
 ROOT = Path(__file__).resolve().parents[1]
 
 
+def copy_runtime(app, tree):
+    source, runtime = ROOT / 'runtime', tree / 'runtime'
+    browser = app == 'framerize'
+    modules = ('framerize_accounts', 'framerize_runtime',
+               'framerize_host' if browser else 'framerize_native')
+    for module in modules:
+        shutil.copytree(source / module, runtime / module,
+                        ignore=shutil.ignore_patterns('__pycache__', '*.pyc'))
+    for entry in (('host.py', 'requirements.txt') if browser else ('native.py',)):
+        shutil.copy2(source / entry, runtime / entry)
+    for path in sorted(runtime.rglob('*'), reverse=True):
+        if path.is_dir() and not any(path.iterdir()):
+            path.rmdir()
+    pins = {path.relative_to(runtime).as_posix(): hashlib.sha256(path.read_bytes()).hexdigest()
+            for path in sorted(runtime.rglob('*')) if path.is_file()}
+    (runtime / 'runtime-manifest.json').write_text(json.dumps(pins, sort_keys=True, indent=2) + '\n')
+
+
 def package(app, output, target_dir, allow_dirty=False):
     commit = subprocess.check_output(['git', 'rev-parse', 'HEAD'], cwd=ROOT, text=True).strip()
     dirty = bool(subprocess.check_output(
@@ -40,21 +58,7 @@ def package(app, output, target_dir, allow_dirty=False):
             if not (ROOT / 'web/dist/index.html').is_file():
                 raise ValueError('build the UI first: npm --prefix web ci && npm --prefix web run build')
             shutil.copytree(ROOT / 'web/dist', tree / 'web')
-            source = ROOT / 'runtime'
-            for module in ('framerize_host', 'framerize_accounts'):
-                shutil.copytree(source / module, tree / 'runtime' / module,
-                                ignore=shutil.ignore_patterns('__pycache__', '*.pyc'))
-            for entry in ['host.py', 'requirements.txt']:
-                shutil.copy2(source / entry, tree / 'runtime' / entry)
-            runtime = tree / 'runtime'
-            for path in sorted(runtime.rglob('*'), reverse=True):
-                if path.is_dir() and not any(path.iterdir()):
-                    path.rmdir()
-            pins = {path.relative_to(runtime).as_posix():
-                    hashlib.sha256(path.read_bytes()).hexdigest()
-                    for path in sorted(runtime.rglob('*')) if path.is_file()}
-            (runtime / 'runtime-manifest.json').write_text(
-                json.dumps(pins, sort_keys=True, indent=2) + '\n')
+        copy_runtime(app, tree)
         info = {'format': 1, 'application': app, 'commit': commit, 'platform': system, 'source_dirty': dirty,
                 'build_profile': profile, 'development': development,
                 'rustc': subprocess.check_output(['rustc', '--version'], text=True).strip(),

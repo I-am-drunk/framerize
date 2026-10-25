@@ -9,7 +9,7 @@ import unittest
 from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from framerize_host.release import verify_runtime
+from framerize_runtime.release import verify_runtime
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / 'scripts'))
 import release as installer
 import package as builder

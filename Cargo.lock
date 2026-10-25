@@ -478,6 +478,7 @@ dependencies = [
  "framer-api",
  "framer-core",
  "framer-server",
+ "framer-store",
  "futures",
  "libc",
  "reqwest",

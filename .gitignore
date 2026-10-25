@@ -16,6 +16,8 @@ __pycache__/
 /runtime/*
 !/runtime/framerize_host/
 !/runtime/framerize_accounts/
+!/runtime/framerize_runtime/
+!/runtime/native.py
 !/runtime/framerize_native/
 !/runtime/tests/
 !/runtime/tests_native/

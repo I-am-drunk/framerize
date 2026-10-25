@@ -15,6 +15,7 @@ for decisions, boundaries and the remaining migration work.
   and transport modules.
 - `runtime/framerize_accounts`: shared journal, rate policy and crash recovery.
 - `runtime/framerize_native`: native ledger ownership, independent of the browser host.
+- `runtime/framerize_runtime`: process framing and package verification shared by both apps.
 - `scripts/package.py` and `scripts/release.py`: build a complete archive and
   verify it into a new release directory.
 - `web`: the application interface.
@@ -77,6 +78,13 @@ This owner controls ledger access, not login or session ownership. There is
 still no live native launcher. Startup must establish account/session exclusion
 and connect actual worker joins before using it. It does not supply V2 SDK
 proofs or replace the native library's authenticated proof requirements.
+
+The Rust ledger adapter starts `runtime/native.py` explicitly and retains the
+session store until that child exits. Its private pipes carry device operations,
+not session cookies. Abandoned open or mint-admission replies are cleaned up by
+the connection owner; loss of the connection reports uncertainty. Shutdown
+requires both a clean ledger reply and the observed child exit. The native CLI
+still only validates configuration; serving startup has not been connected.
 
 The host opens one SQLite journal outside the release directory. Account rate
 decisions live in `framerize_accounts/rates.py`: request charges and mint reservations
