@@ -11,8 +11,8 @@ for decisions, boundaries and the remaining migration work.
 - `crates/framer-server`: normal HTTP routes and shared account admission.
 - `crates/framer-host`: browser process integration.
 - `crates/framer-store`: state and session storage.
-- `runtime/framerize_host`: Python browser host, with account, browser, resource,
-  transport and restoration modules.
+- `runtime/framerize_host`: Python browser host, with account, browser, resource
+  and transport modules.
 - `scripts/package.py` and `scripts/release.py`: build a complete archive and
   verify it into a new release directory.
 - `web`: the application interface.
@@ -36,13 +36,16 @@ adapters are absent from both the Rust bridge and the Python browser package.
 Native Python authority sources live separately in `runtime/framerize_native`
 and have no live launcher or installation hook.
 
-Durable account rate history and graceful update handling are still pending.
-The running service has not been changed by this reorganization.
+The host opens one SQLite journal outside the release directory. Account rate
+decisions live in `accounts/rates.py`: request charges and mint reservations
+commit before external work. Device choices, cooldowns and reserve usage persist
+across browser closure. A cancelled mint retains its own RPC and pacing lock
+until the actual operation ends. Confirmed browser closure records clean state.
 
-`accounts/journal.py` provides the tested SQLite storage boundary for that next
-step. It has one writer and refuses to initialize over existing account state.
-It is not yet used by request admission or startup, so it does not currently
-change restart behavior.
+The legacy process-memory restoration code is removed from the runtime.
+Existing profiles without a journal require migration. Interrupted records
+require confirmed cleanup before reuse. Graceful service shutdown, automatic
+crash recovery and first migration remain unfinished; this code is undeployed.
 
 Earlier investigation notes are preserved in
 [architecture history](history/architecture-before-reorganization-20261025.md).

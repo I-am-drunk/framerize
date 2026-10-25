@@ -1,7 +1,7 @@
 """Browser host command and account lifecycle orchestration."""
 import asyncio, base64, hashlib, json, os, random, shutil, sys, time, uuid
-from collections import deque
 from contextlib import asynccontextmanager
+from contextvars import ContextVar
 from pathlib import Path
 from .settings import (ROOT, LOGIN_URL, API, CASTLE_CHUNK, POOL_CAP, FORGE_MAX_AGE_S,
     DEVICE_POOL, HEARTBEAT_S, RESERVE_PER_DAY, DEV_COOLDOWN_S, DEV_WINDOW_S,
@@ -11,16 +11,22 @@ from .wire import AsyncReplyWriter
 from .resources import (memory_snapshot, trim_unused_heap, MemoryPressureError,
     BROWSER_STARTUP_RESERVE, prepared_memory_browser, prepared_memory_addon)
 from .accounts.state import Device, AccountLifecycle, Account
+from .accounts.rates import AccountRates, RatePolicy, SystemClock
 from .browser.driver import browser_runtime, BrowserCloseReceipt
 from .browser.scripts import (WARM_JS, MINT_JS, post_js, AI_START_JS,
     AI_POLL_JS, AI_CANCEL_JS, DEVPOOL_WARM_JS, DEVPOOL_MINT_JS)
 from .browser.actions import human_burst
 from . import castle_forge as _cf
-from .restoration.startup_state import restore_primary
+
+_MINT_CALLS = ContextVar('framerize_mint_calls', default=None)
 
 class Host:
-    def __init__(self):
+    def __init__(self, rate_journal=None):
         os.makedirs(ROOT, exist_ok=True)
+        self.rate_journal = rate_journal
+        self.rate_clock = SystemClock()
+        self.rate_policy = RatePolicy(window=DEV_WINDOW_S, cooldown=DEV_COOLDOWN_S,
+            mint_gap=MINT_GAP_S, capacity=DEV_WINDOW_CAP, reserves=RESERVE_PER_DAY)
         self.accounts = {}  # account -> Account
         self.lifecycles = {}  # account -> lightweight history, never credentials
         self.generation = uuid.uuid4().hex
@@ -47,9 +53,17 @@ class Host:
 
     @asynccontextmanager
     async def _activity(self, account):
-        life = self.lifecycles.setdefault(account, AccountLifecycle())
+        life = self._lifecycle(account)
         with life.activity.activity():
             yield
+
+    def _lifecycle(self, account):
+        life = self.lifecycles.get(account)
+        if life is None:
+            rates = AccountRates(self.rate_journal, account, self.rate_policy, self.rate_clock)
+            life = AccountLifecycle(rates)
+            self.lifecycles[account] = life
+        return life
 
     async def _rpc(self, account, call, *args, **kwargs):
         life = self.lifecycles[account]
@@ -60,6 +74,10 @@ class Host:
             finally:
                 activity.close()
         task = life.activity.track(actual)
+        owned = _MINT_CALLS.get()
+        if owned is not None:
+            owned.add(task)
+            task.add_done_callback(owned.discard)
         # Cancellation stops the waiter; the raw RPC keeps its account owner.
         return await asyncio.shield(task)
 
@@ -194,7 +212,7 @@ class Host:
 
     @asynccontextmanager
     async def _use_account_active(self, account, proxy=None):
-        life = self.lifecycles.setdefault(account, AccountLifecycle())
+        life = self._lifecycle(account)
         life.active_commands += 1
         acc = None
         try:
@@ -218,6 +236,10 @@ class Host:
             task.cancel()
         if tasks:
             await asyncio.gather(*tasks, return_exceptions=True)
+        pending = tuple(acc.lifecycle.activity.pending)
+        if pending:
+            await asyncio.gather(*(asyncio.shield(task) for task in pending),
+                                 return_exceptions=True)
         # Browser closure includes every context. Other accounts keep their
         # separate browsers and continue using the shared protocol driver.
         close_receipt = acc.lifecycle.close_receipt
@@ -327,8 +349,7 @@ class Host:
             if (self.lifecycles.get(account) is not life or life.incarnation != incarnation
                     or self.accounts.get(account) is not acc):
                 raise RuntimeError("browser ownership changed during cleanup")
-            if acc is not None:
-                life.restored_primary_device = acc.primary_dev
+            life.rates.confirm_browser_closed()
             self.accounts.pop(account, None)
             life.browser = None
             life.close_receipt = None
@@ -711,96 +732,23 @@ class Host:
                     trace(f"{account[:8]}: device {dev[:8]} warm issue ({type(e).__name__})")
         return d
 
-    @staticmethod
-    def _request_window(acc, dev, now):
-        """Discard expired timestamps once, without copying the active window.
-
-        Timestamps are appended in monotonic order on the event-loop thread.
-        Use the same subtraction and strict window boundary as the previous
-        filters. Do not cap the queue: every in-window request still counts.
-        """
-        reqs = acc.dev_reqs.get(dev)
-        if reqs is None:
-            return ()
-        while reqs and now - reqs[0] >= DEV_WINDOW_S:
-            reqs.popleft()
-        return reqs
-
     def _pick_device_sticky(self, acc):
-        """STICKY selection: the primary device serves everything until it
-        actually cools; only then promote the next ready device. Server-side
-        this reads as 'user opened their other laptop' — not a per-request
-        rotation (the old round-robin was the loudest churn signal)."""
-        now = time.monotonic()
-        ready = [d for d in acc.devices
-                 if acc.dev_cooling.get(d, 0) <= now
-                 and len(self._request_window(acc, d, now)) < DEV_WINDOW_CAP]
-        if acc.primary_dev in ready:
-            return acc.primary_dev
-        acc.primary_dev = ready[0] if ready else None
-        return acc.primary_dev
+        return acc.lifecycle.rates.select_primary()
 
     def _pick_device(self, acc, account=None):
-        """Velocity-aware device choice: round-robin over the persisted device
-        pool, skipping velocity-cooled devices and devices over the proactive
-        window budget. Returns a READY device, or None when everything is
-        cooling/over-budget — call _device_ready_in() for the wait time. NEVER
-        fire on a cooling device: poking a banned device re-bans it for the
-        full cooldown (measured 2026-10-06: the re-poke cascade kept every
-        device permanently banned during the storm)."""
-        devs = acc.devices or [None]
-        now = time.monotonic()
-        for _ in range(len(devs)):
-            acc.dev_rr = (acc.dev_rr + 1) % len(devs)
-            d = devs[acc.dev_rr]
-            if acc.dev_cooling.get(d, 0) > now:
-                continue
-            reqs = self._request_window(acc, d, now)
-            if len(reqs) >= DEV_WINDOW_CAP:
-                continue
-            return d
-        # Stable pool exhausted — BURST RESERVE: a fresh __cuid carries the
-        # full grace budget even on a known fingerprint (counter is
-        # fingerprint-blind, measured). Capped per day to bound the
-        # new_device/farm signature. Atomic: no awaits in this function.
-        today = time.strftime("%Y-%m-%d", time.gmtime())
-        if acc.reserve_day != today:
-            acc.reserve_day, acc.reserve_used = today, 0
-        if acc.reserve_used < RESERVE_PER_DAY:
-            acc.reserve_used += 1
-            dev = str(uuid.uuid4())
-            acc.devices.append(dev)
-            acc.reserve.add(dev)
-            trace(f"{(account or chr(63)*8)[:8]}: burst-reserve device #{acc.reserve_used}/{RESERVE_PER_DAY} created (stable pool cooling)")
-            return dev
-        return None
-
-    def _device_ready_in(self, acc):
-        """Seconds until SOME device is usable: the soonest cooldown expiry, or
-        the soonest window slot freeing up. None when a device is ready now."""
-        now = time.monotonic()
         if not acc.devices:
             return None
-        waits = []
-        for d in acc.devices:
-            cu = acc.dev_cooling.get(d, 0)
-            if cu > now:
-                waits.append(cu - now)
-                continue
-            reqs = self._request_window(acc, d, now)
-            if len(reqs) < DEV_WINDOW_CAP:
-                return None  # this device is ready now
-            waits.append((reqs[0] + DEV_WINDOW_S) - now)
-        return min(waits) if waits else None
+        ready = acc.lifecycle.rates.select_primary()
+        return ready if ready is not None else acc.lifecycle.rates.allocate_reserve()
+
+    def _device_ready_in(self, acc):
+        return acc.lifecycle.rates.device_ready_in() or None
 
     def _note_request(self, acc, dev):
-        now = time.monotonic()
-        if dev not in acc.dev_reqs:
-            acc.dev_reqs[dev] = deque()
-        self._request_window(acc, dev, now).append(now)
+        acc.lifecycle.rates.charge_request(dev)
 
     def _cool_device(self, acc, dev, account):
-        acc.dev_cooling[dev] = time.monotonic() + DEV_COOLDOWN_S
+        acc.lifecycle.rates.cool_device(dev)
         # burn the device's outstanding coupons: a banned device's tokens all
         # draw from its drained velocity budget
         for tid in [k for k, v in acc.token_pool.items() if v.get("dev") == dev]:
@@ -870,6 +818,37 @@ class Host:
         if ent:
             ent["in_use"] = False
 
+    @asynccontextmanager
+    async def _mint_gate(self, acc):
+        await acc.mint_lock.acquire()
+        started, owned = False, set()
+        token = _MINT_CALLS.set(owned)
+        try:
+            delay = acc.lifecycle.rates.mint_ready_in()
+            if delay > 0:
+                await asyncio.sleep(delay)
+            acc.lifecycle.rates.begin_mint()
+            started = True
+            yield
+        finally:
+            _MINT_CALLS.reset(token)
+            if not started:
+                acc.mint_lock.release()
+            else:
+                async def finish():
+                    try:
+                        await asyncio.gather(*(asyncio.shield(t) for t in tuple(owned)),
+                                             return_exceptions=True)
+                        acc.lifecycle.rates.finish_mint()
+                    finally:
+                        acc.mint_lock.release()
+                try:
+                    completion = acc.lifecycle.activity.track(finish)
+                except BaseException:
+                    acc.mint_lock.release()
+                    raise
+                await asyncio.shield(completion)
+
     async def _mint(self, acc, page, account, dev=None):
         """Mint one Castle token, serialized and paced per ACCOUNT.
 
@@ -904,10 +883,7 @@ class Host:
                     return tok, fdev
                 except Exception:
                     pass  # fall through to a live mint
-        async with acc.mint_lock:
-            gap = MINT_GAP_S - (time.monotonic() - acc.last_mint)
-            if gap > 0:
-                await asyncio.sleep(gap)
+        async with self._mint_gate(acc):
             t0 = time.monotonic()
             tok = None
             burst_ms = 0  # pre-mint burst REMOVED: it was the bottleneck
@@ -931,7 +907,6 @@ class Host:
                     page = acc.mint_page = await self._new_mint_page(acc, account)
                 tok = await self._rpc(account, page.evaluate, MINT_JS)
                 used_dev = None  # single-device path (ambient __cuid)
-            acc.last_mint = time.monotonic()
             if tok and _cf is not None:
                 try:
                     parts = _cf.harvest(tok)
@@ -939,7 +914,7 @@ class Host:
                 except Exception:
                     pass
             emit("castle.mint", account=account[:8],
-                 duration_ms=int((acc.last_mint - t0) * 1000),
+                 duration_ms=int((time.monotonic() - t0) * 1000),
                  burst_ms=burst_ms, device=str(used_dev)[:8] if used_dev else None,
                  outcome="ok" if tok else "error",
                  **({} if tok else {"error": "castle-unavailable"}))
@@ -952,13 +927,15 @@ class Host:
     async def _account_active(self, account, proxy=None):
         if self._closed:
             raise RuntimeError("browser host is closed")
-        life = self.lifecycles.setdefault(account, AccountLifecycle())
+        life = self._lifecycle(account)
+        life.rates.check_admission()
         self._browser_status(account)
         if life.phase in ("closing", "unconfirmed"):
             raise RuntimeError("account browser cleanup is unconfirmed; retry after cleanup")
         if account in self.accounts and life.phase == "resident":
             return self.accounts[account]
         async with life.creation_lock:
+            life.rates.check_admission()
             if self._closed:
                 raise RuntimeError("browser host is closed")
             if life.phase in ("closing", "unconfirmed"):
@@ -1055,6 +1032,7 @@ class Host:
         # This admission estimate is not a cap on later browser growth.
         async with self._allocation(BROWSER_STARTUP_RESERVE):
             life = self.lifecycles[account]
+            life.rates.browser_starting()
             if self._playwright is None:
                 await self._rpc(account, self._start_driver, async_playwright)
             # Each launch still has its own process, profile, configuration,
@@ -1076,7 +1054,6 @@ class Host:
             emit("camoufox.launch", account=account[:8], duration_ms=int((time.monotonic()-t0)*1000), outcome="ok")
             try:
                 acc = await self._initialize_account(account, profile, browser)
-                restore_primary(acc)
                 return acc
             except BaseException:
                 acc = self.accounts.get(account)
@@ -1129,20 +1106,7 @@ class Host:
         # Device pool (the concurrency goose): persisted uuids per account,
         # castle-module instances warmed concurrently in the background.
         try:
-            devfile = os.path.join(profile, 'framerize-devices.json')
-            devices = []
-            if os.path.exists(devfile):
-                try:
-                    devices = json.loads(Path(devfile).read_text())
-                except Exception:
-                    devices = []  # empty/corrupt (crash mid-write) — regenerate
-            while len(devices) < DEVICE_POOL:
-                devices.append(str(uuid.uuid4()))
-            devices = devices[:DEVICE_POOL]  # shrink stale pools from the
-            # 16-device era (they survive otherwise — Castle farm signal)
-            Path(devfile).write_text(json.dumps(devices))
-            acc.devices = devices
-            acc.primary_dev = devices[0] if devices else None
+            acc.lifecycle.rates.ensure_devices(DEVICE_POOL)
             # Device contexts are created LAZILY on first use (each is a real
             # browser context — eager-warming N of them at boot is the slow
             # part). devpool_ready kept for compat with the token path.
@@ -1150,6 +1114,7 @@ class Host:
             self._track_task(acc, self._heartbeat_loop(acc, account), idle_loop=True)
         except Exception as e:
             trace(f"{account[:8]}: device pool init failed ({type(e).__name__})")
+            raise
         # Device requests use their own page. Allocate the ambient mint page
         # only when the legacy mint path actually needs it.
         return acc
@@ -1274,6 +1239,7 @@ class Host:
 
     async def _run_job_active(self, account, page, path, body, token, bearer, job, dev, timeout):
         deadline = time.monotonic() + timeout
+        completed = False
         try:
             await asyncio.wait_for(
                 self._rpc(account, page.evaluate, AI_START_JS, [path, body, token, bearer, job, dev]),
@@ -1289,15 +1255,19 @@ class Host:
                 except asyncio.TimeoutError:
                     result = None
                 if result is not None:
+                    completed = True
                     return result
                 await asyncio.sleep(min(0.5, max(0, deadline - time.monotonic())))
         finally:
-            # Covers success, timeout, cancellation and a broken poll call.
-            # The in-page timer also covers disappearance of the host process.
             try:
-                await asyncio.wait_for(self._rpc(account, page.evaluate, AI_CANCEL_JS, job), 2)
-            except (Exception, asyncio.CancelledError):
-                pass
+                if not completed:
+                    self.lifecycles[account].rates.mark_uncertain()
+            finally:
+                # Request cancellation even if recording uncertainty fails.
+                try:
+                    await asyncio.wait_for(self._rpc(account, page.evaluate, AI_CANCEL_JS, job), 2)
+                except (Exception, asyncio.CancelledError):
+                    pass
 
     async def handle(self, req):
         account = req.get("account", "")

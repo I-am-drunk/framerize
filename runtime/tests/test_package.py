@@ -24,21 +24,21 @@ class PackageTests(unittest.TestCase):
 import asyncio
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
-from framerize_host.app import Host, AccountLifecycle
-from framerize_host.restoration.startup_state import restore_primary
+from framerize_host.app import Host, AccountLifecycle, Account
 async def check():
     host = Host()
     life = AccountLifecycle()
     life.browser = object()
     life.close_receipt = SimpleNamespace(browser=life.browser)
-    acc = SimpleNamespace(primary_dev='chosen')
+    chosen = life.rates.ensure_devices(1)[0]
+    acc = Account(None, None, None, life)
+    acc.primary_dev = chosen
     host.lifecycles['fixture'] = life
     host.accounts['fixture'] = acc
     host._dispose_account = AsyncMock()
     assert await host._finish_close('fixture', life, acc)
-    reopened = SimpleNamespace(lifecycle=life, devices=['first', 'chosen'], primary_dev='first')
-    restore_primary(reopened)
-    assert reopened.primary_dev == 'chosen'
+    reopened = Account(None, None, None, life)
+    assert reopened.primary_dev == chosen
     await host.close()
 asyncio.run(check())
 ''')

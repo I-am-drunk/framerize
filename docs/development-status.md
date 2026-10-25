@@ -26,8 +26,8 @@ Validation collected locally:
 - The workspace all-target check passed at the application split milestone.
 - Current browser server: 250 tests pass. Host: 69 retained tests pass. Browser CLI: 28
   tests pass. Gate selection: 43 tests pass, including three new persistence tests.
-- Python runtime: 56 fixture tests pass across lifecycle, imports, browser setup,
-  package staging, request ownership and safe diagnostics. The fetch fixture
+- Python runtime: 76 fixture tests pass across lifecycle, imports, browser setup,
+  packaging, rate persistence, request ownership and safe diagnostics. The fetch fixture
   runs the packaged JavaScript using an inert Node harness.
 - The TypeScript/Vite UI build passes. Both local development archives pass
   checksum verification, staging and executable startup; the packaged browser
@@ -55,14 +55,20 @@ these fixtures do not establish live native delivery.
 Native Python authority helpers were relocated without enabling them. They are
 source-only; no native host launcher or monkeypatch installer is supplied.
 
-The SQLite rate-journal storage layer is implemented with exclusive ownership,
-durable transactions and refusal to initialize over existing account state.
-Seven isolated tests pass, including abrupt process exit and failed writes.
-This is storage groundwork only. Runtime charging, clock recovery and first
-migration are not connected to it, and no live state has been opened or changed.
+The host now opens the SQLite journal and commits request charges and mint
+reservations before external work. It preserves device selection, request
+windows, cooldowns and reserve identities/counts. Reboot handling conservatively
+rebases durations without crediting uncertain downtime. Interrupted records
+require confirmed cleanup; existing profiles without history require migration.
+The old privileged process-memory restoration modules are removed.
 
-Next: implement durable account rate history plus graceful
-shutdown. Current account history and first-migration handling remain unresolved;
+All 73 current Python runtime tests pass, including nine rate-policy and seven
+journal cases. Three further host integration tests pass: durable close with
+shared account references, cancelled mint ownership and refusal before external
+work on storage failure. No live account state has been opened or changed.
+
+Next: integrate graceful shutdown and automatic cleanup verification.
+Current account history and first-migration handling remain unresolved;
 no production restart is part of this structural work.
 
 See [the design](rearchitecture.md) and [packages](releases.md). Earlier measured
