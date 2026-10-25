@@ -1,5 +1,14 @@
 # Development status
 
+Fresh-account admission now accepts the same host's verified session and
+joined SDK observation while retaining its original rate ledger. Fifteen
+focused synthetic tests pass, including two consecutive native mint permits,
+real cooldown/capacity refusals, caller identity and cleanup checks, and ledger
+replacement during spacing. An existing enrollment fixture needed its missing
+`asyncio` binding restored. This is source qualification only. Dedicated login,
+runtime packaging and live native-token inference remain unverified. See
+`reference/analysis/fresh-account-native-admission-20261025.md`.
+
 The fresh same-device transport comparison now passes: browser and native HTTP
 both returned complete, nonempty HTTP 200 responses using browser-generated
 tokens. Cleanup was confirmed and updated rate history preserved before the

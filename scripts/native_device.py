@@ -155,7 +155,10 @@ class NativeDevices:
         life = self.host.lifecycles.get(account)
         initially_enrolled = (getattr(life, 'native_enrollment_generation', None)
                               == self.host.generation)
-        require(restored.get('generation') == self.host.generation or initially_enrolled,
+        restored_here = restored.get('generation') == self.host.generation
+        observation = (None if restored_here or initially_enrolled else
+                       sdk_seed.closed_rate_observation(self.host, account, life))
+        require(restored_here or initially_enrolled or observation is not None,
                 'rate restoration required')
         require(life is not None and life.phase == 'absent'
                 and account not in self.host.accounts
@@ -178,6 +181,9 @@ class NativeDevices:
                 and re.fullmatch(r'[A-Za-z0-9._~-]{1,256}', device),
                 'restored primary device unavailable')
         grant = Grant(device, digest)
+        # Fresh admission stays tied to the same proof through every mint. The
+        # subsequent private attach still checks the caller's user and session.
+        grant.sdk_observation = observation
         self.check_rate(life, grant)
         life.native_grants[lease] = grant
         life.active_commands += 1
