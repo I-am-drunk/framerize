@@ -4,16 +4,21 @@ The normal interruption repair now has a built candidate from qualified source
 `93dad965`, executable SHA256 `f70458d364ec624006b5dc968fda49c06ab22aa65673c56fc43b87d7d223aba3`.
 Host, API, server and link builds passed and are collected. Its fifteen-file
 binding retains the previously qualified normal host and state-preservation
-support. The service still runs the original executable; this candidate has
-not been installed or launched. The accepted twenty cases were not repeated.
+support. The candidate is staged and its fifteen files verified. The service
+still runs the original executable; the candidate has not been launched.
+The accepted twenty application cases were not repeated.
 
 The repair retains the next root execution slot ahead of independent signup
-and V3 work. A fresh rollout controller is still being prepared: separate
-global idle readiness from account cooldowns, and wait for the exact rollback
-restoration receipt rather than treating a visible process as completed startup.
+and V3 work. The fresh controller now has 30 accepted focused cases: 15 for
+readiness/rollback and 15 for shutdown, ingress holds and cleanup. Seven new
+shutdown cases verify both paused owners terminate before systemd stop and
+that an unreaped dead sidecar cannot allow ingress resume. Test resources were
+collected and the original service generation reverified on 25 October.
 This supersedes older timed-quiet scheduling descriptions below. Live stream
 acceptance and the specific service exception for the new attempt remain open.
-See `reference/analysis/normal-repair-candidate-20261025.md`.
+The exact reviewed plan is prepared; executable activation remains disabled
+pending the new service exception and local authentication. See
+`reference/analysis/normal-repair-controller-20261025.md`.
 
 The explicit-account retry correction now passes all twenty selected cases:
 six corrected cases passed on `93dad96`, and the fourteen unchanged passes

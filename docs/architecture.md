@@ -26,8 +26,15 @@ protected endpoint. An independent controller must establish that active work
 has finished before switching generations. The old timed quiet scheduler was
 consumed and must not be reused. An idle account's cooldown is a request-admission
 constraint, not evidence of active work. Preserve that state through a switch;
-do not require every account's timer to expire. The corresponding controller
-correction is pending. Coordination delivery alone never proves quiescence.
+do not require every account's timer to expire. The controller correction now
+passes its inert checks. Coordination delivery alone never proves quiescence.
+
+After capture, both paused source processes must terminate before systemd stop,
+which can resume a stopped process during shutdown. The controller terminates
+the captured sidecar, then the held ingress process, verifies termination, and
+only then asks systemd to stop the service. An exited but unreaped sidecar is
+not a live peer that permits ingress resume. Final absence and an empty service
+scope remain separate requirements before the captured state can transfer.
 
 The selected first-run identity path is a fresh verified sign-in under the
 existing ordinary-V2 contract. This selection does not add a saved-session
