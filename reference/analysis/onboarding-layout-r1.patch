@@ -1,0 +1,957 @@
+--- /dev/null
++++ b/onboarding/layout.py
+@@ -0,0 +1,237 @@
++"""Pinned sparse software layout. No private state is read or created here."""
++from pathlib import Path, PurePosixPath
++import hashlib
++import json
++import os
++import posixpath
++import stat
++
++HERE = Path(__file__).resolve().parent
++VIEW_SHA256 = '9d773579b2a86d9903c897c9744d48277117ffe21da863ac8c3fbafe78923ed1'
++CACHE_SOURCE = '/home/tjninja/.cache/camoufox'
++MASKS = ('/home', '/root', '/run', '/tmp', '/var/tmp', '/usr')
++PRIVATE_NAMES = ('home', 'cache', 'config', 'data', 'state', 'run', 'tmp',
++                 'cwd', 'cache/camoufox/fontconfig', 'cache/fontconfig')
++ENV_PATHS = {'HOME': 'home', 'XDG_CACHE_HOME': 'cache',
++             'XDG_CONFIG_HOME': 'config', 'XDG_DATA_HOME': 'data',
++             'XDG_STATE_HOME': 'state', 'XDG_RUNTIME_DIR': 'run', 'TMPDIR': 'tmp'}
++
++
++def require(value, reason):
++    if not value:
++        raise RuntimeError('onboarding_layout_' + reason)
++
++
++def within(path, root):
++    return path == root or path.startswith(root + '/')
++
++
++def path_text(value):
++    require(type(value) is str and 1 < len(value) <= 4096, 'path_type')
++    require(value.startswith('/') and not value.startswith('//'), 'absolute_path')
++    require(str(PurePosixPath(value)) == value and '..' not in value.split('/'),
++            'normalized_path')
++    require(not any(ord(c) < 32 or ord(c) == 127 for c in value), 'path_control')
++    return value
++
++
++def hash_text(value):
++    require(type(value) is str and len(value) == 64 and
++            all(c in '0123456789abcdef' for c in value), 'digest')
++
++
++def resolve_alias(path, aliases):
++    for _ in range(len(aliases) + 1):
++        parts = path.split('/')[1:]
++        for index in range(1, len(parts) + 1):
++            prefix = '/' + '/'.join(parts[:index])
++            if prefix in aliases:
++                target = aliases[prefix]['target']
++                path = posixpath.normpath(posixpath.join(
++                    posixpath.dirname(prefix), target, *parts[index:]))
++                break
++        else:
++            return path
++    raise RuntimeError('onboarding_layout_alias_cycle')
++
++
++def private_layout(value):
++    root = path_text(value['environment_root'])
++    account = path_text(value['account_state'])
++    require(PurePosixPath(root).name == 'private-environment' and
++            PurePosixPath(account).name == 'private' and
++            PurePosixPath(root).parent == PurePosixPath(account).parent and
++            within(root, '/home'), 'private_separation')
++    expected = [root + '/' + name for name in PRIVATE_NAMES]
++    require(type(value['private_directories']) is list and
++            value['private_directories'] == expected, 'private_directories')
++    env = value['environment']
++    require(type(env) is dict and set(env) == set(ENV_PATHS) |
++            {'FRAMERIZE_PYTHON', 'PYTHONDONTWRITEBYTECODE', 'PYTHONNOUSERSITE'},
++            'environment_keys')
++    require(all(type(k) is str and type(v) is str for k, v in env.items()),
++            'environment_types')
++    require(all(env[k] == root + '/' + suffix for k, suffix in ENV_PATHS.items())
++            and env['PYTHONDONTWRITEBYTECODE'] == '1' and
++            env['PYTHONNOUSERSITE'] == '1', 'environment_values')
++    path_text(env['FRAMERIZE_PYTHON'])
++    return root, account
++
++
++def validate(value):
++    require(type(value) is dict and set(value) == {'account_state', 'aliases',
++            'environment', 'environment_root', 'inputs', 'mounts',
++            'private_directories', 'remaining', 'status'}, 'view_fields')
++    root, account = private_layout(value)
++    rows, aliases = value['mounts'], value['aliases']
++    require(type(rows) is list and 0 < len(rows) <= 10000, 'mount_rows')
++    require(type(aliases) is dict and len(aliases) <= 512, 'alias_rows')
++    targets, sources = set(), set()
++    for row in rows:
++        require(type(row) is dict and set(row) == {'source', 'target', 'sha256'},
++                'mount_fields')
++        source, target = path_text(row['source']), path_text(row['target'])
++        hash_text(row['sha256'])
++        require(source not in sources and target not in targets, 'duplicate_mount')
++        expected = (root + '/cache/camoufox' + source[len(CACHE_SOURCE):]
++                    if within(source, CACHE_SOURCE) else source)
++        require(target == expected, 'mount_translation')
++        require(not within(source, root) and not within(source, account) and
++                not within(target, account), 'private_input')
++        require(not within(target, root) or within(target, root + '/cache/camoufox'),
++                'environment_input')
++        sources.add(source)
++        targets.add(target)
++    for name, row in aliases.items():
++        path_text(name)
++        require(type(row) is dict and set(row) ==
++                {'canonical_target', 'target', 'kind', 'mode'}, 'alias_fields')
++        path_text(row['canonical_target'])
++        text = row['target']
++        require(type(text) is str and 0 < len(text) <= 4096 and
++                not any(ord(c) < 32 or ord(c) == 127 for c in text), 'alias_text')
++        require(type(row['kind']) is str and row['kind'] in ('file', 'directory')
++                and row['mode'] == '0o777', 'alias_metadata')
++        require(not within(name, root) and not within(name, account), 'private_alias')
++    directories = set(MASKS) | set(value['private_directories'])
++    directories.update((root, account, root + '/cache/camoufox'))
++    for name in targets | set(aliases) | set(directories):
++        directories.update(str(p) for p in PurePosixPath(name).parents if str(p) != '/')
++    require(not targets.intersection(aliases) and
++            not (targets | set(aliases)).intersection(directories), 'path_collision')
++    for name, row in aliases.items():
++        canonical = resolve_alias(name, aliases)
++        require(canonical == row['canonical_target'], 'alias_resolution')
++        require(canonical in (targets if row['kind'] == 'file' else directories),
++                'alias_unbound')
++        require(row['kind'] == 'file' or
++                any(within(p, canonical) for p in targets | set(aliases)),
++                'empty_directory_alias')
++    require(value['environment']['FRAMERIZE_PYTHON'] in targets | set(aliases),
++            'python_unbound')
++    for row in aliases.values():
++        require(not within(row['canonical_target'], root) and
++                not within(row['canonical_target'], account), 'private_alias_target')
++    require(type(value['inputs']) is dict and len(value['inputs']) <= 32, 'input_map')
++    for name, expected in value['inputs'].items():
++        path_text(name)
++        hash_text(expected)
++        require(not within(name, root) and not within(name, account), 'private_input')
++    require(value['status'] == 'prepared-not-launchable', 'view_status')
++    return directories
++
++
++def check_file(name, expected, retain=False):
++    path = Path(name)
++    require(path.resolve(strict=True) == path and
++            stat.S_ISREG(path.lstat().st_mode), 'noncanonical_file')
++    fd = os.open(path, os.O_RDONLY | os.O_CLOEXEC | os.O_NOFOLLOW | os.O_NONBLOCK)
++    with os.fdopen(fd, 'rb') as stream:
++        before = os.fstat(stream.fileno())
++        require(stat.S_ISREG(before.st_mode), 'nonregular_file')
++        raw = stream.read(8 * 1024 * 1024 + 1) if retain else None
++        require(raw is None or len(raw) <= 8 * 1024 * 1024, 'oversized_manifest')
++        digest = (hashlib.sha256(raw) if retain else hashlib.file_digest(stream, 'sha256'))
++        require(digest.hexdigest() == expected, 'file_changed')
++        after = os.fstat(stream.fileno())
++    identity = lambda s: (s.st_dev, s.st_ino, s.st_mode, s.st_size,
++                          s.st_mtime_ns, s.st_ctime_ns)
++    require(identity(before) == identity(after) == identity(path.stat()) and
++            path.resolve(strict=True) == path, 'file_replaced')
++    return raw
++
++
++def binding():
++    value = json.loads(check_file(str(HERE / 'dependency-view.json'), VIEW_SHA256, True))
++    validate(value)
++    require(PurePosixPath(value['account_state']).parent == PurePosixPath(str(HERE)),
++            'view_location')
++    return value
++
++
++def software_metadata(value):
++    names = [n for n in value['inputs'] if Path(n).name == 'HANDOFF-MANIFEST.json']
++    require(len(names) == 1, 'software_manifest')
++    name = names[0]
++    manifest = json.loads(check_file(name, value['inputs'][name], True))
++    entry = manifest['software-details.json']
++    path = str(Path(name).parent / 'software-details.json')
++    return json.loads(check_file(path, entry['sha256'], True))
++
++
++def verify_snapshot():
++    value = binding()
++    pins = dict(value['inputs'])
++    for row in value['mounts']:
++        require(pins.get(row['source'], row['sha256']) == row['sha256'], 'pin_conflict')
++        pins[row['source']] = row['sha256']
++    metadata = software_metadata(value)
++    require(type(metadata) is dict and set(metadata) <= set(pins), 'software_metadata')
++    for name, expected in pins.items():
++        check_file(name, expected)
++        if name in metadata:
++            actual, bound = Path(name).stat(), metadata[name]
++            require(actual.st_size == bound['size'] and
++                    oct(stat.S_IMODE(actual.st_mode)) == bound['mode'], 'software_metadata_changed')
++    for name, row in value['aliases'].items():
++        path = Path(name)
++        require(path.is_symlink() and oct(stat.S_IMODE(path.lstat().st_mode)) ==
++                row['mode'] and os.readlink(path) == row['target'], 'alias_changed')
++        require(str(path.resolve(strict=True)) == row['canonical_target'] and
++                (path.is_file() if row['kind'] == 'file' else path.is_dir()),
++                'alias_target_changed')
++
++
++def arguments(value):
++    directories = validate(value)
++    root = value['environment_root']
++    cache = root + '/cache/camoufox'
++    args = [part for name in MASKS for part in ('--tmpfs', name)]
++    args += ['--perms', '0700', '--tmpfs', root,
++             '--perms', '0700', '--dir', root + '/cache', '--tmpfs', cache]
++    existing = set(MASKS) | {root, root + '/cache', cache}
++    for name in sorted(directories - existing, key=lambda p: (p.count('/'), p)):
++        private = name in value['private_directories'] or name == value['account_state']
++        mode = '0700' if private else '0755'
++        args += ['--perms', mode, '--dir', name]
++    args += ['--perms', '0700', '--tmpfs', cache + '/fontconfig']
++    for row in value['mounts']:
++        args += ['--ro-bind', row['source'], row['target']]
++    for name, row in sorted(value['aliases'].items()):
++        args += ['--symlink', row['target'], name]
++    # Home/run/tmp are empty scaffolds for the owner's later writable mounts.
++    # Every selected software file is a separate read-only bind.
++    for name in ('/usr', cache):
++        args += ['--remount-ro', name]
++    for name, text in value['environment'].items():
++        args += ['--setenv', name, text]
++    return args
++
++
++def mounts():
++    args = arguments(binding())
++    for kind in ('net', 'pid'):
++        args += ['--setenv', 'CHECK_PARENT_' + kind.upper() + 'NS',
++                 os.readlink('/proc/self/ns/' + kind)]
++    args += ['--setenv', 'TOKIO_WORKER_THREADS', '2']
++    return args
+--- /dev/null
++++ b/onboarding/create_private.py
+@@ -0,0 +1,14 @@
++"""Create only the fresh, task-owned onboarding directories at launch time."""
++import json
++import os
++from pathlib import Path
++
++def create(here):
++    here = Path(here).resolve(strict=True)
++    view = json.loads((here/'dependency-view.json').read_text())
++    state, environment = here/'private', here/'private-environment'
++    assert view['account_state'] == str(state)
++    assert view['environment_root'] == str(environment)
++    assert not os.path.lexists(state) and not os.path.lexists(environment)
++    state.mkdir(mode=0o700)
++    # Environment directories belong to the sandbox layout, never a host overlay.
+--- /dev/null
++++ b/onboarding/runtime_mounts.py
+@@ -0,0 +1,26 @@
++"""Expose explicit control files and only the dedicated empty account store."""
++import json
++import os
++from pathlib import Path
++
++def extra_mounts(here):
++    here = Path(here).resolve(strict=True)
++    plan = json.loads((here/'launch-plan.json').read_text())
++    state = here/'private'
++    assert plan['private'] == str(state), 'account store changed'
++    info = state.lstat()
++    assert state.is_dir() and not state.is_symlink()
++    assert info.st_uid == os.getuid() and info.st_mode & 0o777 == 0o700
++    assert not any(state.iterdir()), 'account store not empty'
++    files = [here/name for name in ('lifecycle.py', 'layout.py', 'launch-plan.json')]
++    assert plan['control_files'] == [str(path) for path in files]
++    args = []
++    for path in files:
++        assert path.is_file() and not path.is_symlink()
++        args += ['--ro-bind', str(path), str(path)]
++    args += ['--bind', str(state), str(state)]
++    runtime = here/'onboarding-r1'
++    assert runtime.is_dir() and not runtime.is_symlink()
++    assert {path.name for path in runtime.iterdir()} <= {'receipt.json', 'tmp'}
++    assert not any((runtime/'tmp').iterdir()), 'runtime scratch not empty'
++    return args
+--- /dev/null
++++ b/onboarding/test_runtime_mounts.py
+@@ -0,0 +1,63 @@
++import json, os, tempfile, unittest
++from pathlib import Path
++from create_private import create
++from runtime_mounts import extra_mounts
++
++class RuntimeMountTests(unittest.TestCase):
++    def setup_view(self, root):
++        view = dict(account_state=str(root/'private'),
++                    environment_root=str(root/'private-environment'))
++        (root/'dependency-view.json').write_text(json.dumps(view))
++        files = [root/name for name in ('lifecycle.py', 'layout.py', 'launch-plan.json')]
++        for path in files: path.write_text('')
++        plan = dict(private=str(root/'private'), control_files=list(map(str, files)))
++        (root/'launch-plan.json').write_text(json.dumps(plan))
++        runtime = root/'onboarding-r1'
++        (runtime/'tmp').mkdir(parents=True)
++        (runtime/'receipt.json').write_text('{}')
++        return plan
++
++    def test_only_empty_account_store_is_writable(self):
++        with tempfile.TemporaryDirectory() as raw:
++            root = Path(raw)
++            self.setup_view(root)
++            create(root)
++            args = extra_mounts(root)
++            self.assertEqual(args.count('--ro-bind'), 3)
++            self.assertEqual(args[-3:], ['--bind', str(root/'private'), str(root/'private')])
++            self.assertEqual(args.count('--bind'), 1)
++            self.assertFalse((root/'private-environment').exists())
++
++    def test_existing_state_and_unbound_working_directory_refuse(self):
++        for defect in ('state', 'cwd', 'symlink', 'wrong-plan'):
++            with self.subTest(defect=defect), tempfile.TemporaryDirectory() as raw:
++                root = Path(raw)
++                plan = self.setup_view(root)
++                create(root)
++                if defect == 'state': (root/'private/account.db').write_text('fixture')
++                if defect == 'cwd': (root/'onboarding-r1/$').mkdir()
++                if defect == 'symlink':
++                    (root/'private').rmdir()
++                    (root/'private').symlink_to(root/'onboarding-r1', target_is_directory=True)
++                if defect == 'wrong-plan':
++                    plan['private'] = str(root/'other')
++                    (root/'launch-plan.json').write_text(json.dumps(plan))
++                with self.assertRaises(AssertionError): extra_mounts(root)
++
++    def test_initialization_is_single_use_and_does_not_create_environment(self):
++        with tempfile.TemporaryDirectory() as raw:
++            root = Path(raw)
++            self.setup_view(root)
++            create(root)
++            self.assertEqual((root/'private').stat().st_mode & 0o777, 0o700)
++            self.assertEqual(list((root/'private').iterdir()), [])
++            self.assertFalse((root/'private-environment').exists())
++            with self.assertRaises(AssertionError): create(root)
++
++    def test_real_software_arguments_leave_space_for_owner_bindings(self):
++        import layout
++        value = json.loads((Path(__file__).parent/'dependency-view.json').read_text())
++        args = layout.arguments(value)
++        size = sum(len(arg.encode()) + 1 for arg in args) + 8*(len(args)+1)
++        self.assertLess(size, os.sysconf('SC_ARG_MAX') - 65536)
++        self.assertTrue(all(len(arg.encode()) < 131072 for arg in args))
+--- /dev/null
++++ b/onboarding/run_onboarding.py
+@@ -0,0 +1,85 @@
++"""Apply task-specific bounds to the accepted isolated process supervisor."""
++from pathlib import Path
++import hashlib
++import sys
++import types
++
++HERE = Path(__file__).resolve().parent
++BASE = HERE.parents[1]/'browserless-resume-20261020/run_offline.py'
++raw = BASE.read_bytes()
++if hashlib.sha256(raw).hexdigest() != 'b20a80807d89a81a5d308d0e4e3082c2c4d265b8aad4e2e0a8588e77e64bd61a':
++    raise RuntimeError('accepted runner changed')
++source = raw.decode()
++
++def replace(before, after):
++    global source
++    if source.count(before) != 1:
++        raise RuntimeError('runner insertion point changed')
++    source = source.replace(before, after)
++
++replace('framerize-browserless-{phase}-20261020-{attempt}.service',
++        'framerize-onboarding-{phase}-{attempt}.service')
++replace('"--new-session", "--clearenv",',
++        '"--new-session", "--unshare-pid", "--clearenv",')
++replace('contract["deadline_seconds"] <= 120',
++        'contract["deadline_seconds"] <= 600')
++replace('helper.Monitor(group, result, started + 120)',
++        'helper.Monitor(group, result, started + 600)')
++marker = '"--ro-bind", "/", "/", "--dev", "/dev", "--proc", "/proc",'
++replace(marker, marker + '\n                   *onboarding_mounts(),')
++
++runner = types.ModuleType('accepted_onboarding_runner')
++runner.__file__ = str(BASE)
++exec(compile(source, str(BASE), 'exec'), runner.__dict__)
++runner.HERE = HERE
++runner.LIMITS = {'onboarding': 1536 * 1024**2}
++
++def onboarding_mounts():
++    sys.path.insert(0, str(HERE))
++    from layout import mounts
++    from runtime_mounts import extra_mounts
++    return mounts() + extra_mounts(HERE)
++
++runner.onboarding_mounts = onboarding_mounts
++original_inputs = runner.inputs
++
++def checked_inputs(phase, attempt, expected):
++    manifest, contract = original_inputs(phase, attempt, expected)
++    sys.path.insert(0, str(HERE))
++    from layout import verify_snapshot
++    verify_snapshot()
++    return manifest, contract
++
++runner.inputs = checked_inputs
++original_run = runner.run
++
++def run(runtime, phase, attempt, expected, helper, started, result):
++    def protected_headroom():
++        values = {line.split(':')[0]: int(line.split()[1])*1024
++                  for line in Path('/proc/meminfo').read_text().splitlines()
++                  if line.startswith(('MemTotal:', 'MemAvailable:'))}
++        return values['MemAvailable'] - max(1667398860, values['MemTotal']//10)
++    helper.headroom = protected_headroom
++    memory = helper.memory
++    def sampled(group):
++        value = memory(group)
++        for name in ('pids.current', 'pids.max', 'pids.peak'):
++            value[name] = int((group/name).read_text())
++        value['pids.events'] = dict((k, int(v)) for k,v in
++            (line.split() for line in (group/'pids.events').read_text().splitlines()))
++        if value['pids.max'] != 256 or any(value['pids.events'].values()):
++            raise RuntimeError('task policy changed or exhausted')
++        return value
++    helper.memory = sampled
++    result['source_audited_intent'] = dict(separate_daemon=1,
++        automatic_login=0, automatic_inference=0, user_driven_onboarding=True)
++    result['containment_limit'] = (
++        'Shared network for loopback UI and normal login; private PID namespace, '
++        'cleared environment and masked host homes/run/temp. Exact software '
++        'read-only; only dedicated private state and bounded scratch writable. '
++        'Action counts describe supervisor intent, not user UI activity.')
++    return original_run(runtime, phase, attempt, expected, helper, started, result)
++
++runner.run = run
++if __name__ == '__main__':
++    raise SystemExit(runner.main())
+--- /dev/null
++++ b/onboarding/launch_prepared.py
+@@ -0,0 +1,59 @@
++from pathlib import Path
++import datetime, hashlib, json, os, shutil, subprocess, sys, time
++HERE = Path(__file__).resolve().parent
++def process_identity(pid):
++    identity = {'pid': pid}
++    try:
++        raw = Path('/proc', str(pid), 'stat').read_text()
++        identity['start_time_ticks'] = int(raw.rsplit(')', 1)[1].split()[19])
++    except (FileNotFoundError, ProcessLookupError):
++        identity['exited_before_snapshot'] = True
++    return identity
++
++phase = sys.argv[1]
++contract_path = HERE / ('contract-' + phase + '-r1.json')
++manifest = HERE / ('inputs-' + phase + '-r1.json')
++contract = json.loads(contract_path.read_text())
++def sha(path):
++    return hashlib.sha256(path.read_bytes()).hexdigest()
++out = HERE / (phase + '-outer-r1.json')
++assert not (HERE / (phase + '-spawn-r1.json')).exists(), 'capture already exists'
++assert not out.exists() and not (HERE / (phase + '-r1')).exists(), 'attempt already consumed'
++memory = dict(line.split(':', 1) for line in Path('/proc/meminfo').read_text().splitlines())
++available = int(memory['MemAvailable'].split()[0]) * 1024
++free = shutil.disk_usage(HERE).free
++headroom = available - max(1667398860, int(memory['MemTotal'].split()[0]) * 1024 // 10)
++assert headroom >= contract['memory_max_bytes'] + 512 * 1024**2, 'insufficient memory reserve'
++assert free > 1024**3, 'insufficient disk reserve'
++argv = contract['argv_without_manifest_digest'] + [sha(manifest)]
++result = dict(started_at=datetime.datetime.now(datetime.timezone.utc).isoformat(), argv=argv,
++    manifest_sha256=sha(manifest), contract_sha256=sha(contract_path),
++    admission_host_headroom_bytes=headroom, admission_disk_bytes=free)
++assert phase == 'onboarding', 'unexpected launch phase'
++sys.path.insert(0, str(HERE))
++from create_private import create
++create(HERE)
++(HERE / (phase + '-r1')).mkdir(mode=0o700)
++started = time.monotonic()
++with (HERE / (phase + '-outer-r1.log')).open('xb') as log:
++    with (HERE / (phase + '-spawn-r1.json')).open('x') as capture:
++        with subprocess.Popen(argv, stdout=log, stderr=subprocess.STDOUT,
++                              env=os.environ | contract['environment']) as run:
++            try:
++                json.dump(dict(launcher=process_identity(os.getpid()),
++                    unit_client=process_identity(run.pid), argv=argv,
++                    manifest_sha256=sha(manifest)), capture, indent=2)
++                capture.write('\n')
++                capture.flush()
++                os.fsync(capture.fileno())
++                run.wait(timeout=max(0, contract['outer_timeout_seconds'] - (time.monotonic() - started)))
++            except BaseException:
++                run.kill()
++                run.wait()
++                raise
++result.update(exit_code=run.returncode, seconds=time.monotonic() - started,
++    finished_at=datetime.datetime.now(datetime.timezone.utc).isoformat())
++with out.open('x') as stream:
++    json.dump(result, stream, indent=2); stream.write('\n')
++print(json.dumps(dict(phase=phase, exit_code=run.returncode, seconds=result['seconds'])))
++raise SystemExit(run.returncode)
+--- /dev/null
++++ b/onboarding/prepare_runtime.py
+@@ -0,0 +1,72 @@
++"""Bind the qualified software view and lifecycle without starting a process."""
++import hashlib, json, os, sys
++from pathlib import Path
++HERE = Path(__file__).resolve().parent
++OLD = HERE.parent/'v3-authority-daemon-startup-r1'
++CHECK = HERE.parent/'onboarding-layout-qualification-r1'
++def sha(path): return hashlib.sha256(Path(path).read_bytes()).hexdigest()
++def save(name, value):
++    with (HERE/name).open('x') as out: out.write(json.dumps(value, sort_keys=True)+'\n')
++assert sha(CHECK/'checks-collected.json') == '87df60c99474db01e7c99ebb9e3b886f0cfb6f6417eae941c306dfa41625cde1'
++checked = json.loads((CHECK/'checks.json').read_text())['after']
++for name in ('layout.py', 'runtime_mounts.py', 'create_private.py'):
++    assert sha(HERE/name) == checked['source/'+name]
++sys.path.insert(0, str(HERE))
++import layout
++layout.verify_snapshot()
++view = json.loads((HERE/'dependency-view.json').read_text())
++plan = json.loads((HERE/'base-plan.json').read_text())
++assert not Path(plan['private']).exists() and not Path(view['environment_root']).exists()
++assert sha(Path(plan['package'])/'bin/framerize') == plan['binary_sha256']
++assert sha(plan['config']) == plan['worker_config_sha256']
++plan.update(launchable=True, status='prepared-not-launched',
++    control_files=[str(HERE/name) for name in ('lifecycle.py', 'layout.py', 'launch-plan.json')],
++    layout_collection_sha256=sha(CHECK/'checks-collected.json'))
++plan.pop('required_before_launch')
++save('launch-plan.json', plan)
++contract = json.loads((OLD/'contract-daemon-r1.json').read_text())
++argv = contract['argv_without_manifest_digest']
++changes = {'--property=MemoryMax=128M': '--property=MemoryMax=1536M',
++           '--property=TasksMax=32': '--property=TasksMax=256',
++           '--property=RuntimeMaxSec=120s': '--property=RuntimeMaxSec=600s',
++           '--property=TimeoutStopSec=2s': '--property=TimeoutStopSec=10s',
++           str(OLD/'run_daemon.py'): str(HERE/'run_onboarding.py'), 'daemon': 'onboarding'}
++argv = [changes.get(arg, arg) for arg in argv]
++argv = ['--unit=framerize-onboarding-onboarding-r1' if arg.startswith('--unit=') else arg
++        for arg in argv]
++contract.update(phase='onboarding', argv_without_manifest_digest=argv,
++    memory_max_bytes=plan['memory_max'], deadline_seconds=600, outer_timeout_seconds=632,
++    scope='Separate one-account onboarding through the supported UI; no automatic login or inference',
++    outputs=['onboarding.log'], stages=[dict(label='onboarding', timeout_seconds=590,
++    argv=['/usr/bin/python3.12', '-I', '-B', str(HERE/'lifecycle.py')])])
++pins = {row['source']: row['sha256'] for row in view['mounts']}
++pins.update(view['inputs'])
++extra = ['lifecycle.py', 'layout.py', 'launch-plan.json', 'dependency-view.json',
++         'run_onboarding.py', 'create_private.py', 'runtime_mounts.py',
++         'launch_prepared.py', 'prepare_runtime.py']
++for name in extra: pins[str(HERE/name)] = sha(HERE/name)
++for path in (HERE.parents[1]/'browserless-resume-20261020/run_offline.py',
++             HERE.parents[1]/'ai-result-ownership-20261020/run_app_build.py',
++             Path('/usr/bin/python3').resolve(), Path('/usr/bin/bwrap').resolve()):
++    pins[str(path)] = sha(path)
++contract_path = HERE/'contract-onboarding-r1.json'
++contract['required_inputs'] = sorted([*pins, str(contract_path)])
++save(contract_path.name, contract)
++pins[str(contract_path)] = sha(contract_path)
++assert all(Path(path).is_absolute() and Path(path).resolve(strict=True) == Path(path)
++           for path in pins), 'noncanonical manifest input'
++save('inputs-onboarding-r1.json', dict(sha256=pins))
++arguments = layout.arguments(view)
++argument_bytes = sum(len(arg.encode())+1 for arg in arguments) + 8*(len(arguments)+1)
++assert argument_bytes < os.sysconf('SC_ARG_MAX') - 65536
++save('invocation.json', dict(status='PREPARED_UNRUN', command=[
++    '/usr/bin/flock', '-n', str(HERE.parents[1]/'t3-binding-recovery-r1/execution-slot.lock'),
++    '/usr/bin/python3.12', '-I', '-B', str(HERE/'launch_prepared.py'), 'onboarding'],
++    manifest_sha256=sha(HERE/'inputs-onboarding-r1.json'),
++    contract_sha256=sha(contract_path)))
++save('runtime-preparation.json', dict(status='PREPARED_UNRUN', inputs=len(pins),
++    layout_argument_bytes=argument_bytes, full_invocation_margin_bytes=65536,
++    layout_collection_sha256=sha(CHECK/'checks-collected.json'),
++    private_state_created=False, browser_started=False, sdk_started=False))
++print(json.dumps(dict(status='PREPARED_UNRUN', inputs=len(pins),
++                     layout_argument_bytes=argument_bytes)))
+--- /dev/null
++++ b/onboarding/lifecycle.py
+@@ -0,0 +1,136 @@
++"""Own one isolated onboarding daemon; never submit a login or inference."""
++import http.client
++import json
++import os
++from pathlib import Path
++import signal
++import subprocess
++import sys
++import time
++
++HERE = Path(__file__).resolve().parent
++
++def request(method, path, body=None, timeout=2):
++    connection = http.client.HTTPConnection('127.0.0.1', 18788, timeout=timeout)
++    try:
++        payload = None if body is None else json.dumps(body).encode()
++        connection.request(method, path, payload, {'Content-Type': 'application/json'})
++        reply = connection.getresponse()
++        data = reply.read(65537)
++        if len(data) > 65536:
++            raise RuntimeError('oversized_local_response')
++        return reply.status, data
++    finally:
++        connection.close()
++
++def save(root, name, value):
++    with (root/name).open('x') as out:
++        json.dump(value, out, indent=2)
++    (root/name).chmod(0o600)
++
++def require(value, reason):
++    if not value:
++        raise RuntimeError(reason)
++
++def owns_listener(pid):
++    sockets = set()
++    for line in Path('/proc/net/tcp').read_text().splitlines()[1:]:
++        columns = line.split()
++        if columns[1] == '0100007F:4964' and columns[3] == '0A':
++            sockets.add('socket:['+columns[9]+']')
++    for descriptor in Path('/proc', str(pid), 'fd').iterdir():
++        try:
++            if os.readlink(descriptor) in sockets:
++                return True
++        except FileNotFoundError:
++            continue
++    return False
++
++def ready(child):
++    end = time.monotonic() + 10
++    while time.monotonic() < end:
++        require(child.poll() is None, 'daemon_exited_before_ready')
++        if not owns_listener(child.pid):
++            time.sleep(.1)
++            continue
++        try:
++            if request('GET', '/api/health') == (200, b'ok'):
++                status, body = request('GET', '/api/accounts')
++                require(status == 200 and json.loads(body) == [], 'store_not_empty')
++                return
++        except (OSError, http.client.HTTPException):
++            pass
++        time.sleep(.1)
++    raise RuntimeError('daemon_readiness_deadline')
++
++def park_once():
++    status, raw = request('GET', '/api/pool')
++    require(status == 200, 'pool_read_refused')
++    pool = json.loads(raw)
++    require(pool['accounts'] <= 1, 'multiple_account_records')
++    residents = pool['residency']['residents']
++    require(len(residents) <= 1, 'multiple_resident_accounts')
++    if residents:
++        account = residents[0]['account']
++        status, raw = request('POST', '/api/pool/park', {'account_id': account}, 25)
++        require(status == 200, 'park_refused')
++        result = json.loads(raw)
++        require(result.get('account_id') == account and result.get('status') == 'parked',
++                'park_receipt_mismatch')
++    status, raw = request('GET', '/api/pool')
++    require(status == 200 and json.loads(raw)['residency']['residents'] == [],
++            'resident_work_remained')
++    return {'registered_accounts': pool['accounts'], 'parked_residents': len(residents)}
++
++def run(plan):
++    root = Path(plan['private'])
++    require(root.is_dir() and not root.is_symlink() and not any(root.iterdir()),
++            'empty_private_directory_required')
++    require(root.stat().st_uid == os.getuid() and root.stat().st_mode & 0o777 == 0o700,
++            'private_directory_permissions')
++    require(plan['daemon_argv'][0] == plan['package']+'/bin/framerize', 'wrong_binary')
++    stop = []
++    for number in (signal.SIGTERM, signal.SIGINT):
++        signal.signal(number, lambda *_: stop.append(True))
++    result = {'status': 'failed', 'agent_login_submissions': 0,
++              'agent_inference_submissions': 0, 'joined_park': False}
++    with (root/'daemon.log').open('xb') as log:
++        child = subprocess.Popen(plan['daemon_argv'], stdin=subprocess.DEVNULL,
++                                 stdout=log, stderr=subprocess.STDOUT)
++        try:
++            ready(child)
++            save(root, 'ready.json', {'url': 'http://127.0.0.1:18788',
++                'pid_in_namespace': child.pid, 'at': time.time()})
++            end = time.monotonic() + 540
++            while not stop and not (root/'stop').exists() and time.monotonic() < end:
++                require(child.poll() is None, 'daemon_exited')
++                time.sleep(.25)
++            result.update(park_once(), joined_park=True, status='parked')
++        except Exception as error:
++            result['failure_class'] = type(error).__name__
++            if type(error) is RuntimeError:
++                result['failure'] = str(error)
++        finally:
++            finish(child, root, result)
++    return result
++
++def finish(child, root, result):
++    if child.poll() is None:
++        child.send_signal(signal.SIGTERM)
++    try:
++        child.wait(timeout=5)
++    except subprocess.TimeoutExpired:
++        child.kill()
++        child.wait(timeout=3)
++        result.update(status='failed', forced_kill=True)
++    result['daemon_exit'] = child.returncode
++    result['daemon_joined'] = True
++    save(root, 'instance-result.json', result)
++
++if __name__ == '__main__':
++    os.umask(0o077)
++    plan = json.loads((HERE/'launch-plan.json').read_text())
++    require(plan.get('launchable') is True, 'final_binding_required')
++    result = run(plan)
++    print(json.dumps(result))
++    raise SystemExit(0 if result['status'] == 'parked' else 1)
+--- /dev/null
++++ b/onboarding/test_layout.py
+@@ -0,0 +1,238 @@
++"""Synthetic layout fixtures. No browser, application, account or mount calls."""
++import copy
++import hashlib
++import json
++import os
++from pathlib import Path
++import sys
++import tempfile
++import unittest
++from unittest.mock import patch, call
++
++sys.path.insert(0, str(Path(__file__).resolve().parent))
++import layout
++
++ROOT = '/home/fixture/onboarding/private-environment'
++ACCOUNT = '/home/fixture/onboarding/private'
++PYTHON = '/usr/bin/python3.12'
++VENV = '/home/fixture/venv'
++SHA = 'a' * 64
++
++
++def row(source, target=None):
++    return {'source': source, 'target': target or source, 'sha256': SHA}
++
++
++def alias(target, canonical, kind='file'):
++    return {'target': target, 'canonical_target': canonical, 'kind': kind, 'mode': '0o777'}
++
++
++def fixture():
++    env = {key: ROOT + '/' + suffix for key, suffix in layout.ENV_PATHS.items()}
++    env.update(FRAMERIZE_PYTHON=VENV + '/bin/python',
++               PYTHONDONTWRITEBYTECODE='1', PYTHONNOUSERSITE='1')
++    return {'account_state': ACCOUNT, 'environment_root': ROOT, 'environment': env,
++            'private_directories': [ROOT + '/' + n for n in layout.PRIVATE_NAMES],
++            'inputs': {'/home/fixture/contract.json': SHA},
++            'status': 'prepared-not-launchable', 'remaining': 'synthetic fixture',
++            'mounts': [row(PYTHON), row(VENV + '/pyvenv.cfg'),
++                       row(VENV + '/lib/site.py'), row('/usr/lib/libfixture.so.1'),
++                       row(layout.CACHE_SOURCE + '/config.json', ROOT + '/cache/camoufox/config.json'),
++                       row(layout.CACHE_SOURCE + '/browsers/fixture/browser',
++                           ROOT + '/cache/camoufox/browsers/fixture/browser')],
++            'aliases': {VENV + '/bin/python': alias('python3', PYTHON),
++                        VENV + '/bin/python3': alias('/usr/bin/python3', PYTHON),
++                        '/usr/bin/python3': alias('python3.12', PYTHON),
++                        VENV + '/lib64': alias('lib', VENV + '/lib', 'directory'),
++                        '/lib': alias('usr/lib', '/usr/lib', 'directory'),
++                        '/lib64': alias('usr/lib64', '/usr/lib64', 'directory'),
++                        '/usr/lib64/fixture-loader': alias('../lib/libfixture.so.1',
++                                                           '/usr/lib/libfixture.so.1')}}
++
++
++def operations(args):
++    arity = {'--tmpfs': 1, '--dir': 1, '--perms': 1, '--remount-ro': 1,
++             '--ro-bind': 2, '--symlink': 2, '--setenv': 2}
++    while args:
++        count = arity[args[0]] + 1
++        yield tuple(args[:count])
++        args = args[count:]
++
++
++class LayoutTests(unittest.TestCase):
++    def test_exact_sparse_rows_and_declared_aliases(self):
++        value = fixture()
++        before = copy.deepcopy(value)
++        ops = list(operations(layout.arguments(value)))
++        self.assertEqual([o[1:] for o in ops if o[0] == '--ro-bind'],
++                         [(r['source'], r['target']) for r in value['mounts']])
++        self.assertEqual({o[2]: o[1] for o in ops if o[0] == '--symlink'},
++                         {k: r['target'] for k, r in value['aliases'].items()})
++        self.assertNotIn('--bind', [o[0] for o in ops])
++        self.assertEqual(value, before)
++
++    def test_read_only_software_and_private_generated_cache(self):
++        ops = list(operations(layout.arguments(fixture())))
++        for name in ('/home', '/root', '/run', '/tmp', '/var/tmp', '/usr'):
++            self.assertIn(('--tmpfs', name), ops)
++        self.assertIn(('--remount-ro', '/usr'), ops)
++        self.assertNotIn(('--remount-ro', '/home'), ops)
++        cache = ROOT + '/cache/camoufox'
++        self.assertLess(ops.index(('--tmpfs', cache)),
++                        ops.index(('--tmpfs', cache + '/fontconfig')))
++        last_file = max(i for i, o in enumerate(ops) if o[0] in ('--ro-bind', '--symlink'))
++        self.assertGreater(ops.index(('--remount-ro', cache)), last_file)
++        self.assertNotIn(('--remount-ro', cache + '/fontconfig'), ops)
++        self.assertNotIn(('--remount-ro', ROOT), ops)
++
++    def test_environment_and_empty_store_are_separate(self):
++        value = fixture()
++        with patch.object(layout.os, 'open', side_effect=AssertionError('host write')):
++            ops = list(operations(layout.arguments(value)))
++        self.assertEqual({o[1]: o[2] for o in ops if o[0] == '--setenv'}, value['environment'])
++        self.assertIn(('--dir', ACCOUNT), ops)
++        self.assertLess(ops.index(('--tmpfs', ROOT)), ops.index(('--dir', ACCOUNT)))
++        for op in ops:
++            if op[0] in ('--ro-bind', '--symlink'):
++                self.assertFalse(op[-1] == ACCOUNT or op[-1].startswith(ACCOUNT + '/'))
++        self.assertIn(('--tmpfs', ROOT), ops)
++        self.assertNotIn(('--tmpfs', ACCOUNT), ops)
++
++    def test_mounts_preserve_bound_environment_and_parent_facts(self):
++        with patch.object(layout, 'binding', return_value=fixture()), patch.object(
++                layout.os, 'readlink', side_effect=['net:[41]', 'pid:[42]']) as readlink:
++            ops = list(operations(layout.mounts()))
++        self.assertEqual(readlink.call_args_list,
++                         [call('/proc/self/ns/net'), call('/proc/self/ns/pid')])
++        env = {o[1]: o[2] for o in ops if o[0] == '--setenv'}
++        self.assertEqual(env['CHECK_PARENT_NETNS'], 'net:[41]')
++        self.assertEqual(env['CHECK_PARENT_PIDNS'], 'pid:[42]')
++        self.assertEqual(env['TOKIO_WORKER_THREADS'], '2')
++        self.assertEqual(env['FRAMERIZE_PYTHON'], VENV + '/bin/python')
++
++    def refuse_changes(self, cases):
++        for name, change in cases:
++            value = fixture()
++            change(value)
++            before = copy.deepcopy(value)
++            with self.subTest(name=name), self.assertRaises(RuntimeError):
++                layout.arguments(value)
++            self.assertEqual(value, before)
++
++    def test_mount_collision_translation_and_shape_refusals(self):
++        self.refuse_changes([
++            ('duplicate', lambda v: v['mounts'].append(v['mounts'][0].copy())),
++            ('file_as_parent', lambda v: v['mounts'].append(row('/usr/lib'))),
++            ('alias_collision', lambda v: v['aliases'].update({PYTHON: alias('x', PYTHON)})),
++            ('private_store', lambda v: v['mounts'].append(row(ACCOUNT + '/state.db'))),
++            ('private_environment', lambda v: v['mounts'].append(row(ROOT + '/home/file'))),
++            ('unbound_move', lambda v: v['mounts'][0].update(target='/usr/bin/other')),
++            ('wrong_cache', lambda v: v['mounts'][4].update(target=ROOT + '/home/config.json')),
++            ('relative', lambda v: v['mounts'][0].update(source='relative')),
++            ('traversal', lambda v: v['mounts'][0].update(source='/usr/../bin/python')),
++            ('nul', lambda v: v['mounts'][0].update(source='/usr/bin/\0python')),
++            ('bool_digest', lambda v: v['mounts'][0].update(sha256=True)),
++            ('extra_field', lambda v: v['mounts'][0].update(writable=True)),
++            ('not_list', lambda v: v.update(mounts=tuple(v['mounts']))),
++        ])
++
++    def test_alias_integrity_refusals(self):
++        key = '/usr/bin/python3'
++        self.refuse_changes([
++            ('wrong_canonical', lambda v: v['aliases'][key].update(canonical_target='/usr/bin/other')),
++            ('unbound', lambda v: v['aliases'][key].update(target='other', canonical_target='/usr/bin/other')),
++            ('cycle', lambda v: v['aliases'][key].update(target='python3')),
++            ('wrong_kind', lambda v: v['aliases'][key].update(kind='directory')),
++            ('nonstring', lambda v: v['aliases'][key].update(target=True)),
++            ('mode', lambda v: v['aliases'][key].update(mode=True)),
++            ('private_target', lambda v: v['aliases'][key].update(
++                target=ACCOUNT, canonical_target=ACCOUNT, kind='directory')),
++            ('empty_root', lambda v: v['aliases'][key].update(
++                target='/root', canonical_target='/root', kind='directory')),
++            ('nested_alias', lambda v: v['aliases'].update({'/lib/sneaky': alias(PYTHON, PYTHON)})),
++            ('extra_field', lambda v: v['aliases'][key].update(optional=True)),
++        ])
++
++    def test_private_environment_and_schema_refusals(self):
++        self.refuse_changes([
++            ('same_root', lambda v: v.update(environment_root=ACCOUNT)),
++            ('nested_store', lambda v: v.update(account_state=ROOT + '/private')),
++            ('store_home', lambda v: v['environment'].update(HOME=ACCOUNT)),
++            ('unbound_python', lambda v: v['environment'].update(FRAMERIZE_PYTHON='/usr/bin/other')),
++            ('private_directory', lambda v: v['private_directories'].append(ACCOUNT)),
++            ('duplicate_directory', lambda v: v['private_directories'].append(ROOT + '/home')),
++            ('extra_environment', lambda v: v['environment'].update(PYTHONPATH='/tmp')),
++            ('bool_environment', lambda v: v['environment'].update(PYTHONNOUSERSITE=True)),
++            ('private_input', lambda v: v['inputs'].update({ACCOUNT + '/state.db': SHA})),
++            ('view_status', lambda v: v.update(status='launchable')),
++            ('too_many_rows', lambda v: v.update(mounts=[v['mounts'][0]] * 10001)),
++            ('too_many_aliases', lambda v: v.update(aliases={str(i): {} for i in range(513)})),
++        ])
++
++    def test_file_verification_is_canonical_and_content_bound(self):
++        with tempfile.TemporaryDirectory() as tmp:
++            path = Path(tmp).resolve() / 'input'
++            path.write_bytes(b'synthetic fixture')
++            expected = hashlib.sha256(path.read_bytes()).hexdigest()
++            with self.subTest(name='exact'):
++                self.assertIsNone(layout.check_file(str(path), expected))
++            with self.subTest(name='retained_manifest'):
++                self.assertEqual(layout.check_file(str(path), expected, True), b'synthetic fixture')
++            link = path.with_name('alias')
++            link.symlink_to(path.name)
++            with self.subTest(name='symlink'), self.assertRaises(RuntimeError):
++                layout.check_file(str(link), expected)
++            with self.subTest(name='directory'), self.assertRaises(RuntimeError):
++                layout.check_file(str(path.parent), expected)
++            path.write_bytes(b'changed')
++            with self.subTest(name='changed'), self.assertRaises(RuntimeError):
++                layout.check_file(str(path), expected)
++
++    def test_snapshot_checks_all_sources_and_original_alias_text(self):
++        with tempfile.TemporaryDirectory() as tmp:
++            root = Path(tmp).resolve()
++            first, second, contract = [root / n for n in ('first', 'second', 'contract')]
++            for path in (first, second, contract):
++                path.write_bytes(path.name.encode())
++            digest = lambda p: hashlib.sha256(p.read_bytes()).hexdigest()
++            link = root / 'alias'
++            link.symlink_to(first.name)
++            value = {'mounts': [dict(source=str(p), sha256=digest(p)) for p in (first, second)],
++                     'inputs': {str(contract): digest(contract)},
++                     'aliases': {str(link): alias(first.name, str(first))}}
++            mode = first.stat().st_mode & 0o7777
++            metadata = {str(first): {'size': first.stat().st_size, 'mode': oct(mode)}}
++            with patch.object(layout, 'binding', return_value=value), patch.object(
++                    layout, 'software_metadata', return_value=metadata):
++                with self.subTest(name='exact'):
++                    self.assertIsNone(layout.verify_snapshot())
++                second.write_bytes(b'changed')
++                with self.subTest(name='second_source'), self.assertRaises(RuntimeError):
++                    layout.verify_snapshot()
++                second.write_bytes(b'second')
++                first.chmod(mode ^ 0o100)
++                with self.subTest(name='source_mode'), self.assertRaises(RuntimeError):
++                    layout.verify_snapshot()
++                first.chmod(mode)
++                link.unlink()
++                link.symlink_to(str(first))
++                with self.subTest(name='same_target_different_text'), self.assertRaises(RuntimeError):
++                    layout.verify_snapshot()
++
++    def test_manifest_binding_and_relocation_refusal(self):
++        value = fixture()
++        root = Path('/home/fixture/onboarding')
++        with patch.object(layout, 'HERE', root), patch.object(
++                layout, 'check_file', return_value=json.dumps(value).encode()) as read:
++            with self.subTest(name='bound_manifest'):
++                self.assertEqual(layout.binding(), value)
++                read.assert_called_once_with(str(root / 'dependency-view.json'),
++                                             layout.VIEW_SHA256, True)
++        with patch.object(layout, 'HERE', Path('/home/fixture/other')), patch.object(
++                layout, 'check_file', return_value=json.dumps(value).encode()):
++            with self.subTest(name='wrong_consumer'), self.assertRaises(RuntimeError):
++                layout.binding()
++
++
++if __name__ == '__main__':
++    unittest.main()
