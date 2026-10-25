@@ -109,14 +109,16 @@ serialized bytes and compares the final output by hash and length. This
 checks one post-collection observation, not the preceding collector semantics.
 
 `apply_collector_result` places supplied SharedWorker and network outcomes
-in positions 242, 469 and 473. NetworkHash applies the SDK's string transform
-to field47 using the same implementation as the envelope timestamp. Apply
-that assignment before Network to preserve their source order. Each variant
-requires its target position and preserves the array on refusal. The hash
-boundary accepts original string values and missing-field markers; generic
-JavaScript accessors and truthy non-string coercions remain unimplemented.
+in position 242 and network positions 80, 469, 473 and 659. The network
+assignments run in that order: related address, hash, address, protocols.
+The related address, hash and protocols reuse the envelope's string transform.
+Each variant requires its target position and preserves the array on refusal.
+Stop at the first error while retaining earlier completed assignments; the
+callback is not atomic. The transformed fields accept original strings and
+missing-field markers. JavaScript accessors and truthy non-string coercions
+remain outside the typed interface.
 The [collector comparison](../reference/analysis/castle-v3-collected-inputs.md)
-rebuilds all three positions from the retained synthetic SDK capture. It
+rebuilds all five positions from the retained synthetic SDK capture. It
 does not fill the remaining collection dependencies.
 
 An open, unbound browser stream can wait for local account capacity before
