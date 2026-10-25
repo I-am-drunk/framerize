@@ -134,16 +134,7 @@ impl SidecarBridge {
     pub(super) async fn native_open(&self, account: AccountId) -> Result<DeviceGrant, DeviceFailure> {
         let lease = uuid::Uuid::new_v4();
         let value = self.native_rpc("native_device_open", json!({"account": account.0,
-            "lease": lease}), Duration::from_secs(5), true).await?;
-        let host_generation = value["generation"].as_str().ok_or(DeviceFailure::Unconfirmed)?;
-        let device = value["device"].as_str().ok_or(DeviceFailure::Unconfirmed)?;
-        if value.as_object().is_none_or(|o| o.len() != 3)
-            || value["lease"].as_str() != Some(lease.to_string().as_str())
-            || host_generation.len() != 32 || !host_generation.bytes().all(|b| b.is_ascii_hexdigit())
-            || device.is_empty() || device.len() > 256
-            || !device.bytes().all(|b| b.is_ascii_alphanumeric() || b"._~-".contains(&b)) {
-            return Err(DeviceFailure::Unconfirmed);
-        }
-        Ok(DeviceGrant { account, lease, host_generation: host_generation.into(), device: device.into() })
+            "lease": lease, "authority_version": 1}), Duration::from_secs(5), true).await?;
+        DeviceGrant::from_wire(account, lease, value)
     }
 }

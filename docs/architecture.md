@@ -9,11 +9,19 @@ the standalone Rust measurement helper still collapses it to `worker`.
 A missing event does not prove success, and a timeout tag does not prove that
 a timer fired. All 31 selected inert diagnostic cases now pass. Actual SDK
 phase collection and native acceptance remain separate runtime requirements.
-The corresponding application now links with its exact transitive Rust
-libraries and bundled linker tools mounted read-only. This build retains
-the existing authority contract. A separate unqualified change negotiates
-ledger or observation authority before choosing the V3 proof path; it must
-be qualified with matching host and client and rebuilt dependent libraries.
+
+The device-authority source candidate negotiates `authority_version: 1` when
+opening a native grant. The host identifies ledger or observation authority;
+the client rejects a missing or unknown mode. Legacy callers retain their
+three-field reply. New clients require a matching host. Observation-backed
+V3 authenticates the existing proof before minting and checks its completion
+echoes, while its worker still receives the saved device rather than the V2
+SDK seed. Rejected or uncertain proof transfer never selects generic admission.
+The matching core, host, store, API and server libraries and application now
+build. All 34 selected Rust cases pass. Twenty of 21 Python cases pass; one
+fixture expects opening a grant not to create an empty history
+entry. Full qualification remains pending that correction. These inert tests
+do not establish native acceptance.
 
 The frozen V3 wrapper distinguishes a caller's initialization wait from its
 guarded phase deadlines. The former can fall back while cached initialization

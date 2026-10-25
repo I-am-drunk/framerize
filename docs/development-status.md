@@ -38,11 +38,15 @@ inputs remained unchanged. The worker library, five unchanged libraries and
 31 diagnostic passes were reused. No V3 application or SDK was launched.
 See `reference/analysis/v3-application-build-20261025.md`.
 
-Separate authority source `c8a5491a` negotiates ledger versus observation
+Separate authority source `52019edc` negotiates ledger versus observation
 authority and carries authenticated observation proof through V3 admission
-and completion. Its 12 new and 40 affected tests are unrun. The change needs
-an affected-graph rebuild and matching host/client qualification; it is not
-included in the successful `191dabe8` build or the normal repair candidate.
+and completion. All 34 selected Rust cases and 20 of 21 Python cases pass.
+One Python fixture expectation fails when opening a grant creates an empty
+request-history entry. That exact fixture correction is pending; the other
+54 passes are retained. All five affected libraries were rebuilt, and the
+matching application linked as `6a2f0a93`. The build and test jobs are collected.
+This source is not included in the normal repair candidate. No SDK or account
+request ran. See `reference/analysis/v3-authority-qualification-20261025.md`.
 
 Three controller diagnostic/privacy cases also pass. The next prepared rollout
 controller preserves fixed failure codes and bounded source locations without

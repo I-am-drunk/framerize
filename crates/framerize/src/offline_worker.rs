@@ -14,7 +14,7 @@ use framer_api::experimental_native::control_authorization::{
     MintedCastle, OfflineMintTarget, OfflineMinter,
 };
 use framer_core::{port::{BrowserBridge, CastleToken},
-    native_device::{DeviceFailure, DeviceGrant}};
+    native_device::{DeviceAuthority, DeviceFailure, DeviceGrant}};
 use super::offline_worker_owner::{Cleanup, Failure, Run, V2Worker, Worker};
 
 #[path = "offline_v2_seed.rs"]
@@ -68,10 +68,18 @@ impl OfflineWorkerMinter {
     pub(crate) fn with_v2_seed(scope: AccountScope, worker: Arc<V2Worker>,
         bridge: Arc<dyn BrowserBridge>, grant: Arc<DeviceGrant>, seed: V2SeedBinding)
         -> Result<Self, Failure> {
+        Self::with_host_proof(scope, WorkerBackend::V2(worker), bridge, grant, seed)
+    }
+
+    pub(crate) fn with_host_proof(scope: AccountScope, worker: WorkerBackend,
+        bridge: Arc<dyn BrowserBridge>, grant: Arc<DeviceGrant>, seed: V2SeedBinding)
+        -> Result<Self, Failure> {
         if !seed.belongs_to(&grant) || !seed.belongs_to_scope(&scope) {
             return Err(Failure::Identity);
         }
-        let mut minter = Self::with_v2_device(scope, worker, bridge, grant)?;
+        let mut minter = Self::with_backend(scope, worker, bridge, grant)?;
+        // This proof authenticates host admission. Only V2 consumes its seed;
+        // V3 still sends the saved device to its worker.
         minter.sdk_seed = Some(seed);
         Ok(minter)
     }
@@ -126,7 +134,10 @@ impl OfflineWorkerMinter {
         if control.is_cancelled() {
             return PreparationResult::finished(Err(cancelled(control)));
         }
-        if matches!(&self.worker, WorkerBackend::V2(_)) && self.sdk_seed.is_none() {
+        let proof_required = matches!(&self.worker, WorkerBackend::V2(_))
+            || self.device.as_ref().is_some_and(|(_, grant)|
+                grant.authority == DeviceAuthority::Observation);
+        if proof_required && self.sdk_seed.is_none() {
             return PreparationResult::finished(Err(PreparationFailure::Rejected));
         }
         let Some((bridge, grant)) = &self.device else {

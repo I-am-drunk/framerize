@@ -59,7 +59,7 @@ async fn device_rejection_and_lost_open_are_distinct_before_private_io() {
 
 #[tokio::test]
 async fn device_loss_keeps_the_original_account_fenced() {
-    for mode in [0, 3] {
+    for mode in [0, 2, 3] {
         let (state, ports, spec, sessions) = fixture();
         let identity = spec.identity.clone();
         ports.uncertain.store(mode == 0, Ordering::SeqCst);

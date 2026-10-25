@@ -219,6 +219,7 @@ impl Bridge {
     fn new(scope: &AccountScope, lost_reply: bool) -> Arc<Self> {
         Arc::new(Self {
             grant: Arc::new(DeviceGrant {
+                authority: DeviceAuthority::Ledger,
                 account: scope.account(), host_generation: "device-bridge-host".into(),
                 lease: uuid::Uuid::new_v4(), device: "device-bridge-fixture".into(),
             }),

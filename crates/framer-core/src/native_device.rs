@@ -2,6 +2,10 @@
 use crate::{ids::AccountId, port::Session};
 use std::sync::Arc;
 
+#[cfg(test)]
+#[path = "native_device_authority_tests.rs"]
+mod authority_tests;
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum DeviceFailure {
     Rejected,
@@ -20,12 +24,39 @@ pub fn valid_device_id(device: &str) -> bool {
         && device.bytes().all(|b| b.is_ascii_alphanumeric() || b"._~-".contains(&b))
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum DeviceAuthority {
+    Ledger,
+    Observation,
+}
+
 /// Contains private device state. Do not log or serialize this handle.
 pub struct DeviceGrant {
     pub account: AccountId,
     pub host_generation: String,
     pub lease: uuid::Uuid,
     pub device: String,
+    pub authority: DeviceAuthority,
+}
+
+impl DeviceGrant {
+    pub fn from_wire(account: AccountId, lease: uuid::Uuid, value: serde_json::Value)
+        -> Result<Self, DeviceFailure> {
+        let invalid = DeviceFailure::Unconfirmed;
+        let generation = value["generation"].as_str().ok_or(invalid)?;
+        let device = value["device"].as_str().ok_or(invalid)?;
+        let authority = match value["authority"].as_str() {
+            Some("ledger") => DeviceAuthority::Ledger,
+            Some("observation") => DeviceAuthority::Observation,
+            _ => return Err(invalid),
+        };
+        if value.as_object().is_none_or(|o| o.len() != 4)
+            || value["lease"].as_str() != Some(lease.to_string().as_str())
+            || generation.len() != 32 || !generation.bytes().all(|b| b.is_ascii_hexdigit())
+            || !valid_device_id(device) { return Err(invalid); }
+        Ok(Self { account, lease, host_generation: generation.into(),
+            device: device.into(), authority })
+    }
 }
 
 /// Private host observation, bound to the original allocation and login.
