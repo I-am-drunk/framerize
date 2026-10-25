@@ -23,12 +23,14 @@ startup settling check expired during sequential browser prewarming. The old
 binary is running; final rollback verification remains pending. No acceptance
 POST ran. See `reference/analysis/r5-rollout-result-20261025.md`.
 
-Recovery-only finalization subsequently reached quiet/restoration, then failed
-when the user-level verifier could not open the restored sidecar's memory.
-The temporary ingress restriction was removed, and all helper processes were
-collected. The previous binary is still running; final comparison and restart
-fence removal remain unfinished. A narrow authenticated descriptor-transfer
-correction is assigned. See `reference/analysis/r5-recovery-memory-read-20261025.md`.
+Recovery-only finalization now passes its previous memory-access failure.
+The authenticated read-only descriptor transfer passed 16 focused tests and
+worked in recovery r4. The account-state comparison then refused because a
+primary-device assignment differed from the saved snapshot. Both processes
+resumed, the temporary traffic restriction was removed, and all helpers were
+collected. No additional binary switch or inference request occurred. The old
+binary remains running; final rollback verification is unfinished. See
+`reference/analysis/r5-recovery-descriptor-result-20261025.md`.
 
 Independent transport test compilation on `a715a41a` failed before discovery:
 the prepared isolated source view omitted an existing cross-crate test include.
