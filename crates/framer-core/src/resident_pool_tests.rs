@@ -1,6 +1,39 @@
 use super::*;
 
 #[test]
+fn only_matching_busy_receipts_cancel_close_without_freeing_capacity() {
+    use crate::browser_lifecycle::{BrowserAccountState as State, IdleCloseOutcome};
+    let expected = BrowserAccountStatus { account_id: id(1), host_generation: Some("host".into()),
+        account_incarnation: 1, state: State::Resident, active_commands: 0 };
+    for case in 0..9 {
+        let pool = ResidentPool::new(1).unwrap();
+        drop(lease(&pool, 1));
+        let mut ticket = pool.begin_park(id(1)).unwrap();
+        ticket.close_started().unwrap();
+        let mut result = IdleCloseResult { outcome: IdleCloseOutcome::Busy,
+            status: BrowserAccountStatus { active_commands: 1, ..expected.clone() } };
+        match case {
+            1 => result.status.account_id = id(2),
+            2 => result.status.host_generation = Some("other".into()),
+            3 => result.status.account_incarnation = 2,
+            4 => result.outcome = IdleCloseOutcome::StaleGeneration,
+            5 => result.status.state = State::Absent,
+            6 => result.status.state = State::Unconfirmed,
+            7 => result.status.active_commands = 0,
+            8 => { result.status.state = State::Starting; result.status.active_commands = 0; },
+            _ => {},
+        }
+        let valid = case == 0 || case == 8;
+        assert_eq!(ticket.confirm_busy(&expected, &result).is_ok(), valid, "case {case}");
+        let snapshot = pool.snapshot().unwrap();
+        assert_eq!(snapshot.occupied, 1);
+        assert_eq!(snapshot.residents[0].account, id(1));
+        assert_eq!(snapshot.residents[0].uncertain, !valid);
+        assert_eq!(snapshot.residents[0].replacement, None);
+    }
+}
+
+#[test]
 fn existing_only_never_allocates_or_selects_a_victim() {
     let pool = ResidentPool::new(1).unwrap();
     assert!(matches!(pool.try_acquire_idle_existing(id(1)), Err(PoolError::NotResident)));

@@ -45,7 +45,7 @@ macro_rules! denied {
 }
 
 #[derive(Clone, Copy, Debug)]
-enum CloseMode { Confirm, WrongAccount, WrongHost, WrongIncarnation, StillResident, Busy, Unconfirmed, ActiveCommand, Error }
+enum CloseMode { Confirm, WrongAccount, WrongHost, WrongIncarnation, StillResident, Busy, BusyResident, Unconfirmed, ActiveCommand, Error }
 #[derive(Clone, Copy)]
 enum StatusMode { Ready, Busy, WrongAccount, Error, Closing, Unconfirmed, UnconfirmedFor(AccountId) }
 
@@ -232,6 +232,11 @@ impl BrowserBridge for Ports {
                 CloseMode::WrongIncarnation => status.account_incarnation += 1,
                 CloseMode::StillResident => status.state = BrowserAccountState::Resident,
                 CloseMode::Busy => outcome = IdleCloseOutcome::Busy,
+                CloseMode::BusyResident => {
+                    outcome = IdleCloseOutcome::Busy;
+                    status.state = BrowserAccountState::Resident;
+                    status.active_commands = 1;
+                },
                 CloseMode::Unconfirmed => outcome = IdleCloseOutcome::Unconfirmed,
                 CloseMode::ActiveCommand => status.active_commands = 1,
                 CloseMode::Error => return Err("fixture close failure".into()),
@@ -608,14 +613,16 @@ async fn delayed_healthy_status_cannot_bypass_another_requests_uncertainty() {
     let (state, ports) = fixture(1, 2);
     activated(&state, 1).await;
     ports.hold_status.store(true, Ordering::SeqCst);
-    let mut first = Box::pin(lease_account(&state, id(1)));
+    let mut first = Box::pin(lease_account_observed(&state, id(1)));
     assert!(futures::poll!(first.as_mut()).is_pending());
     assert_eq!(ports.status_captured.load(Ordering::SeqCst), 1);
     *ports.status_mode.lock().unwrap() = StatusMode::Unconfirmed;
     assert!(lease_account(&state, id(1)).await.is_err());
     assert_eq!(slot(&state, id(1)).users, 1);
     ports.status_gate.add_permits(1);
-    assert!(matches!(first.await, Err(ApiError::PoolBusy(_))));
+    let outcome = first.await;
+    assert!(matches!(outcome.result, Err(ApiError::PoolBusy(_))));
+    assert!(outcome.cleanup_confirmed, "local admission refusal started no external work");
     assert!(slot(&state, id(1)).uncertain);
     assert_eq!(slot(&state, id(1)).users, 0);
 }
@@ -1041,6 +1048,29 @@ async fn failed_or_mismatched_close_keeps_capacity_until_matching_reconciliation
         activated(&state, 2).await;
         assert_eq!(ports.max_live.load(Ordering::SeqCst), 1);
         idle_without_writes(&state, &ports, &before);
+    }
+}
+
+#[tokio::test]
+async fn busy_park_retains_capacity_and_prior_uncertainty() {
+    for uncertain in [false, true] {
+        let (state, ports) = fixture(1, 2);
+        activated(&state, 1).await;
+        if uncertain {
+            let lease = lease_account(&state, id(1)).await.unwrap();
+            lease.mark_unconfirmed().unwrap();
+            drop(lease);
+        }
+        *ports.close_mode.lock().unwrap() = CloseMode::BusyResident;
+        let outcome = state.serving_accounts.park_managed_observed(
+            state.browser.as_ref(), id(1)).await;
+        assert!(outcome.result.is_err());
+        assert!(outcome.cleanup_confirmed);
+        assert_eq!(slot(&state, id(1)).uncertain, uncertain);
+        assert_eq!(slot(&state, id(1)).replacement, None);
+        assert_eq!(state.serving_accounts.residents.snapshot().unwrap().occupied, 1);
+        assert!(ports.live.lock().unwrap().contains_key(&id(1)));
+        assert!(!ports.live.lock().unwrap().contains_key(&id(2)));
     }
 }
 

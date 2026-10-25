@@ -173,5 +173,12 @@ returns 503 while the operation gate is sealed or unconfirmed, retaining the
 PID header. This endpoint neither clears the gate nor guarantees upstream
 account availability. Reporting failure does not itself restart the service.
 
+A matching Busy close receipt is a refusal to begin closure, not an unfinished
+close. It cancels that close reservation while retaining the occupied slot and
+any prior uncertainty. A completed status read followed by a local account
+fence is likewise a local refusal. Neither path frees capacity or clears
+unknown cleanup; other accounts can continue serving. Refused closes record
+their outcome and whether the receipt matched the expected browser identity.
+
 Earlier investigation notes are preserved in
 [architecture history](history/architecture-before-reorganization-20261025.md).

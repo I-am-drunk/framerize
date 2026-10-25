@@ -48,6 +48,14 @@ impl BrowserAccountStatus {
 }
 
 impl IdleCloseResult {
+    /// The host refused before closing this exact, still-live browser.
+    pub fn confirms_busy(&self, expected: &BrowserAccountStatus) -> bool {
+        self.outcome == IdleCloseOutcome::Busy
+            && self.status.same_identity(expected)
+            && matches!(self.status.state, BrowserAccountState::Resident | BrowserAccountState::Starting)
+            && (self.status.active_commands > 0 || self.status.state == BrowserAccountState::Starting)
+    }
+
     /// An error, stale receipt or ambiguous cleanup never releases capacity.
     pub fn confirms_absence(&self, expected: &BrowserAccountStatus) -> bool {
         matches!(self.outcome, IdleCloseOutcome::Closed | IdleCloseOutcome::AlreadyAbsent)

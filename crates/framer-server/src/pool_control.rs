@@ -10,6 +10,20 @@ fn busy(error: impl std::fmt::Display) -> ApiError {
     ApiError::PoolBusy(error.to_string())
 }
 
+fn trace_close_refusal(account: AccountId,
+    expected: &framer_core::browser_lifecycle::BrowserAccountStatus,
+    result: &framer_core::browser_lifecycle::IdleCloseResult) {
+    super::operation_ownership::correlate_chain(
+        framer_core::observability::Event::new("pool.close.refused"))
+        .account(&account)
+        .field("outcome", format!("{:?}", result.outcome))
+        .field("state", format!("{:?}", result.status.state))
+        .field("identity_matches", result.status.same_identity(expected))
+        .field("active_commands", result.status.active_commands)
+        .field("close_not_started", result.confirms_busy(expected))
+        .emit();
+}
+
 // A completed call may still own an unresolved close or observation.
 // Preserve that evidence separately from the error reported to the caller.
 pub(super) struct CleanupOutcome<T> {
@@ -68,7 +82,7 @@ async fn confirm_resident_status(browser: &dyn BrowserBridge, lease: ResidentLea
     let result = async {
     if !browser.supports_browser_lifecycle() {
         lease.ensure_admissible().map_err(|error| {
-            cleanup_confirmed = false;
+            if error != PoolError::AccountBusy { cleanup_confirmed = false; }
             busy(error)
         })?;
         return Ok(lease);
@@ -100,7 +114,8 @@ async fn confirm_resident_status(browser: &dyn BrowserBridge, lease: ResidentLea
         return Err(busy("account browser status is unconfirmed; its occupied slot is retained"));
     }
     lease.ensure_admissible().map_err(|error| {
-        cleanup_confirmed = false;
+        // A concurrent local fence refuses this lease without starting work.
+        if error != PoolError::AccountBusy { cleanup_confirmed = false; }
         busy(error)
     })?;
     Ok(lease)
@@ -473,6 +488,12 @@ async fn finish_park_observed(browser: &dyn BrowserBridge, mut ticket: ParkTicke
         ticket.close_started().map_err(busy)?;
         let result = browser.close_idle_browser(&id, &expected).await.map_err(busy)?;
         if !result.confirms_absence(&expected) {
+            trace_close_refusal(id, &expected, &result);
+            if result.confirms_busy(&expected) {
+                ticket.confirm_busy(&expected, &result).map_err(busy)?;
+                cleanup_confirmed = true;
+                return Err(busy("account browser became busy before closure; its slot is retained"));
+            }
             return Err(busy("account browser closure is unconfirmed; its slot is retained"));
         }
         ticket.confirm_close().map_err(busy)?;
@@ -542,6 +563,12 @@ impl ServingAccountPolicy {
                         let result = browser.close_idle_browser(&ticket.victim(), &expected)
                             .await.map_err(busy)?;
                         if !result.confirms_absence(&expected) {
+                            trace_close_refusal(ticket.victim(), &expected, &result);
+                            if result.confirms_busy(&expected) {
+                                ticket.confirm_busy(&expected, &result).map_err(busy)?;
+                                cleanup_confirmed = true;
+                                return Err(busy("account browser became busy before closure; its slot is retained"));
+                            }
                             return Err(busy("previous account browser has not confirmed closure"));
                         }
                         let lease = ticket.confirm_close().map_err(busy)?;
