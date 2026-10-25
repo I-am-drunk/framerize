@@ -16,7 +16,9 @@ export function collectionSource(bytes) {
   const assignment = 'Q[_o]=l(s,Qon(W))';
   if (source.indexOf(assignment) < 0 || source.indexOf(assignment) !== source.lastIndexOf(assignment))
     throw new Error('collection-worker-source');
-  return source.replace(assignment, 'Q[_o]=l(s,Qon(import.meta.sharedWorker(W)))');
+  // Slot 242 has one writer and no reader before serialization. Capture at
+  // that boundary; the parent reduces this plain-data result into the slot.
+  return source.replace(assignment, 'import.meta.sharedWorker(W)');
 }
 
 export function createCollector() {

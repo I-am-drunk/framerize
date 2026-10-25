@@ -46,9 +46,21 @@ into a successful worker response.
 
 Rust validates both inputs and applies `CollectorResult::SharedWorker` to
 position 242 before encoding. The returned output therefore consumes the
-native reduction. The original SDK assignment still runs as well: removing
-it requires the separately owned slot-writer and ordering evidence.
+native reduction. The original SDK reduction and assignment are omitted.
+The pinned source starts position 242 as a hole, writes it only at that
+callback and has no reader of it before serialization. The original callback
+is in the request's completion wait. The plain-data capture runs at the same
+point and refuses exotic replies before subsequent sibling assignments.
+For its supported data, reduction is total. This does not claim matching
+exception timing or side effects for arbitrary getters or mutated intrinsics.
 This change does not replace the worker or its observation environment.
+
+Source identity: the SDK hash above on `774a9ef`, `Q=[]` at bytes
+574667..574671, `_o=242` at 305585..305591, and its sole assignment at
+282619..282636. The accepted source trace includes the callback's captured
+completion handle and all direct/temporary Q references. This is source
+evidence under normal intrinsics and one configuration, not an execution
+trace proving arbitrary reconfiguration or external-worker behavior.
 
 Success still requires the exact V3 branch, unchanged sources, the original
 deadline, a collection handoff age of at most two seconds, and worker cleanup.
@@ -67,7 +79,7 @@ The version 2 document and connected SharedWorker reduction pass 16 focused
 JavaScript checks, 86 Rust worker checks and four V3 ownership checks.
 The production loader completed one isolated synthetic operation in 2,136 ms,
 with the child joined and absent and the output discarded. All 1,264 pinned
-inputs remained unchanged. The 128 MiB/no-swap isolation above was retained.
+inputs remained unchanged. The existing 128 MiB/no-swap isolation was retained.
 
 One fresh instrumented SDK operation passed through the version 2 frame and
 production Rust decoder. Native SharedWorker reduction reproduced all 765
@@ -77,6 +89,13 @@ results. The 38,047-byte frame crossed the private pipe; the child exited with
 no remaining descendants, memory-limit events or swap use. This establishes
 synthetic compatibility of the connected reduction, not live acceptance.
 Evidence: `native-shared-worker-integration-r1` in the private investigation.
+
+After removing the duplicate SDK reduction/assignment, the production loader
+completed in 1,981 ms with the child joined and absent and output discarded.
+Its 1,264 inputs remained unchanged. All five affected JavaScript collection
+checks pass again. Rust and the comparison source are unchanged, so their
+results above are reused. The two elapsed times are single observations,
+not a measured speedup or reduction in request memory.
 
 The earlier version 1 results below remain historical evidence:
 
