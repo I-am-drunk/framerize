@@ -41,9 +41,7 @@ class RateJournal:
         if fresh:
             with db:
                 db.execute('BEGIN IMMEDIATE')
-                db.execute('CREATE TABLE accounts '
-                           '(account TEXT PRIMARY KEY, snapshot TEXT NOT NULL, runtime_owner TEXT)')
-                db.execute('PRAGMA user_version=2')
+                self._create_schema(db)
             directory = os.open(self.root, os.O_RDONLY | os.O_DIRECTORY)
             try:
                 os.fsync(directory)
@@ -54,6 +52,12 @@ class RateJournal:
                 db.execute('BEGIN IMMEDIATE')
                 db.execute('ALTER TABLE accounts ADD COLUMN runtime_owner TEXT')
                 db.execute('PRAGMA user_version=2')
+
+    @staticmethod
+    def _create_schema(db):
+        db.execute('CREATE TABLE accounts '
+                   '(account TEXT PRIMARY KEY, snapshot TEXT NOT NULL, runtime_owner TEXT)')
+        db.execute('PRAGMA user_version=2')
 
     @staticmethod
     def _account(account):
