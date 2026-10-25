@@ -205,6 +205,20 @@ async fn main() {
         Cmd::Daemon { listen, web_dir, db, chrome, engine, profiles, sidecar_script,
             active_pool_size, eligible_accounts,
         } => {
+            let addr = match listen.parse() {
+                Ok(a) => a,
+                Err(e) => {
+                    eprintln!("bad --listen {listen}: {e}");
+                    std::process::exit(1);
+                }
+            };
+            let stop = match shutdown::signal() {
+                Ok(stop) => stop,
+                Err(error) => {
+                    eprintln!("cannot listen for shutdown: {error}");
+                    std::process::exit(1);
+                }
+            };
             let web_dir = std::env::current_exe().map_err(|e| e.to_string())
                 .and_then(|exe| release::web_dir(&exe, web_dir));
             let web_dir = match web_dir {
@@ -234,25 +248,24 @@ async fn main() {
                 .and_then(|result| result);
             if let Err(error) = proxies {
                 eprintln!("failed to initialize: {error}");
+                if let Err(cleanup) = shutdown::close(state).await {
+                    eprintln!("startup cleanup failed: {cleanup}");
+                }
                 std::process::exit(1);
             }
             if let Err(error) = start_prewarm(&state) {
                 eprintln!("{error}");
+                if let Err(cleanup) = shutdown::close(state).await {
+                    eprintln!("startup cleanup failed: {cleanup}");
+                }
                 std::process::exit(1);
             }
-            let addr = match listen.parse() {
-                Ok(a) => a,
-                Err(e) => {
-                    eprintln!("bad --listen {listen}: {e}");
-                    std::process::exit(1);
-                }
-            };
             eprintln!("framerize daemon on {listen} (web: {web_dir}, db: {db})");
             framer_core::observability::Event::new("daemon.start")
                 .field("listen", listen.clone())
                 .field("engine", engine.clone())
                 .emit();
-            let result = shutdown::serve(state, &web_dir, addr).await;
+            let result = shutdown::serve(state, &web_dir, addr, stop).await;
             if let Err(e) = result {
                 eprintln!("server error: {e}");
                 std::process::exit(1);

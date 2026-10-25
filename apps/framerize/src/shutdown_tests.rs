@@ -38,7 +38,7 @@ async fn shutdown_seals_admission_and_waits_for_detached_work_before_close() {
         OperationKind::Background, async move { work.acquire().await.unwrap().forget(); }).unwrap();
     drop(background); // The application must retain work whose waiter disappeared.
     let (stopped, signal_seen) = oneshot::channel();
-    let server = tokio::spawn(serve_until(state, "/fixture-no-web", addr(), async {
+    let server = tokio::spawn(serve(state, "/fixture-no-web", addr(), async {
         stopped.send(()).unwrap();
     }));
     tokio::time::timeout(WAIT, signal_seen).await.unwrap().unwrap();
@@ -53,19 +53,31 @@ async fn shutdown_seals_admission_and_waits_for_detached_work_before_close() {
 
 #[tokio::test]
 async fn bind_failure_still_closes_the_host() {
-    let (state, browser) = fixture(false);
+    let (state, browser) = fixture(true);
     let occupied = tokio::net::TcpListener::bind(addr()).await.unwrap();
-    let result = tokio::time::timeout(WAIT, serve_until(state, "/fixture-no-web",
+    let result = tokio::time::timeout(WAIT, serve(state, "/fixture-no-web",
         occupied.local_addr().unwrap(), std::future::pending())).await.unwrap();
-    assert!(result.is_err());
+    let error = result.unwrap_err();
+    assert!(error.contains("fixture close failure"));
+    assert!(error.contains("; shutdown:"));
     assert_eq!(browser.closes.load(Ordering::SeqCst), 1);
+}
+
+#[tokio::test]
+async fn startup_cleanup_needs_no_listener_and_reports_host_failure() {
+    for failed in [false, true] {
+        let (state, browser) = fixture(failed);
+        let result = tokio::time::timeout(WAIT, close(state)).await.unwrap();
+        assert_eq!(result.is_err(), failed);
+        assert_eq!(browser.closes.load(Ordering::SeqCst), 1);
+    }
 }
 
 #[tokio::test]
 async fn host_close_failure_is_reported_as_shutdown_failure() {
     let (state, browser) = fixture(true);
     let result = tokio::time::timeout(WAIT,
-        serve_until(state, "/fixture-no-web", addr(), async {})).await.unwrap();
+        serve(state, "/fixture-no-web", addr(), async {})).await.unwrap();
     assert_eq!(result.unwrap_err(), "fixture close failure");
     assert_eq!(browser.closes.load(Ordering::SeqCst), 1);
 }
@@ -78,7 +90,7 @@ async fn unconfirmed_application_work_cannot_be_reported_as_clean_shutdown() {
     task.abort();
     assert!(task.await.is_err());
     let result = tokio::time::timeout(WAIT,
-        serve_until(state, "/fixture-no-web", addr(), async {})).await.unwrap();
+        serve(state, "/fixture-no-web", addr(), async {})).await.unwrap();
     assert!(result.unwrap_err().contains("Unconfirmed"));
     assert_eq!(browser.closes.load(Ordering::SeqCst), 0);
 }

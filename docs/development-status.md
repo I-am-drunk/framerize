@@ -24,7 +24,7 @@ Completed source changes:
 
 Validation collected locally:
 - The workspace all-target check passed at the application split milestone.
-- Current browser server: 250 tests pass. Host: 73 tests pass. Browser CLI: 32
+- Current browser server: 250 tests pass. Host: 73 tests pass. Browser CLI: 33
   tests pass. Gate selection: 43 tests pass, including three new persistence tests.
 - Python runtime: 80 fixture tests pass across lifecycle, imports, browser setup,
   packaging, rate persistence, request ownership and safe diagnostics. The fetch fixture
@@ -72,10 +72,14 @@ flag. It seals admission, drains HTTP and detached application work, then joins
 host cleanup. Explicit host shutdown finishes accepted commands; lost stdin
 cancels follow-up work while retaining outstanding browser calls. Failed
 closures remain dirty in the journal. Attached browsers are not terminated.
-Four new Python shutdown cases, four application cases and four host cases
+Four new Python shutdown cases, five application cases and four host cases
 pass using synthetic accounts, loopback fixtures and temporary state. The
 27 lifecycle cases were rerun after adjusting teardown for intentionally
 unacknowledged browser disconnections. One manual host test remains ignored.
+The application installs its signal handlers before host startup and routes
+startup failures through the same cleanup. Invalid listen addresses fail before
+opening stores. The first shutdown package passed host exit plus SIGTERM and
+Ctrl-C checks with empty temporary state; this is not a live-service validation.
 
 Next: automatic cleanup verification and first-migration handling.
 Current account history and first-migration handling remain unresolved;

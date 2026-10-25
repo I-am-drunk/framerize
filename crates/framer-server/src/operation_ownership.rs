@@ -407,8 +407,8 @@ impl Drop for OwnedBody {
 #[path = "operation_ownership_tests.rs"]
 mod tests;
 
-/// Explicit construction seam for a future reviewed startup controller. No
-/// CLI or default calls it. Bind before proxy loading, prewarm or serving.
+/// Register application work before proxy loading, prewarm or serving.
+/// The browser daemon installs this during startup; library callers opt in.
 pub fn with_owned_operations(mut state: crate::AppState, limit: usize)
     -> Result<crate::AppState, GateError> {
     if state.operation_ownership.is_some() { return Err(GateError::Unconfirmed); }

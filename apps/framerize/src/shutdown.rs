@@ -1,11 +1,7 @@
 use framer_server::AppState;
 use std::net::SocketAddr;
 
-pub async fn serve(state: AppState, web_dir: &str, addr: SocketAddr) -> Result<(), String> {
-    serve_until(state, web_dir, addr, signal()).await
-}
-
-async fn serve_until(state: AppState, web_dir: &str, addr: SocketAddr,
+pub async fn serve(state: AppState, web_dir: &str, addr: SocketAddr,
     stop: impl std::future::Future<Output = ()> + Send + 'static,
 ) -> Result<(), String> {
     let ownership = state.operation_ownership.clone()
@@ -18,39 +14,52 @@ async fn serve_until(state: AppState, web_dir: &str, addr: SocketAddr,
         let _ = sender.send(sealing.seal());
     }).await;
     // Bind failure drops the signal future. Startup work still needs draining.
-    let mut ticket = receiver.await.unwrap_or_else(|_| ownership.seal())
+    let ticket = receiver.await.unwrap_or_else(|_| ownership.seal())
         .map_err(|error| format!("shutdown admission: {error:?}"))?;
+    let closed = close_browser(browser, ticket).await;
+    match (result, closed) {
+        (Ok(()), closed) => closed,
+        (Err(error), Ok(())) => Err(error.to_string()),
+        (Err(error), Err(close)) => Err(format!("{error}; shutdown: {close}")),
+    }
+}
+
+pub async fn close(state: AppState) -> Result<(), String> {
+    let ownership = state.operation_ownership.as_ref()
+        .ok_or("application request ownership is unavailable")?;
+    let ticket = ownership.seal().map_err(|error| format!("shutdown admission: {error:?}"))?;
+    close_browser(state.browser, ticket).await
+}
+
+async fn close_browser(browser: std::sync::Arc<dyn framer_core::port::BrowserBridge>,
+    mut ticket: framer_core::operation_gate::DrainTicket,
+) -> Result<(), String> {
     let _drained = ticket.wait_application().await
         .map_err(|error| format!("shutdown drain: {error:?}"))?;
-    let closed = browser.shutdown().await;
-    result.map_err(|error| error.to_string())?;
-    closed
+    browser.shutdown().await
 }
 
 #[cfg(test)]
 #[path = "shutdown_tests.rs"]
 mod tests;
 
-async fn signal() {
+pub fn signal() -> std::io::Result<impl std::future::Future<Output = ()> + Send> {
     #[cfg(unix)]
     {
         use tokio::signal::unix::{signal, SignalKind};
-        let mut terminate = match signal(SignalKind::terminate()) {
-            Ok(signal) => signal,
-            Err(error) => {
-                eprintln!("cannot listen for shutdown: {error}");
-                return;
+        let mut terminate = signal(SignalKind::terminate())?;
+        let mut interrupt = signal(SignalKind::interrupt())?;
+        Ok(async move {
+            tokio::select! {
+                _ = interrupt.recv() => {}
+                _ = terminate.recv() => {}
             }
-        };
-        tokio::select! {
-            result = tokio::signal::ctrl_c() => {
-                if let Err(error) = result { eprintln!("shutdown signal failed: {error}"); }
-            }
-            _ = terminate.recv() => {}
-        }
+        })
     }
     #[cfg(not(unix))]
-    if let Err(error) = tokio::signal::ctrl_c().await {
-        eprintln!("shutdown signal failed: {error}");
-    }
+    Ok(async {
+        if let Err(error) = tokio::signal::ctrl_c().await {
+            eprintln!("shutdown signal failed: {error}");
+        }
+    })
 }

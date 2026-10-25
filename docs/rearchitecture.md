@@ -82,10 +82,11 @@ recovery conservatively rebases outstanding durations. Missing history on an
 existing installation requires migration, not an empty ledger. The journal has
 one writer, and package rollback must retain newer history.
 
-Graceful shutdown remains the next integration: stop admission, join accepted
-work and close the host. Confirmed browser closure already records clean account
-state; it does not replace writes before each charge. An interrupted record
-cannot resume until its previous browser ownership has been resolved.
+Graceful shutdown now stops admission, joins accepted work and closes the host.
+Signal handlers are installed before startup can launch a host. Failed startup
+uses the same drain and close path. Confirmed browser closure records clean
+account state; it does not replace writes before each charge. An interrupted
+record cannot resume until its previous browser ownership has been resolved.
 
 The first live migration is still unresolved. Today's host has no complete
 ledger-export command. New persistence cannot recover old process memory.
