@@ -1,5 +1,12 @@
 # Serving architecture and branch policy
 
+Normal control clients now use ten-second connection and thirty-second total
+deadlines. Send failures expose safe typed cause flags while retaining the
+existing HTTP status policy. Ten focused tests pass against the real whole-file
+transport implementation. This does not qualify the complete native feature
+graph or identify the cause of the separate browser-network and rollback
+incidents. See `reference/analysis/control-transport-qualification-20261025.md`.
+
 The R5 rollout controller interrupted bound-main client sockets while retaining
 the listener, then captured and restored genuine rate state in both directions.
 Its temporary port restriction expired with its owner and was removed. The

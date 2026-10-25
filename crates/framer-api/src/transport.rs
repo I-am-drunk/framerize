@@ -8,6 +8,10 @@ use serde_json::Value;
 #[path = "control_response_evidence.rs"]
 mod control_response_evidence;
 
+#[cfg(test)]
+#[path = "control_transport_tests.rs"]
+mod control_transport_tests;
+
 pub const API: &str = "https://api.framer.com";
 
 pub struct Transport {
@@ -19,6 +23,28 @@ pub enum Auth<'a> {
     Cookie(&'a Session),
     Bearer(&'a str),
     None,
+}
+
+fn normal_client_builder(
+    connect_timeout: std::time::Duration,
+    request_timeout: std::time::Duration,
+) -> reqwest::ClientBuilder {
+    reqwest::Client::builder()
+        .user_agent("Framerize/0.1")
+        .connect_timeout(connect_timeout)
+        .timeout(request_timeout)
+}
+
+// Do not format the error: it can contain a URL or proxy details.
+fn control_transport_error(error: reqwest::Error) -> String {
+    format!(
+        "control transport failed: timeout={} connect={} request={} body={} decode={}",
+        error.is_timeout(),
+        error.is_connect(),
+        error.is_request(),
+        error.is_body(),
+        error.is_decode(),
+    )
 }
 
 impl Transport {
@@ -55,10 +81,12 @@ impl Transport {
 
     /// Used by tests to point at the mock server.
     pub fn with_base(base: String) -> Self {
-        let http = reqwest::Client::builder()
-            .user_agent("Framerize/0.1")
-            .build()
-            .expect("reqwest client");
+        let http = normal_client_builder(
+            std::time::Duration::from_secs(10),
+            std::time::Duration::from_secs(30),
+        )
+        .build()
+        .expect("reqwest client");
         Self { http, base }
     }
 
@@ -77,7 +105,7 @@ impl Transport {
 
     pub async fn get(&self, path: &str, auth: Auth<'_>) -> Result<reqwest::Response, String> {
         let req = self.http.get(format!("{}{}", self.base, path));
-        check(path, self.apply(req, auth).send().await.map_err(|e| e.to_string())?).await
+        check(path, self.apply(req, auth).send().await.map_err(control_transport_error)?).await
     }
 
     pub async fn post(
@@ -91,7 +119,7 @@ impl Transport {
             .post(format!("{}{}", self.base, path))
             .header("content-type", "application/json")
             .json(&body);
-        check(path, self.apply(req, auth).send().await.map_err(|e| e.to_string())?).await
+        check(path, self.apply(req, auth).send().await.map_err(control_transport_error)?).await
     }
 
     pub async fn post_json(&self, path: &str, auth: Auth<'_>, body: Value) -> Result<Value, String> {
