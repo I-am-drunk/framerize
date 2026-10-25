@@ -187,6 +187,8 @@ async fn private_handoff_requires_child_and_task_join() {
 async fn dropped_run_keeps_independent_cleanup() {
     let run = begin_fake("hang", 5).await;
     let pid = started(&run).await; let completion = run.completion();
+    assert_eq!(unsafe { libc::getpgid(pid as libc::pid_t) }, pid as libc::pid_t,
+        "terminal signals must reach the coordinator before its worker");
     drop(run);
     assert_eq!(completion.wait().await, Cleanup::Joined { pid });
 }

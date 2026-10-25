@@ -64,6 +64,9 @@ class StageTests(unittest.TestCase):
         self.tree = self.root / 'source/fixture-release'
         (self.tree / 'bin').mkdir(parents=True)
         (self.tree / 'bin/framerize-native').write_text('fixture, never executed')
+        (self.tree / 'runtime').mkdir()
+        (self.tree / 'runtime/native.py').write_text('# fixture, never executed\n')
+        (self.tree / 'runtime/runtime-manifest.json').write_text('{}')
         (self.tree / 'build-info.json').write_text(json.dumps(
             {'format': 1, 'application': 'framerize-native'}))
         files = {p.relative_to(self.tree).as_posix(): installer.sha256(p)
@@ -94,6 +97,21 @@ class StageTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, 'archive checksum'):
             installer.stage(self.archive, '0' * 64, releases)
         self.assertFalse(releases.exists())
+
+    def test_native_package_requires_its_runtime_even_with_valid_checksums(self):
+        for missing in ('native.py', 'runtime-manifest.json'):
+            path = self.tree / 'runtime' / missing
+            contents = path.read_bytes()
+            path.unlink()
+            manifest = self.tree / 'manifest.json'
+            original = manifest.read_text()
+            files = json.loads(original)
+            del files['runtime/' + missing]
+            manifest.write_text(json.dumps(files))
+            with self.assertRaisesRegex(ValueError, 'incomplete application package'):
+                installer.verify(self.tree)
+            path.write_bytes(contents)
+            manifest.write_text(original)
 
     def test_changed_contents_and_links_are_refused_before_installation(self):
         for link in (False, True):

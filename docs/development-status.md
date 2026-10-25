@@ -12,6 +12,7 @@ The rearchitecture is on `refactor/separate-apps-and-ci-20261025` in draft
 - Complete archives with verification, staging and compatible-package rollback.
 - A native ledger process that retains its session owner until the child exits.
 - Native service state and admission without a browser bridge or browser router.
+- Standalone native startup with owned sessions, ledger and a verified worker.
 
 The retired host patchers, combined-mode checkers and their private tests are
 removed. Current tests stay with the behavior they exercise.
@@ -46,12 +47,19 @@ the regression establishes a source defect, not that historical trigger.
 This correction is undeployed. Health reporting alone does not implement
 automatic recovery, which remains unfinished.
 
+Standalone native startup passes 29 service cases, including its admission-aware
+health endpoint. Both debug applications build. Six release tests pass, including
+refusal of a native archive missing its runtime. Separate child process groups
+pass all 64 worker-process and seven ledger-process cases. The new archive smoke
+checks the actual native serve command, profile contention and terminal signals;
+its first run on the committed package is pending.
+
 ## Remaining work
 
-The native CLI validates worker configuration only. Standalone startup must
-acquire session and journal ownership together, connect the qualified worker,
-and join all request and child-process cleanup before releasing those owners.
-V2 still requires its authenticated SDK proof; no fallback substitutes for it.
+The native CLI now serves ledger-backed V3 with an existing migrated profile.
+Real upstream delivery is unverified. Unexpected ledger-process exit still needs
+explicit service supervision. V2 requires its authenticated SDK proof; no
+fallback substitutes for it, and this CLI does not enable V2 serving.
 
 First migration of legacy account history remains unresolved. The working
 browser service and its account state have not been changed by this rewrite.

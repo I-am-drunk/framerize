@@ -98,6 +98,9 @@ impl<M> Run<M> {
 }
 
 impl Worker {
+    /// Check declared files without executing the worker or opening accounts.
+    pub async fn verify_inputs(&self) -> Result<(), Failure> { verify(&self.specification).await }
+
     pub fn new(specification: Specification) -> Result<Self, Failure> {
         let s = &specification;
         if !s.node.is_absolute() || !s.entry.is_absolute() || s.pins.len() < 2
@@ -205,7 +208,7 @@ fn spawn(spec: &Specification) -> std::io::Result<Spawned> {
     let token = pipe::asynchronous(token_read)?;
     let metadata = pipe::asynchronous(metadata_read)?;
     let mut command = Command::new(&spec.node);
-    command.arg("--jitless");
+    command.process_group(0).arg("--jitless");
     command.arg("--max-old-space-size=96").arg("--experimental-vm-modules")
         .arg(&spec.entry).env_clear().env("LANG", "C.UTF-8").env("TZ", "UTC")
         .stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::null())

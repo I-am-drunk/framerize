@@ -1,5 +1,27 @@
 use super::*;
 
+#[tokio::test]
+async fn health_reports_actual_admission_state_and_keeps_the_process_identity() {
+    use framer_server::operation_ownership::ServingOwnership;
+    let owner = ServingOwnership::new_unmanaged(
+        Arc::new(framer_core::wave::WaveGuard::new()), 8).unwrap();
+    let healthy = health_response(Some(&owner));
+    assert_eq!(healthy.status(), StatusCode::OK);
+    assert_eq!(healthy.headers()["x-framerize-pid"], std::process::id().to_string());
+    let sealed = owner.seal().unwrap();
+    assert_eq!(health_response(Some(&owner)).status(), StatusCode::SERVICE_UNAVAILABLE);
+    sealed.cancel_before_control().unwrap();
+    assert_eq!(health_response(Some(&owner)).status(), StatusCode::OK);
+    drop(owner.external_cleanup().unwrap());
+    let refused = health_response(Some(&owner));
+    assert_eq!(refused.status(), StatusCode::SERVICE_UNAVAILABLE);
+    assert_eq!(refused.headers()["x-framerize-pid"], std::process::id().to_string());
+    assert_eq!(axum::body::to_bytes(refused.into_body(), 64).await.unwrap().as_ref(),
+        b"operation admission closed");
+    assert!(!owner.accepting_requests());
+    assert_eq!(health_response(None).status(), StatusCode::SERVICE_UNAVAILABLE);
+}
+
 #[test]
 fn completion_event_omits_private_data_and_preserves_final_cleanup() {
     use crate::request::complete_json::ContentType;

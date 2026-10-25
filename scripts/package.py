@@ -62,7 +62,7 @@ def package(app, output, target_dir, allow_dirty=False):
         info = {'format': 1, 'application': app, 'commit': commit, 'platform': system, 'source_dirty': dirty,
                 'build_profile': profile, 'development': development,
                 'rustc': subprocess.check_output(['rustc', '--version'], text=True).strip(),
-                'capability': 'browser-serving' if app == 'framerize' else 'configuration-structure-only'}
+                'capability': 'browser-serving' if app == 'framerize' else 'experimental-native-serving'}
         if app == 'framerize':
             info['rate_history_schema'] = 2
             info['activation_protocol'] = 1

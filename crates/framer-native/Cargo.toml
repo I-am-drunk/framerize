@@ -8,6 +8,7 @@ license.workspace = true
 framer-core = { path = "../framer-core" }
 framer-api = { path = "../framer-api" }
 framer-server = { path = "../framer-server" }
+framer-store = { path = "../framer-store" }
 async-trait = "0.1"
 axum = "0.8"
 bytes = "1"
@@ -22,6 +23,5 @@ tokio = { version = "1", features = ["full"] }
 uuid = { version = "1", features = ["v4"] }
 
 [dev-dependencies]
-framer-store = { path = "../framer-store" }
 tower = { version = "0.5", features = ["util"] }
 framer-api = { path = "../framer-api", features = ["test-support"] }

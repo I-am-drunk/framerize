@@ -4,7 +4,7 @@ The current reorganization is in progress. See [the design](rearchitecture.md)
 for decisions, boundaries and the remaining migration work.
 
 - `apps/framerize`: the normal browser application and command-line interface.
-- `apps/framerize-native`: native development tools, with no live account startup.
+- `apps/framerize-native`: the experimental standalone native service and tools.
 - `crates/framer-native`: native account, authorization, request, transport and worker code.
 - `crates/framer-api`: Framer endpoint policy, browser chains and shared payload helpers.
 - `crates/framer-core`: domain types, account selection and ownership primitives.
@@ -57,8 +57,8 @@ source links where relevant.
 
 The browser archive carries its matching host and UI. The executable resolves
 both from its own package, independently of the working directory. Development
-overrides are explicit command-line options. Native developer archives remain
-configuration-only. See [application packages](releases.md).
+overrides are explicit command-line options. Native archives carry their ledger
+runtime and standalone service. See [application packages](releases.md).
 
 Concurrency-limit storage is selected by application startup. Library gates
 are in memory unless supplied a state-file path. Fixtures never inherit the
@@ -74,17 +74,22 @@ admission. Grants remain owned until confirmed cleanup. Failed writes and
 uncertain cleanup prevent reuse; closing storage cannot mark them clean.
 The old native helpers coupled to host restoration and observation are removed.
 
-This owner controls ledger access, not login or session ownership. There is
-still no live native launcher. Startup must establish account/session exclusion
-and connect actual worker joins before using it. It does not supply V2 SDK
-proofs or replace the native library's authenticated proof requirements.
+This owner controls ledger access, not login. Standalone startup owns the
+session directory and ledger before accepting requests, verifies the declared
+worker files, and requires existing migrated history and selected accounts.
+It serves ledger-backed V3 only. It does not supply V2 SDK proofs or replace
+the native library's authenticated proof requirements.
 
 The Rust ledger adapter starts `runtime/native.py` explicitly and retains the
 session store until that child exits. Its private pipes carry device operations,
 not session cookies. Abandoned open or mint-admission replies are cleaned up by
 the connection owner; loss of the connection reports uncertainty. Shutdown
 requires both a clean ledger reply and the observed child exit. The native CLI
-still only validates configuration; serving startup has not been connected.
+connects this owner to the worker and the loopback complete-JSON endpoint.
+SIGTERM and Ctrl-C drain requests, close native sessions and join the ledger.
+Ledger and worker processes use their own process groups so terminal signals
+reach this coordinator first. Startup and package checks use synthetic state;
+they do not establish successful upstream browserless delivery.
 
 Native session ownership is constructed from a session store and an operation
 tracker. It retains both for its lifetime and drains its own tracker during

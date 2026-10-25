@@ -21,7 +21,6 @@ use crate::request::types::FailureKind;
 use crate::request::types::Identity;
 use super::state::ServiceState;
 use serde::Deserialize;
-use std::net::SocketAddr;
 use std::sync::Arc;
 use std::time::Duration;
 use crate::worker::backend::WorkerBackend;
@@ -50,10 +49,8 @@ struct Endpoint { state: ServiceState, runtime: Runtime }
 #[path = "offline_http_tests.rs"]
 mod tests;
 
-pub(crate) fn configure(mut state: ServiceState, path: &str, v2: bool, device_owner: Arc<dyn DeviceOwner>)
+pub(crate) fn configure(mut state: ServiceState, worker: WorkerBackend, device_owner: Arc<dyn DeviceOwner>)
     -> Result<(ServiceState, Runtime), &'static str> {
-    let worker = if v2 { WorkerBackend::V2(Arc::new(crate::worker::config::load_v2(path)?)) }
-        else { WorkerBackend::V3(Arc::new(crate::worker::config::load(path)?)) };
     let sessions = Sessions::new(state.sessions.clone(),
         state.operation_ownership.clone().ok_or("missing serving owner")?)?;
     state.sessions = sessions.store();
@@ -130,18 +127,26 @@ fn failure(kind: FailureKind) -> Response {
     (status, Json(serde_json::json!({"error": {"code": format!("{kind:?}")}}))).into_response()
 }
 
+async fn health(State(endpoint): State<Endpoint>) -> Response {
+    health_response(endpoint.state.operation_ownership.as_deref())
+}
+
+fn health_response(owner: Option<&framer_server::operation_ownership::ServingOwnership>) -> Response {
+    let ready = owner.is_some_and(|owner| owner.accepting_requests());
+    (if ready { StatusCode::OK } else { StatusCode::SERVICE_UNAVAILABLE },
+        [("x-framerize-pid", std::process::id().to_string())],
+        if ready { "ok" } else { "operation admission closed" }).into_response()
+}
+
 pub(crate) async fn serve(state: ServiceState, runtime: Runtime,
-    address: SocketAddr) -> std::io::Result<()> {
+    listener: tokio::net::TcpListener,
+    shutdown: impl std::future::Future<Output = ()> + Send + 'static) -> std::io::Result<()> {
     let sessions = runtime.sessions.clone();
     let router = Router::new().route("/api/offline/complete", post(complete))
+        .route("/api/health", axum::routing::get(health))
         .layer(DefaultBodyLimit::max(96 * 1024))
         .with_state(Endpoint { state: state.clone(), runtime });
-    let result = match tokio::net::TcpListener::bind(address).await {
-        Ok(listener) => axum::serve(listener, router).with_graceful_shutdown(async {
-            let _ = tokio::signal::ctrl_c().await;
-        }).await,
-        Err(error) => Err(error),
-    };
+    let result = axum::serve(listener, router).with_graceful_shutdown(shutdown).await;
     sessions.shutdown().await.map_err(std::io::Error::other)?;
     result
 }

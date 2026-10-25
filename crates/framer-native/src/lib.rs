@@ -5,6 +5,7 @@ pub mod request;
 pub mod transport;
 pub mod worker;
 mod service;
+pub use service::startup::{serve, ServeConfig};
 
 /// Validate explicit worker inputs without executing a worker or opening accounts.
 pub fn check_config(path: &str, v2: bool) -> Result<(), &'static str> {
