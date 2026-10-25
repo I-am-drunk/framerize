@@ -15,10 +15,13 @@ pub struct ServeConfig {
     pub worker_config: String,
     pub selected_accounts: Vec<String>,
     pub address: SocketAddr,
+    /// Explicit first migration; ignored once durable history exists.
+    pub expire_legacy_from: Option<PathBuf>,
 }
 
 pub async fn serve(config: ServeConfig, shutdown: impl Future<Output = ()> + Send + 'static)
     -> Result<(), String> {
+    let shutdown = shutdown.boxed().shared();
     if !config.address.ip().is_loopback() { return Err("native service requires a loopback address".into()); }
     let selected = config.selected_accounts.iter().map(|value|
         value.parse::<uuid::Uuid>().map(AccountId).map_err(|_| "invalid selected account"))
@@ -31,7 +34,9 @@ pub async fn serve(config: ServeConfig, shutdown: impl Future<Output = ()> + Sen
     let database = config.database.canonicalize().map_err(|_| "existing account database required")?;
     let history = profiles.join(".sidecar/camoufox");
     let sessions_path = profiles.join(".sessions");
-    if !database.is_file() || !sessions_path.is_dir() || !history.join("rate-history.sqlite3").is_file() {
+    let needs_history = !history.join("rate-history.sqlite3").is_file();
+    if !database.is_file() || !sessions_path.is_dir() || !history.is_dir()
+        || (needs_history && config.expire_legacy_from.is_none()) {
         return Err("native startup requires existing sessions and migrated account history".into());
     }
     let worker = Arc::new(crate::worker::config::load(&config.worker_config)?);
@@ -39,9 +44,18 @@ pub async fn serve(config: ServeConfig, shutdown: impl Future<Output = ()> + Sen
         .map_err(|_| "native worker verification timed out")?
         .map_err(|_| "native worker input verification failed")?;
     let worker = WorkerBackend::V3(worker);
+    let sessions = Arc::new(FileSessionStore::new(sessions_path)?);
+    if shutdown.clone().now_or_never().is_some() { return Ok(()); }
+    if needs_history {
+        let previous = config.expire_legacy_from.clone().ok_or("legacy runtime is required")?;
+        if !super::migration::expire(config.python.clone(), config.runtime_script.clone(),
+            history.clone(), previous, sessions.clone(), shutdown.clone()).await? {
+            return Ok(());
+        }
+    }
+    if shutdown.clone().now_or_never().is_some() { return Ok(()); }
     let listener = tokio::net::TcpListener::bind(config.address).await
         .map_err(|_| "native listen address is unavailable")?;
-    let sessions = Arc::new(FileSessionStore::new(sessions_path)?);
     let ledger = Arc::new(LedgerOwner::start(&config.python, &config.runtime_script,
         &history, sessions.clone()).await.map_err(|_| "native history ownership unavailable")?);
     let result = AssertUnwindSafe(async {

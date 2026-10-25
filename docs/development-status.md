@@ -15,18 +15,28 @@ The rearchitecture is on `refactor/separate-apps-and-ci-20261025` in draft
 - Standalone native startup with owned sessions, ledger and a verified worker.
 - An explicit legacy-history importer with atomic journal publication.
 - A separate expiry transition for legacy profiles with no complete export.
+- Explicit native startup integration for that first migration, before admission.
 
 The retired host patchers, combined-mode checkers and their private tests are
 removed. Current tests stay with the behavior they exercise.
 
 ## Validation
 
+Native first-migration startup passes nine Rust startup cases and 15 native
+Python cases. The native debug executable builds. Coverage includes holding
+the profile while no listener exists, completed publication, cancellation,
+failed migration, abandoned startup, rejected runtime proof, and later starts
+that do not repeat expiry. Python checks preserve device identities, request
+charges and unknown daily reserve restrictions. A missing primary can become
+a new durable choice from the saved inventory; a known cooled primary still
+refuses. All state is synthetic, with no SDK or live migration.
+
 The expiry, importer, journal, rate and runtime-owner suites pass 41 focused
 Python cases. Thirteen expiry cases cover actual deadline boundaries, unknown
 daily reserve use, account isolation, changed owners, clock discontinuities,
 existing history, failed writes and inventory changes. These use synthetic
-state and clocks. Neither migration API is connected to automatic startup or
-has migrated live state. The complete-snapshot importer still requires a final
+state and clocks. Migration is never selected implicitly, and no live state
+has been migrated. The complete-snapshot importer still requires a final
 source export. Existing native and browser package results are retained.
 
 The complete browser and native development archives at `2410dac` pass
@@ -78,9 +88,11 @@ and this CLI does not enable V2 serving.
 
 First migration of legacy account history remains unresolved. The working
 browser service and its account state have not been changed by this rewrite.
-Next, integrate an explicit pre-admission migration stage with session ownership
-and joined cancellation. The expiry API requires an idle ownership interval;
-it does not authorize interrupting the current service or guessing its history.
+The explicit pre-admission migration stage now holds session ownership and
+joins cancellation. First live use still needs the actual previous service
+identity and an exclusive idle interval. This does not authorize interrupting
+the current service or guessing its history. Native live delivery remains
+unverified; the new startup path alone does not establish SDK acceptance.
 
 The requested alternate GitHub account (`diddletime`) and private build fork
 are configured. Both available accounts have Actions billing restrictions;

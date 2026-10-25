@@ -98,6 +98,10 @@ class LedgerOwner:
         entry.rates.check_admission()
         require(lease not in entry.grants and len(entry.grants) < 64, 'device lease conflict')
         device = entry.rates.state['primary']
+        if device is None:
+            # A completed expiry keeps the former primary unknown. Choose and
+            # persist a current device from the surviving inventory instead.
+            device = entry.rates.select_primary()
         require(type(device) is str and re.fullmatch(r'[A-Za-z0-9._~-]{1,256}', device),
                 'saved primary device required')
         require(device in entry.rates.ready_devices(), 'saved device is unavailable')

@@ -3,6 +3,7 @@ import argparse
 import asyncio
 from pathlib import Path
 import json
+import signal
 import sys
 
 from framerize_runtime.release import verify_runtime
@@ -66,11 +67,20 @@ async def run(owner):
 def main(script):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--root', required=True, type=Path)
+    parser.add_argument('--expire-legacy-from', type=Path)
     args = parser.parse_args()
     try:
         verify_runtime(Path(script).resolve().parent)
+        if args.expire_legacy_from is not None:
+            from .migration import expire_legacy
+            def interrupt(*_):
+                raise KeyboardInterrupt
+            signal.signal(signal.SIGTERM, interrupt)
+            count = expire_legacy(args.root, args.expire_legacy_from)
+            print(json.dumps({'migrated': count}), flush=True)
+            return 0
         owner = LedgerOwner(args.root)
-    except Exception:
+    except (Exception, KeyboardInterrupt):
         print(json.dumps({'ready': 0}), flush=True)
         return 1
     try:
