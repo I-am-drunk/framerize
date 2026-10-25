@@ -46,7 +46,7 @@ produces the same bytes. No full SDK startup or live account was involved.
 Object fallback is an explicit input containing already-stringified JSON, or
 normalized null for an unavailable result. Its test verifies encoding that
 result, not native object-to-JSON normalization. That normalization is still
-unfinished, along with collection and the final envelope.
+unfinished, along with collection.
 The first reference extraction and generated Rust fixture needed boundary and
 type-annotation fixes; both failures are retained. The final comparison passes.
 
@@ -58,12 +58,22 @@ Every reference stream independently decompresses to the original bytes with
 zlib. The fallback is deterministic; the SDK's optional platform compressor
 may produce different valid bytes and has not been equated with it.
 
+The final envelope now passes 135 complete-output comparisons against the
+original function, using synthetic payloads and explicit timestamps. Fourteen
+additional cases match the combined serialization, compression and envelope
+sequence. A third test rejects timestamps outside JavaScript Date's range.
+The comparisons include empty, odd/even and long payloads, repeated calls,
+negative times, decimal-width boundaries and both date-range endpoints.
+The shared reference extraction changed; its 528 serializer comparisons pass
+again. These are isolated offline checks, not full SDK or service execution.
+
 These components are not wired into serving and make no memory or acceptance
 claim. Native CI includes `scripts/check_v3_encoding.py`,
-`scripts/check_v3_serialization.py` and `scripts/check_v3_deflate.py`;
-hosted execution remains unverified. Next resolve the final envelope's exact
-inputs and transformations, preserving object normalization and collection as
-separate unfinished work.
+`scripts/check_v3_serialization.py`, `scripts/check_v3_deflate.py` and
+`scripts/check_v3_envelope.py`; hosted execution remains unverified.
+Next resolve object-to-JSON normalization at the existing serializer boundary.
+Device collection, complete client interoperability and measured RAM/latency
+remain unfinished.
 
 The dedicated-worker cleanup correction from `759ef0d1` is integrated on
 the reorganized `24ebbdb` base. A focused regression fails on the old pool:

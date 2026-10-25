@@ -23,6 +23,15 @@ inputs and serialized values against the original fallback, then uses zlib
 to verify decompression. The SDK may instead use a platform CompressionStream;
 matching the fallback does not establish identical platform-compressor bytes.
 
+`castle::v3::envelope` wraps supplied compressed bytes with an explicit
+millisecond timestamp. It implements the pinned SDK's timestamp encoding,
+payload transformation, four checksums, length fields and final Base64.
+The caller supplies the clock; the wrapper has no device, account or network
+access. `scripts/check_v3_envelope.py` compares complete outputs with the
+original function and checks serialization through final wrapping together.
+This is a client encoding component, not device collection or proof of
+service acceptance. The native serving worker does not use it yet.
+
 An open, unbound browser stream can wait for local account capacity before
 generated output. It retries eligibility within one cumulative 600-second
 wait budget without holding model or resident permits while asleep. Stream

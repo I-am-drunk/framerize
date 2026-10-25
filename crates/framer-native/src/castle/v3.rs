@@ -6,6 +6,8 @@ mod value;
 pub use value::{serialize, Value};
 mod deflate;
 pub use deflate::deflate;
+mod envelope;
+pub use envelope::{envelope, EnvelopeError};
 
 /// Append the SDK's unsigned base-128 representation without shared state.
 ///
