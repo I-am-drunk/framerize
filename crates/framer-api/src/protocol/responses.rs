@@ -22,6 +22,10 @@ pub fn merge_items(acc: &mut Vec<Value>, new: Vec<Value>) {
                     }
                     parts.extend(new_parts);
                     last["content"] = json!(parts);
+                    // The latest fragment determines completion of the joined text.
+                    if let Some(status) = it.get("status") {
+                        last["status"] = status.clone();
+                    }
                     continue;
                 }
             }

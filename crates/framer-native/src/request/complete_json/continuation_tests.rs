@@ -253,3 +253,31 @@ fn continuation_preserves_history_context_events_and_total_usage() {
         checked(&server.finish(), 2, 2);
     }
 }
+
+#[test]
+fn completed_text_continuation_updates_the_merged_item_status() {
+    let mut c = case(FreeRoute::Responses);
+    c.last["output"] = json!([{"type":"message", "id":"fixture-final-text",
+        "role":"assistant", "status":"completed", "content":[
+            {"type":"output_text", "text":" and final text", "annotations":[]}]}]);
+    let server = Server::new(vec![expected(c.path, c.initial, 0, Reply::json(c.first)),
+        expected(c.path, c.next, 1, Reply::json(c.last))]);
+    run(async {
+        let f = Fixture::new(&server, Supplier::default());
+        let spec = specification(&f, FreeRoute::Responses, c.payload);
+        let continuation = options(&spec);
+        let plan = Plan::new_with_continuation(f.scope.clone(), spec,
+            Some(continuation)).unwrap();
+        let probe = plan.launch_in_pool(f.client.clone(), f.supplier.clone(),
+            f.capacity.clone().try_acquire_owned().unwrap(), f.admission()).await.unwrap();
+        let (report, response) = completed(probe).await;
+        assert!(report.accepted && report.cleanup_confirmed, "{report:?}");
+        let CompletedJson::Responses(value) = response else { unreachable!() };
+        assert_eq!(value.output.len(), 2);
+        assert_eq!(value.output[1]["id"], "fixture-text-item");
+        assert_eq!(value.output[1]["content"][0]["text"], "fixture first text and final text");
+        assert_eq!(value.output[1]["status"], "completed");
+        f.finish().await;
+    });
+    checked(&server.finish(), 2, 2);
+}

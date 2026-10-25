@@ -116,15 +116,16 @@ fn run_with_clock(replies: Vec<Reply>, cfg: ChainConfig, paused: bool) -> Run {
 
 #[test]
 fn local_cooldown_after_output_waits_and_retries_only_unfinished_chunk() {
-    let message = |text: &str| json!({"type":"message", "id":"message-fixture",
-        "role":"assistant", "content":[{"type":"output_text", "text":text}]});
+    let message = |text: &str, status: &str| json!({"type":"message", "id":"message-fixture",
+        "role":"assistant", "status":status, "content":[{"type":"output_text", "text":text}]});
     let r = run_with_clock(vec![
-        reply(message("first"), Some("incomplete"), true),
+        reply(message("first", "incomplete"), Some("incomplete"), true),
         Reply { body:Value::Null, at_budget:false, error:Some("fixture local cooldown") },
-        reply(message("second"), Some("completed"), false),
+        reply(message("second", "completed"), Some("completed"), false),
     ], config(), true);
     let response = r.result.unwrap();
     assert_eq!(response.status, "completed");
+    assert_eq!(response.output[0]["status"], "completed");
     assert_eq!(response.chunks, 2);
     assert_eq!(r.requests.len(), 3);
     assert_eq!(r.requests[1]["request"], r.requests[2]["request"]);

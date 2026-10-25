@@ -23,6 +23,13 @@ removed. Current tests stay with the behavior they exercise.
 
 ## Validation
 
+A native request regression reproduced completed continuation text retaining
+the first fragment's incomplete item status. The shared merge now takes the
+latest supplied status while retaining the first identity and combined text.
+All 44 native request checks and 15 browser Responses chain checks pass,
+including the existing cooldown-continuation case; the native build passes.
+This change is not deployed and does not establish live cooldown recovery.
+
 Native streaming now supports explicitly bounded text continuation, with a
 separate caller-supplied authorization context for each further chunk. Every
 chunk requests fresh credentials through the existing device/rate owner.
@@ -54,9 +61,13 @@ chunk. Waiting has a separate cumulative ten-minute limit; cancellation,
 delivered output, usage and transport-failure timing are preserved.
 All 231 current browser-server cases and 27 selected API cases pass, with no
 ignored cases. The browser development build passes. These are isolated
-synthetic checks, not live cooldown recovery. The separately packaged narrow
-repair remains selected for the next ordinary restart; this rewrite is not
-deployed. No account cooldown or history was reset.
+synthetic checks. The user's 2026-10-25 15:23 UTC restart activated the separate
+narrow repair, confirmed by the running executable's hash. The recorded traffic
+window through 15:37 UTC had 857 successful terminal chains and 19 local
+cooldown/account reselections. This does not prove every T3 thread recovered or
+that the mid-reply wait was exercised. Subsequent T3 errors at 15:40, 15:43 and
+15:48 confirm the cooldown loop is still unresolved. This rewrite is not
+deployed, and no account cooldown or history was reset.
 
 Native startup now rejects unknown selected accounts before starting legacy
 migration or the ledger process. Previously it could complete the ten-minute

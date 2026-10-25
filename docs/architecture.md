@@ -241,6 +241,12 @@ The original input, accepted output and supplied prompt form the next input.
 Reported output and reasoning token counts accumulate across the chain.
 The complete-JSON endpoint rejects continuation options.
 
+When adjacent Responses text items are joined, their first item identity and
+combined text are retained, and a supplied status from the latest fragment
+replaces the earlier status. Completed continuation text therefore does not
+retain the first fragment's incomplete label. Both applications share this
+payload merge helper.
+
 Upstream JSON remains buffered. Generated output is sent only after that
 body is complete and passes the existing completeness checks, including tool
 output. This adds downstream streaming without claiming token-level upstream
