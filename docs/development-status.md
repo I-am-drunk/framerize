@@ -23,6 +23,14 @@ removed. Current tests stay with the behavior they exercise.
 
 ## Validation
 
+The fresh collection frame now passes a comparison through the production
+Rust decoder and encoder. All 765 positions reproduce the same operation's
+5,411 serialized bytes and 5,297-byte output at its recorded clock. Seven
+damage/mismatch checks pass, and the passing capture has confirmed child
+exit and no remaining descendants. An earlier outer cleanup-check failure
+is retained separately. The existing snapshot checker also accepts the new
+capture format. See [the evidence and limits](../reference/analysis/native-collection-handoff.md#fresh-frame-comparison).
+
 Fresh SDK collection now reaches the native encoder through the private
 worker pipe. One isolated synthetic operation completed in 1.94 seconds,
 with worker cleanup joined and its output discarded. Fourteen JavaScript
@@ -139,8 +147,9 @@ negative times, decimal-width boundaries and both date-range endpoints.
 The shared reference extraction changed; its 528 serializer comparisons pass
 again. These are isolated offline checks, not full SDK or service execution.
 
-These components are not wired into serving and make no memory or acceptance
-claim. Native CI includes `scripts/check_v3_encoding.py`,
+The V3 worker now uses native encoding; collection still uses SDK/JSDOM.
+These comparisons make no memory or acceptance claim.
+Native CI includes `scripts/check_v3_encoding.py`,
 `scripts/check_v3_serialization.py`, `scripts/check_v3_objects.py`,
 `scripts/check_v3_worker_result.py`,
 `scripts/check_v3_network_result.py`,
