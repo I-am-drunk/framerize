@@ -9,6 +9,11 @@ the standalone Rust measurement helper still collapses it to `worker`.
 A missing event does not prove success, and a timeout tag does not prove that
 a timer fired. All 31 selected inert diagnostic cases now pass. Actual SDK
 phase collection and native acceptance remain separate runtime requirements.
+The corresponding application now links with its exact transitive Rust
+libraries and bundled linker tools mounted read-only. This build retains
+the existing authority contract. A separate unqualified change negotiates
+ledger or observation authority before choosing the V3 proof path; it must
+be qualified with matching host and client and rebuilt dependent libraries.
 
 The frozen V3 wrapper distinguishes a caller's initialization wait from its
 guarded phase deadlines. The former can fall back while cached initialization
