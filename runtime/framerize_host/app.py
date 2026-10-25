@@ -39,6 +39,7 @@ class Host:
         self._memory_browser = None
         self._memory_addon = None
         self._closed = False
+        self._close_task = None
         self._allocation_lock = asyncio.Lock()
         self._reserved_bytes = 0
         self._command_tasks = {}
@@ -489,26 +490,37 @@ class Host:
             await self._monitor_once()
 
     async def close(self):
-        reservations = []
-        try:
-            # Reserve all accounts before any shutdown side effect. No await
-            # occurs while admitting them and no host lock is retained.
-            for life in self.lifecycles.values():
-                reservations.append(life.activity.activity())
-            return await self._close_host_active()
-        finally:
-            for activity in reservations:
-                activity.close()
+        if self._close_task is None:
+            self._closed = True
+            self._close_task = asyncio.create_task(self._close_host_active())
+        return await asyncio.shield(self._close_task)
 
     async def _close_host_active(self):
         self._closed = True
+        commands = tuple(self._command_tasks.values())
+        if commands:
+            await asyncio.gather(*commands, return_exceptions=True)
         if self._driver_start_task is not None:
-            await asyncio.shield(self._driver_start_task)
+            await asyncio.gather(self._driver_start_task, return_exceptions=True)
+        background = [task for acc in self.accounts.values() for task in acc.tasks]
+        for task in background:
+            task.cancel()
+        if background:
+            await asyncio.gather(*background, return_exceptions=True)
+        pending = [task for life in self.lifecycles.values()
+                   for task in life.activity.pending]
+        if pending:
+            await asyncio.gather(*(asyncio.shield(task) for task in pending),
+                                 return_exceptions=True)
+        unconfirmed = []
         for account in list(self.lifecycles):
             try:
-                await self._close_account(account)
+                if not await self._close_account(account):
+                    unconfirmed.append(account)
             except Exception:
-                pass
+                unconfirmed.append(account)
+        if unconfirmed:
+            raise RuntimeError("browser shutdown could not confirm every account closed")
         if self._playwright is not None:
             await self._playwright.stop()
             self._playwright = None
@@ -1270,6 +1282,8 @@ class Host:
                     pass
 
     async def handle(self, req):
+        if self._closed:
+            raise RuntimeError("browser host is shutting down")
         account = req.get("account", "")
         # Absent status/registration are synchronous and cannot race admission.
         # Preserve their existing no-browser/no-lifecycle-allocation behavior.
@@ -1522,6 +1536,7 @@ class Host:
         self._reply_writer = writer
         tasks = self._command_tasks = {}
         monitor = asyncio.create_task(self._monitor())
+        graceful = False
         try:
             while True:
                 line = await loop.run_in_executor(None, sys.stdin.readline)
@@ -1540,6 +1555,9 @@ class Host:
                     except Exception as e:
                         await writer.send({"id": None, "ok": False, "error": str(e)[:800]})
                         continue
+                    if req == {"cmd": "shutdown"}:
+                        graceful = True
+                        break
                     if req.get("cmd") == "cancel":
                         task = tasks.get(req.get("request_id"))
                         if task:
@@ -1558,12 +1576,13 @@ class Host:
                     # should retain decoded input, never the reader itself.
                     line = req = task = None
         finally:
-            # EOF means the owner has gone away. Waiting out its abandoned
-            # requests would keep browsers and response buffers alive.
+            # Explicit shutdown drains accepted commands. EOF stops follow-up
+            # work, while close still joins the raw RPCs owned by those commands.
             monitor.cancel()
             pending = tuple(tasks.values())
-            for task in pending:
-                task.cancel()
+            if not graceful:
+                for task in pending:
+                    task.cancel()
             await asyncio.gather(monitor, *pending, return_exceptions=True)
             await writer.close()
             self._reply_writer = None

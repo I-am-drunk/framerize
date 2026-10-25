@@ -371,9 +371,17 @@ async fn access_log(
 }
 
 pub async fn serve(state: AppState, web_dir: &str, addr: SocketAddr) -> std::io::Result<()> {
+    serve_with_shutdown(state, web_dir, addr, std::future::pending()).await
+}
+
+pub async fn serve_with_shutdown(
+    state: AppState, web_dir: &str, addr: SocketAddr,
+    shutdown: impl std::future::Future<Output = ()> + Send + 'static,
+) -> std::io::Result<()> {
     let listener = tokio::net::TcpListener::bind(addr).await?;
     tracing::info!(%addr, "framerize listening");
-    axum::serve(listener, router(state, web_dir)).await
+    axum::serve(listener, router(state, web_dir))
+        .with_graceful_shutdown(shutdown).await
 }
 
 /// Shared compat forward: pick an eligible account, forward the native payload

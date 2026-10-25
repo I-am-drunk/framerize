@@ -122,7 +122,9 @@ class ResidentLifecycleTests(unittest.IsolatedAsyncioTestCase):
         if closing:
             await asyncio.wait_for(asyncio.gather(*closing, return_exceptions=True), 1)
         self.host._playwright = None
-        await asyncio.wait_for(self.host.close(), 1)
+        # These fixtures deliberately disconnect browsers without an ack.
+        # Drain their tasks without treating teardown as a clean-close result.
+        await asyncio.wait_for(asyncio.gather(self.host.close(), return_exceptions=True), 1)
         self.directory.cleanup()
 
     async def test_status_never_launches_an_absent_account(self):

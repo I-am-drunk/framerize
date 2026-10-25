@@ -118,6 +118,12 @@ pub trait BrowserBridge: Send + Sync {
         Err("idle browser close is unsupported".into())
     }
 
+    /// Stop this bridge's owned resources after application work has drained.
+    /// Attached user browsers must remain running.
+    async fn shutdown(&self) -> Result<(), String> {
+        Err("browser shutdown is unsupported".into())
+    }
+
     async fn castle_token(&self, account: &AccountId) -> Result<CastleToken, String>;
 
     /// Prepare on the requested project's actual page, without a legacy mint fallback.
