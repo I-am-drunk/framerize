@@ -37,13 +37,17 @@ async fn nonstream_unknown_cleanup_stays_fenced_after_body_drop_or_consumption()
             .map(|outcome| (route, outcome))
     }) {
         let mut f = fixture::Fixture::new();
+        f.accounts[1].consecutive_failures = 3;
+        f.state.state.upsert(&f.accounts[1]).await.unwrap();
         f.state = with_owned_operations(f.state, 32).unwrap();
         let ownership = f.state.operation_ownership.clone().unwrap();
         let app = crate::router(f.state.clone(), "/nonexistent-fixture-web");
         let blocked = if matches!(outcome, Outcome::ReadAdmissionError) {
             Some(f.state.gate.acquire(&f.key(1, route.gate_model)).await)
         } else { None };
-        let task = tokio::spawn(app.clone().oneshot(route.request(&f)));
+        let mut request = route.request(&f);
+        request.headers_mut().remove("x-framerize-account");
+        let task = tokio::spawn(app.clone().oneshot(request));
         let call = f.next().await;
         assert_eq!(call.kind, route.kind);
         let prefix = "host-lifecycle-unconfirmed: ";

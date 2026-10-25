@@ -31,6 +31,8 @@ mod stream_recovery;
 mod extraction;
 #[path = "operation_ownership_observation_tests.rs"]
 mod observation;
+#[path = "explicit_account_retry_tests.rs"]
+mod explicit_account_retry;
 
 #[tokio::test]
 async fn every_mutating_and_inference_route_rejects_before_ports_after_seal() {

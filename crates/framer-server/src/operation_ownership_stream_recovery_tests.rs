@@ -123,10 +123,13 @@ async fn repicked_stream_plain_error_preserves_result_and_prior_cleanup_fence() 
 }
 
 fn recovery_request(f: &fixture::Fixture, messages: bool) -> HttpRequest<Body> {
-    if !messages { return fixture_request(f, true); }
+    if !messages {
+        let mut request = fixture_request(f, true);
+        request.headers_mut().remove("x-framerize-account");
+        return request;
+    }
     HttpRequest::builder().method("POST").uri("/anthropic/v1/messages")
         .header("content-type", "application/json")
-        .header("x-framerize-account", f.accounts[0].id.0.to_string())
         .header("x-framerize-session", "fixture-conversation")
         .body(Body::from(serde_json::json!({"model":"claude-opus-5-5",
             "messages":[{"role":"user","content":"fixture"}],
@@ -470,6 +473,8 @@ async fn disconnected_nonstream_repick_wait_preserves_prior_unknown_cleanup_fenc
 async fn nonstream_repick_disconnect(unknown_cleanup: bool) {
     for messages in [true, false] {
         let mut f = fixture::Fixture::new();
+        f.accounts[1].consecutive_failures = 3;
+        f.state.state.upsert(&f.accounts[1]).await.unwrap();
         f.state = with_owned_operations(f.state, 32).unwrap();
         let ownership = f.state.operation_ownership.clone().unwrap();
         let model = if messages { "claude-opus-5-5" } else { "gpt-6-astra" };
@@ -477,7 +482,9 @@ async fn nonstream_repick_disconnect(unknown_cleanup: bool) {
         let peer_key = f.key(1, model);
         let peer_permit = f.state.gate.acquire(&peer_key).await;
         let app = crate::router(f.state.clone(), "/nonexistent-fixture-web");
-        let task = tokio::spawn(app.oneshot(cooldown_request(&f, messages, false, 0)));
+        let mut request = cooldown_request(&f, messages, false, 0);
+        request.headers_mut().remove("x-framerize-account");
+        let task = tokio::spawn(app.oneshot(request));
         let first = f.next().await;
         assert_eq!(first.account, f.accounts[0].id);
         assert_eq!(first.kind, if messages { "messages" } else { "responses" });
