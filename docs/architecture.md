@@ -25,8 +25,11 @@ rerun. These inert tests do not establish native acceptance.
 
 The staged authority package pairs that application with its generated host
 and matching support manifest. Its file inventory is verified independently
-of runtime admission. The V3 worker configuration, system dependencies and
-current account proof must still be bound before a live attempt.
+of runtime admission. The V3 worker and system dependencies are now bound,
+and isolated startup with an empty account store passed. Startup alone does
+not exercise SDK initialization or inference. The live path remains
+`POST /api/offline/complete` with genuine current account and device proof;
+the resident V2/browser-token control is not a V3 acceptance path.
 
 The frozen V3 wrapper distinguishes a caller's initialization wait from its
 guarded phase deadlines. The former can fall back while cached initialization

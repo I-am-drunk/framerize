@@ -61,3 +61,20 @@ passes are retained. At 02:30:40 UTC, the independent recovery guard was ready,
 but five active requests and four established connections prevented rollout.
 No request was cancelled, no authentication helper was started and no service
 switch occurred. The next action is this fresh invocation after actual drain.
+
+
+On 25 October at 03:08:43 UTC, the fourth attempt was fully collected.
+The controller returned `positive_quiet_window_not_reached`; the authenticated
+descriptor helper timed out without receiving a controller request. Both exited
+1. No capture, candidate switch or acceptance POST ran. All known helper
+processes and the controller unit/cgroup were absent; the shared lock was free,
+source pins unchanged and the original service generation verified.
+Collection SHA256:
+`8f718455a5931b090abed6959e5c7095af075a93f82c41a4b5f3ce002a6922c4`.
+
+The user had explicitly allowed stream interruption, but the consumed controller
+still required `requests_may_be_cancelled=False`. The next implementation must
+honor that permission while retaining genuine rate history and joined cleanup.
+Simply removing the quiet predicate would violate the extractor's active-work
+checks. The source-work hold was released after collection; automatic goal
+pausing had not succeeded. No acceptance or upstream-refusal claim follows.
