@@ -7,6 +7,9 @@ mod exact_context;
 #[path = "streaming_tests.rs"]
 mod streaming;
 
+#[path = "continuation_tests.rs"]
+mod continuation;
+
 struct NoopCancellation;
 impl port::Cancellation for NoopCancellation { fn cancel(&self) {} }
 

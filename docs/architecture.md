@@ -217,23 +217,34 @@ output, usage and request context are preserved. Both browser request formats
 share this logic in `framer-api/chain`; upstream refusals retain their policy.
 
 The native HTTP service offers `/api/offline/complete` and
-`/api/offline/stream` over the same explicit request context, one-attempt
-limit, account owner and cleanup lifetime. The stream sends standard Responses
-or Messages SSE, opening frames and keepalives. Its single output slot is
-bounded by the existing response-body limit. Dropping the HTTP body cancels
+`/api/offline/stream` over the same explicit request context, account owner
+and cleanup lifetime. Both default to one attempt. The stream sends standard
+Responses or Messages SSE, opening frames and keepalives. Its output queue
+holds at most one bounded response per permitted attempt. Dropping the HTTP body cancels
 the original request; registered cleanup continues to hold its resources.
 Completion is emitted only after the account and device cleanup finishes.
 Failed cleanup produces an error without a successful terminal event.
 
 Both endpoints accept the existing explicit context envelope. The inner
 `request.stream` remains `false`; `/api/offline/stream` selects downstream SSE.
-The 16 to 512 token limit and maximum 60-second request deadline still apply.
+Without continuation, the 16 to 512 token limit still applies. The maximum
+60-second request deadline applies to the whole request in either mode.
 Clients must observe the terminal event, since HTTP 200 only opens the stream.
+
+The stream may opt into bounded text continuation. The caller supplies a
+continuation prompt, a total output budget up to 32,768 tokens, and the exact
+authorization context for each of at most 15 additional chunks. Only text cut
+off at the output limit may continue. Each chunk obtains fresh credentials
+through the same account's device owner and rate admission. Refusals are
+terminal; neither a new account nor the first chunk's token is substituted.
+The original input, accepted output and supplied prompt form the next input.
+Reported output and reasoning token counts accumulate across the chain.
+The complete-JSON endpoint rejects continuation options.
 
 Upstream JSON remains buffered. Generated output is sent only after that
 body is complete and passes the existing completeness checks, including tool
 output. This adds downstream streaming without claiming token-level upstream
-delivery, automatic continuation or another credential/rate owner.
+delivery. Continuation is explicit and retains the original account owner.
 
 Earlier investigation notes are preserved in
 [architecture history](history/architecture-before-reorganization-20261025.md).

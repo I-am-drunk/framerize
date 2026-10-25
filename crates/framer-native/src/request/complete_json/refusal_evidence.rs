@@ -3,23 +3,32 @@ use super::port;
 use super::RefusalObservation;
 use super::BYTE_LIMIT;
 
-fn same_metadata(a: &port::AttemptMetadata, b: &port::AttemptMetadata) -> bool {
+pub(super) fn same_metadata(a: &port::AttemptMetadata, b: &port::AttemptMetadata) -> bool {
     a.status == b.status && a.step_index == b.step_index && a.elapsed == b.elapsed
         && a.usage_header == b.usage_header
         && a.original_content_type == b.original_content_type
 }
 
 pub(super) fn observe(error: &port::DispatchError) -> Option<RefusalObservation> {
+    observe_with_limit(error, 1)
+}
+
+pub(super) fn observe_with_limit(error: &port::DispatchError, max_attempts: usize)
+    -> Option<RefusalObservation> {
     if error.kind != port::FailureKind::Upstream { return None; }
     let original = error.upstream.as_ref()?;
-    if original.metadata.status != 403 || original.metadata.step_index != 0
+    if original.metadata.status != 403 || original.metadata.step_index as usize >= max_attempts
         || original.body.len() > BYTE_LIMIT {
         return None;
     }
-    // The one-shot adapter cannot attribute a later or mismatched attempt to
-    // its first status. Missing original body never falls back to that status.
-    if !error.attempts.is_empty() && (error.attempts.len() != 1
-        || !same_metadata(&error.attempts[0], &original.metadata)) {
+    let mut prior = error.attempts.as_slice();
+    if prior.last().is_some_and(|last| same_metadata(last, &original.metadata)) {
+        prior = &prior[..prior.len() - 1];
+    }
+    if prior.len() != original.metadata.step_index as usize
+        || prior.iter().enumerate().any(|(index, value)| value.step_index as usize != index
+            || value.status != 200 || super::content_type(value.original_content_type.as_deref())
+                != super::ContentType::Json) {
         return None;
     }
     let body = std::str::from_utf8(&original.body).ok()?;

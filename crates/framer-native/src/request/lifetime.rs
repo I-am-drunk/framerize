@@ -33,6 +33,12 @@ pub(super) struct Registry {
 }
 
 impl Registry {
+    pub(super) fn last_response_accepted(&self) -> bool {
+        self.completed.lock().unwrap_or_else(|e| e.into_inner()).last().is_some_and(|value|
+            value.status == 200 && super::complete_json::content_type(
+                value.original_content_type.as_deref()) == super::complete_json::ContentType::Json)
+    }
+
     pub(super) fn preparing(&self,
         cleanup: crate::account::client::CloseObserver,
         cancellation: crate::account::client::PreparationControl) {

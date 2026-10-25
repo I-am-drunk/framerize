@@ -72,6 +72,15 @@ durable device history, and no other process may own it. Missing history is
 refused, not replaced with new identities. This is ledger-backed V3 serving;
 the startup smoke does not execute an SDK or establish live acceptance.
 
+`/api/offline/stream` also accepts an optional `continuation` object with
+`max_output_tokens`, `prompt` and `contexts`. Supply one complete authorization
+context for each further chunk, up to 15. The first context stays in the main
+request envelope. The total budget is at most 32,768 tokens and the original
+60-second deadline covers the whole chain. Only text cut off at its output
+limit can continue; refusals and incomplete tool calls do not trigger another
+attempt. `/api/offline/complete` rejects this option. This interface has only
+synthetic validation so far.
+
 The exceptional first migration can be selected with
 `--expire-legacy-from PREVIOUS_RUNTIME_JSON`. That file must contain the actual
 previous service's `boot_id`, `unit`, `cgroup` and `invocation`. The successor

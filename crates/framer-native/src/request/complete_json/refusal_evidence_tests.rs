@@ -109,7 +109,7 @@ fn inconsistent_or_multiple_attempts_are_not_misattributed() {
 
 #[test]
 fn private_text_is_dropped_after_failure_projection() {
-    let facts = super::super::failure(error(403, security_body().to_string()));
+    let facts = super::super::failure(error(403, security_body().to_string()), 1);
     let observed = facts.refusal.unwrap();
     assert_eq!(observed.basis, RefusalBasis::FramerSecurityEnvelope);
     assert_eq!(facts.failure, Some(port::FailureKind::Upstream));

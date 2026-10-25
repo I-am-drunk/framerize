@@ -23,6 +23,18 @@ removed. Current tests stay with the behavior they exercise.
 
 ## Validation
 
+Native streaming now supports explicitly bounded text continuation, with a
+separate caller-supplied authorization context for each further chunk. Every
+chunk requests fresh credentials through the existing device/rate owner.
+The complete-JSON endpoint remains one-attempt, and refusals are not retried.
+A regression reproduced output usage reporting only the last chunk; the
+corrected response reports cumulative output and reasoning counts.
+All 131 selected native request, authorization and service checks pass,
+including eight new continuation cases. These cover both formats, context
+binding, fresh authorization, cancellation, later refusal, attempt bounds,
+incomplete output and withholding unaccepted HTTP output. The native build
+passes. This is synthetic qualification; live native delivery is unverified.
+
 The existing temporary browser archive checks are now consolidated in
 `scripts/smoke_browser_package.py` and wired into the browser CI job. The
 clean `4243da2` development archive passes all nine lifecycle checks, including
