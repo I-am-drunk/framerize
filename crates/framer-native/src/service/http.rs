@@ -56,7 +56,9 @@ pub(crate) fn configure(state: AppState, path: &str, v2: bool, device_owner: Arc
         else { WorkerBackend::V3(Arc::new(crate::worker::config::load(path)?)) };
     let mut state = framer_server::operation_ownership::with_owned_operations(state, 256)
         .map_err(|_| "offline serving ownership unavailable")?;
-    let sessions = Sessions::install(&mut state)?;
+    let sessions = Sessions::new(state.sessions.clone(),
+        state.operation_ownership.clone().ok_or("missing serving owner")?)?;
+    state.sessions = sessions.store();
     Ok((state, Runtime { worker, sessions, device_owner }))
 }
 
@@ -142,6 +144,6 @@ pub(crate) async fn serve(state: AppState, runtime: Runtime,
         }).await,
         Err(error) => Err(error),
     };
-    sessions.shutdown(&state).await.map_err(std::io::Error::other)?;
+    sessions.shutdown().await.map_err(std::io::Error::other)?;
     result
 }
