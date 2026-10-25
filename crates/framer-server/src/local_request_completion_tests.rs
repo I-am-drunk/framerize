@@ -45,7 +45,6 @@ fn unchanged(state: &AppState, ports: &FixturePorts, before: &Value,
     assert!(ports.run_calls.lock().unwrap().is_empty());
     assert!(ports.saved.lock().unwrap().is_empty());
     assert!(ports.registered_proxies.lock().unwrap().is_empty());
-    assert!(ports.native_calls.lock().unwrap().is_empty());
     let residents = state.serving_accounts.residents.snapshot().unwrap();
     assert_eq!(residents.occupied, 0);
     assert!(residents.residents.is_empty());

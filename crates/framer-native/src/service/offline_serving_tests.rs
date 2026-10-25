@@ -15,6 +15,7 @@ use framer_core::ids::FramerUserId;
 use framer_core::ids::ProjectId;
 use framer_core::ids::TeamId;
 use framer_core::port::BrowserBridge;
+use crate::account::device_owner::DeviceOwner;
 use framer_core::port::CastleToken;
 use framer_core::port::Session;
 use framer_core::port::SessionStore;
@@ -332,11 +333,11 @@ impl SessionStore for Ports {
 }
 
 #[async_trait::async_trait]
-impl BrowserBridge for Ports {
+impl DeviceOwner for Ports {
     async fn open_native_device(&self, account: AccountId)
-        -> Result<framer_core::native_device::DeviceGrant, framer_core::native_device::DeviceFailure> {
-        use framer_core::native_device::DeviceFailure;
-        use framer_core::native_device::DeviceGrant;
+        -> Result<crate::account::device::DeviceGrant, crate::account::device::DeviceFailure> {
+        use crate::account::device::DeviceFailure;
+        use crate::account::device::DeviceGrant;
         self.events.lock().unwrap().push("device_open");
         assert_eq!(account, self.account.lock().unwrap().id);
         let mode = self.device_mode.load(Ordering::SeqCst);
@@ -344,11 +345,11 @@ impl BrowserBridge for Ports {
         self.device_users.fetch_add(1, Ordering::SeqCst);
         if mode == 2 { return Err(DeviceFailure::Unconfirmed); }
         Ok(DeviceGrant { account, lease: uuid::Uuid::new_v4(),
-            authority: framer_core::native_device::DeviceAuthority::Ledger,
+            authority: crate::account::device::DeviceAuthority::Ledger,
             host_generation: "a".repeat(32), device: "fixture-device".into() })
     }
-    async fn close_native_device(&self, grant: &framer_core::native_device::DeviceGrant,
-        joined: bool, _risk: bool) -> Result<bool, framer_core::native_device::DeviceFailure> {
+    async fn close_native_device(&self, grant: &crate::account::device::DeviceGrant,
+        joined: bool, _risk: bool) -> Result<bool, crate::account::device::DeviceFailure> {
         assert_eq!(grant.account, self.account.lock().unwrap().id);
         if joined {
             let scope = self.scope.lock().unwrap().clone();
@@ -358,11 +359,15 @@ impl BrowserBridge for Ports {
         self.device_finish.acquire().await.unwrap().forget();
         self.events.lock().unwrap().push("device_close");
         if self.device_mode.load(Ordering::SeqCst) == 3 {
-            return Err(framer_core::native_device::DeviceFailure::Unconfirmed);
+            return Err(crate::account::device::DeviceFailure::Unconfirmed);
         }
         if joined { assert_eq!(self.device_users.fetch_sub(1, Ordering::SeqCst), 1); }
         Ok(joined)
     }
+}
+
+#[async_trait::async_trait]
+impl BrowserBridge for Ports {
     fn supports_browser_lifecycle(&self) -> bool { true }
     async fn browser_status(&self, id: &AccountId) -> Result<BrowserAccountStatus, String> {
         self.events.lock().unwrap().push("status");

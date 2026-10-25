@@ -1,8 +1,8 @@
 use std::sync::Arc;
-use framer_core::native_device::DeviceFailure;
-use framer_core::native_device::DeviceGrant;
-use framer_core::native_device::NativeSdkSeed;
-use framer_core::port::BrowserBridge;
+use crate::account::device::DeviceFailure;
+use crate::account::device::DeviceGrant;
+use crate::account::device::NativeSdkSeed;
+use crate::account::device_owner::DeviceOwner;
 use framer_core::port::Session;
 use crate::account::client::AccountScope;
 use crate::worker::process::SavedDevice;
@@ -62,7 +62,7 @@ impl V2SeedTransfer {
     }
 
     pub(crate) async fn get(&self, scope: &AccountScope, session: &Session,
-        bridge: &dyn BrowserBridge) -> Result<Arc<NativeSdkSeed>, DeviceFailure> {
+        bridge: &dyn DeviceOwner) -> Result<Arc<NativeSdkSeed>, DeviceFailure> {
         if !self.scope.same_generation(scope) || scope.account() != self.grant.account
             || scope.active_user() != &session.active_user {
             return Err(DeviceFailure::Rejected);

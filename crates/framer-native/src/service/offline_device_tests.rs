@@ -4,9 +4,9 @@ pub(super) struct DeviceBuilder(pub Arc<Ports>);
 impl SourceBuilder for DeviceBuilder {
     fn build(&self, _: AccountScope, _: Option<String>)
         -> Result<Arc<dyn CredentialSource>, Failure> { Err(Failure::MissingAuthority) }
-    fn device_bridge(&self) -> Option<Arc<dyn BrowserBridge>> { Some(self.0.clone()) }
+    fn device_owner(&self) -> Option<Arc<dyn DeviceOwner>> { Some(self.0.clone()) }
     fn build_with_device(&self, scope: AccountScope, proxy: Option<String>,
-        device: Option<Arc<framer_core::native_device::DeviceGrant>>)
+        device: Option<Arc<crate::account::device::DeviceGrant>>)
         -> Result<Arc<dyn CredentialSource>, Failure> {
         let device = device.expect("shared host grant required before source construction");
         assert_eq!(device.account, scope.account());

@@ -25,6 +25,7 @@ use std::net::SocketAddr;
 use std::sync::Arc;
 use std::time::Duration;
 use crate::worker::backend::WorkerBackend;
+use crate::account::device_owner::DeviceOwner;
 
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -37,7 +38,11 @@ struct Input {
 }
 
 #[derive(Clone)]
-pub(crate) struct Runtime { worker: WorkerBackend, sessions: Sessions }
+pub(crate) struct Runtime {
+    worker: WorkerBackend,
+    sessions: Sessions,
+    device_owner: Arc<dyn DeviceOwner>,
+}
 #[derive(Clone)]
 struct Endpoint { state: AppState, runtime: Runtime }
 
@@ -45,14 +50,14 @@ struct Endpoint { state: AppState, runtime: Runtime }
 #[path = "offline_http_tests.rs"]
 mod tests;
 
-pub(crate) fn configure(state: AppState, path: &str, v2: bool)
+pub(crate) fn configure(state: AppState, path: &str, v2: bool, device_owner: Arc<dyn DeviceOwner>)
     -> Result<(AppState, Runtime), &'static str> {
     let worker = if v2 { WorkerBackend::V2(Arc::new(crate::worker::config::load_v2(path)?)) }
         else { WorkerBackend::V3(Arc::new(crate::worker::config::load(path)?)) };
     let mut state = framer_server::operation_ownership::with_owned_operations(state, 256)
         .map_err(|_| "offline serving ownership unavailable")?;
     let sessions = Sessions::install(&mut state)?;
-    Ok((state, Runtime { worker, sessions }))
+    Ok((state, Runtime { worker, sessions, device_owner }))
 }
 
 async fn complete(State(endpoint): State<Endpoint>, Json(input): Json<Input>) -> Response {
@@ -60,7 +65,7 @@ async fn complete(State(endpoint): State<Endpoint>, Json(input): Json<Input>) ->
         Ok(value) => value, Err(kind) => return failure(kind),
     };
     let run = match offline_serving::launch(endpoint.state, request,
-        endpoint.runtime.worker, endpoint.runtime.sessions) {
+        endpoint.runtime.worker, endpoint.runtime.sessions, endpoint.runtime.device_owner) {
         Ok(value) => value, Err(error) => return failure(error.kind),
     };
     let outcome = run.result.await;

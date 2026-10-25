@@ -1,9 +1,9 @@
 //! Inert source selection for the existing one-shot complete-JSON caller.
 use std::sync::Arc;
-use framer_core::native_device::DeviceAuthority;
-use framer_core::native_device::DeviceFailure;
-use framer_core::native_device::DeviceGrant;
-use framer_core::port::BrowserBridge;
+use crate::account::device::DeviceAuthority;
+use crate::account::device::DeviceFailure;
+use crate::account::device::DeviceGrant;
+use crate::account::device_owner::DeviceOwner;
 use framer_core::port::Session;
 use futures::future::BoxFuture;
 use futures::FutureExt;
@@ -32,21 +32,21 @@ use crate::authorization::source::SourceBuilder;
 pub(crate) struct OfflineSource {
     worker: WorkerBackend,
     target: OfflineMintTarget,
-    bridge: Arc<dyn BrowserBridge>,
+    bridge: Arc<dyn DeviceOwner>,
 }
 impl OfflineSource {
     pub(crate) fn from_worker(worker: WorkerBackend, target: OfflineMintTarget,
-        bridge: Arc<dyn BrowserBridge>) -> Self {
+        bridge: Arc<dyn DeviceOwner>) -> Self {
         Self { worker, target, bridge }
     }
 
     pub(crate) fn new(worker: impl Into<Arc<Worker>>, target: OfflineMintTarget,
-        bridge: Arc<dyn BrowserBridge>) -> Self {
+        bridge: Arc<dyn DeviceOwner>) -> Self {
         Self { worker: WorkerBackend::V3(worker.into()), target, bridge }
     }
 
     pub(crate) fn new_v2(worker: impl Into<Arc<V2Worker>>, target: OfflineMintTarget,
-        bridge: Arc<dyn BrowserBridge>) -> Self {
+        bridge: Arc<dyn DeviceOwner>) -> Self {
         Self { worker: WorkerBackend::V2(worker.into()), target, bridge }
     }
 }
@@ -56,7 +56,7 @@ impl SourceBuilder for OfflineSource {
         Err(Failure::MissingAuthority)
     }
 
-    fn device_bridge(&self) -> Option<Arc<dyn BrowserBridge>> { Some(self.bridge.clone()) }
+    fn device_owner(&self) -> Option<Arc<dyn DeviceOwner>> { Some(self.bridge.clone()) }
 
     fn build_with_device(&self, scope: AccountScope, proxy: Option<String>,
         device: Option<Arc<DeviceGrant>>)
@@ -84,7 +84,7 @@ impl SourceBuilder for OfflineSource {
 struct DeviceProofSource {
     scope: AccountScope,
     worker: WorkerBackend,
-    bridge: Arc<dyn BrowserBridge>,
+    bridge: Arc<dyn DeviceOwner>,
     grant: Arc<DeviceGrant>,
     transfer: V2SeedTransfer,
     api: Arc<BoundControlClient>,

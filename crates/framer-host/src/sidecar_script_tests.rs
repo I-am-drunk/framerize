@@ -19,21 +19,6 @@ impl Drop for Fixture {
     fn drop(&mut self) { let _ = std::fs::remove_dir_all(&self.0); }
 }
 
-#[tokio::test]
-async fn browser_bridge_refuses_native_startup_without_touching_state() {
-    use framer_core::{ids::FramerUserId, native_device::DeviceFailure};
-    let fixture = Fixture::new();
-    let state = fixture.0.join("state");
-    let bridge = SidecarBridge::new(&state);
-    let account = AccountId(uuid::Uuid::new_v4());
-    assert!(matches!(bridge.open_native_device(account).await, Err(DeviceFailure::Rejected)));
-    assert!(matches!(bridge.enroll_native_device(account,
-        &FramerUserId("fixture".into()), "fixture-device").await,
-        Err(DeviceFailure::Rejected)));
-    assert!(bridge.inner.try_lock().unwrap().is_none());
-    assert!(!state.exists());
-}
-
 #[test]
 fn explicit_script_selects_only_the_instance_host_without_writing_it() {
     let fixture = Fixture::new();

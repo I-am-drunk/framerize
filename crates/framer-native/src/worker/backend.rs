@@ -1,5 +1,5 @@
 //! App-owned bridge from the isolated worker to account-owned preparation.
-//! Device admission and worker cleanup use the existing shared host authority.
+//! Device admission and worker cleanup use the supplied native device owner.
 #[cfg(test)]
 #[path = "offline_worker_tests.rs"]
 mod tests;
@@ -17,11 +17,11 @@ use crate::account::client::PreparationResult;
 use crate::authorization::control::MintedCastle;
 use crate::authorization::control::OfflineMintTarget;
 use crate::authorization::control::OfflineMinter;
-use framer_core::port::BrowserBridge;
+use crate::account::device_owner::DeviceOwner;
 use framer_core::port::CastleToken;
-use framer_core::native_device::DeviceAuthority;
-use framer_core::native_device::DeviceFailure;
-use framer_core::native_device::DeviceGrant;
+use crate::account::device::DeviceAuthority;
+use crate::account::device::DeviceFailure;
+use crate::account::device::DeviceGrant;
 use crate::worker::process::Cleanup;
 use crate::worker::process::Failure;
 use crate::worker::process::Run;
@@ -50,7 +50,7 @@ impl From<Arc<V2Worker>> for WorkerBackend {
 pub struct OfflineWorkerMinter {
     scope: AccountScope,
     worker: WorkerBackend,
-    device: Option<(Arc<dyn BrowserBridge>, Arc<DeviceGrant>)>,
+    device: Option<(Arc<dyn DeviceOwner>, Arc<DeviceGrant>)>,
     sdk_seed: Option<V2SeedBinding>,
 }
 
@@ -62,29 +62,29 @@ impl OfflineWorkerMinter {
     }
 
     pub fn with_device(scope: AccountScope, worker: Arc<Worker>,
-        bridge: Arc<dyn BrowserBridge>, grant: Arc<DeviceGrant>) -> Result<Self, Failure> {
+        bridge: Arc<dyn DeviceOwner>, grant: Arc<DeviceGrant>) -> Result<Self, Failure> {
         Self::with_backend(scope, WorkerBackend::V3(worker), bridge, grant)
     }
 
     pub fn with_v2_device(scope: AccountScope, worker: Arc<V2Worker>,
-        bridge: Arc<dyn BrowserBridge>, grant: Arc<DeviceGrant>) -> Result<Self, Failure> {
+        bridge: Arc<dyn DeviceOwner>, grant: Arc<DeviceGrant>) -> Result<Self, Failure> {
         Self::with_backend(scope, WorkerBackend::V2(worker), bridge, grant)
     }
 
     pub(crate) fn with_backend(scope: AccountScope, worker: WorkerBackend,
-        bridge: Arc<dyn BrowserBridge>, grant: Arc<DeviceGrant>) -> Result<Self, Failure> {
+        bridge: Arc<dyn DeviceOwner>, grant: Arc<DeviceGrant>) -> Result<Self, Failure> {
         if grant.account != scope.account() { return Err(Failure::Identity); }
         Ok(Self { scope, worker, device: Some((bridge, grant)), sdk_seed: None })
     }
 
     pub(crate) fn with_v2_seed(scope: AccountScope, worker: Arc<V2Worker>,
-        bridge: Arc<dyn BrowserBridge>, grant: Arc<DeviceGrant>, seed: V2SeedBinding)
+        bridge: Arc<dyn DeviceOwner>, grant: Arc<DeviceGrant>, seed: V2SeedBinding)
         -> Result<Self, Failure> {
         Self::with_host_proof(scope, WorkerBackend::V2(worker), bridge, grant, seed)
     }
 
     pub(crate) fn with_host_proof(scope: AccountScope, worker: WorkerBackend,
-        bridge: Arc<dyn BrowserBridge>, grant: Arc<DeviceGrant>, seed: V2SeedBinding)
+        bridge: Arc<dyn DeviceOwner>, grant: Arc<DeviceGrant>, seed: V2SeedBinding)
         -> Result<Self, Failure> {
         if !seed.belongs_to(&grant) || !seed.belongs_to_scope(&scope) {
             return Err(Failure::Identity);

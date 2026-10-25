@@ -65,7 +65,7 @@ impl Drop for Fixture {
 }
 
 #[async_trait::async_trait]
-impl BrowserBridge for Bridge {
+impl DeviceOwner for Bridge {
     async fn admit_native_mint(&self, grant: &DeviceGrant, budget_ms: u64)
         -> Result<u64, DeviceFailure> {
         self.verify_grant(grant);
@@ -88,16 +88,6 @@ impl BrowserBridge for Bridge {
         if self.lost_reply { Err(DeviceFailure::Unconfirmed) } else { Ok(true) }
     }
 
-    async fn castle_token(&self, _: &AccountId) -> Result<CastleToken, String> {
-        panic!("unexpected legacy token request")
-    }
-    async fn auth_begin(&self, _: &AccountId, _: &str) -> Result<(), String> {
-        panic!("unexpected authentication request")
-    }
-    async fn auth_complete(&self, _: &AccountId, _: &str)
-        -> Result<(String, serde_json::Value), String> {
-        panic!("unexpected authentication completion")
-    }
 }
 
 async fn held_until_acknowledged(settled: CloseObserver, closed: CloseObserver) {

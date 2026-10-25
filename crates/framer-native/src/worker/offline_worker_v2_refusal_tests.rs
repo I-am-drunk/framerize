@@ -6,7 +6,7 @@ struct RefusingHost {
 }
 
 #[async_trait::async_trait]
-impl BrowserBridge for RefusingHost {
+impl DeviceOwner for RefusingHost {
     async fn admit_native_mint(&self, grant: &DeviceGrant, budget_ms: u64)
         -> Result<u64, DeviceFailure> {
         let sequence = self.observed.admit_native_mint(grant, budget_ms).await?;
@@ -20,17 +20,6 @@ impl BrowserBridge for RefusingHost {
         Ok(false)
     }
 
-    async fn castle_token(&self, account: &AccountId) -> Result<CastleToken, String> {
-        self.observed.castle_token(account).await
-    }
-
-    async fn auth_begin(&self, account: &AccountId, email: &str) -> Result<(), String> {
-        self.observed.auth_begin(account, email).await
-    }
-    async fn auth_complete(&self, account: &AccountId, code: &str)
-        -> Result<(String, serde_json::Value), String> {
-        self.observed.auth_complete(account, code).await
-    }
 }
 
 fn refusing_minter(scope: &AccountScope, worker: Arc<V2Worker>,

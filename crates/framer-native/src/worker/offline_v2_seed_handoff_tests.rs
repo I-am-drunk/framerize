@@ -1,5 +1,5 @@
 use super::*;
-use framer_core::native_device::NativeSdkSeed;
+use crate::account::device::NativeSdkSeed;
 use serde_json::json;
 use serde_json::Value;
 
@@ -57,7 +57,7 @@ impl ProofHost {
 }
 
 #[async_trait::async_trait]
-impl BrowserBridge for ProofHost {
+impl DeviceOwner for ProofHost {
     async fn transfer_native_sdk_seed(&self, grant: Arc<DeviceGrant>, session: &Session)
         -> Result<NativeSdkSeed, DeviceFailure> {
         assert!(Arc::ptr_eq(&grant, &self.inner.grant));
@@ -101,16 +101,6 @@ impl BrowserBridge for ProofHost {
         else { Ok(self.current.load(Ordering::SeqCst)) }
     }
 
-    async fn castle_token(&self, account: &AccountId) -> Result<CastleToken, String> {
-        self.inner.castle_token(account).await
-    }
-    async fn auth_begin(&self, account: &AccountId, email: &str) -> Result<(), String> {
-        self.inner.auth_begin(account, email).await
-    }
-    async fn auth_complete(&self, account: &AccountId, code: &str)
-        -> Result<(String, Value), String> {
-        self.inner.auth_complete(account, code).await
-    }
 }
 
 fn bound_minter(scope: &AccountScope, worker: Arc<V2Worker>, host: &Arc<ProofHost>)

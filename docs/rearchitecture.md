@@ -29,6 +29,11 @@ The initial native CLI validates configuration. It must not open ordinary
 profiles alongside the running browser service. A separate executable alone
 does not establish account ownership.
 
+The native device contract belongs to `framer-native`, not `BrowserBridge` or
+the shared core. Supplying this owner is an explicit native-startup dependency.
+The application still needs a concrete durable owner and its startup wiring;
+separating the interface alone does not provide live native admission.
+
 ## Host and tests
 
 Extract cohesive host owners for accounts, browser operations, rate policy,

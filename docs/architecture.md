@@ -21,6 +21,12 @@ One Cargo workspace and lockfile cover both applications. The default target is
 browser-based. Native depends on the shared libraries; those libraries do not
 depend on native. Their browser routes do not select a native provider.
 
+Native device admission is a separate `framer-native::account::device_owner`
+contract. Its grants and authenticated SDK proofs live with the native account
+code. Native serving receives this owner explicitly; the browser bridge no
+longer exposes native enrollment, mint or cleanup methods. Request cleanup
+still retains the supplied owner until both transport and worker have joined.
+
 The old parallel checker and combined-mode startup/routing runners are removed.
 Their [validation record](history/parallel-browserless-validation-before-reorganization-20261025.md)
 is historical. Current Python tests live in `runtime/tests`; Rust tests stay
