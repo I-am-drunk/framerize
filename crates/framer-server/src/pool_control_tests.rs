@@ -1730,9 +1730,18 @@ async fn account_repicks_wait_on_destination_gate_and_recheck_health_before_invo
                 }
                 drop(held);
                 if let Some(response) = response {
-                    let body = tokio::time::timeout(Duration::from_secs(2), to_bytes(response.into_body(), 65_536))
-                        .await.unwrap().unwrap();
-                    assert!(!body.is_empty());
+                    let mut body = Box::pin(to_bytes(response.into_body(), 65_536));
+                    if wave {
+                        let body = tokio::time::timeout(Duration::from_secs(2), body)
+                            .await.unwrap().unwrap();
+                        assert!(!body.is_empty());
+                    } else {
+                        // A local cooldown now keeps an open stream pending.
+                        // Dropping it must still release every permit.
+                        assert!(tokio::time::timeout(Duration::from_millis(20), body.as_mut())
+                            .await.is_err());
+                        drop(body);
+                    }
                 } else { assert_cooling_response(request.await, wave).await; }
                 assert_eq!(ports.request_started.load(Ordering::SeqCst), 1);
                 assert!(!ports.mint_routes.lock().unwrap().iter().any(|(account, _)| *account == id(2)));

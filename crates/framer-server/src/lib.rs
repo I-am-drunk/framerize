@@ -21,6 +21,7 @@ use tower_http::services::ServeDir;
 pub mod operation_ownership;
 
 mod serving_accounts;
+mod account_wait;
 mod pool_config;
 mod pool_control;
 pub use serving_accounts::{ServingAccountPolicy, SERVING_ACCOUNTS_ENV};
@@ -1304,6 +1305,7 @@ async fn free_complete(
             let mut tried: Vec<String> = Vec::new();
             let mut acct_attempt = 0u32;
             let mut cleanup_confirmed = true;
+            let mut cooldown_wait = account_wait::MAX_WAIT;
             let result = loop {
                 if let Err(error) = cfg2.check_cancelled() { break Err(error); }
                 let permit = match first_permit.take() {
@@ -1341,9 +1343,14 @@ async fn free_complete(
                 if cfg2.is_cancelled() { break r; }
                 let refusal = matches!(&r, Err(e) if should_retry_account(e));
                 if allow_account_repick && refusal && !emitted_content.load(std::sync::atomic::Ordering::Relaxed) && acct_attempt < 2 {
-                    tried.push(account.id.0.to_string());
+                    let local = matches!(&r, Err(error) if AccountCooldown::from_error(error).is_some());
+                    if !local { tried.push(account.id.0.to_string()); }
                     drop(residency.take());
-                    let acquired = pick_fresh_account(&s2, &tried).await;
+                    let acquired = tokio::select! {
+                        _ = disconnected.closed() => break Err("client cancelled".into()),
+                        value = account_wait::pick(&s2, &tried, local && cleanup_confirmed,
+                            &mut cooldown_wait) => value,
+                    };
                     cleanup_confirmed &= acquired.cleanup_confirmed;
                     match acquired.result {
                         Ok((next, lease)) => {
@@ -1885,6 +1892,7 @@ async fn native_complete(
             let mut tried: Vec<String> = Vec::new();
             let mut acct_attempt = 0u32;
             let mut cleanup_confirmed = true;
+            let mut cooldown_wait = account_wait::MAX_WAIT;
             let result = loop {
                 if let Err(error) = cfg2.check_cancelled() { break Err(error); }
                 let permit = match first_permit.take() {
@@ -1922,9 +1930,14 @@ async fn native_complete(
                 if cfg2.is_cancelled() { break r; }
                 let refusal = matches!(&r, Err(e) if should_retry_account(e));
                 if allow_account_repick && refusal && !emitted_content.load(std::sync::atomic::Ordering::Relaxed) && acct_attempt < 2 {
-                    tried.push(account.id.0.to_string());
+                    let local = matches!(&r, Err(error) if AccountCooldown::from_error(error).is_some());
+                    if !local { tried.push(account.id.0.to_string()); }
                     drop(residency.take());
-                    let acquired = pick_fresh_account(&s2, &tried).await;
+                    let acquired = tokio::select! {
+                        _ = disconnected.closed() => break Err("client cancelled".into()),
+                        value = account_wait::pick(&s2, &tried, local && cleanup_confirmed,
+                            &mut cooldown_wait) => value,
+                    };
                     cleanup_confirmed &= acquired.cleanup_confirmed;
                     match acquired.result {
                         Ok((next, lease)) => {

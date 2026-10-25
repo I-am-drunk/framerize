@@ -3,6 +3,13 @@
 The current reorganization is in progress. See [the design](rearchitecture.md)
 for decisions, boundaries and the remaining migration work.
 
+An open, unbound browser stream can wait for local account capacity before
+generated output. It retries eligibility within one cumulative 600-second
+wait budget without holding model or resident permits while asleep. Stream
+heartbeats and disconnect cancellation remain active. Real cooldowns, prior
+upstream refusals, explicit-account pinning and cleanup checks are preserved.
+This wait does not change initial HTTP admission or inference retry limits.
+
 Browser stream admission can reselect before generated output if its account
 cooled after the stream opened. Reading that cooldown does not extend it.
 Replacement selection checks each original candidate at most once and may

@@ -23,6 +23,19 @@ removed. Current tests stay with the behavior they exercise.
 
 ## Validation
 
+Open browser streams can now wait for local account capacity before generated
+output. The cumulative wait is bounded to 600 seconds, releases model and
+resident permits while sleeping, preserves real cooldowns and cancels on
+disconnect. Initial HTTP admission, explicit accounts, prior upstream refusals
+and cleanup rules keep their existing policy.
+
+All five source deltas match the qualified `bc47d3d` browser repair. The
+reorganized branch passes all 236 server tests with zero ignored; the narrow
+repair branch passes 237. Capacity recovery, heartbeat, disconnect and the
+full virtual-time budget are covered. The narrow browser package is staged
+for an ordinary start but is not running. This branch remains undeployed,
+and these results do not establish live T3 continuation recovery.
+
 The current `c78eeeb` native development archive includes the final-fragment
 status correction and latest shared server fixes. Its executable matches the
 newly built source, and all eight package lifecycle checks pass with the

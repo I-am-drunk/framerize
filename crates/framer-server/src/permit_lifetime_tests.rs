@@ -13,6 +13,76 @@ const WAIT: Duration = Duration::from_secs(3);
 const MESSAGE_MODEL: &str = "claude-opus-5-5";
 const RESPONSE_MODEL: &str = "gpt-6-astra";
 
+#[tokio::test(start_paused = true)]
+async fn open_stream_waits_for_local_capacity_without_holding_permits() {
+    for messages in [false, true] {
+        let mut f = Fixture::new();
+        f.accounts[1].cooling_until_ms = Some(framer_core::rotation::now_ms() + 600_000);
+        f.state.state.upsert(&f.accounts[1]).await.unwrap();
+        let response = chain(f.state.clone(), HeaderMap::new(), messages, true).await.unwrap();
+        let call = f.next().await;
+        call.reply.send(Err("account-cooling:600".into())).ok().unwrap();
+        call.dropped.await.unwrap();
+        tokio::time::advance(Duration::from_secs(1)).await;
+        f.no_call();
+        let model = if messages { MESSAGE_MODEL } else { RESPONSE_MODEL };
+        available(&f.state.gate, &f.key(0, model)).await;
+        assert!(f.state.serving_accounts.residents.snapshot().unwrap().residents
+            .iter().all(|resident| resident.users == 0));
+        f.accounts[0].cooling_until_ms = Some(framer_core::rotation::now_ms() - 1);
+        f.state.state.upsert(&f.accounts[0]).await.unwrap();
+        tokio::time::advance(Duration::from_secs(1)).await;
+        let call = f.next().await;
+        assert_eq!(call.account, f.accounts[0].id);
+        call.reply.send(Ok(success(call.kind))).ok().unwrap();
+        delivered(response).await;
+        f.no_call();
+    }
+}
+
+#[tokio::test(start_paused = true)]
+async fn capacity_wait_heartbeats_and_disconnect_prevents_later_inference() {
+    for messages in [false, true] {
+        let mut f = Fixture::new();
+        f.accounts[1].cooling_until_ms = Some(framer_core::rotation::now_ms() + 600_000);
+        f.state.state.upsert(&f.accounts[1]).await.unwrap();
+        let response = chain(f.state.clone(), HeaderMap::new(), messages, true).await.unwrap();
+        let call = f.next().await;
+        call.reply.send(Err("account-cooling:600".into())).ok().unwrap();
+        call.dropped.await.unwrap();
+        let mut body = response.into_body().into_data_stream();
+        body.next().await.unwrap().unwrap();
+        let ping = body.next().await.unwrap().unwrap();
+        assert!(String::from_utf8_lossy(&ping).contains("ping"));
+        drop(body);
+        f.accounts[0].cooling_until_ms = None;
+        f.state.state.upsert(&f.accounts[0]).await.unwrap();
+        tokio::time::advance(Duration::from_secs(2)).await;
+        tokio::task::yield_now().await;
+        f.no_call();
+    }
+}
+
+#[tokio::test(start_paused = true)]
+async fn capacity_wait_is_bounded_and_never_waits_for_upstream_refusal() {
+    for local in [false, true] {
+        let mut f = Fixture::new();
+        for account in &mut f.accounts {
+            account.cooling_until_ms = Some(framer_core::rotation::now_ms() + 600_000);
+            f.state.state.upsert(account).await.unwrap();
+        }
+        let mut budget = crate::account_wait::MAX_WAIT;
+        let started = tokio::time::Instant::now();
+        let result = crate::account_wait::pick(&f.state, &[], local, &mut budget).await;
+        assert!(matches!(result.result, Err(ApiError::AccountCooling { .. })));
+        assert!(result.cleanup_confirmed);
+        assert_eq!(started.elapsed(), if local { crate::account_wait::MAX_WAIT }
+            else { Duration::ZERO });
+        assert_eq!(budget, if local { Duration::ZERO } else { crate::account_wait::MAX_WAIT });
+        f.no_call();
+    }
+}
+
 #[tokio::test(flavor = "current_thread")]
 async fn unbound_stream_reselects_when_account_cools_before_producer_starts() {
     for messages in [false, true] {
