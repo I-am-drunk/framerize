@@ -1,5 +1,11 @@
 # Serving architecture and branch policy
 
+The resident coordinator can isolate transport from token generation: without
+its optional native SDK worker, both comparison tokens come from the same
+browser page and the second request uses native HTTP. That mode now has a
+complete same-device 200/200 result with confirmed cleanup. It is evidence for
+transport compatibility, not browserless minting or ordinary V2 acceptance.
+
 Blanket cooldown scheduling is no longer an accepted comparison prerequisite.
 Preserve actual account and device admission, history and cleanup ownership;
 distinguish an upstream refusal from a locally imposed comparison delay.

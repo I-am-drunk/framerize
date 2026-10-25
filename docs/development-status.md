@@ -1,5 +1,13 @@
 # Development status
 
+The fresh same-device transport comparison now passes: browser and native HTTP
+both returned complete, nonempty HTTP 200 responses using browser-generated
+tokens. Cleanup was confirmed and updated rate history preserved before the
+isolated service was retired. The normal 8787 service was unchanged. This used
+the resident coordinator without its native SDK worker, not the ordinary V2
+package. Native token generation remains the next unverified boundary. See
+`reference/analysis/browser-token-native-http-20261025.md`.
+
 The authorized rollout switched to the candidate and obtained its restoration
 receipt, then failed startup quiescence before either stream test. Reverse
 startup was attempted, but receipt verification failed. The later service log
