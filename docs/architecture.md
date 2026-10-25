@@ -59,6 +59,9 @@ The browser archive carries its matching host and UI. The executable resolves
 both from its own package, independently of the working directory. Development
 overrides are explicit command-line options. Native archives carry their ledger
 runtime and standalone service. See [application packages](releases.md).
+Both applications have a package lifecycle command used by their own CI job.
+The browser command runs from temporary empty account state and checks the
+packaged UI, profile ownership and shutdown without starting a browser.
 
 The native package also carries its V3 worker under `runtime/worker`, including
 Node, pinned SDK assets and locked npm dependencies. `bundle.mjs` assembles those

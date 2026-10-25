@@ -64,6 +64,9 @@ jobs:
             node scripts/offline_worker/bundle.mjs --output target/native-worker
           fi
           python scripts/package.py ${{ matrix.app }}
+      - name: Check browser package lifecycle with empty state
+        if: matrix.app == 'framerize'
+        run: python -I -B scripts/smoke_browser_package.py dist/framerize-linux-*.tar.gz
       - name: Check native package lifecycle with synthetic state
         if: matrix.app == 'framerize-native'
         run: python -I -B scripts/smoke_native_package.py dist/framerize-native-*.tar.gz

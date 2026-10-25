@@ -23,6 +23,11 @@ removed. Current tests stay with the behavior they exercise.
 
 ## Validation
 
+The existing temporary browser archive checks are now consolidated in
+`scripts/smoke_browser_package.py` and wired into the browser CI job. The
+consolidated command adds an actual packaged-UI request. Qualification of
+this command against the current browser archive is pending.
+
 Both browser cooldown repairs are integrated into the reorganized application.
 A queued unbound request can release a newly cooled account and select an
 eligible peer before sending output. A partly delivered reply can wait for
