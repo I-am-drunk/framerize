@@ -86,11 +86,15 @@ async fn exercise(error: &str, explicit: bool, consume: bool) {
             else if error == COOLING { StatusCode::SERVICE_UNAVAILABLE }
             else { StatusCode::INTERNAL_SERVER_ERROR };
         assert_eq!(response.status(), status);
-        // Keep the body connected until the account decision and original join
-        // finish. An early disconnect would mask a forbidden peer attempt.
-        tokio::time::timeout(WAIT, async {
-            while ownership.gate.stats().unwrap().active > 2 { tokio::task::yield_now().await; }
-        }).await.expect("producer did not finish while its response stayed connected");
+        // Drive the shared original join without polling or dropping the body.
+        // An early disconnect would mask a forbidden peer attempt; an unread
+        // body alone cannot poll the observer that releases the producer owner.
+        let completion = response.extensions().get::<ResponseCompletion>()
+            .expect("response lost its cleanup observer").clone();
+        let confirmed = tokio::time::timeout(WAIT, completion.0).await
+            .expect("producer did not finish while its response stayed connected");
+        assert_eq!(confirmed, error != UNKNOWN);
+        assert_eq!(ownership.gate.stats().unwrap().active, 2); // Host and response.
         if consume {
             let body = tokio::time::timeout(WAIT, to_bytes(response.into_body(), 65536))
                 .await.unwrap().unwrap();
