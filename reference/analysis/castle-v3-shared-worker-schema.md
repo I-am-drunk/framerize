@@ -39,6 +39,14 @@ possible, and a configured replacement worker bypasses this stock literal.
 
 This closes the stock source's schema question, not live worker selection,
 operation completion, collector parity or service acceptance. The separate
-`N_` / `krn` callback field feeding `Q[473]` still needs its producer trace.
+`N_` / `krn` callback field feeding `Q[473]` has a separate
+[source trace](castle-v3-network-field38.md).
 Native implementation must bind actual collected inputs to these fields;
 it must not invent browser observations from this schema.
+
+The native `shared_worker_version` now implements `Qon` for supplied values.
+Its comparison executes the original function and serializer on 100 synthetic
+inputs: eight marker translations, unknown strings, strict tag checks, absent
+slots, truthiness, neighboring slots, arrays and plain objects. Both tests pass,
+including a separate refusal of pre-normalized selected values. This verifies
+reduction and serialization, not collection or worker lifecycle.
