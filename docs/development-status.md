@@ -3349,3 +3349,10 @@ The optional observer's timeout-handling bug is corrected locally. All five
 focused cases pass, and the new alarm regression fails at both affected sites
 against the original code. No network request was made. Independent review
 remains pending; this observer will not gate or wrap the first live request.
+
+Shared V3 transition update (2026-10-25): R10 refused a stale executable binding
+before any service change. The repaired R9 generation remains running with
+automatic restart. R11's adapter correction passed three isolated checks with
+zero skips. Deployment and native acceptance remain pending; the existing
+account pool and ordinary browser routes are retained by the proposed plan.
+See [the result](../reference/analysis/shared-v3-descriptor-binding-20261025.md).
