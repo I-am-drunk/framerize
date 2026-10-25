@@ -5,6 +5,12 @@ startup settling check expired during sequential browser prewarming. The old
 binary is running; final rollback verification remains pending. No acceptance
 POST ran. See `reference/analysis/r5-rollout-result-20261025.md`.
 
+Independent transport test compilation on `a715a41a` failed before discovery:
+the prepared isolated source view omitted an existing cross-crate test include.
+No test ran, no production defect was concluded, and the unchanged-input job
+was fully collected. The preparation owner has the exact correction scope.
+See `reference/analysis/control-transport-compile-gap-20261025.md`.
+
 The normal interruption repair now has a built candidate from qualified source
 `93dad965`, executable SHA256 `f70458d364ec624006b5dc968fda49c06ab22aa65673c56fc43b87d7d223aba3`.
 Host, API, server and link builds passed and are collected. Its fifteen-file
