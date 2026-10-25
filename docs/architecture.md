@@ -1,5 +1,7 @@
 # Serving architecture and branch policy
 
+The qualified R5 rollout controller can interrupt bound-main client sockets while retaining the listener. Its temporary port restriction expires without refresh. Per-refresh receipt files preserve prior evidence. PID identity is checked again after pidfd acquisition before any shutdown. Internal cleanup, genuine rate-state capture and restoration remain mandatory. This controller is not yet deployed.
+
 V3 worker failures can retain a fixed phase label from the wrapper's structured
 logger tags. Only an already failed mint or branch verdict is refined. Missing,
 malformed or conflicting tags leave the original broad failure. The Rust decoder

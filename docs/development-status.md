@@ -1,5 +1,7 @@
 # Development status
 
+R5 now has qualified socket interruption and immutable lease receipts. A PID-reuse race was reproduced and fixed; all 28 boundary cases are accepted. Seven receipt cases pass, with the existing controller, flow and kernel results retained. The approved candidate is still staged, pending the single controlled switch and two live stream checks. See `reference/analysis/controlled-interruption-qualification-20261025.md`.
+
 The normal interruption repair now has a built candidate from qualified source
 `93dad965`, executable SHA256 `f70458d364ec624006b5dc968fda49c06ab22aa65673c56fc43b87d7d223aba3`.
 Host, API, server and link builds passed and are collected. Its fifteen-file
