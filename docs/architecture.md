@@ -1,5 +1,13 @@
 # Serving architecture and branch policy
 
+Recovery verification uses the authenticated helper to open only the bound
+sidecar's read-only memory descriptor. The unprivileged controller receives
+it over a private Unix socket and performs the existing state comparison.
+Kernel peer credentials and process start time identify the privileged helper
+without reading its protected executable through proc. Transfer success is
+separate from state-preservation acceptance; a failed comparison retains the
+pending transfer and restart fence. Recovery r4 exercised this refusal safely.
+
 Normal control clients now use ten-second connection and thirty-second total
 deadlines. Send failures expose safe typed cause flags while retaining the
 existing HTTP status policy. Ten focused tests pass against the real whole-file
