@@ -96,26 +96,6 @@ async fn existing_host_policy_writer_is_registered_for_retirement() {
 }
 
 #[tokio::test]
-async fn observed_mode_rejects_pool_and_route_work_before_startup() {
-    let mut bridge = SidecarBridge::new("unused-observed-pool");
-    bridge.mode = observer::ProcessMode::Observed {
-        script: "unused-observed-script".into(), profile_nonce: uuid::Uuid::new_v4(),
-    };
-    let account = AccountId::new();
-    assert!(bridge.call_account(&account, "mint", json!({})).await.is_err());
-    assert!(bridge.route_for_command(&account).await.is_err());
-    assert!(bridge.register_proxy(&account, Some("http://proxy.invalid:8080".into()))
-        .await.is_err());
-    assert!(bridge.inspect_browser(&account).await.is_err());
-    for cmd in ["browser_status", "close_idle", "register_proxy"] {
-        assert!(bridge.call_with_policy(cmd, json!({}), Duration::from_secs(1), false)
-            .await.unwrap_err().contains("account-bound scope"));
-    }
-    assert!(bridge.inner.lock().await.is_none());
-    assert!(bridge.routes.lock().await.is_empty());
-}
-
-#[tokio::test]
 async fn sealed_route_paths_cannot_launch_or_change_local_proxy_state() {
     let (gate, _host) = OperationGate::new_with_legacy_host(8).unwrap();
     let (bridge, control) = SidecarBridge::new_retirable("unused-pool-route", gate.clone());

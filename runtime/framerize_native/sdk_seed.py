@@ -5,7 +5,7 @@ import math
 import re
 import uuid
 
-from framerize_host.observed.context import login_cookie
+from .cookies import login_cookie
 
 
 def _uuid(value):
@@ -291,7 +291,7 @@ OBSERVE_JS = r"""async input => {
 
 
 def observation_source(source):
-    from framerize_host.observed.authorization import RESIDENT_SDK_OBSERVER_JS
+    from .sdk_browser import RESIDENT_SDK_OBSERVER_JS
     for expression, module, url in (
         ('window.__fzCastleM.a()', 'window.__fzCastleM', 'window.__fzResidentWrapper?.url'),
         ('m.a()', 'm', 'window.__fzResidentWrapper?.url'),

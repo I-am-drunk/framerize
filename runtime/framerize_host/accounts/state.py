@@ -22,16 +22,13 @@ class Device:
 class AccountLifecycle:
     """Small same-host ledger; browser eviction must not reset device limits."""
     def __init__(self):
-        from framerize_host.observed.activity import ActivityLedger
-        self.activity = ActivityLedger()
-        self.resident_uncertain = None
+        from .activity import AccountActivity
+        self.activity = AccountActivity()
         self.creation_lock = asyncio.Lock()
         self.incarnation = 0
         self.phase = "absent"
         self.browser = None
         self.close_receipt = None
-        self._sdk_launch_route = None
-        self._sdk_launch_browser = None
         self.close_task = None
         self.active_commands = 0
         self.cooling = {}
@@ -87,19 +84,6 @@ class Account:
         self.tasks = set()
         self.last_gc = 0.0
         self.gc_page = 0
-        self._completed_browser_http200 = None
-        self.resident_launch = None  # Private (browser, incarnation, proxy, main_world_eval).
-
-    @property
-    def completed_browser_http200(self):
-        evidence = self._completed_browser_http200
-        if evidence is not None and not evidence.current():
-            evidence.invalidate()
-        return self._completed_browser_http200
-
-    def clear_browser_http200(self):
-        if self._completed_browser_http200 is not None:
-            self._completed_browser_http200.invalidate()
 
     @property
     def reserve_day(self):

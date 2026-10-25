@@ -35,10 +35,8 @@ async fn deadline_includes_blocked_input_and_releases_pending_reply() {
     *bridge.inner.lock().await = Some(Sidecar {
         child, stdin: stdin.clone(), pending: pending.clone(), cancel,
         next_id: Arc::new(AtomicU64::new(0)),
-        capability: Arc::new(Mutex::new(None)),
         healthy: Arc::new(std::sync::atomic::AtomicBool::new(true)),
         incarnation: uuid::Uuid::new_v4(),
-        events: tokio::sync::broadcast::channel(512).0,
     });
 
     let result = tokio::time::timeout(

@@ -10,7 +10,7 @@ import time
 import uuid
 from collections import deque
 from pathlib import Path
-from framerize_host.observed import sdk_seed
+from . import sdk_seed
 
 
 class Rejected(RuntimeError):
@@ -292,58 +292,3 @@ class NativeDevices:
         if command == 'native_device_close':
             return self.close(request)
         raise RuntimeError('unknown native device command')
-
-
-def install(host_type, root, **policy):
-    from contextlib import asynccontextmanager
-    host_type._sdk_seed_enabled = True
-    host_type._sdk_seed = sdk_seed
-    original_handle = host_type.handle
-    original_use = host_type._use_account
-    original_status = host_type._browser_status
-    original_finish_close = host_type._finish_close
-
-    async def finish_close(host, account, life, acc):
-        try:
-            closed = await original_finish_close(host, account, life, acc)
-        except BaseException:
-            sdk_seed.invalidate_observation(host, account)
-            raise
-        if closed and acc is not None:
-            require(host.lifecycles.get(account) is life and life.phase == 'absent'
-                    and account not in host.accounts and life.browser is None
-                    and life.close_receipt is None, 'browser closure identity changed')
-            # Preserve the actual final selection, after all browser work joins.
-            life.restored_primary_device = acc.primary_dev
-            sdk_seed.transfer_closed(host, account, life, acc)
-        elif not closed:
-            sdk_seed.invalidate_observation(host, account)
-        return closed
-
-    async def handle(host, request):
-        if request.get('cmd', '').startswith('native_device_'):
-            try:
-                if not hasattr(host, '_native_devices'):
-                    host._native_devices = NativeDevices(host, root, **policy)
-                return await host._native_devices.handle(request)
-            except (Rejected, ValueError, OSError, KeyError, asyncio.TimeoutError):
-                return {'rejected': True}
-        return await original_handle(host, request)
-
-    @asynccontextmanager
-    async def use_account(host, account, *args, **kwargs):
-        life = host.lifecycles.get(account)
-        require(not getattr(life, 'native_grants', {}), 'account has native work')
-        async with original_use(host, account, *args, **kwargs) as value:
-            yield value
-
-    def status(host, account):
-        value = original_status(host, account)
-        life = host.lifecycles.get(account)
-        if any(g.uncertain for g in getattr(life, 'native_grants', {}).values()):
-            value['state'] = 'unconfirmed'
-        return value
-
-    host_type.handle, host_type._use_account = handle, use_account
-    host_type._browser_status = status
-    host_type._finish_close = finish_close

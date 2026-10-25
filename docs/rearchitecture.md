@@ -69,11 +69,11 @@ release directories and is never rolled back with application files.
 5. Prepare one reviewed browser-only promotion onto `main`, preserving the newer
    normal repairs. Update `browser-based` only after the promotion is accepted.
 
-The remaining host cut moves ordinary RPC ownership into `accounts/` and removes
-comparison commands, evidence collection and native-device dispatch from the
-browser package. Actual RPC tasks must still outlive cancelled waiters, and a
-browser cannot close beneath a pending RPC. Native authority belongs with native
-code rather than an optional mode of the normal host.
+The host cut is complete. Ordinary RPC ownership lives in `accounts/`;
+comparison commands, evidence collection and native-device dispatch are removed
+from the browser package and its Rust bridge. Actual RPC tasks outlive cancelled
+waiters, and a browser cannot close beneath a pending RPC. Native authority
+sources are separate and do not install hooks into the normal host.
 
 Durable account state will use one host-owned SQLite journal outside releases.
 Request charges, cooldowns, reserve allocation, primary selection and pending
