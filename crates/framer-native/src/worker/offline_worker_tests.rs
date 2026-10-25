@@ -16,6 +16,9 @@ use framer_core::port::Session;
 #[path = "offline_worker_device_tests.rs"]
 mod device;
 
+#[path = "diagnostic_tests.rs"]
+mod diagnostics;
+
 fn pin(path: PathBuf, expected: &str) -> crate::worker::process::FilePin {
     assert_eq!(expected.len(), 64);
     let mut sha256 = [0u8; 32];

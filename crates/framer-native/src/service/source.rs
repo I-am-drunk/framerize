@@ -30,6 +30,7 @@ use crate::authorization::source::Failure;
 use crate::authorization::source::SourceBuilder;
 
 pub(crate) struct OfflineSource {
+    diagnostic_id: Option<uuid::Uuid>,
     worker: WorkerBackend,
     target: OfflineMintTarget,
     bridge: Arc<dyn DeviceOwner>,
@@ -37,17 +38,22 @@ pub(crate) struct OfflineSource {
 impl OfflineSource {
     pub(crate) fn from_worker(worker: WorkerBackend, target: OfflineMintTarget,
         bridge: Arc<dyn DeviceOwner>) -> Self {
-        Self { worker, target, bridge }
+        Self { worker, target, bridge, diagnostic_id: None }
+    }
+
+    pub(crate) fn with_diagnostic_id(mut self, id: uuid::Uuid) -> Self {
+        self.diagnostic_id = Some(id);
+        self
     }
 
     pub(crate) fn new(worker: impl Into<Arc<Worker>>, target: OfflineMintTarget,
         bridge: Arc<dyn DeviceOwner>) -> Self {
-        Self { worker: WorkerBackend::V3(worker.into()), target, bridge }
+        Self { worker: WorkerBackend::V3(worker.into()), target, bridge, diagnostic_id: None }
     }
 
     pub(crate) fn new_v2(worker: impl Into<Arc<V2Worker>>, target: OfflineMintTarget,
         bridge: Arc<dyn DeviceOwner>) -> Self {
-        Self { worker: WorkerBackend::V2(worker.into()), target, bridge }
+        Self { worker: WorkerBackend::V2(worker.into()), target, bridge, diagnostic_id: None }
     }
 }
 impl SourceBuilder for OfflineSource {
@@ -68,6 +74,7 @@ impl SourceBuilder for OfflineSource {
         if matches!(&self.worker, WorkerBackend::V2(_))
             || device.authority == DeviceAuthority::Observation {
             return Ok(Arc::new(DeviceProofSource {
+                diagnostic_id: self.diagnostic_id,
                 transfer: V2SeedTransfer::new(scope.clone(), device.clone()),
                 scope, worker: self.worker.clone(), bridge: self.bridge.clone(), grant: device,
                 api: Arc::new(api), target: self.target.clone(),
@@ -76,12 +83,13 @@ impl SourceBuilder for OfflineSource {
         let minter = OfflineWorkerMinter::with_backend(scope, self.worker.clone(),
             self.bridge.clone(), device).map_err(|_| Failure::MissingAuthority)?;
         let source = OfflineSessionSource::new(Arc::new(api), self.target.clone(),
-            Arc::new(minter)).map_err(|_| Failure::Source)?;
+            Arc::new(minter.with_diagnostic_id(self.diagnostic_id))).map_err(|_| Failure::Source)?;
         Ok(Arc::new(source))
     }
 }
 
 struct DeviceProofSource {
+    diagnostic_id: Option<uuid::Uuid>,
     scope: AccountScope,
     worker: WorkerBackend,
     bridge: Arc<dyn DeviceOwner>,
@@ -115,7 +123,7 @@ impl DeviceProofSource {
         };
         let minter = match OfflineWorkerMinter::with_host_proof(self.scope.clone(), self.worker.clone(),
             self.bridge.clone(), self.grant.clone(), seed) {
-            Ok(minter) => minter,
+            Ok(minter) => minter.with_diagnostic_id(self.diagnostic_id),
             Err(_) => return PreparationResult::finished(Err(PreparationFailure::Rejected)),
         };
         let Ok(source) = OfflineSessionSource::new(self.api.clone(), self.target.clone(), Arc::new(minter))

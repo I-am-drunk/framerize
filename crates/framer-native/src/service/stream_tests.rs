@@ -32,7 +32,7 @@ async fn output_precedes_joined_completion_and_keeps_one_response_identity() {
     let (done, joined) = oneshot::channel();
     let (send, receive) = mpsc::channel(1);
     let response = response(async { joined.await.unwrap() }.boxed(), receive,
-        FreeRoute::Responses, "fixture-model".into());
+        FreeRoute::Responses, "fixture-model".into(), uuid::Uuid::new_v4());
     assert_eq!(response.headers()["content-type"], "text/event-stream");
     let mut body = response.into_body().into_data_stream();
     let opening = text(body.next().await.unwrap().unwrap());
@@ -61,7 +61,7 @@ async fn cleanup_failure_after_output_never_emits_success() {
         let (done, joined) = oneshot::channel();
         let (send, receive) = mpsc::channel(1);
         let mut body = response(async { joined.await.unwrap() }.boxed(), receive,
-            route, "fixture-model".into()).into_body().into_data_stream();
+            route, "fixture-model".into(), uuid::Uuid::new_v4()).into_body().into_data_stream();
         body.next().await.unwrap().unwrap();
         let event = match route {
             FreeRoute::Responses => output(),
@@ -93,7 +93,7 @@ async fn simultaneous_message_and_completion_drain_output_before_terminal() {
         })), evidence: None, failure: None, cleanup_confirmed: true,
     };
     let mut body = response(futures::future::ready(outcome).boxed(), receive,
-        FreeRoute::Messages, "fixture-model".into()).into_body().into_data_stream();
+        FreeRoute::Messages, "fixture-model".into(), uuid::Uuid::new_v4()).into_body().into_data_stream();
     assert!(text(body.next().await.unwrap().unwrap()).contains("message_start"));
     let tail = text(body.next().await.unwrap().unwrap());
     assert!(tail.find("hello").unwrap() < tail.find("message_stop").unwrap());
@@ -108,7 +108,7 @@ async fn known_failure_discards_undelivered_output() {
     let mut outcome = success();
     outcome.failure = Some(FailureKind::Deadline);
     let mut body = response(futures::future::ready(outcome).boxed(), receive,
-        FreeRoute::Responses, "fixture-model".into()).into_body().into_data_stream();
+        FreeRoute::Responses, "fixture-model".into(), uuid::Uuid::new_v4()).into_body().into_data_stream();
     body.next().await.unwrap().unwrap();
     let tail = text(body.next().await.unwrap().unwrap());
     assert!(tail.contains("Deadline"));

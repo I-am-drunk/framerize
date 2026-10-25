@@ -29,6 +29,7 @@ impl Composer {
 }
 
 struct StreamState {
+    diagnostic_id: uuid::Uuid,
     result: BoxFuture<'static, Outcome>,
     events: mpsc::Receiver<ChainEvent>,
     composer: Option<Composer>,
@@ -40,7 +41,8 @@ struct StreamState {
 }
 
 pub(super) fn response(result: BoxFuture<'static, Outcome>,
-    events: mpsc::Receiver<ChainEvent>, route: FreeRoute, model: String) -> Response {
+    events: mpsc::Receiver<ChainEvent>, route: FreeRoute, model: String,
+    diagnostic_id: uuid::Uuid) -> Response {
     let id = format!("native_{}", uuid::Uuid::new_v4());
     let (dialect, composer) = match route {
         FreeRoute::Responses => (ClientDialect::OpenAiResponses,
@@ -49,7 +51,7 @@ pub(super) fn response(result: BoxFuture<'static, Outcome>,
             Composer::Messages(convert::SseComposer::new(
                 ClientDialect::AnthropicMessages, &id, &model))),
     };
-    let state = StreamState { result, events, composer: Some(composer), model: model.clone(), dialect,
+    let state = StreamState { diagnostic_id, result, events, composer: Some(composer), model: model.clone(), dialect,
         opening: Some(convert::stream_open(dialect, &model, &id)), events_open: true, done: false };
     let body = futures::stream::unfold(state, next);
     let mut response = Response::new(Body::from_stream(body));
@@ -67,7 +69,7 @@ async fn next(mut state: StreamState) -> Option<(Result<bytes::Bytes, Infallible
         tokio::select! {
             biased;
             outcome = &mut state.result => {
-                super::http::record_completion(&outcome);
+                super::http::record_completion(&outcome, state.diagnostic_id);
                 let mut frames = Vec::new();
                 while let Ok(event) = state.events.try_recv() {
                     if outcome.failure.is_none() && outcome.cleanup_confirmed {

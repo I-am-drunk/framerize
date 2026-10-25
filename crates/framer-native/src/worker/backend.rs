@@ -48,6 +48,7 @@ impl From<Arc<V2Worker>> for WorkerBackend {
 }
 
 pub struct OfflineWorkerMinter {
+    diagnostic_id: Option<uuid::Uuid>,
     scope: AccountScope,
     worker: WorkerBackend,
     device: Option<(Arc<dyn DeviceOwner>, Arc<DeviceGrant>)>,
@@ -58,7 +59,7 @@ impl OfflineWorkerMinter {
     /// Inert construction. Each issuance creates a new, isolated SDK process.
     #[cfg(test)]
     pub fn new(scope: AccountScope, worker: Arc<Worker>) -> Self {
-        Self { scope, worker: WorkerBackend::V3(worker), device: None, sdk_seed: None }
+        Self { scope, worker: WorkerBackend::V3(worker), device: None, sdk_seed: None, diagnostic_id: None }
     }
 
     pub fn with_device(scope: AccountScope, worker: Arc<Worker>,
@@ -74,7 +75,12 @@ impl OfflineWorkerMinter {
     pub(crate) fn with_backend(scope: AccountScope, worker: WorkerBackend,
         bridge: Arc<dyn DeviceOwner>, grant: Arc<DeviceGrant>) -> Result<Self, Failure> {
         if grant.account != scope.account() { return Err(Failure::Identity); }
-        Ok(Self { scope, worker, device: Some((bridge, grant)), sdk_seed: None })
+        Ok(Self { scope, worker, device: Some((bridge, grant)), sdk_seed: None, diagnostic_id: None })
+    }
+
+    pub(crate) fn with_diagnostic_id(mut self, id: Option<uuid::Uuid>) -> Self {
+        self.diagnostic_id = id;
+        self
     }
 
     pub(crate) fn with_v2_seed(scope: AccountScope, worker: Arc<V2Worker>,
@@ -102,7 +108,7 @@ fn cancelled(control: &PreparationControl) -> PreparationFailure {
     else { PreparationFailure::Cancelled }
 }
 
-fn failure(value: Failure) -> PreparationFailure {
+fn failure(value: Failure, diagnostic_id: Option<uuid::Uuid>) -> PreparationFailure {
     match value {
         Failure::Cancelled => PreparationFailure::Cancelled,
         Failure::Deadline => PreparationFailure::Deadline,
@@ -113,6 +119,7 @@ fn failure(value: Failure) -> PreparationFailure {
         Failure::WorkerStage(stage) => {
             let mut event = framer_core::observability::Event::new("offline.worker.failed")
                 .field("phase", stage.as_str());
+            if let Some(id) = diagnostic_id { event = event.request_id(&id.to_string()); }
             if let Some(summary) = stage.summary() {
                 event = event.field("version", summary.version());
                 for (name, value) in summary.flags() { event = event.field(name, value); }
@@ -128,6 +135,7 @@ fn failure(value: Failure) -> PreparationFailure {
         Failure::V2WorkerStage(stage) => {
             let mut event = framer_core::observability::Event::new("offline.v2.failed")
                 .field("phase", stage.phase());
+            if let Some(id) = diagnostic_id { event = event.request_id(&id.to_string()); }
             if let Some(label) = stage.operation() { event = event.field("operation", label); }
             if let Some(label) = stage.device() { event = event.field("device", label); }
             event.emit();
@@ -211,7 +219,7 @@ impl OfflineWorkerMinter {
             crate::worker::process::SavedDevice::new(grant.device.clone())).transpose();
         let device = match device {
             Ok(value) => value,
-            Err(error) => return PreparationResult::finished(Err(failure(error))),
+            Err(error) => return PreparationResult::finished(Err(failure(error, self.diagnostic_id))),
         };
         let deadline = control.deadline().into_std();
         match &self.worker {
@@ -236,7 +244,7 @@ impl OfflineWorkerMinter {
         control: &PreparationControl) -> PreparationResult<MintedCastle> {
         let mut run = match started {
             Ok(run) => run,
-            Err(error) => return PreparationResult::finished(Err(failure(error))),
+            Err(error) => return PreparationResult::finished(Err(failure(error, self.diagnostic_id))),
         };
         let completion = run.completion();
         let result = {
@@ -250,7 +258,7 @@ impl OfflineWorkerMinter {
                     _ = poll.tick() => {
                         if control.is_cancelled() { break Err(cancelled(control)); }
                     }
-                    value = &mut wait => break value.map_err(failure),
+                    value = &mut wait => break value.map_err(|error| failure(error, self.diagnostic_id)),
                 }
             }
         };

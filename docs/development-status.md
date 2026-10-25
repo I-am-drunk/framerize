@@ -32,8 +32,7 @@ exits, discarded stop promises, source preparation and already-exited workers.
 The native CI job now runs this selection. No SDK, live account or service
 was used; existing release archives have not been rebuilt for this change.
 
-G3 source candidate `fix/v3-handoff-trace-20261025` is based on
-`24ebbdb0100fa803ba410c9a861943a132607dbc`. A later worker handoff refusal now
+The G3 correction from `88db846` is integrated over `d760f0a`. A later worker handoff refusal now
 retains completed minter metadata. Rust retains a validated typed summary and
 emits only fixed labels, booleans, bounded counters and finite timings. Early
 errors remain minimal; malformed reports remain generic worker failures.
@@ -44,12 +43,20 @@ may have written partial bytes. Neither flag means an age-qualified
 `token_handoff`, parent receipt, acceptance or joined cleanup. Unmeasured or
 invalid handoff age is null. The success schema and parent guards are unchanged.
 
-The eight new inert JavaScript entrypoint cases and 22 Rust failure cases
-(seven new) are **UNRUN** in the structure lane. Only source/diff checks ran.
-Root owns composition with `d760f0a1`, package rebinding and qualification:
-`node --experimental-vm-modules --test scripts/offline_worker/worker_handoff_tests.mjs`
-and the `worker::process::failure::tests` Rust selection. This is a diagnostic
-correction, not new vendor-SDK execution or evidence of V3 acceptance.
+The old JavaScript entrypoint fails the report-retention regression. Its
+replacement passes all eight handoff cases, and the Rust parser passes all
+22 failure cases. Twelve additional Rust checks pass for HTTP/SSE behavior,
+request correlation, cancellation and refusal without a device. No selected
+case was ignored. The native CI job includes the JavaScript handoff selection.
+
+Worker failures and request completion now share an internally generated
+per-request UUID. An isolated regression checks actual emitted records from
+two synthetic requests through the same account: each failure pairs with its
+own completion and contains no account identifier. The checks use inert
+workers and synthetic state, not the vendor SDK or a live account.
+The earlier eight pool-cleanup passes remain valid and were not repeated.
+Current release archives are unchanged; package rebinding remains pending.
+The historical HTTP 403 still has no established policy cause.
 
 The optimized native release from `3c5a999` builds successfully and passes all
 eight package lifecycle checks using its bundled worker configuration. The

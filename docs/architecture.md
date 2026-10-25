@@ -97,6 +97,14 @@ cleanup while another worker is still running. A discarded browser-style
 `terminate()` result remains visible to the later pool close. This local
 cleanup is separate from the Rust owner's joined worker-process receipt.
 
+Each native service request creates an internal random diagnostic ID. Its
+credential source passes that ID to the worker minter, and JSON or SSE
+completion logging uses the same ID. These IDs contain no account or inbound
+request identity. Worker failures retain only validated phase facts: fixed
+labels, booleans, bounded counts and finite timings. Pipe-writer entry and
+return are distinct from age-qualified handoff and parent process cleanup.
+This correlation does not add observations of unreported SDK or server phases.
+
 Concurrency-limit storage is selected by application startup. Library gates
 are in memory unless supplied a state-file path. Fixtures never inherit the
 normal service's learned limits through an implicit home-directory lookup.

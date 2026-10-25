@@ -98,6 +98,7 @@ impl Drop for CancelOnDrop { fn drop(&mut self) { self.0.cancel(); } }
 
 #[must_use = "retain cleanup after cancellation or dropping the result"]
 pub(crate) struct Run {
+    pub diagnostic_id: uuid::Uuid,
     pub result: BoxFuture<'static, Outcome>,
     pub cleanup: port::Cleanup,
     stop: Arc<Stop>,
@@ -107,19 +108,21 @@ impl Run { pub(crate) fn cancel(&self) { self.stop.cancel(); } }
 pub(crate) fn launch(state: ServiceState, request: Request, worker: impl Into<WorkerBackend>,
     sessions: Sessions, device_owner: Arc<dyn DeviceOwner>, events: Option<ChunkSender>)
     -> Result<Run, DispatchError> {
-    let source = Arc::new(OfflineSource::from_worker(worker.into(), request.target, device_owner));
+    let diagnostic_id = uuid::Uuid::new_v4();
+    let source = Arc::new(OfflineSource::from_worker(worker.into(), request.target, device_owner)
+        .with_diagnostic_id(diagnostic_id));
     launch_owned(state, request.spec, source, sessions,
-        Delivery { events, continuation: request.continuation })
+        Delivery { events, continuation: request.continuation }, diagnostic_id)
 }
 
 fn launch_with_source(state: ServiceState, spec: Specification, source: Arc<dyn SourceBuilder>,
     sessions: Sessions, events: Option<ChunkSender>)
     -> Result<Run, DispatchError> {
-    launch_owned(state, spec, source, sessions, Delivery { events, continuation: None })
+    launch_owned(state, spec, source, sessions, Delivery { events, continuation: None }, uuid::Uuid::new_v4())
 }
 
 fn launch_owned(state: ServiceState, spec: Specification, source: Arc<dyn SourceBuilder>,
-    sessions: Sessions, delivery: Delivery) -> Result<Run, DispatchError> {
+    sessions: Sessions, delivery: Delivery, diagnostic_id: uuid::Uuid) -> Result<Run, DispatchError> {
     Plan::validate(&spec)?;
     if let Some(options) = &delivery.continuation { options.validate(&spec)?; }
     if !sessions.matches(&state.sessions, state.operation_ownership.as_ref()) {
@@ -149,7 +152,7 @@ fn launch_owned(state: ServiceState, spec: Specification, source: Arc<dyn Source
         }
         outcome
     }.boxed();
-    Ok(Run { result, cleanup, stop })
+    Ok(Run { diagnostic_id, result, cleanup, stop })
 }
 
 fn stopped(stop: &Stop, deadline: Instant) -> Option<FailureKind> {
