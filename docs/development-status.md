@@ -81,12 +81,21 @@ claim. Native CI includes `scripts/check_v3_encoding.py`,
 `scripts/check_v3_hash.py`,
 `scripts/check_v3_network_record.py`,
 `scripts/check_v3_network_events.py`,
+`scripts/check_v3_collected.py`,
 `scripts/check_v3_deflate.py` and `scripts/check_v3_envelope.py`;
 hosted execution remains unverified. All prior encoding comparisons also pass
 with the shared fixture builder and new native object module.
 Next bind the actual collector values and any custom-object conversions to
 this native representation. Device collection, complete client interoperability
 and measured RAM/latency remain unfinished.
+
+The native `encode_collected` entry point now combines serialization,
+fallback compression and final encoding from a supplied complete value array.
+It passes 17 comparisons against the original SDK stages, including three
+765-position synthetic arrays; a second test preserves invalid-clock refusal.
+Both tests pass with zero skips in isolation. This is a complete post-collection
+encoder, not a complete collector or a serving integration. The arrays in the
+comparison are synthetic and do not establish genuine device observations.
 
 The [stock shared-worker schema](../reference/analysis/castle-v3-shared-worker-schema.md)
 is now decoded from the pinned source. Its previously untyped element 10
