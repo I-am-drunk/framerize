@@ -1,9 +1,18 @@
 # Development status
 
+R8 reached the real stream check, which refused because the browser request
+had completed before the intended disconnect. The client had 2,175 generated
+delta characters and no terminal event. The second request did not run.
+Rollback is fully collected: all eleven account lifecycles verified, previous
+binary running, automatic restart restored and owned restrictions removed.
+A bounded source trace is resolving upstream buffering versus downstream
+delivery order before another attempt. See
+`reference/analysis/r8-stream-result-20261025.md`.
+
 R7 stopped before changing the service: its prepared coordination file had
 the wrong permissions. No interruption or stream check ran. R8 corrects file
 creation using the existing private writer and reader; its controller and
-candidate remain unchanged. R8 is executing after local authentication. See
+candidate remain unchanged. R8's collected outcome is recorded above. See
 `reference/analysis/r7-prelaunch-result-20261025.md`.
 
 R6 reached its first real request after restoring eleven accounts and passing
