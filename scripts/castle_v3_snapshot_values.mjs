@@ -1,4 +1,16 @@
 // Test-only capture of plain collector data, without invoking property getters.
+import {types} from 'node:util';
+
+function inheritedIndex(value, index) {
+  let prototype = Object.getPrototypeOf(value), hops = 0;
+  while (prototype !== null) {
+    if (++hops > 64 || types.isProxy(prototype)) throw new Error('collector-prototype');
+    if (Object.getOwnPropertyDescriptor(prototype, index)) return true;
+    prototype = Object.getPrototypeOf(prototype);
+  }
+  return false;
+}
+
 export function capture(value, state = {seen:new Set(), count:0}, depth = 0) {
   if (++state.count > 4096 || depth > 64) throw new Error('collector-capture-limit');
   if (value === undefined) return {kind:'undefined'};
@@ -10,7 +22,8 @@ export function capture(value, state = {seen:new Set(), count:0}, depth = 0) {
     if (value.length > 65536) throw new Error('collector-string-limit');
     return {kind:'string', units:Array.from({length:value.length}, (_,i)=>value.charCodeAt(i))};
   }
-  if (!Array.isArray(value) || state.seen.has(value)) throw new Error('collector-data-shape');
+  if (types.isProxy(value) || !Array.isArray(value) || state.seen.has(value))
+    throw new Error('collector-data-shape');
   const descriptors = Object.getOwnPropertyDescriptors(value);
   const length = descriptors.length.value;
   if (!Number.isSafeInteger(length) || length < 0 || length > 2048)
@@ -19,6 +32,7 @@ export function capture(value, state = {seen:new Set(), count:0}, depth = 0) {
   const values = Array.from({length}, (_,i)=>{
     const descriptor = descriptors[i];
     if (descriptor && !Object.hasOwn(descriptor,'value')) throw new Error('collector-accessor');
+    if (!descriptor && inheritedIndex(value, i)) throw new Error('collector-inherited-index');
     return capture(descriptor?.value, state, depth+1);
   });
   state.seen.delete(value);

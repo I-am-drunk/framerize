@@ -3,7 +3,7 @@ import {createHash} from 'node:crypto';
 import {capture} from './castle_v3_snapshot_values.mjs';
 const sdkHash = '3337eba7ffe614c2ebd9b2b8a55794f2e2445a9b3658d1af5eb7530152b72c71';
 const sha = value => createHash('sha256').update(value).digest('hex');
-let serialized, timestamp, instrumentedHash;
+let serialized, timestamp, instrumentedHash, preSerialization;
 const collectors = new Map();
 
 function once(source, before, after) {
@@ -18,7 +18,8 @@ export function instrument(role, bytes) {
   if (sha(bytes) !== sdkHash || instrumentedHash) throw new Error('snapshot-sdk-identity');
   let body = bytes.subarray(274980, 281222).toString('utf8');
   body = once(body, '$2n((function(L){', '$2n(import.meta.serialized((function(L){');
-  body = once(body, '})(Q))[En](function(L){', '})(Q)))[En](function(L){');
+  body = once(body, '})(Q))[En](function(L){',
+    '})(import.meta.input(Q))))[En](function(L){');
   body = once(body, 'a(jf)[Tn]()', 'import.meta.clock(a(jf))[Tn]()');
   let source = bytes.subarray(0, 274980).toString('utf8') + body + bytes.subarray(281222).toString('utf8');
   source = once(source, 'Q[_o]=l(s,Qon(W))', 'Q[_o]=l(s,Qon(import.meta.collector("worker",W)))');
@@ -29,6 +30,12 @@ export function instrument(role, bytes) {
 
 export function initializeRecorder(role, meta) {
   if (role !== 'v3') return;
+  meta.input = value => {
+    if (preSerialization !== undefined || !Array.isArray(value))
+      throw new Error('snapshot-input');
+    preSerialization = capture(value);
+    return value;
+  };
   meta.collector = (name, value) => {
     if (!['worker','network'].includes(name) || collectors.has(name))
       throw new Error('collector-observation-count');
@@ -48,9 +55,10 @@ export function initializeRecorder(role, meta) {
 
 export function takeSnapshot(token) {
   if (!serialized || timestamp === undefined || !instrumentedHash || typeof token !== 'string'
-      || collectors.size !== 2)
+      || collectors.size !== 2 || preSerialization === undefined)
     throw new Error('snapshot-incomplete');
-  const result = {schema:2, synthetic:true, sdk_sha256:sdkHash,
+  const result = {schema:3, synthetic:true, sdk_sha256:sdkHash,
+    pre_serialization:preSerialization,
     collectors:Object.fromEntries(collectors), collector_order:[...collectors.keys()],
     instrumented_sdk_sha256:instrumentedHash, timestamp_ms:timestamp,
     serialized:Array.from(serialized), token_sha256:sha(token), token_bytes:Buffer.byteLength(token)};

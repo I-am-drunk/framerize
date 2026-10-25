@@ -120,6 +120,19 @@ unchanged. The native check reconstructs normalized values, verifies their
 serialized bytes and compares the final output by hash and length. This
 checks one post-collection observation, not the preceding collector semantics.
 
+The snapshot experiment now also records the actual array passed to the
+serializer. Its schema 3 comparison builds native values from this input,
+checks serialization, rebuilds the five supported collector positions, then
+compares the final encoding using the same operation's timestamp. This is a
+test-only observation boundary. The serving worker still returns the SDK's
+token; it does not send a completed value array to the native encoder.
+The next integration needs explicit collection ownership and readiness, a
+private typed result, and a serving path that returns the native output.
+Adding an independent RTC collector would currently leave its result unused.
+The network completion timing is separate from the four record fields: its
+setup-to-fulfillment elapsed milliseconds feed position 755. It must retain
+the actual timing assignment and ordering, not a fabricated duration.
+
 `apply_collector_result` places supplied SharedWorker and network outcomes
 in position 242 and network positions 80, 469, 473 and 659. The network
 assignments run in that order: related address, hash, address, protocols.
