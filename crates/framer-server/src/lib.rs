@@ -1110,9 +1110,11 @@ async fn free_complete(
         }));
     }
     let pool = s.state.list().await.map_err(ApiError::Internal)?;
+    let requested_account = hdr(headers, "x-framerize-account");
+    let allow_account_repick = requested_account.is_none();
     let account = s.serving_accounts.select(
         pool,
-        hdr(headers, "x-framerize-account").as_deref(),
+        requested_account.as_deref(),
     ).map_err(operation_ownership::completed_preflight)?;
     let acquired = pool_control::lease_account_observed(&s, account.id).await;
     let residency = RequestResidency::new(match acquired.result {
@@ -1267,7 +1269,7 @@ async fn free_complete(
                 }
                 if cfg2.is_cancelled() { break r; }
                 let refusal = matches!(&r, Err(e) if should_retry_account(e));
-                if refusal && !emitted_content.load(std::sync::atomic::Ordering::Relaxed) && acct_attempt < 2 {
+                if allow_account_repick && refusal && !emitted_content.load(std::sync::atomic::Ordering::Relaxed) && acct_attempt < 2 {
                     tried.push(account.id.0.to_string());
                     drop(residency.take());
                     let acquired = pick_fresh_account(&s2, &tried).await;
@@ -1494,11 +1496,11 @@ async fn free_complete(
     // verdict follows the account+devices, not the request) — retrying the
     // chain on the SAME account just fails again, which is how 1/8 of chains
     // died all morning while 7 healthy accounts idled. Nothing reaches the
-    // client on the non-stream path until the chain completes, so a refusal
-    // is always safe to retry on a fresh account. The health mark lands first
+    // client on the non-stream path until the chain completes, so an unbound
+    // request may retry on a fresh account. The health mark lands first
     // (above), so the repick never selects the same account twice.
     if cfg.is_cancelled() { break; }
-    if matches!(&result, Err(e) if should_retry_account(e)) && acct_attempt < 2 {
+    if allow_account_repick && matches!(&result, Err(e) if should_retry_account(e)) && acct_attempt < 2 {
         tried_accounts.push(account.id.0.to_string());
         drop(residency.take());
         let acquired = pick_fresh_account(&s, &tried_accounts).await;
@@ -1671,9 +1673,11 @@ async fn native_complete(
         }));
     }
     let pool = s.state.list().await.map_err(ApiError::Internal)?;
+    let requested_account = hdr(headers, "x-framerize-account");
+    let allow_account_repick = requested_account.is_none();
     let account = s.serving_accounts.select(
         pool,
-        hdr(headers, "x-framerize-account").as_deref(),
+        requested_account.as_deref(),
     ).map_err(operation_ownership::completed_preflight)?;
     let acquired = pool_control::lease_account_observed(&s, account.id).await;
     let residency = RequestResidency::new(match acquired.result {
@@ -1818,7 +1822,7 @@ async fn native_complete(
                 }
                 if cfg2.is_cancelled() { break r; }
                 let refusal = matches!(&r, Err(e) if should_retry_account(e));
-                if refusal && !emitted_content.load(std::sync::atomic::Ordering::Relaxed) && acct_attempt < 2 {
+                if allow_account_repick && refusal && !emitted_content.load(std::sync::atomic::Ordering::Relaxed) && acct_attempt < 2 {
                     tried.push(account.id.0.to_string());
                     drop(residency.take());
                     let acquired = pick_fresh_account(&s2, &tried).await;
@@ -1983,10 +1987,10 @@ async fn native_complete(
         cleanup_confirmed &= !matches!(&r, Err(error) if pool_control::cleanup_unconfirmed(error));
         record_account_health(&s, &account, &r).await;
         // Nothing reaches the client on the non-stream path until the chain
-        // completes, so a Castle refusal is always safe to retry on a fresh
-        // account (the verdict follows the account, not the request).
+        // completes, so an unbound request may retry a Castle refusal on a
+        // fresh account (the verdict follows the account, not the request).
         if cfg.is_cancelled() { break r; }
-        if matches!(&r, Err(e) if should_retry_account(e)) && acct_attempt < 2 {
+        if allow_account_repick && matches!(&r, Err(e) if should_retry_account(e)) && acct_attempt < 2 {
             tried_accounts.push(account.id.0.to_string());
             drop(residency.take());
             let acquired = pick_fresh_account(&s, &tried_accounts).await;

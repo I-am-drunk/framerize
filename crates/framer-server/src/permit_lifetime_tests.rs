@@ -166,11 +166,13 @@ async fn messages_retry_with_one_slot_does_not_acquire_while_holding_it() {
 
 async fn failover(messages: bool, stream: bool, cancel_wait: bool) {
     let mut f = Fixture::new();
+    f.accounts[1].consecutive_failures = 3;
+    f.state.state.upsert(&f.accounts[1]).await.unwrap();
     let model = if messages { MESSAGE_MODEL } else { RESPONSE_MODEL };
     let first_key = f.key(0, model);
     let next_key = f.key(1, model);
     let destination = f.state.gate.acquire(&next_key).await;
-    let mut task = AbortOnDrop(tokio::spawn(chain(f.state.clone(), f.headers(0), messages, stream)));
+    let mut task = AbortOnDrop(tokio::spawn(chain(f.state.clone(), HeaderMap::new(), messages, stream)));
     let mut response = if stream {
         Some(tokio::time::timeout(WAIT, &mut task).await.unwrap().unwrap().unwrap())
     } else { None };
