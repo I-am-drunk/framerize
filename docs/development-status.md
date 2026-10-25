@@ -32,6 +32,20 @@ Four obsolete combined-mode native cases were replaced by four admission
 cases; two independent browser health cases were retained. Removed tests do
 not count as validation of the new structure. No live delivery is claimed.
 
+The later admission correction passes all 228 current browser-server cases
+and all 34 browser application cases. Its new account-switching regression
+fails on the previous implementation and passes with the correction, for
+streaming/nonstreaming and consumed/dropped responses. A completed negative
+status read keeps the affected account fenced while other accounts can serve.
+Failed reads, timeouts and unconfirmed closes retain their refusal behavior.
+Health reports 503 when the global operation gate is sealed or unconfirmed.
+
+The 25 October outage was a persistent global admission refusal, not a process
+crash. The exact underlying browser check that triggered it was not logged;
+the regression establishes a source defect, not that historical trigger.
+This correction is undeployed. Health reporting alone does not implement
+automatic recovery, which remains unfinished.
+
 ## Remaining work
 
 The native CLI validates worker configuration only. Standalone startup must

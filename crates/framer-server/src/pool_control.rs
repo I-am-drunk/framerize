@@ -62,12 +62,18 @@ impl CleanupEvidence {
 }
 
 async fn confirm_resident_status(browser: &dyn BrowserBridge, lease: ResidentLease)
-    -> Result<ResidentLease, ApiError> {
+    -> CleanupOutcome<ResidentLease> {
     use framer_core::browser_lifecycle::BrowserAccountState as State;
+    let mut cleanup_confirmed = true;
+    let result = async {
     if !browser.supports_browser_lifecycle() {
-        lease.ensure_admissible().map_err(busy)?;
+        lease.ensure_admissible().map_err(|error| {
+            cleanup_confirmed = false;
+            busy(error)
+        })?;
         return Ok(lease);
     }
+    cleanup_confirmed = false;
     let observation = tokio::time::timeout(Duration::from_secs(5),
         browser.browser_status(&lease.account())).await;
     let usable = match observation {
@@ -77,17 +83,29 @@ async fn confirm_resident_status(browser: &dyn BrowserBridge, lease: ResidentLea
                     && (status.account_incarnation > 0 || status.state == State::Absent),
                 None => status.account_incarnation == 0 && status.state == State::Absent,
             };
-            status.account_id == lease.account() && identity_valid
+            // A matching, completed read can refuse account admission without
+            // leaving request work unfinished. The resident fence owns the
+            // unavailable account; a failed transport still remains unknown.
+            cleanup_confirmed = status.account_id == lease.account() && identity_valid;
+            cleanup_confirmed
                 && !matches!(status.state, State::Closing | State::Unconfirmed)
         },
         _ => false,
     };
     if !usable {
-        lease.mark_unconfirmed().map_err(busy)?;
+        lease.mark_unconfirmed().map_err(|error| {
+            cleanup_confirmed = false;
+            busy(error)
+        })?;
         return Err(busy("account browser status is unconfirmed; its occupied slot is retained"));
     }
-    lease.ensure_admissible().map_err(busy)?;
+    lease.ensure_admissible().map_err(|error| {
+        cleanup_confirmed = false;
+        busy(error)
+    })?;
     Ok(lease)
+    }.await;
+    CleanupOutcome { result, cleanup_confirmed }
 }
 
 pub(super) fn cleanup_unconfirmed(error: &str) -> bool {
@@ -501,8 +519,8 @@ impl ServingAccountPolicy {
                         cleanup_confirmed = false;
                         drop(operation);
                         let result = confirm_resident_status(browser, lease).await;
-                        cleanup_confirmed = result.is_ok();
-                        return result;
+                        cleanup_confirmed = result.cleanup_confirmed;
+                        return result.result;
                     },
                     Ok(Acquire::Evict(mut ticket)) => {
                         cleanup_confirmed = false;
@@ -528,8 +546,8 @@ impl ServingAccountPolicy {
                         }
                         let lease = ticket.confirm_close().map_err(busy)?;
                         let result = confirm_resident_status(browser, lease).await;
-                        cleanup_confirmed = result.is_ok();
-                        return result;
+                        cleanup_confirmed = result.cleanup_confirmed;
+                        return result.result;
                     }
                     Err(PoolError::NoIdleSlot | PoolError::AccountBusy) if tokio::time::Instant::now() < deadline => {}
                     Err(error) => return Err(busy(error)),

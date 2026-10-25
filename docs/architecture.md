@@ -139,5 +139,13 @@ and the selected executable. One persistent update record supports recovery
 after interruption; account data is outside that transaction and is never
 rolled back. First migration from the legacy service remains separate.
 
+A completed browser-status read can report an unavailable account without
+leaving request work unfinished. That account retains its occupied, fenced
+slot; other accounts can continue. Failed or mismatched reads, timeouts and
+unconfirmed closes still carry unresolved cleanup evidence. `/api/health`
+returns 503 while the operation gate is sealed or unconfirmed, retaining the
+PID header. This endpoint neither clears the gate nor guarantees upstream
+account availability. Reporting failure does not itself restart the service.
+
 Earlier investigation notes are preserved in
 [architecture history](history/architecture-before-reorganization-20261025.md).

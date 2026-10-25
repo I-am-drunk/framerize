@@ -9,6 +9,54 @@ use tower::ServiceExt;
 enum RepickClose { Error, Unconfirmed, BeforeCloseBusy }
 
 #[tokio::test]
+async fn cooldown_repick_retains_unavailable_account_without_closing_the_service() {
+    for stream in [false, true] { for consume in [false, true] {
+        let (mut state, ports) = fixture(3, 3);
+        activated(&state, 1).await;
+        // The host knows B, but the pool must still validate it before use.
+        ports.live.lock().unwrap().insert(id(2), 7);
+        *ports.status_mode.lock().unwrap() = StatusMode::UnconfirmedFor(id(2));
+        *ports.inference_error.lock().unwrap() = Some("account-cooling:600".into());
+        ports.fail_first_account.store(true, Ordering::SeqCst);
+        let (scope, gate) = ServingOwnership::new_with_host_factory(
+            state.wave.clone(), 32, |gate| gate).unwrap();
+        state.operation_ownership = Some(scope);
+        let app = crate::router(state.clone(), "/fixture-no-web");
+        let response = app.clone().oneshot(repick_request(Route::Native, stream)).await.unwrap();
+        assert_eq!(response.status(), if stream { StatusCode::OK }
+            else { StatusCode::SERVICE_UNAVAILABLE });
+        if consume {
+            let body = to_bytes(response.into_body(), 65536).await.unwrap();
+            assert!(String::from_utf8_lossy(&body).contains("600 seconds"));
+        } else { drop(response); }
+        until(|| gate.stats().unwrap().active == 1).await;
+        assert!(!gate.stats().unwrap().unconfirmed, "account B must not poison global admission");
+        assert!(slot(&state, id(2)).uncertain);
+        assert_eq!(slot(&state, id(2)).users, 0);
+        assert_eq!(ports.request_started.load(Ordering::SeqCst), 1);
+        assert!(!ports.events.lock().unwrap().iter().any(|e| e.0 == "close_started"));
+        *ports.status_mode.lock().unwrap() = StatusMode::Ready;
+        ports.request_gate.add_permits(2);
+        let mut peer = repick_request(Route::Native, false);
+        peer.headers_mut().insert("x-framerize-account", id(3).0.to_string().parse().unwrap());
+        let response = app.clone().oneshot(peer).await.unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+        let body = to_bytes(response.into_body(), 65536).await.unwrap();
+        assert!(String::from_utf8_lossy(&body).contains("fixture result"));
+        let mut unavailable = repick_request(Route::Native, false);
+        unavailable.headers_mut().insert("x-framerize-account", id(2).0.to_string().parse().unwrap());
+        let response = app.oneshot(unavailable).await.unwrap();
+        assert_eq!(response.status(), StatusCode::SERVICE_UNAVAILABLE);
+        to_bytes(response.into_body(), 65536).await.unwrap();
+        assert!(slot(&state, id(2)).uncertain);
+        assert_eq!(ports.request_started.load(Ordering::SeqCst), 2);
+        assert!(!ports.mint_routes.lock().unwrap().iter().any(|(account, _)| *account == id(2)));
+        until(|| gate.stats().unwrap().active == 1).await;
+        assert!(!gate.stats().unwrap().unconfirmed);
+    } }
+}
+
+#[tokio::test]
 async fn failed_repick_close_preserves_error_and_fences_admission() {
     check_repick(RepickClose::Error).await;
 }

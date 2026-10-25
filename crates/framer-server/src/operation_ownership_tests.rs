@@ -57,7 +57,27 @@ async fn every_mutating_and_inference_route_rejects_before_ports_after_seal() {
     assert_eq!(f.state.serving_accounts.residents.snapshot().unwrap().occupied, 0);
     let health = app.oneshot(HttpRequest::builder().uri("/api/health").body(Body::empty()).unwrap())
         .await.unwrap();
-    assert_eq!(health.status(), StatusCode::OK);
+    assert_eq!(health.status(), StatusCode::SERVICE_UNAVAILABLE);
+    assert_eq!(health.headers()["x-framerize-pid"], std::process::id().to_string());
+}
+
+#[tokio::test]
+async fn health_reports_unconfirmed_admission_without_opening_it() {
+    let mut f = fixture::Fixture::new();
+    f.state = with_owned_operations(f.state, 32).unwrap();
+    let scope = f.state.operation_ownership.clone().unwrap();
+    drop(scope.owner(OperationKind::Inference).unwrap());
+    let before = scope.gate.stats().unwrap();
+    let app = crate::router(f.state, "/nonexistent-fixture-web");
+    let response = app.oneshot(HttpRequest::builder().uri("/api/health")
+        .body(Body::empty()).unwrap()).await.unwrap();
+    assert_eq!(response.status(), StatusCode::SERVICE_UNAVAILABLE);
+    assert_eq!(response.headers()["x-framerize-pid"], std::process::id().to_string());
+    assert_eq!(to_bytes(response.into_body(), 1024).await.unwrap().as_ref(),
+        b"operation admission closed");
+    let after = scope.gate.stats().unwrap();
+    assert_eq!(before.active, after.active);
+    assert!(after.unconfirmed);
 }
 
 #[tokio::test]
