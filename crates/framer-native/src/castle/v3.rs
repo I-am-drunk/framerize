@@ -15,6 +15,8 @@ mod network_result;
 pub use network_result::{network_address, NetworkValueError};
 mod hash;
 pub use hash::json_hash;
+mod network_record;
+pub use network_record::{assemble_network_record, NetworkCandidate, NetworkObservation, NonScalarCandidate};
 
 /// Append the SDK's unsigned base-128 representation without shared state.
 ///

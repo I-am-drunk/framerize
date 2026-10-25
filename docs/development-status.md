@@ -79,6 +79,7 @@ claim. Native CI includes `scripts/check_v3_encoding.py`,
 `scripts/check_v3_worker_result.py`,
 `scripts/check_v3_network_result.py`,
 `scripts/check_v3_hash.py`,
+`scripts/check_v3_network_record.py`,
 `scripts/check_v3_deflate.py` and `scripts/check_v3_envelope.py`;
 hosted execution remains unverified. All prior encoding comparisons also pass
 with the shared fixture builder and new native object module.
@@ -109,16 +110,28 @@ passes 57 comparisons, including five original missing-record errors, plus
 nine normalized-input refusals. Both tests pass in isolation. It retains the
 original distinction between an absent record and an absent field, and assumes
 the built-in getter rather than a replaced JavaScript binding. The independent
-metrics-hash input trace is still assigned to intake. Actual device collection
-and service acceptance remain unfinished.
+metrics-hash input trace is complete. Actual device collection and service
+acceptance remain unfinished.
 
 The native JSON metrics hash passes 163 comparisons against the original
 `UP` helper, including nine refused conversions. The cases cover property
 order, duplicate keys, omitted values, nested arrays and objects, Unicode,
 numeric formatting and hexadecimal padding. Repeated calls agree. The first
 run reached the generated fixture's compiler recursion limit; the corrected
-fixture passes with unchanged native implementation. Metric collection and
-the assembly of its ordered input remain separate work.
+fixture passes with unchanged native implementation.
+
+The network-record assembler now passes 31 complete-record comparisons
+against the pinned SDK's original finalizer. These cover field positions,
+selection before sorting, candidate/history caps, duplicates, scalar
+conversion, Unicode, summary keys and literal separators. A separate test
+checks non-scalar refusal. Both tests passed with zero skips in the isolated
+512 MiB harness. The resulting sparse record and its embedded metrics hash
+match after serialization. The comparison supplies the original runtime's
+signature order; it does not implement or validate a native locale comparator.
+Candidates and histories enter after event reduction. Next implement the
+source-defined candidate/state normalization from supplied observations.
+Real collection, callback ordering, serving integration and measured memory
+and latency remain unfinished. No service or account was used for these tests.
 
 The dedicated-worker cleanup correction from `759ef0d1` is integrated on
 the reorganized `24ebbdb` base. A focused regression fails on the old pool:
