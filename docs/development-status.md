@@ -23,6 +23,14 @@ removed. Current tests stay with the behavior they exercise.
 
 ## Validation
 
+The native encoder now matches one isolated SDK operation using all 765
+actual input positions captured before serialization. It reproduces 5,412
+serialized bytes and the 5,297-byte final output, including native rebuilding
+of the five supported collector fields. Three capture checks also pass.
+This establishes the direct input comparison. Serving still uses the SDK;
+collection completion and a private handoff to native encoding are next.
+See [the observation and limits](../reference/analysis/castle-v3-sdk-snapshot.md).
+
 Shared-worker cleanup now waits for actual exit even when stopping fails.
 Seven inert checks pass on Node 24.13.0; the three stop-outcome cases reproduce
 premature cleanup completion on the previous source. This is adapter cleanup

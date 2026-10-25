@@ -97,19 +97,23 @@ def check(snapshot, output, *, network_unavailable=False):
     if len(raw) > 8*1024*1024:
         raise ValueError('snapshot size')
     data = json.loads(raw)
-    assert data['schema'] in (1, 2) and data['synthetic'] is True
+    assert data['schema'] in (1, 2, 3) and data['synthetic'] is True
     assert data['sdk_sha256'] == '3337eba7ffe614c2ebd9b2b8a55794f2e2445a9b3658d1af5eb7530152b72c71'
     assert all(type(x) is int and 0 <= x <= 255 for x in data['serialized'])
     serialized = bytes(data['serialized'])
     reader = Reader(serialized)
     values = reader.array()
     assert reader.at == len(serialized)
+    if data['schema'] == 3:
+        observed = data['pre_serialization']
+        assert observed['kind'] == 'array' and len(observed['values']) == len(values)
+        values = [captured_value(value) for value in observed['values']]
     timestamp = data['timestamp_ms']
     assert type(timestamp) is int and abs(timestamp) <= 8640000000000000
     apply, fields = [], []
     if network_unavailable:
-        assert data['schema'] == 2, 'network reconstruction requires a captured outcome'
-    if data['schema'] == 2:
+        assert data['schema'] >= 2, 'network reconstruction requires a captured outcome'
+    if data['schema'] >= 2:
         assert set(data['collectors']) == {'worker','network'}
         assert sorted(data['collector_order']) == ['network','worker']
         for name in data['collector_order']:
@@ -136,9 +140,10 @@ use castle::v3::{{Value,serialize,encode_collected,apply_collector_result,apply_
     unavailable_network_record}};
 #[test] fn normalized_snapshot_round_trip_and_encode() {{
     let mut values=vec![{','.join(values)}];
-    {''.join(apply)}
     let expected=include_bytes!({json.dumps(str(path/'serialized'))});
     assert!(serialize(&values).unwrap()==expected,"snapshot representation differs");
+    {''.join(apply)}
+    assert!(serialize(&values).unwrap()==expected,"collector representation differs");
     let token=encode_collected(&values,{timestamp}).unwrap();
     std::fs::write({json.dumps(str(path/'native-token'))},token).unwrap();
 }}
@@ -151,6 +156,7 @@ use castle::v3::{{Value,serialize,encode_collected,apply_collector_result,apply_
         equal = hashlib.sha256(token).hexdigest() == data['token_sha256']
         equal = equal and len(token) == data['token_bytes']
     report = dict(schema=1,synthetic=True,normalized_snapshot_round_trip=True,
+                  pre_serialization_values_compared=data['schema'] == 3,
                   collector_fields_compared=fields,
                   unavailable_network_reconstructed=network_unavailable,
                   token_sha256_equal=equal,positions=len(values),values=reader.values,
@@ -159,7 +165,8 @@ use castle::v3::{{Value,serialize,encode_collected,apply_collector_result,apply_
     output.write_text(json.dumps(report,indent=2)+'\n')
     if not equal:
         raise ValueError('native encoding differs from the instrumented SDK')
-    print('PASS: actual SDK normalized snapshot and native token encoding agree')
+    boundary = 'pre-serialization values' if data['schema'] == 3 else 'normalized snapshot'
+    print(f'PASS: actual SDK {boundary} and native token encoding agree')
 
 
 if __name__ == '__main__':

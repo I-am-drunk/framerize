@@ -1,5 +1,31 @@
 # Isolated SDK snapshot comparison
 
+## Direct input comparison, 2026-10-25
+
+Schema 3 also copies the actual value array immediately before the original
+serializer consumes it. The native checker uses those captured values directly,
+rather than deriving its input from the serialized bytes. It first checks their
+serialization, then rebuilds the five existing collector positions and checks
+serialization and the complete encoding again with the same observed timestamp.
+
+One new isolated synthetic SDK operation passed: 765 positions, 787 values,
+5,412 serialized bytes and a 5,297-byte final output with the same SHA-256.
+The unavailable network record was also rebuilt natively. Three inert capture
+tests pass. Both isolated processes exited, source pins stayed unchanged and
+the SDK's owned descendants were absent. The existing sandbox limits apply.
+
+The capture preserves primitive values and plain arrays, including raw UTF-16
+and negative zero. It refuses objects, accessors, inherited indexed values,
+proxies, cycles and oversized inputs. It does not run conversion hooks.
+These reads can affect timing; the comparison uses the timestamp from that
+same instrumented operation. No raw values or output token are published.
+
+This proves the direct input comparison for one synthetic operation. It does
+not show that every configured collector finished, expose a production
+collect-only export, connect native encoding to serving, or measure savings.
+The serving loader still evaluates the pinned SDK without these hooks.
+Schemas 1 and 2 remain readable; their results below retain their original scope.
+
 The pinned SDK `3337eba7` ran once with synthetic context in the existing
 JSDOM worker. Test-only hooks copied its serialized bytes and recorded the
 timestamp supplied to its final encoder. The SDK returned normally; its
