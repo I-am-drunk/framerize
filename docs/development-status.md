@@ -30,17 +30,24 @@ both isolated runs are collected. The original wrapper qualification is retained
 No new SDK or native-service acceptance follows from these inert checks. See
 `reference/analysis/v3-phase-diagnostic-qualification-20261025.md`.
 
-The updated V3 worker library compiled and is collected. The application link
-exposed omitted transitive dependency bindings in the older build manifest.
-That failed attempt is collected; the exact missing bindings are being prepared
-for a fresh link-only attempt. The native host and runtime configuration can
-be reused after their source and file bindings matched. No V3 application or
-SDK was launched. See `reference/analysis/v3-application-build-20261025.md`.
+The updated V3 application now builds, executable SHA256 `7a10ec27`. Two
+collected preparation failures exposed missing transitive libraries and bundled
+linker tools. Adding their exact bindings allowed the fresh link to pass in
+14.2 seconds, with 466,911,232 bytes peak memory and no limit events. All 797
+inputs remained unchanged. The worker library, five unchanged libraries and
+31 diagnostic passes were reused. No V3 application or SDK was launched.
+See `reference/analysis/v3-application-build-20261025.md`.
+
+Separate authority source `c8a5491a` negotiates ledger versus observation
+authority and carries authenticated observation proof through V3 admission
+and completion. Its 12 new and 40 affected tests are unrun. The change needs
+an affected-graph rebuild and matching host/client qualification; it is not
+included in the successful `191dabe8` build or the normal repair candidate.
 
 Three controller diagnostic/privacy cases also pass. The next prepared rollout
 controller preserves fixed failure codes and bounded source locations without
 recording arbitrary exception text. It is bound to the unchanged repair package
-but has not launched. At 02:30 UTC, five active requests and four established
+but has not launched. At 02:48 UTC, five active requests and three established
 connections still prevented admission; the original service remained running.
 
 The separate extracted V3 wrapper checks passed on 25 October: nine selected
