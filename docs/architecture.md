@@ -1,5 +1,14 @@
 # Serving architecture and branch policy
 
+The recovery observer can report aggregate primary-selection transitions and
+their resident/restored provenance without exporting account or device IDs.
+Extraction stages provenance until the whole read succeeds; a refused read
+does not publish partial rows. These diagnostics do not change acceptance.
+Recovery r5 found four resident null-to-device transitions with no detected
+loss of enforced limits, while the strict equality predicate still refused.
+Any correction must preserve initial restoration, account/device identity,
+all active limit state, generation checks and comparison-before-clear order.
+
 Recovery verification uses the authenticated helper to open only the bound
 sidecar's read-only memory descriptor. The unprivileged controller receives
 it over a private Unix socket and performs the existing state comparison.

@@ -1,5 +1,15 @@
 # Development status
 
+Recovery r5 measured the device-selection difference without accepting it.
+Four of eleven accounts changed from no selected primary to a resident device;
+the other seven selections were unchanged. All eleven lifecycle records and
+the checked cooldown, request-window, mint-spacing and daily-reserve state
+were retained. The strict primary-equality check still refused finalization.
+Both service processes resumed, all helpers were collected, and the temporary
+traffic restriction was removed. A narrow source correction is assigned for
+this measured transition. It is not yet qualified or deployed. See
+`reference/analysis/r5-recovery-primary-result-20261025.md`.
+
 Normal control-transport reliability changes from `a715a41a` are integrated.
 All ten selected tests pass with zero skips. The focused build used about
 137 MiB under the unchanged 768 MiB cap. This qualifies normal transport,
