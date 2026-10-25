@@ -111,11 +111,13 @@ def check(snapshot, output):
         assert set(data['collectors']) == {'worker','network'}
         assert sorted(data['collector_order']) == ['network','worker']
         for name in data['collector_order']:
-            position, variant = (242, 'SharedWorker') if name == 'worker' else (473, 'Network')
-            fields.append(position)
             expression = captured_value(data['collectors'][name])
-            apply.append(f'values[{position}]=Value::Undefined;'
-                         f'apply_collector_result(&mut values,CollectorResult::{variant}({expression})).unwrap();')
+            assignments = [(242, 'SharedWorker')] if name == 'worker' else [
+                (469, 'NetworkHash'), (473, 'Network')]
+            for position, variant in assignments:
+                fields.append(position)
+                apply.append(f'values[{position}]=Value::Undefined;'
+                             f'apply_collector_result(&mut values,CollectorResult::{variant}({expression})).unwrap();')
     with tempfile.TemporaryDirectory(prefix='v3-sdk-snapshot-') as directory:
         path = Path(directory)
         (path/'serialized').write_bytes(serialized)

@@ -70,6 +70,7 @@ jobs:
           python -I -B scripts/check_v3_network_events.py
           python -I -B scripts/check_v3_collected.py
           python -I -B scripts/check_v3_collectors.py
+          python -I -B scripts/check_v3_network_hash.py
           python -I -B scripts/check_v3_deflate.py
           python -I -B scripts/check_v3_envelope.py
       - name: Build explicit application

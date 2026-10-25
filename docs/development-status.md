@@ -23,14 +23,16 @@ removed. Current tests stay with the behavior they exercise.
 
 ## Validation
 
-The native collector-result integration now writes the source-defined
-SharedWorker and network positions. Eight original-assignment comparisons
-and two refusal-preservation checks pass in three tests. A separate isolated
-SDK run records both actual inputs, then the native check clears and rebuilds
-those positions. Its complete 5,412-byte serialization and final 5,297-byte
-output match the same operation, using its observed order and timestamp.
-This moves verification back to two collector-result boundaries; it does
-not establish native collection for the other fields or live acceptance.
+The native collector-result integration writes SharedWorker position 242
+and network positions 469 and 473. The new field47 string-hash assignment
+matches 101 original-helper cases, including five missing-row errors.
+The affected 57 address, eight assignment, 135 envelope and 14 combined
+encoding comparisons also pass. These run as 11 native fixture tests.
+Reusing the saved synthetic SDK capture, a further native test clears and
+rebuilds all three positions in source order. Its complete 5,412-byte
+serialization and final 5,297-byte output match the same recorded operation.
+No new SDK run was needed. Generic accessor and non-string hash coercion,
+native collection for other fields and live acceptance remain unverified.
 See the [source and result note](../reference/analysis/castle-v3-collected-inputs.md).
 
 The [isolated SDK snapshot comparison](../reference/analysis/castle-v3-sdk-snapshot.md)

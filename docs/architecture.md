@@ -100,11 +100,15 @@ serialized bytes and compares the final output by hash and length. This
 checks one post-collection observation, not the preceding collector semantics.
 
 `apply_collector_result` places supplied SharedWorker and network outcomes
-in the source-defined positions 242 and 473 using the existing reducers.
-It requires an existing target position and leaves the array unchanged on
-refusal. The [collector comparison](../reference/analysis/castle-v3-collected-inputs.md)
-also rebuilds those positions from actual outcomes captured in one isolated
-synthetic SDK run. It does not fill the remaining collection dependencies.
+in positions 242, 469 and 473. NetworkHash applies the SDK's string transform
+to field47 using the same implementation as the envelope timestamp. Apply
+that assignment before Network to preserve their source order. Each variant
+requires its target position and preserves the array on refusal. The hash
+boundary accepts original string values and missing-field markers; generic
+JavaScript accessors and truthy non-string coercions remain unimplemented.
+The [collector comparison](../reference/analysis/castle-v3-collected-inputs.md)
+rebuilds all three positions from the retained synthetic SDK capture. It
+does not fill the remaining collection dependencies.
 
 An open, unbound browser stream can wait for local account capacity before
 generated output. It retries eligibility within one cumulative 600-second

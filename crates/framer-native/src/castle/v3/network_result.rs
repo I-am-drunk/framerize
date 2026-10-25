@@ -7,6 +7,8 @@ pub enum NetworkValueError {
     MissingRecord,
     /// JSON normalization erased the type needed for property access/truthiness.
     NormalizedValue,
+    /// Generic JS length/charCodeAt coercion is outside the string-hash boundary.
+    NonStringHash,
 }
 
 /// Reduce an observation with the SDK's built-in `ud` getter present.
@@ -14,6 +16,21 @@ pub enum NetworkValueError {
 /// This does not gather candidates, validate addresses or alter supplied values.
 /// Prototypes, accessors and a replaced JavaScript getter are outside this API.
 pub fn network_address(input: Value) -> Result<Value, NetworkValueError> {
+    network_field(input, 38)
+}
+
+/// Transform the completed N_ hash or its missing-field marker for Q[469].
+/// SDK3337eba7 Brn (429659..429849) and Cr (207029..207266).
+/// The stock producer supplies a string. Accessors, replaced helpers and
+/// truthy non-string fields require JS behavior not represented by this API.
+pub fn network_hash(input: Value) -> Result<Value, NetworkValueError> {
+    match network_field(input, 47)? {
+        Value::String(units) => Ok(marker(&super::envelope::encode_text(units))),
+        _ => Err(NetworkValueError::NonStringHash),
+    }
+}
+
+fn network_field(input: Value, index: usize) -> Result<Value, NetworkValueError> {
     match input {
         Value::Array(_) | Value::Object(_) => {}
         Value::JsonFallback(_) | Value::JsonFailure => {
@@ -22,7 +39,7 @@ pub fn network_address(input: Value) -> Result<Value, NetworkValueError> {
         _ => return Ok(marker("a9opjk")),
     }
     let record = property(input, 0)?;
-    let value = property(record, 38)?;
+    let value = property(record, index)?;
     match value {
         Value::JsonFallback(_) | Value::JsonFailure => Err(NetworkValueError::NormalizedValue),
         Value::Null | Value::Undefined | Value::Bool(false) => Ok(marker("2nrh3qm")),
