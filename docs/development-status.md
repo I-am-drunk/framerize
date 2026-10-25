@@ -13,11 +13,19 @@ The rearchitecture is on `refactor/separate-apps-and-ci-20261025` in draft
 - A native ledger process that retains its session owner until the child exits.
 - Native service state and admission without a browser bridge or browser router.
 - Standalone native startup with owned sessions, ledger and a verified worker.
+- An explicit legacy-history importer with atomic journal publication.
 
 The retired host patchers, combined-mode checkers and their private tests are
 removed. Current tests stay with the behavior they exercise.
 
 ## Validation
+
+The legacy importer, journal and rate suites pass 24 focused Python cases.
+They cover preserved device/request state, incomplete inputs, changed owners,
+existing history, concurrent ownership, failed writes and inventory changes.
+The importer is not connected to automatic startup and has not migrated live
+state. It requires a final source snapshot; the old host's missing export
+remains unresolved. Existing native and browser package results are retained.
 
 The complete browser and native development archives at `2410dac` pass
 verification and staging. Browser startup, signal shutdown and profile

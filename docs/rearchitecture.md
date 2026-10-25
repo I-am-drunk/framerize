@@ -115,8 +115,19 @@ A reboot independently proves that old processes are gone. Both paths preserve
 rate restrictions and apply conservative cooldowns before further requests.
 There is no external clean-state flag or custom privileged supervisor.
 
+The shared account package now has an explicit one-time legacy importer.
+It requires a complete snapshot and device inventory, verifies the successor
+service lifetime, and publishes one fully committed journal without replacing
+an existing journal. Imported rows retain the prior runtime identity and stay
+unclean until normal recovery confirms its removal. The importer preserves
+charges and imposes a conservative 24-hour reserve reset boundary after the
+capture when reserve capacity has been used.
+
 The first live migration is still unresolved. Today's host has no complete
 ledger-export command. New persistence cannot recover old process memory.
+The importer is an explicit API, not an automatic startup bypass. Its caller
+must establish that the supplied snapshot is the final state of the named
+runtime; matching a past service invocation does not prove export freshness.
 Activation needs genuine current state or demonstrated expiry under exclusive
 ownership. Producing a package does not prove either condition. No production
 restart is part of this structural work.
