@@ -42,6 +42,12 @@ class AccountRates:
         record = journal.load(account) if journal is not None else None
         if record is not None:
             self._restore(record)
+            rebooted = record['boot_id'] != self.clock.boot_id
+            if self.needs_cleanup and (rebooted or journal.previous_runtime_stopped(
+                    account, self.clock.boot_id)):
+                self.confirm_browser_closed()
+            elif rebooted:
+                self._commit(deepcopy(self.state))
         elif journal is not None:
             self._commit(deepcopy(self.state))
 
@@ -118,7 +124,7 @@ class AccountRates:
             self.state = state
         else:
             self._rebase(state, saved, now)
-            self._commit(state)
+            self.state = state
         self.needs_cleanup = not state['clean']
 
     @staticmethod
@@ -286,7 +292,7 @@ class AccountRates:
         self._commit(state)
 
     def confirm_browser_closed(self):
-        """Call only after the account's actual browser cleanup is confirmed."""
+        """Call after acknowledged closure or verified removal of its old runtime."""
         state = deepcopy(self.state)
         now = self.clock.now()
         if self.needs_cleanup or state['uncertain'] or state['pending_mint']:

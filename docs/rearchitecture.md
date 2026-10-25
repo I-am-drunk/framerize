@@ -88,6 +88,15 @@ uses the same drain and close path. Confirmed browser closure records clean
 account state; it does not replace writes before each charge. An interrupted
 record cannot resume until its previous browser ownership has been resolved.
 
+Recovery now uses the systemd service lifetime and kernel process membership.
+Each journal row retains the runtime that last wrote it, even if that account
+is not opened during an intermediate restart. New service startup must contain
+only the daemon and its host, with delegation disabled and group cleanup enabled.
+A different invocation of that same service can then recover dirty history.
+A reboot independently proves that old processes are gone. Both paths preserve
+rate restrictions and apply conservative cooldowns before further requests.
+There is no external clean-state flag or custom privileged supervisor.
+
 The first live migration is still unresolved. Today's host has no complete
 ledger-export command. New persistence cannot recover old process memory.
 Activation needs genuine current state or demonstrated expiry under exclusive

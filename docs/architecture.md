@@ -44,8 +44,8 @@ until the actual operation ends. Confirmed browser closure records clean state.
 
 The legacy process-memory restoration code is removed from the runtime.
 Existing profiles without a journal require migration. Interrupted records
-require confirmed cleanup before reuse. Automatic crash recovery and first
-migration remain unfinished; this code is undeployed.
+require confirmed cleanup before reuse. First migration remains unfinished;
+this code is undeployed.
 
 The browser application always tracks its requests and background work.
 SIGTERM or Ctrl-C stops new HTTP admission, lets accepted responses finish,
@@ -56,6 +56,18 @@ not a successful drain. Attached user browsers are disconnected, never closed.
 Owned children use separate process groups so foreground terminal interrupts
 reach the daemon's shutdown coordinator first. Forced exits still require
 recovery and are not equivalent to this graceful path.
+
+The journal records the service lifetime beside each account snapshot. A new
+host verifies its parent is the service's main process, delegation is disabled,
+and the cgroup contains only that parent and itself. Dirty history can recover
+after a different invocation of the same service, or a kernel reboot. Surviving
+children, unknown ownership and a different service prevent automatic recovery.
+Recovery preserves charges and device identities and applies a fresh cooldown.
+
+Journal schema 2 adds per-record runtime ownership. Schema 1 upgrades without
+inventing ownership for old records. Older readers reject schema 2, so package
+rollback must select a compatible reader. No caller-provided clean flag or
+missing lock file substitutes for process cleanup.
 
 Earlier investigation notes are preserved in
 [architecture history](history/architecture-before-reorganization-20261025.md).

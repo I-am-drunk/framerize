@@ -5,6 +5,7 @@ import os
 from pathlib import Path
 import re
 import sqlite3
+from . import runtime_owner
 
 
 class RateJournal:
@@ -25,25 +26,34 @@ class RateJournal:
                 os.close(os.open(path, os.O_CREAT | os.O_EXCL | os.O_RDWR, 0o600))
             self.connection = sqlite3.connect(path, timeout=0)
             self._initialize(fresh)
+            self.runtime_owner = runtime_owner.capture()
         except BaseException:
             self.close()
             raise
 
     def _initialize(self, fresh):
         db = self.connection
-        if not fresh and db.execute('PRAGMA user_version').fetchone()[0] != 1:
+        version = db.execute('PRAGMA user_version').fetchone()[0]
+        if not fresh and version not in (1, 2):
             raise RuntimeError('unsupported rate-history schema')
         db.execute('PRAGMA journal_mode=WAL')
         db.execute('PRAGMA synchronous=FULL')
         if fresh:
             with db:
-                db.execute('CREATE TABLE accounts (account TEXT PRIMARY KEY, snapshot TEXT NOT NULL)')
-                db.execute('PRAGMA user_version=1')
+                db.execute('BEGIN IMMEDIATE')
+                db.execute('CREATE TABLE accounts '
+                           '(account TEXT PRIMARY KEY, snapshot TEXT NOT NULL, runtime_owner TEXT)')
+                db.execute('PRAGMA user_version=2')
             directory = os.open(self.root, os.O_RDONLY | os.O_DIRECTORY)
             try:
                 os.fsync(directory)
             finally:
                 os.close(directory)
+        elif version == 1:
+            with db:
+                db.execute('BEGIN IMMEDIATE')
+                db.execute('ALTER TABLE accounts ADD COLUMN runtime_owner TEXT')
+                db.execute('PRAGMA user_version=2')
 
     @staticmethod
     def _account(account):
@@ -63,11 +73,20 @@ class RateJournal:
     def save(self, account, snapshot):
         self._account(account)
         raw = json.dumps(snapshot, allow_nan=False, separators=(',', ':'))
+        owner = json.dumps(self.runtime_owner, separators=(',', ':'))
         with self.connection:
             self.connection.execute(
-                'INSERT INTO accounts VALUES (?, ?) '
-                'ON CONFLICT(account) DO UPDATE SET snapshot=excluded.snapshot',
-                (account, raw))
+                'INSERT INTO accounts(account, snapshot, runtime_owner) VALUES (?, ?, ?) '
+                'ON CONFLICT(account) DO UPDATE SET '
+                'snapshot=excluded.snapshot, runtime_owner=excluded.runtime_owner',
+                (account, raw, owner))
+
+    def previous_runtime_stopped(self, account, boot):
+        self._account(account)
+        row = self.connection.execute(
+            'SELECT runtime_owner FROM accounts WHERE account=?', (account,)).fetchone()
+        previous = json.loads(row[0]) if row and row[0] is not None else None
+        return runtime_owner.previous_stopped(previous, self.runtime_owner, boot)
 
     def close(self):
         try:
