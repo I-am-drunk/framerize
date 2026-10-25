@@ -51,6 +51,12 @@ these fixtures do not establish live native delivery.
 Native Python authority helpers were relocated without enabling them. They are
 source-only; no native host launcher or monkeypatch installer is supplied.
 
+The SQLite rate-journal storage layer is implemented with exclusive ownership,
+durable transactions and refusal to initialize over existing account state.
+Seven isolated tests pass, including abrupt process exit and failed writes.
+This is storage groundwork only. Runtime charging, clock recovery and first
+migration are not connected to it, and no live state has been opened or changed.
+
 Next: implement durable account rate history plus graceful
 shutdown. Current account history and first-migration handling remain unresolved;
 no production restart is part of this structural work.
