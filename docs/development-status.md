@@ -34,6 +34,9 @@ including eight new continuation cases. These cover both formats, context
 binding, fresh authorization, cancellation, later refusal, attempt bounds,
 incomplete output and withholding unaccepted HTTP output. The native build
 passes. This is synthetic qualification; live native delivery is unverified.
+The clean `f70e54e` native development archive also passes all eight package
+lifecycle checks with the unchanged bundled worker. Its executable matches
+the qualified build. The package is not installed in the live browser service.
 
 The existing temporary browser archive checks are now consolidated in
 `scripts/smoke_browser_package.py` and wired into the browser CI job. The
