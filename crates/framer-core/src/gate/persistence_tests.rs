@@ -24,7 +24,9 @@ async fn persisted_ceiling_limits_real_permits_after_restart() {
     let gate = ConcurrencyGate::with_state_file(config(), path.clone()).unwrap();
     assert_eq!(gate.limit_of("workspace:model").await, 2);
     let first = gate.acquire_now("workspace:model").await.unwrap();
-    let second = gate.acquire("workspace:model").await;
+    let second = tokio::time::timeout(
+        std::time::Duration::from_secs(2), gate.acquire("workspace:model"),
+    ).await.expect("restored gate must admit its second permit");
     assert!(gate.acquire_now("workspace:model").await.is_none());
     drop((first, second));
     gate.on_overloaded("workspace:model").await;
