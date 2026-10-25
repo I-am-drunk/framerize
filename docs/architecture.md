@@ -23,6 +23,15 @@ the required helpers and constant table;
 it never loads the SDK module. The serving worker remains unchanged until the
 complete native replacement is implemented and validated.
 
+`castle::v3::shared_worker_version` reduces a supplied worker result before
+serialization. It preserves the SDK's marker translation, strict success
+tag and JavaScript truthiness when selecting element 10. Its input is data,
+not a worker handle: it does not launch a browser or collect a version.
+The selected value must retain its original type; precomputed JSON conversion
+cannot establish truthiness and is refused at that position. The offline
+comparison in `scripts/check_v3_worker_result.py` runs the original reducer
+and serializer on synthetic inputs.
+
 The native `castle::v3::deflate` implements the pinned SDK's raw-DEFLATE
 fallback: a 1,024-byte matching window, at most 64 candidates per lookup,
 and one dynamic-Huffman block. Its stable tree ordering and code-length

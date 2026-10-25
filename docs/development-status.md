@@ -76,6 +76,7 @@ again. These are isolated offline checks, not full SDK or service execution.
 These components are not wired into serving and make no memory or acceptance
 claim. Native CI includes `scripts/check_v3_encoding.py`,
 `scripts/check_v3_serialization.py`, `scripts/check_v3_objects.py`,
+`scripts/check_v3_worker_result.py`,
 `scripts/check_v3_deflate.py` and `scripts/check_v3_envelope.py`;
 hosted execution remains unverified. All prior encoding comparisons also pass
 with the shared fixture builder and new native object module.
@@ -88,7 +89,22 @@ is now decoded from the pinned source. Its previously untyped element 10
 comes from `userAgentData.uaFullVersion`, with string markers on unavailable
 or failed paths. This does not establish a stock object producer there.
 Only the pure string decoder ran; worker execution and live selection were
-not tested. The separate callback field feeding `Q[473]` remains under trace.
+not tested. Its native `shared_worker_version` reducer now passes 100
+comparisons against the original `Qon` followed by serialization. These cover
+the eight known markers, unknown strings, strict numeric tag `2`, missing
+element 10, JavaScript truthiness and selection without reinterpreting the
+result as another marker. A second test rejects already-normalized selected
+values whose original truthiness is unavailable. Both tests pass, zero skips,
+inside the existing 512 MiB isolated harness. Earlier component results are
+retained; the shared reference's only existing-code change exports its decoder.
+
+The [field-38 callback trace](../reference/analysis/castle-v3-network-field38.md)
+also establishes a string on ordinary stable RTCIceCandidate paths. Empty,
+timeout and selected-address values remain distinct; `krn` substitutes a
+marker for an empty field before writing `Q[473]`. No stock non-array object
+producer was found on this path. Next resolve and implement that small
+reducer against supplied records. Actual device collection and service
+acceptance remain unfinished.
 
 The dedicated-worker cleanup correction from `759ef0d1` is integrated on
 the reorganized `24ebbdb` base. A focused regression fails on the old pool:

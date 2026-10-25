@@ -75,7 +75,7 @@ export function literalBindings(names) {
   }).join(',');
 }
 
-function decode(value) {
+export function decode(value) {
   switch (value.kind) {
     case 'null': return null;
     case 'undefined': return undefined;
