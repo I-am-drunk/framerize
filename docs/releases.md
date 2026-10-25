@@ -26,6 +26,9 @@ and `python3 scripts/package.py framerize-native`. The native CI job runs
 `scripts/smoke_native_package.py` on the archive before uploading it. This uses
 synthetic account history, an inert worker and a local endpoint to check
 startup, profile exclusion, invalid-request refusal and signal shutdown.
+The same check accepts `--worker-config CONFIG` to verify a real worker's files
+during startup while retaining synthetic account state and invalid requests.
+This does not execute that worker or test SDK acceptance.
 
 For an already migrated profile, the staged native executable accepts:
 
