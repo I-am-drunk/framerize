@@ -9,8 +9,8 @@ use tower::ServiceExt;
 enum RepickClose { Error, Unconfirmed, BeforeCloseBusy }
 
 #[tokio::test]
-async fn cooldown_repick_retains_unavailable_account_without_closing_the_service() {
-    for stream in [false, true] { for consume in [false, true] {
+async fn cooldown_repick_skips_unavailable_account_and_reaches_ready_peer() {
+    for stream in [false, true] {
         let (mut state, ports) = fixture(3, 3);
         activated(&state, 1).await;
         // The host knows B, but the pool must still validate it before use.
@@ -18,31 +18,21 @@ async fn cooldown_repick_retains_unavailable_account_without_closing_the_service
         *ports.status_mode.lock().unwrap() = StatusMode::UnconfirmedFor(id(2));
         *ports.inference_error.lock().unwrap() = Some("account-cooling:600".into());
         ports.fail_first_account.store(true, Ordering::SeqCst);
+        ports.request_gate.add_permits(2);
         let (scope, gate) = ServingOwnership::new_with_host_factory(
             state.wave.clone(), 32, |gate| gate).unwrap();
         state.operation_ownership = Some(scope);
         let app = crate::router(state.clone(), "/fixture-no-web");
         let response = app.clone().oneshot(repick_request(Route::Native, stream)).await.unwrap();
-        assert_eq!(response.status(), if stream { StatusCode::OK }
-            else { StatusCode::SERVICE_UNAVAILABLE });
-        if consume {
-            let body = to_bytes(response.into_body(), 65536).await.unwrap();
-            assert!(String::from_utf8_lossy(&body).contains("600 seconds"));
-        } else { drop(response); }
+        assert_eq!(response.status(), StatusCode::OK);
+        let body = to_bytes(response.into_body(), 65536).await.unwrap();
+        assert!(String::from_utf8_lossy(&body).contains("fixture result"));
         until(|| gate.stats().unwrap().active == 1).await;
         assert!(!gate.stats().unwrap().unconfirmed, "account B must not poison global admission");
         assert!(slot(&state, id(2)).uncertain);
         assert_eq!(slot(&state, id(2)).users, 0);
-        assert_eq!(ports.request_started.load(Ordering::SeqCst), 1);
+        assert_eq!(ports.request_started.load(Ordering::SeqCst), 2);
         assert!(!ports.events.lock().unwrap().iter().any(|e| e.0 == "close_started"));
-        *ports.status_mode.lock().unwrap() = StatusMode::Ready;
-        ports.request_gate.add_permits(2);
-        let mut peer = repick_request(Route::Native, false);
-        peer.headers_mut().insert("x-framerize-account", id(3).0.to_string().parse().unwrap());
-        let response = app.clone().oneshot(peer).await.unwrap();
-        assert_eq!(response.status(), StatusCode::OK);
-        let body = to_bytes(response.into_body(), 65536).await.unwrap();
-        assert!(String::from_utf8_lossy(&body).contains("fixture result"));
         let mut unavailable = repick_request(Route::Native, false);
         unavailable.headers_mut().insert("x-framerize-account", id(2).0.to_string().parse().unwrap());
         let response = app.oneshot(unavailable).await.unwrap();
@@ -53,12 +43,32 @@ async fn cooldown_repick_retains_unavailable_account_without_closing_the_service
         assert!(!ports.mint_routes.lock().unwrap().iter().any(|(account, _)| *account == id(2)));
         until(|| gate.stats().unwrap().active == 1).await;
         assert!(!gate.stats().unwrap().unconfirmed);
-    } }
+    }
 }
 
 #[tokio::test]
 async fn failed_repick_close_preserves_error_and_fences_admission() {
     check_repick(RepickClose::Error).await;
+}
+
+#[tokio::test]
+async fn repick_exhausts_clean_refusals_but_stops_on_unconfirmed_cleanup() {
+    for (mode, confirmed, probes) in [(CloseMode::BusyResident, true, 2),
+        (CloseMode::Unconfirmed, false, 1)] {
+        let (state, ports) = fixture(1, 3);
+        activated(&state, 1).await;
+        *ports.close_mode.lock().unwrap() = mode;
+        let outcome = tokio::time::timeout(Duration::from_secs(2),
+            crate::pick_fresh_account(&state, &[id(1).0.to_string()]))
+            .await.expect("replacement selection must terminate");
+        assert!(outcome.result.is_err());
+        assert_eq!(outcome.cleanup_confirmed, confirmed);
+        assert_eq!(ports.events.lock().unwrap().iter()
+            .filter(|event| **event == ("close_started", id(1))).count(), probes);
+        assert_eq!(ports.request_started.load(Ordering::SeqCst), 0);
+        assert_eq!(slot(&state, id(1)).uncertain, !confirmed);
+        assert_eq!(ports.live.lock().unwrap().len(), 1);
+    }
 }
 
 #[tokio::test]

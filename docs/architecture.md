@@ -3,6 +3,13 @@
 The current reorganization is in progress. See [the design](rearchitecture.md)
 for decisions, boundaries and the remaining migration work.
 
+Browser stream admission can reselect before generated output if its account
+cooled after the stream opened. Reading that cooldown does not extend it.
+Replacement selection checks each original candidate at most once and may
+continue after a confirmed local admission refusal. Unavailable accounts keep
+their fences; unknown cleanup, global pauses and internal errors stop the
+selection. Explicit account selection and inference retry limits are unchanged.
+
 - `apps/framerize`: the normal browser application and command-line interface.
 - `apps/framerize-native`: the experimental standalone native service and tools.
 - `crates/framer-native`: native account, authorization, request, transport and worker code.
