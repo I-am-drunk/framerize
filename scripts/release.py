@@ -32,6 +32,9 @@ def verify(root):
         required.update(('runtime/host.py', 'runtime/runtime-manifest.json', 'web/index.html'))
     else:
         required.update(('runtime/native.py', 'runtime/runtime-manifest.json'))
+        if info.get('worker_bundle_format') == 1:
+            required.update(('runtime/worker/worker-config.json', 'runtime/worker/worker.mjs',
+                             'runtime/worker/bin/node', 'runtime/worker/bundle-manifest.json'))
     if not required <= actual:
         raise ValueError('incomplete application package')
     return info

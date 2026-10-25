@@ -42,11 +42,14 @@ The complete `1b9a7fe` development archive also passes its eight lifecycle
 checks: archive/runtime validation, startup, invalid-request refusal, profile
 exclusion, SIGTERM, Ctrl-C and profile reuse. It is not installed in the running
 service. Real browserless generation remains unverified.
-The same package also passes all eight lifecycle checks with the real frozen
-V3 worker configuration. Its 32 direct pins and full 1,259-file software closure
-match. This verifies startup compatibility with those inputs, not SDK execution
-or upstream acceptance. The worker still references local investigation paths;
-making those inputs portable remains a packaging dependency.
+The same package also passes all eight lifecycle checks with the original
+V3 worker configuration. The portable worker builder now carries all 1,259
+original inputs: 1,258 are byte-identical, and only the location declarations
+changed. Node, SDK assets, support modules and npm dependencies are bundled.
+Three Rust path-resolution cases and seven package/staging cases pass; the
+native executable rebuilds and the relocated software pin checks pass.
+The new complete archive still needs its package lifecycle check. No SDK
+execution or upstream acceptance is established by these packaging results.
 
 The expiry, importer, journal, rate and runtime-owner suites pass 41 focused
 Python cases. Thirteen expiry cases cover actual deadline boundaries, unknown

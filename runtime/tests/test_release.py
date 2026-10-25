@@ -15,21 +15,52 @@ import release as installer
 import package as builder
 
 
+def worker_fixture(root):
+    root.mkdir()
+    (root / 'bin').mkdir()
+    for name in ('bin/node', 'worker.mjs', 'worker-config.json'):
+        (root / name).write_text('synthetic, never executed')
+    files = {p.relative_to(root).as_posix(): installer.sha256(p)
+             for p in root.rglob('*') if p.is_file()}
+    (root / 'bundle-manifest.json').write_text(json.dumps(files))
+    return root
+
+
 class ReleaseTests(unittest.TestCase):
+    def test_worker_copy_refuses_tampering_missing_files_and_links(self):
+        for change in ('contents', 'missing', 'extra', 'link'):
+            with self.subTest(change=change), tempfile.TemporaryDirectory() as directory:
+                root = Path(directory)
+                worker = worker_fixture(root / 'worker')
+                entry = worker / 'worker.mjs'
+                if change == 'contents':
+                    entry.write_text('changed')
+                elif change == 'missing':
+                    entry.unlink()
+                elif change == 'extra':
+                    (worker / 'extra.mjs').touch()
+                else:
+                    entry.unlink()
+                    entry.symlink_to('bin/node')
+                with self.assertRaises(ValueError):
+                    builder.copy_worker(worker, root / 'copy')
+
     def test_clean_debug_build_is_still_a_development_package(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             target = root / 'debug'
             target.mkdir()
             (target / 'framerize-native').write_bytes(b'synthetic executable')
+            worker = worker_fixture(root / 'worker')
             def output(args, **kwargs):
                 return {'rev-parse': 'f' * 40, 'status': b'', '--version': 'fixture rustc'}[args[1]]
             with patch.object(builder.subprocess, 'check_output', side_effect=output):
                 with self.assertRaisesRegex(ValueError, 'release build'):
                     builder.package('framerize-native', root / 'out', target)
-                archive = builder.package('framerize-native', root / 'out', target, True)
+                archive = builder.package('framerize-native', root / 'out', target, True, worker)
             self.assertIn('-development.tar.gz', archive.name)
             with tarfile.open(archive) as bundle:
+                self.assertTrue(any(m.name.endswith('/runtime/worker/bin/node') for m in bundle.getmembers()))
                 member = next(m for m in bundle.getmembers() if m.name.endswith('/build-info.json'))
                 info = json.load(bundle.extractfile(member))
             self.assertFalse(info['source_dirty'])

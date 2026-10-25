@@ -60,6 +60,14 @@ both from its own package, independently of the working directory. Development
 overrides are explicit command-line options. Native archives carry their ledger
 runtime and standalone service. See [application packages](releases.md).
 
+The native package also carries its V3 worker under `runtime/worker`, including
+Node, pinned SDK assets and locked npm dependencies. `bundle.mjs` assembles those
+files without running the SDK; package creation checks the complete inventory.
+The worker configuration uses paths relative to its own location. Moving an
+archive therefore does not bind it to the build machine or current directory.
+Startup verifies the packaged runtime and the existing 32 direct worker pins.
+Explicit external worker configurations remain supported for development.
+
 Concurrency-limit storage is selected by application startup. Library gates
 are in memory unless supplied a state-file path. Fixtures never inherit the
 normal service's learned limits through an implicit home-directory lookup.
