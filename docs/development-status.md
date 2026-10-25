@@ -30,7 +30,7 @@ cleanup cases pass with the correction, with no skipped cases, inside an
 isolated Node 20.20.0 run. They cover failed and successful stops, pending
 exits, discarded stop promises, source preparation and already-exited workers.
 The native CI job now runs this selection. No SDK, live account or service
-was used; existing release archives have not been rebuilt for this change.
+was used; the matching package result is recorded below.
 
 The G3 correction from `88db846` is integrated over `d760f0a`. A later worker handoff refusal now
 retains completed minter metadata. Rust retains a validated typed summary and
@@ -55,11 +55,26 @@ two synthetic requests through the same account: each failure pairs with its
 own completion and contains no account identifier. The checks use inert
 workers and synthetic state, not the vendor SDK or a live account.
 The earlier eight pool-cleanup passes remain valid and were not repeated.
-Current release archives are unchanged; package rebinding remains pending.
+The matching optimized package is now built and checked as recorded below.
 The historical HTTP 403 still has no established policy cause.
 
-The optimized native release from `3c5a999` builds successfully and passes all
-eight package lifecycle checks using its bundled worker configuration. The
+The optimized native release from `04a5fc2` includes the cleanup and diagnostic
+changes and passes all eight package lifecycle checks using its bundled worker.
+The complete archive is 50,420,493 bytes, with SHA256
+`1b2ba1c45db56d5ff1d1b11c458d644ee210295676b44347bf37b7c2df80b8ad`.
+Its executable matches the release build, and its worker entrypoint and pool
+match the qualified source. The checks cover archive/runtime verification,
+startup, invalid requests, exclusive profile ownership, SIGTERM, SIGINT and
+profile reuse. Build plus packaging and checks took 72.984 seconds with cached
+dependencies. The isolated unit exited and released its execution lock.
+No SDK, live account or installed service was used. This is a local package
+result. GitHub Actions run `40215277433` ended in `startup_failure` before any
+job ran; the previously recorded hosted billing restriction is unresolved.
+Next: bind the remaining native acceptance observations to this package and
+its request IDs. Existing-account ownership and real delivery remain unverified.
+
+The previous optimized native release from `3c5a999` also passed all eight
+package lifecycle checks using its bundled worker configuration. The
 complete archive is 50,406,919 bytes, with SHA256
 `e780b8d80709f0c064c53cefa90edc0c010a4caa2d9c0d351c57db421eaf109e`.
 Its executable matches the release build. These are artifact sizes, not
