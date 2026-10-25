@@ -23,10 +23,14 @@ fn stage(bytes: &[u8]) -> Option<WorkerStage> {
     let version = value["version"].as_u64()?;
     if !matches!(version, 1 | 2) || value["status"].as_str()? != "failed" { return None; }
     let label = value["failure_phase"].as_str()?;
-    let stage = WorkerStage(STAGES.iter().copied().find(|candidate| *candidate == label)?);
+    let refined = V3_STAGES.contains(&label);
+    let stage = WorkerStage(STAGES.iter().chain(V3_STAGES).copied()
+        .find(|candidate| *candidate == label)?);
     // The entrypoint's catch emits version 1 even for a version 2 input.
-    if version == 1 && object.len() == 3 { return Some(stage); }
-    full_shape(&value, version).then_some(stage)
+    if version == 1 && object.len() == 3 { return (!refined).then_some(stage); }
+    if !full_shape(&value, version) { return None; }
+    if refined && value["branch"]["errors"].as_u64()? == 0 { return None; }
+    Some(stage)
 }
 
 fn full_shape(value: &Value, version: u64) -> bool {
@@ -56,3 +60,7 @@ const STAGES: &[&str] = &["descriptors", "input", "input-identity", "runtime", "
     "window", "graphics", "device-storage", "module-link", "inspector", "module-evaluate",
     "mint", "dedicated-worker", "shared-worker", "graphics-cleanup", "branch", "deadline",
     "token-shape", "cleanup", "handoff"];
+
+const V3_STAGES: &[&str] = &["v3-module-load-error", "v3-module-load-timeout",
+    "v3-configuration-error", "v3-configuration-timeout", "v3-token-generation-error",
+    "v3-token-generation-timeout", "v3-sdk-error"];

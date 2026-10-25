@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { validateInput, OpaqueToken } from './protocol.mjs';
-import { observeBranch, exactV3 } from './branch.mjs';
+import { observeBranch, exactV3, observeFailurePhase, refineFailurePhase } from './branch.mjs';
 import { OfflineCastleMinter } from './offline_mint.mjs';
 
 const input = () => ({ version: 1, budget_ms: 16000, target: {
@@ -9,6 +9,149 @@ const input = () => ({ version: 1, budget_ms: 16000, target: {
   url: 'https://framer.com/projects/offline-fixture',
 } });
 const entry = (message, level = 1) => ({ logger: { id: 'castle' }, level, parts: [message] });
+
+const phaseCases = [
+  ['module load', 'error', 'v3-module-load-error'],
+  ['module load', 'timeout', 'v3-module-load-timeout'],
+  ['configuration', 'error', 'v3-configuration-error'],
+  ['configuration', 'timeout', 'v3-configuration-timeout'],
+  ['token generation', 'error', 'v3-token-generation-error'],
+  ['token generation', 'timeout', 'v3-token-generation-timeout'],
+  ['SDK', 'error', 'v3-sdk-error'],
+];
+const phaseEntry = (phase = 'configuration', failure = 'error') => ({
+  logger: { id: 'castle' }, level: 4,
+  parts: [Object.create(null), { castleVersion: 'v3', castlePhase: phase, castleFailure: failure }],
+});
+
+test('wrapper_phase_tags_refine_only_supported_failed_verdicts', () => {
+  for (const [phase, failure, label] of phaseCases) {
+    const value = phaseEntry(phase, failure);
+    for (const parts of [[value.parts[1]], value.parts, [value.parts[0], {}, value.parts[1]]]) {
+      const records = [{ ...value, parts }];
+      assert.equal(observeFailurePhase(records), label);
+      assert.equal(refineFailurePhase('mint', label), label);
+      assert.equal(refineFailurePhase('branch', label), label);
+      assert.deepEqual(observeBranch(records), { v3: 0, v2: 0, none: 0, errors: 1 });
+      assert.equal(exactV3(observeBranch([entry('Using Castle v3 token'), ...records])), false);
+      assert.equal(refineFailurePhase(null, label), null);
+    }
+  }
+});
+
+test('phase_conflicts_do_not_depend_on_logger_order', () => {
+  for (const [phase, failure, label] of phaseCases) {
+    for (const [otherPhase, otherFailure, otherLabel] of phaseCases) {
+      const actual = observeFailurePhase([
+        phaseEntry(phase, failure), phaseEntry(otherPhase, otherFailure),
+      ]);
+      assert.equal(actual, label === otherLabel ? label : undefined);
+      assert.equal(refineFailurePhase('mint', actual), label === otherLabel ? label : 'mint');
+    }
+  }
+});
+
+test('malformed_or_unsupported_error_tags_prevent_refinement', () => {
+  const valid = phaseEntry();
+  const tags = valid.parts[1];
+  const invalidParts = [undefined, {}, [], [{}, tags, {}], [{}, tags, {}, {}], [{}, tags, 'private'],
+    [{}, {}], [{}, { ...tags, castleVersion: 'v2' }],
+    [{}, { ...tags, castleVersion: 'V3' }], [{}, { ...tags, castlePhase: 'unknown' }],
+    [{}, { ...tags, castlePhase: 'SDK', castleFailure: 'timeout' }],
+    [{}, { ...tags, castleFailure: 'Error' }], [{}, { ...tags, castleFailure: new String('error') }],
+    [{}, Object.create(tags)], [{}, { ...tags, castlePhase: undefined }],
+    [{}, { ...tags, castleFailure: null }]];
+  for (const parts of invalidParts) {
+    const invalid = { ...valid, parts };
+    for (const records of [[valid, invalid], [invalid, valid]]) {
+      assert.equal(observeFailurePhase(records), undefined);
+      assert.equal(refineFailurePhase('branch', observeFailurePhase(records)), 'branch');
+    }
+  }
+});
+
+test('phase_reader_ignores_other_loggers_and_nonerror_parts', () => {
+  let reads = 0;
+  const unread = () => { reads++; throw new Error('private fixture'); };
+  const foreign = { logger: { id: 'other' }, get level() { return unread(); },
+    get parts() { return unread(); } };
+  const warning = { logger: { id: 'castle' }, level: 3, get parts() { return unread(); } };
+  assert.equal(observeFailurePhase([foreign, warning]), undefined);
+  assert.equal(observeFailurePhase([foreign, warning, phaseEntry()]), 'v3-configuration-error');
+  assert.equal(reads, 0);
+});
+
+test('phase_reader_never_invokes_accessors_or_uses_inherited_tags', () => {
+  const locations = [r => [r, '0'], r => [r[0], 'logger'], r => [r[0].logger, 'id'],
+    r => [r[0], 'level'], r => [r[0], 'parts'], r => [r[0].parts, '1'],
+    r => [r[0].parts[1], 'castleVersion'], r => [r[0].parts[1], 'castlePhase'],
+    r => [r[0].parts[1], 'castleFailure']];
+  for (const locate of locations) {
+    const records = [phaseEntry()];
+    const [target, key] = locate(records);
+    let reads = 0;
+    Object.defineProperty(target, key, { get() { reads++; throw new Error('private fixture'); } });
+    assert.equal(observeFailurePhase(records), undefined);
+    assert.equal(reads, 0);
+  }
+  for (const key of ['castleVersion', 'castlePhase', 'castleFailure']) {
+    const value = phaseEntry(), tags = value.parts[1], inherited = { [key]: tags[key] };
+    delete tags[key]; Object.setPrototypeOf(tags, inherited);
+    assert.equal(observeFailurePhase([value]), undefined);
+  }
+});
+
+test('phase_reader_does_not_read_errors_extras_or_private_tag_fields', () => {
+  const value = phaseEntry(), tags = value.parts[1];
+  let reads = 0;
+  const unread = () => { reads++; throw new Error('private fixture'); };
+  value.parts = new Array(3);
+  Object.defineProperty(value.parts, '0', { get: unread });
+  Object.defineProperty(value.parts, '1', { get: unread });
+  value.parts[2] = tags;
+  for (const key of ['message', 'cause', 'stack', 'token', 'key', 'identifier',
+    'castleTimeoutMs', 'castleDurationMs', 'toJSON', Symbol.toPrimitive])
+    Object.defineProperty(tags, key, { get: unread });
+  const label = observeFailurePhase([value]);
+  assert.equal(label, 'v3-configuration-error');
+  assert.equal(JSON.stringify({ failure_phase: refineFailurePhase('mint', label) }),
+    '{"failure_phase":"v3-configuration-error"}');
+  assert.equal(reads, 0);
+});
+
+test('phase_reader_refuses_malformed_inventory', () => {
+  for (const records of [null, {}, Object.create([]), new Array(1001), [null],
+    new Array(1), [{ logger: { id: 'castle' }, level: '4' }]])
+    assert.equal(observeFailurePhase(records), undefined);
+  assert.equal(observeFailurePhase([]), undefined);
+});
+
+test('phase_reader_rejects_proxies_without_running_traps', () => {
+  let traps = 0;
+  const trap = () => { traps++; throw new Error('private fixture'); };
+  const proxy = target => new Proxy(target, { get: trap, getOwnPropertyDescriptor: trap,
+    ownKeys: trap, getPrototypeOf: trap });
+  const builders = [() => proxy([phaseEntry()]), () => [proxy(phaseEntry())],
+    () => { const e = phaseEntry(); e.logger = proxy(e.logger); return [e]; },
+    () => { const e = phaseEntry(); e.parts = proxy(e.parts); return [e]; },
+    () => { const e = phaseEntry(); e.parts[1] = proxy(e.parts[1]); return [e]; }];
+  for (const build of builders) assert.equal(observeFailurePhase(build()), undefined);
+  const revoked = Proxy.revocable([phaseEntry()], {}); revoked.revoke();
+  assert.equal(observeFailurePhase(revoked.proxy), undefined);
+  assert.equal(traps, 0);
+});
+
+test('phase_refinement_preserves_success_and_other_failure_precedence', () => {
+  const preserved = [null, undefined, 'descriptors', 'input', 'input-identity', 'runtime',
+    'import', 'window', 'graphics', 'device-storage', 'module-link', 'inspector',
+    'module-evaluate', 'dedicated-worker', 'shared-worker', 'graphics-cleanup',
+    'deadline', 'token-shape', 'cleanup', 'handoff'];
+  for (const phase of preserved)
+    for (const [, , label] of phaseCases) assert.equal(refineFailurePhase(phase, label), phase);
+  for (const phase of ['mint', 'branch'])
+    for (const label of [undefined, null, 'v3-sdk-timeout', 'private', {}])
+      assert.equal(refineFailurePhase(phase, label), phase);
+});
 
 test('constructor_is_inert_without_runtime_admission', () => {
   assert.ok(new OfflineCastleMinter(input()) instanceof OfflineCastleMinter);
