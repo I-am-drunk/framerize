@@ -1,10 +1,9 @@
 import fs from 'node:fs';
 import { performance } from 'node:perf_hooks';
-import { pathToFileURL } from 'node:url';
 import { OfflineCastleMinter } from './offline_mint.mjs';
 import { readInput, verifyDescriptors } from './protocol.mjs';
 import { verifyInputs } from './sdk_loader.mjs';
-import { SUPPORT } from './pins.mjs';
+import { writeCollection } from './collection.mjs';
 
 let trusted = false, tokenClosed = false, phase = 'descriptors';
 let pipeWriteAttempted = false, pipeWriteCompleted = false;
@@ -17,24 +16,20 @@ try {
   phase = 'mint';
   const result = await minter.mint();
   metadata = result.metadata;
-  if (result.token) {
+  if (result.collection) {
     phase = 'handoff';
     verifyInputs();
-    const { makeTokenWriter } = await import(pathToFileURL(SUPPORT.writer[0]));
-    metadata.mint_to_handoff_ms = handoffAge = performance.now() - result.minted_at;
-    if (!Number.isFinite(metadata.mint_to_handoff_ms)
-        || metadata.mint_to_handoff_ms < 0 || metadata.mint_to_handoff_ms > 2000)
-      throw new Error('token-age');
-    const writeToken = makeTokenWriter(4);
-    const token = result.token.take();
+    metadata.collection_to_handoff_ms = handoffAge = performance.now() - result.collected_at;
+    if (!Number.isFinite(handoffAge) || handoffAge < 0 || handoffAge > 2000)
+      throw new Error('collection-age');
+    const collection = result.collection.take();
     pipeWriteAttempted = true;
-    try { writeToken(token); pipeWriteCompleted = true; }
+    try { writeCollection(4, collection); pipeWriteCompleted = true; }
     finally { tokenClosed = true; }
-    metadata.mint_to_handoff_ms = handoffAge = performance.now() - result.minted_at;
-    if (!Number.isFinite(metadata.mint_to_handoff_ms)
-        || metadata.mint_to_handoff_ms < 0 || metadata.mint_to_handoff_ms > 2000)
-      throw new Error('token-age');
-    metadata.token_handoff = true;
+    metadata.collection_to_handoff_ms = handoffAge = performance.now() - result.collected_at;
+    if (!Number.isFinite(handoffAge) || handoffAge < 0 || handoffAge > 2000)
+      throw new Error('collection-age');
+    metadata.collection_handoff = true;
   }
 } catch {
   if (phase === 'handoff') {
@@ -42,10 +37,10 @@ try {
     // writer does not establish freshness, parent receipt or joined cleanup.
     metadata.status = 'failed';
     metadata.failure_phase = phase;
-    metadata.token_handoff = false;
-    metadata.token_pipe_write_attempted = pipeWriteAttempted;
-    metadata.token_pipe_write_completed = pipeWriteCompleted;
-    metadata.mint_to_handoff_ms = Number.isFinite(handoffAge) && handoffAge >= 0
+    metadata.collection_handoff = false;
+    metadata.collection_pipe_write_attempted = pipeWriteAttempted;
+    metadata.collection_pipe_write_completed = pipeWriteCompleted;
+    metadata.collection_to_handoff_ms = Number.isFinite(handoffAge) && handoffAge >= 0
       ? handoffAge : null;
   } else {
     metadata = { version: 1, status: 'failed', failure_phase: phase };
@@ -66,4 +61,4 @@ if (trusted) {
     fs.closeSync(5);
   } catch { process.exit(3); }
 }
-process.exit(metadata.status === 'passed' && metadata.token_handoff === true ? 0 : 2);
+process.exit(metadata.status === 'passed' && metadata.collection_handoff === true ? 0 : 2);

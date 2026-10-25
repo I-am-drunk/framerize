@@ -68,7 +68,7 @@ async fn measure(worker: Worker) -> Result<Value, &'static str> {
         "token_discarded": valid,
         "owner_elapsed_ms": started.elapsed().as_secs_f64() * 1000.0,
         "sdk_elapsed_ms": metadata.elapsed_ms, "sdk_method_ms": metadata.method_ms,
-        "handoff_ms": metadata.mint_to_handoff_ms
+        "handoff_ms": metadata.collection_to_handoff_ms
     }))
 }
 

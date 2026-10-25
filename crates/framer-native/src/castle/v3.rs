@@ -25,6 +25,7 @@ mod network_events;
 pub use network_events::{NetworkEvents, NetworkState};
 mod encode;
 pub use encode::{encode_collected, EncodingError};
+pub(crate) use encode::encode_current;
 mod collected;
 pub use collected::{apply_collector_result, apply_network_result, CollectorError, CollectorResult};
 

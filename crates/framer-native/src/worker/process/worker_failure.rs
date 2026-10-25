@@ -11,13 +11,13 @@ pub(super) fn from_exit(code: Option<i32>, bytes: &[u8]) -> Failure {
 }
 
 const FLAGS: [&str; 7] = ["target_validated", "account_state_loaded", "v3_evaluated",
-    "window_closed", "inspector_closed", "sources_unchanged", "token_handoff"];
+    "window_closed", "inspector_closed", "sources_unchanged", "collection_handoff"];
 const COUNTS: [&str; 5] = ["wrapper_calls", "dynamic_imports", "async_errors",
     "diagnostics", "late_settlements"];
-const TIMES: [&str; 3] = ["method_ms", "elapsed_ms", "mint_to_handoff_ms"];
+const TIMES: [&str; 3] = ["method_ms", "elapsed_ms", "collection_to_handoff_ms"];
 const BRANCH: [&str; 4] = ["v3", "v2", "none", "errors"];
 const DEVICE: [&str; 2] = ["device_storage_seeded", "device_storage_unchanged"];
-const PIPE: [&str; 2] = ["token_pipe_write_attempted", "token_pipe_write_completed"];
+const PIPE: [&str; 2] = ["collection_pipe_write_attempted", "collection_pipe_write_completed"];
 
 fn stage(bytes: &[u8]) -> Option<WorkerStage> {
     if bytes.len() > 16384 { return None; }
@@ -42,7 +42,7 @@ fn summary(value: &Value, version: u64, label: &str) -> Option<WorkerSummary> {
     let extended = PIPE.iter().any(|key| object.contains_key(*key));
     let expected = 4 + FLAGS.len() + COUNTS.len() + TIMES.len()
         + (if version == 2 { 2 } else { 0 }) + (if extended { 2 } else { 0 });
-    if object.len() != expected || value["token_handoff"].as_bool()? { return None; }
+    if object.len() != expected || value["collection_handoff"].as_bool()? { return None; }
     let flags = fields(value, FLAGS, Value::as_bool)?;
     let counts = fields(value, COUNTS, bounded_count)?;
     let branch = fields(&value["branch"], BRANCH, bounded_count)?;
@@ -53,7 +53,7 @@ fn summary(value: &Value, version: u64, label: &str) -> Option<WorkerSummary> {
         if label != "handoff" || (pipe[1] && !pipe[0]) { return None; }
         Some(pipe)
     } else { None };
-    let age_value = value.get("mint_to_handoff_ms")?;
+    let age_value = value.get("collection_to_handoff_ms")?;
     let age = if extended && age_value.is_null() { None }
         else { Some(milliseconds(age_value)?) };
     Some(WorkerSummary { version, flags, counts, branch, device, pipe,
@@ -116,7 +116,7 @@ impl WorkerSummary {
 const STAGES: &[&str] = &["descriptors", "input", "input-identity", "runtime", "import",
     "window", "graphics", "device-storage", "module-link", "inspector", "module-evaluate",
     "mint", "dedicated-worker", "shared-worker", "graphics-cleanup", "branch", "deadline",
-    "token-shape", "cleanup", "handoff"];
+    "collection-shape", "cleanup", "handoff"];
 
 const V3_STAGES: &[&str] = &["v3-module-load-error", "v3-module-load-timeout",
     "v3-configuration-error", "v3-configuration-timeout", "v3-token-generation-error",

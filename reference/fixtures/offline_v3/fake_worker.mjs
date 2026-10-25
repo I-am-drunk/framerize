@@ -1,4 +1,4 @@
-// Offline fixture only. Every token below is an artificial test string.
+// Offline fixture only. Synthetic values exercise the real native encoder.
 import fs from 'node:fs';
 import net from 'node:net';
 import { spawnSync } from 'node:child_process';
@@ -12,7 +12,7 @@ const metadata = { version: 1, status: 'passed', failure_phase: null,
   v3_evaluated: true, window_closed: true, inspector_closed: true,
   sources_unchanged: true, async_errors: 0, diagnostics: 0,
   late_settlements: 0, method_ms: 2, elapsed_ms: 5,
-  mint_to_handoff_ms: 1, token_handoff: true };
+  collection_to_handoff_ms: 1, collection_handoff: true };
 if (mode === 'sandbox') {
   const child = spawnSync('/bin/true', [], { stdio: 'ignore' });
   if (child.error?.code !== 'EPERM') process.exit(4);
@@ -24,13 +24,15 @@ if (mode === 'sandbox') {
   if (!denied) process.exit(4);
 }
 if (mode === 'badmeta') metadata.branch.v2 = 1;
-const token = Buffer.from('fake-fixture-token');
-const header = Buffer.from([0x46, 0x53, 0x44, 0x4b, 1, 0, 0, 0, 0, 0, 0, 0]);
+const token = Buffer.from(JSON.stringify({version: 1,
+  values: {kind: 'array', values: Array.from({length: 765}, (_, i) =>
+    ({kind: 'number', value: String(i)}))}}));
+const header = Buffer.from([0x46, 0x43, 0x4c, 0x54, 1, 0, 0, 0, 0, 0, 0, 0]);
 header.writeUInt32BE(token.length, 8);
 let frame = Buffer.concat([header, token]);
 if (mode === 'truncated') frame = frame.subarray(0, frame.length - 1);
 if (mode === 'extra') frame = Buffer.concat([frame, Buffer.from([0])]);
-if (mode === 'oversized') frame = Buffer.alloc(20000, 1);
+if (mode === 'oversized') frame = Buffer.alloc(1024 * 1024 + 13, 1);
 for (const [fd, bytes] of [[4, frame], [5, Buffer.from(JSON.stringify(metadata))]]) {
   let offset = 0;
   while (offset < bytes.length) {

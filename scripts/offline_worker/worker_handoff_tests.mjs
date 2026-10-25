@@ -3,7 +3,6 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import vm from 'node:vm';
-import { pathToFileURL } from 'node:url';
 
 const source = await readFile(new URL('./worker.mjs', import.meta.url), 'utf8');
 const report = (version = 1) => ({ version, status: 'passed', failure_phase: null,
@@ -11,7 +10,7 @@ const report = (version = 1) => ({ version, status: 'passed', failure_phase: nul
   branch: { v3: 1, v2: 0, none: 0, errors: 0 }, dynamic_imports: 1,
   v3_evaluated: true, window_closed: true, inspector_closed: true,
   sources_unchanged: true, async_errors: 0, diagnostics: 2, late_settlements: 0,
-  method_ms: 3, elapsed_ms: 5, mint_to_handoff_ms: 0, token_handoff: false,
+  method_ms: 3, elapsed_ms: 5, collection_to_handoff_ms: 0, collection_handoff: false,
   ...(version === 2 ? { device_storage_seeded: true, device_storage_unchanged: true } : {}),
 });
 
@@ -32,28 +31,20 @@ async function run({ fail, times = [10, 20], version = 1, failedMint = false } =
   const imports = {
     'node:fs': module({ default: fs }),
     'node:perf_hooks': module({ performance: { now() { return times.shift(); } } }),
-    'node:url': module({ pathToFileURL }),
     './offline_mint.mjs': module({ OfflineCastleMinter: class {
       constructor() { step('input'); }
-      async mint() { step('mint'); return { metadata, minted_at: 0,
-        token: failedMint ? undefined : { take() { takes++; return 'synthetic-private-token'; } } }; }
+      async mint() { step('mint'); return { metadata, collected_at: 0,
+        collection: failedMint ? undefined : { take() { takes++; return 'synthetic-private-collection'; } } }; }
     } }),
     './protocol.mjs': module({ readInput: () => ({}), verifyDescriptors: () => step('descriptors') }),
     './sdk_loader.mjs': module({ verifyInputs: () => step('verify') }),
-    './pins.mjs': module({ SUPPORT: { writer: ['/inert-writer.mjs'] } }),
-  };
-  const writer = module({ makeTokenWriter(fd) {
-    assert.equal(fd, 4); step('factory');
-    return token => {
-      try { writes++; assert.equal(token, 'synthetic-private-token'); step('write'); }
+    './collection.mjs': module({ writeCollection(fd, value) {
+      assert.equal(fd, 4);
+      try { writes++; assert.equal(value, 'synthetic-private-collection'); step('write'); }
       finally { closed.push(fd); }
-    };
-  } });
-  const entry = new vm.SourceTextModule(source, { context, async importModuleDynamically(url) {
-    assert.equal(url, 'file:///inert-writer.mjs'); step('import');
-    await writer.link(() => { throw Error('unexpected import'); });
-    await writer.evaluate(); return writer;
-  } });
+    } }),
+  };
+  const entry = new vm.SourceTextModule(source, { context });
   await entry.link(name => { assert.ok(imports[name]); return imports[name]; });
   await entry.evaluate();
   const output = Buffer.concat(written).toString('utf8');
@@ -63,8 +54,8 @@ async function run({ fail, times = [10, 20], version = 1, failedMint = false } =
 
 function refused(result, attempted, completed, age) {
   assert.deepEqual(result.metadata, { ...result.original, status: 'failed',
-    failure_phase: 'handoff', token_pipe_write_attempted: attempted,
-    token_pipe_write_completed: completed, mint_to_handoff_ms: age });
+    failure_phase: 'handoff', collection_pipe_write_attempted: attempted,
+    collection_pipe_write_completed: completed, collection_to_handoff_ms: age });
   assert.deepEqual(result.exits, [2]);
   assert.deepEqual(result.closed, [4, 5]);
   assert.equal(result.takes, attempted ? 1 : 0);
@@ -92,11 +83,9 @@ test('failed_minter_report_is_preserved_without_handoff_claims', async () => {
   }
 });
 
-test('verification_import_and_factory_refusals_retain_completed_facts', async () => {
+test('verification_refusal_retains_completed_facts', async () => {
   for (const version of [1, 2]) {
-    for (const fail of ['verify', 'import', 'factory']) {
-      refused(await run({ version, fail }), false, false, fail === 'factory' ? 10 : null);
-    }
+    refused(await run({ version, fail: 'verify' }), false, false, null);
   }
 });
 
@@ -122,7 +111,7 @@ test('invalid_age_is_unknown_and_never_qualified', async () => {
 test('successful_handoff_preserves_exact_success_schema_in_both_modes', async () => {
   for (const version of [1, 2]) {
     const result = await run({ version, times: [2000, 2000] });
-    assert.deepEqual(result.metadata, { ...result.original, mint_to_handoff_ms: 2000, token_handoff: true });
+    assert.deepEqual(result.metadata, { ...result.original, collection_to_handoff_ms: 2000, collection_handoff: true });
     assert.deepEqual(result.exits, [0]); assert.deepEqual(result.closed, [4, 5]);
     assert.equal(result.takes, 1); assert.equal(result.writes, 1);
   }

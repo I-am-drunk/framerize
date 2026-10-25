@@ -1,6 +1,6 @@
 // Test-only observation hooks. The production SDK loader does not import this.
 import {createHash} from 'node:crypto';
-import {capture} from './castle_v3_snapshot_values.mjs';
+import {capture} from './offline_worker/collected_values.mjs';
 const sdkHash = '3337eba7ffe614c2ebd9b2b8a55794f2e2445a9b3658d1af5eb7530152b72c71';
 const sha = value => createHash('sha256').update(value).digest('hex');
 let serialized, timestamp, instrumentedHash, preSerialization;

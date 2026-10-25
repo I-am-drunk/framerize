@@ -81,7 +81,7 @@ fn unknown_stage_or_extra_private_fields_stay_generic() {
 fn full_report_requires_exact_types_and_bounded_counters() {
     for (key, invalid) in [("version", json!(1.0)), ("wrapper_calls", json!(true)),
         ("diagnostics", json!(1_000_001)), ("method_ms", json!(-1)),
-        ("v3_evaluated", json!(1)), ("token_handoff", json!(true)),
+        ("v3_evaluated", json!(1)), ("collection_handoff", json!(true)),
         ("branch", json!({"v3":0,"v2":0,"none":0,"errors":0,"extra":"private"}))] {
         let mut value = full();
         value[key] = invalid;
@@ -164,7 +164,7 @@ fn malformed_v3_phase_reports_and_unexpected_exits_stay_generic() {
     }
     for (key, invalid) in [("version", json!(1.0)), ("diagnostics", json!(1_000_001)),
         ("method_ms", json!(-1)), ("v3_evaluated", json!(1)),
-        ("token_handoff", json!(true)), ("status", json!("passed")),
+        ("collection_handoff", json!(true)), ("status", json!("passed")),
         ("branch", json!({"v3":0,"v2":0,"none":1,"errors":true}))] {
         let mut value = original.clone();
         value[key] = invalid;
@@ -229,9 +229,9 @@ fn handoff(version: u64, attempted: bool, completed: bool, age: Value) -> Value 
     value["version"] = json!(version);
     value["failure_phase"] = json!("handoff");
     value["branch"] = json!({"v3":1,"v2":0,"none":0,"errors":0});
-    value["token_pipe_write_attempted"] = json!(attempted);
-    value["token_pipe_write_completed"] = json!(completed);
-    value["mint_to_handoff_ms"] = age;
+    value["collection_pipe_write_attempted"] = json!(attempted);
+    value["collection_pipe_write_completed"] = json!(completed);
+    value["collection_to_handoff_ms"] = age;
     if version == 2 {
         value["device_storage_seeded"] = json!(true);
         value["device_storage_unchanged"] = json!(true);
@@ -256,7 +256,7 @@ fn handoff_retains_completed_facts_without_qualifying_token_or_parent_cleanup() 
                 ("late_settlements", 0), ("branch_v3", 1), ("branch_v2", 0),
                 ("branch_none", 0), ("branch_errors", 0)]);
             assert_eq!(summary.timings().collect::<Vec<_>>(), vec![("method_ms", Some(3.0)),
-                ("elapsed_ms", Some(5.0)), ("mint_to_handoff_ms", Some(2001.25))]);
+                ("elapsed_ms", Some(5.0)), ("collection_to_handoff_ms", Some(2001.25))]);
         }
     }
 }
@@ -276,13 +276,13 @@ fn handoff_unknown_age_is_explicit_and_requires_the_extended_schema() {
     for version in [1, 2] {
         let value = handoff(version, false, false, Value::Null);
         let stage = assert_stage(observed(&value, Some(2)), "handoff");
-        assert_eq!(stage.summary().unwrap().timings().last(), Some(("mint_to_handoff_ms", None)));
+        assert_eq!(stage.summary().unwrap().timings().last(), Some(("collection_to_handoff_ms", None)));
         let mut missing = value.clone();
-        missing.as_object_mut().unwrap().remove("mint_to_handoff_ms");
+        missing.as_object_mut().unwrap().remove("collection_to_handoff_ms");
         missing["private"] = json!(null);
         assert_eq!(observed(&missing, Some(2)), Failure::Worker);
     }
-    let mut old = full(); old["mint_to_handoff_ms"] = Value::Null;
+    let mut old = full(); old["collection_to_handoff_ms"] = Value::Null;
     assert_eq!(observed(&old, Some(2)), Failure::Worker);
 }
 
@@ -303,11 +303,11 @@ fn incomplete_handoff_summary_or_extra_private_field_stays_generic() {
 
 #[test]
 fn malformed_or_inconsistent_handoff_summary_stays_generic() {
-    for (key, invalid) in [("token_pipe_write_attempted", json!(1)),
-        ("token_pipe_write_completed", json!(null)), ("wrapper_calls", json!(1_000_001)),
-        ("mint_to_handoff_ms", json!(-1)), ("mint_to_handoff_ms", json!("private")),
+    for (key, invalid) in [("collection_pipe_write_attempted", json!(1)),
+        ("collection_pipe_write_completed", json!(null)), ("wrapper_calls", json!(1_000_001)),
+        ("collection_to_handoff_ms", json!(-1)), ("collection_to_handoff_ms", json!("private")),
         ("elapsed_ms", json!(null)), ("window_closed", json!("true")),
-        ("failure_phase", json!("mint")), ("token_handoff", json!(true))] {
+        ("failure_phase", json!("mint")), ("collection_handoff", json!(true))] {
         let mut value = handoff(1, true, true, json!(2001)); value[key] = invalid;
         assert_eq!(observed(&value, Some(2)), Failure::Worker, "{key}");
     }
@@ -347,5 +347,5 @@ fn full() -> Value {
         "v3_evaluated":true,"window_closed":true,"inspector_closed":true,
         "sources_unchanged":true,"async_errors":0,"diagnostics":1,
         "late_settlements":0,"method_ms":3.0,"elapsed_ms":5.0,
-        "mint_to_handoff_ms":0.0,"token_handoff":false})
+        "collection_to_handoff_ms":0.0,"collection_handoff":false})
 }
