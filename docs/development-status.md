@@ -191,7 +191,11 @@ framing, package verification and account-history code.
 Seven cross-language ledger tests and the 99 browser/shared Python tests pass.
 The changed native executable builds successfully. The existing 305 native
 tests and 11 Python ledger-owner cases remain applicable to unchanged code.
-Package verification for this milestone is pending. These are synthetic checks;
+Both complete development packages at `eb86728` pass verification and staging.
+The browser passes startup, shutdown and same-profile exclusion checks. The
+native archive starts its packaged ledger and joins its clean exit; each archive
+excludes the other application's Python runtime. A temporary smoke-wrapper
+error was corrected before the native-only check. These are synthetic checks;
 the native CLI still validates configuration without starting live accounts.
 
 Next: remove native serving's dependency on the browser application's state.
