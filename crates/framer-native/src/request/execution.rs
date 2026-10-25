@@ -25,11 +25,12 @@ pub(super) struct Execution {
     pub deadline: Instant,
     pub permit: OwnedSemaphorePermit,
     pub admission: PoolAdmission,
+    pub events: Option<super::ChunkSender>,
 }
 
 pub(super) fn execute(input: Execution) -> InvocationRun<Completed<CompletedJson>> {
     let Execution { client, scope, identity, authorization, payload, route,
-        token_limit, deadline, permit, admission } = input;
+        token_limit, deadline, permit, admission, events } = input;
     lifetime::launch_with_lease(client.clone(), scope.clone(), permit,
         RunningAccountLease::start(admission), deadline, 1, move |registry| async move {
         let auth = TrackedAuthorization { inner: authorization, registry };
@@ -55,6 +56,20 @@ pub(super) fn execute(input: Execution) -> InvocationRun<Completed<CompletedJson
                 (CompletedJson::Messages(result.response), result.attempts)
             },
         };
+        // The one-attempt contract publishes only complete output. In particular,
+        // do not expose a cut-off tool call before the final acceptance check.
+        let json_success = attempts.len() == 1 && attempts[0].status == 200
+            && super::complete_json::content_type(attempts[0].original_content_type.as_deref())
+                == super::complete_json::ContentType::Json;
+        if let Some(sender) = events.filter(|_| value.complete() && json_success) {
+            let event = match &value {
+                CompletedJson::Responses(value) => framer_core::convert::ChainEvent::ResponsesItems {
+                    items: value.output.clone(), continues_text: false,
+                },
+                CompletedJson::Messages(value) => framer_core::convert::ChainEvent::Chunk(value.content.clone()),
+            };
+            sender.try_send(event).map_err(|_| DispatchError::new(FailureKind::Cancelled))?;
+        }
         Ok(Completed { value, attempts: attempts.into_iter().map(errors::metadata).collect() })
     })
 }

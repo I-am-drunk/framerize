@@ -1,4 +1,4 @@
-//! One complete-JSON request using the live pool and its existing owners.
+//! One native request using the live pool and its existing owners.
 use crate::authorization::CredentialTarget;
 use crate::authorization::control::OfflineMintTarget;
 use crate::account::client::AccountScope;
@@ -13,7 +13,7 @@ use crate::request::complete_json::Plan;
 use crate::request::complete_json::ProbeRun;
 use crate::request::complete_json::Refusal;
 use crate::request::complete_json::Specification;
-use framer_core::convert;
+use crate::request::ChunkSender;
 use crate::request::types::self as port;
 use crate::request::types::DispatchError;
 use crate::request::types::FailureKind;
@@ -52,7 +52,7 @@ impl Request {
 }
 
 pub(crate) struct Outcome {
-    pub response: Option<serde_json::Value>,
+    pub response: Option<CompletedJson>,
     pub evidence: Option<Evidence>,
     pub failure: Option<FailureKind>,
     pub cleanup_confirmed: bool,
@@ -94,14 +94,14 @@ pub(crate) struct Run {
 impl Run { pub(crate) fn cancel(&self) { self.stop.cancel(); } }
 
 pub(crate) fn launch(state: ServiceState, request: Request, worker: impl Into<WorkerBackend>,
-    sessions: Sessions, device_owner: Arc<dyn DeviceOwner>)
+    sessions: Sessions, device_owner: Arc<dyn DeviceOwner>, events: Option<ChunkSender>)
     -> Result<Run, DispatchError> {
     let source = Arc::new(OfflineSource::from_worker(worker.into(), request.target, device_owner));
-    launch_with_source(state, request.spec, source, sessions)
+    launch_with_source(state, request.spec, source, sessions, events)
 }
 
 fn launch_with_source(state: ServiceState, spec: Specification, source: Arc<dyn SourceBuilder>,
-    sessions: Sessions)
+    sessions: Sessions, events: Option<ChunkSender>)
     -> Result<Run, DispatchError> {
     Plan::validate(&spec)?;
     if !sessions.matches(&state.sessions, state.operation_ownership.as_ref()) {
@@ -114,7 +114,7 @@ fn launch_with_source(state: ServiceState, spec: Specification, source: Arc<dyn 
     let (sender, receiver) = oneshot::channel();
     let task = framer_server::operation_ownership::spawn(Some(&ownership),
         framer_core::operation_gate::OperationKind::Inference, async move {
-            let outcome = owned(state, spec, source, cancel, sessions).await;
+            let outcome = owned(state, spec, source, cancel, sessions, events).await;
             let cleanup = if outcome.cleanup_confirmed { Ok(()) } else { Err(FailureKind::Cleanup) };
             let _ = sender.send(outcome);
             cleanup
@@ -140,7 +140,7 @@ fn stopped(stop: &Stop, deadline: Instant) -> Option<FailureKind> {
 }
 
 async fn owned(state: ServiceState, spec: Specification, source: Arc<dyn SourceBuilder>,
-    stop: Arc<Stop>, sessions: Sessions) -> Outcome {
+    stop: Arc<Stop>, sessions: Sessions, events: Option<ChunkSender>) -> Outcome {
     let deadline = spec.deadline;
     if let Some(kind) = stopped(&stop, spec.deadline) { return Outcome::failed(kind); }
     let model = spec.payload["model"].as_str().expect("validated model");
@@ -151,7 +151,7 @@ async fn owned(state: ServiceState, spec: Specification, source: Arc<dyn SourceB
     let AdmittedControl { identity, proxy, capacity, pool, mut completion } = admitted;
     completion.start();
     let mut outcome = session(&state, spec, source, (capacity, pool), &completion,
-        &proxy, stop.clone(), &sessions).await;
+        &proxy, stop.clone(), &sessions, events).await;
     let health = match &outcome.evidence {
         Some(e) if e.status == Some(403) && e.attempts == 1
             && e.refusal.is_some_and(|r| r.policy == Refusal::Castle) => HealthOutcome::RiskRefused,
@@ -174,15 +174,14 @@ type Admission = (tokio::sync::OwnedSemaphorePermit, port::PoolAdmission);
 async fn execute(state: &ServiceState, spec: Specification, source: Arc<dyn SourceBuilder>,
     admission: Admission, owner: &native_control::ControlOwner, proxy: &Option<String>,
     stop: Arc<Stop>, native: &NativeAccountClient, scope: &AccountScope,
-    device: Option<Arc<crate::account::device::DeviceGrant>>) -> Outcome {
+    device: Option<Arc<crate::account::device::DeviceGrant>>, events: Option<ChunkSender>) -> Outcome {
     if let Some(kind) = stopped(&stop, spec.deadline) { return Outcome::failed(kind); }
     if let Err(error) = owner.revalidate(state, &spec.identity, proxy).await {
         return Outcome::failed(error.into());
     }
     let deadline = spec.deadline;
-    let model = spec.payload["model"].as_str().expect("validated model").to_owned();
     let plan = match Plan::new(scope.clone(), spec) {
-        Ok(value) => value, Err(error) => return Outcome::failed(error.kind),
+        Ok(value) => value.with_events(events), Err(error) => return Outcome::failed(error.kind),
     };
     let source = match source.build_with_device(scope.clone(), proxy.clone(), device) {
         Ok(value) => value, Err(_) => return Outcome::failed(FailureKind::Authorization),
@@ -193,7 +192,7 @@ async fn execute(state: &ServiceState, spec: Specification, source: Arc<dyn Sour
         Ok(value) => value, Err(error) => return Outcome::failed(error.kind),
     };
     let cleanup = probe.cleanup.clone();
-    let mut outcome = AssertUnwindSafe(observe(probe, stop, deadline, &model))
+    let mut outcome = AssertUnwindSafe(observe(probe, stop, deadline))
         .catch_unwind().await.unwrap_or_else(|_| Outcome::unconfirmed());
     if cleanup.await.is_err() {
         outcome.cleanup_confirmed = false;
@@ -202,8 +201,7 @@ async fn execute(state: &ServiceState, spec: Specification, source: Arc<dyn Sour
     outcome
 }
 
-async fn observe(mut probe: ProbeRun, stop: Arc<Stop>, deadline: Instant,
-    model: &str) -> Outcome {
+async fn observe(mut probe: ProbeRun, stop: Arc<Stop>, deadline: Instant) -> Outcome {
     let mut cancelled = None;
     let evidence = tokio::select! {
         biased;
@@ -221,11 +219,7 @@ async fn observe(mut probe: ProbeRun, stop: Arc<Stop>, deadline: Instant,
     };
     let completed = probe.completed.await;
     let response = if evidence.accepted && cancelled.is_none() {
-        completed.map(|value| match value {
-            CompletedJson::Responses(value) => convert::responses_json(&value, model, &value.id),
-            CompletedJson::Messages(value) =>
-                convert::render_json(convert::ClientDialect::AnthropicMessages, &value, model),
-        })
+        completed
     } else { None };
     let failure = cancelled.or(evidence.failure).or_else(||
         response.is_none().then_some(FailureKind::UnsupportedResponse));
@@ -235,7 +229,7 @@ async fn observe(mut probe: ProbeRun, stop: Arc<Stop>, deadline: Instant,
 
 async fn session(state: &ServiceState, spec: Specification, source: Arc<dyn SourceBuilder>,
     admission: Admission, owner: &native_control::ControlOwner, proxy: &Option<String>,
-    stop: Arc<Stop>, sessions: &Sessions) -> Outcome {
+    stop: Arc<Stop>, sessions: &Sessions, events: Option<ChunkSender>) -> Outcome {
     use crate::account::device::DeviceFailure;
     let device = match DeviceLease::open(source.as_ref(), spec.identity.account).await {
         Ok(device) => device,
@@ -249,7 +243,7 @@ async fn session(state: &ServiceState, spec: Specification, source: Arc<dyn Sour
         Outcome::failed(kind)
     } else {
         AssertUnwindSafe(session_inner(state, spec, source, admission, owner, proxy,
-            stop, sessions, device.grant())).catch_unwind().await
+            stop, sessions, device.grant(), events)).catch_unwind().await
             .unwrap_or_else(|_| Outcome::unconfirmed())
     };
     let risk = outcome.evidence.as_ref().is_some_and(|e| e.status == Some(403)
@@ -264,7 +258,7 @@ async fn session(state: &ServiceState, spec: Specification, source: Arc<dyn Sour
 async fn session_inner(state: &ServiceState, spec: Specification, source: Arc<dyn SourceBuilder>,
     admission: Admission, owner: &native_control::ControlOwner, proxy: &Option<String>,
     stop: Arc<Stop>, sessions: &Sessions,
-    device: Option<Arc<crate::account::device::DeviceGrant>>) -> Outcome {
+    device: Option<Arc<crate::account::device::DeviceGrant>>, events: Option<ChunkSender>) -> Outcome {
     let native = sessions.native();
     let bridge = sessions.bridge();
     let route = proxy.as_deref().map(NativeEgress::Proxy).unwrap_or(NativeEgress::Direct);
@@ -275,7 +269,7 @@ async fn session_inner(state: &ServiceState, spec: Specification, source: Arc<dy
     match opened {
         Ok(Ok(scope)) => {
             let mut outcome = AssertUnwindSafe(execute(state, spec, source, admission,
-                owner, proxy, stop, native, &scope, device)).catch_unwind().await
+                owner, proxy, stop, native, &scope, device, events)).catch_unwind().await
                 .unwrap_or_else(|_| Outcome::unconfirmed());
             let closed = match native.close_account(&scope) {
                 Ok(observer) => observer.await.is_ok(), Err(_) => false,

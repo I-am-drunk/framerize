@@ -7,3 +7,4 @@ pub(crate) mod source;
 pub(crate) mod state;
 pub(crate) mod startup;
 mod migration;
+mod stream;

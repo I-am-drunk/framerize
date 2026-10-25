@@ -1,5 +1,4 @@
-//! Source-only one-shot acceptance adapter. No CLI or credential acquisition.
-//! Include inside framer-api only after review; this is not a live opt-in.
+//! Bounded one-attempt contract shared by JSON and streaming delivery.
 use crate::request::invocation::AttemptAuthorization;
 use crate::request::invocation::AttemptContext;
 use crate::request::invocation::AttemptMetadata;
@@ -83,6 +82,27 @@ pub enum CompletedJson {
     Messages(AssembledResponse),
 }
 
+impl CompletedJson {
+    pub(crate) fn complete(&self) -> bool {
+        match self {
+            Self::Responses(value) => complete_responses(value),
+            Self::Messages(value) => complete_messages(value),
+        }
+    }
+}
+
+fn complete_responses(value: &AssembledResponses) -> bool {
+    !value.id.is_empty() && value.status == "completed"
+        && value.incomplete_details.as_ref().map_or(true, Value::is_null)
+        && value.chunks == 1 && value.metered_chunks == 0 && !value.output.is_empty()
+}
+
+fn complete_messages(value: &AssembledResponse) -> bool {
+    !value.id.is_empty()
+        && matches!(value.stop_reason.as_str(), "end_turn" | "stop_sequence" | "tool_use")
+        && value.chunks == 1 && value.metered_chunks == 0 && !value.content.is_empty()
+}
+
 struct Facts {
     complete: bool,
     attempts: Vec<port::AttemptMetadata>,
@@ -94,7 +114,7 @@ struct Facts {
     completed: Option<CompletedJson>,
 }
 
-fn content_type(value: Option<&str>) -> ContentType {
+pub(super) fn content_type(value: Option<&str>) -> ContentType {
     let Some(value) = value else { return ContentType::Missing; };
     let media = value.split(';').next().unwrap_or_default().trim().to_ascii_lowercase();
     if media == "text/event-stream" { ContentType::EventStream }
@@ -105,10 +125,7 @@ fn content_type(value: Option<&str>) -> ContentType {
 
 fn responses(value: port::Completed<AssembledResponses>) -> Facts {
     Facts {
-        complete: !value.value.id.is_empty() && value.value.status == "completed"
-            && value.value.incomplete_details.as_ref().map_or(true, Value::is_null)
-            && value.value.chunks == 1 && value.value.metered_chunks == 0
-            && !value.value.output.is_empty(),
+        complete: complete_responses(&value.value),
         input_tokens: value.value.usage["input_tokens"].as_u64(),
         output_tokens: value.value.usage["output_tokens"].as_u64(),
         output_items: value.value.output.len(), attempts: value.attempts, failure: None,
@@ -119,10 +136,7 @@ fn responses(value: port::Completed<AssembledResponses>) -> Facts {
 
 fn messages(value: port::Completed<AssembledResponse>) -> Facts {
     Facts {
-        complete: !value.value.id.is_empty()
-            && matches!(value.value.stop_reason.as_str(), "end_turn" | "stop_sequence" | "tool_use")
-            && value.value.chunks == 1 && value.value.metered_chunks == 0
-            && !value.value.content.is_empty(),
+        complete: complete_messages(&value.value),
         input_tokens: value.value.usage["input_tokens"].as_u64(),
         output_tokens: value.value.usage["output_tokens"].as_u64(),
         output_items: value.value.content.len(), attempts: value.attempts, failure: None,
@@ -210,6 +224,7 @@ pub struct Plan {
     route: FreeRoute,
     token_limit: u32,
     contract: Arc<Contract>,
+    events: Option<super::ChunkSender>,
 }
 
 struct Contract {
@@ -331,6 +346,11 @@ fn bounded_json(value: &Value) -> bool {
 }
 
 impl Plan {
+    pub(crate) fn with_events(mut self, events: Option<super::ChunkSender>) -> Self {
+        self.events = events;
+        self
+    }
+
     /// Execute once while retaining the caller's pool and operation owners.
     pub async fn launch_in_pool(self,
         native: crate::account::client::NativeAccountClient,
@@ -345,11 +365,11 @@ impl Plan {
         if self.contract.scope.closed().now_or_never().is_some() {
             return Err(port::DispatchError::new(port::FailureKind::ScopeClosed));
         }
-        let Self { payload, route, token_limit, contract } = self;
+        let Self { payload, route, token_limit, contract, events } = self;
         let run = super::execution::execute(super::execution::Execution {
             client: native, scope: contract.scope.clone(), identity: contract.identity.clone(),
             authorization: Arc::new(CheckedAuthorization { inner: authorization, contract: contract.clone() }),
-            payload, route, token_limit, deadline: contract.deadline, permit, admission,
+            payload, route, token_limit, deadline: contract.deadline, permit, admission, events,
         });
         Ok(finish_run(run, contract, |completed| match completed.value {
             CompletedJson::Responses(value) => responses(port::Completed { value, attempts: completed.attempts }),
@@ -407,6 +427,6 @@ impl Plan {
             finishes: AtomicUsize::new(0), rejected: AtomicBool::new(false),
         });
         Ok(Self { payload: spec.payload, route: spec.route,
-            token_limit: spec.token_limit, contract })
+            token_limit: spec.token_limit, contract, events: None })
     }
 }

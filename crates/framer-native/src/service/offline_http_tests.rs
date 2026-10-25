@@ -27,7 +27,12 @@ fn completion_event_omits_private_data_and_preserves_final_cleanup() {
     use crate::request::complete_json::ContentType;
     use crate::request::complete_json::Evidence;
     let mut outcome = offline_serving::Outcome {
-        response: Some(serde_json::json!({"secret": "private-marker"})),
+        response: Some(CompletedJson::Messages(convert::AssembledResponse {
+            id: "private-marker".into(), content: vec![serde_json::json!({"secret":"private-marker"})],
+            stop_reason: "end_turn".into(), stop_sequence: None,
+            usage: serde_json::json!({}), input_tokens: 0, output_tokens: 0,
+            chunks: 1, metered_chunks: 0,
+        })),
         failure: Some(FailureKind::Cleanup), cleanup_confirmed: false,
         evidence: Some(Evidence {
             accepted: false, path: "/private-marker", client_model: "private-marker".into(),

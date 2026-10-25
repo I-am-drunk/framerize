@@ -1,4 +1,4 @@
-//! Explicit complete-JSON endpoint. Every request supplies its actual context.
+//! Explicit native endpoints. Every request supplies its actual context.
 use crate::service::serving as offline_serving;
 use crate::service::serving::Request;
 use crate::service::sessions::Sessions;
@@ -25,6 +25,8 @@ use std::sync::Arc;
 use std::time::Duration;
 use crate::worker::backend::WorkerBackend;
 use crate::account::device_owner::DeviceOwner;
+use crate::request::complete_json::CompletedJson;
+use framer_core::convert;
 
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -58,21 +60,42 @@ pub(crate) fn configure(mut state: ServiceState, worker: WorkerBackend, device_o
 }
 
 async fn complete(State(endpoint): State<Endpoint>, Json(input): Json<Input>) -> Response {
+    dispatch(endpoint, input, false).await
+}
+
+async fn stream(State(endpoint): State<Endpoint>, Json(input): Json<Input>) -> Response {
+    dispatch(endpoint, input, true).await
+}
+
+async fn dispatch(endpoint: Endpoint, input: Input, streaming: bool) -> Response {
+    let model = input.request["model"].as_str().unwrap_or_default().to_owned();
+    let route = if input.route == "/ai/v3/messages/" { FreeRoute::Messages }
+        else { FreeRoute::Responses };
     let request = match request(input) {
         Ok(value) => value, Err(kind) => return failure(kind),
     };
+    let (sender, receiver) = tokio::sync::mpsc::channel(1);
     let run = match offline_serving::launch(endpoint.state, request,
-        endpoint.runtime.worker, endpoint.runtime.sessions, endpoint.runtime.device_owner) {
+        endpoint.runtime.worker, endpoint.runtime.sessions, endpoint.runtime.device_owner,
+        streaming.then_some(sender)) {
         Ok(value) => value, Err(error) => return failure(error.kind),
     };
+    if streaming { return super::stream::response(run.result, receiver, route, model); }
     let outcome = run.result.await;
-    framer_core::observability::Event::new("offline.complete")
-        .field("completion", completion_fields(&outcome))
-        .emit();
+    record_completion(&outcome);
     match (outcome.response, outcome.failure, outcome.cleanup_confirmed) {
-        (Some(value), None, true) => Json(value).into_response(),
+        (Some(value), None, true) => Json(match value {
+            CompletedJson::Responses(value) => convert::responses_json(&value, &model, &value.id),
+            CompletedJson::Messages(value) => convert::render_json(
+                convert::ClientDialect::AnthropicMessages, &value, &model),
+        }).into_response(),
         (_, kind, _) => failure(kind.unwrap_or(FailureKind::Cleanup)),
     }
+}
+
+pub(super) fn record_completion(outcome: &offline_serving::Outcome) {
+    framer_core::observability::Event::new("offline.complete")
+        .field("completion", completion_fields(outcome)).emit();
 }
 
 fn completion_fields(outcome: &offline_serving::Outcome) -> serde_json::Value {
@@ -143,6 +166,7 @@ pub(crate) async fn serve(state: ServiceState, runtime: Runtime,
     shutdown: impl std::future::Future<Output = ()> + Send + 'static) -> std::io::Result<()> {
     let sessions = runtime.sessions.clone();
     let router = Router::new().route("/api/offline/complete", post(complete))
+        .route("/api/offline/stream", post(stream))
         .route("/api/health", axum::routing::get(health))
         .layer(DefaultBodyLimit::max(96 * 1024))
         .with_state(Endpoint { state: state.clone(), runtime });

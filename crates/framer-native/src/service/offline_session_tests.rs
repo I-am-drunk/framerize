@@ -10,7 +10,7 @@ async fn different_store_or_operation_owner_cannot_bypass_session_ownership() {
                 framer_server::operation_ownership::ServingOwnership::new_unmanaged(
                     state.wave.clone(), 32).unwrap());
         }
-        let result = launch_with_source(state, spec, Arc::new(Builder(ports.clone())), sessions);
+        let result = launch_with_source(state, spec, Arc::new(Builder(ports.clone())), sessions, None);
         assert_eq!(result.err().unwrap().kind, FailureKind::InvalidScope);
         assert!(ports.events.lock().unwrap().is_empty());
     }
