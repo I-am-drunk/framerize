@@ -15,7 +15,7 @@ shutdown cases verify both paused owners terminate before systemd stop and
 that an unreaped dead sidecar cannot allow ingress resume. Test resources were
 collected and the original service generation reverified on 25 October.
 This supersedes older timed-quiet scheduling descriptions below. The user has
-authorized the rollout and checks. Two fresh attempts ended before switching;
+authorized the rollout and checks. The collected attempts ended before switching;
 their controllers and authentication helpers are collected. An existing idle
 close reconciled one uncertain browser without restarting the service. The
 later attempt still found active work and could not establish quiescence.
@@ -24,9 +24,17 @@ Live interruption and subsequent-stream acceptance remain unverified. See
 
 Source `191dabe8` adds seven fixed V3 failure labels using the wrapper's existing
 structured diagnostics. It preserves broad failures when those diagnostics are
-missing or ambiguous and leaves success acceptance unchanged. Its 16 JavaScript
-and 15 Rust selected cases are not yet run. The original wrapper qualification
-is retained. No new SDK or native-service acceptance follows from this change.
+missing or ambiguous and leaves success acceptance unchanged. All 16 JavaScript
+and 15 Rust selected cases now pass, with no selected skips. The test build and
+both isolated runs are collected. The original wrapper qualification is retained.
+No new SDK or native-service acceptance follows from these inert checks. See
+`reference/analysis/v3-phase-diagnostic-qualification-20261025.md`.
+
+Three controller diagnostic/privacy cases also pass. The next prepared rollout
+controller preserves fixed failure codes and bounded source locations without
+recording arbitrary exception text. It is bound to the unchanged repair package
+but has not launched. At 02:30 UTC, five active requests and four established
+connections still prevented admission; the original service remained running.
 
 The separate extracted V3 wrapper checks passed on 25 October: nine selected
 cases and 35 leaf scenarios, with no skips. They confirm cache, strict-null
