@@ -144,6 +144,12 @@ ownership until the migration helper exits, including cancellation or an
 abandoned startup caller. Existing history skips expiry. The transition still
 requires the old service to be gone and does not establish upstream acceptance.
 
+Startup validates every selected account in the profile's database before
+starting migration. It repeats that validation after expiry, before opening
+the listener or ledger. An invalid selection therefore cannot spend the
+ten-minute expiry interval, and a selection removed during that interval cannot
+start serving. Both checks retain session-directory ownership.
+
 Native admission may assign an unset primary from the durable ready-device
 inventory and persist that new selection before granting work. This does not
 claim to restore the unknown former primary or create a new device identity.
