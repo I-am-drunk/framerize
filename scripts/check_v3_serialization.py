@@ -4,6 +4,7 @@ import base64
 import json
 import math
 import os
+import runpy
 from pathlib import Path
 import struct
 import subprocess
@@ -116,12 +117,11 @@ fn matches_pinned_sdk_serializer() {{
     with tempfile.TemporaryDirectory(prefix="castle-v3-serializer-") as directory:
         path = Path(directory)
         (path / "check.rs").write_text(source)
-        subprocess.run([os.environ.get("RUSTC", "rustc"), "--edition=2021",
-                        "--test", str(path / "check.rs"), "-o", str(path / "check")],
-                       check=True, timeout=30)
+        compiler = runpy.run_path(str(ROOT / "scripts/v3_native_fixture.py"))["compile_fixture"]
+        compiler(path / "check.rs", path / "check")
         subprocess.run([str(path / "check")], check=True, timeout=10)
     print(f"PASS: {len(selected)} complete array comparisons with the original serializer")
-    print("Object fallback inputs use supplied JSON text or normalized null")
+    print("Synthetic typed values; custom JavaScript evaluation remains caller-owned")
     print("No full SDK startup, tokens, network, accounts or memory claim")
 
 

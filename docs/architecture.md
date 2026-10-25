@@ -7,11 +7,19 @@ Native Castle client encoding lives in `framer-native/src/castle/`. Its typed
 serializer selects the pinned Framer V3 SDK's numeric and string representations,
 writes array structure and preserves UTF-16 code units, including unpaired
 surrogates. It has no browser, JavaScript, network or account dependency.
-Nested arrays use an explicit traversal stack. Object fallback accepts the
-already-stringified JSON text; object normalization remains unfinished.
+Nested arrays and JSON objects use explicit traversal stacks. Native objects
+carry own enumerable string properties in insertion order. JSON conversion
+sorts array-index keys, retains other property order, omits unavailable object
+values, and preserves JSON's array-null and UTF-16 escaping rules. The locked
+`ryu-js` dependency provides ECMAScript number formatting.
+Custom getters and `toJSON` evaluation remain caller-owned: their result can
+be supplied as JSON text for its actual position, or as a failed conversion.
+The native data model does not execute arbitrary JavaScript or recreate its
+object graph, descriptors or prototypes.
 `scripts/check_v3_encoding.py` compares the primitives, and
-`scripts/check_v3_serialization.py` compares complete arrays against the original
-serializer. The reference extracts only the required helpers and constant table;
+`scripts/check_v3_serialization.py` and `scripts/check_v3_objects.py` compare
+complete arrays against the original serializer. The reference extracts only
+the required helpers and constant table;
 it never loads the SDK module. The serving worker remains unchanged until the
 complete native replacement is implemented and validated.
 

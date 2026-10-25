@@ -62,6 +62,7 @@ jobs:
         run: |
           python -I -B scripts/check_v3_encoding.py
           python -I -B scripts/check_v3_serialization.py
+          python -I -B scripts/check_v3_objects.py
           python -I -B scripts/check_v3_deflate.py
           python -I -B scripts/check_v3_envelope.py
       - name: Build explicit application

@@ -3,6 +3,7 @@
 //! V3 names Framer's selected path, not a Castle package or token-format version.
 
 mod value;
+mod json;
 pub use value::{serialize, Value};
 mod deflate;
 pub use deflate::deflate;
