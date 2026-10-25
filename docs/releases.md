@@ -31,6 +31,26 @@ Staging verifies the archive and every packaged file, then installs a new releas
 directory. It needs no sudo, does not overwrite an existing release and does not
 change the running service. `scripts/linux/server-setup.sh` delegates to it.
 
+After the one-time service and history migration, activate a staged production
+browser package with:
+
+```sh
+python3 scripts/release.py activate ~/.local/share/framerize/releases/RELEASE
+```
+
+The command checks both packages, the installed user unit and the live history
+schema before stopping anything. It drains the service, changes `current`
+atomically, starts the selected package and verifies that the health response
+comes from its main process. Failed startup restores the previous compatible
+package. Account history is never restored from a backup or changed by this tool.
+
+One update lock prevents concurrent replacements. An interrupted update leaves
+`update.json`; rerunning the command restores the previous package first and
+reports `recovered`, without retrying the failed candidate. Both packages must
+declare activation protocol 1, use the same history schema and carry the same
+installed service template. Development packages and unreviewed unit overrides
+are refused. This command does not perform the unresolved legacy migration.
+
 For source development, pass `--web-dir web/dist` and
 `--sidecar-script "$PWD/runtime/host.py"` explicitly. `--allow-dirty` creates a
 package marked for local development.
@@ -44,7 +64,7 @@ It loads this state once at startup and replaces the file atomically after
 overload evidence. Library consumers and tests use in-memory gates by default.
 This file contains concurrency estimates, not the account's request history.
 
-Activation and migration of the current service are still unfinished. The new
+The current service has not undergone its first migration. The new
 durable rate ledger, graceful drain and service-bound crash recovery are
 implemented. Legacy history migration must precede promotion. Staging is not
 deployment.
@@ -59,8 +79,8 @@ Browser archives include `share/systemd/user/framerize.service`. The template
 uses the selected `~/.local/share/framerize/current` package and the existing
 `~/.framerize` data paths. It sends graceful termination to the daemon, allows
 five minutes for draining, then removes surviving processes. It requires no
-sudo. The template is supplied for the pending activation tooling; it has not
-been installed over the existing service.
+sudo. Activation requires this managed unit to be installed by the first
+migration; the updater does not overwrite an unfamiliar unit.
 
 Build information declares `rate_history_schema: 2`. This schema records each
 account's runtime owner alongside its history. Readers from before this change

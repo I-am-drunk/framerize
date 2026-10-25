@@ -180,6 +180,21 @@ pub fn router(state: AppState, web_dir: &str) -> Router {
     router_with_request_layer(state, web_dir, |router| router)
 }
 
+async fn health() -> impl axum::response::IntoResponse {
+    ([("x-framerize-pid", std::process::id().to_string())], "ok")
+}
+
+#[cfg(test)]
+#[tokio::test]
+async fn health_identity_keeps_the_existing_body() {
+    use axum::response::IntoResponse;
+    let response = health().await.into_response();
+    assert_eq!(response.status(), axum::http::StatusCode::OK);
+    assert_eq!(response.headers()["x-framerize-pid"], std::process::id().to_string());
+    let body = axum::body::to_bytes(response.into_body(), 16).await.unwrap();
+    assert_eq!(body.as_ref(), b"ok");
+}
+
 async fn hello() -> axum::response::Response {
     // HEAD removes this body outside the ownership layer. No external work
     // exists here, so dropping these completed bytes must not fence admission.
@@ -267,7 +282,7 @@ async fn local_file_response(request: axum::extract::Request,
 pub fn router_with_request_layer(state: AppState, web_dir: &str,
     layer: impl FnOnce(Router) -> Router) -> Router {
     let api = Router::new()
-        .route("/health", get(|| async { "ok" }))
+        .route("/health", get(health))
         // Claude Code connection-warming probe (gateway protocol: safe to
         // answer or reject; we answer 200).
         .route("/hello", get(hello).head(hello))

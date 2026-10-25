@@ -52,10 +52,12 @@ One packaging command bundles the executable, matching runtime modules, UI
 and generated build information. Select the installed package canonically;
 do not silently prefer a loose host script in the user's home directory.
 
-Future updates use one user service and one update command: validate and stage
-the package, switch the package pointer, restart, check local readiness and
-restore the previous compatible package on failure. Account state stays outside
-release directories and is never rolled back with application files.
+Routine updates use one user service and `scripts/release.py activate` after
+staging: validate compatibility, switch the package pointer, restart, check
+local readiness and restore the previous compatible package on failure.
+The command is implemented; first migration of the existing service is still
+pending. Account state stays outside release directories and is never rolled
+back with application files.
 
 ## Migration and implementation order
 
