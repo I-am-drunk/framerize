@@ -1,5 +1,11 @@
 # Development status
 
+The two R5 post-start settling budgets now have a qualified 90-to-240-second
+correction. All seven selected inert tests passed, including 20 executed
+subcases and zero skips. The original readiness and failure checks remain.
+This correction is not deployed and does not replay the consumed R5 attempt.
+See `reference/analysis/r5-startup-settle-qualification-20261025.md`.
+
 R5 switched to the qualified candidate, then switched back after its 90-second
 startup settling check expired during sequential browser prewarming. The old
 binary is running; final rollback verification remains pending. No acceptance
@@ -7,8 +13,12 @@ POST ran. See `reference/analysis/r5-rollout-result-20261025.md`.
 
 Independent transport test compilation on `a715a41a` failed before discovery:
 the prepared isolated source view omitted an existing cross-crate test include.
-No test ran, no production defect was concluded, and the unchanged-input job
-was fully collected. The preparation owner has the exact correction scope.
+That include closure was corrected in a new preparation. Its compile passed
+the missing-file problem but reached the existing 768 MiB memory limit; the
+supervisor stopped it before tests. No OOM kill occurred. All 1,642 inputs stayed
+unchanged and the failed job was collected. Lower-memory preparation is assigned
+without increasing the cap or changing the selected tests. No production defect
+was concluded from either preparation failure.
 See `reference/analysis/control-transport-compile-gap-20261025.md`.
 
 The normal interruption repair now has a built candidate from qualified source

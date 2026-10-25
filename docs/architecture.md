@@ -9,6 +9,12 @@ the same idle, generation, rate-state and cleanup requirements. A restoration
 receipt alone does not complete rollback verification. See
 `reference/analysis/r5-rollout-result-20261025.md`.
 
+A source-only correction raises both post-start quiet budgets to 240 seconds.
+Seven isolated tests with 20 subcases confirm the observed warmup schedule fits
+while stale readiness and lost safeguards still refuse. Other deadlines and
+state checks are unchanged. These corrected controller bytes are qualified but
+not deployed. See `reference/analysis/r5-startup-settle-qualification-20261025.md`.
+
 V3 worker failures can retain a fixed phase label from the wrapper's structured
 logger tags. Only an already failed mint or branch verdict is refined. Missing,
 malformed or conflicting tags leave the original broad failure. The Rust decoder
