@@ -23,6 +23,17 @@ removed. Current tests stay with the behavior they exercise.
 
 ## Validation
 
+The [isolated SDK snapshot comparison](../reference/analysis/castle-v3-sdk-snapshot.md)
+now passes on one actual instrumented SDK operation with synthetic context.
+All 765 positions (787 total values) round-trip to the same 5,411 serialized
+bytes. Native final encoding matches the SDK's 5,293-byte output by SHA-256
+and length, using the same recorded timestamp. The initial launcher omitted
+the syscall filter and correctly failed before SDK evaluation; the corrected
+launcher reuses the production filter and passes its denial checks. The
+runtime guard is unchanged. Both runs joined, with no account or upstream
+request. This is post-collection parity, not a browser or RAM-saving result.
+Next bind the actual collector semantics and ordering to the native inputs.
+
 Four native Castle client primitives now match the pinned SDK's unsigned,
 signed and fixed-width integer writers and its UTF-16 string writer. Four
 direct differential tests compare 12,630 inputs: 4,195 unsigned, 4,219 signed,
