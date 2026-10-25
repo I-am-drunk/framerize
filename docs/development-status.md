@@ -7,8 +7,8 @@ Completed source changes:
 - Separate browser and native applications in one workspace. The browser
   executable does not depend on the native implementation.
 - Native code grouped by account, authorization, request, transport and worker.
-- A Python runtime package with account, browser, resources, wire and legacy
-  restoration modules. Runtime imports do not launch browsers.
+- A Python runtime package with account, browser, resources and wire modules.
+  Runtime imports do not launch browsers.
 - Complete executable, host and UI archives, checksum manifests, and a staging
   command that leaves the running service untouched.
 - Explicit host/UI development overrides. Installed applications select the
@@ -24,9 +24,9 @@ Completed source changes:
 
 Validation collected locally:
 - The workspace all-target check passed at the application split milestone.
-- Current browser server: 250 tests pass. Host: 69 retained tests pass. Browser CLI: 28
+- Current browser server: 250 tests pass. Host: 73 tests pass. Browser CLI: 32
   tests pass. Gate selection: 43 tests pass, including three new persistence tests.
-- Python runtime: 76 fixture tests pass across lifecycle, imports, browser setup,
+- Python runtime: 80 fixture tests pass across lifecycle, imports, browser setup,
   packaging, rate persistence, request ownership and safe diagnostics. The fetch fixture
   runs the packaged JavaScript using an inert Node harness.
 - The TypeScript/Vite UI build passes. Both local development archives pass
@@ -67,7 +67,17 @@ journal cases. Three further host integration tests pass: durable close with
 shared account references, cancelled mint ownership and refusal before external
 work on storage failure. No live account state has been opened or changed.
 
-Next: integrate graceful shutdown and automatic cleanup verification.
+Graceful daemon shutdown is now connected to startup and requires no feature
+flag. It seals admission, drains HTTP and detached application work, then joins
+host cleanup. Explicit host shutdown finishes accepted commands; lost stdin
+cancels follow-up work while retaining outstanding browser calls. Failed
+closures remain dirty in the journal. Attached browsers are not terminated.
+Four new Python shutdown cases, four application cases and four host cases
+pass using synthetic accounts, loopback fixtures and temporary state. The
+27 lifecycle cases were rerun after adjusting teardown for intentionally
+unacknowledged browser disconnections. One manual host test remains ignored.
+
+Next: automatic cleanup verification and first-migration handling.
 Current account history and first-migration handling remain unresolved;
 no production restart is part of this structural work.
 

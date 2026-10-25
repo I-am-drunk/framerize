@@ -44,8 +44,18 @@ until the actual operation ends. Confirmed browser closure records clean state.
 
 The legacy process-memory restoration code is removed from the runtime.
 Existing profiles without a journal require migration. Interrupted records
-require confirmed cleanup before reuse. Graceful service shutdown, automatic
-crash recovery and first migration remain unfinished; this code is undeployed.
+require confirmed cleanup before reuse. Automatic crash recovery and first
+migration remain unfinished; this code is undeployed.
+
+The browser application always tracks its requests and background work.
+SIGTERM or Ctrl-C stops new HTTP admission, lets accepted responses finish,
+and joins detached application work before shutting down the host. The host
+joins raw browser calls and records confirmed account closure before exiting.
+The Rust bridge waits for that process exit. An unconfirmed close is an error,
+not a successful drain. Attached user browsers are disconnected, never closed.
+Owned children use separate process groups so foreground terminal interrupts
+reach the daemon's shutdown coordinator first. Forced exits still require
+recovery and are not equivalent to this graceful path.
 
 Earlier investigation notes are preserved in
 [architecture history](history/architecture-before-reorganization-20261025.md).

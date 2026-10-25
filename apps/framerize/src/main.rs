@@ -11,6 +11,7 @@ mod allocator_reclaim;
 mod allocator_reclaim_task;
 mod cli_control;
 mod startup;
+mod shutdown;
 use startup::start_prewarm;
 #[derive(Parser)]
 #[command(name = "framerize", about = "Multi-account Framer AI service")]
@@ -52,9 +53,6 @@ enum Cmd {
         /// Eligible accounts: all, none, or comma-separated full UUIDs.
         #[arg(long)]
         eligible_accounts: Option<String>,
-        /// Track browser request cleanup without enabling native routing.
-        #[arg(long)]
-        browser_request_ownership: bool,
     },
     /// Log in a Framer account: sends the magic-link email, then prompts for
     /// the #token from the emailed link. Talks to the running daemon.
@@ -100,9 +98,8 @@ struct BuiltState {
     state: AppState,
 }
 
-fn configure_browser_request_ownership(state: AppState, enabled: bool)
+fn configure_browser_request_ownership(state: AppState)
     -> Result<AppState, String> {
-    if !enabled { return Ok(state); }
     framer_server::operation_ownership::with_owned_operations(state, 256)
         .map_err(|error| format!("browser request ownership unavailable: {error:?}"))
 }
@@ -114,7 +111,6 @@ mod browser_request_ownership_startup_tests;
 async fn build_state(db: &str, chrome: &str, profiles: &str, engine: &str,
     active_pool_size: Option<usize>, eligible_accounts: Option<&str>,
     sidecar_script: Option<std::path::PathBuf>,
-    browser_request_ownership: bool,
 ) -> Result<BuiltState, String> {
     if sidecar_script.is_some() && engine != "camoufox" {
         return Err("--sidecar-script requires --engine camoufox".into());
@@ -163,7 +159,7 @@ async fn build_state(db: &str, chrome: &str, profiles: &str, engine: &str,
     state.gate = Arc::new(framer_core::gate::ConcurrencyGate::with_state_file(
         framer_core::gate::GateConfig::default(), gate_path,
     ).map_err(|e| format!("load concurrency limits: {e}"))?);
-    let state = configure_browser_request_ownership(state, browser_request_ownership)?;
+    let state = configure_browser_request_ownership(state)?;
     Ok(BuiltState { state })
 }
 
@@ -207,7 +203,7 @@ async fn main() {
     let cli = Cli::parse();
     match cli.cmd {
         Cmd::Daemon { listen, web_dir, db, chrome, engine, profiles, sidecar_script,
-            active_pool_size, eligible_accounts, browser_request_ownership,
+            active_pool_size, eligible_accounts,
         } => {
             let web_dir = std::env::current_exe().map_err(|e| e.to_string())
                 .and_then(|exe| release::web_dir(&exe, web_dir));
@@ -220,7 +216,6 @@ async fn main() {
             };
             let built = match build_state(&db, &chrome, &profiles, &engine,
                 active_pool_size, eligible_accounts.as_deref(), sidecar_script,
-                browser_request_ownership,
                 ).await {
                 Ok(s) => s,
                 Err(e) => {
@@ -257,7 +252,7 @@ async fn main() {
                 .field("listen", listen.clone())
                 .field("engine", engine.clone())
                 .emit();
-            let result = framer_server::serve(state, &web_dir, addr).await;
+            let result = shutdown::serve(state, &web_dir, addr).await;
             if let Err(e) = result {
                 eprintln!("server error: {e}");
                 std::process::exit(1);

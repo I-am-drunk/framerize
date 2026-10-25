@@ -45,5 +45,11 @@ overload evidence. Library consumers and tests use in-memory gates by default.
 This file contains concurrency estimates, not the account's request history.
 
 Activation and migration of the current service are still unfinished. The new
-durable rate ledger and graceful drain must replace the old memory-transfer
-rollout before this package can be promoted safely. Staging is not deployment.
+durable rate ledger and graceful drain are implemented, but migration and
+crash recovery must be completed before promotion. Staging is not deployment.
+
+Send SIGTERM to the daemon to request graceful shutdown. It stops admitting
+requests, waits for accepted work, and then closes owned browsers and the host.
+Foreground Ctrl-C follows the same path. Attached user browsers remain open.
+An error during cleanup is reported as an unsuccessful shutdown. Service-manager
+timeouts and forced termination are not a substitute for confirmed cleanup.

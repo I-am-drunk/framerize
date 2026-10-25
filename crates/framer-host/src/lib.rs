@@ -20,6 +20,8 @@ mod cdp_proxy_registration;
 use cdp_proxy_registration::CdpAccountRoute;
 #[cfg(test)]
 mod cdp_proxy_tests;
+#[cfg(test)]
+mod cdp_shutdown_tests;
 use async_trait::async_trait;
 use framer_core::ids::AccountId;
 use framer_core::port::{BrowserBridge, CastleToken};
@@ -29,6 +31,7 @@ use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::process::Stdio;
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 use tokio::process::{Child, Command};
 use tokio::sync::Mutex;
 use tokio_tungstenite::{connect_async, tungstenite::Message};
@@ -434,6 +437,7 @@ pub enum EngineKind {
 }
 
 pub struct CdpBridge {
+    stopping: AtomicBool,
     chrome: PathBuf,
     profiles_dir: PathBuf,
     engine: EngineKind,
@@ -454,6 +458,7 @@ impl CdpBridge {
 
     pub fn with_engine(chrome: impl Into<PathBuf>, profiles_dir: impl Into<PathBuf>, engine: EngineKind) -> Self {
         Self {
+            stopping: AtomicBool::new(false),
             chrome: chrome.into(),
             profiles_dir: profiles_dir.into(),
             engine,
@@ -482,6 +487,9 @@ impl CdpBridge {
     }
 
     async fn instance(&self, account: &AccountId) -> Result<Arc<Mutex<CdpInstance>>, String> {
+        if self.stopping.load(Ordering::Acquire) {
+            return Err("browser host is shutting down".into());
+        }
         let cell = self.route_cell(account).await;
         let mut route = cell.lock().await;
         if let Some(inst) = self.instances.lock().await.get(account) {
@@ -525,6 +533,8 @@ impl CdpBridge {
 
         let proxy = self.proxies.read().await.get(&account.0.to_string()).cloned();
         let mut cmd = Command::new(&self.chrome);
+        #[cfg(unix)]
+        cmd.process_group(0);
         if let Some(p) = &proxy {
             cmd.arg(format!("--proxy-server={p}"));
             eprintln!("[host] account {} launching with per-account proxy", &account.0.to_string()[..8]);
@@ -639,6 +649,29 @@ fn body_preview(v: &Value) -> String {
 
 #[async_trait]
 impl BrowserBridge for CdpBridge {
+    async fn shutdown(&self) -> Result<(), String> {
+        self.stopping.store(true, Ordering::Release);
+        let instances: Vec<_> = self.instances.lock().await.values().cloned().collect();
+        let mut failed = false;
+        for instance in instances {
+            let mut instance = instance.lock().await;
+            if instance.child.is_some() {
+                let _ = instance.cmd_deadline("Browser.close", json!({}),
+                    std::time::Duration::from_secs(10)).await;
+                let child = instance.child.as_mut().unwrap();
+                failed |= !matches!(tokio::time::timeout(
+                    std::time::Duration::from_secs(30), child.wait()).await,
+                    Ok(Ok(status)) if status.success());
+            } else {
+                // Disconnect our transport; never close an attached user browser.
+                let _ = instance.ws.close(None).await;
+            }
+        }
+        if failed { return Err("could not confirm every owned browser exited cleanly".into()); }
+        self.instances.lock().await.clear();
+        Ok(())
+    }
+
     async fn seed_session(&self, account: &AccountId, cookie_header: &str) -> Result<(), String> {
         // Imported accounts: the browser profile never saw the login flow, so
         // its cookie jar is empty. In-page fetches authenticate via that jar —

@@ -18,7 +18,7 @@ use serde_json::{json, Value};
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::process::Stdio;
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex as StdMutex};
 use tokio::io::{AsyncBufReadExt, AsyncWrite, AsyncWriteExt, BufReader};
 use tokio::process::{Child, Command};
@@ -183,6 +183,7 @@ mod pool_merge_tests;
 mod script_tests;
 
 pub struct SidecarBridge {
+    stopping: AtomicBool,
     retirement: Option<Arc<retirement::AdmissionBoundary>>,
     transport_tasks: Option<Arc<tasks::TransportTasks>>,
     state_root: PathBuf,
@@ -194,6 +195,10 @@ pub struct SidecarBridge {
     /// before estimating upstream tok/s.
     queue_wait: Mutex<HashMap<AccountId, u64>>,
 }
+
+#[cfg(test)]
+#[path = "sidecar_shutdown_tests.rs"]
+mod shutdown_tests;
 
 struct Sidecar {
     healthy: Arc<std::sync::atomic::AtomicBool>,
@@ -208,6 +213,7 @@ struct Sidecar {
 impl SidecarBridge {
     pub fn new(state_root: impl Into<PathBuf>) -> Self {
         Self {
+            stopping: AtomicBool::new(false),
             retirement: None,
             transport_tasks: None,
             state_root: state_root.into(),
@@ -257,6 +263,9 @@ impl SidecarBridge {
     /// descendants stopped or transfer its cooldown ledger to a new process.
     async fn sidecar(&self) -> Result<(), String> {
         let mut guard = self.inner.lock().await;
+        if self.stopping.load(Ordering::Acquire) {
+            return Err("browser host is shutting down".into());
+        }
         if let Some(boundary) = &self.retirement {
             boundary.check_open().map_err(|error| format!("host admission: {error:?}"))?;
         }
@@ -285,6 +294,9 @@ impl SidecarBridge {
         let incarnation = uuid::Uuid::new_v4();
         let healthy = Arc::new(std::sync::atomic::AtomicBool::new(true));
         let mut command = Command::new(&python);
+        // The daemon handles terminal signals and drains before closing us.
+        #[cfg(unix)]
+        command.process_group(0);
         command.arg("-B").arg(&script)
             .env("FRAMERIZE_SIDECAR_INCARNATION", incarnation.to_string())
             .env("FRAMERIZE_STATE", self.state_root.join("camoufox"))
@@ -411,6 +423,9 @@ impl SidecarBridge {
                 self.sidecar().await?;
             }
             let mut guard = self.inner.lock().await;
+            if self.stopping.load(Ordering::Acquire) {
+                return Err("browser host is shutting down".into());
+            }
             let s = guard.as_mut().ok_or("sidecar unavailable")?;
             if !s.healthy.load(Ordering::Acquire) || !matches!(s.child.try_wait(), Ok(None)) {
                 return Err("host-lifecycle-unconfirmed: sidecar exited; browser cleanup is unconfirmed".into());
@@ -480,6 +495,24 @@ impl SidecarBridge {
 
 #[async_trait::async_trait]
 impl BrowserBridge for SidecarBridge {
+    async fn shutdown(&self) -> Result<(), String> {
+        let mut guard = self.inner.lock().await;
+        self.stopping.store(true, Ordering::Release);
+        let Some(host) = guard.as_mut() else { return Ok(()); };
+        if !host.pending.lock().map_err(|_| "host replies poisoned")?.is_empty() {
+            return Err("host still has active requests".into());
+        }
+        write_registered_command(host.stdin.clone(), json!({"cmd": "shutdown"}),
+                                 self.transport_tasks.as_ref())
+            .await.map_err(|error| format!("host shutdown request: {error}"))?;
+        let status = host.child.wait().await.map_err(|error| error.to_string())?;
+        if !status.success() {
+            return Err(format!("browser host shutdown failed: {status}"));
+        }
+        *guard = None;
+        Ok(())
+    }
+
     fn supports_browser_lifecycle(&self) -> bool { true }
 
     async fn browser_status(&self, account: &AccountId)
