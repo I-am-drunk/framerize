@@ -21,6 +21,8 @@ mod network_candidate;
 pub use network_candidate::{network_address_class, network_port_class, normalize_network_candidate, CandidateObservation};
 mod network_events;
 pub use network_events::{NetworkEvents, NetworkState};
+mod encode;
+pub use encode::{encode_collected, EncodingError};
 
 /// Append the SDK's unsigned base-128 representation without shared state.
 ///

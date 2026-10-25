@@ -83,6 +83,15 @@ original function and checks serialization through final wrapping together.
 This is a client encoding component, not device collection or proof of
 service acceptance. The native serving worker does not use it yet.
 
+`castle::v3::encode_collected` is the complete post-collection entry point:
+supplied value array, typed serialization, SDK fallback compression, then
+final encoding with an explicit timestamp. It preserves supplied positions,
+types and undefined entries without creating missing observations. Length
+overflow and envelope errors remain explicit. It has no JavaScript runtime.
+The SDK populates its input during both configuration and request execution;
+this API requires the completed snapshot and does not establish readiness.
+Its comparison includes full-size synthetic arrays through all original stages.
+
 An open, unbound browser stream can wait for local account capacity before
 generated output. It retries eligibility within one cumulative 600-second
 wait budget without holding model or resident permits while asleep. Stream
