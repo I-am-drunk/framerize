@@ -43,3 +43,12 @@ All build and test jobs are collected. Input hashes and output bindings match;
 known processes, units and cgroups are absent, and the shared lock is free.
 No swap or resource-limit events occurred. This is fixture and build evidence,
 not SDK execution, a live sign-in, upstream acceptance or a service rollout.
+
+The matching package was subsequently staged in an isolated serial job using
+the unchanged generator and 16 exact source inputs. All 20 runtime files were
+validated. The generated host is `f519bb3faeba5ec49ea83aa41fd0c46703b5f2414480206533cea634c5f0d00d`;
+the support manifest is `97d906d338e62815e8986479677f0fd5ad8c29a542bda16e02333273b802032e`.
+The job completed in 1.37 seconds, peak 61,894,656 bytes, with all 29 inputs
+unchanged and cleanup independently collected. An older unexecuted binding
+was preserved. The new package remains unlaunched; live V3 and normal repair
+acceptance remain separate unfinished actions.

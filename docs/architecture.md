@@ -23,6 +23,11 @@ fixture now begins with an unexpired request, distinguishing preservation of
 real history from creation of an empty queue. Only that corrected case was
 rerun. These inert tests do not establish native acceptance.
 
+The staged authority package pairs that application with its generated host
+and matching support manifest. Its file inventory is verified independently
+of runtime admission. The V3 worker configuration, system dependencies and
+current account proof must still be bound before a live attempt.
+
 The frozen V3 wrapper distinguishes a caller's initialization wait from its
 guarded phase deadlines. The former can fall back while cached initialization
 continues; a guarded failure latches V3 off. Fallback uses strict `null`, so an
