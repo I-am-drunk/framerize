@@ -27,18 +27,14 @@ fn result_handoff_moves_large_strings_without_copying() {
 
 #[test]
 fn result_handoff_preserves_missing_results_and_error_messages() {
-    assert_eq!(take_reply_result(json!({"ok": true})), Ok(Value::Null));
-    assert_eq!(take_reply_result(json!({"ok": true, "result": false})), Ok(json!(false)));
-    assert_eq!(
-        take_reply_result(json!({"ok": false, "error": "fixture failure"})),
-        Err("fixture failure".to_owned()),
-    );
-    for value in [json!({}), json!(null), json!({"ok": true, "result": null})] {
-        let expected = if value["ok"] == true {
-            Ok(Value::Null)
-        } else {
-            Err("sidecar error".to_owned())
-        };
-        assert_eq!(take_reply_result(value), expected);
+    for (case, reply, expected) in [
+        ("missing result", json!({"ok": true}), Ok(Value::Null)),
+        ("false result", json!({"ok": true, "result": false}), Ok(json!(false))),
+        ("explicit error", json!({"ok": false, "error": "fixture failure"}), Err("fixture failure")),
+        ("missing status", json!({}), Err("sidecar error")),
+        ("non-object reply", json!(null), Err("sidecar error")),
+        ("null result", json!({"ok": true, "result": null}), Ok(Value::Null)),
+    ] {
+        assert_eq!(take_reply_result(reply), expected.map_err(str::to_owned), "{case}");
     }
 }

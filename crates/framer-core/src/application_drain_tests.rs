@@ -26,9 +26,10 @@ async fn application_drain_includes_children_registered_after_seal() {
     let mut ticket = gate.seal().unwrap();
     let child = parent.register_cleanup().unwrap();
     parent.complete().unwrap();
-    assert!(tokio::time::timeout(WAIT, ticket.wait_application()).await.is_err());
+    let mut draining = std::pin::pin!(ticket.wait_application());
+    assert!(futures::poll!(draining.as_mut()).is_pending());
     child.complete().unwrap();
-    gate.check_application_drained(&ticket.wait_application().await.unwrap()).unwrap();
+    gate.check_application_drained(&draining.await.unwrap()).unwrap();
 }
 
 #[tokio::test]

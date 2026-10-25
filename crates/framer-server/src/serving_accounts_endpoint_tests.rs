@@ -27,6 +27,7 @@ use std::sync::{Arc, Mutex};
 
 struct FixturePorts {
     import: bool,
+    workspaces: Mutex<Vec<(&'static str, f64)>>,
     records: Mutex<Vec<ManagedAccount>>,
     saved: Mutex<Vec<Session>>,
     registered_proxies: Mutex<Vec<(AccountId, Option<String>)>>,
@@ -99,7 +100,10 @@ impl FramerClient for FixturePorts {
             if !self.import { self.unexpected("client"); }
             self.client_calls.fetch_add(1, Ordering::SeqCst);
             assert_eq!(session.cookie_header, "session=fixture-only");
-            Ok(json!({"id": "user-2", "spaces": [{"scope": "organization", "ownerId": "team-2"}]}))
+            let spaces: Vec<_> = self.workspaces.lock().unwrap().iter()
+                .map(|(team, _)| json!({"scope": "organization", "ownerId": team}))
+                .collect();
+            Ok(json!({"id": "user-2", "spaces": spaces}))
         })
     }
 
@@ -108,8 +112,11 @@ impl FramerClient for FixturePorts {
         Box::pin(async move {
             if !self.import { self.unexpected("client"); }
             self.client_calls.fetch_add(1, Ordering::SeqCst);
-            assert_eq!(team.0, "team-2");
-            Ok(CreditSnapshot { available: 100.0, funds: 1, grants: 1, allocated: 100.0 })
+            let available = self.workspaces.lock().unwrap().iter()
+                .find(|(id, _)| *id == team.0.as_str())
+                .map(|(_, available)| *available)
+                .expect("unexpected fixture workspace");
+            Ok(CreditSnapshot { available, funds: 1, grants: 1, allocated: available })
         })
     }
 
@@ -205,6 +212,7 @@ impl StateStore for FixturePorts {
 fn fixture(import: bool) -> (AppState, Arc<FixturePorts>) {
     let ports = Arc::new(FixturePorts {
         import,
+        workspaces: Mutex::new(vec![("team-2", 100.0)]),
         records: Mutex::new(vec![account(1), account(2)]),
         saved: Mutex::new(Vec::new()),
         registered_proxies: Mutex::new(Vec::new()),
@@ -224,6 +232,60 @@ fn fixture(import: bool) -> (AppState, Arc<FixturePorts>) {
         serving_accounts: Arc::new(policy(&[1])),
     };
     (state, ports)
+}
+
+async fn admit_workspaces(
+    workspaces: Vec<(&'static str, f64)>, claimed: &[&str],
+) -> (Result<TeamId, framer_core::error::CoreError>, Arc<FixturePorts>) {
+    let (_, ports) = fixture(true);
+    *ports.workspaces.lock().unwrap() = workspaces;
+    let mut current = account(2);
+    let session = Session { active_user: current.framer_user_id.clone(),
+        cookie_header: "session=fixture-only".into() };
+    let updates = tokio::sync::Mutex::new(());
+    let deps = framer_core::pipeline::Deps {
+        client: ports.as_ref(), browser: ports.as_ref(),
+        sessions: ports.as_ref(), state: ports.as_ref(), account_updates: &updates,
+    };
+    let claimed = claimed.iter().map(|team| (*team).to_string()).collect();
+    let result = framer_core::credits::admit(&deps, &mut current, &session, &claimed).await;
+    assert_eq!(serde_json::to_value(&current).unwrap(),
+        serde_json::to_value(&ports.records.lock().unwrap()[1]).unwrap());
+    (result, ports)
+}
+
+#[tokio::test]
+async fn an_unclaimed_workspace_is_accepted() {
+    let (result, ports) = admit_workspaces(vec![("fresh", 500.0)], &[]).await;
+    assert_eq!(result.unwrap().0, "fresh");
+    let records = ports.records.lock().unwrap();
+    assert_eq!(records[1].current_team, Some(TeamId("fresh".into())));
+    assert_eq!(records[1].credit.unwrap().available, 500.0);
+}
+
+#[tokio::test]
+async fn a_workspace_another_account_already_holds_is_refused() {
+    let (result, ports) = admit_workspaces(vec![("shared", 500.0)], &["shared"]).await;
+    assert!(matches!(result, Err(framer_core::error::CoreError::NotEligible(_))));
+    assert_eq!(ports.state_writes.load(Ordering::SeqCst), 0);
+}
+
+#[tokio::test]
+async fn the_first_unclaimed_workspace_wins_even_if_poorer() {
+    let (result, ports) = admit_workspaces(
+        vec![("rich-but-taken", 900.0), ("poorer-free", 10.0)], &["rich-but-taken"],
+    ).await;
+    assert_eq!(result.unwrap().0, "poorer-free");
+    let records = ports.records.lock().unwrap();
+    assert_eq!(records[1].current_team, Some(TeamId("poorer-free".into())));
+    assert_eq!(records[1].credit.unwrap().available, 10.0);
+}
+
+#[tokio::test]
+async fn no_credited_workspace_at_all_is_refused() {
+    let (result, ports) = admit_workspaces(Vec::new(), &[]).await;
+    assert!(matches!(result, Err(framer_core::error::CoreError::NotEligible(_))));
+    assert_eq!(ports.state_writes.load(Ordering::SeqCst), 0);
 }
 
 fn parked_headers() -> HeaderMap {
@@ -324,12 +386,10 @@ async fn cooldown_guidance_bounds_local_rechecks_and_preserves_full_pause() {
         (0, 1), (1, 1), (29, 29), (30, 30), (31, 30), (150, 30),
         (900, 30), (u64::MAX, 30),
     ] {
-        for account_cooling in [false, true] {
-            let error = if account_cooling {
-                ApiError::AccountCooling { retry_after_secs: remaining }
-            } else {
-                ApiError::Cooling { retry_after_secs: remaining }
-            };
+        for (error, code) in [
+            (ApiError::Cooling { retry_after_secs: remaining }, "framerize_cooling"),
+            (ApiError::AccountCooling { retry_after_secs: remaining }, "framerize_account_cooling"),
+        ] {
             let response = error.into_response();
             assert_eq!(response.status(), 503);
             assert_eq!(response.headers()["retry-after"].to_str().unwrap(), recheck.to_string());
@@ -338,9 +398,7 @@ async fn cooldown_guidance_bounds_local_rechecks_and_preserves_full_pause() {
             let body: Value = serde_json::from_slice(&bytes).unwrap();
             assert_eq!(body["type"], "error");
             assert_eq!(body["error"]["type"], "overloaded_error");
-            assert_eq!(body["error"]["code"], if account_cooling {
-                "framerize_account_cooling"
-            } else { "framerize_cooling" });
+            assert_eq!(body["error"]["code"], code);
             assert_eq!(body["error"]["retry_after_seconds"], recheck);
             assert_eq!(body["error"]["cooldown_remaining_seconds"], remaining);
             assert!(body["error"]["message"].as_str().unwrap()

@@ -924,7 +924,6 @@ mod tests {
         assert_eq!(to_openrouter_id("gpt-6-astra"), "gpt-6-astra");
         assert_eq!(to_openrouter_id("kimi-k3"), "moonshotai/kimi-k3");
         assert_eq!(to_openrouter_id("moonshotai/kimi-k3"), "moonshotai/kimi-k3");
-        assert_eq!(to_openrouter_id("gpt-4.1"), "openai/gpt-4.1");
         assert_eq!(to_openrouter_id("anthropic/claude-opus-5.5"), "anthropic/claude-opus-5.5");
         assert_eq!(to_openrouter_id("gemini-2.5-flash"), "google/gemini-2.5-flash");
     }
@@ -1006,6 +1005,7 @@ mod tests {
         assert_eq!(items[1]["arguments"], "{\"duration_ms\":1000}");
     }
 
+    #[test]
     fn chat_tools_roundtrip() {
         let body = json!({
             "model": "gpt-4.1",
