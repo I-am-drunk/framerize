@@ -27,9 +27,11 @@ The actual SharedWorker receiver result now reaches Rust, and its native
 reduction supplies the value used by the encoder. A fresh comparison matches
 all 765 positions, 5,412 serialized bytes and the original 5,305-byte output;
 nine damage/mismatch checks pass. The production loader also completed one
-isolated synthetic operation in 2.14 seconds with the worker joined and absent.
-Sixteen JavaScript and 90 Rust checks pass. The original SDK assignment is
-still retained pending its writer/ordering proof. Collection still uses
+isolated synthetic operation in 1.98 seconds with the worker joined and absent.
+Sixteen JavaScript and 90 Rust checks pass. The original SDK reduction and
+assignment are removed after confirming their single-writer boundary. The
+five affected JavaScript checks and production operation pass after removal;
+the unchanged Rust/comparison results are retained. Collection still uses
 SDK/JSDOM; live acceptance and request memory savings remain unverified.
 See [the contract and evidence](../reference/analysis/native-collection-handoff.md#qualification).
 

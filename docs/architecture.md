@@ -12,8 +12,8 @@ See [the handoff contract](../reference/analysis/native-collection-handoff.md).
 
 The private collection also carries the same operation's SharedWorker receiver
 result. Rust validates and reduces it into position 242 before encoding, so
-the minted output uses the native reduction. The SDK's original assignment
-remains pending its separate writer/ordering proof. Collection still uses
+the minted output uses the native reduction. The SDK's original reduction
+and assignment are omitted; its other collection steps are retained. Collection uses
 the SDK and JSDOM; this step does not replace the observation environment.
 
 The isolated snapshot probe observes one original SDK operation and sends
