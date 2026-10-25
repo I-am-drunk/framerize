@@ -22,9 +22,12 @@ An outer streaming HTTP 200 is insufficient. Require nonempty completed
 output and the corresponding cleanup evidence for the paired comparison.
 
 Normal rollout control must account for the agent's own provider using the
-protected endpoint. A separately scheduled controller permits a quiet agent
-while retaining positive request, cooldown and recovery checks. Coordination
-delivery alone never establishes endpoint quiescence.
+protected endpoint. An independent controller must establish that active work
+has finished before switching generations. The old timed quiet scheduler was
+consumed and must not be reused. An idle account's cooldown is a request-admission
+constraint, not evidence of active work. Preserve that state through a switch;
+do not require every account's timer to expire. The corresponding controller
+correction is pending. Coordination delivery alone never proves quiescence.
 
 The selected first-run identity path is a fresh verified sign-in under the
 existing ordinary-V2 contract. This selection does not add a saved-session
