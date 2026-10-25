@@ -2,6 +2,8 @@ use std::{fs, path::PathBuf, time::{Duration, Instant}};
 use framer_native::worker::process::{Cleanup, SavedDevice, Target, Worker};
 use serde_json::{json, Value};
 
+mod worker_memory;
+
 const GROUP_LIMIT: u64 = 128 * 1024 * 1024;
 
 fn isolated() -> bool {
@@ -79,9 +81,16 @@ fn main() {
         let worker = configured_worker()?;
         let runtime = tokio::runtime::Builder::new_current_thread().enable_all()
             .build().map_err(|_| "runtime")?;
+        let sampler = worker_memory::Sampler::start().map_err(|_| "memory-sampler")?;
         let result = runtime.block_on(measure(worker));
         runtime.shutdown_timeout(Duration::from_secs(2));
-        result
+        let memory = sampler.finish().map_err(|_| "memory-sampler")?;
+        result.map(|mut value| {
+            value["memory"] = json!(memory);
+            value["memory_scope"] = json!("owner and descendants, including sampler overhead");
+            value["memory_peak_kind"] = json!("sampled lower bound, not an instantaneous peak");
+            value
+        })
     })();
     let accepted = outcome.as_ref().is_ok_and(|value| value["accepted"] == true);
     let report = outcome.unwrap_or_else(|phase| json!({

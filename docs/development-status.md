@@ -23,6 +23,14 @@ removed. Current tests stay with the behavior they exercise.
 
 ## Validation
 
+The connected worker now has a measured memory baseline. One isolated
+synthetic operation sampled 118.153 MiB PSS for the JavaScript worker and
+121.395 MiB for the Rust owner plus worker. It completed in 2.225 seconds
+with joined cleanup; three accounting tests pass. These are sampled lower
+bounds, not live inference measurements or demonstrated savings. The
+remaining SDK/JSDOM process accounts for most of the observed footprint.
+See [the measurement and limits](../reference/analysis/native-worker-memory.md).
+
 Actual SharedWorker and network receiver results now reach Rust, whose
 reductions supply all five supported fields to the encoder. Their duplicate
 SDK reductions are removed; the SDK retains the genuine network timing path.
