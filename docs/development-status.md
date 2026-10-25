@@ -80,6 +80,7 @@ claim. Native CI includes `scripts/check_v3_encoding.py`,
 `scripts/check_v3_network_result.py`,
 `scripts/check_v3_hash.py`,
 `scripts/check_v3_network_record.py`,
+`scripts/check_v3_network_events.py`,
 `scripts/check_v3_deflate.py` and `scripts/check_v3_envelope.py`;
 hosted execution remains unverified. All prior encoding comparisons also pass
 with the shared fixture builder and new native object module.
@@ -128,10 +129,23 @@ checks non-scalar refusal. Both tests passed with zero skips in the isolated
 512 MiB harness. The resulting sparse record and its embedded metrics hash
 match after serialization. The comparison supplies the original runtime's
 signature order; it does not implement or validate a native locale comparator.
-Candidates and histories enter after event reduction. Next implement the
-source-defined candidate/state normalization from supplied observations.
-Real collection, callback ordering, serving integration and measured memory
-and latency remain unfinished. No service or account was used for these tests.
+Candidates and histories enter after event reduction. No service or account
+was used for these tests.
+
+Native `NetworkEvents` now implements that preceding reduction from supplied
+typed RTC properties, candidate text, SDP and state events. It passes 56
+complete event-sequence comparisons against the original source, plus 32
+address-class and 13 numeric-port comparisons, in 57 tests with zero skips.
+The cases include branch selection, signature collisions, caps after
+deduplication, event ordering, fallback syntax, Unicode and nonfinite ports.
+The comparison caught and corrected a native trailing-newline classification
+error. Two earlier reference-extraction failures are retained separately.
+The isolated run uses the existing 512 MiB harness and Node Unicode 16.0.
+No new runtime dependency was added. Generic JavaScript getters/coercions
+are outside the typed observation input; Unicode tables remain a platform
+boundary. Next connect genuine collection inputs and their finalization order.
+Real collection, locale collation, serving integration, acceptance and measured
+memory/latency remain unfinished.
 
 The dedicated-worker cleanup correction from `759ef0d1` is integrated on
 the reorganized `24ebbdb` base. A focused regression fails on the old pool:

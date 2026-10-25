@@ -17,6 +17,10 @@ mod hash;
 pub use hash::json_hash;
 mod network_record;
 pub use network_record::{assemble_network_record, NetworkCandidate, NetworkObservation, NonScalarCandidate};
+mod network_candidate;
+pub use network_candidate::{network_address_class, network_port_class, normalize_network_candidate, CandidateObservation};
+mod network_events;
+pub use network_events::{NetworkEvents, NetworkState};
 
 /// Append the SDK's unsigned base-128 representation without shared state.
 ///

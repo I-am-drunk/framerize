@@ -28,3 +28,32 @@ run passed those comparisons and a separate non-scalar refusal test, with
 zero ignored or filtered tests. No full SDK, browser or network was started.
 This proves the tested packing behavior, not real observation collection,
 portable collation, upstream acceptance or a reduction in application RAM.
+
+## Typed observation reduction
+
+`NetworkEvents` now implements the preceding pure transformations using
+supplied observations, including the shared arrival-order signature set.
+The source anchors are `od` (95337..95470), `IP` (95470..95593), state
+reduction (5982..6044), candidate normalization (356056..358548), candidate
+insertion (358549..358596), and the SDP callback within 359062..360014.
+The reference harness extracts the original functions, dispatchers, computed
+method selection and literal bindings. It does not evaluate the SDK module.
+
+Structured type/protocol/address properties select the structured branch;
+otherwise the raw candidate text supplies its fields. Address classification
+is a syntactic category, not a valid-address check. Numeric port classification
+preserves fractional, nonfinite and above-65535 behavior. Signature collisions
+are deduplicated by their joined string before the 16-record cap. SDP entries
+use that same set. State histories preserve first-seen lowercase order.
+
+`scripts/check_v3_network_events.py` compares 56 full event sequences plus
+32 address and 13 numeric-port cases. All 57 tests passed in isolation.
+The failed predecessor exposed a native trailing-newline classification bug;
+the correction retains the source regex's exact end-of-string requirement.
+
+The API receives typed RTC properties and numeric ports. It does not invoke
+getters, recreate arbitrary JavaScript coercions, open network connections,
+or establish callback/finalization timing. Non-ASCII lowercasing also depends
+on the toolchain and source runtime's Unicode tables. The checked reference
+uses Unicode 16.0. Real collection, compatible collation, service acceptance
+and total application memory remain unverified.
