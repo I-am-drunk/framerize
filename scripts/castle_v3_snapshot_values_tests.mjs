@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import vm from 'node:vm';
-import {capture} from './castle_v3_snapshot_values.mjs';
+import {capture} from './offline_worker/collected_values.mjs';
 
 test('preserves value distinctions from another realm', () => {
   const value = vm.runInNewContext('[, undefined, null, -0, NaN, Infinity, "\\ud800", [true]]');

@@ -1,4 +1,4 @@
-// Test-only capture of plain collector data, without invoking property getters.
+// Copy plain collector data without invoking property getters or conversion hooks.
 import {types} from 'node:util';
 
 function inheritedIndex(value, index) {
@@ -11,7 +11,7 @@ function inheritedIndex(value, index) {
   return false;
 }
 
-export function capture(value, state = {seen:new Set(), count:0}, depth = 0) {
+export function capture(value, state = {seen:new Set(), count:0, units:0}, depth = 0) {
   if (++state.count > 4096 || depth > 64) throw new Error('collector-capture-limit');
   if (value === undefined) return {kind:'undefined'};
   if (value === null) return {kind:'null'};
@@ -19,7 +19,8 @@ export function capture(value, state = {seen:new Set(), count:0}, depth = 0) {
   if (typeof value === 'number')
     return {kind:'number', value:Object.is(value, -0) ? '-0' : String(value)};
   if (typeof value === 'string') {
-    if (value.length > 65536) throw new Error('collector-string-limit');
+    state.units += value.length;
+    if (state.units > 65536) throw new Error('collector-string-limit');
     return {kind:'string', units:Array.from({length:value.length}, (_,i)=>value.charCodeAt(i))};
   }
   if (types.isProxy(value) || !Array.isArray(value) || state.seen.has(value))

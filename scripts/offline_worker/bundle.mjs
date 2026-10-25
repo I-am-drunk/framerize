@@ -12,7 +12,7 @@ const source = dirname(fileURLToPath(import.meta.url));
 const modules = ['worker', 'offline_mint', 'protocol', 'device', 'pins',
   'graphics_loader', 'canvas_webgl', 'sdk_loader', 'branch', 'resources',
   'shared_workers', 'shared_runtime', 'dedicated_workers', 'dedicated_pool',
-  'dedicated_replies', 'dedicated_runtime'];
+  'dedicated_replies', 'dedicated_runtime', 'collection', 'collected_values'];
 
 async function digest(path) {
   const hash = createHash('sha256');

@@ -23,7 +23,8 @@ impl V2Worker {
     }
     pub fn begin_with_device(&self, target: Target, device: &SavedDevice,
         deadline: Instant) -> Result<Run<V2Metadata>, Failure> {
-        self.0.begin_protocol(target, Some(device), deadline, accept, failure::from_exit)
+        self.0.begin_protocol(target, Some(device), deadline, super::Output::Token,
+            accept, failure::from_exit)
     }
 }
 

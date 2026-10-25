@@ -21,6 +21,7 @@ use sha2::Sha256;
 #[path = "worker_io.rs"] mod pipe;
 #[path = "worker_sandbox.rs"] mod sandbox;
 #[path = "worker_metadata.rs"] mod metadata;
+#[path = "worker_collection.rs"] mod collection;
 #[path = "worker_failure.rs"] mod failure;
 pub use failure::{WorkerStage, WorkerSummary};
 #[path = "worker_v2_metadata.rs"] pub mod v2_metadata;
@@ -37,6 +38,23 @@ pub enum Failure { Configuration, Runtime, Deadline, Cancelled, Input, Identity,
     WorkerStage(WorkerStage), V2WorkerStage(V2WorkerStage), Protocol }
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Cleanup { NotStarted, Joined { pid: u32 }, Unconfirmed }
+
+#[derive(Clone, Copy)]
+enum Output { Collection, Token }
+impl Output {
+    fn limit(self) -> usize {
+        match self { Self::Collection => collection::LIMIT + 12, Self::Token => 16384 + 12 }
+    }
+    async fn encode(self, bytes: Vec<u8>) -> Result<String, Failure> {
+        // Keep CPU work off the async executor. This owner always joins it,
+        // including when the request is cancelled while encoding.
+        match self {
+            Self::Collection => tokio::task::spawn_blocking(move || collection::encode(bytes))
+                .await.map_err(|_| Failure::Worker)?.ok_or(Failure::Protocol),
+            Self::Token => metadata::token(bytes).ok_or(Failure::Protocol),
+        }
+    }
+}
 
 pub struct FilePin { pub path: PathBuf, pub sha256: [u8; 32] }
 pub struct Specification { pub node: PathBuf, pub entry: PathBuf, pub pins: Vec<FilePin> }
@@ -124,11 +142,12 @@ impl Worker {
 
     fn begin_input(&self, target: Target, device: Option<&SavedDevice>,
         deadline: Instant) -> Result<Run, Failure> {
-        self.begin_protocol(target, device, deadline, metadata::accept_mode, failure::from_exit)
+        self.begin_protocol(target, device, deadline, Output::Collection,
+            metadata::accept_mode, failure::from_exit)
     }
 
     fn begin_protocol<M: Send + 'static>(&self, target: Target,
-        device: Option<&SavedDevice>, deadline: Instant,
+        device: Option<&SavedDevice>, deadline: Instant, output: Output,
         accept: fn(&[u8], u64, bool) -> Option<M>,
         failed: fn(Option<i32>, &[u8]) -> Failure) -> Result<Run<M>, Failure> {
         let now = Instant::now();
@@ -147,7 +166,7 @@ impl Worker {
         #[cfg(not(test))]
         let first_read_delay = None;
         let task = runtime.spawn(supervise(spec, input, budget_ms, deadline,
-            receiver, sender, pid.clone(), first_read_delay, device_required, accept, failed));
+            receiver, sender, pid.clone(), first_read_delay, device_required, output, accept, failed));
         let completion = Completion(async move {
             task.await.unwrap_or(Cleanup::Unconfirmed)
         }.boxed().shared());
@@ -225,7 +244,7 @@ fn spawn(spec: &Specification) -> std::io::Result<Spawned> {
 async fn supervise<M: Send + 'static>(spec: Arc<Specification>, input: Vec<u8>, budget_ms: u64,
     deadline: Instant, mut cancel: watch::Receiver<bool>,
     sender: oneshot::Sender<Result<Minted<M>, Failure>>, started: Arc<AtomicU32>,
-    _first_read_delay: Option<Duration>, device_required: bool,
+    _first_read_delay: Option<Duration>, device_required: bool, output: Output,
     accept: fn(&[u8], u64, bool) -> Option<M>,
     failed: fn(Option<i32>, &[u8]) -> Failure) -> Cleanup {
     let until = tokio::time::Instant::from_std(deadline);
@@ -253,7 +272,7 @@ async fn supervise<M: Send + 'static>(spec: Arc<Specification>, input: Vec<u8>, 
             if let Some(delay) = _first_read_delay {
                 hold_first_read(&token, delay).await?;
             }
-            pipe::read_with_receipt(token, 16384 + 12).await
+            pipe::read_with_receipt(token, output.limit()).await
         };
         tokio::try_join!(pipe::write_all(input_fd, input), token,
             pipe::read_bounded(metadata, 16384), child.wait())
@@ -267,7 +286,7 @@ async fn supervise<M: Send + 'static>(spec: Arc<Specification>, input: Vec<u8>, 
     let (result, cleanup) = match outcome {
         Ok(((), (bytes, received_at), safe, status)) => {
             let cleanup = if pid == 0 { Cleanup::Unconfirmed } else { Cleanup::Joined { pid } };
-            let result = (|| {
+            let result = async {
                 if *cancel.borrow() { return Err(Failure::Cancelled); }
                 if Instant::now() >= deadline { return Err(Failure::Deadline); }
                 if pid == 0 { return Err(Failure::Worker); }
@@ -276,10 +295,12 @@ async fn supervise<M: Send + 'static>(spec: Arc<Specification>, input: Vec<u8>, 
                 }
                 let metadata = accept(&safe, budget_ms, device_required)
                     .ok_or(Failure::Protocol)?;
-                let token = metadata::token(bytes).ok_or(Failure::Protocol)?;
                 let received_at = received_at.ok_or(Failure::Protocol)?;
+                let token = output.encode(bytes).await?;
+                if *cancel.borrow() { return Err(Failure::Cancelled); }
+                if Instant::now() >= deadline { return Err(Failure::Deadline); }
                 Ok(Minted { token, freshness_origin, received_at, metadata })
-            })();
+            }.await;
             (result, cleanup)
         }
         Err(error) => (Err(error), stop_and_join(&mut child, pid).await),
@@ -294,8 +315,9 @@ async fn hold_first_read(fd: &tokio::io::unix::AsyncFd<std::os::fd::OwnedFd>,
     drop(fd.readable().await?);
     let mut pending: libc::c_int = 0;
     let result = unsafe { libc::ioctl(fd.get_ref().as_raw_fd(), libc::FIONREAD, &mut pending) };
-    // The existing fake worker writes this complete small frame atomically.
-    if result != 0 || pending != 12 + b"fake-fixture-token".len() as libc::c_int {
+    // A collection can exceed pipe capacity. Hold the reader only once its
+    // complete header is buffered, without assuming the writer has finished.
+    if result != 0 || pending < 12 {
         return Err(std::io::ErrorKind::InvalidData.into());
     }
     tokio::time::sleep(delay).await;

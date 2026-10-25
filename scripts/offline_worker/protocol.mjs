@@ -46,6 +46,16 @@ export class OpaqueToken {
   toJSON() { throw new Error('private-token'); }
 }
 
+export class OpaqueCollection {
+  #value;
+  constructor(value) { this.#value = value; }
+  take() {
+    if (this.#value === undefined) throw new Error('collection-consumed');
+    const value = this.#value; this.#value = undefined; return value;
+  }
+  toJSON() { throw new Error('private-collection'); }
+}
+
 export function verifyDescriptors() {
   for (const fd of [0, 1, 2])
     if (fs.realpathSync('/proc/self/fd/' + fd) !== '/dev/null') throw new Error('stdio');

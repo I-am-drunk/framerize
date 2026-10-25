@@ -7,7 +7,8 @@ import { DOM, PUBLIC_KEY, SUPPORT, GRAPHICS } from './pins.mjs';
 import { loadGraphics } from './graphics_loader.mjs';
 import { installWebGL } from './canvas_webgl.mjs';
 import { SdkModules, verifyInputs } from './sdk_loader.mjs';
-import { validateInput, OpaqueToken } from './protocol.mjs';
+import { validateInput, OpaqueCollection } from './protocol.mjs';
+import { COLLECTION_LIMIT } from './collection.mjs';
 import { observeBranch, exactV3, observeFailurePhase, refineFailurePhase } from './branch.mjs';
 import { pngResources } from './resources.mjs';
 import { installSharedWorkers } from './shared_workers.mjs';
@@ -35,7 +36,7 @@ export class OfflineCastleMinter {
       v3_evaluated: false, window_closed: false, inspector_closed: false,
       sources_unchanged: false, async_errors: 0, diagnostics: 0,
       late_settlements: 0, method_ms: 0, elapsed_ms: 0,
-      mint_to_handoff_ms: 0, token_handoff: false };
+      collection_to_handoff_ms: 0, collection_handoff: false };
     if (this.#input.version === 2) Object.assign(report, {
       device_storage_seeded: false, device_storage_unchanged: false,
     });
@@ -186,12 +187,12 @@ export class OfflineCastleMinter {
     if (!report.failure_phase && report.elapsed_ms > this.#input.budget_ms)
       report.failure_phase = 'deadline';
     if (!report.failure_phase && (typeof value !== 'string' || value.length === 0
-        || Buffer.byteLength(value, 'utf8') > 16384 || Buffer.from(value).toString('utf8') !== value))
-      report.failure_phase = 'token-shape';
+        || Buffer.byteLength(value, 'utf8') > COLLECTION_LIMIT || Buffer.from(value).toString('utf8') !== value))
+      report.failure_phase = 'collection-shape';
     report.failure_phase = refineFailurePhase(report.failure_phase, failureDetail);
-    let token;
-    if (!report.failure_phase) { token = new OpaqueToken(value); report.status = 'passed'; }
+    let collection;
+    if (!report.failure_phase) { collection = new OpaqueCollection(value); report.status = 'passed'; }
     value = undefined;
-    return { token, metadata: report, minted_at: mintedAt };
+    return { collection, metadata: report, collected_at: mintedAt };
   }
 }

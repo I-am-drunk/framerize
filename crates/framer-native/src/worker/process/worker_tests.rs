@@ -9,7 +9,7 @@ fn valid_metadata() -> Value {
         "v3_evaluated":true,"window_closed":true,"inspector_closed":true,
         "sources_unchanged":true,"async_errors":0,"diagnostics":0,
         "late_settlements":0,"method_ms":2.0,"elapsed_ms":5.0,
-        "mint_to_handoff_ms":1.0,"token_handoff":true})
+        "collection_to_handoff_ms":1.0,"collection_handoff":true})
 }
 
 #[test]
@@ -80,7 +80,7 @@ fn invented_account_continuity_is_rejected() {
 }
 #[test]
 fn late_handoff_is_rejected() {
-    let mut value = valid_metadata(); value["mint_to_handoff_ms"] = json!(2000.1);
+    let mut value = valid_metadata(); value["collection_to_handoff_ms"] = json!(2000.1);
     assert!(metadata::accept(&serde_json::to_vec(&value).unwrap(), 16000).is_none());
 }
 #[test]
@@ -158,7 +158,7 @@ fn fake_worker() -> Worker {
     let entry = base.join("fake_worker.mjs");
     let pins = vec![
         crate::test_support::node_pin(),
-        pin(entry.clone(), "3933fdca4bde11c27b6174d08a5eb790047ccefbe9e89573cc1dc948d269a1bb"),
+        pin(entry.clone(), "22b620d72050974fc1debc0a4e6c1734360f8ea65eb0370ba3398146ef4eaf7e"),
         pin(base.join("protocol.mjs"), "99117048db3589a307efcd11ce07960f8e80afc0aece3d1a4d000f55ec1622df"),
     ];
     Worker::new(Specification { node, entry, pins }).unwrap()
@@ -180,7 +180,7 @@ async fn private_handoff_requires_child_and_task_join() {
     let completion = run.completion();
     let value = run.result().await.expect("fake worker must pass");
     assert!(value.received_at <= Instant::now());
-    assert_eq!(value.into_token(), "fake-fixture-token");
+    assert!(value.into_token().starts_with("cNz8rPYH|"));
     assert!(matches!(completion.wait().await, Cleanup::Joined { .. }));
 }
 #[tokio::test(flavor = "current_thread")]
@@ -238,7 +238,7 @@ async fn kernel_denies_sockets_and_new_processes_in_child_only() {
     let before = unsafe { libc::socket(libc::AF_UNIX, libc::SOCK_STREAM, 0) };
     assert!(before >= 0); unsafe { libc::close(before); }
     let mut run = begin_fake("sandbox", 5).await;
-    assert_eq!(run.result().await.unwrap().into_token(), "fake-fixture-token");
+    assert!(run.result().await.unwrap().into_token().starts_with("cNz8rPYH|"));
     assert!(matches!(run.completion().wait().await, Cleanup::Joined { .. }));
     let after = unsafe { libc::socket(libc::AF_UNIX, libc::SOCK_STREAM, 0) };
     assert!(after >= 0); unsafe { libc::close(after); }
@@ -266,7 +266,7 @@ async fn eof_and_join_do_not_renew_token_receipt_time() {
         let mut run = begin_fake(mode, 5).await;
         let value = run.result().await.expect("delayed fake worker must pass");
         assert!(value.received_at.elapsed() >= Duration::from_millis(100));
-        assert_eq!(value.into_token(), "fake-fixture-token");
+        assert!(value.into_token().starts_with("cNz8rPYH|"));
         assert!(matches!(run.completion().wait().await, Cleanup::Joined { .. }));
     }
 }
@@ -302,6 +302,6 @@ async fn delayed_first_read_keeps_pre_spawn_freshness_origin() {
     let age_at_receipt = minted.received_at.duration_since(minted.freshness_origin);
     assert!(age_at_receipt >= Duration::from_millis(200));
     assert!(age_at_receipt > Duration::from_millis(100), "small test age budget expired");
-    assert_eq!(minted.into_token(), "fake-fixture-token");
+    assert!(minted.into_token().starts_with("cNz8rPYH|"));
     assert!(matches!(completion.wait().await, Cleanup::Joined { .. }));
 }

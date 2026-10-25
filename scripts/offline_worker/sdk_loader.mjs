@@ -1,5 +1,6 @@
 import fs from 'node:fs';
 import vm from 'node:vm';
+import {collectionSource, createCollector} from './collection.mjs';
 import { createHash } from 'node:crypto';
 import { ASSETS, DOM, CDN, MODULES, SUPPORT, DOM_PINS, WRAPPER_MINT_EXPORT } from './pins.mjs';
 
@@ -25,13 +26,15 @@ export function verifyInputs() {
 
 export class SdkModules {
   #modules = new Map(); #roles = new Map(); #evaluation;
+  #collect = createCollector();
   stats = { dynamic_imports: 0, v3_evaluated: false };
   constructor(context) {
     for (const [role, [name, , hash]] of Object.entries(MODULES)) {
       const bytes = fs.readFileSync(ASSETS + '/' + name);
       if (createHash('sha256').update(bytes).digest('hex') !== hash) throw new Error('input-identity');
-      const module = new vm.SourceTextModule(bytes.toString('utf8'), {
+      const module = new vm.SourceTextModule(role === 'v3' ? collectionSource(bytes) : bytes.toString('utf8'), {
         context, identifier: CDN + name,
+        initializeImportMeta: meta => { if (role === 'v3') meta.collect = this.#collect; },
         importModuleDynamically: (...args) => this.#dynamic(...args),
       });
       this.#modules.set(role, module); this.#roles.set(module, role);

@@ -23,12 +23,19 @@ removed. Current tests stay with the behavior they exercise.
 
 ## Validation
 
+Fresh SDK collection now reaches the native encoder through the private
+worker pipe. One isolated synthetic operation completed in 1.94 seconds,
+with worker cleanup joined and its output discarded. Fourteen JavaScript
+checks and 89 focused Rust checks pass. Collection still uses
+SDK/JSDOM; live acceptance and request memory savings remain unverified.
+See [the handoff and qualification](../reference/analysis/native-collection-handoff.md).
+
 The native encoder now matches one isolated SDK operation using all 765
 actual input positions captured before serialization. It reproduces 5,412
 serialized bytes and the 5,297-byte final output, including native rebuilding
 of the five supported collector fields. Three capture checks also pass.
-This establishes the direct input comparison. Serving still uses the SDK;
-collection completion and a private handoff to native encoding are next.
+This establishes the saved direct-input comparison. The new serving handoff
+uses SDK collection with native encoding; complete native collection is next.
 See [the observation and limits](../reference/analysis/castle-v3-sdk-snapshot.md).
 
 Shared-worker cleanup now waits for actual exit even when stopping fails.

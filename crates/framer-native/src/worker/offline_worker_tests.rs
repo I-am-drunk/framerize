@@ -44,7 +44,7 @@ fn adapter(scope: &AccountScope) -> Arc<OfflineWorkerMinter> {
     let entry = root.join("fake_worker.mjs");
     let pins = vec![
         crate::test_support::node_pin(),
-        pin(entry.clone(), "3933fdca4bde11c27b6174d08a5eb790047ccefbe9e89573cc1dc948d269a1bb"),
+        pin(entry.clone(), "22b620d72050974fc1debc0a4e6c1734360f8ea65eb0370ba3398146ef4eaf7e"),
         pin(root.join("protocol.mjs"), "99117048db3589a307efcd11ce07960f8e80afc0aece3d1a4d000f55ec1622df"),
     ];
     Arc::new(OfflineWorkerMinter::new(scope.clone(),
@@ -119,7 +119,7 @@ async fn joined_result_preserves_scope_and_age_across_delayed_exit() {
     let before = Instant::now();
     let pending = prepare(&client, &scope, minter, "delayedexit");
     let result = pending.await.unwrap();
-    assert_eq!(result.token.0, "fake-fixture-token");
+    assert!(result.token.0.starts_with("cNz8rPYH|"));
     assert!(result.received_at >= before);
     assert!(result.received_at.elapsed() >= Duration::from_millis(200));
     close(&client, &scope).await;

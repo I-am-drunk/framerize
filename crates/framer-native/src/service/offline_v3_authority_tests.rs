@@ -2,7 +2,7 @@ use super::*;
 
 fn v3_fixture() -> Fixture {
     fixture_with_operation(include_bytes!("../../../../scripts/tests/fixtures/v3_authority_mint.mjs"),
-        "01b825b624f0c4b026ce332ea6a3915fbe4361e00772546285a5f6929942e837").0
+        "d420e695116864181d90f877b7df2649220b4fc58015e77d67ae7d0acbe3c1cb").0
 }
 
 fn observed_host(scope: &AccountScope, lost_reply: bool,
@@ -117,7 +117,11 @@ async fn v3_completion_case(mode: u8) {
     assert_eq!(host.inner.finished.load(Ordering::SeqCst), 1);
     let (pid, start) = host.inner.child.lock().unwrap().unwrap();
     assert_ne!(child_start(pid), Some(start));
-    check_completion(mode, result, cleanup, closed);
+    if mode == 0 {
+        assert!(result.unwrap().token.0.starts_with("cNz8rPYH|"));
+        assert_eq!(cleanup, Ok(()));
+        assert_eq!(closed, Ok(()));
+    } else { check_completion(mode, result, cleanup, closed); }
 }
 
 #[tokio::test]

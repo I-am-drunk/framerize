@@ -3,6 +3,13 @@
 The current reorganization is in progress. See [the design](rearchitecture.md)
 for decisions, boundaries and the remaining migration work.
 
+The experimental V3 worker collects values in a fresh JavaScript SDK instance
+for each operation. Its private pipe returns a bounded, typed collection to
+Rust, which serializes, compresses and encodes it after the child exits.
+The request owner retains both child cleanup and native encoding completion.
+V2 keeps its separate token protocol. The normal browser service is unaffected.
+See [the handoff contract](../reference/analysis/native-collection-handoff.md).
+
 Native Castle client encoding lives in `framer-native/src/castle/`. Its typed
 serializer selects the pinned Framer V3 SDK's numeric and string representations,
 writes array structure and preserves UTF-16 code units, including unpaired
@@ -20,8 +27,8 @@ object graph, descriptors or prototypes.
 `scripts/check_v3_serialization.py` and `scripts/check_v3_objects.py` compare
 complete arrays against the original serializer. The reference extracts only
 the required helpers and constant table;
-it never loads the SDK module. The serving worker remains unchanged until the
-complete native replacement is implemented and validated.
+it never loads the SDK module. The experimental serving path uses these encoding
+primitives, while collection still requires the SDK and its JavaScript runtime.
 
 `castle::v3::shared_worker_version` reduces a supplied worker result before
 serialization. It preserves the SDK's marker translation, strict success

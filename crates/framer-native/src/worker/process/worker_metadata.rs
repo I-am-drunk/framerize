@@ -3,7 +3,7 @@ use serde_json::Value;
 #[derive(Clone, Debug)]
 pub struct Metadata {
     pub method_ms: f64, pub elapsed_ms: f64,
-    pub mint_to_handoff_ms: f64, pub diagnostics: u64,
+    pub collection_to_handoff_ms: f64, pub diagnostics: u64,
 }
 
 pub fn accept(bytes: &[u8], budget_ms: u64) -> Option<Metadata> {
@@ -17,7 +17,7 @@ pub fn accept_mode(bytes: &[u8], budget_ms: u64, device_required: bool) -> Optio
         "account_state_loaded", "wrapper_calls", "branch", "dynamic_imports",
         "v3_evaluated", "window_closed", "inspector_closed", "sources_unchanged",
         "async_errors", "diagnostics", "late_settlements", "method_ms",
-        "elapsed_ms", "mint_to_handoff_ms", "token_handoff"];
+        "elapsed_ms", "collection_to_handoff_ms", "collection_handoff"];
     let device_fields = ["device_storage_seeded", "device_storage_unchanged"];
     if object.len() != fields.len() + if device_required { 2 } else { 0 }
         || fields.iter().any(|key| !object.contains_key(*key)) {
@@ -34,7 +34,7 @@ pub fn accept_mode(bytes: &[u8], budget_ms: u64, device_required: bool) -> Optio
         return None;
     }
     for key in ["target_validated", "v3_evaluated", "window_closed",
-        "inspector_closed", "sources_unchanged", "token_handoff"] {
+        "inspector_closed", "sources_unchanged", "collection_handoff"] {
         if value[key].as_bool()? != true { return None; }
     }
     let branch = value["branch"].as_object()?;
@@ -48,11 +48,11 @@ pub fn accept_mode(bytes: &[u8], budget_ms: u64, device_required: bool) -> Optio
     if !method_ms.is_finite() || method_ms < 0.0 || method_ms > 11000.0
         || !elapsed_ms.is_finite() || elapsed_ms < method_ms
         || elapsed_ms > budget_ms as f64 || diagnostics > 1000000 { return None; }
-    let mint_to_handoff_ms = value["mint_to_handoff_ms"].as_f64()?;
-    if !mint_to_handoff_ms.is_finite() || !(0.0..=2000.0).contains(&mint_to_handoff_ms) {
+    let collection_to_handoff_ms = value["collection_to_handoff_ms"].as_f64()?;
+    if !collection_to_handoff_ms.is_finite() || !(0.0..=2000.0).contains(&collection_to_handoff_ms) {
         return None;
     }
-    Some(Metadata { method_ms, elapsed_ms, mint_to_handoff_ms, diagnostics })
+    Some(Metadata { method_ms, elapsed_ms, collection_to_handoff_ms, diagnostics })
 }
 
 pub fn token(mut bytes: Vec<u8>) -> Option<String> {

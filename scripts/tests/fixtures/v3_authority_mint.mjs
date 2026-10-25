@@ -1,4 +1,4 @@
-// Inert protocol fixture. Artificial token only; no SDK, account data or network.
+// Inert collection fixture. No SDK, account data or network.
 import fs from 'node:fs';
 
 const input = JSON.parse(fs.readFileSync(3, 'utf8'));
@@ -12,11 +12,13 @@ const metadata = {
   v3_evaluated: true, window_closed: true, inspector_closed: true,
   sources_unchanged: true, async_errors: 0, diagnostics: 0,
   late_settlements: 0, method_ms: 2, elapsed_ms: 5,
-  mint_to_handoff_ms: 1, token_handoff: true,
+  collection_to_handoff_ms: 1, collection_handoff: true,
   device_storage_seeded: true, device_storage_unchanged: true,
 };
-const token = Buffer.from('fake-fixture-token');
-const header = Buffer.from([0x46, 0x53, 0x44, 0x4b, 1, 0, 0, 0, 0, 0, 0, 0]);
+const token = Buffer.from(JSON.stringify({version: 1,
+  values: {kind: 'array', values: Array.from({length: 765}, (_, i) =>
+    ({kind: 'number', value: String(i)}))}}));
+const header = Buffer.from([0x46, 0x43, 0x4c, 0x54, 1, 0, 0, 0, 0, 0, 0, 0]);
 header.writeUInt32BE(token.length, 8);
 for (const [fd, bytes] of [[4, Buffer.concat([header, token])],
     [5, Buffer.from(JSON.stringify(metadata))]]) {

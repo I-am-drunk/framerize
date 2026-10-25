@@ -26,7 +26,7 @@ impl Fixture {
             ("worker.mjs", include_bytes!("../../../../scripts/tests/fixtures/device_mint_pending.mjs"),
                 "3dc511b8e330c8106a60040a25383afa14cc3ac74f6c804c49b288487f024933"),
             ("protocol.mjs", include_bytes!("../../../../scripts/offline_worker/protocol.mjs"),
-                "13ad5f0d8b29a5beaf3dcf7c16398f6d3de98069515b6a8ba8fe8e29502d68df"),
+                "2d163c1e1a047e12ae57c6dbe6e90b9687714fdfb1f2805255e329704462a15d"),
             ("device.mjs", include_bytes!("../../../../scripts/offline_worker/device.mjs"),
                 "a41e26307400a61ac212f469880108321004f533d210a2aa83a39faca8aeb74f"),
         ];
