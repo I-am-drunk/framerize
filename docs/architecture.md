@@ -1,5 +1,14 @@
 # Serving architecture and branch policy
 
+The device-authority source candidate negotiates `authority_version: 1` when
+opening a native grant. The host identifies ledger or observation authority;
+the client rejects a missing or unknown mode. Legacy callers retain their
+three-field reply. New clients require a matching host. Observation-backed
+V3 authenticates the existing proof before minting and checks its completion
+echoes, while its worker still receives the saved device rather than the V2
+SDK seed. Rejected or uncertain proof transfer never selects generic admission.
+This candidate remains unqualified; it does not alter native acceptance claims.
+
 The frozen V3 wrapper distinguishes a caller's initialization wait from its
 guarded phase deadlines. The former can fall back while cached initialization
 continues; a guarded failure latches V3 off. Fallback uses strict `null`, so an

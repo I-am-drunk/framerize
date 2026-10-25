@@ -1,5 +1,15 @@
 # Development status
 
+## V3 device authority source candidate
+
+Branch `fix/v3-device-authority-20261025` adds explicit native-device authority
+negotiation. Observation-backed V3 grants use authenticated proof admission
+and completion; ledger-backed V3 and mandatory V2 proof behavior are preserved.
+Eight Rust and four Python regression cases are source-only and UNRUN.
+No compiler, SDK, package or live request has run for this change. It requires
+paired host/client qualification and rebuilding the affected crate graph before
+use. Previously qualified binaries remain separate from this candidate.
+
 The normal interruption repair now has a built candidate from qualified source
 `93dad965`, executable SHA256 `f70458d364ec624006b5dc968fda49c06ab22aa65673c56fc43b87d7d223aba3`.
 Host, API, server and link builds passed and are collected. Its fifteen-file
