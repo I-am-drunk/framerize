@@ -1,13 +1,15 @@
 [workspace]
 resolver = "2"
+default-members = ["apps/framerize"]
 members = [
     "crates/framer-core",
     "crates/framer-api",
     "crates/framer-store",
     "crates/framer-server",
     "crates/framer-host",
-    "crates/framerize",
-    "crates/offline-worker-owner",
+    "apps/framerize",
+    "apps/framerize-native",
+    "crates/framer-native",
 ]
 
 [workspace.package]

@@ -157,8 +157,6 @@ impl Fixture {
         let selected = accounts.iter().map(|a| a.id.0.to_string()).collect::<Vec<_>>().join(",");
         let state = AppState {
         operation_ownership: None,
-            #[cfg(feature = "native-dispatch")]
-            native_dispatch: None,
             client: ports.clone(), browser: ports.clone(), sessions: ports.clone(), state: ports,
             gate: Arc::new(ConcurrencyGate::with_config(GateConfig {
                 initial: 1, min: 1, max: 1, recover_ms: 60000, relax_ms: 60000, min_interval_ms: 0,

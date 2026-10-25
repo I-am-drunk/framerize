@@ -1,0 +1,117 @@
+use serde_json::{json, Value};
+use framer_core::convert::ChainEvent;
+
+pub fn merge_items(acc: &mut Vec<Value>, new: Vec<Value>) {
+    for it in new {
+        let is_msg = it["type"].as_str() == Some("message");
+        if is_msg {
+            if let Some(last) = acc.last_mut() {
+                if last["type"].as_str() == Some("message") {
+                    // Concatenate output_text parts across chunks.
+                    let mut parts = last["content"].as_array().cloned().unwrap_or_default();
+                    let mut new_parts = it["content"].as_array().cloned().unwrap_or_default();
+                    let first_new_text_idx = new_parts.iter().position(|p| p["type"] == "output_text");
+                    if let (Some(a), Some(bidx)) = (
+                        parts.iter_mut().rev().find(|p| p["type"] == "output_text"),
+                        first_new_text_idx,
+                    ) {
+                        let t = new_parts[bidx]["text"].as_str().unwrap_or_default().to_string();
+                        let cur = a["text"].as_str().unwrap_or_default().to_string();
+                        a["text"] = json!(cur + &t);
+                        new_parts.remove(bidx);
+                    }
+                    parts.extend(new_parts);
+                    last["content"] = json!(parts);
+                    continue;
+                }
+            }
+        }
+        acc.push(it);
+    }
+}
+
+pub fn record_chunk_events(items: &[Value], continues_text: bool, events: Option<&(dyn Fn(ChainEvent) + Send + Sync)>) {
+    if let Some(cb) = events {
+        cb(ChainEvent::ResponsesItems {
+            items: items.to_vec(),
+            continues_text,
+        });
+    }
+}
+
+pub fn prepare_input(client_payload: &Value) -> Vec<Value> {
+    // Normalize the client's input to an item array (a bare string prompt is
+    // legal Responses input).
+    let mut input_items: Vec<Value> = match &client_payload["input"] {
+        Value::String(s) => vec![json!({
+            "type": "message", "role": "user",
+            "content": [{"type": "input_text", "text": s}],
+        })],
+        Value::Array(a) => a.clone(),
+        _ => Vec::new(),
+    };
+
+    // Namespace backfill (heals sessions poisoned before the verbatim-streaming
+    // fix): the upstream rejects re-sent function_calls missing `namespace`
+    // when the tool lives outside the default namespace ("Missing namespace for
+    // function_call 'spawn_agent'", 2026-10-06). Recover the namespace from the
+    // request's own tool declarations: a `namespace` field on the tool, a
+    // `type:"namespace"` container holding it, or a dotted `ns.name`.
+    let ns_of = {
+        let mut map: std::collections::HashMap<String, String> = std::collections::HashMap::new();
+        if let Some(tools) = client_payload["tools"].as_array() {
+            for t in tools {
+                let ty = t["type"].as_str().unwrap_or_default();
+                if ty == "namespace" {
+                    if let Some(ns) = t["name"].as_str() {
+                        for inner in t["tools"].as_array().into_iter().flatten() {
+                            if let Some(n) = inner["name"].as_str() {
+                                map.insert(n.to_string(), ns.to_string());
+                            }
+                        }
+                    }
+                } else if let Some(n) = t["name"].as_str() {
+                    if let Some(ns) = t["namespace"].as_str() {
+                        map.insert(n.to_string(), ns.to_string());
+                    } else if let Some((ns, _)) = n.split_once('.') {
+                        map.insert(n.rsplit('.').next().unwrap_or(n).to_string(), ns.to_string());
+                    }
+                }
+            }
+        }
+        map
+    };
+    if !ns_of.is_empty() {
+        let mut healed = 0u32;
+        for it in input_items.iter_mut() {
+            let ty = it["type"].as_str().unwrap_or_default();
+            if (ty == "function_call" || ty == "custom_tool_call") && it.get("namespace").is_none() {
+                if let Some(ns) = it["name"].as_str().and_then(|n| ns_of.get(n)) {
+                    it["namespace"] = json!(ns);
+                    healed += 1;
+                }
+            }
+        }
+        if healed > 0 {
+            eprintln!("[nativechain] namespace backfill: healed {healed} call item(s) from tool declarations");
+        }
+    }
+
+    input_items
+}
+
+pub fn prepare_payload(client_payload: &Value, input: &[Value], chunk_budget: u32) -> Value {
+    let mut p = client_payload.clone();
+    p["model"] = json!(framer_core::convert::to_openrouter_id(
+        client_payload["model"].as_str().unwrap_or_default()
+    ));
+    p["stream"] = json!(false);
+    p["max_output_tokens"] = json!(chunk_budget.max(16)); // API floor
+    p["input"] = json!(input);
+    for k in ["store", "previous_response_id", "background"] {
+        if let Some(obj) = p.as_object_mut() {
+            obj.remove(k);
+        }
+    }
+    p
+}

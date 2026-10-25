@@ -165,12 +165,6 @@ async fn local_and_paid_json_rejections_complete_before_ports() {
     ]).await;
 }
 
-#[cfg(feature = "native-dispatch")]
-#[tokio::test]
-async fn native_enrollment_json_rejections_complete_before_ports() {
-    rejection_cases(&[("/api/accounts/native/enroll", false)]).await;
-}
-
 #[tokio::test]
 async fn local_admin_refusals_complete_without_port_work() {
     let disabled = b"account is disabled by the pool configuration; its saved session is retained";

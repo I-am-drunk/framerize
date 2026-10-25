@@ -1,4 +1,4 @@
-use super::{auth::AiToken, freechat, nativechain, transport::Transport};
+use super::{auth::AiToken, chain::{messages, responses}, transport::Transport};
 use async_trait::async_trait;
 use framer_core::{AccountId, FramerUserId, ProjectId};
 use framer_core::port::{BrowserBridge, CastleToken, ChainConfig, Session};
@@ -22,10 +22,10 @@ fn check_chain(native: bool) {
             let transport = Transport::with_base("http://127.0.0.1:9".into());
             let config = ChainConfig { chunk_tokens: 1500, metered_fallback: true, ..ChainConfig::default() };
             let result = if native {
-                nativechain::complete_long(&transport, &cache, &session, &browser, &account, &project,
+                responses::complete_long(&transport, &cache, &session, &browser, &account, &project,
                     json!({"model":"gpt-6-astra","input":"fixture"}), &config, "fixture-chat", None).await.map(|_| ())
             } else {
-                freechat::complete_long(&transport, &cache, &session, &browser, &account, &project,
+                messages::complete_long(&transport, &cache, &session, &browser, &account, &project,
                     json!({"model":"claude-sonnet-4","messages":[{"role":"user","content":"fixture"}]}),
                     &config, "fixture-chat", None).await.map(|_| ())
             };

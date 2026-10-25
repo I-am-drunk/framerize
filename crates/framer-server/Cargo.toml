@@ -4,9 +4,6 @@ version = "0.1.0"
 edition.workspace = true
 license.workspace = true
 
-[features]
-native-dispatch = ["framer-core/native-dispatch"]
-
 [dependencies]
 http-body = "1"
 framer-core = { path = "../framer-core" }

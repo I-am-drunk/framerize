@@ -9,9 +9,7 @@ mod api_run_capacity;
 mod local_request_completion;
 #[path = "account_import_identity_tests.rs"]
 mod import_identity;
-#[cfg(feature = "native-dispatch")]
-#[path = "native_enrollment_tests.rs"]
-mod enrollment;
+
 
 use super::{account, policy};
 use crate::{ApiError, AppState};
@@ -239,8 +237,6 @@ fn fixture(import: bool) -> (AppState, Arc<FixturePorts>) {
     });
     let state = AppState {
         operation_ownership: None,
-        #[cfg(feature = "native-dispatch")]
-        native_dispatch: None,
         client: ports.clone(), browser: ports.clone(), sessions: ports.clone(), state: ports.clone(),
         gate: Arc::new(framer_core::gate::ConcurrencyGate::new()),
         wave: Arc::new(framer_core::wave::WaveGuard::new()),
@@ -322,7 +318,7 @@ async fn explicit_cooling_and_retry_selection_stop_before_io() {
         json!({"model": "gpt-6-astra", "input": "fixture", "stream": true}))
         .await.unwrap_err();
     assert!(matches!(error, ApiError::AccountCooling { .. }));
-    let error = crate::pick_fresh_account(&state, &[account(2).id.0.to_string()]).await.err().expect("expected rejection");
+    let error = crate::pick_fresh_account(&state, &[account(2).id.0.to_string()]).await.result.err().expect("expected rejection");
     assert!(matches!(error, ApiError::AccountCooling { .. }));
     ports.assert_rejected_before_io(2);
 }

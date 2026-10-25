@@ -468,6 +468,28 @@ dependencies = [
 ]
 
 [[package]]
+name = "framer-native"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "axum",
+ "bytes",
+ "chrono",
+ "framer-api",
+ "framer-core",
+ "framer-server",
+ "futures",
+ "libc",
+ "reqwest",
+ "serde",
+ "serde_json",
+ "sha2",
+ "tokio",
+ "tower",
+ "uuid",
+]
+
+[[package]]
 name = "framer-server"
 version = "0.1.0"
 dependencies = [
@@ -502,18 +524,13 @@ name = "framerize"
 version = "0.1.0"
 dependencies = [
  "async-trait",
- "axum",
  "clap",
  "framer-api",
  "framer-core",
  "framer-host",
  "framer-server",
  "framer-store",
- "futures",
- "libc",
- "offline-worker-owner",
  "reqwest",
- "serde",
  "serde_json",
  "tokio",
  "tower",
@@ -521,14 +538,11 @@ dependencies = [
 ]
 
 [[package]]
-name = "offline-worker-owner"
+name = "framerize-native"
 version = "0.1.0"
 dependencies = [
- "futures",
- "libc",
- "serde_json",
- "sha2",
- "tokio",
+ "clap",
+ "framer-native",
 ]
 
 [[package]]
@@ -1550,10 +1564,10 @@ dependencies = [
 ]
 
 [[package]]
-name = "sha2"
-version = "0.10.9"
+name = "sha1"
+version = "0.10.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a7507d819769d01a365ab707794a4084392c824f54a7a6a7862f8c3d0892b283"
+checksum = "a978451301f4db1d02937a4ab3ccce137717b81826e79b7d49ffe3244a13c3b8"
 dependencies = [
  "cfg-if",
  "cpufeatures",
@@ -1561,10 +1575,10 @@ dependencies = [
 ]
 
 [[package]]
-name = "sha1"
-version = "0.10.7"
+name = "sha2"
+version = "0.10.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a978451301f4db1d02937a4ab3ccce137717b81826e79b7d49ffe3244a13c3b8"
+checksum = "a7507d819769d01a365ab707794a4084392c824f54a7a6a7862f8c3d0892b283"
 dependencies = [
  "cfg-if",
  "cpufeatures",

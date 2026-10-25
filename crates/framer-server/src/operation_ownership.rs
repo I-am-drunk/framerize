@@ -8,11 +8,6 @@ use framer_core::{operation_gate::{OperationGate, OperationOwner, OperationKind,
 use std::{future::Future, pin::Pin, sync::{Arc, Mutex}, task::{Context, Poll}};
 use http_body::{Body as HttpBody, Frame, SizeHint};
 use futures::{future::{BoxFuture, Shared}, FutureExt};
-#[cfg(feature = "native-dispatch")]
-use crate::native_dispatch::http_stream::NativeStreamObservers;
-#[cfg(feature = "native-dispatch")]
-#[path = "native_stream_evidence.rs"]
-mod native_stream_evidence;
 
 tokio::task_local! { static CURRENT: Arc<OwnerContext>; }
 tokio::task_local! { static CLIENT: tokio::sync::watch::Receiver<()>; }
@@ -105,8 +100,7 @@ impl ServingOwnership {
             Err(_) => self.gate.admit(kind),
         }
     }
-    #[cfg(feature = "native-dispatch")]
-    pub(crate) fn native_cleanup(self: &Arc<Self>) -> Result<OperationOwner, GateError> {
+    pub(crate) fn external_cleanup(self: &Arc<Self>) -> Result<OperationOwner, GateError> {
         self.registration(OperationKind::Inference)
     }
 }
@@ -336,11 +330,6 @@ pub async fn middleware(State(scope): State<Option<Arc<ServingOwnership>>>,
         let completion = parts.extensions.get::<ResponseCompletion>().cloned().or_else(|| {
             owner.preflight_completed.load(std::sync::atomic::Ordering::Relaxed)
                 .then(|| ResponseCompletion(futures::future::ready(true).boxed().shared()))
-        });
-        #[cfg(feature = "native-dispatch")]
-        let completion = completion.or_else(|| {
-            parts.extensions.get::<NativeStreamObservers>().cloned().map(|observers|
-                ResponseCompletion(native_stream_evidence::observe(observers).boxed().shared()))
         });
         Response::from_parts(parts, Body::new(OwnedBody { body, owner: Some(owner),
             completion,
