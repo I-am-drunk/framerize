@@ -1,5 +1,26 @@
 # Explicit-account qualification, 25 October 2026
 
+Correction `a22d639` is integrated as
+`93dad965e2e7284ff7e4be66c17720531dcf0ee5`, preserving the preceding documentation.
+All six corrected cases now pass. The fourteen other passes are reused after
+confirming that only the shared completion synchronization block changed;
+all other bytes in that file and all other source paths are exact.
+The aggregate therefore qualifies all twenty selected cases.
+
+The fixture now awaits a clone of `ResponseCompletion` with the unchanged
+timeout while retaining the original unread body. It asserts the expected
+cleanup verdict and exactly the host and response owners remaining. This
+polls the existing shared join which the former ownership-count loop left
+unpolled. Production behavior, result assertions and limits did not change.
+
+The correction's compilation and six-case run are collected. The run peaked
+at 12,693,504 bytes with no swap or memory/task limit events. Captured processes,
+unit and cgroup are absent, and the shared execution lock is free. Aggregate
+SHA256: `e7dd663b768c43ffb93852389774201f1e5f9ca2c4861c0a359598788953a4ed`.
+Deployment and live interruption acceptance remain unverified.
+
+The initial failed result below remains part of the qualification history.
+
 The existing combined selection ran once on source
 `1676f57c0db119f03f079b6bc6f5e184a3b49c8d`, which applies the deltas from
 `2ac2dafafae0957b023af020be2202a36bdc0f64` and
@@ -47,5 +68,5 @@ The aggregate result SHA256 is
 `dccb0a1f2d83947f82aae7aceebde0b5d0362bc36f81ebe8184af6f6ef70c3fc`.
 The six-failure log SHA256 is
 `a2e7c18e604ca532cd14bdd0777fa9174968798f656abf9d322e57245221a7a7`.
-Qualification remains failed pending the bounded correction. No deployment,
+That initial qualification failed pending the bounded correction. No deployment,
 service change, live request or account operation followed this result.

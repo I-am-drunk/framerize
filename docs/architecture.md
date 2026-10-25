@@ -3,10 +3,11 @@
 Normal Messages and Responses requests with an explicit account now retain
 that account across retry selection in the experimental source. An undecodable
 account header is rejected before account work, after the existing wave check.
-Unbound requests retain peer selection. The combined change is not qualified:
-its invalid-header cases and existing controls pass, but six new retry cases
-time out in their shared producer-completion wait. Preserve both the completion
-requirement and no-peer assertions while correcting that demonstrated failure.
+Unbound requests retain peer selection. All twenty selected cases now pass.
+The retry fixture polls the response's existing shared completion observer
+while retaining its unread body, then checks cleanup and remaining ownership.
+This drives the original join without starting a second producer or weakening
+the completion requirement and no-peer assertions. Live acceptance is separate.
 
 The resident coordinator can isolate transport from token generation: without
 its optional native SDK worker, both comparison tokens come from the same
