@@ -1,5 +1,14 @@
 # Serving architecture and branch policy
 
+The normal repair's R9 acceptance separates client disconnection from upstream
+abortion. It disconnects after observed request start, verifies the original
+work joins and releases its ownership, then requires a complete second response.
+Both checks passed on one service generation. The first upstream request still
+completed successfully, so this demonstrates retained cleanup after client loss.
+The serving configuration restores automatic restart after commissioning.
+See `reference/analysis/r9-repair-rollout-20261025.md` and the exact qualified
+fixtures in `scripts/tests/repair_interruption/`.
+
 Keep upstream request completion separate from downstream SSE completion.
 In R8, the client had generated text without a terminal event while the
 browser request had already returned HTTP 200. A still-open downstream

@@ -1,12 +1,21 @@
 # Development status
 
+R9 deployed the normal-browser repair on port 8787. The first test disconnected
+after observed request start; its work completed and released ownership. The
+second test delivered text, terminal completion and EOF on the same generation.
+All eleven account lifecycles and unselected account records were preserved.
+Automatic restart is enabled, temporary ingress controls are removed and all
+helpers are collected. Fifteen targeted acceptance tests passed. This does not
+establish an aborted upstream fetch or a live disconnect after generated text.
+See `reference/analysis/r9-repair-rollout-20261025.md`.
+
 R8 reached the real stream check, which refused because the browser request
 had completed before the intended disconnect. The client had 2,175 generated
 delta characters and no terminal event. The second request did not run.
 Rollback is fully collected: all eleven account lifecycles verified, previous
 binary running, automatic restart restored and owned restrictions removed.
-A bounded source trace is resolving upstream buffering versus downstream
-delivery order before another attempt. See
+A completed source trace established that the supplying browser response is
+buffered before generated text. R9 used the corrected boundary above. See
 `reference/analysis/r8-stream-result-20261025.md`.
 
 R7 stopped before changing the service: its prepared coordination file had
