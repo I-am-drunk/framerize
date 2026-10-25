@@ -229,6 +229,11 @@ cleanup while another worker is still running. A discarded browser-style
 `terminate()` result remains visible to the later pool close. This local
 cleanup is separate from the Rust owner's joined worker-process receipt.
 
+Shared-worker close also retains both the stop result and the actual exit.
+A rejected or throwing stop waits for exit before reporting failure. An exit
+does not discard a pending stop result. If exit never arrives, the existing
+Rust process deadline still owns termination and joining of the whole worker.
+
 Each native service request creates an internal random diagnostic ID. Its
 credential source passes that ID to the worker minter, and JSON or SSE
 completion logging uses the same ID. These IDs contain no account or inbound

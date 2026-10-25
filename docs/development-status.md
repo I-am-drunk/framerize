@@ -23,6 +23,11 @@ removed. Current tests stay with the behavior they exercise.
 
 ## Validation
 
+Shared-worker cleanup now waits for actual exit even when stopping fails.
+Seven inert checks pass on Node 24.13.0; the three stop-outcome cases reproduce
+premature cleanup completion on the previous source. This is adapter cleanup
+qualification only. No SDK operation or deployment ran for this change.
+
 Native network sorting now supplies an explicit-locale comparator instead of
 requiring JavaScript to precompute the order. Four boundary tests, 133,128
 ordering pairs across 18 profiles and 30 complete record comparisons pass on

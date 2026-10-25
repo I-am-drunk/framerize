@@ -32,9 +32,12 @@ export function installSharedWorkers(window, expectedScriptSha256) {
         stdout: true, stderr: true,
       });
       counts.started++;
+      slot.joined = new Promise(resolve => slot.worker.once('exit', () => {
+        slot.exited = true; counts.joined++;
+        resolve(); if (!closed) fail(slot);
+      }));
       slot.worker.stdout.resume(); slot.worker.stderr.resume();
       slot.worker.on('error', () => fail(slot));
-      slot.worker.on('exit', () => { counts.joined++; if (!closed) fail(slot); });
     })().catch(() => fail(slot));
     return slot;
   }
@@ -84,10 +87,18 @@ export function installSharedWorkers(window, expectedScriptSha256) {
       closed = true; urls.clear();
       for (const slot of slots.values()) for (const port of slot.ports) port.close();
       closing = (async () => {
-        await Promise.all([...slots.values()].map(slot => slot.ready));
-        await Promise.all([...slots.values()].filter(slot => slot.worker)
-          .map(slot => slot.worker.terminate()));
-        if (counts.joined !== counts.started) throw new Error('worker cleanup');
+        const prepared = await Promise.allSettled([...slots.values()].map(slot => slot.ready));
+        const stopped = await Promise.allSettled([...slots.values()].filter(slot => slot.worker)
+          .map(async slot => {
+            let failed = false;
+            try { if (!slot.exited) await slot.worker.terminate(); }
+            catch { failed = true; }
+            // A stop failure is retained, but cannot release a live worker.
+            await slot.joined;
+            if (failed) throw new Error('worker cleanup');
+          }));
+        if ([...prepared, ...stopped].some(result => result.status === 'rejected')
+            || counts.joined !== counts.started) throw new Error('worker cleanup');
         return { ...counts };
       })();
       return closing;
