@@ -158,7 +158,7 @@ fn fake_worker() -> Worker {
     let entry = base.join("fake_worker.mjs");
     let pins = vec![
         crate::test_support::node_pin(),
-        pin(entry.clone(), "22b620d72050974fc1debc0a4e6c1734360f8ea65eb0370ba3398146ef4eaf7e"),
+        pin(entry.clone(), "34e5930306863d55fd0f49cf9ceeed0349ca6262ef9126dd58699b0f3d6d0a58"),
         pin(base.join("protocol.mjs"), "99117048db3589a307efcd11ce07960f8e80afc0aece3d1a4d000f55ec1622df"),
     ];
     Worker::new(Specification { node, entry, pins }).unwrap()

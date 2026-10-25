@@ -34,7 +34,9 @@ export class SdkModules {
       if (createHash('sha256').update(bytes).digest('hex') !== hash) throw new Error('input-identity');
       const module = new vm.SourceTextModule(role === 'v3' ? collectionSource(bytes) : bytes.toString('utf8'), {
         context, identifier: CDN + name,
-        initializeImportMeta: meta => { if (role === 'v3') meta.collect = this.#collect; },
+        initializeImportMeta: meta => {
+          if (role === 'v3') Object.assign(meta, this.#collect);
+        },
         importModuleDynamically: (...args) => this.#dynamic(...args),
       });
       this.#modules.set(role, module); this.#roles.set(module, role);

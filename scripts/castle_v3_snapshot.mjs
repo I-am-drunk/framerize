@@ -36,13 +36,14 @@ export function initializeRecorder(role, meta) {
   meta.input = value => {
     if (preSerialization !== undefined || !Array.isArray(value))
       throw new Error('snapshot-input');
-    collectionPayload = collect(value);
+    collectionPayload = collect.collect(value);
     preSerialization = JSON.parse(collectionPayload).values;
     return value;
   };
   meta.collector = (name, value) => {
     if (!['worker','network'].includes(name) || collectors.has(name))
       throw new Error('collector-observation-count');
+    if (name === 'worker') collect.sharedWorker(value);
     collectors.set(name, capture(value));
     return value;
   };

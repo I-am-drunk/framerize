@@ -23,7 +23,9 @@ are refused rather than evaluated or replaced with invented observations.
 ## Private protocol and ownership
 
 `FCLT`, version 1, three zero bytes and a big-endian payload length prefix one
-JSON document. The document has version 1 and a tagged array. Tags preserve
+JSON document. The current document has version 2, a tagged value array and
+a required tagged `shared_worker_reply`. Version 1 documents are refused.
+Tags preserve
 undefined, null, booleans, numbers including negative zero and nonfinite values,
 and strings as UTF-16 code units. Holes normalize to undefined, as in the
 serializer. No raw collection data enters diagnostic metadata.
@@ -33,6 +35,20 @@ values, individual arrays to 2,048 entries, and strings to 65,536 total UTF-16
 units. The consumer requires all 765 top-level positions and rejects old token
 frames, unknown fields, duplicate fields, trailing bytes and malformed values.
 These are supported-input limits, not claims about every possible SDK output.
+
+The loader copies the SharedWorker receiver result immediately before the
+original reduction. It accepts that result once, before collection, and
+shares the value/string budgets across both copies. A missing, repeated,
+late or unsupported result refuses the operation. The copy retains the
+value at that boundary even if the original array subsequently changes.
+Receiver failure markers keep their original types; they are not converted
+into a successful worker response.
+
+Rust validates both inputs and applies `CollectorResult::SharedWorker` to
+position 242 before encoding. The returned output therefore consumes the
+native reduction. The original SDK assignment still runs as well: removing
+it requires the separately owned slot-writer and ordering evidence.
+This change does not replace the worker or its observation environment.
 
 Success still requires the exact V3 branch, unchanged sources, the original
 deadline, a collection handoff age of at most two seconds, and worker cleanup.
@@ -46,6 +62,23 @@ V2 continues to use `FSDK` token frames and its separate metadata validator.
 Neither path treats a local output as evidence of upstream acceptance.
 
 ## Qualification
+
+The version 2 document and connected SharedWorker reduction pass 16 focused
+JavaScript checks, 86 Rust worker checks and four V3 ownership checks.
+The production loader completed one isolated synthetic operation in 2,136 ms,
+with the child joined and absent and the output discarded. All 1,264 pinned
+inputs remained unchanged. The 128 MiB/no-swap isolation above was retained.
+
+One fresh instrumented SDK operation passed through the version 2 frame and
+production Rust decoder. Native SharedWorker reduction reproduced all 765
+positions, 5,412 serialized bytes and the same 5,305-byte output at the recorded
+clock. Nine negative checks passed, including changed and missing receiver
+results. The 38,047-byte frame crossed the private pipe; the child exited with
+no remaining descendants, memory-limit events or swap use. This establishes
+synthetic compatibility of the connected reduction, not live acceptance.
+Evidence: `native-shared-worker-integration-r1` in the private investigation.
+
+The earlier version 1 results below remain historical evidence:
 
 Fourteen focused JavaScript checks, 85 Rust worker checks (including three
 decoder checks), and four V3 saved-device ownership checks pass. The fixture preserves

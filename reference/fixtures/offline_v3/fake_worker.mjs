@@ -24,7 +24,7 @@ if (mode === 'sandbox') {
   if (!denied) process.exit(4);
 }
 if (mode === 'badmeta') metadata.branch.v2 = 1;
-const token = Buffer.from(JSON.stringify({version: 1,
+const token = Buffer.from(JSON.stringify({version: 2, shared_worker_reply: {kind: 'undefined'},
   values: {kind: 'array', values: Array.from({length: 765}, (_, i) =>
     ({kind: 'number', value: String(i)}))}}));
 const header = Buffer.from([0x46, 0x43, 0x4c, 0x54, 1, 0, 0, 0, 0, 0, 0, 0]);
