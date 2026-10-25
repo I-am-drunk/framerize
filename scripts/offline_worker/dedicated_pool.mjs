@@ -27,9 +27,12 @@ export function createPool(window, hashes) {
         stdout: true, stderr: true,
       });
       counts.started++;
+      slot.joined = new Promise(resolve => slot.worker.once('exit', () => {
+        slot.exited = true; counts.joined++;
+        resolve(); if (!slot.stopped) fail();
+      }));
       slot.worker.stdout.resume(); slot.worker.stderr.resume();
       slot.worker.on('error', fail);
-      slot.worker.on('exit', () => { counts.joined++; if (!slot.stopped) fail(); });
       slot.worker.on('message', value => {
         if (slot.stopped) return;
         counts.messages++;
@@ -39,7 +42,21 @@ export function createPool(window, hashes) {
     })().catch(fail);
     slot.stop = () => {
       slot.stopped = true;
-      slot.stopping ??= slot.ready.then(() => slot.worker?.terminate());
+      if (!slot.stopping) {
+        slot.stopping = (async () => {
+          let failed = false;
+          try { await slot.ready; } catch { failed = true; }
+          if (slot.worker) {
+            if (!slot.exited) {
+              try { await slot.worker.terminate(); } catch { failed = true; }
+            }
+            await slot.joined;
+          }
+          if (failed) throw new Error('worker cleanup');
+        })();
+        // Browser-style terminate() discards this promise; close retains it.
+        slot.stopping.catch(() => {});
+      }
       return slot.stopping;
     };
     slot.send = value => {
@@ -57,8 +74,9 @@ export function createPool(window, hashes) {
     replyStats: () => ({ ...replies }),
     close() {
       closed = true;
-      closing ??= Promise.all([...slots].map(slot => slot.stop())).then(() => {
-        if (counts.started !== counts.joined) throw new Error('worker cleanup');
+      closing ??= Promise.allSettled([...slots].map(slot => slot.stop())).then(results => {
+        if (results.some(result => result.status === 'rejected')
+            || counts.started !== counts.joined) throw new Error('worker cleanup');
         return { ...counts };
       });
       return closing;
