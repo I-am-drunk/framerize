@@ -182,7 +182,19 @@ Old binaries and copied stores are not made safe by its existence. Native
 startup still requires the journal and session owners together; it remains
 disabled pending that integration and the legacy migration.
 
-Next: first migration of existing account history and the running service.
+The native Rust device owner now talks to its own Python ledger process.
+It retains session ownership until that process exits, including forced exit
+after a shutdown timeout. Cancelled open and mint-admission callers leave their
+cleanup with the connection owner. The browser and native packages share only
+framing, package verification and account-history code.
+
+Seven cross-language ledger tests and the 99 browser/shared Python tests pass.
+The changed native executable builds successfully. The existing 305 native
+tests and 11 Python ledger-owner cases remain applicable to unchanged code.
+Package verification for this milestone is pending. These are synthetic checks;
+the native CLI still validates configuration without starting live accounts.
+
+Next: remove native serving's dependency on the browser application's state.
 Current legacy account history and first-migration handling remain unresolved;
 no production restart is part of this structural work.
 

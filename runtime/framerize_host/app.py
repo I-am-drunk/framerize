@@ -7,7 +7,7 @@ from .settings import (ROOT, LOGIN_URL, API, CASTLE_CHUNK, POOL_CAP, FORGE_MAX_A
     DEVICE_POOL, HEARTBEAT_S, RESERVE_PER_DAY, DEV_COOLDOWN_S, DEV_WINDOW_S,
     DEV_WINDOW_CAP, MINT_GAP_S)
 from .events import trace, emit
-from .wire import AsyncReplyWriter
+from framerize_runtime.wire import AsyncReplyWriter
 from .resources import (memory_snapshot, trim_unused_heap, MemoryPressureError,
     BROWSER_STARTUP_RESERVE, prepared_memory_browser, prepared_memory_addon)
 from .accounts.state import Device, AccountLifecycle, Account

@@ -48,7 +48,7 @@ def write_reply(stream, out):
 
 
 class AsyncReplyWriter:
-    """Keep pipe backpressure off the browser loop, with one frame in flight.
+    """Keep pipe backpressure off the event loop, with one frame in flight.
 
     Cancellation before acquiring the lock discards the queued reply. Once a
     frame starts, its task owns the lock until the complete line is written.
