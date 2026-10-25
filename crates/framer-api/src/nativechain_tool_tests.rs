@@ -60,6 +60,9 @@ impl BrowserBridge for Fixture {
         self.requests.lock().unwrap().push(body.clone());
         let mut reply = self.replies.lock().unwrap().pop_front().expect("unexpected extra attempt");
         if let Some(error) = reply.error {
+            if error == "fixture local cooldown" {
+                return Ok((0, None, "velocity-paused: every device is cooling; retry in 599s".into()));
+            }
             return Err(error.to_string());
         }
         if reply.at_budget {
@@ -73,6 +76,7 @@ struct Run {
     result: Result<AssembledResponses, String>,
     requests: Vec<Value>,
     emitted: Vec<Value>,
+    elapsed: std::time::Duration,
 }
 
 fn config() -> ChainConfig {
@@ -81,8 +85,14 @@ fn config() -> ChainConfig {
 }
 
 fn run(replies: Vec<Reply>, cfg: ChainConfig) -> Run {
-    let runtime = tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap();
+    run_with_clock(replies, cfg, false)
+}
+
+fn run_with_clock(replies: Vec<Reply>, cfg: ChainConfig, paused: bool) -> Run {
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .enable_all().start_paused(paused).build().unwrap();
     runtime.block_on(async {
+        let started = tokio::time::Instant::now();
         let account = AccountId(uuid::Uuid::from_u128(1));
         let session = Session { active_user:FramerUserId("fixture-user".into()), cookie_header:"fixture-only".into() };
         let cache = Mutex::new(vec![(account, AiToken { bearer:"fixture-only".into(), expires_at_ms:i64::MAX })]);
@@ -99,8 +109,30 @@ fn run(replies: Vec<Reply>, cfg: ChainConfig) -> Run {
                 "reasoning":{"effort":"max"},"tools":[{"type":"custom","name":"functions.exec"}]}),
             &cfg, "fixture-chat", Some(&callback)).await;
         assert!(browser.replies.lock().unwrap().is_empty(), "fixture expected more attempts");
-        Run { result, requests:browser.requests.into_inner().unwrap(), emitted:events.into_inner().unwrap() }
+        Run { result, requests:browser.requests.into_inner().unwrap(),
+            emitted:events.into_inner().unwrap(), elapsed:started.elapsed() }
     })
+}
+
+#[test]
+fn local_cooldown_after_output_waits_and_retries_only_unfinished_chunk() {
+    let message = |text: &str| json!({"type":"message", "id":"message-fixture",
+        "role":"assistant", "content":[{"type":"output_text", "text":text}]});
+    let r = run_with_clock(vec![
+        reply(message("first"), Some("incomplete"), true),
+        Reply { body:Value::Null, at_budget:false, error:Some("fixture local cooldown") },
+        reply(message("second"), Some("completed"), false),
+    ], config(), true);
+    let response = r.result.unwrap();
+    assert_eq!(response.status, "completed");
+    assert_eq!(response.chunks, 2);
+    assert_eq!(r.requests.len(), 3);
+    assert_eq!(r.requests[1]["request"], r.requests[2]["request"]);
+    assert_ne!(r.requests[0]["request"], r.requests[1]["request"]);
+    assert_eq!(r.emitted.iter().map(|item| item["content"][0]["text"]
+        .as_str().unwrap()).collect::<String>(), "firstsecond");
+    assert!(r.elapsed >= std::time::Duration::from_secs(600));
+    assert!(r.elapsed < std::time::Duration::from_secs(610));
 }
 
 fn recovered(kind: &str, status: Option<&str>) {

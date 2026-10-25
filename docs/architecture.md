@@ -200,6 +200,19 @@ fence is likewise a local refusal. Neither path frees capacity or clears
 unknown cleanup; other accounts can continue serving. Refused closes record
 their outcome and whether the receipt matched the expected browser identity.
 
+Queued browser requests recheck their account after obtaining a model slot.
+If an unbound request's account cooled while waiting, it releases that slot
+and lease before trying up to two eligible peers. Explicit account choices
+stay pinned. Exhausted selection retains the actual cooldown deadline.
+
+After a browser generation has produced output, a local cooldown can wait
+on the same account and retry only the unfinished chunk. This permits one
+retry per refused attempt and at most 600 seconds of waiting per chain.
+Cancellation is polled during the wait. The 300-second generation budget,
+chunk sizing and transport-failure timing exclude those waits. Delivered
+output, usage and request context are preserved. Both browser request formats
+share this logic in `framer-api/chain`; upstream refusals retain their policy.
+
 The native HTTP service offers `/api/offline/complete` and
 `/api/offline/stream` over the same explicit request context, one-attempt
 limit, account owner and cleanup lifetime. The stream sends standard Responses

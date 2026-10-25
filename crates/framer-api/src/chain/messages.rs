@@ -118,13 +118,14 @@ pub async fn complete_long(
     let mut chunk_tokens = cfg.chunk_tokens.min(600);
     let budget_for = |tps: f32| -> u32 { ((tps * window_budget_s) as u32).clamp(400, 3000) };
 
-    let chain_started = std::time::Instant::now();
-    let max_wall = std::time::Duration::from_secs(300); // 5 min: beyond this a
-    // chain is storming; the client retries fresh far better than we churn.
+    let mut cooldown_wait = super::cooldown_wait::CooldownWait::default();
+    let chain_started = cooldown_wait.timer();
+    // Local cooldown waits have their own cumulative bound.
+    let max_active = std::time::Duration::from_secs(300);
     for i in 0..cfg.max_chunks {
         cfg.check_cancelled()?;
-        if chain_started.elapsed() > max_wall {
-            return Err(format!("chain exceeded {}s wall-clock budget after {i} chunks (upstream degraded) — retry the request", max_wall.as_secs()));
+        if cooldown_wait.elapsed(chain_started) > max_active {
+            return Err(format!("chain exceeded {}s active-time budget after {i} chunks (excluding local cooldown waits), retry the request", max_active.as_secs()));
         }
         let budget = cfg
             .max_total_tokens
@@ -140,7 +141,7 @@ pub async fn complete_long(
         }
         let (dialect, step) = bucket(bucket_idx);
         let payload = build_payload(&messages, chunk, dialect);
-        let t0 = std::time::Instant::now();
+        let t0 = cooldown_wait.timer();
         eprintln!("[freechat] chunk {i} start (max_tokens={chunk}, bucket {dialect:?}/{step})");
         // 429 bucket-hop loop (2026-10-05 fix): the old nested match's inner
         // `continue` skipped to the NEXT CHUNK on a second 429, silently
@@ -157,11 +158,11 @@ pub async fn complete_long(
             let mut out = None;
             while out.is_none() {
                 cfg.check_cancelled()?;
-                last_attempt_t0 = std::time::Instant::now();
-                match proxy::forward_cancellable(
+                last_attempt_t0 = cooldown_wait.timer();
+                match cooldown_wait.run(cfg, !blocks.is_empty(), || proxy::forward_cancellable(
                     t, token_cache, session, browser, account, project,
-                    cur_dialect, &cur_step, attempt_payload.take(), chat_session, i, cfg.cancelled.as_deref(),
-                ).await {
+                    cur_dialect, &cur_step, attempt_payload.clone(), chat_session, i, cfg.cancelled.as_deref(),
+                )).await {
                     Ok(r) => out = Some(Ok((cur_dialect, r))),
                     Err(e) if cfg.is_cancelled() => return Err(e),
                     Err(e) if e.starts_with("retryable 429") => {
@@ -215,7 +216,7 @@ pub async fn complete_long(
                 // loop includes 429 backoffs, which would misclassify a fast
                 // velocity 403 after >8s of waiting as an idle-window kill
                 // (audit 2026-10-11: wasted halve-retries on velocity bans).
-                let elapsed = last_attempt_t0.elapsed().as_secs_f32();
+                let elapsed = cooldown_wait.elapsed(last_attempt_t0).as_secs_f32();
                 let idle_killed = e == "risk-refused" && elapsed > 8.0;
                 // An UPSTREAM 403 (provider policy / moderation -- see
                 // classify.rs) is terminal for this chunk. Halving max_tokens
@@ -235,10 +236,10 @@ pub async fn complete_long(
                 let (d3, s3) = bucket(bucket_idx);
                 eprintln!("[freechat] chunk {i} died at {elapsed:.1}s ({e}) — retrying with max_tokens={chunk_tokens} on {d3:?}/{s3}");
                 let retry_payload = build_payload(&messages, chunk_tokens, d3);
-                match proxy::forward_cancellable(
+                match cooldown_wait.run(cfg, !blocks.is_empty(), || proxy::forward_cancellable(
                     t, token_cache, session, browser, account, project,
-                    d3, &s3, retry_payload, chat_session, i, cfg.cancelled.as_deref(),
-                ).await {
+                    d3, &s3, retry_payload.clone(), chat_session, i, cfg.cancelled.as_deref(),
+                )).await {
                     Ok(r) => r,
                     Err(e2) if framer_core::error::AccountCooldown::from_error(&e2).is_some() => return Err(e2),
                     Err(e2) if cfg.is_cancelled() => return Err(e2),
@@ -283,7 +284,7 @@ pub async fn complete_long(
         // re-sends the whole conversation) and deepens the very queue it is
         // reacting to. Measured 2026-10-03: 85 tok/s solo -> 3-6 tok/s at 12
         // agents on an otherwise IDLE box (load average 0.29).
-        let wall = t0.elapsed().as_secs_f32();
+        let wall = cooldown_wait.elapsed(t0).as_secs_f32();
         let queued = resp.queue_wait_ms as f32 / 1000.0;
         let elapsed = (wall - queued).max(0.5);
         if queued > 2.0 {

@@ -177,8 +177,14 @@ impl ServingAccountPolicy {
         excluded: &[String],
         now: u64,
     ) -> Result<ManagedAccount, ApiError> {
+        let cooling_until = pool.iter()
+            .filter(|a| self.allows(&a.id) && a.is_eligible())
+            .filter_map(|a| a.cooling_until_ms.filter(|until| *until > now)).min();
         pool.retain(|a| self.allows(&a.id) && !excluded.contains(&a.id.0.to_string()));
         if pool.is_empty() {
+            if let Some(until) = cooling_until {
+                return Err(Self::cooling(until, now));
+            }
             return Err(if self.configured_count().is_some() {
                 ApiError::ServingCapacity(
                     "serving pool exhausted: no untried account in the pool configuration".into(),

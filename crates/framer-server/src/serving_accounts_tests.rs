@@ -30,6 +30,25 @@ fn policy(ids: &[u128]) -> ServingAccountPolicy {
 }
 
 #[test]
+fn exhausted_retry_keeps_earliest_allowed_cooldown() {
+    let mut first = account(1);
+    let mut second = account(2);
+    let mut disabled = account(3);
+    first.cooling_until_ms = Some(61_000);
+    second.cooling_until_ms = Some(31_000);
+    disabled.cooling_until_ms = Some(2_000);
+    let excluded = vec![first.id.0.to_string(), second.id.0.to_string()];
+    let pool = vec![first, second, disabled];
+    let selected = policy(&[1, 2]);
+    assert!(matches!(selected.select_fresh_at(pool.clone(), &excluded, 1_000),
+        Err(ApiError::AccountCooling { retry_after_secs: 30 })));
+    assert!(matches!(selected.select_fresh_at(pool.clone(), &excluded, 31_000),
+        Err(ApiError::AccountCooling { retry_after_secs: 30 })));
+    assert!(matches!(selected.select_fresh_at(pool, &excluded, 61_000),
+        Err(ApiError::ServingCapacity(_))));
+}
+
+#[test]
 fn unset_policy_preserves_unrestricted_admission() {
     let policy = ServingAccountPolicy::parse(None).unwrap();
     assert_eq!(policy.configured_count(), None);
