@@ -54,14 +54,22 @@ The matching authority runtime package is now staged and collected. Its
 20 runtime files bind application `6a2f0a93`, generated host `f519bb3f` and
 support manifest `97d906d3` to the qualified source. All 29 inputs remained
 unchanged; the staging unit, cgroup and captured processes are absent.
-The application has not launched. Current account/device proof and the
-complete V3 runtime binding remain required for a bounded live attempt.
+The application subsequently started successfully in an isolated empty store
+with the V3 configuration and served the expected UI assets. That startup
+and its processes are collected: exit 0, 31,850,496 bytes peak memory, no swap
+or resource-limit events, and unchanged inputs. No SDK operation or upstream
+request ran. Current genuine account/device proof remains required for the
+bounded live V3 attempt.
 
 Three controller diagnostic/privacy cases also pass. The next prepared rollout
 controller preserves fixed failure codes and bounded source locations without
 recording arbitrary exception text. It is bound to the unchanged repair package
-but has not launched. At 02:48 UTC, five active requests and three established
-connections still prevented admission; the original service remained running.
+and was launched once. Its 25 October 03:08 UTC collection records
+`positive_quiet_window_not_reached` before capture, switching or either live
+check. Both helpers are collected, with the original service unchanged.
+The bound controller still prohibited request cancellation despite the user's
+later explicit permission to interrupt streams. A fresh invocation must support
+that permission without bypassing the state-transfer cleanup contract.
 
 The separate extracted V3 wrapper checks passed on 25 October: nine selected
 cases and 35 leaf scenarios, with no skips. They confirm cache, strict-null
