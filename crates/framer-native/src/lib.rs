@@ -2,6 +2,7 @@
 pub mod account;
 pub mod authorization;
 pub mod castle;
+pub mod collection;
 pub mod request;
 pub mod transport;
 pub mod worker;

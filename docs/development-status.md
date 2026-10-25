@@ -23,6 +23,13 @@ removed. Current tests stay with the behavior they exercise.
 
 ## Validation
 
+Native network sorting now supplies an explicit-locale comparator instead of
+requiring JavaScript to precompute the order. Four boundary tests, 133,128
+ordering pairs across 18 profiles and 30 complete record comparisons pass on
+Node 20.20.0 and the CI runtime Node 24.13.0. Lone surrogates and unknown profiles
+are refused. This is collection support, not a completed collector or live
+replacement. See [the result and limits](../reference/analysis/native-network-collation.md).
+
 The native network assembler now also exposes the explicit unavailable
 record. Its complete serialized output matches the pinned SDK's `xP()`
 helper and differs from a normal empty observation. All 32 record comparisons

@@ -54,6 +54,18 @@ portable byte order. Candidate deduplication, state normalization, callback
 timing and collection belong before this boundary. The isolated comparison
 uses the original finalizer and compares the serialized complete record.
 
+`collection::NetworkCollator` supplies native signature ordering to that
+assembler. Its ICU4X 2.3 dependency uses the existing workspace ICU versions.
+The caller supplies an explicit supported locale from the observation runtime.
+Selected scalar fields are checked before sorting; lone UTF-16 surrogates are
+refused because ICU4X would replace them, changing JavaScript's ordering.
+Unsorted histories retain their raw code units, and candidates after the first
+16 remain ignored. The original caller-supplied comparator API is preserved.
+The [collation comparison](../reference/analysis/native-network-collation.md)
+records tested runtime versions and limits. Locale alone does not establish
+compatibility with every JavaScript engine. No collector or serving switch
+is implied by this pure assembly support.
+
 `unavailable_network_record` separately represents the SDK's no-argument
 `xP()` fallback after confirmed network unavailability. It preserves the
 empty fields and the fallback's distinct hash. Callers own the availability
