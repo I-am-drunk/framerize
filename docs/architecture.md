@@ -37,6 +37,12 @@ with the SDK's built-in getter semantics. Missing fields use the original
 marker, while a missing/null first record remains an error. It has no network
 access and does not substitute an address for the caller's observation.
 
+`castle::v3::json_hash` applies the SDK's metrics hash to supplied values.
+It reuses native JSON conversion, then performs wrapping 32-bit FNV-1a over
+UTF-16 code units and returns eight lowercase hexadecimal digits. Conversion
+failure or a top-level undefined value produces no hash. The caller still
+owns metric collection, ordering and any custom JavaScript conversion.
+
 The native `castle::v3::deflate` implements the pinned SDK's raw-DEFLATE
 fallback: a 1,024-byte matching window, at most 64 candidates per lookup,
 and one dynamic-Huffman block. Its stable tree ordering and code-length

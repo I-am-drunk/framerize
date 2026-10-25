@@ -78,6 +78,7 @@ claim. Native CI includes `scripts/check_v3_encoding.py`,
 `scripts/check_v3_serialization.py`, `scripts/check_v3_objects.py`,
 `scripts/check_v3_worker_result.py`,
 `scripts/check_v3_network_result.py`,
+`scripts/check_v3_hash.py`,
 `scripts/check_v3_deflate.py` and `scripts/check_v3_envelope.py`;
 hosted execution remains unverified. All prior encoding comparisons also pass
 with the shared fixture builder and new native object module.
@@ -110,6 +111,14 @@ original distinction between an absent record and an absent field, and assumes
 the built-in getter rather than a replaced JavaScript binding. The independent
 metrics-hash input trace is still assigned to intake. Actual device collection
 and service acceptance remain unfinished.
+
+The native JSON metrics hash passes 163 comparisons against the original
+`UP` helper, including nine refused conversions. The cases cover property
+order, duplicate keys, omitted values, nested arrays and objects, Unicode,
+numeric formatting and hexadecimal padding. Repeated calls agree. The first
+run reached the generated fixture's compiler recursion limit; the corrected
+fixture passes with unchanged native implementation. Metric collection and
+the assembly of its ordered input remain separate work.
 
 The dedicated-worker cleanup correction from `759ef0d1` is integrated on
 the reorganized `24ebbdb` base. A focused regression fails on the old pool:
