@@ -50,16 +50,19 @@ automatic recovery, which remains unfinished.
 Standalone native startup passes 29 service cases, including its admission-aware
 health endpoint. Both debug applications build. Six release tests pass, including
 refusal of a native archive missing its runtime. Separate child process groups
-pass all 64 worker-process and seven ledger-process cases. The new archive smoke
-checks the actual native serve command, profile contention and terminal signals;
-its first run on the committed package is pending.
+pass all 64 worker-process and seven ledger-process cases. The `dd2b92d` archive
+passes the actual native serve command, profile contention, invalid-request
+refusal, SIGTERM, Ctrl-C and profile reuse with synthetic state. It runs no SDK.
 
 ## Remaining work
 
 The native CLI now serves ledger-backed V3 with an existing migrated profile.
-Real upstream delivery is unverified. Unexpected ledger-process exit still needs
-explicit service supervision. V2 requires its authenticated SDK proof; no
-fallback substitutes for it, and this CLI does not enable V2 serving.
+Real upstream delivery is unverified. The service now watches the ledger's
+process exit and stops serving when that owner is lost. All five startup and
+seven ledger-process cases pass, including forced helper exit, listener closure
+and profile reuse; the native executable rebuilt successfully. Its updated
+archive check is pending. V2 requires its authenticated SDK proof; no fallback
+substitutes for it, and this CLI does not enable V2 serving.
 
 First migration of legacy account history remains unresolved. The working
 browser service and its account state have not been changed by this rewrite.

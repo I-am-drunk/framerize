@@ -182,13 +182,16 @@ impl Connection {
     }
 
     async fn wait_closed(&self) -> Result<(), DeviceFailure> {
+        timeout(Duration::from_secs(5), self.wait_for_exit()).await
+            .map_err(|_| DeviceFailure::Unconfirmed)?
+    }
+
+    pub(super) async fn wait_for_exit(&self) -> Result<(), DeviceFailure> {
         let mut done = self.done.clone();
-        timeout(Duration::from_secs(5), async {
-            loop {
-                if let Some(result) = *done.borrow_and_update() { return result; }
-                done.changed().await.map_err(|_| DeviceFailure::Unconfirmed)?;
-            }
-        }).await.map_err(|_| DeviceFailure::Unconfirmed)?
+        loop {
+            if let Some(result) = *done.borrow_and_update() { return result; }
+            done.changed().await.map_err(|_| DeviceFailure::Unconfirmed)?;
+        }
     }
 
     pub(super) async fn start(python: &Path, script: &Path, root: &Path,

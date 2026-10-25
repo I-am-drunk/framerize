@@ -114,3 +114,40 @@ async fn loopback_service_joins_shutdown_and_releases_the_profile() {
     assert!(fixture.sessions_available());
     serve(fixture.config.clone(), async {}).await.unwrap();
 }
+
+#[tokio::test]
+async fn unexpected_ledger_exit_stops_the_listener_and_releases_ownership() {
+    let fixture = Fixture::new().await;
+    let script = fixture.root.join("exiting-ledger.py");
+    std::fs::write(&script, concat!(
+        "import pathlib, sys, time\n",
+        "print('{\"ready\":1}', flush=True)\n",
+        "while not (pathlib.Path(sys.argv[-1]) / 'exit').exists(): time.sleep(0.01)\n",
+        "raise SystemExit(7)\n",
+    )).unwrap();
+    let reservation = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let address = reservation.local_addr().unwrap();
+    let mut config = fixture.config.clone();
+    config.address = address;
+    config.runtime_script = script;
+    drop(reservation);
+    let task = tokio::spawn(serve(config, std::future::pending()));
+    let client = reqwest::Client::builder().no_proxy()
+        .timeout(Duration::from_millis(200)).build().unwrap();
+    timeout(Duration::from_secs(5), async {
+        loop {
+            if let Ok(reply) = client.get(format!("http://{address}/api/health")).send().await {
+                assert_eq!(reply.status(), 200);
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+    }).await.unwrap();
+    assert!(!fixture.sessions_available());
+    std::fs::write(fixture.config.profiles.join(".sidecar/camoufox/exit"), b"").unwrap();
+    let result = timeout(Duration::from_secs(5), task).await.unwrap().unwrap();
+    assert_eq!(result.unwrap_err(), "native ledger shutdown is unconfirmed");
+    assert!(tokio::net::TcpStream::connect(address).await.is_err());
+    assert!(fixture.sessions_available());
+    serve(fixture.config.clone(), async {}).await.unwrap();
+}
