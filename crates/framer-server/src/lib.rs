@@ -1109,6 +1109,11 @@ async fn free_complete(
             retry_after_secs: remaining.as_secs().saturating_add(1),
         }));
     }
+    if headers.get("x-framerize-account").is_some_and(|value| value.to_str().is_err()) {
+        return Err(operation_ownership::completed_preflight(ApiError::InvalidRequest(
+            "x-framerize-account must contain valid text".into(),
+        )));
+    }
     let pool = s.state.list().await.map_err(ApiError::Internal)?;
     let requested_account = hdr(headers, "x-framerize-account");
     let allow_account_repick = requested_account.is_none();
@@ -1671,6 +1676,11 @@ async fn native_complete(
         return Err(operation_ownership::completed_preflight(ApiError::Cooling {
             retry_after_secs: remaining.as_secs().saturating_add(1),
         }));
+    }
+    if headers.get("x-framerize-account").is_some_and(|value| value.to_str().is_err()) {
+        return Err(operation_ownership::completed_preflight(ApiError::InvalidRequest(
+            "x-framerize-account must contain valid text".into(),
+        )));
     }
     let pool = s.state.list().await.map_err(ApiError::Internal)?;
     let requested_account = hdr(headers, "x-framerize-account");
