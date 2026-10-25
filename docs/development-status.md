@@ -15,13 +15,20 @@ Completed source changes:
   assets next to their canonical executable.
 - Explicit concurrency-limit persistence at application startup, atomic file
   replacement, and restoration of the actual permit count.
+- Browser-only Rust and Python hosts. Removed the observation/comparison
+  adapters, their dispatch and native startup overrides. Account RPC ownership
+  remains in the browser runtime, independent of native authority.
+- Removed the retired comparison/resident fixture stack and its custom
+  qualification scripts. Ordinary lifecycle and fetch checks now import the
+  runtime that the browser archive ships.
 
 Validation collected locally:
 - The workspace all-target check passed at the application split milestone.
-- Current browser server: 250 tests pass. Host: 151 tests pass. Browser CLI: 28
+- Current browser server: 250 tests pass. Host: 69 retained tests pass. Browser CLI: 28
   tests pass. Gate selection: 43 tests pass, including three new persistence tests.
-- Python runtime: 40 fixture tests pass across lifecycle, imports, browser setup
-  and package staging. Reused unchanged results are retained.
+- Python runtime: 56 fixture tests pass across lifecycle, imports, browser setup,
+  package staging, request ownership and safe diagnostics. The fetch fixture
+  runs the packaged JavaScript using an inert Node harness.
 - The TypeScript/Vite UI build passes. Both local development archives pass
   checksum verification, staging and executable startup; the packaged browser
   host starts and exits on EOF using fresh temporary state without a browser.
@@ -41,8 +48,10 @@ Both available accounts have Actions billing restrictions. The workflow exists,
 but no hosted build has succeeded. The native CLI only validates configuration;
 these fixtures do not establish live native delivery.
 
-Next: remove remaining experimental adapters from the normal host, and
-implement durable account rate history plus graceful
+Native Python authority helpers were relocated without enabling them. They are
+source-only; no native host launcher or monkeypatch installer is supplied.
+
+Next: implement durable account rate history plus graceful
 shutdown. Current account history and first-migration handling remain unresolved;
 no production restart is part of this structural work.
 

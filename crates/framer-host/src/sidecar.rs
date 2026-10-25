@@ -12,7 +12,7 @@
 //! Camoufox process per account; the profile dir is the account identity
 //! (session cookie + Castle __cuid persist across restarts).
 
-use framer_core::ids::{AccountId, FramerUserId};
+use framer_core::ids::AccountId;
 use framer_core::port::{BrowserBridge, CastleToken};
 use serde_json::{json, Value};
 use std::collections::HashMap;
@@ -42,14 +42,8 @@ fn bundled_host(executable: &Path) -> Result<PathBuf, String> {
     script.canonicalize().map_err(|error| error.to_string())
 }
 
-#[path = "sidecar_observer.rs"]
-pub mod observer;
 #[path = "sidecar_retirement.rs"]
 pub mod retirement;
-#[path = "sidecar_resident.rs"]
-pub mod resident;
-#[path = "sidecar_resident_bootstrap.rs"]
-pub mod resident_bootstrap;
 #[path = "sidecar_tasks.rs"]
 mod tasks;
 
@@ -76,7 +70,6 @@ fn fail_pending(pending: &PendingReplies, message: &str) {
     }
 }
 
-const RESIDENT_GENERATION_ENV: &str = "FRAMERIZE_RESIDENT_APPLICATION_GENERATION";
 
 /// In-page AI calls wait out a full generation (window ceiling ~109 s); mints
 /// on a cold engine can take 60 s+. 300 s covers both with margin.
@@ -92,8 +85,6 @@ mod ai_result;
 
 #[path = "sidecar_browser_lifecycle.rs"]
 mod browser_lifecycle;
-#[path = "sidecar_native_device.rs"]
-mod native_device;
 
 #[path = "sidecar_proxy_registration.rs"]
 mod proxy_registration;
@@ -194,12 +185,8 @@ mod script_tests;
 pub struct SidecarBridge {
     retirement: Option<Arc<retirement::AdmissionBoundary>>,
     transport_tasks: Option<Arc<tasks::TransportTasks>>,
-    mode: observer::ProcessMode,
-    observed: std::sync::OnceLock<Arc<observer::Registry>>,
     state_root: PathBuf,
     script_override: Option<PathBuf>,
-    resident_application_generation: Option<observer::ApplicationGeneration>,
-    startup_attempted: std::sync::OnceLock<()>,
     inner: Mutex<Option<Sidecar>>,
     routes: Mutex<HashMap<AccountId, Arc<Mutex<ProxyState>>>>,
     /// Per-account queue wait from the most recent `ai_post`, in ms. The host
@@ -209,10 +196,8 @@ pub struct SidecarBridge {
 }
 
 struct Sidecar {
-    capability: Arc<Mutex<Option<Result<(), observer::ObserverError>>>>,
     healthy: Arc<std::sync::atomic::AtomicBool>,
     incarnation: uuid::Uuid,
-    events: tokio::sync::broadcast::Sender<observer::RemoteEvent>,
     child: Child,
     stdin: Arc<Mutex<tokio::process::ChildStdin>>,
     pending: PendingReplies,
@@ -225,12 +210,8 @@ impl SidecarBridge {
         Self {
             retirement: None,
             transport_tasks: None,
-            mode: observer::ProcessMode::Unmanaged,
-            observed: std::sync::OnceLock::new(),
             state_root: state_root.into(),
             script_override: None,
-            resident_application_generation: None,
-            startup_attempted: std::sync::OnceLock::new(),
             inner: Mutex::new(None),
             routes: Mutex::new(HashMap::new()),
             queue_wait: Mutex::new(HashMap::new()),
@@ -254,37 +235,7 @@ impl SidecarBridge {
         Ok(self)
     }
 
-    /// Bind a trusted generation for a future host launch, before sharing this bridge.
-    /// Rejection retains the bridge and its child; this never starts or updates a host.
-    pub fn configure_resident_controls(
-        &mut self, generation: observer::ApplicationGeneration,
-    ) -> Result<(), String> {
-        if generation.0 == 0 {
-            return Err("resident application generation must be positive".into());
-        }
-        if self.startup_attempted.get().is_some() || self.inner.get_mut().is_some() {
-            return Err("resident controls must be configured before startup".into());
-        }
-        if !matches!(self.mode, observer::ProcessMode::Unmanaged) {
-            return Err("resident controls require an unmanaged sidecar".into());
-        }
-        self.check_unused_startup()?;
-        self.resident_application_generation = Some(generation);
-        Ok(())
-    }
-
-    fn configure_resident_environment(&self, command: &mut Command) {
-        // Ambient process state is never permission to enable resident controls.
-        command.env_remove(RESIDENT_GENERATION_ENV);
-        if let Some(generation) = self.resident_application_generation {
-            command.env(RESIDENT_GENERATION_ENV, generation.0.to_string());
-        }
-    }
-
     fn admit_unscoped(&self) -> Result<Option<retirement::LocalCall>, String> {
-        if matches!(self.mode, observer::ProcessMode::Observed { .. }) {
-            return Err("observed sidecar requires an account-bound scope".into());
-        }
         self.retirement.as_ref().map(|boundary| boundary.enter())
             .transpose().map_err(|error| format!("host admission: {error:?}"))
     }
@@ -298,9 +249,6 @@ impl SidecarBridge {
     }
 
     fn script_path(&self) -> Result<PathBuf, String> {
-        if let observer::ProcessMode::Observed { script, .. } = &self.mode {
-            return Ok(script.clone());
-        }
         if let Some(script) = &self.script_override { return Ok(script.clone()); }
         bundled_host(&std::env::current_exe().map_err(|error| error.to_string())?)
     }
@@ -318,14 +266,11 @@ impl SidecarBridge {
                 (true, Ok(None)) => return Ok(()),
                 _ => {
                     s.healthy.store(false, Ordering::Release);
-                    let _ = s.events.send(observer::RemoteEvent::Lost);
                     fail_pending(&s.pending, "host-lifecycle-unconfirmed: sidecar exited");
                     return Err("host-lifecycle-unconfirmed: sidecar exited; cleanup must be confirmed before recovery".into());
                 }
             }
         }
-        // A failed or cancelled startup must not reopen resident configuration.
-        let _ = self.startup_attempted.set(());
         if let Some(boundary) = &self.retirement {
             boundary.begin_start().map_err(|error| format!("host startup: {error:?}"))?;
         }
@@ -339,17 +284,8 @@ impl SidecarBridge {
         });
         let incarnation = uuid::Uuid::new_v4();
         let healthy = Arc::new(std::sync::atomic::AtomicBool::new(true));
-        let (events, _) = tokio::sync::broadcast::channel(512);
-        let (mode, profile_nonce) = match &self.mode {
-            observer::ProcessMode::Unmanaged => ("unmanaged", String::new()),
-            observer::ProcessMode::Observed { profile_nonce, .. } =>
-                ("observed_one_shot_v1", profile_nonce.to_string()),
-        };
         let mut command = Command::new(&python);
-        self.configure_resident_environment(&mut command);
         command.arg("-B").arg(&script)
-            .env("FRAMERIZE_SIDECAR_MODE", mode)
-            .env("FRAMERIZE_OBSERVED_PROFILE_NONCE", profile_nonce)
             .env("FRAMERIZE_SIDECAR_INCARNATION", incarnation.to_string())
             .env("FRAMERIZE_STATE", self.state_root.join("camoufox"))
             // Structured sidecar events land in the SAME NDJSON stream as the
@@ -364,9 +300,6 @@ impl SidecarBridge {
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .stderr(Stdio::inherit()); // sidecar traces land in the daemon log
-        if matches!(self.mode, observer::ProcessMode::Observed { .. }) {
-            command.env("FRAMERIZE_DEVICE_POOL", "1").env("FRAMERIZE_RESERVE_PER_DAY", "0");
-        }
         let mut child = command.spawn()
             .map_err(|e| {
                 format!(
@@ -381,8 +314,7 @@ impl SidecarBridge {
         // Own the generation before registering transport tasks can yield.
         *guard = Some(Sidecar {
             child, stdin: stdin.clone(), pending: pending.clone(),
-            cancel: cancel.clone(), incarnation, events: events.clone(),
-            healthy: healthy.clone(), capability: Arc::new(Mutex::new(None)),
+            cancel: cancel.clone(), incarnation, healthy: healthy.clone(),
             next_id: Arc::new(AtomicU64::new(0)),
         });
         {
@@ -414,9 +346,7 @@ impl SidecarBridge {
         }
         // Reader task: route response lines to their oneshot by id.
         {
-            let observed = mode == "observed_one_shot_v1";
             let pending = pending.clone();
-            let events = events.clone();
             let healthy = healthy.clone();
             let mut stop = self.transport_tasks.as_ref().map(|tasks| tasks.stopping());
             tasks::launch(self.transport_tasks.as_ref(), async move {
@@ -432,20 +362,9 @@ impl SidecarBridge {
                     };
                     let v = match serde_json::from_str::<Value>(&line) {
                         Ok(v) => v,
-                        Err(_) if observed => break,
                         Err(_) => continue,
                     };
-                    if let Some(event) = observer::RemoteEvent::parse(&v, incarnation) {
-                        if matches!(event, observer::RemoteEvent::Lost) {
-                            healthy.store(false, Ordering::Release);
-                            fail_pending(&pending, "invalid observed cleanup frame");
-                        }
-                        let _ = events.send(event);
-                        continue;
-                    }
-                    if observed && v.get("kind").is_some() { break; }
                     let Some(id) = v["id"].as_u64() else {
-                        if observed { break; }
                         continue;
                     };
                     let tx = pending.lock().unwrap().remove(&id);
@@ -455,7 +374,6 @@ impl SidecarBridge {
                 }
                 healthy.store(false, Ordering::Release);
                 fail_pending(&pending, "host-lifecycle-unconfirmed: sidecar output closed");
-                let _ = events.send(observer::RemoteEvent::Lost);
             }).await?;
         }
         if let Some(boundary) = &self.retirement {
@@ -480,20 +398,9 @@ impl SidecarBridge {
     async fn call_with_policy(
         &self,
         cmd: &str,
-        fields: Value,
-        timeout: std::time::Duration,
-        start_missing: bool,
-    ) -> Result<Value, String> {
-        self.call_with_incarnation(cmd, fields, timeout, start_missing, None).await
-    }
-
-    async fn call_with_incarnation(
-        &self,
-        cmd: &str,
         mut fields: Value,
         timeout: std::time::Duration,
         start_missing: bool,
-        expected_incarnation: Option<uuid::Uuid>,
     ) -> Result<Value, String> {
         let _admission = self.admit_unscoped()?;
         let started = std::time::Instant::now();
@@ -505,10 +412,6 @@ impl SidecarBridge {
             }
             let mut guard = self.inner.lock().await;
             let s = guard.as_mut().ok_or("sidecar unavailable")?;
-            // Check under the same lock as pipe selection and reply registration.
-            if expected_incarnation.is_some_and(|expected| expected != s.incarnation) {
-                return Err("sidecar incarnation changed".into());
-            }
             if !s.healthy.load(Ordering::Acquire) || !matches!(s.child.try_wait(), Ok(None)) {
                 return Err("host-lifecycle-unconfirmed: sidecar exited; browser cleanup is unconfirmed".into());
             }
@@ -577,48 +480,6 @@ impl SidecarBridge {
 
 #[async_trait::async_trait]
 impl BrowserBridge for SidecarBridge {
-    async fn enroll_native_device(&self, account: AccountId, user: &FramerUserId,
-        device: &str)
-        -> Result<framer_core::native_device::DeviceEnrollment, framer_core::native_device::DeviceFailure> {
-        self.native_enroll(account, user, device).await
-    }
-
-    async fn open_native_device(&self, account: AccountId)
-        -> Result<framer_core::native_device::DeviceGrant, framer_core::native_device::DeviceFailure> {
-        self.native_open(account).await
-    }
-
-    async fn admit_native_mint(&self, grant: &framer_core::native_device::DeviceGrant, budget_ms: u64)
-        -> Result<u64, framer_core::native_device::DeviceFailure> {
-        self.native_mint(grant, budget_ms).await
-    }
-
-    async fn finish_native_mint(&self, grant: &framer_core::native_device::DeviceGrant,
-        sequence: u64, joined: bool) -> Result<bool, framer_core::native_device::DeviceFailure> {
-        self.native_minted(grant, sequence, joined).await
-    }
-
-    async fn close_native_device(&self, grant: &framer_core::native_device::DeviceGrant,
-        joined: bool, risk_refused: bool) -> Result<bool, framer_core::native_device::DeviceFailure> {
-        self.native_close(grant, joined, risk_refused).await
-    }
-
-    async fn transfer_native_sdk_seed(&self,
-        grant: Arc<framer_core::native_device::DeviceGrant>, session: &framer_core::port::Session)
-        -> Result<framer_core::native_device::NativeSdkSeed, framer_core::native_device::DeviceFailure> {
-        self.native_sdk_seed(grant, session).await
-    }
-
-    async fn admit_native_sdk_mint(&self, proof: &framer_core::native_device::NativeSdkSeed,
-        budget_ms: u64) -> Result<u64, framer_core::native_device::DeviceFailure> {
-        self.native_sdk_mint(proof, budget_ms).await
-    }
-
-    async fn finish_native_sdk_mint(&self, proof: &framer_core::native_device::NativeSdkSeed,
-        sequence: u64, joined: bool) -> Result<bool, framer_core::native_device::DeviceFailure> {
-        self.native_sdk_minted(proof, sequence, joined).await
-    }
-
     fn supports_browser_lifecycle(&self) -> bool { true }
 
     async fn browser_status(&self, account: &AccountId)

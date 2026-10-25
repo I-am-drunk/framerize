@@ -24,10 +24,8 @@ async fn blocked_input_does_not_hold_the_process_lifecycle_lock() {
     let bridge = SidecarBridge::new("unused-fixture-state");
     *bridge.inner.lock().await = Some(Sidecar {
         child, stdin, pending, cancel, next_id: Arc::new(AtomicU64::new(0)),
-        capability: Arc::new(Mutex::new(None)),
         healthy: Arc::new(std::sync::atomic::AtomicBool::new(true)),
         incarnation: uuid::Uuid::new_v4(),
-        events: tokio::sync::broadcast::channel(512).0,
     });
 
     // The child announces readiness, then leaves its input pipe unread.

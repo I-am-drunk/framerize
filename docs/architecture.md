@@ -30,9 +30,14 @@ Concurrency-limit storage is selected by application startup. Library gates
 are in memory unless supplied a state-file path. Fixtures never inherit the
 normal service's learned limits through an implicit home-directory lookup.
 
-Removing the remaining experimental host adapters, durable account rate history
-and graceful update handling are still pending. The running service has not
-been changed by this reorganization.
+The browser host exposes only browser commands. Ordinary account activity and
+pending RPC ownership live in `accounts/`; native observation and comparison
+adapters are absent from both the Rust bridge and the Python browser package.
+Native Python authority sources live separately in `runtime/framerize_native`
+and have no live launcher or installation hook.
+
+Durable account rate history and graceful update handling are still pending.
+The running service has not been changed by this reorganization.
 
 Earlier investigation notes are preserved in
 [architecture history](history/architecture-before-reorganization-20261025.md).
