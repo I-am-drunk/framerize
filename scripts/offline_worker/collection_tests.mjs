@@ -5,26 +5,32 @@ import os from 'node:os';
 import path from 'node:path';
 import {createCollector, writeCollection} from './collection.mjs';
 
+const withReply = value => {
+  const owner = createCollector();
+  owner.sharedWorker(value);
+  return owner.collect;
+};
+
 test('each collector accepts only one complete operation', () => {
-  const collect = createCollector(), values = Array(765);
+  const collect = withReply(undefined), values = Array(765);
   values[0] = 'first';
   const first = collect(values);
   values[0] = 'second';
   assert.throws(() => collect(values), /collection-boundary/);
-  assert.notEqual(createCollector()(values), first);
+  assert.notEqual(withReply(undefined)(values), first);
   assert.deepEqual(JSON.parse(first).values.values[0].units, [102,105,114,115,116]);
   for (const size of [0,764,766])
-    assert.throws(() => createCollector()(Array(size)), /collection-boundary/);
+    assert.throws(() => withReply(undefined)(Array(size)), /collection-boundary/);
 });
 
 test('proxies and aggregate string excess are refused before transfer', () => {
   let reads = 0;
   const proxy = new Proxy(Array(765), {get() { reads++; return 765; }});
-  assert.throws(() => createCollector()(proxy), /collection-boundary/);
+  assert.throws(() => withReply(undefined)(proxy), /collection-boundary/);
   assert.equal(reads, 0);
   const values = Array(765);
   values[0] = 'x'.repeat(32769); values[1] = values[0];
-  assert.throws(() => createCollector()(values), /collector-string-limit/);
+  assert.throws(() => withReply(undefined)(values), /collector-string-limit/);
 });
 
 test('private writer emits one exact frame and closes on success or refusal', () => {
@@ -33,7 +39,7 @@ test('private writer emits one exact frame and closes on success or refusal', ()
     for (const invalid of [false, true]) {
       const file = path.join(directory, String(invalid));
       const fd = fs.openSync(file, 'wx', 0o600);
-      const body = createCollector()(Array(765));
+      const body = withReply(undefined)(Array(765));
       if (invalid) assert.throws(() => writeCollection(fd, ''), /collection-value/);
       else writeCollection(fd, body);
       assert.throws(() => fs.fstatSync(fd), {code: 'EBADF'});
@@ -46,4 +52,30 @@ test('private writer emits one exact frame and closes on success or refusal', ()
       }
     }
   } finally { fs.rmSync(directory, {recursive: true, force: true}); }
+});
+
+test('requires one reply owned by this operation and copies it before later mutation', () => {
+  const missing = createCollector();
+  assert.throws(() => missing.collect(Array(765)), /collection-worker-missing/);
+  assert.throws(() => missing.sharedWorker([]), /collection-worker-boundary/);
+  const owner = createCollector(), reply = [2];
+  reply[10] = 'version-at-receipt';
+  owner.sharedWorker(reply);
+  reply[10] = 'later-mutation';
+  assert.throws(() => owner.sharedWorker(reply), /collection-worker-boundary/);
+  const frame = JSON.parse(owner.collect(Array(765)));
+  assert.equal(frame.version, 2);
+  assert.equal(String.fromCharCode(...frame.shared_worker_reply.values[10].units), 'version-at-receipt');
+  assert.throws(() => owner.sharedWorker(reply), /collection-worker-boundary/);
+});
+
+test('reply and final array share capture limits; rejected replies cannot be replaced', () => {
+  const owner = createCollector();
+  owner.sharedWorker('x'.repeat(32768));
+  const values = Array(765); values[0] = 'x'.repeat(32769);
+  assert.throws(() => owner.collect(values), /collector-string-limit/);
+  const failed = createCollector();
+  assert.throws(() => failed.sharedWorker({}), /collector-data-shape/);
+  assert.throws(() => failed.sharedWorker(undefined), /collection-worker-boundary/);
+  assert.throws(() => failed.collect(Array(765)), /collection-worker-missing/);
 });

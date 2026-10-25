@@ -10,6 +10,12 @@ The request owner retains both child cleanup and native encoding completion.
 V2 keeps its separate token protocol. The normal browser service is unaffected.
 See [the handoff contract](../reference/analysis/native-collection-handoff.md).
 
+The private collection also carries the same operation's SharedWorker receiver
+result. Rust validates and reduces it into position 242 before encoding, so
+the minted output uses the native reduction. The SDK's original assignment
+remains pending its separate writer/ordering proof. Collection still uses
+the SDK and JSDOM; this step does not replace the observation environment.
+
 The isolated snapshot probe observes one original SDK operation and sends
 its collected values through the same frame format. A separate checker uses
 the production decoder and encoder with that operation's recorded clock.
@@ -114,7 +120,7 @@ The caller supplies the clock; the wrapper has no device, account or network
 access. `scripts/check_v3_envelope.py` compares complete outputs with the
 original function and checks serialization through final wrapping together.
 This is a client encoding component, not device collection or proof of
-service acceptance. The native serving worker does not use it yet.
+service acceptance. The experimental native worker uses it after collection.
 
 `castle::v3::encode_collected` is the complete post-collection entry point:
 supplied value array, typed serialization, SDK fallback compression, then
@@ -136,11 +142,10 @@ The snapshot experiment now also records the actual array passed to the
 serializer. Its schema 3 comparison builds native values from this input,
 checks serialization, rebuilds the five supported collector positions, then
 compares the final encoding using the same operation's timestamp. This is a
-test-only observation boundary. The serving worker still returns the SDK's
-token; it does not send a completed value array to the native encoder.
-The next integration needs explicit collection ownership and readiness, a
-private typed result, and a serving path that returns the native output.
-Adding an independent RTC collector would currently leave its result unused.
+test-only observation boundary. The serving worker now sends its value array
+and SharedWorker receiver result to the native encoder. Other observation
+producers still run in the SDK; each replacement needs its own connected
+input and ownership boundary.
 The network completion timing is separate from the four record fields: its
 setup-to-fulfillment elapsed milliseconds feed position 755. It must retain
 the actual timing assignment and ordering, not a fabricated duration.

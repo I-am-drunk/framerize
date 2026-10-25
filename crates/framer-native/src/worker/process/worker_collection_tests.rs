@@ -9,8 +9,9 @@ fn frame(input: &serde_json::Value) -> Vec<u8> {
 }
 
 fn input() -> serde_json::Value {
-    json!({"version":1,"values":{"kind":"array",
-        "values":vec![json!({"kind":"undefined"}); 765]}})
+    json!({"version":2,"values":{"kind":"array",
+        "values":vec![json!({"kind":"undefined"}); 765]},
+        "shared_worker_reply":{"kind":"undefined"}})
 }
 
 #[test]
@@ -21,7 +22,7 @@ fn exact_complete_collection_is_required() {
         value["values"]["values"] = json!(vec![json!({"kind":"null"}); size]);
         assert!(decode(&frame(&value)).is_none());
     }
-    for (key, value) in [("version", json!(2)), ("extra", json!(true))] {
+    for (key, value) in [("version", json!(1)), ("extra", json!(true))] {
         let mut data = input(); data[key] = value;
         assert!(decode(&frame(&data)).is_none());
     }
@@ -51,12 +52,28 @@ fn malformed_values_and_unbounded_data_cannot_encode() {
         value["values"]["values"][index] = json!({"kind":"string","units":vec![1;32769]});
     }
     assert!(decode(&frame(&value)).is_none());
-    let text = serde_json::to_string(&input()).unwrap().replace("\"version\":1",
-        "\"version\":1,\"version\":1");
+    let text = serde_json::to_string(&input()).unwrap().replace("\"version\":2",
+        "\"version\":2,\"version\":2");
     let mut duplicate = b"FCLT\x01\0\0\0".to_vec();
     duplicate.extend_from_slice(&(text.len() as u32).to_be_bytes());
     duplicate.extend_from_slice(text.as_bytes());
     assert!(decode(&duplicate).is_none());
+}
+
+#[test]
+fn missing_or_malformed_reply_cannot_produce_a_collection() {
+    let mut missing = input();
+    missing.as_object_mut().unwrap().remove("shared_worker_reply");
+    assert!(decode(&frame(&missing)).is_none());
+    for reply in [json!(null), json!({"kind":"object","entries":[]}),
+        json!({"kind":"string","units":[65536]})] {
+        let mut value = input(); value["shared_worker_reply"] = reply;
+        assert!(decode(&frame(&value)).is_none());
+    }
+    let mut value = input();
+    value["shared_worker_reply"] = json!({"kind":"string","units":vec![1;32768]});
+    value["values"]["values"][0] = json!({"kind":"string","units":vec![1;32769]});
+    assert!(decode(&frame(&value)).is_none());
 }
 
 #[test]
@@ -65,7 +82,10 @@ fn javascript_private_frame_preserves_values_for_native_encoding() {
       const {createCollector, writeCollection} = await import(process.argv[1]);
       const values = Array(765);
       values[0] = [undefined, null, -0, NaN, Infinity, -Infinity, '\ud800', true];
-      writeCollection(1, createCollector()(values));
+      values[242] = 'ignored-sdk-result';
+      const owner = createCollector(), reply = [2];
+      reply[10] = 'native-version'; owner.sharedWorker(reply);
+      writeCollection(1, owner.collect(values));
     "#;
     let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("../../scripts/offline_worker/collection.mjs");
@@ -78,6 +98,7 @@ fn javascript_private_frame_preserves_values_for_native_encoding() {
     expected[0] = Value::Array(vec![Value::Undefined, Value::Null,
         Value::Number(-0.0), Value::Number(f64::NAN), Value::Number(f64::INFINITY),
         Value::Number(f64::NEG_INFINITY), Value::String(vec![0xd800]), Value::Bool(true)]);
+    expected[242] = Value::String("native-version".encode_utf16().collect());
     assert_eq!(v3::serialize(&actual), v3::serialize(&expected));
     assert_eq!(v3::encode_collected(&actual, 1700000000000),
         v3::encode_collected(&expected, 1700000000000));

@@ -11,20 +11,34 @@ const SDK = '3337eba7ffe614c2ebd9b2b8a55794f2e2445a9b3658d1af5eb7530152b72c71';
 export function collectionSource(bytes) {
   if (createHash('sha256').update(bytes).digest('hex') !== SDK)
     throw new Error('collection-source');
-  return bytes.subarray(0, 274980).toString('utf8') + 'import.meta.collect(Q)'
+  const source = bytes.subarray(0, 274980).toString('utf8') + 'import.meta.collect(Q)'
     + bytes.subarray(281215).toString('utf8');
+  const assignment = 'Q[_o]=l(s,Qon(W))';
+  if (source.indexOf(assignment) < 0 || source.indexOf(assignment) !== source.lastIndexOf(assignment))
+    throw new Error('collection-worker-source');
+  return source.replace(assignment, 'Q[_o]=l(s,Qon(import.meta.sharedWorker(W)))');
 }
 
 export function createCollector() {
-  let used = false;
-  return value => {
+  let used = false, observed = false, reply;
+  const state = {seen: new Set(), count: 0, units: 0};
+  const sharedWorker = value => {
+    if (used || observed) throw new Error('collection-worker-boundary');
+    observed = true;
+    reply = capture(value, state);
+    return value;
+  };
+  const collect = value => {
     if (used || types.isProxy(value) || !Array.isArray(value) || value.length !== 765)
       throw new Error('collection-boundary');
     used = true;
-    const result = JSON.stringify({version: 1, values: capture(value)});
+    if (reply === undefined) throw new Error('collection-worker-missing');
+    const result = JSON.stringify({version: 2, values: capture(value, state),
+      shared_worker_reply: reply});
     if (Buffer.byteLength(result) > COLLECTION_LIMIT) throw new Error('collection-size');
     return result;
   };
+  return {collect, sharedWorker};
 }
 
 export function writeCollection(fd, value) {
