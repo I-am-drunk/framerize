@@ -39,5 +39,10 @@ and have no live launcher or installation hook.
 Durable account rate history and graceful update handling are still pending.
 The running service has not been changed by this reorganization.
 
+`accounts/journal.py` provides the tested SQLite storage boundary for that next
+step. It has one writer and refuses to initialize over existing account state.
+It is not yet used by request admission or startup, so it does not currently
+change restart behavior.
+
 Earlier investigation notes are preserved in
 [architecture history](history/architecture-before-reorganization-20261025.md).
