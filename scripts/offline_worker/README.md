@@ -13,6 +13,17 @@ See [application packages](../../docs/releases.md) for offline cache options.
 The complete bundle contains the V3 entry point. The V2 source and graphics
 experiments below remain separate and are not enabled by this package.
 
+Build the owned SDK probe with
+`cargo build --locked -p framer-native --example worker-smoke`. It uses the
+service's configuration parser and expects a read-only worker bundle mounted
+at `/work`, plus a fresh writable `/out`. It refuses to run unless network
+and PID namespaces differ from `FRAMERIZE_PARENT_NETNS` and
+`FRAMERIZE_PARENT_PIDNS`, private home state and the user bus are hidden, and
+its cgroup has 128 MiB memory, zero swap and 32 tasks. The runner also verifies
+no-new-privileges before execution. Its JSON result contains only timing,
+failure and cleanup facts. The synthetic token is discarded after handoff.
+This probe has passed with the portable V3 bundle; it does not contact Framer.
+
 This source adds explicit saved-device storage to the isolated worker.
 
 The SharedWorker adapter executes the pinned SDK worker script in a real Node
