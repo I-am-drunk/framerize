@@ -95,15 +95,16 @@ pub async fn complete_long(
     let mut chunk_tokens = if fast_lane { cfg.chunk_tokens.clamp(1500, grow_cap) } else { cfg.chunk_tokens.min(600) };
     let budget_for = |tps: f32| -> u32 { ((tps * window_budget_s) as u32).clamp(400, grow_cap) };
 
-    let chain_started = std::time::Instant::now();
-    let max_wall = std::time::Duration::from_secs(300);
+    let mut cooldown_wait = super::cooldown_wait::CooldownWait::default();
+    let chain_started = cooldown_wait.timer();
+    let max_active = std::time::Duration::from_secs(300);
 
     for i in 0..cfg.max_chunks {
         cfg.check_cancelled()?;
-        if chain_started.elapsed() > max_wall {
+        if cooldown_wait.elapsed(chain_started) > max_active {
             return Err(format!(
-                "chain exceeded {}s wall-clock budget after {i} chunks (upstream degraded) — retry the request",
-                max_wall.as_secs()
+                "chain exceeded {}s active-time budget after {i} chunks (excluding local cooldown waits), retry the request",
+                max_active.as_secs()
             ));
         }
         let budget = cfg
@@ -117,7 +118,7 @@ pub async fn complete_long(
             tokio::time::sleep(std::time::Duration::from_millis(j)).await;
         }
         let payload = build_payload(&input_items, chunk);
-        let t0 = std::time::Instant::now();
+        let t0 = cooldown_wait.timer();
         eprintln!("[nativechain] chunk {i} start (max_output_tokens={chunk})");
 
         // 429 handling: instant in-chain retries (≤4) with the saturation
@@ -128,12 +129,12 @@ pub async fn complete_long(
             let mut out = None;
             while out.is_none() {
                 cfg.check_cancelled()?;
-                last_attempt_t0 = std::time::Instant::now();
-                match proxy::forward_cancellable(
+                last_attempt_t0 = cooldown_wait.timer();
+                match cooldown_wait.run(cfg, !output_items.is_empty(), || proxy::forward_cancellable(
                     t, token_cache, session, browser, account, project,
-                    Dialect::OpenRouterResponses, &chain_step, attempt_payload.take(),
+                    Dialect::OpenRouterResponses, &chain_step, attempt_payload.clone(),
                     chat_session, i, cfg.cancelled.as_deref(),
-                )
+                ))
                 .await
                 {
                     Ok(r) => out = Some(Ok(r)),
@@ -177,7 +178,7 @@ pub async fn complete_long(
                 // loop includes 429 backoffs, which would misclassify a fast
                 // velocity 403 after >8s of waiting as an idle-window kill
                 // (audit 2026-10-11: wasted halve-retries on velocity bans).
-                let elapsed = last_attempt_t0.elapsed().as_secs_f32();
+                let elapsed = cooldown_wait.elapsed(last_attempt_t0).as_secs_f32();
                 let idle_killed = e == "risk-refused" && elapsed > 8.0;
                 let upstream_refused = e.starts_with("upstream 403");
                 let transport_died = !upstream_refused
@@ -193,10 +194,10 @@ pub async fn complete_long(
                 let retry_chunk = budget.min(chunk_tokens).min(chunk_cap).max(16);
                 eprintln!("[nativechain] chunk {i} died at {elapsed:.1}s ({e}) — retrying with max_output_tokens={retry_chunk}");
                 let retry_payload = build_payload(&input_items, retry_chunk);
-                match proxy::forward_cancellable(
+                match cooldown_wait.run(cfg, !output_items.is_empty(), || proxy::forward_cancellable(
                     t, token_cache, session, browser, account, project,
-                    Dialect::OpenRouterResponses, &chain_step, retry_payload, chat_session, i, cfg.cancelled.as_deref(),
-                )
+                    Dialect::OpenRouterResponses, &chain_step, retry_payload.clone(), chat_session, i, cfg.cancelled.as_deref(),
+                ))
                 .await
                 {
                     Ok(r) => (r, retry_chunk),
@@ -223,7 +224,7 @@ pub async fn complete_long(
             }
         };
 
-        let wall = t0.elapsed().as_secs_f32();
+        let wall = cooldown_wait.elapsed(t0).as_secs_f32();
         let queued = resp.queue_wait_ms as f32 / 1000.0;
         let elapsed = (wall - queued).max(0.5);
         if queued > 2.0 {

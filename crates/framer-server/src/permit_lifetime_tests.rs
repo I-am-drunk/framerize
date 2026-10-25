@@ -47,6 +47,29 @@ async fn delivered(response: Response) {
 }
 
 #[tokio::test(flavor = "current_thread")]
+async fn unbound_queued_request_uses_ready_peer_after_account_cools() {
+    for messages in [false, true] {
+        for stream in [false, true] {
+            let mut f = Fixture::new();
+            let model = if messages { MESSAGE_MODEL } else { RESPONSE_MODEL };
+            f.accounts[1].cooling_until_ms = Some(framer_core::rotation::now_ms() + 600_000);
+            f.state.state.upsert(&f.accounts[1]).await.unwrap();
+            let held = f.state.gate.acquire(&f.key(0, model)).await;
+            let mut task = AbortOnDrop(tokio::spawn(chain(
+                f.state.clone(), HeaderMap::new(), messages, stream)));
+            f.loaded(0).await;
+            f.accounts[0].cooling_until_ms = Some(framer_core::rotation::now_ms() + 600_000);
+            f.accounts[1].cooling_until_ms = None;
+            for account in &f.accounts { f.state.state.upsert(account).await.unwrap(); }
+            let before = serde_json::to_value(f.state.state.list().await.unwrap()).unwrap();
+            drop(held);
+            queued_peer_completion(&mut f, &mut task, stream, model).await;
+            assert_eq!(serde_json::to_value(f.state.state.list().await.unwrap()).unwrap(), before);
+        }
+    }
+}
+
+#[tokio::test(flavor = "current_thread")]
 async fn paid_unpolled_stream_keeps_slot_and_drop_cancels_only_its_producer() {
     let mut f = Fixture::new();
     let key = f.key(0, RESPONSE_MODEL);
@@ -162,6 +185,35 @@ async fn messages_retry_with_one_slot_does_not_acquire_while_holding_it() {
     available(&f.state.gate, &key).await;
     assert!(f.state.wave.check().is_none());
     f.no_call();
+}
+
+async fn queued_peer_completion(f: &mut Fixture,
+    task: &mut AbortOnDrop<Result<Response, ApiError>>, stream: bool, model: &str) {
+    let mut response = if stream {
+        Some(tokio::time::timeout(WAIT, &mut *task).await.unwrap().unwrap().unwrap())
+    } else { None };
+    let call = tokio::select! {
+        call = tokio::time::timeout(WAIT, f.calls.recv()) =>
+            call.expect("ready peer was not reached").expect("fixture call channel closed"),
+        result = &mut *task, if !stream => {
+            panic!("request returned before using the ready peer: {:?}",
+                result.unwrap().map(|response| response.status()));
+        }
+    };
+    assert_eq!(call.account, f.accounts[1].id);
+    f.loaded(1).await;
+    available(&f.state.gate, &f.key(0, model)).await;
+    occupied(&f.state.gate, &f.key(1, model)).await;
+    call.reply.send(Ok(success(call.kind))).ok().unwrap();
+    if response.is_none() {
+        response = Some(tokio::time::timeout(WAIT, &mut *task).await.unwrap().unwrap().unwrap());
+    }
+    delivered(response.unwrap()).await;
+    available(&f.state.gate, &f.key(1, model)).await;
+    assert!(f.state.serving_accounts.residents.snapshot().unwrap().residents
+        .iter().all(|slot| slot.users == 0 && !slot.uncertain));
+    f.no_call();
+    assert!(f.loads.try_recv().is_err());
 }
 
 async fn failover(messages: bool, stream: bool, cancel_wait: bool) {

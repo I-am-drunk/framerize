@@ -1141,67 +1141,89 @@ async fn free_complete(
             "x-framerize-account must contain valid text".into(),
         )));
     }
-    let pool = s.state.list().await.map_err(ApiError::Internal)?;
     let requested_account = hdr(headers, "x-framerize-account");
     let allow_account_repick = requested_account.is_none();
-    let account = s.serving_accounts.select(
-        pool,
-        requested_account.as_deref(),
-    ).map_err(operation_ownership::completed_preflight)?;
-    let acquired = pool_control::lease_account_observed(&s, account.id).await;
-    let residency = RequestResidency::new(match acquired.result {
-        Ok(lease) => lease,
-        Err(error) => return Ok(operation_ownership::completed_response(
-            axum::response::IntoResponse::into_response(error), acquired.cleanup_confirmed)),
-    });
-    let account = match current_account(&s, account.id).await {
-        Ok(account) => account,
-        Err(error @ (ApiError::Cooling { .. } | ApiError::AccountCooling { .. }
-            | ApiError::ServingCapacity(_))) => {
-            return Ok(operation_ownership::completed_response(
-                axum::response::IntoResponse::into_response(error), true));
-        },
-        Err(error) => return Err(error),
+    let gate_model = anthro["model"].as_str().unwrap_or("unknown").to_string();
+    // A queued account can cool before its turn. Try at most two peers,
+    // releasing this iteration's lease and permit before selecting another.
+    let mut skipped = Vec::new();
+    let (account, residency, mut session, mut scope, mut first_permit) = loop {
+        let pool = s.state.list().await.map_err(ApiError::Internal)?;
+        let account = if skipped.is_empty() {
+            s.serving_accounts.select(pool, requested_account.as_deref())
+        } else {
+            s.serving_accounts.select_fresh(pool, &skipped)
+        };
+        let account = match account {
+            Ok(account) => account,
+            Err(error) if skipped.is_empty() => return Err(operation_ownership::completed_preflight(error)),
+            Err(error) => return Ok(operation_ownership::completed_response(
+                axum::response::IntoResponse::into_response(error), true)),
+        };
+        let acquired = pool_control::lease_account_observed(&s, account.id).await;
+        let residency = RequestResidency::new(match acquired.result {
+            Ok(lease) => lease,
+            Err(error) => return Ok(operation_ownership::completed_response(
+                axum::response::IntoResponse::into_response(error), acquired.cleanup_confirmed)),
+        });
+        let account = match current_account(&s, account.id).await {
+            Ok(account) => account,
+            Err(ApiError::AccountCooling { .. }) if allow_account_repick && skipped.len() < 2 => {
+                skipped.push(account.id.0.to_string());
+                continue;
+            },
+            Err(error @ (ApiError::Cooling { .. } | ApiError::AccountCooling { .. }
+                | ApiError::ServingCapacity(_))) => {
+                return Ok(operation_ownership::completed_response(
+                    axum::response::IntoResponse::into_response(error), true));
+            },
+            Err(error) => return Err(error),
+        };
+        let session = s
+            .sessions
+            .load(&account.framer_user_id)
+            .await
+            .map_err(ApiError::Internal)?
+            .ok_or_else(|| ApiError::Internal("account has no session".into()))?;
+        let scope = pick_scope(&account)?;
+
+        // Per (workspace × MODEL) concurrency — measured 2026-10-05: ~6 in-flight
+        // per model; 6 models × 6 = 36/36 clean. Keyed on the normalized upstream
+        // id (client spellings collapse to the true bucket) AND the chain's
+        // rotated workspace (one account now spans multiple workspace budgets).
+        let gate_key = format!("{}:{gate_model}", scope.team.0);
+        let first_permit = Some(tokio::select! {
+            biased;
+            _ = operation_ownership::request_disconnected() => {
+                let (status, body) = convert::error_json(dialect, "client cancelled");
+                let response = axum::response::IntoResponse::into_response(ShapedApiError(
+                    StatusCode::from_u16(status).unwrap_or(StatusCode::INTERNAL_SERVER_ERROR), body,
+                ));
+                return Ok(operation_ownership::completed_response(response, true));
+            }
+            permit = s.gate.acquire(&gate_key) => permit,
+        });
+        match current_account(&s, account.id).await {
+            Ok(_) => {},
+            Err(ApiError::AccountCooling { .. }) if allow_account_repick && skipped.len() < 2 => {
+                skipped.push(account.id.0.to_string());
+                continue;
+            },
+            Err(error @ (ApiError::Cooling { .. } | ApiError::AccountCooling { .. }
+                | ApiError::ServingCapacity(_))) => {
+                return Ok(operation_ownership::completed_response(
+                    axum::response::IntoResponse::into_response(error), true));
+            },
+            Err(error) => return Err(error),
+        }
+
+        break (account, residency, session, scope, first_permit);
     };
-    let mut session = s
-        .sessions
-        .load(&account.framer_user_id)
-        .await
-        .map_err(ApiError::Internal)?
-        .ok_or_else(|| ApiError::Internal("account has no session".into()))?;
-    let mut scope = pick_scope(&account)?;
     let mut project = scope.project.clone();
     let mut scope_team = scope.team.clone();
-    let mut chat_session =
-        hdr(headers, "x-framerize-session").unwrap_or_else(|| stable_session(&account.id));
-
-    // Per (workspace × MODEL) concurrency — measured 2026-10-05: ~6 in-flight
-    // per model; 6 models × 6 = 36/36 clean. Keyed on the normalized upstream
-    // id (client spellings collapse to the true bucket) AND the chain's
-    // rotated workspace (one account now spans multiple workspace budgets).
-    let gate_model = anthro["model"].as_str().unwrap_or("unknown").to_string();
+    let mut chat_session = hdr(headers, "x-framerize-session")
+        .unwrap_or_else(|| stable_session(&account.id));
     let mut gate_key = format!("{}:{gate_model}", scope_team.0);
-    let mut first_permit = Some(tokio::select! {
-        biased;
-        _ = operation_ownership::request_disconnected() => {
-            let (status, body) = convert::error_json(dialect, "client cancelled");
-            let response = axum::response::IntoResponse::into_response(ShapedApiError(
-                StatusCode::from_u16(status).unwrap_or(StatusCode::INTERNAL_SERVER_ERROR), body,
-            ));
-            return Ok(operation_ownership::completed_response(response, true));
-        }
-        permit = s.gate.acquire(&gate_key) => permit,
-    });
-    match current_account(&s, account.id).await {
-        Ok(_) => {},
-        Err(error @ (ApiError::Cooling { .. } | ApiError::AccountCooling { .. }
-            | ApiError::ServingCapacity(_))) => {
-            return Ok(operation_ownership::completed_response(
-                axum::response::IntoResponse::into_response(error), true));
-        },
-        Err(error) => return Err(error),
-    }
-
     let mk_cfg = |team: &framer_core::ids::TeamId| framer_core::port::ChainConfig {
         max_total_tokens: Some(max_tokens),
         // Metered rungs are credit spend: off unless the operator opts in.
@@ -1709,65 +1731,86 @@ async fn native_complete(
             "x-framerize-account must contain valid text".into(),
         )));
     }
-    let pool = s.state.list().await.map_err(ApiError::Internal)?;
     let requested_account = hdr(headers, "x-framerize-account");
     let allow_account_repick = requested_account.is_none();
-    let account = s.serving_accounts.select(
-        pool,
-        requested_account.as_deref(),
-    ).map_err(operation_ownership::completed_preflight)?;
-    let acquired = pool_control::lease_account_observed(&s, account.id).await;
-    let residency = RequestResidency::new(match acquired.result {
-        Ok(lease) => lease,
-        Err(error) => return Ok(operation_ownership::completed_response(
-            axum::response::IntoResponse::into_response(error), acquired.cleanup_confirmed)),
-    });
-    let account = match current_account(&s, account.id).await {
-        Ok(account) => account,
-        Err(error @ (ApiError::Cooling { .. } | ApiError::AccountCooling { .. }
-            | ApiError::ServingCapacity(_))) => {
-            return Ok(operation_ownership::completed_response(
-                axum::response::IntoResponse::into_response(error), true));
-        },
-        Err(error) => return Err(error),
+    let gate_model = convert::to_openrouter_id(&client_model);
+    // Recheck queued work before opening SSE, without reusing a cooling account.
+    let mut skipped = Vec::new();
+    let (account, residency, mut session, mut scope, mut first_permit) = loop {
+        let pool = s.state.list().await.map_err(ApiError::Internal)?;
+        let account = if skipped.is_empty() {
+            s.serving_accounts.select(pool, requested_account.as_deref())
+        } else {
+            s.serving_accounts.select_fresh(pool, &skipped)
+        };
+        let account = match account {
+            Ok(account) => account,
+            Err(error) if skipped.is_empty() => return Err(operation_ownership::completed_preflight(error)),
+            Err(error) => return Ok(operation_ownership::completed_response(
+                axum::response::IntoResponse::into_response(error), true)),
+        };
+        let acquired = pool_control::lease_account_observed(&s, account.id).await;
+        let residency = RequestResidency::new(match acquired.result {
+            Ok(lease) => lease,
+            Err(error) => return Ok(operation_ownership::completed_response(
+                axum::response::IntoResponse::into_response(error), acquired.cleanup_confirmed)),
+        });
+        let account = match current_account(&s, account.id).await {
+            Ok(account) => account,
+            Err(ApiError::AccountCooling { .. }) if allow_account_repick && skipped.len() < 2 => {
+                skipped.push(account.id.0.to_string());
+                continue;
+            },
+            Err(error @ (ApiError::Cooling { .. } | ApiError::AccountCooling { .. }
+                | ApiError::ServingCapacity(_))) => {
+                return Ok(operation_ownership::completed_response(
+                    axum::response::IntoResponse::into_response(error), true));
+            },
+            Err(error) => return Err(error),
+        };
+        let session = s
+            .sessions
+            .load(&account.framer_user_id)
+            .await
+            .map_err(ApiError::Internal)?
+            .ok_or_else(|| ApiError::Internal("account has no session".into()))?;
+        let scope = pick_scope(&account)?;
+
+        // Per (workspace × MODEL) concurrency, keyed on the normalized upstream id
+        // and the chain's rotated workspace (multi-workspace goose).
+        let gate_key = format!("{}:{gate_model}", scope.team.0);
+        let first_permit = Some(tokio::select! {
+            biased;
+            _ = operation_ownership::request_disconnected() => {
+                let (status, body) = convert::error_json(dialect, "client cancelled");
+                let response = axum::response::IntoResponse::into_response(ShapedApiError(
+                    StatusCode::from_u16(status).unwrap_or(StatusCode::INTERNAL_SERVER_ERROR), body,
+                ));
+                return Ok(operation_ownership::completed_response(response, true));
+            }
+            permit = s.gate.acquire(&gate_key) => permit,
+        });
+        match current_account(&s, account.id).await {
+            Ok(_) => {},
+            Err(ApiError::AccountCooling { .. }) if allow_account_repick && skipped.len() < 2 => {
+                skipped.push(account.id.0.to_string());
+                continue;
+            },
+            Err(error @ (ApiError::Cooling { .. } | ApiError::AccountCooling { .. }
+                | ApiError::ServingCapacity(_))) => {
+                return Ok(operation_ownership::completed_response(
+                    axum::response::IntoResponse::into_response(error), true));
+            },
+            Err(error) => return Err(error),
+        }
+
+        break (account, residency, session, scope, first_permit);
     };
-    let mut session = s
-        .sessions
-        .load(&account.framer_user_id)
-        .await
-        .map_err(ApiError::Internal)?
-        .ok_or_else(|| ApiError::Internal("account has no session".into()))?;
-    let mut scope = pick_scope(&account)?;
     let mut project = scope.project.clone();
     let mut scope_team = scope.team.clone();
-    let mut chat_session =
-        hdr(headers, "x-framerize-session").unwrap_or_else(|| stable_session(&account.id));
-
-    // Per (workspace × MODEL) concurrency, keyed on the normalized upstream id
-    // and the chain's rotated workspace (multi-workspace goose).
-    let gate_model = convert::to_openrouter_id(&client_model);
+    let mut chat_session = hdr(headers, "x-framerize-session")
+        .unwrap_or_else(|| stable_session(&account.id));
     let mut gate_key = format!("{}:{gate_model}", scope_team.0);
-    let mut first_permit = Some(tokio::select! {
-        biased;
-        _ = operation_ownership::request_disconnected() => {
-            let (status, body) = convert::error_json(dialect, "client cancelled");
-            let response = axum::response::IntoResponse::into_response(ShapedApiError(
-                StatusCode::from_u16(status).unwrap_or(StatusCode::INTERNAL_SERVER_ERROR), body,
-            ));
-            return Ok(operation_ownership::completed_response(response, true));
-        }
-        permit = s.gate.acquire(&gate_key) => permit,
-    });
-    match current_account(&s, account.id).await {
-        Ok(_) => {},
-        Err(error @ (ApiError::Cooling { .. } | ApiError::AccountCooling { .. }
-            | ApiError::ServingCapacity(_))) => {
-            return Ok(operation_ownership::completed_response(
-                axum::response::IntoResponse::into_response(error), true));
-        },
-        Err(error) => return Err(error),
-    }
-
     let cancelled = operation_ownership::request_cancelled();
     let mk_cfg = |team: &framer_core::ids::TeamId| framer_core::port::ChainConfig {
         max_total_tokens: Some(max_tokens),

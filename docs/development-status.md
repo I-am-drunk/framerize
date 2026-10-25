@@ -23,6 +23,18 @@ removed. Current tests stay with the behavior they exercise.
 
 ## Validation
 
+Both browser cooldown repairs are integrated into the reorganized application.
+A queued unbound request can release a newly cooled account and select an
+eligible peer before sending output. A partly delivered reply can wait for
+the reported local cooldown on the same account and retry only the unfinished
+chunk. Waiting has a separate cumulative ten-minute limit; cancellation,
+delivered output, usage and transport-failure timing are preserved.
+All 231 current browser-server cases and 27 selected API cases pass, with no
+ignored cases. The browser development build passes. These are isolated
+synthetic checks, not live cooldown recovery. The separately packaged narrow
+repair remains selected for the next ordinary restart; this rewrite is not
+deployed. No account cooldown or history was reset.
+
 Native startup now rejects unknown selected accounts before starting legacy
 migration or the ledger process. Previously it could complete the ten-minute
 expiry first and only then reject the selection. A regression reproduces that
