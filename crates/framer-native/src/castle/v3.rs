@@ -16,7 +16,8 @@ pub use network_result::{network_address, network_hash, NetworkValueError};
 mod hash;
 pub use hash::json_hash;
 mod network_record;
-pub use network_record::{assemble_network_record, NetworkCandidate, NetworkObservation, NonScalarCandidate};
+pub use network_record::{assemble_network_record, unavailable_network_record,
+    NetworkCandidate, NetworkObservation, NonScalarCandidate};
 mod network_candidate;
 pub use network_candidate::{network_address_class, network_port_class, normalize_network_candidate, CandidateObservation};
 mod network_events;

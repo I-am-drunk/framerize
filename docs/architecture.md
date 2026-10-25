@@ -54,6 +54,12 @@ portable byte order. Candidate deduplication, state normalization, callback
 timing and collection belong before this boundary. The isolated comparison
 uses the original finalizer and compares the serialized complete record.
 
+`unavailable_network_record` separately represents the SDK's no-argument
+`xP()` fallback after confirmed network unavailability. It preserves the
+empty fields and the fallback's distinct hash. Callers own the availability
+decision; this function neither probes the network nor turns collection
+errors into a successful empty observation.
+
 `castle::v3::NetworkEvents` supplies that earlier reduction from an ordered
 sequence of typed observations. It normalizes structured RTC properties or
 fallback candidate text, classifies addresses and numeric ports, and shares

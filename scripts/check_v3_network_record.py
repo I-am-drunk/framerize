@@ -63,6 +63,8 @@ def check():
     expected = json.loads(reference.stdout)
     assert expected["fields"] == [38, 40, 18, 15, 24, 54, 30, 55, 47]
     assert len(expected["rows"]) == len(selected)
+    unavailable = expected["unavailable"]
+    assert unavailable and all(type(byte) is int and 0 <= byte <= 255 for byte in unavailable)
 
     def texts(values):
         return "vec![" + ",".join(f"vec!{utf16(value)}" for value in values) + "]"
@@ -82,7 +84,7 @@ def check():
     rows_text = ",\n".join(rows)
     source = f'''#![recursion_limit="1024"]
 #[allow(dead_code)] #[path = {module}] mod castle;
-use castle::v3::{{assemble_network_record, NetworkCandidate, NetworkObservation,
+use castle::v3::{{assemble_network_record, unavailable_network_record, NetworkCandidate, NetworkObservation,
     NonScalarCandidate, serialize, Value}};
 #[test]
 fn matches_pinned_sdk_record_with_supplied_collation() {{
@@ -95,6 +97,16 @@ fn matches_pinned_sdk_record_with_supplied_collation() {{
         }}).unwrap();
         assert_eq!(serialize(&[value]).unwrap(), expected, "{{name}}");
     }}
+}}
+#[test]
+fn matches_pinned_sdk_unavailable_record() {{
+    let unavailable = serialize(&[unavailable_network_record()]).unwrap();
+    assert_eq!(unavailable.as_slice(), &{unavailable});
+    let empty = NetworkObservation {{ address:vec![], related_address:vec![],
+        candidates:vec![], connection_states:vec![],
+        gathering_states:vec![], signaling_states:vec![] }};
+    let empty = assemble_network_record(empty, |a,b| a.cmp(b)).unwrap();
+    assert_ne!(unavailable, serialize(&[empty]).unwrap());
 }}
 #[test]
 fn refuses_non_scalar_candidate() {{
@@ -114,7 +126,7 @@ fn refuses_non_scalar_candidate() {{
         compile_fixture = runpy.run_path(str(ROOT / "scripts/v3_native_fixture.py"))["compile_fixture"]
         compile_fixture(path / "check.rs", path / "check")
         subprocess.run([str(path / "check"), "--test-threads=1"], check=True, timeout=10)
-    print(f"PASS: {len(selected)} record comparisons with source-runtime collation supplied")
+    print(f"PASS: {len(selected)} record comparisons with source-runtime collation supplied, plus unavailable record")
     print("Collation, event collection and live acceptance are not implemented by this check")
 
 

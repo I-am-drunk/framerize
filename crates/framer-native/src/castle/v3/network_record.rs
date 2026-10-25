@@ -85,6 +85,24 @@ where F: FnMut(&[u16], &[u16]) -> Ordering {
     Ok(Value::Array(vec![Value::Array(record)]))
 }
 
+/// Match the SDK's `xP()` result after confirmed unavailability.
+/// This is distinct from an ordinary empty observation. The caller owns
+/// detection; this function does not probe the network or substitute for errors.
+pub fn unavailable_network_record() -> Value {
+    let mut record: Vec<_> = (0..56).map(|_| Value::Undefined).collect();
+    for index in [18, 24, 38, 40] {
+        record[index] = Value::String(Vec::new());
+    }
+    for index in [15, 30, 54, 55] {
+        record[index] = Value::Array(Vec::new());
+    }
+    let hash = json_hash(&Value::Array(vec![
+        Value::String(utf16("unavailable")), Value::String(Vec::new()),
+    ])).expect("string-only fallback has JSON");
+    record[47] = Value::String(utf16(&hash));
+    Value::Array(vec![Value::Array(record)])
+}
+
 fn strings(values: &[Vec<u16>]) -> Value {
     Value::Array(values.iter().cloned().map(Value::String).collect())
 }

@@ -23,6 +23,13 @@ removed. Current tests stay with the behavior they exercise.
 
 ## Validation
 
+The native network assembler now also exposes the explicit unavailable
+record. Its complete serialized output matches the pinned SDK's `xP()`
+helper and differs from a normal empty observation. All 32 record comparisons
+and the non-scalar refusal check pass in three isolated tests. The existing
+CI comparison includes this case. No new SDK startup, network collection or
+live request was performed; runtime availability detection remains external.
+
 The native collector-result integration writes SharedWorker position 242
 and network positions 469 and 473. The new field47 string-hash assignment
 matches 101 original-helper cases, including five missing-row errors.
