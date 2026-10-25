@@ -70,7 +70,8 @@ impl ServingOwnership {
     /// Seal rejects new work, but wait cannot reach Held while unmanaged host
     /// ownership persists. External close remains an explicit unsatisfied fact.
     pub fn seal(&self) -> Result<DrainTicket, GateError> { self.gate.seal() }
-    pub(crate) fn accepting_requests(&self) -> bool {
+    /// Report persistent admission closure without changing ownership state.
+    pub fn accepting_requests(&self) -> bool {
         self.gate.stats().is_ok_and(|stats| !stats.sealed && !stats.unconfirmed)
     }
     pub fn unmanaged_host_close_required(&self) -> bool { true }

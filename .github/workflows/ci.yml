@@ -60,6 +60,9 @@ jobs:
         run: target/release/${{ matrix.app }} --help
       - name: Package application
         run: python scripts/package.py ${{ matrix.app }}
+      - name: Check native package lifecycle with synthetic state
+        if: matrix.app == 'framerize-native'
+        run: python -I -B scripts/smoke_native_package.py dist/framerize-native-*.tar.gz
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
           name: ${{ matrix.app }}-linux-x86_64-${{ github.sha }}

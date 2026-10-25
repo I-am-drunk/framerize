@@ -197,6 +197,7 @@ impl Connection {
             return Err(DeviceFailure::Rejected);
         }
         let mut child = Command::new(python).arg("-B").arg(script).arg("--root").arg(root)
+            .process_group(0)
             .env_clear().env("PATH", "/usr/bin:/bin")
             .stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::null())
             .kill_on_drop(true).spawn().map_err(|_| DeviceFailure::Rejected)?;

@@ -30,6 +30,8 @@ def verify(root):
     required = {f'bin/{app}'}
     if app == 'framerize':
         required.update(('runtime/host.py', 'runtime/runtime-manifest.json', 'web/index.html'))
+    else:
+        required.update(('runtime/native.py', 'runtime/runtime-manifest.json'))
     if not required <= actual:
         raise ValueError('incomplete application package')
     return info

@@ -15,11 +15,31 @@ python3 scripts/package.py framerize
 ```
 
 The archive and its SHA256 checksum are written to `dist/`. The build-fork
-workflow runs this sequence and uploads both files. Native developer packages
-are built separately; their CLI currently checks configuration structure only.
+workflow runs this sequence and uploads both files. Native packages are built
+separately and include the experimental standalone service and ledger runtime.
 The pinned Rust toolchain applies to local builds, CI and build metadata.
 Both available GitHub accounts currently have billing restrictions on Actions;
 the workflow has not yet produced a hosted artifact.
+
+Build the native package with `cargo build --locked --release -p framerize-native`
+and `python3 scripts/package.py framerize-native`. The native CI job runs
+`scripts/smoke_native_package.py` on the archive before uploading it. This uses
+synthetic account history, an inert worker and a local endpoint to check
+startup, profile exclusion, invalid-request refusal and signal shutdown.
+
+For an already migrated profile, the staged native executable accepts:
+
+```sh
+bin/framerize-native serve --db ACCOUNT_DATABASE --profiles PROFILE_DIRECTORY \
+  --worker-config VERIFIED_WORKER_CONFIG --accounts ACCOUNT_UUID \
+  --listen 127.0.0.1:18789 --python /usr/bin/python3
+```
+
+It finds `runtime/native.py` beside its package. `--runtime-script` is an
+explicit development override. The profile must have existing sessions and
+durable device history, and no other process may own it. Missing history is
+refused, not replaced with new identities. This is ledger-backed V3 serving;
+the startup smoke does not execute an SDK or establish live acceptance.
 
 Stage a downloaded package with Python 3.12 or later:
 
