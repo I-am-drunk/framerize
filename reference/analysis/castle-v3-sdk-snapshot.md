@@ -38,3 +38,12 @@ out of Git. This SDK experiment is not part of ordinary CI.
 The current schema also captures two collector outcomes for the separate
 [collector-input comparison](castle-v3-collected-inputs.md). The checker
 still accepts the original byte-only snapshot schema described above.
+
+The optional `--network-unavailable` comparison reconstructs the captured
+network record with native `unavailable_network_record()` before applying
+its consumers. It first requires full serialized record equality; an
+unexpected nonempty or differently hashed record fails the comparison.
+The saved synthetic capture passes: the complete 5,412-byte serialization
+and 5,297-byte final output still match. This reuses the existing capture
+and does not run the SDK again. It establishes fallback reconstruction for
+that observation, not native network availability detection.

@@ -59,6 +59,9 @@ uses the original finalizer and compares the serialized complete record.
 empty fields and the fallback's distinct hash. Callers own the availability
 decision; this function neither probes the network nor turns collection
 errors into a successful empty observation.
+The snapshot comparison can require this record to be reconstructed natively
+before applying its consumers, then compare the complete encoding against
+the same saved SDK operation.
 
 `castle::v3::NetworkEvents` supplies that earlier reduction from an ordered
 sequence of typed observations. It normalizes structured RTC properties or
