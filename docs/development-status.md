@@ -37,6 +37,10 @@ and after body polling, buffered upstream timing and rejected output. These
 use synthetic state and fixture-owned loopback, with no SDK or live account.
 Upstream remains buffered and requests remain limited to one attempt. This
 does not establish live streaming latency or native upstream acceptance.
+The complete `3205333` development archive also passes all eight relocated
+package lifecycle checks with its bundled worker, including both shutdown
+signals and subsequent profile reuse. It is retained for development and is
+not installed in the running browser service.
 
 The reorganized branch now includes the follow-up browser admission repair.
 All 139 core and 229 server cases pass on this composition. A matching Busy
