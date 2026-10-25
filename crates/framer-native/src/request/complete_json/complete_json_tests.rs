@@ -267,23 +267,24 @@ fn json_probe_missing_actual_turn_context_never_sends_request() {
 
 #[test]
 fn json_probe_mismatched_supplied_context_never_sends_request() {
+    let cases: [(&str, fn(&mut AttemptContext)); 5] = [
+        ("feature category", |context| context.feature_category.push_str("-changed")),
+        ("feature name", |context| context.feature_name.push_str("-changed")),
+        ("step", |context| context.step.push_str("-changed")),
+        ("turn ID", |context| context.turn_id.push_str("-changed")),
+        ("user prompt", |context| context.user_prompt.push_str("-changed")),
+    ];
     let server = Server::new(vec![]);
     run(async {
-        for case in 0..5 {
+        for (name, change) in cases {
             let f = Fixture::new(&server, Supplier::default());
             let mut spec = specification(&f, super::FreeRoute::Responses, responses_payload());
-            match case {
-                0 => spec.context.feature_category.push_str("-changed"),
-                1 => spec.context.feature_name.push_str("-changed"),
-                2 => spec.context.step.push_str("-changed"),
-                3 => spec.context.turn_id.push_str("-changed"),
-                _ => spec.context.user_prompt.push_str("-changed"),
-            }
+            change(&mut spec.context);
             let report = probe_result(start_specification(&f, spec).await.unwrap()).await;
-            assert!(!report.accepted && report.cleanup_confirmed);
-            assert_eq!(report.failure, Some(FailureKind::Authorization));
-            assert_eq!(report.transport_starts, 0);
-            assert_eq!(f.supplier.calls.load(Ordering::Acquire), 1);
+            assert!(!report.accepted && report.cleanup_confirmed, "{name}");
+            assert_eq!(report.failure, Some(FailureKind::Authorization), "{name}");
+            assert_eq!(report.transport_starts, 0, "{name}");
+            assert_eq!(f.supplier.calls.load(Ordering::Acquire), 1, "{name}");
             f.finish().await;
         }
     });
@@ -317,25 +318,26 @@ fn json_probe_forbids_unobserved_authorization_and_repeated_attempts() {
 
 #[test]
 fn json_probe_invalid_specification_never_reaches_credentials() {
+    let cases: [(&str, fn(&mut super::Specification)); 10] = [
+        ("streaming", |spec| spec.payload["stream"] = json!(true)),
+        ("missing chat session", |spec| spec.identity.chat_session.clear()),
+        ("missing model", |spec| spec.payload["model"] = Value::Null),
+        ("zero token limit", |spec| spec.token_limit = 0),
+        ("long deadline", |spec| spec.deadline = Instant::now() + Duration::from_secs(61)),
+        ("previous response", |spec| spec.payload["previous_response_id"] = json!("must-not-be-dropped")),
+        ("oversized payload", |spec| spec.payload["extra"] = json!("x".repeat(super::BYTE_LIMIT))),
+        ("missing feature name", |spec| spec.context.feature_name.clear()),
+        ("missing turn ID", |spec| spec.context.turn_id.clear()),
+        ("oversized user prompt", |spec| spec.context.user_prompt = "x".repeat(super::BYTE_LIMIT + 1)),
+    ];
     let server = Server::new(vec![]);
     run(async {
         let f = Fixture::new(&server, Supplier::default());
-        for case in 0..10 {
+        for (name, change) in cases {
             let mut spec = specification(&f, super::FreeRoute::Responses, responses_payload());
-            match case {
-                0 => spec.payload["stream"] = json!(true),
-                1 => spec.identity.chat_session.clear(),
-                2 => spec.payload["model"] = Value::Null,
-                3 => spec.token_limit = 0,
-                4 => spec.deadline = Instant::now() + Duration::from_secs(61),
-                5 => spec.payload["previous_response_id"] = json!("must-not-be-dropped"),
-                6 => spec.payload["extra"] = json!("x".repeat(super::BYTE_LIMIT)),
-                7 => spec.context.feature_name.clear(),
-                8 => spec.context.turn_id.clear(),
-                _ => spec.context.user_prompt = "x".repeat(super::BYTE_LIMIT + 1),
-            }
-            assert!(super::Plan::validate(&spec).is_err());
-            assert!(super::Plan::new(f.scope.clone(), spec).is_err());
+            change(&mut spec);
+            assert!(super::Plan::validate(&spec).is_err(), "{name}");
+            assert!(super::Plan::new(f.scope.clone(), spec).is_err(), "{name}");
         }
         assert_eq!(f.supplier.calls.load(Ordering::Acquire), 0);
         f.finish().await;

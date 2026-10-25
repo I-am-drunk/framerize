@@ -87,8 +87,8 @@ fn credentials_account_request_and_session_only_headers_are_not_identity() {
 #[test]
 fn captured_lifecycle_ids_stay_stable_on_resume_and_distinct_on_fork() {
     // These are the local fixture's IDs, not user conversation IDs.
-    let cases = [FIRST, FIRST, SECOND, FORK, FIRST, FIRST];
-    for expected in cases {
+    // This parser is stateless; the streaming test exercises the full lifecycle.
+    for expected in [FIRST, SECOND, FORK] {
         let headers = native(expected);
         let selected = session(&headers).unwrap().unwrap();
         assert_eq!(selected, expected);

@@ -846,30 +846,30 @@ async fn typed_pipeline_cleanup_fences_only_the_held_account() {
 
 #[tokio::test]
 async fn typed_pipeline_store_and_unrelated_errors_do_not_fence() {
-    for store_error in [false, true] {
+    let local = "account browser cleanup is unconfirmed; retry after cleanup";
+    for (name, session_error, inference_error, expected, requests_started) in [
+        ("upstream failure", None, Some(format!("upstream 500: {local}")),
+            format!("framer: upstream 500: {local}"), 1),
+        ("session store failure", Some(local.to_owned()), None,
+            format!("store: {local}"), 0),
+    ] {
         let (state, ports) = fixture(1, 1);
         activated(&state, 1).await;
         ports.records.lock().unwrap()[0].credit = Some(CreditSnapshot {
             available: 1000.0, funds: 1, grants: 1, allocated: 1000.0,
         });
         let before = records(&ports);
-        let local = "account browser cleanup is unconfirmed; retry after cleanup";
-        if store_error {
-            *ports.session_error.lock().unwrap() = Some(local.into());
-        } else {
-            *ports.inference_error.lock().unwrap() = Some(format!("upstream 500: {local}"));
-        }
+        *ports.session_error.lock().unwrap() = session_error;
+        *ports.inference_error.lock().unwrap() = inference_error;
         let outcome = crate::run(State(state.clone()), Json(crate::RunBody {
             account_id: id(1), prompt: "fixture".into(), model: None, chat_session: None,
         })).await;
         let response = outcome.unwrap();
-        assert_eq!(response.status(), axum::http::StatusCode::INTERNAL_SERVER_ERROR);
+        assert_eq!(response.status(), axum::http::StatusCode::INTERNAL_SERVER_ERROR, "{name}");
         let body = to_bytes(response.into_body(), 4096).await.unwrap();
-        let expected = if store_error { format!("store: {local}") }
-            else { format!("framer: upstream 500: {local}") };
-        assert_eq!(body.as_ref(), expected.as_bytes());
-        assert!(!slot(&state, id(1)).uncertain);
-        assert_eq!(ports.request_started.load(Ordering::SeqCst), usize::from(!store_error));
+        assert_eq!(body.as_ref(), expected.as_bytes(), "{name}");
+        assert!(!slot(&state, id(1)).uncertain, "{name}");
+        assert_eq!(ports.request_started.load(Ordering::SeqCst), requests_started, "{name}");
         assert!(!ports.events.lock().unwrap().iter().any(|event| event.0 == "close_started"));
         idle_without_writes(&state, &ports, &before);
     }
@@ -1562,9 +1562,7 @@ async fn handlers_recheck_account_and_wave_after_waiting_for_the_model_gate() {
         for stream in [false, true] {
             for wave in [false, true] {
                 let (mut state, ports) = fixture(1, 1);
-                state.gate = Arc::new(framer_core::gate::ConcurrencyGate::with_config(
-                    framer_core::gate::GateConfig { initial: 1, min: 1, max: 1,
-                        recover_ms: 60_000, relax_ms: 60_000, min_interval_ms: 0 }));
+                state.gate = one_slot_gate();
                 let model = match route {
                     Route::Free => "claude-opus-5-5", Route::Native => "gpt-6-astra", Route::Compat => "fixture",
                 };
