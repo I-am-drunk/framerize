@@ -166,6 +166,11 @@ an alias path, is refused. Session files are replaced atomically with private
 permissions. Native transport and preparation work retain the store through
 cleanup, even after the store bridge or request waiter is dropped.
 
+The complete `550deb6` browser development package passes the existing archive,
+startup and signal-shutdown checks. A second packaged daemon using the same
+temporary profile is refused while the first remains healthy. The first then
+shuts down cleanly. Both use empty synthetic state inside a private network.
+
 The current run passes 305 native tests, six file-store tests and 34 browser
 application tests. These include actual child-process contention and abrupt
 exit, store retention through native cleanup, and startup refusal before browser
