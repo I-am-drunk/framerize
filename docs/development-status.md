@@ -6,6 +6,12 @@ subcases and zero skips. The original readiness and failure checks remain.
 This correction is not deployed and does not replay the consumed R5 attempt.
 See `reference/analysis/r5-startup-settle-qualification-20261025.md`.
 
+Dedicated-account onboarding now has a prepared command for the qualified
+authority package, one active account and an empty separate store. It remains
+unlaunched: the accepted empty-instance test never invoked the lazy browser,
+so its input set did not include the Python browser dependencies. That specific
+software binding is assigned separately. No new signup or native request ran.
+
 R5 switched to the qualified candidate, then switched back after its 90-second
 startup settling check expired during sequential browser prewarming. The old
 binary is running; final rollback verification remains pending. No acceptance
