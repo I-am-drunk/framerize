@@ -7,7 +7,8 @@ requires a complete failed report with a counted Castle error before accepting
 the new label. The existing service event writes the phase to the event file;
 the standalone Rust measurement helper still collapses it to `worker`.
 A missing event does not prove success, and a timeout tag does not prove that
-a timer fired. This source addition is awaiting its selected qualification.
+a timer fired. All 31 selected inert diagnostic cases now pass. Actual SDK
+phase collection and native acceptance remain separate runtime requirements.
 
 The frozen V3 wrapper distinguishes a caller's initialization wait from its
 guarded phase deadlines. The former can fall back while cached initialization

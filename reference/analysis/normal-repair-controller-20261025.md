@@ -46,3 +46,18 @@ These attempts are consumed. Another switch requires actual request drain and
 a fresh invocation binding, without repeating accepted tests or adding a blanket
 cooldown. Real state restoration, same-generation interruption/cleanup and the
 subsequent complete stream remain unverified. Signup and V3 are independent.
+
+Three additional diagnostic/privacy cases subsequently passed under the same
+128 MiB/no-swap/32-task isolation. The failure recorder retains only allowlisted
+codes and bounded source file/line locations; arbitrary exception arguments and
+local variables are not serialized. Result SHA256:
+`237308bfd3dc1e98955c8d33e1078c33595f9da25f7213f683201ee51d7c509a`.
+The job is collected; it provides no new historical failure attribution.
+
+A fresh, unexecuted controller binding includes that helper and changes only
+the driver's import and two diagnostic calls. Its 64 source/evidence pins and
+unchanged package were verified. The prior 30 controller and 20 application
+passes are retained. At 02:30:40 UTC, the independent recovery guard was ready,
+but five active requests and four established connections prevented rollout.
+No request was cancelled, no authentication helper was started and no service
+switch occurred. The next action is this fresh invocation after actual drain.
