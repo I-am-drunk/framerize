@@ -3,6 +3,7 @@
 import importlib.util
 import json
 import os
+import runpy
 from pathlib import Path
 import subprocess
 import tempfile
@@ -105,8 +106,8 @@ fn serialization_and_compression_match_original() {{
 }}
 '''
     (path / "check.rs").write_text(source)
-    subprocess.run([os.environ.get("RUSTC", "rustc"), "--edition=2021", "--test",
-                    str(path / "check.rs"), "-o", str(path / "check")], check=True, timeout=30)
+    compiler = runpy.run_path(str(ROOT / "scripts/v3_native_fixture.py"))["compile_fixture"]
+    compiler(path / "check.rs", path / "check")
     subprocess.run([str(path / "check")], check=True, timeout=20)
 
 

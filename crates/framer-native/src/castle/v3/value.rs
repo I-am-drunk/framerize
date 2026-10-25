@@ -4,15 +4,21 @@ use std::num::TryFromIntError;
 /// Typed values at the pinned SDK's serialization boundary.
 #[derive(Debug)]
 pub enum Value {
-    /// Also represents undefined, or a failed/undefined JSON fallback.
     Null,
+    /// Undefined, function or symbol value; omitted from JSON object properties.
+    Undefined,
     Bool(bool),
     Number(f64),
     /// JavaScript UTF-16 code units, including unpaired surrogates.
     String(Vec<u16>),
     Array(Vec<Value>),
+    /// Own enumerable string properties, in insertion order.
+    Object(Vec<(Vec<u16>, Value)>),
+    /// An observed throwing JSON conversion, including BigInt or a cycle.
+    JsonFailure,
     /// The UTF-16 result of a successful JSON.stringify fallback.
-    /// Object normalization and custom toJSON behavior are caller-owned.
+    /// Custom toJSON/getter evaluation is caller-owned. This text must already
+    /// represent the value at its actual property/array position.
     JsonFallback(Vec<u16>),
 }
 
@@ -23,7 +29,8 @@ fn length(value: usize, output: &mut Vec<u8>) -> Result<(), TryFromIntError> {
 
 /// Serialize a collected value array without browser or JavaScript execution.
 /// Type tags and dispatch follow SDK bytes 274985..276393, SHA256 3337eba7.
-/// JSON fallback results are explicit inputs; this does not stringify objects.
+/// Plain objects are stringified natively. Custom JavaScript evaluation is an
+/// explicit caller-owned fallback, not executed by this data-only serializer.
 pub fn serialize(values: &[Value]) -> Result<Vec<u8>, TryFromIntError> {
     let mut output = Vec::new();
     length(values.len(), &mut output)?;
@@ -40,7 +47,7 @@ fn write_value<'a>(
     pending: &mut Vec<&'a Value>,
 ) -> Result<(), TryFromIntError> {
     match value {
-        Value::Null => output.push(0),
+        Value::Null | Value::Undefined | Value::JsonFailure => output.push(0),
         Value::Bool(value) => output.push(if *value { 6 } else { 5 }),
         Value::Number(value) => number(*value, output),
         Value::String(value) => string(value, output)?,
@@ -49,6 +56,13 @@ fn write_value<'a>(
             length(values.len(), output)?;
             pending.extend(values.iter().rev());
         }
+        Value::Object(_) => match super::json::stringify(value) {
+            Some(text) => {
+                output.push(8);
+                write_utf16(&text, output)?;
+            }
+            None => output.push(0),
+        },
         Value::JsonFallback(value) => {
             output.push(8);
             write_utf16(value, output)?;

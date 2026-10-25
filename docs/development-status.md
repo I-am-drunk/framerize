@@ -43,10 +43,16 @@ negative zero, float bytes, canonical Base64, rejected Base64 padding, Latin-1,
 UTF-16, array-length boundaries and nested ordering. Repeated serialization
 produces the same bytes. No full SDK startup or live account was involved.
 
-Object fallback is an explicit input containing already-stringified JSON, or
-normalized null for an unavailable result. Its test verifies encoding that
-result, not native object-to-JSON normalization. That normalization is still
-unfinished, along with collection.
+The original explicit JSON fallback remains available for caller-evaluated
+custom objects. Native plain-object conversion now also passes 932 complete
+array comparisons against the original serializer. These cover property
+ordering and duplicate keys, undefined/function/symbol omission, nested arrays
+and objects, Unicode escaping, and 867 numeric values including exponent
+boundaries and deterministic samples. Failed JSON conversion discards the
+whole object result, preserving adjacent values. Custom getters and `toJSON`
+evaluation remain caller-owned; this does not implement arbitrary JavaScript.
+The formatter is the locked `ryu-js` 1.0.3 dependency. The first native compile
+needed an explicit slice type; the corrected implementation passes.
 The first reference extraction and generated Rust fixture needed boundary and
 type-annotation fixes; both failures are retained. The final comparison passes.
 
@@ -69,11 +75,13 @@ again. These are isolated offline checks, not full SDK or service execution.
 
 These components are not wired into serving and make no memory or acceptance
 claim. Native CI includes `scripts/check_v3_encoding.py`,
-`scripts/check_v3_serialization.py`, `scripts/check_v3_deflate.py` and
-`scripts/check_v3_envelope.py`; hosted execution remains unverified.
-Next resolve object-to-JSON normalization at the existing serializer boundary.
-Device collection, complete client interoperability and measured RAM/latency
-remain unfinished.
+`scripts/check_v3_serialization.py`, `scripts/check_v3_objects.py`,
+`scripts/check_v3_deflate.py` and `scripts/check_v3_envelope.py`;
+hosted execution remains unverified. All prior encoding comparisons also pass
+with the shared fixture builder and new native object module.
+Next bind the actual collector values and any custom-object conversions to
+this native representation. Device collection, complete client interoperability
+and measured RAM/latency remain unfinished.
 
 The dedicated-worker cleanup correction from `759ef0d1` is integrated on
 the reorganized `24ebbdb` base. A focused regression fails on the old pool:

@@ -86,6 +86,9 @@ function decode(value) {
     case 'object': return Object.fromEntries(value.entries.map(([key, val]) => [key, decode(val)]));
     case 'function': return () => 0;
     case 'symbol': return Symbol('synthetic');
+    case 'bigint': return BigInt(value.value);
+    case 'cyclic': { const result = {}; result.self = result; return result; }
+    case 'tojson': return {toJSON() { return decode(value.result); }};
     case 'throwing': return {toJSON() { throw new Error('synthetic'); }};
     default: throw new Error('Unknown synthetic input');
   }
