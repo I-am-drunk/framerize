@@ -42,6 +42,11 @@ The complete `1b9a7fe` development archive also passes its eight lifecycle
 checks: archive/runtime validation, startup, invalid-request refusal, profile
 exclusion, SIGTERM, Ctrl-C and profile reuse. It is not installed in the running
 service. Real browserless generation remains unverified.
+The same package also passes all eight lifecycle checks with the real frozen
+V3 worker configuration. Its 32 direct pins and full 1,259-file software closure
+match. This verifies startup compatibility with those inputs, not SDK execution
+or upstream acceptance. The worker still references local investigation paths;
+making those inputs portable remains a packaging dependency.
 
 The expiry, importer, journal, rate and runtime-owner suites pass 41 focused
 Python cases. Thirteen expiry cases cover actual deadline boundaries, unknown

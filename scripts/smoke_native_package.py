@@ -1,4 +1,5 @@
 """Check a native package with synthetic state, no SDK and no upstream requests."""
+import argparse
 import json
 import os
 from pathlib import Path
@@ -98,7 +99,7 @@ def lifecycle(release, root, signum):
                 child.wait()
 
 
-def main(archive):
+def main(archive, worker_config=None):
     root = Path(tempfile.mkdtemp(prefix='framerize-native-package-'))
     release = stage(archive, sha256(archive), root / 'releases')
     info = verify(release)
@@ -107,13 +108,27 @@ def main(archive):
     assert not info['source_dirty']
     assert not (release / 'runtime/framerize_host').exists()
     prepare(root)
+    config_sha256 = None
+    if worker_config is not None:
+        with worker_config.open('rb') as stream:
+            raw = stream.read(65537)
+        if len(raw) > 65536:
+            raise ValueError('worker configuration exceeds limit')
+        (root / 'worker.json').write_bytes(raw)
+        config_sha256 = sha256(root / 'worker.json')
     for signum in (signal.SIGTERM, signal.SIGINT):
         lifecycle(release, root, signum)
     verify(release)
     print(json.dumps({'result': 'pass', 'commit': info['commit'], 'root': str(root),
+        'worker_config_sha256': config_sha256,
         'checks': ['archive', 'runtime', 'startup', 'invalid-request',
                    'profile-exclusion', 'SIGTERM', 'SIGINT', 'profile-reuse']}))
 
 
 if __name__ == '__main__':
-    main(Path(sys.argv[1]).resolve())
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument('archive', type=Path)
+    parser.add_argument('--worker-config', type=Path,
+        help='verify supplied worker files during startup; never send a valid SDK request')
+    args = parser.parse_args()
+    main(args.archive.resolve(), args.worker_config)
