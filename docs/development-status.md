@@ -23,6 +23,14 @@ removed. Current tests stay with the behavior they exercise.
 
 ## Validation
 
+The optimized native release from `3c5a999` builds successfully and passes all
+eight package lifecycle checks using its bundled worker configuration. The
+complete archive is 50,406,919 bytes, with SHA256
+`e780b8d80709f0c064c53cefa90edc0c010a4caa2d9c0d351c57db421eaf109e`.
+Its executable matches the release build. These are artifact sizes, not
+runtime memory measurements. No SDK or live account was exercised by these
+checks. Existing-account migration and native upstream delivery remain open.
+
 Open browser streams can now wait for local account capacity before generated
 output. The cumulative wait is bounded to 600 seconds, releases model and
 resident permits while sleeping, preserves real cooldowns and cancels on
@@ -32,9 +40,11 @@ and cleanup rules keep their existing policy.
 All five source deltas match the qualified `bc47d3d` browser repair. The
 reorganized branch passes all 236 server tests with zero ignored; the narrow
 repair branch passes 237. Capacity recovery, heartbeat, disconnect and the
-full virtual-time budget are covered. The narrow browser package is staged
-for an ordinary start but is not running. This branch remains undeployed,
-and these results do not establish live T3 continuation recovery.
+full virtual-time budget are covered. The narrow browser package was activated
+by an authorized restart at 16:18:57 UTC. Its executable and health PID match;
+through 16:21:18 it recorded 152 terminal reply chains and no chain errors.
+This branch remains undeployed, and the initial traffic window does not prove
+every affected T3 continuation recovered or that a capacity wait was exercised.
 
 The current `c78eeeb` native development archive includes the final-fragment
 status correction and latest shared server fixes. Its executable matches the
