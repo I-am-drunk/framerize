@@ -16,3 +16,33 @@ pub fn write_unsigned(mut value: u32, output: &mut Vec<u8>) {
     }
     output.push(value as u8);
 }
+
+/// Append a signed integer using the SDK's zigzag transform and unsigned writer.
+/// The original expression is at bytes 275909..275928 of the pinned asset.
+pub fn write_signed(value: i32, output: &mut Vec<u8>) {
+    write_unsigned(((value as u32) << 1) ^ ((value >> 31) as u32), output);
+}
+
+/// Append the SDK's fixed-width, little-endian unsigned integer representation.
+/// The original writer is at bytes 275842..275897 of the pinned asset.
+pub fn write_fixed_unsigned(value: u32, output: &mut Vec<u8>) {
+    output.extend_from_slice(&value.to_le_bytes());
+}
+
+/// Append UTF-16 code units prefixed by their count, as the SDK's `S` does.
+/// The original writer is at bytes 276160..276254 of the pinned asset.
+///
+/// Raw code units preserve JavaScript strings containing unpaired surrogates.
+/// Inputs longer than `u32::MAX` units are refused before changing the output.
+/// String coercion and the enclosing value's type tag belong to the caller.
+pub fn write_utf16(
+    value: &[u16],
+    output: &mut Vec<u8>,
+) -> Result<(), std::num::TryFromIntError> {
+    let length = u32::try_from(value.len())?;
+    write_unsigned(length, output);
+    for unit in value {
+        output.extend_from_slice(&unit.to_le_bytes());
+    }
+    Ok(())
+}
