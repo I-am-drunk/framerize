@@ -46,15 +46,24 @@ produces the same bytes. No full SDK startup or live account was involved.
 Object fallback is an explicit input containing already-stringified JSON, or
 normalized null for an unavailable result. Its test verifies encoding that
 result, not native object-to-JSON normalization. That normalization is still
-unfinished, along with collection, compression and the final envelope.
+unfinished, along with collection and the final envelope.
 The first reference extraction and generated Rust fixture needed boundary and
 type-annotation fixes; both failures are retained. The final comparison passes.
 
+The native compressor now matches the pinned SDK fallback on 71 distinct raw
+inputs and 14 complete serialization/compression cases. Both differential tests
+pass, including empty input, repeated bytes, varied symbol frequencies, long
+inputs, match-length boundaries and the 1,024-byte search-window boundary.
+Every reference stream independently decompresses to the original bytes with
+zlib. The fallback is deterministic; the SDK's optional platform compressor
+may produce different valid bytes and has not been equated with it.
+
 These components are not wired into serving and make no memory or acceptance
-claim. Native CI includes both `scripts/check_v3_encoding.py` and
-`scripts/check_v3_serialization.py`; hosted execution remains unverified.
-Next resolve the pinned compression contract and remaining object normalization,
-then compare the composed serialized and compressed bytes.
+claim. Native CI includes `scripts/check_v3_encoding.py`,
+`scripts/check_v3_serialization.py` and `scripts/check_v3_deflate.py`;
+hosted execution remains unverified. Next resolve the final envelope's exact
+inputs and transformations, preserving object normalization and collection as
+separate unfinished work.
 
 The dedicated-worker cleanup correction from `759ef0d1` is integrated on
 the reorganized `24ebbdb` base. A focused regression fails on the old pool:

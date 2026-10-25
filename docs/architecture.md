@@ -15,6 +15,14 @@ serializer. The reference extracts only the required helpers and constant table;
 it never loads the SDK module. The serving worker remains unchanged until the
 complete native replacement is implemented and validated.
 
+The native `castle::v3::deflate` implements the pinned SDK's raw-DEFLATE
+fallback: a 1,024-byte matching window, at most 64 candidates per lookup,
+and one dynamic-Huffman block. Its stable tree ordering and code-length
+encoding follow the source. `scripts/check_v3_deflate.py` checks both raw
+inputs and serialized values against the original fallback, then uses zlib
+to verify decompression. The SDK may instead use a platform CompressionStream;
+matching the fallback does not establish identical platform-compressor bytes.
+
 An open, unbound browser stream can wait for local account capacity before
 generated output. It retries eligibility within one cumulative 600-second
 wait budget without holding model or resident permits while asleep. Stream
