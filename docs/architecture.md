@@ -18,10 +18,10 @@ V3 authenticates the existing proof before minting and checks its completion
 echoes, while its worker still receives the saved device rather than the V2
 SDK seed. Rejected or uncertain proof transfer never selects generic admission.
 The matching core, host, store, API and server libraries and application now
-build. All 34 selected Rust cases pass. Twenty of 21 Python cases pass; one
-fixture expects opening a grant not to create an empty history
-entry. Full qualification remains pending that correction. These inert tests
-do not establish native acceptance.
+build. All 34 selected Rust cases and 21 Python cases pass. The observation
+fixture now begins with an unexpired request, distinguishing preservation of
+real history from creation of an empty queue. Only that corrected case was
+rerun. These inert tests do not establish native acceptance.
 
 The frozen V3 wrapper distinguishes a caller's initialization wait from its
 guarded phase deadlines. The former can fall back while cached initialization

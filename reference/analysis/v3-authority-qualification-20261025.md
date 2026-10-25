@@ -9,12 +9,26 @@ the original saved device to its worker.
 
 All four core and thirty application Rust cases pass, with no selected skips.
 They include the new proof path and affected cancellation, host acknowledgement,
-account fencing and V2 controls. All twenty-one Python cases ran: twenty pass,
-and `test_negotiated_observation_requires_authenticated_proof` fails at its
+account fencing and V2 controls. The original twenty-one Python cases ran:
+twenty passed, and `test_negotiated_observation_requires_authenticated_proof` failed at its
 history comparison after opening the grant. The difference is an empty
 per-device request deque where the expected dictionary had no entry. The
-other retained values and device-file bytes match. A bounded fixture review
-and correction is pending. Full qualification is not yet claimed.
+other retained values and device-file bytes matched. That failure is preserved.
+
+The selected test-file delta from `ecd117f00230a4a1f53139814a52b17042abaf51`
+seeds an existing unexpired request before verification, observation and joined
+browser close, then retains the exact whole-history assertion. The source
+owner's documentation delta was excluded. Only that corrected case was rerun
+in a fresh isolated attempt and passed. The other twenty Python and all
+thirty-four Rust passes are reused. All 55 selected cases therefore pass.
+
+The corrected run completed on 25 October at 02:59 UTC with exit 0 and peak
+memory 37,597,184 bytes under the unchanged 128 MiB cap. All 27 input hashes
+matched before and after; captured processes, unit and cgroup were absent,
+and the shared execution lock was free. No exhaustive transient-PID census
+is claimed. Aggregate result SHA256:
+`5d3ef5e3653bd0f36172d1f538b080c0face1da779e519537cff004d63884032`.
+The correction changes no production or Rust source and needs no rebuild.
 
 Core, host, store, API and server libraries were rebuilt for the changed
 grant metadata. The unchanged worker-owner library is reused by source

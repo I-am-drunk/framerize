@@ -40,10 +40,12 @@ See `reference/analysis/v3-application-build-20261025.md`.
 
 Separate authority source `52019edc` negotiates ledger versus observation
 authority and carries authenticated observation proof through V3 admission
-and completion. All 34 selected Rust cases and 20 of 21 Python cases pass.
-One Python fixture expectation fails when opening a grant creates an empty
-request-history entry. That exact fixture correction is pending; the other
-54 passes are retained. All five affected libraries were rebuilt, and the
+and completion. All 34 selected Rust cases and 21 Python cases now pass.
+The returned fixture correction seeds an existing unexpired request before
+verification and observation, retaining its whole-history assertion. Only that
+case was rerun; the other 54 passes are retained. The isolated run and cleanup
+are collected, with unchanged inputs and no resource-limit events. All five
+affected libraries were rebuilt before this fixture correction, and the
 matching application linked as `6a2f0a93`. The build and test jobs are collected.
 This source is not included in the normal repair candidate. No SDK or account
 request ran. See `reference/analysis/v3-authority-qualification-20261025.md`.
