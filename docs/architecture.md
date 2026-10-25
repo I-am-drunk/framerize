@@ -1,5 +1,13 @@
 # Serving architecture and branch policy
 
+The frozen V3 wrapper distinguishes a caller's initialization wait from its
+guarded phase deadlines. The former can fall back while cached initialization
+continues; a guarded failure latches V3 off. Fallback uses strict `null`, so an
+`undefined` V3 result does not select V2. Nine extracted-control checks with
+inert dependencies confirm these boundaries. They also show that result
+delivery and timeout do not imply joined operation cleanup. SDK behavior and
+the native owner's cleanup contract require their own evidence.
+
 Normal Messages and Responses requests with an explicit account now retain
 that account across retry selection in the experimental source. An undecodable
 account header is rejected before account work, after the existing wave check.
