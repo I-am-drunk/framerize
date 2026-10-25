@@ -41,8 +41,9 @@ def package(app, output, target_dir, allow_dirty=False):
                 raise ValueError('build the UI first: npm --prefix web ci && npm --prefix web run build')
             shutil.copytree(ROOT / 'web/dist', tree / 'web')
             source = ROOT / 'runtime'
-            shutil.copytree(source / 'framerize_host', tree / 'runtime/framerize_host',
-                            ignore=shutil.ignore_patterns('__pycache__', '*.pyc'))
+            for module in ('framerize_host', 'framerize_accounts'):
+                shutil.copytree(source / module, tree / 'runtime' / module,
+                                ignore=shutil.ignore_patterns('__pycache__', '*.pyc'))
             for entry in ['host.py', 'requirements.txt']:
                 shutil.copy2(source / entry, tree / 'runtime' / entry)
             runtime = tree / 'runtime'

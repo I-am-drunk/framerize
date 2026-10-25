@@ -132,8 +132,26 @@ are removed. The current Rust run passes 138 core, 72 host, 302 native, 251
 server and 33 browser CLI tests. One manual host integration test is ignored.
 Both debug application targets rebuild successfully and print their expected
 CLI help. No new package or live-service acceptance is claimed by these builds.
-Python is unchanged. A concrete durable native owner and standalone startup
-remain unfinished; this interface change does not enable live native calls.
+The browser/native interface change does not enable live native calls.
+
+The Python journal, rate policy and recovery code now live in the shared
+`framerize_accounts` package. Browser archives include it with the host.
+The native `LedgerOwner` uses existing saved device history directly, without
+browser-host fields, restoration hooks or observation adapters. The two unused
+native adapter modules were removed. This does not add a native launcher.
+
+All 99 browser/shared Python cases and 11 separate native-owner cases pass.
+The native cases cover durable charges, saved identity, exclusive journal
+ownership, account-local mint serialization, cancellation, failed writes,
+unconfirmed cleanup, cooldown and stale grants. A fake-clock step initially
+reached its exact admission deadline; the corrected fixture stays within it.
+Shutdown also reports failure when a loaded account still requires recovery.
+The native CI job runs these cases separately from the browser job.
+
+The 796 accepted Rust cases remain applicable because Rust sources and build
+inputs are unchanged. Native session exclusion, worker integration and SDK
+proof wiring remain unfinished. These are synthetic results, not live native
+acceptance. The running service and existing account state remain untouched.
 
 Next: first migration of existing account history and the running service.
 Current legacy account history and first-migration handling remain unresolved;

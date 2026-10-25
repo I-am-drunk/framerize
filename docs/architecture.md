@@ -13,6 +13,8 @@ for decisions, boundaries and the remaining migration work.
 - `crates/framer-store`: state and session storage.
 - `runtime/framerize_host`: Python browser host, with account, browser, resource
   and transport modules.
+- `runtime/framerize_accounts`: shared journal, rate policy and crash recovery.
+- `runtime/framerize_native`: native ledger ownership, independent of the browser host.
 - `scripts/package.py` and `scripts/release.py`: build a complete archive and
   verify it into a new release directory.
 - `web`: the application interface.
@@ -29,8 +31,9 @@ still retains the supplied owner until both transport and worker have joined.
 
 The old parallel checker and combined-mode startup/routing runners are removed.
 Their [validation record](history/parallel-browserless-validation-before-reorganization-20261025.md)
-is historical. Current Python tests live in `runtime/tests`; Rust tests stay
-with the libraries whose behavior they cover.
+is historical. Browser/shared Python tests live in `runtime/tests`; native
+Python tests live in `runtime/tests_native` and run in the native CI job.
+Rust tests stay with the libraries whose behavior they cover.
 
 Legacy host source patching, one-use restoration packages and their combined
 application/worker fixtures are also removed. Build the browser package with
@@ -50,11 +53,20 @@ normal service's learned limits through an implicit home-directory lookup.
 The browser host exposes only browser commands. Ordinary account activity and
 pending RPC ownership live in `accounts/`; native observation and comparison
 adapters are absent from both the Rust bridge and the Python browser package.
-Native Python authority sources live separately in `runtime/framerize_native`
-and have no live launcher or installation hook.
+Native `LedgerOwner` uses the same journal and rate policy without importing
+the browser host. It opens only existing account history and its saved primary
+device, serializes mints per account, and commits charges before returning
+admission. Grants remain owned until confirmed cleanup. Failed writes and
+uncertain cleanup prevent reuse; closing storage cannot mark them clean.
+The old native helpers coupled to host restoration and observation are removed.
+
+This owner controls ledger access, not login or session ownership. There is
+still no live native launcher. Startup must establish account/session exclusion
+and connect actual worker joins before using it. It does not supply V2 SDK
+proofs or replace the native library's authenticated proof requirements.
 
 The host opens one SQLite journal outside the release directory. Account rate
-decisions live in `accounts/rates.py`: request charges and mint reservations
+decisions live in `framerize_accounts/rates.py`: request charges and mint reservations
 commit before external work. Device choices, cooldowns and reserve usage persist
 across browser closure. A cancelled mint retains its own RPC and pacing lock
 until the actual operation ends. Confirmed browser closure records clean state.

@@ -10,7 +10,7 @@ from unittest.mock import AsyncMock, patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from framerize_host import app
-from framerize_host.accounts.journal import RateJournal
+from framerize_accounts.journal import RateJournal
 from framerize_host.browser import driver
 from test_lifecycle import FakeBrowser
 

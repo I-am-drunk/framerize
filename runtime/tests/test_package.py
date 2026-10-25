@@ -72,6 +72,7 @@ asyncio.run(host.close())
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             shutil.copytree(RUNTIME / 'framerize_host', root / 'framerize_host')
+            shutil.copytree(RUNTIME / 'framerize_accounts', root / 'framerize_accounts')
             (root / 'framerize_host/castle_forge.py').unlink()
             result = self.run_code(root, 'from framerize_host.app import Host')
             self.assertNotEqual(result.returncode, 0)

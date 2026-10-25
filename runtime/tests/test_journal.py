@@ -7,7 +7,7 @@ import unittest
 
 RUNTIME = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(RUNTIME))
-from framerize_host.accounts.journal import RateJournal
+from framerize_accounts.journal import RateJournal
 
 
 class JournalTests(unittest.TestCase):
@@ -64,7 +64,7 @@ class JournalTests(unittest.TestCase):
         code = '''
 import os, sys
 sys.path.insert(0, sys.argv[1])
-from framerize_host.accounts.journal import RateJournal
+from framerize_accounts.journal import RateJournal
 journal = RateJournal(sys.argv[2])
 journal.save('account', {'requests': [10, 20], 'mint_pending': True})
 os._exit(0)
