@@ -1,5 +1,14 @@
 # Development status
 
+The combined explicit-account retry and invalid-header change has now run its
+exact 20-case selection on composed source `1676f57`. Both bounded test builds
+pass. All twelve existing controls and both invalid-header cases pass; the
+six new retry cases time out at their shared producer-completion wait.
+Qualification therefore fails. The exact failure is returned to Server for a
+bounded fixture correction; no production cause or rollout acceptance is
+claimed. This ran independently of signup and Castle research, with no service
+action. See `reference/analysis/explicit-account-qualification-20261025.md`.
+
 A public Framer login diagnostic reached the actual sign-in API with an email
 and nonempty verification token, then received HTTP 403, “Access denied by
 policy”. The page reduces that error to “Verification failed”. No missing
