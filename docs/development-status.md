@@ -23,6 +23,23 @@ removed. Current tests stay with the behavior they exercise.
 
 ## Validation
 
+The first native Castle client primitive, `castle::v3::write_unsigned`, now
+matches the pinned SDK's unsigned integer writer for 4,195 inputs. One direct
+differential test covers integer-width boundaries, deterministic samples,
+repeated calls and appending without changing preceding bytes. The reference
+executes only source-exact `R`/`G` and six verified literal aliases from SDK
+SHA256 `3337eba7ffe614c2ebd9b2b8a55794f2e2445a9b3658d1af5eb7530152b72c71`.
+The isolated run has no network, account data or full SDK execution. Its first
+attempt lacked the compiler's `cc` symlink target; adding that toolchain path
+to the isolated view allowed the unchanged source comparison to pass.
+
+This primitive is not wired into serving and makes no memory or acceptance
+claim. Native CI includes `python -I -B scripts/check_v3_encoding.py`; its
+hosted execution is still unverified. Next implement the typed serializer
+around it, resolving the pinned source's type tags and JavaScript coercion
+before comparing complete serialized arrays. Compression, collection and
+the final envelope remain separate unfinished parts of the replacement.
+
 The dedicated-worker cleanup correction from `759ef0d1` is integrated on
 the reorganized `24ebbdb` base. A focused regression fails on the old pool:
 it reports a stop failure before the workers have exited. All eight inert
