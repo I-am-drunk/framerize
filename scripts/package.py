@@ -25,6 +25,12 @@ def copy_worker(source, destination):
     if any(path.is_symlink() for path in paths):
         raise ValueError('worker bundle contains a symbolic link')
     files = json.loads((destination / 'bundle-manifest.json').read_text())
+    stamp = destination / 'bundle-source.json'
+    if not stamp.is_file():
+        raise ValueError('worker bundle has no source stamp: rebuild scripts/offline_worker/bundle.mjs')
+    head = subprocess.check_output(['git', 'rev-parse', 'HEAD'], cwd=ROOT, text=True).strip()
+    if json.loads(stamp.read_text()).get('commit') != head:
+        raise ValueError('worker bundle is stale: rebuild scripts/offline_worker/bundle.mjs at HEAD')
     actual = {p.relative_to(destination).as_posix() for p in paths
               if p.is_file() and p.name != 'bundle-manifest.json'}
     if type(files) is not dict or actual != set(files):
