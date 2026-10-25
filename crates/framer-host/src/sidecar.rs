@@ -163,6 +163,10 @@ mod write_tests;
 mod cancel_write_tests;
 
 #[cfg(test)]
+#[path = "sidecar_test_support.rs"]
+mod test_support;
+
+#[cfg(test)]
 #[path = "sidecar_lifecycle_tests.rs"]
 mod lifecycle_tests;
 

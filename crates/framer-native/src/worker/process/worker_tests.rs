@@ -301,7 +301,6 @@ async fn delayed_first_read_keeps_pre_spawn_freshness_origin() {
     let minted = run.result().await.expect("buffered fake worker must pass");
     let age_at_receipt = minted.received_at.duration_since(minted.freshness_origin);
     assert!(age_at_receipt >= Duration::from_millis(200));
-    assert!(age_at_receipt > Duration::from_millis(100), "small test age budget expired");
     assert!(minted.into_token().starts_with("cNz8rPYH|"));
     assert!(matches!(completion.wait().await, Cleanup::Joined { .. }));
 }
