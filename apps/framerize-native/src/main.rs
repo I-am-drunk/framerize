@@ -12,7 +12,8 @@ enum Command {
     Serve {
         #[arg(long)] db: PathBuf,
         #[arg(long)] profiles: PathBuf,
-        #[arg(long)] worker_config: String,
+        /// Explicit override; complete packages carry their own worker config.
+        #[arg(long)] worker_config: Option<String>,
         #[arg(long, value_delimiter = ',', required = true)] accounts: Vec<String>,
         #[arg(long, default_value = "127.0.0.1:18789")] listen: SocketAddr,
         #[arg(long, default_value = "/usr/bin/python3")] python: PathBuf,
@@ -32,7 +33,7 @@ enum Command {
 #[derive(Clone, Copy, ValueEnum)]
 enum Sdk { V2, V3 }
 
-async fn run(db: PathBuf, profiles: PathBuf, worker_config: String, accounts: Vec<String>,
+async fn run(db: PathBuf, profiles: PathBuf, worker_config: Option<String>, accounts: Vec<String>,
     listen: SocketAddr, python: PathBuf, runtime_script: Option<PathBuf>,
     expire_legacy_from: Option<PathBuf>) -> Result<(), String> {
     use tokio::signal::unix::{signal, SignalKind};
@@ -47,6 +48,12 @@ async fn run(db: PathBuf, profiles: PathBuf, worker_config: String, accounts: Ve
                 .ok_or("native package directory unavailable")?.join("runtime/native.py")
         }
     }.canonicalize().map_err(|_| "native runtime is missing; use a complete package or --runtime-script")?;
+    let worker_config = match worker_config {
+        Some(path) => path,
+        None => script.parent().ok_or("native runtime directory is unavailable")?
+            .join("worker/worker-config.json").to_str()
+            .ok_or("native worker path is not UTF-8")?.to_owned(),
+    };
     let python = python.canonicalize().map_err(|_| "native Python executable is unavailable")?;
     let config = framer_native::ServeConfig { database: db, profiles, worker_config,
         selected_accounts: accounts, address: listen, python, runtime_script: script,

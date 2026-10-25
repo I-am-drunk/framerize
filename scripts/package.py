@@ -12,7 +12,32 @@ import tempfile
 ROOT = Path(__file__).resolve().parents[1]
 
 
-def copy_runtime(app, tree):
+def digest(path):
+    with path.open('rb') as stream:
+        return hashlib.file_digest(stream, 'sha256').hexdigest()
+
+
+def copy_worker(source, destination):
+    if not (source / 'bundle-manifest.json').is_file():
+        raise ValueError('build the native worker first: node scripts/offline_worker/bundle.mjs --output target/native-worker')
+    shutil.copytree(source, destination, symlinks=True)
+    paths = list(destination.rglob('*'))
+    if any(path.is_symlink() for path in paths):
+        raise ValueError('worker bundle contains a symbolic link')
+    files = json.loads((destination / 'bundle-manifest.json').read_text())
+    actual = {p.relative_to(destination).as_posix() for p in paths
+              if p.is_file() and p.name != 'bundle-manifest.json'}
+    if type(files) is not dict or actual != set(files):
+        raise ValueError('worker bundle inventory changed')
+    if not {'bin/node', 'worker.mjs', 'worker-config.json'} <= actual:
+        raise ValueError('incomplete worker bundle')
+    for name, expected in files.items():
+        with (destination / name).open('rb') as stream:
+            if hashlib.file_digest(stream, 'sha256').hexdigest() != expected:
+                raise ValueError('worker bundle file changed: ' + name)
+
+
+def copy_runtime(app, tree, worker_bundle=None):
     source, runtime = ROOT / 'runtime', tree / 'runtime'
     browser = app == 'framerize'
     modules = ('framerize_accounts', 'framerize_runtime',
@@ -22,15 +47,17 @@ def copy_runtime(app, tree):
                         ignore=shutil.ignore_patterns('__pycache__', '*.pyc'))
     for entry in (('host.py', 'requirements.txt') if browser else ('native.py',)):
         shutil.copy2(source / entry, runtime / entry)
+    if not browser:
+        copy_worker(worker_bundle or ROOT / 'target/native-worker', runtime / 'worker')
     for path in sorted(runtime.rglob('*'), reverse=True):
         if path.is_dir() and not any(path.iterdir()):
             path.rmdir()
-    pins = {path.relative_to(runtime).as_posix(): hashlib.sha256(path.read_bytes()).hexdigest()
+    pins = {path.relative_to(runtime).as_posix(): digest(path)
             for path in sorted(runtime.rglob('*')) if path.is_file()}
     (runtime / 'runtime-manifest.json').write_text(json.dumps(pins, sort_keys=True, indent=2) + '\n')
 
 
-def package(app, output, target_dir, allow_dirty=False):
+def package(app, output, target_dir, allow_dirty=False, worker_bundle=None):
     commit = subprocess.check_output(['git', 'rev-parse', 'HEAD'], cwd=ROOT, text=True).strip()
     dirty = bool(subprocess.check_output(
         ['git', 'status', '--porcelain', '--untracked-files=normal'], cwd=ROOT))
@@ -58,7 +85,7 @@ def package(app, output, target_dir, allow_dirty=False):
             if not (ROOT / 'web/dist/index.html').is_file():
                 raise ValueError('build the UI first: npm --prefix web ci && npm --prefix web run build')
             shutil.copytree(ROOT / 'web/dist', tree / 'web')
-        copy_runtime(app, tree)
+        copy_runtime(app, tree, worker_bundle)
         info = {'format': 1, 'application': app, 'commit': commit, 'platform': system, 'source_dirty': dirty,
                 'build_profile': profile, 'development': development,
                 'rustc': subprocess.check_output(['rustc', '--version'], text=True).strip(),
@@ -66,15 +93,17 @@ def package(app, output, target_dir, allow_dirty=False):
         if app == 'framerize':
             info['rate_history_schema'] = 2
             info['activation_protocol'] = 1
+        else:
+            info['worker_bundle_format'] = 1
         (tree / 'build-info.json').write_text(json.dumps(info, indent=2) + '\n')
-        files = {path.relative_to(tree).as_posix(): hashlib.sha256(path.read_bytes()).hexdigest()
+        files = {path.relative_to(tree).as_posix(): digest(path)
                  for path in sorted(tree.rglob('*')) if path.is_file()}
         (tree / 'manifest.json').write_text(json.dumps(files, sort_keys=True, indent=2) + '\n')
         with tarfile.open(archive, 'w:gz') as bundle:
             bundle.add(tree, arcname=name)
     with archive.open('rb') as stream:
-        digest = hashlib.file_digest(stream, 'sha256').hexdigest()
-    archive.with_suffix(archive.suffix + '.sha256').write_text(f'{digest}  {archive.name}\n')
+        archive_digest = hashlib.file_digest(stream, 'sha256').hexdigest()
+    archive.with_suffix(archive.suffix + '.sha256').write_text(f'{archive_digest}  {archive.name}\n')
     return archive
 
 
@@ -84,5 +113,8 @@ if __name__ == '__main__':
     parser.add_argument('--output', type=Path, default=ROOT / 'dist')
     parser.add_argument('--target-dir', type=Path, default=ROOT / 'target/release')
     parser.add_argument('--allow-dirty', action='store_true', help='mark a local development package')
+    parser.add_argument('--worker-bundle', type=Path,
+                        help='prepared native worker directory (default: target/native-worker)')
     args = parser.parse_args()
-    print(package(args.app, args.output.resolve(), args.target_dir.resolve(), args.allow_dirty))
+    print(package(args.app, args.output.resolve(), args.target_dir.resolve(),
+                  args.allow_dirty, args.worker_bundle))

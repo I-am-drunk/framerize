@@ -21,10 +21,25 @@ The pinned Rust toolchain applies to local builds, CI and build metadata.
 Both available GitHub accounts currently have billing restrictions on Actions;
 the workflow has not yet produced a hosted artifact.
 
-Build the native package with `cargo build --locked --release -p framerize-native`
-and `python3 scripts/package.py framerize-native`. The native CI job runs
+Build the native package with Node 24.13.0 and the pinned Rust toolchain:
+
+```sh
+cargo build --locked --release -p framerize-native
+node scripts/offline_worker/bundle.mjs --output target/native-worker
+python3 scripts/package.py framerize-native
+```
+
+The worker builder downloads the exact hashed public SDK files and installs
+locked npm dependencies with lifecycle scripts disabled. It includes Node and
+its license. A new output directory is required; existing bundles are preserved.
+Use `--assets DIRECTORY --offline --cache NPM_CACHE` when the exact assets and
+npm tarballs are already cached. Package creation accepts `--worker-bundle PATH`
+for a prepared bundle outside the default directory. No account data belongs
+in this bundle. The package still uses the host's Python 3.12 and system C libraries.
+
+The native CI job runs
 `scripts/smoke_native_package.py` on the archive before uploading it. This uses
-synthetic account history, an inert worker and a local endpoint to check
+synthetic account history, the packaged worker configuration and a local endpoint to check
 startup, profile exclusion, invalid-request refusal and signal shutdown.
 The same check accepts `--worker-config CONFIG` to verify a real worker's files
 during startup while retaining synthetic account state and invalid requests.
@@ -34,12 +49,12 @@ For an already migrated profile, the staged native executable accepts:
 
 ```sh
 bin/framerize-native serve --db ACCOUNT_DATABASE --profiles PROFILE_DIRECTORY \
-  --worker-config VERIFIED_WORKER_CONFIG --accounts ACCOUNT_UUID \
+  --accounts ACCOUNT_UUID \
   --listen 127.0.0.1:18789 --python /usr/bin/python3
 ```
 
-It finds `runtime/native.py` beside its package. `--runtime-script` is an
-explicit development override. The profile must have existing sessions and
+It finds `runtime/native.py` and the worker beside its package. `--runtime-script`
+and `--worker-config` are explicit development overrides. The profile must have existing sessions and
 durable device history, and no other process may own it. Missing history is
 refused, not replaced with new identities. This is ledger-backed V3 serving;
 the startup smoke does not execute an SDK or establish live acceptance.

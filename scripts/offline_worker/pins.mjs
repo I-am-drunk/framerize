@@ -1,8 +1,9 @@
-const ROOT = '/home/tjninja/.t3/scratch/2026-10-18-i-keep-getting-this-error-0486847e/investigation';
+import { fileURLToPath } from 'node:url';
+const ROOT = fileURLToPath(new URL('./inputs', import.meta.url));
 export const GRAPHICS = null;
-export const ASSETS = ROOT + '/framer-page-fixture/assets';
-export const DOM = ROOT + '/browserless-wire-20261020/genuine-dom';
-export const HISTORY = ROOT + '/browserless-wire-20261020';
+export const ASSETS = ROOT + '/assets';
+export const DOM = ROOT + '/dom';
+export const HISTORY = ROOT + '/history';
 export const CDN = 'https://app.framerstatic.com/';
 export const WRAPPER_MINT_EXPORT = 'a';
 export const PUBLIC_KEY = 'pk_xYqGbB61EcFiSh4LUshpT4DGoEQMKQMB';
@@ -21,11 +22,11 @@ export const MODULES = Object.freeze({
     '3337eba7ffe614c2ebd9b2b8a55794f2e2445a9b3658d1af5eb7530152b72c71'],
 });
 export const SUPPORT = Object.freeze({
-  settle: [HISTORY + '/v2-normal-api/settle-once.mjs',
+  settle: [ROOT + '/support/settle-once.mjs',
     '916164efde2363c572bef4f3c6e95a90d2ad4599b1da659685b556c6523fa73c'],
-  location: [HISTORY + '/v3-error-location-20261020/error-location.mjs',
+  location: [ROOT + '/support/error-location.mjs',
     'b40c831d1b65df86bd89e5604589e531f4f9c631f7dce487c02288dde8180238'],
-  writer: [HISTORY + '/native-acceptance-20261020/write-token-once.mjs',
+  writer: [ROOT + '/support/write-token-once.mjs',
     '6da5ca013764a32c516afe8f01b5b6e5bac63b7b3c40397ef428bfa02275bddb'],
 });
 export const DOM_PINS = Object.freeze({

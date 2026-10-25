@@ -21,6 +21,7 @@ def verify_runtime(root):
         path = root / name
         if path.resolve() != path or not path.is_file():
             raise ValueError('invalid runtime package path')
-        if hashlib.sha256(path.read_bytes()).hexdigest() != expected:
-            raise ValueError('runtime package file changed: ' + name)
+        with path.open('rb') as stream:
+            if hashlib.file_digest(stream, 'sha256').hexdigest() != expected:
+                raise ValueError('runtime package file changed: ' + name)
     return hashlib.sha256(raw).hexdigest()

@@ -61,14 +61,16 @@ def ready(child, url):
             time.sleep(0.05)
 
 
-def lifecycle(release, root, signum):
+def lifecycle(release, root, signum, packaged_worker=False):
     with socket.socket() as reserve:
         reserve.bind(('127.0.0.1', 0))
         address = f'127.0.0.1:{reserve.getsockname()[1]}'
     command = [str(release / 'bin/framerize-native'), 'serve',
         '--db', str(root / 'accounts.db'), '--profiles', str(root / 'profiles'),
-        '--worker-config', str(root / 'worker.json'), '--accounts', ACCOUNT,
+        '--accounts', ACCOUNT,
         '--listen', address, '--python', sys.executable]
+    if not packaged_worker:
+        command.extend(['--worker-config', str(root / 'worker.json')])
     env = {'PATH': '/usr/bin:/bin', 'HOME': str(root),
         'FRAMERIZE_LOG_DIR': str(root / 'logs')}
     with (root / f'native-{signum}.log').open('w') as log:
@@ -109,6 +111,9 @@ def main(archive, worker_config=None):
     assert not (release / 'runtime/framerize_host').exists()
     prepare(root)
     config_sha256 = None
+    packaged_worker = worker_config is None and (release / 'runtime/worker/worker-config.json').is_file()
+    if packaged_worker:
+        config_sha256 = sha256(release / 'runtime/worker/worker-config.json')
     if worker_config is not None:
         with worker_config.open('rb') as stream:
             raw = stream.read(65537)
@@ -117,10 +122,11 @@ def main(archive, worker_config=None):
         (root / 'worker.json').write_bytes(raw)
         config_sha256 = sha256(root / 'worker.json')
     for signum in (signal.SIGTERM, signal.SIGINT):
-        lifecycle(release, root, signum)
+        lifecycle(release, root, signum, packaged_worker)
     verify(release)
     print(json.dumps({'result': 'pass', 'commit': info['commit'], 'root': str(root),
         'worker_config_sha256': config_sha256,
+        'packaged_worker': packaged_worker,
         'checks': ['archive', 'runtime', 'startup', 'invalid-request',
                    'profile-exclusion', 'SIGTERM', 'SIGINT', 'profile-reuse']}))
 

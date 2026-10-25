@@ -1,3 +1,18 @@
+The standalone V3 service packages this worker with Node and its dependencies.
+Build it with Node 24.13.0:
+
+```sh
+node scripts/offline_worker/bundle.mjs --output target/native-worker
+python3 scripts/package.py framerize-native
+```
+
+The builder verifies pinned public assets and uses `npm ci --ignore-scripts`.
+It never opens an account or runs the SDK. Package configuration resolves
+paths from its own directory; the build machine's paths are not retained.
+See [application packages](../../docs/releases.md) for offline cache options.
+The complete bundle contains the V3 entry point. The V2 source and graphics
+experiments below remain separate and are not enabled by this package.
+
 This source adds explicit saved-device storage to the isolated worker.
 
 The SharedWorker adapter executes the pinned SDK worker script in a real Node

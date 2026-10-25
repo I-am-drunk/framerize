@@ -59,7 +59,11 @@ jobs:
       - name: Check executable startup
         run: target/release/${{ matrix.app }} --help
       - name: Package application
-        run: python scripts/package.py ${{ matrix.app }}
+        run: |
+          if [ '${{ matrix.app }}' = 'framerize-native' ]; then
+            node scripts/offline_worker/bundle.mjs --output target/native-worker
+          fi
+          python scripts/package.py ${{ matrix.app }}
       - name: Check native package lifecycle with synthetic state
         if: matrix.app == 'framerize-native'
         run: python -I -B scripts/smoke_native_package.py dist/framerize-native-*.tar.gz
