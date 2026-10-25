@@ -205,7 +205,7 @@ fn stalled_headers(method: &'static str) {
     let elapsed = started.elapsed();
     drop(client);
     let observed = fixture.finish();
-    assert!(result.is_err());
+    assert_send_error(&result.unwrap_err(), true, false);
     assert!(elapsed >= TOTAL && elapsed < LIMIT);
     assert_one(observed);
 }
@@ -253,7 +253,8 @@ fn normal_refused_connection_is_bounded() {
         let client = client(listener.local_addr().unwrap());
         drop(listener);
         let wire = Wire { method, path: PATH, auth: Credential::None };
-        assert!(run(send(&client, wire, &session())).is_err());
+        let error = run(send(&client, wire, &session())).unwrap_err();
+        assert_send_error(&error, false, true);
     }
 }
 
@@ -324,4 +325,50 @@ fn normal_caller_cancellation_joins_fixture() {
     });
     drop(client);
     assert_one(fixture.finish());
+}
+
+fn assert_send_error(error: &str, timeout: bool, connect: bool) {
+    let flags: Vec<_> = error.strip_prefix("control transport failed: ")
+        .expect("missing safe error prefix").split(' ').collect();
+    assert_eq!(flags.len(), 5);
+    for (flag, name) in flags.iter().zip(["timeout", "connect", "request", "body", "decode"]) {
+        let prefix = format!("{name}=");
+        assert!(matches!(flag.strip_prefix(prefix.as_str()), Some("true" | "false")));
+    }
+    assert_eq!(flags[0], format!("timeout={timeout}"));
+    assert_eq!(flags[1], format!("connect={connect}"));
+    assert_eq!(flags[3], "body=false");
+    assert_eq!(flags[4], "decode=false");
+}
+
+#[test]
+fn normal_send_error_redaction_covers_invalid_urls() {
+    for method in ["GET", "POST"] {
+        let client = Transport {
+            http: normal_client_builder(CONNECT, TOTAL).no_proxy().build().unwrap(),
+            base: "http://[redaction-probe=inert".into(),
+        };
+        let wire = Wire { method, path: PATH, auth: Credential::None };
+        let error = run(send(&client, wire, &session())).unwrap_err();
+        assert_send_error(&error, false, false);
+    }
+}
+
+#[test]
+fn normal_send_error_redaction_covers_invalid_headers() {
+    for method in ["GET", "POST"] {
+        let wire = Wire { method, path: PATH, auth: Credential::Bearer };
+        let fixture = Fixture::start(Reply::Complete(200, BODY), wire);
+        let client = client(fixture.address);
+        let auth = Auth::Bearer("fixture-bearer\r\nredaction-probe: inert");
+        let error = run(async {
+            if method == "GET" { client.get(PATH, auth).await }
+            else { client.post(PATH, auth, json!({"fixture": true})).await }
+        }).unwrap_err();
+        drop(client);
+        let observed = fixture.finish();
+        assert_send_error(&error, false, false);
+        assert_eq!(observed.connections, 0);
+        assert_eq!(observed.requests, 0);
+    }
 }

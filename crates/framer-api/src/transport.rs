@@ -35,6 +35,18 @@ fn normal_client_builder(
         .timeout(request_timeout)
 }
 
+// Do not format the error: it can contain a URL or proxy details.
+fn control_transport_error(error: reqwest::Error) -> String {
+    format!(
+        "control transport failed: timeout={} connect={} request={} body={} decode={}",
+        error.is_timeout(),
+        error.is_connect(),
+        error.is_request(),
+        error.is_body(),
+        error.is_decode(),
+    )
+}
+
 impl Transport {
     #[cfg(feature = "experimental-native")]
     pub(crate) fn for_account(egress: super::experimental_native::native_http::NativeEgress<'_>)
@@ -93,7 +105,7 @@ impl Transport {
 
     pub async fn get(&self, path: &str, auth: Auth<'_>) -> Result<reqwest::Response, String> {
         let req = self.http.get(format!("{}{}", self.base, path));
-        check(path, self.apply(req, auth).send().await.map_err(|e| e.to_string())?).await
+        check(path, self.apply(req, auth).send().await.map_err(control_transport_error)?).await
     }
 
     pub async fn post(
@@ -107,7 +119,7 @@ impl Transport {
             .post(format!("{}{}", self.base, path))
             .header("content-type", "application/json")
             .json(&body);
-        check(path, self.apply(req, auth).send().await.map_err(|e| e.to_string())?).await
+        check(path, self.apply(req, auth).send().await.map_err(control_transport_error)?).await
     }
 
     pub async fn post_json(&self, path: &str, auth: Auth<'_>, body: Value) -> Result<Value, String> {
