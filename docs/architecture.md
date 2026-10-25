@@ -54,6 +54,18 @@ portable byte order. Candidate deduplication, state normalization, callback
 timing and collection belong before this boundary. The isolated comparison
 uses the original finalizer and compares the serialized complete record.
 
+`castle::v3::NetworkEvents` supplies that earlier reduction from an ordered
+sequence of typed observations. It normalizes structured RTC properties or
+fallback candidate text, classifies addresses and numeric ports, and shares
+the first-16 signature set with SDP protocol entries. Each state history
+retains its first eight distinct lowercase strings. Consuming the accumulator
+creates `NetworkObservation`; the caller supplies both selected addresses.
+It never starts RTC, reads interfaces or guesses observation timing. Property
+getters and nonstandard JavaScript coercions stay outside the typed boundary.
+Unicode lowercasing uses the Rust toolchain's tables, so non-ASCII behavior
+also depends on matching the source runtime's Unicode version. The offline
+comparison runs original pure candidate, state, SDP and finalizer functions.
+
 The native `castle::v3::deflate` implements the pinned SDK's raw-DEFLATE
 fallback: a 1,024-byte matching window, at most 64 candidates per lookup,
 and one dynamic-Huffman block. Its stable tree ordering and code-length
