@@ -28,6 +28,12 @@ This creates no restoration receipt or enrollment cooldown and resets no rate
 state. The existing device limits and mint spacing still apply. A login in an
 unrelated Chrome tab is not this host-owned proof. Live acceptance is pending.
 
+Public signup is also a separate acceptance boundary. A sign-in request can
+contain a verification token and still receive an upstream policy refusal.
+The page's generic verification error does not identify that policy or prove
+a defective browser. Do not convert that refusal into synthetic identity or
+rate-state evidence.
+
 Generated-host startup is now checked through the actual entrypoint rather
 than definition imports alone. With no pending transfer or account state,
 the package installs native ownership, refuses an unowned native request and

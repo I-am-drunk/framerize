@@ -1,5 +1,18 @@
 # Development status
 
+A public Framer login diagnostic reached the actual sign-in API with an email
+and nonempty verification token, then received HTTP 403, “Access denied by
+policy”. The page reduces that error to “Verification failed”. No missing
+form step or specific browser defect was established; the policy's reason
+is undisclosed. Dedicated signup and native-token acceptance remain pending.
+See `reference/analysis/framer-signup-policy-refusal-20261025.md`.
+
+The unchanged account-management web UI at source `6ed2d5a` now builds.
+All five bounded stages passed in 11.1 seconds, with 272,695,296 bytes peak
+memory, no swap or limit events, and all 1,941 input hashes unchanged.
+The resulting assets are staged only. No daemon was started or login sent
+by that build, and its scope and all captured processes are collected.
+
 Fresh-account admission now accepts the same host's verified session and
 joined SDK observation while retaining its original rate ledger. Fifteen
 focused synthetic tests pass, including two consecutive native mint permits,
