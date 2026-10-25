@@ -107,7 +107,7 @@ impl NativeAccountClient {
         }
         if deadline <= Instant::now() { return Err(ClientError::InvalidContext); }
         let runtime = tokio::runtime::Handle::try_current().map_err(|_| ClientError::NoRuntime)?;
-        let (operation, session) = {
+        let (operation, session, session_owner) = {
             let mut state = lock(&self.inner.state);
             if !state.healthy { return Err(ClientError::Unavailable); }
             let index = state.accounts.iter()
@@ -119,9 +119,11 @@ impl NativeAccountClient {
             }
             let operation = sequence(&mut state)?;
             let account = &mut state.accounts[index];
-            let session = account.resources.as_ref().ok_or(ClientError::Draining)?.session.clone();
+            let resources = account.resources.as_ref().ok_or(ClientError::Draining)?;
+            let session = resources.session.clone();
+            let session_owner = resources.client.clone();
             account.requests.push(Operation { id: operation, stage: OperationStage::Preparing });
-            (operation, session)
+            (operation, session, session_owner)
         };
         let mut reservation = Reservation {
             inner: self.inner.clone(), generation: scope.generation(),
@@ -135,6 +137,7 @@ impl NativeAccountClient {
         let (settled_tx, settled) = signal();
         reservation.may_have_started = true;
         let worker = runtime.spawn(async move {
+            let _session_owner = session_owner;
             if worker_control.is_cancelled() {
                 return PreparationResult::finished(Err(PreparationFailure::Cancelled));
             }

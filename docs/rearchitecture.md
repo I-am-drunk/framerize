@@ -92,6 +92,14 @@ recovery conservatively rebases outstanding durations. Missing history on an
 existing installation requires migration, not an empty ledger. The journal has
 one writer, and package rollback must retain newer history.
 
+Session files now follow the same single-owner profile model. A store holds
+an OS lock until its last runtime owner releases it. Native requests retain
+that store through their transport and preparation work; the browser app
+refuses an occupied directory before it constructs a browser bridge. This
+keeps runtime switching explicit instead of borrowing a live process's
+credentials through a second store. Older binaries do not honor this lock,
+so the first migration still requires confirmed cleanup of the old service.
+
 Graceful shutdown now stops admission, joins accepted work and closes the host.
 Signal handlers are installed before startup can launch a host. Failed startup
 uses the same drain and close path. Confirmed browser closure records clean

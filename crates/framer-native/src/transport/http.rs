@@ -452,6 +452,7 @@ pub struct NativeHttp {
     in_flight: Arc<AtomicUsize>,
     explicit_proxy: Option<String>,
     resident_browser_headers: bool,
+    _session_owner: Option<Arc<dyn framer_core::port::SessionStore>>,
 }
 
 /// Select egress from this account's private configuration. No environment
@@ -459,6 +460,12 @@ pub struct NativeHttp {
 pub use framer_api::session_auth::Egress as NativeEgress;
 
 impl NativeHttp {
+    /// Keep the store's process ownership alive with every request using it.
+    pub(crate) fn with_session_owner(mut self, owner: Arc<dyn framer_core::port::SessionStore>) -> Self {
+        self._session_owner = Some(owner);
+        self
+    }
+
     /// Opt in to the serving browser's inference header contract for an
     /// owner-managed comparison. The supplied Session must be its current,
     /// API-selected jar, retained under the same resident-context lease.
@@ -525,6 +532,7 @@ impl NativeHttp {
             account, active_user, client, base, limits, explicit_proxy,
             in_flight: Arc::new(AtomicUsize::new(0)),
             resident_browser_headers: false,
+            _session_owner: None,
         })
     }
 
