@@ -20,9 +20,13 @@ delivery alone never establishes endpoint quiescence.
 The selected first-run identity path is a fresh verified sign-in under the
 existing ordinary-V2 contract. This selection does not add a saved-session
 verification path or treat imported cookies as identity proof.
-Identity proof and rate admission remain separate: an empty host's successful
-browser login does not create a restoration receipt or initial-enrollment
-proof. That first-run rate boundary must be resolved without discarding history.
+Identity proof and rate admission remain separate. A verified session can now
+authorize native admission after its successful SDK observation and joined
+browser close, using the same host's original rate ledger. The grant retains
+that observation; replacing the lifecycle, session, route or ledger revokes it.
+This creates no restoration receipt or enrollment cooldown and resets no rate
+state. The existing device limits and mint spacing still apply. A login in an
+unrelated Chrome tab is not this host-owned proof. Live acceptance is pending.
 
 Generated-host startup is now checked through the actual entrypoint rather
 than definition imports alone. With no pending transfer or account state,

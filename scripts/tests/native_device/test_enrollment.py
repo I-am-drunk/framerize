@@ -1,4 +1,5 @@
 import ast
+import asyncio
 import json
 import stat
 import tempfile
@@ -10,7 +11,7 @@ from unittest.mock import patch
 from native_device import NativeDevices, Rejected
 from fixture import ACCOUNT, LEASE, SECOND, SOURCE, tree
 
-scope = {}
+scope = {'asyncio': asyncio}
 node = next(n for n in tree.body if isinstance(n, ast.ClassDef)
             and n.name == 'AccountLifecycle')
 exec(compile(ast.Module(body=[node], type_ignores=[]), str(SOURCE), 'exec'), scope)

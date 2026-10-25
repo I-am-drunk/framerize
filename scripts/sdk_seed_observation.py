@@ -1,6 +1,7 @@
 """Private ordinary-V2 observations around existing calls; no persistence or logs."""
 import asyncio
 import hashlib
+import math
 import re
 import uuid
 
@@ -142,6 +143,9 @@ class _Observation:
         self.revision = host.proxy_revisions.get(account, 0)
         self.proxy = host.proxies.get(account)
         self.launch_route = getattr(session.life, '_sdk_launch_route', None)
+        self.rate_cooling = session.life.cooling
+        self.rate_requests = session.life.requests
+        self.rate_last_mint = session.life.last_mint
         self.seed = None
         self.invalid = self.validated = self.joined = self.transferred = False
         self.listeners = []
@@ -379,7 +383,20 @@ def _available(record, host, account, life, device):
     return (type(record) is _Observation and record.host is host
             and record.account == account and record.session.life is life
             and record.bound() and record.transferred and record.joined
-            and record.validated and record.http_device == device and _seed(record.seed))
+            and record.validated and record.http_device == device and _seed(record.seed)
+            and life.cooling is record.rate_cooling and life.requests is record.rate_requests
+            and type(life.last_mint) in (int, float) and math.isfinite(life.last_mint)
+            and type(record.rate_last_mint) in (int, float)
+            and math.isfinite(record.rate_last_mint)
+            and life.last_mint >= record.rate_last_mint >= 0)
+
+
+def closed_rate_observation(host, account, life):
+    """Authority from this host's verified session and intact, joined ledger."""
+    session = _session(host, account)
+    record = session.observation if session is not None else None
+    device = getattr(life, 'restored_primary_device', None)
+    return record if _available(record, host, account, life, device) else None
 
 
 def attach(host, request, life, grant):
