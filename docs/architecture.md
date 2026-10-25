@@ -21,6 +21,11 @@ One Cargo workspace and lockfile cover both applications. The default target is
 browser-based. Native depends on the shared libraries; those libraries do not
 depend on native. Their browser routes do not select a native provider.
 
+The old parallel checker and combined-mode startup/routing runners are removed.
+Their [validation record](history/parallel-browserless-validation-before-reorganization-20261025.md)
+is historical. Current Python tests live in `runtime/tests`; Rust tests stay
+with the libraries whose behavior they cover.
+
 The browser archive carries its matching host and UI. The executable resolves
 both from its own package, independently of the working directory. Development
 overrides are explicit command-line options. Native developer archives remain
