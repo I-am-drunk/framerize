@@ -142,7 +142,7 @@ async fn cancelled_before_first_result_poll_still_signals_child() {
     let (client, scope) = account();
     let minter = Arc::new(OfflineWorkerMinter {
         scope: scope.clone(), worker: WorkerBackend::V2(worker.clone()),
-        device: None, sdk_seed: None,
+        device: None, sdk_seed: None, diagnostic_id: None,
     });
     let owned = fixture.clone();
     let (ready, observed) = tokio::sync::oneshot::channel();
@@ -197,7 +197,7 @@ async fn v2_without_device_refuses_before_child() {
     let (client, scope) = account();
     let minter = Arc::new(OfflineWorkerMinter {
         scope: scope.clone(), worker: WorkerBackend::V2(worker),
-        device: None, sdk_seed: None,
+        device: None, sdk_seed: None, diagnostic_id: None,
     });
     let pending = prepare(&client, &scope, minter, "success");
     assert!(matches!(pending.await, Err(PreparationFailure::Rejected)));

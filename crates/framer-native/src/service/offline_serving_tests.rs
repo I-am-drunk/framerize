@@ -137,7 +137,7 @@ async fn dropped_stream_keeps_actual_issuance_owned_until_cleanup() {
             sessions, Some(sender)).unwrap();
         wait(&ports.issuing).await;
         let mut body = crate::service::stream::response(run.result, receiver,
-            FreeRoute::Responses, "gpt-4.1".into()).into_body().into_data_stream();
+            FreeRoute::Responses, "gpt-4.1".into(), run.diagnostic_id).into_body().into_data_stream();
         if polled { body.next().await.unwrap().unwrap(); }
         drop(body);
         tokio::time::timeout(Duration::from_secs(2), async {

@@ -51,9 +51,9 @@ jobs:
       - name: Native library tests
         if: matrix.app == 'framerize-native'
         run: cargo +1.99.0 test --locked --release -p framer-native -p framerize-native
-      - name: Native worker cleanup fixtures
+      - name: Native worker cleanup and handoff fixtures
         if: matrix.app == 'framerize-native'
-        run: node --experimental-vm-modules --test scripts/offline_worker/dedicated_pool_tests.mjs
+        run: node --experimental-vm-modules --test scripts/offline_worker/dedicated_pool_tests.mjs scripts/offline_worker/worker_handoff_tests.mjs
       - name: Native account fixtures
         if: matrix.app == 'framerize-native'
         run: python -I -B -m unittest discover -s runtime/tests_native -v

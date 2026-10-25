@@ -84,9 +84,9 @@ async fn dispatch(endpoint: Endpoint, input: Input, streaming: bool) -> Response
         streaming.then_some(sender)) {
         Ok(value) => value, Err(error) => return failure(error.kind),
     };
-    if streaming { return super::stream::response(run.result, receiver, route, model); }
+    if streaming { return super::stream::response(run.result, receiver, route, model, run.diagnostic_id); }
     let outcome = run.result.await;
-    record_completion(&outcome);
+    record_completion(&outcome, run.diagnostic_id);
     match (outcome.response, outcome.failure, outcome.cleanup_confirmed) {
         (Some(value), None, true) => Json(match value {
             CompletedJson::Responses(value) => convert::responses_json(&value, &model, &value.id),
@@ -97,8 +97,9 @@ async fn dispatch(endpoint: Endpoint, input: Input, streaming: bool) -> Response
     }
 }
 
-pub(super) fn record_completion(outcome: &offline_serving::Outcome) {
+pub(crate) fn record_completion(outcome: &offline_serving::Outcome, diagnostic_id: uuid::Uuid) {
     framer_core::observability::Event::new("offline.complete")
+        .request_id(&diagnostic_id.to_string())
         .field("completion", completion_fields(outcome)).emit();
 }
 
