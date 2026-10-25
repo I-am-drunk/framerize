@@ -1,4 +1,6 @@
 """Inert negotiation checks against the real native-device authority."""
+from collections import deque
+
 import sdk_seed_observation as sdk
 from fixture import Fixture, LEASE
 import test_fresh_account as fresh_fixture
@@ -20,7 +22,11 @@ class AuthorityProtocolTests(Fixture):
         self.api.close(self.request)
 
     async def test_negotiated_observation_requires_authenticated_proof(self):
-        await self.ready()
+        self.fresh()
+        self.life.requests['fixture-primary'] = deque([990.0])
+        self.verify()
+        self.observe()
+        self.assertTrue(await self.close_browser())
         before = self.history()
         reply = self.api.open(dict(self.request, authority_version=1))
         self.assertEqual(reply['authority'], 'observation')
