@@ -24,7 +24,7 @@ Completed source changes:
 
 Validation collected locally:
 - The workspace all-target check passed at the application split milestone.
-- Current browser server: 251 tests pass. Host: 73 tests pass. Browser CLI: 33
+- Current browser server: 251 tests pass. Host: 72 tests pass. Browser CLI: 33
   tests pass. Gate selection: 43 tests pass, including three new persistence tests.
 - Python runtime and release tooling: 99 fixture tests pass across lifecycle, imports, browser setup,
   packaging, rate persistence, request ownership and safe diagnostics. The fetch fixture
@@ -36,7 +36,7 @@ Validation collected locally:
   and excludes observation/native packages. Debug builds remain explicitly
   marked as development even from a clean checkout; its regression test passes.
   Packaging omits empty directories left by removed runtime modules.
-- Native: 298 accepted cases across the collected worker and request selections.
+- Native: 302 accepted cases across the collected worker and request selections.
   The eight stale request-envelope expectations were corrected; their 24-case
   selection passed. The 106 worker cases passed after optimizing debug hashing.
 
@@ -123,6 +123,15 @@ Their private tests exercised the retired host-patching workflow. Current
 browser runtime tests, native worker code and Rust library tests are unchanged.
 Historical measurements and source links are retained; this cleanup makes no
 new memory or native-delivery claim.
+
+Native device grants, SDK proofs and their four existing authority tests now
+live in the native library. `DeviceOwner` supplies admission and cleanup to
+native requests and workers explicitly. The browser interface no longer has
+native methods; its obsolete refusal test and unused enrollment fixture hooks
+are removed. The current Rust run passes 138 core, 72 host, 302 native, 251
+server and 33 browser CLI tests. One manual host integration test is ignored.
+Python is unchanged. A concrete durable native owner and standalone startup
+remain unfinished; this interface change does not enable live native calls.
 
 Next: first migration of existing account history and the running service.
 Current legacy account history and first-migration handling remain unresolved;

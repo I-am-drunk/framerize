@@ -1,9 +1,9 @@
-//! Private handles into the existing host's account/device ledger.
-use crate::{ids::AccountId, port::Session};
+//! Private handles into the native account/device owner.
+use framer_core::{ids::AccountId, port::Session};
 use std::sync::Arc;
 
 #[cfg(test)]
-#[path = "native_device_authority_tests.rs"]
+#[path = "device_tests.rs"]
 mod authority_tests;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

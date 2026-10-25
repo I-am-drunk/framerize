@@ -15,7 +15,6 @@ pub mod gate;
 pub mod ids;
 pub mod pipeline;
 pub mod port;
-pub mod native_device;
 pub mod rotation;
 pub mod wave;
 pub mod workspace;

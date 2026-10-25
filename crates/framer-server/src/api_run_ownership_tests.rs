@@ -57,7 +57,6 @@ fn assert_one_call(ports: &FixturePorts, before: &Value) {
     assert_eq!(&records(ports), before); // Includes the untouched peer and both scopes.
     assert!(ports.saved.lock().unwrap().is_empty());
     assert!(ports.registered_proxies.lock().unwrap().is_empty());
-    assert!(ports.native_calls.lock().unwrap().is_empty());
 }
 
 async fn assert_completion(state: &AppState, ownership: &ServingOwnership,
@@ -227,7 +226,6 @@ fn assert_no_extraction_io(state: &AppState, ports: &FixturePorts, before: &Valu
     assert!(ports.run_calls.lock().unwrap().is_empty());
     assert!(ports.saved.lock().unwrap().is_empty());
     assert!(ports.registered_proxies.lock().unwrap().is_empty());
-    assert!(ports.native_calls.lock().unwrap().is_empty());
     let snapshot = state.serving_accounts.residents.snapshot().unwrap();
     assert_eq!(snapshot.occupied, 0);
     assert!(snapshot.residents.is_empty());

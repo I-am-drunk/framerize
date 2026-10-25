@@ -36,9 +36,6 @@ struct FixturePorts {
     state_reads: AtomicUsize,
     state_writes: AtomicUsize,
     native_session: Mutex<Option<Option<Session>>>,
-    native_result: Mutex<Option<Result<framer_core::native_device::DeviceEnrollment,
-        framer_core::native_device::DeviceFailure>>>,
-    native_calls: Mutex<Vec<(AccountId, FramerUserId, String)>>,
     run_reply: Mutex<Option<InferenceResult>>,
     run_error: Mutex<Option<String>>,
     run_calls: Mutex<Vec<(FramerUserId, AccountId, ProjectId)>>,
@@ -76,20 +73,6 @@ macro_rules! denied {
 }
 
 impl BrowserBridge for FixturePorts {
-    fn enroll_native_device<'s, 'b, 'c, 'a>(&'s self, account: AccountId,
-        user: &'b FramerUserId, device: &'c str)
-        -> BoxFuture<'a, Result<framer_core::native_device::DeviceEnrollment,
-            framer_core::native_device::DeviceFailure>>
-    where 's: 'a, 'b: 'a, 'c: 'a, Self: 'a {
-        Box::pin(async move {
-            let result = self.native_result.lock().unwrap().take()
-                .unwrap_or_else(|| self.unexpected("browser"));
-            self.browser_calls.fetch_add(1, Ordering::SeqCst);
-            self.native_calls.lock().unwrap().push((account, user.clone(), device.into()));
-            result
-        })
-    }
-
     fn register_account_proxy<'s, 'b, 'a>(&'s self, account: &'b AccountId, proxy: Option<String>)
         -> BoxFuture<'a, Result<(), String>>
     where 's: 'a, 'b: 'a, Self: 'a {
@@ -229,8 +212,6 @@ fn fixture(import: bool) -> (AppState, Arc<FixturePorts>) {
         session_calls: AtomicUsize::new(0), state_reads: AtomicUsize::new(0),
         state_writes: AtomicUsize::new(0),
         native_session: Mutex::new(None),
-        native_result: Mutex::new(None),
-        native_calls: Mutex::new(Vec::new()),
         run_reply: Mutex::new(None),
         run_error: Mutex::new(None),
         run_calls: Mutex::new(Vec::new()),

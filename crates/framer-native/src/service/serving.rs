@@ -33,6 +33,7 @@ use crate::worker::backend::WorkerBackend;
 use crate::authorization::source::SourceBuilder;
 use crate::service::sessions::Sessions;
 use crate::service::device::DeviceLease;
+use crate::account::device_owner::DeviceOwner;
 
 #[cfg(test)]
 #[path = "offline_serving_tests.rs"]
@@ -93,9 +94,10 @@ pub(crate) struct Run {
 }
 impl Run { pub(crate) fn cancel(&self) { self.stop.cancel(); } }
 
-pub(crate) fn launch(state: AppState, request: Request, worker: impl Into<WorkerBackend>, sessions: Sessions)
+pub(crate) fn launch(state: AppState, request: Request, worker: impl Into<WorkerBackend>,
+    sessions: Sessions, device_owner: Arc<dyn DeviceOwner>)
     -> Result<Run, DispatchError> {
-    let source = Arc::new(OfflineSource::from_worker(worker.into(), request.target, state.browser.clone()));
+    let source = Arc::new(OfflineSource::from_worker(worker.into(), request.target, device_owner));
     launch_with_source(state, request.spec, source, sessions)
 }
 
@@ -173,7 +175,7 @@ type Admission = (tokio::sync::OwnedSemaphorePermit, port::PoolAdmission);
 async fn execute(state: &AppState, spec: Specification, source: Arc<dyn SourceBuilder>,
     admission: Admission, owner: &native_control::ControlOwner, proxy: &Option<String>,
     stop: Arc<Stop>, native: &NativeAccountClient, scope: &AccountScope,
-    device: Option<Arc<framer_core::native_device::DeviceGrant>>) -> Outcome {
+    device: Option<Arc<crate::account::device::DeviceGrant>>) -> Outcome {
     if let Some(kind) = stopped(&stop, spec.deadline) { return Outcome::failed(kind); }
     if let Err(error) = owner.revalidate(state, &spec.identity, proxy).await {
         return Outcome::failed(error.into());
@@ -235,7 +237,7 @@ async fn observe(mut probe: ProbeRun, stop: Arc<Stop>, deadline: Instant,
 async fn session(state: &AppState, spec: Specification, source: Arc<dyn SourceBuilder>,
     admission: Admission, owner: &native_control::ControlOwner, proxy: &Option<String>,
     stop: Arc<Stop>, sessions: &Sessions) -> Outcome {
-    use framer_core::native_device::DeviceFailure;
+    use crate::account::device::DeviceFailure;
     let device = match DeviceLease::open(source.as_ref(), spec.identity.account).await {
         Ok(device) => device,
         Err(DeviceFailure::Rejected) => return Outcome::failed(FailureKind::Ineligible),
@@ -263,7 +265,7 @@ async fn session(state: &AppState, spec: Specification, source: Arc<dyn SourceBu
 async fn session_inner(state: &AppState, spec: Specification, source: Arc<dyn SourceBuilder>,
     admission: Admission, owner: &native_control::ControlOwner, proxy: &Option<String>,
     stop: Arc<Stop>, sessions: &Sessions,
-    device: Option<Arc<framer_core::native_device::DeviceGrant>>) -> Outcome {
+    device: Option<Arc<crate::account::device::DeviceGrant>>) -> Outcome {
     let native = sessions.native();
     let bridge = sessions.bridge();
     let route = proxy.as_deref().map(NativeEgress::Proxy).unwrap_or(NativeEgress::Direct);

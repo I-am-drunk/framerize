@@ -78,7 +78,6 @@ fn preserved(state: &AppState, ports: &FixturePorts, expected: &Value, called: b
     assert_eq!(*ports.run_calls.lock().unwrap(), calls);
     assert!(ports.saved.lock().unwrap().is_empty());
     assert!(ports.registered_proxies.lock().unwrap().is_empty());
-    assert!(ports.native_calls.lock().unwrap().is_empty());
     let snapshot = state.serving_accounts.residents.snapshot().unwrap();
     assert_eq!(snapshot.occupied, 1);
     assert_eq!(snapshot.residents.len(), 1);

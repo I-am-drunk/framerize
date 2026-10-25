@@ -1,21 +1,21 @@
-//! One request's handle into the existing host device authority.
+//! One request's handle into its explicitly supplied native device owner.
 use framer_core::ids::AccountId;
-use framer_core::native_device::DeviceFailure;
-use framer_core::native_device::DeviceGrant;
-use framer_core::port::BrowserBridge;
+use crate::account::device::DeviceFailure;
+use crate::account::device::DeviceGrant;
+use crate::account::device_owner::DeviceOwner;
 use futures::FutureExt;
 use std::panic::AssertUnwindSafe;
 use std::sync::Arc;
 use crate::authorization::source::SourceBuilder;
 
 pub(crate) struct DeviceLease {
-    owned: Option<(Arc<dyn BrowserBridge>, Arc<DeviceGrant>)>,
+    owned: Option<(Arc<dyn DeviceOwner>, Arc<DeviceGrant>)>,
 }
 
 impl DeviceLease {
     pub(crate) async fn open(source: &dyn SourceBuilder, account: AccountId)
         -> Result<Self, DeviceFailure> {
-        let Some(bridge) = source.device_bridge() else {
+        let Some(bridge) = source.device_owner() else {
             return Ok(Self { owned: None });
         };
         let grant = AssertUnwindSafe(bridge.open_native_device(account))
