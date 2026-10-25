@@ -1,12 +1,8 @@
 use std::{fs, path::PathBuf, time::{Duration, Instant}};
-use offline_worker_owner::{Cleanup, FilePin, SavedDevice, Specification, Target, Worker};
+use framer_native::worker::process::{Cleanup, SavedDevice, Target, Worker};
 use serde_json::{json, Value};
 
-const GROUP_LIMIT: u64 = if cfg!(application_worker_memory) {
-    256 * 1024 * 1024
-} else {
-    128 * 1024 * 1024
-};
+const GROUP_LIMIT: u64 = 128 * 1024 * 1024;
 
 fn isolated() -> bool {
     let namespace = |kind: &str| fs::read_link(format!("/proc/self/ns/{kind}"))
@@ -29,42 +25,8 @@ fn isolated() -> bool {
         && value("memory.swap.max") == Some(0) && value("pids.max") == Some(32)
 }
 
-fn digest(value: &str) -> Result<[u8; 32], &'static str> {
-    if value.len() != 64 || !value.bytes().all(|b| b.is_ascii_hexdigit()) {
-        return Err("configuration");
-    }
-    let mut out = [0; 32];
-    for (i, byte) in out.iter_mut().enumerate() {
-        *byte = u8::from_str_radix(&value[i * 2..i * 2 + 2], 16)
-            .map_err(|_| "configuration")?;
-    }
-    Ok(out)
-}
-
 fn configured_worker() -> Result<Worker, &'static str> {
-    let bytes = fs::read("/work/specification.json").map_err(|_| "configuration")?;
-    if bytes.len() > 65536 { return Err("configuration") }
-    let value: Value = serde_json::from_slice(&bytes).map_err(|_| "configuration")?;
-    let object = value.as_object().ok_or("configuration")?;
-    if object.len() != 3 { return Err("configuration") }
-    let path = |key: &str| -> Result<PathBuf, &'static str> {
-        let value = object.get(key).and_then(Value::as_str).ok_or("configuration")?;
-        if value.len() > 4096 { return Err("configuration") }
-        Ok(PathBuf::from(value))
-    };
-    let records = object.get("pins").and_then(Value::as_array).ok_or("configuration")?;
-    if records.len() > 64 { return Err("configuration") }
-    let mut pins = Vec::new();
-    for record in records {
-        let record = record.as_object().ok_or("configuration")?;
-        if record.len() != 2 { return Err("configuration") }
-        let name = record.get("path").and_then(Value::as_str).ok_or("configuration")?;
-        let hash = record.get("sha256").and_then(Value::as_str).ok_or("configuration")?;
-        if name.len() > 4096 { return Err("configuration") }
-        pins.push(FilePin { path: PathBuf::from(name), sha256: digest(hash)? });
-    }
-    Worker::new(Specification { node: path("node")?, entry: path("entry")?, pins })
-        .map_err(|_| "configuration")
+    framer_native::worker::from_config("/work/worker-config.json")
 }
 
 async fn measure(worker: Worker) -> Result<Value, &'static str> {
@@ -81,7 +43,16 @@ async fn measure(worker: Worker) -> Result<Value, &'static str> {
     let cleanup = completion.wait().await;
     drop(run);
     let Cleanup::Joined { pid } = cleanup else { return Err("cleanup") };
-    let minted = minted.map_err(|_| "worker")?;
+    let absent = fs::metadata(format!("/proc/{pid}"))
+        .is_err_and(|e| e.kind() == std::io::ErrorKind::NotFound);
+    let minted = match minted {
+        Ok(value) => value,
+        Err(failure) => return Ok(json!({
+            "accepted": false, "synthetic": true, "authenticated_delivery": false,
+            "worker_joined": true, "worker_absent": absent,
+            "failure": format!("{failure:?}")
+        })),
+    };
     if minted.freshness_origin > minted.received_at || minted.received_at > Instant::now() {
         return Err("freshness");
     }
@@ -90,8 +61,6 @@ async fn measure(worker: Worker) -> Result<Value, &'static str> {
     let valid = !bytes.is_empty() && bytes.len() <= 16384;
     bytes.fill(0);
     drop(bytes);
-    let absent = fs::metadata(format!("/proc/{pid}"))
-        .is_err_and(|e| e.kind() == std::io::ErrorKind::NotFound);
     if !valid || !absent { return Err("handoff") }
     Ok(json!({
         "accepted": true, "synthetic": true, "authenticated_delivery": false,
@@ -114,7 +83,7 @@ fn main() {
         runtime.shutdown_timeout(Duration::from_secs(2));
         result
     })();
-    let accepted = outcome.is_ok();
+    let accepted = outcome.as_ref().is_ok_and(|value| value["accepted"] == true);
     let report = outcome.unwrap_or_else(|phase| json!({
         "accepted": false, "synthetic": true, "failure_phase": phase
     }));

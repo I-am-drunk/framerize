@@ -54,6 +54,15 @@ exclusion, invalid-request refusal, both signal shutdowns and profile reuse
 pass with synthetic state. All six pinned public asset downloads also match.
 No SDK execution or upstream acceptance is established by these results.
 
+The portable V3 worker has now also executed the unchanged real SDK with
+synthetic context, inside a private network/PID namespace with homes hidden,
+no new privileges and a 128 MiB cgroup limit. It generated one token, handed
+it to the Rust owner, joined the worker and discarded the token. The run took
+2.35 seconds, including 544 ms inside the SDK method. No upstream request or
+real account was involved, so live native acceptance remains unverified.
+The existing worker measurement is now a normal Cargo example using the same
+configuration loader as the native service, with its duplicate parser removed.
+
 The expiry, importer, journal, rate and runtime-owner suites pass 41 focused
 Python cases. Thirteen expiry cases cover actual deadline boundaries, unknown
 daily reserve use, account isolation, changed owners, clock discontinuities,

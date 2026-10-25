@@ -68,6 +68,12 @@ archive therefore does not bind it to the build machine or current directory.
 Startup verifies the packaged runtime and the existing 32 direct worker pins.
 Explicit external worker configurations remain supported for development.
 
+`framer-native::worker::from_config` is the shared configuration entry point
+for the service and the `worker-smoke` Cargo example. The example runs one
+synthetic mint only inside its required network/PID/filesystem isolation and
+memory limit, retains cleanup and discards the token. Its success establishes
+local SDK execution and handoff, not authenticated upstream delivery.
+
 Concurrency-limit storage is selected by application startup. Library gates
 are in memory unless supplied a state-file path. Fixtures never inherit the
 normal service's learned limits through an implicit home-directory lookup.

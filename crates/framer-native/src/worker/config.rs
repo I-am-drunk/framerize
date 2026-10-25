@@ -38,7 +38,7 @@ pub(crate) fn read(path: &str) -> Result<Vec<u8>, &'static str> {
     Ok(bytes)
 }
 
-pub(crate) fn load(path: &str) -> Result<Worker, &'static str> {
+pub fn load(path: &str) -> Result<Worker, &'static str> {
     Worker::new(specification(path)?).map_err(|_| "invalid offline worker specification")
 }
 
