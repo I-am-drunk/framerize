@@ -4,6 +4,8 @@
 
 mod value;
 pub use value::{serialize, Value};
+mod deflate;
+pub use deflate::deflate;
 
 /// Append the SDK's unsigned base-128 representation without shared state.
 ///
