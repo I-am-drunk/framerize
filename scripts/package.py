@@ -18,8 +18,12 @@ def package(app, output, target_dir, allow_dirty=False):
         ['git', 'status', '--porcelain', '--untracked-files=normal'], cwd=ROOT))
     if dirty and not allow_dirty:
         raise ValueError('commit the source first, or use --allow-dirty for a local development package')
+    profile = target_dir.name
+    development = dirty or profile != 'release'
+    if profile != 'release' and not allow_dirty:
+        raise ValueError('use a release build, or --allow-dirty for a local development package')
     system = f'{platform.system().lower()}-{platform.machine()}'
-    name = f'{app}-{system}-{commit}' + ('-development' if dirty else '')
+    name = f'{app}-{system}-{commit}' + ('-development' if development else '')
     binary = target_dir / app
     if not binary.is_file():
         raise ValueError(f'build the {app} target first: {binary}')
@@ -39,12 +43,16 @@ def package(app, output, target_dir, allow_dirty=False):
             for entry in ['host.py', 'requirements.txt']:
                 shutil.copy2(source / entry, tree / 'runtime' / entry)
             runtime = tree / 'runtime'
+            for path in sorted(runtime.rglob('*'), reverse=True):
+                if path.is_dir() and not any(path.iterdir()):
+                    path.rmdir()
             pins = {path.relative_to(runtime).as_posix():
                     hashlib.sha256(path.read_bytes()).hexdigest()
                     for path in sorted(runtime.rglob('*')) if path.is_file()}
             (runtime / 'runtime-manifest.json').write_text(
                 json.dumps(pins, sort_keys=True, indent=2) + '\n')
         info = {'format': 1, 'application': app, 'commit': commit, 'platform': system, 'source_dirty': dirty,
+                'build_profile': profile, 'development': development,
                 'rustc': subprocess.check_output(['rustc', '--version'], text=True).strip(),
                 'capability': 'browser-serving' if app == 'framerize' else 'configuration-structure-only'}
         (tree / 'build-info.json').write_text(json.dumps(info, indent=2) + '\n')

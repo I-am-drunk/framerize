@@ -34,6 +34,9 @@ change the running service. `scripts/linux/server-setup.sh` delegates to it.
 For source development, pass `--web-dir web/dist` and
 `--sidecar-script "$PWD/runtime/host.py"` explicitly. `--allow-dirty` creates a
 package marked for local development.
+Debug builds also require that flag and remain marked as development packages
+even from a clean checkout. Build information records the profile independently
+of whether the source tree was dirty.
 
 The application keeps its learned concurrency limits in
 `~/.framerize/gate-state.json`, or the explicit `FRAMERIZE_GATE_STATE` path.

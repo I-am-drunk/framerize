@@ -6,14 +6,36 @@ import sys
 import tempfile
 import tarfile
 import unittest
+from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from framerize_host.release import verify_runtime
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / 'scripts'))
 import release as installer
+import package as builder
 
 
 class ReleaseTests(unittest.TestCase):
+    def test_clean_debug_build_is_still_a_development_package(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            target = root / 'debug'
+            target.mkdir()
+            (target / 'framerize-native').write_bytes(b'synthetic executable')
+            def output(args, **kwargs):
+                return {'rev-parse': 'f' * 40, 'status': b'', '--version': 'fixture rustc'}[args[1]]
+            with patch.object(builder.subprocess, 'check_output', side_effect=output):
+                with self.assertRaisesRegex(ValueError, 'release build'):
+                    builder.package('framerize-native', root / 'out', target)
+                archive = builder.package('framerize-native', root / 'out', target, True)
+            self.assertIn('-development.tar.gz', archive.name)
+            with tarfile.open(archive) as bundle:
+                member = next(m for m in bundle.getmembers() if m.name.endswith('/build-info.json'))
+                info = json.load(bundle.extractfile(member))
+            self.assertFalse(info['source_dirty'])
+            self.assertTrue(info['development'])
+            self.assertEqual(info['build_profile'], 'debug')
+
     def test_manifest_detects_changed_missing_and_extra_runtime_files(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
