@@ -1810,3 +1810,9 @@ deployed package.
 Use `scripts/prepare_browser_runtime.py` to prepare those tracked sources in
 a new directory. See `scripts/cooldown_support/README.md` for the boundary
 between package generation and an actual coordinated deployment.
+
+The shared-service transition adapter binds read-only memory access to the
+current plan in both directions. Activation uses the rollback release identity;
+rollback uses the candidate identity. It preserves the original privileged
+validator and its process, owner, parent, interpreter and script checks.
+See [the descriptor binding result](../reference/analysis/shared-v3-descriptor-binding-20261025.md).
