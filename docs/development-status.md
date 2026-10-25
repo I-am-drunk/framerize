@@ -14,18 +14,20 @@ The rearchitecture is on `refactor/separate-apps-and-ci-20261025` in draft
 - Native service state and admission without a browser bridge or browser router.
 - Standalone native startup with owned sessions, ledger and a verified worker.
 - An explicit legacy-history importer with atomic journal publication.
+- A separate expiry transition for legacy profiles with no complete export.
 
 The retired host patchers, combined-mode checkers and their private tests are
 removed. Current tests stay with the behavior they exercise.
 
 ## Validation
 
-The legacy importer, journal and rate suites pass 24 focused Python cases.
-They cover preserved device/request state, incomplete inputs, changed owners,
-existing history, concurrent ownership, failed writes and inventory changes.
-The importer is not connected to automatic startup and has not migrated live
-state. It requires a final source snapshot; the old host's missing export
-remains unresolved. Existing native and browser package results are retained.
+The expiry, importer, journal, rate and runtime-owner suites pass 41 focused
+Python cases. Thirteen expiry cases cover actual deadline boundaries, unknown
+daily reserve use, account isolation, changed owners, clock discontinuities,
+existing history, failed writes and inventory changes. These use synthetic
+state and clocks. Neither migration API is connected to automatic startup or
+has migrated live state. The complete-snapshot importer still requires a final
+source export. Existing native and browser package results are retained.
 
 The complete browser and native development archives at `2410dac` pass
 verification and staging. Browser startup, signal shutdown and profile
@@ -52,8 +54,9 @@ Health reports 503 when the global operation gate is sealed or unconfirmed.
 The 25 October outage was a persistent global admission refusal, not a process
 crash. The exact underlying browser check that triggered it was not logged;
 the regression establishes a source defect, not that historical trigger.
-This correction is undeployed. Health reporting alone does not implement
-automatic recovery, which remains unfinished.
+The narrow repair tracked in PR #3 is running on the original source base; this
+rewrite remains undeployed. Health reporting alone does not implement automatic
+recovery, which remains unfinished.
 
 Standalone native startup passes 29 service cases, including its admission-aware
 health endpoint. Both debug applications build. Six release tests pass, including
@@ -75,6 +78,9 @@ and this CLI does not enable V2 serving.
 
 First migration of legacy account history remains unresolved. The working
 browser service and its account state have not been changed by this rewrite.
+Next, integrate an explicit pre-admission migration stage with session ownership
+and joined cancellation. The expiry API requires an idle ownership interval;
+it does not authorize interrupting the current service or guessing its history.
 
 The requested alternate GitHub account (`diddletime`) and private build fork
 are configured. Both available accounts have Actions billing restrictions;

@@ -132,6 +132,23 @@ Activation needs genuine current state or demonstrated expiry under exclusive
 ownership. Producing a package does not prove either condition. No production
 restart is part of this structural work.
 
+For the missing-export case, `ExpiryWitness` now provides an explicit idle
+transition. It starts only under a successor of the named service, owns the
+journal lock, and requires at least 600 seconds on the same monotonic clock.
+Stricter configured limits extend that wait. Closing it or losing runtime,
+clock or inventory continuity prevents reusing the elapsed-time claim.
+Publication uses the importer's existing atomic path. Its provenance records
+that prior usage was unavailable and expired under local policy. Saved stable
+devices remain unchanged; the unrecorded old primary is not guessed. Unknown
+daily reserve use remains exhausted for at least 24 hours from the start.
+
+This is an API, not an activation command. The daemon must hold the session
+store and defer all account work throughout that interval. Startup integration
+and its signal/cleanup checks remain unfinished. A live first migration would
+need that exclusive interval; it must not be silently imposed on the current
+working service. Ordinary updates after migration use the durable journal and
+do not require repeating this interval.
+
 ## Examples used
 
 - [uv's thin executable](https://github.com/astral-sh/uv/blob/0.9.5/crates/uv/src/bin/uv.rs)

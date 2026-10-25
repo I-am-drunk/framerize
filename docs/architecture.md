@@ -117,6 +117,16 @@ Existing profiles without a journal require migration. Interrupted records
 require confirmed cleanup before reuse. First migration remains unfinished;
 this code is undeployed.
 
+`framerize_accounts.expiry.ExpiryWitness` supports the legacy case with no
+exported history. A successor keeps the profile exclusively idle for at least
+the old 600-second local rate window. The witness holds the journal lock and
+rechecks the service lifetime, clock and saved device inventory before atomic
+publication. It records unknown-expired provenance instead of fabricated past
+requests. Stable device IDs survive, the unknown former primary stays unset,
+and unknown reserve usage remains fully allocated for at least 24 hours.
+The caller must hold session ownership and defer all account activity. This
+API is not yet wired into startup and does not establish upstream acceptance.
+
 The browser application always tracks its requests and background work.
 SIGTERM or Ctrl-C stops new HTTP admission, lets accepted responses finish,
 and joins detached application work before shutting down the host. The host

@@ -112,21 +112,11 @@ def install_legacy(root, snapshot, inventories, source_runtime, policy=None, clo
     with os.fdopen(os.open(root / '.rate-history.lock', flags, 0o600), 'rb') as lock:
         fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
         _check_inventory(root, inventories)
-        with tempfile.TemporaryDirectory(prefix='.rate-migration-', dir=root.parent) as directory:
-            staging = Path(directory) / 'history.sqlite3'
-            _write_database(staging, records, source_runtime)
-            _check_inventory(root, inventories)
-            require(runtime_owner.capture() == current, 'successor runtime changed')
-            os.link(staging, root / 'rate-history.sqlite3')
-            directory_fd = os.open(root, os.O_RDONLY | os.O_DIRECTORY)
-            try:
-                os.fsync(directory_fd)
-            finally:
-                os.close(directory_fd)
+        _publish(root, records, inventories, source_runtime, current)
     return len(records)
 
 
-def _write_database(path, records, source_runtime):
+def _write_database(path, records, source_runtime, evidence=None):
     os.close(os.open(path, os.O_CREAT | os.O_EXCL | os.O_RDWR, 0o600))
     db = sqlite3.connect(path, timeout=0)
     try:
@@ -139,7 +129,31 @@ def _write_database(path, records, source_runtime):
             db.executemany('INSERT INTO accounts(account, snapshot, runtime_owner) VALUES (?, ?, ?)',
                 [(account, json.dumps(record, allow_nan=False, separators=(',', ':')), owner)
                  for account, record in records.items()])
+            if evidence is not None:
+                db.execute('CREATE TABLE migration_evidence (record TEXT NOT NULL)')
+                db.execute('INSERT INTO migration_evidence VALUES (?)',
+                    (json.dumps(evidence, allow_nan=False, separators=(',', ':')),))
     finally:
         db.close()
     with path.open('rb') as stream:
         os.fsync(stream.fileno())
+
+
+def _publish(root, records, inventories, source_runtime, current, evidence=None,
+             before_publish=None):
+    with tempfile.TemporaryDirectory(prefix='.rate-migration-', dir=root.parent) as directory:
+        staging = Path(directory) / 'history.sqlite3'
+        if evidence is None:
+            _write_database(staging, records, source_runtime)
+        else:
+            _write_database(staging, records, source_runtime, evidence)
+        _check_inventory(root, inventories)
+        require(runtime_owner.capture() == current, 'successor runtime changed')
+        if before_publish is not None:
+            before_publish()
+        os.link(staging, root / 'rate-history.sqlite3')
+        directory_fd = os.open(root, os.O_RDONLY | os.O_DIRECTORY)
+        try:
+            os.fsync(directory_fd)
+        finally:
+            os.close(directory_fd)
