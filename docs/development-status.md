@@ -25,8 +25,11 @@ removed. Current tests stay with the behavior they exercise.
 
 The existing temporary browser archive checks are now consolidated in
 `scripts/smoke_browser_package.py` and wired into the browser CI job. The
-consolidated command adds an actual packaged-UI request. Qualification of
-this command against the current browser archive is pending.
+clean `4243da2` development archive passes all nine lifecycle checks, including
+an actual request for the bundled UI, profile exclusion, both shutdown signals
+and later profile reuse. Its executable matches the qualified browser build.
+This uses empty temporary accounts and runs no browser, SDK or inference.
+The archive is retained for development, not installed in the live service.
 
 Both browser cooldown repairs are integrated into the reorganized application.
 A queued unbound request can release a newly cooled account and select an
