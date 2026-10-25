@@ -29,6 +29,22 @@ zero ignored or filtered tests. No full SDK, browser or network was started.
 This proves the tested packing behavior, not real observation collection,
 portable collation, upstream acceptance or a reduction in application RAM.
 
+## Confirmed unavailability
+
+`unavailable_network_record` matches the no-argument `xP()` call at
+95131..95337. It retains the 56-position sparse row, empty address and summary
+strings, empty candidate/state arrays, and `UP(["unavailable", ""])` at field
+47. The no-argument fallback is used for unavailable networking in `N_`;
+it is distinct from the normal finalizer receiving an empty observation.
+The API does not implement `xP(n)` with a supplied argument or decide when
+networking is unavailable.
+
+The existing record comparison extracts `xP` and its literal bindings from
+the same pinned source. All 32 full-record comparisons and the non-scalar
+refusal check pass in three tests, with zero skipped or filtered. The added
+test also requires the unavailable and ordinary empty records to differ.
+The isolated check starts no SDK module, browser, account or network request.
+
 ## Typed observation reduction
 
 `NetworkEvents` now implements the preceding pure transformations using

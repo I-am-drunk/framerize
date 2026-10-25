@@ -4,7 +4,7 @@ import vm from 'node:vm';
 import {preamble, literalBindings, sourceBetween, sourceFunction, decode} from './castle_v3_reference.mjs';
 
 const input = readFileSync(0, 'utf8');
-const names = '$ Tn Lp i5 gr j2 q3 mr y1 j8 dh C8 Tr pt Wf ht In p Lf pr qt Bn'.split(' ');
+const names = '$ Tn Lp i5 gr j2 q3 mr y1 j8 dh C8 Tr pt Wf ht In p Lf pr qt Bn ST Sn'.split(' ');
 function candidate(fields) {
   const paths = [[0,5,6],[1,7],[2,5,3,3],[1,4,2,4],[2,2,1,6],[0,10],[0,8,8,5]];
   const record = [];
@@ -19,11 +19,13 @@ const program = `${preamble()}
 const ${literalBindings(names)};
 ${sourceBetween('function UP(', 'function hZ(')}
 ${sourceBetween('function hZ(', 'function p4(')}
+${sourceBetween('function xP(', 'function od(')}
 const finish=(${sourceBetween('function(Wn,tt,et,yt,Ot,Bt)', ')(...(Cn=w[t]')});
 const serialize=(${sourceFunction(274985)});
 const decode=(${decode.toString()});
 const candidate=(${candidate.toString()});
-({fields:[Wf,ht,In,p,Pn,Lf,pr,qt,m], rows:JSON.parse(input).map(item=>{
+({fields:[Wf,ht,In,p,Pn,Lf,pr,qt,m],
+unavailable:Array.from(serialize([xP()])), rows:JSON.parse(input).map(item=>{
   const result=finish(item.address,item.related,item.candidates.map(candidate),...item.histories);
   const order=result[0][p].map(row=>{
     const text=a(zt,row);
