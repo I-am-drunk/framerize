@@ -112,9 +112,11 @@ checks one post-collection observation, not the preceding collector semantics.
 in position 242 and network positions 80, 469, 473 and 659. The network
 assignments run in that order: related address, hash, address, protocols.
 The related address, hash and protocols reuse the envelope's string transform.
-Each variant requires its target position and preserves the array on refusal.
-Stop at the first error while retaining earlier completed assignments; the
-callback is not atomic. The transformed fields accept original strings and
+`apply_network_result` consumes one observation and applies all four network
+assignments in order, without cloning the record. It checks each destination
+before conversion and stops on the first error, retaining earlier assignments.
+`apply_collector_result` remains available for individual assignments, including
+the SharedWorker value. The transformed fields accept original strings and
 missing-field markers. JavaScript accessors and truthy non-string coercions
 remain outside the typed interface.
 The [collector comparison](../reference/analysis/castle-v3-collected-inputs.md)

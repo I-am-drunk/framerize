@@ -18,6 +18,21 @@ pub enum CollectorError {
     Network(NetworkValueError),
 }
 
+/// Apply the four network values in SDK order, consuming the observation once.
+/// Conversion stops on the first error. Prior writes survive; later slots stay
+/// unchanged. Timing and actual collection remain the caller's responsibility.
+pub fn apply_network_result(values: &mut [Value], observation: Value)
+    -> Result<(), CollectorError> {
+    let mut results = super::network_result::network_assignments(observation);
+    for position in [80, 469, 473, 659] {
+        let target = values.get_mut(position)
+            .ok_or(CollectorError::MissingPosition(position))?;
+        *target = results.next().expect("four network assignments")
+            .map_err(CollectorError::Network)?;
+    }
+    Ok(())
+}
+
 /// Apply one completed collector result to an already supplied value array.
 ///
 /// SDK3337eba7 assigns Q[242] at 282619. Its network callback at 284106..284245

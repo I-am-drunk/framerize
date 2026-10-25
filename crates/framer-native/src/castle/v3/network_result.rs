@@ -1,7 +1,7 @@
 //! The pinned SDK's krn/ud reduction of a supplied network observation.
 use super::Value;
 
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum NetworkValueError {
     /// The original getter throws when record zero is null or missing.
     MissingRecord,
@@ -44,22 +44,51 @@ pub fn network_protocols(input: Value) -> Result<Value, NetworkValueError> {
 
 fn encoded_field(input: Value, index: usize, error: NetworkValueError)
     -> Result<Value, NetworkValueError> {
-    match network_field(input, index)? {
+    transform(network_field(input, index)?, error)
+}
+
+fn transform(value: Value, error: NetworkValueError) -> Result<Value, NetworkValueError> {
+    match value {
         Value::String(units) => Ok(marker(&super::envelope::encode_text(units))),
         _ => Err(error),
     }
 }
 
-fn network_field(input: Value, index: usize) -> Result<Value, NetworkValueError> {
-    match input {
-        Value::Array(_) | Value::Object(_) => {}
+fn first_record(mut input: Value) -> Result<Option<Value>, NetworkValueError> {
+    match &input {
+        Value::Array(_) | Value::Object(_) => property(&mut input, 0).map(Some),
         Value::JsonFallback(_) | Value::JsonFailure => {
-            return Err(NetworkValueError::NormalizedValue);
+            Err(NetworkValueError::NormalizedValue)
         }
-        _ => return Ok(marker("a9opjk")),
+        _ => Ok(None),
     }
-    let record = property(input, 0)?;
-    let value = property(record, index)?;
+}
+
+fn network_field(input: Value, index: usize) -> Result<Value, NetworkValueError> {
+    match first_record(input)? {
+        Some(mut record) => normalized(property(&mut record, index)?),
+        None => Ok(marker("a9opjk")),
+    }
+}
+
+pub(super) fn network_assignments(input: Value)
+    -> impl Iterator<Item = Result<Value, NetworkValueError>> {
+    let mut record = first_record(input);
+    [40, 47, 38, 18].into_iter().map(move |index| {
+        let value = match &mut record {
+            Err(error) => return Err(*error),
+            Ok(None) => marker("a9opjk"),
+            Ok(Some(record)) => normalized(property(record, index)?)?,
+        };
+        match index {
+            38 => Ok(value),
+            47 => transform(value, NetworkValueError::NonStringHash),
+            _ => transform(value, NetworkValueError::NonStringField(index)),
+        }
+    })
+}
+
+fn normalized(value: Value) -> Result<Value, NetworkValueError> {
     match value {
         Value::JsonFallback(_) | Value::JsonFailure => Err(NetworkValueError::NormalizedValue),
         Value::Null | Value::Undefined | Value::Bool(false) => Ok(marker("2nrh3qm")),
@@ -69,15 +98,18 @@ fn network_field(input: Value, index: usize) -> Result<Value, NetworkValueError>
     }
 }
 
-fn property(value: Value, index: usize) -> Result<Value, NetworkValueError> {
+fn property(value: &mut Value, index: usize) -> Result<Value, NetworkValueError> {
     match value {
         Value::Null | Value::Undefined => Err(NetworkValueError::MissingRecord),
         Value::JsonFallback(_) | Value::JsonFailure => Err(NetworkValueError::NormalizedValue),
-        Value::Array(values) => Ok(values.into_iter().nth(index).unwrap_or(Value::Undefined)),
+        Value::Array(values) => Ok(values.get_mut(index)
+            .map(|value| std::mem::replace(value, Value::Undefined))
+            .unwrap_or(Value::Undefined)),
         Value::Object(entries) => {
             let key: Vec<_> = index.to_string().encode_utf16().collect();
-            Ok(entries.into_iter().rev().find(|(name, _)| name == &key)
-                .map(|(_, value)| value).unwrap_or(Value::Undefined))
+            Ok(entries.iter_mut().rev().find(|(name, _)| name.as_slice() == key.as_slice())
+                .map(|(_, value)| std::mem::replace(value, Value::Undefined))
+                .unwrap_or(Value::Undefined))
         }
         Value::String(units) => Ok(units.get(index)
             .map(|unit| Value::String(vec![*unit])).unwrap_or(Value::Undefined)),

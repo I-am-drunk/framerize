@@ -118,20 +118,21 @@ def check(snapshot, output, *, network_unavailable=False):
                 apply.append('assert!(serialize(&[unavailable_network_record()]).unwrap()=='
                              f'serialize(&[{expression}]).unwrap(),"network record differs");')
                 expression = 'unavailable_network_record()'
-            assignments = [(242, 'SharedWorker')] if name == 'worker' else [
-                (80, 'NetworkRelatedAddress'), (469, 'NetworkHash'),
-                (473, 'Network'), (659, 'NetworkProtocols')]
-            for position, variant in assignments:
-                fields.append(position)
-                apply.append(f'values[{position}]=Value::Undefined;'
-                             f'apply_collector_result(&mut values,CollectorResult::{variant}({expression})).unwrap();')
+            if name == 'worker':
+                fields.append(242)
+                apply.append('values[242]=Value::Undefined;'
+                             f'apply_collector_result(&mut values,CollectorResult::SharedWorker({expression})).unwrap();')
+            else:
+                fields.extend([80,469,473,659])
+                apply.append('for position in [80,469,473,659] {values[position]=Value::Undefined;}')
+                apply.append(f'apply_network_result(&mut values,{expression}).unwrap();')
     with tempfile.TemporaryDirectory(prefix='v3-sdk-snapshot-') as directory:
         path = Path(directory)
         (path/'serialized').write_bytes(serialized)
         module = json.dumps(str(ROOT/'crates/framer-native/src/castle/mod.rs'))
         source = f'''#![recursion_limit="2048"]
 #[allow(dead_code,unused_imports)] #[path={module}] mod castle;
-use castle::v3::{{Value,serialize,encode_collected,apply_collector_result,CollectorResult,
+use castle::v3::{{Value,serialize,encode_collected,apply_collector_result,apply_network_result,CollectorResult,
     unavailable_network_record}};
 #[test] fn normalized_snapshot_round_trip_and_encode() {{
     let mut values=vec![{','.join(values)}];
