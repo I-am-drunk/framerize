@@ -99,6 +99,13 @@ unchanged. The native check reconstructs normalized values, verifies their
 serialized bytes and compares the final output by hash and length. This
 checks one post-collection observation, not the preceding collector semantics.
 
+`apply_collector_result` places supplied SharedWorker and network outcomes
+in the source-defined positions 242 and 473 using the existing reducers.
+It requires an existing target position and leaves the array unchanged on
+refusal. The [collector comparison](../reference/analysis/castle-v3-collected-inputs.md)
+also rebuilds those positions from actual outcomes captured in one isolated
+synthetic SDK run. It does not fill the remaining collection dependencies.
+
 An open, unbound browser stream can wait for local account capacity before
 generated output. It retries eligibility within one cumulative 600-second
 wait budget without holding model or resident permits while asleep. Stream

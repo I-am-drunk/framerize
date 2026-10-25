@@ -23,6 +23,8 @@ mod network_events;
 pub use network_events::{NetworkEvents, NetworkState};
 mod encode;
 pub use encode::{encode_collected, EncodingError};
+mod collected;
+pub use collected::{apply_collector_result, CollectorError, CollectorResult};
 
 /// Append the SDK's unsigned base-128 representation without shared state.
 ///

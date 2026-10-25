@@ -1,8 +1,10 @@
 // Test-only observation hooks. The production SDK loader does not import this.
 import {createHash} from 'node:crypto';
+import {capture} from './castle_v3_snapshot_values.mjs';
 const sdkHash = '3337eba7ffe614c2ebd9b2b8a55794f2e2445a9b3658d1af5eb7530152b72c71';
 const sha = value => createHash('sha256').update(value).digest('hex');
 let serialized, timestamp, instrumentedHash;
+const collectors = new Map();
 
 function once(source, before, after) {
   const at = source.indexOf(before);
@@ -18,13 +20,21 @@ export function instrument(role, bytes) {
   body = once(body, '$2n((function(L){', '$2n(import.meta.serialized((function(L){');
   body = once(body, '})(Q))[En](function(L){', '})(Q)))[En](function(L){');
   body = once(body, 'a(jf)[Tn]()', 'import.meta.clock(a(jf))[Tn]()');
-  const source = bytes.subarray(0, 274980).toString('utf8') + body + bytes.subarray(281222).toString('utf8');
+  let source = bytes.subarray(0, 274980).toString('utf8') + body + bytes.subarray(281222).toString('utf8');
+  source = once(source, 'Q[_o]=l(s,Qon(W))', 'Q[_o]=l(s,Qon(import.meta.collector("worker",W)))');
+  source = once(source, 'Q[473]=a(X0,krn(W))', 'Q[473]=a(X0,krn(import.meta.collector("network",W)))');
   instrumentedHash = sha(source);
   return source;
 }
 
 export function initializeRecorder(role, meta) {
   if (role !== 'v3') return;
+  meta.collector = (name, value) => {
+    if (!['worker','network'].includes(name) || collectors.has(name))
+      throw new Error('collector-observation-count');
+    collectors.set(name, capture(value));
+    return value;
+  };
   meta.serialized = value => {
     if (serialized || !ArrayBuffer.isView(value) || value.BYTES_PER_ELEMENT !== 1
         || value.byteLength > 1024 * 1024) throw new Error('snapshot-bytes');
@@ -37,9 +47,11 @@ export function initializeRecorder(role, meta) {
 }
 
 export function takeSnapshot(token) {
-  if (!serialized || timestamp === undefined || !instrumentedHash || typeof token !== 'string')
+  if (!serialized || timestamp === undefined || !instrumentedHash || typeof token !== 'string'
+      || collectors.size !== 2)
     throw new Error('snapshot-incomplete');
-  const result = {schema:1, synthetic:true, sdk_sha256:sdkHash,
+  const result = {schema:2, synthetic:true, sdk_sha256:sdkHash,
+    collectors:Object.fromEntries(collectors), collector_order:[...collectors.keys()],
     instrumented_sdk_sha256:instrumentedHash, timestamp_ms:timestamp,
     serialized:Array.from(serialized), token_sha256:sha(token), token_bytes:Buffer.byteLength(token)};
   serialized.fill(0); serialized = undefined;
