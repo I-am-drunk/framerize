@@ -1,5 +1,14 @@
 # Serving architecture and branch policy
 
+The explicit V3 complete endpoint can start alongside normal browser routes.
+Supply the worker configuration and `--offline-sdk v3`, with no offline routing
+configuration. This path installs operation ownership and the shared session
+adapter itself; the separate browser-ownership flag conflicts and is omitted.
+An isolated empty-store check passed normal hello routes and local offline
+input refusal. Actual account admission and history must still share one owner.
+Pool exclusion alone does not transfer session or rate ownership to another
+process. See `reference/analysis/v3-shared-service-startup-20261025.md`.
+
 The normal repair's R9 acceptance separates client disconnection from upstream
 abortion. It disconnects after observed request start, verifies the original
 work joins and releases its ownership, then requires a complete second response.

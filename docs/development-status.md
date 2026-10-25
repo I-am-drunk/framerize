@@ -1,5 +1,14 @@
 # Development status
 
+The qualified V3 application passed nine isolated empty-store startup checks
+with the worker configuration enabled and normal browser routing preserved.
+No account, browser or SDK request ran. All 1,941 input hashes were unchanged
+and cleanup was collected. R9 remains the running repair. Native acceptance
+will use an existing normal account with current shared ownership and history;
+the separate account-copy draft is unused. Next: finish binding that ownership
+and prepare the shared-service runtime transition. See
+`reference/analysis/v3-shared-service-startup-20261025.md`.
+
 R9 deployed the normal-browser repair on port 8787. The first test disconnected
 after observed request start; its work completed and released ownership. The
 second test delivered text, terminal completion and EOF on the same generation.
