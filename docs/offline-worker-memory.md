@@ -315,12 +315,16 @@ and its frozen review package remain unchanged.
 
 ## Combined native host and worker
 
-The [combined fixture](../scripts/tests/run_host_worker.py) reuses the accepted
+The [historical combined fixture](https://github.com/diddletime/framerize/blob/3bdfb6a2984b04cae611db8f230468681587dae7/scripts/tests/run_host_worker.py) reused the accepted
 lazy host and compiled owner harness. One synthetic device lease remains
 held while the unchanged worker completes its local mint. Only after the
 worker joins and its absence is confirmed does the fixture report completion
 to the host. It releases the lease, then opens and closes a fresh lease without
 another mint. The host retains the same generation throughout.
+
+That fixture and its host-restoration setup were removed during the application
+split. The measurements below remain historical evidence for those exact
+inputs, not measurements of the reorganized applications.
 
 The single run peaked at 102,887,424 bytes of group memory with 15 tasks.
 Owner elapsed time was 1934.152 ms, with 1249.716 ms reported for the SDK.

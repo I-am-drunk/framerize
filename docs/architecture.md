@@ -26,6 +26,12 @@ Their [validation record](history/parallel-browserless-validation-before-reorgan
 is historical. Current Python tests live in `runtime/tests`; Rust tests stay
 with the libraries whose behavior they cover.
 
+Legacy host source patching, one-use restoration packages and their combined
+application/worker fixtures are also removed. Build the browser package with
+`scripts/package.py`; its runtime uses the journal and shutdown path described
+below. The old setup and measurements remain in the history, with immutable
+source links where relevant.
+
 The browser archive carries its matching host and UI. The executable resolves
 both from its own package, independently of the working directory. Development
 overrides are explicit command-line options. Native developer archives remain

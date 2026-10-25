@@ -1,4 +1,10 @@
-# Browser runtime restoration sources
+# Historical browser runtime restoration sources
+
+This records the retired host-patching workflow. Its assembler, restoration
+modules and combined-mode process fixtures have been removed. The current
+browser package uses a durable journal and managed-service recovery instead.
+The descriptions and hashes below apply only to the old implementation.
+See [current packages](../releases.md) for supported build and staging commands.
 
 These five Python modules and the startup template preserve the deployed
 browser host's one-use cooldown restoration. They contain source code only.
