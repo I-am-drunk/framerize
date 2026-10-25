@@ -32,6 +32,10 @@ Validation collected locally:
 - The TypeScript/Vite UI build passes. Both local development archives pass
   checksum verification, staging and executable startup; the packaged browser
   host starts and exits on EOF using fresh temporary state without a browser.
+- After the host cut, a fresh browser development archive passes the same checks
+  and excludes observation/native packages. Debug builds remain explicitly
+  marked as development even from a clean checkout; its regression test passes.
+  Packaging omits empty directories left by removed runtime modules.
 - Native: 298 accepted cases across the collected worker and request selections.
   The eight stale request-envelope expectations were corrected; their 24-case
   selection passed. The 106 worker cases passed after optimizing debug hashing.
