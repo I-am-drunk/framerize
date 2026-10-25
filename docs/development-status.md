@@ -30,6 +30,13 @@ both isolated runs are collected. The original wrapper qualification is retained
 No new SDK or native-service acceptance follows from these inert checks. See
 `reference/analysis/v3-phase-diagnostic-qualification-20261025.md`.
 
+The updated V3 worker library compiled and is collected. The application link
+exposed omitted transitive dependency bindings in the older build manifest.
+That failed attempt is collected; the exact missing bindings are being prepared
+for a fresh link-only attempt. The native host and runtime configuration can
+be reused after their source and file bindings matched. No V3 application or
+SDK was launched. See `reference/analysis/v3-application-build-20261025.md`.
+
 Three controller diagnostic/privacy cases also pass. The next prepared rollout
 controller preserves fixed failure codes and bounded source locations without
 recording arbitrary exception text. It is bound to the unchanged repair package
