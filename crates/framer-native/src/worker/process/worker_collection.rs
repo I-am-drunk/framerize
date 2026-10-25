@@ -6,7 +6,9 @@ pub(super) const LIMIT: usize = 1024 * 1024;
 
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
-struct Collection { version: u8, values: Captured, shared_worker_reply: Captured }
+struct Collection {
+    version: u8, values: Captured, shared_worker_reply: Captured, network_reply: Captured,
+}
 
 #[derive(Deserialize)]
 #[serde(tag = "kind", rename_all = "lowercase", deny_unknown_fields)]
@@ -21,7 +23,7 @@ pub(super) fn decode(bytes: &[u8]) -> Option<Vec<Value>> {
     let size = u32::from_be_bytes(bytes[8..12].try_into().ok()?) as usize;
     if size == 0 || size + 12 != bytes.len() { return None; }
     let input: Collection = serde_json::from_slice(&bytes[12..]).ok()?;
-    if input.version != 2 { return None; }
+    if input.version != 3 { return None; }
     let Captured::Array { values } = input.values else { return None; };
     if values.len() != 765 { return None; }
     let (mut count, mut units) = (1usize, 0usize);
@@ -29,6 +31,8 @@ pub(super) fn decode(bytes: &[u8]) -> Option<Vec<Value>> {
         .map(|v| convert(v, 1, &mut count, &mut units)).collect::<Option<_>>()?;
     let reply = convert(input.shared_worker_reply, 0, &mut count, &mut units)?;
     v3::apply_collector_result(&mut values, v3::CollectorResult::SharedWorker(reply)).ok()?;
+    let network = convert(input.network_reply, 0, &mut count, &mut units)?;
+    v3::apply_network_result(&mut values, network).ok()?;
     Some(values)
 }
 

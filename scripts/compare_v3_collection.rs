@@ -49,6 +49,7 @@ fn compare(frame: &[u8], snapshot: &Value) -> Checked<Value> {
     Ok(json!({"schema":1,"synthetic":true,"sdk_sha256":SDK,
         "production_frame_decoded":true,"pre_serialization_equal":true,
         "native_shared_worker_reduced":true,
+        "native_network_reduced":true,
         "serialized_equal":true,"token_sha256_equal":true,
         "positions":values.len(),"serialized_bytes":serialized.len(),
         "token_bytes":token_bytes,"frame_bytes":frame.len(),
@@ -90,7 +91,21 @@ fn negative_checks(frame: &[u8], snapshot: &Value) -> Checked<usize> {
         if compare(&changed, snapshot).err() != Some(expected) { return Err("reply-refusal"); }
         payload.as_object_mut().unwrap().remove("shared_worker_reply");
     }
-    Ok(cases.len() + 4)
+    let mut payload: Value = serde_json::from_slice(&frame[12..]).unwrap();
+    let mut row = vec![json!({"kind":"undefined"}); 48];
+    let different = snapshot["pre_serialization"]["values"][473].to_string() + "-changed";
+    row[38] = json!({"kind":"string","units":different.encode_utf16().collect::<Vec<_>>()});
+    payload["network_reply"] = json!({"kind":"array",
+        "values":[{"kind":"array","values":row}]});
+    for expected in ["serialization-mismatch", "collection-frame"] {
+        let body = serde_json::to_vec(&payload).unwrap();
+        let mut changed = frame[..8].to_vec();
+        changed.extend_from_slice(&(body.len() as u32).to_be_bytes());
+        changed.extend(body);
+        if compare(&changed, snapshot).err() != Some(expected) { return Err("network-refusal"); }
+        payload.as_object_mut().unwrap().remove("network_reply");
+    }
+    Ok(cases.len() + 6)
 }
 
 fn run() -> Checked<()> {
@@ -107,7 +122,7 @@ fn run() -> Checked<()> {
         .open(&args[2]).map_err(|_| "report")?;
     file.write_all(serde_json::to_string_pretty(&report).unwrap().as_bytes())
         .map_err(|_| "report")?;
-    println!("PASS: fresh collection frame, native reply reduction and encoding match; 9 negative checks pass");
+    println!("PASS: fresh collection frame, native receiver reductions and encoding match; 11 negative checks pass");
     Ok(())
 }
 

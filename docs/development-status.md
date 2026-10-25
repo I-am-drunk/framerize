@@ -23,16 +23,16 @@ removed. Current tests stay with the behavior they exercise.
 
 ## Validation
 
-The actual SharedWorker receiver result now reaches Rust, and its native
-reduction supplies the value used by the encoder. A fresh comparison matches
-all 765 positions, 5,412 serialized bytes and the original 5,305-byte output;
-nine damage/mismatch checks pass. The production loader also completed one
-isolated synthetic operation in 1.98 seconds with the worker joined and absent.
-Sixteen JavaScript and 90 Rust checks pass. The original SDK reduction and
-assignment are removed after confirming their single-writer boundary. The
-five affected JavaScript checks and production operation pass after removal;
-the unchanged Rust/comparison results are retained. Collection still uses
-SDK/JSDOM; live acceptance and request memory savings remain unverified.
+Actual SharedWorker and network receiver results now reach Rust, whose
+reductions supply all five supported fields to the encoder. Their duplicate
+SDK reductions are removed; the SDK retains the genuine network timing path.
+A fresh comparison matches all 765 positions, 5,412 serialized bytes and the
+original 5,297-byte output, with eleven damage/mismatch checks passing.
+Eighteen JavaScript and 91 Rust checks pass. After removing the network
+reductions, seven affected JavaScript and five Rust checks pass again, and
+the production loader completes a synthetic operation in 2.02 seconds with
+the worker joined and absent. Collection still uses SDK/JSDOM; live acceptance
+and request memory savings remain unverified. This timing is not a speedup claim.
 See [the contract and evidence](../reference/analysis/native-collection-handoff.md#qualification).
 
 The fresh collection frame now passes a comparison through the production

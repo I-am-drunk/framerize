@@ -26,7 +26,7 @@ export function instrument(role, bytes) {
   body = once(body, 'a(jf)[Tn]()', 'import.meta.clock(a(jf))[Tn]()');
   let source = bytes.subarray(0, 274980).toString('utf8') + body + bytes.subarray(281222).toString('utf8');
   source = once(source, 'Q[_o]=l(s,Qon(W))', 'Q[_o]=l(s,Qon(import.meta.collector("worker",W)))');
-  source = once(source, 'Q[473]=a(X0,krn(W))', 'Q[473]=a(X0,krn(import.meta.collector("network",W)))');
+  source = once(source, 'Q[B1]=O(Ar,T0n(W))', 'Q[B1]=O(Ar,T0n(import.meta.collector("network",W)))');
   instrumentedHash = sha(source);
   return source;
 }
@@ -44,6 +44,7 @@ export function initializeRecorder(role, meta) {
     if (!['worker','network'].includes(name) || collectors.has(name))
       throw new Error('collector-observation-count');
     if (name === 'worker') collect.sharedWorker(value);
+    if (name === 'network') collect.network(value);
     collectors.set(name, capture(value));
     return value;
   };

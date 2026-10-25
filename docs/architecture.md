@@ -10,11 +10,12 @@ The request owner retains both child cleanup and native encoding completion.
 V2 keeps its separate token protocol. The normal browser service is unaffected.
 See [the handoff contract](../reference/analysis/native-collection-handoff.md).
 
-The private collection also carries the same operation's SharedWorker receiver
-result. Rust validates and reduces it into position 242 before encoding, so
-the minted output uses the native reduction. The SDK's original reduction
-and assignment are omitted; its other collection steps are retained. Collection uses
-the SDK and JSDOM; this step does not replace the observation environment.
+The private collection carries the same operation's SharedWorker and network
+receiver results. Rust reduces them into position 242 and network positions
+80, 469, 473 and 659 before encoding. Those SDK reductions and assignments
+are omitted. The SDK retains the actual network elapsed-time sample and its
+later conversion at position 755. Collection still uses SDK/JSDOM; this step
+does not replace the observation environment.
 
 The isolated snapshot probe observes one original SDK operation and sends
 its collected values through the same frame format. A separate checker uses
@@ -143,7 +144,7 @@ serializer. Its schema 3 comparison builds native values from this input,
 checks serialization, rebuilds the five supported collector positions, then
 compares the final encoding using the same operation's timestamp. This is a
 test-only observation boundary. The serving worker now sends its value array
-and SharedWorker receiver result to the native encoder. Other observation
+and both receiver results to the native encoder. Other observation
 producers still run in the SDK; each replacement needs its own connected
 input and ownership boundary.
 The network completion timing is separate from the four record fields: its
