@@ -104,6 +104,19 @@ the existing five release cases remain passing. A Rust health-header test also
 passes. These checks use temporary files and a fake service adapter, not the
 running service. The command requires the one-time legacy migration first.
 
+The complete `6d3aad2` development archive also passed package verification,
+staging, protocol 1 and schema 2 checks, host shutdown, invalid-startup refusal,
+and SIGTERM/SIGINT shutdown. Both daemon starts returned their actual PID in
+the health response. These checks used empty temporary state and a private
+network; no live activation occurred.
+
+Removed the obsolete parallel native checker, its seven test modules and
+private fixture, and the startup/routing runners for combined-mode binaries.
+These relied on native dispatch or CLI flags that the browser app no longer
+provides. Their results remain in the historical notes. Current runtime tests
+and Rust library tests are unchanged; no removed suite counts as validation
+of the new architecture.
+
 Next: first migration of existing account history and the running service.
 Current legacy account history and first-migration handling remain unresolved;
 no production restart is part of this structural work.

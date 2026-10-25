@@ -1,4 +1,10 @@
-# Parallel browserless validation
+# Historical parallel browserless validation
+
+This records the pre-reorganization implementation and its results. It is not
+a current runbook. The combined browser/native dispatch, parallel checker and
+their private test suite have been removed. The browser app no longer accepts
+native-routing flags; the separate native CLI only checks configuration.
+See [the current architecture](../architecture.md) and [packages](../releases.md).
 
 The browser service remains the user's running provider. Use a separate
 loopback port, account store, profiles, sessions, device/rate authority and

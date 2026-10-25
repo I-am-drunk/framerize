@@ -1324,7 +1324,7 @@ the routing binding, not authentication, upstream acceptance or text delivery.
 The same configuration was applied only to the isolated port 8788 instance
 at 2026-10-23 16:07 UTC. That instance had a 30-minute lifetime; this saved
 observation does not establish current availability.
-See [parallel validation](parallel-browserless-validation.md) for the remaining
+See [parallel validation](parallel-browserless-validation-before-reorganization-20261025.md) for the remaining
 account, streaming, cleanup and resource evidence required for a real run.
 
 The native stream ownership observer records `native.stream.complete` only
