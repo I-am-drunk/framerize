@@ -77,6 +77,7 @@ These components are not wired into serving and make no memory or acceptance
 claim. Native CI includes `scripts/check_v3_encoding.py`,
 `scripts/check_v3_serialization.py`, `scripts/check_v3_objects.py`,
 `scripts/check_v3_worker_result.py`,
+`scripts/check_v3_network_result.py`,
 `scripts/check_v3_deflate.py` and `scripts/check_v3_envelope.py`;
 hosted execution remains unverified. All prior encoding comparisons also pass
 with the shared fixture builder and new native object module.
@@ -102,9 +103,13 @@ The [field-38 callback trace](../reference/analysis/castle-v3-network-field38.md
 also establishes a string on ordinary stable RTCIceCandidate paths. Empty,
 timeout and selected-address values remain distinct; `krn` substitutes a
 marker for an empty field before writing `Q[473]`. No stock non-array object
-producer was found on this path. Next resolve and implement that small
-reducer against supplied records. Actual device collection and service
-acceptance remain unfinished.
+producer was found on this path. The native `network_address` reducer now
+passes 57 comparisons, including five original missing-record errors, plus
+nine normalized-input refusals. Both tests pass in isolation. It retains the
+original distinction between an absent record and an absent field, and assumes
+the built-in getter rather than a replaced JavaScript binding. The independent
+metrics-hash input trace is still assigned to intake. Actual device collection
+and service acceptance remain unfinished.
 
 The dedicated-worker cleanup correction from `759ef0d1` is integrated on
 the reorganized `24ebbdb` base. A focused regression fails on the old pool:

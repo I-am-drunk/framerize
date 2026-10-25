@@ -32,6 +32,11 @@ cannot establish truthiness and is refused at that position. The offline
 comparison in `scripts/check_v3_worker_result.py` runs the original reducer
 and serializer on synthetic inputs.
 
+`castle::v3::network_address` reads the supplied network record's field 38
+with the SDK's built-in getter semantics. Missing fields use the original
+marker, while a missing/null first record remains an error. It has no network
+access and does not substitute an address for the caller's observation.
+
 The native `castle::v3::deflate` implements the pinned SDK's raw-DEFLATE
 fallback: a 1,024-byte matching window, at most 64 candidates per lookup,
 and one dynamic-Huffman block. Its stable tree ordering and code-length
