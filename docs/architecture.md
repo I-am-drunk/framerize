@@ -91,6 +91,12 @@ synthetic mint only inside its required network/PID/filesystem isolation and
 memory limit, retains cleanup and discards the token. Its success establishes
 local SDK execution and handoff, not authenticated upstream delivery.
 
+The dedicated-worker pool retains each stop result until every worker has
+exited and every stop has settled. An early stop failure cannot finish pool
+cleanup while another worker is still running. A discarded browser-style
+`terminate()` result remains visible to the later pool close. This local
+cleanup is separate from the Rust owner's joined worker-process receipt.
+
 Concurrency-limit storage is selected by application startup. Library gates
 are in memory unless supplied a state-file path. Fixtures never inherit the
 normal service's learned limits through an implicit home-directory lookup.

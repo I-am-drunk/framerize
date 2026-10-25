@@ -23,6 +23,17 @@ removed. Current tests stay with the behavior they exercise.
 
 ## Validation
 
+The dedicated-worker cleanup correction from `759ef0d1` is integrated on
+the reorganized `24ebbdb` base. A focused regression fails on the old pool:
+it reports a stop failure before the workers have exited. All eight inert
+cleanup cases pass with the correction, with no skipped cases, inside an
+isolated Node 20.20.0 run. They cover failed and successful stops, pending
+exits, discarded stop promises, source preparation and already-exited workers.
+The native CI job now runs this selection. No SDK, live account or service
+was used; existing release archives have not been rebuilt for this change.
+Structure owns the next paired JavaScript/Rust handoff-diagnostic correction;
+root will integrate and qualify that return before claiming trace retention.
+
 The optimized native release from `3c5a999` builds successfully and passes all
 eight package lifecycle checks using its bundled worker configuration. The
 complete archive is 50,406,919 bytes, with SHA256
