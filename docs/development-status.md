@@ -50,6 +50,13 @@ matching application linked as `6a2f0a93`. The build and test jobs are collected
 This source is not included in the normal repair candidate. No SDK or account
 request ran. See `reference/analysis/v3-authority-qualification-20261025.md`.
 
+The matching authority runtime package is now staged and collected. Its
+20 runtime files bind application `6a2f0a93`, generated host `f519bb3f` and
+support manifest `97d906d3` to the qualified source. All 29 inputs remained
+unchanged; the staging unit, cgroup and captured processes are absent.
+The application has not launched. Current account/device proof and the
+complete V3 runtime binding remain required for a bounded live attempt.
+
 Three controller diagnostic/privacy cases also pass. The next prepared rollout
 controller preserves fixed failure codes and bounded source locations without
 recording arbitrary exception text. It is bound to the unchanged repair package
