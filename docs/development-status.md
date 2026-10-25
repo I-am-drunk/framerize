@@ -1,10 +1,18 @@
 # Development status
 
-The combined explicit-account retry and invalid-header change has now run its
+The explicit-account retry correction now passes all twenty selected cases:
+six corrected cases passed on `93dad96`, and the fourteen unchanged passes
+are retained. The fixture now polls the existing shared cleanup observer
+while preserving its unread response and original assertions. Production
+code and timeouts did not change. Both jobs are collected under the original
+guards. This qualifies the source change; deployment and real interruption
+acceptance remain separate and unverified.
+
+The initial combined explicit-account retry and invalid-header change ran its
 exact 20-case selection on composed source `1676f57`. Both bounded test builds
 pass. All twelve existing controls and both invalid-header cases pass; the
 six new retry cases time out at their shared producer-completion wait.
-Qualification therefore fails. The exact failure is returned to Server for a
+That qualification failed. The exact failure was returned to Server for a
 bounded fixture correction; no production cause or rollout acceptance is
 claimed. This ran independently of signup and Castle research, with no service
 action. See `reference/analysis/explicit-account-qualification-20261025.md`.
