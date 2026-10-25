@@ -83,6 +83,13 @@ Next bind the actual collector values and any custom-object conversions to
 this native representation. Device collection, complete client interoperability
 and measured RAM/latency remain unfinished.
 
+The [stock shared-worker schema](../reference/analysis/castle-v3-shared-worker-schema.md)
+is now decoded from the pinned source. Its previously untyped element 10
+comes from `userAgentData.uaFullVersion`, with string markers on unavailable
+or failed paths. This does not establish a stock object producer there.
+Only the pure string decoder ran; worker execution and live selection were
+not tested. The separate callback field feeding `Q[473]` remains under trace.
+
 The dedicated-worker cleanup correction from `759ef0d1` is integrated on
 the reorganized `24ebbdb` base. A focused regression fails on the old pool:
 it reports a stop failure before the workers have exited. All eight inert
