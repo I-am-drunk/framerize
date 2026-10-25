@@ -130,6 +130,8 @@ native requests and workers explicitly. The browser interface no longer has
 native methods; its obsolete refusal test and unused enrollment fixture hooks
 are removed. The current Rust run passes 138 core, 72 host, 302 native, 251
 server and 33 browser CLI tests. One manual host integration test is ignored.
+Both debug application targets rebuild successfully and print their expected
+CLI help. No new package or live-service acceptance is claimed by these builds.
 Python is unchanged. A concrete durable native owner and standalone startup
 remain unfinished; this interface change does not enable live native calls.
 
