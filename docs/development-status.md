@@ -18,7 +18,7 @@ removed. Current tests stay with the behavior they exercise.
 
 ## Validation
 
-The complete browser and native development archives at `eb86728` pass
+The complete browser and native development archives at `2410dac` pass
 verification and staging. Browser startup, signal shutdown and profile
 exclusion pass. The native archive starts and joins its packaged ledger.
 
