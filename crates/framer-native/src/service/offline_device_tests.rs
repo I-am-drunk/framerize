@@ -18,7 +18,7 @@ impl SourceBuilder for DeviceBuilder {
 
 fn start_device(state: ServiceState, ports: &Arc<Ports>, spec: Specification,
     sessions: &Sessions) -> Run {
-    launch_with_source(state, spec, Arc::new(DeviceBuilder(ports.clone())), sessions.clone()).unwrap()
+    launch_with_source(state, spec, Arc::new(DeviceBuilder(ports.clone())), sessions.clone(), None).unwrap()
 }
 
 #[tokio::test]

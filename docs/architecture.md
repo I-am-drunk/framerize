@@ -194,5 +194,24 @@ fence is likewise a local refusal. Neither path frees capacity or clears
 unknown cleanup; other accounts can continue serving. Refused closes record
 their outcome and whether the receipt matched the expected browser identity.
 
+The native HTTP service offers `/api/offline/complete` and
+`/api/offline/stream` over the same explicit request context, one-attempt
+limit, account owner and cleanup lifetime. The stream sends standard Responses
+or Messages SSE, opening frames and keepalives. Its single output slot is
+bounded by the existing response-body limit. Dropping the HTTP body cancels
+the original request; registered cleanup continues to hold its resources.
+Completion is emitted only after the account and device cleanup finishes.
+Failed cleanup produces an error without a successful terminal event.
+
+Both endpoints accept the existing explicit context envelope. The inner
+`request.stream` remains `false`; `/api/offline/stream` selects downstream SSE.
+The 16 to 512 token limit and maximum 60-second request deadline still apply.
+Clients must observe the terminal event, since HTTP 200 only opens the stream.
+
+Upstream JSON remains buffered. Generated output is sent only after that
+body is complete and passes the existing completeness checks, including tool
+output. This adds downstream streaming without claiming token-level upstream
+delivery, automatic continuation or another credential/rate owner.
+
 Earlier investigation notes are preserved in
 [architecture history](history/architecture-before-reorganization-20261025.md).

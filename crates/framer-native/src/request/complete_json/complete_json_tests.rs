@@ -4,6 +4,9 @@ include!("fixture.rs");
 #[path = "exact_context_integration_tests.rs"]
 mod exact_context;
 
+#[path = "streaming_tests.rs"]
+mod streaming;
+
 struct NoopCancellation;
 impl port::Cancellation for NoopCancellation { fn cancel(&self) {} }
 

@@ -42,7 +42,7 @@ async fn finish(run: Run) -> Outcome {
     outcome
 }
 fn start(state: ServiceState, ports: &Arc<Ports>, spec: Specification, sessions: &Sessions) -> Run {
-    launch_with_source(state, spec, Arc::new(Builder(ports.clone())), sessions.clone()).unwrap()
+    launch_with_source(state, spec, Arc::new(Builder(ports.clone())), sessions.clone(), None).unwrap()
 }
 
 #[tokio::test]
@@ -62,7 +62,7 @@ async fn invalid_context_and_target_reject_before_account_or_private_io() {
 async fn sealed_app_launch_rejects_before_status_or_session_load() {
     let (state, ports, spec, sessions) = fixture();
     let seal = state.operation_ownership.as_ref().unwrap().seal().unwrap();
-    assert!(launch_with_source(state, spec, Arc::new(Builder(ports.clone())), sessions.clone()).is_err());
+    assert!(launch_with_source(state, spec, Arc::new(Builder(ports.clone())), sessions.clone(), None).is_err());
     assert!(ports.events.lock().unwrap().is_empty());
     drop(seal);
 }
@@ -123,6 +123,33 @@ async fn cancellation_during_issuance_retains_source_and_session_cleanup() {
         let scope = ports.scope.lock().unwrap().clone().unwrap();
         assert_eq!(scope.closed().await, Ok(()));
         assert_eq!(ports.builds.load(Ordering::SeqCst), 1);
+    }
+}
+
+#[tokio::test]
+async fn dropped_stream_keeps_actual_issuance_owned_until_cleanup() {
+    use futures::StreamExt;
+    for polled in [false, true] {
+        let (state, ports, spec, sessions) = fixture();
+        ports.issue.try_acquire().unwrap().forget();
+        let (sender, receiver) = tokio::sync::mpsc::channel(1);
+        let run = launch_with_source(state.clone(), spec, Arc::new(Builder(ports.clone())),
+            sessions, Some(sender)).unwrap();
+        wait(&ports.issuing).await;
+        let mut body = crate::service::stream::response(run.result, receiver,
+            FreeRoute::Responses, "gpt-4.1".into()).into_body().into_data_stream();
+        if polled { body.next().await.unwrap().unwrap(); }
+        drop(body);
+        tokio::time::timeout(Duration::from_secs(2), async {
+            while !ports.cancelled.load(Ordering::SeqCst) { tokio::task::yield_now().await; }
+        }).await.unwrap();
+        let mut seal = state.operation_ownership.as_ref().unwrap().seal().unwrap();
+        assert!(run.cleanup.clone().now_or_never().is_none());
+        assert!(seal.wait_application().now_or_never().is_none());
+        ports.issue.add_permits(1);
+        assert_eq!(tokio::time::timeout(Duration::from_secs(2), run.cleanup).await.unwrap(), Ok(()));
+        let _drained = seal.wait_application().await.unwrap();
+        assert_eq!(ports.scope.lock().unwrap().clone().unwrap().closed().await, Ok(()));
     }
 }
 

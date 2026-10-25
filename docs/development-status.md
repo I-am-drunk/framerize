@@ -16,11 +16,27 @@ The rearchitecture is on `refactor/separate-apps-and-ci-20261025` in draft
 - An explicit legacy-history importer with atomic journal publication.
 - A separate expiry transition for legacy profiles with no complete export.
 - Explicit native startup integration for that first migration, before admission.
+- Native Responses and Messages SSE through the existing request owner.
 
 The retired host patchers, combined-mode checkers and their private tests are
 removed. Current tests stay with the behavior they exercise.
 
 ## Validation
+
+The native `/api/offline/stream` endpoint now sends opening frames, heartbeats
+and complete output items through the same bounded request as the JSON
+endpoint. Terminal success waits for account and device cleanup. Disconnects
+cancel that request while its existing owners finish cleanup. Incomplete tool
+output and unaccepted HTTP metadata cannot publish generated items.
+
+The native build passes. There are 74 passing focused service/request cases:
+70 retained unchanged results and four affected cases rerun after the final
+metadata check. Eight new cases cover both stream formats, response identity,
+output before cleanup, failure instead of false success, disconnects before
+and after body polling, buffered upstream timing and rejected output. These
+use synthetic state and fixture-owned loopback, with no SDK or live account.
+Upstream remains buffered and requests remain limited to one attempt. This
+does not establish live streaming latency or native upstream acceptance.
 
 The reorganized branch now includes the follow-up browser admission repair.
 All 139 core and 229 server cases pass on this composition. A matching Busy

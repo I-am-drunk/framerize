@@ -10,6 +10,7 @@ mod lifetime;
 mod shared_lease;
 mod tracked;
 mod validation;
+pub(crate) type ChunkSender = tokio::sync::mpsc::Sender<framer_core::convert::ChainEvent>;
 use crate::request::invocation::AttemptAuthorization;
 use crate::request::invocation::AuthorizedAttempt;
 use crate::request::invocation::PreparedAttempt;
