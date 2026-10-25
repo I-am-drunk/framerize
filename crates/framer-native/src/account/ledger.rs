@@ -34,6 +34,11 @@ impl LedgerOwner {
     }
 
     pub async fn shutdown(&self) -> Result<(), DeviceFailure> { self.connection.shutdown().await }
+
+    /// Observe actual helper termination without initiating shutdown.
+    pub async fn wait_for_exit(&self) -> Result<(), DeviceFailure> {
+        self.connection.wait_for_exit().await
+    }
 }
 
 fn identity(grant: &DeviceGrant) -> Result<Value, DeviceFailure> {

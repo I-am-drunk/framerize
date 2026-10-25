@@ -90,6 +90,9 @@ SIGTERM and Ctrl-C drain requests, close native sessions and join the ledger.
 Ledger and worker processes use their own process groups so terminal signals
 reach this coordinator first. Startup and package checks use synthetic state;
 they do not establish successful upstream browserless delivery.
+The service also watches the ledger's actual process-exit notification.
+Unexpected exit stops HTTP admission and enters the same shutdown path;
+unconfirmed ledger cleanup produces a failure exit and is never marked clean.
 
 Native session ownership is constructed from a session store and an operation
 tracker. It retains both for its lifetime and drains its own tracker during

@@ -54,7 +54,14 @@ pub async fn serve(config: ServeConfig, shutdown: impl Future<Output = ()> + Sen
         }
         let state = ServiceState::new(sessions, store, selected)?;
         let (state, runtime) = http::configure(state, worker, ledger.clone())?;
-        http::serve(state, runtime, listener, shutdown).await.map_err(|error| error.to_string())
+        let monitor = ledger.clone();
+        let stop = async move {
+            tokio::select! {
+                _ = shutdown => {},
+                _ = monitor.wait_for_exit() => {},
+            }
+        };
+        http::serve(state, runtime, listener, stop).await.map_err(|error| error.to_string())
     }).catch_unwind().await.unwrap_or_else(|_| Err("native service failed during startup or serving".into()));
     if ledger.shutdown().await.is_err() {
         return Err("native ledger shutdown is unconfirmed".into());
