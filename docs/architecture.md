@@ -1,5 +1,13 @@
 # Serving architecture and branch policy
 
+Normal Messages and Responses requests with an explicit account now retain
+that account across retry selection in the experimental source. An undecodable
+account header is rejected before account work, after the existing wave check.
+Unbound requests retain peer selection. The combined change is not qualified:
+its invalid-header cases and existing controls pass, but six new retry cases
+time out in their shared producer-completion wait. Preserve both the completion
+requirement and no-peer assertions while correcting that demonstrated failure.
+
 The resident coordinator can isolate transport from token generation: without
 its optional native SDK worker, both comparison tokens come from the same
 browser page and the second request uses native HTTP. That mode now has a
