@@ -1,5 +1,11 @@
 # Serving architecture and branch policy
 
+Keep upstream request completion separate from downstream SSE completion.
+In R8, the client had generated text without a terminal event while the
+browser request had already returned HTTP 200. A still-open downstream
+connection alone does not prove cancellation would interrupt upstream work.
+See `reference/analysis/r8-stream-result-20261025.md`.
+
 Dedicated onboarding separates its empty account store from a private browser
 environment and exposes only selected software. A valid source manifest is
 insufficient to prove the mount command works: Bubblewrap 0.9.0 limits the

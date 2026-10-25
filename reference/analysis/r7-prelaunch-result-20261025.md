@@ -19,7 +19,7 @@ There is no new application build or qualification rerun.
 
 R8 plan:
 `0f840fefe253127187d2bb464d60618bc48ec8ac9132e31390096d0474064444`.
-It is executing after fresh local sudo authentication. Existing rollout
-authorization covers the switch, two stream checks and rollback if needed.
-Results are pending; no successful deployment or interruption acceptance is
-claimed by this preparation note.
+It executed after fresh local sudo authentication. Stream acceptance failed
+and rollback completed. The collected outcome and its more informative
+stream evidence are in `r8-stream-result-20261025.md`. This preparation note
+does not establish successful deployment or interruption acceptance.
