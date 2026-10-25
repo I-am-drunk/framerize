@@ -1,5 +1,14 @@
 # Serving architecture and branch policy
 
+Recovery now distinguishes a saved primary from a later policy-governed
+selection. Exact equality remains accepted. The only additional case is a
+saved null becoming a device in that same account's bound inventory, with
+typed provenance proving a resident account and no restoration marker.
+Other selection changes still refuse. Initial restoration stays exact, and
+every account, device, generation and limit-preservation check still runs.
+Thirteen focused checks qualify this refinement. Recovery r6 then completed
+the real comparison before clearing its transfer and restart restrictions.
+
 The recovery observer can report aggregate primary-selection transitions and
 their resident/restored provenance without exporting account or device IDs.
 Extraction stages provenance until the whole read succeeds; a refused read

@@ -1,13 +1,23 @@
 # Development status
 
+Rollback recovery is complete. Recovery r6 passed the actual comparison for
+all eleven account lifecycles and their enforced limits, cleared the pending
+transfer, and removed only the owned restart restrictions. The previous
+binary remains running with automatic restart restored. The corrected
+comparison passed thirteen focused checks with no skips; twenty-one unchanged
+memory, lease, provenance and summary checks were retained. No additional
+binary switch or inference request occurred. The repaired candidate still
+requires a fresh rollout and the two stream acceptance checks.
+See `reference/analysis/r5-recovery-completion-20261025.md`.
+
 Recovery r5 measured the device-selection difference without accepting it.
 Four of eleven accounts changed from no selected primary to a resident device;
 the other seven selections were unchanged. All eleven lifecycle records and
 the checked cooldown, request-window, mint-spacing and daily-reserve state
 were retained. The strict primary-equality check still refused finalization.
 Both service processes resumed, all helpers were collected, and the temporary
-traffic restriction was removed. A narrow source correction is assigned for
-this measured transition. It is not yet qualified or deployed. See
+traffic restriction was removed. Recovery r6 qualified and applied the narrow
+comparison correction described above. See
 `reference/analysis/r5-recovery-primary-result-20261025.md`.
 
 Normal control-transport reliability changes from `a715a41a` are integrated.
@@ -24,13 +34,14 @@ See `reference/analysis/r5-startup-settle-qualification-20261025.md`.
 
 Dedicated-account onboarding now has a prepared command for the qualified
 authority package, one active account and an empty separate store. It remains
-unlaunched: the accepted empty-instance test never invoked the lazy browser,
-so its input set did not include the Python browser dependencies. That specific
-software binding is assigned separately. No new signup or native request ran.
+unlaunched. The delivered browser-software binding is consumed, and a static
+view combines 6,065 software files and 237 aliases. It separates the writable
+browser environment from the initially empty account store. Final isolated
+mounts and lifecycle binding remain pending. No signup or native request ran.
 
 R5 switched to the qualified candidate, then switched back after its 90-second
 startup settling check expired during sequential browser prewarming. The old
-binary is running; final rollback verification remains pending. No acceptance
+binary is running; recovery r6 completed final rollback verification. No acceptance
 POST ran. See `reference/analysis/r5-rollout-result-20261025.md`.
 
 Recovery-only finalization now passes its previous memory-access failure.
@@ -39,7 +50,7 @@ worked in recovery r4. The account-state comparison then refused because a
 primary-device assignment differed from the saved snapshot. Both processes
 resumed, the temporary traffic restriction was removed, and all helpers were
 collected. No additional binary switch or inference request occurred. The old
-binary remains running; final rollback verification is unfinished. See
+binary remains running; the subsequent recovery r6 completed verification. See
 `reference/analysis/r5-recovery-descriptor-result-20261025.md`.
 
 Independent transport test compilation on `a715a41a` failed before discovery:
