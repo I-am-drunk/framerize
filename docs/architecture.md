@@ -10,6 +10,11 @@ The request owner retains both child cleanup and native encoding completion.
 V2 keeps its separate token protocol. The normal browser service is unaffected.
 See [the handoff contract](../reference/analysis/native-collection-handoff.md).
 
+The isolated snapshot probe observes one original SDK operation and sends
+its collected values through the same frame format. A separate checker uses
+the production decoder and encoder with that operation's recorded clock.
+This comparison does not introduce observation hooks into the serving loader.
+
 Native Castle client encoding lives in `framer-native/src/castle/`. Its typed
 serializer selects the pinned Framer V3 SDK's numeric and string representations,
 writes array structure and preserves UTF-16 code units, including unpaired

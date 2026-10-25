@@ -97,14 +97,14 @@ def check(snapshot, output, *, network_unavailable=False):
     if len(raw) > 8*1024*1024:
         raise ValueError('snapshot size')
     data = json.loads(raw)
-    assert data['schema'] in (1, 2, 3) and data['synthetic'] is True
+    assert data['schema'] in (1, 2, 3, 4) and data['synthetic'] is True
     assert data['sdk_sha256'] == '3337eba7ffe614c2ebd9b2b8a55794f2e2445a9b3658d1af5eb7530152b72c71'
     assert all(type(x) is int and 0 <= x <= 255 for x in data['serialized'])
     serialized = bytes(data['serialized'])
     reader = Reader(serialized)
     values = reader.array()
     assert reader.at == len(serialized)
-    if data['schema'] == 3:
+    if data['schema'] >= 3:
         observed = data['pre_serialization']
         assert observed['kind'] == 'array' and len(observed['values']) == len(values)
         values = [captured_value(value) for value in observed['values']]
@@ -156,7 +156,7 @@ use castle::v3::{{Value,serialize,encode_collected,apply_collector_result,apply_
         equal = hashlib.sha256(token).hexdigest() == data['token_sha256']
         equal = equal and len(token) == data['token_bytes']
     report = dict(schema=1,synthetic=True,normalized_snapshot_round_trip=True,
-                  pre_serialization_values_compared=data['schema'] == 3,
+                  pre_serialization_values_compared=data['schema'] >= 3,
                   collector_fields_compared=fields,
                   unavailable_network_reconstructed=network_unavailable,
                   token_sha256_equal=equal,positions=len(values),values=reader.values,
@@ -165,7 +165,7 @@ use castle::v3::{{Value,serialize,encode_collected,apply_collector_result,apply_
     output.write_text(json.dumps(report,indent=2)+'\n')
     if not equal:
         raise ValueError('native encoding differs from the instrumented SDK')
-    boundary = 'pre-serialization values' if data['schema'] == 3 else 'normalized snapshot'
+    boundary = 'pre-serialization values' if data['schema'] >= 3 else 'normalized snapshot'
     print(f'PASS: actual SDK {boundary} and native token encoding agree')
 
 

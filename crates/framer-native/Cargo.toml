@@ -8,6 +8,10 @@ license.workspace = true
 name = "worker-smoke"
 path = "../../scripts/measure_owned_offline_worker.rs"
 
+[[example]]
+name = "compare-v3-collection"
+path = "../../scripts/compare_v3_collection.rs"
+
 [dependencies]
 framer-core = { path = "../framer-core" }
 framer-api = { path = "../framer-api" }

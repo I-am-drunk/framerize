@@ -65,8 +65,42 @@ with private network/filesystem views and the worker's syscall filter.
 The first harness layout failed to mount a new module before SDK startup;
 the corrected mount layout passed with all source and binary pins unchanged.
 
-The earlier direct-input comparison matched one synthetic SDK operation's
-765 positions, 5,412 serialized bytes and 5,297 output bytes. That saved result
-is retained separately; no byte comparison with the original encoder was
-performed for this new operation. Collection still uses SDK/JSDOM. Live
-acceptance, request memory savings and sustained operation remain unverified.
+## Fresh frame comparison
+
+The snapshot probe now copies the actual pre-serialization values with the
+production collector and writes its `FCLT` frame through a private stdout pipe.
+Its instrumented loader retains the original SDK encoder, recording the
+original serialization, clock and output digest from that same operation.
+The parent drains the pipe, waits for the child and preserves the frame in
+private evidence. The normal loader and service are unchanged by this probe.
+
+`compare-v3-collection` compiles the original Rust decoder and encoder source.
+It checks that the decoded frame contains the captured values, reproduces the
+serialized bytes, and matches the original output digest and length using
+the original clock. It discards the native output. Seven negative checks
+reject a damaged header, truncated frame, nonsynthetic snapshot, mismatched
+values, changed serialization, changed output digest and changed clock.
+
+On 2026-10-25, the qualified fresh operation matched all 765 positions,
+5,411 serialized bytes and 5,297 final bytes. Its 37,614-byte frame crossed the
+pipe; the child exited and the first cgroup observation contained only the
+parent. No memory-limit event or swap use was recorded. The comparison and
+all seven negative checks passed. Three existing capture checks also pass.
+
+An earlier capture also matched, but its immediate cgroup check failed.
+That harness did not record the remaining members, so its cause is unknown.
+The follow-up records membership and allows at most two seconds for the group
+to contain only its parent. It needed no wait in the passing operation.
+The earlier failure remains separate evidence, not a passing cleanup result.
+
+Evidence: investigation directories `fresh-collection-comparison-r1` and
+`fresh-collection-comparison-r2` in the owning thread's private scratch tree.
+The SDK identity above and 1,268 input pins bind each capture; the comparison
+also binds its native source and executable. Snapshot schema 4 carries the
+same tagged values as schema 3 and adds the separately preserved frame.
+
+Build the checker with `cargo build -p framer-native --example compare-v3-collection`.
+It takes `FRAME SNAPSHOT REPORT` paths and exclusively creates the report.
+Capturing a new SDK operation still requires the existing isolated harness.
+This is synthetic, instrumented equivalence. Collection still uses SDK/JSDOM.
+Live acceptance, request memory savings and sustained operation are unverified.

@@ -1,9 +1,12 @@
 // Test-only observation hooks. The production SDK loader does not import this.
 import {createHash} from 'node:crypto';
 import {capture} from './offline_worker/collected_values.mjs';
+import {createCollector, writeCollection} from './offline_worker/collection.mjs';
 const sdkHash = '3337eba7ffe614c2ebd9b2b8a55794f2e2445a9b3658d1af5eb7530152b72c71';
 const sha = value => createHash('sha256').update(value).digest('hex');
 let serialized, timestamp, instrumentedHash, preSerialization;
+let collectionPayload;
+const collect = createCollector();
 const collectors = new Map();
 
 function once(source, before, after) {
@@ -33,7 +36,8 @@ export function initializeRecorder(role, meta) {
   meta.input = value => {
     if (preSerialization !== undefined || !Array.isArray(value))
       throw new Error('snapshot-input');
-    preSerialization = capture(value);
+    collectionPayload = collect(value);
+    preSerialization = JSON.parse(collectionPayload).values;
     return value;
   };
   meta.collector = (name, value) => {
@@ -57,11 +61,17 @@ export function takeSnapshot(token) {
   if (!serialized || timestamp === undefined || !instrumentedHash || typeof token !== 'string'
       || collectors.size !== 2 || preSerialization === undefined)
     throw new Error('snapshot-incomplete');
-  const result = {schema:3, synthetic:true, sdk_sha256:sdkHash,
+  const result = {schema:4, synthetic:true, sdk_sha256:sdkHash,
     pre_serialization:preSerialization,
     collectors:Object.fromEntries(collectors), collector_order:[...collectors.keys()],
     instrumented_sdk_sha256:instrumentedHash, timestamp_ms:timestamp,
     serialized:Array.from(serialized), token_sha256:sha(token), token_bytes:Buffer.byteLength(token)};
   serialized.fill(0); serialized = undefined;
   return result;
+}
+
+export function writeCapturedCollection(fd) {
+  const payload = collectionPayload;
+  collectionPayload = undefined;
+  writeCollection(fd, payload);
 }

@@ -1,7 +1,7 @@
 // One synthetic SDK operation, only in the dedicated isolated comparison view.
 import fs from 'node:fs';
 import {OfflineCastleMinter} from '/work/offline_mint.mjs';
-import {takeSnapshot} from './castle_v3_snapshot.mjs';
+import {takeSnapshot, writeCapturedCollection} from './castle_v3_snapshot.mjs';
 
 const ns = kind => fs.readlinkSync('/proc/self/ns/'+kind);
 for (const [kind,key] of [['net','FRAMERIZE_PARENT_NETNS'],['pid','FRAMERIZE_PARENT_PIDNS']]) {
@@ -17,11 +17,14 @@ const minter = new OfflineCastleMinter({version:2,budget_ms:16000,
   target:{project_id:'fixture-project',url:'https://framer.com/projects/fixture-project',path:'/ai/v3/responses/'},
   device:{id:'synthetic-native-encoding-comparison'}});
 const result = await minter.mint();
-if (result.metadata.status !== 'passed' || !result.token) {
+if (result.metadata.status !== 'passed' || !result.collection) {
   fs.writeFileSync('/out/sdk-result.json',JSON.stringify(result.metadata),{flag:'wx',mode:0o600});
   process.exitCode = 1;
 } else {
-  const snapshot = takeSnapshot(result.token.take());
+  // The comparison loader retains the original encoder inside this operation.
+  const snapshot = takeSnapshot(result.collection.take());
+  // The isolated parent owns and drains this private pipe. Never log its bytes.
+  writeCapturedCollection(1);
   fs.writeFileSync('/out/snapshot.json',JSON.stringify(snapshot),{flag:'wx',mode:0o600});
   fs.writeFileSync('/out/sdk-result.json',JSON.stringify({instrumented:true,synthetic:true,
     ...result.metadata,serialized_bytes:snapshot.serialized.length,token_discarded:true}),{flag:'wx',mode:0o600});
