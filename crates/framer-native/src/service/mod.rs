@@ -6,3 +6,4 @@ pub(crate) mod serving;
 pub(crate) mod source;
 pub(crate) mod state;
 pub(crate) mod startup;
+mod migration;

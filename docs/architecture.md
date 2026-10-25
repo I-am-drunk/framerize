@@ -124,8 +124,16 @@ rechecks the service lifetime, clock and saved device inventory before atomic
 publication. It records unknown-expired provenance instead of fabricated past
 requests. Stable device IDs survive, the unknown former primary stays unset,
 and unknown reserve usage remains fully allocated for at least 24 hours.
-The caller must hold session ownership and defer all account activity. This
-API is not yet wired into startup and does not establish upstream acceptance.
+The native application's explicit `--expire-legacy-from` option wires this
+transition before its listener and ledger start. The parent holds session
+ownership until the migration helper exits, including cancellation or an
+abandoned startup caller. Existing history skips expiry. The transition still
+requires the old service to be gone and does not establish upstream acceptance.
+
+Native admission may assign an unset primary from the durable ready-device
+inventory and persist that new selection before granting work. This does not
+claim to restore the unknown former primary or create a new device identity.
+A known primary's cooldown or exhausted request allowance still refuses work.
 
 The browser application always tracks its requests and background work.
 SIGTERM or Ctrl-C stops new HTTP admission, lets accepted responses finish,

@@ -18,6 +18,9 @@ enum Command {
         #[arg(long, default_value = "/usr/bin/python3")] python: PathBuf,
         /// Explicit development override; installed packages use their own runtime.
         #[arg(long)] runtime_script: Option<PathBuf>,
+        /// First migration only: hold the profile idle for legacy rate expiry.
+        /// The file identifies the previous invocation of this same service.
+        #[arg(long)] expire_legacy_from: Option<PathBuf>,
     },
     /// Validate the structure of declared worker inputs without executing a worker or opening accounts.
     CheckConfig {
@@ -30,7 +33,8 @@ enum Command {
 enum Sdk { V2, V3 }
 
 async fn run(db: PathBuf, profiles: PathBuf, worker_config: String, accounts: Vec<String>,
-    listen: SocketAddr, python: PathBuf, runtime_script: Option<PathBuf>) -> Result<(), String> {
+    listen: SocketAddr, python: PathBuf, runtime_script: Option<PathBuf>,
+    expire_legacy_from: Option<PathBuf>) -> Result<(), String> {
     use tokio::signal::unix::{signal, SignalKind};
     let mut term = signal(SignalKind::terminate()).map_err(|e| e.to_string())?;
     let mut interrupt = signal(SignalKind::interrupt()).map_err(|e| e.to_string())?;
@@ -45,7 +49,8 @@ async fn run(db: PathBuf, profiles: PathBuf, worker_config: String, accounts: Ve
     }.canonicalize().map_err(|_| "native runtime is missing; use a complete package or --runtime-script")?;
     let python = python.canonicalize().map_err(|_| "native Python executable is unavailable")?;
     let config = framer_native::ServeConfig { database: db, profiles, worker_config,
-        selected_accounts: accounts, address: listen, python, runtime_script: script };
+        selected_accounts: accounts, address: listen, python, runtime_script: script,
+        expire_legacy_from };
     framer_native::serve(config, async move {
         tokio::select! { _ = term.recv() => {}, _ = interrupt.recv() => {} }
     }).await
@@ -59,8 +64,10 @@ async fn main() -> ExitCode {
                 .map(|()| println!("Worker configuration structure is valid. No dependencies were verified or executed."))
                 .map_err(str::to_owned)
         }
-        Command::Serve { db, profiles, worker_config, accounts, listen, python, runtime_script } => {
-            run(db, profiles, worker_config, accounts, listen, python, runtime_script).await
+        Command::Serve { db, profiles, worker_config, accounts, listen, python, runtime_script,
+            expire_legacy_from } => {
+            run(db, profiles, worker_config, accounts, listen, python, runtime_script,
+                expire_legacy_from).await
         }
     };
     match result {

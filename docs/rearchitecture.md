@@ -142,12 +142,19 @@ that prior usage was unavailable and expired under local policy. Saved stable
 devices remain unchanged; the unrecorded old primary is not guessed. Unknown
 daily reserve use remains exhausted for at least 24 hours from the start.
 
-This is an API, not an activation command. The daemon must hold the session
-store and defer all account work throughout that interval. Startup integration
-and its signal/cleanup checks remain unfinished. A live first migration would
-need that exclusive interval; it must not be silently imposed on the current
-working service. Ordinary updates after migration use the durable journal and
-do not require repeating this interval.
+Native startup has an explicit `--expire-legacy-from` option naming the previous
+service runtime metadata. With missing history, it holds the session store and
+runs expiry before opening the HTTP listener or native ledger. Cancellation,
+startup abandonment and failure retain profile ownership until that helper
+exits. Existing journals skip the transition, including on later restarts with
+the option still configured. Without the option, missing history still refuses
+startup. This does not stop the old service or authorize a live migration.
+
+If the resulting journal has no primary device, native admission can make a
+new durable choice from its preserved ready-device inventory. The old primary
+remains unknown in migration evidence. A known primary that is cooling down or
+out of capacity is never replaced by this rule. Ordinary updates after migration
+use the durable journal and do not repeat the expiry interval.
 
 ## Examples used
 

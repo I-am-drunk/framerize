@@ -41,6 +41,21 @@ durable device history, and no other process may own it. Missing history is
 refused, not replaced with new identities. This is ledger-backed V3 serving;
 the startup smoke does not execute an SDK or establish live acceptance.
 
+The exceptional first migration can be selected with
+`--expire-legacy-from PREVIOUS_RUNTIME_JSON`. That file must contain the actual
+previous service's `boot_id`, `unit`, `cgroup` and `invocation`. The successor
+must run in that same service with the old processes gone. The command does
+not stop them, copy their sessions or infer an empty history.
+
+Before opening its listener, native startup holds the session directory and
+waits out the legacy 600-second rate window. Unknown daily reserve usage stays
+unavailable for 24 hours. Cancellation joins the migration helper and publishes
+no partial journal. A complete journal skips this first-migration path on later
+starts. Where the prior primary device is unknown, the first native admission
+persists a new choice from the preserved ready-device inventory. A known but
+unavailable primary still refuses work. This option has not migrated production
+state and is not permission to interrupt the working browser service.
+
 Stage a downloaded package with Python 3.12 or later:
 
 ```sh

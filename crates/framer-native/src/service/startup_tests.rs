@@ -3,6 +3,9 @@ use sha2::{Digest, Sha256};
 use std::process::Command;
 use tokio::time::{timeout, Duration};
 
+#[path = "startup_migration_tests.rs"]
+mod migration;
+
 struct Fixture { root: PathBuf, config: ServeConfig }
 impl Fixture {
     async fn new() -> Self {
@@ -38,7 +41,8 @@ impl Fixture {
         let config = ServeConfig { database, profiles,
             python: PathBuf::from("/usr/bin/python3"), runtime_script: runtime.join("native.py"),
             worker_config: worker_config.to_str().unwrap().into(),
-            selected_accounts: vec![id.to_string()], address: "127.0.0.1:0".parse().unwrap() };
+            selected_accounts: vec![id.to_string()], address: "127.0.0.1:0".parse().unwrap(),
+            expire_legacy_from: None };
         Self { root, config }
     }
     fn sessions_available(&self) -> bool {
