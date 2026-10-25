@@ -47,9 +47,12 @@ V3 worker configuration. The portable worker builder now carries all 1,259
 original inputs: 1,258 are byte-identical, and only the location declarations
 changed. Node, SDK assets, support modules and npm dependencies are bundled.
 Three Rust path-resolution cases and seven package/staging cases pass; the
-native executable rebuilds and the relocated software pin checks pass.
-The new complete archive still needs its package lifecycle check. No SDK
-execution or upstream acceptance is established by these packaging results.
+native executable rebuilds and the packaged software pin checks pass.
+The complete `fe306ec` development archive passes all eight lifecycle checks
+after staging elsewhere, using its default bundled worker. Startup, profile
+exclusion, invalid-request refusal, both signal shutdowns and profile reuse
+pass with synthetic state. All six pinned public asset downloads also match.
+No SDK execution or upstream acceptance is established by these results.
 
 The expiry, importer, journal, rate and runtime-owner suites pass 41 focused
 Python cases. Thirteen expiry cases cover actual deadline boundaries, unknown
