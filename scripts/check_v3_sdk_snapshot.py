@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 """Re-encode an isolated SDK's normalized wire snapshot without logging it."""
+import argparse
 import base64
 import hashlib
 import json
@@ -7,7 +8,6 @@ from pathlib import Path
 import runpy
 import struct
 import subprocess
-import sys
 import tempfile
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -92,7 +92,7 @@ class Reader:
         return f'Value::{kind}(vec!{units})'
 
 
-def check(snapshot, output):
+def check(snapshot, output, *, network_unavailable=False):
     raw = snapshot.read_bytes()
     if len(raw) > 8*1024*1024:
         raise ValueError('snapshot size')
@@ -107,11 +107,17 @@ def check(snapshot, output):
     timestamp = data['timestamp_ms']
     assert type(timestamp) is int and abs(timestamp) <= 8640000000000000
     apply, fields = [], []
+    if network_unavailable:
+        assert data['schema'] == 2, 'network reconstruction requires a captured outcome'
     if data['schema'] == 2:
         assert set(data['collectors']) == {'worker','network'}
         assert sorted(data['collector_order']) == ['network','worker']
         for name in data['collector_order']:
             expression = captured_value(data['collectors'][name])
+            if name == 'network' and network_unavailable:
+                apply.append('assert!(serialize(&[unavailable_network_record()]).unwrap()=='
+                             f'serialize(&[{expression}]).unwrap(),"network record differs");')
+                expression = 'unavailable_network_record()'
             assignments = [(242, 'SharedWorker')] if name == 'worker' else [
                 (469, 'NetworkHash'), (473, 'Network')]
             for position, variant in assignments:
@@ -124,7 +130,8 @@ def check(snapshot, output):
         module = json.dumps(str(ROOT/'crates/framer-native/src/castle/mod.rs'))
         source = f'''#![recursion_limit="2048"]
 #[allow(dead_code,unused_imports)] #[path={module}] mod castle;
-use castle::v3::{{Value,serialize,encode_collected,apply_collector_result,CollectorResult}};
+use castle::v3::{{Value,serialize,encode_collected,apply_collector_result,CollectorResult,
+    unavailable_network_record}};
 #[test] fn normalized_snapshot_round_trip_and_encode() {{
     let mut values=vec![{','.join(values)}];
     {''.join(apply)}
@@ -143,6 +150,7 @@ use castle::v3::{{Value,serialize,encode_collected,apply_collector_result,Collec
         equal = equal and len(token) == data['token_bytes']
     report = dict(schema=1,synthetic=True,normalized_snapshot_round_trip=True,
                   collector_fields_compared=fields,
+                  unavailable_network_reconstructed=network_unavailable,
                   token_sha256_equal=equal,positions=len(values),values=reader.values,
                   serialized_bytes=len(serialized),token_bytes=data['token_bytes'],
                   snapshot_sha256=hashlib.sha256(raw).hexdigest())
@@ -153,4 +161,10 @@ use castle::v3::{{Value,serialize,encode_collected,apply_collector_result,Collec
 
 
 if __name__ == '__main__':
-    check(Path(sys.argv[1]),Path(sys.argv[2]))
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument('snapshot', type=Path)
+    parser.add_argument('output', type=Path)
+    parser.add_argument('--network-unavailable', action='store_true',
+                        help='require native reconstruction of the captured unavailable network record')
+    args = parser.parse_args()
+    check(args.snapshot, args.output, network_unavailable=args.network_unavailable)

@@ -29,6 +29,10 @@ helper and differs from a normal empty observation. All 32 record comparisons
 and the non-scalar refusal check pass in three isolated tests. The existing
 CI comparison includes this case. No new SDK startup, network collection or
 live request was performed; runtime availability detection remains external.
+The saved synthetic SDK capture also passes with its entire unavailable
+network record rebuilt natively before applying the consumers. Its 5,412
+serialized bytes and 5,297-byte final output remain identical. One native
+test passed; the SDK capture was reused without starting another operation.
 
 The native collector-result integration writes SharedWorker position 242
 and network positions 469 and 473. The new field47 string-hash assignment
