@@ -1,6 +1,7 @@
 //! Process-local residency accounting. Hold a lease through the entire SSE chain.
 //! Only a confirmed dedicated close may free or replace an occupied slot.
 use crate::ids::AccountId;
+use crate::browser_lifecycle::{BrowserAccountStatus, IdleCloseResult};
 use serde::Serialize;
 use std::sync::{Arc, Mutex, MutexGuard};
 
@@ -263,6 +264,23 @@ impl CloseTicket {
         self.done = true;
         Ok(lease)
     }
+    fn confirm_busy(mut self, expected: &BrowserAccountStatus, result: &IdleCloseResult)
+        -> Result<(), PoolError> {
+        if expected.account_id != self.victim || !result.confirms_busy(expected) {
+            return Err(PoolError::StaleTicket);
+        }
+        let mut inner = self.pool.lock()?;
+        let index = self.position(&inner)?;
+        match inner.slots[index].state {
+            SlotState::Closing { started: true, was_uncertain, .. } => {
+                inner.slots[index].state = if was_uncertain { SlotState::Uncertain }
+                    else { SlotState::Resident };
+                self.done = true;
+                Ok(())
+            }
+            _ => Err(PoolError::CloseState),
+        }
+    }
 }
 impl Drop for CloseTicket {
     fn drop(&mut self) {
@@ -277,6 +295,9 @@ impl EvictionTicket {
     pub fn target(&self) -> AccountId { self.0.target.expect("eviction has replacement") }
     pub fn close_started(&mut self) -> Result<(), PoolError> { self.0.close_started() }
     pub fn cancel_before_io(self) -> Result<(), PoolError> { self.0.cancel_before_io() }
+    /// Restore the same occupied slot only after a matching no-close receipt.
+    pub fn confirm_busy(self, expected: &BrowserAccountStatus, result: &IdleCloseResult)
+        -> Result<(), PoolError> { self.0.confirm_busy(expected, result) }
     /// Call only after the dedicated close confirms this victim's host generation.
     pub fn confirm_close(self) -> Result<ResidentLease, PoolError> {
         self.0.confirm_close()?.ok_or(PoolError::StaleTicket)
@@ -286,6 +307,9 @@ impl ParkTicket {
     pub fn victim(&self) -> AccountId { self.0.victim }
     pub fn close_started(&mut self) -> Result<(), PoolError> { self.0.close_started() }
     pub fn cancel_before_io(self) -> Result<(), PoolError> { self.0.cancel_before_io() }
+    /// A refused close does not free capacity or clear existing uncertainty.
+    pub fn confirm_busy(self, expected: &BrowserAccountStatus, result: &IdleCloseResult)
+        -> Result<(), PoolError> { self.0.confirm_busy(expected, result) }
     /// A fresh close of this exact victim may also reconcile an uncertain slot.
     pub fn confirm_close(self) -> Result<(), PoolError> {
         match self.0.confirm_close()? {

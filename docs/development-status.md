@@ -22,6 +22,14 @@ removed. Current tests stay with the behavior they exercise.
 
 ## Validation
 
+The reorganized branch now includes the follow-up browser admission repair.
+All 139 core and 229 server cases pass on this composition. A matching Busy
+close receipt retains the occupied browser slot without declaring a new
+unfinished close. Completed status checks followed by a local account fence
+also retain confirmed cleanup. Unknown cleanup and mismatched identities keep
+their restrictions. This is source qualification, not a new service deployment
+or proof that every historical lockout trigger has been resolved.
+
 Native first-migration startup passes nine Rust startup cases and 15 native
 Python cases. The native debug executable builds. Coverage includes holding
 the profile while no listener exists, completed publication, cancellation,
@@ -57,7 +65,7 @@ Four obsolete combined-mode native cases were replaced by four admission
 cases; two independent browser health cases were retained. Removed tests do
 not count as validation of the new structure. No live delivery is claimed.
 
-The later admission correction passes all 228 current browser-server cases
+The earlier admission correction passed all 228 then-current browser-server cases
 and all 34 browser application cases. Its new account-switching regression
 fails on the previous implementation and passes with the correction, for
 streaming/nonstreaming and consumed/dropped responses. A completed negative
