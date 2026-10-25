@@ -21,6 +21,19 @@ The pinned Rust toolchain applies to local builds, CI and build metadata.
 Both available GitHub accounts currently have billing restrictions on Actions;
 the workflow has not yet produced a hosted artifact.
 
+Check a browser archive before using it:
+
+```sh
+python3 -I -B scripts/smoke_browser_package.py dist/framerize-linux-*.tar.gz
+```
+
+Browser CI runs this same command before uploading the archive. It verifies
+the files, starts the packaged service with empty temporary account state,
+checks its health PID and packaged UI, and exercises profile exclusion,
+both shutdown signals and later profile reuse. It opens no browser and sends
+no inference request. The local check still needs the normal process, file
+and loopback permissions; it does not install or activate a service.
+
 Build the native package with Node 24.13.0 and the pinned Rust toolchain:
 
 ```sh
