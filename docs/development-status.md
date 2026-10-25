@@ -117,6 +117,13 @@ provides. Their results remain in the historical notes. Current runtime tests
 and Rust library tests are unchanged; no removed suite counts as validation
 of the new architecture.
 
+Removed the remaining legacy host assembler, one-use restoration modules,
+comparison supervisors and combined application/worker measurement fixtures.
+Their private tests exercised the retired host-patching workflow. Current
+browser runtime tests, native worker code and Rust library tests are unchanged.
+Historical measurements and source links are retained; this cleanup makes no
+new memory or native-delivery claim.
+
 Next: first migration of existing account history and the running service.
 Current legacy account history and first-migration handling remain unresolved;
 no production restart is part of this structural work.
