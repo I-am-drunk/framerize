@@ -13,6 +13,8 @@ mod worker_result;
 pub use worker_result::{shared_worker_version, NormalizedWorkerValue};
 mod network_result;
 pub use network_result::{network_address, NetworkValueError};
+mod hash;
+pub use hash::json_hash;
 
 /// Append the SDK's unsigned base-128 representation without shared state.
 ///
