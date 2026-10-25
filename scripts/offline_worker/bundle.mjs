@@ -81,6 +81,10 @@ async function assemble(root, options) {
   if (pins.length > 64) throw new Error('Worker pin limit exceeded');
   await fs.writeFile(join(root, 'worker-config.json'), JSON.stringify({
     node: 'bin/node', entry: 'worker.mjs', pins }, null, 2) + '\n');
+  const commit = spawnSync('git', ['rev-parse', 'HEAD'], { cwd: source, encoding: 'utf8' });
+  const head = commit.status === 0 ? commit.stdout.trim() : '';
+  if (!/^[0-9a-f]{40}$/.test(head)) throw new Error('Worker source commit is unavailable');
+  await fs.writeFile(join(root, 'bundle-source.json'), JSON.stringify({ commit: head }) + '\n');
 }
 
 async function inventory(root, directory = root, result = {}) {
