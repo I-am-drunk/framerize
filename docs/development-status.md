@@ -1,5 +1,18 @@
 # Development status
 
+The authorized rollout switched to the candidate and obtained its restoration
+receipt, then failed startup quiescence before either stream test. Reverse
+startup was attempted, but receipt verification failed. The later service log
+records a restart blocked by the remaining activation fence. The old binary
+is now running again after a separate recovery whose actor is not established.
+
+The user ended blanket cooldown scheduling. A direct request on the selected
+account returned a complete `OK` stream with HTTP 200 on the current service.
+Its account prefix matched uniquely and the process generation stayed fixed.
+This is a browser baseline, not a completed browser/native comparison. The
+next comparison must use the owned admission path without the old runner's
+additional 600-second reservation. No new rollout is scheduled.
+
 The first scheduled rollout was refused before authentication handoff or
 service mutation. At collection the original service was idle and exact,
 but an account cooldown still had 273 seconds remaining. A model request
