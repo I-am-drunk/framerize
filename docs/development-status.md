@@ -26,7 +26,7 @@ Validation collected locally:
 - The workspace all-target check passed at the application split milestone.
 - Current browser server: 250 tests pass. Host: 73 tests pass. Browser CLI: 33
   tests pass. Gate selection: 43 tests pass, including three new persistence tests.
-- Python runtime: 80 fixture tests pass across lifecycle, imports, browser setup,
+- Python runtime: 90 fixture tests pass across lifecycle, imports, browser setup,
   packaging, rate persistence, request ownership and safe diagnostics. The fetch fixture
   runs the packaged JavaScript using an inert Node harness.
 - The TypeScript/Vite UI build passes. Both local development archives pass
@@ -82,8 +82,18 @@ opening stores. A complete development archive at `6859509` passed verification,
 staging, host exit, invalid-address refusal without state creation, and SIGTERM
 and Ctrl-C shutdown with empty temporary state. This is not live validation.
 
-Next: automatic cleanup verification and first-migration handling.
-Current account history and first-migration handling remain unresolved;
+Automatic recovery now binds each journal record to its service lifetime.
+It requires a new invocation with verified process cleanup, or a reboot, and
+retains charges, device identities and reserve limits. Unknown ownership or
+surviving children refuses recovery. Ten new cases cover this boundary and
+schema migration. One new fixture timestamp expectation was corrected; its
+six-case selection passed while the other 84 results remained unchanged.
+Two actual disposable service invocations also passed: a surviving child
+prevented recovery after host loss, and recovery succeeded after service cleanup.
+The packaged user-service template is not installed on the running service.
+
+Next: first migration of existing account history and service activation.
+Current legacy account history and first-migration handling remain unresolved;
 no production restart is part of this structural work.
 
 See [the design](rearchitecture.md) and [packages](releases.md). Earlier measured

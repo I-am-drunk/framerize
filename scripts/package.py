@@ -34,6 +34,9 @@ def package(app, output, target_dir, allow_dirty=False):
         (tree / 'bin').mkdir(parents=True)
         shutil.copy2(binary, tree / 'bin' / app)
         if app == 'framerize':
+            service = tree / 'share/systemd/user'
+            service.mkdir(parents=True)
+            shutil.copy2(ROOT / 'packaging/systemd/framerize.service', service)
             if not (ROOT / 'web/dist/index.html').is_file():
                 raise ValueError('build the UI first: npm --prefix web ci && npm --prefix web run build')
             shutil.copytree(ROOT / 'web/dist', tree / 'web')
@@ -55,6 +58,8 @@ def package(app, output, target_dir, allow_dirty=False):
                 'build_profile': profile, 'development': development,
                 'rustc': subprocess.check_output(['rustc', '--version'], text=True).strip(),
                 'capability': 'browser-serving' if app == 'framerize' else 'configuration-structure-only'}
+        if app == 'framerize':
+            info['rate_history_schema'] = 2
         (tree / 'build-info.json').write_text(json.dumps(info, indent=2) + '\n')
         files = {path.relative_to(tree).as_posix(): hashlib.sha256(path.read_bytes()).hexdigest()
                  for path in sorted(tree.rglob('*')) if path.is_file()}

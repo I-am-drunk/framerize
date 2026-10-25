@@ -45,11 +45,25 @@ overload evidence. Library consumers and tests use in-memory gates by default.
 This file contains concurrency estimates, not the account's request history.
 
 Activation and migration of the current service are still unfinished. The new
-durable rate ledger and graceful drain are implemented, but migration and
-crash recovery must be completed before promotion. Staging is not deployment.
+durable rate ledger, graceful drain and service-bound crash recovery are
+implemented. Legacy history migration must precede promotion. Staging is not
+deployment.
 
 Send SIGTERM to the daemon to request graceful shutdown. It stops admitting
 requests, waits for accepted work, and then closes owned browsers and the host.
 Foreground Ctrl-C follows the same path. Attached user browsers remain open.
 An error during cleanup is reported as an unsuccessful shutdown. Service-manager
 timeouts and forced termination are not a substitute for confirmed cleanup.
+
+Browser archives include `share/systemd/user/framerize.service`. The template
+uses the selected `~/.local/share/framerize/current` package and the existing
+`~/.framerize` data paths. It sends graceful termination to the daemon, allows
+five minutes for draining, then removes surviving processes. It requires no
+sudo. The template is supplied for the pending activation tooling; it has not
+been installed over the existing service.
+
+Build information declares `rate_history_schema: 2`. This schema records each
+account's runtime owner alongside its history. Readers from before this change
+cannot reopen it. Keep account state in place and roll back only to a compatible
+package. Upgrading schema 1 adds ownership metadata without inventing ownership
+for old rows. Existing profiles without any journal still require migration.
