@@ -4,8 +4,10 @@ Dedicated onboarding separates its empty account store from a private browser
 environment and exposes only selected software. A valid source manifest is
 insufficient to prove the mount command works: Bubblewrap 0.9.0 limits the
 complete argument list to 9,000 entries, including argument-file contents.
-The pending compact layout uses a separately verified sparse software tree.
-It still needs a successful kernel check before onboarding can start. See
+The compact layout uses a separately verified sparse software tree and a
+214-argument software mount fragment. Its kernel check verifies all selected
+files and aliases, writable generated caches and absent production state.
+The runtime adapter binds only the fresh runtime and empty account store. See
 `reference/analysis/onboarding-layout-result-20261025.md`.
 
 Stream acceptance evidence must survive failed checks. The qualified client
