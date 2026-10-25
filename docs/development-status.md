@@ -24,9 +24,9 @@ Completed source changes:
 
 Validation collected locally:
 - The workspace all-target check passed at the application split milestone.
-- Current browser server: 250 tests pass. Host: 73 tests pass. Browser CLI: 33
+- Current browser server: 251 tests pass. Host: 73 tests pass. Browser CLI: 33
   tests pass. Gate selection: 43 tests pass, including three new persistence tests.
-- Python runtime: 90 fixture tests pass across lifecycle, imports, browser setup,
+- Python runtime and release tooling: 99 fixture tests pass across lifecycle, imports, browser setup,
   packaging, rate persistence, request ownership and safe diagnostics. The fetch fixture
   runs the packaged JavaScript using an inert Node harness.
 - The TypeScript/Vite UI build passes. Both local development archives pass
@@ -96,7 +96,15 @@ schema 2 creation, host shutdown, invalid-startup refusal and both shutdown
 signals. The archive contains the service template. Its unchanged Rust binary
 was reused from the prior verified build; no compiler rerun was needed.
 
-Next: first migration of existing account history and service activation.
+The managed-service activation command now checks package/history compatibility
+before stopping anything, switches the release pointer and rolls back on failed
+startup. Interrupted updates restore the previous package first. Nine isolated
+cases cover activation, refusal, rollback, update locking and readiness identity;
+the existing five release cases remain passing. A Rust health-header test also
+passes. These checks use temporary files and a fake service adapter, not the
+running service. The command requires the one-time legacy migration first.
+
+Next: first migration of existing account history and the running service.
 Current legacy account history and first-migration handling remain unresolved;
 no production restart is part of this structural work.
 

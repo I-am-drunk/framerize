@@ -1,4 +1,4 @@
-"""Verify and stage a complete release without changing the running service."""
+"""Stage complete releases and activate an already migrated user service."""
 import argparse
 import hashlib
 import json
@@ -70,5 +70,16 @@ if __name__ == '__main__':
     staging.add_argument('--sha256', required=True, help='checksum supplied with the build artifact')
     staging.add_argument('--releases', type=Path,
                          default=Path.home() / '.local/share/framerize/releases')
+    activation = commands.add_parser('activate', help='switch a managed service with rollback')
+    activation.add_argument('release', type=Path)
     args = parser.parse_args()
-    print(stage(args.archive.resolve(), args.sha256, args.releases.resolve()))
+    try:
+        if args.command == 'activate':
+            from release_activation import run
+            print(json.dumps(run(args.release)))
+        else:
+            print(stage(args.archive.resolve(), args.sha256, args.releases.resolve()))
+    except Exception as error:
+        parser.exit(1, f'{error}\n')
+    except KeyboardInterrupt:
+        parser.exit(130, 'activation interrupted; rerun to recover any pending update\n')

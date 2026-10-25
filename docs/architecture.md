@@ -69,5 +69,13 @@ inventing ownership for old records. Older readers reject schema 2, so package
 rollback must select a compatible reader. No caller-provided clean flag or
 missing lock file substitutes for process cleanup.
 
+`scripts/release.py activate` updates an already migrated user service. It
+checks package and history compatibility before stopping the service, switches
+the package symlink atomically, and restores the previous package if startup
+fails. Readiness checks match the health endpoint's PID to systemd's main PID
+and the selected executable. One persistent update record supports recovery
+after interruption; account data is outside that transaction and is never
+rolled back. First migration from the legacy service remains separate.
+
 Earlier investigation notes are preserved in
 [architecture history](history/architecture-before-reorganization-20261025.md).

@@ -1,0 +1,176 @@
+"""Release switching uses only temporary files and an inert service adapter."""
+import fcntl
+from contextlib import nullcontext
+import json
+from pathlib import Path
+import sqlite3
+import sys
+import tempfile
+import unittest
+from types import SimpleNamespace
+from unittest.mock import patch
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[2] / 'scripts'))
+import release
+import release_activation as activation
+
+
+class Service:
+    def __init__(self):
+        self.calls, self.fail = [], set()
+
+    def validate(self, old, new):
+        pass
+
+    def stop(self):
+        self.calls.append('stop')
+
+    def start(self, package):
+        self.calls.append(package.name)
+        if package.name in self.fail:
+            raise RuntimeError('fixture startup failure')
+
+
+class ActivationTests(unittest.TestCase):
+    def setUp(self):
+        temporary = tempfile.TemporaryDirectory()
+        self.addCleanup(temporary.cleanup)
+        self.root = Path(temporary.name)
+        self.installation, self.profiles = self.root / 'install', self.root / 'profiles'
+        self.old, self.new = self.package('old'), self.package('new')
+        self.current = self.installation / 'current'
+        self.current.symlink_to(self.old)
+        self.history = self.profiles / '.sidecar/camoufox/rate-history.sqlite3'
+        self.history.parent.mkdir(parents=True)
+        with sqlite3.connect(self.history) as db:
+            db.execute('PRAGMA user_version=2')
+            db.execute('CREATE TABLE unchanged (value TEXT)')
+            db.execute("INSERT INTO unchanged VALUES ('preserve')")
+        self.before = self.history.read_bytes()
+        self.service = Service()
+
+    def package(self, name):
+        root = self.installation / 'releases' / name
+        for path in ('bin/framerize', 'runtime/host.py', 'runtime/runtime-manifest.json',
+                     'web/index.html', 'share/systemd/user/framerize.service'):
+            target = root / path
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_text('fixture')
+        (root / 'bin/framerize').chmod(0o755)
+        (root / 'build-info.json').write_text(json.dumps(dict(format=1,
+            application='framerize', development=False, source_dirty=False,
+            build_profile='release', rate_history_schema=2, activation_protocol=1, platform='fixture')))
+        self.manifest(root)
+        return root
+
+    @staticmethod
+    def manifest(root):
+        files = {path.relative_to(root).as_posix(): release.sha256(path)
+                 for path in root.rglob('*') if path.is_file() and path.name != 'manifest.json'}
+        (root / 'manifest.json').write_text(json.dumps(files))
+
+    def activate(self):
+        return activation.activate(self.new, self.installation, self.profiles, self.service)
+
+    def test_success_switches_only_the_package_and_preserves_history(self):
+        self.assertEqual(self.activate()['status'], 'activated')
+        self.assertEqual(self.current.resolve(), self.new)
+        self.assertEqual(self.service.calls, ['stop', 'new'])
+        self.assertEqual(self.history.read_bytes(), self.before)
+        self.assertFalse((self.installation / 'update.json').exists())
+        self.assertEqual(self.activate()['status'], 'unchanged')
+        self.assertEqual(self.service.calls, ['stop', 'new', 'new'])
+
+    def test_failed_start_restores_the_previous_package_without_rolling_back_data(self):
+        self.service.fail.add('new')
+        with self.assertRaisesRegex(RuntimeError, 'previous release restored'):
+            self.activate()
+        self.assertEqual(self.current.resolve(), self.old)
+        self.assertEqual(self.service.calls, ['stop', 'new', 'stop', 'old'])
+        self.assertEqual(self.history.read_bytes(), self.before)
+
+    def test_failed_rollback_leaves_a_recoverable_record(self):
+        self.service.fail.update(('old', 'new'))
+        with self.assertRaisesRegex(RuntimeError, 'rollback failed'):
+            self.activate()
+        self.assertTrue((self.installation / 'update.json').is_file())
+        self.service.fail.clear()
+        self.assertEqual(self.activate()['status'], 'recovered')
+        self.assertEqual(self.current.resolve(), self.old)
+        self.assertEqual(self.service.calls[-2:], ['stop', 'old'])
+        self.assertFalse((self.installation / 'update.json').exists())
+
+    def test_interrupted_pointer_switch_restores_old_without_replaying_new(self):
+        (self.installation / 'update.json').write_text(json.dumps(
+            {'version': 1, 'old': str(self.old), 'new': str(self.new)}))
+        self.current.unlink()
+        self.current.symlink_to(self.new)
+        self.assertEqual(self.activate()['status'], 'recovered')
+        self.assertEqual(self.service.calls, ['stop', 'old'])
+        self.assertEqual(self.current.resolve(), self.old)
+
+    def test_missing_history_refuses_before_stopping_service(self):
+        self.history.unlink()
+        with self.assertRaisesRegex(ValueError, 'migration'):
+            self.activate()
+        self.assertEqual(self.service.calls, [])
+        self.assertEqual(self.current.resolve(), self.old)
+
+    def test_package_or_schema_mismatch_refuses_before_service_actions(self):
+        path = self.new / 'build-info.json'
+        original = json.loads(path.read_text())
+        for field, value in (('development', True), ('rate_history_schema', 3),
+                             ('platform', 'other'), ('application', 'framerize-native'),
+                             ('activation_protocol', None)):
+            with self.subTest(field=field):
+                path.write_text(json.dumps(dict(original, **{field: value})))
+                self.manifest(self.new)
+                with self.assertRaises(ValueError):
+                    self.activate()
+                self.assertEqual(self.service.calls, [])
+                self.assertEqual(self.current.resolve(), self.old)
+        path.write_text(json.dumps(original))
+        self.manifest(self.new)
+        (self.new / 'web/index.html').write_text('unexpected edit')
+        with self.assertRaisesRegex(ValueError, 'checksum'):
+            self.activate()
+        self.assertEqual(self.service.calls, [])
+
+    def test_second_updater_cannot_queue_a_later_unintended_switch(self):
+        with (self.installation / '.update.lock').open('a') as lock:
+            fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            with self.assertRaises(BlockingIOError):
+                self.activate()
+        self.assertEqual(self.service.calls, [])
+
+    def test_readiness_rejects_the_wrong_process_even_with_http_200(self):
+        service = activation.UserService()
+        info = {'ActiveState': 'active', 'MainPID': '42'}
+        responses = [nullcontext(SimpleNamespace(status=200, headers={'x-framerize-pid': pid}))
+                     for pid in ('99', '42')]
+        with patch.object(service, 'command') as command, \
+             patch.object(service, 'show', return_value=info), \
+             patch.object(service, 'executable', return_value=self.new / 'bin/framerize'), \
+             patch.object(service.http, 'open', side_effect=responses) as opened, \
+             patch.object(activation.time, 'sleep'):
+            service.start(self.new)
+        self.assertEqual(opened.call_count, 2)
+        command.assert_called_once_with('start', '--', 'framerize.service')
+
+    def test_service_preflight_refuses_overrides_and_an_unrelated_process(self):
+        service = activation.UserService()
+        service.unit_file = self.root / 'framerize.service'
+        service.unit_file.write_text('fixture')
+        info = dict(LoadState='loaded', ActiveState='active', MainPID='42',
+                    FragmentPath=str(service.unit_file), DropInPaths='',
+                    KillMode='mixed', SendSIGKILL='yes', Delegate='no', NeedDaemonReload='no')
+        with patch.object(service, 'show', return_value=info), \
+             patch.object(service, 'executable', return_value=self.old / 'bin/framerize') as exe:
+            service.validate(self.old, self.new)
+            info['DropInPaths'] = '/unreviewed/override.conf'
+            with self.assertRaisesRegex(ValueError, 'migration'):
+                service.validate(self.old, self.new)
+            info['DropInPaths'] = ''
+            exe.return_value = Path('/unrelated/framerize')
+            with self.assertRaisesRegex(ValueError, 'running executable'):
+                service.validate(self.old, self.new)

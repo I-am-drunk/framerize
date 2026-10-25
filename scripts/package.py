@@ -60,6 +60,7 @@ def package(app, output, target_dir, allow_dirty=False):
                 'capability': 'browser-serving' if app == 'framerize' else 'configuration-structure-only'}
         if app == 'framerize':
             info['rate_history_schema'] = 2
+            info['activation_protocol'] = 1
         (tree / 'build-info.json').write_text(json.dumps(info, indent=2) + '\n')
         files = {path.relative_to(tree).as_posix(): hashlib.sha256(path.read_bytes()).hexdigest()
                  for path in sorted(tree.rglob('*')) if path.is_file()}
