@@ -1,13 +1,16 @@
 # Development status
 
-R5 now has qualified socket interruption and immutable lease receipts. A PID-reuse race was reproduced and fixed; all 28 boundary cases are accepted. Seven receipt cases pass, with the existing controller, flow and kernel results retained. The approved candidate is still staged, pending the single controlled switch and two live stream checks. See `reference/analysis/controlled-interruption-qualification-20261025.md`.
+R5 switched to the qualified candidate, then switched back after its 90-second
+startup settling check expired during sequential browser prewarming. The old
+binary is running; final rollback verification remains pending. No acceptance
+POST ran. See `reference/analysis/r5-rollout-result-20261025.md`.
 
 The normal interruption repair now has a built candidate from qualified source
 `93dad965`, executable SHA256 `f70458d364ec624006b5dc968fda49c06ab22aa65673c56fc43b87d7d223aba3`.
 Host, API, server and link builds passed and are collected. Its fifteen-file
 binding retains the previously qualified normal host and state-preservation
-support. The candidate is staged and its fifteen files verified. The service
-still runs the original executable; the candidate has not been launched.
+support. The candidate ran during R5 and all fifteen original files still match.
+The service now runs the original executable after R5's rollback.
 The accepted twenty application cases were not repeated.
 
 The repair retains the next root execution slot ahead of independent signup
@@ -17,7 +20,7 @@ shutdown cases verify both paused owners terminate before systemd stop and
 that an unreaped dead sidecar cannot allow ingress resume. Test resources were
 collected and the original service generation reverified on 25 October.
 This supersedes older timed-quiet scheduling descriptions below. The user has
-authorized the rollout and checks. The collected attempts ended before switching;
+authorized the rollout and checks. Attempts before R5 ended before switching;
 their controllers and authentication helpers are collected. An existing idle
 close reconciled one uncertain browser without restarting the service. The
 later attempt still found active work and could not establish quiescence.

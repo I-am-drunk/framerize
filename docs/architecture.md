@@ -1,6 +1,13 @@
 # Serving architecture and branch policy
 
-The qualified R5 rollout controller can interrupt bound-main client sockets while retaining the listener. Its temporary port restriction expires without refresh. Per-refresh receipt files preserve prior evidence. PID identity is checked again after pidfd acquisition before any shutdown. Internal cleanup, genuine rate-state capture and restoration remain mandatory. This controller is not yet deployed.
+The R5 rollout controller interrupted bound-main client sockets while retaining
+the listener, then captured and restored genuine rate state in both directions.
+Its temporary port restriction expired with its owner and was removed. The
+90-second post-start settling budget failed during sequential prewarming.
+Cold-start readiness must allow that bounded work to finish while retaining
+the same idle, generation, rate-state and cleanup requirements. A restoration
+receipt alone does not complete rollback verification. See
+`reference/analysis/r5-rollout-result-20261025.md`.
 
 V3 worker failures can retain a fixed phase label from the wrapper's structured
 logger tags. Only an already failed mint or branch verdict is refined. Missing,
