@@ -23,8 +23,9 @@ are refused rather than evaluated or replaced with invented observations.
 ## Private protocol and ownership
 
 `FCLT`, version 1, three zero bytes and a big-endian payload length prefix one
-JSON document. The current document has version 2, a tagged value array and
-a required tagged `shared_worker_reply`. Version 1 documents are refused.
+JSON document. The current document has version 3, a tagged value array,
+and required tagged `shared_worker_reply` and `network_reply` values.
+Version 1 and 2 documents are refused.
 Tags preserve
 undefined, null, booleans, numbers including negative zero and nonfinite values,
 and strings as UTF-16 code units. Holes normalize to undefined, as in the
@@ -43,6 +44,20 @@ late or unsupported result refuses the operation. The copy retains the
 value at that boundary even if the original array subsequently changes.
 Receiver failure markers keep their original types; they are not converted
 into a successful worker response.
+
+The network result is copied after the original completion-time assignment,
+where the first network field reduction used to run. Each receiver has its
+own once-only boundary; both must arrive before collection. All three copies
+share the value/string budgets. The original network reductions are omitted;
+Rust applies their values in order at positions 80, 469, 473 and 659. Missing
+or unsupported data refuses encoding, including a missing first record and
+truthy non-string inputs to string-only transforms.
+
+The original `SX` clock sample and later `$t(SX)` conversion at position 755
+are retained. The parent does not manufacture an elapsed value or restart
+its measurement. Moving reductions can change other elapsed-time samples
+and defer conversion failure until parent decode; it does not preserve all
+original exception ordering or later side effects on malformed data.
 
 Rust validates both inputs and applies `CollectorResult::SharedWorker` to
 position 242 before encoding. The returned output therefore consumes the
@@ -74,6 +89,28 @@ V2 continues to use `FSDK` token frames and its separate metadata validator.
 Neither path treats a local output as evidence of upstream acceptance.
 
 ## Qualification
+
+The version 3 network handoff passes 18 JavaScript and 91 Rust checks.
+One fresh instrumented SDK operation reproduces 765 positions, 5,412
+serialized bytes and the original 5,297-byte output after both native
+receiver reductions. Eleven negative checks include changed and missing
+network results. Its 39,384-byte frame arrived over the private pipe; the
+child joined with no remaining descendants, memory-limit events or swap.
+
+The final loader omits the four SDK network reductions. Seven JavaScript
+and five affected Rust checks pass; unchanged broader results are reused.
+A synthetic operation through this production loader completes in 2,022 ms,
+with the worker joined and absent and output discarded. All 1,264 pinned
+production inputs remain unchanged. Isolation retains the 128 MiB limit,
+private network/filesystem views, syscall filter and no swap.
+Evidence: `native-network-integration-r1` in the private investigation.
+
+Network destinations have sole source writers at 284166..284241, with
+timing position 755 written later at 274643..274656. This does not establish
+equal elapsed-time measurements across different operations. No live
+acceptance, complete native collection or request memory saving is proved.
+
+The preceding version 2 results are retained below:
 
 The version 2 document and connected SharedWorker reduction pass 16 focused
 JavaScript checks, 86 Rust worker checks and four V3 ownership checks.

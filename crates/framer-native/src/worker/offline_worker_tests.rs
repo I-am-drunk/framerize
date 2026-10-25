@@ -44,7 +44,7 @@ fn adapter(scope: &AccountScope) -> Arc<OfflineWorkerMinter> {
     let entry = root.join("fake_worker.mjs");
     let pins = vec![
         crate::test_support::node_pin(),
-        pin(entry.clone(), "34e5930306863d55fd0f49cf9ceeed0349ca6262ef9126dd58699b0f3d6d0a58"),
+        pin(entry.clone(), "1d95d37d03d6b3d2a7182c110e06103f3ed115241cd0bc3f4534ba408ef9b604"),
         pin(root.join("protocol.mjs"), "99117048db3589a307efcd11ce07960f8e80afc0aece3d1a4d000f55ec1622df"),
     ];
     Arc::new(OfflineWorkerMinter::new(scope.clone(),

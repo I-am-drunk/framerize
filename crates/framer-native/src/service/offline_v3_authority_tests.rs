@@ -2,7 +2,7 @@ use super::*;
 
 fn v3_fixture() -> Fixture {
     fixture_with_operation(include_bytes!("../../../../scripts/tests/fixtures/v3_authority_mint.mjs"),
-        "c61e55ee3553ff1ecbac0bf6881f68a4da79646962c612079ff28805c5291e98").0
+        "2fee605599e5e1340e3b4555225b2fa2ba8985c80ba10cc3222ceb3f03d5188b").0
 }
 
 fn observed_host(scope: &AccountScope, lost_reply: bool,
