@@ -208,6 +208,13 @@ labels, booleans, bounded counts and finite timings. Pipe-writer entry and
 return are distinct from age-qualified handoff and parent process cleanup.
 This correlation does not add observations of unreported SDK or server phases.
 
+The request owner emits `offline.request.finished` after its resource cleanup
+settles, even when the client has disconnected. `offline.complete` records
+the result observed by a waiting HTTP or SSE handler. Both use the request's
+diagnostic ID and the same safe outcome fields. Neither event proves remote
+receipt or the enclosing operation task's join. A logging failure cannot
+change the request result or interrupt its cleanup.
+
 Concurrency-limit storage is selected by application startup. Library gates
 are in memory unless supplied a state-file path. Fixtures never inherit the
 normal service's learned limits through an implicit home-directory lookup.
