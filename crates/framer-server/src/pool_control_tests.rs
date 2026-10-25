@@ -20,9 +20,9 @@ use tokio::sync::Semaphore;
 
 
 
-#[path = "admission_tests.rs"]
-mod admission_tests;
 
+#[path = "account_health_tests.rs"]
+mod account_health;
 #[path = "pool_ownership_tests.rs"]
 mod ownership_merge_tests;
 #[path = "pool_repick_cleanup_tests.rs"]

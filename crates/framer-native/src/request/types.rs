@@ -50,9 +50,9 @@ impl std::fmt::Debug for DispatchError {
     }
 }
 
-impl From<framer_server::admission::AdmissionError> for FailureKind {
-    fn from(error: framer_server::admission::AdmissionError) -> Self {
-        use framer_server::admission::AdmissionError as E;
+impl From<crate::service::admission::AdmissionError> for FailureKind {
+    fn from(error: crate::service::admission::AdmissionError) -> Self {
+        use crate::service::admission::AdmissionError as E;
         match error {
             E::InvalidRequest => Self::InvalidRequest,
             E::InvalidScope => Self::InvalidScope,

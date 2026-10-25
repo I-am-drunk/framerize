@@ -8,7 +8,7 @@ for decisions, boundaries and the remaining migration work.
 - `crates/framer-native`: native account, authorization, request, transport and worker code.
 - `crates/framer-api`: Framer endpoint policy, browser chains and shared payload helpers.
 - `crates/framer-core`: domain types, account selection and ownership primitives.
-- `crates/framer-server`: normal HTTP routes and shared account admission.
+- `crates/framer-server`: normal HTTP routes and browser account admission.
 - `crates/framer-host`: browser process integration.
 - `crates/framer-store`: state and session storage.
 - `runtime/framerize_host`: Python browser host, with account, browser, resource
@@ -90,6 +90,13 @@ Native session ownership is constructed from a session store and an operation
 tracker. It retains both for its lifetime and drains its own tracker during
 shutdown. Requests must use that exact pair. The session component does not
 receive or mutate browser application state.
+
+Native serving has its own state and admission policy in `framer-native/service`.
+It accepts a fixed set of 1 to 64 account identities, with one logical slot for
+each selected account. There is no browser status probe, browser eviction or
+account-management route in this service. Identity, proxy, capacity, cooldown
+and cleanup checks remain in the native admission path. The browser server's
+old native control and comparison-reservation entry points are removed.
 
 The host opens one SQLite journal outside the release directory. Account rate
 decisions live in `framerize_accounts/rates.py`: request charges and mint reservations

@@ -18,7 +18,6 @@ use std::net::SocketAddr;
 use std::sync::Arc;
 use tower_http::services::ServeDir;
 
-pub mod admission;
 pub mod operation_ownership;
 
 mod serving_accounts;

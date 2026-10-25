@@ -1,4 +1,3 @@
-use framer_api::HttpFramerClient;
 use super::*;
 use crate::request::invocation::AttemptContext;
 use crate::authorization::CredentialMaterial;
@@ -8,15 +7,11 @@ use crate::account::client::PreparationFailure;
 use crate::account::client::PreparationResult;
 use framer_core::account::AccountState;
 use framer_core::account::ManagedAccount;
-use framer_core::browser_lifecycle::BrowserAccountState;
-use framer_core::browser_lifecycle::BrowserAccountStatus;
 use framer_core::ids::AccountId;
 use framer_core::ids::FramerUserId;
 use framer_core::ids::ProjectId;
 use framer_core::ids::TeamId;
-use framer_core::port::BrowserBridge;
 use crate::account::device_owner::DeviceOwner;
-use framer_core::port::CastleToken;
 use framer_core::port::Session;
 use framer_core::port::SessionStore;
 use framer_core::port::StateStore;
@@ -30,6 +25,8 @@ use crate::authorization::source::Failure;
 
 #[path = "offline_session_tests.rs"]
 mod shared_sessions;
+#[path = "admission_tests.rs"]
+mod admission;
 #[path = "offline_store_failure_tests.rs"]
 mod store_failures;
 #[path = "offline_device_tests.rs"]
@@ -44,7 +41,7 @@ async fn finish(run: Run) -> Outcome {
     assert_eq!(run.cleanup.await.is_ok(), outcome.cleanup_confirmed);
     outcome
 }
-fn start(state: AppState, ports: &Arc<Ports>, spec: Specification, sessions: &Sessions) -> Run {
+fn start(state: ServiceState, ports: &Arc<Ports>, spec: Specification, sessions: &Sessions) -> Run {
     launch_with_source(state, spec, Arc::new(Builder(ports.clone())), sessions.clone()).unwrap()
 }
 
@@ -94,7 +91,7 @@ async fn cancellation_during_private_load_waits_without_issuing() {
         assert_eq!(tokio::time::timeout(Duration::from_secs(2), cleanup).await.unwrap(), Ok(()));
         let _drained = seal.wait_application().await.unwrap();
         assert_eq!(ports.builds.load(Ordering::SeqCst), 0);
-        assert_eq!(*ports.events.lock().unwrap(), vec!["status", "load", "loaded"]);
+        assert_eq!(*ports.events.lock().unwrap(), vec!["load", "loaded"]);
     }
 }
 
@@ -140,7 +137,7 @@ async fn unconfirmed_issuance_keeps_account_fenced_after_local_task_join() {
     let admission = native_control::admit(&state, identity, "gpt-4.1",
         Instant::now() + Duration::from_secs(1)).await;
     assert!(admission.is_err());
-    assert_eq!(*ports.events.lock().unwrap(), vec!["status", "load", "loaded"]);
+    assert_eq!(*ports.events.lock().unwrap(), vec!["load", "loaded"]);
 }
 
 #[tokio::test]
@@ -202,7 +199,7 @@ async fn source_builder_panic_cannot_release_the_account_as_clean() {
 struct Ports {
     account: Mutex<ManagedAccount>, events: Mutex<Vec<&'static str>>,
     others: Mutex<std::collections::HashMap<AccountId, ManagedAccount>>,
-    stored: Mutex<Session>, saves: AtomicUsize, management: AtomicBool,
+    stored: Mutex<Session>, other_id: AccountId,
     load_failure: AtomicUsize,
     loading: Semaphore, read: Semaphore, issuing: Semaphore, issue: Semaphore,
     builds: AtomicUsize, cancelled: AtomicBool, uncertain: AtomicBool,
@@ -211,8 +208,9 @@ struct Ports {
     device_closing: Semaphore, device_finish: Semaphore,
 }
 
-fn fixture() -> (AppState, Arc<Ports>, Specification, Sessions) {
+fn fixture() -> (ServiceState, Arc<Ports>, Specification, Sessions) {
     let id = AccountId::new();
+    let other_id = AccountId::new();
     let account = ManagedAccount { id, alias: "fixture".into(), email: None,
         framer_user_id: FramerUserId("fixture-user".into()), castle_device_id: "fixture-device".into(),
         proxy: None, current_team: Some(TeamId("fixture-team".into())),
@@ -226,7 +224,7 @@ fn fixture() -> (AppState, Arc<Ports>, Specification, Sessions) {
         others: Mutex::new(std::collections::HashMap::new()),
         stored: Mutex::new(Session { active_user: FramerUserId("fixture-user".into()),
             cookie_header: "session=fixture".into() }),
-        saves: AtomicUsize::new(0), management: AtomicBool::new(false),
+        other_id,
         load_failure: AtomicUsize::new(0),
         loading: Semaphore::new(0), read: Semaphore::new(1),
         issuing: Semaphore::new(0), issue: Semaphore::new(1), builds: AtomicUsize::new(0),
@@ -234,15 +232,10 @@ fn fixture() -> (AppState, Arc<Ports>, Specification, Sessions) {
         panic_build: AtomicBool::new(false), scope: Mutex::new(None),
         device_mode: AtomicUsize::new(0), device_users: AtomicUsize::new(0),
         device_closing: Semaphore::new(0), device_finish: Semaphore::new(1) });
-    let state = AppState { operation_ownership: None,
-        client: Arc::new(HttpFramerClient::new()), browser: ports.clone(),
-        sessions: ports.clone(), state: ports.clone(),
-        gate: Arc::new(framer_core::gate::ConcurrencyGate::with_config(framer_core::gate::GateConfig {
+    let mut state = ServiceState::new(ports.clone(), ports.clone(), [id, other_id]).unwrap();
+    state.gate = Arc::new(framer_core::gate::ConcurrencyGate::with_config(framer_core::gate::GateConfig {
             initial: 1, min: 1, max: 1, recover_ms: 60_000, relax_ms: 60_000, min_interval_ms: 0,
-        })),
-        wave: Arc::new(framer_core::wave::WaveGuard::new()),
-        serving_accounts: Arc::new(framer_server::ServingAccountPolicy::default()) };
-    let mut state = framer_server::operation_ownership::with_owned_operations(state, 32).unwrap();
+        }));
     let sessions = Sessions::new(state.sessions.clone(),
         state.operation_ownership.clone().unwrap()).unwrap();
     state.sessions = sessions.store();
@@ -325,12 +318,7 @@ impl SessionStore for Ports {
         self.events.lock().unwrap().push("loaded");
         Ok(Some(captured))
     }
-    async fn save(&self, session: &Session) -> Result<(), String> {
-        assert!(self.management.load(Ordering::SeqCst), "unexpected save");
-        *self.stored.lock().unwrap() = session.clone();
-        self.saves.fetch_add(1, Ordering::SeqCst);
-        Ok(())
-    }
+    async fn save(&self, _: &Session) -> Result<(), String> { panic!("unexpected save") }
     async fn delete(&self, _: &FramerUserId) -> Result<(), String> { panic!("unexpected delete") }
 }
 
@@ -365,34 +353,5 @@ impl DeviceOwner for Ports {
         }
         if joined { assert_eq!(self.device_users.fetch_sub(1, Ordering::SeqCst), 1); }
         Ok(joined)
-    }
-}
-
-#[async_trait::async_trait]
-impl BrowserBridge for Ports {
-    fn supports_browser_lifecycle(&self) -> bool { true }
-    async fn browser_status(&self, id: &AccountId) -> Result<BrowserAccountStatus, String> {
-        self.events.lock().unwrap().push("status");
-        Ok(BrowserAccountStatus { account_id: *id, host_generation: None,
-            account_incarnation: 0, state: BrowserAccountState::Absent, active_commands: 0 })
-    }
-    async fn castle_token(&self, id: &AccountId) -> Result<CastleToken, String> {
-        assert!(self.management.load(Ordering::SeqCst), "unexpected browser mint");
-        assert_ne!(*id, self.account.lock().unwrap().id);
-        Ok(CastleToken("fixture".into()))
-    }
-    async fn auth_begin(&self, _: &AccountId, _: &str) -> Result<(), String> {
-        panic!("unexpected browser login")
-    }
-    async fn auth_complete(&self, id: &AccountId, _: &str)
-        -> Result<(String, serde_json::Value), String> {
-        assert!(self.management.load(Ordering::SeqCst), "unexpected browser login");
-        assert_ne!(*id, self.account.lock().unwrap().id);
-        Ok(("session=replacement-fixture".into(), shared_sessions::profile()))
-    }
-    async fn register_account_proxy(&self, id: &AccountId, _: Option<String>) -> Result<(), String> {
-        assert!(self.management.load(Ordering::SeqCst), "unexpected proxy registration");
-        assert_ne!(*id, self.account.lock().unwrap().id);
-        Ok(())
     }
 }

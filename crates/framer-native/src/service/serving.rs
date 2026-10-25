@@ -17,10 +17,9 @@ use framer_core::convert;
 use crate::request::types::self as port;
 use crate::request::types::DispatchError;
 use crate::request::types::FailureKind;
-use framer_server::AppState;
-use framer_server::admission as native_control;
-use framer_server::admission::AdmittedControl;
-use framer_server::admission::HealthOutcome;
+use super::state::ServiceState;
+use super::admission as native_control;
+use super::admission::{AdmittedControl, HealthOutcome};
 use futures::future::BoxFuture;
 use futures::FutureExt;
 use std::panic::AssertUnwindSafe;
@@ -94,14 +93,14 @@ pub(crate) struct Run {
 }
 impl Run { pub(crate) fn cancel(&self) { self.stop.cancel(); } }
 
-pub(crate) fn launch(state: AppState, request: Request, worker: impl Into<WorkerBackend>,
+pub(crate) fn launch(state: ServiceState, request: Request, worker: impl Into<WorkerBackend>,
     sessions: Sessions, device_owner: Arc<dyn DeviceOwner>)
     -> Result<Run, DispatchError> {
     let source = Arc::new(OfflineSource::from_worker(worker.into(), request.target, device_owner));
     launch_with_source(state, request.spec, source, sessions)
 }
 
-fn launch_with_source(state: AppState, spec: Specification, source: Arc<dyn SourceBuilder>,
+fn launch_with_source(state: ServiceState, spec: Specification, source: Arc<dyn SourceBuilder>,
     sessions: Sessions)
     -> Result<Run, DispatchError> {
     Plan::validate(&spec)?;
@@ -140,7 +139,7 @@ fn stopped(stop: &Stop, deadline: Instant) -> Option<FailureKind> {
     else if stop.is_cancelled() { Some(FailureKind::Cancelled) } else { None }
 }
 
-async fn owned(state: AppState, spec: Specification, source: Arc<dyn SourceBuilder>,
+async fn owned(state: ServiceState, spec: Specification, source: Arc<dyn SourceBuilder>,
     stop: Arc<Stop>, sessions: Sessions) -> Outcome {
     let deadline = spec.deadline;
     if let Some(kind) = stopped(&stop, spec.deadline) { return Outcome::failed(kind); }
@@ -172,7 +171,7 @@ async fn owned(state: AppState, spec: Specification, source: Arc<dyn SourceBuild
 
 type Admission = (tokio::sync::OwnedSemaphorePermit, port::PoolAdmission);
 
-async fn execute(state: &AppState, spec: Specification, source: Arc<dyn SourceBuilder>,
+async fn execute(state: &ServiceState, spec: Specification, source: Arc<dyn SourceBuilder>,
     admission: Admission, owner: &native_control::ControlOwner, proxy: &Option<String>,
     stop: Arc<Stop>, native: &NativeAccountClient, scope: &AccountScope,
     device: Option<Arc<crate::account::device::DeviceGrant>>) -> Outcome {
@@ -234,7 +233,7 @@ async fn observe(mut probe: ProbeRun, stop: Arc<Stop>, deadline: Instant,
         evidence: Some(evidence), failure }
 }
 
-async fn session(state: &AppState, spec: Specification, source: Arc<dyn SourceBuilder>,
+async fn session(state: &ServiceState, spec: Specification, source: Arc<dyn SourceBuilder>,
     admission: Admission, owner: &native_control::ControlOwner, proxy: &Option<String>,
     stop: Arc<Stop>, sessions: &Sessions) -> Outcome {
     use crate::account::device::DeviceFailure;
@@ -262,7 +261,7 @@ async fn session(state: &AppState, spec: Specification, source: Arc<dyn SourceBu
     outcome
 }
 
-async fn session_inner(state: &AppState, spec: Specification, source: Arc<dyn SourceBuilder>,
+async fn session_inner(state: &ServiceState, spec: Specification, source: Arc<dyn SourceBuilder>,
     admission: Admission, owner: &native_control::ControlOwner, proxy: &Option<String>,
     stop: Arc<Stop>, sessions: &Sessions,
     device: Option<Arc<crate::account::device::DeviceGrant>>) -> Outcome {

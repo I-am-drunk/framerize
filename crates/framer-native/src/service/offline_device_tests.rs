@@ -16,7 +16,7 @@ impl SourceBuilder for DeviceBuilder {
     }
 }
 
-fn start_device(state: AppState, ports: &Arc<Ports>, spec: Specification,
+fn start_device(state: ServiceState, ports: &Arc<Ports>, spec: Specification,
     sessions: &Sessions) -> Run {
     launch_with_source(state, spec, Arc::new(DeviceBuilder(ports.clone())), sessions.clone()).unwrap()
 }
@@ -41,7 +41,7 @@ async fn device_ownership_survives_cancellation_through_scope_and_host_cleanup()
     assert!(outcome.cleanup_confirmed);
     assert_eq!(ports.device_users.load(Ordering::SeqCst), 0);
     assert_eq!(*ports.events.lock().unwrap(),
-        vec!["status", "device_open", "load", "loaded", "device_close"]);
+        vec!["device_open", "load", "loaded", "device_close"]);
 }
 
 #[tokio::test]
@@ -50,7 +50,7 @@ async fn device_rejection_and_lost_open_are_distinct_before_private_io() {
         let (state, ports, spec, sessions) = fixture();
         ports.device_mode.store(mode, Ordering::SeqCst);
         let outcome = finish(start_device(state, &ports, spec, &sessions)).await;
-        assert_eq!(*ports.events.lock().unwrap(), vec!["status", "device_open"]);
+        assert_eq!(*ports.events.lock().unwrap(), vec!["device_open"]);
         assert_eq!(outcome.cleanup_confirmed, mode == 1);
         assert_eq!(outcome.failure, Some(if mode == 1 { FailureKind::Ineligible }
             else { FailureKind::Cleanup }));
