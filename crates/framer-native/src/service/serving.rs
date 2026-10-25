@@ -105,7 +105,7 @@ fn launch_with_source(state: AppState, spec: Specification, source: Arc<dyn Sour
     sessions: Sessions)
     -> Result<Run, DispatchError> {
     Plan::validate(&spec)?;
-    if !sessions.matches(&state) {
+    if !sessions.matches(&state.sessions, state.operation_ownership.as_ref()) {
         return Err(DispatchError::new(FailureKind::InvalidScope));
     }
     let ownership = state.operation_ownership.clone()

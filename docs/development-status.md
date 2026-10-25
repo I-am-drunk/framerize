@@ -198,7 +198,14 @@ excludes the other application's Python runtime. A temporary smoke-wrapper
 error was corrected before the native-only check. These are synthetic checks;
 the native CLI still validates configuration without starting live accounts.
 
-Next: remove native serving's dependency on the browser application's state.
+Native session startup now takes its session store and operation tracker
+directly. Shutdown drains the tracker retained at construction, and requests
+reject a different store or tracker. All 24 native service cases pass; the
+existing ownership case now also checks a mismatched operation tracker.
+Other qualified code and package results are unchanged. Shared admission is
+the remaining native-service dependency on the browser application's state.
+
+Next: separate native account admission from browser residency management.
 Current legacy account history and first-migration handling remain unresolved;
 no production restart is part of this structural work.
 

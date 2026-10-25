@@ -243,7 +243,9 @@ fn fixture() -> (AppState, Arc<Ports>, Specification, Sessions) {
         wave: Arc::new(framer_core::wave::WaveGuard::new()),
         serving_accounts: Arc::new(framer_server::ServingAccountPolicy::default()) };
     let mut state = framer_server::operation_ownership::with_owned_operations(state, 32).unwrap();
-    let sessions = Sessions::install(&mut state).unwrap();
+    let sessions = Sessions::new(state.sessions.clone(),
+        state.operation_ownership.clone().unwrap()).unwrap();
+    state.sessions = sessions.store();
     let spec = Specification { identity, route: FreeRoute::Responses, token_limit: 32,
         payload: serde_json::json!({"model":"gpt-4.1", "input":"fixture", "stream":false}),
         context: AttemptContext { feature_category: "fixture".into(), feature_name: "fixture".into(),

@@ -35,7 +35,7 @@ async fn ordinary_store_errors_and_missing_sessions_complete_cleanly() {
         let snapshot = resident_snapshot(&state).await;
         assert!(snapshot["residents"].as_array().unwrap().iter().all(|slot|
             slot["users"].as_u64().unwrap() == 0 && slot["uncertain"] == false));
-        sessions.shutdown(&state).await.unwrap();
+        sessions.shutdown().await.unwrap();
     }
 }
 

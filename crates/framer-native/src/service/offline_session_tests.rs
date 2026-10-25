@@ -91,7 +91,7 @@ async fn replacement(login: bool, issuing: bool) {
         if issuing { wait(&ports.issuing).await; }
         let mutation = mutation(state.clone(), sibling, login);
         replacement_join(&state, &ports, run, mutation, issuing).await;
-        sessions.shutdown(&state).await.unwrap();
+        sessions.shutdown().await.unwrap();
     }
 }
 
@@ -132,12 +132,19 @@ async fn same_user_import_during_issuance_waits_for_cleanup() { replacement(fals
 async fn same_user_login_during_issuance_waits_for_cleanup() { replacement(true, true).await; }
 
 #[tokio::test]
-async fn different_store_cannot_bypass_the_shared_session_owner() {
-    let (mut state, ports, spec, sessions) = fixture();
-    state.sessions = ports.clone();
-    let result = launch_with_source(state, spec, Arc::new(Builder(ports.clone())), sessions);
-    assert_eq!(result.err().unwrap().kind, FailureKind::InvalidScope);
-    assert!(ports.events.lock().unwrap().is_empty());
+async fn different_store_or_operation_owner_cannot_bypass_session_ownership() {
+    for replace_store in [true, false] {
+        let (mut state, ports, spec, sessions) = fixture();
+        if replace_store { state.sessions = ports.clone(); }
+        else {
+            state.operation_ownership = Some(
+                framer_server::operation_ownership::ServingOwnership::new_unmanaged(
+                    state.wave.clone(), 32).unwrap());
+        }
+        let result = launch_with_source(state, spec, Arc::new(Builder(ports.clone())), sessions);
+        assert_eq!(result.err().unwrap().kind, FailureKind::InvalidScope);
+        assert!(ports.events.lock().unwrap().is_empty());
+    }
 }
 
 #[tokio::test]
@@ -157,5 +164,5 @@ async fn account_completion_keeps_shared_store_available_for_next_request() {
     let second = finish(start(state.clone(), &ports, next, &sessions)).await;
     assert!(second.cleanup_confirmed);
     assert_eq!(ports.builds.load(Ordering::SeqCst), 2);
-    sessions.shutdown(&state).await.unwrap();
+    sessions.shutdown().await.unwrap();
 }

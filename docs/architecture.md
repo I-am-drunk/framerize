@@ -86,6 +86,11 @@ the connection owner; loss of the connection reports uncertainty. Shutdown
 requires both a clean ledger reply and the observed child exit. The native CLI
 still only validates configuration; serving startup has not been connected.
 
+Native session ownership is constructed from a session store and an operation
+tracker. It retains both for its lifetime and drains its own tracker during
+shutdown. Requests must use that exact pair. The session component does not
+receive or mutate browser application state.
+
 The host opens one SQLite journal outside the release directory. Account rate
 decisions live in `framerize_accounts/rates.py`: request charges and mint reservations
 commit before external work. Device choices, cooldowns and reserve usage persist
