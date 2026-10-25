@@ -20,9 +20,11 @@ class Device:
 
 
 class AccountLifecycle:
-    """Small same-host ledger; browser eviction must not reset device limits."""
-    def __init__(self):
+    """Own an account's work and rate history independently of its browser."""
+    def __init__(self, rates=None):
         from .activity import AccountActivity
+        from .rates import AccountRates
+        self.rates = rates if rates is not None else AccountRates(None, 'memory')
         self.activity = AccountActivity()
         self.creation_lock = asyncio.Lock()
         self.incarnation = 0
@@ -31,11 +33,32 @@ class AccountLifecycle:
         self.close_receipt = None
         self.close_task = None
         self.active_commands = 0
-        self.cooling = {}
-        self.requests = {}
-        self.reserve_day = ""
-        self.reserve_used = 0
-        self.last_mint = 0.0
+        self.cooling = self.rates.state['cooling']
+        self.requests = self.rates.state['requests']
+
+    @property
+    def reserve_day(self):
+        return self.rates.state['reserve_day']
+
+    @reserve_day.setter
+    def reserve_day(self, value):
+        self.rates.state['reserve_day'] = value
+
+    @property
+    def reserve_used(self):
+        return self.rates.state['reserve_used']
+
+    @reserve_used.setter
+    def reserve_used(self, value):
+        self.rates.state['reserve_used'] = value
+
+    @property
+    def last_mint(self):
+        return self.rates.state['last_mint']
+
+    @last_mint.setter
+    def last_mint(self, value):
+        self.rates.state['last_mint'] = value
 
 
 class Account:
@@ -60,11 +83,11 @@ class Account:
         self.size = 1
         self.lock = asyncio.Lock()  # lifecycle only (page creation, close)
         self.mint_lock = asyncio.Lock()  # one Castle mint at a time per device
-        self.devices = []           # persisted pool of __cuid device ids
+        self.devices = self.lifecycle.rates.state['devices']
         self.devpool_ready = False
         self.project = None         # stashed from real ai_posts (heartbeat)
         self.bearer = None
-        self.reserve = set()        # in-memory burst-reserve device ids (never persisted)
+        self.reserve = self.lifecycle.rates.state['reserve']
         self.reserve_warmed = set() # reserve ids with a warm castle module
         self.forge_parts = {}       # device cuid -> {parts, born} for offline forging
         self.editor_url = None      # project editor this account "has open"
@@ -76,7 +99,6 @@ class Account:
         self.mint_page = None       # DEDICATED mint page — never runs fetches
         self.browser = None         # non-persistent camoufox Browser (context parent)
         self.dev_objs = {}          # device id -> Device (isolated context each)
-        self.primary_dev = None     # STICKY device: all requests ride it until it cools
         self.session_cookie = None  # (name, value) — fanned into every device context
         self.last_used = time.monotonic()
         self.active_requests = 0
@@ -84,6 +106,14 @@ class Account:
         self.tasks = set()
         self.last_gc = 0.0
         self.gc_page = 0
+
+    @property
+    def primary_dev(self):
+        return self.lifecycle.rates.state['primary']
+
+    @primary_dev.setter
+    def primary_dev(self, value):
+        self.lifecycle.rates.state['primary'] = value
 
     @property
     def reserve_day(self):

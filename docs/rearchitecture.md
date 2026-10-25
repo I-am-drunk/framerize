@@ -75,14 +75,17 @@ from the browser package and its Rust bridge. Actual RPC tasks outlive cancelled
 waiters, and a browser cannot close beneath a pending RPC. Native authority
 sources are separate and do not install hooks into the normal host.
 
-Durable account state will use one host-owned SQLite journal outside releases.
+Durable account state now uses one host-owned SQLite journal outside releases.
 Request charges, cooldowns, reserve allocation, primary selection and pending
-mints commit before external work. Same-boot monotonic timestamps can be restored;
-after reboot, outstanding durations require conservative rebasing. Missing
-history on an existing installation requires migration, not an empty ledger.
-The journal must have one owner, and package rollback must retain newer history.
-Shutdown then stops admission, joins accepted work and closes the host. A clean
-exit marker records that outcome; it cannot replace writes before each charge.
+mints commit before external work. Same-boot timestamps are preserved; reboot
+recovery conservatively rebases outstanding durations. Missing history on an
+existing installation requires migration, not an empty ledger. The journal has
+one writer, and package rollback must retain newer history.
+
+Graceful shutdown remains the next integration: stop admission, join accepted
+work and close the host. Confirmed browser closure already records clean account
+state; it does not replace writes before each charge. An interrupted record
+cannot resume until its previous browser ownership has been resolved.
 
 The first live migration is still unresolved. Today's host has no complete
 ledger-export command. New persistence cannot recover old process memory.
