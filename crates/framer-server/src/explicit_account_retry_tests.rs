@@ -202,3 +202,83 @@ fn assert_success_output(body: &[u8], messages: bool, stream: bool) {
         assert_eq!(values[0]["status"], "completed");
     }
 }
+
+#[tokio::test]
+async fn undecodable_explicit_account_is_rejected_before_work() {
+    exercise_undecodable_account(false).await;
+}
+
+#[tokio::test]
+async fn wave_refusal_precedes_undecodable_explicit_account() {
+    exercise_undecodable_account(true).await;
+}
+
+async fn exercise_undecodable_account(wave: bool) {
+    for (messages, stream) in [(true, true), (true, false), (false, true), (false, false)] {
+        for consume in [true, false] {
+            let mut f = fixture::Fixture::new();
+            assert!(f.accounts.iter().all(|account| account.is_eligible()));
+            f.state = with_owned_operations(f.state, 32).unwrap();
+            let ownership = f.state.operation_ownership.clone().unwrap();
+            if wave {
+                for account in &f.accounts {
+                    f.state.wave.note_refusal(&account.id.0.to_string());
+                }
+            }
+            assert_eq!(f.state.wave.check().is_some(), wave);
+            let mut request = retry_request(&f, messages, stream, false);
+            request.headers_mut().insert("x-framerize-account",
+                axum::http::HeaderValue::from_bytes(&[0x80]).unwrap());
+            let response = tokio::time::timeout(WAIT,
+                crate::router(f.state.clone(), "/nonexistent-fixture-web").oneshot(request))
+                .await.unwrap().unwrap();
+            assert_eq!(response.status(), if wave { StatusCode::SERVICE_UNAVAILABLE }
+                else { StatusCode::BAD_REQUEST });
+            assert_eq!(response.headers()[axum::http::header::CONTENT_TYPE], "application/json");
+            assert!(response.headers().contains_key("x-framerize-operation-id"));
+            if wave {
+                assert_eq!(response.headers()[axum::http::header::RETRY_AFTER], "30");
+            } else {
+                assert!(!response.headers().contains_key(axum::http::header::RETRY_AFTER));
+            }
+            assert_eq!(ownership.gate.stats().unwrap().active, 2); // Host and response.
+            assert!(!ownership.gate.stats().unwrap().unconfirmed);
+            if consume {
+                let body = tokio::time::timeout(WAIT, to_bytes(response.into_body(), 4096))
+                    .await.unwrap().unwrap();
+                let value: serde_json::Value = serde_json::from_slice(&body).unwrap();
+                if wave {
+                    assert_eq!(value["error"]["code"], "framerize_cooling");
+                    assert_eq!(value["error"]["type"], "overloaded_error");
+                    assert_eq!(value["error"]["retry_after_seconds"], 30);
+                    assert_eq!(value["error"]["message"],
+                        "Framerize is temporarily paused after upstream security refusals. Retry in 30 seconds.");
+                } else {
+                    assert_eq!(value, serde_json::json!({"error": {
+                        "code": "invalid_request",
+                        "message": "x-framerize-account must contain valid text"
+                    }}));
+                }
+            } else {
+                drop(response);
+            }
+            let mut ticket = ownership.seal().unwrap();
+            let proof = tokio::time::timeout(WAIT, ticket.wait_application()).await.unwrap().unwrap();
+            ownership.check_application_drained(&proof).unwrap();
+            assert_eq!(ownership.gate.stats().unwrap().active, 1); // Unmanaged host remains.
+            assert!(!ownership.gate.stats().unwrap().unconfirmed);
+            assert!(ownership.unmanaged_host_close_required());
+            drop(proof);
+            ticket.cancel_before_control().unwrap();
+            ownership.gate.admit(OperationKind::Inference).unwrap().complete().unwrap();
+            f.no_call();
+            assert!(matches!(f.loads.try_recv(), Err(tokio::sync::mpsc::error::TryRecvError::Empty)));
+            let snapshot = f.state.serving_accounts.residents.snapshot().unwrap();
+            assert_eq!(snapshot.occupied, 0);
+            assert!(snapshot.residents.is_empty());
+            assert_eq!(serde_json::to_value(f.state.state.list().await.unwrap()).unwrap(),
+                serde_json::to_value(&f.accounts).unwrap());
+            assert_eq!(f.state.wave.check().is_some(), wave);
+        }
+    }
+}
