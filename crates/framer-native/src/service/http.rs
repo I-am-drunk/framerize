@@ -19,7 +19,7 @@ use framer_core::ids::ProjectId;
 use framer_core::ids::TeamId;
 use crate::request::types::FailureKind;
 use crate::request::types::Identity;
-use framer_server::AppState;
+use super::state::ServiceState;
 use serde::Deserialize;
 use std::net::SocketAddr;
 use std::sync::Arc;
@@ -44,18 +44,16 @@ pub(crate) struct Runtime {
     device_owner: Arc<dyn DeviceOwner>,
 }
 #[derive(Clone)]
-struct Endpoint { state: AppState, runtime: Runtime }
+struct Endpoint { state: ServiceState, runtime: Runtime }
 
 #[cfg(test)]
 #[path = "offline_http_tests.rs"]
 mod tests;
 
-pub(crate) fn configure(state: AppState, path: &str, v2: bool, device_owner: Arc<dyn DeviceOwner>)
-    -> Result<(AppState, Runtime), &'static str> {
+pub(crate) fn configure(mut state: ServiceState, path: &str, v2: bool, device_owner: Arc<dyn DeviceOwner>)
+    -> Result<(ServiceState, Runtime), &'static str> {
     let worker = if v2 { WorkerBackend::V2(Arc::new(crate::worker::config::load_v2(path)?)) }
         else { WorkerBackend::V3(Arc::new(crate::worker::config::load(path)?)) };
-    let mut state = framer_server::operation_ownership::with_owned_operations(state, 256)
-        .map_err(|_| "offline serving ownership unavailable")?;
     let sessions = Sessions::new(state.sessions.clone(),
         state.operation_ownership.clone().ok_or("missing serving owner")?)?;
     state.sessions = sessions.store();
@@ -132,7 +130,7 @@ fn failure(kind: FailureKind) -> Response {
     (status, Json(serde_json::json!({"error": {"code": format!("{kind:?}")}}))).into_response()
 }
 
-pub(crate) async fn serve(state: AppState, runtime: Runtime,
+pub(crate) async fn serve(state: ServiceState, runtime: Runtime,
     address: SocketAddr) -> std::io::Result<()> {
     let sessions = runtime.sessions.clone();
     let router = Router::new().route("/api/offline/complete", post(complete))

@@ -1,16 +1,7 @@
 use super::*;
 
-async fn resident_snapshot(state: &AppState) -> serde_json::Value {
-    use tower::ServiceExt;
-    let mut inspection = state.clone();
-    inspection.operation_ownership = None;
-    let request = axum::http::Request::builder().uri("/api/pool")
-        .body(axum::body::Body::empty()).unwrap();
-    let response = framer_server::router(inspection, "fixture-no-web-root")
-        .oneshot(request).await.unwrap();
-    assert_eq!(response.status(), axum::http::StatusCode::OK);
-    let bytes = axum::body::to_bytes(response.into_body(), 16 * 1024).await.unwrap();
-    serde_json::from_slice::<serde_json::Value>(&bytes).unwrap()["residency"].clone()
+async fn resident_snapshot(state: &ServiceState) -> serde_json::Value {
+    serde_json::to_value(state.serving_accounts.residents.snapshot().unwrap()).unwrap()
 }
 
 #[tokio::test]
@@ -58,12 +49,12 @@ async fn shared_store_loss(cancel_first: bool) {
     assert_retained(&state, first_id, &first).await;
     assert_retained(&state, second_id, &second).await;
     assert_eq!(ports.builds.load(Ordering::SeqCst), 0);
-    assert_eq!(*ports.events.lock().unwrap(), vec!["status", "load", "status", "load"]);
+    assert_eq!(*ports.events.lock().unwrap(), vec!["load", "load"]);
     assert!(sessions.bridge().shutdown().await.is_err());
     sessions.native().shutdown_idle().await.unwrap();
 }
 
-async fn assert_retained(state: &AppState, account: AccountId, outcome: &Outcome) {
+async fn assert_retained(state: &ServiceState, account: AccountId, outcome: &Outcome) {
     assert_eq!(outcome.failure, Some(FailureKind::Cleanup));
     assert!(!outcome.cleanup_confirmed && outcome.response.is_none());
     assert!(outcome.evidence.is_none());
@@ -75,7 +66,7 @@ async fn assert_retained(state: &AppState, account: AccountId, outcome: &Outcome
 
 fn sibling(ports: &Ports, original: &Specification) -> Specification {
     let mut account = ports.account.lock().unwrap().clone();
-    account.id = AccountId::new();
+    account.id = ports.other_id;
     let mut identity = original.identity.clone();
     identity.account = account.id;
     ports.others.lock().unwrap().insert(account.id, account);

@@ -1,5 +1,5 @@
 //! One-shot admission using the serving application's existing owners.
-use crate::AppState;
+use super::state::ServiceState;
 use framer_core::{account::ManagedAccount, convert,
     admission::{Identity, PoolAdmission},
     resident_pool::{Acquire, ResidentLease, ResidentStatus}};
@@ -19,9 +19,6 @@ pub struct ControlOwner {
     operation: Option<framer_core::operation_gate::OperationOwner>,
     resident: Option<ResidentLease>,
     started: bool,
-    // Reuse account-management exclusion through resident cleanup. Ordinary
-    // admission must refuse locally before probing the reserved browser.
-    _reservation: Option<crate::pool_control::Management>,
 }
 impl ControlOwner {
     pub fn start(&mut self) { self.started = true; }
@@ -43,29 +40,6 @@ impl Drop for ControlOwner {
     }
 }
 
-/// Retain an already admitted account through app-owned session cleanup.
-/// No browser work, account selection, or second capacity acquisition occurs.
-pub fn retain_prepared(s: &AppState, identity: &Identity, pool: &PoolAdmission)
-    -> Result<ControlOwner, AdmissionError> {
-    if pool.account() != identity.account {
-        return Err(error(AdmissionError::InvalidScope));
-    }
-    let ownership = s.operation_ownership.as_ref()
-        .ok_or_else(|| error(AdmissionError::Ineligible))?;
-    let mut completion = ControlOwner {
-        operation: Some(ownership.external_cleanup()
-            .map_err(|_| error(AdmissionError::Ineligible))?),
-        resident: None, started: false, _reservation: None,
-    };
-    require_resident(s, identity.account)?;
-    completion.resident = Some(match s.serving_accounts.residents
-        .try_acquire(identity.account, None).map_err(|_| error(AdmissionError::Ineligible))? {
-        Acquire::Lease(lease) => lease,
-        Acquire::Evict(_) => return Err(error(AdmissionError::Internal)),
-    });
-    Ok(completion)
-}
-
 fn error(kind: AdmissionError) -> AdmissionError { kind }
 
 #[derive(Clone, Copy)]
@@ -74,7 +48,7 @@ pub enum HealthOutcome { Complete, RiskRefused, Unclassified }
 impl ControlOwner {
     /// Re-read while retaining account ownership. A control never clears an
     /// existing cooldown or wave pause, and unknown auth errors stay unknown.
-    pub async fn publish(&self, s: &AppState, identity: &Identity,
+    pub async fn publish(&self, s: &ServiceState, identity: &Identity,
         proxy: &Option<String>, outcome: HealthOutcome) -> Result<(), AdmissionError> {
         if !self.started
             || self.resident.as_ref().map(ResidentLease::account) != Some(identity.account) {
@@ -99,7 +73,7 @@ impl ControlOwner {
         Ok(())
     }
 
-    pub async fn revalidate(&self, s: &AppState, identity: &Identity, proxy: &Option<String>)
+    pub async fn revalidate(&self, s: &ServiceState, identity: &Identity, proxy: &Option<String>)
         -> Result<(), AdmissionError> {
         if self.resident.as_ref().map(ResidentLease::account) != Some(identity.account) {
             return Err(error(AdmissionError::InvalidScope));
@@ -110,7 +84,7 @@ impl ControlOwner {
     }
 }
 
-fn require_resident(s: &AppState, account: framer_core::ids::AccountId)
+fn require_resident(s: &ServiceState, account: framer_core::ids::AccountId)
     -> Result<(), AdmissionError> {
     let snapshot = s.serving_accounts.residents.snapshot()
         .map_err(|_| error(AdmissionError::Ineligible))?;
@@ -122,7 +96,7 @@ fn require_resident(s: &AppState, account: framer_core::ids::AccountId)
     Ok(())
 }
 
-async fn current(s: &AppState, identity: &Identity)
+async fn current(s: &ServiceState, identity: &Identity)
     -> Result<ManagedAccount, AdmissionError> {
     if s.wave.check().is_some() { return Err(error(AdmissionError::Overloaded)); }
     let account = s.state.get(identity.account).await
@@ -141,20 +115,8 @@ async fn current(s: &AppState, identity: &Identity)
 }
 
 /// No account repick, new coordinator, session read, or credential issuance.
-pub async fn admit(s: &AppState, identity: Identity, model: &str, deadline: Instant)
-    -> Result<AdmittedControl, AdmissionError> {
-    admit_with_policy(s, identity, model, deadline, false).await
-}
-
-/// Resident controls must not allocate a browser slot or select an eviction.
-/// The eventual host lease independently validates the actual live objects.
-pub async fn admit_existing(s: &AppState, identity: Identity, model: &str, deadline: Instant)
-    -> Result<AdmittedControl, AdmissionError> {
-    admit_with_policy(s, identity, model, deadline, true).await
-}
-
-async fn admit_with_policy(s: &AppState, identity: Identity, model: &str,
-    deadline: Instant, existing_only: bool) -> Result<AdmittedControl, AdmissionError> {
+pub async fn admit(s: &ServiceState, identity: Identity, model: &str,
+    deadline: Instant) -> Result<AdmittedControl, AdmissionError> {
     let remaining = deadline.saturating_duration_since(Instant::now());
     if remaining.is_zero() || remaining > Duration::from_secs(60)
         || model.is_empty() || model.len() > 256 || model.chars().any(char::is_control)
@@ -166,47 +128,27 @@ async fn admit_with_policy(s: &AppState, identity: Identity, model: &str,
         .ok_or_else(|| error(AdmissionError::Ineligible))?;
     let state = s.clone();
     let model = model.to_owned();
-    crate::operation_ownership::run(Some(&ownership),
+    framer_server::operation_ownership::run(Some(&ownership),
         framer_core::operation_gate::OperationKind::Inference,
-        async move { admit_registered(&state, identity, &model, deadline, existing_only).await })
+        async move { admit_registered(&state, identity, &model, deadline).await })
         .await.map_err(|_| error(AdmissionError::Ineligible))?
 }
 
-async fn retain_existing_slot(s: &AppState, account: framer_core::ids::AccountId)
-    -> Result<(ResidentLease, crate::pool_control::Management), AdmissionError> {
-    let reservation = crate::pool_control::management(s, account, false).await
-        .map_err(|_| error(AdmissionError::Ineligible))?;
-    let _operation = s.serving_accounts.operation.lock().await;
-    if s.serving_accounts.pending_config.read()
-            .map_err(|_| error(AdmissionError::Ineligible))?.is_some()
-        || !s.serving_accounts.allows(&account) {
-        return Err(error(AdmissionError::Ineligible));
-    }
-    let resident = s.serving_accounts.residents.try_acquire_idle_existing(account)
-        .map_err(|_| error(AdmissionError::Ineligible))?;
-    Ok((resident, reservation))
-}
-
-async fn admit_registered(s: &AppState, identity: Identity, model: &str,
-    deadline: Instant, existing_only: bool) -> Result<AdmittedControl, AdmissionError> {
+async fn admit_registered(s: &ServiceState, identity: Identity, model: &str,
+    deadline: Instant) -> Result<AdmittedControl, AdmissionError> {
     let ownership = s.operation_ownership.as_ref()
         .ok_or_else(|| error(AdmissionError::Ineligible))?;
     tokio::time::timeout_at(deadline, async {
         let account = current(s, &identity).await?;
-        let (resident, reservation) = if existing_only {
-            let (resident, reservation) = retain_existing_slot(s, identity.account).await?;
-            (resident, Some(reservation))
-        } else {
-            (crate::lease_account(s, identity.account).await
-                .map_err(|_| error(AdmissionError::Ineligible))?, None)
-        };
+        let resident = s.serving_accounts.acquire(identity.account)
+            .map_err(|_| error(AdmissionError::Ineligible))?;
         let operation = ownership.external_cleanup()
             .map_err(|_| error(AdmissionError::Ineligible))?;
         let pool = PoolAdmission::new(resident, Some(operation));
         let mut completion = ControlOwner {
             operation: Some(ownership.external_cleanup()
                 .map_err(|_| error(AdmissionError::Ineligible))?),
-            resident: None, started: false, _reservation: reservation,
+            resident: None, started: false,
         };
         let key = format!("{}:{}", identity.team.0, convert::to_openrouter_id(model));
         let capacity = s.gate.acquire(&key).await;

@@ -100,7 +100,7 @@ impl ServingOwnership {
             Err(_) => self.gate.admit(kind),
         }
     }
-    pub(crate) fn external_cleanup(self: &Arc<Self>) -> Result<OperationOwner, GateError> {
+    pub fn external_cleanup(self: &Arc<Self>) -> Result<OperationOwner, GateError> {
         self.registration(OperationKind::Inference)
     }
 }
