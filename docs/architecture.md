@@ -1816,3 +1816,7 @@ current plan in both directions. Activation uses the rollback release identity;
 rollback uses the candidate identity. It preserves the original privileged
 validator and its process, owner, parent, interpreter and script checks.
 See [the descriptor binding result](../reference/analysis/shared-v3-descriptor-binding-20261025.md).
+The shared-service plan builder also preserves the existing interruption
+policy. Its exact values, types and nft binary binding are checked during
+preparation and before authentication, so an incomplete plan fails before
+privileged work begins.

@@ -26,3 +26,19 @@ R10 collection: `5e9aa6bc25fd4fd1397c20c119a9bad81d4ec3ad24f9f30d6cb1caea2a92cfd
 Qualification: `11c01b182d0c694acbe2067bb376332074aea32bf989382687d76f5863d798ac`.
 The fresh transition preserves the existing account pool and normal browser
 routes. V3 remains an explicit endpoint with no native routing configuration.
+
+R11 reached the corrected descriptor validation, then stopped before ingress
+or memory transfer because the new plan omitted `interruption`. Its controller
+exited at 05:31:22 UTC with the original R9 process still running. A separate
+systemd stop/start at 05:33:15 changed the process generation while retaining
+the repaired binary and automatic restart. The cause of that restart is not
+established. R11 collection records it separately from the failed transition.
+
+R12 preparation preserves the existing interruption policy. Both preparation
+and pre-authentication validation now check its exact types, values and nft
+binary hash. Three isolated checks passed: policy preservation by the real
+builder, malformed-policy refusal, and controller refusal before runtime
+validation. No cases were skipped. Their collection is
+`bb69cae7b4c8fd4ad96084f2c72c691d9822e38a0a5290d2f8e08b9fa0a2628c`.
+The exact tested functions and fixtures are under
+`scripts/tests/shared_plan_policy/`. Full runtime qualification remains pending.
