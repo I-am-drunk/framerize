@@ -153,6 +153,13 @@ inputs are unchanged. Native session exclusion, worker integration and SDK
 proof wiring remain unfinished. These are synthetic results, not live native
 acceptance. The running service and existing account state remain untouched.
 
+The complete browser development archive at `a64d77d` passes verification,
+staging, host shutdown, invalid-startup refusal and SIGTERM/SIGINT shutdown.
+Its manifest includes the shared account package and excludes the native
+runtime. Both daemon starts report matching health PIDs. This reuses the
+unchanged Rust executable from the previous qualified build and exercises
+the newly packaged Python source with empty temporary state.
+
 Next: first migration of existing account history and the running service.
 Current legacy account history and first-migration handling remain unresolved;
 no production restart is part of this structural work.
