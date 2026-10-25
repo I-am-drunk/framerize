@@ -29,8 +29,20 @@ The final plan binds 63 source/evidence inputs and the unchanged 15-file package
 Plan SHA256:
 `a04be02ef10a45776305721c9b3479b9ed812fac289ae3a898206b39dbf3dda4`.
 
-The original service generation was active and unchanged at 02:01:46 UTC.
-The executable plan is absent. A new protected-service exception and local
-authentication remain necessary before one controlled switch and two stream
-checks. Real state restoration, same-generation interruption/cleanup and the
+The user subsequently authorized this candidate, its controlled switch and two
+stream checks. Fresh attempts at 02:18 and 02:21 UTC ended before any switch.
+The original executable and generation remained unchanged at 02:25:32 UTC.
+Both controllers and authentication helpers are collected, their units and
+cgroups are absent, and the shared execution lock is free.
+
+After the first refusal, a read-only sample found an uncertain resident with no
+account users. One existing guarded idle-close request succeeded and removed
+that uncertainty. The next controller still could not establish quiescence:
+the host reported four active requests, and three endpoint connections belonged
+to the investigation's Codex process. None was cancelled. The failure events
+preserved only exception type, so their precise original messages are unknown.
+
+These attempts are consumed. Another switch requires actual request drain and
+a fresh invocation binding, without repeating accepted tests or adding a blanket
+cooldown. Real state restoration, same-generation interruption/cleanup and the
 subsequent complete stream remain unverified. Signup and V3 are independent.

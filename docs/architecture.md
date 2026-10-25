@@ -1,5 +1,14 @@
 # Serving architecture and branch policy
 
+V3 worker failures can retain a fixed phase label from the wrapper's structured
+logger tags. Only an already failed mint or branch verdict is refined. Missing,
+malformed or conflicting tags leave the original broad failure. The Rust decoder
+requires a complete failed report with a counted Castle error before accepting
+the new label. The existing service event writes the phase to the event file;
+the standalone Rust measurement helper still collapses it to `worker`.
+A missing event does not prove success, and a timeout tag does not prove that
+a timer fired. This source addition is awaiting its selected qualification.
+
 The frozen V3 wrapper distinguishes a caller's initialization wait from its
 guarded phase deadlines. The former can fall back while cached initialization
 continues; a guarded failure latches V3 off. Fallback uses strict `null`, so an

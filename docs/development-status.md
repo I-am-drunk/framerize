@@ -14,11 +14,19 @@ readiness/rollback and 15 for shutdown, ingress holds and cleanup. Seven new
 shutdown cases verify both paused owners terminate before systemd stop and
 that an unreaped dead sidecar cannot allow ingress resume. Test resources were
 collected and the original service generation reverified on 25 October.
-This supersedes older timed-quiet scheduling descriptions below. Live stream
-acceptance and the specific service exception for the new attempt remain open.
-The exact reviewed plan is prepared; executable activation remains disabled
-pending the new service exception and local authentication. See
+This supersedes older timed-quiet scheduling descriptions below. The user has
+authorized the rollout and checks. Two fresh attempts ended before switching;
+their controllers and authentication helpers are collected. An existing idle
+close reconciled one uncertain browser without restarting the service. The
+later attempt still found active work and could not establish quiescence.
+Live interruption and subsequent-stream acceptance remain unverified. See
 `reference/analysis/normal-repair-controller-20261025.md`.
+
+Source `191dabe8` adds seven fixed V3 failure labels using the wrapper's existing
+structured diagnostics. It preserves broad failures when those diagnostics are
+missing or ambiguous and leaves success acceptance unchanged. Its 16 JavaScript
+and 15 Rust selected cases are not yet run. The original wrapper qualification
+is retained. No new SDK or native-service acceptance follows from this change.
 
 The separate extracted V3 wrapper checks passed on 25 October: nine selected
 cases and 35 leaf scenarios, with no skips. They confirm cache, strict-null
