@@ -3,14 +3,17 @@
 The current reorganization is in progress. See [the design](rearchitecture.md)
 for decisions, boundaries and the remaining migration work.
 
-Native Castle client primitives live in `framer-native/src/castle/`. They
-implement the selected Framer V3 SDK's unsigned, signed and fixed-width integer
-writers and UTF-16 string writer. They have no browser, JavaScript, network or
-account dependency. Inputs are typed Rust values; JavaScript coercion and type
-tags belong to the future serializer. Raw UTF-16 preserves unpaired surrogates.
-`scripts/check_v3_encoding.py` compares these writers against exact functions
-from the pinned SDK without loading that SDK. The existing serving worker
-remains in use until the full replacement is implemented and validated.
+Native Castle client encoding lives in `framer-native/src/castle/`. Its typed
+serializer selects the pinned Framer V3 SDK's numeric and string representations,
+writes array structure and preserves UTF-16 code units, including unpaired
+surrogates. It has no browser, JavaScript, network or account dependency.
+Nested arrays use an explicit traversal stack. Object fallback accepts the
+already-stringified JSON text; object normalization remains unfinished.
+`scripts/check_v3_encoding.py` compares the primitives, and
+`scripts/check_v3_serialization.py` compares complete arrays against the original
+serializer. The reference extracts only the required helpers and constant table;
+it never loads the SDK module. The serving worker remains unchanged until the
+complete native replacement is implemented and validated.
 
 An open, unbound browser stream can wait for local account capacity before
 generated output. It retries eligibility within one cumulative 600-second
