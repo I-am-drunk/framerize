@@ -1,13 +1,22 @@
 # Development status
 
+R6 reached its first real request after restoring eleven accounts and passing
+the longer startup wait. Upstream completed successfully before the test could
+disconnect it, so interruption acceptance failed and the second request did
+not run. Rollback completed with the previous binary running and automatic
+restart restored. A reporting correction now preserves first-stream evidence
+on failure and separates delta-text counts from final-response text. All eight
+focused checks pass; the correction is not yet used in a live attempt. See
+`reference/analysis/r6-stream-evidence-result-20261025.md`.
+
 Rollback recovery is complete. Recovery r6 passed the actual comparison for
 all eleven account lifecycles and their enforced limits, cleared the pending
 transfer, and removed only the owned restart restrictions. The previous
 binary remains running with automatic restart restored. The corrected
 comparison passed thirteen focused checks with no skips; twenty-one unchanged
 memory, lease, provenance and summary checks were retained. No additional
-binary switch or inference request occurred. The repaired candidate still
-requires a fresh rollout and the two stream acceptance checks.
+binary switch or inference request occurred during recovery. The subsequent
+R6 rollout and its failed stream acceptance are recorded above.
 See `reference/analysis/r5-recovery-completion-20261025.md`.
 
 Recovery r5 measured the device-selection difference without accepting it.
@@ -29,7 +38,7 @@ deployed. See `reference/analysis/control-transport-qualification-20261025.md`.
 The two R5 post-start settling budgets now have a qualified 90-to-240-second
 correction. All seven selected inert tests passed, including 20 executed
 subcases and zero skips. The original readiness and failure checks remain.
-This correction is not deployed and does not replay the consumed R5 attempt.
+R6 used this correction and passed startup. The consumed R5 remains unchanged.
 See `reference/analysis/r5-startup-settle-qualification-20261025.md`.
 
 Dedicated-account onboarding now has a prepared command for the qualified

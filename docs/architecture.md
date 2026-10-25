@@ -1,5 +1,13 @@
 # Serving architecture and branch policy
 
+Stream acceptance evidence must survive failed checks. The qualified client
+correction retains the first stream's state before cleanup and at each
+disconnect decision, with separate counts for text deltas and terminal text.
+Those diagnostic fields do not alter completion, interruption or cleanup
+criteria. A successful upstream request that ends before deliberate disconnect
+does not establish interruption recovery. R6 exercised that refusal and then
+completed rollback. See `reference/analysis/r6-stream-evidence-result-20261025.md`.
+
 Recovery now distinguishes a saved primary from a later policy-governed
 selection. Exact equality remains accepted. The only additional case is a
 saved null becoming a device in that same account's bound inventory, with
@@ -42,11 +50,12 @@ the same idle, generation, rate-state and cleanup requirements. A restoration
 receipt alone does not complete rollback verification. See
 `reference/analysis/r5-rollout-result-20261025.md`.
 
-A source-only correction raises both post-start quiet budgets to 240 seconds.
+A qualified correction raises both post-start quiet budgets to 240 seconds.
 Seven isolated tests with 20 subcases confirm the observed warmup schedule fits
 while stale readiness and lost safeguards still refuse. Other deadlines and
-state checks are unchanged. These corrected controller bytes are qualified but
-not deployed. See `reference/analysis/r5-startup-settle-qualification-20261025.md`.
+state checks are unchanged. R6 used those controller bytes and passed startup;
+its stream acceptance failed later. See
+`reference/analysis/r5-startup-settle-qualification-20261025.md`.
 
 V3 worker failures can retain a fixed phase label from the wrapper's structured
 logger tags. Only an already failed mint or branch verdict is refined. Missing,
