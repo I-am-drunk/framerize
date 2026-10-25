@@ -8,6 +8,10 @@ use serde_json::Value;
 #[path = "control_response_evidence.rs"]
 mod control_response_evidence;
 
+#[cfg(test)]
+#[path = "control_transport_tests.rs"]
+mod control_transport_tests;
+
 pub const API: &str = "https://api.framer.com";
 
 pub struct Transport {
@@ -19,6 +23,16 @@ pub enum Auth<'a> {
     Cookie(&'a Session),
     Bearer(&'a str),
     None,
+}
+
+fn normal_client_builder(
+    connect_timeout: std::time::Duration,
+    request_timeout: std::time::Duration,
+) -> reqwest::ClientBuilder {
+    reqwest::Client::builder()
+        .user_agent("Framerize/0.1")
+        .connect_timeout(connect_timeout)
+        .timeout(request_timeout)
 }
 
 impl Transport {
@@ -55,10 +69,12 @@ impl Transport {
 
     /// Used by tests to point at the mock server.
     pub fn with_base(base: String) -> Self {
-        let http = reqwest::Client::builder()
-            .user_agent("Framerize/0.1")
-            .build()
-            .expect("reqwest client");
+        let http = normal_client_builder(
+            std::time::Duration::from_secs(10),
+            std::time::Duration::from_secs(30),
+        )
+        .build()
+        .expect("reqwest client");
         Self { http, base }
     }
 
