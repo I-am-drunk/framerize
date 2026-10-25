@@ -1,6 +1,7 @@
 //! Native runtime library, separate from the browser application.
 pub mod account;
 pub mod authorization;
+pub mod castle;
 pub mod request;
 pub mod transport;
 pub mod worker;
