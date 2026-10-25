@@ -199,6 +199,7 @@ async fn v2_seed_rejects_equal_valued_reallocated_grant() {
     let original = Bridge::new(&scope, false);
     // Only allocation differs; account, host, lease and device stay identical.
     let replacement = Arc::new(DeviceGrant {
+        authority: original.grant.authority,
         account: original.grant.account, host_generation: original.grant.host_generation.clone(),
         lease: original.grant.lease, device: original.grant.device.clone(),
     });

@@ -150,6 +150,9 @@ class NativeDevices:
 
     def open(self, request):
         require(not getattr(self.host, '_closed', False), 'native host is closed')
+        negotiated = 'authority_version' in request
+        require(not negotiated or (type(request['authority_version']) is int
+                and request['authority_version'] == 1), 'unsupported native authority protocol')
         account, lease = identifier(request['account']), identifier(request['lease'])
         restored = getattr(self.host, '_cooldown_restoration', {})
         life = self.host.lifecycles.get(account)
@@ -187,7 +190,10 @@ class NativeDevices:
         self.check_rate(life, grant)
         life.native_grants[lease] = grant
         life.active_commands += 1
-        return dict(generation=self.host.generation, lease=lease, device=device)
+        reply = dict(generation=self.host.generation, lease=lease, device=device)
+        if negotiated:
+            reply['authority'] = 'observation' if observation is not None else 'ledger'
+        return reply
 
     def check_rate(self, life, grant):
         now = finite(self.clock())
