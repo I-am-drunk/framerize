@@ -36,6 +36,8 @@ struct Input {
     feature_category: String, feature_name: String, step: String,
     turn_id: String, user_prompt: String, timeout_ms: u64, token_limit: u32,
     request: serde_json::Value,
+    #[serde(default)]
+    continuation: Option<crate::request::continuation::Continuation>,
 }
 
 #[derive(Clone)]
@@ -68,13 +70,15 @@ async fn stream(State(endpoint): State<Endpoint>, Json(input): Json<Input>) -> R
 }
 
 async fn dispatch(endpoint: Endpoint, input: Input, streaming: bool) -> Response {
+    if !streaming && input.continuation.is_some() { return failure(FailureKind::InvalidRequest); }
+    let capacity = input.continuation.as_ref().map_or(1, |v| v.max_attempts());
     let model = input.request["model"].as_str().unwrap_or_default().to_owned();
     let route = if input.route == "/ai/v3/messages/" { FreeRoute::Messages }
         else { FreeRoute::Responses };
     let request = match request(input) {
         Ok(value) => value, Err(kind) => return failure(kind),
     };
-    let (sender, receiver) = tokio::sync::mpsc::channel(1);
+    let (sender, receiver) = tokio::sync::mpsc::channel(capacity);
     let run = match offline_serving::launch(endpoint.state, request,
         endpoint.runtime.worker, endpoint.runtime.sessions, endpoint.runtime.device_owner,
         streaming.then_some(sender)) {
@@ -135,7 +139,8 @@ fn request(input: Input) -> Result<Request, FailureKind> {
             turn_id: input.turn_id, user_prompt: input.user_prompt },
         route, payload: input.request, token_limit: input.token_limit,
         deadline: tokio::time::Instant::now() + Duration::from_millis(input.timeout_ms),
-    }, input.page_url).map_err(|error| error.kind)
+    }, input.page_url).and_then(|request| request.with_continuation(input.continuation))
+        .map_err(|error| error.kind)
 }
 
 fn failure(kind: FailureKind) -> Response {

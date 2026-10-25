@@ -1,4 +1,4 @@
-//! Bounded one-attempt contract shared by JSON and streaming delivery.
+//! Bounded request contract. JSON stays one-attempt; streams may opt into continuation.
 use crate::request::invocation::AttemptAuthorization;
 use crate::request::invocation::AttemptContext;
 use crate::request::invocation::AttemptMetadata;
@@ -22,6 +22,7 @@ use std::sync::atomic::Ordering;
 use std::time::Duration;
 use tokio::sync::OwnedSemaphorePermit;
 use tokio::time::Instant;
+use super::continuation::Continuation;
 
 #[path = "supplied_source.rs"]
 mod supplied_source;
@@ -61,7 +62,7 @@ pub struct Evidence {
     pub complete_json: bool,
     pub cleanup_confirmed: bool,
     pub failure: Option<port::FailureKind>,
-    /// Only the original, complete, single inference refusal is classified.
+    /// Only the original, complete terminal inference refusal is classified.
     /// None is unknown or not applicable, never evidence of account health.
     pub refusal: Option<RefusalObservation>,
 }
@@ -85,22 +86,24 @@ pub enum CompletedJson {
 impl CompletedJson {
     pub(crate) fn complete(&self) -> bool {
         match self {
-            Self::Responses(value) => complete_responses(value),
-            Self::Messages(value) => complete_messages(value),
+            Self::Responses(value) => complete_responses(value, 1),
+            Self::Messages(value) => complete_messages(value, 1),
         }
     }
 }
 
-fn complete_responses(value: &AssembledResponses) -> bool {
+fn complete_responses(value: &AssembledResponses, max_attempts: usize) -> bool {
     !value.id.is_empty() && value.status == "completed"
         && value.incomplete_details.as_ref().map_or(true, Value::is_null)
-        && value.chunks == 1 && value.metered_chunks == 0 && !value.output.is_empty()
+        && (1..=max_attempts).contains(&(value.chunks as usize))
+        && value.metered_chunks == 0 && !value.output.is_empty()
 }
 
-fn complete_messages(value: &AssembledResponse) -> bool {
+fn complete_messages(value: &AssembledResponse, max_attempts: usize) -> bool {
     !value.id.is_empty()
         && matches!(value.stop_reason.as_str(), "end_turn" | "stop_sequence" | "tool_use")
-        && value.chunks == 1 && value.metered_chunks == 0 && !value.content.is_empty()
+        && (1..=max_attempts).contains(&(value.chunks as usize))
+        && value.metered_chunks == 0 && !value.content.is_empty()
 }
 
 struct Facts {
@@ -123,9 +126,9 @@ pub(super) fn content_type(value: Option<&str>) -> ContentType {
     else { ContentType::Other }
 }
 
-fn responses(value: port::Completed<AssembledResponses>) -> Facts {
+fn responses(value: port::Completed<AssembledResponses>, max_attempts: usize) -> Facts {
     Facts {
-        complete: complete_responses(&value.value),
+        complete: complete_responses(&value.value, max_attempts),
         input_tokens: value.value.usage["input_tokens"].as_u64(),
         output_tokens: value.value.usage["output_tokens"].as_u64(),
         output_items: value.value.output.len(), attempts: value.attempts, failure: None,
@@ -134,9 +137,9 @@ fn responses(value: port::Completed<AssembledResponses>) -> Facts {
     }
 }
 
-fn messages(value: port::Completed<AssembledResponse>) -> Facts {
+fn messages(value: port::Completed<AssembledResponse>, max_attempts: usize) -> Facts {
     Facts {
-        complete: complete_messages(&value.value),
+        complete: complete_messages(&value.value, max_attempts),
         input_tokens: value.value.usage["input_tokens"].as_u64(),
         output_tokens: value.value.usage["output_tokens"].as_u64(),
         output_items: value.value.content.len(), attempts: value.attempts, failure: None,
@@ -145,11 +148,13 @@ fn messages(value: port::Completed<AssembledResponse>) -> Facts {
     }
 }
 
-fn failure(value: port::DispatchError) -> Facts {
-    let refusal = refusal_evidence::observe(&value);
+fn failure(value: port::DispatchError, max_attempts: usize) -> Facts {
+    let refusal = refusal_evidence::observe_with_limit(&value, max_attempts);
     let mut attempts = value.attempts;
     if let Some(upstream) = value.upstream {
-        if attempts.is_empty() { attempts.push(upstream.metadata); }
+        if !attempts.last().is_some_and(|last| refusal_evidence::same_metadata(last, &upstream.metadata)) {
+            attempts.push(upstream.metadata);
+        }
         // Only the bounded classification survives. Drop the private body.
     }
     Facts { complete: false, attempts, input_tokens: None, output_tokens: None,
@@ -157,7 +162,9 @@ fn failure(value: port::DispatchError) -> Facts {
 }
 
 fn evidence(facts: Facts, contract: &Contract) -> Evidence {
-    let metadata = facts.attempts.first();
+    let metadata = if contract.continuation.is_some() && facts.failure.is_some() {
+        facts.attempts.last()
+    } else { facts.attempts.first() };
     Evidence {
         accepted: false, path: contract.path, client_model: contract.client_model.clone(),
         wire_model: contract.wire_model.clone(), status: metadata.map(|m| m.status),
@@ -172,12 +179,14 @@ fn evidence(facts: Facts, contract: &Contract) -> Evidence {
 }
 
 fn finish_run<T: Send + 'static>(run: port::InvocationRun<T>, contract: Arc<Contract>,
-    inspect: fn(T) -> Facts) -> ProbeRun {
+    inspect: impl FnOnce(T) -> Facts + Send + 'static) -> ProbeRun {
     let port::InvocationRun { result, cleanup, cancellation, .. } = run;
     let completion = cleanup.clone();
     let (sender, receiver) = tokio::sync::oneshot::channel();
     let result = async move {
-        let mut facts = match result.await { Ok(value) => inspect(value), Err(error) => failure(error) };
+        let mut facts = match result.await {
+            Ok(value) => inspect(value), Err(error) => failure(error, contract.max_attempts()),
+        };
         let completed = facts.completed.take();
         let mut report = evidence(facts, &contract);
         report.cleanup_confirmed = completion.await.is_ok();
@@ -188,10 +197,10 @@ fn finish_run<T: Send + 'static>(run: port::InvocationRun<T>, contract: Arc<Cont
         report.transport_starts = contract.starts.load(Ordering::Acquire);
         report.transport_finishes = contract.finishes.load(Ordering::Acquire);
         report.accepted = report.complete_json && report.cleanup_confirmed
-            && report.status == Some(200) && report.attempts == 1
+            && report.status == Some(200) && (1..=contract.max_attempts()).contains(&report.attempts)
             && report.content_type == ContentType::Json
-            && report.authorization_calls == 1 && report.transport_starts == 1
-            && report.transport_finishes == 1 && report.failure.is_none()
+            && report.authorization_calls == report.attempts && report.transport_starts == report.attempts
+            && report.transport_finishes == report.attempts && report.failure.is_none()
             && !contract.rejected.load(Ordering::Acquire);
         let _ = sender.send(if report.accepted { completed } else { None });
         report
@@ -240,6 +249,17 @@ struct Contract {
     starts: AtomicUsize,
     finishes: AtomicUsize,
     rejected: AtomicBool,
+    continuation: Option<Continuation>,
+}
+
+impl Contract {
+    fn max_attempts(&self) -> usize {
+        self.continuation.as_ref().map_or(1, Continuation::max_attempts)
+    }
+    fn context_at(&self, index: usize) -> Option<&AttemptContext> {
+        if index == 0 { Some(&self.context) }
+        else { self.continuation.as_ref()?.contexts.get(index - 1) }
+    }
 }
 
 fn invalid() -> port::DispatchError {
@@ -277,18 +297,24 @@ struct CheckedAuthorization {
 impl CheckedAuthorization {
     fn reject(&self) -> String {
         self.contract.rejected.store(true, Ordering::Release);
-        "one-shot authorization contract rejected".into()
+        "request authorization contract rejected".into()
     }
     fn check(&self, attempt: &PreparedAttempt<'_>) -> Result<(), String> {
         let c = &self.contract;
+        let index = attempt.step_index as usize;
+        let payload_matches = if index == 0 { attempt.payload == &c.expected } else {
+            c.continuation.as_ref().is_some_and(|options| bounded_json(attempt.payload)
+                && options.matches_payload(&c.expected, attempt.payload,
+                    c.path == "/ai/v3/responses/", index))
+        };
         if c.rejected.load(Ordering::Acquire)
-            || c.calls.compare_exchange(0, 1, Ordering::AcqRel, Ordering::Acquire).is_err()
+            || index >= c.max_attempts()
+            || c.calls.compare_exchange(index, index + 1, Ordering::AcqRel, Ordering::Acquire).is_err()
             || !c.scope.same_generation(attempt.scope)
             || attempt.project != &c.identity.project
             || attempt.chat_session != c.identity.chat_session
             || attempt.deadline != c.deadline
-            || attempt.step_index != 0 || attempt.dialect.path() != c.path
-            || attempt.payload != &c.expected {
+            || attempt.dialect.path() != c.path || !payload_matches {
             return Err(self.reject());
         }
         Ok(())
@@ -305,10 +331,11 @@ impl AttemptAuthorization for CheckedAuthorization {
         observer: &'a dyn PreparationObserver)
         -> BoxFuture<'a, Result<AuthorizedAttempt, String>> {
         async move {
+            let index = attempt.step_index as usize;
             self.check(&attempt)?;
             let authorized = self.inner.authorize_observed(attempt, observer).await?;
             let context = &authorized.context;
-            let expected = &self.contract.context;
+            let expected = self.contract.context_at(index).expect("checked attempt index");
             if context.feature_category != expected.feature_category
                 || context.feature_name != expected.feature_name
                 || context.step != expected.step
@@ -325,6 +352,10 @@ impl AttemptAuthorization for CheckedAuthorization {
         self.inner.observe_start(cleanup, cancellation);
     }
     fn observe_finish(&self, metadata: &AttemptMetadata) {
+        if self.contract.continuation.is_some() && (metadata.status != 200
+            || content_type(metadata.original_content_type.as_deref()) != ContentType::Json) {
+            self.contract.rejected.store(true, Ordering::Release);
+        }
         self.contract.finishes.fetch_add(1, Ordering::AcqRel);
         self.inner.observe_finish(metadata);
     }
@@ -346,6 +377,14 @@ fn bounded_json(value: &Value) -> bool {
 }
 
 impl Plan {
+    pub(crate) fn new_with_continuation(scope: AccountScope, spec: Specification,
+        continuation: Option<Continuation>) -> Result<Self, port::DispatchError> {
+        if let Some(options) = &continuation { options.validate(&spec)?; }
+        let mut plan = Self::new(scope, spec)?;
+        Arc::get_mut(&mut plan.contract).expect("new request contract").continuation = continuation;
+        Ok(plan)
+    }
+
     pub(crate) fn with_events(mut self, events: Option<super::ChunkSender>) -> Self {
         self.events = events;
         self
@@ -366,14 +405,21 @@ impl Plan {
             return Err(port::DispatchError::new(port::FailureKind::ScopeClosed));
         }
         let Self { payload, route, token_limit, contract, events } = self;
+        let max_attempts = contract.max_attempts();
+        let config = framer_core::port::ChainConfig {
+            chunk_tokens: token_limit, max_chunks: max_attempts as u32,
+            continue_prompt: contract.continuation.as_ref().map_or_else(String::new, |v| v.prompt.clone()),
+            max_total_tokens: Some(contract.continuation.as_ref().map_or(token_limit, |v| v.max_output_tokens)),
+            metered_fallback: false, on_429: None, cancelled: None,
+        };
         let run = super::execution::execute(super::execution::Execution {
             client: native, scope: contract.scope.clone(), identity: contract.identity.clone(),
             authorization: Arc::new(CheckedAuthorization { inner: authorization, contract: contract.clone() }),
-            payload, route, token_limit, deadline: contract.deadline, permit, admission, events,
+            payload, route, config, deadline: contract.deadline, permit, admission, events,
         });
-        Ok(finish_run(run, contract, |completed| match completed.value {
-            CompletedJson::Responses(value) => responses(port::Completed { value, attempts: completed.attempts }),
-            CompletedJson::Messages(value) => messages(port::Completed { value, attempts: completed.attempts }),
+        Ok(finish_run(run, contract, move |completed| match completed.value {
+            CompletedJson::Responses(value) => responses(port::Completed { value, attempts: completed.attempts }, max_attempts),
+            CompletedJson::Messages(value) => messages(port::Completed { value, attempts: completed.attempts }, max_attempts),
         }))
     }
 
@@ -424,7 +470,7 @@ impl Plan {
             expected, context: spec.context,
             deadline: spec.deadline,
             calls: AtomicUsize::new(0), starts: AtomicUsize::new(0),
-            finishes: AtomicUsize::new(0), rejected: AtomicBool::new(false),
+            finishes: AtomicUsize::new(0), rejected: AtomicBool::new(false), continuation: None,
         });
         Ok(Self { payload: spec.payload, route: spec.route,
             token_limit: spec.token_limit, contract, events: None })

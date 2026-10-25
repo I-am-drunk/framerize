@@ -9,7 +9,7 @@ use crate::authorization::GenerationAuthorization;
 use crate::account::client::PreparationControl;
 use crate::account::client::PreparationResult;
 
-struct MaterialSource(AtomicUsize);
+pub(super) struct MaterialSource(pub(super) AtomicUsize);
 impl CredentialSource for MaterialSource {
     fn issue<'a>(&'a self, scope: &'a AccountScope, _: &'a Session,
         _: &'a PreparationControl) -> BoxFuture<'a, PreparationResult<CredentialMaterial>> {

@@ -19,6 +19,7 @@ pub(super) fn error(e: ApplicationError) -> DispatchError {
     use ApplicationError as E;
     let kind = match e {
         E::MissingAuthorization => FailureKind::MissingAuthorization,
+        E::Cancelled => FailureKind::Cancelled,
         E::Deadline { .. } => FailureKind::Deadline,
         E::ScopeClosed { .. } => FailureKind::ScopeClosed,
         E::Authorization(_) => FailureKind::Authorization,

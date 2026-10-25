@@ -49,6 +49,8 @@ pub struct PreparedAttempt<'a> {
     pub deadline: Instant,
 }
 
+#[derive(Clone, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct AttemptContext {
     pub feature_category: String,
     pub feature_name: String,
@@ -139,6 +141,7 @@ impl fmt::Debug for AttemptMetadata {
 /// Cleanup always means the original owner's completion, not merely Drop.
 pub enum ApplicationError {
     MissingAuthorization,
+    Cancelled,
     Deadline { cleanup: Option<Cleanup> },
     ScopeClosed { cleanup: Option<Cleanup> },
     Authorization(String),
@@ -159,6 +162,7 @@ impl fmt::Debug for ApplicationError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.write_str(match self {
             Self::MissingAuthorization => "missing authorization",
+            Self::Cancelled => "request cancelled",
             Self::Deadline { .. } => "original deadline reached",
             Self::ScopeClosed { .. } => "account scope closed",
             Self::Authorization(_) => "authorization failed",

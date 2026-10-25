@@ -33,6 +33,7 @@ pub async fn complete_long_native(
     let (mut ptok, mut ctok) = (0u64, 0u64);
     let mut chunk_tokens = cfg.chunk_tokens.min(600);
     for i in 0..cfg.max_chunks {
+        if cfg.is_cancelled() { return Err(ApplicationError::Cancelled.with_attempts(attempts)); }
         let remaining = cfg.max_total_tokens
             .map(|cap| (cap as u64).saturating_sub(ctok))
             .unwrap_or(chunk_tokens as u64);
@@ -65,15 +66,16 @@ pub async fn complete_long_native(
             chunk_tokens = ((tps * 45.0) as u32).clamp(400, 3000);
         }
         merge_blocks(&mut blocks, chunk_blocks.clone());
-        if let Some(cb) = events {
+        let text_only = !chunk_blocks.is_empty()
+            && chunk_blocks.iter().all(|b| b["type"].as_str() == Some("text"));
+        if let Some(cb) = events.filter(|_| text_only
+            || matches!(stop_reason.as_str(), "end_turn" | "stop_sequence" | "tool_use")) {
             cb(ChainEvent::Chunk(chunk_blocks.clone()));
         }
         let budget_done = cfg.max_total_tokens
             .map(|cap| ctok >= cap as u64).unwrap_or(false);
-        // Incomplete tools or other non-text blocks are delivered verbatim.
-        // Never drop them, invent repair history or retry the same operation.
-        let text_only = !chunk_blocks.is_empty()
-            && chunk_blocks.iter().all(|b| b["type"].as_str() == Some("text"));
+        // Retain incomplete non-text output for the caller's final refusal,
+        // without streaming it as an executable tool or inventing repair history.
         if stop_reason != "max_tokens" || budget_done || i + 1 == cfg.max_chunks
             || !text_only || cfg.continue_prompt.is_empty() {
             break;

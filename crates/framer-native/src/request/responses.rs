@@ -48,6 +48,7 @@ pub async fn complete_long_native(
     let mut last_usage = json!({});
     let mut last_service_tier = Value::Null;
     let (mut ptok, mut ctok) = (0u64, 0u64);
+    let mut reasoning_tokens: Option<u64> = None;
     let mut final_status = String::new();
     let mut final_incomplete = None;
     let fast_lane = matches!(
@@ -57,11 +58,12 @@ pub async fn complete_long_native(
     let grow_cap = if fast_lane { 12000 } else { 3000 };
     let chunk_cap = cfg.chunk_tokens.max(if fast_lane { 4000 } else { 2500 });
     let mut chunk_tokens = if fast_lane {
-        cfg.chunk_tokens.clamp(1500, grow_cap)
+        cfg.chunk_tokens.min(grow_cap)
     } else {
         cfg.chunk_tokens.min(600)
     };
     for i in 0..cfg.max_chunks {
+        if cfg.is_cancelled() { return Err(ApplicationError::Cancelled.with_attempts(attempts)); }
         let remaining = cfg.max_total_tokens
             .map(|cap| (cap as u64).saturating_sub(ctok))
             .unwrap_or(chunk_tokens as u64);
@@ -102,6 +104,9 @@ pub async fn complete_long_native(
         ptok = ptok.max(last_usage["input_tokens"].as_u64().unwrap_or(0));
         let out_t = last_usage["output_tokens"].as_u64().unwrap_or(0);
         ctok = ctok.saturating_add(out_t);
+        if let Some(tokens) = last_usage["output_tokens_details"]["reasoning_tokens"].as_u64() {
+            reasoning_tokens = Some(reasoning_tokens.unwrap_or(0).saturating_add(tokens));
+        }
         if !body["service_tier"].is_null() {
             last_service_tier = body["service_tier"].clone();
         }
@@ -130,6 +135,18 @@ pub async fn complete_long_native(
             "type": "message", "role": "user",
             "content": [{"type": "input_text", "text": cfg.continue_prompt}],
         }));
+    }
+    last_usage["input_tokens"] = json!(ptok);
+    last_usage["output_tokens"] = json!(ctok);
+    if let Some(total) = last_usage.get_mut("total_tokens") {
+        *total = json!(ptok.saturating_add(ctok));
+    }
+    if let Some(tokens) = reasoning_tokens {
+        let details = last_usage.as_object_mut().expect("validated usage")
+            .entry("output_tokens_details").or_insert_with(|| json!({}));
+        if let Some(details) = details.as_object_mut() {
+            details.insert("reasoning_tokens".into(), json!(tokens));
+        }
     }
     Ok(NativeChain {
         response: AssembledResponses {

@@ -123,6 +123,12 @@ impl GenerationAuthorization {
         let context = AuthorizationContext::bound(context)?;
         Ok(Self { client, scope, source, context })
     }
+
+    pub(crate) fn for_sequence(client: NativeAccountClient, scope: AccountScope,
+        source: Arc<dyn CredentialSource>, contexts: Vec<BoundAttemptContext>) -> Result<Self, String> {
+        let context = AuthorizationContext::sequence(contexts)?;
+        Ok(Self { client, scope, source, context })
+    }
 }
 impl GenerationAuthorization {
     fn prepare<'a>(&'a self, attempt: PreparedAttempt<'a>,
