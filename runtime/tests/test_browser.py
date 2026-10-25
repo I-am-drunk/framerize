@@ -1,7 +1,7 @@
 """Browser dependencies remain optional until the real launch boundary."""
 import builtins
 from contextlib import asynccontextmanager
-import importlib.util
+import importlib
 import os
 from pathlib import Path
 import sys
@@ -10,7 +10,7 @@ from types import ModuleType, SimpleNamespace
 import unittest
 from unittest.mock import AsyncMock, Mock, patch
 
-SOURCE = Path(__file__).resolve().parents[1] / 'camoufox_host.py'
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 IMPORT = builtins.__import__
 
 def without_browser(name, *args, **kwargs):
@@ -29,12 +29,15 @@ class LazyBrowserRuntime(unittest.IsolatedAsyncioTestCase):
         imports = patch('builtins.__import__', side_effect=without_browser)
         imports.start()
         self.addCleanup(imports.stop)
-        spec = importlib.util.spec_from_file_location('_lazy_host', SOURCE)
-        self.module = importlib.util.module_from_spec(spec)
-        spec.loader.exec_module(self.module)
+        self.module = importlib.import_module('framerize_host.app')
+        self.driver = importlib.import_module('framerize_host.browser.driver')
+        settings = patch.multiple(self.module, ROOT=temporary.name,
+                                  DEVICE_POOL=1, RESERVE_PER_DAY=0)
+        settings.start()
+        self.addCleanup(settings.stop)
         self.host = self.module.Host()
 
-    async def test_native_host_does_not_import_or_prepare_browser(self):
+    async def test_idle_host_does_not_import_or_prepare_browser(self):
         with patch.object(self.module, 'prepared_memory_browser') as browser, \
              patch.object(self.module, 'prepared_memory_addon') as addon:
             host = self.module.Host()
@@ -70,7 +73,7 @@ class LazyBrowserRuntime(unittest.IsolatedAsyncioTestCase):
         self.host._allocation = allocation
         async def initialize(account, profile, browser):
             self.host.lifecycles[account].phase = 'resident'
-            return SimpleNamespace(initialized=True)
+            return SimpleNamespace(initialized=True, lifecycle=self.host.lifecycles[account], devices=[])
         self.host._initialize_account = AsyncMock(side_effect=initialize)
         receipts = []
         def close_receipt(browser):
@@ -124,9 +127,9 @@ class LazyBrowserRuntime(unittest.IsolatedAsyncioTestCase):
             with self.subTest(enabled=enabled, outcome=outcome), \
                  patch('builtins.__import__', IMPORT), patch.dict(sys.modules, modules), \
                  patch.dict(os.environ, {'FRAMERIZE_LINEAR_PYTHON_PIPE': enabled}), \
-                 patch.object(self.module, 'install', return_value=outcome) as install, \
-                 patch.object(self.module, 'emit') as emit:
-                self.assertEqual(self.module.browser_runtime(),
+                 patch.object(self.driver, 'install', return_value=outcome) as install, \
+                 patch.object(self.driver, 'emit') as emit:
+                self.assertEqual(self.driver.browser_runtime(),
                     (camoufox.AsyncNewBrowser, playwright.async_playwright))
                 if enabled == '1':
                     install.assert_called_once_with()

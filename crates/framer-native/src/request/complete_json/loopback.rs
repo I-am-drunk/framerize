@@ -284,6 +284,7 @@ impl Peer {
             .map_err(|_| "application request header encoding")?;
         let body: Value = serde_json::from_slice(&self.request[end..])
             .map_err(|_| "application request JSON")?;
+        assert_eq!(body, self.expected.envelope, "synthetic request envelope differs");
         let contract_matches = if let Some(cookie) = shared.resident_cookie {
             header_value(head, "cookie")? == cookie
                 && header_value(head, "content-type")? == "application/json; charset=utf-8"

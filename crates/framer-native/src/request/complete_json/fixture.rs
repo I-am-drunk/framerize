@@ -141,7 +141,7 @@ fn response_body() -> Value {
 }
 
 fn expected(path: &'static str, payload: Value, index: u32, reply: Reply) -> Expected {
-    Expected {
+    let mut expected = Expected {
         path,
         envelope: json!({
             "projectId": "fixture-application-project",
@@ -154,7 +154,12 @@ fn expected(path: &'static str, payload: Value, index: u32, reply: Reply) -> Exp
             "castleToken": "fixture-application-castle"
         }),
         reply,
+    };
+    if path == "/ai/v3/responses/" {
+        expected.envelope.as_object_mut().unwrap().remove("model");
+        expected.envelope["request"]["session_id"] = json!(CHAT);
     }
+    expected
 }
 
 fn metadata(value: &AttemptMetadata, index: u32) {

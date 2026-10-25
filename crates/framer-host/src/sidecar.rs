@@ -8,8 +8,7 @@
 //! down; verified by fingerprint diff against a known-good environment
 //! (2026-10-02).
 //!
-//! The sidecar is a Python process (scripts/camoufox_host.py, embedded via
-//! include_str! and extracted on first use) speaking NDJSON over stdio. One
+//! The sidecar is a release-owned Python package speaking NDJSON over stdio. One
 //! Camoufox process per account; the profile dir is the account identity
 //! (session cookie + Castle __cuid persist across restarts).
 
@@ -27,6 +26,21 @@ use tokio::sync::{mpsc, oneshot, Mutex};
 
 type PendingReplies =
     Arc<StdMutex<HashMap<u64, oneshot::Sender<Result<Value, String>>>>>;
+
+fn bundled_host(executable: &Path) -> Result<PathBuf, String> {
+    let executable = executable.canonicalize().map_err(|error| error.to_string())?;
+    let root = executable.parent().and_then(Path::parent)
+        .ok_or("cannot resolve application package")?;
+    let script = root.join("runtime/host.py");
+    for path in [&script, &root.join("runtime/framerize_host/__main__.py"),
+        &root.join("runtime/runtime-manifest.json"),
+        &root.join("runtime/framerize_host/app.py"), &root.join("runtime/framerize_host/castle_forge.py")] {
+        if !path.is_file() {
+            return Err("incomplete application package; install the full archive or pass --sidecar-script for development".into());
+        }
+    }
+    script.canonicalize().map_err(|error| error.to_string())
+}
 
 #[path = "sidecar_observer.rs"]
 pub mod observer;
@@ -62,11 +76,6 @@ fn fail_pending(pending: &PendingReplies, message: &str) {
     }
 }
 
-const SCRIPT: &str = include_str!("../../../scripts/camoufox_host.py");
-const RESIDENT_ACTIVITY: &str = include_str!("../../../scripts/resident_activity.py");
-const RESIDENT_AUTHORIZATION: &str = include_str!("../../../scripts/resident_authorization.py");
-const RESIDENT_BOOTSTRAP: &str = include_str!("../../../scripts/resident_bootstrap.py");
-const CONTEXTUAL_AUTHORIZATION: &str = include_str!("../../../scripts/contextual_authorization.py");
 const RESIDENT_GENERATION_ENV: &str = "FRAMERIZE_RESIDENT_APPLICATION_GENERATION";
 
 /// In-page AI calls wait out a full generation (window ceiling ~109 s); mints
@@ -288,43 +297,12 @@ impl SidecarBridge {
             .map_err(|error| format!("host startup: {error:?}"))
     }
 
-    fn script_path(&self) -> PathBuf {
+    fn script_path(&self) -> Result<PathBuf, String> {
         if let observer::ProcessMode::Observed { script, .. } = &self.mode {
-            return script.clone();
+            return Ok(script.clone());
         }
-        if let Some(script) = &self.script_override {
-            return script.clone();
-        }
-        // External override wins: sidecar fixes ship via `git pull` + a copy to
-        // ~/.framerize/camoufox_host.py instead of a full binary rebuild.
-        // (Learned the hard way: include_str! alone makes every python tweak
-        // a 20-minute release cycle.)
-        let ext = dirs_home().join(".framerize/camoufox_host.py");
-        if ext.exists() {
-            return ext;
-        }
-        self.state_root.join(".bin").join("camoufox_host.py")
-    }
-
-    fn extract_embedded_script(&self, script: &Path) -> Result<(), String> {
-        // Refresh embedded managed files together; overrides own their modules.
-        let is_override = self.script_override.is_some()
-            || script == dirs_home().join(".framerize/camoufox_host.py");
-        if !is_override && matches!(self.mode, observer::ProcessMode::Unmanaged) {
-            if let Some(parent) = script.parent() {
-                std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
-                std::fs::write(parent.join("resident_activity.py"), RESIDENT_ACTIVITY)
-                    .map_err(|e| e.to_string())?;
-                std::fs::write(parent.join("resident_authorization.py"), RESIDENT_AUTHORIZATION)
-                    .map_err(|e| e.to_string())?;
-                std::fs::write(parent.join("resident_bootstrap.py"), RESIDENT_BOOTSTRAP)
-                    .map_err(|e| e.to_string())?;
-                std::fs::write(parent.join("contextual_authorization.py"), CONTEXTUAL_AUTHORIZATION)
-                    .map_err(|e| e.to_string())?;
-            }
-            std::fs::write(script, SCRIPT).map_err(|e| e.to_string())?;
-        }
-        Ok(())
+        if let Some(script) = &self.script_override { return Ok(script.clone()); }
+        bundled_host(&std::env::current_exe().map_err(|error| error.to_string())?)
     }
 
     /// Start the first host only. A lost host cannot certify that its browser
@@ -351,12 +329,7 @@ impl SidecarBridge {
         if let Some(boundary) = &self.retirement {
             boundary.begin_start().map_err(|error| format!("host startup: {error:?}"))?;
         }
-        let script = self.script_path();
-        // The MANAGED path is always refreshed (a "don't overwrite" here kept
-        // v0.4.0's script alive under v0.4.1's binary — upgrades must win).
-        // The external override (~/.framerize/camoufox_host.py) is never
-        // written by us — it's the user's escape hatch.
-        self.extract_embedded_script(&script)?;
+        let script = self.script_path()?;
 
         // Python resolution: explicit override, then the installer's venv,
         // then PATH. The venv is where install-camoufox.sh puts everything.
@@ -374,7 +347,7 @@ impl SidecarBridge {
         };
         let mut command = Command::new(&python);
         self.configure_resident_environment(&mut command);
-        command.arg(&script)
+        command.arg("-B").arg(&script)
             .env("FRAMERIZE_SIDECAR_MODE", mode)
             .env("FRAMERIZE_OBSERVED_PROFILE_NONCE", profile_nonce)
             .env("FRAMERIZE_SIDECAR_INCARNATION", incarnation.to_string())

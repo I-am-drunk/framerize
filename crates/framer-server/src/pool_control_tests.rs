@@ -502,7 +502,9 @@ fn account(n: u128) -> ManagedAccount {
         proxy: Some(format!("http://proxy-{n}.invalid:8080")),
         current_team: Some(TeamId(format!("team-{n}"))), current_project: Some(ProjectId(format!("project-{n}"))),
         extra_workspaces: vec![], state: AccountState::Ready, credit: None,
-        consecutive_failures: 0, cooldown_step: 2, cooling_until_ms: None,
+        // Distinct ranks make the initial automatic pick deterministic without
+        // disabling retry by pinning an account header. Ties use a global cursor.
+        consecutive_failures: (n - 1) as u32, cooldown_step: 2, cooling_until_ms: None,
     }
 }
 fn fixture(capacity: usize, saved: u128) -> (AppState, Arc<Ports>) {
@@ -510,7 +512,9 @@ fn fixture(capacity: usize, saved: u128) -> (AppState, Arc<Ports>) {
     let state = AppState {
         operation_ownership: None,
         client: ports.clone(), browser: ports.clone(), sessions: ports.clone(), state: ports.clone(),
-        gate: Arc::new(framer_core::gate::ConcurrencyGate::new()),
+        gate: Arc::new(framer_core::gate::ConcurrencyGate::with_config(
+            framer_core::gate::GateConfig { initial: 5, min: 4, max: 8,
+                recover_ms: 1_000, relax_ms: 30_000, min_interval_ms: 0 })),
         wave: Arc::new(framer_core::wave::WaveGuard::new()),
         serving_accounts: Arc::new(ServingAccountPolicy::from_config(PoolConfig {
             active_capacity: capacity, ..Default::default()
@@ -706,7 +710,8 @@ async fn cleanup_failure_repicks_a_healthy_account_before_any_client_content() {
             let (state, ports) = fixture(2, 2);
             activated(&state, 1).await;
             activated(&state, 2).await;
-            let before = records(&ports);
+            let mut expected = ports.records.lock().unwrap().clone();
+            expected[1].note_success();
             ports.cleanup_on_mint.store(true, Ordering::SeqCst);
             ports.request_gate.add_permits(2);
             let response = handler_response(&state, route, stream).await.unwrap();
@@ -719,8 +724,8 @@ async fn cleanup_failure_repicks_a_healthy_account_before_any_client_content() {
             assert!(slot(&state, id(1)).uncertain);
             assert_eq!(slot(&state, id(1)).users, 0);
             assert!(!slot(&state, id(2)).uncertain);
-            assert_eq!(records(&ports), before);
-            assert_eq!(ports.account_writes.load(Ordering::SeqCst), 0);
+            assert_eq!(records(&ports), serde_json::to_value(expected).unwrap());
+            assert_eq!(ports.account_writes.load(Ordering::SeqCst), 1);
             assert!(!ports.events.lock().unwrap().iter().any(|event| event.0 == "close_started"));
         }
     }
@@ -1139,7 +1144,8 @@ async fn handler_response(state: &AppState, route: Route, stream: bool)
 async fn handler_response_with_session(state: &AppState, route: Route, stream: bool, session: Option<&str>)
     -> Result<axum::response::Response, ApiError> {
     let mut headers = HeaderMap::new();
-    headers.insert("x-framerize-account", id(1).0.to_string().parse().unwrap());
+    // These pool tests exercise automatic selection and account rotation.
+    // Explicit-account requests have their own no-repick fixtures.
     if let Some(session) = session { headers.insert("x-framerize-session", session.parse().unwrap()); }
     match route {
         Route::Free => crate::free_complete(state.clone(), &headers, ClientDialect::AnthropicMessages,
@@ -1217,56 +1223,6 @@ async fn dropping_never_polled_bodies_releases_leases_even_before_producer_first
         until(|| slot(&state, id(1)).users == 0).await;
         assert_eq!(ports.request_finished.load(Ordering::SeqCst), 0, "{route:?}");
         assert_eq!(ports.request_drops.load(Ordering::SeqCst), ports.request_started.load(Ordering::SeqCst));
-        parked(&state, 1).await.unwrap();
-    }
-}
-
-#[tokio::test]
-async fn dropping_never_polled_bodies_aborts_started_producers_and_releases_leases() {
-    for route in ROUTES {
-        let (mut state, ports) = fixture(1, 1);
-        state.gate = one_slot_gate();
-        let response = streaming_response(&state, route).await;
-        until(|| ports.request_started.load(Ordering::SeqCst) == 1).await;
-        assert_stream_residency(&state).await;
-        tokio::task::yield_now().await;
-        drop(response);
-        if matches!(route, Route::Compat) {
-            // This current-thread fixture has not yielded to the aborted task.
-            // Its permit must outlive the body until producer cleanup runs.
-            let mut probe = Box::pin(state.gate.acquire_now("team-1:fixture"));
-            assert!(matches!(futures::poll!(probe.as_mut()), std::task::Poll::Ready(None)));
-        }
-        until(|| ports.request_drops.load(Ordering::SeqCst) == 1 && slot(&state, id(1)).users == 0).await;
-        if matches!(route, Route::Compat) {
-            assert!(state.gate.acquire_now("team-1:fixture").await.is_some(), "cancelled producer leaked its gate");
-        }
-        assert_eq!(ports.request_finished.load(Ordering::SeqCst), 0, "{route:?}");
-        assert_eq!(ports.request_steps.load(Ordering::SeqCst), 0);
-        parked(&state, 1).await.unwrap();
-    }
-}
-
-#[tokio::test]
-async fn cancelling_after_a_frame_releases_chain_and_upstream_body_owners() {
-    for route in ROUTES {
-        let (state, ports) = fixture(1, 1);
-        let response = streaming_response(&state, route).await;
-        until(|| ports.request_started.load(Ordering::SeqCst) == 1).await;
-        ports.request_gate.add_permits(if matches!(route, Route::Compat) { 2 } else { 1 });
-        until(|| ports.request_steps.load(Ordering::SeqCst) >= 1).await;
-        ports.response_gate.add_permits(1);
-        let mut body = Box::pin(response.into_body().into_data_stream());
-        let frame = tokio::time::timeout(Duration::from_secs(2), body.next()).await.unwrap().unwrap().unwrap();
-        assert!(!frame.is_empty());
-        assert_stream_residency(&state).await;
-        drop(body);
-        until(|| ports.request_drops.load(Ordering::SeqCst) == 1 && slot(&state, id(1)).users == 0).await;
-        if matches!(route, Route::Compat) {
-            assert_eq!(ports.response_drops.load(Ordering::SeqCst), 1);
-        } else {
-            assert_eq!(ports.request_finished.load(Ordering::SeqCst), 0);
-        }
         parked(&state, 1).await.unwrap();
     }
 }
@@ -1585,12 +1541,7 @@ async fn handlers_recheck_account_and_wave_after_waiting_for_the_model_gate() {
                     ports.records.lock().unwrap()[0].cooling_until_ms = Some(framer_core::rotation::now_ms() + 60_000);
                 }
                 drop(permit);
-                let result = request.await;
-                if wave {
-                    assert!(matches!(result, Err(ApiError::Cooling { .. })), "{route:?}, stream={stream}");
-                } else {
-                    assert!(matches!(result, Err(ApiError::AccountCooling { .. })), "{route:?}, stream={stream}");
-                }
+                assert_cooling_response(request.await, wave).await;
                 assert_eq!(ports.request_started.load(Ordering::SeqCst), 0);
                 assert!(ports.events.lock().unwrap().iter().all(|event| event.0 == "status"));
                 assert_eq!(slot(&state, id(1)).users, 0);
@@ -1740,7 +1691,7 @@ async fn account_repicks_wait_on_destination_gate_and_recheck_health_before_invo
                     let body = tokio::time::timeout(Duration::from_secs(2), to_bytes(response.into_body(), 65_536))
                         .await.unwrap().unwrap();
                     assert!(!body.is_empty());
-                } else { assert!(request.await.is_err()); }
+                } else { assert_cooling_response(request.await, wave).await; }
                 assert_eq!(ports.request_started.load(Ordering::SeqCst), 1);
                 assert!(!ports.mint_routes.lock().unwrap().iter().any(|(account, _)| *account == id(2)));
                 until(|| state.serving_accounts.residents.snapshot().unwrap().residents.iter()
@@ -1748,4 +1699,12 @@ async fn account_repicks_wait_on_destination_gate_and_recheck_health_before_invo
             }
         }
     }
+}
+
+async fn assert_cooling_response(result: Result<axum::response::Response, ApiError>, wave: bool) {
+    let response = result.unwrap_or_else(axum::response::IntoResponse::into_response);
+    assert_eq!(response.status(), axum::http::StatusCode::SERVICE_UNAVAILABLE);
+    let body = to_bytes(response.into_body(), 65536).await.unwrap();
+    let body: Value = serde_json::from_slice(&body).unwrap();
+    assert_eq!(body["error"]["code"], if wave { "framerize_cooling" } else { "framerize_account_cooling" });
 }

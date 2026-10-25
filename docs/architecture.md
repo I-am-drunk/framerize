@@ -11,14 +11,28 @@ for decisions, boundaries and the remaining migration work.
 - `crates/framer-server`: normal HTTP routes and shared account admission.
 - `crates/framer-host`: browser process integration.
 - `crates/framer-store`: state and session storage.
+- `runtime/framerize_host`: Python browser host, with account, browser, resource,
+  transport and restoration modules.
+- `scripts/package.py` and `scripts/release.py`: build a complete archive and
+  verify it into a new release directory.
 - `web`: the application interface.
 
 One Cargo workspace and lockfile cover both applications. The default target is
 browser-based. Native depends on the shared libraries; those libraries do not
 depend on native. Their browser routes do not select a native provider.
 
-Host module consolidation and complete release packaging are still pending.
-The running service has not been changed by this reorganization.
+The browser archive carries its matching host and UI. The executable resolves
+both from its own package, independently of the working directory. Development
+overrides are explicit command-line options. Native developer archives remain
+configuration-only. See [application packages](releases.md).
+
+Concurrency-limit storage is selected by application startup. Library gates
+are in memory unless supplied a state-file path. Fixtures never inherit the
+normal service's learned limits through an implicit home-directory lookup.
+
+Removing the remaining experimental host adapters, durable account rate history
+and graceful update handling are still pending. The running service has not
+been changed by this reorganization.
 
 Earlier investigation notes are preserved in
 [architecture history](history/architecture-before-reorganization-20261025.md).

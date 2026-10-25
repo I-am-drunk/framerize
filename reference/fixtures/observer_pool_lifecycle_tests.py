@@ -16,7 +16,8 @@ from unittest.mock import patch
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from contextual_authorization_tests import FakeContext, FakePage, LOGIN, PROJECT
 from observed_sidecar_tests import FakeWriter, obs
-from resident_lifecycle_tests import FakeBrowser
+sys.path.insert(0, str(Path(__file__).resolve().parents[2] / 'runtime/tests'))
+from test_lifecycle import FakeBrowser
 
 
 class ObserverPoolLifecycleTests(unittest.IsolatedAsyncioTestCase):

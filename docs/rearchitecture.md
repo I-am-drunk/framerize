@@ -69,6 +69,21 @@ release directories and is never rolled back with application files.
 5. Prepare one reviewed browser-only promotion onto `main`, preserving the newer
    normal repairs. Update `browser-based` only after the promotion is accepted.
 
+The remaining host cut moves ordinary RPC ownership into `accounts/` and removes
+comparison commands, evidence collection and native-device dispatch from the
+browser package. Actual RPC tasks must still outlive cancelled waiters, and a
+browser cannot close beneath a pending RPC. Native authority belongs with native
+code rather than an optional mode of the normal host.
+
+Durable account state will use one host-owned SQLite journal outside releases.
+Request charges, cooldowns, reserve allocation, primary selection and pending
+mints commit before external work. Same-boot monotonic timestamps can be restored;
+after reboot, outstanding durations require conservative rebasing. Missing
+history on an existing installation requires migration, not an empty ledger.
+The journal must have one owner, and package rollback must retain newer history.
+Shutdown then stops admission, joins accepted work and closes the host. A clean
+exit marker records that outcome; it cannot replace writes before each charge.
+
 The first live migration is still unresolved. Today's host has no complete
 ledger-export command. New persistence cannot recover old process memory.
 Activation needs genuine current state or demonstrated expiry under exclusive

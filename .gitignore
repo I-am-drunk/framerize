@@ -13,7 +13,13 @@ __pycache__/
 /.env
 /.env.*
 !/.env.example
-/runtime/
+/runtime/*
+!/runtime/framerize_host/
+!/runtime/framerize_native/
+!/runtime/tests/
+!/runtime/host.py
+!/runtime/native_host.py
+!/runtime/requirements.txt
 /artifacts/
 
 /dist/

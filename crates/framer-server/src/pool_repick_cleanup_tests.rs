@@ -141,7 +141,6 @@ fn repick_request(route: Route, stream: bool) -> Request<Body> {
     };
     Request::builder().method("POST").uri(path)
         .header("content-type", "application/json")
-        .header("x-framerize-account", id(1).0.to_string())
         .header("x-framerize-session", "repick-cleanup-fixture")
         .body(Body::from(payload.to_string())).unwrap()
 }

@@ -18,6 +18,8 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tokio::sync::{Mutex, OwnedSemaphorePermit, Semaphore};
 
+mod state;
+
 /// Defaults, all overridable by env so a stuck gate can be retuned without a
 /// rebuild (the 2026-10-04 incident needed exactly that).
 // 12: the measured workspace-wide wall is ~20-24 concurrent (2026-10-04:
@@ -205,6 +207,7 @@ impl Gate {
 pub struct ConcurrencyGate {
     gates: Mutex<HashMap<String, Gate>>,
     cfg: GateConfig,
+    state_file: Option<std::path::PathBuf>,
 }
 
 impl Default for ConcurrencyGate {
@@ -219,7 +222,20 @@ impl ConcurrencyGate {
     }
 
     pub fn with_config(cfg: GateConfig) -> Self {
-        Self { gates: Mutex::new(HashMap::new()), cfg }
+        Self { gates: Mutex::new(HashMap::new()), cfg, state_file: None }
+    }
+
+    /// Persistence is chosen by the application, never by a library's HOME or
+    /// build mode. Fixtures use the same gate without touching any state file.
+    pub fn with_state_file(cfg: GateConfig, path: std::path::PathBuf) -> std::io::Result<Self> {
+        let saved = state::load(&path)?;
+        let gates = saved.into_iter().map(|(key, ceiling)| {
+            let mut gate = Gate::new(cfg, Instant::now());
+            gate.ceiling = ceiling.clamp(cfg.min, cfg.max);
+            gate.shrink_to(gate.limit.min(gate.ceiling));
+            (key, gate)
+        }).collect();
+        Ok(Self { gates: Mutex::new(gates), cfg, state_file: Some(path) })
     }
 
     /// Wait for a slot in `key`'s workspace. Hold the permit for the whole
@@ -228,18 +244,7 @@ impl ConcurrencyGate {
         let (sem, wait) = {
             let mut g = self.gates.lock().await;
             let cfg = self.cfg;
-            let loaded = self.load_ceiling(key);
-            let gate = g.entry(key.to_string()).or_insert_with(|| {
-                let mut ng = Gate::new(cfg, Instant::now());
-                if let Some(c) = loaded {
-                    // Clamp persisted ceilings to the (now-measured) max: a stale
-                    // 41 from the unbounded-ratchet era must not survive the fix.
-                    let c = c.min(cfg.max);
-                    ng.ceiling = c;
-                    ng.limit = ng.limit.min(c);
-                }
-                ng
-            });
+            let gate = g.entry(key.to_string()).or_insert_with(|| Gate::new(cfg, Instant::now()));
             gate.settle_debt();
             // Opportunistic recovery: a saturated gate still calls acquire, so
             // this is enough to climb back without a background task.
@@ -254,52 +259,7 @@ impl ConcurrencyGate {
         sem.acquire_owned().await.expect("gate semaphore is never closed")
     }
 
-    /// Multiplicative decrease. Call on a 429 ONLY: a 403 risk refusal says
-    /// nothing about the concurrency cap, and narrowing on it would conflate
-    /// two unrelated signals.
-    /// Persisted ceilings file path (survives daemon restarts — the cap is a
-    /// server-side fact; re-learning it costs a burst of 429s every boot).
-    fn state_path() -> std::path::PathBuf {
-        std::env::var("FRAMERIZE_GATE_STATE")
-            .map(std::path::PathBuf::from)
-            .unwrap_or_else(|_| std::path::PathBuf::from(
-                format!("{}/.framerize/gate-state.json", std::env::var("HOME").unwrap_or_else(|_| "/tmp".into()))))
-    }
-
-    fn persist_ceiling(&self, key: &str, ceiling: usize) {
-        // Tests share keys ("w1") and the daemon's HOME state file — learned
-        // ceilings would leak between tests and from the daemon. Production
-        // only.
-        #[cfg(test)]
-        return;
-        #[cfg(not(test))]
-        {
-        let path = Self::state_path();
-        let mut map: serde_json::Value = std::fs::read_to_string(&path)
-            .ok()
-            .and_then(|s| serde_json::from_str(&s).ok())
-            .unwrap_or_else(|| serde_json::json!({}));
-        map[key] = serde_json::json!(ceiling);
-        if let Some(parent) = path.parent() {
-            let _ = std::fs::create_dir_all(parent);
-        }
-        let _ = std::fs::write(&path, serde_json::to_string(&map).unwrap_or_default());
-        }
-    }
-
-    fn load_ceiling(&self, key: &str) -> Option<usize> {
-        #[cfg(test)]
-        return None;
-        #[cfg(not(test))]
-        {
-        let map: serde_json::Value = serde_json::from_str(
-            &std::fs::read_to_string(Self::state_path()).ok()?,
-        )
-        .ok()?;
-        map[key].as_u64().map(|v| v as usize)
-        }
-    }
-
+    /// Multiplicative decrease on a concurrency 429, never on a risk refusal.
     pub async fn on_overloaded(&self, key: &str) {
         let mut g = self.gates.lock().await;
         let cfg = self.cfg;
@@ -311,7 +271,6 @@ impl ConcurrencyGate {
         if evidence < gate.ceiling {
             gate.ceiling = evidence;
             gate.ceiling_at = Instant::now();
-            self.persist_ceiling(key, evidence);
         }
 
         // Multiplicative decrease to drain the overshoot fast.
@@ -323,6 +282,12 @@ impl ConcurrencyGate {
                 "[gate] {key}: 429 -> limit {} (cap estimate {})",
                 gate.limit, gate.ceiling
             );
+        }
+        if let Some(path) = &self.state_file {
+            let ceilings = g.iter().map(|(key, gate)| (key.clone(), gate.ceiling)).collect();
+            if let Err(error) = state::save(path, &ceilings) {
+                eprintln!("[gate] could not save learned concurrency limits: {error}");
+            }
         }
     }
 
@@ -391,6 +356,10 @@ impl ConcurrencyGate {
         g.entry(key.to_string()).or_insert_with(|| Gate::new(cfg, Instant::now())).limit
     }
 }
+
+#[cfg(test)]
+#[path = "gate/persistence_tests.rs"]
+mod persistence_tests;
 
 #[cfg(test)]
 mod tests {

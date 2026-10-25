@@ -25,8 +25,9 @@ enum Cmd {
     Daemon {
         #[arg(long, default_value = "127.0.0.1:8787")]
         listen: String,
-        #[arg(long, default_value = "web/dist")]
-        web_dir: String,
+        /// Development override for the web UI bundled with this executable.
+        #[arg(long)]
+        web_dir: Option<std::path::PathBuf>,
         #[arg(long, default_value = "framerize.db")]
         db: String,
         /// Path to a Chrome/Chromium binary (the Castle engine per account).
@@ -42,7 +43,7 @@ enum Cmd {
         /// One browser profile directory per account lives under here.
         #[arg(long, default_value = "profiles")]
         profiles: String,
-        /// Prepared host for this instance; bypasses the shared home-directory host.
+        /// Development override for the browser host bundled with this executable.
         #[arg(long)]
         sidecar_script: Option<std::path::PathBuf>,
         /// Maximum resident account browsers; saved accounts remain available.
@@ -154,7 +155,14 @@ async fn build_state(db: &str, chrome: &str, profiles: &str, engine: &str,
         },
         other => return Err(format!("unknown --engine {other} (full-chrome|headless-shell|attach|camoufox)")),
     };
-    let state = AppState::new(client, browser, sessions, state, serving_accounts);
+    let mut state = AppState::new(client, browser, sessions, state, serving_accounts);
+    // The application owns persistence. Library users and fixtures stay in memory.
+    let gate_path = std::env::var_os("FRAMERIZE_GATE_STATE").map(std::path::PathBuf::from)
+        .unwrap_or_else(|| std::path::PathBuf::from(std::env::var_os("HOME").unwrap_or_default())
+            .join(".framerize/gate-state.json"));
+    state.gate = Arc::new(framer_core::gate::ConcurrencyGate::with_state_file(
+        framer_core::gate::GateConfig::default(), gate_path,
+    ).map_err(|e| format!("load concurrency limits: {e}"))?);
     let state = configure_browser_request_ownership(state, browser_request_ownership)?;
     Ok(BuiltState { state })
 }
@@ -192,6 +200,8 @@ async fn load_proxies(state: &AppState) -> Result<(), String> {
     Ok(())
 }
 
+mod release;
+
 #[tokio::main]
 async fn main() {
     let cli = Cli::parse();
@@ -199,6 +209,15 @@ async fn main() {
         Cmd::Daemon { listen, web_dir, db, chrome, engine, profiles, sidecar_script,
             active_pool_size, eligible_accounts, browser_request_ownership,
         } => {
+            let web_dir = std::env::current_exe().map_err(|e| e.to_string())
+                .and_then(|exe| release::web_dir(&exe, web_dir));
+            let web_dir = match web_dir {
+                Ok(path) => path.to_string_lossy().into_owned(),
+                Err(error) => {
+                    eprintln!("failed to initialize: {error}");
+                    std::process::exit(1);
+                }
+            };
             let built = match build_state(&db, &chrome, &profiles, &engine,
                 active_pool_size, eligible_accounts.as_deref(), sidecar_script,
                 browser_request_ownership,

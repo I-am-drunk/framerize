@@ -346,7 +346,7 @@ fn json_probe_responses_uses_free_builder_with_exact_history_and_alias() {
         let probe = start_probe(&f, super::FreeRoute::Responses, responses_payload()).await.unwrap();
         let r = tokio::time::timeout(STEP, probe.result).await.unwrap();
         let Some(super::CompletedJson::Responses(value)) = probe.completed.await else {
-            panic!("accepted response missing");
+            panic!("accepted response missing: {r:?}");
         };
         assert_eq!(value.output, response_body()["output"].as_array().unwrap().clone());
         assert_eq!(probe.cleanup.await, Ok(()));
