@@ -119,7 +119,8 @@ def check(snapshot, output, *, network_unavailable=False):
                              f'serialize(&[{expression}]).unwrap(),"network record differs");')
                 expression = 'unavailable_network_record()'
             assignments = [(242, 'SharedWorker')] if name == 'worker' else [
-                (469, 'NetworkHash'), (473, 'Network')]
+                (80, 'NetworkRelatedAddress'), (469, 'NetworkHash'),
+                (473, 'Network'), (659, 'NetworkProtocols')]
             for position, variant in assignments:
                 fields.append(position)
                 apply.append(f'values[{position}]=Value::Undefined;'

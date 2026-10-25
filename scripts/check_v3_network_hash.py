@@ -17,11 +17,11 @@ NULL, UNDEFINED, FALSE, TRUE = [shared[n] for n in
     ('NULL', 'UNDEFINED', 'FALSE', 'TRUE')]
 
 
-def record(value):
-    return array([array([UNDEFINED]*47+[value])])
+def record(value, index=47):
+    return array([array([UNDEFINED]*index+[value])])
 
 
-def cases():
+def cases(index=47):
     texts = ['', '00000000', 'ffffffff', '01234567', 'a1b2c3d4',
              'r0yv7z6cx', '7e93ex445j', 'zye88asu', 'a9opjk', '2nrh3qm']
     units = [utf16(s) for s in texts]
@@ -30,18 +30,18 @@ def cases():
     units += [[0xD800, 0xDC00], [0xDC00, 0xD800], [0, 0xFFFF, 0xD800]]
     randomizer = random.Random(469)
     units += [[randomizer.randrange(65536) for _ in range(n)] for n in range(1, 49)]
-    selected = [(f'text_{i}', record(string(v))) for i, v in enumerate(units)]
+    selected = [(f'text_{i}', record(string(v), index)) for i, v in enumerate(units)]
     for i, value in enumerate([NULL, UNDEFINED, FALSE, number(0), number(-0.0),
                                 number(math.nan), string([])]):
-        selected += [(f'missing_hash_{i}', record(value)), (f'outer_scalar_{i}', value)]
+        selected += [(f'missing_hash_{i}', record(value, index)), (f'outer_scalar_{i}', value)]
     for i, value in enumerate([array([]), array([NULL]), array([UNDEFINED]),
                                 object_value([]), object_value([('0', NULL)])]):
         selected.append((f'missing_row_{i}', value))
     for i, row in enumerate([array([]), object_value([]), TRUE, number(1),
-                            string([65]*48), string([0xD800]*48)]):
+                            string([65]*(index+1)), string([0xD800]*(index+1))]):
         selected.append((f'row_{i}', array([row])))
     selected.append(('own_property', object_value([('0', object_value([
-        ('47', string(utf16('0123abcd')))]))])))
+        (str(index), string(utf16('0123abcd')))]))])))
     return selected
 
 

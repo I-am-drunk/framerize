@@ -9,6 +9,8 @@ pub enum NetworkValueError {
     NormalizedValue,
     /// Generic JS length/charCodeAt coercion is outside the string-hash boundary.
     NonStringHash,
+    /// A transformed field needs JS coercion outside the plain-string boundary.
+    NonStringField(usize),
 }
 
 /// Reduce an observation with the SDK's built-in `ud` getter present.
@@ -24,9 +26,27 @@ pub fn network_address(input: Value) -> Result<Value, NetworkValueError> {
 /// The stock producer supplies a string. Accessors, replaced helpers and
 /// truthy non-string fields require JS behavior not represented by this API.
 pub fn network_hash(input: Value) -> Result<Value, NetworkValueError> {
-    match network_field(input, 47)? {
+    encoded_field(input, 47, NetworkValueError::NonStringHash)
+}
+
+/// Apply T0n/id and Cr to the supplied related address for Q[80].
+/// SDK3337eba7: 554645..554825, 95918..95986 and 207029..207266.
+pub fn network_related_address(input: Value) -> Result<Value, NetworkValueError> {
+    encoded_field(input, 40, NetworkValueError::NonStringField(40))
+}
+
+/// Apply a$/i1 and Cr to the supplied protocol summary for Q[659].
+/// SDK3337eba7: 367910..368101, 1267..1304 and 207029..207266.
+/// The input is plain data; the original's repeated getter reads are not modeled.
+pub fn network_protocols(input: Value) -> Result<Value, NetworkValueError> {
+    encoded_field(input, 18, NetworkValueError::NonStringField(18))
+}
+
+fn encoded_field(input: Value, index: usize, error: NetworkValueError)
+    -> Result<Value, NetworkValueError> {
+    match network_field(input, index)? {
         Value::String(units) => Ok(marker(&super::envelope::encode_text(units))),
-        _ => Err(NetworkValueError::NonStringHash),
+        _ => Err(error),
     }
 }
 

@@ -35,14 +35,16 @@ serialized bytes and 5,297-byte final output remain identical. One native
 test passed; the SDK capture was reused without starting another operation.
 
 The native collector-result integration writes SharedWorker position 242
-and network positions 469 and 473. The new field47 string-hash assignment
-matches 101 original-helper cases, including five missing-row errors.
-The affected 57 address, eight assignment, 135 envelope and 14 combined
-encoding comparisons also pass. These run as 11 native fixture tests.
+and all four network positions: 80, 469, 473 and 659, in source order.
+The related-address and protocol assignments pass 202 original-helper
+comparisons; 13 full-callback comparisons preserve earlier writes on later
+failure. The existing 101 hash, 57 address and eight assignment comparisons
+also pass. These and refusal/preservation checks run as 23 native tests.
 Reusing the saved synthetic SDK capture, a further native test clears and
-rebuilds all three positions in source order. Its complete 5,412-byte
+rebuilds all five positions in source order, using the native unavailable
+network record. Its complete 5,412-byte
 serialization and final 5,297-byte output match the same recorded operation.
-No new SDK run was needed. Generic accessor and non-string hash coercion,
+No new SDK run was needed. Generic accessors and non-string field coercion,
 native collection for other fields and live acceptance remain unverified.
 See the [source and result note](../reference/analysis/castle-v3-collected-inputs.md).
 
