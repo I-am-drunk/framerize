@@ -9,9 +9,9 @@ import unittest
 from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from framerize_host.accounts.journal import RateJournal
-from framerize_host.accounts.rates import AccountRates, RatePolicy
-from framerize_host.accounts import runtime_owner
+from framerize_accounts.journal import RateJournal
+from framerize_accounts.rates import AccountRates, RatePolicy
+from framerize_accounts import runtime_owner
 from test_rates import Clock
 
 

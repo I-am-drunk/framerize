@@ -31,8 +31,9 @@ does not establish account ownership.
 
 The native device contract belongs to `framer-native`, not `BrowserBridge` or
 the shared core. Supplying this owner is an explicit native-startup dependency.
-The application still needs a concrete durable owner and its startup wiring;
-separating the interface alone does not provide live native admission.
+A concrete Python ledger owner now shares the browser's durable rate policy
+without importing its host. Native startup still needs session exclusion,
+worker cleanup wiring and the required authenticated SDK proof path.
 
 ## Host and tests
 
@@ -82,7 +83,9 @@ from the browser package and its Rust bridge. Actual RPC tasks outlive cancelled
 waiters, and a browser cannot close beneath a pending RPC. Native authority
 sources are separate and do not install hooks into the normal host.
 
-Durable account state now uses one host-owned SQLite journal outside releases.
+Durable account state now uses one exclusively owned SQLite journal outside
+releases. Its implementation, rate policy and recovery logic live together in
+`runtime/framerize_accounts`; both runtimes use that shared implementation.
 Request charges, cooldowns, reserve allocation, primary selection and pending
 mints commit before external work. Same-boot timestamps are preserved; reboot
 recovery conservatively rebases outstanding durations. Missing history on an

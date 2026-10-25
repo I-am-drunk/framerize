@@ -23,7 +23,7 @@ class AccountLifecycle:
     """Own an account's work and rate history independently of its browser."""
     def __init__(self, rates=None):
         from .activity import AccountActivity
-        from .rates import AccountRates
+        from framerize_accounts.rates import AccountRates
         self.rates = rates if rates is not None else AccountRates(None, 'memory')
         self.activity = AccountActivity()
         self.creation_lock = asyncio.Lock()

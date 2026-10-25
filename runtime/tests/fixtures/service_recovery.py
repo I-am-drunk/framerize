@@ -7,8 +7,8 @@ import sys
 
 RUNTIME = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(RUNTIME))
-from framerize_host.accounts.journal import RateJournal
-from framerize_host.accounts.rates import AccountRates
+from framerize_accounts.journal import RateJournal
+from framerize_accounts.rates import AccountRates
 
 
 def worker(mode, root):

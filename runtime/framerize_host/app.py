@@ -11,7 +11,7 @@ from .wire import AsyncReplyWriter
 from .resources import (memory_snapshot, trim_unused_heap, MemoryPressureError,
     BROWSER_STARTUP_RESERVE, prepared_memory_browser, prepared_memory_addon)
 from .accounts.state import Device, AccountLifecycle, Account
-from .accounts.rates import AccountRates, RatePolicy, SystemClock
+from framerize_accounts.rates import AccountRates, RatePolicy, SystemClock
 from .browser.driver import browser_runtime, BrowserCloseReceipt
 from .browser.scripts import (WARM_JS, MINT_JS, post_js, AI_START_JS,
     AI_POLL_JS, AI_CANCEL_JS, DEVPOOL_WARM_JS, DEVPOOL_MINT_JS)
@@ -350,7 +350,7 @@ class Host:
             if (self.lifecycles.get(account) is not life or life.incarnation != incarnation
                     or self.accounts.get(account) is not acc):
                 raise RuntimeError("browser ownership changed during cleanup")
-            life.rates.confirm_browser_closed()
+            life.rates.confirm_runtime_stopped()
             self.accounts.pop(account, None)
             life.browser = None
             life.close_receipt = None
@@ -1044,7 +1044,7 @@ class Host:
         # This admission estimate is not a cap on later browser growth.
         async with self._allocation(BROWSER_STARTUP_RESERVE):
             life = self.lifecycles[account]
-            life.rates.browser_starting()
+            life.rates.runtime_starting()
             if self._playwright is None:
                 await self._rpc(account, self._start_driver, async_playwright)
             # Each launch still has its own process, profile, configuration,

@@ -7,8 +7,8 @@ import unittest
 from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from framerize_host.accounts.journal import RateJournal
-from framerize_host.accounts.rates import AccountRates, RatePolicy
+from framerize_accounts.journal import RateJournal
+from framerize_accounts.rates import AccountRates, RatePolicy
 
 
 class Clock:
@@ -50,7 +50,7 @@ class RateTests(unittest.TestCase):
     def test_cooldown_and_primary_survive_close_without_affecting_other_device(self):
         self.rates.cool_device(self.devices[0])
         self.assertEqual(self.rates.select_primary(), self.devices[1])
-        self.rates.confirm_browser_closed()
+        self.rates.confirm_runtime_stopped()
         restored = AccountRates(self.journal, 'account', self.policy, self.clock)
         self.assertEqual(restored.ready_devices(), [self.devices[1]])
         self.assertEqual(restored.state['primary'], self.devices[1])
@@ -74,7 +74,7 @@ class RateTests(unittest.TestCase):
         self.clock.stamp += 86400
         self.clock.today = '2026-10-24'
         self.assertIsNone(self.rates.allocate_reserve())
-        self.rates.confirm_browser_closed()
+        self.rates.confirm_runtime_stopped()
         restored = AccountRates(self.journal, 'account', self.policy, self.clock)
         self.assertIn(reserve, restored.state['devices'])
         self.assertIn(reserve, restored.state['reserve'])
@@ -87,7 +87,7 @@ class RateTests(unittest.TestCase):
         self.rates.cool_device(self.devices[0])
         self.rates.allocate_reserve()
         self.clock.stamp += 50
-        self.rates.confirm_browser_closed()
+        self.rates.confirm_runtime_stopped()
         self.clock.boot_id, self.clock.stamp = 'boot-two', 10
         restored = AccountRates(self.journal, 'account', self.policy, self.clock)
         self.assertEqual(restored.state['cooling'][self.devices[0]], 560)
@@ -103,7 +103,7 @@ class RateTests(unittest.TestCase):
         self.assertTrue(restored.needs_cleanup)
         with self.assertRaisesRegex(RuntimeError, 'recovery'):
             restored.charge_request(self.devices[0])
-        restored.confirm_browser_closed()
+        restored.confirm_runtime_stopped()
         self.assertFalse(restored.state['pending_mint'])
         self.assertFalse(restored.ready_devices())
         self.clock.stamp += 600
@@ -131,7 +131,7 @@ class RateTests(unittest.TestCase):
         self.rates.charge_request(device)
         reserve = self.rates.allocate_reserve()
         self.rates.mark_uncertain()
-        self.rates.confirm_browser_closed()
+        self.rates.confirm_runtime_stopped()
         self.assertEqual(list(self.rates.state['requests'][device]), [1000])
         self.assertEqual(self.rates.state['reserve_used'], 1)
         self.assertEqual(self.rates.state['reserve'], [reserve])
@@ -144,7 +144,7 @@ class RateTests(unittest.TestCase):
     def test_ambient_request_history_roundtrips_without_aliasing_a_device(self):
         self.rates.charge_request(None)
         self.rates.cool_device(None)
-        self.rates.confirm_browser_closed()
+        self.rates.confirm_runtime_stopped()
         restored = AccountRates(self.journal, 'account', self.policy, self.clock)
         self.assertEqual(list(restored.state['requests'][None]), [1000])
         self.assertEqual(restored.ready_devices(), list(self.devices))
