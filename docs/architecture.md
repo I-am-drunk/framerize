@@ -43,6 +43,17 @@ UTF-16 code units and returns eight lowercase hexadecimal digits. Conversion
 failure or a top-level undefined value produces no hash. The caller still
 owns metric collection, ordering and any custom JavaScript conversion.
 
+`castle::v3::assemble_network_record` packs the collected network snapshot
+into the SDK's sparse record and hashes its six-part metrics array. The caller
+supplies candidate fields after event reduction, state histories and the
+observation runtime's signature comparator. The assembler takes the first
+16 candidates before stable sorting, retains eight entries per history,
+builds protocol/group summaries and preserves the original field positions.
+Its comparator is explicit because JavaScript `localeCompare` has no single
+portable byte order. Candidate deduplication, state normalization, callback
+timing and collection belong before this boundary. The isolated comparison
+uses the original finalizer and compares the serialized complete record.
+
 The native `castle::v3::deflate` implements the pinned SDK's raw-DEFLATE
 fallback: a 1,024-byte matching window, at most 64 candidates per lookup,
 and one dynamic-Huffman block. Its stable tree ordering and code-length
