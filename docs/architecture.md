@@ -1,5 +1,11 @@
 # Serving architecture and branch policy
 
+Blanket cooldown scheduling is no longer an accepted comparison prerequisite.
+Preserve actual account and device admission, history and cleanup ownership;
+distinguish an upstream refusal from a locally imposed comparison delay.
+An outer streaming HTTP 200 is insufficient. Require nonempty completed
+output and the corresponding cleanup evidence for the paired comparison.
+
 Normal rollout control must account for the agent's own provider using the
 protected endpoint. A separately scheduled controller permits a quiet agent
 while retaining positive request, cooldown and recovery checks. Coordination
