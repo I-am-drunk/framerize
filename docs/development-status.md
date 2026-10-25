@@ -31,6 +31,11 @@ including a mixed valid/invalid selection and an account removed during the
 migration wait. The post-wait check runs before listener admission. These are
 synthetic profile tests; the native development build also passes. No live
 account or service has been migrated.
+The clean `96a79c3` development archive passes all eight package lifecycle
+checks with the unchanged bundled worker: archive/runtime verification,
+startup, invalid-request refusal, profile exclusion, both shutdown signals
+and later profile reuse. The archive's executable matches the qualified build.
+This package is not deployed and these checks do not run the SDK.
 
 The native `/api/offline/stream` endpoint now sends opening frames, heartbeats
 and complete output items through the same bounded request as the JSON
