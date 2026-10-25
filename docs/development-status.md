@@ -78,8 +78,9 @@ pass using synthetic accounts, loopback fixtures and temporary state. The
 unacknowledged browser disconnections. One manual host test remains ignored.
 The application installs its signal handlers before host startup and routes
 startup failures through the same cleanup. Invalid listen addresses fail before
-opening stores. The first shutdown package passed host exit plus SIGTERM and
-Ctrl-C checks with empty temporary state; this is not a live-service validation.
+opening stores. A complete development archive at `6859509` passed verification,
+staging, host exit, invalid-address refusal without state creation, and SIGTERM
+and Ctrl-C shutdown with empty temporary state. This is not live validation.
 
 Next: automatic cleanup verification and first-migration handling.
 Current account history and first-migration handling remain unresolved;
