@@ -3356,3 +3356,7 @@ automatic restart. R11's adapter correction passed three isolated checks with
 zero skips. Deployment and native acceptance remain pending; the existing
 account pool and ordinary browser routes are retained by the proposed plan.
 See [the result](../reference/analysis/shared-v3-descriptor-binding-20261025.md).
+R11 exposed a separate missing interruption-policy field before any ingress or
+service switch. The R12 builder/preflight correction passed three focused
+isolated checks. A later systemd restart retained the repaired binary but
+changed its process generation; fresh runtime work must bind that new process.
