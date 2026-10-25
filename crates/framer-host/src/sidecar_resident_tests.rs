@@ -435,69 +435,6 @@ fn observed_mode_cannot_opt_into_resident_controls() {
     assert_child_generation(&bridge, None);
 }
 
-struct ScriptFixture(std::path::PathBuf);
-
-impl ScriptFixture {
-    fn new() -> Self {
-        let root = std::env::temp_dir().join(format!("resident-scripts-{}", Uuid::new_v4()));
-        std::fs::create_dir(&root).unwrap();
-        Self(root.canonicalize().unwrap())
-    }
-}
-
-impl Drop for ScriptFixture {
-    fn drop(&mut self) { let _ = std::fs::remove_dir_all(&self.0); }
-}
-
-fn bundled_scripts() -> [(&'static str, &'static str); 4] {
-    use super::super::{CONTEXTUAL_AUTHORIZATION, RESIDENT_ACTIVITY,
-        RESIDENT_AUTHORIZATION, SCRIPT};
-    [("camoufox_host.py", SCRIPT), ("resident_activity.py", RESIDENT_ACTIVITY),
-        ("resident_authorization.py", RESIDENT_AUTHORIZATION),
-        ("contextual_authorization.py", CONTEXTUAL_AUTHORIZATION)]
-}
-
-#[test]
-fn embedded_host_refreshes_all_three_resident_support_modules() {
-    let root = ScriptFixture::new();
-    let bridge = SidecarBridge::new(&root.0);
-    let directory = root.0.join(".bin");
-    let script = directory.join("camoufox_host.py");
-    for _ in 0..2 {
-        bridge.extract_embedded_script(&script).unwrap();
-        for (name, source) in bundled_scripts() {
-            let path = directory.join(name);
-            assert_eq!(std::fs::read_to_string(&path).unwrap(), source);
-            std::fs::write(path, "# stale fixture\n").unwrap();
-        }
-    }
-    assert!(bridge.inner.try_lock().unwrap().is_none());
-}
-
-#[test]
-fn explicit_and_observed_overrides_keep_their_own_support_modules() {
-    for observed in [false, true] {
-        let root = ScriptFixture::new();
-        let script = root.0.join("camoufox_host.py");
-        for (name, _) in bundled_scripts() {
-            std::fs::write(root.0.join(name), "# caller-owned fixture\n").unwrap();
-        }
-        let mut bridge = SidecarBridge::new(root.0.join("state"));
-        if observed {
-            bridge.mode = super::super::observer::ProcessMode::Observed {
-                script: script.clone(), profile_nonce: Uuid::new_v4(),
-            };
-        } else {
-            bridge = bridge.with_script(&script).unwrap();
-        }
-        bridge.extract_embedded_script(&script).unwrap();
-        for (name, _) in bundled_scripts() {
-            assert_eq!(std::fs::read_to_string(root.0.join(name)).unwrap(),
-                "# caller-owned fixture\n");
-        }
-        assert!(!bridge.state_root.exists());
-    }
-}
 
 struct Fixture {
     owner: Arc<SidecarBridge>,

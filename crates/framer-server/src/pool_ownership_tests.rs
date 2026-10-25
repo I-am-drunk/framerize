@@ -15,7 +15,7 @@ async fn response(state: &AppState, route: Route, session: Option<&str>) -> axum
         Route::Compat => ("/paid/openai/v1/responses", json!({"model":"fixture","stream":true,"input":"fixture"})),
     };
     let mut req = axum::http::Request::builder().method("POST").uri(path)
-        .header("content-type", "application/json").header("x-framerize-account", id(1).0.to_string());
+        .header("content-type", "application/json");
     if let Some(session) = session { req = req.header("x-framerize-session", session); }
     let req = req.body(axum::body::Body::from(payload.to_string())).unwrap();
     tokio::time::timeout(Duration::from_secs(2), crate::router(state.clone(), "/fixture-no-web").oneshot(req))
@@ -73,33 +73,6 @@ async fn owned_legacy_retry_keeps_replacement_residency_and_account_scoped_chats
         until(|| slot(&state, id(2)).users == 0).await;
         assert_eq!(ports.max_live.load(Ordering::SeqCst), 1);
         drained(&state).await;
-    } }
-}
-
-#[tokio::test]
-async fn legacy_router_cancellation_releases_local_slots_but_keeps_application_uncertainty() {
-    for route in ROUTES { for after_frame in [false, true] {
-        let (state, ports) = owned(1, 1);
-        let response = response(&state, route, None).await;
-        until(|| ports.request_started.load(Ordering::SeqCst) == 1).await;
-        let admitted = if matches!(route, Route::Compat) {
-            vec![("status", id(1)), ("status", id(1)), ("mint", id(1))]
-        } else {
-            vec![("status", id(1)), ("mint", id(1))]
-        };
-        assert_eq!(*ports.events.lock().unwrap(), admitted);
-        let mut body = Box::pin(response.into_body().into_data_stream());
-        if after_frame {
-            ports.request_gate.add_permits(if matches!(route, Route::Compat) { 2 } else { 1 });
-            ports.response_gate.add_permits(1);
-            let frame = tokio::time::timeout(Duration::from_secs(2), body.next()).await.unwrap().unwrap().unwrap();
-            assert!(!frame.is_empty());
-        }
-        assert_stream_residency(&state).await;
-        drop(body);
-        until(|| ports.request_drops.load(Ordering::SeqCst) == 1 && slot(&state, id(1)).users == 0).await;
-        assert!(matches!(state.operation_ownership.as_ref().unwrap().seal(), Err(GateError::Unconfirmed)));
-        assert_eq!(*ports.events.lock().unwrap(), admitted);
     } }
 }
 

@@ -1,5 +1,4 @@
-"""Offline lifecycle tests. Extract classes only; no browser package is imported."""
-import ast
+"""Exercise the packaged account lifecycle with fake browser ports."""
 import asyncio
 import os
 import sys
@@ -11,8 +10,11 @@ import uuid
 from collections import deque
 from contextlib import asynccontextmanager
 from pathlib import Path
+from unittest.mock import patch
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "scripts"))
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+from framerize_host import app
+from framerize_host.browser import driver
 
 
 class FakeBrowser:
@@ -59,11 +61,6 @@ class FakeBrowser:
 class ResidentLifecycleTests(unittest.IsolatedAsyncioTestCase):
     async def asyncSetUp(self):
         self.directory = tempfile.TemporaryDirectory(prefix="resident-lifecycle-")
-        source = Path(__file__).resolve().parents[2] / "scripts" / "camoufox_host.py"
-        tree = ast.parse(source.read_text())
-        names = {"BrowserCloseReceipt", "AccountLifecycle", "Account", "Host"}
-        selected = [node for node in tree.body if isinstance(node, ast.ClassDef) and node.name in names]
-        assert {node.name for node in selected} == names
         self.tasks, self.browsers = [], []
         self.ns = dict(asyncio=asyncio, os=os, uuid=uuid, time=time, Path=Path,
             asynccontextmanager=asynccontextmanager, ROOT=self.directory.name,
@@ -73,7 +70,18 @@ class ResidentLifecycleTests(unittest.IsolatedAsyncioTestCase):
             memory_snapshot=lambda: {"allocation_headroom_bytes": 1048576},
             MemoryPressureError=RuntimeError)
         self.ns["browser_runtime"] = lambda: (self.ns["AsyncNewBrowser"], None)
-        exec(compile(ast.Module(body=selected, type_ignores=[]), str(source), "exec"), self.ns)
+        self.ns.update(Host=app.Host, Account=app.Account, BrowserCloseReceipt=driver.BrowserCloseReceipt)
+        overrides = {name: self.ns[name] for name in (
+            'ROOT', 'prepared_memory_browser', 'prepared_memory_addon', 'trace',
+            'emit', 'BROWSER_STARTUP_RESERVE', 'MemoryPressureError', 'browser_runtime')}
+        overrides['memory_snapshot'] = lambda: self.ns['memory_snapshot']()
+        settings = patch.multiple(app, **overrides)
+        settings.start()
+        self.addCleanup(settings.stop)
+        protocol = patch.object(driver, 'verify_close_protocol',
+                                lambda: self.ns['verify_close_protocol']())
+        protocol.start()
+        self.addCleanup(protocol.stop)
         self.host = self.ns["Host"]()
         self.real_launch = self.host._launch
         self.host._launch = self.fake_launch

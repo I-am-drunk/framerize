@@ -271,7 +271,9 @@ async fn prior_unknown_cleanup_keeps_joined_route_success_fenced() {
             let ownership = f.state.operation_ownership.clone().unwrap();
             let mut events = Events::install(&ownership);
             let app = crate::router(f.state.clone(), "/nonexistent-fixture-web");
-            let response = tokio::time::timeout(WAIT, app.oneshot(stream_request(&f, 0, messages)))
+            let mut request = stream_request(&f, 0, messages);
+            request.headers_mut().remove("x-framerize-account");
+            let response = tokio::time::timeout(WAIT, app.oneshot(request))
                 .await.unwrap().unwrap();
             let root = root_id(&response);
             let first = f.next().await;

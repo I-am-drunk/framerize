@@ -15,3 +15,8 @@ members = [
 [workspace.package]
 edition = "2021"
 license = "MIT"
+
+# Worker fixtures verify the full Node executable within real request deadlines.
+# Keep cryptographic hashing fast in local debug/test builds too.
+[profile.dev.package.sha2]
+opt-level = 3

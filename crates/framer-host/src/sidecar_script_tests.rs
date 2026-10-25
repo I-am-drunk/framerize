@@ -26,7 +26,7 @@ fn explicit_script_selects_only_the_instance_host_without_writing_it() {
     let before = std::fs::read(&script).unwrap();
     let bridge = SidecarBridge::new(fixture.0.join("profiles/.sidecar"))
         .with_script(&script).unwrap();
-    assert_eq!(bridge.script_path(), script);
+    assert_eq!(bridge.script_path().unwrap(), script);
     assert_eq!(std::fs::read(&script).unwrap(), before);
     assert!(!bridge.state_root.join(".bin").exists());
     assert!(bridge.inner.try_lock().unwrap().is_none());
@@ -50,4 +50,28 @@ fn explicit_script_rejects_noncanonical_or_invalid_files() {
         std::os::unix::fs::symlink(&script, &link).unwrap();
         assert!(SidecarBridge::new(&fixture.0).with_script(link).is_err());
     }
+}
+
+#[test]
+fn package_follows_the_selected_executable_and_requires_runtime_files() {
+    let fixture = Fixture::new();
+    let binary = fixture.0.join("release/bin/framerize");
+    std::fs::create_dir_all(binary.parent().unwrap()).unwrap();
+    std::fs::write(&binary, "fixture").unwrap();
+    assert!(bundled_host(&binary).is_err());
+    let runtime = fixture.0.join("release/runtime");
+    std::fs::create_dir_all(runtime.join("framerize_host")).unwrap();
+    for name in ["host.py", "runtime-manifest.json", "framerize_host/__main__.py", "framerize_host/app.py",
+        "framerize_host/castle_forge.py"] {
+        std::fs::write(runtime.join(name), "# fixture\n").unwrap();
+    }
+    assert_eq!(bundled_host(&binary).unwrap(), runtime.join("host.py"));
+    #[cfg(unix)]
+    {
+        let selected = fixture.0.join("current");
+        std::os::unix::fs::symlink(&binary, &selected).unwrap();
+        assert_eq!(bundled_host(&selected).unwrap(), runtime.join("host.py"));
+    }
+    std::fs::remove_file(runtime.join("framerize_host/castle_forge.py")).unwrap();
+    assert!(bundled_host(&binary).is_err());
 }
