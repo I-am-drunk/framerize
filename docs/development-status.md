@@ -43,10 +43,12 @@ See `reference/analysis/r5-startup-settle-qualification-20261025.md`.
 
 Dedicated-account onboarding now has a prepared command for the qualified
 authority package, one active account and an empty separate store. It remains
-unlaunched. The delivered browser-software binding is consumed, and a static
-view combines 6,065 software files and 237 aliases. It separates the writable
-browser environment from the initially empty account store. Final isolated
-mounts and lifecycle binding remain pending. No signup or native request ran.
+unlaunched. Fourteen layout and integration checks pass, but the kernel check
+exposed Bubblewrap's 9,000-argument limit before application startup. A compact
+mount plan is being prepared. Its separate copier passes six focused checks
+and has copied 6,065 exact software files in bounded isolated batches.
+Final mount integration and its kernel check remain pending. No signup or
+native request ran. See `reference/analysis/onboarding-layout-result-20261025.md`.
 
 R5 switched to the qualified candidate, then switched back after its 90-second
 startup settling check expired during sequential browser prewarming. The old
