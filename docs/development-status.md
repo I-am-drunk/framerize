@@ -91,6 +91,10 @@ six-case selection passed while the other 84 results remained unchanged.
 Two actual disposable service invocations also passed: a surviving child
 prevented recovery after host loss, and recovery succeeded after service cleanup.
 The packaged user-service template is not installed on the running service.
+A complete development archive at `cceeee8` also passed verification, staging,
+schema 2 creation, host shutdown, invalid-startup refusal and both shutdown
+signals. The archive contains the service template. Its unchanged Rust binary
+was reused from the prior verified build; no compiler rerun was needed.
 
 Next: first migration of existing account history and service activation.
 Current legacy account history and first-migration handling remain unresolved;
