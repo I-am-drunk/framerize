@@ -756,11 +756,25 @@ impl NativeAccountClient {
         &self, account: AccountId, session: Session,
         limits: NativeHttpLimits, egress: NativeEgress<'_>,
     ) -> Result<AccountScope, ClientError> {
+        self.open_account_owned(account, session, limits, egress, None)
+    }
+
+    pub(crate) fn open_account_owned(
+        &self, account: AccountId, session: Session,
+        limits: NativeHttpLimits, egress: NativeEgress<'_>,
+        owner: Option<Arc<dyn framer_core::port::SessionStore>>,
+    ) -> Result<AccountScope, ClientError> {
         if session.cookie_header.len() > limits.credential_bytes {
             return Err(ClientError::InvalidContext);
         }
         let user = session.active_user.clone();
-        self.open_with(account, session, || NativeHttp::new(account, user, limits, egress))
+        self.open_with(account, session, || {
+            let client = NativeHttp::new(account, user, limits, egress)?;
+            Ok(match owner {
+                Some(owner) => client.with_session_owner(owner),
+                None => client,
+            })
+        })
     }
 
     fn open_with(

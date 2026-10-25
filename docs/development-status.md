@@ -160,6 +160,23 @@ runtime. Both daemon starts report matching health PIDs. This reuses the
 unchanged Rust executable from the previous qualified build and exercises
 the newly packaged Python source with empty temporary state.
 
+File session storage now holds a process lock for its full lifetime, matching
+the journal's single-owner profile model. A second opener, including one using
+an alias path, is refused. Session files are replaced atomically with private
+permissions. Native transport and preparation work retain the store through
+cleanup, even after the store bridge or request waiter is dropped.
+
+The current run passes 305 native tests, six file-store tests and 34 browser
+application tests. These include actual child-process contention and abrupt
+exit, store retention through native cleanup, and startup refusal before browser
+construction. Both debug executables rebuild successfully. The unchanged
+Python source retains its 110 accepted cases. No live account was used.
+
+This lock is cooperative and applies to the updated file-store implementation.
+Old binaries and copied stores are not made safe by its existence. Native
+startup still requires the journal and session owners together; it remains
+disabled pending that integration and the legacy migration.
+
 Next: first migration of existing account history and the running service.
 Current legacy account history and first-migration handling remain unresolved;
 no production restart is part of this structural work.

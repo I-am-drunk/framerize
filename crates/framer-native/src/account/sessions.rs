@@ -300,7 +300,7 @@ impl SessionStoreBridge {
                 let egress = match proxy.as_deref() {
                     Some(proxy) => NativeEgress::Proxy(proxy), None => NativeEgress::Direct,
                 };
-                let value = native.open_account(account, session, limits, egress)
+                let value = native.open_account_owned(account, session, limits, egress, Some(store))
                     .map(|scope| Opened { native: native.clone(), scope: Some(scope) })
                     .map_err(|_| "native account open failed".to_owned())?;
                 Ok(Versioned { value, user: user_stamp, account: Some(account_stamp) })

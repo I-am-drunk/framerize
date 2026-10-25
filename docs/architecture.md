@@ -29,6 +29,19 @@ code. Native serving receives this owner explicitly; the browser bridge no
 longer exposes native enrollment, mint or cleanup methods. Request cleanup
 still retains the supplied owner until both transport and worker have joined.
 
+The file session store lives in `framer-store/file_sessions.rs`. One process
+owns a session directory with an OS file lock for the store's whole lifetime,
+matching the journal's profile ownership. Different paths to that directory
+do not create independent owners. The lock file stays in place across exits;
+kernel lock ownership, not its presence, determines whether startup can proceed.
+Session replacement uses a private temporary file and an atomic rename.
+
+Native generations retain the store with their HTTP client. Credential
+preparation also retains that client until its worker ends. Closing the store
+bridge or dropping a response waiter therefore cannot release profile ownership
+while that work is still held. The lock is cooperative: old binaries do not
+honor it, and it does not replace the journal's proof of prior-process cleanup.
+
 The old parallel checker and combined-mode startup/routing runners are removed.
 Their [validation record](history/parallel-browserless-validation-before-reorganization-20261025.md)
 is historical. Browser/shared Python tests live in `runtime/tests`; native

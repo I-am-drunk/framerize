@@ -515,8 +515,10 @@ dependencies = [
  "async-trait",
  "framer-core",
  "keyring",
+ "libc",
  "rusqlite",
  "serde_json",
+ "tokio",
 ]
 
 [[package]]

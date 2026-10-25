@@ -3,6 +3,27 @@ use framer_core::operation_gate::OperationKind;
 use framer_core::port::{Session, SessionStore};
 
 struct NoSessions;
+
+#[tokio::test]
+async fn occupied_session_store_refuses_startup_before_browser_construction() {
+    struct Temporary(std::path::PathBuf);
+    impl Drop for Temporary {
+        fn drop(&mut self) { let _ = std::fs::remove_dir_all(&self.0); }
+    }
+    let root = Temporary(std::env::temp_dir().join(format!(
+        "framerize-store-startup-{}", uuid::Uuid::new_v4())));
+    let store = framer_store::FileSessionStore::new(root.0.join(".sessions")).unwrap();
+    let db = root.0.join("accounts.db");
+    let result = build_state(db.to_str().unwrap(), "unused", root.0.to_str().unwrap(),
+        "browser-construction-must-not-be-reached", None, Some("none"), None).await;
+    match result {
+        Err(error) => assert!(error.contains("session store ownership unavailable"), "{error}"),
+        Ok(_) => panic!("startup accepted an occupied session store"),
+    }
+    drop(store);
+    assert!(framer_store::FileSessionStore::new(root.0.join(".sessions")).is_ok());
+}
+
 #[async_trait::async_trait]
 impl SessionStore for NoSessions {
     async fn load(&self, _: &framer_core::ids::FramerUserId) -> Result<Option<Session>, String> {

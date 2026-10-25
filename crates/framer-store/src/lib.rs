@@ -12,6 +12,9 @@ use std::sync::Mutex;
 
 const KEYCHAIN_SERVICE: &str = "framerize.session";
 
+mod file_sessions;
+pub use file_sessions::FileSessionStore;
+
 pub struct SqliteStateStore {
     conn: Mutex<Connection>,
 }
@@ -129,59 +132,6 @@ impl SessionStore for KeyringSessionStore {
         let entry = keyring::Entry::new(KEYCHAIN_SERVICE, &user.0).map_err(|e| e.to_string())?;
         match entry.delete_credential() {
             Ok(()) | Err(keyring::Error::NoEntry) => Ok(()),
-            Err(e) => Err(e.to_string()),
-        }
-    }
-}
-
-/// File-based session store for headless servers/containers where no OS
-/// keychain exists. One 0600 file per user under `dir`. Better than the
-/// alternatives for a daemon box: not in the sqlite db, trivially deletable.
-pub struct FileSessionStore {
-    dir: std::path::PathBuf,
-}
-
-impl FileSessionStore {
-    pub fn new(dir: impl Into<std::path::PathBuf>) -> Result<Self, String> {
-        let dir = dir.into();
-        std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
-        Ok(Self { dir })
-    }
-
-    fn path(&self, user: &FramerUserId) -> std::path::PathBuf {
-        self.dir.join(format!("{}.session", user.0))
-    }
-}
-
-#[async_trait]
-impl SessionStore for FileSessionStore {
-    async fn load(&self, user: &FramerUserId) -> Result<Option<Session>, String> {
-        match std::fs::read_to_string(self.path(user)) {
-            Ok(cookie_header) => Ok(Some(Session {
-                active_user: user.clone(),
-                cookie_header,
-            })),
-            Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(None),
-            Err(e) => Err(e.to_string()),
-        }
-    }
-
-    async fn save(&self, session: &Session) -> Result<(), String> {
-        let path = self.path(&session.active_user);
-        std::fs::write(&path, &session.cookie_header).map_err(|e| e.to_string())?;
-        #[cfg(unix)]
-        {
-            use std::os::unix::fs::PermissionsExt;
-            std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600))
-                .map_err(|e| e.to_string())?;
-        }
-        Ok(())
-    }
-
-    async fn delete(&self, user: &FramerUserId) -> Result<(), String> {
-        match std::fs::remove_file(self.path(user)) {
-            Ok(()) => Ok(()),
-            Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(()),
             Err(e) => Err(e.to_string()),
         }
     }
