@@ -8,7 +8,7 @@ import { loadGraphics } from './graphics_loader.mjs';
 import { installWebGL } from './canvas_webgl.mjs';
 import { SdkModules, verifyInputs } from './sdk_loader.mjs';
 import { validateInput, OpaqueToken } from './protocol.mjs';
-import { observeBranch, exactV3 } from './branch.mjs';
+import { observeBranch, exactV3, observeFailurePhase, refineFailurePhase } from './branch.mjs';
 import { pngResources } from './resources.mjs';
 import { installSharedWorkers } from './shared_workers.mjs';
 import { installDedicatedWorkers } from './dedicated_workers.mjs';
@@ -39,7 +39,7 @@ export class OfflineCastleMinter {
     if (this.#input.version === 2) Object.assign(report, {
       device_storage_seeded: false, device_storage_unchanged: false,
     });
-    let phase = 'input-identity', dom, modules, inspector, settlement, value, mintedAt, verifyDevice, sharedWorkers, dedicatedWorkers, nativeGraphics, graphics;
+    let phase = 'input-identity', dom, modules, inspector, settlement, value, mintedAt, verifyDevice, sharedWorkers, dedicatedWorkers, nativeGraphics, graphics, failureDetail;
     const asynchronousError = () => { report.async_errors = Math.min(1000000, report.async_errors + 1); };
     const diagnostic = () => { report.diagnostics = Math.min(1000000, report.diagnostics + 1); };
     process.on('unhandledRejection', asynchronousError);
@@ -155,7 +155,11 @@ export class OfflineCastleMinter {
       await new Promise(resolve => setImmediate(resolve));
       await new Promise(resolve => setImmediate(resolve));
       if (modules) {
-        try { report.branch = observeBranch(modules.loggerEntries()); }
+        try {
+          const entries = modules.loggerEntries();
+          report.branch = observeBranch(entries);
+          failureDetail = observeFailurePhase(entries);
+        }
         catch { report.failure_phase ??= 'branch'; }
         Object.assign(report, modules.stats);
       }
@@ -184,6 +188,7 @@ export class OfflineCastleMinter {
     if (!report.failure_phase && (typeof value !== 'string' || value.length === 0
         || Buffer.byteLength(value, 'utf8') > 16384 || Buffer.from(value).toString('utf8') !== value))
       report.failure_phase = 'token-shape';
+    report.failure_phase = refineFailurePhase(report.failure_phase, failureDetail);
     let token;
     if (!report.failure_phase) { token = new OpaqueToken(value); report.status = 'passed'; }
     value = undefined;

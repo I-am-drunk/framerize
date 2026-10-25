@@ -1,9 +1,29 @@
-//! Inert metadata only; no child process, SDK or runtime access.
+//! Inert metadata and owner channels; no child process, SDK or service access.
 use super::*;
 use serde_json::json;
+use futures::FutureExt;
+
+const PHASE_LABELS: &[&str] = &["v3-module-load-error", "v3-module-load-timeout",
+    "v3-configuration-error", "v3-configuration-timeout", "v3-token-generation-error",
+    "v3-token-generation-timeout", "v3-sdk-error"];
 
 fn observed(value: &Value, code: Option<i32>) -> Failure {
     from_exit(code, &serde_json::to_vec(value).unwrap())
+}
+
+fn completed_run(failure: Failure, cleanup: crate::Cleanup, cancelled: bool,
+    expired: bool) -> crate::Run<()> {
+    let (sender, receiver) = tokio::sync::oneshot::channel();
+    assert!(sender.send(Err(failure)).is_ok());
+    let (cancel, _receiver) = tokio::sync::watch::channel(cancelled);
+    crate::Run {
+        deadline: std::time::Instant::now() + std::time::Duration::from_secs(
+            if expired { 0 } else { 3600 }),
+        pid: std::sync::Arc::new(std::sync::atomic::AtomicU32::new(0)),
+        result: Some(receiver),
+        completion: crate::Completion(futures::future::ready(cleanup).boxed().shared()),
+        cancel,
+    }
 }
 
 fn compact(stage: &str) -> Value {
@@ -92,6 +112,111 @@ fn annotated_failure_still_fails_the_success_validator() {
     let bytes = serde_json::to_vec(&full()).unwrap();
     assert_eq!(from_exit(Some(2), &bytes), Failure::WorkerStage(WorkerStage("mint")));
     assert!(crate::metadata::accept(&bytes, 16000).is_none());
+}
+
+#[test]
+fn v3_phase_labels_require_full_failed_reports_in_both_modes() {
+    assert_eq!(V3_STAGES, PHASE_LABELS);
+    for &label in PHASE_LABELS {
+        for version in [1, 2] {
+            let mut value = full();
+            value["version"] = json!(version);
+            value["failure_phase"] = json!(label);
+            if version == 2 {
+                value["device_storage_seeded"] = json!(true);
+                value["device_storage_unchanged"] = json!(true);
+            }
+            let bytes = serde_json::to_vec(&value).unwrap();
+            assert_eq!(from_exit(Some(2), &bytes), Failure::WorkerStage(WorkerStage(label)));
+            assert!(crate::metadata::accept(&bytes, 16000).is_none());
+        }
+    }
+}
+
+#[test]
+fn v3_phase_labels_cannot_claim_compact_or_error_free_evidence() {
+    for &label in PHASE_LABELS {
+        assert_eq!(observed(&compact(label), Some(2)), Failure::Worker);
+        let mut value = full();
+        value["failure_phase"] = json!(label);
+        value["branch"]["errors"] = json!(0);
+        assert_eq!(observed(&value, Some(2)), Failure::Worker);
+        value["branch"]["errors"] = json!(1);
+        value["status"] = json!("passed");
+        assert_eq!(observed(&value, Some(2)), Failure::Worker);
+    }
+}
+
+#[test]
+fn malformed_v3_phase_reports_and_unexpected_exits_stay_generic() {
+    let mut original = full();
+    original["failure_phase"] = json!("v3-configuration-error");
+    for key in original.as_object().unwrap().keys() {
+        let mut value = original.clone();
+        value.as_object_mut().unwrap().remove(key);
+        assert_eq!(observed(&value, Some(2)), Failure::Worker, "{key}");
+    }
+    for (key, invalid) in [("version", json!(1.0)), ("diagnostics", json!(1_000_001)),
+        ("method_ms", json!(-1)), ("v3_evaluated", json!(1)),
+        ("token_handoff", json!(true)), ("status", json!("passed")),
+        ("branch", json!({"v3":0,"v2":0,"none":1,"errors":true}))] {
+        let mut value = original.clone();
+        value[key] = invalid;
+        assert_eq!(observed(&value, Some(2)), Failure::Worker, "{key}");
+    }
+    for code in [None, Some(0), Some(1), Some(3)] {
+        assert_eq!(observed(&original, code), Failure::Worker);
+    }
+}
+
+#[test]
+fn v3_phase_reports_never_surface_private_fields_or_unknown_labels() {
+    for label in ["v3-sdk-timeout", "v3-module-load", "V3-configuration-error",
+        "v3-token-generation-error ", "private-fixture-marker"] {
+        let mut value = full(); value["failure_phase"] = json!(label);
+        assert_eq!(observed(&value, Some(2)), Failure::Worker);
+    }
+    for key in ["message", "cause", "stack", "token", "castlePhase"] {
+        let mut value = full(); value["failure_phase"] = json!("v3-sdk-error");
+        value[key] = json!("private-fixture-marker");
+        let actual = observed(&value, Some(2));
+        assert_eq!(actual, Failure::Worker);
+        assert!(!format!("{actual:?}").contains("private-fixture-marker"));
+    }
+}
+
+#[test]
+fn v3_phase_refinement_preserves_all_original_stage_schemas() {
+    for &label in STAGES {
+        let expected = Failure::WorkerStage(WorkerStage(label));
+        assert_eq!(observed(&compact(label), Some(2)), expected);
+        let mut value = full(); value["failure_phase"] = json!(label);
+        assert_eq!(observed(&value, Some(2)), expected);
+    }
+}
+
+#[tokio::test]
+async fn v3_phase_keeps_owner_cancellation_and_deadline_precedence() {
+    let mut value = full(); value["failure_phase"] = json!("v3-sdk-error");
+    let failure = observed(&value, Some(2));
+    for (cancelled, expired, expected) in [(true, false, Failure::Cancelled),
+        (true, true, Failure::Cancelled), (false, true, Failure::Deadline)] {
+        let mut run = completed_run(failure, crate::Cleanup::Unconfirmed, cancelled, expired);
+        assert_eq!(run.result().await.err(), Some(expected));
+        assert_eq!(run.completion().wait().await, crate::Cleanup::Unconfirmed);
+    }
+}
+
+#[tokio::test]
+async fn v3_phase_retains_the_original_cleanup_verdict() {
+    let mut value = full(); value["failure_phase"] = json!("v3-sdk-error");
+    let failure = observed(&value, Some(2));
+    for cleanup in [crate::Cleanup::NotStarted, crate::Cleanup::Unconfirmed,
+        crate::Cleanup::Joined { pid: 123 }] {
+        let mut run = completed_run(failure, cleanup, false, false);
+        assert_eq!(run.result().await.err(), Some(failure));
+        assert_eq!(run.completion().wait().await, cleanup);
+    }
 }
 
 fn full() -> Value {
