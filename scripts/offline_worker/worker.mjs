@@ -7,6 +7,8 @@ import { verifyInputs } from './sdk_loader.mjs';
 import { SUPPORT } from './pins.mjs';
 
 let trusted = false, tokenClosed = false, phase = 'descriptors';
+let pipeWriteAttempted = false, pipeWriteCompleted = false;
+let handoffAge = null;
 let metadata = { version: 1, status: 'failed', failure_phase: phase };
 try {
   verifyDescriptors(); trusted = true;
@@ -19,18 +21,35 @@ try {
     phase = 'handoff';
     verifyInputs();
     const { makeTokenWriter } = await import(pathToFileURL(SUPPORT.writer[0]));
-    metadata.mint_to_handoff_ms = performance.now() - result.minted_at;
+    metadata.mint_to_handoff_ms = handoffAge = performance.now() - result.minted_at;
     if (!Number.isFinite(metadata.mint_to_handoff_ms)
         || metadata.mint_to_handoff_ms < 0 || metadata.mint_to_handoff_ms > 2000)
       throw new Error('token-age');
-    try { makeTokenWriter(4)(result.token.take()); }
+    const writeToken = makeTokenWriter(4);
+    const token = result.token.take();
+    pipeWriteAttempted = true;
+    try { writeToken(token); pipeWriteCompleted = true; }
     finally { tokenClosed = true; }
-    metadata.mint_to_handoff_ms = performance.now() - result.minted_at;
-    if (metadata.mint_to_handoff_ms > 2000) throw new Error('token-age');
+    metadata.mint_to_handoff_ms = handoffAge = performance.now() - result.minted_at;
+    if (!Number.isFinite(metadata.mint_to_handoff_ms)
+        || metadata.mint_to_handoff_ms < 0 || metadata.mint_to_handoff_ms > 2000)
+      throw new Error('token-age');
     metadata.token_handoff = true;
   }
 } catch {
-  metadata = { version: 1, status: 'failed', failure_phase: phase };
+  if (phase === 'handoff') {
+    // The minter's completed facts survive a later refusal. A returned pipe
+    // writer does not establish freshness, parent receipt or joined cleanup.
+    metadata.status = 'failed';
+    metadata.failure_phase = phase;
+    metadata.token_handoff = false;
+    metadata.token_pipe_write_attempted = pipeWriteAttempted;
+    metadata.token_pipe_write_completed = pipeWriteCompleted;
+    metadata.mint_to_handoff_ms = Number.isFinite(handoffAge) && handoffAge >= 0
+      ? handoffAge : null;
+  } else {
+    metadata = { version: 1, status: 'failed', failure_phase: phase };
+  }
 } finally {
   if (!tokenClosed) { try { fs.closeSync(4); } catch {} }
 }

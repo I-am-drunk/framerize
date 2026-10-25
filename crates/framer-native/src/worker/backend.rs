@@ -111,8 +111,18 @@ fn failure(value: Failure) -> PreparationFailure {
         Failure::Runtime | Failure::Spawn => PreparationFailure::Unavailable,
         Failure::Io | Failure::Worker => PreparationFailure::WorkerLost,
         Failure::WorkerStage(stage) => {
-            framer_core::observability::Event::new("offline.worker.failed")
-                .field("phase", stage.as_str()).emit();
+            let mut event = framer_core::observability::Event::new("offline.worker.failed")
+                .field("phase", stage.as_str());
+            if let Some(summary) = stage.summary() {
+                event = event.field("version", summary.version());
+                for (name, value) in summary.flags() { event = event.field(name, value); }
+                for (name, value) in summary.counts() { event = event.field(name, value); }
+                for (name, value) in summary.timings() {
+                    event = event.field(name, value.map(serde_json::Value::from)
+                        .unwrap_or(serde_json::Value::Null));
+                }
+            }
+            event.emit();
             PreparationFailure::WorkerLost
         }
         Failure::V2WorkerStage(stage) => {

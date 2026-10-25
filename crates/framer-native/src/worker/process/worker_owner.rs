@@ -22,7 +22,7 @@ use sha2::Sha256;
 #[path = "worker_sandbox.rs"] mod sandbox;
 #[path = "worker_metadata.rs"] mod metadata;
 #[path = "worker_failure.rs"] mod failure;
-pub use failure::WorkerStage;
+pub use failure::{WorkerStage, WorkerSummary};
 #[path = "worker_v2_metadata.rs"] pub mod v2_metadata;
 #[path = "worker_v2.rs"] mod v2;
 pub use v2::V2Worker;
