@@ -12,7 +12,7 @@ pub use envelope::{envelope, EnvelopeError};
 mod worker_result;
 pub use worker_result::{shared_worker_version, NormalizedWorkerValue};
 mod network_result;
-pub use network_result::{network_address, NetworkValueError};
+pub use network_result::{network_address, network_hash, NetworkValueError};
 mod hash;
 pub use hash::json_hash;
 mod network_record;

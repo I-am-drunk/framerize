@@ -17,7 +17,7 @@ pub fn envelope(payload: &[u8], timestamp_ms: i64) -> Result<String, EnvelopeErr
     }
     let size = u32::try_from(payload.len()).map_err(|_| EnvelopeError::PayloadTooLarge)?;
     let timestamp = timestamp_ms.to_string();
-    let encoded_time = encode_time(&timestamp);
+    let encoded_time = encode_text(timestamp.encode_utf16());
     let mut bytes = Vec::new();
     bytes.extend_from_slice(&(encoded_time.len() as u16).to_le_bytes());
     bytes.extend_from_slice(encoded_time.as_bytes());
@@ -25,9 +25,9 @@ pub fn envelope(payload: &[u8], timestamp_ms: i64) -> Result<String, EnvelopeErr
     Ok(format!("cNz8rPYH|{}", base64(&bytes)))
 }
 
-fn encode_time(timestamp: &str) -> String {
+pub(super) fn encode_text(units: impl IntoIterator<Item = u16>) -> String {
     let mut bytes = Vec::new();
-    for unit in timestamp.encode_utf16() {
+    for unit in units {
         let value = unit.rotate_left(1).wrapping_add(0xc481).rotate_left(2);
         bytes.extend_from_slice(&value.to_be_bytes());
     }

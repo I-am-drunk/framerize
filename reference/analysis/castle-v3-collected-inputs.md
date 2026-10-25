@@ -30,3 +30,24 @@ That check passes: 765 positions, 5,412 serialized bytes and a matching
 denial and cleanup checks pass; the native check uses the 512 MiB compiler
 harness. No account or upstream request is used. Other collector behavior,
 genuine device observations, live acceptance and memory savings remain open.
+
+## Completed network-hash assignment
+
+The field47 trace adds `Q[_C]=l(k4,Brn(W))` at byte 284185, with `_C=469`.
+`Brn` at 429659..429849 selects the original hash or a missing-field marker;
+the dispatch applies `Cr` at 207029..207266. This UTF-16 transform is already
+used by the native envelope timestamp, so both consumers now share it.
+
+`CollectorResult::NetworkHash` applies this one assignment before Network.
+The ordinary completed N_ record supplies a string. Missing rows retain
+their error, and falsey fields select the original marker. Pre-normalized
+JSON and truthy non-string hashes are explicitly refused. The latter need
+JavaScript length/charCodeAt behavior outside this data-only boundary.
+Accessor side effects and replaced helpers are not modeled or claimed.
+
+The new comparison passes 101 original-helper cases, including five
+missing-row errors, plus normalized-input and missing-target preservation.
+Affected address, assignment and envelope checks pass without behavior changes.
+The retained synthetic capture now rebuilds positions 469, 473 and 242 in
+that order. Complete serialization and final output still match the same
+5,412-byte / 5,297-byte observation. No new SDK operation or live request ran.
