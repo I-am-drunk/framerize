@@ -20,6 +20,15 @@ The exact reviewed plan is prepared; executable activation remains disabled
 pending the new service exception and local authentication. See
 `reference/analysis/normal-repair-controller-20261025.md`.
 
+The separate extracted V3 wrapper checks passed on 25 October: nine selected
+cases and 35 leaf scenarios, with no skips. They confirm cache, strict-null
+fallback and timeout behavior under inert loaders and virtual clocks. Caller
+timeout can leave initialization reusable; guarded phase failure disables V3.
+Returning a result or timing out does not cancel the underlying operation.
+The isolated job is collected and the shared slot is free. This is wrapper
+control-flow evidence only; no SDK, token or live service was exercised.
+See `reference/analysis/v3-wrapper-control-qualification-20261025.md`.
+
 The explicit-account retry correction now passes all twenty selected cases:
 six corrected cases passed on `93dad96`, and the fourteen unchanged passes
 are retained. The fixture now polls the existing shared cleanup observer
