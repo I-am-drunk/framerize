@@ -1,5 +1,11 @@
 # Development status
 
+R7 stopped before changing the service: its prepared coordination file had
+the wrong permissions. No interruption or stream check ran. R8 corrects file
+creation using the existing private writer and reader; its controller and
+candidate remain unchanged. R8 is executing after local authentication. See
+`reference/analysis/r7-prelaunch-result-20261025.md`.
+
 R6 reached its first real request after restoring eleven accounts and passing
 the longer startup wait. Upstream completed successfully before the test could
 disconnect it, so interruption acceptance failed and the second request did
@@ -41,14 +47,13 @@ subcases and zero skips. The original readiness and failure checks remain.
 R6 used this correction and passed startup. The consumed R5 remains unchanged.
 See `reference/analysis/r5-startup-settle-qualification-20261025.md`.
 
-Dedicated-account onboarding now has a prepared command for the qualified
-authority package, one active account and an empty separate store. It remains
-unlaunched. Fourteen layout and integration checks pass, but the kernel check
-exposed Bubblewrap's 9,000-argument limit before application startup. A compact
-mount plan is being prepared. Its separate copier passes six focused checks
-and has copied 6,065 exact software files in bounded isolated batches.
-Final mount integration and its kernel check remain pending. No signup or
-native request ran. See `reference/analysis/onboarding-layout-result-20261025.md`.
+Dedicated-account onboarding started successfully on its separate local port
+with an empty store, displayed the supported Add account page, and shut down
+cleanly before R8. No login or native inference was submitted. The compact
+layout passed its kernel check and four runtime adapter tests. All 6,096
+input hashes matched before and after execution. The 6,065-file software tree
+remains separate from production account state; native acceptance is pending.
+See `reference/analysis/onboarding-layout-result-20261025.md`.
 
 R5 switched to the qualified candidate, then switched back after its 90-second
 startup settling check expired during sequential browser prewarming. The old
