@@ -23,6 +23,14 @@ removed. Current tests stay with the behavior they exercise.
 
 ## Validation
 
+The current `c78eeeb` native development archive includes the final-fragment
+status correction and latest shared server fixes. Its executable matches the
+newly built source, and all eight package lifecycle checks pass with the
+unchanged bundled worker configuration. Archive SHA256 is
+`605b9ee7926c33c7c09b2944f6174b45a4e6649052f36620b711955b2c57ff31`.
+No SDK or live account was used. This closes the gap between current source
+and the older packaged native executable; real native delivery is unverified.
+
 The latest browser correction also covers account cooldown after opening a
 stream and a replacement account refusing admission while another peer is
 ready. Both defects were reproduced before their fixes on the narrow repair
