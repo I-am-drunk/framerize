@@ -4,7 +4,6 @@
 use framer_core::port::Session;
 use serde_json::Value;
 
-#[cfg(feature = "experimental-native")]
 #[path = "control_response_evidence.rs"]
 mod control_response_evidence;
 
@@ -48,16 +47,14 @@ fn control_transport_error(error: reqwest::Error) -> String {
 }
 
 impl Transport {
-    #[cfg(feature = "experimental-native")]
-    pub(crate) fn for_account(egress: super::experimental_native::native_http::NativeEgress<'_>)
+        pub(crate) fn for_account(egress: super::session_auth::Egress<'_>)
         -> Result<Self, String> {
         Self::explicit(API.to_owned(), egress, true)
     }
 
-    #[cfg(feature = "experimental-native")]
-    fn explicit(base: String, egress: super::experimental_native::native_http::NativeEgress<'_>,
+        fn explicit(base: String, egress: super::session_auth::Egress<'_>,
         https_only: bool) -> Result<Self, String> {
-        use super::experimental_native::native_http::NativeEgress;
+        use super::session_auth::Egress;
         let builder = reqwest::Client::builder().user_agent("Framerize/0.1")
             .no_proxy().redirect(reqwest::redirect::Policy::none())
             .retry(reqwest::retry::never()).https_only(https_only).http1_only()
@@ -66,8 +63,8 @@ impl Transport {
             .timeout(std::time::Duration::from_secs(30))
             .no_gzip().no_brotli().no_deflate().no_zstd();
         let builder = match egress {
-            NativeEgress::Direct => builder,
-            NativeEgress::Proxy(url) => builder.proxy(reqwest::Proxy::all(url)
+            Egress::Direct => builder,
+            Egress::Proxy(url) => builder.proxy(reqwest::Proxy::all(url)
                 .map_err(|_| "control authorization: invalid account proxy".to_owned())?),
         };
         let http = builder.build()
@@ -132,13 +129,11 @@ impl Transport {
 
     /// Bounded, single-attempt response for the explicit control supplier.
     /// Failure messages contain no response body, cookie, URL or proxy.
-    #[cfg(feature = "experimental-native")]
-    pub(crate) async fn control_ai_token(&self, session: &Session) -> Result<Value, String> {
+        pub(crate) async fn control_ai_token(&self, session: &Session) -> Result<Value, String> {
         self.control_json("/auth/ai/access-token", Auth::Cookie(session)).await
     }
 
-    #[cfg(feature = "experimental-native")]
-    pub(crate) async fn control_json(&self, path: &str, auth: Auth<'_>) -> Result<Value, String> {
+        pub(crate) async fn control_json(&self, path: &str, auth: Auth<'_>) -> Result<Value, String> {
         const LIMIT: usize = 64 * 1024;
         let (name, value, invalid) = match auth {
             Auth::Cookie(session) => (reqwest::header::COOKIE, session.cookie_header.clone(),
@@ -175,9 +170,9 @@ impl Transport {
             .map_err(|_| "control authorization: invalid response".to_owned())
     }
 
-    #[cfg(all(test, feature = "experimental-native"))]
+    #[cfg(any(test, feature = "test-support"))]
     pub(crate) fn control_for_loopback(address: std::net::SocketAddr,
-        egress: super::experimental_native::native_http::NativeEgress<'_>) -> Result<Self, String> {
+        egress: super::session_auth::Egress<'_>) -> Result<Self, String> {
         if !address.ip().is_loopback() { return Err("fixture requires loopback".into()); }
         Self::explicit(format!("http://{address}"), egress, false)
     }

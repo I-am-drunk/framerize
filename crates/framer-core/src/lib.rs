@@ -7,8 +7,7 @@ pub mod account_lease;
 pub mod browser_lifecycle;
 pub mod resident_pool;
 pub mod operation_gate;
-#[cfg(feature = "native-dispatch")]
-pub mod native_dispatch;
+pub mod admission;
 pub mod convert;
 pub mod credits;
 pub mod error;

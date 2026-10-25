@@ -18,13 +18,10 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 use tokio::sync::Semaphore;
 
-#[cfg(feature = "native-dispatch")]
-#[path = "native_pool_tests.rs"]
-mod native_merge_tests;
 
-#[cfg(feature = "native-dispatch")]
-#[path = "native_control_tests.rs"]
-mod native_control_tests;
+
+#[path = "admission_tests.rs"]
+mod admission_tests;
 
 #[path = "pool_ownership_tests.rs"]
 mod ownership_merge_tests;
@@ -512,8 +509,6 @@ fn fixture(capacity: usize, saved: u128) -> (AppState, Arc<Ports>) {
     let ports = Arc::new(Ports::new(saved));
     let state = AppState {
         operation_ownership: None,
-        #[cfg(feature = "native-dispatch")]
-        native_dispatch: None,
         client: ports.clone(), browser: ports.clone(), sessions: ports.clone(), state: ports.clone(),
         gate: Arc::new(framer_core::gate::ConcurrencyGate::new()),
         wave: Arc::new(framer_core::wave::WaveGuard::new()),

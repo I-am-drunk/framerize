@@ -1,4 +1,4 @@
-use super::{auth::AiToken, freechat, nativechain, transport::Transport};
+use super::{auth::AiToken, chain::{messages, responses}, transport::Transport};
 use async_trait::async_trait;
 use framer_core::{AccountId, FramerUserId, ProjectId};
 use framer_core::port::{BrowserBridge, CastleToken, ChainConfig, Session};
@@ -83,11 +83,11 @@ async fn check(native: bool) {
                 cancelled: Some(Arc::new(move || signal.load(Ordering::SeqCst))),
                 ..ChainConfig::default() };
             if native {
-                nativechain::complete_long(&transport, &cache, &session, held.as_ref(),
+                responses::complete_long(&transport, &cache, &session, held.as_ref(),
                     &account, &project, json!({"model":"gpt-4.1","input":"fixture"}),
                     &config, "fixture-chat", None).await.map(|_| ())
             } else {
-                freechat::complete_long(&transport, &cache, &session, held.as_ref(),
+                messages::complete_long(&transport, &cache, &session, held.as_ref(),
                     &account, &project, json!({"model":"claude-sonnet-4",
                         "messages":[{"role":"user","content":"fixture"}]}),
                     &config, "fixture-chat", None).await.map(|_| ())

@@ -114,3 +114,5 @@ mod tests {
         assert_eq!(free, vec!["openrouter-messages", "openrouter-chat", "openrouter-responses"]);
     }
 }
+
+pub const API_ORIGIN: &str = "https://api.framer.com";

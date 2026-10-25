@@ -1,0 +1,52 @@
+name: Build applications
+on:
+  push:
+    paths: ['apps/**', 'crates/**', 'scripts/**', 'runtime/**', 'web/**', 'Cargo.*', '.github/workflows/ci.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: applications-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  build:
+    if: github.repository == 'diddletime/framerize'
+    runs-on: ubuntu-22.04
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        app: [framerize, framerize-native]
+    env:
+      CARGO_BUILD_JOBS: 2
+      CARGO_TERM_COLOR: never
+      RUST_TEST_THREADS: 1
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - name: Install compiler
+        run: rustup toolchain install 1.99.0 --profile minimal --no-self-update
+      - uses: Swatinem/rust-cache@e9d7b9f1e587218970671bac74e5511ed9506e6a
+        with:
+          shared-key: application-${{ matrix.app }}
+      - name: Set up Node for synthetic worker fixtures
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: '24.13.0'
+      - name: Browser and shared-library tests
+        if: matrix.app == 'framerize'
+        run: cargo +1.99.0 test --locked --release -p framer-core -p framer-api -p framer-store -p framer-server -p framer-host -p framerize
+      - name: Native library tests
+        if: matrix.app == 'framerize-native'
+        run: cargo +1.99.0 test --locked --release -p framer-native -p framerize-native
+      - name: Build explicit application
+        run: cargo +1.99.0 build --locked --release --package ${{ matrix.app }}
+      - name: Check executable startup
+        run: target/release/${{ matrix.app }} --help
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: ${{ matrix.app }}-linux-x86_64-${{ github.sha }}
+          path: target/release/${{ matrix.app }}
+          if-no-files-found: error
+          retention-days: 14

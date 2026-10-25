@@ -4,10 +4,6 @@ version = "0.1.0"
 edition.workspace = true
 license.workspace = true
 
-[features]
-experimental-native = ["tokio/rt"]
-native-dispatch = ["experimental-native", "framer-core/native-dispatch", "tokio/macros"]
-
 [dependencies]
 framer-core = { path = "../framer-core" }
 async-trait = "0.1"
@@ -18,3 +14,9 @@ futures = "0.3"
 tokio = { version = "1", features = ["time"] }
 bytes = "1"
 uuid = { version = "1", features = ["v4"] }
+
+[features]
+test-support = []
+
+[dev-dependencies]
+tokio = { version = "1", features = ["macros", "rt-multi-thread", "net", "io-util"] }

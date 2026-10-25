@@ -18,15 +18,7 @@ use std::net::SocketAddr;
 use std::sync::Arc;
 use tower_http::services::ServeDir;
 
-#[cfg(feature = "native-dispatch")]
-mod native_dispatch;
-#[cfg(feature = "native-dispatch")]
-mod native_enrollment;
-#[cfg(feature = "native-dispatch")]
-pub mod native_control;
-#[cfg(feature = "native-dispatch")]
-pub use native_dispatch::http_stream::{with_native_streaming, NativeStreamCompletion,
-    NativeStreamObservers};
+pub mod admission;
 pub mod operation_ownership;
 
 mod serving_accounts;
@@ -41,8 +33,6 @@ use pool_control::{lease_account, RequestResidency};
 pub struct AppState {
     /// Explicit application ownership; no default activation.
     pub operation_ownership: Option<Arc<operation_ownership::ServingOwnership>>,
-    #[cfg(feature = "native-dispatch")]
-    pub native_dispatch: Option<Arc<dyn framer_core::native_dispatch::InvocationProvider>>,
     pub client: Arc<dyn FramerClient>,
     pub browser: Arc<dyn BrowserBridge>,
     pub sessions: Arc<dyn SessionStore>,
@@ -55,6 +45,23 @@ pub struct AppState {
     pub wave: Arc<framer_core::wave::WaveGuard>,
     /// Shared eligibility, residency and admission controls.
     pub serving_accounts: Arc<ServingAccountPolicy>,
+}
+
+impl AppState {
+    pub fn new(
+        client: Arc<dyn FramerClient>,
+        browser: Arc<dyn BrowserBridge>,
+        sessions: Arc<dyn SessionStore>,
+        state: Arc<dyn StateStore>,
+        serving_accounts: Arc<ServingAccountPolicy>,
+    ) -> Self {
+        Self {
+            operation_ownership: None,
+            client, browser, sessions, state, serving_accounts,
+            gate: Arc::new(framer_core::gate::ConcurrencyGate::new()),
+            wave: Arc::new(framer_core::wave::WaveGuard::new()),
+        }
+    }
 }
 
 /// Build the router: REST under `/api`, compat under `/anthropic` + `/openai`,
@@ -276,8 +283,6 @@ pub fn router_with_request_layer(state: AppState, web_dir: &str,
         .route("/accounts/complete", post(|state, body| json_request(state, body, complete_login_observed)))
         .route("/accounts/import", post(|state, body| json_request(state, body, import_account_observed)))
         .route("/run", post(run_request));
-    #[cfg(feature = "native-dispatch")]
-    let api = api.route("/accounts/native/enroll", post(native_enrollment::enroll_request));
     let api = api.with_state(state.clone());
 
     // Compat surfaces: thin translating proxies onto Framer's native dialect
@@ -384,10 +389,6 @@ async fn compat_forward_headers(
     headers: &axum::http::HeaderMap,
     payload: serde_json::Value,
 ) -> Result<axum::response::Response, ApiError> {
-    #[cfg(feature = "native-dispatch")]
-    if s.native_dispatch.is_some() {
-        return Ok(native_dispatch::raw(&s, dialect, headers, payload).await);
-    }
     let outcome = compat_forward_observed(s, dialect, hdr(headers, "x-framerize-account"),
         hdr(headers, "x-framerize-session"), payload).await;
     match outcome.result {
@@ -1020,10 +1021,6 @@ async fn free_complete(
     dialect: ClientDialect,
     payload: serde_json::Value,
 ) -> Result<axum::response::Response, ApiError> {
-    #[cfg(feature = "native-dispatch")]
-    if s.native_dispatch.is_some() {
-        return Ok(native_dispatch::chain(&s, headers, dialect, payload).await);
-    }
     let mut payload = payload;
     // T3 ultrafast variants (compat/t3/ultrafast): a model id ending in
     // "-ultrafast" strips to the base model and rides upstream with
@@ -2977,8 +2974,6 @@ async fn import_account_observed(State(s): State<AppState>, Json(body): Json<Imp
     // Excluded records retain their saved session and registered proxy without
     // launching a browser. Later activation uses the same admission checks.
     let prewarm_allowed = s.serving_accounts.allows(&body.account_id);
-    #[cfg(feature = "native-dispatch")]
-    let prewarm_allowed = prewarm_allowed && s.native_dispatch.is_none();
     // Native imports retain device admission; they do not initialize a browser.
     if prewarm_allowed {
         let browser = s.browser.clone();
