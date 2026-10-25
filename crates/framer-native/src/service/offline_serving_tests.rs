@@ -31,6 +31,8 @@ mod admission;
 mod store_failures;
 #[path = "offline_device_tests.rs"]
 mod device;
+#[path = "disconnect_diagnostics_tests.rs"]
+mod disconnect_diagnostics;
 
 async fn wait(semaphore: &Semaphore) {
     tokio::time::timeout(Duration::from_secs(2), semaphore.acquire())

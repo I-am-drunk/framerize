@@ -212,6 +212,18 @@ The earlier eight pool-cleanup passes remain valid and were not repeated.
 The matching optimized package is now built and checked as recorded below.
 The historical HTTP 403 still has no established policy cause.
 
+Native requests now retain one `offline.request.finished` diagnostic after
+their owned cleanup settles, even if the JSON or SSE consumer disconnects.
+It uses the same safe outcome fields and generated request ID as
+`offline.complete`, without claiming delivery or parent-task join. Both
+recorders contain logging panics so diagnostics cannot change the outcome.
+All seven isolated disconnect/logging cases pass. The old implementation
+fails the dropped-JSON case with zero records instead of one. The 41 service
+cases and worker-correlation case passed against unchanged recorder sources.
+The corrected qualification rebuilt the native test crate after identifying
+an old baseline executable reused from a shared Cargo target directory.
+These are synthetic checks; the installed service was not changed.
+
 The optimized native release from `04a5fc2` includes the cleanup and diagnostic
 changes and passes all eight package lifecycle checks using its bundled worker.
 The complete archive is 50,420,493 bytes, with SHA256

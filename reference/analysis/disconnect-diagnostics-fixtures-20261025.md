@@ -51,3 +51,15 @@ It does not change filesystem permissions or any service configuration.
 The terminal row describes the outcome from `owned()`, not parent-task join,
 delivery or upstream acceptance. Fixture assertions retain and await cleanup
 separately. No compilation, test, SDK or runtime execution occurred in this lane.
+
+## Owner qualification, 25 October 2026
+
+The integrated recorder passes all seven exact cases. The old implementation
+fails the dropped-JSON case at the expected missing terminal record. The
+existing 41 service cases and one worker-correlation case passed with the
+same recorder sources. The owner rebuilt the native test crate before the
+successful run, because a shared Cargo target had reused the baseline binary.
+The incorrect cached run is retained as failed qualification evidence.
+
+All checks used synthetic ports and temporary state with a private network,
+bounded resources and the shared execution lock. No SDK or live service ran.

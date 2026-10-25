@@ -98,9 +98,20 @@ async fn dispatch(endpoint: Endpoint, input: Input, streaming: bool) -> Response
 }
 
 pub(crate) fn record_completion(outcome: &offline_serving::Outcome, diagnostic_id: uuid::Uuid) {
-    framer_core::observability::Event::new("offline.complete")
-        .request_id(&diagnostic_id.to_string())
-        .field("completion", completion_fields(outcome)).emit();
+    record_outcome("offline.complete", outcome, diagnostic_id);
+}
+
+pub(super) fn record_owned_completion(outcome: &offline_serving::Outcome, diagnostic_id: uuid::Uuid) {
+    record_outcome("offline.request.finished", outcome, diagnostic_id);
+}
+
+fn record_outcome(event: &'static str, outcome: &offline_serving::Outcome, diagnostic_id: uuid::Uuid) {
+    // Diagnostics cannot change the request outcome or interrupt owned cleanup.
+    let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        framer_core::observability::Event::new(event)
+            .request_id(&diagnostic_id.to_string())
+            .field("completion", completion_fields(outcome)).emit();
+    }));
 }
 
 fn completion_fields(outcome: &offline_serving::Outcome) -> serde_json::Value {

@@ -136,6 +136,9 @@ fn launch_owned(state: ServiceState, spec: Specification, source: Arc<dyn Source
     let task = framer_server::operation_ownership::spawn(Some(&ownership),
         framer_core::operation_gate::OperationKind::Inference, async move {
             let outcome = owned(state, spec, source, cancel, sessions, delivery).await;
+            // Retained after client disconnect. This observes owned resource
+            // cleanup, not delivery or the enclosing operation task's join.
+            super::http::record_owned_completion(&outcome, diagnostic_id);
             let cleanup = if outcome.cleanup_confirmed { Ok(()) } else { Err(FailureKind::Cleanup) };
             let _ = sender.send(outcome);
             cleanup
