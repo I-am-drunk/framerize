@@ -46,12 +46,17 @@ pub async fn serve(config: ServeConfig, shutdown: impl Future<Output = ()> + Sen
     let worker = WorkerBackend::V3(worker);
     let sessions = Arc::new(FileSessionStore::new(sessions_path)?);
     if shutdown.clone().now_or_never().is_some() { return Ok(()); }
+    let database = database.to_str().ok_or("account database path is not UTF-8")?;
+    let store = Arc::new(SqliteStateStore::open(database)?);
+    validate_accounts(store.as_ref(), &selected).await?;
     if needs_history {
         let previous = config.expire_legacy_from.clone().ok_or("legacy runtime is required")?;
         if !super::migration::expire(config.python.clone(), config.runtime_script.clone(),
             history.clone(), previous, sessions.clone(), shutdown.clone()).await? {
             return Ok(());
         }
+        // The database may have changed during the legacy expiry interval.
+        validate_accounts(store.as_ref(), &selected).await?;
     }
     if shutdown.clone().now_or_never().is_some() { return Ok(()); }
     let listener = tokio::net::TcpListener::bind(config.address).await
@@ -59,13 +64,6 @@ pub async fn serve(config: ServeConfig, shutdown: impl Future<Output = ()> + Sen
     let ledger = Arc::new(LedgerOwner::start(&config.python, &config.runtime_script,
         &history, sessions.clone()).await.map_err(|_| "native history ownership unavailable")?);
     let result = AssertUnwindSafe(async {
-        let database = database.to_str().ok_or("account database path is not UTF-8")?;
-        let store = Arc::new(SqliteStateStore::open(database)?);
-        for account in &selected {
-            if store.get(*account).await?.is_none() {
-                return Err("selected account is not in this profile's database".to_string());
-            }
-        }
         let state = ServiceState::new(sessions, store, selected)?;
         let (state, runtime) = http::configure(state, worker, ledger.clone())?;
         let monitor = ledger.clone();
@@ -81,6 +79,15 @@ pub async fn serve(config: ServeConfig, shutdown: impl Future<Output = ()> + Sen
         return Err("native ledger shutdown is unconfirmed".into());
     }
     result
+}
+
+async fn validate_accounts(store: &dyn StateStore, selected: &[AccountId]) -> Result<(), String> {
+    for account in selected {
+        if store.get(*account).await?.is_none() {
+            return Err("selected account is not in this profile's database".to_string());
+        }
+    }
+    Ok(())
 }
 
 #[cfg(test)]

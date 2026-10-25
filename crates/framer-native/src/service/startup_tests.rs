@@ -77,14 +77,15 @@ async fn existing_profile_owner_prevents_startup() {
 }
 
 #[tokio::test]
-async fn unknown_selected_account_joins_the_started_ledger() {
+async fn unknown_selected_account_refuses_before_starting_the_ledger() {
     let fixture = Fixture::new().await;
     let mut config = fixture.config.clone();
     config.selected_accounts = vec![uuid::Uuid::from_u128(3).to_string()];
+    config.runtime_script = fixture.root.join("must-not-launch.py");
     let error = serve(config, std::future::pending()).await.unwrap_err();
     assert!(error.contains("not in this profile"));
     assert!(fixture.sessions_available());
-    // The same profile must be reusable after this post-launch refusal.
+    // The same profile must be reusable after this preflight refusal.
     serve(fixture.config.clone(), async {}).await.unwrap();
 }
 

@@ -1,5 +1,40 @@
 use super::*;
 
+#[tokio::test]
+async fn unknown_accounts_are_rejected_before_starting_migration() {
+    for include_known in [false, true] {
+        let mut fixture = fixture().await;
+        let missing = uuid::Uuid::from_u128(3).to_string();
+        if include_known { fixture.config.selected_accounts.push(missing); }
+        else { fixture.config.selected_accounts = vec![missing]; }
+        // Let old code finish so failure never leaves a waiting child behind.
+        std::fs::write(fixture.root.join("release"), b"").unwrap();
+        let error = timeout(Duration::from_secs(5),
+            serve(fixture.config.clone(), std::future::pending()))
+            .await.unwrap().unwrap_err();
+        assert!(error.contains("not in this profile"));
+        assert!(fixture.sessions_available());
+        assert!(!fixture.root.join("entered").exists(), "migration started for an unknown account");
+        assert!(!fixture.config.profiles.join(".sidecar/camoufox/rate-history.sqlite3").exists());
+        assert!(tokio::net::TcpStream::connect(fixture.config.address).await.is_err());
+    }
+}
+
+#[tokio::test]
+async fn selected_accounts_are_rechecked_after_migration() {
+    let fixture = fixture().await;
+    let task = tokio::spawn(serve(fixture.config.clone(), std::future::pending()));
+    let pid = entered(&fixture).await;
+    let store = SqliteStateStore::open(fixture.config.database.to_str().unwrap()).unwrap();
+    store.remove(AccountId(uuid::Uuid::from_u128(1))).await.unwrap();
+    std::fs::write(fixture.root.join("release"), b"").unwrap();
+    let error = timeout(Duration::from_secs(5), task).await.unwrap().unwrap().unwrap_err();
+    assert!(error.contains("not in this profile"));
+    assert!(!PathBuf::from(format!("/proc/{pid}")).exists());
+    assert!(fixture.sessions_available());
+    assert!(tokio::net::TcpStream::connect(fixture.config.address).await.is_err());
+}
+
 async fn fixture() -> Fixture {
     let mut fixture = Fixture::new().await;
     let history = fixture.config.profiles.join(".sidecar/camoufox");

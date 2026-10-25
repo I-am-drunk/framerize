@@ -23,6 +23,15 @@ removed. Current tests stay with the behavior they exercise.
 
 ## Validation
 
+Native startup now rejects unknown selected accounts before starting legacy
+migration or the ledger process. Previously it could complete the ten-minute
+expiry first and only then reject the selection. A regression reproduces that
+ordering defect. All 11 focused startup cases pass with the correction,
+including a mixed valid/invalid selection and an account removed during the
+migration wait. The post-wait check runs before listener admission. These are
+synthetic profile tests; the native development build also passes. No live
+account or service has been migrated.
+
 The native `/api/offline/stream` endpoint now sends opening frames, heartbeats
 and complete output items through the same bounded request as the JSON
 endpoint. Terminal success waits for account and device cleanup. Disconnects
