@@ -92,6 +92,13 @@ The SDK populates its input during both configuration and request execution;
 this API requires the completed snapshot and does not establish readiness.
 Its comparison includes full-size synthetic arrays through all original stages.
 
+A separate [snapshot experiment](../reference/analysis/castle-v3-sdk-snapshot.md)
+observes the real SDK's serialized output and encoder timestamp in the
+isolated synthetic worker. Its test-only loader leaves the production loader
+unchanged. The native check reconstructs normalized values, verifies their
+serialized bytes and compares the final output by hash and length. This
+checks one post-collection observation, not the preceding collector semantics.
+
 An open, unbound browser stream can wait for local account capacity before
 generated output. It retries eligibility within one cumulative 600-second
 wait budget without holding model or resident permits while asleep. Stream
