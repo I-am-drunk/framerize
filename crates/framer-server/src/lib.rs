@@ -179,15 +179,23 @@ pub fn router(state: AppState, web_dir: &str) -> Router {
     router_with_request_layer(state, web_dir, |router| router)
 }
 
-async fn health() -> impl axum::response::IntoResponse {
-    ([("x-framerize-pid", std::process::id().to_string())], "ok")
+async fn health(State(state): State<AppState>) -> impl axum::response::IntoResponse {
+    health_response(state.operation_ownership.as_deref())
+}
+
+fn health_response(ownership: Option<&operation_ownership::ServingOwnership>)
+    -> impl axum::response::IntoResponse {
+    let ready = ownership.is_none_or(|scope| scope.accepting_requests());
+    (if ready { StatusCode::OK } else { StatusCode::SERVICE_UNAVAILABLE },
+        [("x-framerize-pid", std::process::id().to_string())],
+        if ready { "ok" } else { "operation admission closed" })
 }
 
 #[cfg(test)]
 #[tokio::test]
 async fn health_identity_keeps_the_existing_body() {
     use axum::response::IntoResponse;
-    let response = health().await.into_response();
+    let response = health_response(None).into_response();
     assert_eq!(response.status(), axum::http::StatusCode::OK);
     assert_eq!(response.headers()["x-framerize-pid"], std::process::id().to_string());
     let body = axum::body::to_bytes(response.into_body(), 16).await.unwrap();

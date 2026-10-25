@@ -1,5 +1,6 @@
 //! Pool integration fixtures. Every port is in memory; no browser or network I/O.
 use super::{activate, config, configure, lease_account, management, park, AccountBody, ConfigUpdate};
+use super::lease_account_observed;
 use crate::{ApiError, AppState, PoolConfig, ServingAccountPolicy, POOL_SETTING_KEY};
 use axum::{body::{to_bytes, Bytes}, extract::State, http::HeaderMap, Json};
 use framer_core::account::{AccountState, ManagedAccount};
@@ -46,7 +47,7 @@ macro_rules! denied {
 #[derive(Clone, Copy, Debug)]
 enum CloseMode { Confirm, WrongAccount, WrongHost, WrongIncarnation, StillResident, Busy, Unconfirmed, ActiveCommand, Error }
 #[derive(Clone, Copy)]
-enum StatusMode { Ready, Busy, WrongAccount, Error, Closing, Unconfirmed }
+enum StatusMode { Ready, Busy, WrongAccount, Error, Closing, Unconfirmed, UnconfirmedFor(AccountId) }
 
 struct Ports {
     records: Mutex<Vec<ManagedAccount>>,
@@ -198,6 +199,9 @@ impl BrowserBridge for Ports {
                 StatusMode::Error => return Err("fixture status failure".into()),
                 StatusMode::Closing => status.state = BrowserAccountState::Closing,
                 StatusMode::Unconfirmed => status.state = BrowserAccountState::Unconfirmed,
+                StatusMode::UnconfirmedFor(target) => {
+                    if target == *account { status.state = BrowserAccountState::Unconfirmed; }
+                }
             }
             if self.hold_status.swap(false, Ordering::SeqCst) {
                 self.status_captured.fetch_add(1, Ordering::SeqCst);
@@ -385,7 +389,8 @@ impl FramerClient for Ports {
             assert_eq!(session.active_user.0, format!("user-{}", account.0.as_u128()));
             browser.castle_token(account).await?;
             if self.fail_first_account.load(Ordering::SeqCst) && *account == id(1) {
-                return Err("fixture risk-refused".into());
+                return Err(self.inference_error.lock().unwrap().clone()
+                    .unwrap_or_else(|| "fixture risk-refused".into()));
             }
             if self.free_overload_once.swap(false, Ordering::SeqCst) {
                 return Err("retryable 429 fixture".into());
@@ -421,7 +426,8 @@ impl FramerClient for Ports {
             assert_eq!(session.active_user.0, format!("user-{}", account.0.as_u128()));
             browser.castle_token(account).await?;
             if self.fail_first_account.load(Ordering::SeqCst) && *account == id(1) {
-                return Err("fixture risk-refused".into());
+                return Err(self.inference_error.lock().unwrap().clone()
+                    .unwrap_or_else(|| "fixture risk-refused".into()));
             }
             let output = vec![json!({"id":"fixture-item","type":"message","role":"assistant",
                 "status":"completed","content":[{"type":"output_text","text":"fixture result","annotations":[]}]})];
@@ -543,7 +549,9 @@ async fn negative_browser_state_is_fenced_and_reported_unavailable() {
         activated(&state, 1).await;
         let before = records(&ports);
         *ports.status_mode.lock().unwrap() = mode;
-        assert!(matches!(lease_account(&state, id(1)).await, Err(ApiError::PoolBusy(_))));
+        let outcome = lease_account_observed(&state, id(1)).await;
+        assert!(matches!(outcome.result, Err(ApiError::PoolBusy(_))));
+        assert!(outcome.cleanup_confirmed, "a completed status read owns no unfinished work");
         assert!(slot(&state, id(1)).uncertain);
         assert_eq!(slot(&state, id(1)).users, 0);
         assert_eq!(state.serving_accounts.residents.snapshot().unwrap().occupied, 1);
@@ -588,7 +596,9 @@ async fn failed_or_mismatched_status_cannot_admit_a_resident() {
         let (state, ports) = fixture(1, 2);
         activated(&state, 1).await;
         *ports.status_mode.lock().unwrap() = mode;
-        assert!(lease_account(&state, id(1)).await.is_err());
+        let outcome = lease_account_observed(&state, id(1)).await;
+        assert!(outcome.result.is_err());
+        assert!(!outcome.cleanup_confirmed, "an unknown status cannot confirm cleanup");
         assert!(slot(&state, id(1)).uncertain);
         assert_eq!(state.serving_accounts.residents.snapshot().unwrap().occupied, 1);
     }
@@ -626,7 +636,9 @@ async fn status_timeout_keeps_occupied_slot_without_closing_the_browser() {
     activated(&state, 1).await;
     let before = records(&ports);
     ports.hold_status.store(true, Ordering::SeqCst);
-    assert!(matches!(lease_account(&state, id(1)).await, Err(ApiError::PoolBusy(_))));
+    let outcome = lease_account_observed(&state, id(1)).await;
+    assert!(matches!(outcome.result, Err(ApiError::PoolBusy(_))));
+    assert!(!outcome.cleanup_confirmed, "a timed-out read remains unconfirmed");
     assert_eq!(ports.status_captured.load(Ordering::SeqCst), 1);
     assert!(slot(&state, id(1)).uncertain);
     assert_eq!(slot(&state, id(1)).users, 0);
