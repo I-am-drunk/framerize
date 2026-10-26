@@ -31,10 +31,24 @@ The agreed sequence is S1 owned state, S2 an in-process authorized forwarding
 port, then S3 a free-Responses policy worker. S1 has 351 isolated and 37 focused
 integration checks passing. The S2a legacy baseline at `d22d2b5` now passes
 19 new and 146 retained checks, including the explicit agents-category case.
-S2b production extraction and S3 still require review and execution. The
+S2b extraction now passes 266 isolated and ten integration checks. S3 still
+requires implementation, review and execution. The
 runtime retains credentials, admission and cleanup ownership;
 the worker owns request policy and rendering. Existing 429 callback points
 must remain unchanged. S3 may acknowledge only a runtime-recorded 429 once.
+
+S2b's qualified in-process integration places conversion, Responses policy, data limits
+and the shared cooldown helper in `framer-protocol`. The runtime binds the
+complete Forward unit per invocation and passes owned reply bytes. Compatibility
+re-exports preserve existing native imports and Messages behavior. This creates
+a dependency boundary. Process replacement, its offline generation-transition
+proof and full live acceptance remain open.
+
+The later lossless worker transport must count downstream capacity waits in
+the existing 300-second active budget, which excludes only local cooldowns.
+That budget prevents later dispatch; it does not abandon already-sent work.
+A slow client can therefore exhaust the budget where the legacy callback
+currently drops frames. S3 must test and document that visible difference.
 
 Every transition needs explicit protocol and state compatibility, bounded
 transport, cancellation, process-exit observation and retained rollback state.

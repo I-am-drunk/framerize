@@ -1,5 +1,23 @@
 # Architecture
 
+The qualified S2b integration moves Responses policy and protocol conversion into
+`framer-protocol`, which has no dependency on account, browser or session
+types. Core and API re-export the existing conversion and preparation paths.
+`ChainConfig` keeps its public fields; its data snapshot becomes `ChainLimits`.
+The shared cooldown algorithm now uses the runtime's narrow `ChainControl`.
+
+Each `native_long` invocation constructs an authorized Forward binding with
+that invocation's session, browser, account, project, chat and original optional
+callbacks. One category snapshot drives both policy step and request envelope.
+The runtime still owns the complete authorization, one retry, refund and
+cleanup sequence. Its buffered reply carries the actual post-refund queue
+lookup value. Request-correlated queue timing remains separate work.
+The legacy API, retry decisions, error strings and saturation call points stay
+in place. All 266 isolated S2b checks and ten focused integration checks pass.
+This establishes the in-process boundary; a separate policy-worker process
+and its delivery, memory and latency behavior still require implementation
+and acceptance. The current transport continues to use a browser.
+
 Registration clears a carried primary project when metadata changes its
 team, before any explicit project override. Credit admission independently
 clears the project if ranking selects a different team. Existing caller

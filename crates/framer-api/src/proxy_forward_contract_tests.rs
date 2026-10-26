@@ -4,6 +4,7 @@ use super::*;
 use async_trait::async_trait;
 use framer_core::{FramerUserId, port::{CastleToken, ProxyResponse}};
 use futures::StreamExt;
+use framer_protocol::forward::AuthorizedForward;
 use std::{collections::VecDeque, sync::atomic::{AtomicBool, Ordering}};
 
 const PATH: &str = "/ai/v3/responses/";
@@ -92,10 +93,16 @@ impl Fixture {
         let check = || self.browser.stopped.load(Ordering::SeqCst);
         let cancelled: Option<&(dyn Fn() -> bool + Send + Sync)> =
             if supplied { Some(&check) } else { None };
-        forward_cancellable(&self.transport, &self.transport.authorization.accounts,
-            &self.session, &self.browser, &self.account, &ProjectId("fixture-project".into()),
-            Dialect::OpenRouterResponses, "translate", payload, "fixture-chat", 7,
-            cancelled).await
+        let project = ProjectId("fixture-project".into());
+        let forward = crate::forward::ResponsesForward::new(
+            &self.transport, &self.transport.authorization.accounts,
+            &self.session, &self.browser, &self.account, &project,
+            "fixture-chat", cancelled, None);
+        forward.forward("translate", payload, 7).await.map(|reply| ProxyResponse {
+            status: reply.status, content_type: reply.content_type,
+            queue_wait_ms: reply.queue_wait_ms,
+            stream: Box::pin(futures::stream::once(async move { Ok(reply.body) })),
+        })
     }
 
     fn posts(&self) -> Vec<Post> {
