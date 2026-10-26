@@ -7,8 +7,13 @@ Results and diagnostics contain only closed enums and numeric facts.
 Public failures carry bounded UTF-8 message, type and code fields. The
 kernel may retain HTTP-origin public text; local causes use fixed display.
 The wire does not filter characters in upstream type or code fields.
+The kernel must enforce origin before sending PublicFailure: only an actual
+HTTP-origin cause may supply public text. The DTO carries no worker-asserted
+origin. Local causes retain fixed display and kernel-classified type/code.
+ForwardError intentionally omits cleanup: only the kernel retains joined
+Forward verdicts and decides retirement. Worker Done is not a cleanup proof.
 
-Operation text fields are limited to 16 KiB, each opaque segment to 16 KiB,
+Handshake and operation text fields are limited to 16 KiB, each opaque segment to 16 KiB,
 and each encoded frame to 1 MiB. Larger bodies use ordered parts.
 These are transport limits, not a bound on retained history or total memory.
 Serde's internally tagged decoding can temporarily retain a content tree

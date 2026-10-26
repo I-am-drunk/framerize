@@ -29,6 +29,11 @@ Six additional inert controls exercise round trips, nested strictness,
 segment bounds, drop counts and verbatim Unicode error types. They are
 UNRUN; message shape alone does not establish runtime ordering or cleanup.
 Next: review the message slice and connect the owned reader/writer process.
+The message slice's source review is accepted. Its follow-up bounds the
+handshake build label too. The oversized-frame fixture retains its original
+value and assertion using a test-only unrestricted envelope, and a new
+inert control covers the handshake field bound. Cleanup and error-origin
+enforcement remain kernel duties. All new execution is still pending main.
 
 Free Responses streaming now uses the bounded, awaited output path from
 `4447080`, composed after `1aef73d` with the newer account and store fixes.

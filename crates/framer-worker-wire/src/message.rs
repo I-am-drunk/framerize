@@ -161,7 +161,7 @@ pub enum Dialect { OpenRouterResponses }
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
 pub enum Message {
-    Hello { wire: u16, build: String, routes: Vec<Route> },
+    Hello { wire: u16, build: Text, routes: Vec<Route> },
     Ready { generation: u64 },
     Start { op: u64, logical_id: Text, model: Text, mode: Mode, output: Capacity },
     Invoke { op: u64, n: u32, category: Text, limits: Limits, request: Part },

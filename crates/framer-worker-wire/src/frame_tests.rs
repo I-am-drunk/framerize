@@ -182,11 +182,23 @@ async fn length_is_rejected_before_any_payload_is_read() {
         Err(WireError::Io(_))));
 }
 
+#[tokio::test]
+async fn hello_build_uses_the_same_utf8_byte_bound() {
+    let message = Message::Hello { wire: 1, build: text(&"x".repeat(dto::TEXT_LIMIT)),
+        routes: vec![Route::FreeResponses] };
+    let frame = encode(&message).unwrap();
+    assert_eq!(read::<_, Message>(&mut frame.as_slice()).await.unwrap().unwrap().message, message);
+    let json = serde_json::json!({"kind":"hello", "wire":1,
+        "build":"x".repeat(dto::TEXT_LIMIT + 1), "routes":["free_responses"]}).to_string();
+    assert!(read::<_, Message>(&mut framed(json.as_bytes()).as_slice()).await.is_err());
+}
+
 #[test]
 fn encoding_refuses_an_oversized_frame() {
-    let message = Message::Hello {
-        wire: 1, build: "x".repeat(FRAME_LIMIT), routes: vec![],
-    };
+    // Test the frame encoder independently of the stricter DTO constructor.
+    let message = serde_json::json!({
+        "kind": "hello", "wire": 1, "build": "x".repeat(FRAME_LIMIT), "routes": [],
+    });
     assert!(matches!(encode(&message), Err(WireError::FrameLimit)));
 }
 
