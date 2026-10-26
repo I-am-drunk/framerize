@@ -34,7 +34,19 @@ and saved pool settings. The revised controller now fences idle accounts
 progressively, preserving active requests and recording every attempted pool
 change for interrupted recovery. All 47 local transition/recovery checks pass,
 including 12 new progressive-drain cases. The deployed pool API's active-work
-guard is retained. This revised live drain still requires qualification.
+guard is retained.
+
+The next live attempt completed progressive drain and reached an empty,
+fenced pool. Loading the native runtime limit before stopping the original
+service caused systemd to expire that long-running process. Recovery restored
+the original browser and saved pool; no history migration or canary ran.
+The controller now stops and confirms an empty service cgroup before loading
+new overrides. Explicit stop phases support recovery before, during and after
+shutdown, including partial override installation and interrupted reload.
+All 60 focused transition/recovery tests pass in 1.189 seconds; the previous
+implementation reproduced ordering and interrupted-stop failures. No live
+request or memory measurement occurred in these tests. The next attempt must
+use a fresh plan bound to the restored service's current invocation.
 
 The one-shot transition controller now passes 18 inert tests. It refuses to
 stop the original service before an empty, fenced pool; verifies the genuine

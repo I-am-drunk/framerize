@@ -99,6 +99,97 @@ class RecoveryTests(unittest.TestCase):
         self.assertEqual(self.commands, [])
         self.assertEqual(self.writes, [self.saved])
 
+    def test_stop_intent_recovers_original_only_after_join(self):
+        self.arm()
+        self.r.remember('stopping-original')
+        self.assertEqual(self.r.restore()['status'], 'restored-original')
+        self.assertEqual(self.commands, [('stop', self.r.UNIT), ('daemon-reload',), ('start', self.r.UNIT)])
+        self.assertEqual(self.pool, self.saved)
+
+    def test_interrupted_original_stop_with_no_main_pid_is_joined(self):
+        self.arm()
+        self.r.remember('stopping-original')
+        self.current.update(MainPID='0', ActiveState='deactivating')
+        self.running = None
+        self.assertEqual(self.r.restore()['status'], 'restored-original')
+        self.assertEqual(self.commands, [('stop', self.r.UNIT), ('daemon-reload',), ('start', self.r.UNIT)])
+
+    def test_stopped_original_is_recoverable_before_any_override(self):
+        for phase, invocation in [('stopping-original', 'original'),
+                                  ('original-stopped', 'original'), ('original-stopped', '')]:
+            with self.subTest(phase=phase, invocation=invocation):
+                self.r.remember(phase)
+                self.current.update(MainPID='0', ActiveState='inactive', InvocationID=invocation)
+                self.running = None
+                self.commands.clear()
+                self.assertEqual(self.r.restore()['status'], 'restored-original')
+                self.assertEqual(self.commands, [('daemon-reload',), ('start', self.r.UNIT)])
+
+    def test_partially_installed_overrides_are_removed_before_original_return(self):
+        for include_native in (False, True):
+            with self.subTest(include_native=include_native):
+                self.r.remember('original-stopped')
+                self.current.update(MainPID='0', ActiveState='inactive', InvocationID='original')
+                self.running = None
+                self.fallback.write_text('browser')
+                if include_native:
+                    self.dropin.write_text('native')
+                self.commands.clear()
+                self.assertEqual(self.r.restore()['status'], 'restored-original')
+                self.assertEqual(self.commands, [('daemon-reload',), ('start', self.r.UNIT)])
+                self.assertFalse(self.dropin.exists() or self.fallback.exists())
+
+    def test_stop_intent_does_not_allow_an_unrelated_original_invocation(self):
+        for pid, active in [('123', 'active'), ('0', 'deactivating'), ('0', 'inactive')]:
+            with self.subTest(pid=pid):
+                self.r.remember('stopping-original')
+                self.current.update(MainPID=pid, ActiveState=active, InvocationID='unrelated')
+                with self.assertRaises(RuntimeError):
+                    self.r.restore()
+                self.assertEqual(self.commands + self.writes, [])
+
+    def test_stopped_original_with_descendants_cannot_be_restarted(self):
+        self.r.remember('original-stopped')
+        self.current.update(MainPID='0', ActiveState='inactive')
+        self.running = None
+        self.events.write_text('populated 1\n')
+        with self.assertRaises(RuntimeError):
+            self.r.restore()
+        self.assertEqual(self.commands + self.writes, [])
+
+    def test_missing_original_without_stop_intent_remains_refused(self):
+        self.arm()
+        self.current.update(MainPID='0', ActiveState='inactive')
+        self.running = None
+        with self.assertRaisesRegex(RuntimeError, 'original service is missing'):
+            self.r.restore()
+        self.assertEqual(self.commands + self.writes, [])
+
+    def test_lost_original_stop_reply_is_recoverable(self):
+        self.r.remember('stopping-original')
+        def lost_reply():
+            raise TimeoutError('synthetic stop reply loss')
+        self.stop_action = lost_reply
+        with self.assertRaises(TimeoutError):
+            self.r.restore()
+        self.assertEqual(json.loads((self.root / 'state.json').read_text())['phase'], 'stopping-original')
+        self.assertEqual(self.commands, [('stop', self.r.UNIT)])
+        self.stop_action = None
+        self.commands.clear()
+        self.assertEqual(self.r.restore()['status'], 'restored-original')
+        self.assertEqual(self.commands, [('daemon-reload',), ('start', self.r.UNIT)])
+
+    def test_interrupted_reload_restores_original_from_stopped_service(self):
+        self.r.remember('switching')
+        self.current.update(MainPID='0', ActiveState='inactive', InvocationID='')
+        self.running = None
+        self.dropin.write_text('native')
+        self.fallback.write_text('browser')
+        self.assertEqual(self.r.restore()['status'], 'restored-original')
+        self.assertEqual(self.commands, [('daemon-reload',), ('start', self.r.UNIT)])
+        self.assertFalse(self.dropin.exists() or self.fallback.exists())
+        self.assertEqual(self.pool, self.saved)
+
     def test_unmigrated_native_returns_to_original(self):
         self.arm(native=True)
         result = self.r.restore()

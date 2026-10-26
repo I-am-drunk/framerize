@@ -101,11 +101,73 @@ class TransitionTests(unittest.TestCase):
         self.command.assert_not_called()
         self.assertFalse(Path(self.plan['dropin']).exists())
 
+    def prepare_switch(self):
+        self.pool = dict(self.saved, eligible_accounts=[])
+        for key, name in [('dropin', 'native.conf'), ('return_dropin', 'browser.conf')]:
+            self.plan[key] = str(self.root / 'service' / name)
+            (self.root / name).write_text(name)
+        def stopped(plan):
+            self.assertEqual(self.current['MainPID'], '0')
+            self.assertEqual(self.current['ActiveState'], 'inactive')
+        self.patch(self.t.r, 'stopped', side_effect=stopped)
+
+    def switch_command(self, *args):
+        if args[0] == 'stop':
+            self.assertFalse(Path(self.plan['dropin']).exists())
+            self.assertFalse(Path(self.plan['return_dropin']).exists())
+            self.t.report.assert_called_with('stopping-original')
+            self.current.update(MainPID='0', ActiveState='inactive')
+        elif args[0] == 'daemon-reload':
+            self.assertEqual(self.current['MainPID'], '0')
+            self.assertEqual(self.current['ActiveState'], 'inactive')
+        elif args[0] == 'start':
+            self.assertTrue(Path(self.plan['dropin']).exists())
+        else:
+            self.fail('unexpected command')
+
     def test_native_owner_change_is_not_treated_as_ready(self):
         self.t.r.executable.return_value = '/another/program'
         with self.assertRaisesRegex(RuntimeError, 'native service owner changed'):
             self.t.native_ready(self.plan)
         self.native.assert_not_called()
+
+    def test_switch_stops_before_installing_time_limited_configuration(self):
+        self.prepare_switch()
+        self.command.side_effect = self.switch_command
+        self.assertEqual(self.t.switch(self.plan, self.saved), 1000.0)
+        self.assertEqual([call.args for call in self.command.call_args_list],
+                         [('stop', self.t.r.UNIT), ('daemon-reload',), ('start', self.t.r.UNIT)])
+        self.assertEqual(self.t.r.stopped.call_count, 2)
+
+    def test_unconfirmed_stop_cannot_install_or_reload_configuration(self):
+        self.prepare_switch()
+        self.command.side_effect = None
+        self.t.r.stopped.side_effect = RuntimeError('pending cleanup')
+        with self.assertRaisesRegex(RuntimeError, 'pending cleanup'):
+            self.t.switch(self.plan, self.saved)
+        self.command.assert_called_once_with('stop', self.t.r.UNIT)
+        self.assertFalse(Path(self.plan['dropin']).exists())
+        self.assertFalse(Path(self.plan['return_dropin']).exists())
+
+    def test_interrupted_stop_keeps_configuration_uninstalled(self):
+        self.prepare_switch()
+        self.command.side_effect = TimeoutError('stop reply lost')
+        with self.assertRaises(TimeoutError):
+            self.t.switch(self.plan, self.saved)
+        self.t.report.assert_called_with('stopping-original')
+        self.assertFalse(Path(self.plan['dropin']).exists())
+        self.assertFalse(Path(self.plan['return_dropin']).exists())
+
+    def test_owner_change_after_stop_intent_prevents_stop(self):
+        self.prepare_switch()
+        def change_owner(phase, **facts):
+            if phase == 'stopping-original':
+                self.current['InvocationID'] = 'different'
+        self.t.report.side_effect = change_owner
+        self.command.side_effect = self.switch_command
+        with self.assertRaisesRegex(RuntimeError, 'original service changed'):
+            self.t.switch(self.plan, self.saved)
+        self.command.assert_not_called()
 
     def test_existing_attempt_never_reissues_request(self):
         self.request()
