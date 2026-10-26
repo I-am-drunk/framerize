@@ -37,6 +37,13 @@ controls passing. Valid empty output, optional usage/status and the existing
 incomplete-body contract are preserved. The complete 31e73b4 stack is integrated
 on the same experimental branch; live acceptance remains pending.
 
+An upstream 401 now removes the rejected AI bearer from the shared session
+cache before the existing single refresh retry. A newer cached token, web
+tokens and other sessions remain intact. All six inert retry cases pass;
+the previous behavior reproduced four failures with two controls passing.
+The 59b197d delta is integrated without replacing the newer inference parser.
+This corrects local cache behavior and does not establish live acceptance.
+
 Messages fallback now requires closed content and `message_stop` before
 publishing output, rejects malformed tool input, preserves retry token limits,
 and retains `max_tokens` when the final text chunk is incomplete. The integrated
