@@ -1,5 +1,11 @@
 # Architecture
 
+Workspace scans join every probe and retain the first error in input order.
+Public scans reject incomplete results so provisioning preserves saved extra
+scopes. Admission can use an observed unclaimed credited team despite another
+probe failure; without such a team it returns the probe error before treating
+the account as ineligible. Complete-scan ranking and refusals stay unchanged.
+
 Registration distinguishes admission refusal from profile and storage errors.
 Only the existing `NotEligible` result persists an exhausted account. Other
 errors preserve the initial saved record and propagate the original failure;
