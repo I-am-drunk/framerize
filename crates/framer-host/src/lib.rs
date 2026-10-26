@@ -24,6 +24,8 @@ mod cdp_startup_children;
 mod cdp_startup_process_tests;
 #[cfg(all(test, target_os = "linux"))]
 mod cdp_version_probe_tests;
+#[cfg(all(test, target_os = "linux"))]
+mod cdp_version_deadline_tests;
 mod cdp_proxy_registration;
 use cdp_proxy_registration::CdpAccountRoute;
 #[cfg(test)]
@@ -68,7 +70,13 @@ const DESKTOP_UA: &str = "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KH
 async fn desktop_ua(chrome: &Path, children: &cdp_startup_children::StartupChildren) -> String {
     let out = match Command::new(chrome).arg("--version")
         .stdout(Stdio::piped()).stderr(Stdio::piped()).kill_on_drop(true).spawn() {
-        Ok(child) => children.track_probe(child).output().await,
+        Ok(child) => match tokio::time::timeout(std::time::Duration::from_secs(5),
+            children.track_probe(child).output()).await {
+            Ok(output) => output,
+            // Dropping the owned output future retains kill/wait cleanup.
+            Err(_) => Err(std::io::Error::new(std::io::ErrorKind::TimedOut,
+                "browser version probe timed out")),
+        },
         Err(error) => Err(error),
     };
     let ver = out.ok().and_then(|o| {

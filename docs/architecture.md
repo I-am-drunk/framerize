@@ -193,6 +193,9 @@ Owned CDP startup retains its child until instance publication or joined exit.
 Cancellation requests termination and retains the actual wait result across
 abandoned shutdown callers. Version probes use the same ownership mechanism
 without an account, so their exit cannot clear a browser's uncertainty.
+Version output has a five-second deadline. Expiry returns the existing fallback
+user agent and retains kill/wait cleanup for shutdown to join; fallback alone
+does not prove the child has exited.
 Shutdown joins these children and still closes every known instance. Only
 confirmed exits clear their account flags; missing exit evidence stays an error.
 The CDP device loader creates an identity only when the record is missing.
