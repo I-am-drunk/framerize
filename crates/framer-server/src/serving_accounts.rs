@@ -18,6 +18,8 @@ pub struct ServingAccountPolicy {
     pub(crate) operation: tokio::sync::Mutex<()>,
     pub(crate) configuration: tokio::sync::Mutex<()>,
     pub(crate) health_update: tokio::sync::Mutex<()>,
+    // Keep duplicate-email validation and initial publication in one interval.
+    pub(crate) registration: tokio::sync::Mutex<()>,
     pub(crate) pending_config: RwLock<Option<PoolConfig>>,
     pub(crate) mutations: std::sync::Arc<std::sync::Mutex<HashSet<AccountId>>>,
 }
@@ -34,6 +36,7 @@ impl ServingAccountPolicy {
             operation: tokio::sync::Mutex::new(()),
             configuration: tokio::sync::Mutex::new(()),
             health_update: tokio::sync::Mutex::new(()),
+            registration: tokio::sync::Mutex::new(()),
             pending_config: RwLock::new(None),
             mutations: Default::default() })
     }

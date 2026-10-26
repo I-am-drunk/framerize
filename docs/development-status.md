@@ -3,6 +3,17 @@
 The rearchitecture is on `refactor/separate-apps-and-ci-20261025` in draft
 [PR #2](https://github.com/I-am-drunk/framerize/pull/2). It is not deployed.
 
+Concurrent login and import now serialize duplicate-email validation through
+the initial account save. A losing registration cannot save a replacement
+session or claim a grant; the shared guard releases before credit admission
+and on early failure or cancellation. All twelve isolated checks pass after
+the parent reproduced four login/import races with one admission control.
+All 760 source and four candidate hashes match; both test units are stopped.
+This source fix is outside the frozen `3ead4b8` packages. It protects one
+shared in-process policy, without adding database uniqueness or rolling back
+earlier session/grant effects after a later failure. Next: obtain fresh live
+handover readiness while preserving the qualified packages and service repairs.
+
 Shared Python driver startup now clears the cached start task only while
 the finishing waiter still owns that exact task. An obsolete failed waiter
 can no longer discard a pending retry, create a duplicate driver or hide
