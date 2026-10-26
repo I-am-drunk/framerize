@@ -3,6 +3,16 @@
 The rearchitecture is on `refactor/separate-apps-and-ci-20261025` in draft
 [PR #2](https://github.com/I-am-drunk/framerize/pull/2). It is not deployed.
 
+CDP commands now use one deadline for both writing the command and waiting
+for its reply. A stalled socket write can no longer bypass the caller's
+timeout, including during browser shutdown. The blocked-write regression
+and both reply/error controls pass after the parent reproduced the write
+hang. All 740 tracked and two candidate hashes match; both isolated units
+are stopped. This source-only change preserves every caller duration and
+does not cancel browser JavaScript or establish process exit. It is outside
+the frozen `f33362b` packages. Next: qualify the queued CDP origin selection
+and HTTP transport group.
+
 Python browser-page ownership now survives repeated caller cancellation.
 Cancelled pool allocation settles and reclaims its page before unlocking;
 borrowed pages wait for their own dispatched calls before returning to the
