@@ -3,6 +3,9 @@ use super::*;
 #[path = "messages_citation_tests.rs"]
 mod citations;
 
+#[path = "messages_block_validation_tests.rs"]
+mod validation;
+
 fn events(block: Value, deltas: Vec<Value>, reason: &str) -> Vec<Value> {
     let mut events = vec![
         json!({"type":"message_start","message":{"id":"msg-fixture",

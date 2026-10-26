@@ -199,6 +199,7 @@ pub(super) fn parse(text: &str) -> Result<StreamedChunk, String> {
         }
     }
 
+    super::buffered::validate_blocks(&blocks, &stop_reason)?;
     Ok(StreamedChunk {
         id,
         content: blocks,

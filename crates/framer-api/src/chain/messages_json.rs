@@ -31,6 +31,11 @@ pub(super) fn decode(body: &Value) -> Result<(Vec<Value>, String, Value), String
         usage.get(*field).is_some_and(|count| count.as_u64().is_none())) {
         return Err("Messages response has invalid usage metadata".into());
     }
+    validate_blocks(blocks, stop)?;
+    Ok((blocks.clone(), stop.to_string(), usage))
+}
+
+pub(super) fn validate_blocks(blocks: &[Value], stop: &str) -> Result<(), String> {
     for block in blocks {
         if !block.is_object() || !nonempty_text(&block["type"]) {
             return Err("Messages response has an invalid content block".into());
@@ -52,5 +57,5 @@ pub(super) fn decode(body: &Value) -> Result<(Vec<Value>, String, Value), String
             _ => {}
         }
     }
-    Ok((blocks.clone(), stop.to_string(), usage))
+    Ok(())
 }

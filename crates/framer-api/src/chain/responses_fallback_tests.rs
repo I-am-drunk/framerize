@@ -37,6 +37,7 @@ struct Fixture {
     replies: Mutex<VecDeque<Reply>>,
     requests: Mutex<Vec<Value>>,
     refunds: Mutex<usize>,
+    failure: Option<(usize, &'static str)>,
 }
 
 #[async_trait]
@@ -64,6 +65,11 @@ impl BrowserBridge for Fixture {
         self.requests.lock().unwrap().push(body["request"].clone());
         let reply = self.replies.lock().unwrap().pop_front().expect("unexpected attempt");
         assert_eq!(body["request"]["stream"], reply.streamed);
+        if let Some((attempt, error)) = self.failure {
+            if self.requests.lock().unwrap().len() == attempt {
+                return Err(error.into());
+            }
+        }
         let Some(mut response) = reply.body else {
             return Err("fixture transport connection closed".into());
         };
@@ -90,11 +96,18 @@ fn config() -> ChainConfig {
 }
 
 fn run(replies: Vec<Reply>, cfg: ChainConfig) -> Run {
-    tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap().block_on(async {
+    run_with_failure(replies, cfg, None)
+}
+
+fn run_with_failure(replies: Vec<Reply>, cfg: ChainConfig,
+    failure: Option<(usize, &'static str)>) -> Run {
+    tokio::runtime::Builder::new_current_thread().enable_all()
+        .start_paused(failure.is_some()).build().unwrap().block_on(async {
         let account = AccountId(uuid::Uuid::from_u128(1));
         let session = Session { active_user:FramerUserId("fixture-user".into()), cookie_header:"fixture-only".into() };
         let cache = Mutex::new(vec![(account, AiToken::for_session(&session, "fixture-only".into(), i64::MAX))]);
-        let browser = Fixture { replies:Mutex::new(replies.into()), requests:Mutex::new(Vec::new()), refunds:Mutex::new(0) };
+        let browser = Fixture { replies:Mutex::new(replies.into()), requests:Mutex::new(Vec::new()),
+            refunds:Mutex::new(0), failure };
         let events = Mutex::new(Vec::new());
         let callback = |event| {
             if let ChainEvent::ResponsesItems { items, continues_text } = event {
@@ -215,6 +228,66 @@ fn disabled_metered_fallback_never_sends_a_stream() {
     assert!(actual.result.unwrap_err().contains("fallback off"));
     assert!(actual.events.is_empty());
     assert_eq!((actual.requests.len(), actual.refunds), (2, 0));
+}
+
+fn refuses_after_transport_retry(error: &'static str) {
+    for metered in [true, false] {
+        let mut cfg = config();
+        cfg.metered_fallback = metered;
+        let replies = fallback(response(text("unexpected"), "completed"), false)
+            .into_iter().take(2).collect();
+        let actual = run_with_failure(replies, cfg, Some((2, error)));
+        assert_eq!(actual.result.unwrap_err(), error);
+        assert_eq!((actual.requests.len(), actual.refunds), (2, 0));
+        assert!(actual.requests.iter().all(|request| request["stream"] == false));
+        assert!(actual.events.is_empty());
+    }
+}
+
+#[test]
+fn retry_risk_refusal_never_enters_metered_fallback() {
+    refuses_after_transport_retry("risk-refused");
+}
+
+#[test]
+fn retry_provider_refusal_never_enters_metered_fallback() {
+    refuses_after_transport_retry("upstream 403 on /ai/v3/responses/: provider refused");
+}
+
+#[test]
+fn retry_credit_exhaustion_never_enters_metered_fallback() {
+    refuses_after_transport_retry("credits-exhausted");
+}
+
+#[test]
+fn retry_client_errors_never_enter_metered_fallback() {
+    for error in ["retryable 400 on /ai/v3/responses/: bad request",
+        "retryable 404 on /ai/v3/responses/: missing route",
+        "retryable 422 on /ai/v3/responses/: invalid input"] {
+        refuses_after_transport_retry(error);
+    }
+}
+
+#[test]
+fn retry_rate_limit_never_enters_metered_fallback() {
+    refuses_after_transport_retry("retryable 429 on /ai/v3/responses/: busy");
+}
+
+#[test]
+fn retry_local_cooldown_retains_existing_no_fallback_behavior() {
+    refuses_after_transport_retry("account-cooling:30");
+}
+
+#[test]
+fn transport_retry_policy_preserves_idle_window_and_terminal_errors() {
+    assert!(!allows_transport_retry("risk-refused", 8.0));
+    assert!(allows_transport_retry("risk-refused", 8.1));
+    assert!(allows_transport_retry("fixture transport connection closed", 0.0));
+    assert!(allows_transport_retry("retryable 503 on /ai/v3/responses/: unavailable", 1.0));
+    for error in ["unauthorized", "credits-exhausted", "upstream 403 on fixture", "retryable 429 on fixture"] {
+        assert!(!allows_transport_retry(error, 0.0));
+        assert!(!allows_transport_retry(error, 90.0));
+    }
 }
 
 #[test]

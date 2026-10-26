@@ -37,6 +37,15 @@ mod responses_sse_tests;
 #[path = "responses_fallback_tests.rs"]
 mod responses_fallback_tests;
 
+fn allows_transport_retry(error: &str, elapsed_secs: f32) -> bool {
+    (error == "risk-refused" && elapsed_secs > 8.0)
+        || (!error.starts_with("upstream 403")
+            && error != "risk-refused"
+            && error != "credits-exhausted"
+            && error != "unauthorized"
+            && !error.starts_with("retryable 4"))
+}
+
 /// Fire a full (possibly multi-chunk) generation on the responses passthrough
 /// and return the assembled native Responses object.
 #[allow(clippy::too_many_arguments)]
@@ -194,14 +203,7 @@ pub async fn complete_long(
                 // velocity 403 after >8s of waiting as an idle-window kill
                 // (audit 2026-10-11: wasted halve-retries on velocity bans).
                 let elapsed = cooldown_wait.elapsed(last_attempt_t0).as_secs_f32();
-                let idle_killed = e == "risk-refused" && elapsed > 8.0;
-                let upstream_refused = e.starts_with("upstream 403");
-                let transport_died = !upstream_refused
-                    && e != "risk-refused"
-                    && e != "credits-exhausted"
-                    && e != "unauthorized"
-                    && !e.starts_with("retryable 4");
-                if !((idle_killed || transport_died) && chunk_tokens > 200) {
+                if !(allows_transport_retry(&e, elapsed) && chunk_tokens > 200) {
                     return Err(e);
                 }
                 // Died silently (idle window or transport): halve and retry once.
@@ -209,6 +211,7 @@ pub async fn complete_long(
                 let retry_chunk = budget.min(chunk_tokens).min(chunk_cap).max(16);
                 eprintln!("[nativechain] chunk {i} died at {elapsed:.1}s ({e}) — retrying with max_output_tokens={retry_chunk}");
                 let retry_payload = build_payload(&input_items, retry_chunk);
+                let retry_t0 = cooldown_wait.timer();
                 match cooldown_wait.run(cfg, !output_items.is_empty(), || proxy::forward_cancellable(
                     t, token_cache, session, browser, account, project,
                     Dialect::OpenRouterResponses, &chain_step, retry_payload.clone(), chat_session, i, cfg.cancelled.as_deref(),
@@ -218,6 +221,8 @@ pub async fn complete_long(
                     Ok(r) => (r, retry_chunk, false),
                     Err(e2) if framer_core::error::AccountCooldown::from_error(&e2).is_some() => return Err(e2),
                     Err(e2) if cfg.is_cancelled() => return Err(e2),
+                    Err(e2) if !allows_transport_retry(&e2,
+                        cooldown_wait.elapsed(retry_t0).as_secs_f32()) => return Err(e2),
                     Err(e2) if cfg.metered_fallback => {
                         eprintln!("[nativechain] chunk {i} retry died ({e2}) — metered stream fallback for this chunk");
                         let sp = build_payload(&input_items, retry_chunk);
