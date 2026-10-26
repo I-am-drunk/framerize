@@ -1,5 +1,22 @@
 # Development status
 
+SQLite lookup now rejects an embedded account identity different from its
+requested key. Listing requires each raw text key to equal the decoded
+canonical UUID. Invalid, noncanonical and nontext keys return the fixed
+payload-free identity error. JSON decoding errors keep their precedence;
+valid alternate UUID spelling inside JSON remains accepted. Stored rows
+are preserved, including inconsistent rows; this does not repair them.
+
+This composes `1155330` after the qualified `3a62a24` streaming integration.
+All 20 selected methods pass, with 802 matching source pins and two matching
+candidate pins, and the isolated unit is stopped. The baseline reproduced
+four failures while the valid-record control passed. Baseline loops stopped
+at the first insertion order, uppercase key and initial migration lookup;
+only the candidate establishes the later forms and reopen assertions.
+Streaming, account publication and current dependency changes are retained.
+The separate legacy UTF-8 migration correction remains source-only, as does
+the real worker implementation. This milestone changes no running service.
+
 Free Responses streaming now uses the bounded, awaited output path from
 `4447080`, composed after `1aef73d` with the newer account and store fixes.
 All 21 focused integration checks pass with 801 matching source pins and

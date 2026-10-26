@@ -11,6 +11,7 @@ use rusqlite::{Connection, OptionalExtension};
 use std::sync::Mutex;
 
 const KEYCHAIN_SERVICE: &str = "framerize.session";
+const ACCOUNT_IDENTITY_ERROR: &str = "stored account identity does not match its key";
 
 mod file_sessions;
 mod legacy_device_ids;
@@ -21,6 +22,9 @@ mod sqlite_tests;
 
 #[cfg(test)]
 mod sqlite_list_tests;
+
+#[cfg(test)]
+mod sqlite_key_identity_tests;
 
 #[cfg(test)]
 mod legacy_device_id_tests;
@@ -75,22 +79,40 @@ impl StateStore for SqliteStateStore {
             .optional()
             .map_err(|e| e.to_string())?;
         match row {
-            Some(json) => serde_json::from_str(&json).map(Some).map_err(|e| e.to_string()),
+            Some(json) => {
+                let account: ManagedAccount = serde_json::from_str(&json).map_err(|e| e.to_string())?;
+                if account.id != id {
+                    return Err(ACCOUNT_IDENTITY_ERROR.into());
+                }
+                Ok(Some(account))
+            }
             None => Ok(None),
         }
     }
 
     async fn list(&self) -> Result<Vec<ManagedAccount>, String> {
         let conn = self.conn.lock().unwrap();
-        let mut stmt = conn.prepare("SELECT json FROM accounts").map_err(|e| e.to_string())?;
+        let mut stmt = conn.prepare("SELECT json, id FROM accounts").map_err(|e| e.to_string())?;
         let rows = stmt
-            .query_map([], |r| r.get::<_, String>(0))
+            .query_map([], |r| {
+                let json = r.get::<_, String>(0)?;
+                // Owned SQL text conversion can panic on invalid UTF-8 keys.
+                let key = match r.get_ref(1)? {
+                    rusqlite::types::ValueRef::Text(bytes) => Some(bytes.to_vec()),
+                    _ => None,
+                };
+                Ok((json, key))
+            })
             .map_err(|e| e.to_string())?;
         let mut out = Vec::new();
         for r in rows {
-            let json = r.map_err(|e| e.to_string())?;
-            let account = serde_json::from_str(&json)
+            let (json, key) = r.map_err(|e| e.to_string())?;
+            let account: ManagedAccount = serde_json::from_str(&json)
                 .map_err(|_| "stored account could not be decoded".to_string())?;
+            let expected_key = account.id.0.to_string();
+            if key.as_deref() != Some(expected_key.as_bytes()) {
+                return Err(ACCOUNT_IDENTITY_ERROR.into());
+            }
             out.push(account);
         }
         Ok(out)
