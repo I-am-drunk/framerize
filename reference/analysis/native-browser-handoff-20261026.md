@@ -8,6 +8,22 @@ This work is not deployed and does not establish live Framer acceptance.
 
 ## Contract
 
+The next acceptance experiment uses a freshly minted V3 token through this
+supplied-token browser sender. The earlier browser-token/native-HTTP success
+establishes neither native-minter acceptance nor the cause of the later
+direct-native `403/request_blocked`. No saved token or browser remint belongs
+in the new experiment. An accepted first leg would support a separately
+bound comparison using another fresh token and the native HTTP sender.
+
+The `c16fd24` pair is prepared for that experiment. The current repaired
+browser uses the older binary without `/api/ready`; a post-switch return
+therefore needs the qualified browser package and its account-history
+readiness check. The original invocation remains the pre-switch abort target.
+Full read-only eligibility passed at 23:55 UTC on October 26, with seven
+active users still observed. No common quiet interval or live attempt was
+established by that result. Actual drain, joined cleanup and recovery remain
+required before the single-request experiment can produce acceptance evidence.
+
 `FreshCastleToken` carries the minted device through authorization. The
 browser path checks account, private session, device and token age before
 dispatch. Python seeds the request's cookies through the browser API; the

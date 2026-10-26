@@ -1,5 +1,14 @@
 # Development status
 
+A new native-token/browser-sender acceptance attempt is prepared from the
+qualified `c16fd24` package pair. Full read-only eligibility passed at
+23:55 UTC on October 26, after the selected account's cooldown expired;
+seven active users were still observed. No timed wait or service switch is
+armed. The experiment must establish whether the native minter's fresh
+output is accepted before attributing the previous refusal to HTTP transport.
+Its existing controller retains the actual work drain and independent
+recovery checks. The live `c7d4516` repair remains in place.
+
 Legacy device migration now reads raw SQLite text with checked UTF-8.
 Malformed text and nontext rows remain byte-for-byte unchanged while valid
 legacy records receive their persisted device identity. This avoids an
