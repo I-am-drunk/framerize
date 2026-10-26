@@ -9,6 +9,8 @@ mod api_run_capacity;
 mod local_request_completion;
 #[path = "account_import_identity_tests.rs"]
 mod import_identity;
+#[path = "account_dedupe_preview_tests.rs"]
+mod dedupe_preview;
 
 
 use super::{account, policy};

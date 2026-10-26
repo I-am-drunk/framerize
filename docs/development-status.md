@@ -3,6 +3,17 @@
 The rearchitecture is on `refactor/separate-apps-and-ci-20261025` in draft
 [PR #2](https://github.com/I-am-drunk/framerize/pull/2). It is not deployed.
 
+Dedupe reports now end device and team previews at a valid UTF-8 boundary
+within the existing eight-byte limit. Empty and short saved IDs no longer
+panic during report construction. All five isolated handler checks pass
+after the parent reproduced three panics with two passing controls.
+All 760 source and three candidate hashes match; both test units are stopped.
+Full identity still determines clone/dead classification. Preview checks
+confirm unchanged records and no browser, client, session or state writes;
+deletion itself is unchanged. This integrates A's `8f79fa4` contextual delta
+after the heartbeat and registration corrections, outside frozen `3ead4b8`
+packages. The separate provisioning-log follow-up remains source-only.
+
 Responses heartbeats now use typed `response.in_progress` events in both
 item-driven serving paths, with the same response ID and sequence as output
 and completion. An isolated codex-cli 0.163.0 comparison timed out despite
