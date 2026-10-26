@@ -43,9 +43,13 @@ pub struct AccountRuntime {
 
 impl AccountRuntime {
     /// Explicit bounded admission for library callers without operation ownership.
-    pub fn with_response_output_limit(mut self, limit: usize) -> Self {
+    pub fn with_response_output_limit(mut self, limit: usize)
+        -> Result<Self, crate::operation_ownership::OwnershipConfigError> {
+        if self.operation_ownership.is_some() {
+            return Err(crate::operation_ownership::OwnershipConfigError::AlreadyConfigured);
+        }
         self.response_output = Arc::new(crate::response_output::OutputBudget::new(limit));
-        self
+        Ok(self)
     }
     pub fn with_gate(mut self, gate: framer_core::gate::ConcurrencyGate) -> Self {
         self.gate = Arc::new(gate);
