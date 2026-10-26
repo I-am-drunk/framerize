@@ -242,6 +242,14 @@ Repeated cancellation cannot abandon that close; a close failure remains an
 error. These ownership rules do not introduce operation deadlines or prove
 that remote JavaScript has stopped merely because a local call settled.
 
+Device context creation also retains any late result until it is closed.
+Device preparation keeps its lock and memory reservation through dispatched
+RPC completion, including cancellation during seeding, warming or cleanup.
+Repeated cancellation cannot abandon the close. A failed cancelled close
+preserves cancellation and marks account cleanup unconfirmed, preventing
+ambient mint fallback and new account admission until browser cleanup.
+These guarantees concern local RPC ownership, not remote work termination.
+
 Login completion and session import reject a duplicate normalized email before
 saving the user-keyed session or claiming a workspace grant. Reauthentication
 of the same account retains save-before-grant and admission ordering. This is
