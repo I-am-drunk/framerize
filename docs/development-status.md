@@ -3,6 +3,17 @@
 The rearchitecture is on `refactor/separate-apps-and-ci-20261025` in draft
 [PR #2](https://github.com/I-am-drunk/framerize/pull/2). It is not deployed.
 
+The rate-history recovery correction is integrated from `8d45b5e`. Browser
+and native migration now carry the same configured reserve policy, preserve
+existing debt and identities, and recover supported incomplete history only
+under verified ownership. Recovery requires account-history readiness from
+the expected serving process. The previous R6 return checked HTTP liveness
+only and did not establish usable history; its native canary returned 502.
+All 183 isolated checks passed in the correction's qualification, and its
+32 source/executable pins still match. The 28 integrated source pins match
+unchanged. Matching packages are the next step. The repaired live service is
+preserved; this integration is not deployed or a live-acceptance result.
+
 Responses check the existing 300-second active-time budget before explicit
 rate, halved-transport and metered retries. All 18 selected checks pass,
 including eight new cases; the previous behavior reproduced three extra

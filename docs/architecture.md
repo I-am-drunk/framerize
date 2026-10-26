@@ -9,7 +9,17 @@ checks remaining descendants before selecting a return binary. Before history
 migration it returns to the original browser; afterward it preserves the
 journal and retains the compatible browser in a persistent service override.
 Recovery restores only the saved or transition-fenced pool configuration.
+Before recording a compatible return, it requires account-history readiness
+and the expected serving process identity. HTTP liveness alone is insufficient.
 It does not admit requests, migrate history or launch a canary by itself.
+
+Browser and native migration carry the same configured reserve policy.
+Reserve-limit changes preserve consumed debt; reboot recovery preserves rate
+restrictions. Missing-history recovery requires verified service and session
+ownership, retains existing device identities, holds devices for 600 seconds
+and keeps unknown reserve debt for 24 hours. Only recognized unversioned
+schemas are adopted; unknown history is preserved with actionable diagnostics.
+See [rate-history recovery](rate-history-recovery.md) for the boundary.
 
 The separate transition controller requires a systemd recovery supervisor
 with finite runtime and stop limits. It uses the existing pool configuration
