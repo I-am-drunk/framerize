@@ -95,3 +95,20 @@ Node qualification only; the recorded browser trials were not repeated.
 This poll removes chunks before the host acknowledges them. A lost RPC
 reply can therefore lose content. Before production use, implement explicit
 acknowledgement and retry of the same chunk, including final-job cleanup.
+
+## Acknowledged delivery
+
+`queue_ack_poll.js` and `queue_ack.py` add explicit sequence acknowledgements.
+The pending frame retains its share of queue capacity and remains replayable
+until acknowledged. A final frame also waits for acknowledgement before the
+job is removed. The original measured reader and poll are unchanged.
+
+Run `ack_probe.py --browser /browser/camoufox` in the same private namespaces
+and resource bounds as the other browser fixtures. It checks a normal body,
+five deliberately lost RPC replies, capacity while a frame is unacknowledged,
+joined cancellation and oversize refusal. Retries must not repeat the HTTP
+request. This is a correctness fixture, not a performance comparison.
+
+Production use must retain the host's account-owned `Host._rpc` wrapper and
+request deadline. This standalone receiver does not qualify that integration.
+See the [recorded result](../../../reference/analysis/browser-response-ack-20261026.md).
