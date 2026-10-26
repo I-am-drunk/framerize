@@ -6,15 +6,15 @@ continuation. One runtime budget owns encoder leases; output slots remain
 charged through final Bytes disposal. Channel EOF, body cancellation and
 joined upstream cleanup keep separate lifetimes. Legacy routes remain.
 
-The current draft adds 41 inert fixtures and preserves existing assertions.
-Only the approved heartbeat buffer-disposal body has changed. Three approved
-fixture parents use a copying consumer; the pool mock gains an awaited port.
-Four retained tests that wait for producer completion before reading need a
-further narrow consumption adaptation, currently pending main's decision.
+The current draft adds 47 inert fixtures and preserves existing assertions.
+Approved existing-body changes dispose heartbeat buffers and pump four Native
+fixture bodies until the producer returns, retaining the original remainder.
+Three approved fixture parents use a copying consumer; the pool mock gains
+an awaited port. The pump has explicit frame, byte and time limits.
 Rust syntax parsing and whitespace checks ran; no compilation, test or
 measurement ran in this lane. Main owns qualification. Hosted CI still has
-the recorded billing blocker. Next: resolve that fixture dependency, finish
-the existing vision source review and freeze one exact qualification packet.
+the recorded billing blocker. Next: finish the existing vision source review
+and freeze one exact qualification packet with the released fixture changes.
 
 Output-credit waits now record pending heartbeat demand while publication is
 blocked. A focused virtual-time fixture isolates that transition; unpaused

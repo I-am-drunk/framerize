@@ -1271,6 +1271,10 @@ async fn all_stream_handlers_retain_residency_through_chain_and_unread_completed
         until(|| ports.request_steps.load(Ordering::SeqCst) == 1).await;
         assert_stream_residency(&state).await;
         ports.request_gate.add_permits(1);
+        let response = if matches!(route, Route::Native) {
+            crate::response_output::pump_until_producer_returns(response,
+                || ports.request_drops.load(Ordering::SeqCst) == 1).await
+        } else { response };
         until(|| ports.request_drops.load(Ordering::SeqCst) == 1).await;
         assert_eq!(ports.request_finished.load(Ordering::SeqCst), 1, "{route:?}");
         assert_stream_residency(&state).await;
@@ -1322,6 +1326,10 @@ async fn retry_releases_previous_account_and_keeps_replacement_until_unread_body
         assert_eq!(ports.max_live.load(Ordering::SeqCst), 1);
         assert!(matches!(parked(&state, 2).await, Err(ApiError::PoolBusy(_))));
         ports.request_gate.add_permits(2);
+        let response = if matches!(route, Route::Native) {
+            crate::response_output::pump_until_producer_returns(response,
+                || ports.request_drops.load(Ordering::SeqCst) == 2).await
+        } else { response };
         until(|| ports.request_drops.load(Ordering::SeqCst) == 2).await;
         assert_eq!(ports.request_finished.load(Ordering::SeqCst), 1);
         assert!(slot(&state, id(2)).users > 0, "{route:?}");

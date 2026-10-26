@@ -266,3 +266,33 @@ fn responses_explicit_library_limit_cannot_replace_owned_output_capacity() {
         } else { assert!(configured.is_ok()); }
     }
 }
+
+#[tokio::test]
+async fn responses_producer_panic_fences_with_retained_bytes_until_disposal() {
+    use tower::ServiceExt;
+    let mut f = Fixture::new();
+    f.state = crate::operation_ownership::with_owned_operations(f.state, 3).unwrap();
+    let scope = f.state.operation_ownership.clone().unwrap();
+    let response = crate::router(f.state.clone(), "/nonexistent-fixture-web")
+        .oneshot(owned_request(&f)).await.unwrap();
+    let call = f.next().await;
+    call.reply.send(Ok(success("messages"))).ok().unwrap();
+    let mut body = response.into_body().into_data_stream();
+    let mut retained = None;
+    while let Some(frame) = tokio::time::timeout(WAIT, body.next()).await.unwrap() {
+        let bytes = frame.unwrap();
+        if String::from_utf8_lossy(&bytes).contains("response.failed") { retained = Some(bytes.clone()); }
+    }
+    assert!(retained.is_some());
+    tokio::time::timeout(WAIT, async {
+        while scope.accepting_requests() { tokio::task::yield_now().await; }
+    }).await.unwrap();
+    assert!(matches!(scope.external_cleanup(), Err(framer_core::operation_gate::GateError::Unconfirmed)));
+    assert_eq!(f.state.response_output.counts().0, 1);
+    drop(body); drop(retained);
+    tokio::time::timeout(WAIT, async {
+        while f.state.response_output.counts() != (0, 0, 0) { tokio::task::yield_now().await; }
+    }).await.unwrap();
+    assert!(!scope.accepting_requests());
+    f.no_call();
+}
