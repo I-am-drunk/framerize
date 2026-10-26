@@ -1009,7 +1009,8 @@ class Host:
         try:
             await asyncio.shield(task)
         finally:
-            if task.done():
+            # A late failed waiter must not discard a newer retry's owner.
+            if task.done() and self._driver_start_task is task:
                 self._driver_start_task = None
 
     async def _launch(self, account, proxy=None):
