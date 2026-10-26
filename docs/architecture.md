@@ -3,6 +3,13 @@
 The current reorganization is in progress. See [the design](rearchitecture.md)
 for decisions, boundaries and the remaining migration work.
 
+The separate S1 candidate in [PR #7](https://github.com/I-am-drunk/framerize/pull/7)
+gives account state, rotation and authorization one owned runtime. It retains
+that runtime through request and host cleanup, with account-scoped cache
+invalidation on session changes. Its 351 isolated checks pass at `71581d5`;
+integration with this branch's newer changes remains pending. This ownership
+step does not remove browser transport or establish memory/latency savings.
+
 The experimental native/browser transition has an explicit recovery helper.
 It verifies pinned inputs and service ownership, joins native shutdown, and
 checks remaining descendants before selecting a return binary. Before history

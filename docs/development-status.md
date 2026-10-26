@@ -1,5 +1,16 @@
 # Development status
 
+The separate S1 runtime-ownership candidate at `71581d5` in
+[PR #7](https://github.com/I-am-drunk/framerize/pull/7) now compiles and passes
+all 351 selected isolated checks: API 13, core 8, native 66, server 252 and
+browser application 12. All 765 source hashes match; compilation and both
+test units are stopped with no remaining processes. The initial nine fixture
+assignment errors were corrected before these runs; production ownership
+was unchanged by that correction. This qualifies the separate S1 branch,
+not its integration here or live delivery. Frozen `3ead4b8` packages remain
+unchanged. S2/S3 are not released. Next: qualify the queued account-retention
+correction, then compose S1 with the newer feature changes.
+
 Extra-workspace provisioning now uses the existing UTF-8-safe preview in its
 successful-create log. Short or non-ASCII metadata IDs can no longer panic
 before the returned project is retained. All four isolated provisioning
