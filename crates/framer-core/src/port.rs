@@ -8,6 +8,8 @@ use crate::ids::{AccountId, FramerUserId, ProjectId, TeamId};
 use crate::pipeline::{InferenceRequest, InferenceResult};
 use crate::workspace::CreditSnapshot;
 use async_trait::async_trait;
+pub use framer_protocol::responses_sink::{OutputError, ResponseError, ResponseResult,
+    ResponsesSink, ValidatedChunk, emit_assembled};
 use bytes::Bytes;
 use futures::Stream;
 use std::pin::Pin;
@@ -377,6 +379,16 @@ pub trait FramerClient: Send + Sync {
         chat_session: &str,
         events: Option<&(dyn Fn(crate::convert::ChainEvent) + Send + Sync)>,
     ) -> Result<crate::convert::AssembledResponses, String>;
+
+    /// Awaited publication for free Responses SSE. No buffering fallback.
+    #[allow(clippy::too_many_arguments)]
+    async fn native_long_with_sink(
+        &self, _session: &Session, _browser: &dyn BrowserBridge,
+        _account: &AccountId, _project: &ProjectId, _responses_payload: serde_json::Value,
+        _cfg: &ChainConfig, _chat_session: &str, _sink: &dyn ResponsesSink,
+    ) -> ResponseResult {
+        Err(OutputError::Unsupported.into())
+    }
 
     /// GET /web/teams/{teamId}/ai-credits.
     async fn usage(&self, session: &Session, team: &TeamId) -> Result<CreditSnapshot, String>;

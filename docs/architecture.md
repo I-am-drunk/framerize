@@ -1,5 +1,22 @@
 # Architecture
 
+The S3a source slice connects free Responses SSE to an awaited output sink.
+Policy transfers a validated chunk to one encoder, waits for every encoded
+segment to enter the bounded body queue, then receives the same chunk owner
+before updating history or dispatching again. Legacy callback, Chat, JSON
+and direct paths retain their compatibility entry points.
+
+One shared output budget belongs to AccountRuntime. Each stream reserves
+an encoder lease and two 16 KiB output slots before headers or Forward.
+Slots follow the final Bytes owner, including polled clones. The emitter
+closes staging before joining a cancelled serializer, closes body output
+before waiting for final buffer disposal, and joins already-sent Forward
+cleanup separately. Channel EOF never waits for producer completion.
+
+This slice is uncompiled and unqualified. Source fixtures cover bounds,
+faults, gate mapping and P2/P5 progress; main owns their execution.
+It does not switch application generations or change host retirement.
+
 Registration distinguishes admission refusal from profile and storage errors.
 Only the existing `NotEligible` result persists an exhausted account. Other
 errors preserve the initial saved record and propagate the original failure;

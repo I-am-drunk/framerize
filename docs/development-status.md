@@ -1,5 +1,21 @@
 # Development status
 
+S3a source work on refactor/kernel-hot-swap-20261026 uses qualified 8ca3ddc.
+Free Responses SSE now awaits bounded encoding and output acceptance before
+continuation. One runtime budget owns encoder leases; output slots remain
+charged through final Bytes disposal. Channel EOF, body cancellation and
+joined upstream cleanup keep separate lifetimes. Legacy routes remain.
+
+The current draft adds 37 inert fixtures and preserves existing assertions.
+Only the approved heartbeat buffer-disposal body has changed. Three approved
+fixture parents use a copying consumer; the pool mock gains an awaited port.
+Four retained tests that wait for producer completion before reading need a
+further narrow consumption adaptation, currently pending main's decision.
+Rust syntax parsing and whitespace checks ran; no compilation, test or
+measurement ran in this lane. Main owns qualification. Hosted CI still has
+the recorded billing blocker. Next: resolve that fixture dependency, finish
+the existing vision source review and freeze one exact qualification packet.
+
 Login and import now persist `Exhausted` only for admission's existing
 `NotEligible` refusal. Propagated profile or store failures preserve the full
 initial saved record and the original error. This contextually integrates

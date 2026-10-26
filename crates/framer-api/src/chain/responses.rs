@@ -17,6 +17,19 @@ pub async fn complete_long(
     framer_protocol::responses::complete_long(&forward, client_payload, &cfg.limits(), events).await
 }
 
+#[allow(clippy::too_many_arguments)]
+pub async fn complete_long_with_sink(
+    t: &Transport, token_cache: &Mutex<Vec<(AccountId, AiToken)>>,
+    session: &Session, browser: &dyn BrowserBridge, account: &AccountId,
+    project: &ProjectId, client_payload: Value, cfg: &ChainConfig,
+    chat_session: &str, sink: &dyn framer_core::port::ResponsesSink,
+) -> framer_core::port::ResponseResult {
+    let forward = ResponsesForward::new(t, token_cache, session, browser, account,
+        project, chat_session, cfg.cancelled.as_deref(), cfg.on_429.as_deref());
+    framer_protocol::responses::complete_long_with_sink(
+        &forward, client_payload, &cfg.limits(), sink).await
+}
+
 #[cfg(test)]
 use serde_json::json;
 #[cfg(test)]

@@ -1,5 +1,6 @@
 use crate::{AbortOnDrop, ApiError, AppState};
-use axum::{body::{to_bytes, Body, Bytes}, http::HeaderMap, response::Response};
+use axum::{body::{Body, Bytes}, http::HeaderMap, response::Response};
+use crate::response_output::consume_body as to_bytes;
 use framer_core::{convert::ClientDialect, gate::ConcurrencyGate, port::ProxyResponse};
 use futures::StreamExt;
 use serde_json::json;

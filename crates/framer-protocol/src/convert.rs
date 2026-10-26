@@ -752,7 +752,7 @@ fn chat_finish(stop_reason: &str) -> String {
     }
 }
 
-fn now_unix() -> u64 {
+pub(crate) fn now_unix() -> u64 {
     std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .map(|d| d.as_secs())
@@ -1982,230 +1982,28 @@ mod chat_refusal_tests;
 mod chat_request_tests;
 
 #[path = "response_message.rs"]
-mod response_message;
+pub(crate) mod response_message;
 pub use response_message::merge_response_message;
+pub use crate::response_stream::{ResponseEncoder, ResponseWriter};
 
-/// Responses-API SSE composer. Whole items arrive per chunk (tool calls are
-/// always complete — a mid-call cut is retried, never emitted), so deltas are
-/// emitted per item in one shot, which is spec-valid.
-pub struct ResponsesComposer {
-    client_model: String,
-    logical_id: String,
-    item_idx: usize,
-    /// A message may carry text, refusal and other complete content parts.
-    message: Option<response_message::MessageStream>,
-    /// Stable ids for assistant message items across the stream — codex
-    /// correlates output_item.added/done by item id; items without one are
-    /// dropped, which produced turns with tokens but no assistant message.
-    msg_seq: usize,
-    /// Message ids already used by added/done events, in output order.
-    message_ids: Vec<String>,
-    /// Tool ids used by item and argument/input events, in tool output order.
-    tool_ids: Vec<String>,
-    next_sequence_number: u64,
-}
-
+/// Compatibility collector over the same incremental Responses event rules.
+pub struct ResponsesComposer(ResponseEncoder);
 impl ResponsesComposer {
-    pub fn new(client_model: &str, logical_id: &str) -> Self {
-        Self {
-            client_model: client_model.to_string(),
-            logical_id: logical_id.to_string(),
-            item_idx: 0,
-            message: None,
-            msg_seq: 0,
-            message_ids: Vec::new(),
-            tool_ids: Vec::new(),
-            next_sequence_number: 0,
-        }
-    }
-
-    /// Open this stream once before publishing items. The same composer owns
-    /// sequence numbers through finish or fail, including terminal errors.
+    pub fn new(model: &str, id: &str) -> Self { Self(ResponseEncoder::new(model, id)) }
     pub fn open(&mut self) -> Vec<String> {
-        let id = self.response_id();
-        vec![
-            self.ev("response.created", json!({"response": {
-                "id":id, "object":"response", "created_at":now_unix(),
-                "status":"in_progress", "model":self.client_model,
-            }})),
-            self.heartbeat(),
-        ]
+        crate::response_stream::collect(|writer| self.0.open(writer))
     }
-
-    fn response_id(&self) -> String {
-        if self.logical_id.starts_with("resp_") { self.logical_id.clone() }
-        else { format!("resp_{}", self.logical_id) }
-    }
-
-    /// Report activity without closing or replacing accumulated output.
     pub fn heartbeat(&mut self) -> String {
-        self.ev("response.in_progress", json!({"response": {
-            "id":self.response_id(), "status":"in_progress",
-        }}))
+        crate::response_stream::collect(|writer| self.0.heartbeat(writer)).remove(0)
     }
-
-    /// Terminate without promoting open content to a successful completion.
     pub fn fail(mut self, message: &str) -> Vec<String> {
-        let (_, shaped) = error_json(ClientDialect::OpenAiResponses, message);
-        vec![self.ev("response.failed", json!({"response": {
-            "status":"failed", "error":shaped["error"],
-        }}))]
+        crate::response_stream::collect(|writer| self.0.fail(writer, message))
     }
-
-    fn next_msg_id(&mut self) -> String {
-        self.msg_seq += 1;
-        let id = format!(
-            "msg_{}_{}",
-            self.logical_id.trim_start_matches("resp_"),
-            self.msg_seq
-        );
-        self.message_ids.push(id.clone());
-        id
+    pub fn push_items(&mut self, items: &[Value], continues: bool) -> Vec<String> {
+        crate::response_stream::collect(|writer| self.0.push_items(writer, items, continues))
     }
-
-    fn tool_item(&mut self, source: &Value) -> Value {
-        let mut item = source.clone();
-        let id = source["id"].as_str().map(str::to_owned).unwrap_or_else(|| {
-            let prefix = if source["type"] == "function_call" { "fc" } else { "ctc" };
-            format!("{prefix}_{}_{}", self.logical_id.trim_start_matches("resp_"),
-                self.tool_ids.len() + 1)
-        });
-        item["id"] = json!(id);
-        self.tool_ids.push(id);
-        item
-    }
-
-    fn frame(&mut self, mut event: Value) -> String {
-        event["sequence_number"] = json!(self.next_sequence_number);
-        self.next_sequence_number += 1;
-        let kind = event["type"].as_str().unwrap().to_string();
-        sse(&kind, event)
-    }
-
-    fn ev(&mut self, ty: &str, extra: Value) -> String {
-        let mut v = json!({"type": ty});
-        merge(&mut v, extra);
-        self.frame(v)
-    }
-
-    fn close_text(&mut self) -> Vec<String> {
-        let Some(message) = self.message.take() else { return Vec::new() };
-        self.item_idx += 1;
-        message.finish().into_iter().map(|event| self.frame(event)).collect()
-    }
-
-    pub fn push_items(&mut self, items: &[Value], continues_text: bool) -> Vec<String> {
-        let mut f = Vec::new();
-        for it in items {
-            match it["type"].as_str() {
-                Some("message") => {
-                    if self.message.is_none() {
-                        let id = self.next_msg_id();
-                        let message = response_message::MessageStream::new(it, id, self.item_idx);
-                        f.push(self.frame(message.start()));
-                        self.message = Some(message);
-                    }
-                    let events = self.message.as_mut().unwrap().append(it);
-                    f.extend(events.into_iter().map(|event| self.frame(event)));
-                }
-                Some("function_call") => {
-                    f.extend(self.close_text());
-                    let idx = self.item_idx;
-                    self.item_idx += 1;
-                    let item = self.tool_item(it);
-                    let args = item["arguments"].as_str().unwrap_or("").to_string();
-                    // Item fields pass through VERBATIM (namespace + any future
-                    // upstream fields) — codex round-trips the streamed item and
-                    // the upstream rejects re-sent calls missing `namespace`
-                    // (2026-10-06: "Missing namespace for function_call 'spawn_agent'").
-                    let mut added_item = item.clone();
-                    added_item["status"] = json!("in_progress");
-                    added_item["arguments"] = json!("");
-                    f.push(self.ev("response.output_item.added", json!({
-                        "output_index": idx,
-                        "item": added_item,
-                    })));
-                    f.push(self.ev("response.function_call_arguments.delta", json!({
-                        "output_index": idx, "item_id": item["id"], "delta": args,
-                    })));
-                    f.push(self.ev("response.function_call_arguments.done", json!({
-                        "output_index": idx, "item_id": item["id"], "arguments": args,
-                        "name": item["name"], "call_id": item["call_id"],
-                    })));
-                    f.push(self.ev("response.output_item.done", json!({
-                        "output_index": idx,
-                        "item": item,
-                    })));
-                }
-                Some("custom_tool_call") => {
-                    f.extend(self.close_text());
-                    let idx = self.item_idx;
-                    self.item_idx += 1;
-                    let item = self.tool_item(it);
-                    let input = item["input"].as_str().unwrap_or("").to_string();
-                    let mut added_item = item.clone();
-                    added_item["input"] = json!("");
-                    f.push(self.ev("response.output_item.added", json!({
-                        "output_index": idx,
-                        "item": added_item,
-                    })));
-                    f.push(self.ev("response.custom_tool_call_input.delta", json!({
-                        "output_index": idx, "item_id": item["id"], "delta": input,
-                    })));
-                    f.push(self.ev("response.custom_tool_call_input.done", json!({
-                        "output_index": idx, "item_id": item["id"], "input": input,
-                        "name": item["name"], "call_id": item["call_id"],
-                    })));
-                    f.push(self.ev("response.output_item.done", json!({
-                        "output_index": idx,
-                        "item": item,
-                    })));
-                }
-                Some(_) => {
-                    // Opaque items still occupy a position and separate messages.
-                    f.extend(self.close_text());
-                    let idx = self.item_idx;
-                    self.item_idx += 1;
-                    f.push(self.ev("response.output_item.added", json!({
-                        "output_index": idx, "item": it,
-                    })));
-                    f.push(self.ev("response.output_item.done", json!({
-                        "output_index": idx, "item": it,
-                    })));
-                }
-                _ => {}
-            }
-        }
-        // Producers describe this chunk's tail, not the preceding chunk.
-        // Adjacent message items merge just as they do in the chain result.
-        if !continues_text { f.extend(self.close_text()); }
-        f
-    }
-
-    pub fn finish(mut self, r: &AssembledResponses) -> Vec<String> {
-        let mut f = self.close_text();
-        let mut full = responses_json(r, &self.client_model, &self.logical_id);
-        // Attach the final snapshot to the same streamed message/tool ids.
-        // Supplied tool ids and all other upstream fields stay intact.
-        let mut message_ids = self.message_ids.iter();
-        let mut tool_ids = self.tool_ids.iter();
-        if let Some(items) = full["output"].as_array_mut() {
-            for item in items {
-                let id = match item["type"].as_str() {
-                    Some("message") => message_ids.next(),
-                    Some("function_call" | "custom_tool_call") => tool_ids.next(),
-                    _ => None,
-                };
-                if let Some(id) = id { item["id"] = json!(id); }
-            }
-        }
-        let terminal = if r.status == "incomplete" {
-            "response.incomplete"
-        } else {
-            "response.completed"
-        };
-        f.push(self.ev(terminal, json!({"response": full})));
-        f
+    pub fn finish(mut self, result: &AssembledResponses) -> Vec<String> {
+        crate::response_stream::collect(|writer| self.0.finish(writer, result))
     }
 }
 

@@ -194,3 +194,25 @@ async fn native_long_rebinds_account_session_project_chat_and_saturation() {
     }
     assert!(f.browser.replies.lock().unwrap().is_empty());
 }
+
+struct AwaitedSink { calls: AtomicUsize, reject: bool }
+#[async_trait]
+impl framer_core::port::ResponsesSink for AwaitedSink {
+    async fn emit(&self, chunk: framer_core::port::ValidatedChunk)
+        -> Result<framer_core::port::ValidatedChunk, framer_core::port::OutputError> {
+        self.calls.fetch_add(1, Ordering::SeqCst);
+        if self.reject { Err(framer_core::port::OutputError::Encoding) } else { Ok(chunk) }
+    }
+}
+#[tokio::test(start_paused = true)]
+async fn awaited_entry_keeps_authorized_binding_and_output_error_type() {
+    let f = Fixture::new(vec![success()]);
+    let sink = AwaitedSink { calls: AtomicUsize::new(0), reject: true };
+    let result = f.client.native_long_with_sink(&f.session, &f.browser, &f.account,
+        &ProjectId("fixture-project".into()), payload(), &ChainConfig::default(),
+        "fixture-chat", &sink).await;
+    assert!(matches!(result, Err(framer_core::port::ResponseError::Output(
+        framer_core::port::OutputError::Encoding))));
+    assert_eq!(sink.calls.load(Ordering::SeqCst), 1);
+    assert_eq!(f.browser.posts.lock().unwrap().len(), 1);
+}
