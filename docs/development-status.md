@@ -3,6 +3,13 @@
 The rearchitecture is on `refactor/separate-apps-and-ci-20261025` in draft
 [PR #2](https://github.com/I-am-drunk/framerize/pull/2). It is not deployed.
 
+Release binaries and both archives are now prepared at `72886b2`. The browser
+return package passes nine local startup/lifecycle checks; the native package
+passes eight with its packaged worker. Offline bundle assembly and immutable
+staging also pass. This supplies a history-schema-compatible return artifact.
+No live migration or inference request ran. The next runtime step remains
+genuine account-history transfer before the controlled native/browser canary.
+
 The latest combined qualification on `feat/native-browser-handoff-20261026`
 passes 154 API tests, 17 core conversion checks and 13 CDP bridge checks.
 Response content retains refusal/text order, annotations, logprobs and metadata.
