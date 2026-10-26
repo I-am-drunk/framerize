@@ -180,6 +180,14 @@ reuse it for errors. A failed join emits a fixed failure after settlement;
 failure never completes pending content successfully. Native cleanup still
 must be confirmed before a successful terminal event can be sent.
 
+While waiting, both item-driven Responses adapters use that same composer
+to emit `response.in_progress` every eight seconds. These events retain the
+response ID and advance the sequence without replacing accumulated output
+or closing pending content. Transport comments do not reset the installed
+Codex client's event idle timer. A drained, closed event channel is disabled
+while the server waits for the producer to settle. Chat and Messages retain
+their existing heartbeat formats; paid/direct passthrough is unchanged.
+
 Message assembly preserves typed content parts, refusal events, annotations,
 logprobs and metadata. Only adjacent plain-text boundary parts concatenate;
 rich parts retain their offsets and order. Chain and stream share this merge.

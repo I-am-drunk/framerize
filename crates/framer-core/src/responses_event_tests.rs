@@ -225,3 +225,55 @@ fn opening_and_terminal_frames_keep_the_same_logical_response_id() {
         }
     }
 }
+
+#[test]
+fn heartbeats_preserve_response_identity_text_tools_and_sequence() {
+    for logical in ["fixture", "resp_fixture", "msg_fixture"] {
+        let first = message("first ", "incomplete");
+        let last = message("second", "completed");
+        let mut merged = first.clone();
+        merge_response_message(&mut merged, &last);
+        let mut composer = ResponsesComposer::new("fixture-model", logical);
+        let mut frames = composer.open();
+        frames.push(composer.heartbeat());
+        frames.extend(composer.push_items(&[first], true));
+        frames.push(composer.heartbeat());
+        frames.extend(composer.push_items(&[last], true));
+        frames.push(composer.heartbeat());
+        frames.extend(composer.push_items(&tools(), false));
+        frames.push(composer.heartbeat());
+        let mut output = vec![merged];
+        output.extend(tools());
+        frames.extend(composer.finish(&result(output)));
+        let events = decode(frames);
+        assert_sequence(&events);
+        let terminal = &events.last().unwrap()["response"];
+        assert_eq!(terminal["output"][0]["content"][0]["text"], "first second");
+        let pulses: Vec<_> = events.iter().filter(|event|
+            event["type"] == "response.in_progress").collect();
+        assert_eq!(pulses.len(), 5);
+        for pulse in pulses {
+            assert_eq!(pulse["response"]["id"], terminal["id"]);
+            assert_eq!(pulse["response"]["status"], "in_progress");
+            assert!(pulse["response"].get("output").is_none());
+        }
+        for (index, tool) in tools().iter().enumerate() { assert_tool(&events, index + 1, tool); }
+    }
+}
+
+#[test]
+fn heartbeat_does_not_publish_pending_content_on_failure() {
+    let mut composer = ResponsesComposer::new("fixture-model", "fixture");
+    let mut frames = composer.open();
+    frames.extend(composer.push_items(&[message("partial", "incomplete")], true));
+    frames.push(composer.heartbeat());
+    frames.push(composer.heartbeat());
+    let failed = composer.fail("Cleanup");
+    assert_eq!(failed.len(), 1);
+    frames.extend(failed);
+    let events = decode(frames);
+    assert_sequence(&events);
+    assert_eq!(events.last().unwrap()["type"], "response.failed");
+    assert!(!events.iter().any(|event| matches!(event["type"].as_str(),
+        Some("response.completed" | "response.output_item.done" | "response.output_text.done"))));
+}

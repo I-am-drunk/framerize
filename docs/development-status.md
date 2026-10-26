@@ -3,6 +3,18 @@
 The rearchitecture is on `refactor/separate-apps-and-ci-20261025` in draft
 [PR #2](https://github.com/I-am-drunk/framerize/pull/2). It is not deployed.
 
+Responses heartbeats now use typed `response.in_progress` events in both
+item-driven serving paths, with the same response ID and sequence as output
+and completion. An isolated codex-cli 0.163.0 comparison timed out despite
+comment pings but received its delayed answer with typed progress events.
+All 24 focused core/server/native checks pass after the unchanged production
+baseline reproduced three heartbeat failures with two passing controls.
+All 760 source and seven candidate hashes match; both test units are stopped.
+Partial text, tool IDs, incomplete responses and joined cleanup are preserved.
+This qualified source is outside the frozen `3ead4b8` packages. It does not
+establish automatic compaction recovery or live acceptance. Next: integrate
+the independently delivered dedupe-preview correction.
+
 Concurrent login and import now serialize duplicate-email validation through
 the initial account save. A losing registration cannot save a replacement
 session or claim a grant; the shared guard releases before credit admission
