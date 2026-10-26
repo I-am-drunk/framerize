@@ -44,6 +44,13 @@ the previous behavior reproduced four failures with two controls passing.
 The 59b197d delta is integrated without replacing the newer inference parser.
 This corrects local cache behavior and does not establish live acceptance.
 
+Responses streaming now joins continued text before closing the message,
+preserves its final fragment status and uses consistent message IDs in events
+and the terminal snapshot. All 12 core conversion checks and both actual-chain
+cases pass. The old composer reproduced six core and two chain failures;
+its existing namespace control passed. The exact cf6d5c6 source is integrated
+on the experimental branch. Content-part fidelity remains a separate input.
+
 Messages fallback now requires closed content and `message_stop` before
 publishing output, rejects malformed tool input, preserves retry token limits,
 and retains `max_tokens` when the final text chunk is incomplete. The integrated

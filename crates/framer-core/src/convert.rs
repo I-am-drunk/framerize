@@ -1117,7 +1117,7 @@ pub enum ChainEvent {
     /// chain) are attached for incremental rendering.
     Chunk(Vec<Value>),
     /// A responses-native chunk completed; its new output items, and whether
-    /// the last open assistant text item continues into these items.
+    /// its final assistant message may continue in the next chunk.
     ResponsesItems { items: Vec<Value>, continues_text: bool },
     /// The chain finished (assembled response available).
     Done(Box<AssembledResponse>),
@@ -1954,6 +1954,10 @@ pub fn responses_json(r: &AssembledResponses, client_model: &str, logical_id: &s
 // both fed by ChainEvent::ResponsesItems (spec-exact frames per dialect).
 // ---------------------------------------------------------------------------
 
+#[cfg(test)]
+#[path = "responses_stream_tests.rs"]
+mod responses_stream_tests;
+
 /// Responses-API SSE composer. Whole items arrive per chunk (tool calls are
 /// always complete — a mid-call cut is retried, never emitted), so deltas are
 /// emitted per item in one shot, which is spec-valid.
@@ -1964,11 +1968,14 @@ pub struct ResponsesComposer {
     /// An assistant message item is open (text may continue next chunk).
     text_open: bool,
     text_acc: String,
+    text_status: Value,
     /// Stable ids for assistant message items across the stream — codex
     /// correlates output_item.added/done by item id; items without one are
     /// dropped, which produced turns with tokens but no assistant message.
     msg_seq: usize,
     open_msg_id: String,
+    /// Message ids already used by added/done events, in output order.
+    message_ids: Vec<String>,
 }
 
 impl ResponsesComposer {
@@ -1979,18 +1986,22 @@ impl ResponsesComposer {
             item_idx: 0,
             text_open: false,
             text_acc: String::new(),
+            text_status: json!("completed"),
             msg_seq: 0,
             open_msg_id: String::new(),
+            message_ids: Vec::new(),
         }
     }
 
     fn next_msg_id(&mut self) -> String {
         self.msg_seq += 1;
-        format!(
+        let id = format!(
             "msg_{}_{}",
             self.logical_id.trim_start_matches("resp_"),
             self.msg_seq
-        )
+        );
+        self.message_ids.push(id.clone());
+        id
     }
 
     fn ev(ty: &str, extra: Value) -> String {
@@ -2020,7 +2031,7 @@ impl ResponsesComposer {
             // even when deltas carried the text (verified 2026-10-13).
             Self::ev("response.output_item.done", json!({
                 "output_index": idx,
-                "item": {"id": item_id, "type": "message", "status": "completed", "role": "assistant",
+                "item": {"id": item_id, "type": "message", "status": self.text_status, "role": "assistant",
                            "content": [{"type": "output_text", "text": part_text, "annotations": []}]},
             })),
         ]
@@ -2028,7 +2039,6 @@ impl ResponsesComposer {
 
     pub fn push_items(&mut self, items: &[Value], continues_text: bool) -> Vec<String> {
         let mut f = Vec::new();
-        let mut first = true;
         for it in items {
             match it["type"].as_str() {
                 Some("message") => {
@@ -2039,8 +2049,7 @@ impl ResponsesComposer {
                         .iter()
                         .filter_map(|p| p["text"].as_str().map(str::to_string))
                         .collect();
-                    if !(first && continues_text && self.text_open) {
-                        f.extend(self.close_text());
+                    if !self.text_open {
                         self.open_msg_id = self.next_msg_id();
                         f.push(Self::ev("response.output_item.added", json!({
                             "output_index": self.item_idx,
@@ -2053,7 +2062,9 @@ impl ResponsesComposer {
                             "part": {"type": "output_text", "text": "", "annotations": []},
                         })));
                         self.text_open = true;
+                        self.text_status = json!("completed");
                     }
+                    if let Some(status) = it.get("status") { self.text_status = status.clone(); }
                     if !text.is_empty() {
                         self.text_acc.push_str(&text);
                         f.push(Self::ev("response.output_text.delta", json!({
@@ -2127,14 +2138,24 @@ impl ResponsesComposer {
                 }
                 _ => {}
             }
-            first = false;
         }
+        // Producers describe this chunk's tail, not the preceding chunk.
+        // Adjacent message items merge just as they do in the chain result.
+        if !continues_text { f.extend(self.close_text()); }
         f
     }
 
     pub fn finish(mut self, r: &AssembledResponses) -> Vec<String> {
         let mut f = self.close_text();
-        let full = responses_json(r, &self.client_model, &self.logical_id);
+        let mut full = responses_json(r, &self.client_model, &self.logical_id);
+        // Keep the terminal snapshot attached to the same streamed messages.
+        // Tool/reasoning identity and all other upstream fields stay intact.
+        let mut ids = self.message_ids.iter();
+        if let Some(items) = full["output"].as_array_mut() {
+            for item in items.iter_mut().filter(|item| item["type"] == "message") {
+                if let Some(id) = ids.next() { item["id"] = json!(id); }
+            }
+        }
         f.push(Self::ev("response.completed", json!({"response": full})));
         f
     }

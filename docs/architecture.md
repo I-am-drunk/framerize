@@ -29,6 +29,12 @@ shared session caches before refreshing. Shared-cache eviction compares the
 bearer so a late rejection cannot remove a newer value; web-token entries
 and other sessions are outside that eviction.
 
+Responses continuation describes the current chunk's tail. The composer
+consumes the final text chunk before closing its message, retains the latest
+fragment status and carries its emitted message IDs into the final snapshot.
+Adjacent message items merge consistently with the chain; tool and reasoning
+items retain their original identities and fields.
+
 Browser launch converts authenticated proxy URLs into separate server,
 username and password options before passing them to the browser driver.
 The conversion preserves decoded credentials and endpoint identity while

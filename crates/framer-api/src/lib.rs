@@ -38,6 +38,8 @@ mod cooldown_tests;
 mod chain_cancellation_tests;
 #[cfg(test)]
 mod project_collection_tests;
+#[cfg(test)]
+mod response_conversion_tests;
 
 use async_trait::async_trait;
 use framer_core::ids::{AccountId, TeamId};
