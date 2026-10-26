@@ -27,6 +27,8 @@ mod cdp_shutdown_tests;
 mod cdp_attach_owner_tests;
 #[cfg(test)]
 mod cdp_auth_diagnostics_tests;
+#[cfg(test)]
+mod cdp_unconfirmed_shutdown_tests;
 use async_trait::async_trait;
 use framer_core::ids::AccountId;
 use framer_core::port::{BrowserBridge, CastleToken};
@@ -665,9 +667,20 @@ fn body_preview(v: &Value) -> String {
 impl BrowserBridge for CdpBridge {
     async fn shutdown(&self) -> Result<(), String> {
         self.stopping.store(true, Ordering::Release);
-        let instances: Vec<_> = self.instances.lock().await.values().cloned().collect();
+        let instances: Vec<_> = self.instances.lock().await.iter()
+            .map(|(account, instance)| (*account, instance.clone())).collect();
+        let routes: Vec<_> = if matches!(self.engine, EngineKind::FullChrome | EngineKind::HeadlessShell) {
+            self.routes.lock().await.iter()
+                .map(|(account, route)| (*account, route.clone())).collect()
+        } else { Vec::new() };
         let mut failed = false;
-        for instance in instances {
+        // Failed or cancelled starts may have a child without a saved instance.
+        // Application work is drained, but those children have no joined exit.
+        for (account, route) in &routes {
+            failed |= route.lock().await.may_have_browser
+                && !instances.iter().any(|(known, _)| known == account);
+        }
+        for (_, instance) in &instances {
             let mut instance = instance.lock().await;
             if instance.child.is_some() {
                 let _ = instance.cmd_deadline("Browser.close", json!({}),
@@ -682,6 +695,9 @@ impl BrowserBridge for CdpBridge {
             }
         }
         if failed { return Err("could not confirm every owned browser exited cleanly".into()); }
+        for (_, route) in routes {
+            route.lock().await.may_have_browser = false;
+        }
         self.instances.lock().await.clear();
         Ok(())
     }

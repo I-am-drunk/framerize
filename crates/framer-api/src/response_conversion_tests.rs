@@ -14,6 +14,7 @@ struct Fixture {
 struct Observed {
     response: AssembledResponses,
     events: Vec<Value>,
+    chat_events: Vec<Value>,
     requests: Vec<Value>,
 }
 
@@ -30,11 +31,16 @@ fn run(replies: Vec<Value>) -> Observed {
         let composer = Mutex::new(Some(ResponsesComposer::new("fixture-model", "fixture-response")));
         let frames = Mutex::new(convert::stream_open(
             ClientDialect::OpenAiResponses, "fixture-model", "fixture-response"));
+        let chat = Mutex::new(Some(convert::ChatComposer::new("fixture-model", "fixture-response")));
+        let chat_frames = Mutex::new(convert::stream_open(
+            ClientDialect::OpenAiChat, "fixture-model", "fixture-response"));
         let callback = |event| {
             if let ChainEvent::ResponsesItems { items, continues_text } = event {
                 let next = composer.lock().unwrap().as_mut().unwrap()
                     .push_items(&items, continues_text);
                 frames.lock().unwrap().extend(next);
+                chat_frames.lock().unwrap().extend(chat.lock().unwrap().as_mut().unwrap()
+                    .push_items(&items, continues_text));
             }
         };
         let config = ChainConfig { chunk_tokens:600, max_chunks:3,
@@ -45,11 +51,16 @@ fn run(replies: Vec<Value>) -> Observed {
             "fixture-chat", Some(&callback)).await.unwrap();
         assert!(browser.replies.lock().unwrap().is_empty());
         frames.lock().unwrap().extend(composer.lock().unwrap().take().unwrap().finish(&response));
+        chat_frames.lock().unwrap().extend(chat.lock().unwrap().take().unwrap().finish(&response, true));
         let events = frames.lock().unwrap().iter().map(|frame| {
             let data = frame.lines().find_map(|line| line.strip_prefix("data: ")).unwrap();
             serde_json::from_str(data).unwrap()
         }).collect();
-        Observed { response, events, requests:browser.requests.into_inner().unwrap() }
+        let chat_events = chat_frames.lock().unwrap().iter().filter_map(|frame| {
+            let data = frame.lines().find_map(|line| line.strip_prefix("data: ")).unwrap();
+            if data == "[DONE]" { None } else { Some(serde_json::from_str(data).unwrap()) }
+        }).collect();
+        Observed { response, events, chat_events, requests:browser.requests.into_inner().unwrap() }
     })
 }
 
@@ -189,4 +200,49 @@ fn refusal_continuation_preserves_typed_content_and_order() {
     assert_eq!(refusals[0]["refusal"], "restricted portion");
     assert_eq!(selected(&observed, "response.output_item.done")[0]["item"],
         selected(&observed, "response.completed")[0]["response"]["output"][0]);
+}
+
+#[test]
+fn chat_refusal_survives_the_chain_json_stream_and_next_request() {
+    let mut item = message("upstream", "", "completed");
+    item["content"] = json!([{"type":"refusal","refusal":"cannot complete this request"}]);
+    let observed = run(vec![reply(vec![item], "completed")]);
+    assert_eq!(observed.requests.len(), 1);
+    let rendered = convert::responses_to_chat_completion(&observed.response, "fixture-model");
+    let assistant = &rendered["choices"][0]["message"];
+    assert_eq!(assistant["content"], Value::Null);
+    assert_eq!(assistant["refusal"], "cannot complete this request");
+    let refusals: Vec<_> = observed.chat_events.iter().filter_map(|event|
+        event["choices"][0]["delta"]["refusal"].as_str()).collect();
+    assert_eq!(refusals, vec!["cannot complete this request"]);
+    let history = convert::chat_to_responses_request(&json!({"model":"fixture-model",
+        "messages":[{"role":"user","content":"prompt"},assistant]})).unwrap();
+    assert_eq!(history["input"][1]["content"],
+        json!([{"type":"refusal","refusal":"cannot complete this request"}]));
+    assert_eq!(rendered["choices"][0]["finish_reason"], "stop");
+}
+
+#[test]
+fn chat_continuation_keeps_refusal_before_the_tool_call() {
+    let first = message("first", "accepted prefix", "incomplete");
+    let mut last = message("last", "", "completed");
+    last["content"] = json!([{"type":"refusal","refusal":"restricted portion"}]);
+    let call = json!({"type":"function_call","id":"fc-fixture","call_id":"call-fixture",
+        "name":"fixture","arguments":"{\"value\":42}","status":"completed"});
+    let observed = run(vec![reply(vec![first], "incomplete"),
+        reply(vec![last, call], "completed")]);
+    assert_eq!(observed.requests.len(), 2);
+    let rendered = convert::responses_to_chat_completion(&observed.response, "fixture-model");
+    let assistant = &rendered["choices"][0]["message"];
+    assert_eq!(assistant["content"], "accepted prefix");
+    assert_eq!(assistant["refusal"], "restricted portion");
+    assert_eq!(assistant["tool_calls"][0]["id"], "call-fixture");
+    assert_eq!(rendered["choices"][0]["finish_reason"], "tool_calls");
+    let refusal_index = observed.chat_events.iter().position(|event|
+        event["choices"][0]["delta"]["refusal"] == "restricted portion").unwrap();
+    let tool_index = observed.chat_events.iter().position(|event|
+        event["choices"][0]["delta"]["tool_calls"][0]["id"] == "call-fixture").unwrap();
+    assert!(refusal_index < tool_index);
+    let usage = &observed.chat_events.last().unwrap()["usage"];
+    assert_eq!(usage["completion_tokens"], 200);
 }

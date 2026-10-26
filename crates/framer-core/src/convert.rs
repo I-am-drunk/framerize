@@ -1759,11 +1759,11 @@ pub fn chat_to_responses_request(body: &Value) -> Result<Value, String> {
                 "content": chat_parts_to_input(&m["content"]),
             })),
             "assistant" => {
-                let text = content_text(&m["content"]);
-                if !text.is_empty() {
+                let content = chat_assistant_content(&m);
+                if !content.is_empty() {
                     input.push(json!({
                         "type": "message", "role": "assistant",
-                        "content": [{"type": "output_text", "text": text}],
+                        "content": content,
                     }));
                 }
                 for tc in m["tool_calls"].as_array().cloned().unwrap_or_default() {
@@ -1824,6 +1824,28 @@ pub fn chat_to_responses_request(body: &Value) -> Result<Value, String> {
     Ok(out)
 }
 
+fn chat_assistant_content(message: &Value) -> Vec<Value> {
+    let mut content = match &message["content"] {
+        Value::String(text) if !text.is_empty() => {
+            vec![json!({"type":"output_text","text":text})]
+        }
+        Value::Array(parts) => parts.iter().filter_map(|part| {
+            if part["type"] == "refusal" {
+                part["refusal"].as_str().map(|refusal|
+                    json!({"type":"refusal","refusal":refusal}))
+            } else {
+                part["text"].as_str().filter(|text| !text.is_empty()).map(|text|
+                    json!({"type":"output_text","text":text}))
+            }
+        }).collect(),
+        _ => Vec::new(),
+    };
+    if let Some(refusal) = message["refusal"].as_str() {
+        content.push(json!({"type":"refusal","refusal":refusal}));
+    }
+    content
+}
+
 fn content_text(c: &Value) -> String {
     match c {
         Value::String(s) => s.clone(),
@@ -1860,13 +1882,20 @@ fn chat_parts_to_input(c: &Value) -> Value {
 /// Assembled responses object → chat.completion (non-streaming render).
 pub fn responses_to_chat_completion(r: &AssembledResponses, client_model: &str) -> Value {
     let mut text = String::new();
+    let mut refusal: Option<String> = None;
     let mut tool_calls: Vec<Value> = Vec::new();
     for it in &r.output {
         match it["type"].as_str() {
             Some("message") => {
                 for p in it["content"].as_array().cloned().unwrap_or_default() {
-                    if p["type"] == "output_text" {
-                        text.push_str(p["text"].as_str().unwrap_or_default());
+                    match p["type"].as_str() {
+                        Some("output_text") => text.push_str(p["text"].as_str().unwrap_or_default()),
+                        Some("refusal") => {
+                            if let Some(value) = p["refusal"].as_str() {
+                                refusal.get_or_insert_with(String::new).push_str(value);
+                            }
+                        }
+                        _ => {}
                     }
                 }
             }
@@ -1889,7 +1918,7 @@ pub fn responses_to_chat_completion(r: &AssembledResponses, client_model: &str) 
         "stop"
     };
     let mut message = json!({"role": "assistant"});
-    if text.is_empty() && !tool_calls.is_empty() {
+    if text.is_empty() && (!tool_calls.is_empty() || refusal.is_some()) {
         message["content"] = Value::Null;
     } else {
         message["content"] = json!(text);
@@ -1897,6 +1926,7 @@ pub fn responses_to_chat_completion(r: &AssembledResponses, client_model: &str) 
     if !tool_calls.is_empty() {
         message["tool_calls"] = json!(tool_calls);
     }
+    if let Some(refusal) = refusal { message["refusal"] = json!(refusal); }
     json!({
         "id": format!("chatcmpl-{}", r.id.trim_start_matches("gen-").trim_start_matches("resp_")),
         "object": "chat.completion",
@@ -1960,6 +1990,9 @@ mod responses_stream_tests;
 #[cfg(test)]
 #[path = "responses_content_tests.rs"]
 mod responses_content_tests;
+#[cfg(test)]
+#[path = "chat_refusal_tests.rs"]
+mod chat_refusal_tests;
 
 #[path = "response_message.rs"]
 mod response_message;
@@ -2154,15 +2187,15 @@ impl ChatComposer {
         for it in items {
             match it["type"].as_str() {
                 Some("message") => {
-                    let text: String = it["content"]
-                        .as_array()
-                        .cloned()
-                        .unwrap_or_default()
-                        .iter()
-                        .filter_map(|p| p["text"].as_str().map(str::to_string))
-                        .collect();
-                    if !text.is_empty() {
-                        f.push(self.chunk(json!({"content": text}), Value::Null));
+                    for part in it["content"].as_array().into_iter().flatten() {
+                        let delta = match part["type"].as_str() {
+                            Some("output_text") => part["text"].as_str()
+                                .filter(|text| !text.is_empty()).map(|text| json!({"content":text})),
+                            Some("refusal") => part["refusal"].as_str()
+                                .map(|refusal| json!({"refusal":refusal})),
+                            _ => None,
+                        };
+                        if let Some(delta) = delta { f.push(self.chunk(delta, Value::Null)); }
                     }
                 }
                 Some("function_call") | Some("custom_tool_call") => {

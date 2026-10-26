@@ -3,6 +3,17 @@
 The rearchitecture is on `refactor/separate-apps-and-ci-20261025` in draft
 [PR #2](https://github.com/I-am-drunk/framerize/pull/2). It is not deployed.
 
+Chat responses now retain refusal text through JSON, streaming and subsequent
+request history. Owned CDP shutdown reports unconfirmed starts while still
+closing known instances. Free completion rejects selected token limits above
+u32 before dispatch, preserving precedence, defaults and valid boundaries.
+All 44 focused checks pass: 22 core conversions, six API conversions, seven
+host shutdown/proxy cases and nine request-budget cases. The eight integrated
+source files and 664 recorded tracked inputs matched after qualification.
+This source milestone is not deployed. The latest live attempt reached its
+drain deadline and restored the original service/pool without a canary;
+live acceptance and distinct per-account TLS identities remain unverified.
+
 The next source batch is qualified on the experimental handoff branch.
 Responses refuse an initial budget below 16 and stop before rounding a
 smaller remainder upward. Buffered Messages reject invalid completions and
