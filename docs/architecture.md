@@ -3,6 +3,14 @@
 The current reorganization is in progress. See [the design](rearchitecture.md)
 for decisions, boundaries and the remaining migration work.
 
+The experimental native/browser transition has an explicit recovery helper.
+It verifies pinned inputs and service ownership, joins native shutdown, and
+checks remaining descendants before selecting a return binary. Before history
+migration it returns to the original browser; afterward it preserves the
+journal and retains the compatible browser in a persistent service override.
+Recovery restores only the saved or transition-fenced pool configuration.
+It does not admit requests, migrate history or launch a canary by itself.
+
 Direct inference requires an explicit successful completion event before
 publishing its result. Failure events return a bounded error containing the
 event name, without upstream diagnostic payloads. The Responses fallback
