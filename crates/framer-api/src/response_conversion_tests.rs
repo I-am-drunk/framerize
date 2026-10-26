@@ -294,3 +294,25 @@ fn chat_tool_strictness_reaches_each_continuation_request() {
         assert_eq!(observed.response.output[0]["content"][0]["text"], "prefix suffix");
     }
 }
+
+#[test]
+fn chat_json_schema_reaches_each_continuation_request() {
+    let schema = json!({"type":"object", "properties":{"value":{"type":"integer"}},
+        "required":["value"], "additionalProperties":false});
+    let format = json!({"name":"result", "description":"fixture result", "strict":true, "schema":schema});
+    let payload = convert::chat_to_responses_request(&json!({"model":"gpt-6-astra",
+        "messages":[{"role":"user","content":"structured answer"}],
+        "response_format":{"type":"json_schema","json_schema":format}})).unwrap();
+    let observed = run_with_payload(vec![
+        reply(vec![message("first", "{\"value\":", "incomplete")], "incomplete"),
+        reply(vec![message("last", "42}", "completed")], "completed"),
+    ], payload);
+    let mut expected = format;
+    expected["type"] = json!("json_schema");
+    assert_eq!(observed.requests.len(), 2);
+    for request in &observed.requests {
+        assert_eq!(request["request"]["text"]["format"], expected);
+        assert!(request["request"].get("response_format").is_none());
+    }
+    assert_eq!(observed.response.output[0]["content"][0]["text"], "{\"value\":42}");
+}

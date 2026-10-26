@@ -1761,8 +1761,17 @@ pub fn chat_to_responses_request(body: &Value) -> Result<Value, String> {
             out[k] = v.clone();
         }
     }
-    if body["response_format"]["type"].as_str() == Some("json_object") {
-        out["text"] = json!({"format": {"type": "json_object"}});
+    match body["response_format"]["type"].as_str() {
+        Some("json_object") => out["text"] = json!({"format": {"type": "json_object"}}),
+        Some("json_schema") => {
+            let mut format = body["response_format"]["json_schema"].clone();
+            if !format.is_object() {
+                return Err("response_format.json_schema must be an object".into());
+            }
+            format["type"] = json!("json_schema");
+            out["text"] = json!({"format":format});
+        }
+        _ => {}
     }
     if let Some(instr) = body["instructions"].as_str() {
         out["instructions"] = json!(instr);

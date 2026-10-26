@@ -101,7 +101,8 @@ messages → message items (assistant content → output_text), `tool` messages 
 `function_call_output`, assistant `tool_calls` → `function_call` items,
 `tools[].function` flattened to responses tools, `tool_choice` function form
 flattened, `max_tokens|max_completion_tokens` → `max_output_tokens`,
-`response_format.json_object` → `text.format`, `stop`/temperature/top_p
+`response_format.json_object` and `response_format.json_schema` → `text.format`
+(schema name, description, constraints and supplied strictness preserved), `stop`/temperature/top_p
 passthrough; dropped (documented): seed, logprobs, n≠1 (error).
 
 Response mapping (assembled responses → chat.completion): merged text +
