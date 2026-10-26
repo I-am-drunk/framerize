@@ -3,6 +3,15 @@
 The current reorganization is in progress. See [the design](rearchitecture.md)
 for decisions, boundaries and the remaining migration work.
 
+Browser AI response reads now count streamed bytes and enforce an 8 MiB
+payload limit before decoding further input. UTF-8 decoding is incremental;
+the caller still receives one complete body. Oversized responses follow the
+existing body-failure path, retaining the observed HTTP status. Cancellation
+waits for fetch/body cleanup through the existing account-owned RPC. The
+abandoned-job timer keeps unfinished cleanup joinable. These are browser
+resource bounds, not a native-token transport connection. See the
+[qualification and limits](../reference/analysis/browser-response-bounds-20261026.md).
+
 The native HTTP transport still builds an independent reqwest client per
 account scope. A private builder helper now allows local TLS fixtures to
 trust an ephemeral certificate without changing production trust or TLS

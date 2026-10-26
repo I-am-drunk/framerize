@@ -2,6 +2,33 @@
 import json
 from ..settings import API, CASTLE_CHUNK
 
+AI_RESPONSE_LIMIT = 8 * 1024**2
+_READ_RESPONSE_JS = """async (response, controller) => {
+  if (!response.body) return "";
+  const reader = response.body.getReader(), decoder = new TextDecoder();
+  const parts = [];
+  let received = 0, tail = "";
+  try {
+    while (true) {
+      const {value, done} = await reader.read();
+      if (done) {
+        parts.push(tail + decoder.decode());
+        return parts.join("");
+      }
+      received += value.byteLength;
+      if (received > %d) throw new Error("response body limit exceeded");
+      tail += decoder.decode(value, {stream: true});
+      if (tail.length >= 32768) { parts.push(tail); tail = ""; }
+    }
+  } catch (error) {
+    controller.abort();
+    try { await reader.cancel(); } catch (_) {}
+    throw error;
+  } finally {
+    reader.releaseLock();
+  }
+}""" % AI_RESPONSE_LIMIT
+
 WARM_JS = """(async () => {
   if (!window.castlePublishableAPIKey) {
     Object.defineProperty(window, "castlePublishableAPIKey", { value: Object.freeze("pk_xYqGbB61EcFiSh4LUshpT4DGoEQMKQMB") });
@@ -86,6 +113,7 @@ def post_js(path, body, bearer=None):
 
 
 AI_START_JS = """(async ([path, body, token, bearer, jobId, dev]) => {
+  const readResponse = %s;
   // The velocity/concurrency counters key on the page's __cuid (measured
   // 2026-10-05: spliced tokens claiming other devices do NOT multiply the
   // bucket). Align the ambient device with the token's claimed device BEFORE
@@ -110,9 +138,12 @@ AI_START_JS = """(async ([path, body, token, bearer, jobId, dev]) => {
   job.timer = setTimeout(() => {
     if (window.__aiJobs[jobId] !== job) return;
     job.controller.abort();
-    delete window.__aiJobs[jobId];
+    // Keep the job joinable until its body reader has actually settled.
+    job.settled.then(() => {
+      if (window.__aiJobs[jobId] === job) delete window.__aiJobs[jobId];
+    });
   }, 900000);
-  (async () => {
+  job.settled = (async () => {
     let failurePhase = "fetch", headStatus = null;
     try {
       const r = await fetch("%s" + path, {
@@ -121,7 +152,8 @@ AI_START_JS = """(async ([path, body, token, bearer, jobId, dev]) => {
       });
       headStatus = r.status;
       failurePhase = "body";
-      return { status: r.status, usage: r.headers.get("x-framer-ai-usage"), body: await r.text() };
+      return { status: r.status, usage: r.headers.get("x-framer-ai-usage"),
+        body: await readResponse(r, job.controller) };
     } catch (e) {
       return { status: -1, usage: null, body: String(e),
         failure_phase: failurePhase, head_status: headStatus };
@@ -134,7 +166,7 @@ AI_START_JS = """(async ([path, body, token, bearer, jobId, dev]) => {
     }
   });
   return jobId;
-})""" % API
+})""" % (_READ_RESPONSE_JS, API)
 
 
 AI_POLL_JS = """((jobId) => {
@@ -146,13 +178,15 @@ AI_POLL_JS = """((jobId) => {
 })"""
 
 
-AI_CANCEL_JS = """((jobId) => {
+AI_CANCEL_JS = """(async (jobId) => {
   const jobs = window.__aiJobs || {};
   const job = jobs[jobId];
   if (!job) return false;
   delete jobs[jobId];
   clearTimeout(job.timer);
   job.controller.abort();
+  // The host retains this RPC's account owner until actual fetch settlement.
+  await job.settled;
   return true;
 })"""
 

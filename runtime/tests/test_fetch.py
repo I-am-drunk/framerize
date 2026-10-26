@@ -16,6 +16,7 @@ class FetchTests(unittest.TestCase):
         self.assertIsNotNone(node, 'Node is required for the browser script fixtures')
         values = {name: getattr(scripts, name) for name in
                   ('AI_START_JS', 'AI_POLL_JS', 'AI_CANCEL_JS')}
+        values['AI_RESPONSE_LIMIT'] = scripts.AI_RESPONSE_LIMIT
         result = subprocess.run([node, str(Path(__file__).with_name('ai_post_fetch.cjs'))],
             input=json.dumps(values), text=True, capture_output=True, timeout=10)
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
