@@ -34,6 +34,7 @@ mod pool_control;
 mod request_token_budget;
 mod request_body_object;
 mod responses_aggregate;
+mod response_output;
 pub use serving_accounts::{ServingAccountPolicy, SERVING_ACCOUNTS_ENV};
 pub use pool_config::{PoolConfig, EligibleAccounts, AllAccounts, POOL_SETTING_KEY};
 pub use pool_control::prewarm_accounts;
@@ -1876,6 +1877,15 @@ async fn native_complete(
     // ONE logical id for the whole response (minted here, before the composer
     // sends response.created): chunk ids never surface to the client.
     let logical_id = format!("{:08x}{:08x}", rand_u32(), rand_u32());
+
+    if wants_stream && dialect == ClientDialect::OpenAiResponses {
+        return response_output::serve(response_output::FreeRequest {
+            state: s, account, residency, session, project, config: cfg,
+            payload: native_payload, gate_model, gate_key, first_permit,
+            chat_session, explicit_session: hdr(headers, "x-framerize-session"),
+            allow_repick: allow_account_repick, client_model, logical_id,
+        }).await;
+    }
 
     if wants_stream {
         let body_residency = residency.clone();

@@ -419,6 +419,7 @@ pub fn with_owned_operations(mut state: crate::AppState, limit: usize)
     let runtime = state.runtime_mut().ok_or(OwnershipConfigError::RuntimeShared)?;
     runtime.operation_ownership = Some(ServingOwnership::new_unmanaged(runtime.wave.clone(), limit)
         .map_err(OwnershipConfigError::Gate)?);
+    runtime.response_output = Arc::new(crate::response_output::OutputBudget::new(limit));
     Ok(state)
 }
 

@@ -69,6 +69,10 @@ async fn owned_legacy_retry_keeps_replacement_residency_and_account_scoped_chats
         assert!(slot(&state, id(2)).users > 0);
         assert!(matches!(parked(&state, 2).await, Err(ApiError::PoolBusy(_))));
         ports.request_gate.add_permits(2);
+        let response = if matches!(route, Route::Native) {
+            crate::response_output::pump_until_producer_returns(response,
+                || ports.request_drops.load(Ordering::SeqCst) == 2).await
+        } else { response };
         until(|| ports.request_drops.load(Ordering::SeqCst) == 2).await;
         assert!(slot(&state, id(2)).users > 0);
         to_bytes(response.into_body(), 65536).await.unwrap();
@@ -86,6 +90,10 @@ async fn legacy_router_keeps_pool_and_application_owners_until_the_last_output_b
         assert_eq!(response.status(), 200);
         until(|| ports.request_started.load(Ordering::SeqCst) == 1).await;
         ports.request_gate.add_permits(2);
+        let response = if matches!(route, Route::Native) {
+            crate::response_output::pump_until_producer_returns(response,
+                || ports.request_drops.load(Ordering::SeqCst) == 1).await
+        } else { response };
         until(|| ports.request_drops.load(Ordering::SeqCst) == 1).await;
         assert_stream_residency(&state).await;
         let scope = state.operation_ownership.as_ref().unwrap();
