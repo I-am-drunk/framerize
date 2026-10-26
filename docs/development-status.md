@@ -1,5 +1,17 @@
 # Development status
 
+Changed-user registration now clears the saved primary team and project
+when metadata supplies no selected team. This integrates `5e67911` after
+`4256d3c`. All 23 exact server methods pass with 794 source pins and three
+candidate pins matching; the isolated unit is stopped. The six new methods
+exercise nine scenarios, alongside 17 unchanged identity/project controls.
+On the parent, four changed-user methods fail and both same-user controls
+pass. Error loops stop at the initial profile-error assertion on that
+baseline; the candidate also completes usage-error and unmatched-team cases.
+Same-user fallback, observed teams and explicit project overrides remain
+covered. This does not repair previously stored stale records. The separate
+SQLite complete-list correction is still source-only. No live change ran.
+
 Registration clears carried extra workspace scopes when the Framer user
 changes. This contextually integrates `52a5c32` after `dafb57a`; same-user
 reauthentication retains its existing scopes. All 13 exact server checks

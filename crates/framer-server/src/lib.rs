@@ -2854,6 +2854,10 @@ async fn complete_login_observed(State(s): State<AppState>, Json(body): Json<Com
     }
     if account.framer_user_id != session.active_user {
         account.extra_workspaces.clear();
+        if team.is_none() {
+            account.current_team = None;
+            account.current_project = None;
+        }
     }
     account.framer_user_id = session.active_user.clone();
     account.state = framer_core::account::AccountState::Ready;
@@ -3062,6 +3066,10 @@ async fn import_account_observed(State(s): State<AppState>, Json(body): Json<Imp
 
     if account.framer_user_id != session.active_user {
         account.extra_workspaces.clear();
+        if team.is_none() {
+            account.current_team = None;
+            account.current_project = None;
+        }
     }
     account.framer_user_id = session.active_user.clone();
     account.state = framer_core::account::AccountState::Ready;
