@@ -1,5 +1,14 @@
 # Browser response fixture
 
+Use `host_probe.py` for the current integrated host response path. It runs
+`Host._run_job` with a synthetic account and the actual reader, poll, receiver
+and account-owned RPC. Only the destination origin is replaced with loopback.
+The command and isolation below also apply to this probe.
+
+The completed-body comparison scripts below retain their historical protocol.
+Run those comparisons from the source revisions bound in their result files;
+their old poll interface is not the current host interface.
+
 This experiment runs the production browser AI request scripts against a
 local HTTPS server. Only the target origin is substituted. Credentials and
 bodies are synthetic; no SDK, account, project or upstream service is used.
@@ -109,6 +118,18 @@ five deliberately lost RPC replies, capacity while a frame is unacknowledged,
 joined cancellation and oversize refusal. Retries must not repeat the HTTP
 request. This is a correctness fixture, not a performance comparison.
 
-Production use must retain the host's account-owned `Host._rpc` wrapper and
-request deadline. This standalone receiver does not qualify that integration.
-See the [recorded result](../../../reference/analysis/browser-response-ack-20261026.md).
+The standalone receiver does not qualify the host's account ownership.
+See the [prototype result](../../../reference/analysis/browser-response-ack-20261026.md).
+
+## Integrated host
+
+Run `host_probe.py --browser /browser/camoufox` in the same isolation. It uses
+the actual `Host._run_job` receiver, `Host._rpc` and browser-close receipt.
+It checks five lost-reply points, oversize refusal, held-response cancellation
+and account ownership while a final acknowledgement RPC remains pending.
+All requests use synthetic credentials and the local HTTPS server.
+
+The [host result](../../../reference/analysis/browser-response-host-20261026.md)
+records its separate qualification. Account startup, SDK collection, the
+native minter, live delivery and performance measurements are outside this
+fixture. The host still assembles one complete response body.

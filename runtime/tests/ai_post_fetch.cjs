@@ -5,6 +5,27 @@ const {Script, createContext} = require('node:vm');
 const {test} = require('node:test');
 const scripts = JSON.parse(readFileSync(0, 'utf8'));
 
+function receiver(poll) {
+  let acknowledged = -1;
+  const parts = [];
+  return () => {
+    const frame = poll(['job', acknowledged]);
+    if (frame.kind === 'pending' || frame.kind === 'missing') return null;
+    assert.equal(frame.kind, 'chunk');
+    assert.equal(frame.sequence, acknowledged + 1);
+    acknowledged = frame.sequence;
+    if (frame.status !== -1) parts.push(frame.body);
+    if (!frame.done) return null;
+    assert.equal(poll(['job', acknowledged]).kind, 'closed');
+    const value = {status: frame.status, usage: frame.usage,
+      body: frame.status === -1 ? frame.body : parts.join('')};
+    for (const key of ['failure_phase', 'head_status']) {
+      if (Object.hasOwn(frame, key)) value[key] = frame[key];
+    }
+    return value;
+  };
+}
+
 function fixture(fetcher) {
   const calls = [], timers = new Map();
   const realm = createContext({AbortController, TextDecoder,
@@ -22,7 +43,16 @@ function fixture(fetcher) {
   const cancel = new Script(scripts.AI_CANCEL_JS).runInContext(realm);
   const run = () => start(['/ai/v3/responses/', {request: {stream: false}},
     'synthetic-token', 'synthetic-bearer', 'job', null]);
-  return {calls, timers, realm, run, poll: () => poll('job'),
+  const take = receiver(poll);
+  const result = async () => {
+    for (let attempt = 0; attempt < 5000; attempt++) {
+      const value = take();
+      if (value !== null) return value;
+      await flush();
+    }
+    assert.fail('bounded response did not complete');
+  };
+  return {calls, timers, realm, run, result, poll: take,
     cancel: () => cancel('job'), expire: () => {
       const callback = timers.get(1);
       timers.delete(1);
@@ -63,7 +93,7 @@ test('the exact byte limit is accepted despite an unhelpful length header', asyn
   const f = fixture(() => r);
   await f.run();
   await flush();
-  const result = f.poll();
+  const result = await f.result();
   assert.equal(result.status, 200);
   assert.equal(result.body.length, scripts.AI_RESPONSE_LIMIT);
   assert.ok(result.body === 'a'.repeat(scripts.AI_RESPONSE_LIMIT), 'the full body is preserved');
@@ -78,7 +108,7 @@ test('split UTF-8, BOM and incomplete bytes match Response.text decoding', async
   const f = fixture(() => chunked(200, Array.from(bytes, byte => Uint8Array.of(byte))));
   await f.run();
   await flush();
-  assert.equal(f.poll().body, expected);
+  assert.equal((await f.result()).body, expected);
   drained(f);
 });
 
@@ -91,7 +121,7 @@ test('oversized bodies abort without returning partial successful output', async
       const f = fixture(() => r);
       await f.run();
       await flush();
-      const result = f.poll();
+      const result = await f.result();
       assert.equal(result.status, -1, 'an oversized response must not succeed');
       assert.deepEqual(plain(result), {status: -1, usage: null,
         body: 'Error: response body limit exceeded', failure_phase: 'body', head_status: status});
@@ -116,7 +146,7 @@ test('an oversize failure is not published before reader cancellation settles', 
   assert.equal(r.body.locked, true);
   release();
   await flush();
-  assert.equal(f.poll().failure_phase, 'body');
+  assert.equal((await f.result()).failure_phase, 'body');
   assert.equal(r.body.locked, false);
   drained(f);
 });
@@ -125,7 +155,7 @@ test('a response without a body retains the normal empty result', async () => {
   const f = fixture(() => streamed(204, null));
   await f.run();
   await flush();
-  assert.deepEqual(plain(f.poll()), {status: 204, usage: 'usage', body: ''});
+  assert.deepEqual(plain(await f.result()), {status: 204, usage: 'usage', body: ''});
   drained(f);
 });
 
@@ -133,7 +163,7 @@ test('fetch rejection has no observed response head', {timeout: 1000}, async () 
   const f = fixture(() => { throw new Error('synthetic-network-failure'); });
   await f.run();
   await flush();
-  assert.deepEqual(plain(f.poll()), {status: -1, usage: null,
+  assert.deepEqual(plain(await f.result()), {status: -1, usage: null,
     body: 'Error: synthetic-network-failure', failure_phase: 'fetch', head_status: null});
   drained(f);
 });
@@ -145,7 +175,7 @@ test('body rejection preserves 200 and 403 heads without changing status', {time
     }));
     await f.run();
     await flush();
-    assert.deepEqual(plain(f.poll()), {status: -1, usage: null,
+    assert.deepEqual(plain(await f.result()), {status: -1, usage: null,
       body: 'Error: synthetic-body-failure', failure_phase: 'body', head_status: status});
     drained(f);
   }
@@ -155,7 +185,7 @@ test('completed responses keep their existing shape and request', {timeout: 1000
   const f = fixture(() => response(200, async () => 'synthetic-output'));
   await f.run();
   await flush();
-  assert.deepEqual(plain(f.poll()), {status: 200, usage: 'usage', body: 'synthetic-output'});
+  assert.deepEqual(plain(await f.result()), {status: 200, usage: 'usage', body: 'synthetic-output'});
   const [url, options] = f.calls[0];
   assert.equal(url, 'https://api.framer.com/ai/v3/responses/');
   assert.equal(options.credentials, 'include');
@@ -174,7 +204,7 @@ test('headers alone leave polling pending until the body settles', {timeout: 100
   assert.equal(f.timers.size, 1);
   reject(new Error('synthetic-body-failure'));
   await flush();
-  assert.equal(f.poll().head_status, 403);
+  assert.equal((await f.result()).head_status, 403);
   drained(f);
 });
 

@@ -3,6 +3,15 @@
 The rearchitecture is on `refactor/separate-apps-and-ci-20261025` in draft
 [PR #2](https://github.com/I-am-drunk/framerize/pull/2). It is not deployed.
 
+The host now uses acknowledged response chunks on
+`fix/browser-response-bounds-20261026`. All 23 focused host tests and four
+package/import tests pass. The actual host path also passes the local browser
+fixture: five lost-reply cases preserve the complete body without repeating
+HTTP requests, and cancellation retains account ownership through cleanup.
+The package includes the new reader, poll and receiver. This milestone is
+undeployed and makes no new memory or live-minter claim. See the
+[host integration result](../reference/analysis/browser-response-host-20261026.md).
+
 The bounded response queue experiment passes thirteen local browser runs on
 `fix/browser-response-bounds-20261026`. For a synthetic 8 MiB response,
 median sampled peak PSS fell from 664.552 to 651.724 MiB (1.9%); median
@@ -13,8 +22,8 @@ measurements retain their original source identity. This is undeployed.
 A separate acknowledged-delivery prototype now passes a real-browser local
 fixture: five injected RPC-loss cases retain the complete body without another
 HTTP request; capacity, cancellation, oversize refusal and process cleanup pass.
-This establishes no new performance result. Production integration next needs
-the host's account-owned RPC and request deadline around these retries.
+That prototype established no new performance result. Its subsequent host
+integration and account-owned RPC qualification are recorded above.
 The minter/browser live connection remains unverified. See the
 [queue measurements](../reference/analysis/browser-response-queue-20261026.md)
 and [acknowledgement result](../reference/analysis/browser-response-ack-20261026.md).
@@ -23,7 +32,7 @@ The earlier nine fresh-browser response-transfer trials pass on
 `fix/browser-response-bounds-20261026`. For a completed 8 MiB local response,
 128K-unit chunks reduced median transfer time from 763 ms to 434 ms, but
 increased post-transfer memory. Neither chunk size established a memory win.
-The production transfer remains unchanged. See the
+These measurements remain bound to their historical sources. See the
 [comparison and limits](../reference/analysis/browser-response-transfer-20261026.md).
 
 The `fix/browser-response-bounds-20261026` branch now limits browser AI

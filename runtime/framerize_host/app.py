@@ -16,6 +16,7 @@ from .browser.driver import browser_runtime, BrowserCloseReceipt
 from .browser.scripts import (WARM_JS, MINT_JS, post_js, AI_START_JS,
     AI_POLL_JS, AI_CANCEL_JS, DEVPOOL_WARM_JS, DEVPOOL_MINT_JS)
 from .browser.actions import human_burst
+from .browser.responses import receive as receive_response, ResponseDeadline
 from . import castle_forge as _cf
 
 _MINT_CALLS = ContextVar('framerize_mint_calls', default=None)
@@ -1258,18 +1259,15 @@ class Host:
                 min(30, timeout),
             )
             emit("ai.post.started", job=job, path=path)
-            while True:
-                remaining = deadline - time.monotonic()
-                if remaining <= 0:
-                    return {"status": -1, "usage": None, "body": f"sidecar poll timeout ({timeout:g}s)"}
-                try:
-                    result = await asyncio.wait_for(self._rpc(account, page.evaluate, AI_POLL_JS, job), min(8, remaining))
-                except asyncio.TimeoutError:
-                    result = None
-                if result is not None:
-                    completed = True
-                    return result
-                await asyncio.sleep(min(0.5, max(0, deadline - time.monotonic())))
+            async def poll(acknowledged):
+                return await self._rpc(account, page.evaluate, AI_POLL_JS,
+                                       [job, acknowledged])
+            try:
+                result = await receive_response(poll, deadline)
+            except ResponseDeadline:
+                return {"status": -1, "usage": None, "body": f"sidecar poll timeout ({timeout:g}s)"}
+            completed = True
+            return result
         finally:
             try:
                 if not completed:
