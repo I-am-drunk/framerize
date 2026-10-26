@@ -6,6 +6,14 @@ pub(super) struct CdpAccountRoute {
     pub may_have_browser: bool,
 }
 
+fn has_embedded_credentials(proxy: &str) -> bool {
+    proxy.split([';', ',']).any(|server| {
+        let server = server.split_once("://").map_or(server, |(_, address)| address);
+        let authority = server.split(['/', '?', '#']).next().unwrap_or_default();
+        authority.contains('@')
+    })
+}
+
 impl CdpBridge {
     pub(super) async fn route_cell(&self, account: &AccountId) -> Arc<Mutex<CdpAccountRoute>> {
         self.routes.lock().await.entry(*account).or_default().clone()
@@ -15,6 +23,12 @@ impl CdpBridge {
         -> Result<(), String> {
         if proxy.as_ref().map_or(false, String::is_empty) {
             return Err("proxy must be a nonempty string or null".into());
+        }
+        // Chrome's manual proxy settings do not apply embedded credentials.
+        if matches!(self.engine, EngineKind::FullChrome | EngineKind::HeadlessShell)
+            && proxy.as_deref().is_some_and(has_embedded_credentials)
+        {
+            return Err("CDP browser proxy credentials are unsupported".into());
         }
         tokio::time::timeout(std::time::Duration::from_secs(5), async {
             let cell = self.route_cell(account).await;
