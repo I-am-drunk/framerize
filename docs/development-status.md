@@ -1,5 +1,17 @@
 # Development status
 
+The `refactor/kernel-hot-swap-20261026` lane now includes qualified S1
+integration `34f798e`. S2a adds recorded legacy Forward fixtures only, covering
+category fallback, the independent 401 refresh branch, exact request/refund
+envelopes, cancellation and buffered response behavior. Production forwarding
+and existing fixtures are unchanged. All 19 new tests are UNRUN; read-only
+Rust syntax parsing is not compilation or behavior evidence. The agents-only
+case is ignored by default and needs its explicit launch category and selector.
+Main owns baseline execution before any S2b production port release. The 351
+isolated S1 passes and 37 integration passes remain valid without reruns.
+Hosted CI remains blocked by the recorded payment/spending-limit issue;
+source publication does not establish live delivery or authorize deployment.
+
 S1 is now composed with the newer heartbeat, account preview, provisioning
 and retention fixes on `feat/native-browser-handoff-20261026`. All 37 focused
 integration checks pass across core, native and server; all 768 source hashes
