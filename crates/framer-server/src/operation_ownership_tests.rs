@@ -1,5 +1,6 @@
 use super::*;
-use axum::{Router, routing::post, body::{to_bytes, Bytes}, http::Request as HttpRequest};
+use axum::{Router, routing::post, body::Bytes, http::Request as HttpRequest};
+use crate::response_output::consume_body as to_bytes;
 use tower::ServiceExt;
 use std::time::Duration;
 use tokio::sync::{oneshot, Semaphore};

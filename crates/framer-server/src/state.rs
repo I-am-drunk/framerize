@@ -26,6 +26,7 @@ impl std::ops::Deref for AppState {
 /// Public port handles preserve legacy application wiring. AppState exposes
 /// only shared access; configuring owners after sharing is rejected.
 pub struct AccountRuntime {
+    pub(crate) response_output: Arc<crate::response_output::OutputBudget>,
     /// Explicit application ownership; no default activation.
     pub operation_ownership: Option<Arc<ServingOwnership>>,
     pub client: Arc<dyn FramerClient>,
@@ -41,6 +42,11 @@ pub struct AccountRuntime {
 }
 
 impl AccountRuntime {
+    /// Explicit bounded admission for library callers without operation ownership.
+    pub fn with_response_output_limit(mut self, limit: usize) -> Self {
+        self.response_output = Arc::new(crate::response_output::OutputBudget::new(limit));
+        self
+    }
     pub fn with_gate(mut self, gate: framer_core::gate::ConcurrencyGate) -> Self {
         self.gate = Arc::new(gate);
         self
@@ -53,6 +59,8 @@ impl AccountRuntime {
         serving_accounts: ServingAccountPolicy,
     ) -> Self {
         Self {
+            response_output: Arc::new(crate::response_output::OutputBudget::new(
+                crate::response_output::DEFAULT_UNOWNED_OUTPUT_LIMIT)),
             operation_ownership: None,
             client, browser, sessions: Arc::from(sessions), state: Arc::from(state),
             serving_accounts: Arc::new(serving_accounts),
@@ -70,6 +78,8 @@ impl AppState {
         serving_accounts: ServingAccountPolicy, gate: framer_core::gate::ConcurrencyGate,
     ) -> Self {
         Self::new(Arc::new(AccountRuntime {
+            response_output: Arc::new(crate::response_output::OutputBudget::new(
+                crate::response_output::DEFAULT_UNOWNED_OUTPUT_LIMIT)),
             operation_ownership: None, client, browser, sessions, state,
             serving_accounts: Arc::new(serving_accounts), gate: Arc::new(gate),
             wave: Arc::new(framer_core::wave::WaveGuard::new()),

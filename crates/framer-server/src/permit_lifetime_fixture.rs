@@ -71,6 +71,19 @@ impl BrowserBridge for Ports {
 
 
 impl FramerClient for Ports {
+    fn native_long_with_sink<'s, 'b, 'c, 'd, 'e, 'f, 'g, 'h, 'a>(
+        &'s self, _session: &'b Session, _browser: &'c dyn BrowserBridge,
+        account: &'d AccountId, _project: &'e ProjectId, _payload: Value,
+        _cfg: &'f ChainConfig, _chat: &'g str, sink: &'h dyn ResponsesSink,
+    ) -> BoxFuture<'a, ResponseResult>
+    where 's: 'a, 'b: 'a, 'c: 'a, 'd: 'a, 'e: 'a, 'f: 'a, 'g: 'a, 'h: 'a, Self: 'a {
+        Box::pin(async move {
+            match self.invoke("responses", account).await? {
+                Reply::Responses(value) => emit_assembled(value, sink).await,
+                _ => panic!("wrong fixture reply"),
+            }
+        })
+    }
     denied!("client", request_magic_link<'b, 'c>(_email: &'b str, _castle: &'c CastleToken) -> Result<(), String>);
     denied!("client", complete_magic_link<'b, 'c>(_token: &'b str, _castle: &'c CastleToken) -> Result<Session, String>);
     denied!("client", run_inference<'b, 'c, 'd, 'e, 'f>(_session: &'b Session, _browser: &'c dyn BrowserBridge, _account: &'d AccountId, _project: &'e ProjectId, _req: &'f InferenceRequest) -> Result<InferenceResult, String>);
