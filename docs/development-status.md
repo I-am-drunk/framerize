@@ -29,6 +29,14 @@ names remain unchanged. The exact 4682a1a source is integrated on
 `feat/native-browser-handoff-20261026`; all five focused cases pass after
 the parent reproduced both ambiguity failures with three controls passing.
 
+Responses JSON and SSE replies now reject malformed response/output/usage
+containers and invalid terminal status before emitting items. Explicit SSE
+failures cannot be hidden by a completion. All 44 affected checks pass,
+including 13 new cases; the parent reproduced eight failures with five new
+controls passing. Valid empty output, optional usage/status and the existing
+incomplete-body contract are preserved. The complete 31e73b4 stack is integrated
+on the same experimental branch; live acceptance remains pending.
+
 Messages fallback now requires closed content and `message_stop` before
 publishing output, rejects malformed tool input, preserves retry token limits,
 and retains `max_tokens` when the final text chunk is incomplete. The integrated

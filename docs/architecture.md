@@ -19,6 +19,11 @@ name identifies one namespace across all declarations. A default-namespace
 collision or conflicting declaration prevents inference; existing explicit
 namespaces and all other call fields stay intact.
 
+JSON and SSE response bodies share validation of response/output containers,
+terminal status and optional usage. Invalid envelopes fail before item
+publication. Explicit SSE failure events cannot be masked by completion;
+empty output and the existing incomplete response-body contract remain valid.
+
 Browser launch converts authenticated proxy URLs into separate server,
 username and password options before passing them to the browser driver.
 The conversion preserves decoded credentials and endpoint identity while

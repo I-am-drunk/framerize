@@ -64,3 +64,112 @@ fn missing_or_partial_completion_remains_an_error() {
         assert!(parse_streamed_chunk(body).is_err());
     }
 }
+
+fn frame(event: &Value) -> String {
+    format!("data: {event}\n\n")
+}
+
+#[test]
+fn terminal_response_must_be_an_object() {
+    for body in [Value::Null, json!(true), json!(1), json!("fixture"), json!([])] {
+        let event = json!({"type":"response.completed", "response":body});
+        assert_eq!(parse_streamed_chunk(&frame(&event)).unwrap_err(),
+            "streamed chunk has invalid response object");
+    }
+}
+
+#[test]
+fn terminal_output_must_be_an_array() {
+    let mut event = completed("fixture");
+    event["response"].as_object_mut().unwrap().remove("output");
+    assert_eq!(parse_streamed_chunk(&frame(&event)).unwrap_err(),
+        "streamed chunk has invalid output array");
+    for output in [Value::Null, json!(true), json!(1), json!("fixture"), json!({})] {
+        event["response"]["output"] = output;
+        assert_eq!(parse_streamed_chunk(&frame(&event)).unwrap_err(),
+            "streamed chunk has invalid output array");
+    }
+}
+
+#[test]
+fn failed_or_nonterminal_status_is_not_a_completion() {
+    for status in [json!("failed"), json!("cancelled"), json!("in_progress"),
+        json!("queued"), json!("fixture-private-status"), Value::Null, json!(1), json!({})] {
+        let mut event = completed("fixture");
+        event["response"]["status"] = status;
+        assert_eq!(parse_streamed_chunk(&frame(&event)).unwrap_err(),
+            "streamed chunk has invalid terminal status");
+    }
+}
+
+#[test]
+fn malformed_usage_is_rejected_before_assembly() {
+    for usage in [json!("fixture-private-usage"), json!(1), json!(true), json!([])] {
+        let mut event = completed("fixture");
+        event["response"]["usage"] = usage;
+        assert_eq!(parse_streamed_chunk(&frame(&event)).unwrap_err(),
+            "streamed chunk has invalid usage object");
+    }
+}
+
+#[test]
+fn explicit_failure_before_completion_is_not_hidden() {
+    for kind in ["error", "response.failed", "response.incomplete"] {
+        let failure = json!({"type":kind, "message":"fixture-private-diagnostic"});
+        let body = frame(&failure) + &frame(&completed("fixture"));
+        assert_eq!(parse_streamed_chunk(&body).unwrap_err(), format!("streamed chunk ended with {kind}"));
+    }
+}
+
+#[test]
+fn explicit_failure_after_completion_is_not_hidden() {
+    for kind in ["error", "response.failed", "response.incomplete"] {
+        let failure = json!({"type":kind, "message":"fixture-private-diagnostic"});
+        let body = frame(&completed("fixture")) + &frame(&failure);
+        assert_eq!(parse_streamed_chunk(&body).unwrap_err(), format!("streamed chunk ended with {kind}"));
+    }
+}
+
+#[test]
+fn empty_completed_output_remains_supported() {
+    let mut event = completed("fixture");
+    event["response"]["output"] = json!([]);
+    let result = parse_streamed_chunk(&frame(&event)).unwrap();
+    assert!(result.output.is_empty());
+    assert_eq!(result.status, "completed");
+}
+
+#[test]
+fn completion_without_status_retains_the_event_contract() {
+    let mut event = completed("fixture");
+    event["response"].as_object_mut().unwrap().remove("status");
+    let result = parse_streamed_chunk(&frame(&event)).unwrap();
+    assert_eq!(result.status, "completed");
+    assert_eq!(result.output, event["response"]["output"].as_array().unwrap().clone());
+}
+
+#[test]
+fn incomplete_terminal_body_keeps_its_output_and_reason() {
+    let mut event = completed("fixture");
+    event["response"]["status"] = json!("incomplete");
+    event["response"]["incomplete_details"] = json!({"reason":"max_output_tokens"});
+    let result = parse_streamed_chunk(&frame(&event)).unwrap();
+    assert_eq!(result.status, "incomplete");
+    assert_eq!(result.incomplete_details, Some(json!({"reason":"max_output_tokens"})));
+    assert_eq!(result.output, event["response"]["output"].as_array().unwrap().clone());
+}
+
+#[test]
+fn absent_or_null_usage_remains_optional() {
+    for omit in [false, true] {
+        let mut event = completed("fixture");
+        if omit {
+            event["response"].as_object_mut().unwrap().remove("usage");
+        } else {
+            event["response"]["usage"] = Value::Null;
+        }
+        let result = parse_streamed_chunk(&frame(&event)).unwrap();
+        assert_eq!((result.input_tokens, result.output_tokens), (0, 0));
+        assert_eq!(result.status, "completed");
+    }
+}
