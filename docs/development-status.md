@@ -3,6 +3,16 @@
 The rearchitecture is on `refactor/separate-apps-and-ci-20261025` in draft
 [PR #2](https://github.com/I-am-drunk/framerize/pull/2). It is not deployed.
 
+The next source batch is qualified on the experimental handoff branch.
+Responses refuse an initial budget below 16 and stop before rounding a
+smaller remainder upward. Buffered Messages reject invalid completions and
+keep all token-limited tools behind the existing repair policy. CDP auth
+diagnostics preserve UTF-8 boundaries and omit malformed cookie contents.
+All 43 affected API checks and four host checks pass. Two budget fixture
+setups were corrected and rerun individually; the other 41 API passes remain
+valid. Parent comparisons reproduced six API and two host failures with
+five controls passing. The live packages remain pinned to `72886b2`.
+
 The native/browser transition recovery helper passes 17 inert regression
 tests. They cover pre/post-migration return, retained history, shutdown joins,
 concurrent callers, interrupted recovery and unrelated service/pool changes.

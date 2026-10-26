@@ -257,3 +257,53 @@ fn empty_nonstream_completion_remains_valid() {
     assert_eq!((result.chunks, result.metered_chunks), (1, 0));
     assert_eq!((actual.requests.len(), actual.refunds), (1, 0));
 }
+
+fn budget_reply(content: &str, status: &str, output_tokens: u64) -> Reply {
+    let mut body = response(text(content), status);
+    body["usage"]["output_tokens"] = json!(output_tokens);
+    Reply { streamed:false, body:Some(body), at_budget:false }
+}
+
+#[test]
+fn below_minimum_total_budget_is_refused_before_dispatch() {
+    for cap in [0, 1, 15] {
+        let mut cfg = config();
+        cfg.max_total_tokens = Some(cap);
+        let actual = run(vec![], cfg);
+        assert_eq!(actual.result.err().as_deref(),
+            Some("Responses output budget must be at least 16 tokens"));
+        assert!(actual.requests.is_empty());
+        assert!(actual.events.is_empty());
+        assert_eq!(actual.refunds, 0);
+    }
+}
+
+#[test]
+fn subminimum_remaining_budget_finishes_without_an_extra_request() {
+    for cap in [17, 31] {
+        let mut cfg = config();
+        cfg.max_total_tokens = Some(cap);
+        let actual = run(vec![budget_reply("partial", "incomplete", 16)], cfg);
+        let result = actual.result.unwrap();
+        assert_eq!(actual.requests.len(), 1);
+        assert_eq!(actual.requests[0]["max_output_tokens"], cap);
+        assert_eq!(result.output, vec![text("partial")]);
+        assert_eq!(result.status, "incomplete");
+        assert_eq!(result.incomplete_details, Some(json!({"reason":"max_output_tokens"})));
+        assert_eq!((result.output_tokens, result.chunks, actual.refunds), (16, 1, 0));
+    }
+}
+
+#[test]
+fn minimum_remaining_budget_still_allows_continuation() {
+    let mut cfg = config();
+    cfg.max_total_tokens = Some(32);
+    let actual = run(vec![budget_reply("partial", "incomplete", 16),
+        budget_reply(" tail", "completed", 16)], cfg);
+    let result = actual.result.unwrap();
+    assert_eq!(actual.requests.len(), 2);
+    assert_eq!(actual.requests[0]["max_output_tokens"], 32);
+    assert_eq!(actual.requests[1]["max_output_tokens"], 16);
+    assert_eq!(result.status, "completed");
+    assert_eq!((result.output_tokens, result.chunks, actual.refunds), (32, 2, 0));
+}

@@ -25,6 +25,8 @@ mod cdp_proxy_tests;
 mod cdp_shutdown_tests;
 #[cfg(test)]
 mod cdp_attach_owner_tests;
+#[cfg(test)]
+mod cdp_auth_diagnostics_tests;
 use async_trait::async_trait;
 use framer_core::ids::AccountId;
 use framer_core::port::{BrowserBridge, CastleToken};
@@ -652,7 +654,11 @@ impl CdpBridge {
 
 fn body_preview(v: &Value) -> String {
     let b = v["body"].as_str().unwrap_or("");
-    b[..b.len().min(400)].to_string()
+    let mut end = b.len().min(400);
+    while !b.is_char_boundary(end) {
+        end -= 1;
+    }
+    b[..end].to_string()
 }
 
 #[async_trait]
@@ -686,7 +692,7 @@ impl BrowserBridge for CdpBridge {
         // seed the httpOnly session cookie over CDP (document.cookie can't
         // write httpOnly). Cheap and idempotent: set it before every AI call.
         let Some((name, value)) = cookie_header.split_once('=') else {
-            return Err(format!("bad cookie header: {cookie_header:?}"));
+            return Err("bad cookie header".into());
         };
         let inst = self.instance(account).await?;
         let mut g = inst.lock().await;

@@ -1,0 +1,56 @@
+use serde_json::{json, Value};
+
+#[cfg(test)]
+#[path = "messages_json_tests.rs"]
+mod tests;
+
+fn nonempty_text(value: &Value) -> bool {
+    value.as_str().is_some_and(|text| !text.trim().is_empty())
+}
+
+pub(super) fn decode(body: &Value) -> Result<(Vec<Value>, String, Value), String> {
+    if !body.is_object() {
+        return Err("Messages response is not an object".into());
+    }
+    if body["type"] == "error" || body.get("error").is_some_and(|error| !error.is_null()) {
+        return Err("Messages response reported an upstream error".into());
+    }
+    if body.get("type").is_some_and(|kind| kind != "message")
+        || body.get("role").is_some_and(|role| role != "assistant")
+        || body.get("id").is_some_and(|id| !nonempty_text(id)) {
+        return Err("Messages response has invalid message metadata".into());
+    }
+    let blocks = body["content"].as_array().ok_or("Messages response has no content array")?;
+    let stop = body.get("stop_reason").filter(|reason| nonempty_text(reason))
+        .and_then(Value::as_str).ok_or("Messages response has no terminal stop reason")?;
+    if body.get("stop_sequence").is_some_and(|sequence| !sequence.is_null() && !sequence.is_string()) {
+        return Err("Messages response has invalid stop sequence metadata".into());
+    }
+    let usage = body.get("usage").cloned().unwrap_or_else(|| json!({}));
+    if !usage.is_object() || ["input_tokens", "output_tokens"].iter().any(|field|
+        usage.get(*field).is_some_and(|count| count.as_u64().is_none())) {
+        return Err("Messages response has invalid usage metadata".into());
+    }
+    for block in blocks {
+        if !block.is_object() || !nonempty_text(&block["type"]) {
+            return Err("Messages response has an invalid content block".into());
+        }
+        match block["type"].as_str() {
+            Some("text") if !block["text"].is_string() => {
+                return Err("Messages response has invalid text content".into());
+            }
+            Some("tool_use" | "server_tool_use") => {
+                if !nonempty_text(&block["id"]) || !nonempty_text(&block["name"]) {
+                    return Err("Messages response has invalid tool identity".into());
+                }
+                // A token-limited call is retained only for the chain's existing
+                // whole-chunk retry. It must never reach publication.
+                if stop != "max_tokens" && !block["input"].is_object() {
+                    return Err("Messages response has non-object tool input".into());
+                }
+            }
+            _ => {}
+        }
+    }
+    Ok((blocks.clone(), stop.to_string(), usage))
+}

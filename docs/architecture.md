@@ -38,6 +38,14 @@ budget and queue timing into the common completion path. Both response modes
 apply tool-completeness, continuation and final-status checks before emitting
 items. Failed attempts before streaming do not count as stream throughput.
 
+Responses reject an initial total below the payload builder's 16-token
+minimum and stop when less than 16 remains. They preserve incomplete output
+instead of rounding a continuation beyond the client's remaining allowance.
+Buffered Messages validate their envelope and tool content before callbacks;
+all token-limited tools use the existing repair policy, regardless of position.
+CDP authentication previews end at a valid UTF-8 boundary, and malformed
+cookie errors omit the supplied credential.
+
 Historical calls without a namespace are repaired only when their bare tool
 name identifies one namespace across all declarations. A default-namespace
 collision or conflicting declaration prevents inference; existing explicit

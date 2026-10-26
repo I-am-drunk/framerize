@@ -297,11 +297,7 @@ pub async fn complete_long(
             msg_id = body["id"].as_str().unwrap_or_default().to_string();
         }
         let (chunk_blocks, chunk_stop, usage) = match effective_dialect {
-            Dialect::OpenRouterMessages => (
-                body["content"].as_array().cloned().unwrap_or_default(),
-                body["stop_reason"].as_str().unwrap_or("end_turn").to_string(),
-                body.get("usage").cloned().unwrap_or_else(|| json!({})),
-            ),
+            Dialect::OpenRouterMessages => buffered::decode(&body)?,
             _ => framer_core::convert::chat_response_to_blocks(&body),
         };
         let in_t = usage["input_tokens"].as_u64().unwrap_or(0);
@@ -338,11 +334,11 @@ pub async fn complete_long(
         // mid-tool_use cut routes THIS chunk to metered streaming immediately:
         // bytes flow, no window applies, the tool call completes whole. Tiny
         // credit touch for exactly one chunk; the chain resumes free after.
-        let ends_in_tool_use = chunk_blocks
-            .last()
-            .map(|b| b["type"].as_str() == Some("tool_use"))
-            .unwrap_or(false);
-        if chunk_stop == "max_tokens" && ends_in_tool_use && tool_cut_retries < 2 {
+        // Match the streaming gate: a token-limited chunk cannot publish a
+        // tool merely because another block followed it or it is server-owned.
+        let contains_tool_use = chunk_blocks.iter().any(|block|
+            matches!(block["type"].as_str(), Some("tool_use" | "server_tool_use")));
+        if chunk_stop == "max_tokens" && contains_tool_use && tool_cut_retries < 2 {
             if i + 1 >= cfg.max_chunks {
                 return Err(format!("chunk {i}: incomplete tool call has no remaining retry chunk"));
             }
@@ -372,7 +368,7 @@ pub async fn complete_long(
             arr.push(json!({"role": "user", "content": "Your previous response was cut off mid-tool-call because the tool call was too large. Do NOT retry it as one call. Split the work: write at most ~40 lines per call, then append the next section with a separate call, and repeat until the whole file or edit is done."}));
             continue;
         }
-        if chunk_stop == "max_tokens" && ends_in_tool_use {
+        if chunk_stop == "max_tokens" && contains_tool_use {
             if !cfg.metered_fallback {
                 return Err(format!("chunk {i}: tool call exceeds the free non-streaming window; set FRAMERIZE_ALLOW_METERED=1 to allow a tiny metered chunk here"));
             }
@@ -474,6 +470,9 @@ fn assemble(
 
 #[path = "messages_stream.rs"]
 mod stream;
+
+#[path = "messages_json.rs"]
+mod buffered;
 
 #[cfg(test)]
 #[path = "messages_fallback_tests.rs"]
