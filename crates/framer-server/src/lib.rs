@@ -2433,7 +2433,7 @@ async fn populate_extra_scopes(
         if project.is_none() {
             match cleanup.external(s.client.create_project(session, &w.team).await) {
                 Ok(p) => {
-                    eprintln!("[provision] created project {} in extra workspace {}", p.0, &w.team.0[..8]);
+                    eprintln!("[provision] created project {} in extra workspace {}", p.0, dedupe_identity_preview(&w.team.0));
                     project = Some(p);
                 }
                 Err(e) => {

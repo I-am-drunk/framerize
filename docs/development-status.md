@@ -1,5 +1,15 @@
 # Development status
 
+Extra-workspace provisioning now uses the existing UTF-8-safe preview in its
+successful-create log. Short or non-ASCII metadata IDs can no longer panic
+before the returned project is retained. All four isolated provisioning
+checks pass after the parent reproduced two crashes with two passing controls.
+All 761 source and three candidate hashes match; both test units are stopped.
+Discovery, newest-project adoption, client-call order and full identities are
+preserved. This integrates A's `d9eb887` on the experimental feature branch,
+outside the frozen `3ead4b8` packages. Live provisioning was not exercised.
+Next: resume qualification of the separately corrected S1 runtime fixtures.
+
 The rearchitecture is on `refactor/separate-apps-and-ci-20261025` in draft
 [PR #2](https://github.com/I-am-drunk/framerize/pull/2). It is not deployed.
 
