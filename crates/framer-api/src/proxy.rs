@@ -17,6 +17,9 @@ use framer_core::port::{BrowserBridge, Session};
 use serde_json::{json, Value};
 use std::sync::Mutex;
 
+#[cfg(test)]
+#[path = "proxy_forward_contract_tests.rs"]
+mod forward_contract_tests;
 
 #[derive(Clone, Copy, Debug)]
 pub enum Dialect {

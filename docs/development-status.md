@@ -9,7 +9,19 @@ workspace-selection controls. All 768 source and three candidate hashes
 match; both test units are stopped. This integrates A's `9822c17` on the
 qualified S1 source, with one private fixture-constructor adaptation.
 Earlier metadata-driven team assignment remains a separate queued correction.
-Next: qualify that follow-up and the released S2 forwarding fixtures.
+Next: qualify that follow-up when its immutable packet is delivered.
+
+The S2a legacy forwarding baseline at `d22d2b5` passed all 165 selected
+checks: 19 new cases and 146 retained controls. Rust 1.99.0 release compilation
+passed, all 769 source hashes matched, and both isolated units stopped with
+no remaining processes. The agents-only case ran explicitly with its required
+category and ignored-test selector. This merge adds only those fixtures and
+test wiring to the newer account source; production forwarding is unchanged.
+The baseline records category fallback, independent 401 refresh, request/refund
+envelopes, cancellation and buffered replies. It preserves the existing
+refund-sentinel retry and queue-lookup behavior. S1's 351 isolated and 37
+integration passes remain valid. Next: the reviewed S2b Forward extraction,
+with its own qualification. Hosted validation and live acceptance remain open.
 
 S1 is now composed with the newer heartbeat, account preview, provisioning
 and retention fixes on `feat/native-browser-handoff-20261026`. All 37 focused
