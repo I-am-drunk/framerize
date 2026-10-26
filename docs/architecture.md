@@ -85,6 +85,10 @@ already-open snapshots cannot retroactively acquire start-only metadata.
 Both chain dialects apply their existing refusal policy to each failed attempt
 before paid fallback. Retry timing excludes earlier work and local cooldowns,
 while the existing delayed idle-window and genuine transport fallbacks remain.
+Responses also check their existing 300-second active-time budget before
+explicit rate retries, halved transport retries and metered fallback. The
+guard excludes local cooldown waits and allows a successful request already
+in flight to complete. The internal cooldown retry remains a separate boundary.
 CDP authentication previews end at a valid UTF-8 boundary, and malformed
 cookie errors omit the supplied credential.
 
