@@ -10,9 +10,14 @@ request-to-body time without a sampler fell from 1121.7 to 799.7 ms (28.7%).
 There were three trials per mode for each measurement. Twelve Node cases
 also pass after correcting an absent-body cancellation error; the browser
 measurements retain their original source identity. This is undeployed.
-Production integration next needs acknowledged, retryable chunks so an RPC
-timeout cannot lose response text. The minter/browser live connection remains
-unverified. See the [queue result](../reference/analysis/browser-response-queue-20261026.md).
+A separate acknowledged-delivery prototype now passes a real-browser local
+fixture: five injected RPC-loss cases retain the complete body without another
+HTTP request; capacity, cancellation, oversize refusal and process cleanup pass.
+This establishes no new performance result. Production integration next needs
+the host's account-owned RPC and request deadline around these retries.
+The minter/browser live connection remains unverified. See the
+[queue measurements](../reference/analysis/browser-response-queue-20261026.md)
+and [acknowledgement result](../reference/analysis/browser-response-ack-20261026.md).
 
 The earlier nine fresh-browser response-transfer trials pass on
 `fix/browser-response-bounds-20261026`. For a completed 8 MiB local response,

@@ -26,11 +26,14 @@ with backpressure and the same joined cancellation. Thirteen local browser
 runs preserve complete bodies, limits and cleanup. The original reader shows
 a modest sampled memory reduction; twelve Node cases pass after a separate
 absent-body cancellation correction. Production transfer remains unchanged.
-Its integration first needs acknowledged chunks: the experimental poll
-consumes text before the host confirms receipt, so a lost RPC reply can lose
-content. Retrying must retain the same chunk and keep the final job owned
-until acknowledgement. See the
-[queue result and source identities](../reference/analysis/browser-response-queue-20261026.md).
+The measured poll consumes text before the host confirms receipt. A separate
+acknowledged protocol now retains each frame and its capacity until receipt,
+including final-job removal. Its local browser fixture passes five injected
+RPC-loss points without repeating an HTTP request. Production integration
+must route those retries through `Host._rpc`, preserve account ownership and
+share the request deadline. See the
+[queue measurements](../reference/analysis/browser-response-queue-20261026.md)
+and [acknowledgement contract](../reference/analysis/browser-response-ack-20261026.md).
 
 The native HTTP transport still builds an independent reqwest client per
 account scope. A private builder helper now allows local TLS fixtures to
