@@ -21,7 +21,7 @@ async fn cooldown_repick_skips_unavailable_account_and_reaches_ready_peer() {
         ports.request_gate.add_permits(2);
         let (scope, gate) = ServingOwnership::new_with_host_factory(
             state.wave.clone(), 32, |gate| gate).unwrap();
-        state.operation_ownership = Some(scope);
+        state.runtime_mut().expect("unique fixture runtime").operation_ownership = Some(scope);
         let app = crate::router(state.clone(), "/fixture-no-web");
         let response = app.clone().oneshot(repick_request(Route::Native, stream)).await.unwrap();
         assert_eq!(response.status(), StatusCode::OK);
@@ -96,7 +96,7 @@ async fn repick_case(mode: RepickClose, route: Route, stream: bool, consume: boo
     activated(&state, 1).await;
     let (ownership, gate) = ServingOwnership::new_with_host_factory(
         state.wave.clone(), 32, |gate| gate).unwrap();
-    state.operation_ownership = Some(ownership.clone());
+    state.runtime_mut().expect("unique fixture runtime").operation_ownership = Some(ownership.clone());
     let uncertain = !matches!(mode, RepickClose::BeforeCloseBusy);
     *ports.close_mode.lock().unwrap() = match mode {
         RepickClose::Error => CloseMode::Error,
@@ -286,7 +286,7 @@ async fn initial_admission_case(mode: RepickClose, route: Route, stream: bool, c
     assert_eq!(initial_mints[0].0, id(1));
     let (ownership, gate) = ServingOwnership::new_with_host_factory(
         state.wave.clone(), 32, |gate| gate).unwrap();
-    state.operation_ownership = Some(ownership.clone());
+    state.runtime_mut().expect("unique fixture runtime").operation_ownership = Some(ownership.clone());
     let uncertain = !matches!(mode, RepickClose::BeforeCloseBusy);
     *ports.close_mode.lock().unwrap() = match mode {
         RepickClose::Error => CloseMode::Error,
@@ -394,7 +394,7 @@ async fn api_run_acquisition_case(mode: RepickClose, consume: bool) {
     assert_eq!(initial_mints, vec![(id(1), None)]);
     let (ownership, gate) = ServingOwnership::new_with_host_factory(
         state.wave.clone(), 32, |gate| gate).unwrap();
-    state.operation_ownership = Some(ownership.clone());
+    state.runtime_mut().expect("unique fixture runtime").operation_ownership = Some(ownership.clone());
     let uncertain = !matches!(mode, RepickClose::BeforeCloseBusy);
     *ports.close_mode.lock().unwrap() = match mode {
         RepickClose::Error => CloseMode::Error,

@@ -5,10 +5,15 @@ use std::sync::{Arc, atomic::{AtomicUsize, Ordering}};
 use std::time::Duration;
 use tokio::sync::{oneshot, Semaphore};
 
-struct Browser { closes: AtomicUsize, fail: bool }
+struct Browser {
+    closes: AtomicUsize, fail: bool,
+    runtime: std::sync::Mutex<std::sync::Weak<framer_server::AccountRuntime>>,
+}
 #[async_trait::async_trait]
 impl BrowserBridge for Browser {
     async fn shutdown(&self) -> Result<(), String> {
+        assert!(self.runtime.lock().unwrap().upgrade().is_some(),
+            "runtime and private-store ownership must outlive host cleanup");
         self.closes.fetch_add(1, Ordering::SeqCst);
         if self.fail { Err("fixture close failure".into()) } else { Ok(()) }
     }
@@ -19,10 +24,12 @@ impl BrowserBridge for Browser {
 }
 
 fn fixture(fail: bool) -> (AppState, Arc<Browser>) {
-    let mut state = crate::browser_request_ownership_startup_tests::state();
-    let browser = Arc::new(Browser { closes: AtomicUsize::new(0), fail });
-    state.browser = browser.clone();
-    (crate::configure_browser_request_ownership(state).unwrap(), browser)
+    let browser = Arc::new(Browser { closes: AtomicUsize::new(0), fail,
+        runtime: Default::default() });
+    let state = crate::browser_request_ownership_startup_tests::state_with_browser(browser.clone());
+    let state = crate::configure_browser_request_ownership(state).unwrap();
+    *browser.runtime.lock().unwrap() = Arc::downgrade(state.runtime());
+    (state, browser)
 }
 
 const WAIT: Duration = Duration::from_secs(3);

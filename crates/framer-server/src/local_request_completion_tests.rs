@@ -19,7 +19,7 @@ fn records(ports: &FixturePorts) -> Value {
 fn owned(mut state: AppState) -> (AppState, Arc<ServingOwnership>, OperationGate) {
     let (scope, gate) = ServingOwnership::new_with_host_factory(
         state.wave.clone(), 32, |gate| gate).unwrap();
-    state.operation_ownership = Some(scope.clone());
+    state.runtime_mut().expect("unique fixture runtime").operation_ownership = Some(scope.clone());
     (state, scope, gate)
 }
 

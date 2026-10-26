@@ -42,6 +42,7 @@ impl SessionStoreBridge {
         F: for<'a> FnOnce(&'a mut ChangingAccount) -> BoxFuture<'a, ChangeOutcome<T>> + Send + 'static,
     {
         let native = self.inner.native.clone();
+        let authorization = self.inner.authorization.clone();
         let store = self.inner.store.clone();
         let gate = self.inner.admission.clone();
         let mut owns_barrier = false;
@@ -49,7 +50,7 @@ impl SessionStoreBridge {
             let (stamp, ticket) = admission.account_change(&native, account)?;
             owns_barrier = true;
             let mutation = AccountMutation { native: native.clone(), ticket, uncertain: false };
-            let access = ChangingAccount { account, native: native.clone(), store,
+            let access = ChangingAccount { account, native: native.clone(), store, authorization,
                 admission: gate.clone(), session: None, session_failed: false };
             Ok(async move {
                 Ok(mutation.run(access, stamp, gate, update).await)
@@ -144,6 +145,7 @@ impl AccountMutation {
 /// Available only after the old native generation closes. The caller must
 /// separately own the shared legacy/native account lease.
 pub struct ChangingAccount {
+    authorization: framer_api::SessionAuthorization,
     account: AccountId,
     native: NativeAccountClient,
     store: Arc<dyn SessionStore>,
@@ -171,7 +173,7 @@ impl ChangingAccount {
             } else { Err("account change already bound to a session".to_owned()) };
         }
         let held = UserMutation::new(&mut lock(&self.admission), &self.native,
-            self.store.clone(), user)?;
+            self.store.clone(), user, self.authorization.clone())?;
         self.session = Some(held);
         self.session.as_mut().expect("owned session").initialize().await
     }

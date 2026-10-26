@@ -1,5 +1,22 @@
 # Architecture
 
+The S1 draft on `refactor/kernel-hot-swap-20261026` factors browser resources
+into one `AccountRuntime`. Each `AppState` shares that runtime. Construction
+consumes the stores, reads configuration before moving them, and installs the
+concurrency gate and operation owner before sharing. The session-store lock
+remains held through host shutdown. Test-only shared mock stores are separate
+from this production constructor.
+
+Rotation state belongs to the serving policy. The existing Framer client owns
+both authorization caches through its transport. Native session mutation can
+carry that same client's narrow cookie-cache invalidator, after the existing
+generation drain; account invalidation remains separate. Standalone native
+authorization is uncached and does not construct a browser client.
+
+This draft preserves legacy request handling. It does not yet replace an
+application generation, overlap application owners, or change deployment.
+Its new fixtures and migrated tests await owner-run qualification.
+
 The kernel/application-generation overhaul is being investigated separately
 in [kernel updates](kernel-updates.md). Existing ownership guarantees below
 remain authoritative while the new boundary is tested incrementally.

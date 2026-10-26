@@ -4,11 +4,12 @@ use super::*;
 fn replace_account(previous: &Fixture, replacement: &mut Fixture) {
     replacement.account = previous.account;
     replacement.browser.account = previous.account;
-    replacement.outer = Mutex::new(previous.outer.lock().unwrap().clone());
+    *replacement.transport.authorization.accounts.lock().unwrap() =
+        previous.transport.authorization.accounts.lock().unwrap().clone();
 }
 
 fn clear_shared(fixture: &Fixture) {
-    cache().lock().unwrap_or_else(std::sync::PoisonError::into_inner)
+    fixture.transport.authorization.sessions.lock().unwrap_or_else(std::sync::PoisonError::into_inner)
         .remove(&(fixture.session.cookie_header.clone(), AI.into()));
 }
 
@@ -61,7 +62,7 @@ async fn replaced_cookie_for_same_user_uses_replacement_session_bearer() {
         let previous = Fixture::new(REJECTED, Err("unused".into()), vec![200]);
         let mut replacement = Fixture::new(FRESH, Err("unused".into()), vec![200]);
         replacement.session.active_user = previous.session.active_user.clone();
-        store(&replacement.session, AI, token(&replacement.session, FRESH));
+        store(&replacement.transport, &replacement.session, AI, token(&replacement.session, FRESH));
         replace_account(&previous, &mut replacement);
         replacement.run(mode).await.unwrap();
         assert_eq!(replacement.sent(), [FRESH]);

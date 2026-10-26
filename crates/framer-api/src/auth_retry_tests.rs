@@ -2,7 +2,7 @@
 #[path = "auth_session_scope_tests.rs"]
 mod scope_tests;
 
-use super::{cache, AiToken};
+use super::AiToken;
 use crate::{inference, proxy, session_auth::Egress, transport::Transport};
 use async_trait::async_trait;
 use framer_core::{AccountId, FramerUserId, ProjectId};
@@ -36,8 +36,8 @@ fn token(session: &Session, bearer: &str) -> AiToken {
     AiToken::for_session(session, bearer.into(), i64::MAX)
 }
 
-fn store(session: &Session, path: &str, value: AiToken) {
-    cache().lock().unwrap_or_else(std::sync::PoisonError::into_inner)
+fn store(t: &Transport, session: &Session, path: &str, value: AiToken) {
+    t.authorization.sessions.lock().unwrap_or_else(std::sync::PoisonError::into_inner)
         .insert((session.cookie_header.clone(), path.into()), value);
 }
 
@@ -50,24 +50,29 @@ struct Browser {
 
 struct Fixture {
     account: AccountId, session: Session, browser: Browser, transport: Transport,
-    outer: Mutex<Vec<(AccountId, AiToken)>>,
 }
 
 impl Fixture {
     fn new(shared: &str, mint: Result<&str, String>, statuses: Vec<u16>) -> Self {
+        Self::with_authorization(shared, mint, statuses, Default::default())
+    }
+
+    fn with_authorization(shared: &str, mint: Result<&str, String>, statuses: Vec<u16>,
+        authorization: std::sync::Arc<crate::authorization::AuthorizationState>) -> Self {
         let account = AccountId(uuid::Uuid::new_v4());
         let session = Session { active_user: FramerUserId(format!("fixture-{}", account.0)),
             cookie_header: format!("auth-retry-fixture={}", account.0) };
         mints().lock().unwrap_or_else(std::sync::PoisonError::into_inner)
             .insert(session.cookie_header.clone(), Mint {
                 result: mint.map(|bearer| token(&session, bearer)), calls: 0 });
-        store(&session, AI, token(&session, shared));
         let browser = Browser { account, cookie: session.cookie_header.clone(),
             statuses, bearers: Mutex::new(Vec::new()) };
-        let transport = Transport::control_for_loopback(
+        let mut transport = Transport::control_for_loopback(
             "127.0.0.1:9".parse().unwrap(), Egress::Direct).unwrap();
-        let outer = Mutex::new(vec![(account, token(&session, REJECTED))]);
-        Self { account, session, browser, transport, outer }
+        transport.authorization = authorization;
+        store(&transport, &session, AI, token(&session, shared));
+        transport.authorization.accounts.lock().unwrap().push((account, token(&session, REJECTED)));
+        Self { account, session, browser, transport }
     }
 
     fn mint_calls(&self) -> usize {
@@ -76,7 +81,7 @@ impl Fixture {
     }
 
     fn cached(&self, path: &str) -> Option<String> {
-        cache().lock().unwrap_or_else(std::sync::PoisonError::into_inner)
+        self.transport.authorization.sessions.lock().unwrap_or_else(std::sync::PoisonError::into_inner)
             .get(&(self.session.cookie_header.clone(), path.into()))
             .map(|value| value.bearer.clone())
     }
@@ -88,11 +93,11 @@ impl Fixture {
     async fn run(&self, mode: Mode) -> Result<(), String> {
         let project = ProjectId("fixture-project".into());
         match mode {
-            Mode::Proxy => proxy::forward(&self.transport, &self.outer, &self.session,
+            Mode::Proxy => proxy::forward(&self.transport, &self.transport.authorization.accounts, &self.session,
                 &self.browser, &self.account, &project, proxy::Dialect::OpenAiResponses,
                 "message", json!({"model":"fixture","stream":false}), "fixture-chat", 0)
                 .await.map(|_| ()),
-            Mode::Inference => inference::run(&self.transport, &self.outer, &self.session,
+            Mode::Inference => inference::run(&self.transport, &self.transport.authorization.accounts, &self.session,
                 &self.browser, &self.account, &project, &InferenceRequest {
                     prompt: "fixture".into(), model: Some("fixture".into()),
                     chat_session: Some("fixture-chat".into()),
@@ -103,7 +108,7 @@ impl Fixture {
 
 impl Drop for Fixture {
     fn drop(&mut self) {
-        super::invalidate_session(&self.session);
+        crate::SessionAuthorization(self.transport.authorization.clone()).invalidate(&self.session);
         mints().lock().unwrap_or_else(std::sync::PoisonError::into_inner)
             .remove(&self.session.cookie_header);
     }
@@ -139,8 +144,9 @@ impl BrowserBridge for Browser {
 
 async fn refreshes(mode: Mode) {
     let fixture = Fixture::new(REJECTED, Ok(FRESH), vec![401, 200]);
-    let unrelated = Fixture::new("fixture-peer", Err("unused".into()), vec![]);
-    store(&fixture.session, WEB, token(&fixture.session, "fixture-web"));
+    let unrelated = Fixture::with_authorization("fixture-peer", Err("unused".into()), vec![],
+        fixture.transport.authorization.clone());
+    store(&fixture.transport, &fixture.session, WEB, token(&fixture.session, "fixture-web"));
     fixture.run(mode).await.unwrap();
     assert_eq!(fixture.sent(), [REJECTED, FRESH]);
     assert_eq!(fixture.mint_calls(), 1);
@@ -148,7 +154,8 @@ async fn refreshes(mode: Mode) {
     assert_eq!(fixture.cached(WEB).as_deref(), Some("fixture-web"));
     assert_eq!(unrelated.cached(AI).as_deref(), Some("fixture-peer"));
     assert_eq!(unrelated.mint_calls(), 0);
-    assert_eq!(fixture.outer.lock().unwrap()[0].1.bearer, FRESH);
+    assert_eq!(fixture.transport.authorization.accounts.lock().unwrap().iter()
+        .find(|(id, _)| *id == fixture.account).unwrap().1.bearer, FRESH);
 }
 
 #[tokio::test]
@@ -176,7 +183,7 @@ async fn refresh_failure_returns_without_another_ai_request() {
         assert_eq!(fixture.sent(), [REJECTED]);
         assert_eq!(fixture.mint_calls(), 1);
         assert!(fixture.cached(AI).is_none());
-        assert!(fixture.outer.lock().unwrap().is_empty());
+        assert!(fixture.transport.authorization.accounts.lock().unwrap().is_empty());
     }
 }
 

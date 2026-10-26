@@ -414,10 +414,19 @@ mod tests;
 /// Register application work before proxy loading, prewarm or serving.
 /// The browser daemon installs this during startup; library callers opt in.
 pub fn with_owned_operations(mut state: crate::AppState, limit: usize)
-    -> Result<crate::AppState, GateError> {
-    if state.operation_ownership.is_some() { return Err(GateError::Unconfirmed); }
-    state.operation_ownership = Some(ServingOwnership::new_unmanaged(state.wave.clone(), limit)?);
+    -> Result<crate::AppState, OwnershipConfigError> {
+    if state.operation_ownership.is_some() { return Err(OwnershipConfigError::AlreadyConfigured); }
+    let runtime = state.runtime_mut().ok_or(OwnershipConfigError::RuntimeShared)?;
+    runtime.operation_ownership = Some(ServingOwnership::new_unmanaged(runtime.wave.clone(), limit)
+        .map_err(OwnershipConfigError::Gate)?);
     Ok(state)
+}
+
+#[derive(Debug)]
+pub enum OwnershipConfigError {
+    AlreadyConfigured,
+    RuntimeShared,
+    Gate(GateError),
 }
 
 // Test-only observation at the real access_log emission site. No global logger

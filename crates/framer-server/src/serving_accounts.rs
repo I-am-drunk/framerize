@@ -13,6 +13,7 @@ pub const SERVING_ACCOUNTS_ENV: &str = "FRAMERIZE_SERVING_ACCOUNTS";
 
 #[derive(Debug)]
 pub struct ServingAccountPolicy {
+    rotation: std::sync::Arc<framer_core::rotation::RotationState>,
     pub(crate) config: RwLock<PoolConfig>,
     pub(crate) residents: ResidentPool,
     pub(crate) operation: tokio::sync::Mutex<()>,
@@ -29,10 +30,14 @@ impl Default for ServingAccountPolicy {
 }
 
 impl ServingAccountPolicy {
+    pub(crate) fn rotation(&self) -> &std::sync::Arc<framer_core::rotation::RotationState> {
+        &self.rotation
+    }
     pub fn from_config(config: PoolConfig) -> Result<Self, String> {
         config.validate()?;
         let residents = ResidentPool::new(config.active_capacity).map_err(|e| e.to_string())?;
         Ok(Self { config: RwLock::new(config), residents,
+            rotation: Default::default(),
             operation: tokio::sync::Mutex::new(()),
             configuration: tokio::sync::Mutex::new(()),
             health_update: tokio::sync::Mutex::new(()),
@@ -46,9 +51,13 @@ impl ServingAccountPolicy {
     }
 
     pub fn from_env() -> Result<Self, String> {
+        Self::from_config(Self::config_from_env()?)
+    }
+
+    pub fn config_from_env() -> Result<PoolConfig, String> {
         match std::env::var(SERVING_ACCOUNTS_ENV) {
-            Ok(value) => Self::parse(Some(&value)),
-            Err(std::env::VarError::NotPresent) => Self::parse(None),
+            Ok(value) => Self::parse_config(Some(&value)),
+            Err(std::env::VarError::NotPresent) => Self::parse_config(None),
             Err(std::env::VarError::NotUnicode(_)) => {
                 Err(format!("{SERVING_ACCOUNTS_ENV} must contain UTF-8 UUIDs"))
             }
@@ -58,8 +67,12 @@ impl ServingAccountPolicy {
     /// Parse full account UUIDs separated by commas. Empty or malformed
     /// configuration fails closed instead of accidentally loading all accounts.
     pub fn parse(raw: Option<&str>) -> Result<Self, String> {
+        Self::from_config(Self::parse_config(raw)?)
+    }
+
+    pub fn parse_config(raw: Option<&str>) -> Result<PoolConfig, String> {
         let Some(raw) = raw else {
-            return Ok(Self::default());
+            return Ok(PoolConfig::default());
         };
         let mut allowed = HashSet::new();
         for (index, entry) in raw.split(',').enumerate() {
@@ -72,7 +85,7 @@ impl ServingAccountPolicy {
         }
         let mut ids: Vec<_> = allowed.into_iter().collect();
         ids.sort_by_key(|id| id.0);
-        Self::from_config(PoolConfig { eligible_accounts: EligibleAccounts::Only(ids),
+        Ok(PoolConfig { eligible_accounts: EligibleAccounts::Only(ids),
             ..PoolConfig::default() })
     }
 
@@ -223,7 +236,7 @@ impl ServingAccountPolicy {
                     ResidentStatus::Active | ResidentStatus::Idle))
         }).cloned().collect();
         if !ready_residents.is_empty() {
-            return framer_core::rotation::pick_at(&ready_residents, now).cloned()
+            return self.rotation.pick_at(&ready_residents, now).cloned()
                 .ok_or_else(|| self.no_eligible_account());
         }
         // The general selector can fall back to a cooling account. HTTP
@@ -235,7 +248,7 @@ impl ServingAccountPolicy {
                 return Err(Self::cooling(until, now));
             }
         }
-        framer_core::rotation::pick_at(pool, now).cloned()
+        self.rotation.pick_at(pool, now).cloned()
             .ok_or_else(|| self.no_eligible_account())
     }
 }

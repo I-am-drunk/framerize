@@ -15,16 +15,17 @@ pub(crate) struct Sessions {
 impl Sessions {
     pub fn new(store: Arc<dyn SessionStore>, ownership: Arc<ServingOwnership>)
         -> Result<Self, &'static str> {
-        Self::with_browser(store, ownership, None)
+        Self::with_browser(store, ownership, None, Default::default())
     }
     pub fn with_browser(store: Arc<dyn SessionStore>, ownership: Arc<ServingOwnership>,
-        browser: Option<Arc<dyn crate::transport::browser::BrowserTransport>>)
+        browser: Option<Arc<dyn crate::transport::browser::BrowserTransport>>,
+        authorization: framer_api::SessionAuthorization)
         -> Result<Self, &'static str> {
         let native = match browser {
             Some(browser) => NativeAccountClient::with_browser_transport(browser),
             None => NativeAccountClient::new(),
         }.map_err(|_| "native session owner unavailable")?;
-        let bridge = Arc::new(SessionStoreBridge::new(native.clone(), store)
+        let bridge = Arc::new(SessionStoreBridge::with_authorization(native.clone(), store, authorization)
             .map_err(|_| "shared session store unavailable")?);
         Ok(Self { native, bridge, ownership })
     }
