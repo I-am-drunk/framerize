@@ -52,6 +52,9 @@ class RecoveryTests(unittest.TestCase):
             mocked = patch.object(self.r, name, side_effect=action)
             mocked.start()
             self.addCleanup(mocked.stop)
+        clock = patch.object(self.r.time, 'monotonic', side_effect=iter(range(0, 3000, 30)))
+        self.clock = clock.start()
+        self.addCleanup(clock.stop)
 
     def command(self, *args):
         self.commands.append(args)
@@ -88,6 +91,49 @@ class RecoveryTests(unittest.TestCase):
 
     def migrate(self):
         self.history.write_bytes(b'opaque durable history')
+
+    def test_stopped_waits_for_descendant_exit_after_systemd_stop(self):
+        self.current.update(MainPID='0', ActiveState='inactive')
+        self.events.write_text('populated 1\n')
+        self.clock.side_effect = [0, 0.1]
+        with patch.object(self.r.time, 'sleep', side_effect=lambda _: self.events.unlink()) as sleep:
+            self.r.stopped(self.plan)
+        sleep.assert_called_once()
+        self.assertEqual(self.commands, [])
+
+    def test_stopped_waits_for_systemd_to_finish_deactivation(self):
+        self.current['ActiveState'] = 'deactivating'
+        self.clock.side_effect = [0, 0.1]
+        def finish(_):
+            self.current.update(MainPID='0', ActiveState='inactive')
+        with patch.object(self.r.time, 'sleep', side_effect=finish) as sleep:
+            self.r.stopped(self.plan)
+        sleep.assert_called_once()
+        self.assertEqual(self.commands, [])
+
+    def test_stopped_keeps_the_descendant_guard_at_its_deadline(self):
+        self.current.update(MainPID='0', ActiveState='inactive')
+        self.events.write_text('populated 1\n')
+        self.clock.side_effect = [0, 9, 10]
+        with patch.object(self.r.time, 'sleep') as sleep:
+            with self.assertRaisesRegex(RuntimeError, 'descendants remain') as failure:
+                self.r.stopped(self.plan)
+        sleep.assert_called_once()
+        self.assertEqual(type(failure.exception).__name__, 'ServiceDescendantsRemain')
+        self.assertEqual(self.commands, [])
+
+    def test_an_unexpected_restart_cannot_pass_the_stopped_guard(self):
+        self.current.update(MainPID='0', ActiveState='inactive')
+        self.events.write_text('populated 1\n')
+        self.clock.side_effect = [0, 0.1, 10]
+        def restart(_):
+            self.current.update(MainPID='999', ActiveState='active')
+            self.events.write_text('populated 0\n')
+        with patch.object(self.r.time, 'sleep', side_effect=restart):
+            with self.assertRaisesRegex(RuntimeError, 'shutdown is unconfirmed') as failure:
+                self.r.stopped(self.plan)
+        self.assertEqual(type(failure.exception).__name__, 'ServiceShutdownUnconfirmed')
+        self.assertEqual(self.commands, [])
 
     def test_unstarted_plan_does_not_touch_service(self):
         self.assertEqual(self.r.restore(), {'status': 'not-started'})
