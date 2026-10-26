@@ -19,6 +19,10 @@ struct Observed {
 }
 
 fn run(replies: Vec<Value>) -> Observed {
+    run_with_payload(replies, json!({"model":"gpt-6-astra","input":"fixture"}))
+}
+
+fn run_with_payload(replies: Vec<Value>, payload: Value) -> Observed {
     tokio::runtime::Builder::new_current_thread().enable_all().start_paused(true)
         .build().unwrap().block_on(async {
         let account = AccountId(uuid::Uuid::from_u128(41));
@@ -47,7 +51,7 @@ fn run(replies: Vec<Value>) -> Observed {
             max_total_tokens:Some(2048), metered_fallback:false, ..ChainConfig::default() };
         let response = complete_long(&Transport::with_base("http://127.0.0.1:9".into()),
             &cache, &session, &browser, &account, &ProjectId("fixture-project".into()),
-            json!({"model":"gpt-6-astra","input":"fixture"}), &config,
+            payload, &config,
             "fixture-chat", Some(&callback)).await.unwrap();
         assert!(browser.replies.lock().unwrap().is_empty());
         frames.lock().unwrap().extend(composer.lock().unwrap().take().unwrap().finish(&response));
@@ -245,4 +249,48 @@ fn chat_continuation_keeps_refusal_before_the_tool_call() {
     assert!(refusal_index < tool_index);
     let usage = &observed.chat_events.last().unwrap()["usage"];
     assert_eq!(usage["completion_tokens"], 200);
+}
+
+#[test]
+fn chat_content_filter_is_terminal_and_visible_after_continuation() {
+    let first = message("first", "accepted prefix", "incomplete");
+    let mut last = message("last", "", "incomplete");
+    last["content"] = json!([{"type":"refusal","refusal":"restricted portion"}]);
+    let mut filtered = reply(vec![last], "incomplete");
+    filtered["incomplete_details"] = json!({"reason":"content_filter"});
+    let observed = run(vec![reply(vec![first], "incomplete"), filtered]);
+    assert_eq!(observed.requests.len(), 2);
+    assert_eq!(observed.response.status, "incomplete");
+    assert_eq!(observed.response.incomplete_details, Some(json!({"reason":"content_filter"})));
+    let rendered = convert::responses_to_chat_completion(&observed.response, "fixture-model");
+    assert_eq!(rendered["choices"][0]["finish_reason"], "content_filter");
+    let reasons: Vec<_> = observed.chat_events.iter().filter_map(|event|
+        event["choices"][0]["finish_reason"].as_str()).collect();
+    assert_eq!(reasons, vec!["content_filter"]);
+    assert_eq!(rendered["choices"][0]["message"]["content"], "accepted prefix");
+    assert_eq!(rendered["choices"][0]["message"]["refusal"], "restricted portion");
+}
+
+#[test]
+fn chat_tool_strictness_reaches_each_continuation_request() {
+    for strict in [Some(true), Some(false), None] {
+        let expected = strict.map(|value| json!(value));
+        let schema = json!({"type":"object","properties":{},"additionalProperties":false});
+        let mut function = json!({"name":"fixture","parameters":schema});
+        if let Some(value) = &expected { function["strict"] = value.clone(); }
+        let payload = convert::chat_to_responses_request(&json!({"model":"gpt-6-astra",
+            "messages":[{"role":"user","content":"fixture"}],
+            "tools":[{"type":"function","function":function}]})).unwrap();
+        let observed = run_with_payload(vec![
+            reply(vec![message("first", "prefix ", "incomplete")], "incomplete"),
+            reply(vec![message("last", "suffix", "completed")], "completed"),
+        ], payload);
+        assert_eq!(observed.requests.len(), 2);
+        for request in &observed.requests {
+            let tool = &request["request"]["tools"][0];
+            assert_eq!(tool.get("strict"), expected.as_ref());
+            assert_eq!(tool["parameters"], schema);
+        }
+        assert_eq!(observed.response.output[0]["content"][0]["text"], "prefix suffix");
+    }
 }

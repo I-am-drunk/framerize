@@ -3,6 +3,15 @@
 The rearchitecture is on `refactor/separate-apps-and-ci-20261025` in draft
 [PR #2](https://github.com/I-am-drunk/framerize/pull/2). It is not deployed.
 
+Saved CDP device records now survive read, decoding and field errors instead
+of being replaced with a fresh identity. Chat keeps content-filter completion
+reasons and supplied function strictness through both continuation requests.
+All 37 selected checks pass: 25 core, eight API and four device-record cases.
+Parent comparisons reproduced six failures with three controls passing; all
+six final source files and 668 tracked qualification inputs matched. This
+source batch preserves damaged records for recovery and does not repair them.
+It is not deployed and adds no condition to the pinned live candidate.
+
 Responses now reject a zero chunk limit before sending or publishing output.
 The parent reproduced a fabricated empty completion; the new six-configuration
 regression and three existing completion/fallback controls now pass. This is

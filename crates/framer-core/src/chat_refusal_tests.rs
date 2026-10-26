@@ -109,3 +109,41 @@ fn text_only_and_empty_chat_replies_do_not_acquire_a_refusal() {
         assert_eq!(decode(composer.finish(&r, false))[0]["choices"][0]["finish_reason"], finish);
     }
 }
+
+#[test]
+fn filtered_completion_keeps_its_reason_with_or_without_tools() {
+    for has_calls in [false, true] {
+        let mut output = vec![message(vec![json!({"type":"refusal","refusal":"restricted"})])];
+        if has_calls {
+            output.push(json!({"type":"function_call","call_id":"call-fixture",
+                "name":"fixture","arguments":"{}"}));
+        }
+        let mut r = response(output);
+        r.status = "incomplete".into();
+        r.incomplete_details = Some(json!({"reason":"content_filter"}));
+        let rendered = responses_to_chat_completion(&r, "fixture-model");
+        assert_eq!(rendered["choices"][0]["finish_reason"], "content_filter");
+        let composer = ChatComposer::new("fixture-model", "response-fixture");
+        assert_eq!(decode(composer.finish(&r, true))[0]["choices"][0]["finish_reason"], "content_filter");
+    }
+}
+
+#[test]
+fn other_chat_finish_reasons_retain_their_existing_mapping() {
+    for (status, detail, tool, expected) in [
+        ("completed", Some("content_filter"), false, "stop"),
+        ("completed", None, true, "tool_calls"),
+        ("incomplete", Some("max_output_tokens"), false, "length"),
+        ("incomplete", None, false, "length"),
+    ] {
+        let output = if tool { vec![json!({"type":"function_call","call_id":"call",
+            "name":"fixture","arguments":"{}"})] } else { vec![] };
+        let mut r = response(output);
+        r.status = status.into();
+        r.incomplete_details = detail.map(|reason| json!({"reason":reason}));
+        let rendered = responses_to_chat_completion(&r, "fixture-model");
+        assert_eq!(rendered["choices"][0]["finish_reason"], expected);
+        let composer = ChatComposer::new("fixture-model", "response-fixture");
+        assert_eq!(decode(composer.finish(&r, false))[0]["choices"][0]["finish_reason"], expected);
+    }
+}

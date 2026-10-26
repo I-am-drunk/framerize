@@ -1792,7 +1792,9 @@ pub fn chat_to_responses_request(body: &Value) -> Result<Value, String> {
             .filter(|t| t["type"].as_str() == Some("function"))
             .map(|t| {
                 let f = &t["function"];
-                json!({"type": "function", "name": f["name"], "description": f["description"], "parameters": f["parameters"]})
+                let mut tool = json!({"type": "function", "name": f["name"], "description": f["description"], "parameters": f["parameters"]});
+                if let Some(strict) = f.get("strict") { tool["strict"] = strict.clone(); }
+                tool
             })
             .collect();
         if !mapped.is_empty() {
@@ -1879,6 +1881,20 @@ fn chat_parts_to_input(c: &Value) -> Value {
     }
 }
 
+fn chat_response_finish(r: &AssembledResponses, has_calls: bool) -> &'static str {
+    let filtered = r.status == "incomplete" && r.incomplete_details.as_ref()
+        .and_then(|details| details["reason"].as_str()) == Some("content_filter");
+    if filtered {
+        "content_filter"
+    } else if has_calls {
+        "tool_calls"
+    } else if r.status == "incomplete" {
+        "length"
+    } else {
+        "stop"
+    }
+}
+
 /// Assembled responses object → chat.completion (non-streaming render).
 pub fn responses_to_chat_completion(r: &AssembledResponses, client_model: &str) -> Value {
     let mut text = String::new();
@@ -1910,13 +1926,7 @@ pub fn responses_to_chat_completion(r: &AssembledResponses, client_model: &str) 
             _ => {}
         }
     }
-    let finish = if !tool_calls.is_empty() {
-        "tool_calls"
-    } else if r.status == "incomplete" {
-        "length"
-    } else {
-        "stop"
-    };
+    let finish = chat_response_finish(r, !tool_calls.is_empty());
     let mut message = json!({"role": "assistant"});
     if text.is_empty() && (!tool_calls.is_empty() || refusal.is_some()) {
         message["content"] = Value::Null;
@@ -1993,6 +2003,9 @@ mod responses_content_tests;
 #[cfg(test)]
 #[path = "chat_refusal_tests.rs"]
 mod chat_refusal_tests;
+#[cfg(test)]
+#[path = "chat_request_tests.rs"]
+mod chat_request_tests;
 
 #[path = "response_message.rs"]
 mod response_message;
@@ -2227,13 +2240,7 @@ impl ChatComposer {
             .output
             .iter()
             .any(|it| matches!(it["type"].as_str(), Some("function_call") | Some("custom_tool_call")));
-        let reason = if has_calls {
-            "tool_calls"
-        } else if r.status == "incomplete" {
-            "length"
-        } else {
-            "stop"
-        };
+        let reason = chat_response_finish(r, has_calls);
         let mut f = vec![self.chunk(json!({}), json!(reason))];
         if include_usage {
             f.push(format!(
