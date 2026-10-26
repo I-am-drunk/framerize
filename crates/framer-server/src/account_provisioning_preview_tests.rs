@@ -162,7 +162,7 @@ async fn assert_extra_scope(team: &str, existing: bool) {
         cookie_header: "session=fixture-only".into(),
     };
     let cleanup = crate::pool_control::CleanupEvidence::new();
-    crate::populate_extra_scopes(&state, &session, &mut current, &cleanup).await;
+    crate::populate_extra_scopes(&state, &session, &mut current, &Default::default(), &cleanup).await;
     assert!(cleanup.confirmed());
     assert_eq!(
         serde_json::to_value(&current).unwrap(),

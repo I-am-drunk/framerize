@@ -1,5 +1,16 @@
 # Development status
 
+The contextual `baf8f20` workspace-claims correction is qualified on `39658a1`.
+Login/import now include peer secondary teams in their existing claim snapshot
+and skip peer-owned scopes before project listing or creation. All 15 exact
+cases pass with 782 matching source pins and fully stopped test units.
+The fixture-only baseline reproduced five failures while two controls passed.
+Existing primary-project guards, same-account scopes, ranking and cleanup
+remain covered. This fixes sequential claims; concurrent uniqueness and
+historical record repair are outside this change. Next is qualification of
+A's separate admission-failure-state packet when frozen. The joined scan-error
+follow-up is source-only work after that packet. No live deployment changed.
+
 The `feat/native-browser-handoff-20261026` branch now integrates qualified
 S2b `c233346` with registration correction `bf9d00d`. Responses policy and protocol
 helpers move to a credential-independent workspace leaf. The runtime binds
@@ -12,8 +23,7 @@ and admission checks also pass on the merge, with 781 matching source pins.
 The initial two-job build reached its 1,536 MiB limit; the one-job retry
 compiled all five libraries. An overbroad Messages filter was corrected by
 selecting the packet's twelve exact names. Both setup outcomes are retained.
-Every isolated unit stopped. Next is contextual qualification of `baf8f20`'s
-secondary-workspace claims. S3, runtime and timing work remain held. The
+Every isolated unit stopped. S3, runtime and timing work remain held. The
 current transport still uses a browser; no package or live service changed.
 Hosted CI remains blocked by the recorded payment/spending-limit issue.
 
