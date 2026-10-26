@@ -204,6 +204,12 @@ cookies are excluded; shared-domain and host-only API cookies remain valid.
 Existing ordering, error handling and selection among API-applicable cookies
 are preserved.
 
+Login completion and session import reject a duplicate normalized email before
+saving the user-keyed session or claiming a workspace grant. Reauthentication
+of the same account retains save-before-grant and admission ordering. This is
+sequential validation; concurrent duplicate registration and rollback after a
+later persistence or admission failure are separate concerns.
+
 Both CDP evaluation helpers reject a non-null exceptionDetails field before
 returning a value. Reported JavaScript failures return a fixed error without
 exception descriptions, so a failed device seed reaches the existing startup
