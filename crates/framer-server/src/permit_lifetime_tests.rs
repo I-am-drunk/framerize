@@ -55,7 +55,8 @@ async fn capacity_wait_heartbeats_and_disconnect_prevents_later_inference() {
         let mut body = response.into_body().into_data_stream();
         body.next().await.unwrap().unwrap();
         let ping = body.next().await.unwrap().unwrap();
-        assert!(String::from_utf8_lossy(&ping).contains("ping"));
+        let expected = if messages { "event: ping" } else { "event: response.in_progress" };
+        assert!(String::from_utf8_lossy(&ping).contains(expected));
         drop(body);
         f.accounts[0].cooling_until_ms = None;
         f.state.state.upsert(&f.accounts[0]).await.unwrap();

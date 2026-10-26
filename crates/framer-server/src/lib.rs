@@ -2071,7 +2071,8 @@ async fn native_complete(
                         };
                         drained.into_iter().chain(tail).collect()
                     }
-                    ev = rx.recv() => match ev {
+                    // A closed channel must not spin while the producer joins cleanup.
+                    ev = rx.recv(), if !(rx.is_closed() && rx.is_empty()) => match ev {
                         Some(convert::ChainEvent::ResponsesItems { items, continues_text }) => {
                             composer.as_mut().unwrap().push(&items, continues_text)
                         }
@@ -2079,7 +2080,7 @@ async fn native_complete(
                         None => vec![convert::ping_frame(dialect)],
                     },
                     _ = tokio::time::sleep(std::time::Duration::from_secs(8)) => {
-                        vec![convert::ping_frame(dialect)]
+                        vec![composer.as_mut().unwrap().heartbeat()]
                     }
                 };
                 let out = if frames.is_empty() { String::new() } else { frames.join("\n\n") + "\n\n" };
@@ -2257,6 +2258,12 @@ impl NativeComposerState {
         match self {
             Self::Responses(c) => c.open(),
             Self::Chat(_) => convert::stream_open(ClientDialect::OpenAiChat, client_model, logical_id),
+        }
+    }
+    fn heartbeat(&mut self) -> String {
+        match self {
+            Self::Responses(c) => c.heartbeat(),
+            Self::Chat(_) => convert::ping_frame(ClientDialect::OpenAiChat),
         }
     }
     fn push(&mut self, items: &[serde_json::Value], continues_text: bool) -> Vec<String> {

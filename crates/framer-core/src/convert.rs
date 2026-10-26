@@ -1110,7 +1110,8 @@ pub enum ChainEvent {
     Done(Box<AssembledResponse>),
 }
 
-/// Heartbeat frame per dialect (legal, parser-ignored keep-alives).
+/// Transport keep-alive. Item-driven Responses streams use their composer's
+/// heartbeat so event consumers observe activity with the same ID and sequence.
 pub fn ping_frame(d: ClientDialect) -> String {
     match d {
         ClientDialect::AnthropicMessages => sse("ping", json!({"type": "ping"})),
@@ -2021,20 +2022,26 @@ impl ResponsesComposer {
     /// Open this stream once before publishing items. The same composer owns
     /// sequence numbers through finish or fail, including terminal errors.
     pub fn open(&mut self) -> Vec<String> {
-        let id = if self.logical_id.starts_with("resp_") {
-            self.logical_id.clone()
-        } else {
-            format!("resp_{}", self.logical_id)
-        };
+        let id = self.response_id();
         vec![
             self.ev("response.created", json!({"response": {
                 "id":id, "object":"response", "created_at":now_unix(),
                 "status":"in_progress", "model":self.client_model,
             }})),
-            self.ev("response.in_progress", json!({"response": {
-                "id":id, "status":"in_progress",
-            }})),
+            self.heartbeat(),
         ]
+    }
+
+    fn response_id(&self) -> String {
+        if self.logical_id.starts_with("resp_") { self.logical_id.clone() }
+        else { format!("resp_{}", self.logical_id) }
+    }
+
+    /// Report activity without closing or replacing accumulated output.
+    pub fn heartbeat(&mut self) -> String {
+        self.ev("response.in_progress", json!({"response": {
+            "id":self.response_id(), "status":"in_progress",
+        }}))
     }
 
     /// Terminate without promoting open content to a successful completion.

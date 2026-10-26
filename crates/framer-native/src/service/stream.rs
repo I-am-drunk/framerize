@@ -18,6 +18,13 @@ enum Composer {
 }
 
 impl Composer {
+    fn heartbeat(&mut self) -> String {
+        match self {
+            Self::Responses(composer) => composer.heartbeat(),
+            Self::Messages(_) => convert::ping_frame(ClientDialect::AnthropicMessages),
+        }
+    }
+
     fn push(&mut self, event: ChainEvent) -> Vec<String> {
         match (self, event) {
             (Self::Responses(composer), ChainEvent::ResponsesItems { items, continues_text }) =>
@@ -90,7 +97,7 @@ async fn next(mut state: StreamState) -> Option<(Result<bytes::Bytes, Infallible
                     None => state.events_open = false,
                 }
             }
-            _ = &mut heartbeat => break vec![convert::ping_frame(state.dialect)],
+            _ = &mut heartbeat => break vec![state.composer.as_mut().unwrap().heartbeat()],
         }
     }};
     Some((Ok(bytes::Bytes::from(frames.join("\n\n") + "\n\n")), state))
