@@ -1,5 +1,54 @@
 # Kernel and application updates
 
+S3a prepares the free Responses SSE path for replacement policy workers.
+It adds an in-process awaited sink and incremental borrowed event encoder.
+The publisher owns accepted sequence state and irreversible content flags;
+the encoder cannot declare output accepted merely by entering a job queue.
+Output failures stop later dispatch and repick. A validated terminal success
+survives client disconnection for guarded account-health accounting; intermediate
+chunks and encoder failures cannot supply that success. At a complete event
+boundary failure may emit one sequenced error;
+after a partial event the body aborts without a fabricated completion.
+
+One admitted stream holds at most one serializer job, one queued emission
+command, one staged segment and two downstream segment slots. Each segment
+allocates 16 KiB. Including the producer and publisher buffers, at most five
+segments (80 KiB) per stream are counted. Aggregate input/history, message
+composer state, metadata, thread stacks and HTTP/socket buffers are separate.
+The existing operation-registration limit conservatively sizes stream
+leases; HTTP, producer and host registrations retain their original meaning.
+Ungated library construction has an explicit bounded default of 256 leases.
+
+Queued Bytes retain their reservation until the last clone is disposed.
+Body drop independently cancels local output and later dispatch. It does not
+cancel a Forward already sent. The emitter drops staging before serializer
+join, closes every data sender before its disposal wait, and leaves EOF
+independent of that wait. Existing operation observers join the producer's
+upstream cleanup verdict and output disposal before releasing or fencing.
+No extra registration or retirement API is introduced.
+
+A policy panic is contained by the existing completion observer. The
+observer processes it when the body reaches EOF, errors or drops, then sets
+the persistent unknown-cleanup fence.
+Unwinding can drop the emitter's join handle; that emitter still owns its
+serializer handles and output reservations. This path does not establish
+joined retirement. Disposing all output can release local buffers without
+clearing the unknown-cleanup fence or authorizing host retirement.
+
+The source fixtures include P2 and P5 with one lease per admitted stream,
+four stalled peers while a fifth completes, retained clones across EOF/drop,
+pending Forward cleanup, encoder errors and actual HTTP handler consumption.
+They report allocation-capacity counters and unpaused milestones separately
+from process memory samples. Main qualified the 27 affected correction cases,
+five repetitions of each profile and 21 focused contextual integration cases.
+The original 351 passes and five failures remain separate; the corrected
+361-case inventory was not rerun in full. P5/P2 median direct-sink progress
+was 1.019 across the fresh repetitions, a diagnostic rather than a threshold.
+Blocking-pool contention, stack/RSS cost and transport retention are still
+operational limits, with no total-memory or client-receipt guarantee.
+Direct in-process BodyExt::collect consumers must copy and release frames;
+remote clients buffer different allocations and need separate evidence.
+
 S1 began on `refactor/kernel-hot-swap-20261026`, based on qualified `c8371bf`,
 and is now integrated on the experimental feature branch. The activation command
 still stops and restarts the application; it does not preserve active streams.

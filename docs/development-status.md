@@ -1,5 +1,23 @@
 # Development status
 
+Free Responses streaming now uses the bounded, awaited output path from
+`4447080`, composed after `1aef73d` with the newer account and store fixes.
+All 21 focused integration checks pass with 801 matching source pins and
+26 matching candidate pins; the isolated unit is stopped. The earlier
+351 passes and five failures remain recorded separately. All 27 affected
+correction checks passed on the reviewed candidate, including the five
+returned failures; this is not a full rerun of its 361-case inventory.
+
+Five fresh P2, five P5 and five observer-control runs also passed in separate
+processes. Direct-sink progress in microseconds, min/median/max, was
+282/370/1387 for P2 and 306/377/1649 for P5. The 1.019 median ratio is
+diagnostic, not an acceptance threshold. Final bytes and leases are asserted
+zero; final jobs zero follows joined ownership rather than an explicit
+assertion. All runs and point memory samples are retained. These fixtures
+do not measure AttemptSink, socket or worker costs, total memory savings,
+or client receipt. The real worker slice and live acceptance remain open.
+This source integration does not change the deployed service.
+
 SQLite listing now rejects malformed account rows instead of returning a
 successful partial list. This integrates `8bcdd1b` after `b17eae4`, preserving
 the newer protocol boundary and registration fixes. All 14 selected methods

@@ -1,5 +1,22 @@
 # Architecture
 
+Free Responses SSE uses an awaited output sink. Policy transfers a validated
+chunk to one encoder and waits for its segments to enter the bounded body
+queue before receiving the same chunk owner and continuing the request.
+Chat, buffered JSON, legacy callbacks and direct entry points remain available.
+
+AccountRuntime owns the output budget. Each stream reserves an encoder lease
+and two 16 KiB output slots before headers or Forward dispatch. Slots follow
+the final Bytes owner, including polled clones. Cancellation closes staging
+before joining serializers; body output closes before waiting for final buffer
+disposal. Channel EOF is independent of that disposal wait. Already-sent
+Forward work and its cleanup remain separately joined.
+
+A validated terminal upstream success can still update account health after
+confirmed client cancellation. Intermediate chunks, invalid results and local
+encoding errors cannot earn that success. Guarded health updates preserve a
+newer refusal. Successful upstream work does not prove delivery to the client.
+
 SQLite account listing returns the complete decoded list or an error. A row
 that fails JSON or account decoding returns the fixed, payload-free message
 `stored account could not be decoded`. Registration, administration and peer
@@ -103,10 +120,10 @@ work. This step does not remove browser transport or establish memory savings.
 
 Before extracting authorized forwarding, S2a records the legacy behavior in
 19 new fixtures. All 165 selected new and retained checks pass on `d22d2b5`,
-including the separate agents-category launch. The upcoming Forward adapter
-must bind per request invocation, retain optional cancellation semantics,
-and preserve independent retry branches, refund linkage and queue lookup.
-The fixtures are now integrated; the production extraction remains later work.
+including the separate agents-category launch. The integrated Forward adapter
+binds per request invocation, retains optional cancellation semantics,
+and preserves independent retry branches, refund linkage and queue lookup.
+These fixtures remain part of the later slices' retained controls.
 
 The kernel/application-generation overhaul is being investigated separately
 in [kernel updates](kernel-updates.md). Existing ownership guarantees below

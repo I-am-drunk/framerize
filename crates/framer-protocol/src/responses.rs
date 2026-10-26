@@ -14,6 +14,7 @@
 use crate::responses_input::{merge_items, record_chunk_events, prepare_input, prepare_payload};
 use crate::convert::{AssembledResponses, ChainEvent};
 use crate::forward::{AuthorizedForward, ChainLimits, ForwardReply};
+use crate::responses_sink::{OutputError, ResponseResult, ResponsesSink, ValidatedChunk};
 use serde_json::{json, Value};
 
 fn allows_transport_retry(error: &str, elapsed_secs: f32) -> bool {
@@ -34,6 +35,23 @@ pub async fn complete_long(
     cfg: &ChainLimits,
     events: Option<&(dyn Fn(ChainEvent) + Send + Sync)>,
 ) -> Result<AssembledResponses, String> {
+    complete_long_with_sink(forward, client_payload, cfg, &CallbackSink(events))
+        .await.map_err(|error| error.to_string())
+}
+
+struct CallbackSink<'a>(Option<&'a (dyn Fn(ChainEvent) + Send + Sync)>);
+#[async_trait::async_trait]
+impl ResponsesSink for CallbackSink<'_> {
+    async fn emit(&self, chunk: ValidatedChunk) -> Result<ValidatedChunk, OutputError> {
+        record_chunk_events(chunk.items(), chunk.continues_text(), self.0);
+        Ok(chunk)
+    }
+}
+
+pub async fn complete_long_with_sink(
+    forward: &dyn AuthorizedForward, client_payload: Value, cfg: &ChainLimits,
+    sink: &dyn ResponsesSink,
+) -> ResponseResult {
     if cfg.max_total_tokens.is_some_and(|cap| cap < 16) {
         return Err("Responses output budget must be at least 16 tokens".into());
     }
@@ -137,7 +155,7 @@ pub async fn complete_long(
                 .await
                 {
                     Ok(r) => out = Some(Ok(r)),
-                    Err(e) if forward.is_cancelled() => return Err(e),
+                    Err(e) if forward.is_cancelled() => return Err(e.into()),
                     Err(e) if e.starts_with("retryable 429") => {
                         if rate_retries >= 9 {
                             out = Some(Err(format!(
@@ -168,8 +186,8 @@ pub async fn complete_long(
         // A transport retry can lower it after the original payload was sent.
         let (resp, response_budget, streamed) = match first {
             Ok(r) => (r, chunk, false),
-            Err(e) if crate::error::AccountCooldown::from_error(&e).is_some() => return Err(e),
-            Err(e) if forward.is_cancelled() => return Err(e),
+            Err(e) if crate::error::AccountCooldown::from_error(&e).is_some() => return Err(e.into()),
+            Err(e) if forward.is_cancelled() => return Err(e.into()),
             Err(e) => {
                 // The idle-kill check must time the FAILING ATTEMPT — the whole
                 // loop includes 429 backoffs, which would misclassify a fast
@@ -177,7 +195,7 @@ pub async fn complete_long(
                 // (audit 2026-10-11: wasted halve-retries on velocity bans).
                 let elapsed = cooldown_wait.elapsed(last_attempt_t0).as_secs_f32();
                 if !(allows_transport_retry(&e, elapsed) && chunk_tokens > 200) {
-                    return Err(e);
+                    return Err(e.into());
                 }
                 check_active_budget(&cooldown_wait, i)?;
                 // Died silently (idle window or transport): halve and retry once.
@@ -190,10 +208,10 @@ pub async fn complete_long(
                 .await
                 {
                     Ok(r) => (r, retry_chunk, false),
-                    Err(e2) if crate::error::AccountCooldown::from_error(&e2).is_some() => return Err(e2),
-                    Err(e2) if forward.is_cancelled() => return Err(e2),
+                    Err(e2) if crate::error::AccountCooldown::from_error(&e2).is_some() => return Err(e2.into()),
+                    Err(e2) if forward.is_cancelled() => return Err(e2.into()),
                     Err(e2) if !allows_transport_retry(&e2,
-                        cooldown_wait.elapsed(retry_t0).as_secs_f32()) => return Err(e2),
+                        cooldown_wait.elapsed(retry_t0).as_secs_f32()) => return Err(e2.into()),
                     Err(e2) if cfg.metered_fallback => {
                         check_active_budget(&cooldown_wait, i)?;
                         eprintln!("[nativechain] chunk {i} retry died ({e2}) — metered stream fallback for this chunk");
@@ -205,7 +223,7 @@ pub async fn complete_long(
                         // before publishing output from either transport mode.
                         (streamed, retry_chunk, true)
                     }
-                    Err(e2) => return Err(format!("chunk {i} retry died (fallback off): {e2}")),
+                    Err(e2) => return Err(format!("chunk {i} retry died (fallback off): {e2}").into()),
                 }
             }
         };
@@ -253,7 +271,7 @@ pub async fn complete_long(
             if tps > 0.0 && tps < 8.0 {
                 slow_chunks += 1;
                 if slow_chunks >= 2 {
-                    return Err(format!("upstream degraded ({tps:.0} tok/s sustained) — retry in a minute"));
+                    return Err(format!("upstream degraded ({tps:.0} tok/s sustained) — retry in a minute").into());
                 }
             } else if tps >= 12.0 {
                 slow_chunks = 0;
@@ -281,7 +299,7 @@ pub async fn complete_long(
         // truncated call is dropped; its text survives as context).
         if hit_cap && ends_in_call && tool_cut_retries < 2 {
             if i + 1 >= cfg.max_chunks {
-                return Err(format!("chunk {i}: incomplete tool call has no remaining retry chunk"));
+                return Err(format!("chunk {i}: incomplete tool call has no remaining retry chunk").into());
             }
             tool_cut_retries += 1;
             let budget = ((tps * 70.0) as u32).clamp(1200, 5000).max(chunk_tokens);
@@ -304,7 +322,7 @@ pub async fn complete_long(
         if hit_cap && ends_in_call && tool_cut_retries >= 2 {
             return Err(format!(
                 "chunk {i}: tool call is still incomplete after two bounded retries; split the tool input into smaller calls"
-            ));
+            ).into());
         }
 
         validate_tool_fields(&items, &output_items)?;
@@ -317,7 +335,11 @@ pub async fn complete_long(
         // Normal chunk completion: merge items, emit, decide continuation.
         let continues_text = hit_cap
             && items.last().map(|it| it["type"].as_str() == Some("message")).unwrap_or(false);
-        record_chunk_events(&items, continues_text, events);
+        let budget_left = cfg.max_total_tokens.map(|cap| u64::from(cap).saturating_sub(next_ctok));
+        let completes_chain = !hit_cap || budget_left.is_some_and(|left| left < 16)
+            || i + 1 == cfg.max_chunks;
+        let items = sink.emit(ValidatedChunk::new(items, continues_text)
+            .with_completion(completes_chain)).await?.into_items();
         merge_items(&mut output_items, items.clone());
         if resp_id.is_empty() {
             resp_id = body["id"].as_str().unwrap_or_default().to_string();
@@ -332,14 +354,13 @@ pub async fn complete_long(
         final_status = status.clone();
         final_incomplete = body.get("incomplete_details").cloned();
 
-        let budget_left = cfg.max_total_tokens.map(|cap| u64::from(cap).saturating_sub(ctok));
         // prepare_payload enforces the upstream 16-token minimum. Do not
         // round a smaller remainder up beyond the client's total cap.
         if !hit_cap || budget_left.is_some_and(|left| left < 16) {
             return finish(
                 resp_id, created_at, output_items, final_status, final_incomplete,
                 last_usage, last_service_tier, ptok, ctok, i + 1, metered_chunks,
-            );
+            ).map_err(Into::into);
         }
         // Continuation: append the chunk's whole output verbatim (reasoning
         // included — verified) + the continue instruction.
@@ -352,7 +373,7 @@ pub async fn complete_long(
     finish(
         resp_id, created_at, output_items, final_status, final_incomplete,
         last_usage, last_service_tier, ptok, ctok, cfg.max_chunks, metered_chunks,
-    )
+    ).map_err(Into::into)
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -396,7 +417,7 @@ async fn stream_chunk(
     forward.forward(step, payload, step_index).await
 }
 
-fn validate_tool_fields(items: &[Value], previous: &[Value]) -> Result<(), &'static str> {
+pub(crate) fn validate_tool_fields(items: &[Value], previous: &[Value]) -> Result<(), &'static str> {
     for item in items {
         let input = match item["type"].as_str() {
             Some("function_call") => "arguments",
@@ -437,6 +458,11 @@ fn validate_response_body(body: &Value) -> Result<(), &'static str> {
         return Err("invalid response object");
     }
     let output = body["output"].as_array().ok_or("invalid output array")?;
+    validate_output_shape(output)?;
+    validate_response_tail(body, output)
+}
+
+pub(crate) fn validate_output_shape(output: &[Value]) -> Result<(), &'static str> {
     if output.iter().any(|item| {
         !item.get("type").and_then(Value::as_str).is_some_and(|kind| !kind.is_empty())
     }) {
@@ -458,6 +484,10 @@ fn validate_response_body(body: &Value) -> Result<(), &'static str> {
             }
         }
     }
+    Ok(())
+}
+
+fn validate_response_tail(body: &Value, output: &[Value]) -> Result<(), &'static str> {
     if body.get("status").is_some_and(|status| {
         !matches!(status.as_str(), Some("completed" | "incomplete"))
     }) {

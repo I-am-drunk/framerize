@@ -2,7 +2,9 @@
 use super::{activate, config, configure, lease_account, management, park, AccountBody, ConfigUpdate};
 use super::lease_account_observed;
 use crate::{ApiError, AppState, PoolConfig, ServingAccountPolicy, POOL_SETTING_KEY};
-use axum::{body::{to_bytes, Bytes}, extract::State, http::HeaderMap, Json};
+use axum::{body::Bytes, extract::State, http::HeaderMap, Json};
+use crate::response_output::consume_body as to_bytes;
+use framer_core::port::{ResponseResult, ResponsesSink, ValidatedChunk};
 use framer_core::account::{AccountState, ManagedAccount};
 use framer_core::browser_lifecycle::{BrowserAccountState, BrowserAccountStatus, IdleCloseOutcome, IdleCloseResult};
 use framer_core::convert::{AssembledResponse, AssembledResponses, ChainEvent, ClientDialect};
@@ -418,6 +420,42 @@ impl FramerClient for Ports {
             })
         })
     }
+    fn native_long_with_sink<'s, 'b, 'c, 'd, 'e, 'f, 'g, 'h, 'a>(
+        &'s self, session: &'b Session, browser: &'c dyn BrowserBridge, account: &'d AccountId,
+        _project: &'e ProjectId, _payload: Value, _cfg: &'f ChainConfig, chat: &'g str,
+        sink: &'h dyn ResponsesSink,
+    ) -> BoxFuture<'a, ResponseResult>
+    where 's: 'a, 'b: 'a, 'c: 'a, 'd: 'a, 'e: 'a, 'f: 'a, 'g: 'a, 'h: 'a, Self: 'a {
+        Box::pin(async move {
+            let _drop = CountDrop(self.request_drops.clone());
+            self.observed_chats.lock().unwrap().push((*account, chat.to_string()));
+            self.request_started.fetch_add(1, Ordering::SeqCst);
+            assert_eq!(session.active_user.0, format!("user-{}", account.0.as_u128()));
+            browser.castle_token(account).await?;
+            if self.fail_first_account.load(Ordering::SeqCst) && *account == id(1) {
+                return Err(self.inference_error.lock().unwrap().clone()
+                    .unwrap_or_else(|| "fixture risk-refused".into()).into());
+            }
+            let output = vec![json!({"id":"fixture-item","type":"message","role":"assistant",
+                "status":"completed","content":[{"type":"output_text","text":"fixture result","annotations":[]}]})];
+            let value = AssembledResponses {
+                id: "fixture-response".into(), created_at: 1, output, status: "completed".into(),
+                incomplete_details: None, usage: json!({"input_tokens":1,"output_tokens":2,"total_tokens":3}),
+                service_tier: Value::Null, input_tokens: 1, output_tokens: 2, chunks: 2, metered_chunks: 0,
+            };
+            for n in 0..2 {
+                self.step().await;
+                let previous = if n == 0 { &[][..] } else { value.output.as_slice() };
+                let chunk = ValidatedChunk::validate(value.output.clone(), previous, n > 0)?;
+                sink.emit(chunk).await?;
+                if self.cleanup_after_content.load(Ordering::SeqCst) && *account == id(1) {
+                    return Err("chunk 0 retry died (fallback off): account browser cleanup is unconfirmed; retry after cleanup".into());
+                }
+            }
+            self.request_finished.fetch_add(1, Ordering::SeqCst);
+            Ok(value)
+        })
+    }
     fn native_long<'s, 'b, 'c, 'd, 'e, 'f, 'g, 'h, 'a>(
         &'s self, session: &'b Session, browser: &'c dyn BrowserBridge, account: &'d AccountId,
         _project: &'e ProjectId, _payload: Value, _cfg: &'f ChainConfig, chat: &'g str,
@@ -760,6 +798,11 @@ async fn cleanup_after_streamed_content_fences_without_replaying_on_another_acco
         let response = handler_response(&state, route, true).await.unwrap();
         let body = to_bytes(response.into_body(), 1024 * 1024).await.unwrap();
         assert!(String::from_utf8_lossy(&body).contains("cleanup is unconfirmed"));
+        drop(body);
+        // Preserve the cleanup fence while the producer joins output disposal.
+        tokio::time::timeout(Duration::from_secs(3), async {
+            while slot(&state, id(1)).users != 0 { tokio::task::yield_now().await; }
+        }).await.expect("request residency did not settle after body disposal");
         assert_eq!(ports.request_started.load(Ordering::SeqCst), 1);
         assert_eq!(ports.request_finished.load(Ordering::SeqCst), 0);
         assert!(slot(&state, id(1)).uncertain);
@@ -1233,6 +1276,10 @@ async fn all_stream_handlers_retain_residency_through_chain_and_unread_completed
         until(|| ports.request_steps.load(Ordering::SeqCst) == 1).await;
         assert_stream_residency(&state).await;
         ports.request_gate.add_permits(1);
+        let response = if matches!(route, Route::Native) {
+            crate::response_output::pump_until_producer_returns(response,
+                || ports.request_drops.load(Ordering::SeqCst) == 1).await
+        } else { response };
         until(|| ports.request_drops.load(Ordering::SeqCst) == 1).await;
         assert_eq!(ports.request_finished.load(Ordering::SeqCst), 1, "{route:?}");
         assert_stream_residency(&state).await;
@@ -1284,6 +1331,10 @@ async fn retry_releases_previous_account_and_keeps_replacement_until_unread_body
         assert_eq!(ports.max_live.load(Ordering::SeqCst), 1);
         assert!(matches!(parked(&state, 2).await, Err(ApiError::PoolBusy(_))));
         ports.request_gate.add_permits(2);
+        let response = if matches!(route, Route::Native) {
+            crate::response_output::pump_until_producer_returns(response,
+                || ports.request_drops.load(Ordering::SeqCst) == 2).await
+        } else { response };
         until(|| ports.request_drops.load(Ordering::SeqCst) == 2).await;
         assert_eq!(ports.request_finished.load(Ordering::SeqCst), 1);
         assert!(slot(&state, id(2)).users > 0, "{route:?}");

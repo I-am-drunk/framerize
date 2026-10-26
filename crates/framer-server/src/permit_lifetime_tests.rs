@@ -1,5 +1,6 @@
 use crate::{AbortOnDrop, ApiError, AppState};
-use axum::{body::{to_bytes, Body, Bytes}, http::HeaderMap, response::Response};
+use axum::{body::{Body, Bytes}, http::HeaderMap, response::Response};
+use crate::response_output::consume_body as to_bytes;
 use framer_core::{convert::ClientDialect, gate::ConcurrencyGate, port::ProxyResponse};
 use futures::StreamExt;
 use serde_json::json;
@@ -304,6 +305,11 @@ async fn queued_peer_completion(f: &mut Fixture,
     }
     delivered(response.unwrap()).await;
     available(&f.state.gate, &f.key(1, model)).await;
+    // EOF precedes the producer's final output-disposal join.
+    tokio::time::timeout(WAIT, async {
+        while f.state.serving_accounts.residents.snapshot().unwrap().residents
+            .iter().any(|slot| slot.users != 0) { tokio::task::yield_now().await; }
+    }).await.expect("request residency did not settle after body disposal");
     assert!(f.state.serving_accounts.residents.snapshot().unwrap().residents
         .iter().all(|slot| slot.users == 0 && !slot.uncertain));
     f.no_call();

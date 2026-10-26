@@ -265,6 +265,17 @@ impl FramerClient for HttpFramerClient {
         .await
     }
 
+    async fn native_long_with_sink(
+        &self, session: &Session, browser: &dyn BrowserBridge,
+        account: &AccountId, project: &framer_core::ids::ProjectId,
+        responses_payload: serde_json::Value, cfg: &framer_core::port::ChainConfig,
+        chat_session: &str, sink: &dyn framer_core::port::ResponsesSink,
+    ) -> framer_core::port::ResponseResult {
+        chain::responses::complete_long_with_sink(&self.transport,
+            &self.transport.authorization.accounts, session, browser, account,
+            project, responses_payload, cfg, chat_session, sink).await
+    }
+
     async fn native_long(
         &self,
         session: &Session,
