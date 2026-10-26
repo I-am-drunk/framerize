@@ -1,4 +1,6 @@
 use super::*;
+#[path = "stream_sequence_tests.rs"]
+mod sequence;
 use framer_core::convert::AssembledResponses;
 use futures::{FutureExt, StreamExt};
 use serde_json::{json, Value};

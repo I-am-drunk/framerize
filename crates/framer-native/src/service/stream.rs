@@ -44,15 +44,19 @@ pub(super) fn response(result: BoxFuture<'static, Outcome>,
     events: mpsc::Receiver<ChainEvent>, route: FreeRoute, model: String,
     diagnostic_id: uuid::Uuid) -> Response {
     let id = format!("native_{}", uuid::Uuid::new_v4());
-    let (dialect, composer) = match route {
+    let (dialect, mut composer) = match route {
         FreeRoute::Responses => (ClientDialect::OpenAiResponses,
             Composer::Responses(convert::ResponsesComposer::new(&model, &id))),
         FreeRoute::Messages => (ClientDialect::AnthropicMessages,
             Composer::Messages(convert::SseComposer::new(
                 ClientDialect::AnthropicMessages, &id, &model))),
     };
+    let opening = match &mut composer {
+        Composer::Responses(composer) => composer.open(),
+        Composer::Messages(_) => convert::stream_open(dialect, &model, &id),
+    };
     let state = StreamState { diagnostic_id, result, events, composer: Some(composer), model: model.clone(), dialect,
-        opening: Some(convert::stream_open(dialect, &model, &id)), events_open: true, done: false };
+        opening: Some(opening), events_open: true, done: false };
     let body = futures::stream::unfold(state, next);
     let mut response = Response::new(Body::from_stream(body));
     response.headers_mut().insert("content-type", "text/event-stream".parse().unwrap());
@@ -98,8 +102,14 @@ fn finish(composer: Composer, outcome: Outcome, model: &str, dialect: ClientDial
             composer.finish(&value),
         (Some(CompletedJson::Messages(value)), None, true, Composer::Messages(mut composer)) =>
             composer.finish(&value, model, true),
-        (_, kind, clean, _) => convert::error_frames(dialect, &format!("{:?}",
-            if clean { kind.unwrap_or(FailureKind::UnsupportedResponse) }
-            else { FailureKind::Cleanup })),
+        (_, kind, clean, composer) => {
+            let message = format!("{:?}",
+                if clean { kind.unwrap_or(FailureKind::UnsupportedResponse) }
+                else { FailureKind::Cleanup });
+            match composer {
+                Composer::Responses(composer) => composer.fail(&message),
+                Composer::Messages(_) => convert::error_frames(dialect, &message),
+            }
+        }
     }
 }

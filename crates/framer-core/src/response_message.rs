@@ -41,21 +41,21 @@ impl MessageStream {
         Self { item, output_index }
     }
 
-    pub(super) fn start(&self) -> String {
+    pub(super) fn start(&self) -> Value {
         let mut item = self.item.clone();
         item["status"] = json!("in_progress");
-        super::sse("response.output_item.added", json!({
-            "type":"response.output_item.added", "output_index":self.output_index, "item":item}))
+        json!({"type":"response.output_item.added",
+            "output_index":self.output_index, "item":item})
     }
 
-    fn event(&self, kind: &str, content_index: usize, extra: Value) -> String {
+    fn event(&self, kind: &str, content_index: usize, extra: Value) -> Value {
         let mut value = json!({"type":kind, "output_index":self.output_index,
             "item_id":self.item["id"], "content_index":content_index});
         super::merge(&mut value, extra);
-        super::sse(kind, value)
+        value
     }
 
-    pub(super) fn append(&mut self, source: &Value) -> Vec<String> {
+    pub(super) fn append(&mut self, source: &Value) -> Vec<Value> {
         let incoming = source["content"].as_array().map(Vec::as_slice).unwrap_or(&[]);
         let previous = self.item["content"].as_array().unwrap();
         let offset = previous.len();
@@ -73,7 +73,7 @@ impl MessageStream {
         frames
     }
 
-    fn deltas(&self, index: usize, part: &Value) -> Vec<String> {
+    fn deltas(&self, index: usize, part: &Value) -> Vec<Value> {
         let mut frames = Vec::new();
         match part["type"].as_str() {
             Some("output_text") => {
@@ -99,7 +99,7 @@ impl MessageStream {
         frames
     }
 
-    pub(super) fn finish(self) -> Vec<String> {
+    pub(super) fn finish(self) -> Vec<Value> {
         let mut frames = Vec::new();
         for (i, part) in self.item["content"].as_array().unwrap().iter().enumerate() {
             match part["type"].as_str() {
@@ -112,8 +112,8 @@ impl MessageStream {
             }
             frames.push(self.event("response.content_part.done", i, json!({"part":part})));
         }
-        frames.push(super::sse("response.output_item.done", json!({
-            "type":"response.output_item.done", "output_index":self.output_index, "item":self.item})));
+        frames.push(json!({"type":"response.output_item.done",
+            "output_index":self.output_index, "item":self.item}));
         frames
     }
 }

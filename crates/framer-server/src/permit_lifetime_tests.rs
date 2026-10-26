@@ -8,6 +8,8 @@ use tokio::sync::mpsc;
 #[path = "permit_lifetime_fixture.rs"]
 mod fixture;
 use fixture::{success, Fixture, Reply};
+#[path = "responses_stream_lifecycle_tests.rs"]
+mod responses_stream_lifecycle;
 
 const WAIT: Duration = Duration::from_secs(3);
 const MESSAGE_MODEL: &str = "claude-opus-5-5";

@@ -121,6 +121,14 @@ fragment status and carries its emitted message IDs into the final snapshot.
 Adjacent message items merge consistently with the chain; tool and reasoning
 items retain their original identities and fields.
 
+Each native Responses stream retains one composer from its opening frames
+through completion or failure. The composer assigns one event sequence and
+keeps generated or supplied tool IDs consistent across item, argument/input
+and terminal events. Both server adapters open this composer eagerly and
+reuse it for errors. A failed join emits a fixed failure after settlement;
+failure never completes pending content successfully. Native cleanup still
+must be confirmed before a successful terminal event can be sent.
+
 Message assembly preserves typed content parts, refusal events, annotations,
 logprobs and metadata. Only adjacent plain-text boundary parts concatenate;
 rich parts retain their offsets and order. Chain and stream share this merge.
