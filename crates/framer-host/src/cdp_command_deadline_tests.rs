@@ -16,7 +16,7 @@ async fn pair() -> (CdpInstance, TcpStream) {
     let (client, (peer, _)) = tokio::try_join!(
         client.connect(listener.local_addr().unwrap()), listener.accept()).unwrap();
     let ws = WebSocketStream::from_raw_socket(MaybeTlsStream::Plain(client), Role::Client, None).await;
-    (CdpInstance { child: None, ws, next_id: 0 }, peer)
+    (CdpInstance { child: None, ws, next_id: 0, pending: Default::default() }, peer)
 }
 
 async fn joined<T>(mut peer: tokio::task::JoinHandle<T>) -> T {

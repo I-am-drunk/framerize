@@ -20,6 +20,9 @@ pub mod sidecar;
 mod cdp_login_cookie_tests;
 mod cdp_attach_owner;
 mod cdp_startup_children;
+mod cdp_process_group;
+#[cfg(all(test, target_os = "linux"))]
+mod cdp_process_group_tests;
 mod cdp_port_removal;
 #[cfg(all(test, target_os = "linux"))]
 mod cdp_startup_process_tests;
@@ -30,6 +33,9 @@ mod cdp_version_deadline_tests;
 #[cfg(all(test, target_os = "linux"))]
 mod cdp_port_preparation_tests;
 mod cdp_proxy_registration;
+mod cdp_pending_commands;
+#[cfg(test)]
+mod cdp_mint_observation_tests;
 use cdp_proxy_registration::CdpAccountRoute;
 #[cfg(test)]
 mod cdp_proxy_tests;
@@ -65,8 +71,13 @@ use tokio_tungstenite::{connect_async, tungstenite::Message};
 
 mod cdp_attach_target;
 mod cdp_http;
+mod cdp_websocket;
 #[cfg(test)]
 mod cdp_attach_target_tests;
+#[cfg(test)]
+mod cdp_owned_target_tests;
+#[cfg(test)]
+mod cdp_websocket_tests;
 #[cfg(test)]
 mod cdp_new_tab_tests;
 #[cfg(test)]
@@ -146,7 +157,7 @@ async fn attach_ws(addr: &Path, account: &AccountId) -> Result<WsStream, String>
                 .to_string()
         }
     };
-    let (ws, _) = connect_async(&ws_url).await.map_err(|e| e.to_string())?;
+    let ws = cdp_websocket::connect(&ws_url).await?;
     eprintln!("[host] attach mode: driving user Chrome tab for account {}", &account.0.to_string()[..8]);
     Ok(ws)
 }
@@ -373,11 +384,20 @@ impl DeviceRecord {
     }
 }
 
+const OWNED_STARTUP_UNCONFIRMED: &str =
+    "host-lifecycle-unconfirmed: browser startup cleanup is unconfirmed";
+
+fn owned_startup_error(error: String) -> String {
+    if error == cdp_pending_commands::UNCONFIRMED { error }
+    else { OWNED_STARTUP_UNCONFIRMED.to_owned() }
+}
+
 struct CdpInstance {
     #[allow(dead_code)]
     child: Option<Child>, // kept alive; kill on drop. None in Attach mode.
     ws: WsStream,
     next_id: u64,
+    pending: Arc<cdp_pending_commands::PendingCommands>,
 }
 
 impl CdpInstance {
@@ -390,32 +410,30 @@ impl CdpInstance {
     }
 
     async fn cmd(&mut self, method: &str, params: Value) -> Result<Value, String> {
-        self.cmd_deadline(method, params, std::time::Duration::from_secs(30)).await
+        let result = self.cmd_deadline(method, params, std::time::Duration::from_secs(30)).await;
+        result.map_err(|error| self.pending.error(error))
     }
 
     async fn cmd_deadline(&mut self, method: &str, params: Value, wait: std::time::Duration) -> Result<Value, String> {
         let deadline = tokio::time::Instant::now() + wait;
+        // Do not dispatch another operation over an unobserved earlier one.
+        // Owned shutdown can close the browser and prove its group exited.
+        if method != "Browser.close" { self.observe_pending(deadline).await?; }
         self.next_id += 1;
         let id = self.next_id;
+        self.pending.record(id)?;
         let msg = json!({ "id": id, "method": method, "params": params });
         tokio::time::timeout_at(deadline, self.ws.send(Message::Text(msg.to_string().into())))
             .await
             .map_err(|_| "cdp eval timed out".to_string())?
             .map_err(|e| e.to_string())?;
         loop {
-            let next = tokio::time::timeout_at(deadline, self.ws.next())
-                .await
-                .map_err(|_| "cdp eval timed out".to_string())?
-                .ok_or("cdp ws closed")?
-                .map_err(|e| e.to_string())?;
-            if let Message::Text(txt) = next {
-                let v: Value = serde_json::from_str(&txt).map_err(|e| e.to_string())?;
-                if v["id"].as_u64() == Some(id) {
-                    if let Some(err) = v.get("error") {
-                        return Err(format!("cdp error: {err}"));
-                    }
-                    return Ok(v["result"].clone());
+            let (reply_id, v) = self.next_reply(deadline).await?;
+            if reply_id == id {
+                if let Some(err) = v.get("error") {
+                    return Err(format!("cdp error: {err}"));
                 }
+                return Ok(v["result"].clone());
             }
         }
     }
@@ -433,14 +451,14 @@ impl CdpInstance {
     /// Eval with a long deadline — in-page AI calls wait out a full generation
     /// (window-mapped ceiling ~109 s on the wide route; give it room).
     async fn eval_long(&mut self, expression: String) -> Result<Value, String> {
-        let r = self
+        let result = self
             .cmd_deadline(
                 "Runtime.evaluate",
                 json!({ "expression": expression, "awaitPromise": true, "returnByValue": true }),
                 std::time::Duration::from_secs(300),
             )
-            .await?;
-        Self::evaluated_value(r)
+            .await;
+        Self::evaluated_value(result.map_err(|error| self.pending.error(error))?)
     }
 }
 
@@ -535,6 +553,12 @@ impl CdpBridge {
             return Ok(inst.clone());
         }
         if route.may_have_browser {
+            if !route.pending.is_empty() {
+                return Err(cdp_pending_commands::UNCONFIRMED.into());
+            }
+            if matches!(self.engine, EngineKind::FullChrome | EngineKind::HeadlessShell) {
+                return Err(OWNED_STARTUP_UNCONFIRMED.into());
+            }
             return Err("cdp-lifecycle-unconfirmed: browser cleanup is unconfirmed".into());
         }
         let profile = self.profile_dir(account);
@@ -563,7 +587,8 @@ impl CdpBridge {
         if self.engine == EngineKind::Attach {
             route.may_have_browser = true;
             let ws = attach_ws(&self.chrome, account).await?;
-            let mut inst = CdpInstance { child: None, ws, next_id: 0 };
+            let mut inst = CdpInstance { child: None, ws, next_id: 0,
+                pending: route.pending.clone() };
             for _ in 0..50 {
                 let ready = inst
                     .eval("typeof window.castlePublishableAPIKey !== 'undefined' && document.readyState === 'complete'".into())
@@ -644,11 +669,14 @@ impl CdpBridge {
             }
         };
         let starting = self.startup_children.track(*account, child);
+        route.group = starting.group();
 
         // The startup guard retains cleanup through errors and cancellation,
         // including cancellation while waiting to publish the final instance.
-        let ws = bring_up_ws(&profile).await?;
-        let mut inst = CdpInstance { child: None, ws, next_id: 0 };
+        // The returned error must also keep external admission unconfirmed.
+        let ws = bring_up_ws(&profile).await.map_err(owned_startup_error)?;
+        let mut inst = CdpInstance { child: None, ws, next_id: 0,
+            pending: route.pending.clone() };
 
         // Wait for framer.com to be ready (window.castlePublishableAPIKey set).
         for _ in 0..50 {
@@ -665,7 +693,7 @@ impl CdpBridge {
         }
 
         // Backstop: seed the stable Castle device id before any mint.
-        inst.eval(seed_device_snippet(&device_id)).await?;
+        inst.eval(seed_device_snippet(&device_id)).await.map_err(owned_startup_error)?;
         // Containers report hardwareConcurrency=1 / tiny screens — automation
         // tells. Level what CDP can (CPU count; memory has no override).
         let _ = inst
@@ -695,10 +723,14 @@ impl BrowserBridge for CdpBridge {
     async fn shutdown(&self) -> Result<(), String> {
         self.stopping.store(true, Ordering::Release);
         let mut failed = false;
+        let mut unobserved = false;
         for (account, outcome) in self.startup_children.join().await {
             if outcome.is_ok() {
                 if let Some(account) = account {
-                    self.route_cell(&account).await.lock().await.may_have_browser = false;
+                    let cell = self.route_cell(&account).await;
+                    let mut route = cell.lock().await;
+                    if route.pending.after_exit().is_ok() { route.may_have_browser = false; }
+                    else { failed = true; }
                 }
             } else {
                 failed = true;
@@ -706,33 +738,45 @@ impl BrowserBridge for CdpBridge {
         }
         let instances: Vec<_> = self.instances.lock().await.iter()
             .map(|(account, instance)| (*account, instance.clone())).collect();
-        let routes: Vec<_> = if matches!(self.engine, EngineKind::FullChrome | EngineKind::HeadlessShell) {
-            self.routes.lock().await.iter()
-                .map(|(account, route)| (*account, route.clone())).collect()
-        } else { Vec::new() };
+        let owned_engine = matches!(self.engine, EngineKind::FullChrome | EngineKind::HeadlessShell);
+        let routes: Vec<_> = self.routes.lock().await.iter()
+            .map(|(account, route)| (*account, route.clone())).collect();
         // Failed or cancelled starts may have a child without a saved instance.
         // Application work is drained, but those children have no joined exit.
         for (account, route) in &routes {
-            failed |= route.lock().await.may_have_browser
-                && !instances.iter().any(|(known, _)| known == account);
+            if !instances.iter().any(|(known, _)| known == account) {
+                let route = route.lock().await;
+                if owned_engine { failed |= route.may_have_browser; }
+                else { unobserved |= !route.pending.is_empty(); }
+            }
         }
-        for (_, instance) in &instances {
+        for (account, instance) in &instances {
+            let group = self.route_cell(account).await.lock().await.group.clone();
             let mut instance = instance.lock().await;
             if instance.child.is_some() {
                 let _ = instance.cmd_deadline("Browser.close", json!({}),
                     std::time::Duration::from_secs(10)).await;
                 let child = instance.child.as_mut().unwrap();
-                failed |= !matches!(tokio::time::timeout(
-                    std::time::Duration::from_secs(30), child.wait()).await,
+                let exited = matches!(tokio::time::timeout(
+                    std::time::Duration::from_secs(30),
+                    cdp_process_group::wait_for_exit(child, group.as_deref())).await,
                     Ok(Ok(status)) if status.success());
+                if exited { failed |= instance.pending.after_exit().is_err(); }
+                else { failed = true; }
             } else {
                 // Disconnect our transport; never close an attached user browser.
-                let _ = instance.ws.close(None).await;
+                unobserved |= instance.disconnect_observed(std::time::Duration::from_secs(10))
+                    .await.is_err();
             }
         }
+        if unobserved { return Err(cdp_pending_commands::UNCONFIRMED.into()); }
         if failed { return Err("could not confirm every owned browser exited cleanly".into()); }
-        for (_, route) in routes {
-            route.lock().await.may_have_browser = false;
+        if owned_engine {
+            for (_, route) in routes {
+                let mut route = route.lock().await;
+                route.may_have_browser = false;
+                route.group = None;
+            }
         }
         self.instances.lock().await.clear();
         Ok(())
@@ -928,6 +972,7 @@ impl BrowserBridge for CdpBridge {
         for attempt in 1..=3u32 {
             let v = match guard.eval(expr.clone()).await {
                 Ok(v) => v,
+                Err(e) if e == cdp_pending_commands::UNCONFIRMED => return Err(e),
                 Err(e) => {
                     eprintln!("[castle] attempt {attempt}: eval failed: {e}");
                     tokio::time::sleep(std::time::Duration::from_secs(2)).await;
@@ -960,8 +1005,8 @@ type WsStream = tokio_tungstenite::WebSocketStream<
     tokio_tungstenite::MaybeTlsStream<tokio::net::TcpStream>,
 >;
 
-/// Waits for DevToolsActivePort, then for the HTTP endpoint behind it.
-/// The port FILE appears before the socket accepts connections — hence retry.
+/// Waits for DevToolsActivePort, then for the Framer page behind it.
+/// The port file and HTTP endpoint can appear before the app target is ready.
 async fn bring_up_ws(profile: &std::path::Path) -> Result<WsStream, String> {
     let port_file = profile.join("DevToolsActivePort");
     let mut port = None;
@@ -978,35 +1023,26 @@ async fn bring_up_ws(profile: &std::path::Path) -> Result<WsStream, String> {
     }
     let port = port.ok_or("chrome did not write DevToolsActivePort (chrome died? run with --no-sandbox on root containers)")?;
 
-    let mut list_raw = None;
+    let mut saw_list = false;
     let mut last_err = String::new();
     for _ in 0..60 {
         match reqwest_get(&format!("http://127.0.0.1:{port}/json/list")).await {
-            Ok(b) => {
-                list_raw = Some(b);
-                break;
+            Ok(body) => {
+                let list: Value = serde_json::from_slice(&body).map_err(|e| e.to_string())?;
+                saw_list = true;
+                if let Some(ws_url) = cdp_attach_target::websocket_url(&list) {
+                    return cdp_websocket::connect(ws_url).await;
+                }
             }
-            Err(e) => {
-                last_err = e;
-                tokio::time::sleep(std::time::Duration::from_millis(250)).await;
-            }
+            Err(e) => last_err = e,
         }
+        tokio::time::sleep(std::time::Duration::from_millis(250)).await;
     }
-    let list: Value = serde_json::from_slice(
-        &list_raw.ok_or_else(|| format!("devtools http never came up: {last_err}"))?,
-    )
-    .map_err(|e| e.to_string())?;
-    let ws_url = list
-        .as_array()
-        .and_then(|a| {
-            a.iter()
-                .find(|t| t["type"].as_str() == Some("page"))
-                .and_then(|t| t["webSocketDebuggerUrl"].as_str())
-        })
-        .ok_or("no page target")?
-        .to_string();
-    let (ws, _) = connect_async(&ws_url).await.map_err(|e| e.to_string())?;
-    Ok(ws)
+    if saw_list {
+        Err("no page target".into())
+    } else {
+        Err(format!("devtools http never came up: {last_err}"))
+    }
 }
 
 /// Minimal GET helper (avoids pulling reqwest into this crate).

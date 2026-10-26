@@ -61,7 +61,8 @@ async fn stall_after_connect(listener: tokio::net::TcpListener,
     let (mut http, _) = timeout(Duration::from_secs(3), listener.accept()).await.unwrap().unwrap();
     let mut request = [0; 1024];
     timeout(Duration::from_secs(2), http.read(&mut request)).await.unwrap().unwrap();
-    let body = json!([{"type": "page", "webSocketDebuggerUrl": format!("ws://{address}")}])
+    let body = json!([{"type": "page", "url": FRAMER_HOME,
+        "webSocketDebuggerUrl": format!("ws://{address}")}])
         .to_string();
     let reply = format!("HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}", body.len());
     http.write_all(reply.as_bytes()).await.unwrap();
@@ -87,7 +88,7 @@ async fn failed_owned_startup_is_reaped_before_clean_shutdown() {
         let (mut socket, _) = timeout(Duration::from_secs(3), listener.accept()).await.unwrap().unwrap();
         let mut request = [0; 1024];
         timeout(Duration::from_secs(2), socket.read(&mut request)).await.unwrap().unwrap();
-        socket.write_all(b"HTTP/1.1 200 OK\r\nContent-Length: 2\r\nConnection: close\r\n\r\n[]")
+        socket.write_all(b"HTTP/1.1 200 OK\r\nContent-Length: 2\r\nConnection: close\r\n\r\n[!")
             .await.unwrap();
     });
     let bridge = fixture.bridge(EngineKind::FullChrome);
@@ -96,11 +97,14 @@ async fn failed_owned_startup_is_reaped_before_clean_shutdown() {
     let closed = timeout(Duration::from_secs(3), bridge.shutdown()).await;
     let joined = timeout(Duration::from_secs(3), peer).await;
     joined.unwrap().unwrap();
-    assert_eq!(attempt.unwrap().err().unwrap(), "no page target");
+    assert_eq!(attempt.unwrap().err().unwrap(), OWNED_STARTUP_UNCONFIRMED);
     closed.unwrap().unwrap();
     fixture.assert_exited(account);
     assert!(bridge.instances.lock().await.is_empty());
 }
+
+#[path = "cdp_startup_error_tests.rs"]
+mod startup_errors;
 
 #[tokio::test]
 async fn cancelled_owned_startup_is_reaped_before_clean_shutdown() {
