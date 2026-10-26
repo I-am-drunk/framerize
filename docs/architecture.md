@@ -190,6 +190,12 @@ confirmed exits clear their account flags; missing exit evidence stays an error.
 The CDP device loader creates an identity only when the record is missing.
 Read, UTF-8, JSON and identity-field errors preserve the existing bytes and
 refuse startup instead of silently replacing the browser identity.
+Both browser login adapters select session cookies applicable to
+`https://api.framer.com`, matching the API identity lookup. Website-only
+cookies are excluded; shared-domain and host-only API cookies remain valid.
+Existing ordering, error handling and selection among API-applicable cookies
+are preserved.
+
 Both CDP evaluation helpers reject a non-null exceptionDetails field before
 returning a value. Reported JavaScript failures return a fixed error without
 exception descriptions, so a failed device seed reaches the existing startup

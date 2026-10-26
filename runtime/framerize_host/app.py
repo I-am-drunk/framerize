@@ -1351,7 +1351,8 @@ class Host:
                 })()""" % API)
                 if not (200 <= me["status"] < 300):
                     raise RuntimeError("me %s: %s" % (me["status"], me["body"][:400]))
-                cookies = await self._rpc(account, self._ctx(account).cookies, "https://framer.com")
+                # Match the API identity lookup, not website-only session cookies.
+                cookies = await self._rpc(account, self._ctx(account).cookies, API)
                 session = next((c["value"] for c in cookies if c["name"] == "session"), None)
                 if not session:
                     emit("auth.complete", account=account[:8], level="error", outcome="error", error="no session cookie after continue")
