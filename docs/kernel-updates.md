@@ -29,8 +29,10 @@ active. Rollback changes future admission without moving accepted work.
 
 The agreed sequence is S1 owned state, S2 an in-process authorized forwarding
 port, then S3 a free-Responses policy worker. S1 has 351 isolated and 37 focused
-integration checks passing. S2/S3 still require their own source review and
-execution. The runtime retains credentials, admission and cleanup ownership;
+integration checks passing. The S2a legacy baseline at `d22d2b5` now passes
+19 new and 146 retained checks, including the explicit agents-category case.
+S2b production extraction and S3 still require review and execution. The
+runtime retains credentials, admission and cleanup ownership;
 the worker owns request policy and rendering. Existing 429 callback points
 must remain unchanged. S3 may acknowledge only a runtime-recorded 429 once.
 

@@ -18,6 +18,13 @@ passed 351 isolated checks, and its composition with the newer feature source
 passed 37 focused checks. Replacing application generations remains later
 work. This step does not remove browser transport or establish memory savings.
 
+Before extracting authorized forwarding, S2a records the legacy behavior in
+19 new fixtures. All 165 selected new and retained checks pass on `d22d2b5`,
+including the separate agents-category launch. The upcoming Forward adapter
+must bind per request invocation, retain optional cancellation semantics,
+and preserve independent retry branches, refund linkage and queue lookup.
+The fixtures are now integrated; the production extraction remains later work.
+
 The kernel/application-generation overhaul is being investigated separately
 in [kernel updates](kernel-updates.md). Existing ownership guarantees below
 remain authoritative while the new boundary is tested incrementally.
