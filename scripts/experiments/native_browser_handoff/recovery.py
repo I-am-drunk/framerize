@@ -200,6 +200,21 @@ def restore_started(plan, dropin):
     return finish_return(kind, pid, plan)
 
 
+def restore_interrupted_stop(plan, dropin):
+    current = status()
+    pid = int(current['MainPID'])
+    expected = plan['expected']['service']['InvocationID']
+    require(current['InvocationID'] == expected or
+            not pid and current['ActiveState'] in ('inactive', 'failed') and
+            not current['InvocationID'], 'original service owner changed')
+    require(not pid or executable(pid) == plan['expected']['binary'],
+            'original service executable changed')
+    if pid or current['ActiveState'] == 'deactivating':
+        command('stop', UNIT)
+    stopped(plan)
+    return restore_started(plan, dropin)
+
+
 def restore_locked():
     plan = read_plan()
     if not (HERE / 'state.json').exists(): return {'status': 'not-started'}
@@ -222,6 +237,8 @@ def restore_locked():
         if path.exists():
             require(path.is_file() and digest(path) in {plan['artifacts'][n] for n in names},
                     'transition configuration changed')
+    if state['phase'] in ('stopping-original', 'original-stopped'):
+        return restore_interrupted_stop(plan, dropin)
     if dropin.exists() or fallback.exists() or state['phase'].startswith('restoring-'):
         return restore_started(plan, dropin)
     require(state['phase'] in ('armed', 'draining', 'fencing', 'fenced', 'restored-original',

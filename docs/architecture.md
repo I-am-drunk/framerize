@@ -17,9 +17,13 @@ API to exclude idle accounts progressively while preserving active accounts,
 then requires all resident closures before stopping the old service. Each
 attempted pool change is recorded before dispatch; recovery accepts its exact
 before/after configurations and preserves the original pool settings.
-The native successor
-must publish a fresh, same-service expiry record before its one permitted
-canary request. A durable attempt marker prevents replay after a lost reply.
+The controller records stop intent and joins the original service and its
+descendants before installing or loading the native runtime limit. Recovery
+recognizes interrupted stops even when no override has been installed yet,
+and retains the original invocation check before joining that shutdown.
+The native successor must publish a fresh, same-service expiry record before
+its one permitted canary request. A durable attempt marker prevents replay
+after a lost reply.
 
 The live supervisor uses the host process view (`PrivateTmp=no`) to verify
 the running service's executable through `/proc`. Its shared execution lock,
