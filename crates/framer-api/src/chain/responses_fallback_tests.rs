@@ -216,3 +216,44 @@ fn disabled_metered_fallback_never_sends_a_stream() {
     assert!(actual.events.is_empty());
     assert_eq!((actual.requests.len(), actual.refunds), (2, 0));
 }
+
+#[test]
+fn malformed_metered_completion_never_emits_items() {
+    let mut invalid_output = response(text("fixture-not-for-output"), "completed");
+    invalid_output["output"] = json!({"fixture":"invalid"});
+    let mut invalid_usage = response(text("fixture-not-for-output"), "completed");
+    invalid_usage["usage"] = json!("fixture-invalid-usage");
+    for body in [Value::Null, invalid_output, invalid_usage,
+        response(text("fixture-not-for-output"), "failed")] {
+        let actual = run(fallback(body, false), config());
+        assert!(actual.result.is_err());
+        assert!(actual.events.is_empty());
+        assert_eq!((actual.requests.len(), actual.refunds), (3, 1));
+    }
+}
+
+#[test]
+fn malformed_nonstream_completion_never_emits_items() {
+    let mut invalid_output = response(text("fixture-not-for-output"), "completed");
+    invalid_output["output"] = json!({"fixture":"invalid"});
+    let mut invalid_usage = response(text("fixture-not-for-output"), "completed");
+    invalid_usage["usage"] = json!("fixture-invalid-usage");
+    for body in [Value::Null, invalid_output, invalid_usage,
+        response(text("fixture-not-for-output"), "failed")] {
+        let actual = run(vec![Reply { streamed:false, body:Some(body), at_budget:false }], config());
+        assert!(actual.result.is_err());
+        assert!(actual.events.is_empty());
+        assert_eq!((actual.requests.len(), actual.refunds), (1, 0));
+    }
+}
+
+#[test]
+fn empty_nonstream_completion_remains_valid() {
+    let actual = run(vec![Reply { streamed:false, at_budget:false,
+        body:Some(json!({"status":"completed", "output":[]})) }], config());
+    let result = actual.result.unwrap();
+    assert!(result.output.is_empty());
+    assert_eq!(result.status, "completed");
+    assert_eq!((result.chunks, result.metered_chunks), (1, 0));
+    assert_eq!((actual.requests.len(), actual.refunds), (1, 0));
+}

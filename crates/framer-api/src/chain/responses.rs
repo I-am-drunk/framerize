@@ -245,7 +245,11 @@ pub async fn complete_long(
             }
             body
         } else {
-            serde_json::from_str(&text).map_err(|e| format!("chunk {i} not json: {e}"))?
+            let body: Value = serde_json::from_str(&text)
+                .map_err(|e| format!("chunk {i} not json: {e}"))?;
+            validate_response_body(&body)
+                .map_err(|problem| format!("response chunk has {problem}"))?;
+            body
         };
 
         let status = body["status"].as_str().unwrap_or("completed").to_string();
@@ -419,6 +423,24 @@ async fn stream_chunk(
     .await
 }
 
+fn validate_response_body(body: &Value) -> Result<(), &'static str> {
+    if !body.is_object() {
+        return Err("invalid response object");
+    }
+    if !body["output"].is_array() {
+        return Err("invalid output array");
+    }
+    if body.get("status").is_some_and(|status| {
+        !matches!(status.as_str(), Some("completed" | "incomplete"))
+    }) {
+        return Err("invalid terminal status");
+    }
+    if body.get("usage").is_some_and(|usage| !usage.is_null() && !usage.is_object()) {
+        return Err("invalid usage object");
+    }
+    Ok(())
+}
+
 fn parse_streamed_chunk(text: &str) -> Result<AssembledResponses, String> {
     // The buffered SSE text: find the terminal response.completed event.
     let mut final_obj: Option<Value> = None;
@@ -437,17 +459,23 @@ fn parse_streamed_chunk(text: &str) -> Result<AssembledResponses, String> {
             continue;
         }
         if let Ok(v) = serde_json::from_str::<Value>(&data) {
-            if v["type"].as_str() == Some("response.completed") {
-                final_obj = v.get("response").cloned();
+            match v["type"].as_str() {
+                Some("response.completed") => final_obj = v.get("response").cloned(),
+                Some(kind @ ("error" | "response.failed" | "response.incomplete")) => {
+                    return Err(format!("streamed chunk ended with {kind}"));
+                }
+                _ => {}
             }
         }
     }
     let body = final_obj.ok_or("streamed chunk had no response.completed event")?;
+    validate_response_body(&body).map_err(|problem| format!("streamed chunk has {problem}"))?;
+    let output = body["output"].as_array().expect("validated response output").clone();
     let usage = body.get("usage").cloned().unwrap_or_else(|| json!({}));
     Ok(AssembledResponses {
         id: body["id"].as_str().unwrap_or_default().to_string(),
         created_at: body["created_at"].as_u64().unwrap_or(0),
-        output: body["output"].as_array().cloned().unwrap_or_default(),
+        output,
         status: body["status"].as_str().unwrap_or("completed").to_string(),
         incomplete_details: body.get("incomplete_details").cloned(),
         service_tier: body["service_tier"].clone(),
