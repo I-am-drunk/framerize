@@ -1,5 +1,11 @@
 # Architecture
 
+Registration clears a carried primary project when metadata changes its
+team, before any explicit project override. Credit admission independently
+clears the project if ranking selects a different team. Existing caller
+logic then adopts or creates the selected team's project. The two boundaries
+retain same-team projects and keep their existing persistence and cleanup order.
+
 The S1 ownership extraction factors browser resources
 into one `AccountRuntime`. Each `AppState` shares that runtime. Construction
 consumes the stores, reads configuration before moving them, and installs the
