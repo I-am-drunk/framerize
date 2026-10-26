@@ -16,6 +16,8 @@
 //! attach to the page target, `Runtime.evaluate` with awaitPromise.
 
 pub mod sidecar;
+#[cfg(test)]
+mod cdp_login_cookie_tests;
 mod cdp_attach_owner;
 mod cdp_startup_children;
 #[cfg(all(test, target_os = "linux"))]
@@ -875,11 +877,11 @@ impl BrowserBridge for CdpBridge {
             return Err(format!("continue {status}: {}", body_preview(&v)));
         }
 
-        // The session cookie is httpOnly — only CDP can read it.
+        // Read the API's httpOnly session, excluding website-only cookies.
         let cookies = guard
             .cmd(
                 "Network.getCookies",
-                json!({"urls": ["https://framer.com", "https://api.framer.com", "https://framer.com/login"]}),
+                json!({"urls": [API_BASE]}),
             )
             .await?;
         let session_value = cookies["cookies"]

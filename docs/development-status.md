@@ -3,6 +3,17 @@
 The rearchitecture is on `refactor/separate-apps-and-ci-20261025` in draft
 [PR #2](https://github.com/I-am-drunk/framerize/pull/2). It is not deployed.
 
+Login completion in both browser adapters now reads session cookies applicable
+to the API origin. Website-only cookies can no longer replace the API session;
+host-only API cookies and shared-domain sessions remain supported. Two Rust and
+four Python checks pass after three reproduced behavioral failures and three
+passing controls. The initial Python fixture failed before reaching assertions;
+its page is now hashable, with the original assertions unchanged. All 722 tracked
+inputs and four candidate files match the final run; the qualified Rust inputs
+remain unchanged. Journal and native diagnostic changes are preserved.
+Next: build matched packages including these corrections and prepare an
+existing-history acceptance path from the repaired service. No deployment ran.
+
 Native startup now initializes structured diagnostics after validating selected
 accounts, preserving the actual profile path, including non-UTF-8 paths. An
 unavailable log emits one fixed stderr warning, never panics or replaces the
