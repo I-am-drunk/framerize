@@ -15,6 +15,13 @@ joinable. Local host and browser tests cover delivery, lost replies, bounds,
 ownership and cleanup. See the
 [integration result](../reference/analysis/browser-response-host-20261026.md).
 
+A comparison of the actual host implementations on frozen runtimes now
+records a modest sampled peak-memory reduction. The separate controls without
+sampling show no material latency improvement. Python still assembles the
+whole bounded response, and the browser/driver starting footprint remains.
+These measurements exclude account startup, SDK collection and live delivery.
+See the [host comparison](../reference/analysis/browser-response-host-measure-20261026.md).
+
 The earlier response-transfer experiment compares the then-current full-body
 poll with bounded chunks from an already completed body. Python still joins
 those chunks into one response. Nine fresh local trials preserve contents

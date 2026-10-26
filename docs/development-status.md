@@ -3,13 +3,22 @@
 The rearchitecture is on `refactor/separate-apps-and-ci-20261025` in draft
 [PR #2](https://github.com/I-am-drunk/framerize/pull/2). It is not deployed.
 
+The integrated response path now has a direct local comparison against the
+previous full-body host. Across three trials per mode, median sampled peak
+PSS fell from 674.653 to 638.521 MiB (5.356%). Separate controls without
+sampling took 1345.842 versus 1339.182 ms, with overlapping ranges and no
+material latency improvement. All twelve runs preserved the body and joined
+cleanup. This is a local response-handling result, not live browserless
+acceptance. The roughly 484 MiB pre-request footprint remains. See the
+[host measurements](../reference/analysis/browser-response-host-measure-20261026.md).
+
 The host now uses acknowledged response chunks on
 `fix/browser-response-bounds-20261026`. All 23 focused host tests and four
 package/import tests pass. The actual host path also passes the local browser
 fixture: five lost-reply cases preserve the complete body without repeating
 HTTP requests, and cancellation retains account ownership through cleanup.
 The package includes the new reader, poll and receiver. This milestone is
-undeployed and makes no new memory or live-minter claim. See the
+undeployed. Its functional checks do not establish live-minter acceptance. See the
 [host integration result](../reference/analysis/browser-response-host-20261026.md).
 
 The bounded response queue experiment passes thirteen local browser runs on

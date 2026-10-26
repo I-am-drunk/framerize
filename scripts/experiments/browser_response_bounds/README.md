@@ -133,3 +133,30 @@ The [host result](../../../reference/analysis/browser-response-host-20261026.md)
 records its separate qualification. Account startup, SDK collection, the
 native minter, live delivery and performance measurements are outside this
 fixture. The host still assembles one complete response body.
+
+## Comparing the actual host
+
+`host_measure.py` loads the host from an explicit `--runtime` directory.
+Use an immutable archive for each compared revision and mount both read-only
+alongside `/source` in the same private fixture environment. Pass
+`--label full` or `--label ack`, `--runtime /runtimes/<label>/runtime` and
+`--browser /browser/camoufox`. The label does not change the implementation.
+The probe verifies and records the host module it actually imported.
+
+Each invocation launches a fresh browser and makes one exact 8 MiB local
+request through `Host._run_job`. It checks the complete body, job removal,
+account activity, acknowledged browser close and descendant exit. Only the
+request origin is replaced; account startup and minting are not exercised.
+
+Pass `--sampled` to record process-tree PSS while the request runs. Run
+separate invocations without that flag for timing controls. The timed
+interval includes the host request, poll cadence, final acknowledgement and
+mandatory cancellation cleanup. Memory snapshots and content hashing after
+the request are outside the timed interval. Sampled peaks can miss brief
+allocations, and cgroup lifetime peaks include browser startup.
+
+The [recorded comparison](../../../reference/analysis/browser-response-host-measure-20261026.md)
+uses runtime `5bfe52c975b78f7e` for full bodies and `7075485e1f049cbd` for
+acknowledged chunks, with three trials per mode for memory and another three
+per mode without sampling. Retain all trials and compare timing separately;
+the earlier prototype's latency result does not describe this host path.
