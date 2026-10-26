@@ -204,6 +204,32 @@ async fn send(
     }))
 }
 
+// Completion carries the authoritative output; older replies may omit it and
+// must keep using the text deltas. An empty output array is still authoritative.
+fn completed_text(response: &serde_json::Value) -> Result<Option<String>, &'static str> {
+    if !response.is_object() {
+        return Err("invalid response object");
+    }
+    if response.get("status").is_some_and(|status| status.as_str() != Some("completed")) {
+        return Err("invalid completed status");
+    }
+    let Some(output) = response.get("output") else { return Ok(None) };
+    let output = output.as_array().ok_or("invalid output array")?;
+    let mut text = String::new();
+    for item in output {
+        if item["type"] != "message" {
+            continue;
+        }
+        let content = item["content"].as_array().ok_or("invalid message content")?;
+        for part in content {
+            if part["type"] == "output_text" {
+                text.push_str(part["text"].as_str().ok_or("invalid output text")?);
+            }
+        }
+    }
+    Ok(Some(text))
+}
+
 /// Parse the SSE stream (multi-line `data:` safe). Verified event vocabulary
 /// (2026-10-01): response.created, response.in_progress, response.output_item.added,
 /// response.content_part.added, response.output_text.delta, response.output_text.done,
@@ -213,6 +239,7 @@ async fn send(
 /// HTTP success and an SSE terminator alone do not establish provider completion.
 fn parse_sse(body: &str) -> Result<(String, Usage), String> {
     let mut out = String::new();
+    let mut final_text = None;
     let mut usage = Usage::default();
     let mut completed = false;
     let mut data_lines: Vec<String> = Vec::new();
@@ -236,6 +263,8 @@ fn parse_sse(body: &str) -> Result<(String, Usage), String> {
                             }
                         }
                         Some("response.completed") => {
+                            final_text = completed_text(&ev["response"])
+                                .map_err(|reason| format!("invalid inference completion: {reason}"))?;
                             completed = true;
                             let u = &ev["response"]["usage"];
                             usage.input_tokens = u["input_tokens"].as_u64().unwrap_or(0);
@@ -252,7 +281,7 @@ fn parse_sse(body: &str) -> Result<(String, Usage), String> {
         }
     }
     if completed {
-        Ok((out, usage))
+        Ok((final_text.unwrap_or(out), usage))
     } else {
         Err("inference stream ended before response.completed".into())
     }
