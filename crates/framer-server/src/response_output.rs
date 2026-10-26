@@ -576,3 +576,31 @@ pub(crate) async fn consume_body(body: axum::body::Body, limit: usize)
     }
     Ok(bytes::Bytes::from(collected))
 }
+
+/// Fixture-only partial consumption. Retain the original SSE body after return.
+#[cfg(test)]
+pub(crate) async fn pump_until_producer_returns(
+    response: axum::response::Response, returned: impl Fn() -> bool,
+) -> axum::response::Response {
+    use futures::{FutureExt, StreamExt};
+    let (parts, body) = response.into_parts();
+    let mut body = body.into_data_stream();
+    let (mut prefix, mut frames) = (Vec::new(), 0);
+    tokio::time::timeout(Duration::from_secs(2), async {
+        while !returned() {
+            assert!(frames < 64, "producer did not return within 64 frames");
+            if let Some(frame) = body.next().now_or_never() {
+                let bytes = frame.expect("unexpected EOF before producer return")
+                    .expect("body failed before producer return");
+                assert!(bytes.len() <= 65_536 - prefix.len(), "producer prefix exceeds 65536 bytes");
+                prefix.extend_from_slice(&bytes);
+                drop(bytes);
+                frames += 1;
+            }
+            tokio::task::yield_now().await;
+        }
+    }).await.expect("producer did not return within 2 seconds");
+    let prefix = (!prefix.is_empty()).then(|| Ok::<_, axum::Error>(bytes::Bytes::from(prefix)));
+    let stream = futures::stream::iter(prefix).chain(body);
+    axum::response::Response::from_parts(parts, axum::body::Body::from_stream(stream))
+}

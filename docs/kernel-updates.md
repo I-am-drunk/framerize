@@ -25,6 +25,12 @@ independent of that wait. Existing operation observers join the producer's
 upstream cleanup verdict and output disposal before releasing or fencing.
 No extra registration or retirement API is introduced.
 
+A policy panic preserves the existing immediate unknown-cleanup fence.
+Unwinding can drop the emitter's join handle; that emitter still owns its
+serializer handles and output reservations. This path does not establish
+joined retirement. Disposing all output can release local buffers without
+clearing the unknown-cleanup fence or authorizing host retirement.
+
 The source fixtures include P2 and P5 with one lease per admitted stream,
 four stalled peers while a fifth completes, retained clones across EOF/drop,
 pending Forward cleanup, encoder errors and actual HTTP handler consumption.

@@ -1,8 +1,30 @@
 use super::*;
-use futures::StreamExt;
+use futures::{FutureExt, StreamExt};
 use serde_json::json;
 
 const WAIT: Duration = Duration::from_secs(5);
+struct PumpSource {
+    frames: std::collections::VecDeque<bytes::Bytes>, pending: bool,
+    polls: Arc<AtomicUsize>, drops: Arc<AtomicUsize>,
+}
+impl Stream for PumpSource {
+    type Item = Result<bytes::Bytes, io::Error>;
+    fn poll_next(mut self: Pin<&mut Self>, _: &mut Context<'_>) -> Poll<Option<Self::Item>> {
+        self.polls.fetch_add(1, Ordering::SeqCst);
+        if self.pending { Poll::Pending } else { Poll::Ready(self.frames.pop_front().map(Ok)) }
+    }
+}
+impl Drop for PumpSource {
+    fn drop(&mut self) { self.drops.fetch_add(1, Ordering::SeqCst); }
+}
+fn pump_source(frames: Vec<bytes::Bytes>, pending: bool)
+    -> (axum::response::Response, Arc<AtomicUsize>, Arc<AtomicUsize>) {
+    let polls = Arc::new(AtomicUsize::new(0));
+    let drops = Arc::new(AtomicUsize::new(0));
+    let source = PumpSource { frames: frames.into(), pending,
+        polls: polls.clone(), drops: drops.clone() };
+    (axum::response::Response::new(axum::body::Body::from_stream(source)), polls, drops)
+}
 async fn reached(counter: &Counter, minimum: usize) {
     tokio::time::timeout(WAIT, async {
         while counter.current.load(Ordering::SeqCst) < minimum { counter.changed.notified().await; }
@@ -14,6 +36,69 @@ fn result(size: usize) -> AssembledResponses {
             "arguments":"x".repeat(size)})], status: "completed".into(), incomplete_details: None,
         usage: json!({}), service_tier: Value::Null, input_tokens: 1, output_tokens: 1,
         chunks: 1, metered_chunks: 0 }
+}
+#[tokio::test]
+async fn pump_stops_before_eof_and_retains_original_body_with_copied_prefix() {
+    let disposed = Arc::new(AtomicUsize::new(0));
+    let first = bytes::Bytes::from_owner(TrackedBytes { bytes: b"first".to_vec(), drops: disposed.clone() });
+    let (mut response, polls, drops) = pump_source(vec![first, bytes::Bytes::from_static(b"second")], false);
+    response.headers_mut().insert("x-fixture", "preserved".parse().unwrap());
+    response.extensions_mut().insert(17u64);
+    let response = pump_until_producer_returns(response, || polls.load(Ordering::SeqCst) == 1).await;
+    assert_eq!(disposed.load(Ordering::SeqCst), 1);
+    assert_eq!(polls.load(Ordering::SeqCst), 1);
+    assert_eq!(drops.load(Ordering::SeqCst), 0);
+    assert_eq!(response.headers()["x-fixture"], "preserved");
+    assert_eq!(response.extensions().get::<u64>(), Some(&17));
+    assert_eq!(consume_body(response.into_body(), 64).await.unwrap().as_ref(), b"firstsecond");
+    assert_eq!(drops.load(Ordering::SeqCst), 1);
+}
+#[tokio::test]
+async fn pump_checks_completed_counter_before_polling_any_frame() {
+    let (response, polls, drops) = pump_source(vec![], false);
+    let response = pump_until_producer_returns(response, || true).await;
+    assert_eq!(polls.load(Ordering::SeqCst), 0);
+    assert_eq!(drops.load(Ordering::SeqCst), 0);
+    drop(response);
+    assert_eq!(drops.load(Ordering::SeqCst), 1);
+}
+#[tokio::test]
+async fn pump_refuses_eof_frame_overflow_and_byte_overflow() {
+    for (frames, expected_polls) in [
+        (Vec::new(), 1),
+        (vec![bytes::Bytes::from_static(b"x"); 65], 64),
+        (vec![bytes::Bytes::from(vec![0; 65_537])], 1),
+    ] {
+        let (response, polls, drops) = pump_source(frames, false);
+        let result = std::panic::AssertUnwindSafe(
+            pump_until_producer_returns(response, || false)).catch_unwind().await;
+        assert!(result.is_err());
+        assert_eq!(polls.load(Ordering::SeqCst), expected_polls);
+        assert_eq!(drops.load(Ordering::SeqCst), 1);
+    }
+}
+#[tokio::test]
+async fn pump_accepts_exact_frame_and_byte_bounds_without_polling_eof() {
+    let (response, polls, drops) = pump_source(vec![bytes::Bytes::from(vec![b'x'; 1024]); 64], false);
+    let response = pump_until_producer_returns(response, || polls.load(Ordering::SeqCst) == 64).await;
+    assert_eq!(polls.load(Ordering::SeqCst), 64);
+    assert_eq!(drops.load(Ordering::SeqCst), 0);
+    assert_eq!(consume_body(response.into_body(), 65_536).await.unwrap().len(), 65_536);
+    assert_eq!(drops.load(Ordering::SeqCst), 1);
+}
+#[tokio::test(start_paused = true)]
+async fn pump_timeout_and_cancellation_drop_the_original_pending_body() {
+    for cancelled in [false, true] {
+        let (response, polls, drops) = pump_source(vec![], true);
+        let task = tokio::spawn(pump_until_producer_returns(response, || false));
+        while polls.load(Ordering::SeqCst) == 0 { tokio::task::yield_now().await; }
+        if cancelled { task.abort(); }
+        else { tokio::time::advance(Duration::from_secs(2)).await; }
+        let error = task.await.unwrap_err();
+        assert_eq!(error.is_cancelled(), cancelled);
+        assert_eq!(error.is_panic(), !cancelled);
+        assert_eq!(drops.load(Ordering::SeqCst), 1);
+    }
 }
 async fn start(budget: &OutputBudget) -> (Sink, OutputBody, tokio::task::JoinHandle<()>) {
     let (emitter, sink, mut body) = output(budget.reserve().unwrap(), "fixture", "logical");
