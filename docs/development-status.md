@@ -3,6 +3,13 @@
 The rearchitecture is on `refactor/separate-apps-and-ci-20261025` in draft
 [PR #2](https://github.com/I-am-drunk/framerize/pull/2). It is not deployed.
 
+The direct inference sender now requires `response.completed` and rejects
+explicit failure events. The Responses fallback accepts complete SSE frames
+with optional spaces and multiline data while preserving tool output and usage.
+Both fixes are integrated on `feat/native-browser-handoff-20261026`. All twelve
+focused checks pass. Each old parser reproduced three failures with three
+passing controls. These are local parser results; live acceptance is pending.
+
 The native minter now connects to the supplied-token browser sender on
 `feat/native-browser-handoff-20261026`. It preserves the request's actual
 minted device, account and session, and joins browser cleanup. Browser warm-up

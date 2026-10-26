@@ -29,6 +29,10 @@ use framer_core::port::{BrowserBridge, Session};
 use serde_json::json;
 use std::sync::Mutex;
 
+#[cfg(test)]
+#[path = "inference_tests.rs"]
+mod tests;
+
 /// Mint a chat-session / turn id in the app's style (~10 chars, mixed-case alnum).
 /// pub(crate) wrapper used by proxy.rs.
 pub fn mint_id_pub() -> String {
@@ -189,7 +193,7 @@ async fn send(
         .as_deref()
         .and_then(credits::parse_usage_header);
 
-    let (answer, usage) = parse_sse(&text);
+    let (answer, usage) = parse_sse(&text)?;
 
     Ok(Send::Done(InferenceOutcome {
         text: answer,
@@ -205,9 +209,11 @@ async fn send(
 /// response.content_part.done, response.output_item.done, response.completed.
 /// `response.completed` carries the full response object including
 /// usage.{input_tokens,output_tokens,total_tokens}.
-fn parse_sse(body: &str) -> (String, Usage) {
+/// HTTP success and an SSE terminator alone do not establish provider completion.
+fn parse_sse(body: &str) -> Result<(String, Usage), String> {
     let mut out = String::new();
     let mut usage = Usage::default();
+    let mut completed = false;
     let mut data_lines: Vec<String> = Vec::new();
     for line in body.lines().chain(std::iter::once("")) {
         match line.strip_prefix("data:") {
@@ -229,9 +235,13 @@ fn parse_sse(body: &str) -> (String, Usage) {
                             }
                         }
                         Some("response.completed") => {
+                            completed = true;
                             let u = &ev["response"]["usage"];
                             usage.input_tokens = u["input_tokens"].as_u64().unwrap_or(0);
                             usage.output_tokens = u["output_tokens"].as_u64().unwrap_or(0);
+                        }
+                        Some(kind @ ("response.failed" | "response.incomplete" | "error")) => {
+                            return Err(format!("inference stream ended with {kind}"));
                         }
                         _ => {}
                     }
@@ -240,5 +250,9 @@ fn parse_sse(body: &str) -> (String, Usage) {
             None => {}
         }
     }
-    (out, usage)
+    if completed {
+        Ok((out, usage))
+    } else {
+        Err("inference stream ended before response.completed".into())
+    }
 }
