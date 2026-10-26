@@ -3,6 +3,15 @@
 The rearchitecture is on `refactor/separate-apps-and-ci-20261025` in draft
 [PR #2](https://github.com/I-am-drunk/framerize/pull/2). It is not deployed.
 
+Responses and Messages now apply refusal policy to the second attempt before
+considering paid fallback, with timing measured for that attempt. Completed
+Messages streams use the buffered block validator before publication.
+The prepared old behavior reproduced 13 failures with ten controls passing.
+All 101 selected API checks pass, including four cooldown/cancellation controls;
+684 tracked inputs and ten candidate source files match. No live request or
+deployment occurred. The live pool still had two active users at 04:05 UTC,
+so the existing handoff remained pending without another drain attempt.
+
 Messages account for token usage without narrowing or overflowing counters.
 Malformed request bodies return a client error before account work. Free
 Responses reject unsupported previous_response_id context rather than silently

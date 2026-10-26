@@ -223,18 +223,7 @@ pub async fn complete_long(
                 // velocity 403 after >8s of waiting as an idle-window kill
                 // (audit 2026-10-11: wasted halve-retries on velocity bans).
                 let elapsed = cooldown_wait.elapsed(last_attempt_t0).as_secs_f32();
-                let idle_killed = e == "risk-refused" && elapsed > 8.0;
-                // An UPSTREAM 403 (provider policy / moderation -- see
-                // classify.rs) is terminal for this chunk. Halving max_tokens
-                // cannot change a policy decision, so the retry below would
-                // only spend a second request to be refused identically.
-                let upstream_refused = e.starts_with("upstream 403");
-                let transport_died = !upstream_refused
-                    && e != "risk-refused"
-                    && e != "credits-exhausted"
-                    && e != "unauthorized"
-                    && !e.starts_with("retryable 4");
-                if !((idle_killed || transport_died) && chunk_tokens > 200) {
+                if !(retryable_failure(&e, elapsed) && chunk_tokens > 200) {
                     return Err(e);
                 }
                 chunk_tokens /= 2;
@@ -242,13 +231,19 @@ pub async fn complete_long(
                 let (d3, s3) = bucket(bucket_idx);
                 eprintln!("[freechat] chunk {i} died at {elapsed:.1}s ({e}) — retrying with max_tokens={chunk_tokens} on {d3:?}/{s3}");
                 let retry_payload = build_payload(&messages, budget.min(chunk_tokens), d3);
-                match cooldown_wait.run(cfg, !blocks.is_empty(), || proxy::forward_cancellable(
-                    t, token_cache, session, browser, account, project,
-                    d3, &s3, retry_payload.clone(), chat_session, i, cfg.cancelled.as_deref(),
-                )).await {
+                let mut retry_started = tokio::time::Instant::now();
+                match cooldown_wait.run(cfg, !blocks.is_empty(), || {
+                    // Reset after a local cooldown so only the failing attempt counts.
+                    retry_started = tokio::time::Instant::now();
+                    proxy::forward_cancellable(
+                        t, token_cache, session, browser, account, project,
+                        d3, &s3, retry_payload.clone(), chat_session, i, cfg.cancelled.as_deref(),
+                    )
+                }).await {
                     Ok(r) => r,
                     Err(e2) if framer_core::error::AccountCooldown::from_error(&e2).is_some() => return Err(e2),
                     Err(e2) if cfg.is_cancelled() => return Err(e2),
+                    Err(e2) if !retryable_failure(&e2, retry_started.elapsed().as_secs_f32()) => return Err(e2),
                     Err(e2) if cfg.metered_fallback => {
                         eprintln!("[freechat] chunk {i} retry died ({e2}) — metered stream fallback for this chunk");
                         let stream_payload = build_payload(&messages, budget.min(chunk_tokens), d3);
@@ -424,6 +419,18 @@ pub async fn complete_long(
         push_continuation(&mut messages, &chunk_blocks, cfg);
     }
     Ok(assemble(msg_id, blocks, stop_reason, stop_sequence, last_usage, ptok, ctok, cfg.max_chunks, metered_chunks))
+}
+
+fn retryable_failure(error: &str, elapsed: f32) -> bool {
+    // Preserve the existing delayed idle-window heuristic. Explicit provider,
+    // credit, auth and other 4xx refusals cannot be repaired by another request.
+    let idle_killed = error == "risk-refused" && elapsed > 8.0;
+    let transport_died = !error.starts_with("upstream 403")
+        && error != "risk-refused"
+        && error != "credits-exhausted"
+        && error != "unauthorized"
+        && !error.starts_with("retryable 4");
+    idle_killed || transport_died
 }
 
 fn remaining_tokens(cfg: &ChainConfig, output_tokens: u64) -> Option<u32> {

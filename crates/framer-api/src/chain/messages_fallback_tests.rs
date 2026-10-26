@@ -17,6 +17,12 @@ mod content_tests;
 #[path = "messages_usage_tests.rs"]
 mod usage_tests;
 
+#[path = "messages_validation_chain_tests.rs"]
+mod validation_tests;
+
+#[path = "messages_retry_policy_tests.rs"]
+mod retry_policy_tests;
+
 struct Observed {
     result: Result<AssembledResponse, String>,
     emitted: Vec<Value>,
@@ -32,6 +38,11 @@ fn run(replies: Vec<Reply>, max_chunks: u32) -> Observed {
 }
 
 fn run_with_config(replies: Vec<Reply>, config: ChainConfig) -> Observed {
+    run_with_delays(replies, config, Vec::new())
+}
+
+fn run_with_delays(replies: Vec<Reply>, config: ChainConfig,
+    delays: Vec<std::time::Duration>) -> Observed {
     let runtime = tokio::runtime::Builder::new_current_thread()
         .enable_all().start_paused(true).build().unwrap();
     runtime.block_on(async {
@@ -41,7 +52,8 @@ fn run_with_config(replies: Vec<Reply>, config: ChainConfig) -> Observed {
         let cache = Mutex::new(vec![(account,
             AiToken::for_session(&session, "fixture-only".into(), i64::MAX))]);
         let browser = Fixture { replies: Mutex::new(replies.into()),
-            requests: Mutex::new(Vec::new()), refunds: AtomicUsize::new(0) };
+            requests: Mutex::new(Vec::new()), refunds: AtomicUsize::new(0),
+            delays: Mutex::new(delays.into()) };
         let emitted = Mutex::new(Vec::new());
         use framer_core::convert::{self, ClientDialect, SseComposer};
         let dialect = ClientDialect::AnthropicMessages;
@@ -59,6 +71,7 @@ fn run_with_config(replies: Vec<Reply>, config: ChainConfig) -> Observed {
                 "messages":[{"role":"user","content":"fixture"}]}),
             &config, "fixture-chat", Some(&callback)).await;
         assert!(browser.replies.lock().unwrap().is_empty(), "missing expected request");
+        assert!(browser.delays.lock().unwrap().is_empty(), "unused request delay");
         if let Ok(response) = &result {
             frames.lock().unwrap().extend(composer.lock().unwrap()
                 .finish(response, "claude-sonnet-4", false));
@@ -273,6 +286,7 @@ struct Fixture {
     replies: Mutex<VecDeque<Reply>>,
     requests: Mutex<Vec<Value>>,
     refunds: AtomicUsize,
+    delays: Mutex<VecDeque<std::time::Duration>>,
 }
 
 #[async_trait]
@@ -305,6 +319,10 @@ impl BrowserBridge for Fixture {
         self.requests.lock().unwrap().push(body.clone());
         let reply = self.replies.lock().unwrap().pop_front().expect("unexpected attempt");
         assert_eq!(body["request"]["stream"], reply.streaming);
+        let delay = self.delays.lock().unwrap().pop_front();
+        if let Some(delay) = delay {
+            tokio::time::sleep(delay).await;
+        }
         reply.result.map(|text| (reply.status, None, text))
     }
 }

@@ -69,6 +69,10 @@ remaining budget and check additions before publishing the current chunk;
 discarded tool responses do not contribute to delivered output usage.
 Buffered Messages validate their envelope and tool content before callbacks;
 all token-limited tools use the existing repair policy, regardless of position.
+Completed Messages streams share that block validator after tool reconstruction.
+Both chain dialects apply their existing refusal policy to each failed attempt
+before paid fallback. Retry timing excludes earlier work and local cooldowns,
+while the existing delayed idle-window and genuine transport fallbacks remain.
 CDP authentication previews end at a valid UTF-8 boundary, and malformed
 cookie errors omit the supplied credential.
 
