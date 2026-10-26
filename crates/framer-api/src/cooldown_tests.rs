@@ -25,7 +25,8 @@ fn check_chain(native: bool) {
             let account = AccountId(uuid::Uuid::from_u128(1));
             let project = ProjectId("fixture-project".into());
             let session = Session { active_user: FramerUserId("fixture-user".into()), cookie_header: "fixture-only".into() };
-            let cache = Mutex::new(vec![(account, AiToken { bearer: "fixture-only".into(), expires_at_ms: i64::MAX })]);
+            let cache = Mutex::new(vec![(account, AiToken::for_session(
+                &session, "fixture-only".into(), i64::MAX))]);
             let browser = CoolingBrowser { calls: AtomicUsize::new(0), first_transport_error, scenario:None };
             let transport = Transport::with_base("http://127.0.0.1:9".into());
             let config = ChainConfig { chunk_tokens: 1500, metered_fallback: true, ..ChainConfig::default() };
@@ -103,8 +104,8 @@ async fn midstream_cooldown_preserves_both_dialects_and_failure_classification()
                 let project = ProjectId("fixture-project".into());
                 let session = Session { active_user:FramerUserId("fixture-user".into()),
                     cookie_header:"fixture-only".into() };
-                let cache = Mutex::new(vec![(account, AiToken {
-                    bearer:"fixture-only".into(), expires_at_ms:i64::MAX })]);
+                let cache = Mutex::new(vec![(account, AiToken::for_session(
+                    &session, "fixture-only".into(), i64::MAX))]);
                 let browser = CoolingBrowser { calls:AtomicUsize::new(0), first_transport_error:false,
                     scenario:Some(Scenario { responses, transport_retry, terminal_risk,
                         requests:Mutex::new(Vec::new()) }) };

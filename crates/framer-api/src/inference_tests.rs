@@ -42,7 +42,7 @@ async fn send_body(body: String) -> Result<Send, String> {
         active_user: FramerUserId("fixture-user".into()),
         cookie_header: "fixture-only".into(),
     };
-    let token = AiToken { bearer: "fixture-only".into(), expires_at_ms: i64::MAX };
+    let token = AiToken::for_session(&session, "fixture-only".into(), i64::MAX);
     let request = InferenceRequest { prompt: "fixture prompt".into(), model: None, chat_session: None };
     let result = send(&browser, &session, &account, &token, &request,
         "fixture-chat", &ProjectId("fixture-project".into())).await;

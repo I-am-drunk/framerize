@@ -16,12 +16,15 @@
 //! attach to the page target, `Runtime.evaluate` with awaitPromise.
 
 pub mod sidecar;
+mod cdp_attach_owner;
 mod cdp_proxy_registration;
 use cdp_proxy_registration::CdpAccountRoute;
 #[cfg(test)]
 mod cdp_proxy_tests;
 #[cfg(test)]
 mod cdp_shutdown_tests;
+#[cfg(test)]
+mod cdp_attach_owner_tests;
 use async_trait::async_trait;
 use framer_core::ids::AccountId;
 use framer_core::port::{BrowserBridge, CastleToken};
@@ -441,6 +444,7 @@ pub struct CdpBridge {
     chrome: PathBuf,
     profiles_dir: PathBuf,
     engine: EngineKind,
+    attached_owner: cdp_attach_owner::AttachOwner,
     /// Per-account proxy override: account uuid → proxy URL. Populated by the
     /// daemon from account records (and reloadable); applied as
     /// `--proxy-server` at chrome launch for that account's profile.
@@ -462,6 +466,7 @@ impl CdpBridge {
             chrome: chrome.into(),
             profiles_dir: profiles_dir.into(),
             engine,
+            attached_owner: Default::default(),
             proxies: std::sync::Arc::new(tokio::sync::RwLock::new(HashMap::new())),
             instances: Mutex::new(HashMap::new()),
             routes: Mutex::new(HashMap::new()),
@@ -489,6 +494,9 @@ impl CdpBridge {
     async fn instance(&self, account: &AccountId) -> Result<Arc<Mutex<CdpInstance>>, String> {
         if self.stopping.load(Ordering::Acquire) {
             return Err("browser host is shutting down".into());
+        }
+        if self.engine == EngineKind::Attach {
+            self.attached_owner.claim(*account)?;
         }
         let cell = self.route_cell(account).await;
         let mut route = cell.lock().await;

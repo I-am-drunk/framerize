@@ -3,6 +3,16 @@
 The rearchitecture is on `refactor/separate-apps-and-ci-20261025` in draft
 [PR #2](https://github.com/I-am-drunk/framerize/pull/2). It is not deployed.
 
+The latest combined qualification on `feat/native-browser-handoff-20261026`
+passes 154 API tests, 17 core conversion checks and 13 CDP bridge checks.
+Response content retains refusal/text order, annotations, logprobs and metadata.
+Cached bearers belong to the current session as well as the account ID.
+An attached browser bridge retains one account owner through cancellation,
+failure and retry. Independent browser engines retain separate admission.
+Focused comparisons reproduced all seven content-loss cases, five stale-session
+cases and three Attach ownership cases before their corrections. These are
+local results; cross-bridge/live isolation and distinct TLS remain unqualified.
+
 The direct inference sender now requires `response.completed` and rejects
 explicit failure events. The Responses fallback accepts complete SSE frames
 with optional spaces and multiline data while preserving tool output and usage.
@@ -58,7 +68,7 @@ preserves its final fragment status and uses consistent message IDs in events
 and the terminal snapshot. All 12 core conversion checks and both actual-chain
 cases pass. The old composer reproduced six core and two chain failures;
 its existing namespace control passed. The exact cf6d5c6 source is integrated
-on the experimental branch. Content-part fidelity remains a separate input.
+on the experimental branch, with content-part fidelity qualified above.
 
 Messages fallback now requires closed content and `message_stop` before
 publishing output, rejects malformed tool input, preserves retry token limits,

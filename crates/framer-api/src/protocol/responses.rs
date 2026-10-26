@@ -11,25 +11,7 @@ pub fn merge_items(acc: &mut Vec<Value>, new: Vec<Value>) {
         if is_msg {
             if let Some(last) = acc.last_mut() {
                 if last["type"].as_str() == Some("message") {
-                    // Concatenate output_text parts across chunks.
-                    let mut parts = last["content"].as_array().cloned().unwrap_or_default();
-                    let mut new_parts = it["content"].as_array().cloned().unwrap_or_default();
-                    let first_new_text_idx = new_parts.iter().position(|p| p["type"] == "output_text");
-                    if let (Some(a), Some(bidx)) = (
-                        parts.iter_mut().rev().find(|p| p["type"] == "output_text"),
-                        first_new_text_idx,
-                    ) {
-                        let t = new_parts[bidx]["text"].as_str().unwrap_or_default().to_string();
-                        let cur = a["text"].as_str().unwrap_or_default().to_string();
-                        a["text"] = json!(cur + &t);
-                        new_parts.remove(bidx);
-                    }
-                    parts.extend(new_parts);
-                    last["content"] = json!(parts);
-                    // The latest fragment determines completion of the joined text.
-                    if let Some(status) = it.get("status") {
-                        last["status"] = status.clone();
-                    }
+                    framer_core::convert::merge_response_message(last, &it);
                     continue;
                 }
             }

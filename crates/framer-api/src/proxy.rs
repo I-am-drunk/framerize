@@ -310,7 +310,7 @@ async fn cached_token(
     // refusals. Per-account caching cuts mints ~99%.
     if let Ok(guard) = cache.lock() {
         if let Some((_, tok)) = guard.iter().find(|(id, _)| id == account) {
-            if tok.usable() {
+            if tok.usable_for(session) {
                 return Ok(tok.clone());
             }
         }

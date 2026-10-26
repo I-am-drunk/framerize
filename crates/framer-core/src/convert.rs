@@ -1957,6 +1957,13 @@ pub fn responses_json(r: &AssembledResponses, client_model: &str, logical_id: &s
 #[cfg(test)]
 #[path = "responses_stream_tests.rs"]
 mod responses_stream_tests;
+#[cfg(test)]
+#[path = "responses_content_tests.rs"]
+mod responses_content_tests;
+
+#[path = "response_message.rs"]
+mod response_message;
+pub use response_message::merge_response_message;
 
 /// Responses-API SSE composer. Whole items arrive per chunk (tool calls are
 /// always complete — a mid-call cut is retried, never emitted), so deltas are
@@ -1965,15 +1972,12 @@ pub struct ResponsesComposer {
     client_model: String,
     logical_id: String,
     item_idx: usize,
-    /// An assistant message item is open (text may continue next chunk).
-    text_open: bool,
-    text_acc: String,
-    text_status: Value,
+    /// A message may carry text, refusal and other complete content parts.
+    message: Option<response_message::MessageStream>,
     /// Stable ids for assistant message items across the stream — codex
     /// correlates output_item.added/done by item id; items without one are
     /// dropped, which produced turns with tokens but no assistant message.
     msg_seq: usize,
-    open_msg_id: String,
     /// Message ids already used by added/done events, in output order.
     message_ids: Vec<String>,
 }
@@ -1984,11 +1988,8 @@ impl ResponsesComposer {
             client_model: client_model.to_string(),
             logical_id: logical_id.to_string(),
             item_idx: 0,
-            text_open: false,
-            text_acc: String::new(),
-            text_status: json!("completed"),
+            message: None,
             msg_seq: 0,
-            open_msg_id: String::new(),
             message_ids: Vec::new(),
         }
     }
@@ -2011,30 +2012,9 @@ impl ResponsesComposer {
     }
 
     fn close_text(&mut self) -> Vec<String> {
-        if !self.text_open {
-            return Vec::new();
-        }
-        self.text_open = false;
-        let idx = self.item_idx;
+        let Some(message) = self.message.take() else { return Vec::new() };
         self.item_idx += 1;
-        let text = std::mem::take(&mut self.text_acc);
-        let part_text = text.clone();
-        let item_id = std::mem::take(&mut self.open_msg_id);
-        vec![
-            Self::ev("response.output_text.done", json!({"output_index": idx, "content_index": 0, "text": text})),
-            Self::ev("response.content_part.done", json!({
-                "output_index": idx, "content_index": 0,
-                "part": {"type": "output_text", "text": part_text, "annotations": []},
-            })),
-            // Codex's aggregator builds the assistant message from output_item.done's
-            // content array — an item without content yields last_agent_message null
-            // even when deltas carried the text (verified 2026-10-13).
-            Self::ev("response.output_item.done", json!({
-                "output_index": idx,
-                "item": {"id": item_id, "type": "message", "status": self.text_status, "role": "assistant",
-                           "content": [{"type": "output_text", "text": part_text, "annotations": []}]},
-            })),
-        ]
+        message.finish()
     }
 
     pub fn push_items(&mut self, items: &[Value], continues_text: bool) -> Vec<String> {
@@ -2042,35 +2022,13 @@ impl ResponsesComposer {
         for it in items {
             match it["type"].as_str() {
                 Some("message") => {
-                    let text: String = it["content"]
-                        .as_array()
-                        .cloned()
-                        .unwrap_or_default()
-                        .iter()
-                        .filter_map(|p| p["text"].as_str().map(str::to_string))
-                        .collect();
-                    if !self.text_open {
-                        self.open_msg_id = self.next_msg_id();
-                        f.push(Self::ev("response.output_item.added", json!({
-                            "output_index": self.item_idx,
-                            "item": {"id": self.open_msg_id, "type": "message", "status": "in_progress",
-                                     "role": "assistant",
-                                     "content": [{"type": "output_text", "text": "", "annotations": []}]},
-                        })));
-                        f.push(Self::ev("response.content_part.added", json!({
-                            "output_index": self.item_idx, "content_index": 0,
-                            "part": {"type": "output_text", "text": "", "annotations": []},
-                        })));
-                        self.text_open = true;
-                        self.text_status = json!("completed");
+                    if self.message.is_none() {
+                        let id = self.next_msg_id();
+                        let message = response_message::MessageStream::new(it, id, self.item_idx);
+                        f.push(message.start());
+                        self.message = Some(message);
                     }
-                    if let Some(status) = it.get("status") { self.text_status = status.clone(); }
-                    if !text.is_empty() {
-                        self.text_acc.push_str(&text);
-                        f.push(Self::ev("response.output_text.delta", json!({
-                            "output_index": self.item_idx, "content_index": 0, "delta": text,
-                        })));
-                    }
+                    f.extend(self.message.as_mut().unwrap().append(it));
                 }
                 Some("reasoning") => {
                     f.extend(self.close_text());

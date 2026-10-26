@@ -34,11 +34,24 @@ shared session caches before refreshing. Shared-cache eviction compares the
 bearer so a late rejection cannot remove a newer value; web-token entries
 and other sessions are outside that eviction.
 
+Cached tokens retain the session that authorized them. Reuse checks both the
+current user and cookie, preventing an account ID retained across login/import
+from reusing the previous session's bearer. Refresh failure sends no old token.
+
 Responses continuation describes the current chunk's tail. The composer
 consumes the final text chunk before closing its message, retains the latest
 fragment status and carries its emitted message IDs into the final snapshot.
 Adjacent message items merge consistently with the chain; tool and reasoning
 items retain their original identities and fields.
+
+Message assembly preserves typed content parts, refusal events, annotations,
+logprobs and metadata. Only adjacent plain-text boundary parts concatenate;
+rich parts retain their offsets and order. Chain and stream share this merge.
+
+An attached CDP browser bridge claims one account before route or browser work.
+That claim survives failures, cancellation and disconnect for its lifetime.
+Owned-browser modes retain independent account admission. This claim does not
+validate the attached browser's login or exclude other bridge instances.
 
 Browser launch converts authenticated proxy URLs into separate server,
 username and password options before passing them to the browser driver.

@@ -1,4 +1,7 @@
 //! Both production retry paths with inert browser and token-mint fixtures.
+#[path = "auth_session_scope_tests.rs"]
+mod scope_tests;
+
 use super::{cache, AiToken};
 use crate::{inference, proxy, session_auth::Egress, transport::Transport};
 use async_trait::async_trait;
@@ -29,8 +32,8 @@ pub(super) fn mint_fixture(session: &Session, path: &str) -> Option<Result<AiTok
         else { Err("unexpected fixture token endpoint".into()) })
 }
 
-fn token(bearer: &str) -> AiToken {
-    AiToken { bearer: bearer.into(), expires_at_ms: i64::MAX }
+fn token(session: &Session, bearer: &str) -> AiToken {
+    AiToken::for_session(session, bearer.into(), i64::MAX)
 }
 
 fn store(session: &Session, path: &str, value: AiToken) {
@@ -51,19 +54,20 @@ struct Fixture {
 }
 
 impl Fixture {
-    fn new(shared: &str, mint: Result<AiToken, String>, statuses: Vec<u16>) -> Self {
+    fn new(shared: &str, mint: Result<&str, String>, statuses: Vec<u16>) -> Self {
         let account = AccountId(uuid::Uuid::new_v4());
         let session = Session { active_user: FramerUserId(format!("fixture-{}", account.0)),
             cookie_header: format!("auth-retry-fixture={}", account.0) };
         mints().lock().unwrap_or_else(std::sync::PoisonError::into_inner)
-            .insert(session.cookie_header.clone(), Mint { result: mint, calls: 0 });
-        store(&session, AI, token(shared));
+            .insert(session.cookie_header.clone(), Mint {
+                result: mint.map(|bearer| token(&session, bearer)), calls: 0 });
+        store(&session, AI, token(&session, shared));
         let browser = Browser { account, cookie: session.cookie_header.clone(),
             statuses, bearers: Mutex::new(Vec::new()) };
         let transport = Transport::control_for_loopback(
             "127.0.0.1:9".parse().unwrap(), Egress::Direct).unwrap();
-        Self { account, session, browser, transport,
-            outer: Mutex::new(vec![(account, token(REJECTED))]) }
+        let outer = Mutex::new(vec![(account, token(&session, REJECTED))]);
+        Self { account, session, browser, transport, outer }
     }
 
     fn mint_calls(&self) -> usize {
@@ -134,9 +138,9 @@ impl BrowserBridge for Browser {
 }
 
 async fn refreshes(mode: Mode) {
-    let fixture = Fixture::new(REJECTED, Ok(token(FRESH)), vec![401, 200]);
+    let fixture = Fixture::new(REJECTED, Ok(FRESH), vec![401, 200]);
     let unrelated = Fixture::new("fixture-peer", Err("unused".into()), vec![]);
-    store(&fixture.session, WEB, token("fixture-web"));
+    store(&fixture.session, WEB, token(&fixture.session, "fixture-web"));
     fixture.run(mode).await.unwrap();
     assert_eq!(fixture.sent(), [REJECTED, FRESH]);
     assert_eq!(fixture.mint_calls(), 1);
@@ -179,7 +183,7 @@ async fn refresh_failure_returns_without_another_ai_request() {
 #[tokio::test]
 async fn repeated_401_stops_after_one_refresh() {
     for mode in [Mode::Proxy, Mode::Inference] {
-        let fixture = Fixture::new(REJECTED, Ok(token(FRESH)), vec![401, 401]);
+        let fixture = Fixture::new(REJECTED, Ok(FRESH), vec![401, 401]);
         let expected = match mode {
             Mode::Proxy => "unauthorized",
             Mode::Inference => "unauthorized after token refresh",
