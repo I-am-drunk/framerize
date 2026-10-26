@@ -1,5 +1,22 @@
 # Development status
 
+The `feat/native-browser-handoff-20261026` branch now integrates qualified
+S2b `c233346` with registration correction `bf9d00d`. Responses policy and protocol
+helpers move to a credential-independent workspace leaf. The runtime binds
+Forward per invocation, preserving optional callbacks, category, retries,
+refunds, cleanup and existing queue lookup. Core/API retain compatibility paths.
+All 266 exact S2b checks pass, including the 165 retained baseline cases,
+six new Forward cases and both explicit agents-category launches. All 1,334
+manifest files and 780 candidate source pins match. Ten focused registration
+and admission checks also pass on the merge, with 781 matching source pins.
+The initial two-job build reached its 1,536 MiB limit; the one-job retry
+compiled all five libraries. An overbroad Messages filter was corrected by
+selecting the packet's twelve exact names. Both setup outcomes are retained.
+Every isolated unit stopped. Next is contextual qualification of `baf8f20`'s
+secondary-workspace claims. S3, runtime and timing work remain held. The
+current transport still uses a browser; no package or live service changed.
+Hosted CI remains blocked by the recorded payment/spending-limit issue.
+
 Login and import now clear the carried primary project when metadata selects
 a different team, before applying any explicit project override. Both
 changed-team baseline cases reproduced the old project leaking into the new
