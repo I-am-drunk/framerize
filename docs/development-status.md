@@ -3,6 +3,15 @@
 The rearchitecture is on `refactor/separate-apps-and-ci-20261025` in draft
 [PR #2](https://github.com/I-am-drunk/framerize/pull/2). It is not deployed.
 
+Messages preserve citations and rich-block metadata through merging and SSE.
+The API Responses chain rejects token-count overflow before publishing the
+offending chunk. The parent reproduced all twelve expected failures, with
+four controls passing. All 110 selected checks pass: 71 API, 34 core and five
+native continuation/tool/stream-cleanup controls. Eleven candidate source
+files and 676 tracked inputs match both final runs.
+This source work does not change the pinned live packages or establish live
+delivery, upstream streaming, memory savings or distinct per-account TLS.
+
 Messages reject zero configuration limits before dispatch, and Responses JSON
 and final SSE consistently report aggregate total_tokens while retaining usage
 metadata. All 72 selected checks pass: 41 API fallback cases and 31 core

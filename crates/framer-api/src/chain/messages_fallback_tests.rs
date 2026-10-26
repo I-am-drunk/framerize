@@ -11,11 +11,15 @@ mod json_tests;
 #[path = "messages_config_tests.rs"]
 mod config_tests;
 
+#[path = "messages_content_chain_tests.rs"]
+mod content_tests;
+
 struct Observed {
     result: Result<AssembledResponse, String>,
     emitted: Vec<Value>,
     requests: Vec<Value>,
     refunds: usize,
+    frames: Vec<String>,
 }
 
 fn run(replies: Vec<Reply>, max_chunks: u32) -> Observed {
@@ -36,8 +40,15 @@ fn run_with_config(replies: Vec<Reply>, config: ChainConfig) -> Observed {
         let browser = Fixture { replies: Mutex::new(replies.into()),
             requests: Mutex::new(Vec::new()), refunds: AtomicUsize::new(0) };
         let emitted = Mutex::new(Vec::new());
+        use framer_core::convert::{self, ClientDialect, SseComposer};
+        let dialect = ClientDialect::AnthropicMessages;
+        let composer = Mutex::new(SseComposer::new(dialect, "client-fixture", "claude-sonnet-4"));
+        let frames = Mutex::new(convert::stream_open(dialect, "claude-sonnet-4", "client-fixture"));
         let callback = |event| {
-            if let ChainEvent::Chunk(blocks) = event { emitted.lock().unwrap().extend(blocks); }
+            if let ChainEvent::Chunk(blocks) = event {
+                frames.lock().unwrap().extend(composer.lock().unwrap().push_chunk(&blocks));
+                emitted.lock().unwrap().extend(blocks);
+            }
         };
         let transport = Transport::with_base("http://127.0.0.1:9".into());
         let result = complete_long(&transport, &cache, &session, &browser, &account,
@@ -45,7 +56,12 @@ fn run_with_config(replies: Vec<Reply>, config: ChainConfig) -> Observed {
                 "messages":[{"role":"user","content":"fixture"}]}),
             &config, "fixture-chat", Some(&callback)).await;
         assert!(browser.replies.lock().unwrap().is_empty(), "missing expected request");
+        if let Ok(response) = &result {
+            frames.lock().unwrap().extend(composer.lock().unwrap()
+                .finish(response, "claude-sonnet-4", false));
+        }
         Observed { result, emitted: emitted.into_inner().unwrap(),
+            frames: frames.into_inner().unwrap(),
             requests: browser.requests.into_inner().unwrap(), refunds: browser.refunds.load(Ordering::SeqCst) }
     })
 }

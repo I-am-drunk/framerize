@@ -122,6 +122,11 @@ Messages fallback validates message and content completion before publishing
 blocks. A malformed or incomplete tool call fails the attempt. Retries retain
 the caller's remaining output budget, and text continuation retains the final
 provider stop reason when the allowed chunk count is exhausted.
+Messages citation deltas retain their order and opaque fields. A shared merge
+helper joins only adjacent plain text; cited and other rich blocks keep their
+boundaries and metadata through assembly, continuation and both SSE renderers.
+The API Responses chain checks accumulated output and combined token counts
+before publishing a chunk, rejecting overflow without exposing that chunk.
 
 SQLite startup assigns the existing default device ID once to valid legacy
 records that lack it. One transaction persists these assignments before the

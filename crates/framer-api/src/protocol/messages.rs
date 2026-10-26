@@ -3,23 +3,7 @@ use framer_core::port::ChainConfig;
 use crate::proxy::Dialect;
 
 pub fn merge_blocks(acc: &mut Vec<Value>, new: Vec<Value>) {
-    for b in new {
-        let is_text = b["type"].as_str() == Some("text");
-        if is_text {
-            if let Some(last) = acc.last_mut() {
-                if last["type"].as_str() == Some("text") {
-                    let joined = format!(
-                        "{}{}",
-                        last["text"].as_str().unwrap_or_default(),
-                        b["text"].as_str().unwrap_or_default()
-                    );
-                    last["text"] = json!(joined);
-                    continue;
-                }
-            }
-        }
-        acc.push(b);
-    }
+    framer_core::convert::merge_message_blocks(acc, new);
 }
 
 pub fn push_continuation(messages: &mut Value, chunk_blocks: &[Value], cfg: &ChainConfig) {
