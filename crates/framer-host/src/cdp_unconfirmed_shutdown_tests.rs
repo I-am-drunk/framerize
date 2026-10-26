@@ -18,7 +18,7 @@ async fn connected_instance(bridge: &CdpBridge, account: AccountId) -> tokio::ta
     let (ws, _) = timeout(Duration::from_secs(2), connect_async(format!("ws://{address}")))
         .await.unwrap().unwrap();
     bridge.instances.lock().await.insert(account,
-        Arc::new(Mutex::new(CdpInstance { child: None, ws, next_id: 0 })));
+        Arc::new(Mutex::new(CdpInstance { child: None, ws, next_id: 0, pending: Default::default() })));
     bridge.route_cell(&account).await.lock().await.may_have_browser = true;
     peer
 }

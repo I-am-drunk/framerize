@@ -17,6 +17,13 @@ Before recording a compatible return, it requires account-history readiness
 and the expected serving process identity. HTTP liveness alone is insufficient.
 It does not admit requests, migrate history or launch a canary by itself.
 
+Matched browser and native archives are checked against isolated synthetic
+profiles before live acceptance. The browser package must report usable
+account history, preserve unknown history on refusal and report failed-host
+shutdown. Both packages must exclude a second profile owner and join shutdown;
+native diagnostic records must exclude private request fields. These package
+checks do not run the SDK or demonstrate upstream delivery.
+
 An explicit `existing-v2` transition mode accepts an existing schema-2 journal.
 It records account rows after the original service has stopped and requires
 them to remain unchanged through native startup before sending the canary.
@@ -193,31 +200,103 @@ An attached CDP browser bridge claims one account before route or browser work.
 That claim survives failures, cancellation and disconnect for its lifetime.
 Owned-browser modes retain independent account admission. This claim does not
 validate the attached browser's login or exclude other bridge instances.
+Attached-page selection parses the URL and requires the HTTPS Framer app
+origin, with the default port. A hostname, path or query that merely mentions
+Framer cannot select a page. Existing first-page and new-tab fallback order
+is preserved.
+Owned startup uses the same origin check and waits for a matching page within
+its existing discovery attempts. Both discovery paths bound WebSocket TCP
+connection and upgrade to five seconds; cancellation drops the owning socket.
+CDP discovery GET and new-tab PUT share an owned asynchronous HTTP socket.
+One five-second deadline covers connection, writing and complete body reads;
+return, cancellation and timeout drop the socket. Headers are limited to
+16 KiB and bodies to 8 MiB. The decoder accepts complete Content-Length or
+EOF-delimited bodies and rejects failed status, conflicting lengths,
+truncation and unsupported transfer encoding. It does not support chunking.
 Owned CDP startup retains its child until instance publication or joined exit.
 Cancellation requests termination and retains the actual wait result across
 abandoned shutdown callers. Version probes use the same ownership mechanism
 without an account, so their exit cannot clear a browser's uncertainty.
+Version output has a five-second deadline. Expiry returns the existing fallback
+user agent and retains kill/wait cleanup for shutdown to join; fallback alone
+does not prove the child has exited.
+Owned startup rejects stale debugging-port removal errors other than a missing
+file before launching the version probe or browser. The blocking removal owns
+the account route until it finishes, including after caller cancellation, and
+returns that guard without a gap. Same-account work and owned-browser shutdown
+wait for removal; unrelated accounts remain independent. Slow filesystem work
+can therefore delay cleanup. This is a per-bridge lock, not a global profile lock.
 Shutdown joins these children and still closes every known instance. Only
 confirmed exits clear their account flags; missing exit evidence stays an error.
+Owned Unix browsers retain their process-group identity. Abandoned startup
+signals the group only while its unreaped leader still owns that identity,
+then joins the leader and waits for group absence. Graceful shutdown waits
+for that same proof without forcibly killing surviving members. Attach and
+version probes never gain browser-group ownership. Group absence does not
+prove cleanup of descendants that leave the group.
 The CDP device loader creates an identity only when the record is missing.
 Read, UTF-8, JSON and identity-field errors preserve the existing bytes and
 refuse startup instead of silently replacing the browser identity.
+New records are written and synced in a separate candidate before an atomic
+hard link publishes them without replacing an existing record. Concurrent
+creators read the winning record; the blocking owner retains candidate cleanup
+through caller cancellation. Directory and device preparation retain the
+account route until completion, so same-account startup, identity rotation and
+shutdown cannot overtake the filesystem work. This does not bound filesystem
+latency or establish power-loss durability for the containing directory.
 Both browser login adapters select session cookies applicable to
 `https://api.framer.com`, matching the API identity lookup. Website-only
 cookies are excluded; shared-domain and host-only API cookies remain valid.
 Existing ordering, error handling and selection among API-applicable cookies
 are preserved.
 
-Login completion and session import reject a duplicate normalized email before
-saving the user-keyed session or claiming a workspace grant. Reauthentication
-of the same account retains save-before-grant and admission ordering. This is
-sequential validation; concurrent duplicate registration and rollback after a
-later persistence or admission failure are separate concerns.
+Python pool-page allocation retains its account lock and memory reservation
+until allocation and preparation settle. A prepared page abandoned by its
+caller is returned to that account's pool before cancellation propagates.
+Each borrowed-page scope also tracks its own dispatched browser calls and
+joins them before release, including through repeated cancellation. Other
+accounts, free pages and unrelated calls retain independent progress.
+Dedicated mint-page creation has a separate cancellation path: it joins
+creation and closes a late page without starting navigation or SDK warming.
+Repeated cancellation cannot abandon that close; a close failure remains an
+error. These ownership rules do not introduce operation deadlines or prove
+that remote JavaScript has stopped merely because a local call settled.
+
+Device context creation also retains any late result until it is closed.
+Device preparation keeps its lock and memory reservation through dispatched
+RPC completion, including cancellation during seeding, warming or cleanup.
+Repeated cancellation cannot abandon the close. A failed cancelled close
+preserves cancellation and marks account cleanup unconfirmed, preventing
+ambient mint fallback and new account admission until browser cleanup.
+These guarantees concern local RPC ownership, not remote work termination.
+
+Shared Python driver startup keeps one cached task through caller
+cancellation. A finishing waiter clears that cache only if it still owns
+the same task, so an older failure cannot erase a newer retry. Shutdown
+retains and joins the retry before stopping the acquired driver.
+
+Login completion and session import share one registration mutex from the
+normalized-email duplicate check through initial account publication. The
+guard releases before credit admission and on early return, preserving the
+existing session-save and grant ordering. This protects callers sharing the
+same in-process policy. It does not enforce database or cross-process
+uniqueness or undo partial session/grant work after a later failure.
 
 Both CDP evaluation helpers reject a non-null exceptionDetails field before
 returning a value. Reported JavaScript failures return a fixed error without
 exception descriptions, so a failed device seed reaches the existing startup
 error path. Successful values, undefined results and deadlines stay unchanged.
+Each CDP command starts one deadline before sending and reuses it for reply
+reads, so socket backpressure consumes the same budget. A timeout bounds the
+host's wait; it cannot retract bytes or stop JavaScript already dispatched.
+Command IDs are recorded before writing and remain owned after cancellation.
+Subsequent commands observe prior terminal replies within the existing
+deadline. Owned Browser.close may bypass that wait, but only joined child
+and group exit can settle commands without replies. Attach shutdown observes
+pending commands before disconnecting and retains the socket/state if that
+observation is cancelled. Lost replies remain explicit cleanup uncertainty;
+startup and mint error handling preserve that signal instead of claiming
+completion or starting another mint attempt.
 
 Browser launch converts authenticated proxy URLs into separate server,
 username and password options before passing them to the browser driver.

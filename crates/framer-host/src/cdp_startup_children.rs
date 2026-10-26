@@ -1,6 +1,7 @@
 use framer_core::AccountId;
 use std::sync::{Arc, Mutex};
 use tokio::{process::Child, task::JoinHandle};
+use crate::cdp_process_group::{self, ProcessGroup};
 
 type Outcome = Result<(), String>;
 
@@ -41,15 +42,19 @@ pub(super) struct StartingChild<'a> {
     owner: &'a StartupChildren,
     account: Option<AccountId>,
     child: Option<Child>,
+    group: Option<Arc<ProcessGroup>>,
     runtime: tokio::runtime::Handle,
 }
 
 impl StartupChildren {
+    /// The browser must have been spawned in its own process group on Unix.
     pub(super) fn track(&self, account: AccountId, child: Child) -> StartingChild<'_> {
+        let group = ProcessGroup::for_child(&child);
         StartingChild {
             owner: self,
             account: Some(account),
             child: Some(child),
+            group,
             runtime: tokio::runtime::Handle::current(),
         }
     }
@@ -59,6 +64,7 @@ impl StartupChildren {
             owner: self,
             account: None,
             child: Some(child),
+            group: None,
             runtime: tokio::runtime::Handle::current(),
         }
     }
@@ -92,6 +98,8 @@ async fn pipe_bytes<T: tokio::io::AsyncRead + Unpin>(mut pipe: Option<T>)
 }
 
 impl StartingChild<'_> {
+    pub(super) fn group(&self) -> Option<Arc<ProcessGroup>> { self.group.clone() }
+
     /// Preserve output semantics while retaining the Child across cancellation.
     pub(super) async fn output(mut self) -> std::io::Result<std::process::Output> {
         let child = self.child.as_mut().expect("startup child already published");
@@ -112,10 +120,12 @@ impl StartingChild<'_> {
 impl Drop for StartingChild<'_> {
     fn drop(&mut self) {
         let Some(mut child) = self.child.take() else { return; };
+        let group = self.group.take();
+        if let Some(group) = group.as_ref() { group.request_kill(&child); }
         let _ = child.start_kill();
         let task = self.runtime.spawn(async move {
             // A kill request is not an exit receipt. Keep the Child until wait.
-            child.wait().await.map(|_| ())
+            cdp_process_group::wait_for_exit(&mut child, group.as_deref()).await.map(|_| ())
                 .map_err(|error| format!("wait for browser startup child: {error}"))
         });
         self.owner.register(self.account, task);
