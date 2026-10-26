@@ -3,6 +3,12 @@
 The current reorganization is in progress. See [the design](rearchitecture.md)
 for decisions, boundaries and the remaining migration work.
 
+Direct inference requires an explicit successful completion event before
+publishing its result. Failure events return a bounded error containing the
+event name, without upstream diagnostic payloads. The Responses fallback
+groups SSE data fields at event boundaries before decoding the terminal
+response, preserving the complete tool output and usage object.
+
 The optional native `browser-transport` feature connects the native minter
 to a supplied-token browser sender. Each request carries its actual minted
 device, account/session binding and freshness deadline. One browser creates

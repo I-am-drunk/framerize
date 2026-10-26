@@ -29,6 +29,10 @@ use futures::StreamExt;
 #[path = "../nativechain_tool_tests.rs"]
 mod tool_completion_tests;
 
+#[cfg(test)]
+#[path = "responses_sse_tests.rs"]
+mod responses_sse_tests;
+
 /// Fire a full (possibly multi-chunk) generation on the responses passthrough
 /// and return the assembled native Responses object.
 #[allow(clippy::too_many_arguments)]
@@ -432,14 +436,27 @@ async fn stream_chunk(
     )
     .await?;
     let text = body_text(resp).await?;
+    parse_streamed_chunk(&text)
+}
+
+fn parse_streamed_chunk(text: &str) -> Result<AssembledResponses, String> {
     // The buffered SSE text: find the terminal response.completed event.
     let mut final_obj: Option<Value> = None;
-    for line in text.lines() {
-        let Some(data) = line.strip_prefix("data: ") else { continue };
+    let mut data_lines = Vec::new();
+    for line in text.lines().chain(std::iter::once("")) {
+        if let Some(data) = line.strip_prefix("data:") {
+            data_lines.push(data.strip_prefix(' ').unwrap_or(data));
+            continue;
+        }
+        if !line.is_empty() || data_lines.is_empty() {
+            continue;
+        }
+        let data = data_lines.join("\n");
+        data_lines.clear();
         if data == "[DONE]" {
             continue;
         }
-        if let Ok(v) = serde_json::from_str::<Value>(data) {
+        if let Ok(v) = serde_json::from_str::<Value>(&data) {
             if v["type"].as_str() == Some("response.completed") {
                 final_obj = v.get("response").cloned();
             }
