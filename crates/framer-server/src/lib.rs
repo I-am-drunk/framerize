@@ -25,6 +25,7 @@ mod account_wait;
 mod pool_config;
 mod pool_control;
 mod request_token_budget;
+mod request_body_object;
 pub use serving_accounts::{ServingAccountPolicy, SERVING_ACCOUNTS_ENV};
 pub use pool_config::{PoolConfig, EligibleAccounts, AllAccounts, POOL_SETTING_KEY};
 pub use pool_control::prewarm_accounts;
@@ -109,6 +110,9 @@ mod permit_lifetime_tests;
 
 #[cfg(test)]
 mod upstream_health_tests;
+
+#[cfg(test)]
+mod free_responses_context_tests;
 
 /// Keep the producer owned by its response body, including before the first poll.
 fn proxy_response_stream(
@@ -449,6 +453,7 @@ async fn compat_forward_observed(
 ) -> pool_control::CleanupOutcome<axum::response::Response> {
     let cleanup = pool_control::CleanupEvidence::new();
     let result = async {
+    request_body_object::validate(&payload)?;
     // Long non-streaming generations hit idle cutoffs (observed ~21.6 s in one
     // environment; a ~60 s server cutoff is plausible). ALWAYS stream upstream
     // and aggregate for clients that asked for stream:false.
@@ -1068,6 +1073,8 @@ async fn free_complete(
     dialect: ClientDialect,
     payload: serde_json::Value,
 ) -> Result<axum::response::Response, ApiError> {
+    request_body_object::validate(&payload)
+        .map_err(operation_ownership::completed_preflight)?;
     let mut payload = payload;
     // T3 ultrafast variants (compat/t3/ultrafast): a model id ending in
     // "-ultrafast" strips to the base model and rides upstream with
@@ -1126,6 +1133,14 @@ async fn free_complete(
             ))));
         }
         convert::ModelRoute::FreePassthrough => {}
+    }
+    // The chain cannot resolve stored context; stripping its ID loses history.
+    if dialect == ClientDialect::OpenAiResponses
+        && payload.get("previous_response_id").is_some_and(|value| !value.is_null())
+    {
+        return Err(operation_ownership::completed_preflight(ApiError::InvalidRequest(
+            "previous_response_id is unsupported on this route; send complete input history".into(),
+        )));
     }
     let wants_stream = payload["stream"].as_bool().unwrap_or(false);
     let include_usage = payload["stream_options"]["include_usage"].as_bool().unwrap_or(false);

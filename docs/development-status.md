@@ -3,6 +3,15 @@
 The rearchitecture is on `refactor/separate-apps-and-ci-20261025` in draft
 [PR #2](https://github.com/I-am-drunk/framerize/pull/2). It is not deployed.
 
+Messages account for token usage without narrowing or overflowing counters.
+Malformed request bodies return a client error before account work. Free
+Responses reject unsupported previous_response_id context rather than silently
+dropping it; complete input history and paid passthrough remain supported.
+All 59 selected checks pass (33 API, 26 server), after the parent reproduced
+16 failures with 11 controls passing. Seven candidate files and 680 tracked
+inputs match the final run. These source changes are not deployed and do not
+establish live delivery or alter the pinned native/browser packages.
+
 Chat structured-output schemas now retain their constraints and optional
 settings in every Responses continuation request. Malformed schema wrappers
 return an error instead of losing the requested output format. All thirteen

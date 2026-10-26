@@ -14,6 +14,9 @@ mod config_tests;
 #[path = "messages_content_chain_tests.rs"]
 mod content_tests;
 
+#[path = "messages_usage_tests.rs"]
+mod usage_tests;
+
 struct Observed {
     result: Result<AssembledResponse, String>,
     emitted: Vec<Value>,
