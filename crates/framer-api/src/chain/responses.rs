@@ -52,6 +52,9 @@ pub async fn complete_long(
     chat_session: &str,
     events: Option<&(dyn Fn(ChainEvent) + Send + Sync)>,
 ) -> Result<AssembledResponses, String> {
+    if cfg.max_total_tokens.is_some_and(|cap| cap < 16) {
+        return Err("Responses output budget must be at least 16 tokens".into());
+    }
     let chain_step: String =
         if std::env::var("FRAMERIZE_FEATURE_CATEGORY").unwrap_or_else(|_| "translation".to_string()) == "translation" {
             "translate".to_string()
@@ -341,8 +344,10 @@ pub async fn complete_long(
         final_status = status.clone();
         final_incomplete = body.get("incomplete_details").cloned();
 
-        let budget_left = cfg.max_total_tokens.map(|cap| cap.saturating_sub(ctok as u32));
-        if !hit_cap || budget_left == Some(0) {
+        let budget_left = cfg.max_total_tokens.map(|cap| u64::from(cap).saturating_sub(ctok));
+        // prepare_payload enforces the upstream 16-token minimum. Do not
+        // round a smaller remainder up beyond the client's total cap.
+        if !hit_cap || budget_left.is_some_and(|left| left < 16) {
             return finish(
                 resp_id, created_at, output_items, final_status, final_incomplete,
                 last_usage, last_service_tier, ptok, ctok, i + 1, metered_chunks,

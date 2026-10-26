@@ -5,6 +5,9 @@ use framer_core::port::CastleToken;
 use std::collections::VecDeque;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
+#[path = "messages_json_chain_tests.rs"]
+mod json_tests;
+
 struct Observed {
     result: Result<AssembledResponse, String>,
     emitted: Vec<Value>,
