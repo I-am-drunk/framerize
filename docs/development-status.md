@@ -8,7 +8,10 @@ Shared server resources now live in `state.rs`, retaining the same public
 account-activity tests, nine activation/rollback tests, 28 core operation-gate
 tests and 58 server operation-ownership tests. The production generation
 boundary is under vision review; next is an offline request-pinning and
-generation-transition slice. No hot-swap or hosted CI success is claimed yet.
+generation-transition slice. Six response-queue tests also pass. The exact-head
+[Actions attempt](https://github.com/diddletime/framerize/actions/runs/40365806170)
+for `0b21bbe` ended in `startup_failure` with zero jobs. Its cause is unconfirmed.
+No hot-swap or hosted CI success is claimed yet.
 
 The rearchitecture is on `refactor/separate-apps-and-ci-20261025` in draft
 [PR #2](https://github.com/I-am-drunk/framerize/pull/2). It is not deployed.
