@@ -5,6 +5,51 @@ use framer_core::port::CastleToken;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
 #[tokio::test]
+async fn bare_data_named_text_delta_cannot_produce_legacy_success() {
+    for ending in ["\n", "\r\n", "\r"] {
+        for field in ["data", "data:", "data: "] {
+            let bad = format!("event: response.output_text.delta{ending}{field}{ending}{ending}");
+            for body in [format!("{}{bad}{}", delta("before"), completed()),
+                format!("{}{}{bad}", delta("before"), completed())] {
+                assert_eq!(send_body(body).await.err().expect("invalid legacy text"),
+                    "invalid inference completion: invalid output text delta");
+            }
+        }
+    }
+}
+
+#[tokio::test]
+async fn authoritative_output_overrides_bare_data_delta() {
+    let bad = "event: response.output_text.delta\ndata\n\n";
+    for (output, expected) in [(json!([]), ""), (json!([message("final")]), "final")] {
+        let terminal = completed_output(output);
+        for body in [format!("{}{bad}{terminal}", delta("stale")),
+            format!("{}{terminal}{bad}", delta("stale"))] {
+            let Send::Done(outcome) = send_body(body).await.unwrap()
+                else { panic!("expected completion") };
+            assert_eq!(outcome.text, expected);
+            assert_eq!((outcome.usage.input_tokens, outcome.usage.output_tokens), (3, 5));
+        }
+    }
+}
+
+#[tokio::test]
+async fn bare_data_preserves_event_scope() {
+    for prefix in ["data\n\n", "data\ndata\n\n",
+        "event: response.output_text.delta\nevent: ping\ndata\n\n",
+        "event: response.output_text.delta\nevent\ndata\n\n",
+        "event: response.output_text.delta\n\n",
+        "event: response.output_text.delta\nData\n\n",
+        "event: response.output_text.delta\n:data\n\n"] {
+        let body = format!("{prefix}{}{}", delta("accepted"), completed());
+        let Send::Done(outcome) = send_body(body).await.unwrap()
+            else { panic!("expected completion") };
+        assert_eq!(outcome.text, "accepted");
+        assert_eq!((outcome.usage.input_tokens, outcome.usage.output_tokens), (3, 5));
+    }
+}
+
+#[tokio::test]
 async fn cr_named_failure_or_invalid_completion_cannot_hide() {
     for (kind, expected) in [
         ("error", "inference stream ended with error"),
@@ -202,6 +247,75 @@ async fn invalid_content_keeps_precedence_over_usage_and_role_errors() {
             "status":"completed", "output":[output], "usage":"invalid"}}));
         assert_eq!(send_body(body).await.err().expect("invalid content"),
             format!("invalid inference completion: {reason}"));
+    }
+}
+
+#[tokio::test]
+async fn terminal_response_error_cannot_become_a_direct_answer() {
+    for error in [json!({"code":"server_error", "message":"fixture diagnostic"}),
+        json!({}), json!("fixture diagnostic"), json!(false), json!(7), json!([])] {
+        for status in [None, Some(json!("completed"))] {
+            let mut response = json!({"output":[message("withheld")], "error":error});
+            if let Some(status) = status { response["status"] = status; }
+            let invalid = event(json!({"type":"response.completed", "response":response}));
+            let valid = completed_output(json!([message("valid")]));
+            for body in [invalid.clone(), format!("{invalid}{valid}"), format!("{valid}{invalid}")] {
+                assert_eq!(send_body(body).await.err().expect("explicit response error"),
+                    "invalid inference completion: non-null response error");
+            }
+        }
+    }
+}
+
+#[tokio::test]
+async fn absent_or_null_response_error_preserves_direct_output() {
+    for error in [None, Some(json!(null))] {
+        let mut response = json!({"status":"completed", "output":[
+            {"type":"future_item", "error":{"opaque":true}}, message("answer")],
+            "metadata":{"error":"opaque"}, "usage":{"input_tokens":2, "output_tokens":3}});
+        if let Some(error) = error { response["error"] = error; }
+        let ignored = event(json!({"type":"response.output_item.added",
+            "item":{"type":"future_item", "error":{"opaque":true}}}));
+        let body = format!("{ignored}{}", event(json!({"type":"response.completed", "response":response})));
+        let Send::Done(outcome) = send_body(body).await.unwrap()
+            else { panic!("expected completed answer") };
+        assert_eq!(outcome.text, "answer");
+        assert_eq!((outcome.usage.input_tokens, outcome.usage.output_tokens), (2, 3));
+    }
+}
+
+#[tokio::test]
+async fn response_error_preserves_existing_direct_validation_precedence() {
+    for (field, value, reason) in [
+        ("status", json!("incomplete"), "invalid completed status"),
+        ("output", json!(null), "invalid output array"),
+        ("output", json!([{"type":"message", "role":"user", "content":[]}]), "invalid message role"),
+        ("usage", json!("malformed"), "invalid usage object"),
+        ("usage", json!({"output_tokens":null}), "invalid usage count"),
+    ] {
+        let mut response = json!({"status":"completed", "output":[message("withheld")],
+            "error":{"code":"server_error", "message":"fixture diagnostic"}});
+        response[field] = value;
+        let body = event(json!({"type":"response.completed", "response":response}));
+        assert_eq!(send_body(body).await.err().expect("invalid response"),
+            format!("invalid inference completion: {reason}"));
+    }
+}
+
+#[tokio::test]
+async fn response_error_cannot_fall_back_to_legacy_deltas() {
+    for prefix in [String::new(), delta("withheld legacy text")] {
+        for (usage, reason) in [
+            (json!(null), "non-null response error"),
+            (json!({"input_tokens":2, "output_tokens":3}), "non-null response error"),
+            (json!([]), "invalid usage object"),
+        ] {
+            let terminal = event(json!({"type":"response.completed", "response":{
+                "status":"completed", "usage":usage,
+                "error":{"code":"server_error", "message":"fixture diagnostic"}}}));
+            assert_eq!(send_body(format!("{prefix}{terminal}")).await.err().expect("response error"),
+                format!("invalid inference completion: {reason}"));
+        }
     }
 }
 

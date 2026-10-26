@@ -95,6 +95,42 @@ fn assistant_and_absent_roles_preserve_partial_and_opaque_output() {
     }
 }
 
+#[test]
+fn terminal_response_error_is_not_accepted_stream_output() {
+    for error in [json!({"code":"server_error", "message":"fixture diagnostic"}),
+        json!({}), json!("fixture diagnostic"), json!(false), json!(7), json!([])] {
+        for (kind, status) in [("response.completed", "completed"),
+            ("response.completed", "incomplete"), ("response.incomplete", "incomplete")] {
+            let mut terminal = completed("fixture");
+            terminal["type"] = json!(kind);
+            terminal["response"]["status"] = json!(status);
+            terminal["response"]["error"] = error.clone();
+            assert_eq!(parse_streamed_chunk(&frame(&terminal)).unwrap_err(),
+                "streamed chunk has non-null response error");
+        }
+    }
+}
+
+#[test]
+fn absent_or_null_response_error_preserves_both_stream_statuses() {
+    for error in [None, Some(Value::Null)] {
+        for (kind, status) in [("response.completed", "completed"),
+            ("response.completed", "incomplete"), ("response.incomplete", "incomplete")] {
+            let mut terminal = completed("fixture");
+            terminal["type"] = json!(kind);
+            terminal["response"]["status"] = json!(status);
+            terminal["response"]["output"] = json!([
+                {"type":"future_item", "error":{"opaque":true}}
+            ]);
+            if let Some(error) = &error { terminal["response"]["error"] = error.clone(); }
+            let actual = parse_streamed_chunk(&frame(&terminal)).unwrap();
+            assert_eq!(actual.status, status);
+            assert_eq!(actual.output, terminal["response"]["output"].as_array().unwrap().clone());
+            assert_eq!(actual.usage, terminal["response"]["usage"]);
+        }
+    }
+}
+
 fn completed(id: &str) -> Value {
     json!({"type":"response.completed", "response":{
         "id":id, "created_at":9, "status":"completed", "service_tier":"default",

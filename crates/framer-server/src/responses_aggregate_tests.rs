@@ -1,6 +1,106 @@
 use super::parse;
 use serde_json::{json, Value};
 
+#[test]
+fn terminal_response_errors_are_rejected_in_all_terminal_forms() {
+    for (kind, status) in [("response.completed", "completed"),
+        ("response.completed", "incomplete"), ("response.incomplete", "incomplete")] {
+        for error in [json!({"message":"private-sentinel"}), json!({}), json!([]),
+            json!(""), json!(false), json!(0)] {
+            let mut value = response(status);
+            value["error"] = error;
+            for prefix in [String::new(), format!("event: {kind}\n")] {
+                assert_eq!(parse(&(prefix + &frame(kind, value.clone()))).unwrap_err(),
+                    "Responses stream has a terminal response error");
+            }
+        }
+    }
+}
+
+#[tokio::test]
+async fn terminal_response_error_obeys_caller_status_and_cleanup() {
+    for upstream in [200, 206, 429] {
+        for (kind, status) in [("response.completed", "completed"),
+            ("response.completed", "incomplete"), ("response.incomplete", "incomplete")] {
+            let mut value = response(status);
+            value["error"] = json!({"message":"private-sentinel"});
+            let wire = format!("event: {kind}\r\n{}", frame(kind, value));
+            let (status, bytes, confirmed) = call(upstream, chunk(wire)).await;
+            assert_eq!(status.as_u16(), if upstream < 300 { 502 } else { upstream });
+            assert_eq!(serde_json::from_slice::<Value>(&bytes).unwrap(),
+                json!({"error":{"code":"invalid_upstream_response",
+                    "message":"Responses stream has a terminal response error"}}));
+            assert!(confirmed);
+        }
+    }
+}
+
+#[tokio::test]
+async fn null_response_error_preserves_caller_output_and_cleanup() {
+    for (kind, status) in [("response.completed", "completed"),
+        ("response.completed", "incomplete"), ("response.incomplete", "incomplete")] {
+        let mut expected = response(status);
+        expected["error"] = Value::Null;
+        expected["output"][0]["error"] = json!({"opaque":"kept"});
+        let wire = frame(kind, expected.clone());
+        let (status, bytes, confirmed) = call(200, chunk(wire)).await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(serde_json::from_slice::<Value>(&bytes).unwrap(), expected);
+        assert!(confirmed);
+    }
+}
+
+#[test]
+fn terminal_response_errors_cannot_be_hidden_by_another_completion() {
+    let valid = frame("response.completed", response("completed"));
+    for (kind, status) in [("response.completed", "completed"),
+        ("response.completed", "incomplete"), ("response.incomplete", "incomplete")] {
+        let mut value = response(status);
+        value["error"] = json!({"message":"private-sentinel"});
+        let invalid = frame(kind, value);
+        for wire in [valid.clone() + &invalid, invalid + &valid] {
+            assert_eq!(parse(&wire).unwrap_err(),
+                "Responses stream has a terminal response error");
+        }
+    }
+}
+
+#[test]
+fn absent_or_null_response_errors_preserve_terminal_fields() {
+    for (kind, status) in [("response.completed", "completed"),
+        ("response.completed", "incomplete"), ("response.incomplete", "incomplete"),
+        ("response.completed", "legacy")] {
+        for include_error in [false, true] {
+            let mut expected = response(status);
+            if status == "legacy" { expected.as_object_mut().unwrap().remove("status"); }
+            if include_error { expected["error"] = Value::Null; }
+            expected["output"][0]["error"] = json!({"opaque":"kept"});
+            assert_eq!(parse(&frame(kind, expected.clone())).unwrap(), expected);
+        }
+    }
+}
+
+#[test]
+fn response_error_preserves_existing_aggregate_failure_precedence() {
+    for (field, value, error) in [
+        ("output", Value::Null, "Responses stream has an invalid output array"),
+        ("status", json!("failed"), "Responses stream has a contradictory terminal status"),
+        ("usage", json!([]), "Responses stream has an invalid usage object"),
+    ] {
+        let mut terminal = response("completed");
+        terminal["error"] = json!({"message":"private-sentinel"});
+        terminal[field] = value;
+        assert_eq!(parse(&frame("response.completed", terminal)).unwrap_err(), error);
+    }
+    for (name, error) in [("error", "Responses stream ended with error"),
+        ("response.failed", "Responses stream ended with response.failed")] {
+        let mut terminal = response("completed");
+        terminal["error"] = json!({"message":"private-sentinel"});
+        let wire = format!("event: {name}\n{}", frame("response.completed", terminal));
+        assert_eq!(parse(&wire).unwrap_err(), error);
+    }
+}
+
 #[tokio::test]
 async fn cr_streams_preserve_caller_status_output_and_cleanup() {
     for (kind, status) in [("response.completed", "completed"),
