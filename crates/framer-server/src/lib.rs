@@ -24,6 +24,7 @@ mod serving_accounts;
 mod account_wait;
 mod pool_config;
 mod pool_control;
+mod request_token_budget;
 pub use serving_accounts::{ServingAccountPolicy, SERVING_ACCOUNTS_ENV};
 pub use pool_config::{PoolConfig, EligibleAccounts, AllAccounts, POOL_SETTING_KEY};
 pub use pool_control::prewarm_accounts;
@@ -1128,10 +1129,9 @@ async fn free_complete(
     }
     let wants_stream = payload["stream"].as_bool().unwrap_or(false);
     let include_usage = payload["stream_options"]["include_usage"].as_bool().unwrap_or(false);
-    let max_tokens = payload["max_tokens"].as_u64()
-        .or_else(|| payload["max_completion_tokens"].as_u64())
-        .or_else(|| payload["max_output_tokens"].as_u64())
-        .unwrap_or(4096) as u32;
+    let max_tokens = request_token_budget::from_payload(&payload)
+        .map_err(|message| ApiError::InvalidRequest(message.into()))
+        .map_err(operation_ownership::completed_preflight)?;
 
     // THE DIALECT-NATIVE RULE (docs/native-chains.md, 2026-10-06): OpenAI
     // clients never convert to Anthropic. Responses clients run the

@@ -51,6 +51,9 @@ items. Failed attempts before streaming do not count as stream throughput.
 Responses reject an initial total below the payload builder's 16-token
 minimum and stop when less than 16 remains. They preserve incomplete output
 instead of rounding a continuation beyond the client's remaining allowance.
+The free-completion handler checks its selected u64 token limit before
+narrowing to u32. Overflow returns a fixed client error before dispatch;
+field precedence, fallback, zero and the default limit are preserved.
 Buffered Messages validate their envelope and tool content before callbacks;
 all token-limited tools use the existing repair policy, regardless of position.
 CDP authentication previews end at a valid UTF-8 boundary, and malformed
@@ -84,11 +87,16 @@ items retain their original identities and fields.
 Message assembly preserves typed content parts, refusal events, annotations,
 logprobs and metadata. Only adjacent plain-text boundary parts concatenate;
 rich parts retain their offsets and order. Chain and stream share this merge.
+Chat JSON retains a separate refusal field, streaming preserves refusal/text
+order, and assistant history carries both kinds of content into the next request.
 
 An attached CDP browser bridge claims one account before route or browser work.
 That claim survives failures, cancellation and disconnect for its lifetime.
 Owned-browser modes retain independent account admission. This claim does not
 validate the attached browser's login or exclude other bridge instances.
+Owned CDP shutdown reports uncertain starts even when no instance was saved,
+while still closing every known instance. That error retains the uncertainty;
+it does not recover a process handle lost during startup.
 
 Browser launch converts authenticated proxy URLs into separate server,
 username and password options before passing them to the browser driver.
