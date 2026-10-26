@@ -60,6 +60,13 @@ and output counters while preserving the remaining usage metadata.
 The free-completion handler checks its selected u64 token limit before
 narrowing to u32. Overflow returns a fixed client error before dispatch;
 field precedence, fallback, zero and the default limit are preserved.
+Both free and paid compatibility handlers require an object body before
+mutation or account lookup. The free Responses route also rejects a non-null
+previous_response_id after route selection, because it cannot reconstruct
+stored history. Full input history and early direct/paid routing retain their
+existing behavior. Messages subtract their u64 usage before narrowing a
+remaining budget and check additions before publishing the current chunk;
+discarded tool responses do not contribute to delivered output usage.
 Buffered Messages validate their envelope and tool content before callbacks;
 all token-limited tools use the existing repair policy, regardless of position.
 CDP authentication previews end at a valid UTF-8 boundary, and malformed

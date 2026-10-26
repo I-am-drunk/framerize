@@ -136,10 +136,7 @@ pub async fn complete_long(
         if cooldown_wait.elapsed(chain_started) > max_active {
             return Err(format!("chain exceeded {}s active-time budget after {i} chunks (excluding local cooldown waits), retry the request", max_active.as_secs()));
         }
-        let budget = cfg
-            .max_total_tokens
-            .map(|cap| cap.saturating_sub(ctok as u32).max(1))
-            .unwrap_or(chunk_tokens);
+        let budget = remaining_tokens(cfg, ctok).unwrap_or(chunk_tokens);
         let chunk = budget.min(chunk_tokens);
         // Human cadence: a metronomic chunk train is itself a bot signature.
         // 0.7-2.3s of jitter between chunks (derived from the nonce — no
@@ -261,7 +258,7 @@ pub async fn complete_long(
                         ).await?;
                         metered_chunks += 1;
                         ptok = ptok.max(streamed.input_tokens);
-                        ctok += streamed.output_tokens;
+                        ctok = add_output_tokens(ctok, streamed.output_tokens)?;
                         last_usage = streamed.usage.clone();
                         if msg_id.is_empty() && !streamed.id.is_empty() {
                             msg_id = streamed.id.clone();
@@ -276,7 +273,7 @@ pub async fn complete_long(
                             cb(ChainEvent::Chunk(streamed_blocks.clone()));
                         }
                         let finished = streamed_stop != "max_tokens"
-                            || cfg.max_total_tokens.map(|cap| cap.saturating_sub(ctok as u32) == 0).unwrap_or(false);
+                            || remaining_tokens(cfg, ctok) == Some(0);
                         if finished {
                             return Ok(assemble(msg_id, blocks, streamed_stop, streamed_seq, last_usage, ptok, ctok, i + 1, metered_chunks));
                         }
@@ -312,7 +309,6 @@ pub async fn complete_long(
         let in_t = usage["input_tokens"].as_u64().unwrap_or(0);
         let out_t = usage["output_tokens"].as_u64().unwrap_or(0);
         ptok = ptok.max(in_t); // input counts the whole conversation; keep latest
-        ctok += out_t;
         last_usage = usage;
 
         // Adapt chunk size from measured throughput (floor 400: completes even
@@ -360,7 +356,6 @@ pub async fn complete_long(
             let budget = ((tps * 70.0) as u32).clamp(1200, 5000).max(chunk_tokens);
             eprintln!("[freechat] chunk {i} cut mid-tool_use — free retry #{tool_cut_retries} (max_tokens={budget}, measured {tps:.0} tok/s, instructing split)");
             chunk_tokens = budget;
-            ctok = ctok.saturating_sub(out_t);
             // ROOT FIX for repeat cuts: the model doesn't know its tool call
             // was truncated — left alone it re-attempts the SAME giant write
             // and gets cut again. Keep any text it produced, then instruct
@@ -382,15 +377,14 @@ pub async fn complete_long(
                 return Err(format!("chunk {i}: tool call exceeds the free non-streaming window; set FRAMERIZE_ALLOW_METERED=1 to allow a tiny metered chunk here"));
             }
             eprintln!("[freechat] chunk {i} cut mid-tool_use again — streaming this chunk metered (explicit opt-in)");
-            ctok = ctok.saturating_sub(out_t);
-            let stream_payload = build_payload(&messages, cfg.max_total_tokens.map(|cap| cap.saturating_sub(ctok as u32).max(1)).unwrap_or(8000), dialect);
+            let stream_payload = build_payload(&messages, remaining_tokens(cfg, ctok).unwrap_or(8000), dialect);
             let streamed = stream_chunk(
                 t, token_cache, session, browser, account, project,
                 dialect, &step, stream_payload, chat_session, i, cfg.cancelled.as_deref(),
             ).await?;
             metered_chunks += 1;
             ptok = ptok.max(streamed.input_tokens);
-            ctok += streamed.output_tokens;
+            ctok = add_output_tokens(ctok, streamed.output_tokens)?;
             last_usage = streamed.usage.clone();
             if msg_id.is_empty() && !streamed.id.is_empty() {
                 msg_id = streamed.id.clone();
@@ -405,7 +399,7 @@ pub async fn complete_long(
                 cb(ChainEvent::Chunk(streamed_blocks.clone()));
             }
             let finished = streamed_stop != "max_tokens"
-                || cfg.max_total_tokens.map(|cap| cap.saturating_sub(ctok as u32) == 0).unwrap_or(false);
+                || remaining_tokens(cfg, ctok) == Some(0);
             if finished {
                 return Ok(assemble(msg_id, blocks, streamed_stop, streamed_seq, last_usage, ptok, ctok, i + 1, metered_chunks));
             }
@@ -413,6 +407,8 @@ pub async fn complete_long(
             continue;
         }
 
+        // A cut tool response is discarded above; count only published output.
+        ctok = add_output_tokens(ctok, out_t)?;
         stop_reason = chunk_stop.clone();
         stop_sequence = body["stop_sequence"].as_str().map(str::to_string);
         bucket_idx += 1; // rotate the bucket every chunk, not just on 429
@@ -421,13 +417,23 @@ pub async fn complete_long(
             cb(ChainEvent::Chunk(chunk_blocks.clone()));
         }
 
-        let budget_left = cfg.max_total_tokens.map(|cap| cap.saturating_sub(ctok as u32));
+        let budget_left = remaining_tokens(cfg, ctok);
         if chunk_stop != "max_tokens" || budget_left == Some(0) {
             return Ok(assemble(msg_id, blocks, stop_reason, stop_sequence, last_usage, ptok, ctok, i + 1, metered_chunks));
         }
         push_continuation(&mut messages, &chunk_blocks, cfg);
     }
     Ok(assemble(msg_id, blocks, stop_reason, stop_sequence, last_usage, ptok, ctok, cfg.max_chunks, metered_chunks))
+}
+
+fn remaining_tokens(cfg: &ChainConfig, output_tokens: u64) -> Option<u32> {
+    // Subtract before narrowing: the remaining amount cannot exceed its u32 cap.
+    cfg.max_total_tokens.map(|cap| u64::from(cap).saturating_sub(output_tokens) as u32)
+}
+
+fn add_output_tokens(total: u64, output_tokens: u64) -> Result<u64, String> {
+    total.checked_add(output_tokens)
+        .ok_or_else(|| "Messages output token usage overflow".into())
 }
 
 async fn body_text(resp: framer_core::port::ProxyResponse) -> Result<String, String> {
