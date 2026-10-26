@@ -3,6 +3,12 @@
 The rearchitecture is on `refactor/separate-apps-and-ci-20261025` in draft
 [PR #2](https://github.com/I-am-drunk/framerize/pull/2). It is not deployed.
 
+Responses now reject a zero chunk limit before sending or publishing output.
+The parent reproduced a fabricated empty completion; the new six-configuration
+regression and three existing completion/fallback controls now pass. This is
+a separate four-case source qualification, without a live request or change
+to the pinned packages.
+
 Chat responses now retain refusal text through JSON, streaming and subsequent
 request history. Owned CDP shutdown reports unconfirmed starts while still
 closing known instances. Free completion rejects selected token limits above

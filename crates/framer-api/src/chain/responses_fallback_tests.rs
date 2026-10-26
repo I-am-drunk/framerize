@@ -248,6 +248,24 @@ fn malformed_nonstream_completion_never_emits_items() {
 }
 
 #[test]
+fn zero_chunk_limit_cannot_fabricate_a_completed_response() {
+    for metered in [false, true] {
+        for total in [None, Some(16), Some(4096)] {
+            let mut cfg = config();
+            cfg.max_chunks = 0;
+            cfg.max_total_tokens = total;
+            cfg.metered_fallback = metered;
+            let actual = run(Vec::new(), cfg);
+            assert_eq!(actual.result.unwrap_err(),
+                "Responses chain max_chunks must be greater than zero");
+            assert!(actual.requests.is_empty());
+            assert!(actual.events.is_empty());
+            assert_eq!(actual.refunds, 0);
+        }
+    }
+}
+
+#[test]
 fn empty_nonstream_completion_remains_valid() {
     let actual = run(vec![Reply { streamed:false, at_budget:false,
         body:Some(json!({"status":"completed", "output":[]})) }], config());
