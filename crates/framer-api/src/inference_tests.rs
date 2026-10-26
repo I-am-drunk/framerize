@@ -4,6 +4,91 @@ use framer_core::ids::FramerUserId;
 use framer_core::port::CastleToken;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
+fn indexed_delta(output: u64, content: u64, text: &str) -> String {
+    event(json!({"type":"response.output_text.delta", "output_index":output,
+        "content_index":content, "delta":text}))
+}
+
+#[tokio::test]
+async fn indexed_legacy_text_uses_output_and_content_order() {
+    let mut body = String::new();
+    for (output, content, text) in [(1, 0, "B"), (0, 1, "2"), (0, 0, "A"),
+        (0, 1, "3"), (0, 0, "1"), (1, 0, "C")] {
+        body.push_str(&indexed_delta(output, content, text));
+    }
+    body.push_str(&completed());
+    let Send::Done(outcome) = send_body(body).await.unwrap()
+        else { panic!("expected completion") };
+    assert_eq!(outcome.text, "A123BC");
+    assert_eq!((outcome.usage.input_tokens, outcome.usage.output_tokens), (3, 5));
+}
+
+#[tokio::test]
+async fn sparse_indexed_legacy_text_preserves_empty_deltas() {
+    let body = format!("{}{}{}{}{}", indexed_delta(u64::MAX, u64::MAX, "last"),
+        delta(""), indexed_delta(7, 8, ""), indexed_delta(0, 0, "first"), completed());
+    let Send::Done(outcome) = send_body(body).await.unwrap()
+        else { panic!("expected completion") };
+    assert_eq!(outcome.text, "firstlast");
+    assert_eq!((outcome.usage.input_tokens, outcome.usage.output_tokens), (3, 5));
+}
+
+#[tokio::test]
+async fn mixed_indexed_and_unindexed_legacy_text_is_rejected() {
+    for prefix in [delta("first") + &indexed_delta(1, 0, "last"),
+        indexed_delta(0, 0, "first") + &delta("last")] {
+        assert_eq!(send_body(prefix + &completed()).await.err().unwrap(),
+            "invalid inference completion: invalid output text delta");
+    }
+}
+
+#[tokio::test]
+async fn invalid_text_coordinates_cannot_produce_legacy_success() {
+    for mut value in [json!({"output_index":0}), json!({"content_index":0}),
+        json!({"output_index":null,"content_index":0}),
+        json!({"output_index":0,"content_index":"0"}),
+        json!({"output_index":-1,"content_index":0}),
+        json!({"output_index":0,"content_index":0.5})] {
+        value["type"] = json!("response.output_text.delta");
+        value["delta"] = json!("unplaced");
+        let body = event(value) + &completed();
+        assert_eq!(send_body(body).await.err().unwrap(),
+            "invalid inference completion: invalid output text delta");
+    }
+}
+
+#[tokio::test]
+async fn authoritative_output_overrides_unusable_text_coordinates() {
+    let invalid = event(json!({"type":"response.output_text.delta",
+        "output_index":null,"content_index":0,"delta":"unplaced"}));
+    let mixed = indexed_delta(1, 0, "indexed") + &delta("unindexed");
+    for prefix in [invalid, mixed] {
+        for (output, expected) in [(json!([]), ""), (json!([message("final")]), "final")] {
+            let body = prefix.clone() + &completed_output(output);
+            let Send::Done(outcome) = send_body(body).await.unwrap()
+                else { panic!("expected completion") };
+            assert_eq!(outcome.text, expected);
+            assert_eq!((outcome.usage.input_tokens, outcome.usage.output_tokens), (3, 5));
+        }
+    }
+}
+
+#[tokio::test]
+async fn indexed_legacy_text_stops_at_its_last_completion() {
+    for tail in [indexed_delta(0, 0, "discarded"), indexed_delta(1, 0, "discarded"),
+        delta("discarded")] {
+        let body = indexed_delta(0, 0, "α") + &completed() + &tail;
+        let Send::Done(outcome) = send_body(body).await.unwrap()
+            else { panic!("expected completion") };
+        assert_eq!(outcome.text, "α");
+    }
+    let body = indexed_delta(1, 0, "B") + &completed()
+        + &indexed_delta(0, 0, "A") + &completed() + &indexed_delta(0, 0, "discarded");
+    let Send::Done(outcome) = send_body(body).await.unwrap()
+        else { panic!("expected completion") };
+    assert_eq!(outcome.text, "AB");
+}
+
 #[tokio::test]
 async fn bare_data_named_text_delta_cannot_produce_legacy_success() {
     for ending in ["\n", "\r\n", "\r"] {
