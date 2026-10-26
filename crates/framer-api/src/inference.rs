@@ -217,17 +217,58 @@ fn completed_text(response: &serde_json::Value) -> Result<Option<String>, &'stat
     let output = output.as_array().ok_or("invalid output array")?;
     let mut text = String::new();
     for item in output {
+        if !item.get("type").and_then(serde_json::Value::as_str)
+            .is_some_and(|kind| !kind.is_empty()) {
+            return Err("invalid output item");
+        }
         if item["type"] != "message" {
             continue;
         }
+        // Direct results have no partial-status field; unfinished text cannot
+        // be returned as a completed answer even if its parent is completed.
+        if item.get("status").is_some_and(|status| status.as_str() != Some("completed")) {
+            return Err("invalid message status");
+        }
         let content = item["content"].as_array().ok_or("invalid message content")?;
         for part in content {
-            if part["type"] == "output_text" {
-                text.push_str(part["text"].as_str().ok_or("invalid output text")?);
+            let kind = part.get("type").and_then(serde_json::Value::as_str)
+                .filter(|kind| !kind.is_empty()).ok_or("invalid message part")?;
+            match kind {
+                "output_text" => {
+                    text.push_str(part["text"].as_str().ok_or("invalid output text")?);
+                }
+                "refusal" if !part["refusal"].is_string() => {
+                    return Err("invalid refusal");
+                }
+                _ => {}
             }
         }
     }
+    if output.iter().any(|item| {
+        item["type"] == "message"
+            && item.get("role").is_some_and(|role| role.as_str() != Some("assistant"))
+    }) {
+        // Content errors precede usage errors, which precede role errors.
+        completed_usage(response)?;
+        return Err("invalid message role");
+    }
     Ok(Some(text))
+}
+
+fn completed_usage(response: &serde_json::Value) -> Result<Usage, &'static str> {
+    let usage = &response["usage"];
+    if !usage.is_null() && !usage.is_object() {
+        return Err("invalid usage object");
+    }
+    if ["input_tokens", "output_tokens"].iter().any(|field| {
+        usage.get(*field).is_some_and(|count| count.as_u64().is_none())
+    }) {
+        return Err("invalid usage count");
+    }
+    Ok(Usage {
+        input_tokens: usage["input_tokens"].as_u64().unwrap_or(0),
+        output_tokens: usage["output_tokens"].as_u64().unwrap_or(0),
+    })
 }
 
 /// Parse the SSE stream (multi-line `data:` safe). Verified event vocabulary
@@ -239,36 +280,67 @@ fn completed_text(response: &serde_json::Value) -> Result<Option<String>, &'stat
 /// HTTP success and an SSE terminator alone do not establish provider completion.
 fn parse_sse(body: &str) -> Result<(String, Usage), String> {
     let mut out = String::new();
+    let mut invalid_text_delta = false;
     let mut final_text = None;
+    let mut completed_delta_len = 0;
     let mut usage = Usage::default();
     let mut completed = false;
     let mut data_lines: Vec<String> = Vec::new();
-    for line in body.lines().chain(std::iter::once("")) {
+    let mut event_name = "";
+    // SSE permits CR alone; a CRLF pair must still end just one line.
+    let lines = body.split_terminator('\n').flat_map(|line| {
+        line.strip_suffix('\r').unwrap_or(line).split('\r')
+    });
+    for line in lines.chain(std::iter::once("")) {
+        if let Some(name) = line.strip_prefix("event:") {
+            event_name = name.strip_prefix(' ').unwrap_or(name);
+            continue;
+        }
+        if line == "event" {
+            event_name = "";
+            continue;
+        }
         match line.strip_prefix("data:") {
             Some(d) => data_lines.push(d.trim_start_matches(' ').to_string()),
             None if line.is_empty() => {
-                if data_lines.is_empty() {
+                let frame_name = std::mem::take(&mut event_name);
+                if matches!(frame_name, "error" | "response.failed" | "response.incomplete") {
+                    return Err(format!("inference stream ended with {frame_name}"));
+                }
+                let named_terminal = frame_name == "response.completed";
+                if data_lines.is_empty() && !named_terminal {
                     continue;
                 }
                 let joined = data_lines.join("\n");
                 data_lines.clear();
-                if joined == "[DONE]" {
+                let parsed = serde_json::from_str::<serde_json::Value>(&joined);
+                if frame_name == "response.output_text.delta"
+                    && parsed.as_ref().ok().and_then(|v| v["type"].as_str()) != Some(frame_name)
+                {
+                    invalid_text_delta = true;
+                }
+                if joined == "[DONE]" && !named_terminal {
                     continue;
                 }
-                if let Ok(ev) = serde_json::from_str::<serde_json::Value>(&joined) {
+                if named_terminal && parsed.as_ref().ok().and_then(|v| v["type"].as_str()) != Some(frame_name) {
+                    return Err("invalid inference completion: invalid named terminal event".into());
+                }
+                if let Ok(ev) = parsed {
                     match ev["type"].as_str() {
                         Some("response.output_text.delta") => {
                             if let Some(d) = ev["delta"].as_str() {
                                 out.push_str(d);
+                            } else {
+                                invalid_text_delta = true;
                             }
                         }
                         Some("response.completed") => {
                             final_text = completed_text(&ev["response"])
                                 .map_err(|reason| format!("invalid inference completion: {reason}"))?;
+                            completed_delta_len = out.len();
                             completed = true;
-                            let u = &ev["response"]["usage"];
-                            usage.input_tokens = u["input_tokens"].as_u64().unwrap_or(0);
-                            usage.output_tokens = u["output_tokens"].as_u64().unwrap_or(0);
+                            usage = completed_usage(&ev["response"])
+                                .map_err(|reason| format!("invalid inference completion: {reason}"))?;
                         }
                         Some(kind @ ("response.failed" | "response.incomplete" | "error")) => {
                             return Err(format!("inference stream ended with {kind}"));
@@ -281,6 +353,12 @@ fn parse_sse(body: &str) -> Result<(String, Usage), String> {
         }
     }
     if completed {
+        // Only legacy replies without authoritative output rely on the deltas.
+        if final_text.is_none() && invalid_text_delta {
+            return Err("invalid inference completion: invalid output text delta".into());
+        }
+        // A legacy answer ends at its last completion, not at a trailing delta.
+        out.truncate(completed_delta_len);
         Ok((final_text.unwrap_or(out), usage))
     } else {
         Err("inference stream ended before response.completed".into())

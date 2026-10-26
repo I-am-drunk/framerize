@@ -3,6 +3,16 @@
 The rearchitecture is on `refactor/separate-apps-and-ci-20261025` in draft
 [PR #2](https://github.com/I-am-drunk/framerize/pull/2). It is not deployed.
 
+Responses validate terminal content, roles, usage and executable tool fields
+before publication. Named failures and malformed terminals cannot hide behind
+a later completion. CR framing, valid partial results and opaque fields remain
+supported. Direct legacy text ends at completion, and accepted tool call IDs
+must be unique. All 217 selected checks pass: 212 API and five native consumers.
+All 109 new cases ran; the old behavior produced 71 failures with 38 controls
+passing. All 702 tracked inputs and five candidate files match the final runs.
+This source change is not deployed. At 04:23 UTC the original live service and
+pool were intact with three active users; the genuine handoff remains pending.
+
 Messages streams preserve cumulative usage and metadata, replace opaque
 signatures, reject malformed late metadata and named errors, and accept
 LF, CRLF and lone-CR framing. Final SSE includes input, cache and tool usage.
