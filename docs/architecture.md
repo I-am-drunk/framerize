@@ -9,6 +9,16 @@ event name, without upstream diagnostic payloads. The Responses fallback
 groups SSE data fields at event boundaries before decoding the terminal
 response, preserving the complete tool output and usage object.
 
+Responses metered fallback carries its successful request's actual token
+budget and queue timing into the common completion path. Both response modes
+apply tool-completeness, continuation and final-status checks before emitting
+items. Failed attempts before streaming do not count as stream throughput.
+
+Browser launch converts authenticated proxy URLs into separate server,
+username and password options before passing them to the browser driver.
+The conversion preserves decoded credentials and endpoint identity while
+retaining the account-specific route and existing global fallback.
+
 Messages fallback validates message and content completion before publishing
 blocks. A malformed or incomplete tool call fails the attempt. Retries retain
 the caller's remaining output budget, and text continuation retains the final

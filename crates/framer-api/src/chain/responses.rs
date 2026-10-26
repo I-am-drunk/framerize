@@ -33,6 +33,10 @@ mod tool_completion_tests;
 #[path = "responses_sse_tests.rs"]
 mod responses_sse_tests;
 
+#[cfg(test)]
+#[path = "responses_fallback_tests.rs"]
+mod responses_fallback_tests;
+
 /// Fire a full (possibly multi-chunk) generation on the responses passthrough
 /// and return the assembled native Responses object.
 #[allow(clippy::too_many_arguments)]
@@ -173,8 +177,8 @@ pub async fn complete_long(
 
         // Keep the successful request's actual budget with its response.
         // A transport retry can lower it after the original payload was sent.
-        let (resp, response_budget) = match first {
-            Ok(r) => (r, chunk),
+        let (resp, response_budget, streamed) = match first {
+            Ok(r) => (r, chunk, false),
             Err(e) if framer_core::error::AccountCooldown::from_error(&e).is_some() => return Err(e),
             Err(e) if cfg.is_cancelled() => return Err(e),
             Err(e) => {
@@ -204,7 +208,7 @@ pub async fn complete_long(
                 ))
                 .await
                 {
-                    Ok(r) => (r, retry_chunk),
+                    Ok(r) => (r, retry_chunk, false),
                     Err(e2) if framer_core::error::AccountCooldown::from_error(&e2).is_some() => return Err(e2),
                     Err(e2) if cfg.is_cancelled() => return Err(e2),
                     Err(e2) if cfg.metered_fallback => {
@@ -213,15 +217,9 @@ pub async fn complete_long(
                         let streamed =
                             stream_chunk(t, token_cache, session, browser, account, project, &chain_step, sp, chat_session, i, cfg.cancelled.as_deref()).await?;
                         metered_chunks += 1;
-                        record_chunk(
-                            streamed, &mut output_items, &mut resp_id, &mut created_at,
-                            &mut last_usage, &mut last_service_tier, &mut ptok, &mut ctok,
-                            &mut input_items, events,
-                        );
-                        return finish(
-                            resp_id, created_at, output_items, "completed".into(), None,
-                            last_usage, last_service_tier, ptok, ctok, i + 1, metered_chunks,
-                        );
+                        // Apply the same tool, budget and continuation guards
+                        // before publishing output from either transport mode.
+                        (streamed, retry_chunk, true)
                     }
                     Err(e2) => return Err(format!("chunk {i} retry died (fallback off): {e2}")),
                 }
@@ -234,8 +232,21 @@ pub async fn complete_long(
         if queued > 2.0 {
             eprintln!("[nativechain] chunk {i} queued {queued:.1}s of {wall:.1}s (excluded from tok/s)");
         }
-        let body: Value = serde_json::from_str(&body_text(resp).await?)
-            .map_err(|e| format!("chunk {i} not json: {e}"))?;
+        let text = body_text(resp).await?;
+        let body: Value = if streamed {
+            let chunk = parse_streamed_chunk(&text)?;
+            let mut body = json!({
+                "id": chunk.id, "created_at": chunk.created_at,
+                "output": chunk.output, "status": chunk.status,
+                "usage": chunk.usage, "service_tier": chunk.service_tier,
+            });
+            if let Some(details) = chunk.incomplete_details {
+                body["incomplete_details"] = details;
+            }
+            body
+        } else {
+            serde_json::from_str(&text).map_err(|e| format!("chunk {i} not json: {e}"))?
+        };
 
         let status = body["status"].as_str().unwrap_or("completed").to_string();
         let incomplete_reason = body["incomplete_details"]["reason"].as_str().map(str::to_string);
@@ -245,16 +256,20 @@ pub async fn complete_long(
 
         let tps = out_t as f32 / elapsed.max(0.5);
         eprintln!("[nativechain] chunk {i} done in {elapsed:.1}s ({out_t} tok, {tps:.0} tok/s, status {status})");
-        if tps > 1.0 {
-            chunk_tokens = budget_for(tps);
-        }
-        if tps > 0.0 && tps < 8.0 {
-            slow_chunks += 1;
-            if slow_chunks >= 2 {
-                return Err(format!("upstream degraded ({tps:.0} tok/s sustained) — retry in a minute"));
+        // Failed attempts before streaming do not measure stream throughput.
+        // Keep that recovery path outside the non-stream speed heuristic.
+        if !streamed {
+            if tps > 1.0 {
+                chunk_tokens = budget_for(tps);
             }
-        } else if tps >= 12.0 {
-            slow_chunks = 0;
+            if tps > 0.0 && tps < 8.0 {
+                slow_chunks += 1;
+                if slow_chunks >= 2 {
+                    return Err(format!("upstream degraded ({tps:.0} tok/s sustained) — retry in a minute"));
+                }
+            } else if tps >= 12.0 {
+                slow_chunks = 0;
+            }
         }
 
         let ends_in_call = items
@@ -343,38 +358,6 @@ pub async fn complete_long(
     )
 }
 
-/// Merge one chunk's output items into the total: consecutive assistant
-/// message items merge (text continues); everything else appends.
-
-
-#[allow(clippy::too_many_arguments)]
-fn record_chunk(
-    chunk: AssembledResponses,
-    output_items: &mut Vec<Value>,
-    resp_id: &mut String,
-    created_at: &mut u64,
-    last_usage: &mut Value,
-    last_service_tier: &mut Value,
-    ptok: &mut u64,
-    ctok: &mut u64,
-    input_items: &mut Vec<Value>,
-    events: Option<&(dyn Fn(ChainEvent) + Send + Sync)>,
-) {
-    record_chunk_events(&chunk.output, false, events);
-    merge_items(output_items, chunk.output.clone());
-    if resp_id.is_empty() {
-        *resp_id = chunk.id.clone();
-        *created_at = chunk.created_at;
-    }
-    *ptok = (*ptok).max(chunk.input_tokens);
-    *ctok += chunk.output_tokens;
-    *last_usage = chunk.usage.clone();
-    if !chunk.service_tier.is_null() {
-        *last_service_tier = chunk.service_tier.clone();
-    }
-    input_items.extend(chunk.output);
-}
-
 #[allow(clippy::too_many_arguments)]
 fn finish(
     id: String,
@@ -413,8 +396,7 @@ async fn body_text(resp: framer_core::port::ProxyResponse) -> Result<String, Str
     String::from_utf8(buf.to_vec()).map_err(|e| e.to_string())
 }
 
-/// Metered fallback rung: one chunk as an SSE stream (bytes flow, no idle
-/// window), assembled from the stream's terminal response.completed object.
+/// Request an SSE chunk without bypassing the caller's completion checks.
 #[allow(clippy::too_many_arguments)]
 async fn stream_chunk(
     t: &Transport,
@@ -428,15 +410,13 @@ async fn stream_chunk(
     chat_session: &str,
     step_index: u32,
     cancelled: Option<&(dyn Fn() -> bool + Send + Sync)>,
-) -> Result<AssembledResponses, String> {
+) -> Result<framer_core::port::ProxyResponse, String> {
     payload["stream"] = json!(true);
-    let resp = proxy::forward_cancellable(
+    proxy::forward_cancellable(
         t, token_cache, session, browser, account, project,
         Dialect::OpenRouterResponses, step, payload, chat_session, step_index, cancelled,
     )
-    .await?;
-    let text = body_text(resp).await?;
-    parse_streamed_chunk(&text)
+    .await
 }
 
 fn parse_streamed_chunk(text: &str) -> Result<AssembledResponses, String> {

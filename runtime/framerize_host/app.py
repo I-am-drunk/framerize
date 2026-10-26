@@ -13,6 +13,7 @@ from .resources import (memory_snapshot, trim_unused_heap, MemoryPressureError,
 from .accounts.state import Device, AccountLifecycle, Account
 from framerize_accounts.rates import AccountRates, RatePolicy, SystemClock
 from .browser.driver import browser_runtime, BrowserCloseReceipt
+from .browser.proxy import proxy_options
 from .browser.scripts import (WARM_JS, MINT_JS, post_js, AI_START_JS,
     AI_POLL_JS, AI_CANCEL_JS, DEVPOOL_WARM_JS, DEVPOOL_MINT_JS)
 from .browser.actions import human_burst
@@ -1037,7 +1038,7 @@ class Host:
         # Per-account egress: Castle binds tokens to egress IP (verified live).
         px = self.proxies.get(account) or os.environ.get("FRAMERIZE_PROXY")
         if px:
-            kwargs["proxy"] = {"server": px}
+            kwargs["proxy"] = proxy_options(px)
         trace(f"{account[:8]}: launching camoufox (profile {profile})")
         t0 = time.monotonic()
         # Isolated browser fixtures peaked near 1 GiB. Reserve startup
