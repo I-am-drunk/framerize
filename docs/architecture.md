@@ -139,6 +139,14 @@ Cached tokens retain the session that authorized them. Reuse checks both the
 current user and cookie, preventing an account ID retained across login/import
 from reusing the previous session's bearer. Refresh failure sends no old token.
 
+Browser session-cookie updates serialize per account and retain their owner
+through caller cancellation. Each update waits for device initialization and
+acknowledged writes before reporting success; another account can progress
+independently. New devices inherit the stored target session. A failed update
+can have changed a prefix of contexts, so it returns failure and a later seed
+retries every context. Existing admission fences still own session replacement
+relative to active requests; this is not a transactional browser-cookie write.
+
 Responses continuation describes the current chunk's tail. The composer
 consumes the final text chunk before closing its message, retains the latest
 fragment status and carries its emitted message IDs into the final snapshot.
