@@ -3,12 +3,22 @@
 The rearchitecture is on `refactor/separate-apps-and-ci-20261025` in draft
 [PR #2](https://github.com/I-am-drunk/framerize/pull/2). It is not deployed.
 
-Nine fresh-browser response-transfer trials now pass on
+The bounded response queue experiment passes thirteen local browser runs on
+`fix/browser-response-bounds-20261026`. For a synthetic 8 MiB response,
+median sampled peak PSS fell from 664.552 to 651.724 MiB (1.9%); median
+request-to-body time without a sampler fell from 1121.7 to 799.7 ms (28.7%).
+There were three trials per mode for each measurement. Twelve Node cases
+also pass after correcting an absent-body cancellation error; the browser
+measurements retain their original source identity. This is undeployed.
+Production integration next needs acknowledged, retryable chunks so an RPC
+timeout cannot lose response text. The minter/browser live connection remains
+unverified. See the [queue result](../reference/analysis/browser-response-queue-20261026.md).
+
+The earlier nine fresh-browser response-transfer trials pass on
 `fix/browser-response-bounds-20261026`. For a completed 8 MiB local response,
 128K-unit chunks reduced median transfer time from 763 ms to 434 ms, but
-increased post-transfer memory. Neither chunk size established a memory win,
-so the production transfer remains unchanged. The next memory experiment is
-a bounded queue drained during the fetch. See the
+increased post-transfer memory. Neither chunk size established a memory win.
+The production transfer remains unchanged. See the
 [comparison and limits](../reference/analysis/browser-response-transfer-20261026.md).
 
 The `fix/browser-response-bounds-20261026` branch now limits browser AI

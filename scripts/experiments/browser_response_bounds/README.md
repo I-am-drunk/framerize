@@ -55,3 +55,43 @@ the production poll operation or establish live request savings.
 Run the pure chunk-contract fixtures with
 `node --test scripts/experiments/browser_response_bounds/transfer_contract.cjs`.
 They exercise an isolated VM and do not launch a browser or import an SDK.
+
+## Queue drained during fetch
+
+`stream_queue.py` substitutes an experimental response reader into the
+production start script. It retains the original fetch, job and cancellation
+ownership. The host drains at most 131,072 UTF-16 units per call while the
+reader runs; a full queue makes the producer wait. The host still returns
+one complete response and discards partial content if reading fails.
+
+Run `--mode checks` for full-queue cancellation, oversized responses and
+cancellation while awaiting network data. Use `--mode full` and
+`--mode queued` in separate fresh invocations for the comparison. All modes
+require the same browser argument, private namespaces and resource limits.
+
+This comparison times request start through arrival of the complete host
+body, including fetch and driver transfer. It differs from the earlier
+completed-body transfer timing. A concurrent sampler records process-tree
+PSS, waits 50 ms and repeats; sampling cost extends that interval and is
+included in the timing. Samples can miss a short-lived peak. Kernel cgroup
+peaks remain a separate measure. `queue_timing.py` repeats the same full and
+queued paths without concurrent sampling, for a separate timing control.
+
+The queue bound covers decoded text waiting for the host. It does not bound
+the browser's network buffers or the raw chunk currently being decoded.
+Neither experiment uses a real account, SDK or upstream service. Neither
+changes the production response reader or makes a live acceptance claim.
+
+Run the twelve queue contract cases in the same isolation with
+`node --test scripts/experiments/browser_response_bounds/queue_contract.cjs`.
+They use controlled readers in fresh VMs, without a browser or SDK. The
+fixture publishes a completed job only after its reader promise settles;
+that helper models publication, not the entire production wrapper.
+
+The [recorded comparison](../../../reference/analysis/browser-response-queue-20261026.md)
+uses the original reader. Its later absent-body cancellation correction has
+Node qualification only; the recorded browser trials were not repeated.
+
+This poll removes chunks before the host acknowledges them. A lost RPC
+reply can therefore lose content. Before production use, implement explicit
+acknowledgement and retry of the same chunk, including final-job cleanup.

@@ -18,9 +18,19 @@ closure after cancellation, and browser descendant exit in private namespaces.
 The separate response-transfer experiment compares the production full-body
 poll with bounded chunks from an already completed body. Python still joins
 those chunks into one response. Nine fresh local trials preserve contents
-and cleanup, but show no clear memory win. The production transfer is
-unchanged; a bounded queue drained during fetch remains an experiment to
-implement. See the [comparison](../reference/analysis/browser-response-transfer-20261026.md).
+and cleanup, but show no clear memory win. See the
+[comparison](../reference/analysis/browser-response-transfer-20261026.md).
+
+A second experiment drains a 131,072 UTF-16-unit queue during the fetch,
+with backpressure and the same joined cancellation. Thirteen local browser
+runs preserve complete bodies, limits and cleanup. The original reader shows
+a modest sampled memory reduction; twelve Node cases pass after a separate
+absent-body cancellation correction. Production transfer remains unchanged.
+Its integration first needs acknowledged chunks: the experimental poll
+consumes text before the host confirms receipt, so a lost RPC reply can lose
+content. Retrying must retain the same chunk and keep the final job owned
+until acknowledgement. See the
+[queue result and source identities](../reference/analysis/browser-response-queue-20261026.md).
 
 The native HTTP transport still builds an independent reqwest client per
 account scope. A private builder helper now allows local TLS fixtures to
