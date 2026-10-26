@@ -39,7 +39,7 @@ fn explicit_non_ready_never_substitutes_a_ready_peer() {
     for lifecycle in non_ready_states() {
         for deadline in [None, Some(10_000)] {
             let (mut state, ports) = fixture(false);
-            state.serving_accounts = Arc::new(policy(&[1, 2]));
+            state.runtime_mut().expect("unique fixture runtime").serving_accounts = Arc::new(policy(&[1, 2]));
             {
                 let mut pool = ports.records.lock().unwrap();
                 pool[0].state = lifecycle.clone();
@@ -64,7 +64,7 @@ fn explicit_non_ready_never_substitutes_a_ready_peer() {
 #[test]
 fn explicit_ready_keeps_identity_despite_a_healthier_peer() {
     let (mut state, ports) = fixture(false);
-    state.serving_accounts = Arc::new(policy(&[1, 2]));
+    state.runtime_mut().expect("unique fixture runtime").serving_accounts = Arc::new(policy(&[1, 2]));
     {
         let mut pool = ports.records.lock().unwrap();
         pool[0].consecutive_failures = 9;
@@ -83,7 +83,7 @@ fn explicit_ready_keeps_identity_despite_a_healthier_peer() {
 #[test]
 fn explicit_ready_preserves_deadline_and_reopens_exactly_at_expiry() {
     let (mut state, ports) = fixture(false);
-    state.serving_accounts = Arc::new(policy(&[1, 2]));
+    state.runtime_mut().expect("unique fixture runtime").serving_accounts = Arc::new(policy(&[1, 2]));
     ports.records.lock().unwrap()[0].cooling_until_ms = Some(10_000);
     let before = records(&ports);
     let pool = ports.records.lock().unwrap().clone();
@@ -106,7 +106,7 @@ async fn api_run_non_ready_refuses_before_session_or_client_io() {
     for lifecycle in non_ready_states() {
         for deadline in [None, Some(0)] {
             let (mut state, ports) = fixture(false);
-            state.serving_accounts = Arc::new(policy(&[1, 2]));
+            state.runtime_mut().expect("unique fixture runtime").serving_accounts = Arc::new(policy(&[1, 2]));
             {
                 let mut pool = ports.records.lock().unwrap();
                 pool[0].state = lifecycle.clone();
@@ -129,7 +129,7 @@ async fn api_run_non_ready_refuses_before_session_or_client_io() {
 #[tokio::test]
 async fn api_run_ready_preserves_active_deadline_before_io() {
     let (mut state, ports) = fixture(false);
-    state.serving_accounts = Arc::new(policy(&[1, 2]));
+    state.runtime_mut().expect("unique fixture runtime").serving_accounts = Arc::new(policy(&[1, 2]));
     ports.records.lock().unwrap()[0].cooling_until_ms = Some(u64::MAX);
     let before = records(&ports);
     let result = crate::run(State(state.clone()), Json(run_body())).await;
@@ -145,7 +145,7 @@ async fn api_run_ready_preserves_active_deadline_before_io() {
 async fn api_run_ready_without_active_deadline_reaches_only_the_session_boundary() {
     for deadline in [None, Some(0)] {
         let (mut state, ports) = fixture(false);
-        state.serving_accounts = Arc::new(policy(&[1, 2]));
+        state.runtime_mut().expect("unique fixture runtime").serving_accounts = Arc::new(policy(&[1, 2]));
         ports.records.lock().unwrap()[0].cooling_until_ms = deadline;
         // Leave inference unconfigured: this control must stop at the existing
         // missing-session boundary before it can reach the client.
@@ -171,7 +171,7 @@ async fn api_run_ready_without_active_deadline_reaches_only_the_session_boundary
 async fn api_run_ready_completes_once_with_matched_identity_and_releases_lease() {
     use framer_core::pipeline::{InferenceOutcome, Usage};
     let (mut state, ports) = fixture(false);
-    state.serving_accounts = Arc::new(policy(&[1, 2]));
+    state.runtime_mut().expect("unique fixture runtime").serving_accounts = Arc::new(policy(&[1, 2]));
     let target = account(1);
     {
         let mut pool = ports.records.lock().unwrap();
@@ -214,7 +214,7 @@ async fn api_run_ready_completes_once_with_matched_identity_and_releases_lease()
 async fn ready_explicit_selection_and_run_require_a_complete_current_scope() {
     for missing_team in [false, true] {
         let (mut state, ports) = fixture(false);
-        state.serving_accounts = Arc::new(policy(&[1, 2]));
+        state.runtime_mut().expect("unique fixture runtime").serving_accounts = Arc::new(policy(&[1, 2]));
         {
             let mut pool = ports.records.lock().unwrap();
             if missing_team { pool[0].current_team = None; }
@@ -238,7 +238,7 @@ async fn ready_explicit_selection_and_run_require_a_complete_current_scope() {
 #[tokio::test]
 async fn ready_explicit_preserves_management_fence_until_owner_release() {
     let (mut state, ports) = fixture(false);
-    state.serving_accounts = Arc::new(policy(&[1, 2]));
+    state.runtime_mut().expect("unique fixture runtime").serving_accounts = Arc::new(policy(&[1, 2]));
     ports.records.lock().unwrap()[0].cooling_until_ms = Some(0);
     let owner = crate::pool_control::management(&state, account(1).id, false).await.unwrap();
     let before = records(&ports);
@@ -264,7 +264,7 @@ async fn ready_explicit_preserves_management_fence_until_owner_release() {
 #[tokio::test]
 async fn ready_explicit_preserves_unconfirmed_cleanup_after_lease_drop() {
     let (mut state, ports) = fixture(false);
-    state.serving_accounts = Arc::new(policy(&[1, 2]));
+    state.runtime_mut().expect("unique fixture runtime").serving_accounts = Arc::new(policy(&[1, 2]));
     ports.records.lock().unwrap()[0].cooling_until_ms = Some(0);
     let lease = match state.serving_accounts.residents.try_acquire(account(1).id, None).unwrap() {
         Acquire::Lease(lease) => lease,
@@ -294,7 +294,7 @@ async fn ready_explicit_preserves_unconfirmed_cleanup_after_lease_drop() {
 #[tokio::test]
 async fn ready_explicit_preserves_closing_fence_and_unconfirmed_close() {
     let (mut state, ports) = fixture(false);
-    state.serving_accounts = Arc::new(policy(&[1, 2]));
+    state.runtime_mut().expect("unique fixture runtime").serving_accounts = Arc::new(policy(&[1, 2]));
     let lease = match state.serving_accounts.residents.try_acquire(account(1).id, None).unwrap() {
         Acquire::Lease(lease) => lease,
         Acquire::Evict(_) => panic!("empty fixture unexpectedly requires eviction"),
@@ -324,7 +324,7 @@ async fn ready_explicit_preserves_closing_fence_and_unconfirmed_close() {
 #[tokio::test]
 async fn api_run_ready_keeps_existing_wave_backoff_before_io() {
     let (mut state, ports) = fixture(false);
-    state.serving_accounts = Arc::new(policy(&[1, 2]));
+    state.runtime_mut().expect("unique fixture runtime").serving_accounts = Arc::new(policy(&[1, 2]));
     state.wave.note_refusal("fixture-a");
     state.wave.note_refusal("fixture-b");
     assert!(state.wave.check().is_some());

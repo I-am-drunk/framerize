@@ -3,23 +3,28 @@
 The overhaul branch integrates qualified `92f1fa07`, including driver-start
 guard `e3895a4` and the shared account-registration guard. This integration
 reuses main's recorded qualification; no tests or builds were rerun here.
-S1 source work is authorized: move runtime, rotation and authorization state
-under explicit shared ownership, preserving native invalidation and all routes.
-New fixtures will remain unrun until main executes the supplied selectors.
+S1 now factors runtime, rotation and authorization state under explicit shared
+ownership, preserving both native mutation paths and legacy request handling.
+Store ownership lasts through host shutdown. New fixtures cover shared routers,
+store exclusion, authorization isolation and invalidation after native drain.
+The draft passed read-only Rust syntax parsing and `git diff --check`.
+No S1 test or build has run. Main's next step is bounded qualification of the
+published S1 pin; vision's complete S1 review follows the same source handoff.
 S2/S3 require accepted S1 evidence and vision review. Hosted CI remains blocked
 by GitHub's reported payment/spending-limit issue; no success is claimed.
 
 The `refactor/kernel-hot-swap-20261026` overhaul starts from qualified
 `c8371bf`, without changing the deployed service. The ownership map and
 pre-2022 reference evidence are in [kernel updates](kernel-updates.md).
-Shared server resources now live in `state.rs`, retaining the same public
-`AppState` constructor and owners. Focused offline checks passed: 10 Python
+Pre-S1 focused offline checks passed: 10 Python
 account-activity tests, nine activation/rollback tests, 28 core operation-gate
-tests and 58 server operation-ownership tests. The production generation
-boundary is under vision review; next is an offline request-pinning and
-generation-transition slice. Six response-queue tests also pass. The exact-head
+tests and 58 server operation-ownership tests. Six response-queue tests also
+passed. These results predate S1 and do not qualify its changed code. The
+agreed order is S1 ownership, S2 authorized forwarding, then S3 Responses
+worker integration. The exact-head
 [Actions attempt](https://github.com/diddletime/framerize/actions/runs/40365806170)
-for `0b21bbe` ended in `startup_failure` with zero jobs. Its cause is unconfirmed.
+for `0b21bbe` ended in `startup_failure` with zero jobs. GitHub's annotation
+reports a payment/spending-limit issue. Account-owner action is required.
 No hot-swap or hosted CI success is claimed yet.
 
 The rearchitecture is on `refactor/separate-apps-and-ci-20261025` in draft

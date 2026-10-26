@@ -277,7 +277,8 @@ fn fixture_browser(browser: Option<Arc<dyn crate::transport::browser::BrowserTra
             initial: 1, min: 1, max: 1, recover_ms: 60_000, relax_ms: 60_000, min_interval_ms: 0,
         }));
     let sessions = Sessions::with_browser(state.sessions.clone(),
-        state.operation_ownership.clone().unwrap(), browser).unwrap();
+        state.operation_ownership.clone().unwrap(), browser,
+        state.session_authorization.clone()).unwrap();
     state.sessions = sessions.store();
     let spec = Specification { identity, route: FreeRoute::Responses, token_limit: 32,
         payload: serde_json::json!({"model":"gpt-4.1", "input":"fixture", "stream":false}),

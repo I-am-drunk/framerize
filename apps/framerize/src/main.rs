@@ -116,22 +116,22 @@ async fn build_state(db: &str, chrome: &str, profiles: &str, engine: &str,
         return Err("--sidecar-script requires --engine camoufox".into());
     }
     // Parse once before opening stores or constructing any browser bridge.
-    let startup_policy = framer_server::ServingAccountPolicy::from_env()?;
+    let startup_config = framer_server::ServingAccountPolicy::config_from_env()?;
     // Create our own dirs — a first run must not fail because
     // ~/.framerize doesn't exist yet (observed on a fresh Linux install).
     if let Some(parent) = std::path::Path::new(db).parent() {
         std::fs::create_dir_all(parent).map_err(|e| format!("create db dir: {e}"))?;
     }
     std::fs::create_dir_all(profiles).map_err(|e| format!("create profiles dir: {e}"))?;
-    let state = Arc::new(framer_store::SqliteStateStore::open(db)?);
+    let state = Box::new(framer_store::SqliteStateStore::open(db)?);
     use framer_core::StateStore;
     let saved = state.setting(framer_server::POOL_SETTING_KEY).await?;
-    let pool_config = resolve_pool_config(startup_policy.config(), saved.as_deref(),
+    let pool_config = resolve_pool_config(startup_config, saved.as_deref(),
         active_pool_size, eligible_accounts)?;
-    let serving_accounts = Arc::new(framer_server::ServingAccountPolicy::from_config(pool_config)?);
+    let serving_accounts = framer_server::ServingAccountPolicy::from_config(pool_config)?;
     // File-based session store: daemons run headless (no dbus/keychain).
     // Sessions live 0600 under <profiles>/.sessions/.
-    let sessions = Arc::new(framer_store::FileSessionStore::new(
+    let sessions = Box::new(framer_store::FileSessionStore::new(
         std::path::Path::new(profiles).join(".sessions"),
     )?);
     let client = Arc::new(framer_api::HttpFramerClient::new());
@@ -151,15 +151,15 @@ async fn build_state(db: &str, chrome: &str, profiles: &str, engine: &str,
         },
         other => return Err(format!("unknown --engine {other} (full-chrome|headless-shell|attach|camoufox)")),
     };
-    let mut state = AppState::new(client, browser, sessions, state, serving_accounts);
+    let runtime = framer_server::AccountRuntime::new(client, browser, sessions, state, serving_accounts);
     // The application owns persistence. Library users and fixtures stay in memory.
     let gate_path = std::env::var_os("FRAMERIZE_GATE_STATE").map(std::path::PathBuf::from)
         .unwrap_or_else(|| std::path::PathBuf::from(std::env::var_os("HOME").unwrap_or_default())
             .join(".framerize/gate-state.json"));
-    state.gate = Arc::new(framer_core::gate::ConcurrencyGate::with_state_file(
+    let runtime = runtime.with_gate(framer_core::gate::ConcurrencyGate::with_state_file(
         framer_core::gate::GateConfig::default(), gate_path,
     ).map_err(|e| format!("load concurrency limits: {e}"))?);
-    let state = configure_browser_request_ownership(state)?;
+    let state = configure_browser_request_ownership(AppState::new(Arc::new(runtime)))?;
     Ok(BuiltState { state })
 }
 
@@ -176,7 +176,7 @@ fn resolve_pool_config(default: framer_server::PoolConfig, saved: Option<&str>,
         config.eligible_accounts = match eligible.trim() {
             "all" => framer_server::EligibleAccounts::All(framer_server::AllAccounts::All),
             "none" => framer_server::EligibleAccounts::Only(Vec::new()),
-            ids => framer_server::ServingAccountPolicy::parse(Some(ids))?.config().eligible_accounts,
+            ids => framer_server::ServingAccountPolicy::parse_config(Some(ids))?.eligible_accounts,
         };
     }
     config.validate()?;

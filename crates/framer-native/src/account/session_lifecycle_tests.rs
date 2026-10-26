@@ -18,6 +18,9 @@ use tokio::sync::Semaphore;
 use tokio::time::Duration;
 use tokio::time::Instant;
 
+#[path = "session_authorization_tests.rs"]
+mod authorization;
+
 #[tokio::test]
 async fn cancelled_session_private_load_poisons_account_and_user() {
     let native = NativeAccountClient::new().unwrap();

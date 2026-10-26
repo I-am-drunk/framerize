@@ -98,8 +98,8 @@ fn fixture(kinds: [Kind; 2], hold: Hold, failure: Failure, distinct: bool)
     let policy = ServingAccountPolicy::from_config(PoolConfig {
         eligible_accounts: EligibleAccounts::Only(allowed), ..PoolConfig::default()
     }).unwrap();
-    let state = AppState::new(ports.clone(), ports.clone(), ports.clone(),
-        ports.clone(), Arc::new(policy));
+    let state = AppState::fixture(ports.clone(), ports.clone(), ports.clone(),
+        ports.clone(), policy, framer_core::gate::ConcurrencyGate::new());
     (state, ports)
 }
 

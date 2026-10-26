@@ -4,12 +4,53 @@ use framer_core::port::{Session, SessionStore};
 
 struct NoSessions;
 
+#[test]
+fn shared_router_retains_exclusive_store_until_last_owner_drops() {
+    let root = Temporary(std::env::temp_dir().join(format!(
+        "framerize-runtime-store-{}", uuid::Uuid::new_v4())));
+    let sessions = Box::new(framer_store::FileSessionStore::new(root.0.clone()).unwrap());
+    let runtime = framer_server::AccountRuntime::new(
+        Arc::new(framer_api::HttpFramerClient::new()),
+        Arc::new(framer_host::sidecar::SidecarBridge::new("/fixture-no-browser")),
+        sessions, Box::new(framer_store::SqliteStateStore::open(":memory:").unwrap()),
+        framer_server::ServingAccountPolicy::default());
+    let first = AppState::new(Arc::new(runtime));
+    let second = AppState::new(first.runtime().clone());
+    let router = framer_server::router(second, "/fixture-no-web");
+    assert!(framer_store::FileSessionStore::new(root.0.clone()).is_err());
+    drop(first);
+    assert!(framer_store::FileSessionStore::new(root.0.clone()).is_err());
+    drop(router);
+    assert!(framer_store::FileSessionStore::new(root.0.clone()).is_ok());
+}
+
+struct Temporary(std::path::PathBuf);
+impl Drop for Temporary {
+    fn drop(&mut self) { let _ = std::fs::remove_dir_all(&self.0); }
+}
+
+#[tokio::test]
+async fn router_handles_reuse_one_authorization_owner() {
+    use framer_api::authorization_fixture::{cached, reuse, seed};
+    let client = Arc::new(framer_api::HttpFramerClient::new());
+    let a = configure_browser_request_ownership(state_with_client(client.clone())).unwrap();
+    let b = AppState::new(a.runtime().clone());
+    let account = framer_core::AccountId(uuid::Uuid::new_v4());
+    let session = Session { active_user: framer_core::FramerUserId("fixture-owner".into()),
+        cookie_header: "session=runtime-fixture".into() };
+    let expected: Arc<dyn framer_core::FramerClient> = client.clone();
+    assert!(Arc::ptr_eq(&a.client, &expected) && Arc::ptr_eq(&b.client, &expected));
+    let routers = [framer_server::router(a, "/fixture-no-web"),
+        framer_server::router(b, "/fixture-no-web")];
+    seed(&client, account, &session);
+    for _ in &routers { reuse(&client, &session).await; }
+    client.session_authorization().invalidate(&session);
+    assert_eq!(cached(&client, account, &session), [true, false, false]);
+    assert_eq!(cached(&framer_api::HttpFramerClient::new(), account, &session), [false; 3]);
+}
+
 #[tokio::test]
 async fn occupied_session_store_refuses_startup_before_browser_construction() {
-    struct Temporary(std::path::PathBuf);
-    impl Drop for Temporary {
-        fn drop(&mut self) { let _ = std::fs::remove_dir_all(&self.0); }
-    }
     let root = Temporary(std::env::temp_dir().join(format!(
         "framerize-store-startup-{}", uuid::Uuid::new_v4())));
     let store = framer_store::FileSessionStore::new(root.0.join(".sessions")).unwrap();
@@ -36,18 +77,32 @@ impl SessionStore for NoSessions {
 }
 
 pub(crate) fn state() -> AppState {
+    state_with_client(Arc::new(framer_api::HttpFramerClient::new()))
+}
+
+fn state_with_client(client: Arc<framer_api::HttpFramerClient>) -> AppState {
+    state_with_ports(client,
+        Arc::new(framer_host::sidecar::SidecarBridge::new("/fixture-no-browser")))
+}
+
+pub(crate) fn state_with_browser(browser: Arc<dyn framer_core::BrowserBridge>) -> AppState {
+    state_with_ports(Arc::new(framer_api::HttpFramerClient::new()), browser)
+}
+
+fn state_with_ports(client: Arc<framer_api::HttpFramerClient>,
+    browser: Arc<dyn framer_core::BrowserBridge>) -> AppState {
     // Empty in-memory state and lazy adapters. No browser or network work starts.
-    AppState::new(
-        Arc::new(framer_api::HttpFramerClient::new()),
-        Arc::new(framer_host::sidecar::SidecarBridge::new("/fixture-no-browser")),
-        Arc::new(NoSessions),
-        Arc::new(framer_store::SqliteStateStore::open(":memory:").unwrap()),
-        Arc::new(framer_server::ServingAccountPolicy::from_config(
+    AppState::new(Arc::new(framer_server::AccountRuntime::new(
+        client,
+        browser,
+        Box::new(NoSessions),
+        Box::new(framer_store::SqliteStateStore::open(":memory:").unwrap()),
+        framer_server::ServingAccountPolicy::from_config(
             framer_server::PoolConfig {
                 eligible_accounts: framer_server::EligibleAccounts::Only(vec![]),
                 ..Default::default()
-            }).unwrap()),
-    )
+            }).unwrap(),
+    )))
 }
 
 #[test]
@@ -58,8 +113,8 @@ fn shutdown_tracking_does_not_need_an_experimental_flag() {
 
 #[tokio::test]
 async fn browser_request_ownership_preserves_defaults_and_browser_state() {
-    let original = state();
-    let owned = configure_browser_request_ownership(original.clone()).unwrap();
+    let owned = configure_browser_request_ownership(state()).unwrap();
+    let original = AppState::new(owned.runtime().clone());
     assert!(owned.operation_ownership.is_some());
     assert!(Arc::ptr_eq(&original.client, &owned.client));
     assert!(Arc::ptr_eq(&original.browser, &owned.browser));
@@ -69,6 +124,14 @@ async fn browser_request_ownership_preserves_defaults_and_browser_state() {
     assert!(Arc::ptr_eq(&original.wave, &owned.wave));
     assert!(Arc::ptr_eq(&original.serving_accounts, &owned.serving_accounts));
     assert!(configure_browser_request_ownership(owned).is_err());
+}
+
+#[test]
+fn ownership_configuration_refuses_an_already_shared_runtime() {
+    let original = state();
+    let _shared = AppState::new(original.runtime().clone());
+    let error = configure_browser_request_ownership(original).err().unwrap();
+    assert!(error.contains("RuntimeShared"), "{error}");
 }
 
 #[tokio::test]

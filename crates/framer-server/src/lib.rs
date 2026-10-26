@@ -21,7 +21,10 @@ use tower_http::services::ServeDir;
 
 pub mod operation_ownership;
 mod state;
-pub use state::AppState;
+pub use state::{AccountRuntime, AppState};
+
+#[cfg(test)]
+mod runtime_ownership_tests;
 
 mod serving_accounts;
 mod account_wait;
@@ -576,7 +579,7 @@ async fn compat_forward_observed(
                 Err(e) if e.contains("retryable 429") => {
                     gate2.on_overloaded(&gate_key2).await;
                     if let Some(team) = account2.current_team.as_ref() {
-                        framer_core::rotation::mark_saturated(&team.0, 45_000);
+                        s2.serving_accounts.rotation().mark_saturated(&team.0, 45_000);
                     }
                 }
                 Err(_) => {}
@@ -625,7 +628,7 @@ async fn compat_forward_observed(
             if e.contains("retryable 429") {
                 s.gate.on_overloaded(&gate_key).await;
                 if let Some(team) = account.current_team.as_ref() {
-                    framer_core::rotation::mark_saturated(&team.0, 45_000);
+                    s.serving_accounts.rotation().mark_saturated(&team.0, 45_000);
                 }
             }
             return Err(ApiError::Internal(e));
@@ -855,7 +858,7 @@ async fn openai_chat(
 /// Pick this chain's workspace scope: round-robins the account's credited
 /// workspaces (the per-workspace 429 cap is THE concurrency goose), preferring
 /// non-saturated ones. One account = N workspace budgets (measured 2026-10-06).
-fn pick_scope(account: &ManagedAccount) -> Result<framer_core::account::WorkspaceScope, ApiError> {
+fn pick_scope(s: &AppState, account: &ManagedAccount) -> Result<framer_core::account::WorkspaceScope, ApiError> {
     let scopes = account.all_scopes();
     if scopes.is_empty() {
         return Err(ApiError::Internal("account has no current project".into()));
@@ -863,10 +866,10 @@ fn pick_scope(account: &ManagedAccount) -> Result<framer_core::account::Workspac
     if scopes.len() == 1 {
         return Ok(scopes.into_iter().next().unwrap());
     }
-    let start = framer_core::rotation::next_scope_idx(&account.id.0.to_string(), scopes.len());
+    let start = s.serving_accounts.rotation().next_scope_idx(&account.id.0.to_string(), scopes.len());
     for k in 0..scopes.len() {
         let sc = &scopes[(start + k) % scopes.len()];
-        if !framer_core::rotation::is_saturated(&sc.team.0) {
+        if !s.serving_accounts.rotation().is_saturated(&sc.team.0) {
             return Ok(sc.clone());
         }
     }
@@ -1214,7 +1217,7 @@ async fn free_complete(
             .await
             .map_err(ApiError::Internal)?
             .ok_or_else(|| ApiError::Internal("account has no session".into()))?;
-        let scope = pick_scope(&account)?;
+        let scope = pick_scope(&s, &account)?;
 
         // Per (workspace × MODEL) concurrency — measured 2026-10-05: ~6 in-flight
         // per model; 6 models × 6 = 36/36 clean. Keyed on the normalized upstream
@@ -1259,9 +1262,10 @@ async fn free_complete(
         metered_fallback: std::env::var("FRAMERIZE_ALLOW_METERED").map(|v| v == "1").unwrap_or(false),
         on_429: {
             let team = Some(team.0.clone());
+            let rotation = s.serving_accounts.rotation().clone();
             Some(std::sync::Arc::new(move || {
                 if let Some(t) = &team {
-                    framer_core::rotation::mark_saturated(t, 45_000);
+                    rotation.mark_saturated(t, 45_000);
                 }
             }))
         },
@@ -1381,15 +1385,16 @@ async fn free_complete(
                                 Ok(Some(x)) => x,
                                 _ => break r,
                             };
-                            let sc = match pick_scope(&account) { Ok(sc) => sc, Err(_) => break r };
+                            let sc = match pick_scope(&s2, &account) { Ok(sc) => sc, Err(_) => break r };
                             project = sc.project.clone();
                             gate_key = format!("{}:{gate_model}", sc.team.0);
                             chat_session2 = explicit_chat_session.clone()
                                 .unwrap_or_else(|| stable_session(&account.id));
                             let team = Some(sc.team.0.clone());
+                            let rotation = s2.serving_accounts.rotation().clone();
                             cfg2.on_429 = Some(std::sync::Arc::new(move || {
                                 if let Some(t) = &team {
-                                    framer_core::rotation::mark_saturated(t, 45_000);
+                                    rotation.mark_saturated(t, 45_000);
                                 }
                             }));
                             acct_attempt += 1;
@@ -1575,7 +1580,7 @@ async fn free_complete(
         }
         s.gate.on_overloaded(&gate_key).await;
         if let Some(team) = account.current_team.as_ref() {
-            framer_core::rotation::mark_saturated(&team.0, 45_000);
+            s.serving_accounts.rotation().mark_saturated(&team.0, 45_000);
         }
         attempt += 1;
         // Jittered backoff keyed off the attempt; the gate is already narrower.
@@ -1613,7 +1618,7 @@ async fn free_complete(
                     Ok(Some(s2)) => s2,
                     _ => break 'account_retry,
                 };
-                scope = match pick_scope(&account) { Ok(sc) => sc, Err(_) => break 'account_retry };
+                scope = match pick_scope(&s, &account) { Ok(sc) => sc, Err(_) => break 'account_retry };
                 project = scope.project.clone();
                 scope_team = scope.team.clone();
                 gate_key = format!("{}:{gate_model}", scope_team.0);
@@ -1637,7 +1642,7 @@ async fn free_complete(
         Err(e) if e.contains("retryable 429") || e.contains("too many concurrent") => {
             s.gate.on_overloaded(&gate_key).await;
             if let Some(team) = account.current_team.as_ref() {
-                framer_core::rotation::mark_saturated(&team.0, 45_000);
+                s.serving_accounts.rotation().mark_saturated(&team.0, 45_000);
             }
         }
         Err(_) => {}
@@ -1811,7 +1816,7 @@ async fn native_complete(
             .await
             .map_err(ApiError::Internal)?
             .ok_or_else(|| ApiError::Internal("account has no session".into()))?;
-        let scope = pick_scope(&account)?;
+        let scope = pick_scope(&s, &account)?;
 
         // Per (workspace × MODEL) concurrency, keyed on the normalized upstream id
         // and the chain's rotated workspace (multi-workspace goose).
@@ -1855,9 +1860,10 @@ async fn native_complete(
         metered_fallback: std::env::var("FRAMERIZE_ALLOW_METERED").map(|v| v == "1").unwrap_or(false),
         on_429: {
             let team = Some(team.0.clone());
+            let rotation = s.serving_accounts.rotation().clone();
             Some(std::sync::Arc::new(move || {
                 if let Some(t) = &team {
-                    framer_core::rotation::mark_saturated(t, 45_000);
+                    rotation.mark_saturated(t, 45_000);
                 }
             }))
         },
@@ -1968,15 +1974,16 @@ async fn native_complete(
                                 Ok(Some(x)) => x,
                                 _ => break r,
                             };
-                            let sc = match pick_scope(&account) { Ok(sc) => sc, Err(_) => break r };
+                            let sc = match pick_scope(&s2, &account) { Ok(sc) => sc, Err(_) => break r };
                             project = sc.project.clone();
                             gate_key = format!("{}:{gate_model}", sc.team.0);
                             chat_session2 = explicit_chat_session.clone()
                                 .unwrap_or_else(|| stable_session(&account.id));
                             let team = Some(sc.team.0.clone());
+                            let rotation = s2.serving_accounts.rotation().clone();
                             cfg2.on_429 = Some(std::sync::Arc::new(move || {
                                 if let Some(t) = &team {
-                                    framer_core::rotation::mark_saturated(t, 45_000);
+                                    rotation.mark_saturated(t, 45_000);
                                 }
                             }));
                             acct_attempt += 1;
@@ -2136,7 +2143,7 @@ async fn native_complete(
                         Ok(Some(s2)) => s2,
                         _ => break 'account_retry r,
                     };
-                    scope = match pick_scope(&account) { Ok(sc) => sc, Err(_) => break 'account_retry r };
+                    scope = match pick_scope(&s, &account) { Ok(sc) => sc, Err(_) => break 'account_retry r };
                     project = scope.project.clone();
                     scope_team = scope.team.clone();
                     gate_key = format!("{}:{gate_model}", scope_team.0);

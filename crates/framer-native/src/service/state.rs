@@ -6,6 +6,9 @@ use std::{collections::HashSet, sync::Arc};
 
 #[derive(Clone)]
 pub(crate) struct ServiceState {
+    // Standalone native control auth is uncached. A shared legacy owner must
+    // supply its own handle before configuring the native session bridge.
+    pub session_authorization: framer_api::SessionAuthorization,
     pub operation_ownership: Option<Arc<ServingOwnership>>,
     pub sessions: Arc<dyn SessionStore>,
     pub state: Arc<dyn StateStore>,
@@ -28,6 +31,7 @@ impl ServiceState {
         let operation_ownership = Some(ServingOwnership::new_unmanaged(wave.clone(), 256)
             .map_err(|_| "native operation owner unavailable")?);
         Ok(Self { sessions, state, serving_accounts, wave, operation_ownership,
+            session_authorization: Default::default(),
             gate: Arc::new(ConcurrencyGate::new()) })
     }
 }

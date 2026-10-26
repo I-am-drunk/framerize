@@ -29,7 +29,7 @@ fn records(ports: &FixturePorts) -> Value {
 
 fn prepared() -> (AppState, Arc<FixturePorts>, Arc<ServingOwnership>, OperationGate) {
     let (mut state, ports) = fixture(false);
-    state.serving_accounts = Arc::new(policy(&[1, 2]));
+    state.runtime_mut().expect("unique fixture runtime").serving_accounts = Arc::new(policy(&[1, 2]));
     {
         let mut pool = ports.records.lock().unwrap();
         pool[0].credit = Some(CreditSnapshot {
@@ -42,7 +42,7 @@ fn prepared() -> (AppState, Arc<FixturePorts>, Arc<ServingOwnership>, OperationG
     }));
     let (ownership, gate) = ServingOwnership::new_with_host_factory(
         state.wave.clone(), 32, |gate| gate).unwrap();
-    state.operation_ownership = Some(ownership.clone());
+    state.runtime_mut().expect("unique fixture runtime").operation_ownership = Some(ownership.clone());
     (state, ports, ownership, gate)
 }
 
@@ -134,7 +134,7 @@ async fn api_run_disabled_account_refuses_before_work_without_fencing() {
         let (mut state, ports) = fixture(false);
         let (ownership, gate) = ServingOwnership::new_with_host_factory(
             state.wave.clone(), 32, |gate| gate).unwrap();
-        state.operation_ownership = Some(ownership.clone());
+        state.runtime_mut().expect("unique fixture runtime").operation_ownership = Some(ownership.clone());
         let before = records(&ports);
         let response = tokio::time::timeout(Duration::from_secs(2),
             crate::router(state.clone(), "/fixture-no-web").oneshot(request(2)))
@@ -249,7 +249,7 @@ async fn api_run_extraction_rejections_preserve_original_response_and_release_ow
             let (mut state, ports) = fixture(false);
             let (ownership, gate) = ServingOwnership::new_with_host_factory(
                 state.wave.clone(), 32, |gate| gate).unwrap();
-            state.operation_ownership = Some(ownership.clone());
+            state.runtime_mut().expect("unique fixture runtime").operation_ownership = Some(ownership.clone());
             let before = records(&ports);
             let response = tokio::time::timeout(Duration::from_secs(2),
                 crate::router(state.clone(), "/fixture-no-web").oneshot(rejected_request(kind)))

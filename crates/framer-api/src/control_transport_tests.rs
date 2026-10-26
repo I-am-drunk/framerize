@@ -168,6 +168,7 @@ fn client(address: SocketAddr) -> Transport {
     Transport {
         http: normal_client_builder(CONNECT, TOTAL).no_proxy().build().unwrap(),
         base: format!("http://{address}"),
+        authorization: Default::default(),
     }
 }
 
@@ -347,6 +348,7 @@ fn normal_send_error_redaction_covers_invalid_urls() {
         let client = Transport {
             http: normal_client_builder(CONNECT, TOTAL).no_proxy().build().unwrap(),
             base: "http://[redaction-probe=inert".into(),
+            authorization: Default::default(),
         };
         let wire = Wire { method, path: PATH, auth: Credential::None };
         let error = run(send(&client, wire, &session())).unwrap_err();

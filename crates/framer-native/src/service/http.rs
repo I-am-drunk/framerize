@@ -62,7 +62,8 @@ pub(crate) fn configure_browser(mut state: ServiceState, worker: WorkerBackend,
     device_owner: Arc<dyn DeviceOwner>, browser: Option<Arc<dyn crate::transport::browser::BrowserTransport>>)
     -> Result<(ServiceState, Runtime), &'static str> {
     let sessions = Sessions::with_browser(state.sessions.clone(),
-        state.operation_ownership.clone().ok_or("missing serving owner")?, browser)?;
+        state.operation_ownership.clone().ok_or("missing serving owner")?, browser,
+        state.session_authorization.clone())?;
     state.sessions = sessions.store();
     Ok((state, Runtime { worker, sessions, device_owner }))
 }

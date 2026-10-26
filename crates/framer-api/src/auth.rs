@@ -118,23 +118,16 @@ async fn relay_mint(session: &Session) -> Result<AiToken, String> {
     Ok(token)
 }
 
-// Global per-(session,path) token cache (2026-10-05): the auth endpoints
+// Runtime-owned per-(session,path) cache: the auth endpoints
 // have a SUSTAINED-rate limiter (measured: ~300 mints in a burst -> 120/120
 // 403s). Both token types are 600s JWTs; cache them and mint at most one per
 // 570s per session+path, which makes the limiter unreachable in normal
 // operation. The per-ACCOUNT cache in proxy.rs/inference.rs sits on top and
 // is what actually fires per chain; this one is the backstop for every other
 // caller (credits::usage mints a web token per call otherwise).
-static TOKEN_CACHE: std::sync::OnceLock<std::sync::Mutex<std::collections::HashMap<(String, String), AiToken>>> =
-    std::sync::OnceLock::new();
-
-fn cache() -> &'static std::sync::Mutex<std::collections::HashMap<(String, String), AiToken>> {
-    TOKEN_CACHE.get_or_init(|| std::sync::Mutex::new(std::collections::HashMap::new()))
-}
-
 async fn cached_mint(t: &Transport, session: &Session, path: &str) -> Result<AiToken, String> {
     let key = (session.cookie_header.clone(), path.to_string());
-    if let Ok(guard) = cache().lock() {
+    if let Ok(guard) = t.authorization.sessions.lock() {
         if let Some(tok) = guard.get(&key) {
             if tok.usable_for(session) {
                 return Ok(tok.clone());
@@ -142,7 +135,7 @@ async fn cached_mint(t: &Transport, session: &Session, path: &str) -> Result<AiT
         }
     }
     let tok = mint(t, session, path).await?;
-    if let Ok(mut guard) = cache().lock() {
+    if let Ok(mut guard) = t.authorization.sessions.lock() {
         guard.insert(key, tok.clone());
     }
     Ok(tok)
@@ -158,18 +151,11 @@ pub async fn web_access_token(t: &Transport, session: &Session) -> Result<AiToke
 
 /// A rejected AI bearer must not survive in the shared session cache. A late
 /// rejection must also leave a newer bearer and the web-token cache intact.
-pub(crate) fn invalidate_ai_token(session: &Session, rejected: &AiToken) {
+pub(crate) fn invalidate_ai_token(t: &Transport, session: &Session, rejected: &AiToken) {
     let key = (session.cookie_header.clone(), "/auth/ai/access-token".to_owned());
-    let mut guard = cache().lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+    let mut guard = t.authorization.sessions.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
     if guard.get(&key).is_some_and(|current|
         current.belongs_to(session) && current.bearer == rejected.bearer) {
         guard.remove(&key);
     }
-}
-
-/// Called only after the corresponding native generation and its pending
-/// authorization work have drained, before replacing/removing private state.
-pub(crate) fn invalidate_session(session: &Session) {
-    cache().lock().unwrap_or_else(std::sync::PoisonError::into_inner)
-        .retain(|(cookie, _), _| cookie != &session.cookie_header);
 }
