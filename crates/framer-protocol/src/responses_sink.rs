@@ -5,6 +5,7 @@ use serde_json::Value;
 pub struct ValidatedChunk {
     items: Vec<Value>,
     continues_text: bool,
+    completes_chain: bool,
 }
 impl ValidatedChunk {
     /// Validate an adapter's next chunk against its previously accepted output.
@@ -19,8 +20,14 @@ impl ValidatedChunk {
         Ok(Self::new(items, continues_text))
     }
     pub(crate) fn new(items: Vec<Value>, continues_text: bool) -> Self {
-        Self { items, continues_text }
+        Self { items, continues_text, completes_chain: false }
     }
+    pub(crate) fn with_completion(mut self, completes_chain: bool) -> Self {
+        self.completes_chain = completes_chain;
+        self
+    }
+    /// Policy completion evidence, independent of downstream publication.
+    pub fn completes_chain(&self) -> bool { self.completes_chain }
     pub fn items(&self) -> &[Value] { &self.items }
     pub fn continues_text(&self) -> bool { self.continues_text }
     pub(crate) fn into_items(self) -> Vec<Value> { self.items }
@@ -68,7 +75,7 @@ pub async fn emit_assembled(mut result: AssembledResponses,
         result.usage.get(*field).is_some_and(|value| value.as_u64().is_none())) {
         return Err("invalid usage count".into());
     }
-    result.output = sink.emit(chunk).await?.into_items();
+    result.output = sink.emit(chunk.with_completion(true)).await?.into_items();
     Ok(result)
 }
 

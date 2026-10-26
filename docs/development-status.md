@@ -6,13 +6,13 @@ continuation. One runtime budget owns encoder leases; output slots remain
 charged through final Bytes disposal. Channel EOF, body cancellation and
 joined upstream cleanup keep separate lifetimes. Legacy routes remain.
 
-The current draft adds 48 inert fixtures and preserves existing assertions.
+The current draft adds 53 inert fixtures and preserves existing assertions.
 Approved existing-body changes dispose heartbeat buffers and pump four Native
 fixture bodies until the producer returns, retaining the original remainder.
 Three approved fixture parents use a copying consumer; the pool mock gains
 an awaited port. The pump has explicit frame, byte and time limits.
 Rust syntax parsing and whitespace checks ran; no compilation, test or
-measurement ran in this lane. The packet selects 356 distinct cases in 26
+measurement ran in this lane. The retained inventory has 361 distinct cases in 26
 launch groups. Main owns recompilation and qualification.
 The latest hosted build was skipped by the repository gate; the earlier
 billing blocker remains separate. Neither outcome is a validation pass.
@@ -27,7 +27,17 @@ with two E0277 logging-field errors and one E0308 logging-error argument.
 The correction passes string slices to those existing logging APIs without
 changing the fields or messages. All 789 execution pins matched; the unit
 was inactive with PID zero and an empty cgroup. No S3a test or profile ran.
-The corrected source remains UNRUN, and the original failure is retained.
+Main then compiled `4d0f5da` and ran all 356 selected cases: 351 passed and
+five failed. All 789 pins matched; the test unit stopped with PID zero and
+an empty cgroup. The original compile failure and five test logs remain.
+The correction adapts the fixture's nested axum error and waits for final
+ownership settlement after EOF. Existing assertions and values are retained.
+Terminal-completion evidence now survives client disconnection for guarded
+health accounting. Intermediate chunks, malformed results and encoder failures
+cannot earn that success. Five additive controls cover those distinctions and
+newer health updates. The correction remains under the same vision review.
+Next: main qualifies the reviewed immutable correction's exact affected cases.
+No corrected test, build or measurement has run in this lane.
 
 Login and import now persist `Exhausted` only for admission's existing
 `NotEligible` refusal. Propagated profile or store failures preserve the full

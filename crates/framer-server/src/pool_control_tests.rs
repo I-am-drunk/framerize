@@ -798,6 +798,11 @@ async fn cleanup_after_streamed_content_fences_without_replaying_on_another_acco
         let response = handler_response(&state, route, true).await.unwrap();
         let body = to_bytes(response.into_body(), 1024 * 1024).await.unwrap();
         assert!(String::from_utf8_lossy(&body).contains("cleanup is unconfirmed"));
+        drop(body);
+        // Preserve the cleanup fence while the producer joins output disposal.
+        tokio::time::timeout(Duration::from_secs(3), async {
+            while slot(&state, id(1)).users != 0 { tokio::task::yield_now().await; }
+        }).await.expect("request residency did not settle after body disposal");
         assert_eq!(ports.request_started.load(Ordering::SeqCst), 1);
         assert_eq!(ports.request_finished.load(Ordering::SeqCst), 0);
         assert!(slot(&state, id(1)).uncertain);
