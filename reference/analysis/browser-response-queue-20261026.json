@@ -1,0 +1,80 @@
+{
+  "base_commit": "06bcbf242c4290f8137ad93d0e2e5dbefb764d84",
+  "browser_version": "152.0.4-beta.31",
+  "scope": "Local synthetic HTTPS only; no SDK or live account.",
+  "source_sha256_scope": "Original browser-measurement sources; the later absent-body correction was qualified with Node only.",
+  "contract_tests": {
+    "selection": "node --test scripts/experiments/browser_response_bounds/queue_contract.cjs",
+    "fixture_sha256": "5ecfa92c0443bf254e8d23835eab56a52087699e9c8d0f826440654a04d65fd2",
+    "poll_sha256": "5df510d6de6ea4955fdb3188106dfaa9afaac4e327f01b80c9c2f759459850e2",
+    "original_reader_sha256": "b23e17bdaf9b4678702018df676530fcc5cf2908be78bc53deee7c057ad5cf4c",
+    "corrected_reader_sha256": "8e74077e6905bf3a58e2f1689cb738fabc2110f4ac159fde9190d89d5c601867",
+    "before": {"passed": 11, "failed": 1, "exit_code": 1, "start_unix": 1792975838.2201552, "end_unix": 1792975838.596234},
+    "after": {"passed": 12, "failed": 0, "exit_code": 0, "start_unix": 1792975908.9112217, "end_unix": 1792975909.2776241},
+    "regression": "an already-aborted absent body cannot publish success",
+    "change_scope": "Only the absent-body branch now checks cancellation before success.",
+    "both_units_inactive_and_collected": true,
+    "browser_measurements_repeated_after_correction": false
+  },
+  "browser_runs_passed": 13,
+  "cleanup_joined": true,
+  "resource_limit_events": 0,
+  "body_bytes": 8388608,
+  "sampled_peak_scope": "Largest observed process-tree PSS, including request-boundary snapshots and concurrent samples.",
+  "body_sha256": "ad97f87076920684e2ca66fc44e5d322797dc9d64706b174e51b5d0828937043",
+  "local_checks": [
+    "bounded_queue_backpressure_and_cancel_joined",
+    "oversize_refused_and_peer_closed",
+    "held_body_cancel_joined_and_peer_closed",
+    "job_table_empty_and_only_expected_requests"
+  ],
+  "source_sha256": {
+    "runtime/framerize_host/__init__.py": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "runtime/framerize_host/__main__.py": "208ce40e7239e0d7c5d4daf0241e3e8bcac019ab1db09492f1d9202bf76d82a4",
+    "runtime/framerize_host/accounts/__init__.py": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "runtime/framerize_host/accounts/activity.py": "eccfc811681987fc92d4c2e62c0fe56bb1ec7faba81c253c5b222a847acb1a7c",
+    "runtime/framerize_host/accounts/state.py": "e7b4d6af67fe56723ac5143d0300415be55eb354ef2b72bfefb7467ed6af4109",
+    "runtime/framerize_host/app.py": "ace16dad6bf9a9f939514d33d2239073dbb1270c3f7d167d6eb0010013131d82",
+    "runtime/framerize_host/browser/__init__.py": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "runtime/framerize_host/browser/actions.py": "c4e74f2dff48426f897459d073bbc1ebb782af4f8d8331fc491a4e82456d0db1",
+    "runtime/framerize_host/browser/driver.py": "75a458139fa750876dcc7eb93caa65d6316bb8b42702f5e93185e6ea7a10302e",
+    "runtime/framerize_host/browser/scripts.py": "153f25492590b5ad44bdbbaf9e1c401553b6a475f6f0b3b09d7bf956c45db72a",
+    "runtime/framerize_host/browser/transport.py": "a82b535815643a10d785d3b1caa2a8e2676f434725d7f71700b11fc6d070bfad",
+    "runtime/framerize_host/castle_forge.py": "4e584d396aebf18fd545282f4dbe78fc0ad40ee809306a18a64f62c234d57f7e",
+    "runtime/framerize_host/events.py": "deea443f25062a2cd64a50044c03d498a4318cb59b0b9f25659c4e60700db500",
+    "runtime/framerize_host/resources.py": "1ebc7aff69310e061f2d0b2603748f73c6ae4bd407e3a4875174b9db1005b9fa",
+    "runtime/framerize_host/settings.py": "b6d6db767d6a89f221ddaefdef78e9311960f67ed6f64aab2b18c61bd39e9816",
+    "scripts/experiments/browser_response_bounds/fixture.py": "a8cca2185fdfe8122a634740dad4d3de515ba3aac7a358829329aaa3c0afa149",
+    "scripts/experiments/browser_response_bounds/probe.py": "78a8001dd5f6734edadbf564226e6d0a6d0c29049b767c8232ebd4695f82b99d",
+    "scripts/experiments/browser_response_bounds/queue_poll.js": "5df510d6de6ea4955fdb3188106dfaa9afaac4e327f01b80c9c2f759459850e2",
+    "scripts/experiments/browser_response_bounds/queue_reader.js": "b23e17bdaf9b4678702018df676530fcc5cf2908be78bc53deee7c057ad5cf4c",
+    "scripts/experiments/browser_response_bounds/queue_timing.py": "48033842261b2355197f79e4aa831545585de493d53e617af02448d2d8d361e7",
+    "scripts/experiments/browser_response_bounds/stream_queue.py": "d588df7e87b5978253ad26814a3a53a166126088b2cd34f01602a5ac1cb11d02",
+    "scripts/experiments/browser_response_bounds/transfer.js": "e3981a20fbd15b45e2db6e3bbbcbaca92793815de336751fb929503515ec9568",
+    "scripts/experiments/browser_response_bounds/transfer.py": "5d8ace110bf9b040d3c0255d6aea3979ca45c35b6a7baa92f4c4cd5e677f2839",
+    "scripts/experiments/shared_context_isolation/memory.py": "308b347102ea02420c62ba40c1695374ba3ee010db1d0796d131bae7afe79f39",
+    "scripts/experiments/shared_context_isolation/probe.py": "60186c62b4020c0cf1c316b0be1c5a37242c554e4b338a372c5fa0f44a0b8783",
+    "scripts/experiments/shared_context_isolation/server.py": "501f6c5a360da48903585284deb14c537534312985ee7925ad96df88727ea311"
+  },
+  "memory_trials": [
+    {"round":1,"mode":"full","start_unix":1792975588.8601046,"end_unix":1792975593.7311046,"measurement":{"body_sha256":"ad97f87076920684e2ca66fc44e5d322797dc9d64706b174e51b5d0828937043","calls":1,"characters":8388608,"empty_polls":0,"request_to_body_ms":1413.8041860423982},"sample_count":15,"sampling_ms":645.1107386965305,"peak_pss_kib":674426,"before_pss_kib":498717,"after_pss_kib":622429,"cgroup_peak_bytes":593027072},
+    {"round":1,"mode":"queued","start_unix":1792975593.731557,"end_unix":1792975598.2147024,"measurement":{"body_sha256":"ad97f87076920684e2ca66fc44e5d322797dc9d64706b174e51b5d0828937043","calls":65,"characters":8388608,"empty_polls":1,"partial_units":8388608,"peak_queue_units":131072,"request_to_body_ms":986.4063239656389},"sample_count":11,"sampling_ms":431.735472753644,"peak_pss_kib":674667,"before_pss_kib":498627,"after_pss_kib":674667,"cgroup_peak_bytes":573657088},
+    {"round":2,"mode":"full","start_unix":1792975603.1051712,"end_unix":1792975608.0973537,"measurement":{"body_sha256":"ad97f87076920684e2ca66fc44e5d322797dc9d64706b174e51b5d0828937043","calls":1,"characters":8388608,"empty_polls":0,"request_to_body_ms":1491.1784240975976},"sample_count":16,"sampling_ms":578.4164264332503,"peak_pss_kib":680501,"before_pss_kib":495810,"after_pss_kib":679525,"cgroup_peak_bytes":588951552},
+    {"round":2,"mode":"queued","start_unix":1792975598.2151337,"end_unix":1792975603.1047454,"measurement":{"body_sha256":"ad97f87076920684e2ca66fc44e5d322797dc9d64706b174e51b5d0828937043","calls":65,"characters":8388608,"empty_polls":1,"partial_units":8388608,"peak_queue_units":131072,"request_to_body_ms":1149.5869520585984},"sample_count":12,"sampling_ms":534.9175438750535,"peak_pss_kib":667365,"before_pss_kib":497981,"after_pss_kib":667365,"cgroup_peak_bytes":565469184},
+    {"round":3,"mode":"full","start_unix":1792975608.097812,"end_unix":1792975612.9742846,"measurement":{"body_sha256":"ad97f87076920684e2ca66fc44e5d322797dc9d64706b174e51b5d0828937043","calls":1,"characters":8388608,"empty_polls":0,"request_to_body_ms":1457.7565910294652},"sample_count":15,"sampling_ms":668.3740089647472,"peak_pss_kib":691702,"before_pss_kib":504832,"after_pss_kib":688718,"cgroup_peak_bytes":596537344},
+    {"round":3,"mode":"queued","start_unix":1792975612.9747884,"end_unix":1792975617.5238464,"measurement":{"body_sha256":"ad97f87076920684e2ca66fc44e5d322797dc9d64706b174e51b5d0828937043","calls":66,"characters":8388608,"empty_polls":2,"partial_units":8388608,"peak_queue_units":131072,"request_to_body_ms":1119.6891078725457},"sample_count":12,"sampling_ms":515.7304429449141,"peak_pss_kib":653943,"before_pss_kib":498021,"after_pss_kib":631951,"cgroup_peak_bytes":560943104}
+  ],
+  "timing_trials": [
+    {"round":1,"mode":"full","start_unix":1792975700.3796988,"end_unix":1792975704.9988012,"request_to_body_ms":1121.7445228248835,"calls":1,"checks":["complete_body_status_and_usage_intact","job_table_empty_and_only_expected_requests"]},
+    {"round":1,"mode":"queued","start_unix":1792975704.9991624,"end_unix":1792975709.7145839,"request_to_body_ms":812.8162811044604,"calls":66,"checks":["complete_body_status_and_usage_intact","job_table_empty_and_only_expected_requests"]},
+    {"round":2,"mode":"full","start_unix":1792975714.1509051,"end_unix":1792975718.7120967,"request_to_body_ms":1071.1344839073718,"calls":1,"checks":["complete_body_status_and_usage_intact","job_table_empty_and_only_expected_requests"]},
+    {"round":2,"mode":"queued","start_unix":1792975709.7149706,"end_unix":1792975714.1503417,"request_to_body_ms":799.736371031031,"calls":65,"checks":["complete_body_status_and_usage_intact","job_table_empty_and_only_expected_requests"]},
+    {"round":3,"mode":"full","start_unix":1792975718.712431,"end_unix":1792975723.4527793,"request_to_body_ms":1223.572775023058,"calls":1,"checks":["complete_body_status_and_usage_intact","job_table_empty_and_only_expected_requests"]},
+    {"round":3,"mode":"queued","start_unix":1792975723.4531777,"end_unix":1792975727.957687,"request_to_body_ms":776.8722060136497,"calls":65,"checks":["complete_body_status_and_usage_intact","job_table_empty_and_only_expected_requests"]}
+  ],
+  "summary": {
+    "full": {"sampled_peak_pss_mib":{"median":664.5517578125,"min":658.619140625,"max":675.490234375},"cgroup_peak_mib":{"median":565.5546875,"min":561.66796875,"max":568.90234375},"instrumented_request_ms":{"median":1457.7565910294652,"min":1413.8041860423982,"max":1491.1784240975976},"sampling_ms":{"median":645.1107386965305,"min":578.4164264332503,"max":668.3740089647472},"request_ms_without_sampler":{"median":1121.7445228248835,"min":1071.1344839073718,"max":1223.572775023058}},
+    "queued": {"sampled_peak_pss_mib":{"median":651.7236328125,"min":638.6162109375,"max":658.8544921875},"cgroup_peak_mib":{"median":539.2734375,"min":534.95703125,"max":547.08203125},"instrumented_request_ms":{"median":1119.6891078725457,"min":986.4063239656389,"max":1149.5869520585984},"sampling_ms":{"median":515.7304429449141,"min":431.735472753644,"max":534.9175438750535},"request_ms_without_sampler":{"median":799.736371031031,"min":776.8722060136497,"max":812.8162811044604}}
+  },
+  "limits": ["Three fresh trials per mode and measurement type.", "Sampled PSS peaks can miss short-lived peaks.", "Cgroup peaks include startup and differ from PSS accounting.", "The text queue does not bound browser network buffers.", "All modes return one final Python body.", "The poll consumes chunks immediately; production needs acknowledged retryable delivery for RPC timeouts.", "No production change or live minter/browser acceptance."]
+}
