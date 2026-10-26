@@ -153,6 +153,31 @@ fn assert_anonymous_tool_events(observed: &Observed, index: usize, source: &Valu
 }
 
 #[test]
+fn opaque_output_keeps_chain_messages_and_tool_event_positions() {
+    let search = json!({"type":"web_search_call","id":"search-id","status":"completed",
+        "action":{"type":"search","query":"fixture"},"extension":{"keep":true}});
+    let output = vec![message("first", "before", "completed"), search.clone(),
+        message("last", "after", "completed"), event_tool("function_call", "arguments")];
+    let observed = run(vec![reply(output.clone(), "completed")]);
+    assert_eq!(observed.response.output, output);
+    assert_event_sequence(&observed);
+    let added = selected(&observed, "response.output_item.added");
+    let done = selected(&observed, "response.output_item.done");
+    assert_eq!((added.len(), done.len()), (4, 4));
+    let terminals = selected(&observed, "response.completed");
+    let final_output = &terminals[0]["response"]["output"];
+    for index in 0..4 {
+        assert_eq!(added[index]["output_index"], index);
+        assert_eq!(done[index]["output_index"], index);
+        assert_eq!(done[index]["item"], final_output[index]);
+    }
+    assert_eq!(added[1]["item"], search);
+    let arguments = selected(&observed, "response.function_call_arguments.done");
+    assert_eq!(arguments[0]["output_index"], 3);
+    assert_eq!(arguments[0]["item_id"], output[3]["id"]);
+}
+
+#[test]
 fn anonymous_tool_event_ids_leave_chain_output_and_history_unchanged() {
     let mut tools = vec![event_tool("function_call", "arguments"),
         event_tool("custom_tool_call", "input")];

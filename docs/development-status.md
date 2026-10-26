@@ -3,6 +3,16 @@
 The rearchitecture is on `refactor/separate-apps-and-ci-20261025` in draft
 [PR #2](https://github.com/I-am-drunk/framerize/pull/2). It is not deployed.
 
+Responses preserve opaque output items and their positions between messages
+and tools. Direct, chained and paid responses reject non-null terminal errors
+before publication, while absent/null errors remain compatible. The direct
+decoder also treats a bare SSE data field as an empty data field.
+All 97 selected checks pass: 52 API, 21 core, 18 server and six native.
+All 21 new cases ran; the old behavior reproduced 12 failures with nine
+controls passing. All 705 tracked inputs and ten candidate files match.
+This follow-up is not deployed. Live delivery, memory/latency measurement and
+concurrent account/TLS acceptance remain pending the guarded history handoff.
+
 Responses streams now use one composer for opening, content and terminal
 events in both server adapters. Event numbers remain continuous; tool IDs
 match their argument/input events and final output. Opening and final response

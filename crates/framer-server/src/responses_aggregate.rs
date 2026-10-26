@@ -59,6 +59,9 @@ fn consume(data: &str, name: &str, terminal: &mut Option<Value>) -> Result<(), &
     if response.get("usage").is_some_and(|value| !value.is_null() && !value.is_object()) {
         return Err("Responses stream has an invalid usage object");
     }
+    if response.get("error").is_some_and(|value| !value.is_null()) {
+        return Err("Responses stream has a terminal response error");
+    }
     *terminal = Some(response.clone());
     Ok(())
 }

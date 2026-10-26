@@ -525,6 +525,9 @@ fn validate_response_body(body: &Value) -> Result<(), &'static str> {
     }) {
         return Err("invalid message role");
     }
+    if !body["error"].is_null() {
+        return Err("non-null response error");
+    }
     Ok(())
 }
 

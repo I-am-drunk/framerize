@@ -1968,6 +1968,9 @@ mod responses_content_tests;
 #[path = "responses_event_tests.rs"]
 mod responses_event_tests;
 #[cfg(test)]
+#[path = "responses_opaque_tests.rs"]
+mod responses_opaque_tests;
+#[cfg(test)]
 #[path = "chat_refusal_tests.rs"]
 mod chat_refusal_tests;
 #[cfg(test)]
@@ -2095,17 +2098,6 @@ impl ResponsesComposer {
                     let events = self.message.as_mut().unwrap().append(it);
                     f.extend(events.into_iter().map(|event| self.frame(event)));
                 }
-                Some("reasoning") => {
-                    f.extend(self.close_text());
-                    let idx = self.item_idx;
-                    self.item_idx += 1;
-                    f.push(self.ev("response.output_item.added", json!({
-                        "output_index": idx, "item": it,
-                    })));
-                    f.push(self.ev("response.output_item.done", json!({
-                        "output_index": idx, "item": it,
-                    })));
-                }
                 Some("function_call") => {
                     f.extend(self.close_text());
                     let idx = self.item_idx;
@@ -2157,6 +2149,18 @@ impl ResponsesComposer {
                     f.push(self.ev("response.output_item.done", json!({
                         "output_index": idx,
                         "item": item,
+                    })));
+                }
+                Some(_) => {
+                    // Opaque items still occupy a position and separate messages.
+                    f.extend(self.close_text());
+                    let idx = self.item_idx;
+                    self.item_idx += 1;
+                    f.push(self.ev("response.output_item.added", json!({
+                        "output_index": idx, "item": it,
+                    })));
+                    f.push(self.ev("response.output_item.done", json!({
+                        "output_index": idx, "item": it,
                     })));
                 }
                 _ => {}

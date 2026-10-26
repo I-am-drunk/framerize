@@ -105,6 +105,9 @@ After truncation repair, executable tools require valid fields and unique
 call IDs across the current chunk and prior accepted output. Validation occurs
 before any current-chunk event. Direct legacy text stops at its completion
 boundary and rejects malformed deltas; explicit terminal output is authoritative.
+Direct, chained and paid Responses also reject non-null terminal response
+errors before publication; omitted/null errors remain compatible. The direct
+SSE parser treats a bare data field as an empty data field.
 
 The existing 401 retry invalidates the rejected AI bearer in both account and
 shared session caches before refreshing. Shared-cache eviction compares the
@@ -120,6 +123,9 @@ consumes the final text chunk before closing its message, retains the latest
 fragment status and carries its emitted message IDs into the final snapshot.
 Adjacent message items merge consistently with the chain; tool and reasoning
 items retain their original identities and fields.
+Other typed output items receive whole-item events and occupy their original
+position. They separate neighboring messages, keeping later tool indices
+consistent with the final output array.
 
 Each native Responses stream retains one composer from its opening frames
 through completion or failure. The composer assigns one event sequence and

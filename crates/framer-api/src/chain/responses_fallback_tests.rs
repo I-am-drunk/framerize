@@ -211,6 +211,57 @@ fn assistant_and_absent_roles_preserve_accepted_chunk_metadata() {
     }
 }
 
+#[test]
+fn response_error_withholds_the_entire_current_chunk() {
+    for metered in [false, true] {
+        for error in [json!({"code":"server_error", "message":"fixture diagnostic"}),
+            json!({}), json!("fixture diagnostic"), json!(false), json!(7), json!([])] {
+            let mut body = response(text("withheld"), "completed");
+            body["error"] = error;
+            let actual = run_tool_replies(tool_body_replies(body, metered), metered);
+            let prefix = if metered { "streamed chunk" } else { "response chunk" };
+            assert_eq!(actual.result.unwrap_err(), format!("{prefix} has non-null response error"));
+            assert!(actual.events.is_empty());
+            assert_eq!((actual.requests.len(), actual.refunds),
+                (if metered { 3 } else { 1 }, usize::from(metered)));
+        }
+    }
+}
+
+#[test]
+fn later_response_error_preserves_previously_published_output() {
+    for metered in [false, true] {
+        let mut body = response(text("withheld"), "completed");
+        body["error"] = json!({"code":"server_error", "message":"fixture diagnostic"});
+        let mut replies = vec![counted_reply(11, 7, "incomplete", "first")];
+        replies.extend(tool_body_replies(body, metered));
+        let actual = run_with_failure(replies, config(),
+            Some((if metered { 2 } else { usize::MAX }, "fixture transport connection closed")));
+        let prefix = if metered { "streamed chunk" } else { "response chunk" };
+        assert_eq!(actual.result.unwrap_err(), format!("{prefix} has non-null response error"));
+        assert_eq!(actual.events, vec![(vec![text("first")], true)]);
+        assert_eq!((actual.requests.len(), actual.refunds),
+            (if metered { 4 } else { 2 }, usize::from(metered)));
+    }
+}
+
+#[test]
+fn absent_or_null_response_error_preserves_accepted_chunk_output() {
+    for metered in [false, true] {
+        for error in [None, Some(Value::Null)] {
+            let expected = vec![text("answer"), json!({"type":"future_item", "error":{"opaque":true}})];
+            let mut body = response(Value::Null, "completed");
+            body["output"] = json!(expected);
+            if let Some(error) = error { body["error"] = error; }
+            let actual = run_tool_replies(tool_body_replies(body, metered), metered);
+            assert_eq!(actual.result.unwrap().output, expected);
+            assert_eq!(actual.events, vec![(expected, false)]);
+            assert_eq!((actual.requests.len(), actual.refunds),
+                (if metered { 3 } else { 1 }, usize::from(metered)));
+        }
+    }
+}
+
 struct Reply {
     streamed: bool,
     body: Option<Value>,

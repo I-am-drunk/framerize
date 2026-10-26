@@ -213,10 +213,10 @@ fn completed_text(response: &serde_json::Value) -> Result<Option<String>, &'stat
     if response.get("status").is_some_and(|status| status.as_str() != Some("completed")) {
         return Err("invalid completed status");
     }
-    let Some(output) = response.get("output") else { return Ok(None) };
-    let output = output.as_array().ok_or("invalid output array")?;
+    let output = response.get("output")
+        .map(|output| output.as_array().ok_or("invalid output array")).transpose()?;
     let mut text = String::new();
-    for item in output {
+    for item in output.into_iter().flatten() {
         if !item.get("type").and_then(serde_json::Value::as_str)
             .is_some_and(|kind| !kind.is_empty()) {
             return Err("invalid output item");
@@ -244,7 +244,7 @@ fn completed_text(response: &serde_json::Value) -> Result<Option<String>, &'stat
             }
         }
     }
-    if output.iter().any(|item| {
+    if output.into_iter().flatten().any(|item| {
         item["type"] == "message"
             && item.get("role").is_some_and(|role| role.as_str() != Some("assistant"))
     }) {
@@ -252,7 +252,11 @@ fn completed_text(response: &serde_json::Value) -> Result<Option<String>, &'stat
         completed_usage(response)?;
         return Err("invalid message role");
     }
-    Ok(Some(text))
+    if !response["error"].is_null() {
+        completed_usage(response)?;
+        return Err("non-null response error");
+    }
+    Ok(output.map(|_| text))
 }
 
 fn completed_usage(response: &serde_json::Value) -> Result<Usage, &'static str> {
@@ -300,7 +304,7 @@ fn parse_sse(body: &str) -> Result<(String, Usage), String> {
             event_name = "";
             continue;
         }
-        match line.strip_prefix("data:") {
+        match line.strip_prefix("data:").or_else(|| (line == "data").then_some("")) {
             Some(d) => data_lines.push(d.trim_start_matches(' ').to_string()),
             None if line.is_empty() => {
                 let frame_name = std::mem::take(&mut event_name);
