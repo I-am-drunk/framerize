@@ -97,6 +97,14 @@ JSON and SSE response bodies share validation of response/output containers,
 terminal status and optional usage. Invalid envelopes fail before item
 publication. Explicit SSE failure events cannot be masked by completion;
 empty output and the existing incomplete response-body contract remain valid.
+Each terminal body is checked before retention, including typed output items,
+message content and roles, and supplied usage counters. Named failures remain
+fatal without data; named terminals require matching typed data. Both parsers
+accept LF, CRLF and lone CR. Valid partial chain results retain their status.
+After truncation repair, executable tools require valid fields and unique
+call IDs across the current chunk and prior accepted output. Validation occurs
+before any current-chunk event. Direct legacy text stops at its completion
+boundary and rejects malformed deltas; explicit terminal output is authoritative.
 
 The existing 401 retry invalidates the rejected AI bearer in both account and
 shared session caches before refreshing. Shared-cache eviction compares the

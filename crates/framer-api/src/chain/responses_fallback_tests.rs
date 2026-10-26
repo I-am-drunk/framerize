@@ -4,6 +4,213 @@ use framer_core::ids::FramerUserId;
 use framer_core::port::CastleToken;
 use std::collections::VecDeque;
 
+#[test]
+fn distinct_call_ids_remain_valid_across_published_chunks() {
+    let prior = vec![tool("function_call", true), text("first")];
+    let mut first = response(Value::Null, "incomplete");
+    first["output"] = json!(prior);
+    let mut later = tool("custom_tool_call", true);
+    later["call_id"] = json!("next-call");
+    let actual = run_with_failure(vec![
+        Reply { streamed:false, body:Some(first), at_budget:false },
+        Reply { streamed:false, body:Some(response(later.clone(), "completed")), at_budget:false },
+    ], config(), Some((usize::MAX, "fixture transport connection closed")));
+    let mut expected = prior.clone();
+    expected.push(later.clone());
+    assert_eq!(actual.result.unwrap().output, expected);
+    assert_eq!(actual.events, vec![(prior, true), (vec![later], false)]);
+    assert_eq!(actual.requests.len(), 2);
+}
+
+#[test]
+fn discarded_truncated_calls_do_not_reserve_call_ids() {
+    for metered in [false, true] {
+        let good = tool("function_call", true);
+        let mut cut = tool("function_call", false);
+        cut["status"] = json!("in_progress");
+        let mut first = response(Value::Null, "incomplete");
+        first["output"] = json!([good.clone(), cut]);
+        let mut replies = tool_body_replies(first, metered);
+        replies.push(Reply { streamed:false, at_budget:false,
+            body:Some(response(good.clone(), "completed")) });
+        let actual = run_with_failure(replies, config(),
+            Some((if metered { 1 } else { usize::MAX }, "fixture transport connection closed")));
+        assert_eq!(actual.result.unwrap().output, vec![good.clone()]);
+        assert_eq!(actual.events, vec![(vec![good], false)]);
+        assert_eq!(actual.requests.len(), if metered { 4 } else { 2 });
+        assert_eq!(actual.refunds, usize::from(metered));
+    }
+}
+
+#[test]
+fn distinct_call_ids_preserve_parallel_calls_and_opaque_item_ids() {
+    for metered in [false, true] {
+        let first = tool("function_call", true);
+        let mut second = tool("custom_tool_call", true);
+        second["call_id"] = json!("second-call");
+        second.as_object_mut().unwrap().remove("status");
+        let opaque = json!({"type":"future_tool_call", "call_id":"call-fixture"});
+        let expected = vec![first, opaque, second];
+        let mut body = response(Value::Null, "completed");
+        body["output"] = json!(expected);
+        let actual = run_tool_replies(tool_body_replies(body, metered), metered);
+        assert_eq!(actual.result.unwrap().output, expected);
+        assert_eq!(actual.events, vec![(expected, false)]);
+        assert_eq!(actual.requests.len(), if metered { 3 } else { 1 });
+    }
+}
+
+#[test]
+fn duplicate_tool_call_ids_cannot_republish_a_prior_call() {
+    for metered in [false, true] {
+        let prior = vec![tool("function_call", true), text("first")];
+        let mut first = response(Value::Null, "incomplete");
+        first["output"] = json!(prior);
+        let mut later = tool("custom_tool_call", true);
+        later["name"] = json!("different_operation");
+        let mut replies = vec![Reply { streamed:false, body:Some(first), at_budget:false }];
+        replies.extend(tool_body_replies(response(later, "completed"), metered));
+        // The nonmetered case uses an unselected failure index to pause time.
+        let failure_index = if metered { 2 } else { usize::MAX };
+        let actual = run_with_failure(replies, config(),
+            Some((failure_index, "fixture transport connection closed")));
+        assert_eq!(actual.result.unwrap_err(), "response chunk has duplicate tool call id");
+        assert_eq!(actual.events, vec![(prior, true)]);
+        assert_eq!(actual.requests.len(), if metered { 4 } else { 2 });
+        assert_eq!(actual.refunds, usize::from(metered));
+    }
+}
+
+#[test]
+fn duplicate_tool_call_ids_withhold_the_current_chunk() {
+    for metered in [false, true] {
+        for (first, second) in [("function_call", "function_call"),
+            ("custom_tool_call", "custom_tool_call"), ("function_call", "custom_tool_call")] {
+            let mut later = tool(second, true);
+            later["name"] = json!("different_operation");
+            later["id"] = json!("different_item_id");
+            let mut body = response(Value::Null, "completed");
+            body["output"] = json!([text("withheld"), tool(first, true), later]);
+            let actual = run_tool_replies(tool_body_replies(body, metered), metered);
+            assert_eq!(actual.result.unwrap_err(), "response chunk has duplicate tool call id");
+            assert!(actual.events.is_empty());
+            assert_eq!(actual.requests.len(), if metered { 3 } else { 1 });
+            assert_eq!(actual.refunds, usize::from(metered));
+        }
+    }
+}
+
+#[test]
+fn invalid_tool_fields_precede_earlier_duplicate_ids() {
+    for metered in [false, true] {
+        let mut invalid = tool("function_call", true);
+        invalid["arguments"] = Value::Null;
+        let mut body = response(Value::Null, "completed");
+        body["output"] = json!([
+            tool("function_call", true), tool("custom_tool_call", true), invalid
+        ]);
+        let actual = run_tool_replies(tool_body_replies(body, metered), metered);
+        assert_eq!(actual.result.unwrap_err(), "response chunk has invalid tool call fields");
+        assert!(actual.events.is_empty());
+        assert_eq!(actual.requests.len(), if metered { 3 } else { 1 });
+    }
+}
+
+#[test]
+fn exact_call_ids_and_matching_result_references_remain_verbatim() {
+    for metered in [false, true] {
+        let mut expected = Vec::new();
+        for (kind, id) in [("function_call", "call-fixture"),
+            ("custom_tool_call", " call-fixture"), ("function_call", "call-fixture "),
+            ("custom_tool_call", "Call-Fixture"), ("function_call", "é"),
+            ("custom_tool_call", "e\u{301}")] {
+            let mut call = tool(kind, true);
+            call["call_id"] = json!(id);
+            call.as_object_mut().unwrap().remove("id");
+            let result_kind = format!("{kind}_output");
+            expected.push(call);
+            expected.push(json!({"type":result_kind, "call_id":id, "output":"fixture"}));
+        }
+        let mut body = response(Value::Null, "completed");
+        body["output"] = json!(expected);
+        let actual = run_tool_replies(tool_body_replies(body, metered), metered);
+        assert_eq!(actual.result.unwrap().output, expected);
+        assert_eq!(actual.events, vec![(expected, false)]);
+        assert_eq!(actual.requests.len(), if metered { 3 } else { 1 });
+    }
+}
+
+#[test]
+fn repeated_sse_call_references_do_not_duplicate_accepted_output() {
+    let call = tool("function_call", true);
+    let prefix = concat!(
+        "event: response.output_item.added\n",
+        "data: {\"type\":\"response.output_item.added\",\"item\":{\"type\":\"function_call\",\"call_id\":\"call-fixture\"}}\n\n",
+        "event: response.output_item.done\n",
+        "data: {\"type\":\"response.output_item.done\",\"item\":{\"type\":\"function_call\",\"call_id\":\"call-fixture\"}}\n\n",
+    );
+    let actual = run_with_frame_prefix(fallback(response(call.clone(), "completed"), false),
+        config(), Some((1, "fixture transport connection closed")), "response.completed", prefix);
+    assert_eq!(actual.result.unwrap().output, vec![call.clone()]);
+    assert_eq!(actual.events, vec![(vec![call], false)]);
+    assert_eq!((actual.requests.len(), actual.refunds), (3, 1));
+}
+
+#[test]
+fn invalid_message_roles_withhold_the_entire_current_chunk() {
+    for metered in [false, true] {
+        for role in [json!("user"), json!("system"), json!("developer"), json!("tool"),
+            json!(""), Value::Null, json!(false), json!(7), json!([]), json!({})] {
+            let mut bad = text("unpublished");
+            bad["role"] = role;
+            let mut body = response(text("also withheld"), "completed");
+            body["output"].as_array_mut().unwrap().push(bad);
+            let actual = run_tool_replies(tool_body_replies(body, metered), metered);
+            let prefix = if metered { "streamed chunk" } else { "response chunk" };
+            assert_eq!(actual.result.unwrap_err(), format!("{prefix} has invalid message role"));
+            assert!(actual.events.is_empty());
+            assert_eq!((actual.requests.len(), actual.refunds),
+                (if metered { 3 } else { 1 }, usize::from(metered)));
+        }
+    }
+}
+
+#[test]
+fn invalid_later_message_role_preserves_published_output() {
+    for metered in [false, true] {
+        let mut bad = text("unpublished");
+        bad["role"] = json!("user");
+        let mut replies = vec![counted_reply(11, 7, "incomplete", "first")];
+        replies.extend(tool_body_replies(response(bad, "completed"), metered));
+        let actual = run_with_failure(replies, config(),
+            Some((if metered { 2 } else { usize::MAX }, "fixture transport connection closed")));
+        let prefix = if metered { "streamed chunk" } else { "response chunk" };
+        assert_eq!(actual.result.unwrap_err(), format!("{prefix} has invalid message role"));
+        assert_eq!(actual.events, vec![(vec![text("first")], true)]);
+        assert_eq!((actual.requests.len(), actual.refunds),
+            (if metered { 4 } else { 2 }, usize::from(metered)));
+    }
+}
+
+#[test]
+fn assistant_and_absent_roles_preserve_accepted_chunk_metadata() {
+    for metered in [false, true] {
+        for role in [None, Some(json!("assistant"))] {
+            let mut message = text("answer");
+            message.as_object_mut().unwrap().remove("role");
+            if let Some(role) = role { message["role"] = role; }
+            message["extension"] = json!({"keep":true});
+            let expected = vec![message, json!({"type":"future_item", "role":"user"})];
+            let mut body = response(Value::Null, "completed");
+            body["output"] = json!(expected);
+            let actual = run_tool_replies(tool_body_replies(body, metered), metered);
+            assert_eq!(actual.result.unwrap().output, expected);
+            assert_eq!(actual.events, vec![(expected, false)]);
+            assert_eq!(actual.requests.len(), if metered { 3 } else { 1 });
+        }
+    }
+}
+
 struct Reply {
     streamed: bool,
     body: Option<Value>,
@@ -38,6 +245,8 @@ struct Fixture {
     requests: Mutex<Vec<Value>>,
     refunds: Mutex<usize>,
     failure: Option<(usize, &'static str)>,
+    terminal_event: &'static str,
+    frame_prefix: &'static str,
 }
 
 #[async_trait]
@@ -77,7 +286,8 @@ impl BrowserBridge for Fixture {
             response["usage"]["output_tokens"] = body["request"]["max_output_tokens"].clone();
         }
         let text = if reply.streamed {
-            format!("data: {}\n\n", json!({"type":"response.completed", "response":response}))
+            format!("{}data: {}\n\n", self.frame_prefix,
+                json!({"type":self.terminal_event, "response":response}))
         } else { response.to_string() };
         Ok((200, None, text))
     }
@@ -101,13 +311,24 @@ fn run(replies: Vec<Reply>, cfg: ChainConfig) -> Run {
 
 fn run_with_failure(replies: Vec<Reply>, cfg: ChainConfig,
     failure: Option<(usize, &'static str)>) -> Run {
+    run_with_terminal_event(replies, cfg, failure, "response.completed")
+}
+
+fn run_with_terminal_event(replies: Vec<Reply>, cfg: ChainConfig,
+    failure: Option<(usize, &'static str)>, terminal_event: &'static str) -> Run {
+    run_with_frame_prefix(replies, cfg, failure, terminal_event, "")
+}
+
+fn run_with_frame_prefix(replies: Vec<Reply>, cfg: ChainConfig,
+    failure: Option<(usize, &'static str)>, terminal_event: &'static str,
+    frame_prefix: &'static str) -> Run {
     tokio::runtime::Builder::new_current_thread().enable_all()
         .start_paused(failure.is_some()).build().unwrap().block_on(async {
         let account = AccountId(uuid::Uuid::from_u128(1));
         let session = Session { active_user:FramerUserId("fixture-user".into()), cookie_header:"fixture-only".into() };
         let cache = Mutex::new(vec![(account, AiToken::for_session(&session, "fixture-only".into(), i64::MAX))]);
         let browser = Fixture { replies:Mutex::new(replies.into()), requests:Mutex::new(Vec::new()),
-            refunds:Mutex::new(0), failure };
+            refunds:Mutex::new(0), failure, terminal_event, frame_prefix };
         let events = Mutex::new(Vec::new());
         let callback = |event| {
             if let ChainEvent::ResponsesItems { items, continues_text } = event {
@@ -485,6 +706,493 @@ fn maximum_representable_accumulated_output_remains_valid() {
     assert_eq!(actual.requests.len(), 2);
 }
 
+fn tool_body_replies(body: Value, metered: bool) -> Vec<Reply> {
+    if metered { fallback(body, false) }
+    else { vec![Reply { streamed:false, body:Some(body), at_budget:false }] }
+}
+
+fn run_tool_replies(replies: Vec<Reply>, metered: bool) -> Run {
+    // Metered fixtures inject the first transport failure under paused time.
+    run_with_failure(replies, config(),
+        metered.then_some((1, "fixture transport connection closed")))
+}
+
+fn assert_tool_refused(item: Value, metered: bool) {
+    let actual = run_tool_replies(tool_body_replies(response(item, "completed"), metered), metered);
+    assert_eq!(actual.result.unwrap_err(), "response chunk has invalid tool call fields");
+    assert!(actual.events.is_empty());
+    assert_eq!(actual.requests.len(), if metered { 3 } else { 1 });
+    assert_eq!(actual.refunds, usize::from(metered));
+}
+
+fn reject_tool_identity(metered: bool) {
+    for kind in ["function_call", "custom_tool_call"] {
+        for field in ["call_id", "name"] {
+            for bad in [None, Some(Value::Null), Some(json!(7)), Some(json!(""))] {
+                let mut item = tool(kind, true);
+                if let Some(bad) = bad { item[field] = bad; }
+                else { item.as_object_mut().unwrap().remove(field); }
+                assert_tool_refused(item, metered);
+            }
+        }
+    }
+}
+
+#[test]
+fn nonstream_tool_calls_require_identity_fields() { reject_tool_identity(false); }
+
+#[test]
+fn metered_tool_calls_require_identity_fields() { reject_tool_identity(true); }
+
+fn reject_tool_input(metered: bool) {
+    for (kind, field) in [("function_call", "arguments"), ("custom_tool_call", "input")] {
+        for bad in [None, Some(Value::Null), Some(json!({"private-fixture":1})), Some(json!([]))] {
+            let mut item = tool(kind, true);
+            if let Some(bad) = bad { item[field] = bad; }
+            else { item.as_object_mut().unwrap().remove(field); }
+            assert_tool_refused(item, metered);
+        }
+    }
+}
+
+#[test]
+fn nonstream_tool_calls_require_string_input() { reject_tool_input(false); }
+
+#[test]
+fn metered_tool_calls_require_string_input() { reject_tool_input(true); }
+
+#[test]
+fn complete_tools_preserve_optional_metadata_and_empty_input() {
+    for metered in [false, true] {
+        for (kind, field) in [("function_call", "arguments"), ("custom_tool_call", "input")] {
+            let mut item = tool(kind, true);
+            item[field] = json!("");
+            for supplied_metadata in [false, true] {
+                if supplied_metadata {
+                    item["id"] = json!("upstream-item");
+                    item["status"] = json!("completed");
+                    item["namespace"] = json!("fixture-namespace");
+                    item["extension"] = json!({"preserve":[1,2]});
+                } else {
+                    item.as_object_mut().unwrap().remove("id");
+                    item.as_object_mut().unwrap().remove("status");
+                }
+                let actual = run_tool_replies(
+                    tool_body_replies(response(item.clone(), "completed"), metered), metered);
+                let result = actual.result.unwrap();
+                assert_eq!(result.output, vec![item.clone()]);
+                assert_eq!(actual.events, vec![(vec![item.clone()], false)]);
+                assert_eq!(result.metered_chunks, u32::from(metered));
+            }
+        }
+    }
+}
+
+#[test]
+fn custom_tool_text_remains_opaque() {
+    for metered in [false, true] {
+        let mut item = tool("custom_tool_call", true);
+        item["input"] = json!("not JSON: {\n  exact bytes 雪\n");
+        let actual = run_tool_replies(
+            tool_body_replies(response(item.clone(), "completed"), metered), metered);
+        assert_eq!(actual.result.unwrap().output, vec![item.clone()]);
+        assert_eq!(actual.events, vec![(vec![item], false)]);
+    }
+}
+
+#[test]
+fn unrelated_output_items_remain_verbatim() {
+    for metered in [false, true] {
+        let items = json!([text("answer"),
+            {"type":"reasoning", "id":"reason", "summary":[]},
+            {"type":"future_tool_call", "extension":{"opaque":true}}]);
+        let mut body = response(Value::Null, "completed");
+        body["output"] = items.clone();
+        let actual = run_tool_replies(tool_body_replies(body, metered), metered);
+        let expected = items.as_array().unwrap().clone();
+        assert_eq!(actual.result.unwrap().output, expected);
+        assert_eq!(actual.events, vec![(expected, false)]);
+    }
+}
+
+#[test]
+fn tool_field_validation_preserves_truncation_retry() {
+    for metered in [false, true] {
+        for (kind, field) in [("function_call", "arguments"), ("custom_tool_call", "input")] {
+            let good = tool(kind, true);
+            let mut cut = good.clone();
+            cut.as_object_mut().unwrap().remove(field);
+            cut.as_object_mut().unwrap().remove("call_id");
+            let mut replies = tool_body_replies(response(cut, "incomplete"), metered);
+            replies.push(Reply { streamed:false, at_budget:false,
+                body:Some(response(good.clone(), "completed")) });
+            let actual = run_tool_replies(replies, metered);
+            assert_eq!(actual.result.unwrap().output, vec![good.clone()]);
+            assert_eq!(actual.events, vec![(vec![good], false)]);
+            assert_eq!(actual.requests.len(), if metered { 4 } else { 2 });
+        }
+    }
+}
+
+#[test]
+fn invalid_later_tool_preserves_previously_emitted_text() {
+    let mut bad = tool("function_call", true);
+    bad["name"] = Value::Null;
+    let actual = run(vec![counted_reply(11, 7, "incomplete", "first"),
+        Reply { streamed:false, at_budget:false, body:Some(response(bad, "completed")) }], config());
+    assert_eq!(actual.result.unwrap_err(), "response chunk has invalid tool call fields");
+    assert_eq!(actual.events, vec![(vec![text("first")], true)]);
+    assert_eq!(actual.requests.len(), 2);
+}
+
+#[test]
+fn invalid_tool_withholds_entire_current_chunk() {
+    for metered in [false, true] {
+        let mut bad = tool("function_call", true);
+        bad["arguments"] = json!({"private-fixture":"must not appear in errors"});
+        let mut body = response(Value::Null, "completed");
+        body["output"] = json!([tool("custom_tool_call", true), bad, text("after")]);
+        let actual = run_tool_replies(tool_body_replies(body, metered), metered);
+        assert_eq!(actual.result.unwrap_err(), "response chunk has invalid tool call fields");
+        assert!(actual.events.is_empty());
+        assert_eq!(actual.requests.len(), if metered { 3 } else { 1 });
+    }
+}
+
+fn reject_explicit_tool_status(metered: bool) {
+    for kind in ["function_call", "custom_tool_call"] {
+        for status in [json!("incomplete"), json!("in_progress"), Value::Null,
+            json!(true), json!(0), json!({}), json!([]), json!(""), json!("unknown")] {
+            let mut item = tool(kind, true);
+            item["status"] = status;
+            assert_tool_refused(item, metered);
+        }
+    }
+}
+
+#[test]
+fn nonstream_tool_calls_reject_unfinished_or_invalid_status() {
+    reject_explicit_tool_status(false);
+}
+
+#[test]
+fn metered_tool_calls_reject_unfinished_or_invalid_status() {
+    reject_explicit_tool_status(true);
+}
+
+#[test]
+fn parent_incomplete_does_not_invalidate_finished_or_statusless_tools() {
+    for metered in [false, true] {
+        for kind in ["function_call", "custom_tool_call"] {
+            for explicit_status in [false, true] {
+                let mut item = tool(kind, true);
+                if !explicit_status { item.as_object_mut().unwrap().remove("status"); }
+                let mut body = response(item.clone(), "incomplete");
+                body["incomplete_details"] = json!({"reason":"content_filter"});
+                let actual = run_tool_replies(tool_body_replies(body, metered), metered);
+                let result = actual.result.unwrap();
+                assert_eq!(result.output, vec![item.clone()]);
+                assert_eq!(result.status, "incomplete");
+                assert_eq!(result.incomplete_details, Some(json!({"reason":"content_filter"})));
+                assert_eq!(actual.events, vec![(vec![item], false)]);
+                assert_eq!(actual.requests.len(), if metered { 3 } else { 1 });
+            }
+        }
+    }
+}
+
+#[test]
+fn truncated_tool_status_is_repaired_before_status_validation() {
+    for metered in [false, true] {
+        for kind in ["function_call", "custom_tool_call"] {
+            for status in [json!("in_progress"), Value::Null] {
+                let good = tool(kind, true);
+                let mut cut = tool(kind, false);
+                cut["status"] = status;
+                let mut replies = tool_body_replies(response(cut, "incomplete"), metered);
+                replies.push(Reply { streamed:false, at_budget:false,
+                    body:Some(response(good.clone(), "completed")) });
+                let actual = run_tool_replies(replies, metered);
+                assert_eq!(actual.result.unwrap().output, vec![good.clone()]);
+                assert_eq!(actual.events, vec![(vec![good], false)]);
+                assert_eq!(actual.requests.len(), if metered { 4 } else { 2 });
+            }
+        }
+    }
+}
+
+#[test]
+fn truncated_invalid_tool_status_keeps_final_chunk_refusal() {
+    for metered in [false, true] {
+        for kind in ["function_call", "custom_tool_call"] {
+            let mut cut = tool(kind, false);
+            cut["status"] = json!("incomplete");
+            let mut cfg = config();
+            cfg.max_chunks = 1;
+            let actual = run_with_failure(
+                tool_body_replies(response(cut, "incomplete"), metered), cfg,
+                metered.then_some((1, "fixture transport connection closed")));
+            assert_eq!(actual.result.unwrap_err(),
+                "chunk 0: incomplete tool call has no remaining retry chunk");
+            assert!(actual.events.is_empty());
+            assert_eq!(actual.requests.len(), if metered { 3 } else { 1 });
+        }
+    }
+}
+
+#[test]
+fn unrecognized_output_status_remains_opaque() {
+    for metered in [false, true] {
+        for status in [Value::Null, json!(false), json!("in_progress")] {
+            let item = json!({"type":"future_output", "status":status,
+                "extension":{"unchanged":true}});
+            let actual = run_tool_replies(
+                tool_body_replies(response(item.clone(), "completed"), metered), metered);
+            assert_eq!(actual.result.unwrap().output, vec![item.clone()]);
+            assert_eq!(actual.events, vec![(vec![item], false)]);
+        }
+    }
+}
+
+fn run_explicit_incomplete(replies: Vec<Reply>, cfg: ChainConfig) -> Run {
+    run_with_terminal_event(replies, cfg, Some((1, "fixture transport connection closed")),
+        "response.incomplete")
+}
+
+#[test]
+fn explicit_incomplete_metered_text_uses_existing_continuation() {
+    let mut replies = fallback(response(text("first"), "incomplete"), true);
+    replies.push(Reply { streamed:false, at_budget:false,
+        body:Some(response(text("second"), "completed")) });
+    let actual = run_explicit_incomplete(replies, config());
+    let result = actual.result.unwrap();
+    assert_eq!(result.status, "completed");
+    assert_eq!((result.chunks, result.metered_chunks, actual.refunds), (2, 1, 1));
+    assert_eq!(actual.events, vec![(vec![text("first")], true), (vec![text("second")], false)]);
+    assert_eq!(result.output[0]["content"][0]["text"], "firstsecond");
+    assert!(actual.requests[3]["input"].as_array().unwrap().contains(&text("first")));
+    assert_eq!(actual.requests.len(), 4);
+}
+
+#[test]
+fn explicit_incomplete_final_text_preserves_partial_status() {
+    let mut cfg = config();
+    cfg.max_chunks = 1;
+    let actual = run_explicit_incomplete(fallback(response(text("partial"), "incomplete"), true), cfg);
+    let result = actual.result.unwrap();
+    assert_eq!(result.status, "incomplete");
+    assert_eq!(result.incomplete_details, Some(json!({"reason":"max_output_tokens"})));
+    assert_eq!(result.output, vec![text("partial")]);
+    assert_eq!(actual.events, vec![(vec![text("partial")], true)]);
+    assert_eq!((actual.requests.len(), actual.refunds), (3, 1));
+}
+
+#[test]
+fn explicit_incomplete_tool_is_withheld_and_repaired() {
+    for kind in ["function_call", "custom_tool_call"] {
+        let mut cut = tool(kind, false);
+        cut["status"] = json!("in_progress");
+        let good = tool(kind, true);
+        let mut replies = fallback(response(cut, "incomplete"), true);
+        replies.push(Reply { streamed:false, at_budget:false,
+            body:Some(response(good.clone(), "completed")) });
+        let actual = run_explicit_incomplete(replies, config());
+        assert_eq!(actual.result.unwrap().output, vec![good.clone()]);
+        assert_eq!(actual.events, vec![(vec![good], false)]);
+        assert_eq!(actual.requests.len(), 4);
+    }
+}
+
+fn reject_invalid_usage_counts(metered: bool) {
+    for field in ["input_tokens", "output_tokens"] {
+        for bad in [Value::Null, json!("7"), json!(-1), json!(1.5),
+            json!(true), json!({}), json!([]), json!(1e100)] {
+            let mut body = response(tool("custom_tool_call", true), "completed");
+            body["usage"][field] = bad;
+            let actual = run_tool_replies(tool_body_replies(body, metered), metered);
+            let prefix = if metered { "streamed chunk" } else { "response chunk" };
+            assert_eq!(actual.result.unwrap_err(), format!("{prefix} has invalid usage count"));
+            assert!(actual.events.is_empty());
+            assert_eq!(actual.requests.len(), if metered { 3 } else { 1 });
+            assert_eq!(actual.refunds, usize::from(metered));
+        }
+    }
+}
+
+#[test]
+fn nonstream_invalid_usage_cannot_publish_tools() { reject_invalid_usage_counts(false); }
+
+#[test]
+fn metered_invalid_usage_cannot_publish_tools() { reject_invalid_usage_counts(true); }
+
+#[test]
+fn invalid_usage_cannot_start_an_unaccounted_continuation() {
+    let mut body = response(text("partial"), "incomplete");
+    body["usage"]["output_tokens"] = json!("16");
+    let mut cfg = config();
+    cfg.max_total_tokens = Some(16);
+    cfg.max_chunks = 2;
+    let actual = run_with_failure(fallback(body, false), cfg,
+        Some((1, "fixture transport connection closed")));
+    assert_eq!(actual.result.unwrap_err(), "streamed chunk has invalid usage count");
+    assert!(actual.events.is_empty());
+    assert_eq!(actual.requests.len(), 3);
+}
+
+#[test]
+fn invalid_later_usage_preserves_already_emitted_output() {
+    let mut bad = response(text("second"), "completed");
+    bad["usage"]["input_tokens"] = json!(-1);
+    let actual = run(vec![counted_reply(11, 7, "incomplete", "first"),
+        Reply { streamed:false, at_budget:false, body:Some(bad) }], config());
+    assert_eq!(actual.result.unwrap_err(), "response chunk has invalid usage count");
+    assert_eq!(actual.events, vec![(vec![text("first")], true)]);
+    assert_eq!(actual.requests.len(), 2);
+}
+
+fn reject_malformed_output_items(metered: bool) {
+    for bad in [Value::Null, json!(true), json!(42), json!("private-fixture"),
+        json!([]), json!({}), json!({"type":null}), json!({"type":false}),
+        json!({"type":42}), json!({"type":[]}), json!({"type":{}}), json!({"type":""})] {
+        for status in ["completed", "incomplete"] {
+            let mut body = response(text("unpublished"), status);
+            body["output"].as_array_mut().unwrap().push(bad.clone());
+            let actual = run_tool_replies(tool_body_replies(body, metered), metered);
+            let prefix = if metered { "streamed chunk" } else { "response chunk" };
+            assert_eq!(actual.result.unwrap_err(), format!("{prefix} has invalid output item"));
+            assert!(actual.events.is_empty());
+            assert_eq!(actual.requests.len(), if metered { 3 } else { 1 });
+            assert_eq!(actual.refunds, usize::from(metered));
+        }
+    }
+}
+
+#[test]
+fn nonstream_malformed_output_items_never_publish() { reject_malformed_output_items(false); }
+
+#[test]
+fn metered_malformed_output_items_never_publish() { reject_malformed_output_items(true); }
+
+#[test]
+fn malformed_later_output_keeps_only_previously_published_items() {
+    let mut bad = response(text("unpublished"), "completed");
+    bad["output"].as_array_mut().unwrap().push(json!({}));
+    let actual = run(vec![counted_reply(11, 7, "incomplete", "first"),
+        Reply { streamed:false, at_budget:false, body:Some(bad) }], config());
+    assert_eq!(actual.result.unwrap_err(), "response chunk has invalid output item");
+    assert_eq!(actual.events, vec![(vec![text("first")], true)]);
+    assert_eq!((actual.requests.len(), actual.refunds), (2, 0));
+}
+
+#[test]
+fn named_error_fallback_cannot_publish_executable_tools() {
+    for prefix in ["event:error\n", "event:ping\nevent:error\n",
+        "event:error\n\n", "event:error\r\n"] {
+        let actual = run_with_frame_prefix(
+            fallback(response(tool("function_call", true), "completed"), false),
+            config(), Some((1, "fixture transport connection closed")),
+            "response.completed", prefix);
+        assert_eq!(actual.result.unwrap_err(), "streamed chunk ended with error");
+        assert!(actual.events.is_empty());
+        assert_eq!((actual.requests.len(), actual.refunds), (3, 1));
+    }
+}
+
+#[test]
+fn overwritten_error_name_keeps_normal_fallback_output() {
+    let item = tool("custom_tool_call", true);
+    for prefix in ["event:error\nevent:ping\n", "event:error\nevent\n\n"] {
+        let actual = run_with_frame_prefix(
+            fallback(response(item.clone(), "completed"), false), config(),
+            Some((1, "fixture transport connection closed")), "response.completed", prefix);
+        let result = actual.result.unwrap();
+        assert_eq!(result.output, vec![item.clone()]);
+        assert_eq!(actual.events, vec![(vec![item.clone()], false)]);
+        assert_eq!((result.chunks, result.metered_chunks), (1, 1));
+        assert_eq!((actual.requests.len(), actual.refunds), (3, 1));
+    }
+}
+
+#[test]
+fn malformed_message_content_never_publishes_in_either_response_mode() {
+    for metered in [false, true] {
+        for (item, reason) in [
+            (json!({"type":"message"}), "invalid message content"),
+            (json!({"type":"message", "content":"private-fixture"}), "invalid message content"),
+            (json!({"type":"message", "content":[null]}), "invalid message part"),
+            (json!({"type":"message", "content":[{"type":"output_text", "text":7}]}), "invalid output text"),
+            (json!({"type":"message", "content":[{"type":"refusal", "refusal":false}]}), "invalid refusal"),
+        ] {
+            for status in ["completed", "incomplete"] {
+                let mut body = response(text("unpublished"), status);
+                body["output"].as_array_mut().unwrap().push(item.clone());
+                let actual = run_tool_replies(tool_body_replies(body, metered), metered);
+                let prefix = if metered { "streamed chunk" } else { "response chunk" };
+                assert_eq!(actual.result.unwrap_err(), format!("{prefix} has {reason}"));
+                assert!(actual.events.is_empty());
+                assert_eq!(actual.requests.len(), if metered { 3 } else { 1 });
+                assert_eq!(actual.refunds, usize::from(metered));
+            }
+        }
+    }
+}
+
+#[test]
+fn invalid_later_message_content_keeps_only_prior_events() {
+    let bad = json!({"type":"message", "content":[{"type":"output_text"}]});
+    let actual = run(vec![counted_reply(11, 7, "incomplete", "first"),
+        Reply { streamed:false, at_budget:false, body:Some(response(bad, "completed")) }], config());
+    assert_eq!(actual.result.unwrap_err(), "response chunk has invalid output text");
+    assert_eq!(actual.events, vec![(vec![text("first")], true)]);
+    assert_eq!((actual.requests.len(), actual.refunds), (2, 0));
+}
+
+#[test]
+fn mixed_message_content_retains_refusal_extensions_and_empty_values() {
+    let item = json!({"type":"message", "content":[
+        {"type":"output_text", "text":"", "annotations":[{"fixture":true}]},
+        {"type":"refusal", "refusal":"no", "extra":[1,2]},
+        {"type":"future_part", "opaque":{"kept":true}}]});
+    for metered in [false, true] {
+        let actual = run_tool_replies(
+            tool_body_replies(response(item.clone(), "completed"), metered), metered);
+        let result = actual.result.unwrap();
+        assert_eq!(result.output, vec![item.clone()]);
+        assert_eq!(actual.events, vec![(vec![item.clone()], false)]);
+        assert_eq!(result.usage, json!({"input_tokens":11, "output_tokens":7}));
+        assert_eq!(actual.requests.len(), if metered { 3 } else { 1 });
+    }
+}
+
+#[test]
+fn named_terminal_failures_in_fallback_do_not_publish() {
+    for (prefix, expected) in [
+        ("event: response.failed\n", "streamed chunk ended with response.failed"),
+        ("event: response.incomplete\n", "streamed chunk has invalid named terminal event"),
+        ("event: response.completed\ndata: not-json\n\n", "streamed chunk has invalid named terminal event"),
+    ] {
+        let actual = run_with_frame_prefix(
+            fallback(response(tool("function_call", true), "completed"), false), config(),
+            Some((1, "fixture transport connection closed")), "response.completed", prefix);
+        assert_eq!(actual.result.unwrap_err(), expected);
+        assert!(actual.events.is_empty());
+        assert_eq!((actual.requests.len(), actual.refunds), (3, 1));
+    }
+}
+
+#[test]
+fn matching_named_fallback_keeps_completed_output() {
+    let item = text("answer");
+    let actual = run_with_frame_prefix(fallback(response(item.clone(), "completed"), false),
+        config(), Some((1, "fixture transport connection closed")), "response.completed",
+        "event: response.failed\nevent: response.completed\n");
+    let result = actual.result.unwrap();
+    assert_eq!(result.output, vec![item.clone()]);
+    assert_eq!(result.status, "completed");
+    assert_eq!(actual.events, vec![(vec![item], false)]);
+    assert_eq!((actual.requests.len(), actual.refunds), (3, 1));
+}
+
 #[test]
 fn empty_nonstream_completion_remains_valid() {
     let actual = run(vec![Reply { streamed:false, at_budget:false,
@@ -544,4 +1252,34 @@ fn minimum_remaining_budget_still_allows_continuation() {
     assert_eq!(actual.requests[1]["max_output_tokens"], 16);
     assert_eq!(result.status, "completed");
     assert_eq!((result.output_tokens, result.chunks, actual.refunds), (32, 2, 0));
+}
+
+#[test]
+fn malformed_earlier_completion_withholds_later_fallback_tools() {
+    for (prefix, reason) in [
+        ("data: {\"type\":\"response.completed\",\"response\":null}\n\n", "invalid response object"),
+        ("event: response.completed\ndata: {\"type\":\"response.completed\",\"response\":{\"output\":[],\"status\":\"failed\"}}\n\n", "invalid terminal status"),
+        ("data: {\"type\":\"response.completed\",\"response\":{\"output\":[],\"usage\":{\"output_tokens\":-1}}}\n\n", "invalid usage count"),
+    ] {
+        let actual = run_with_frame_prefix(
+            fallback(response(tool("function_call", true), "completed"), false),
+            config(), Some((1, "fixture transport connection closed")),
+            "response.completed", prefix);
+        assert_eq!(actual.result.unwrap_err(), format!("streamed chunk has {reason}"));
+        assert!(actual.events.is_empty());
+        assert_eq!((actual.requests.len(), actual.refunds), (3, 1));
+    }
+}
+
+#[test]
+fn malformed_fallback_completion_preserves_prior_published_chunk() {
+    let mut replies = vec![Reply { streamed:false, at_budget:false,
+        body:Some(response(text("first"), "incomplete")) }];
+    replies.extend(fallback(response(tool("custom_tool_call", true), "completed"), false));
+    let actual = run_with_frame_prefix(replies, config(),
+        Some((2, "fixture transport connection closed")), "response.completed",
+        "data: {\"type\":\"response.completed\",\"response\":{\"output\":[null]}}\n\n");
+    assert_eq!(actual.result.unwrap_err(), "streamed chunk has invalid output item");
+    assert_eq!(actual.events, vec![(vec![text("first")], true)]);
+    assert_eq!((actual.requests.len(), actual.refunds), (4, 1));
 }

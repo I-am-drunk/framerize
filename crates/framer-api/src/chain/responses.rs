@@ -335,6 +335,8 @@ pub async fn complete_long(
             ));
         }
 
+        validate_tool_fields(&items, &output_items)?;
+
         // Refuse unrepresentable usage before publishing this chunk's items.
         let next_ptok = ptok.max(usage["input_tokens"].as_u64().unwrap_or(0));
         let next_ctok = ctok.checked_add(out_t).ok_or("Responses output usage overflow")?;
@@ -442,12 +444,67 @@ async fn stream_chunk(
     .await
 }
 
+fn validate_tool_fields(items: &[Value], previous: &[Value]) -> Result<(), &'static str> {
+    for item in items {
+        let input = match item["type"].as_str() {
+            Some("function_call") => "arguments",
+            Some("custom_tool_call") => "input",
+            _ => continue,
+        };
+        // Validate only deliverable calls, after the truncated-call retry path.
+        // Input stays opaque; an empty string is a valid tool payload.
+        if !["call_id", "name"].iter().all(|key| {
+            item[*key].as_str().is_some_and(|value| !value.is_empty())
+        }) || !item[input].is_string()
+            || item.get("status").is_some_and(|status| status.as_str() != Some("completed")) {
+            return Err("response chunk has invalid tool call fields");
+        }
+    }
+    let mut ids = std::collections::HashSet::new();
+    for item in items {
+        if matches!(item["type"].as_str(), Some("function_call" | "custom_tool_call")) {
+            let id = item["call_id"].as_str().expect("validated tool call id");
+            if !ids.insert(id) {
+                return Err("response chunk has duplicate tool call id");
+            }
+        }
+    }
+    if !ids.is_empty()
+        && previous.iter().any(|item| {
+            matches!(item["type"].as_str(), Some("function_call" | "custom_tool_call"))
+                && item["call_id"].as_str().is_some_and(|id| ids.contains(id))
+        })
+    {
+        return Err("response chunk has duplicate tool call id");
+    }
+    Ok(())
+}
+
 fn validate_response_body(body: &Value) -> Result<(), &'static str> {
     if !body.is_object() {
         return Err("invalid response object");
     }
-    if !body["output"].is_array() {
-        return Err("invalid output array");
+    let output = body["output"].as_array().ok_or("invalid output array")?;
+    if output.iter().any(|item| {
+        !item.get("type").and_then(Value::as_str).is_some_and(|kind| !kind.is_empty())
+    }) {
+        return Err("invalid output item");
+    }
+    for item in output.iter().filter(|item| item["type"] == "message") {
+        let content = item["content"].as_array().ok_or("invalid message content")?;
+        for part in content {
+            let kind = part.get("type").and_then(Value::as_str)
+                .filter(|kind| !kind.is_empty()).ok_or("invalid message part")?;
+            match kind {
+                "output_text" if !part["text"].is_string() => {
+                    return Err("invalid output text");
+                }
+                "refusal" if !part["refusal"].is_string() => {
+                    return Err("invalid refusal");
+                }
+                _ => {}
+            }
+        }
     }
     if body.get("status").is_some_and(|status| {
         !matches!(status.as_str(), Some("completed" | "incomplete"))
@@ -457,29 +514,76 @@ fn validate_response_body(body: &Value) -> Result<(), &'static str> {
     if body.get("usage").is_some_and(|usage| !usage.is_null() && !usage.is_object()) {
         return Err("invalid usage object");
     }
+    if ["input_tokens", "output_tokens"].iter().any(|field| {
+        body["usage"].get(*field).is_some_and(|count| count.as_u64().is_none())
+    }) {
+        return Err("invalid usage count");
+    }
+    if output.iter().any(|item| {
+        item["type"] == "message"
+            && item.get("role").is_some_and(|role| role.as_str() != Some("assistant"))
+    }) {
+        return Err("invalid message role");
+    }
     Ok(())
 }
 
 fn parse_streamed_chunk(text: &str) -> Result<AssembledResponses, String> {
-    // The buffered SSE text: find the terminal response.completed event.
+    // Retain the terminal response, including a validated partial completion.
     let mut final_obj: Option<Value> = None;
     let mut data_lines = Vec::new();
-    for line in text.lines().chain(std::iter::once("")) {
+    let mut event_name = "";
+    // SSE permits CR alone; a CRLF pair must still end just one line.
+    let lines = text.split_terminator('\n').flat_map(|line| {
+        line.strip_suffix('\r').unwrap_or(line).split('\r')
+    });
+    for line in lines.chain(std::iter::once("")) {
+        if let Some(name) = line.strip_prefix("event:") {
+            event_name = name.strip_prefix(' ').unwrap_or(name);
+            continue;
+        }
+        if line == "event" {
+            event_name = "";
+            continue;
+        }
         if let Some(data) = line.strip_prefix("data:") {
             data_lines.push(data.strip_prefix(' ').unwrap_or(data));
             continue;
         }
-        if !line.is_empty() || data_lines.is_empty() {
+        if !line.is_empty() {
+            continue;
+        }
+        let frame_name = std::mem::take(&mut event_name);
+        if matches!(frame_name, "error" | "response.failed") {
+            return Err(format!("streamed chunk ended with {frame_name}"));
+        }
+        let named_terminal = matches!(frame_name, "response.completed" | "response.incomplete");
+        if data_lines.is_empty() && !named_terminal {
             continue;
         }
         let data = data_lines.join("\n");
         data_lines.clear();
-        if data == "[DONE]" {
+        if data == "[DONE]" && !named_terminal {
             continue;
         }
-        if let Ok(v) = serde_json::from_str::<Value>(&data) {
+        let parsed = serde_json::from_str::<Value>(&data);
+        if named_terminal && parsed.as_ref().ok().and_then(|v| v["type"].as_str()) != Some(frame_name) {
+            return Err("streamed chunk has invalid named terminal event".into());
+        }
+        if let Ok(v) = parsed {
             match v["type"].as_str() {
-                Some("response.completed") => final_obj = v.get("response").cloned(),
+                Some("response.completed") => {
+                    let body = &v["response"];
+                    validate_response_body(body)
+                        .map_err(|problem| format!("streamed chunk has {problem}"))?;
+                    final_obj = Some(body.clone());
+                }
+                Some("response.incomplete") if v["response"]["status"] == "incomplete" => {
+                    let body = &v["response"];
+                    validate_response_body(body)
+                        .map_err(|problem| format!("streamed chunk has {problem}"))?;
+                    final_obj = Some(body.clone());
+                }
                 Some(kind @ ("error" | "response.failed" | "response.incomplete")) => {
                     return Err(format!("streamed chunk ended with {kind}"));
                 }
@@ -487,7 +591,7 @@ fn parse_streamed_chunk(text: &str) -> Result<AssembledResponses, String> {
             }
         }
     }
-    let body = final_obj.ok_or("streamed chunk had no response.completed event")?;
+    let body = final_obj.ok_or("streamed chunk had no terminal response event")?;
     validate_response_body(&body).map_err(|problem| format!("streamed chunk has {problem}"))?;
     let output = body["output"].as_array().expect("validated response output").clone();
     let usage = body.get("usage").cloned().unwrap_or_else(|| json!({}));
