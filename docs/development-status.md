@@ -3,6 +3,20 @@
 The rearchitecture is on `refactor/separate-apps-and-ci-20261025` in draft
 [PR #2](https://github.com/I-am-drunk/framerize/pull/2). It is not deployed.
 
+Python browser-page ownership now survives repeated caller cancellation.
+Cancelled pool allocation settles and reclaims its page before unlocking;
+borrowed pages wait for their own dispatched calls before returning to the
+pool. A mint page created after cancellation is closed without navigation
+or SDK warming, and a failed close remains an error. All 23 isolated checks
+pass across the three changes. Their separate pre-fix baselines reproduced
+14 failing methods and nine passing controls; four failures surfaced as
+timeouts or cancellation errors rather than assertions. All 734 tracked,
+seven candidate and two existing fixture hashes match. Every test unit is
+stopped. This is qualified source on `feat/native-browser-handoff-20261026`;
+the frozen `f33362b` packages remain unchanged. These helpers add no operation
+deadline and do not establish remote JavaScript termination or live browser
+cleanup. Next: qualify the remaining CDP connection/startup deltas.
+
 CDP device creation now writes and syncs a separate candidate, then publishes
 the complete record without replacing a concurrent winner. Cancelled creation
 retains candidate cleanup. Profile and device preparation also retain the
@@ -13,8 +27,8 @@ tracked and five candidate hashes match; the test unit is fully stopped.
 The new private helpers have no raw-parent behavioral baseline. This is
 qualified source on `feat/native-browser-handoff-20261026`, outside the frozen
 `f33362b` packages. Slow filesystem work can still delay cleanup; power-loss
-durability and live browser acceptance were not tested. Next: qualify the
-three queued Python page-lifetime fixes together.
+durability and live browser acceptance were not tested. The subsequent
+Python page-lifetime qualification is recorded above.
 
 Owned browser startup now rejects failed stale-port removal before launching
 processes, while missing/removable entries and Attach behavior retain their
