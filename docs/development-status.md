@@ -3,6 +3,19 @@
 The rearchitecture is on `refactor/separate-apps-and-ci-20261025` in draft
 [PR #2](https://github.com/I-am-drunk/framerize/pull/2). It is not deployed.
 
+Device context creation and preparation now retain the device lock and memory
+reservation until outstanding browser calls and late-context cleanup settle.
+A failed cancelled close preserves cancellation and marks cleanup unconfirmed,
+so the cancelled mint cannot start ambient fallback. All seventeen isolated
+creation/preparation/session checks pass. The two predecessor baselines exposed
+eight assertion failures and three cleanup-entry timeouts, with six controls.
+All 746 tracked and 24 candidate hashes match; every test unit is stopped.
+The earlier 23 page-lifetime checks remain valid and were not repeated.
+This qualified Python source is outside the frozen `f33362b` packages and adds
+no operation deadline or live-browser acceptance. The separate CDP startup
+group has 48 passing checks and one returned shutdown-fixture timeout; its
+qualification and the subsequent package decision remain open.
+
 CDP attachment now selects the exact HTTPS Framer app origin before using a
 page. Discovery GET and new-tab PUT share an owned async HTTP connection
 with a five-second total deadline, 16 KiB header limit and 8 MiB body limit.

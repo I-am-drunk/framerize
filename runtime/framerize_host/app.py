@@ -11,6 +11,8 @@ from framerize_runtime.wire import AsyncReplyWriter
 from .resources import (memory_snapshot, trim_unused_heap, MemoryPressureError,
     BROWSER_STARTUP_RESERVE, prepared_memory_browser, prepared_memory_addon)
 from .accounts.state import Device, AccountLifecycle, Account
+from .accounts.context_creation import (create_device_context,
+    close_cancelled_device_context)
 from .accounts.page_acquisition import acquire_page
 from .accounts.page_creation import create_page
 from .accounts.page_use import page_use, record_page_call
@@ -719,7 +721,9 @@ class Host:
         # Single-flight initialization keeps simultaneous first requests from
         # overwriting and leaking each other's context.
         async with d.lock:
-            return await self._prepare_device(acc, account, d)
+            # A cancelled waiter does not settle its shielded device RPCs.
+            async with page_use(account):
+                return await self._prepare_device(acc, account, d)
 
     async def _prepare_device(self, acc, account, d):
         dev = d.id
@@ -729,9 +733,11 @@ class Host:
             d.page, d.ctx, d.warm = None, None, False
         if d.page is not None and d.warm:
             return d
-        async with self._allocation(64 * 1024**2):
+        async with self._allocation(64 * 1024**2), page_use(account):
             if d.page is None:
-                ctx = await self._rpc(account, acc.browser.new_context)
+                ctx = await create_device_context(acc,
+                    lambda: self._rpc(account, acc.browser.new_context),
+                    lambda created: self._rpc(account, created.close))
                 try:
                     await self._rpc(account, ctx.add_init_script,
                         f"try {{ localStorage.setItem('__cuid', {json.dumps(dev)}); }} catch(e) {{}}"
@@ -745,6 +751,10 @@ class Host:
                     await self._rpc(account, ctx.add_cookies, cookies)
                     page = await self._rpc(account, ctx.new_page)
                     await self._rpc(account, page.goto, LOGIN_URL, wait_until="domcontentloaded", timeout=90000)
+                except asyncio.CancelledError:
+                    await close_cancelled_device_context(acc,
+                        lambda: self._rpc(account, ctx.close))
+                    raise
                 except BaseException:
                     await self._rpc(account, ctx.close)
                     raise
