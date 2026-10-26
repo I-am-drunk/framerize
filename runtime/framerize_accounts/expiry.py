@@ -21,9 +21,10 @@ from .rates import AccountRates, RatePolicy, SystemClock
 LEGACY_WINDOW_SECONDS = 600.0
 
 
-def _inventory(root):
+def _inventory(root, ignored=()):
     result = {}
-    entries = [p for p in root.iterdir() if p.name != '.rate-history.lock']
+    entries = [p for p in root.iterdir()
+               if p.name != '.rate-history.lock' and p.name not in ignored]
     migration.require(0 < len(entries) <= 64, 'invalid account inventory size')
     for path in entries:
         RateJournal._account(path.name)

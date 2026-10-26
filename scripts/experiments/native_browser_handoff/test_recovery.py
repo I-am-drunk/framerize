@@ -69,8 +69,9 @@ class RecoveryTests(unittest.TestCase):
             self.running = str(self.browser if self.fallback.exists() else self.original)
             self.current.update(MainPID='456', ActiveState='active', InvocationID='returned')
 
-    def ready(self, expected):
+    def ready(self, expected, *, verify_history=False):
         self.assertEqual(self.running, expected)
+        self.assertEqual(verify_history, expected == str(self.browser))
         self.assertEqual(self.current['ActiveState'], 'active')
         return int(self.current['MainPID'])
 

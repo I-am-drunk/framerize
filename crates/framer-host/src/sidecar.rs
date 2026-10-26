@@ -165,6 +165,9 @@ mod cancel_write_tests;
 #[cfg(test)]
 #[path = "sidecar_test_support.rs"]
 mod test_support;
+#[cfg(test)]
+#[path = "sidecar_history_tests.rs"]
+mod history_tests;
 
 #[cfg(test)]
 #[path = "sidecar_lifecycle_tests.rs"]
@@ -526,6 +529,17 @@ impl SidecarBridge {
 
 #[async_trait::async_trait]
 impl BrowserBridge for SidecarBridge {
+    async fn check_account_history(&self, accounts: &[AccountId]) -> Result<(), String> {
+        let accounts: Vec<_> = accounts.iter().map(|account| account.0.to_string()).collect();
+        let value = self.call_with_timeout("history_status", json!({"accounts": accounts}),
+            std::time::Duration::from_secs(5)).await?;
+        if value == json!({"ready": true, "accounts": accounts.len()}) {
+            Ok(())
+        } else {
+            Err("invalid account history readiness reply".into())
+        }
+    }
+
     async fn shutdown(&self) -> Result<(), String> {
         let mut guard = self.inner.lock().await;
         self.stopping.store(true, Ordering::Release);

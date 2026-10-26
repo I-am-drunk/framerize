@@ -15,7 +15,8 @@ pub(super) async fn expire(python: PathBuf, script: PathBuf, root: PathBuf,
             let mut child = Command::new(python).arg("-B").arg(script)
                 .arg("--root").arg(&root).arg("--expire-legacy-from").arg(previous)
                 .env_clear().env("PATH", "/usr/bin:/bin").process_group(0)
-                .stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::null())
+                .envs(super::super::account::ledger::rate_policy_environment())
+                .stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::inherit())
                 .kill_on_drop(true).spawn().map_err(|_| "cannot start legacy migration")?;
             let result = tokio::select! {
                 biased;

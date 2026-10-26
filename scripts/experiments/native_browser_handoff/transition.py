@@ -126,7 +126,7 @@ def native_ready(plan, seconds=720):
         except OSError:
             pass
         time.sleep(1)
-    raise RuntimeError('native readiness deadline expired')
+    raise r.RecoveryFailure('native readiness deadline expired')
 
 
 def verify_history(plan, launched_at, current):
@@ -245,11 +245,11 @@ def main(directory):
     try:
         code = execute()
     except Exception as error:
-        print(json.dumps({'phase': 'transition-failed', 'error_type': type(error).__name__}), flush=True)
+        print(json.dumps({'phase': 'transition-failed', **r.failure_details(error)}), flush=True)
     try:
         print(json.dumps(r.restore()), flush=True)
     except Exception as error:
-        print(json.dumps({'phase': 'recovery-pending', 'error_type': type(error).__name__}), flush=True)
+        print(json.dumps({'phase': 'recovery-pending', **r.failure_details(error)}), flush=True)
         code = 2
     return code
 

@@ -1283,6 +1283,15 @@ class Host:
     async def handle(self, req):
         if self._closed:
             raise RuntimeError("browser host is shutting down")
+        if req.get("cmd") == "history_status":
+            accounts = req.get("accounts")
+            if (type(accounts) is not list or len(accounts) > 64
+                    or any(type(account) is not str for account in accounts)
+                    or len(set(accounts)) != len(accounts)):
+                raise ValueError("invalid history readiness accounts")
+            for account in accounts:
+                self._lifecycle(account).rates.check_admission()
+            return {"ready": True, "accounts": len(accounts)}
         account = req.get("account", "")
         # Absent status/registration are synchronous and cannot race admission.
         # Preserve their existing no-browser/no-lifecycle-allocation behavior.
@@ -1518,6 +1527,10 @@ class Host:
             result = await self.handle(req)
             out = {"id": request_id, "ok": True, "result": result}
         except Exception as e:
+            if req.get("cmd") == "history_status":
+                from framerize_accounts.diagnostics import describe, report
+                report(e, 'history.readiness.failed')
+                emit('history.readiness.failed', level='error', **describe(e))
             out = {"id": request_id, "ok": False, "error": str(e)[:800]}
         finally:
             # The handler owns input only until it finishes. A slow reply
