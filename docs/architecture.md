@@ -13,6 +13,13 @@ Before recording a compatible return, it requires account-history readiness
 and the expected serving process identity. HTTP liveness alone is insufficient.
 It does not admit requests, migrate history or launch a canary by itself.
 
+Matched browser and native archives are checked against isolated synthetic
+profiles before live acceptance. The browser package must report usable
+account history, preserve unknown history on refusal and report failed-host
+shutdown. Both packages must exclude a second profile owner and join shutdown;
+native diagnostic records must exclude private request fields. These package
+checks do not run the SDK or demonstrate upstream delivery.
+
 An explicit `existing-v2` transition mode accepts an existing schema-2 journal.
 It records account rows after the original service has stopped and requires
 them to remain unchanged through native startup before sending the canary.
