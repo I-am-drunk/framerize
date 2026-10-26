@@ -284,7 +284,7 @@ fn completed_usage(response: &serde_json::Value) -> Result<Usage, &'static str> 
 /// HTTP success and an SSE terminator alone do not establish provider completion.
 fn parse_sse(body: &str) -> Result<(String, Usage), String> {
     let mut out = String::new();
-    let mut indexed = std::collections::BTreeMap::<(u64, u64), String>::new();
+    let mut indexed = std::collections::BTreeMap::<(u64, u64), (String, bool)>::new();
     let mut completed_indexed = None;
     let mut mixed_text = false;
     let mut invalid_text_delta = false;
@@ -321,7 +321,7 @@ fn parse_sse(body: &str) -> Result<(String, Usage), String> {
                 let joined = data_lines.join("\n");
                 data_lines.clear();
                 let parsed = serde_json::from_str::<serde_json::Value>(&joined);
-                if frame_name == "response.output_text.delta"
+                if matches!(frame_name, "response.output_text.delta" | "response.output_text.done")
                     && parsed.as_ref().ok().and_then(|v| v["type"].as_str()) != Some(frame_name)
                 {
                     invalid_text_delta = true;
@@ -341,7 +341,10 @@ fn parse_sse(body: &str) -> Result<(String, Usage), String> {
                                     (Some(output), Some(content)) => match (output.as_u64(), content.as_u64()) {
                                         (Some(output), Some(content)) => {
                                             if !d.is_empty() {
-                                                indexed.entry((output, content)).or_default().push_str(d);
+                                                let (text, finalized) = indexed.entry((output, content)).or_default();
+                                                if !*finalized {
+                                                    text.push_str(d);
+                                                }
                                             }
                                         }
                                         _ => invalid_text_delta = true,
@@ -352,6 +355,15 @@ fn parse_sse(body: &str) -> Result<(String, Usage), String> {
                                 invalid_text_delta = true;
                             }
                         }
+                        Some("response.output_text.done") => {
+                            match (ev["output_index"].as_u64(), ev["content_index"].as_u64(), ev["text"].as_str()) {
+                                (Some(output), Some(content), Some(text)) => {
+                                    // Final text replaces partial deltas, including with an empty answer.
+                                    indexed.insert((output, content), (text.to_string(), true));
+                                }
+                                _ => invalid_text_delta = true,
+                            }
+                        }
                         Some("response.completed") => {
                             final_text = completed_text(&ev["response"])
                                 .map_err(|reason| format!("invalid inference completion: {reason}"))?;
@@ -360,7 +372,7 @@ fn parse_sse(body: &str) -> Result<(String, Usage), String> {
                             usage = completed_usage(&ev["response"])
                                 .map_err(|reason| format!("invalid inference completion: {reason}"))?;
                             completed_indexed = (!indexed.is_empty())
-                                .then(|| indexed.values().map(String::as_str).collect::<String>());
+                                .then(|| indexed.values().map(|(text, _)| text.as_str()).collect::<String>());
                             mixed_text = completed_indexed.is_some() && !out.is_empty();
                         }
                         Some(kind @ ("response.failed" | "response.incomplete" | "error")) => {

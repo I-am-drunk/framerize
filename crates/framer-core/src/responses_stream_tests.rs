@@ -27,9 +27,11 @@ fn selected<'a>(events: &'a [Value], kind: &str) -> Vec<&'a Value> {
 fn assert_matching_items(events: &[Value]) -> Value {
     let added = selected(events, "response.output_item.added");
     let done = selected(events, "response.output_item.done");
-    let finals = selected(events, "response.completed");
+    let finals: Vec<_> = events.iter().filter(|event| matches!(event["type"].as_str(),
+        Some("response.completed" | "response.incomplete"))).collect();
     assert_eq!(finals.len(), 1);
     let full = finals[0]["response"].clone();
+    assert_eq!(finals[0]["type"], format!("response.{}", full["status"].as_str().unwrap()));
     let output = full["output"].as_array().unwrap();
     assert_eq!(added.len(), output.len());
     assert_eq!(done.len(), output.len());

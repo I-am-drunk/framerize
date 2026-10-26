@@ -110,7 +110,9 @@ errors before publication; omitted/null errors remain compatible. The direct
 SSE parser treats a bare data field as an empty data field.
 
 Indexed legacy text is assembled by output/content position in a sparse map
-and captured at each completion. Mixed nonempty indexed/unindexed text and
+and captured at each completion. Indexed output_text.done replaces its part,
+including empty text, and prevents later deltas from extending that part.
+Mixed nonempty indexed/unindexed text and
 invalid coordinates are rejected only when no explicit terminal output is
 available. Later deltas cannot extend the captured answer.
 
@@ -135,7 +137,8 @@ consistent with the final output array.
 Each native Responses stream retains one composer from its opening frames
 through completion or failure. The composer assigns one event sequence and
 keeps generated or supplied tool IDs consistent across item, argument/input
-and terminal events. Both server adapters open this composer eagerly and
+and terminal events. The terminal event follows the assembled status,
+including response.incomplete. Both server adapters open this composer eagerly and
 reuse it for errors. A failed join emits a fixed failure after settlement;
 failure never completes pending content successfully. Native cleanup still
 must be confirmed before a successful terminal event can be sent.

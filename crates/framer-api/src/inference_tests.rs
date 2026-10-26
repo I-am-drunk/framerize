@@ -4,6 +4,129 @@ use framer_core::ids::FramerUserId;
 use framer_core::port::CastleToken;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
+fn indexed_done(output: u64, content: u64, text: &str) -> String {
+    event(json!({"type":"response.output_text.done", "output_index":output,
+        "content_index":content, "text":text}))
+}
+
+#[tokio::test]
+async fn finalized_text_without_deltas_is_preserved() {
+    let body = indexed_done(0, 0, "final answer") + &completed();
+    let Send::Done(outcome) = send_body(body).await.unwrap()
+        else { panic!("expected completion") };
+    assert_eq!(outcome.text, "final answer");
+    assert_eq!((outcome.usage.input_tokens, outcome.usage.output_tokens), (3, 5));
+}
+
+#[tokio::test]
+async fn finalized_text_replaces_partial_deltas_and_resists_late_deltas() {
+    for expected in ["final", ""] {
+        let body = indexed_delta(0, 0, "partial") + &indexed_done(0, 0, expected)
+            + &indexed_delta(0, 0, "late") + &completed();
+        let Send::Done(outcome) = send_body(body).await.unwrap()
+            else { panic!("expected completion") };
+        assert_eq!(outcome.text, expected);
+    }
+}
+
+#[tokio::test]
+async fn finalized_parts_preserve_sparse_output_and_content_order() {
+    let body = indexed_done(u64::MAX, u64::MAX, "C") + &indexed_done(0, 1, "B")
+        + &indexed_delta(0, 0, "partial") + &indexed_done(0, 0, "A")
+        + &indexed_done(7, 0, "") + &completed();
+    let Send::Done(outcome) = send_body(body).await.unwrap()
+        else { panic!("expected completion") };
+    assert_eq!(outcome.text, "ABC");
+}
+
+#[tokio::test]
+async fn finalized_text_stops_at_its_last_completion() {
+    let prefix = indexed_done(1, 0, "B") + &completed();
+    let body = prefix.clone() + &indexed_done(0, 0, "A");
+    let Send::Done(outcome) = send_body(body).await.unwrap()
+        else { panic!("expected completion") };
+    assert_eq!(outcome.text, "B");
+    let body = prefix + &indexed_done(0, 0, "A") + &completed()
+        + &indexed_done(2, 0, "discarded");
+    let Send::Done(outcome) = send_body(body).await.unwrap()
+        else { panic!("expected completion") };
+    assert_eq!(outcome.text, "AB");
+}
+
+#[tokio::test]
+async fn malformed_finalized_text_cannot_produce_legacy_success() {
+    for mut value in [json!({}), json!({"output_index":0,"text":"x"}),
+        json!({"content_index":0,"text":"x"}),
+        json!({"output_index":null,"content_index":0,"text":"x"}),
+        json!({"output_index":0,"content_index":"0","text":"x"}),
+        json!({"output_index":-1,"content_index":0,"text":"x"}),
+        json!({"output_index":0,"content_index":0.5,"text":"x"}),
+        json!({"output_index":0,"content_index":0}),
+        json!({"output_index":0,"content_index":0,"text":null}),
+        json!({"output_index":0,"content_index":0,"text":7})] {
+        value["type"] = json!("response.output_text.done");
+        for body in [event(value.clone()) + &completed(),
+            completed() + &event(value.clone())] {
+            assert_eq!(send_body(body).await.err().unwrap(),
+                "invalid inference completion: invalid output text delta");
+        }
+    }
+}
+
+#[tokio::test]
+async fn finalized_and_unindexed_text_cannot_mix_in_legacy_output() {
+    for prefix in [delta("legacy") + &indexed_done(0, 0, "final"),
+        indexed_done(0, 0, "") + &delta("legacy")] {
+        assert_eq!(send_body(prefix + &completed()).await.err().unwrap(),
+            "invalid inference completion: invalid output text delta");
+    }
+}
+
+#[tokio::test]
+async fn named_finalized_text_requires_matching_typed_data() {
+    for frame in ["event: response.output_text.done\ndata: malformed\n\n".into(),
+        "event: response.output_text.done\ndata\n\n".into(),
+        "event: response.output_text.done\n".to_string() + &indexed_delta(0, 0, "x"),
+        "event: response.output_text.delta\n".to_string() + &indexed_done(0, 0, "x")] {
+        assert_eq!(send_body(frame + &completed()).await.err().unwrap(),
+            "invalid inference completion: invalid output text delta");
+    }
+    let body = "event: response.output_text.done\n".to_string()
+        + &indexed_done(0, 0, "final") + &completed();
+    let Send::Done(outcome) = send_body(body).await.unwrap()
+        else { panic!("expected completion") };
+    assert_eq!(outcome.text, "final");
+}
+
+#[tokio::test]
+async fn authoritative_output_overrides_unusable_finalized_text() {
+    for prefix in [indexed_done(0, 0, "other"),
+        event(json!({"type":"response.output_text.done","text":null})),
+        "event: response.output_text.done\ndata: malformed\n\n".into(),
+        delta("legacy") + &indexed_done(0, 0, "final")] {
+        for (output, expected) in [(json!([]), ""), (json!([message("answer")]), "answer")] {
+            let Send::Done(outcome) = send_body(prefix.clone() + &completed_output(output))
+                .await.unwrap() else { panic!("expected completion") };
+            assert_eq!(outcome.text, expected);
+        }
+    }
+}
+
+#[tokio::test]
+async fn finalized_text_cannot_hide_failure_or_replace_completion() {
+    assert_eq!(send_body(indexed_done(0, 0, "final")).await.err().unwrap(),
+        "inference stream ended before response.completed");
+    for kind in ["error", "response.failed", "response.incomplete"] {
+        let failed = "event: response.output_text.done\n".to_string()
+            + &event(json!({"type":kind}));
+        for body in [indexed_done(0, 0, "final") + &failed + &completed(),
+            indexed_done(0, 0, "final") + &completed() + &failed] {
+            assert_eq!(send_body(body).await.err().unwrap(),
+                format!("inference stream ended with {kind}"));
+        }
+    }
+}
+
 fn indexed_delta(output: u64, content: u64, text: &str) -> String {
     event(json!({"type":"response.output_text.delta", "output_index":output,
         "content_index":content, "delta":text}))
