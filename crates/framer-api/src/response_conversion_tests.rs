@@ -1,0 +1,150 @@
+use crate::{auth::AiToken, chain::responses::complete_long, transport::Transport};
+use async_trait::async_trait;
+use framer_core::convert::{self, AssembledResponses, ChainEvent, ClientDialect, ResponsesComposer};
+use framer_core::ids::{AccountId, FramerUserId, ProjectId};
+use framer_core::port::{BrowserBridge, CastleToken, ChainConfig, Session};
+use serde_json::{json, Value};
+use std::{collections::VecDeque, sync::Mutex};
+
+struct Fixture {
+    replies: Mutex<VecDeque<Value>>,
+    requests: Mutex<Vec<Value>>,
+}
+
+struct Observed {
+    response: AssembledResponses,
+    events: Vec<Value>,
+    requests: Vec<Value>,
+}
+
+fn run(replies: Vec<Value>) -> Observed {
+    tokio::runtime::Builder::new_current_thread().enable_all().start_paused(true)
+        .build().unwrap().block_on(async {
+        let account = AccountId(uuid::Uuid::from_u128(41));
+        let session = Session { active_user: FramerUserId("fixture-user".into()),
+            cookie_header:"fixture-only".into() };
+        let cache = Mutex::new(vec![(account, AiToken {
+            bearer:"fixture-only".into(), expires_at_ms:i64::MAX })]);
+        let browser = Fixture { replies:Mutex::new(replies.into()),
+            requests:Mutex::new(Vec::new()) };
+        let composer = Mutex::new(Some(ResponsesComposer::new("fixture-model", "fixture-response")));
+        let frames = Mutex::new(convert::stream_open(
+            ClientDialect::OpenAiResponses, "fixture-model", "fixture-response"));
+        let callback = |event| {
+            if let ChainEvent::ResponsesItems { items, continues_text } = event {
+                let next = composer.lock().unwrap().as_mut().unwrap()
+                    .push_items(&items, continues_text);
+                frames.lock().unwrap().extend(next);
+            }
+        };
+        let config = ChainConfig { chunk_tokens:600, max_chunks:3,
+            max_total_tokens:Some(2048), metered_fallback:false, ..ChainConfig::default() };
+        let response = complete_long(&Transport::with_base("http://127.0.0.1:9".into()),
+            &cache, &session, &browser, &account, &ProjectId("fixture-project".into()),
+            json!({"model":"gpt-6-astra","input":"fixture"}), &config,
+            "fixture-chat", Some(&callback)).await.unwrap();
+        assert!(browser.replies.lock().unwrap().is_empty());
+        frames.lock().unwrap().extend(composer.lock().unwrap().take().unwrap().finish(&response));
+        let events = frames.lock().unwrap().iter().map(|frame| {
+            let data = frame.lines().find_map(|line| line.strip_prefix("data: ")).unwrap();
+            serde_json::from_str(data).unwrap()
+        }).collect();
+        Observed { response, events, requests:browser.requests.into_inner().unwrap() }
+    })
+}
+
+#[async_trait]
+impl BrowserBridge for Fixture {
+    async fn castle_token(&self, _: &AccountId) -> Result<CastleToken, String> {
+        panic!("unexpected mint")
+    }
+    async fn auth_begin(&self, _: &AccountId, _: &str) -> Result<(), String> {
+        panic!("unexpected login")
+    }
+    async fn auth_complete(&self, _: &AccountId, _: &str) -> Result<(String, Value), String> {
+        panic!("unexpected login")
+    }
+    async fn seed_session(&self, account: &AccountId, cookie: &str) -> Result<(), String> {
+        assert_eq!(account.0, uuid::Uuid::from_u128(41));
+        assert_eq!(cookie, "fixture-only");
+        Ok(())
+    }
+    async fn ai_post(&self, account: &AccountId, path: &str, bearer: &str, body: &Value)
+        -> Result<(u16, Option<String>, String), String>
+    {
+        assert_eq!(account.0, uuid::Uuid::from_u128(41));
+        assert_eq!(path, "/ai/v3/responses/");
+        assert_eq!(bearer, "fixture-only");
+        assert_eq!(body["request"]["stream"], false);
+        assert_eq!(body["projectId"], "fixture-project");
+        assert_eq!(body["sessionId"], "fixture-chat");
+        self.requests.lock().unwrap().push(body.clone());
+        let reply = self.replies.lock().unwrap().pop_front().expect("unexpected attempt");
+        Ok((200, None, reply.to_string()))
+    }
+}
+
+fn message(id: &str, text: &str, status: &str) -> Value {
+    json!({"id":id,"type":"message","role":"assistant","status":status,
+        "content":[{"type":"output_text","text":text,"annotations":[]}]})
+}
+
+fn reply(output: Vec<Value>, status: &str) -> Value {
+    let mut body = json!({"id":"upstream-response","status":status,"output":output,
+        "usage":{"input_tokens":5,"output_tokens":100}});
+    if status == "incomplete" {
+        body["incomplete_details"] = json!({"reason":"max_output_tokens"});
+    }
+    body
+}
+
+fn selected<'a>(observed: &'a Observed, kind: &str) -> Vec<&'a Value> {
+    observed.events.iter().filter(|event| event["type"] == kind).collect()
+}
+
+#[test]
+fn completed_continuation_is_one_message_from_chain_through_terminal_sse() {
+    let first = message("first-upstream", "prefix ", "incomplete");
+    let observed = run(vec![reply(vec![first.clone()], "incomplete"),
+        reply(vec![message("last-upstream", "suffix", "completed")], "completed")]);
+    assert_eq!(observed.requests.len(), 2);
+    assert!(observed.requests[1]["request"]["input"].as_array().unwrap().contains(&first));
+    assert_eq!(observed.response.output_tokens, 200);
+    assert_eq!(observed.response.output, vec![message("first-upstream", "prefix suffix", "completed")]);
+    let added = selected(&observed, "response.output_item.added");
+    let done = selected(&observed, "response.output_item.done");
+    assert_eq!((added.len(), done.len()), (1, 1));
+    let completed = selected(&observed, "response.completed");
+    assert_eq!(completed.len(), 1);
+    let full = &completed[0]["response"];
+    assert_eq!(full["id"], observed.events[0]["response"]["id"]);
+    assert_eq!(added[0]["item"]["id"], full["output"][0]["id"]);
+    assert_eq!(done[0]["item"], full["output"][0]);
+    assert_eq!(full["output"][0]["content"][0]["text"], "prefix suffix");
+}
+
+#[test]
+fn continued_text_and_tool_keep_one_ordered_terminal_snapshot() {
+    for (kind, field, input) in [("function_call", "arguments", "{\"n\":1}"),
+        ("custom_tool_call", "input", "fixture();")] {
+        let mut tool = json!({"id":"tool-fixture","type":kind,"call_id":"call-fixture",
+            "name":"run","namespace":"tools","status":"completed"});
+        tool[field] = json!(input);
+        let observed = run(vec![
+            reply(vec![message("first", "before ", "incomplete")], "incomplete"),
+            reply(vec![message("last", "tool", "completed"), tool.clone()], "completed")]);
+        assert_eq!(observed.requests.len(), 2);
+        let added = selected(&observed, "response.output_item.added");
+        let done = selected(&observed, "response.output_item.done");
+        assert_eq!((added.len(), done.len()), (2, 2));
+        let finals = selected(&observed, "response.completed");
+        let output = finals[0]["response"]["output"].as_array().unwrap();
+        assert_eq!(output.len(), 2);
+        for i in 0..2 {
+            assert_eq!(done[i]["item"], output[i]);
+            assert_eq!(added[i]["item"]["id"], output[i]["id"]);
+        }
+        assert_eq!(output[0]["content"][0]["text"], "before tool");
+        assert_eq!(output[1], tool);
+    }
+}
