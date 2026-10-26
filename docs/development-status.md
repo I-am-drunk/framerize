@@ -1,5 +1,22 @@
 # Development status
 
+Registration clears carried extra workspace scopes when the Framer user
+changes. This contextually integrates `52a5c32` after `dafb57a`; same-user
+reauthentication retains its existing scopes. All 13 exact server checks
+pass with 793 source pins and three candidate pins matching, and the
+isolated test unit is stopped. The six new methods all failed on the parent
+at the saved-record assertion. Their incomplete-scan loops stopped on the
+fully failed scan; only the candidate reaches the later partial-scan cases.
+This does not repair already saved stale scopes or change primary-team
+fallback. The separate missing-team correction `5e67911` is queued for
+qualification. No package or live service changed for this source milestone.
+
+Passive observation of the deployed `c7d4516` repair through 22:43:06 UTC
+on October 26 covered 2,369 successful natural chains, all with joined
+cleanup and root release. Admission refusals, unresolved operations and
+restarts remained zero over about 45 minutes. This extends the earlier
+observation; it does not establish full browserless or memory acceptance.
+
 Admission refusal now updates only the latest matching account record under
 the existing account lock. Removed or changed subjects keep the original
 refusal; fresh unrelated fields survive, and storage errors stay explicit.

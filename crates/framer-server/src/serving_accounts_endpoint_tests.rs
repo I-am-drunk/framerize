@@ -31,6 +31,8 @@ mod primary_workspace_claim;
 mod secondary_workspace_claim;
 #[path = "account_admission_refusal_publication_tests.rs"]
 mod admission_refusal_publication;
+#[path = "account_registration_identity_scope_tests.rs"]
+mod registration_identity_scope;
 
 
 use super::{account, policy};
