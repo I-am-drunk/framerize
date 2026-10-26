@@ -220,6 +220,18 @@ cookies are excluded; shared-domain and host-only API cookies remain valid.
 Existing ordering, error handling and selection among API-applicable cookies
 are preserved.
 
+Python pool-page allocation retains its account lock and memory reservation
+until allocation and preparation settle. A prepared page abandoned by its
+caller is returned to that account's pool before cancellation propagates.
+Each borrowed-page scope also tracks its own dispatched browser calls and
+joins them before release, including through repeated cancellation. Other
+accounts, free pages and unrelated calls retain independent progress.
+Dedicated mint-page creation has a separate cancellation path: it joins
+creation and closes a late page without starting navigation or SDK warming.
+Repeated cancellation cannot abandon that close; a close failure remains an
+error. These ownership rules do not introduce operation deadlines or prove
+that remote JavaScript has stopped merely because a local call settled.
+
 Login completion and session import reject a duplicate normalized email before
 saving the user-keyed session or claiming a workspace grant. Reauthentication
 of the same account retains save-before-grant and admission ordering. This is
