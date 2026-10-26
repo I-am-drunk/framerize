@@ -7,9 +7,15 @@ in progress is still joined and real cleanup failures remain unconfirmed.
 The deployed-source baseline reproduced two failures with five controls.
 All 31 lifecycle cases pass on the repair and after composition with the
 current branch (80 runtime source pins). The existing 27 test bodies
-are unchanged. This is isolated evidence, not a live deployment result.
-Next: stage the minimal repair package and establish fresh deployment and
-recovery conditions while preserving the user's operational repairs.
+are unchanged.
+Repair `c7d4516` was deployed at 21:58 UTC on 2026-10-26 after active
+operations and browser cleanup reached confirmed zero. The package retains
+the existing `72886b2` server binary and UI. Serving settings and account
+history were preserved; the independent recovery supervisor also completed.
+Through 21:59:48 UTC, 52 natural inference chains completed with confirmed
+cleanup joins and request-owner release. No admission refusal, unresolved
+operation or service restart was observed. This short live observation does
+not establish long-duration stability.
 
 The S3a measurement preparation now includes `scripts/process_phase.py`, a
 Linux point sampler for thread count and virtual address space. The caller
