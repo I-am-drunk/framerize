@@ -25,7 +25,9 @@ independent of that wait. Existing operation observers join the producer's
 upstream cleanup verdict and output disposal before releasing or fencing.
 No extra registration or retirement API is introduced.
 
-A policy panic preserves the existing immediate unknown-cleanup fence.
+A policy panic is contained by the existing completion observer. The
+observer processes it when the body reaches EOF, errors or drops, then sets
+the persistent unknown-cleanup fence.
 Unwinding can drop the emitter's join handle; that emitter still owns its
 serializer handles and output reservations. This path does not establish
 joined retirement. Disposing all output can release local buffers without

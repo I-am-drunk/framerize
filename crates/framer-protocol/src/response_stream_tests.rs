@@ -141,3 +141,26 @@ fn incremental_wire_matches_frozen_tool_and_opaque_event_contract() {
     }).collect();
     assert_eq!(String::from_utf8(wire.bytes).unwrap(), golden);
 }
+
+#[test]
+fn opaque_content_values_remain_verbatim_in_both_encoders() {
+    let parts = vec![Value::Null, json!(true), json!(7), json!("opaque"),
+        json!(["future"]), json!({"type":"future_part","payload":[1,2]})];
+    let item = json!({"type":"message","role":"assistant","content":parts});
+    let result = result(vec![item.clone()]);
+    let mut wire = Wire::default();
+    let mut encoder = ResponseEncoder::new("model", "logical");
+    encoder.push_items(&mut wire, std::slice::from_ref(&item), false).unwrap();
+    encoder.finish(&mut wire, &result).unwrap();
+    let mut composer = crate::convert::ResponsesComposer::new("model", "logical");
+    let mut collected = composer.push_items(&[item], false);
+    collected.extend(composer.finish(&result));
+    for rendered in [events(&wire.bytes), events(collected.join("\n\n").as_bytes())] {
+        for kind in ["response.content_part.added", "response.content_part.done"] {
+            let observed: Vec<_> = rendered.iter().filter(|event| event["type"] == kind)
+                .map(|event| event["part"].clone()).collect();
+            assert_eq!(observed, parts);
+        }
+        assert_eq!(rendered.last().unwrap()["response"]["output"][0]["content"], json!(parts));
+    }
+}
