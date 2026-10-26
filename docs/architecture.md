@@ -189,6 +189,16 @@ An attached CDP browser bridge claims one account before route or browser work.
 That claim survives failures, cancellation and disconnect for its lifetime.
 Owned-browser modes retain independent account admission. This claim does not
 validate the attached browser's login or exclude other bridge instances.
+Attached-page selection parses the URL and requires the HTTPS Framer app
+origin, with the default port. A hostname, path or query that merely mentions
+Framer cannot select a page. Existing first-page and new-tab fallback order
+is preserved.
+CDP discovery GET and new-tab PUT share an owned asynchronous HTTP socket.
+One five-second deadline covers connection, writing and complete body reads;
+return, cancellation and timeout drop the socket. Headers are limited to
+16 KiB and bodies to 8 MiB. The decoder accepts complete Content-Length or
+EOF-delimited bodies and rejects failed status, conflicting lengths,
+truncation and unsupported transfer encoding. It does not support chunking.
 Owned CDP startup retains its child until instance publication or joined exit.
 Cancellation requests termination and retains the actual wait result across
 abandoned shutdown callers. Version probes use the same ownership mechanism
