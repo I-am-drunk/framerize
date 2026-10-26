@@ -88,6 +88,9 @@ mod free_responses_context_tests;
 #[cfg(test)]
 mod account_registration_persistence_tests;
 
+#[cfg(test)]
+mod account_registration_concurrency_tests;
+
 /// Keep the producer owned by its response body, including before the first poll.
 fn proxy_response_stream(
     rx: tokio::sync::mpsc::Receiver<Result<framer_core::port::ProxyResponse, String>>,
@@ -2789,6 +2792,7 @@ async fn complete_login_observed(State(s): State<AppState>, Json(body): Json<Com
             cooldown_step: 0,
             cooling_until_ms: None,
         });
+    let registration = s.serving_accounts.registration.lock().await;
     // Dedupe by email BEFORE anything else: adding the same account twice
     // splits its credit ledger across two records and makes rotation think it
     // has more capacity than it does.
@@ -2829,6 +2833,7 @@ async fn complete_login_observed(State(s): State<AppState>, Json(body): Json<Com
         account.current_project = Some(framer_core::ids::ProjectId(pid.clone()));
     }
     s.state.upsert(&account).await.map_err(ApiError::Internal)?;
+    drop(registration);
 
     // Admission: scan EVERY workspace concurrently and refuse the account if
     // none has credits. An account with no credited workspace cannot serve a
@@ -2988,6 +2993,7 @@ async fn import_account_observed(State(s): State<AppState>, Json(body): Json<Imp
             cooldown_step: 0,
             cooling_until_ms: None,
         });
+    let registration = s.serving_accounts.registration.lock().await;
     // Same dedupe + naming rule as complete_login: one email, one account.
     if let Some(raw) = body.email.as_deref() {
         let email = framer_core::account::normalize_email(raw);
@@ -3036,6 +3042,7 @@ async fn import_account_observed(State(s): State<AppState>, Json(body): Json<Imp
         .map_err(ApiError::Internal)?;
     s.state.upsert(&account).await.map_err(ApiError::Internal)?;
 
+    drop(registration);
     // Admission (same rule as complete_login): an account with no credited
     // workspace cannot serve a request, so refuse it rather than let rotation
     // discover that one failure at a time.

@@ -11,6 +11,11 @@ from framerize_runtime.wire import AsyncReplyWriter
 from .resources import (memory_snapshot, trim_unused_heap, MemoryPressureError,
     BROWSER_STARTUP_RESERVE, prepared_memory_browser, prepared_memory_addon)
 from .accounts.state import Device, AccountLifecycle, Account
+from .accounts.context_creation import (create_device_context,
+    close_cancelled_device_context)
+from .accounts.page_acquisition import acquire_page
+from .accounts.page_creation import create_page
+from .accounts.page_use import page_use, record_page_call
 from framerize_accounts.rates import AccountRates, RatePolicy, SystemClock
 from .browser.driver import browser_runtime, BrowserCloseReceipt
 from .browser.proxy import proxy_options
@@ -78,6 +83,7 @@ class Host:
             finally:
                 activity.close()
         task = life.activity.track(actual)
+        record_page_call(account, task)
         owned = _MINT_CALLS.get()
         if owned is not None:
             owned.add(task)
@@ -560,18 +566,9 @@ class Host:
                 acc.borrowed.add(page)
                 return page, acc, 0.0
             if acc.size < POOL_CAP:
-                async with self._allocation(64 * 1024**2):
-                    page = await self._rpc(account, acc.ctx.new_page)
-                    try:
-                        await self._rpc(account, page.goto, LOGIN_URL, wait_until="domcontentloaded", timeout=60000)
-                        await self._rpc(account, page.wait_for_timeout, 800)
-                    except BaseException:
-                        await self._rpc(account, page.close)
-                        raise
-                acc.size += 1
-                acc.borrowed.add(page)
-                self._track_task(acc, self._human_loop(account, page), page=page, idle_loop=True)
-                return page, acc, 0.0
+                return await acquire_page(
+                    lambda: self._new_pool_page(acc, account),
+                    lambda result: self._release(result[1], result[0]))
         # At cap: this request QUEUES for a free page. Log the wait — queue
         # time dominates total latency under concurrent load (47s→190s
         # arithmetic growth was invisible until measured here).
@@ -585,6 +582,20 @@ class Host:
         if wait > 2.0:
             trace(f"{account[:8]}: pool wait {wait:.1f}s (all {POOL_CAP} pages busy)")
         return page, acc, wait
+
+    async def _new_pool_page(self, acc, account):
+        async with self._allocation(64 * 1024**2):
+            page = await self._rpc(account, acc.ctx.new_page)
+            try:
+                await self._rpc(account, page.goto, LOGIN_URL, wait_until="domcontentloaded", timeout=60000)
+                await self._rpc(account, page.wait_for_timeout, 800)
+            except BaseException:
+                await self._rpc(account, page.close)
+                raise
+        acc.size += 1
+        acc.borrowed.add(page)
+        self._track_task(acc, self._human_loop(account, page), page=page, idle_loop=True)
+        return page, acc, 0.0
 
     async def _ensure_editor(self, acc, page, account):
         """Keep the page resident on the account's project EDITOR, not /login.
@@ -669,7 +680,9 @@ class Host:
         same minute). A page that ONLY mints has an always-free main thread:
         mints stay ~25ms forever."""
         async with self._allocation(64 * 1024**2):
-            page = await self._rpc(account, acc.ctx.new_page)
+            page = await create_page(
+                lambda: self._rpc(account, acc.ctx.new_page),
+                lambda created: self._rpc(account, created.close))
             try:
                 await self._rpc(account, page.goto, LOGIN_URL, wait_until="domcontentloaded", timeout=60000)
                 await self._rpc(account, page.wait_for_timeout, 800)
@@ -708,7 +721,9 @@ class Host:
         # Single-flight initialization keeps simultaneous first requests from
         # overwriting and leaking each other's context.
         async with d.lock:
-            return await self._prepare_device(acc, account, d)
+            # A cancelled waiter does not settle its shielded device RPCs.
+            async with page_use(account):
+                return await self._prepare_device(acc, account, d)
 
     async def _prepare_device(self, acc, account, d):
         dev = d.id
@@ -718,9 +733,11 @@ class Host:
             d.page, d.ctx, d.warm = None, None, False
         if d.page is not None and d.warm:
             return d
-        async with self._allocation(64 * 1024**2):
+        async with self._allocation(64 * 1024**2), page_use(account):
             if d.page is None:
-                ctx = await self._rpc(account, acc.browser.new_context)
+                ctx = await create_device_context(acc,
+                    lambda: self._rpc(account, acc.browser.new_context),
+                    lambda created: self._rpc(account, created.close))
                 try:
                     await self._rpc(account, ctx.add_init_script,
                         f"try {{ localStorage.setItem('__cuid', {json.dumps(dev)}); }} catch(e) {{}}"
@@ -734,6 +751,10 @@ class Host:
                     await self._rpc(account, ctx.add_cookies, cookies)
                     page = await self._rpc(account, ctx.new_page)
                     await self._rpc(account, page.goto, LOGIN_URL, wait_until="domcontentloaded", timeout=90000)
+                except asyncio.CancelledError:
+                    await close_cancelled_device_context(acc,
+                        lambda: self._rpc(account, ctx.close))
+                    raise
                 except BaseException:
                     await self._rpc(account, ctx.close)
                     raise
@@ -972,7 +993,8 @@ class Host:
     async def _page(self, account, proxy=None):
         page, acc, _wait = await self._acquire(account, proxy)
         try:
-            yield page
+            async with page_use(account):
+                yield page
         finally:
             self._release(acc, page)
 
@@ -987,7 +1009,8 @@ class Host:
         try:
             await asyncio.shield(task)
         finally:
-            if task.done():
+            # A late failed waiter must not discard a newer retry's owner.
+            if task.done() and self._driver_start_task is task:
                 self._driver_start_task = None
 
     async def _launch(self, account, proxy=None):

@@ -28,7 +28,7 @@ async fn owned_browser_closes_and_exits_but_attached_browser_only_disconnects() 
         let (ws, _) = connect_async(format!("ws://{address}")).await.unwrap();
         let bridge = CdpBridge::new("unused", "/fixture-unused");
         bridge.instances.lock().await.insert(AccountId::new(),
-            Arc::new(Mutex::new(CdpInstance { child, ws, next_id: 0 })));
+            Arc::new(Mutex::new(CdpInstance { child, ws, next_id: 0, pending: Default::default() })));
         tokio::time::timeout(std::time::Duration::from_secs(3), bridge.shutdown())
             .await.unwrap().unwrap();
         peer.await.unwrap();

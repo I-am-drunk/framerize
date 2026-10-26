@@ -1,5 +1,14 @@
 # Development status
 
+The overhaul branch integrates qualified `92f1fa07`, including driver-start
+guard `e3895a4` and the shared account-registration guard. This integration
+reuses main's recorded qualification; no tests or builds were rerun here.
+S1 source work is authorized: move runtime, rotation and authorization state
+under explicit shared ownership, preserving native invalidation and all routes.
+New fixtures will remain unrun until main executes the supplied selectors.
+S2/S3 require accepted S1 evidence and vision review. Hosted CI remains blocked
+by GitHub's reported payment/spending-limit issue; no success is claimed.
+
 The `refactor/kernel-hot-swap-20261026` overhaul starts from qualified
 `c8371bf`, without changing the deployed service. The ownership map and
 pre-2022 reference evidence are in [kernel updates](kernel-updates.md).
@@ -15,6 +24,137 @@ No hot-swap or hosted CI success is claimed yet.
 
 The rearchitecture is on `refactor/separate-apps-and-ci-20261025` in draft
 [PR #2](https://github.com/I-am-drunk/framerize/pull/2). It is not deployed.
+
+Concurrent login and import now serialize duplicate-email validation through
+the initial account save. A losing registration cannot save a replacement
+session or claim a grant; the shared guard releases before credit admission
+and on early failure or cancellation. All twelve isolated checks pass after
+the parent reproduced four login/import races with one admission control.
+All 760 source and four candidate hashes match; both test units are stopped.
+This source fix is outside the frozen `3ead4b8` packages. It protects one
+shared in-process policy, without adding database uniqueness or rolling back
+earlier session/grant effects after a later failure. Next: obtain fresh live
+handover readiness while preserving the qualified packages and service repairs.
+
+Shared Python driver startup now clears the cached start task only while
+the finishing waiter still owns that exact task. An obsolete failed waiter
+can no longer discard a pending retry, create a duplicate driver or hide
+that retry from shutdown. All six isolated checks pass after the parent
+reproduced both failures with four controls. All 759 tracked and five
+candidate hashes match; both test units are stopped. This is qualified
+source on `feat/native-browser-handoff-20261026`, outside the frozen `3ead4b8`
+packages. It preserves cancellation shielding and adds no startup deadline.
+Next: prepare fresh acceptance from the qualified package and recovery inputs.
+
+Matched browser and native packages at `3ead4b8` now include the qualified
+startup and cleanup changes below. Both optimized applications build; nine
+browser and eight native package checks pass, together with five packaged
+history/readiness checks and three diagnostic/cleanup/privacy checks. All
+758 source hashes, twelve artifact/helper hashes and forty supplied-runtime
+files match. The seven earlier `f33362b` artifact pins remain unchanged.
+All four isolated build/package/test units are stopped with no remaining
+processes. These checks use synthetic profiles and make no upstream request;
+they do not establish real-account delivery or authorize a service switch.
+The packages are undeployed. The subsequent driver-start source qualification
+is recorded above; it does not change these archives.
+
+Owned CDP startup now selects the exact Framer origin, bounds WebSocket
+connection and upgrade to five seconds, and retains its process group until
+exit is observed. Pending command IDs survive cancellation; later work waits
+for their replies, and Attach shutdown retains uncertainty when completion
+cannot be observed. Startup and mint errors preserve that cleanup signal.
+All 49 selected startup/cleanup checks pass: 48 in the combined run and one
+after correcting the fixture's retained peer socket. Production and every
+assertion were unchanged by that correction; 377 other Rust input hashes match.
+The target/deadline baseline reproduced five failures with four controls.
+All 749 final tracked and 20 candidate hashes match; both test units stopped.
+These source changes are outside the frozen `f33362b` packages. Escaped process
+descendants and real-browser behavior remain unqualified. Next: prepare matched
+packages without replacing the running service or reusing the old live plan.
+
+Device context creation and preparation now retain the device lock and memory
+reservation until outstanding browser calls and late-context cleanup settle.
+A failed cancelled close preserves cancellation and marks cleanup unconfirmed,
+so the cancelled mint cannot start ambient fallback. All seventeen isolated
+creation/preparation/session checks pass. The two predecessor baselines exposed
+eight assertion failures and three cleanup-entry timeouts, with six controls.
+All 746 tracked and 24 candidate hashes match; every test unit is stopped.
+The earlier 23 page-lifetime checks remain valid and were not repeated.
+This qualified Python source is outside the frozen `f33362b` packages and adds
+no operation deadline or live-browser acceptance. The subsequent CDP startup
+qualification is recorded above.
+
+CDP attachment now selects the exact HTTPS Framer app origin before using a
+page. Discovery GET and new-tab PUT share an owned async HTTP connection
+with a five-second total deadline, 16 KiB header limit and 8 MiB body limit.
+Complete fixed-length or EOF-delimited replies are required; failed status,
+truncation and unsupported transfer encoding are rejected. Cancellation and
+timeout close the socket. All 15 isolated origin/GET/PUT checks pass after
+13 reproduced baseline failures and two controls. All 741 tracked and six
+candidate hashes match, and both test units are stopped. This qualified
+source is outside the frozen `f33362b` packages. Real-browser interoperability
+and live acceptance remain untested; chunked HTTP is explicitly unsupported.
+Next: integrate the remaining owned-startup and cleanup inputs before making
+a new package decision. Live draining still needs effective ingress control
+or a freshly coordinated quiet interval.
+
+CDP commands now use one deadline for both writing the command and waiting
+for its reply. A stalled socket write can no longer bypass the caller's
+timeout, including during browser shutdown. The blocked-write regression
+and both reply/error controls pass after the parent reproduced the write
+hang. All 740 tracked and two candidate hashes match; both isolated units
+are stopped. This source-only change preserves every caller duration and
+does not cancel browser JavaScript or establish process exit. It is outside
+the frozen `f33362b` packages. The origin/HTTP result is recorded above.
+
+Python browser-page ownership now survives repeated caller cancellation.
+Cancelled pool allocation settles and reclaims its page before unlocking;
+borrowed pages wait for their own dispatched calls before returning to the
+pool. A mint page created after cancellation is closed without navigation
+or SDK warming, and a failed close remains an error. All 23 isolated checks
+pass across the three changes. Their separate pre-fix baselines reproduced
+14 failing methods and nine passing controls; four failures surfaced as
+timeouts or cancellation errors rather than assertions. All 734 tracked,
+seven candidate and two existing fixture hashes match. Every test unit is
+stopped. This is qualified source on `feat/native-browser-handoff-20261026`;
+the frozen `f33362b` packages remain unchanged. These helpers add no operation
+deadline and do not establish remote JavaScript termination or live browser
+cleanup. Next: qualify the remaining CDP connection/startup deltas.
+
+CDP device creation now writes and syncs a separate candidate, then publishes
+the complete record without replacing a concurrent winner. Cancelled creation
+retains candidate cleanup. Profile and device preparation also retain the
+account route until filesystem work completes, preventing same-account work
+or shutdown from overtaking it. All eleven isolated checks pass: seven new
+publication/preparation cases and four existing identity controls. All 730
+tracked and five candidate hashes match; the test unit is fully stopped.
+The new private helpers have no raw-parent behavioral baseline. This is
+qualified source on `feat/native-browser-handoff-20261026`, outside the frozen
+`f33362b` packages. Slow filesystem work can still delay cleanup; power-loss
+durability and live browser acceptance were not tested. The subsequent
+Python page-lifetime qualification is recorded above.
+
+Owned browser startup now rejects failed stale-port removal before launching
+processes, while missing/removable entries and Attach behavior retain their
+existing policy. Blocking removal keeps the account route through cancellation,
+so same-account reentry and owned shutdown cannot overtake it. All six isolated
+guard/ownership checks pass, with 727 tracked and four candidate hashes matching.
+The prior guard reproduced one process-dispatch failure with two controls.
+The new helper's three cases require its API and have no raw-parent baseline.
+This is source-only work on `feat/native-browser-handoff-20261026`; frozen
+`f33362b` packages are unchanged. A slow filesystem can still delay cleanup;
+no live endpoint, global profile-lock or browser-acceptance claim is made.
+The subsequent device-preparation result is recorded above.
+
+Browser version probing now returns the existing fallback user agent after
+five seconds instead of waiting indefinitely for output. The timed-out child
+remains owned until kill/wait cleanup completes, and probe cleanup cannot clear
+an actual browser's uncertainty. Both new timeout regressions and four existing
+version/fallback/cleanup controls pass in the isolated runner; the parent
+reproduced both hangs. All 726 tracked and two candidate source hashes match.
+This source milestone on `feat/native-browser-handoff-20261026` is outside the
+frozen `f33362b` packages. It adds no synchronous spawn deadline or live-browser
+acceptance. Subsequent port-preparation qualification is recorded above.
 
 Duplicate login and import now validate email conflicts before saving a
 replacement session or claiming a workspace grant. Both rejected operations

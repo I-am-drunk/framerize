@@ -20,11 +20,22 @@ pub mod sidecar;
 mod cdp_login_cookie_tests;
 mod cdp_attach_owner;
 mod cdp_startup_children;
+mod cdp_process_group;
+#[cfg(all(test, target_os = "linux"))]
+mod cdp_process_group_tests;
+mod cdp_port_removal;
 #[cfg(all(test, target_os = "linux"))]
 mod cdp_startup_process_tests;
 #[cfg(all(test, target_os = "linux"))]
 mod cdp_version_probe_tests;
+#[cfg(all(test, target_os = "linux"))]
+mod cdp_version_deadline_tests;
+#[cfg(all(test, target_os = "linux"))]
+mod cdp_port_preparation_tests;
 mod cdp_proxy_registration;
+mod cdp_pending_commands;
+#[cfg(test)]
+mod cdp_mint_observation_tests;
 use cdp_proxy_registration::CdpAccountRoute;
 #[cfg(test)]
 mod cdp_proxy_tests;
@@ -36,6 +47,8 @@ mod cdp_shutdown_tests;
 mod cdp_attach_owner_tests;
 #[cfg(test)]
 mod cdp_auth_diagnostics_tests;
+mod cdp_device_publication;
+mod cdp_device_preparation;
 #[cfg(test)]
 mod cdp_unconfirmed_shutdown_tests;
 #[cfg(test)]
@@ -56,8 +69,25 @@ use tokio::process::{Child, Command};
 use tokio::sync::Mutex;
 use tokio_tungstenite::{connect_async, tungstenite::Message};
 
+mod cdp_attach_target;
+mod cdp_http;
+mod cdp_websocket;
+#[cfg(test)]
+mod cdp_attach_target_tests;
+#[cfg(test)]
+mod cdp_owned_target_tests;
+#[cfg(test)]
+mod cdp_websocket_tests;
+#[cfg(test)]
+mod cdp_new_tab_tests;
+#[cfg(test)]
+mod cdp_http_get_tests;
+
 const FRAMER_HOME: &str = "https://framer.com/login";
 const API_BASE: &str = "https://api.framer.com";
+
+#[cfg(all(test, target_os = "linux"))]
+mod cdp_command_deadline_tests;
 
 /// A current ordinary desktop Chrome UA (matches what real framer.com
 /// visitors send; keep roughly in sync with the chrome binary's version).
@@ -68,7 +98,13 @@ const DESKTOP_UA: &str = "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KH
 async fn desktop_ua(chrome: &Path, children: &cdp_startup_children::StartupChildren) -> String {
     let out = match Command::new(chrome).arg("--version")
         .stdout(Stdio::piped()).stderr(Stdio::piped()).kill_on_drop(true).spawn() {
-        Ok(child) => children.track_probe(child).output().await,
+        Ok(child) => match tokio::time::timeout(std::time::Duration::from_secs(5),
+            children.track_probe(child).output()).await {
+            Ok(output) => output,
+            // Dropping the owned output future retains kill/wait cleanup.
+            Err(_) => Err(std::io::Error::new(std::io::ErrorKind::TimedOut,
+                "browser version probe timed out")),
+        },
         Err(error) => Err(error),
     };
     let ver = out.ok().and_then(|o| {
@@ -108,15 +144,7 @@ async fn attach_ws(addr: &Path, account: &AccountId) -> Result<WsStream, String>
         &reqwest_get(&format!("{base}/json/list")).await?,
     )
     .map_err(|e| e.to_string())?;
-    let ws_url = list
-        .as_array()
-        .and_then(|a| {
-            a.iter()
-                .find(|t| t["type"].as_str() == Some("page")
-                    && t["url"].as_str().map(|u| u.contains("framer.com")).unwrap_or(false))
-                .and_then(|t| t["webSocketDebuggerUrl"].as_str())
-        })
-        .map(|s| s.to_string());
+    let ws_url = cdp_attach_target::websocket_url(&list).map(str::to_owned);
     let ws_url = match ws_url {
         Some(u) => u,
         None => {
@@ -129,7 +157,7 @@ async fn attach_ws(addr: &Path, account: &AccountId) -> Result<WsStream, String>
                 .to_string()
         }
     };
-    let (ws, _) = connect_async(&ws_url).await.map_err(|e| e.to_string())?;
+    let ws = cdp_websocket::connect(&ws_url).await?;
     eprintln!("[host] attach mode: driving user Chrome tab for account {}", &account.0.to_string()[..8]);
     Ok(ws)
 }
@@ -140,30 +168,7 @@ fn urlencoding(u: &str) -> String {
 
 /// Minimal PUT helper (Chrome's /json/new requires PUT in recent versions).
 async fn reqwest_put(url: &str) -> Result<Vec<u8>, String> {
-    let resp = tokio::task::spawn_blocking({
-        let url = url.to_string();
-        move || {
-            use std::io::{Read, Write};
-            let host = url.trim_start_matches("http://").split('/').next().unwrap_or("").to_string();
-            let path = url.split_once(&host).map(|(_, p)| p.to_string()).unwrap_or_default();
-            let mut s = std::net::TcpStream::connect(&host).map_err(|e| e.to_string())?;
-            s.write_all(format!("PUT {path} HTTP/1.1
-Host: {host}
-Content-Length: 0
-
-").as_bytes())
-                .map_err(|e| e.to_string())?;
-            let mut buf = Vec::new();
-            s.read_to_end(&mut buf).map_err(|e| e.to_string())?;
-            let text = String::from_utf8_lossy(&buf);
-            Ok::<Vec<u8>, String>(text.split("
-
-").nth(1).unwrap_or("").as_bytes().to_vec())
-        }
-    })
-    .await
-    .map_err(|e| e.to_string())??;
-    Ok(resp)
+    cdp_http::put(url).await
 }
 
 /// Combined warm-mint + authenticated POST, evaluated inside the account's
@@ -355,26 +360,36 @@ impl DeviceRecord {
     fn path(profile: &Path) -> PathBuf {
         profile.join("framerize-device.json")
     }
+    fn decode(raw: &str) -> Result<String, String> {
+        let value: Value = serde_json::from_str(raw)
+            .map_err(|_| "invalid browser device record JSON".to_owned())?;
+        value.get("castle_device_id").and_then(Value::as_str)
+            .map(str::to_owned)
+            .ok_or_else(|| "browser device record has no string castle_device_id".to_owned())
+    }
     async fn load_or_create(profile: &Path) -> Result<String, String> {
         let p = Self::path(profile);
         match tokio::fs::read_to_string(&p).await {
-            Ok(raw) => {
-                let value: Value = serde_json::from_str(&raw)
-                    .map_err(|_| "invalid browser device record JSON".to_owned())?;
-                return value.get("castle_device_id").and_then(Value::as_str)
-                    .map(str::to_owned)
-                    .ok_or_else(|| "browser device record has no string castle_device_id".to_owned());
-            }
+            Ok(raw) => return Self::decode(&raw),
             Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
             Err(error) => return Err(format!("read browser device record: {error}")),
         }
         let id = uuid::Uuid::new_v4().to_string();
         tokio::fs::create_dir_all(profile).await.map_err(|e| e.to_string())?;
-        tokio::fs::write(&p, json!({"castle_device_id": id}).to_string())
+        let raw = cdp_device_publication::create(p,
+            json!({"castle_device_id": id}).to_string().into_bytes())
             .await
             .map_err(|e| e.to_string())?;
-        Ok(id)
+        Self::decode(&raw)
     }
+}
+
+const OWNED_STARTUP_UNCONFIRMED: &str =
+    "host-lifecycle-unconfirmed: browser startup cleanup is unconfirmed";
+
+fn owned_startup_error(error: String) -> String {
+    if error == cdp_pending_commands::UNCONFIRMED { error }
+    else { OWNED_STARTUP_UNCONFIRMED.to_owned() }
 }
 
 struct CdpInstance {
@@ -382,6 +397,7 @@ struct CdpInstance {
     child: Option<Child>, // kept alive; kill on drop. None in Attach mode.
     ws: WsStream,
     next_id: u64,
+    pending: Arc<cdp_pending_commands::PendingCommands>,
 }
 
 impl CdpInstance {
@@ -394,32 +410,30 @@ impl CdpInstance {
     }
 
     async fn cmd(&mut self, method: &str, params: Value) -> Result<Value, String> {
-        self.cmd_deadline(method, params, std::time::Duration::from_secs(30)).await
+        let result = self.cmd_deadline(method, params, std::time::Duration::from_secs(30)).await;
+        result.map_err(|error| self.pending.error(error))
     }
 
     async fn cmd_deadline(&mut self, method: &str, params: Value, wait: std::time::Duration) -> Result<Value, String> {
+        let deadline = tokio::time::Instant::now() + wait;
+        // Do not dispatch another operation over an unobserved earlier one.
+        // Owned shutdown can close the browser and prove its group exited.
+        if method != "Browser.close" { self.observe_pending(deadline).await?; }
         self.next_id += 1;
         let id = self.next_id;
+        self.pending.record(id)?;
         let msg = json!({ "id": id, "method": method, "params": params });
-        self.ws
-            .send(Message::Text(msg.to_string().into()))
+        tokio::time::timeout_at(deadline, self.ws.send(Message::Text(msg.to_string().into())))
             .await
+            .map_err(|_| "cdp eval timed out".to_string())?
             .map_err(|e| e.to_string())?;
-        let deadline = tokio::time::Instant::now() + wait;
         loop {
-            let next = tokio::time::timeout_at(deadline, self.ws.next())
-                .await
-                .map_err(|_| "cdp eval timed out".to_string())?
-                .ok_or("cdp ws closed")?
-                .map_err(|e| e.to_string())?;
-            if let Message::Text(txt) = next {
-                let v: Value = serde_json::from_str(&txt).map_err(|e| e.to_string())?;
-                if v["id"].as_u64() == Some(id) {
-                    if let Some(err) = v.get("error") {
-                        return Err(format!("cdp error: {err}"));
-                    }
-                    return Ok(v["result"].clone());
+            let (reply_id, v) = self.next_reply(deadline).await?;
+            if reply_id == id {
+                if let Some(err) = v.get("error") {
+                    return Err(format!("cdp error: {err}"));
                 }
+                return Ok(v["result"].clone());
             }
         }
     }
@@ -437,14 +451,14 @@ impl CdpInstance {
     /// Eval with a long deadline — in-page AI calls wait out a full generation
     /// (window-mapped ceiling ~109 s on the wide route; give it room).
     async fn eval_long(&mut self, expression: String) -> Result<Value, String> {
-        let r = self
+        let result = self
             .cmd_deadline(
                 "Runtime.evaluate",
                 json!({ "expression": expression, "awaitPromise": true, "returnByValue": true }),
                 std::time::Duration::from_secs(300),
             )
-            .await?;
-        Self::evaluated_value(r)
+            .await;
+        Self::evaluated_value(result.map_err(|error| self.pending.error(error))?)
     }
 }
 
@@ -534,22 +548,38 @@ impl CdpBridge {
             self.attached_owner.claim(*account)?;
         }
         let cell = self.route_cell(account).await;
-        let mut route = cell.lock().await;
+        let mut route = cell.lock_owned().await;
         if let Some(inst) = self.instances.lock().await.get(account) {
             return Ok(inst.clone());
         }
         if route.may_have_browser {
+            if !route.pending.is_empty() {
+                return Err(cdp_pending_commands::UNCONFIRMED.into());
+            }
+            if matches!(self.engine, EngineKind::FullChrome | EngineKind::HeadlessShell) {
+                return Err(OWNED_STARTUP_UNCONFIRMED.into());
+            }
             return Err("cdp-lifecycle-unconfirmed: browser cleanup is unconfirmed".into());
         }
         let profile = self.profile_dir(account);
-        tokio::fs::create_dir_all(&profile).await.map_err(|e| e.to_string())?;
-        let device_id = DeviceRecord::load_or_create(&profile).await?;
+        let (prepared_route, device_id) =
+            cdp_device_preparation::prepare(profile.clone(), route).await?;
+        route = prepared_route;
 
         // The profile persists between launches, so a STALE DevToolsActivePort
         // from a previous (dead) chrome can be sitting there. Reading it wins
         // the race against the new chrome's write and sends every devtools
         // call to a dead port ("Connection refused" forever — observed live).
-        let _ = tokio::fs::remove_file(profile.join("DevToolsActivePort")).await;
+        let (held_route, removed) = cdp_port_removal::remove(
+            profile.join("DevToolsActivePort"), route).await?;
+        route = held_route;
+        if let Err(error) = removed {
+            if matches!(self.engine, EngineKind::FullChrome | EngineKind::HeadlessShell)
+                && error.kind() != std::io::ErrorKind::NotFound
+            {
+                return Err("could not remove stale DevToolsActivePort".into());
+            }
+        }
 
         // ATTACH MODE: no launch, no profile management. The user runs their
         // own real Chrome with --remote-debugging-port=<port>; we drive a
@@ -557,7 +587,8 @@ impl CdpBridge {
         if self.engine == EngineKind::Attach {
             route.may_have_browser = true;
             let ws = attach_ws(&self.chrome, account).await?;
-            let mut inst = CdpInstance { child: None, ws, next_id: 0 };
+            let mut inst = CdpInstance { child: None, ws, next_id: 0,
+                pending: route.pending.clone() };
             for _ in 0..50 {
                 let ready = inst
                     .eval("typeof window.castlePublishableAPIKey !== 'undefined' && document.readyState === 'complete'".into())
@@ -638,11 +669,14 @@ impl CdpBridge {
             }
         };
         let starting = self.startup_children.track(*account, child);
+        route.group = starting.group();
 
         // The startup guard retains cleanup through errors and cancellation,
         // including cancellation while waiting to publish the final instance.
-        let ws = bring_up_ws(&profile).await?;
-        let mut inst = CdpInstance { child: None, ws, next_id: 0 };
+        // The returned error must also keep external admission unconfirmed.
+        let ws = bring_up_ws(&profile).await.map_err(owned_startup_error)?;
+        let mut inst = CdpInstance { child: None, ws, next_id: 0,
+            pending: route.pending.clone() };
 
         // Wait for framer.com to be ready (window.castlePublishableAPIKey set).
         for _ in 0..50 {
@@ -659,7 +693,7 @@ impl CdpBridge {
         }
 
         // Backstop: seed the stable Castle device id before any mint.
-        inst.eval(seed_device_snippet(&device_id)).await?;
+        inst.eval(seed_device_snippet(&device_id)).await.map_err(owned_startup_error)?;
         // Containers report hardwareConcurrency=1 / tiny screens — automation
         // tells. Level what CDP can (CPU count; memory has no override).
         let _ = inst
@@ -689,10 +723,14 @@ impl BrowserBridge for CdpBridge {
     async fn shutdown(&self) -> Result<(), String> {
         self.stopping.store(true, Ordering::Release);
         let mut failed = false;
+        let mut unobserved = false;
         for (account, outcome) in self.startup_children.join().await {
             if outcome.is_ok() {
                 if let Some(account) = account {
-                    self.route_cell(&account).await.lock().await.may_have_browser = false;
+                    let cell = self.route_cell(&account).await;
+                    let mut route = cell.lock().await;
+                    if route.pending.after_exit().is_ok() { route.may_have_browser = false; }
+                    else { failed = true; }
                 }
             } else {
                 failed = true;
@@ -700,33 +738,45 @@ impl BrowserBridge for CdpBridge {
         }
         let instances: Vec<_> = self.instances.lock().await.iter()
             .map(|(account, instance)| (*account, instance.clone())).collect();
-        let routes: Vec<_> = if matches!(self.engine, EngineKind::FullChrome | EngineKind::HeadlessShell) {
-            self.routes.lock().await.iter()
-                .map(|(account, route)| (*account, route.clone())).collect()
-        } else { Vec::new() };
+        let owned_engine = matches!(self.engine, EngineKind::FullChrome | EngineKind::HeadlessShell);
+        let routes: Vec<_> = self.routes.lock().await.iter()
+            .map(|(account, route)| (*account, route.clone())).collect();
         // Failed or cancelled starts may have a child without a saved instance.
         // Application work is drained, but those children have no joined exit.
         for (account, route) in &routes {
-            failed |= route.lock().await.may_have_browser
-                && !instances.iter().any(|(known, _)| known == account);
+            if !instances.iter().any(|(known, _)| known == account) {
+                let route = route.lock().await;
+                if owned_engine { failed |= route.may_have_browser; }
+                else { unobserved |= !route.pending.is_empty(); }
+            }
         }
-        for (_, instance) in &instances {
+        for (account, instance) in &instances {
+            let group = self.route_cell(account).await.lock().await.group.clone();
             let mut instance = instance.lock().await;
             if instance.child.is_some() {
                 let _ = instance.cmd_deadline("Browser.close", json!({}),
                     std::time::Duration::from_secs(10)).await;
                 let child = instance.child.as_mut().unwrap();
-                failed |= !matches!(tokio::time::timeout(
-                    std::time::Duration::from_secs(30), child.wait()).await,
+                let exited = matches!(tokio::time::timeout(
+                    std::time::Duration::from_secs(30),
+                    cdp_process_group::wait_for_exit(child, group.as_deref())).await,
                     Ok(Ok(status)) if status.success());
+                if exited { failed |= instance.pending.after_exit().is_err(); }
+                else { failed = true; }
             } else {
                 // Disconnect our transport; never close an attached user browser.
-                let _ = instance.ws.close(None).await;
+                unobserved |= instance.disconnect_observed(std::time::Duration::from_secs(10))
+                    .await.is_err();
             }
         }
+        if unobserved { return Err(cdp_pending_commands::UNCONFIRMED.into()); }
         if failed { return Err("could not confirm every owned browser exited cleanly".into()); }
-        for (_, route) in routes {
-            route.lock().await.may_have_browser = false;
+        if owned_engine {
+            for (_, route) in routes {
+                let mut route = route.lock().await;
+                route.may_have_browser = false;
+                route.group = None;
+            }
         }
         self.instances.lock().await.clear();
         Ok(())
@@ -922,6 +972,7 @@ impl BrowserBridge for CdpBridge {
         for attempt in 1..=3u32 {
             let v = match guard.eval(expr.clone()).await {
                 Ok(v) => v,
+                Err(e) if e == cdp_pending_commands::UNCONFIRMED => return Err(e),
                 Err(e) => {
                     eprintln!("[castle] attempt {attempt}: eval failed: {e}");
                     tokio::time::sleep(std::time::Duration::from_secs(2)).await;
@@ -954,12 +1005,8 @@ type WsStream = tokio_tungstenite::WebSocketStream<
     tokio_tungstenite::MaybeTlsStream<tokio::net::TcpStream>,
 >;
 
-fn find_subslice(haystack: &[u8], needle: &[u8]) -> Option<usize> {
-    haystack.windows(needle.len()).position(|w| w == needle)
-}
-
-/// Waits for DevToolsActivePort, then for the HTTP endpoint behind it.
-/// The port FILE appears before the socket accepts connections — hence retry.
+/// Waits for DevToolsActivePort, then for the Framer page behind it.
+/// The port file and HTTP endpoint can appear before the app target is ready.
 async fn bring_up_ws(profile: &std::path::Path) -> Result<WsStream, String> {
     let port_file = profile.join("DevToolsActivePort");
     let mut port = None;
@@ -976,100 +1023,29 @@ async fn bring_up_ws(profile: &std::path::Path) -> Result<WsStream, String> {
     }
     let port = port.ok_or("chrome did not write DevToolsActivePort (chrome died? run with --no-sandbox on root containers)")?;
 
-    let mut list_raw = None;
+    let mut saw_list = false;
     let mut last_err = String::new();
     for _ in 0..60 {
         match reqwest_get(&format!("http://127.0.0.1:{port}/json/list")).await {
-            Ok(b) => {
-                list_raw = Some(b);
-                break;
+            Ok(body) => {
+                let list: Value = serde_json::from_slice(&body).map_err(|e| e.to_string())?;
+                saw_list = true;
+                if let Some(ws_url) = cdp_attach_target::websocket_url(&list) {
+                    return cdp_websocket::connect(ws_url).await;
+                }
             }
-            Err(e) => {
-                last_err = e;
-                tokio::time::sleep(std::time::Duration::from_millis(250)).await;
-            }
+            Err(e) => last_err = e,
         }
+        tokio::time::sleep(std::time::Duration::from_millis(250)).await;
     }
-    let list: Value = serde_json::from_slice(
-        &list_raw.ok_or_else(|| format!("devtools http never came up: {last_err}"))?,
-    )
-    .map_err(|e| e.to_string())?;
-    let ws_url = list
-        .as_array()
-        .and_then(|a| {
-            a.iter()
-                .find(|t| t["type"].as_str() == Some("page"))
-                .and_then(|t| t["webSocketDebuggerUrl"].as_str())
-        })
-        .ok_or("no page target")?
-        .to_string();
-    let (ws, _) = connect_async(&ws_url).await.map_err(|e| e.to_string())?;
-    Ok(ws)
+    if saw_list {
+        Err("no page target".into())
+    } else {
+        Err(format!("devtools http never came up: {last_err}"))
+    }
 }
 
 /// Minimal GET helper (avoids pulling reqwest into this crate).
 async fn reqwest_get(url: &str) -> Result<Vec<u8>, String> {
-    let resp = tokio::time::timeout(
-        std::time::Duration::from_secs(5),
-        tokio::task::spawn_blocking({
-            let url = url.to_string();
-            move || {
-                // ureq-free: use a raw HTTP/1.1 GET over TcpStream (localhost only).
-                use std::io::{Read, Write};
-                let host = url
-                    .trim_start_matches("http://")
-                    .split('/')
-                    .next()
-                    .unwrap_or("")
-                    .to_string();
-                let path = url.split_once(&host).map(|(_, p)| p.to_string()).unwrap_or_default();
-                let mut s = std::net::TcpStream::connect(&host).map_err(|e| e.to_string())?;
-                s.set_read_timeout(Some(std::time::Duration::from_secs(4))).map_err(|e| e.to_string())?;
-                s.write_all(format!("GET {path} HTTP/1.1\r\nHost: {host}\r\n\r\n").as_bytes())
-                    .map_err(|e| e.to_string())?;
-                // Chrome's devtools HTTP server keeps the socket OPEN
-                // (keep-alive) — read_to_end blocks forever. Read headers,
-                // take Content-Length, read exactly that many body bytes.
-                let mut buf = Vec::new();
-                let mut tmp = [0u8; 4096];
-                let body_start = loop {
-                    let n = s.read(&mut tmp).map_err(|e| e.to_string())?;
-                    if n == 0 { return Err("devtools http closed".into()); }
-                    buf.extend_from_slice(&tmp[..n]);
-                    if let Some(pos) = find_subslice(&buf, b"\r\n\r\n") { break pos + 4; }
-                    if buf.len() > 16384 { return Err("devtools http headers too large".into()); }
-                };
-                let headers = String::from_utf8_lossy(&buf[..body_start]).to_lowercase();
-                let len: Option<usize> = headers.lines()
-                    .find_map(|l| l.strip_prefix("content-length:").and_then(|v| v.trim().parse().ok()));
-                match len {
-                    Some(len) => {
-                        while buf.len() < body_start + len {
-                            let n = s.read(&mut tmp).map_err(|e| e.to_string())?;
-                            if n == 0 { break; }
-                            buf.extend_from_slice(&tmp[..n]);
-                        }
-                        Ok::<Vec<u8>, String>(buf[body_start..(body_start + len).min(buf.len())].to_vec())
-                    }
-                    None => {
-                        // No Content-Length (chunked/close-delimited): drain
-                        // until the server goes quiet, take what arrived.
-                        s.set_read_timeout(Some(std::time::Duration::from_millis(800))).ok();
-                        loop {
-                            match s.read(&mut tmp) {
-                                Ok(0) => break,
-                                Ok(n) => buf.extend_from_slice(&tmp[..n]),
-                                Err(_) => break, // timeout = done
-                            }
-                        }
-                        Ok::<Vec<u8>, String>(buf[body_start..].to_vec())
-                    }
-                }
-            }
-        }),
-    )
-    .await
-    .map_err(|_| "http get timed out".to_string())?
-    .map_err(|e| e.to_string())??;
-    Ok(resp)
+    cdp_http::get(url).await
 }
