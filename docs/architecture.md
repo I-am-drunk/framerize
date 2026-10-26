@@ -18,6 +18,10 @@ all resident closures before stopping the old service. The native successor
 must publish a fresh, same-service expiry record before its one permitted
 canary request. A durable attempt marker prevents replay after a lost reply.
 
+The live supervisor uses the host process view (`PrivateTmp=no`) to verify
+the running service's executable through `/proc`. Its shared execution lock,
+recovery command, memory limits and finite deadlines remain enforced.
+
 Direct inference requires an explicit successful completion event before
 publishing its result. Failure events return a bounded error containing the
 event name, without upstream diagnostic payloads. The Responses fallback
