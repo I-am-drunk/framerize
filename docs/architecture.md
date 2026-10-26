@@ -3,6 +3,15 @@
 The current reorganization is in progress. See [the design](rearchitecture.md)
 for decisions, boundaries and the remaining migration work.
 
+The native HTTP transport still builds an independent reqwest client per
+account scope. A private builder helper now allows local TLS fixtures to
+trust an ephemeral certificate without changing production trust or TLS
+selection. Three tests verify account connection reuse, credential separation,
+forced reconnection and certificate refusal. Retaining these clients across
+service requests remains unimplemented; any such lifetime must preserve
+session generation and active-stream ownership. See the
+[TLS result and limits](../reference/analysis/native-tls-isolation-20261026.md).
+
 The separate shared-context experiment measures two synthetic accounts in
 one browser versus two browsers using a local HTTPS server. It verifies
 storage and connection ownership while another account streams or closes.

@@ -499,8 +499,21 @@ impl NativeHttp {
         https_only: bool,
         egress: NativeEgress<'_>,
     ) -> Result<Self, String> {
+        Self::build_with_builder(account, active_user, base, limits, https_only,
+            egress, reqwest::Client::builder())
+    }
+
+    fn build_with_builder(
+        account: AccountId,
+        active_user: FramerUserId,
+        base: String,
+        limits: NativeHttpLimits,
+        https_only: bool,
+        egress: NativeEgress<'_>,
+        builder: reqwest::ClientBuilder,
+    ) -> Result<Self, String> {
         let limits = limits.validate()?;
-        let builder = reqwest::Client::builder()
+        let builder = builder
             .user_agent("Framerize/0.1")
             .redirect(reqwest::redirect::Policy::none())
             .retry(reqwest::retry::never())
@@ -750,3 +763,7 @@ mod memory_tests;
 #[cfg(test)]
 #[path = "native_send_tests.rs"]
 mod send_tests;
+
+#[cfg(test)]
+#[path = "tls_isolation_tests.rs"]
+mod tls_isolation_tests;
