@@ -286,6 +286,10 @@ existing session-save and grant ordering. This protects callers sharing the
 same in-process policy. It does not enforce database or cross-process
 uniqueness or undo partial session/grant work after a later failure.
 
+Dedupe reports shorten device and team identifiers to a valid UTF-8 prefix
+of at most eight bytes. Classification retains the complete identifiers;
+short or non-ASCII values cannot panic solely while constructing previews.
+
 Both CDP evaluation helpers reject a non-null exceptionDetails field before
 returning a value. Reported JavaScript failures return a fixed error without
 exception descriptions, so a failed device seed reaches the existing startup

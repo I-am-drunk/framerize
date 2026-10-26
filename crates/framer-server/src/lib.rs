@@ -2527,6 +2527,14 @@ async fn dedupe_accounts(state: State<AppState>, body: Json<DedupeBody>) -> Resu
     dedupe_accounts_observed(state, body).await.result
 }
 
+fn dedupe_identity_preview(value: &str) -> &str {
+    let mut end = value.len().min(8);
+    while !value.is_char_boundary(end) {
+        end -= 1;
+    }
+    &value[..end]
+}
+
 async fn dedupe_accounts_observed(State(s): State<AppState>, Json(body): Json<DedupeBody>)
     -> pool_control::CleanupOutcome<Json<serde_json::Value>> {
     let cleanup = pool_control::CleanupEvidence::new();
@@ -2587,8 +2595,8 @@ async fn dedupe_accounts_observed(State(s): State<AppState>, Json(body): Json<De
         }
         keeping.push(serde_json::json!({
             "name": name,
-            "team": a.current_team.as_ref().map(|t| t.0[..8.min(t.0.len())].to_string()),
-            "device": a.castle_device_id[..8].to_string(),
+            "team": a.current_team.as_ref().map(|t| dedupe_identity_preview(&t.0).to_string()),
+            "device": dedupe_identity_preview(&a.castle_device_id).to_string(),
         }));
     }
 
