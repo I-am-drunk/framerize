@@ -27,6 +27,8 @@ mod admission_failure_state;
 mod workspace_scan;
 #[path = "account_primary_workspace_claim_tests.rs"]
 mod primary_workspace_claim;
+#[path = "account_secondary_workspace_claim_tests.rs"]
+mod secondary_workspace_claim;
 
 
 use super::{account, policy};

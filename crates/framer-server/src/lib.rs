@@ -27,6 +27,7 @@ pub use state::{AccountRuntime, AppState};
 mod runtime_ownership_tests;
 
 mod serving_accounts;
+mod account_scope_publication;
 mod account_wait;
 mod pool_config;
 mod pool_control;
@@ -2891,6 +2892,7 @@ async fn complete_login_observed(State(s): State<AppState>, Json(body): Json<Com
         return Err(ApiError::Internal(e.to_string()));
     }
 
+    let expected_scope = account.clone();
     // Project: adopt the workspace's newest, else CREATE one — every AI call
     // needs a projectId and a fresh workspace has none.
     if account.current_project.is_none() {
@@ -2917,7 +2919,7 @@ async fn complete_login_observed(State(s): State<AppState>, Json(body): Json<Com
     // Multi-workspace goose: claim every other credited workspace as a rotated
     // scope (each carries its own 429 budget).
     populate_extra_scopes(&s, &session, &mut account, &claimed, &cleanup).await;
-    s.state.upsert(&account).await.map_err(ApiError::Internal)?;
+    account_scope_publication::publish(&s, &expected_scope, &mut account).await?;
 
     Ok(Json(serde_json::json!({
         "status": "signed-in",
@@ -3102,6 +3104,7 @@ async fn import_account_observed(State(s): State<AppState>, Json(body): Json<Imp
             }
             return Err(ApiError::Internal(e.to_string()));
         }
+        let mut expected_scope = account.clone();
         // Adopt an existing project if the account has one. Every AI call needs
         // a projectId, so an imported account without one is admitted but
         // unusable -- and was previously mistaken for dead by the dedupe sweep.
@@ -3131,7 +3134,9 @@ async fn import_account_observed(State(s): State<AppState>, Json(body): Json<Imp
                     Ok(p) => {
                         eprintln!("[import] {}: created project {}", account.alias, p.0);
                         account.current_project = Some(p);
-                        let _ = s.state.upsert(&account).await;
+                        if s.state.upsert(&account).await.is_ok() {
+                            expected_scope = account.clone();
+                        }
                     }
                     Err(e) => eprintln!("[import] project creation failed (non-fatal): {e}"),
                 }
@@ -3140,7 +3145,7 @@ async fn import_account_observed(State(s): State<AppState>, Json(body): Json<Imp
         // Multi-workspace goose: claim every other credited workspace as a
         // rotated scope (each carries its own 429 budget).
         populate_extra_scopes(&s, &session, &mut account, &claimed, &cleanup).await;
-        s.state.upsert(&account).await.map_err(ApiError::Internal)?;
+        account_scope_publication::publish(&s, &expected_scope, &mut account).await?;
     }
 
     // Release account mutation ownership before an independent warmup acquires it.

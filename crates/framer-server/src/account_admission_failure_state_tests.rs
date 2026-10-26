@@ -422,7 +422,7 @@ fn assert_calls(ports: &AdmissionPorts, login: bool) {
         Case::UpdateWriteError => expected.extend(["usage", "get", "list", "update_write_error"]),
         Case::Refused => expected.extend(["usage", "upsert"]),
         Case::Success => expected.extend([
-            "usage", "get", "list", "upsert", "projects", "me", "usage", "upsert",
+            "usage", "get", "list", "upsert", "projects", "me", "usage", "get", "list", "upsert",
         ]),
     }
     assert_eq!(*ports.calls.lock().unwrap(), expected);
