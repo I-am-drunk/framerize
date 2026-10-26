@@ -3,6 +3,15 @@
 The rearchitecture is on `refactor/separate-apps-and-ci-20261025` in draft
 [PR #2](https://github.com/I-am-drunk/framerize/pull/2). It is not deployed.
 
+The native/browser transition recovery helper passes 17 inert regression
+tests. They cover pre/post-migration return, retained history, shutdown joins,
+concurrent callers, interrupted recovery and unrelated service/pool changes.
+The final run took 0.462 seconds under the existing isolated runner.
+These checks stub service/network operations and do not prove live recovery.
+The pinned packages remain at `72886b2`. Next is the bounded admission/drain
+controller and genuine history transition, followed by the controlled live
+request. No live migration or request occurred during this helper work.
+
 Release binaries and both archives are now prepared at `72886b2`. The browser
 return package passes nine local startup/lifecycle checks; the native package
 passes eight with its packaged worker. Offline bundle assembly and immutable
