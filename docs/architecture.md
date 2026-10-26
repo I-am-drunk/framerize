@@ -242,6 +242,9 @@ Both CDP evaluation helpers reject a non-null exceptionDetails field before
 returning a value. Reported JavaScript failures return a fixed error without
 exception descriptions, so a failed device seed reaches the existing startup
 error path. Successful values, undefined results and deadlines stay unchanged.
+Each CDP command starts one deadline before sending and reuses it for reply
+reads, so socket backpressure consumes the same budget. A timeout bounds the
+host's wait; it cannot retract bytes or stop JavaScript already dispatched.
 
 Browser launch converts authenticated proxy URLs into separate server,
 username and password options before passing them to the browser driver.

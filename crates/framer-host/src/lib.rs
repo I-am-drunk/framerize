@@ -66,6 +66,9 @@ use tokio_tungstenite::{connect_async, tungstenite::Message};
 const FRAMER_HOME: &str = "https://framer.com/login";
 const API_BASE: &str = "https://api.framer.com";
 
+#[cfg(all(test, target_os = "linux"))]
+mod cdp_command_deadline_tests;
+
 /// A current ordinary desktop Chrome UA (matches what real framer.com
 /// visitors send; keep roughly in sync with the chrome binary's version).
 const DESKTOP_UA: &str = "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/141.0.0.0 Safari/537.36";
@@ -413,14 +416,14 @@ impl CdpInstance {
     }
 
     async fn cmd_deadline(&mut self, method: &str, params: Value, wait: std::time::Duration) -> Result<Value, String> {
+        let deadline = tokio::time::Instant::now() + wait;
         self.next_id += 1;
         let id = self.next_id;
         let msg = json!({ "id": id, "method": method, "params": params });
-        self.ws
-            .send(Message::Text(msg.to_string().into()))
+        tokio::time::timeout_at(deadline, self.ws.send(Message::Text(msg.to_string().into())))
             .await
+            .map_err(|_| "cdp eval timed out".to_string())?
             .map_err(|e| e.to_string())?;
-        let deadline = tokio::time::Instant::now() + wait;
         loop {
             let next = tokio::time::timeout_at(deadline, self.ws.next())
                 .await
