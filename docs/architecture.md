@@ -1,5 +1,10 @@
 # Architecture
 
+Registration distinguishes admission refusal from profile and storage errors.
+Only the existing `NotEligible` result persists an exhausted account. Other
+errors preserve the initial saved record and propagate the original failure;
+earlier session, grant and account writes remain separate operations.
+
 Registration uses one claim snapshot containing every peer's primary and
 secondary team IDs. That snapshot filters admission and extra-scope project
 work while excluding the current account. This corrects sequential reuse;

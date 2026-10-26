@@ -1,5 +1,20 @@
 # Development status
 
+Login and import now persist `Exhausted` only for admission's existing
+`NotEligible` refusal. Propagated profile or store failures preserve the full
+initial saved record and the original error. This contextually integrates
+`da136b1` on `0a12a6d`, retaining the qualified secondary-workspace claims,
+primary-project guards and S1/S2 source. All eight exact methods pass across
+ten scenarios, including admission update read and write failures. The
+fixture-only baseline reproduced four failures with four passing controls;
+its update-error methods stopped at the read subcase. All 783 final source
+pins match, and both isolated test units are stopped with no remaining work.
+Earlier session, grant and initial account saves retain their non-atomic
+behavior. A's joined usage-scan error follow-up remains separate source work.
+The finite S3a output design now separates channel EOF and body cancellation
+from completion held through final buffer disposal. Implementation and its
+memory, latency and cleanup proofs remain next; no live deployment changed.
+
 The contextual `baf8f20` workspace-claims correction is qualified on `39658a1`.
 Login/import now include peer secondary teams in their existing claim snapshot
 and skip peer-owned scopes before project listing or creation. All 15 exact
