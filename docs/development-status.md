@@ -11,8 +11,13 @@ the expected serving process. The previous R6 return checked HTTP liveness
 only and did not establish usable history; its native canary returned 502.
 All 183 isolated checks passed in the correction's qualification, and its
 32 source/executable pins still match. The 28 integrated source pins match
-unchanged. Matching packages are the next step. The repaired live service is
-preserved; this integration is not deployed or a live-acceptance result.
+unchanged. Both optimized applications and matching packages were built from
+`8fe2259`; all 717 tracked build inputs remained unchanged. Nine browser and
+eight native package checks pass. Packaged readiness accepts valid empty
+history and rejects an unknown journal schema while preserving its bytes;
+the failed host reports unsuccessful shutdown and leaves no owned processes.
+The repaired live service is preserved. These packages are not deployed, and
+successful native delivery and full live acceptance remain unverified.
 
 Responses check the existing 300-second active-time budget before explicit
 rate, halved-transport and metered retries. All 18 selected checks pass,
