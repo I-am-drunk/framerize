@@ -1,5 +1,20 @@
 # Development status
 
+Legacy device migration now reads raw SQLite text with checked UTF-8.
+Malformed text and nontext rows remain byte-for-byte unchanged while valid
+legacy records receive their persisted device identity. This avoids an
+open-time panic in rusqlite's owned-text conversion; later lookup and list
+errors remain explicit, and failed migration writes still roll back.
+
+The contextual `589f727` integration after `45a98cf` passes all 13 exact
+store methods, with 803 matching source hashes and both candidate files
+matching the reviewed packet. The isolated unit is stopped. The baseline
+reproduced two open-time panics and passed the valid Unicode control; its
+first failed ordering and open prevented later read/reopen and rollback
+assertions from running. The candidate completes those assertions and both
+insertion orders. Newer streaming dependencies remain intact. The staged
+`c16fd24` package pair predates this correction and is unchanged.
+
 The browser and native release packages are rebuilt, qualified and staged
 from `c16fd245ee4a7c26268ab961319581b644d8965a`. Both binaries compiled
 offline with one build job and a 1,536 MiB boundary. The 1,264-file worker
@@ -16,9 +31,9 @@ when later documentation or source commits advance this branch.
 
 The native package still includes `browser-transport`, so these results
 do not establish browser-free delivery, native mint acceptance, total memory
-savings or request latency. The next local qualification is the separate
-legacy text-encoding correction. Native transport investigation and the
-source-only worker implementation continue independently.
+savings or request latency. Native transport investigation and the
+source-only worker implementation continue independently; the later
+legacy text-encoding qualification is recorded above.
 
 SQLite lookup now rejects an embedded account identity different from its
 requested key. Listing requires each raw text key to equal the decoded

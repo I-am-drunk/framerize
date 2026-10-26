@@ -476,6 +476,11 @@ SQLite startup assigns the existing default device ID once to valid legacy
 records that lack it. One transaction persists these assignments before the
 store becomes usable; explicit IDs and original JSON field bytes are preserved.
 Any failed update or commit rolls the migration back and refuses startup.
+Migration reads each row's raw SQLite text through checked UTF-8 conversion.
+Malformed text and nontext values are left unchanged, with traversal advancing
+to the next row. They retain their later lookup/list errors instead of causing
+an owned-text conversion panic during startup. This does not repair invalid
+records or make them eligible for account admission.
 
 The optional native `browser-transport` feature connects the native minter
 to a supplied-token browser sender. Each request carries its actual minted

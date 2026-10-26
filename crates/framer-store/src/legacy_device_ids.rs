@@ -1,8 +1,12 @@
 //! Persist the legacy device default before any account can be read.
 use framer_core::account::ManagedAccount;
-use rusqlite::{types::Value as SqlValue, Connection, OptionalExtension, TransactionBehavior};
+use rusqlite::{types::ValueRef, Connection, OptionalExtension, TransactionBehavior};
 use serde_json::value::RawValue;
 use std::collections::BTreeMap;
+
+#[cfg(test)]
+#[path = "legacy_device_encoding_tests.rs"]
+mod encoding_tests;
 
 pub(super) fn persist(conn: &mut Connection) -> Result<(), String> {
     let transaction = conn.transaction_with_behavior(TransactionBehavior::Immediate)
@@ -16,11 +20,16 @@ pub(super) fn persist(conn: &mut Connection) -> Result<(), String> {
         loop {
             // Finish each SELECT before updating its row. Retain only one record.
             let row = select.query_row([previous], |row| {
-                Ok((row.get::<_, i64>(0)?, row.get::<_, SqlValue>(1)?))
+                let rowid = row.get::<_, i64>(0)?;
+                let json = match row.get_ref(1)? {
+                    ValueRef::Text(bytes) => std::str::from_utf8(bytes).ok().map(str::to_owned),
+                    _ => None,
+                };
+                Ok((rowid, json))
             }).optional().map_err(|error| error.to_string())?;
-            let Some((rowid, value)) = row else { break };
+            let Some((rowid, json)) = row else { break };
             previous = Some(rowid);
-            let SqlValue::Text(json) = value else { continue };
+            let Some(json) = json else { continue };
             if let Some(updated) = with_default(&json)? {
                 let changed = transaction.execute("UPDATE accounts SET json = ?1 WHERE rowid = ?2",
                     rusqlite::params![updated, rowid]).map_err(|error| error.to_string())?;
