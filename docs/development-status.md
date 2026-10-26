@@ -28,6 +28,14 @@ reproduced a permission error resolving the service executable with
 The corrected supervisor retains its ownership checks and resource bounds.
 Live delivery, memory savings and per-account TLS separation remain unproven.
 
+The corrected supervisor reached its three-minute drain limit without a
+service switch or upstream request. Recovery confirmed the original service
+and saved pool settings. The revised controller now fences idle accounts
+progressively, preserving active requests and recording every attempted pool
+change for interrupted recovery. All 47 local transition/recovery checks pass,
+including 12 new progressive-drain cases. The deployed pool API's active-work
+guard is retained. This revised live drain still requires qualification.
+
 The one-shot transition controller now passes 18 inert tests. It refuses to
 stop the original service before an empty, fenced pool; verifies the genuine
 expiry record; and durably claims one canary attempt before sending it.

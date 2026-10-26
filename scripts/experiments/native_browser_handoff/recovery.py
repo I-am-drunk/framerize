@@ -1,5 +1,5 @@
 """Return an owned canary transition to a compatible browser service."""
-import fcntl, hashlib, json, os, pathlib, stat, subprocess, sys, time, urllib.request
+import fcntl, hashlib, json, os, pathlib, stat, subprocess, sys, time, urllib.request, uuid
 
 HERE = pathlib.Path(__file__).resolve().parent
 UNIT = 'framerize.service'
@@ -72,6 +72,47 @@ def http_json(path, value=None):
         return json.loads(response.read(262145))
 
 
+def narrower_pool(before, after):
+    if not isinstance(before, dict) or not isinstance(after, dict) or 'eligible_accounts' not in before:
+        return False
+    if dict(after, eligible_accounts=before['eligible_accounts']) != before:
+        return False
+    selected = after.get('eligible_accounts')
+    if not isinstance(selected, list) or not all(isinstance(v, str) for v in selected):
+        return False
+    try:
+        if len(set(selected)) != len(selected) or any(str(uuid.UUID(v)) != v for v in selected):
+            return False
+    except ValueError:
+        return False
+    allowed = before['eligible_accounts']
+    return allowed == 'all' or isinstance(allowed, list) and set(selected) <= set(allowed)
+
+
+def pool_change(plan, saved, before, after):
+    require(before == saved or narrower_pool(saved, before), 'invalid prior drain configuration')
+    require(narrower_pool(before, after), 'drain configuration widens admission')
+    return dict(version=1, invocation=plan['expected']['service']['InvocationID'],
+                saved_sha256=plan['artifacts']['pool-config.json'], before=before, after=after)
+
+
+def record_pool_change(plan, saved, before, after):
+    record = pool_change(plan, saved, before, after)
+    atomic(HERE / 'pool-write.json', json.dumps(record).encode())
+
+
+def owned_pool_versions(plan, saved):
+    versions = [saved, dict(saved, eligible_accounts=[])]
+    path = HERE / 'pool-write.json'
+    if path.exists():
+        record = json.loads(path.read_text())
+        require(isinstance(record, dict), 'invalid drain configuration record')
+        expected = pool_change(plan, saved, record.get('before'), record.get('after'))
+        require(record == expected, 'drain configuration record changed')
+        versions.extend((record['before'], record['after']))
+    return versions
+
+
 def ready(expected, seconds=60):
     http = urllib.request.build_opener(urllib.request.ProxyHandler({}))
     deadline = time.monotonic() + seconds
@@ -115,11 +156,11 @@ def stopped(plan):
         require(values.get('populated') == '0', 'service descendants remain')
 
 
-def finish_return(kind, pid):
+def finish_return(kind, pid, plan):
     saved = json.loads((HERE / 'pool-config.json').read_text())
     observed = http_json('/api/pool/config')
-    fenced = dict(saved, eligible_accounts=[])
-    require(observed in (saved, fenced), 'pool configuration changed outside this transition')
+    require(observed in owned_pool_versions(plan, saved),
+            'pool configuration changed outside this transition')
     if observed != saved:
         http_json('/api/pool/config', saved)
     require(http_json('/api/pool/config') == saved, 'pool configuration was not restored')
@@ -156,7 +197,7 @@ def restore_started(plan, dropin):
     if running is None:
         command('start', UNIT)
     pid = ready(target)
-    return finish_return(kind, pid)
+    return finish_return(kind, pid, plan)
 
 
 def restore_locked():
@@ -183,14 +224,14 @@ def restore_locked():
                     'transition configuration changed')
     if dropin.exists() or fallback.exists() or state['phase'].startswith('restoring-'):
         return restore_started(plan, dropin)
-    require(state['phase'] in ('armed', 'fencing', 'fenced', 'restored-original',
+    require(state['phase'] in ('armed', 'draining', 'fencing', 'fenced', 'restored-original',
             'restoring-original'), 'transition configuration is missing')
     require(pid and executable(pid) == plan['expected']['binary'], 'original service is missing')
     require(not has_history(plan), 'original service cannot resume migrated history')
     expected_invocation = state.get('invocation', plan['expected']['service']['InvocationID'])
     require(current['InvocationID'] == expected_invocation, 'original service owner changed')
     ready(plan['expected']['binary'])
-    return finish_return('original', pid)
+    return finish_return('original', pid, plan)
 
 
 def restore():
