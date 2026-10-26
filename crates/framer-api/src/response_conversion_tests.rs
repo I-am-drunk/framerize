@@ -425,3 +425,49 @@ fn chat_json_schema_reaches_each_continuation_request() {
     }
     assert_eq!(observed.response.output[0]["content"][0]["text"], "{\"value\":42}");
 }
+
+#[test]
+fn exhausted_continuation_emits_one_incomplete_terminal() {
+    let replies = ["first ", "second ", "last"].into_iter().enumerate()
+        .map(|(index, text)| reply(vec![message(&format!("part-{index}"), text,
+            "incomplete")], "incomplete")).collect();
+    let observed = run(replies);
+    assert_eq!(observed.requests.len(), 3);
+    assert_event_sequence(&observed);
+    assert!(selected(&observed, "response.completed").is_empty());
+    let terminals = selected(&observed, "response.incomplete");
+    assert_eq!(terminals.len(), 1);
+    assert_eq!(observed.events.last().unwrap(), terminals[0]);
+    let full = &terminals[0]["response"];
+    assert_eq!(full["status"], "incomplete");
+    assert_eq!(full["incomplete_details"], json!({"reason":"max_output_tokens"}));
+    assert_eq!(full["usage"]["output_tokens"], 300);
+    assert_eq!(full["output"][0]["content"][0]["text"], "first second last");
+    let done = selected(&observed, "response.output_item.done");
+    assert_eq!(done.len(), 1);
+    assert_eq!(full["output"], json!([done[0]["item"]]));
+    assert_eq!(done[0]["item"]["status"], "incomplete");
+}
+
+#[test]
+fn content_filtered_continuation_emits_incomplete_terminal() {
+    let mut last = message("last", "", "incomplete");
+    last["content"] = json!([{"type":"refusal","refusal":"restricted portion"}]);
+    let mut filtered = reply(vec![last], "incomplete");
+    filtered["incomplete_details"] = json!({"reason":"content_filter"});
+    let observed = run(vec![reply(vec![message("first", "accepted prefix", "incomplete")],
+        "incomplete"), filtered]);
+    assert_eq!(observed.requests.len(), 2);
+    assert_event_sequence(&observed);
+    assert!(selected(&observed, "response.completed").is_empty());
+    let terminals = selected(&observed, "response.incomplete");
+    assert_eq!(terminals.len(), 1);
+    assert_eq!(observed.events.last().unwrap(), terminals[0]);
+    let full = &terminals[0]["response"];
+    assert_eq!(full["status"], "incomplete");
+    assert_eq!(full["incomplete_details"], json!({"reason":"content_filter"}));
+    assert_eq!(full["output"][0]["content"], json!([
+        {"type":"output_text","text":"accepted prefix","annotations":[]},
+        {"type":"refusal","refusal":"restricted portion"}]));
+    assert_eq!(full["output"][0], selected(&observed, "response.output_item.done")[0]["item"]);
+}

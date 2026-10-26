@@ -3,6 +3,15 @@
 The rearchitecture is on `refactor/separate-apps-and-ci-20261025` in draft
 [PR #2](https://github.com/I-am-drunk/framerize/pull/2). It is not deployed.
 
+Responses emit response.incomplete when their assembled output is incomplete,
+preserving content, IDs, usage and event sequence. Direct inference honors
+indexed output_text.done, including empty text, and prevents later deltas
+from extending a finalized part. All 47 selected checks pass: 36 API, ten
+core and one native cleanup control. Thirteen new cases and one strengthened
+case ran; the old behavior reproduced twelve failures with two controls
+passing. All 706 tracked inputs and six candidate files match. These source
+changes are not deployed; the guarded live history handoff remains pending.
+
 Direct inference now orders indexed legacy text by output/content position
 and captures it at the last completion. Explicit final output still wins;
 ambiguous mixed text or invalid coordinates cannot become a legacy answer.

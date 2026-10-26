@@ -1971,6 +1971,9 @@ mod responses_event_tests;
 #[path = "responses_opaque_tests.rs"]
 mod responses_opaque_tests;
 #[cfg(test)]
+#[path = "responses_terminal_tests.rs"]
+mod responses_terminal_tests;
+#[cfg(test)]
 #[path = "chat_refusal_tests.rs"]
 mod chat_refusal_tests;
 #[cfg(test)]
@@ -2189,7 +2192,12 @@ impl ResponsesComposer {
                 if let Some(id) = id { item["id"] = json!(id); }
             }
         }
-        f.push(self.ev("response.completed", json!({"response": full})));
+        let terminal = if r.status == "incomplete" {
+            "response.incomplete"
+        } else {
+            "response.completed"
+        };
+        f.push(self.ev(terminal, json!({"response": full})));
         f
     }
 }
