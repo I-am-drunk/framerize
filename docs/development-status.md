@@ -3,6 +3,18 @@
 The rearchitecture is on `refactor/separate-apps-and-ci-20261025` in draft
 [PR #2](https://github.com/I-am-drunk/framerize/pull/2). It is not deployed.
 
+Owned browser startup now rejects failed stale-port removal before launching
+processes, while missing/removable entries and Attach behavior retain their
+existing policy. Blocking removal keeps the account route through cancellation,
+so same-account reentry and owned shutdown cannot overtake it. All six isolated
+guard/ownership checks pass, with 727 tracked and four candidate hashes matching.
+The prior guard reproduced one process-dispatch failure with two controls.
+The new helper's three cases require its API and have no raw-parent baseline.
+This is source-only work on `feat/native-browser-handoff-20261026`; frozen
+`f33362b` packages are unchanged. A slow filesystem can still delay cleanup;
+no live endpoint, global profile-lock or browser-acceptance claim is made.
+Next: qualify the queued device-preparation ownership delta.
+
 Browser version probing now returns the existing fallback user agent after
 five seconds instead of waiting indefinitely for output. The timed-out child
 remains owned until kill/wait cleanup completes, and probe cleanup cannot clear
@@ -11,7 +23,7 @@ version/fallback/cleanup controls pass in the isolated runner; the parent
 reproduced both hangs. All 726 tracked and two candidate source hashes match.
 This source milestone on `feat/native-browser-handoff-20261026` is outside the
 frozen `f33362b` packages. It adds no synchronous spawn deadline or live-browser
-acceptance. Next: qualify stale-port removal and cancellation ownership.
+acceptance. Subsequent port-preparation qualification is recorded above.
 
 Duplicate login and import now validate email conflicts before saving a
 replacement session or claiming a workspace grant. Both rejected operations
