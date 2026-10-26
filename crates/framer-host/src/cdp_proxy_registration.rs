@@ -4,6 +4,9 @@ use super::*;
 pub(super) struct CdpAccountRoute {
     // Remains set if startup is interrupted or cleanup is unconfirmed.
     pub may_have_browser: bool,
+    pub group: Option<Arc<cdp_process_group::ProcessGroup>>,
+    // Survives an instance dropped during failed or cancelled startup.
+    pub pending: Arc<cdp_pending_commands::PendingCommands>,
 }
 
 fn has_embedded_credentials(proxy: &str) -> bool {

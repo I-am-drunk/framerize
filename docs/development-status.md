@@ -3,6 +3,20 @@
 The rearchitecture is on `refactor/separate-apps-and-ci-20261025` in draft
 [PR #2](https://github.com/I-am-drunk/framerize/pull/2). It is not deployed.
 
+Owned CDP startup now selects the exact Framer origin, bounds WebSocket
+connection and upgrade to five seconds, and retains its process group until
+exit is observed. Pending command IDs survive cancellation; later work waits
+for their replies, and Attach shutdown retains uncertainty when completion
+cannot be observed. Startup and mint errors preserve that cleanup signal.
+All 49 selected startup/cleanup checks pass: 48 in the combined run and one
+after correcting the fixture's retained peer socket. Production and every
+assertion were unchanged by that correction; 377 other Rust input hashes match.
+The target/deadline baseline reproduced five failures with four controls.
+All 749 final tracked and 20 candidate hashes match; both test units stopped.
+These source changes are outside the frozen `f33362b` packages. Escaped process
+descendants and real-browser behavior remain unqualified. Next: prepare matched
+packages without replacing the running service or reusing the old live plan.
+
 Device context creation and preparation now retain the device lock and memory
 reservation until outstanding browser calls and late-context cleanup settle.
 A failed cancelled close preserves cancellation and marks cleanup unconfirmed,
@@ -12,9 +26,8 @@ eight assertion failures and three cleanup-entry timeouts, with six controls.
 All 746 tracked and 24 candidate hashes match; every test unit is stopped.
 The earlier 23 page-lifetime checks remain valid and were not repeated.
 This qualified Python source is outside the frozen `f33362b` packages and adds
-no operation deadline or live-browser acceptance. The separate CDP startup
-group has 48 passing checks and one returned shutdown-fixture timeout; its
-qualification and the subsequent package decision remain open.
+no operation deadline or live-browser acceptance. The subsequent CDP startup
+qualification is recorded above.
 
 CDP attachment now selects the exact HTTPS Framer app origin before using a
 page. Discovery GET and new-tab PUT share an owned async HTTP connection

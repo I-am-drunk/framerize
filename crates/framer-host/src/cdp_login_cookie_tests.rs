@@ -63,7 +63,7 @@ async fn complete(cookies: Vec<Value>) -> (String, Value) {
     let account = AccountId::new();
     let bridge = CdpBridge::with_engine("unused", "/unused-login-fixture", EngineKind::Attach);
     bridge.instances.lock().await.insert(account, Arc::new(Mutex::new(
-        CdpInstance { child: None, ws, next_id: 0 })));
+        CdpInstance { child: None, ws, next_id: 0, pending: Default::default() })));
     let result = timeout(Duration::from_secs(2),
         bridge.auth_complete(&account, "fixture-email-link")).await;
     let closed = timeout(Duration::from_secs(2), bridge.shutdown()).await;

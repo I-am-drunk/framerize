@@ -193,6 +193,9 @@ Attached-page selection parses the URL and requires the HTTPS Framer app
 origin, with the default port. A hostname, path or query that merely mentions
 Framer cannot select a page. Existing first-page and new-tab fallback order
 is preserved.
+Owned startup uses the same origin check and waits for a matching page within
+its existing discovery attempts. Both discovery paths bound WebSocket TCP
+connection and upgrade to five seconds; cancellation drops the owning socket.
 CDP discovery GET and new-tab PUT share an owned asynchronous HTTP socket.
 One five-second deadline covers connection, writing and complete body reads;
 return, cancellation and timeout drop the socket. Headers are limited to
@@ -214,6 +217,12 @@ wait for removal; unrelated accounts remain independent. Slow filesystem work
 can therefore delay cleanup. This is a per-bridge lock, not a global profile lock.
 Shutdown joins these children and still closes every known instance. Only
 confirmed exits clear their account flags; missing exit evidence stays an error.
+Owned Unix browsers retain their process-group identity. Abandoned startup
+signals the group only while its unreaped leader still owns that identity,
+then joins the leader and waits for group absence. Graceful shutdown waits
+for that same proof without forcibly killing surviving members. Attach and
+version probes never gain browser-group ownership. Group absence does not
+prove cleanup of descendants that leave the group.
 The CDP device loader creates an identity only when the record is missing.
 Read, UTF-8, JSON and identity-field errors preserve the existing bytes and
 refuse startup instead of silently replacing the browser identity.
@@ -263,6 +272,14 @@ error path. Successful values, undefined results and deadlines stay unchanged.
 Each CDP command starts one deadline before sending and reuses it for reply
 reads, so socket backpressure consumes the same budget. A timeout bounds the
 host's wait; it cannot retract bytes or stop JavaScript already dispatched.
+Command IDs are recorded before writing and remain owned after cancellation.
+Subsequent commands observe prior terminal replies within the existing
+deadline. Owned Browser.close may bypass that wait, but only joined child
+and group exit can settle commands without replies. Attach shutdown observes
+pending commands before disconnecting and retains the socket/state if that
+observation is cancelled. Lost replies remain explicit cleanup uncertainty;
+startup and mint error handling preserve that signal instead of claiming
+completion or starting another mint attempt.
 
 Browser launch converts authenticated proxy URLs into separate server,
 username and password options before passing them to the browser driver.

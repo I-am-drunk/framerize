@@ -20,7 +20,7 @@ async fn evaluate(reply: Value, expression: String, long: bool) -> Result<Value,
         assert!(socket.next().await.unwrap().unwrap().is_close());
     });
     let (ws, _) = connect_async(format!("ws://{address}")).await.unwrap();
-    let mut instance = CdpInstance { child: None, ws, next_id: 0 };
+    let mut instance = CdpInstance { child: None, ws, next_id: 0, pending: Default::default() };
     let result = timeout(Duration::from_secs(2), async {
         if long { instance.eval_long(expression).await }
         else { instance.eval(expression).await }
