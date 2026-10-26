@@ -3,6 +3,16 @@
 The rearchitecture is on `refactor/separate-apps-and-ci-20261025` in draft
 [PR #2](https://github.com/I-am-drunk/framerize/pull/2). It is not deployed.
 
+Browser version probing now returns the existing fallback user agent after
+five seconds instead of waiting indefinitely for output. The timed-out child
+remains owned until kill/wait cleanup completes, and probe cleanup cannot clear
+an actual browser's uncertainty. Both new timeout regressions and four existing
+version/fallback/cleanup controls pass in the isolated runner; the parent
+reproduced both hangs. All 726 tracked and two candidate source hashes match.
+This source milestone on `feat/native-browser-handoff-20261026` is outside the
+frozen `f33362b` packages. It adds no synchronous spawn deadline or live-browser
+acceptance. Next: qualify stale-port removal and cancellation ownership.
+
 Duplicate login and import now validate email conflicts before saving a
 replacement session or claiming a workspace grant. Both rejected operations
 preserve saved sessions and account records; same-account reauthentication
