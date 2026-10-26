@@ -542,6 +542,10 @@ inventing ownership for old records. Older readers reject schema 2, so package
 rollback must select a compatible reader. No caller-provided clean flag or
 missing lock file substitutes for process cleanup.
 
+The native/browser canary now has a checked schema-2 browser return archive
+from the same source revision. Its release binaries and package lifecycle
+checks are complete; deploying it still requires the genuine history transition.
+
 `scripts/release.py activate` updates an already migrated user service. It
 checks package and history compatibility before stopping the service, switches
 the package symlink atomically, and restores the previous package if startup

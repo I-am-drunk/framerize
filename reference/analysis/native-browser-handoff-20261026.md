@@ -97,3 +97,23 @@ in the private qualification record and are not counted as passes.
 Live Framer acceptance, total request memory and upstream streaming remain
 unverified. Separate browser contexts do not establish distinct TLS
 fingerprints or remote account unlinkability.
+
+## Release package qualification
+
+Both release binaries build at `72886b2e1c3fb48aad5d89b4f0f8488f83d21d9b`.
+The first build reached its three-minute runtime bound; an incremental build
+finished successfully in 79.69 seconds. All 655 recorded source files match.
+The worker bundle was rebuilt offline with 1,264 files and a matching source
+stamp. That assembly did not execute the SDK.
+
+The browser return archive passes nine checks covering archive/runtime
+verification, host shutdown, invalid startup, UI, profile exclusion, both
+termination signals and profile reuse. The native archive passes eight
+equivalent checks with its packaged worker inputs. Both use empty synthetic
+state and make no upstream request. The archives and a pinned copy of the
+supplied-browser runtime are staged without changing the running service.
+
+The browser archive supports history schema 2, providing a compatible return
+artifact after migration. First migration still requires genuine exclusive
+ownership and the observed 600-second interval. Package success does not
+establish that transition or live acceptance.
