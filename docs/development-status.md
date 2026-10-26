@@ -23,6 +23,12 @@ on `feat/native-browser-handoff-20261026`, with all 519 saved source bindings
 verified before publication. These checks make no live-request, memory-saving
 or deployment claim.
 
+Historical tool calls now receive an inferred namespace only when every
+matching declaration agrees. Default-namespace collisions and ambiguous
+names remain unchanged. The exact 4682a1a source is integrated on
+`feat/native-browser-handoff-20261026`; all five focused cases pass after
+the parent reproduced both ambiguity failures with three controls passing.
+
 Messages fallback now requires closed content and `message_stop` before
 publishing output, rejects malformed tool input, preserves retry token limits,
 and retains `max_tokens` when the final text chunk is incomplete. The integrated

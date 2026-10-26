@@ -1,6 +1,10 @@
 use serde_json::{json, Value};
 use framer_core::convert::ChainEvent;
 
+#[cfg(test)]
+#[path = "responses_namespace_tests.rs"]
+mod namespace_tests;
+
 pub fn merge_items(acc: &mut Vec<Value>, new: Vec<Value>) {
     for it in new {
         let is_msg = it["type"].as_str() == Some("message");
@@ -62,7 +66,15 @@ pub fn prepare_input(client_payload: &Value) -> Vec<Value> {
     // request's own tool declarations: a `namespace` field on the tool, a
     // `type:"namespace"` container holding it, or a dotted `ns.name`.
     let ns_of = {
-        let mut map: std::collections::HashMap<String, String> = std::collections::HashMap::new();
+        let mut map: std::collections::HashMap<String, Option<String>> = std::collections::HashMap::new();
+        // A bare name must identify one namespace. Default-namespace tools
+        // and conflicting declarations make inference unsafe in either order.
+        fn record(map: &mut std::collections::HashMap<String, Option<String>>,
+            name: &str, namespace: Option<&str>) {
+            map.entry(name.to_string()).and_modify(|known| {
+                if known.as_deref() != namespace { *known = None; }
+            }).or_insert_with(|| namespace.map(str::to_string));
+        }
         if let Some(tools) = client_payload["tools"].as_array() {
             for t in tools {
                 let ty = t["type"].as_str().unwrap_or_default();
@@ -70,15 +82,17 @@ pub fn prepare_input(client_payload: &Value) -> Vec<Value> {
                     if let Some(ns) = t["name"].as_str() {
                         for inner in t["tools"].as_array().into_iter().flatten() {
                             if let Some(n) = inner["name"].as_str() {
-                                map.insert(n.to_string(), ns.to_string());
+                                record(&mut map, n, Some(ns));
                             }
                         }
                     }
                 } else if let Some(n) = t["name"].as_str() {
                     if let Some(ns) = t["namespace"].as_str() {
-                        map.insert(n.to_string(), ns.to_string());
+                        record(&mut map, n, Some(ns));
                     } else if let Some((ns, _)) = n.split_once('.') {
-                        map.insert(n.rsplit('.').next().unwrap_or(n).to_string(), ns.to_string());
+                        record(&mut map, n.rsplit('.').next().unwrap_or(n), Some(ns));
+                    } else {
+                        record(&mut map, n, None);
                     }
                 }
             }
@@ -90,7 +104,8 @@ pub fn prepare_input(client_payload: &Value) -> Vec<Value> {
         for it in input_items.iter_mut() {
             let ty = it["type"].as_str().unwrap_or_default();
             if (ty == "function_call" || ty == "custom_tool_call") && it.get("namespace").is_none() {
-                if let Some(ns) = it["name"].as_str().and_then(|n| ns_of.get(n)) {
+                if let Some(ns) = it["name"].as_str().and_then(|n| ns_of.get(n))
+                    .and_then(Option::as_ref) {
                     it["namespace"] = json!(ns);
                     healed += 1;
                 }

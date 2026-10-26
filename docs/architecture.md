@@ -14,6 +14,11 @@ budget and queue timing into the common completion path. Both response modes
 apply tool-completeness, continuation and final-status checks before emitting
 items. Failed attempts before streaming do not count as stream throughput.
 
+Historical calls without a namespace are repaired only when their bare tool
+name identifies one namespace across all declarations. A default-namespace
+collision or conflicting declaration prevents inference; existing explicit
+namespaces and all other call fields stay intact.
+
 Browser launch converts authenticated proxy URLs into separate server,
 username and password options before passing them to the browser driver.
 The conversion preserves decoded credentials and endpoint identity while
