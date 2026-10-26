@@ -33,6 +33,8 @@ mod secondary_workspace_claim;
 mod admission_refusal_publication;
 #[path = "account_registration_identity_scope_tests.rs"]
 mod registration_identity_scope;
+#[path = "account_registration_missing_team_tests.rs"]
+mod registration_missing_team;
 
 
 use super::{account, policy};

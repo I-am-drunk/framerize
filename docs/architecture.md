@@ -4,6 +4,10 @@ Login and import clear carried extra workspace scopes before replacing the
 saved Framer user identity. Incomplete later workspace discovery can retain
 extra scopes only from the same identity. Same-user reauthentication, primary
 project selection and the existing publication checks keep their contracts.
+When the identity changes without a selected metadata team, registration
+also clears the carried primary team and project before saving. A later
+admission failure therefore cannot leave the previous user's primary scope
+eligible. Successful admission selects and adopts the new user's scope.
 
 Browser lifecycle status includes retained raw RPCs after caller cancellation.
 Idle close reports a busy resident while those operations remain owned, and
