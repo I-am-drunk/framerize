@@ -196,6 +196,12 @@ without an account, so their exit cannot clear a browser's uncertainty.
 Version output has a five-second deadline. Expiry returns the existing fallback
 user agent and retains kill/wait cleanup for shutdown to join; fallback alone
 does not prove the child has exited.
+Owned startup rejects stale debugging-port removal errors other than a missing
+file before launching the version probe or browser. The blocking removal owns
+the account route until it finishes, including after caller cancellation, and
+returns that guard without a gap. Same-account work and owned-browser shutdown
+wait for removal; unrelated accounts remain independent. Slow filesystem work
+can therefore delay cleanup. This is a per-bridge lock, not a global profile lock.
 Shutdown joins these children and still closes every known instance. Only
 confirmed exits clear their account flags; missing exit evidence stays an error.
 The CDP device loader creates an identity only when the record is missing.

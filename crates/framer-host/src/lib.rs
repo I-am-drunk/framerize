@@ -20,12 +20,15 @@ pub mod sidecar;
 mod cdp_login_cookie_tests;
 mod cdp_attach_owner;
 mod cdp_startup_children;
+mod cdp_port_removal;
 #[cfg(all(test, target_os = "linux"))]
 mod cdp_startup_process_tests;
 #[cfg(all(test, target_os = "linux"))]
 mod cdp_version_probe_tests;
 #[cfg(all(test, target_os = "linux"))]
 mod cdp_version_deadline_tests;
+#[cfg(all(test, target_os = "linux"))]
+mod cdp_port_preparation_tests;
 mod cdp_proxy_registration;
 use cdp_proxy_registration::CdpAccountRoute;
 #[cfg(test)]
@@ -542,7 +545,7 @@ impl CdpBridge {
             self.attached_owner.claim(*account)?;
         }
         let cell = self.route_cell(account).await;
-        let mut route = cell.lock().await;
+        let mut route = cell.lock_owned().await;
         if let Some(inst) = self.instances.lock().await.get(account) {
             return Ok(inst.clone());
         }
@@ -557,7 +560,16 @@ impl CdpBridge {
         // from a previous (dead) chrome can be sitting there. Reading it wins
         // the race against the new chrome's write and sends every devtools
         // call to a dead port ("Connection refused" forever — observed live).
-        let _ = tokio::fs::remove_file(profile.join("DevToolsActivePort")).await;
+        let (held_route, removed) = cdp_port_removal::remove(
+            profile.join("DevToolsActivePort"), route).await?;
+        route = held_route;
+        if let Err(error) = removed {
+            if matches!(self.engine, EngineKind::FullChrome | EngineKind::HeadlessShell)
+                && error.kind() != std::io::ErrorKind::NotFound
+            {
+                return Err("could not remove stale DevToolsActivePort".into());
+            }
+        }
 
         // ATTACH MODE: no launch, no profile management. The user runs their
         // own real Chrome with --remote-debugging-port=<port>; we drive a
