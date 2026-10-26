@@ -230,13 +230,10 @@ fn fixture(import: bool) -> (AppState, Arc<FixturePorts>) {
         run_error: Mutex::new(None),
         run_calls: Mutex::new(Vec::new()),
     });
-    let state = AppState {
-        operation_ownership: None,
-        client: ports.clone(), browser: ports.clone(), sessions: ports.clone(), state: ports.clone(),
-        gate: Arc::new(framer_core::gate::ConcurrencyGate::new()),
-        wave: Arc::new(framer_core::wave::WaveGuard::new()),
-        serving_accounts: Arc::new(policy(&[1])),
-    };
+    let state = AppState::fixture(
+        ports.clone(), ports.clone(), ports.clone(), ports.clone(),
+        policy(&[1]), framer_core::gate::ConcurrencyGate::new(),
+    );
     (state, ports)
 }
 
@@ -306,7 +303,7 @@ async fn all_cooling_is_rejected_before_opening_any_free_stream_or_session() {
     for dialect in [ClientDialect::AnthropicMessages, ClientDialect::OpenAiResponses, ClientDialect::OpenAiChat] {
         for stream in [false, true] {
             let (mut state, ports) = fixture(false);
-            state.serving_accounts = Arc::new(policy(&[1, 2]));
+            state.runtime_mut().expect("unique fixture runtime").serving_accounts = Arc::new(policy(&[1, 2]));
             let now = framer_core::rotation::now_ms();
             ports.records.lock().unwrap()[0].cooling_until_ms = Some(now + 600_000);
             ports.records.lock().unwrap()[1].cooling_until_ms = Some(now + 300_000);
@@ -359,7 +356,7 @@ async fn wave_cooldown_returns_retry_after_and_json_before_external_io() {
 #[tokio::test]
 async fn explicit_cooling_and_retry_selection_stop_before_io() {
     let (mut state, ports) = fixture(false);
-    state.serving_accounts = Arc::new(policy(&[1, 2]));
+    state.runtime_mut().expect("unique fixture runtime").serving_accounts = Arc::new(policy(&[1, 2]));
     ports.records.lock().unwrap()[0].cooling_until_ms = Some(framer_core::rotation::now_ms() + 600_000);
     let mut headers = HeaderMap::new();
     headers.insert("x-framerize-account", account(1).id.0.to_string().parse().unwrap());
@@ -463,7 +460,7 @@ async fn real_refusals_still_pause_the_pool_and_local_cooldowns_do_not_count() {
 async fn local_cooldowns_park_accounts_without_pausing_the_serving_pool() {
     let (mut state, ports) = fixture(true);
     *ports.records.lock().unwrap() = (1..=4).map(account).collect();
-    state.serving_accounts = Arc::new(policy(&[1, 2, 3]));
+    state.runtime_mut().expect("unique fixture runtime").serving_accounts = Arc::new(policy(&[1, 2, 3]));
     let before = framer_core::rotation::now_ms();
     for (id, error) in [(1, "account-cooling:584"), (2, "chunk 0 retry died (fallback off): account-cooling:584")] {
         crate::record_account_health(&state, &account(id), &Err::<(), _>(error.to_string())).await;
@@ -592,7 +589,7 @@ async fn import_succeeds_when_optional_prewarm_registration_has_no_capacity() {
     use tower::ServiceExt;
     use axum::{body::{Body, to_bytes}, http::Request};
     let (mut state, ports) = fixture(true);
-    state.serving_accounts = Arc::new(policy(&[1, 2]));
+    state.runtime_mut().expect("unique fixture runtime").serving_accounts = Arc::new(policy(&[1, 2]));
     // Exactly host + whole-handler ownership fit; optional child cannot fit.
     state = crate::operation_ownership::with_owned_operations(state, 2).unwrap();
     let before = serde_json::to_value(&ports.records.lock().unwrap()[0]).unwrap();

@@ -95,7 +95,7 @@ pub(crate) async fn forward_cancellable(
         }
         Err(e) if e == "unauthorized" => {
             check_cancelled(cancelled)?;
-            auth::invalidate_ai_token(session, &token);
+            auth::invalidate_ai_token(t, session, &token);
             if let Ok(mut guard) = token_cache.lock() {
                 guard.retain(|(id, _)| id != account);
             }

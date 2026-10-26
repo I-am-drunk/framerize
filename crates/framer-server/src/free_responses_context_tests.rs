@@ -31,7 +31,7 @@ async fn rejects_before_ports(stream: bool) {
     for owned in [false, true] {
         let mut f = fixture::Fixture::new();
         let state = Arc::new(BoundaryState::default());
-        f.state.state = state.clone();
+        f.state.runtime_mut().unwrap().state = state.clone();
         if owned { f.state = operation_ownership::with_owned_operations(f.state, 32).unwrap(); }
         for reference in [json!("private-reference"), json!(""), json!(7),
             json!(false), json!([]), json!({"id":"private-reference"})] {
@@ -108,7 +108,7 @@ async fn complete_input_history_keeps_existing_dispatch() {
 async fn reaches_account_lookup(path: &str, paid: bool, body: Value) {
     let mut f = fixture::Fixture::new();
     let state = Arc::new(BoundaryState::default());
-    f.state.state = state.clone();
+    f.state.runtime_mut().unwrap().state = state.clone();
     let response = request(f.state.clone(), path, paid, body).await;
     assert_eq!(response.status(), StatusCode::INTERNAL_SERVER_ERROR, "{path}");
     assert_eq!(to_bytes(response.into_body(), 4096).await.unwrap().as_ref(), LOOKUP.as_bytes());

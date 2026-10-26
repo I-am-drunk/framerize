@@ -31,7 +31,7 @@ fn records(ports: &FixturePorts) -> Value {
 
 fn setup() -> (AppState, Arc<FixturePorts>, Arc<ServingOwnership>, OperationGate) {
     let (mut state, ports) = fixture(false);
-    state.serving_accounts = Arc::new(policy(&[1, 2]));
+    state.runtime_mut().expect("unique fixture runtime").serving_accounts = Arc::new(policy(&[1, 2]));
     ports.records.lock().unwrap()[0].credit = Some(CreditSnapshot {
         available: 100.0, funds: 1, grants: 1, allocated: 100.0,
     });
@@ -41,7 +41,7 @@ fn setup() -> (AppState, Arc<FixturePorts>, Arc<ServingOwnership>, OperationGate
     *ports.run_reply.lock().unwrap() = Some(InferenceResult::Completed(outcome()));
     let (scope, gate) = ServingOwnership::new_with_host_factory(
         state.wave.clone(), 32, |gate| gate).unwrap();
-    state.operation_ownership = Some(scope.clone());
+    state.runtime_mut().expect("unique fixture runtime").operation_ownership = Some(scope.clone());
     (state, ports, scope, gate)
 }
 

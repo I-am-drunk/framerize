@@ -43,7 +43,7 @@ async fn sweep(rows: Vec<ManagedAccount>, apply: bool) -> (Value, Arc<DedupeStor
         mutations: state.serving_accounts.mutations.clone(),
         removed: Mutex::new(Vec::new()),
     });
-    state.state = store.clone();
+    state.runtime_mut().expect("unique fixture runtime").state = store.clone();
     let config = state.serving_accounts.config();
     let outcome =
         crate::dedupe_accounts_observed(State(state.clone()), Json(crate::DedupeBody { apply }))

@@ -9,7 +9,8 @@ pub async fn serve(state: AppState, web_dir: &str, addr: SocketAddr,
     let browser = state.browser.clone();
     let sealing = ownership.clone();
     let (sender, receiver) = tokio::sync::oneshot::channel();
-    let result = framer_server::serve_with_shutdown(state, web_dir, addr, async move {
+    // Retain the runtime, including the private-store lock, through host join.
+    let result = framer_server::serve_with_shutdown(state.clone(), web_dir, addr, async move {
         stop.await;
         let _ = sender.send(sealing.seal());
     }).await;
@@ -28,7 +29,7 @@ pub async fn close(state: AppState) -> Result<(), String> {
     let ownership = state.operation_ownership.as_ref()
         .ok_or("application request ownership is unavailable")?;
     let ticket = ownership.seal().map_err(|error| format!("shutdown admission: {error:?}"))?;
-    close_browser(state.browser, ticket).await
+    close_browser(state.browser.clone(), ticket).await
 }
 
 async fn close_browser(browser: std::sync::Arc<dyn framer_core::port::BrowserBridge>,

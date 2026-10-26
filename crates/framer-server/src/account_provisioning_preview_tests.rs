@@ -143,7 +143,7 @@ async fn assert_extra_scope(team: &str, existing: bool) {
         existing,
         calls: Mutex::new(Vec::new()),
     });
-    state.client = client.clone();
+    state.runtime_mut().expect("unique fixture runtime").client = client.clone();
     let mut current = account(1);
     let mut expected = current.clone();
     let project = if existing {
