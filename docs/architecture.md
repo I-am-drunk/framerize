@@ -207,6 +207,13 @@ confirmed exits clear their account flags; missing exit evidence stays an error.
 The CDP device loader creates an identity only when the record is missing.
 Read, UTF-8, JSON and identity-field errors preserve the existing bytes and
 refuse startup instead of silently replacing the browser identity.
+New records are written and synced in a separate candidate before an atomic
+hard link publishes them without replacing an existing record. Concurrent
+creators read the winning record; the blocking owner retains candidate cleanup
+through caller cancellation. Directory and device preparation retain the
+account route until completion, so same-account startup, identity rotation and
+shutdown cannot overtake the filesystem work. This does not bound filesystem
+latency or establish power-loss durability for the containing directory.
 Both browser login adapters select session cookies applicable to
 `https://api.framer.com`, matching the API identity lookup. Website-only
 cookies are excluded; shared-domain and host-only API cookies remain valid.

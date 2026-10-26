@@ -3,6 +3,19 @@
 The rearchitecture is on `refactor/separate-apps-and-ci-20261025` in draft
 [PR #2](https://github.com/I-am-drunk/framerize/pull/2). It is not deployed.
 
+CDP device creation now writes and syncs a separate candidate, then publishes
+the complete record without replacing a concurrent winner. Cancelled creation
+retains candidate cleanup. Profile and device preparation also retain the
+account route until filesystem work completes, preventing same-account work
+or shutdown from overtaking it. All eleven isolated checks pass: seven new
+publication/preparation cases and four existing identity controls. All 730
+tracked and five candidate hashes match; the test unit is fully stopped.
+The new private helpers have no raw-parent behavioral baseline. This is
+qualified source on `feat/native-browser-handoff-20261026`, outside the frozen
+`f33362b` packages. Slow filesystem work can still delay cleanup; power-loss
+durability and live browser acceptance were not tested. Next: qualify the
+three queued Python page-lifetime fixes together.
+
 Owned browser startup now rejects failed stale-port removal before launching
 processes, while missing/removable entries and Attach behavior retain their
 existing policy. Blocking removal keeps the account route through cancellation,
@@ -13,7 +26,7 @@ The new helper's three cases require its API and have no raw-parent baseline.
 This is source-only work on `feat/native-browser-handoff-20261026`; frozen
 `f33362b` packages are unchanged. A slow filesystem can still delay cleanup;
 no live endpoint, global profile-lock or browser-acceptance claim is made.
-Next: qualify the queued device-preparation ownership delta.
+The subsequent device-preparation result is recorded above.
 
 Browser version probing now returns the existing fallback user agent after
 five seconds instead of waiting indefinitely for output. The timed-out child
