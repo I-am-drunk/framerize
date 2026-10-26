@@ -17,6 +17,8 @@ mod dedupe_preview;
 mod provisioning_preview;
 #[path = "account_admission_project_scope_tests.rs"]
 mod admission_project_scope;
+#[path = "account_secondary_workspace_claims_tests.rs"]
+mod secondary_workspace_claims;
 #[path = "account_registration_project_scope_tests.rs"]
 mod registration_project_scope;
 

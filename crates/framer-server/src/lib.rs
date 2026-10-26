@@ -2373,6 +2373,7 @@ async fn populate_extra_scopes(
     s: &AppState,
     session: &framer_core::port::Session,
     account: &mut ManagedAccount,
+    claimed: &std::collections::BTreeSet<String>,
     cleanup: &pool_control::CleanupEvidence,
 ) {
     let deps = Deps {
@@ -2394,6 +2395,9 @@ async fn populate_extra_scopes(
     for w in credited {
         if Some(w.team.0.clone()) == primary {
             continue; // the primary scope lives in current_team/current_project
+        }
+        if claimed.contains(&w.team.0) {
+            continue;
         }
         if w.snapshot.available <= 0.0 {
             continue; // 0-credit workspaces 402 on every route — not a scope
@@ -2435,7 +2439,10 @@ async fn claimed_workspaces(
     Ok(pool
         .iter()
         .filter(|a| a.id != exclude)
-        .filter_map(|a| a.current_team.as_ref().map(|t| t.0.clone()))
+        .flat_map(|a| {
+            a.current_team.iter().chain(a.extra_workspaces.iter().map(|scope| &scope.team))
+        })
+        .map(|team| team.0.clone())
         .collect())
 }
 
@@ -2907,7 +2914,7 @@ async fn complete_login_observed(State(s): State<AppState>, Json(body): Json<Com
     }
     // Multi-workspace goose: claim every other credited workspace as a rotated
     // scope (each carries its own 429 budget).
-    populate_extra_scopes(&s, &session, &mut account, &cleanup).await;
+    populate_extra_scopes(&s, &session, &mut account, &claimed, &cleanup).await;
     s.state.upsert(&account).await.map_err(ApiError::Internal)?;
 
     Ok(Json(serde_json::json!({
@@ -3128,7 +3135,7 @@ async fn import_account_observed(State(s): State<AppState>, Json(body): Json<Imp
         }
         // Multi-workspace goose: claim every other credited workspace as a
         // rotated scope (each carries its own 429 budget).
-        populate_extra_scopes(&s, &session, &mut account, &cleanup).await;
+        populate_extra_scopes(&s, &session, &mut account, &claimed, &cleanup).await;
         s.state.upsert(&account).await.map_err(ApiError::Internal)?;
     }
 
