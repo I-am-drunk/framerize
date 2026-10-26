@@ -3,6 +3,18 @@
 The rearchitecture is on `refactor/separate-apps-and-ci-20261025` in draft
 [PR #2](https://github.com/I-am-drunk/framerize/pull/2). It is not deployed.
 
+Matched browser and native packages at `3ead4b8` now include the qualified
+startup and cleanup changes below. Both optimized applications build; nine
+browser and eight native package checks pass, together with five packaged
+history/readiness checks and three diagnostic/cleanup/privacy checks. All
+758 source hashes, twelve artifact/helper hashes and forty supplied-runtime
+files match. The seven earlier `f33362b` artifact pins remain unchanged.
+All four isolated build/package/test units are stopped with no remaining
+processes. These checks use synthetic profiles and make no upstream request;
+they do not establish real-account delivery or authorize a service switch.
+The packages are undeployed. Next: qualify the separate driver-start identity
+guard while preserving these archives, then prepare fresh live acceptance.
+
 Owned CDP startup now selects the exact Framer origin, bounds WebSocket
 connection and upgrade to five seconds, and retains its process group until
 exit is observed. Pending command IDs survive cancellation; later work waits
