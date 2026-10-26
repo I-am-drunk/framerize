@@ -3,6 +3,14 @@
 The rearchitecture is on `refactor/separate-apps-and-ci-20261025` in draft
 [PR #2](https://github.com/I-am-drunk/framerize/pull/2). It is not deployed.
 
+The `test/native-tls-account-isolation-20261026` branch passes three local
+TLS tests: separate account connections and credentials, forced reconnection,
+and required certificate verification. Both TLS 1.2 and TLS 1.3 were tested.
+Neither resumed a session, so working session-cache isolation remains unproved.
+No serving lifetime or TLS backend changed. The next step is retained,
+generation-bound account transports with rotation and active-stream checks.
+See the [result and limits](../reference/analysis/native-tls-isolation-20261026.md).
+
 The `measure/shared-context-isolation-20261026` experiment now passes its
 local storage, HTTPS connection, concurrent-stream and cleanup checks.
 At the two-account snapshot, one browser used 551.233 MiB PSS versus
