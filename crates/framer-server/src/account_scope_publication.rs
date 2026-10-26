@@ -35,3 +35,21 @@ pub(super) async fn publish(
 fn not_eligible(message: &str) -> ApiError {
     ApiError::Internal(CoreError::NotEligible(message.into()).to_string())
 }
+
+/// Keep the original admission refusal when its subject no longer matches.
+pub(super) async fn mark_refused(
+    state: &AppState, account: &mut ManagedAccount,
+) -> Result<(), ApiError> {
+    match framer_core::pipeline::update_account(
+        state.state.as_ref(), &state.serving_accounts.health_update, account,
+        |current| current.state = framer_core::account::AccountState::Exhausted,
+    ).await {
+        Ok(current) => {
+            *account = current;
+            Ok(())
+        }
+        Err(CoreError::NotEligible(_)) => Ok(()),
+        Err(CoreError::Store(error)) => Err(ApiError::Internal(error)),
+        Err(error) => Err(ApiError::Internal(error.to_string())),
+    }
+}
