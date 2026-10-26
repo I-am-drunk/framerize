@@ -6,14 +6,14 @@ continuation. One runtime budget owns encoder leases; output slots remain
 charged through final Bytes disposal. Channel EOF, body cancellation and
 joined upstream cleanup keep separate lifetimes. Legacy routes remain.
 
-The current draft adds 47 inert fixtures and preserves existing assertions.
+The current draft adds 48 inert fixtures and preserves existing assertions.
 Approved existing-body changes dispose heartbeat buffers and pump four Native
 fixture bodies until the producer returns, retaining the original remainder.
 Three approved fixture parents use a copying consumer; the pool mock gains
 an awaited port. The pump has explicit frame, byte and time limits.
 Rust syntax parsing and whitespace checks ran; no compilation, test or
-measurement ran in this lane. The packet selects 355 distinct cases in 26
-launch groups. Main owns qualification after the existing vision source review.
+measurement ran in this lane. The packet selects 356 distinct cases in 26
+launch groups. Main owns recompilation and qualification.
 The latest hosted build was skipped by the repository gate; the earlier
 billing blocker remains separate. Neither outcome is a validation pass.
 
@@ -22,7 +22,12 @@ blocked. A focused virtual-time fixture isolates that transition; unpaused
 fixtures retain the wire-order and P2/P5 checks. Retained frame clones cannot
 keep body cancellation open. Library output-limit construction rejects an
 already owned runtime, preserving capacity derived from its operation limit.
-These corrections remain uncompiled and UNRUN in the existing vision review.
+Vision approved source d277157. Main's first compile exited 101 after 18.573s
+with two E0277 logging-field errors and one E0308 logging-error argument.
+The correction passes string slices to those existing logging APIs without
+changing the fields or messages. All 789 execution pins matched; the unit
+was inactive with PID zero and an empty cgroup. No S3a test or profile ran.
+The corrected source remains UNRUN, and the original failure is retained.
 
 Login and import now persist `Exhausted` only for admission's existing
 `NotEligible` refusal. Propagated profile or store failures preserve the full
