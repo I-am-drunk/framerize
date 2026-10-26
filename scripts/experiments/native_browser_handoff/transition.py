@@ -37,7 +37,12 @@ def supervised(plan):
 def preflight(plan):
     r.require(not (r.HERE / 'state.json').exists(), 'transition has already been used')
     r.require(not (r.HERE / 'pool-write.json').exists(), 'transition has an existing pool write')
-    r.require(not r.has_history(plan), 'this transition requires unmigrated history')
+    if r.existing_history(plan):
+        snapshot = r.HERE / 'history-before.json'
+        r.require(not snapshot.exists() and not snapshot.is_symlink(), 'history snapshot already exists')
+        r.history_snapshot(plan)
+    else:
+        r.require(not r.has_history(plan), 'this transition requires unmigrated history')
     for name in ('dropin', 'return_dropin'):
         path = Path(plan[name])
         r.require(not path.exists() and not path.is_symlink(), 'transition override already exists')
@@ -130,6 +135,14 @@ def native_ready(plan, seconds=720):
 
 
 def verify_history(plan, launched_at, current):
+    if r.existing_history(plan):
+        try:
+            expected = json.loads((r.HERE / 'history-before.json').read_text())
+        except (OSError, ValueError, UnicodeError):
+            raise r.RecoveryFailure('existing history snapshot is unavailable') from None
+        observed = r.history_snapshot(plan)
+        r.require(observed == expected, 'history changed during native startup')
+        return dict(accounts=observed['accounts'], history_mode='existing-v2')
     path = Path(plan['profiles']) / '.sidecar/camoufox/rate-history.sqlite3'
     with closing(sqlite3.connect(path.as_uri() + '?mode=ro', uri=True)) as db:
         rows = db.execute('SELECT record FROM migration_evidence').fetchall()
@@ -211,6 +224,10 @@ def switch(plan, saved):
     r.command('stop', r.UNIT)
     r.stopped(plan)
     report('original-stopped')
+    if r.existing_history(plan):
+        snapshot = r.HERE / 'history-before.json'
+        r.require(not snapshot.exists() and not snapshot.is_symlink(), 'history snapshot already exists')
+        r.atomic(snapshot, json.dumps(r.history_snapshot(plan)).encode())
     for key, name in [('return_dropin', 'browser.conf'), ('dropin', 'native.conf')]:
         path = Path(plan[key])
         path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)

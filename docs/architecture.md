@@ -13,6 +13,14 @@ Before recording a compatible return, it requires account-history readiness
 and the expected serving process identity. HTTP liveness alone is insufficient.
 It does not admit requests, migrate history or launch a canary by itself.
 
+An explicit `existing-v2` transition mode accepts an existing schema-2 journal.
+It records account rows after the original service has stopped and requires
+them to remain unchanged through native startup before sending the canary.
+It does not repeat legacy expiry. If the attempt ends before any service
+switch, recovery restores only its owned admission change and records
+`aborted-original-running`, with the original invocation still required.
+After a service stop, the normal history-ready browser return remains required.
+
 Browser and native migration carry the same configured reserve policy.
 Reserve-limit changes preserve consumed debt; reboot recovery preserves rate
 restrictions. Missing-history recovery requires verified service and session
@@ -34,8 +42,8 @@ and retains the original invocation check before joining that shutdown.
 Shutdown confirmation waits at most ten seconds for systemd state and the
 cgroup to settle. It still requires PID zero and no remaining descendants;
 deadline failures distinguish service state from remaining processes.
-The native successor must publish a fresh, same-service expiry record before
-its one permitted canary request. A durable attempt marker prevents replay
+For a first migration, the native successor must publish a fresh, same-service
+expiry record before its one permitted canary request. A durable attempt marker prevents replay
 after a lost reply.
 
 The live supervisor uses the host process view (`PrivateTmp=no`) to verify
