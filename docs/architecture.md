@@ -1,5 +1,11 @@
 # Architecture
 
+Isolated measurements can use `scripts/process_phase.py` to sample a test
+process's thread count and virtual address space at established phase barriers.
+Each reading checks the PID, start tick and boot ID before and after reading.
+These single-process point samples complement the existing owned-tree
+RSS/PSS/private-memory sampler; they do not measure encoder allocation or peaks.
+
 Workspace scans join every probe and retain the first error in input order.
 Public scans reject incomplete results so provisioning preserves saved extra
 scopes. Admission can use an observed unclaimed credited team despite another
