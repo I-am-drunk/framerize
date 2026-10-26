@@ -1,5 +1,20 @@
 # Architecture
 
+The S2b candidate moves Responses policy and protocol conversion into
+`framer-protocol`, which has no dependency on account, browser or session
+types. Core and API re-export the existing conversion and preparation paths.
+`ChainConfig` keeps its public fields; its data snapshot becomes `ChainLimits`.
+The shared cooldown algorithm now uses the runtime's narrow `ChainControl`.
+
+Each `native_long` invocation constructs an authorized Forward binding with
+that invocation's session, browser, account, project, chat and original optional
+callbacks. One category snapshot drives both policy step and request envelope.
+The runtime still owns the complete authorization, one retry, refund and
+cleanup sequence. Its buffered reply carries the actual post-refund queue
+lookup value. Request-correlated queue timing remains separate work.
+The legacy API, retry decisions, error strings and saturation call points stay
+in place. This candidate has source evidence only; main owns qualification.
+
 The S1 ownership extraction factors browser resources
 into one `AccountRuntime`. Each `AppState` shares that runtime. Construction
 consumes the stores, reads configuration before moving them, and installs the

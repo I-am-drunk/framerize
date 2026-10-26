@@ -36,6 +36,18 @@ runtime retains credentials, admission and cleanup ownership;
 the worker owns request policy and rendering. Existing 429 callback points
 must remain unchanged. S3 may acknowledge only a runtime-recorded 429 once.
 
+S2b's in-process candidate places conversion, Responses policy, data limits
+and the shared cooldown helper in `framer-protocol`. The runtime binds the
+complete Forward unit per invocation and passes owned reply bytes. Compatibility
+re-exports preserve existing native imports and Messages behavior. This creates
+a dependency boundary, not a process update mechanism. S2b fixtures are UNRUN.
+
+The later lossless worker transport must count downstream capacity waits in
+the existing 300-second active budget, which excludes only local cooldowns.
+That budget prevents later dispatch; it does not abandon already-sent work.
+A slow client can therefore exhaust the budget where the legacy callback
+currently drops frames. S3 must test and document that visible difference.
+
 Every transition needs explicit protocol and state compatibility, bounded
 transport, cancellation, process-exit observation and retained rollback state.
 Kernel upgrades and incompatible state migrations require a separate drain.

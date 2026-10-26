@@ -1,5 +1,19 @@
 # Development status
 
+The `refactor/kernel-hot-swap-20261026` lane now contains the S2b source
+candidate on qualified S2a composition `96e4c0c`. Responses policy and protocol
+helpers move to a credential-independent workspace leaf. The runtime binds
+Forward per invocation, preserving optional callbacks, category, retries,
+refunds, cleanup and existing queue lookup. Core/API retain compatibility paths.
+The 165 S2a assertion bodies remain unchanged; their qualification applies to
+the legacy input. Only the Forward fixture's construction helper changes.
+Six additive fixtures cover category snapshots, subsequent chunks, nonzero
+queue values and rebinding. All candidate tests and builds are UNRUN here.
+Locked offline dependency inspection, syntax parsing and source-diff checks
+are static evidence only. Main's next step is bounded qualification after
+the existing vision source review. S3, runtime and timing work remain held.
+Hosted CI remains blocked by the recorded payment/spending-limit issue.
+
 Credit admission now clears the previous primary project when it selects
 a different team. Login and import then adopt or create a project in that
 selected team. All eight isolated checks pass after both changed-team

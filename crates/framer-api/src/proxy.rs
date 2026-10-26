@@ -76,13 +76,28 @@ pub(crate) async fn forward_cancellable(
     chat_session: &str, step_index: u32,
     cancelled: Option<&(dyn Fn() -> bool + Send + Sync)>,
 ) -> Result<framer_core::port::ProxyResponse, String> {
+    forward_with_category(t, token_cache, session, browser, account, project,
+        dialect, step, payload, chat_session, step_index, cancelled, None).await
+}
+
+pub(crate) fn category_from_env() -> String {
+    std::env::var("FRAMERIZE_FEATURE_CATEGORY").unwrap_or_else(|_| "translation".to_string())
+}
+
+#[allow(clippy::too_many_arguments)]
+pub(crate) async fn forward_with_category(
+    t: &Transport, token_cache: &Mutex<Vec<(AccountId, AiToken)>>,
+    session: &Session, browser: &dyn BrowserBridge, account: &AccountId,
+    project: &ProjectId, dialect: Dialect, step: &str, payload: Value,
+    chat_session: &str, step_index: u32,
+    cancelled: Option<&(dyn Fn() -> bool + Send + Sync)>, category: Option<&str>,
+) -> Result<framer_core::port::ProxyResponse, String> {
     check_cancelled(cancelled)?;
     let t0 = std::time::Instant::now();
     let req_id = uuid::Uuid::new_v4().to_string();
     let token = cached_token(t, token_cache, session, account).await?;
     check_cancelled(cancelled)?;
-    let category = std::env::var("FRAMERIZE_FEATURE_CATEGORY")
-        .unwrap_or_else(|_| "translation".to_string());
+    let category = category.map(str::to_owned).unwrap_or_else(category_from_env);
     match attempt(browser, session, account, &token, project, dialect, step, &payload, chat_session, &category, step_index, cancelled).await {
         Ok(resp) => {
             framer_core::observability::Event::new("ai.request")

@@ -432,6 +432,7 @@ dependencies = [
  "bytes",
  "chrono",
  "framer-core",
+ "framer-protocol",
  "futures",
  "reqwest",
  "serde_json",
@@ -445,6 +446,7 @@ version = "0.1.0"
 dependencies = [
  "async-trait",
  "bytes",
+ "framer-protocol",
  "futures",
  "serde",
  "serde_json",
@@ -493,6 +495,18 @@ dependencies = [
  "tokio",
  "tower",
  "uuid",
+]
+
+[[package]]
+name = "framer-protocol"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "bytes",
+ "futures",
+ "serde_json",
+ "thiserror 1.0.69",
+ "tokio",
 ]
 
 [[package]]
