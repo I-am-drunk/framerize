@@ -1,5 +1,18 @@
 # Development status
 
+SQLite listing now rejects malformed account rows instead of returning a
+successful partial list. This integrates `8bcdd1b` after `b17eae4`, preserving
+the newer protocol boundary and registration fixes. All 14 selected methods
+pass, with 795 matching source pins and two matching candidate pins; the
+isolated unit is stopped. The fixture-only baseline reproduced both expected
+partial-list failures while four controls passed. Baseline insertion-order
+loops stopped at their first error assertion; the candidate runs both orders.
+The fixed error contains no stored payload. Valid and unknown fields, raw
+records, migration, lookup and existing SQL errors remain covered. Every
+list caller intentionally refuses an undecodable row. Existing records are
+not repaired, and this source milestone does not change the live service.
+The separate database-key identity check remains source-only.
+
 Passive repaired-service telemetry through 22:57 UTC on October 26 records
 117 memory samples with one unchanged service invocation. Resident accounts
 varied from one to six; sampled cgroup usage ranged from 1.3 to 6.6 GiB.
