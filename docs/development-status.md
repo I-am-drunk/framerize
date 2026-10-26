@@ -1,5 +1,16 @@
 # Development status
 
+S3w source work starts on qualified `3a62a24` in the isolated overhaul lane.
+The first slice adds a dependency leaf for bounded frames, strict typed
+decoding, independent wire/message/downstream credit and an exclusive event
+acceptance frontier. Twelve inert controls cover malformed/truncated frames,
+depth and size limits, fragmented writes, exhausted credit and acknowledgments.
+No build or test has run in this lane; main retains all execution.
+The worker, generation manager and real SSE connection are still incomplete.
+The next slice supplies typed policy/control results and the owned worker.
+Legacy0 and workspace default-members remain unchanged. The accepted
+preclassified-error encoder extension is allocated separately within S3w.
+
 Free Responses streaming now uses the bounded, awaited output path from
 `4447080`, composed after `1aef73d` with the newer account and store fixes.
 All 21 focused integration checks pass with 801 matching source pins and
