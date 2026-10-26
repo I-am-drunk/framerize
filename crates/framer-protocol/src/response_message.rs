@@ -130,5 +130,5 @@ fn initial_view(part: &Value) -> View<'_> {
         Some("refusal") => fields.push(("refusal", View::Text(""))),
         _ => {}
     }
-    View::Overlay(part, fields)
+    if fields.is_empty() { View::Value(part) } else { View::Overlay(part, fields) }
 }
