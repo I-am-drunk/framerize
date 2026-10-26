@@ -3,12 +3,20 @@
 The rearchitecture is on `refactor/separate-apps-and-ci-20261025` in draft
 [PR #2](https://github.com/I-am-drunk/framerize/pull/2). It is not deployed.
 
+The `fix/browser-response-bounds-20261026` branch now limits browser AI
+responses to 8 MiB and keeps cancellation owned until the fetch settles.
+All 17 focused Python tests pass, including 11 JavaScript fetch scenarios.
+The oversize regression reproduces on the previous source. This is locally
+qualified and undeployed; the native-minter/lightweight-browser connection
+and its live acceptance remain unfinished. See the
+[change and evidence](../reference/analysis/browser-response-bounds-20261026.md).
+
 The `test/native-tls-account-isolation-20261026` branch passes three local
 TLS tests: separate account connections and credentials, forced reconnection,
 and required certificate verification. Both TLS 1.2 and TLS 1.3 were tested.
 Neither resumed a session, so working session-cache isolation remains unproved.
-No serving lifetime or TLS backend changed. The next step is retained,
-generation-bound account transports with rotation and active-stream checks.
+No serving lifetime or TLS backend changed. Account transport retention
+remains unimplemented and is separate from the missing browser handoff.
 See the [result and limits](../reference/analysis/native-tls-isolation-20261026.md).
 
 The `measure/shared-context-isolation-20261026` experiment now passes its

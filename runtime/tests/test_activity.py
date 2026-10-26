@@ -86,6 +86,30 @@ class ActivityTests(unittest.IsolatedAsyncioTestCase):
                 await self.host.handle({'cmd': command, 'account': 'b'})
         self.host._launch.assert_not_called()
 
+    async def test_cancelled_abort_waiter_retains_cleanup_rpc_ownership(self):
+        polling = asyncio.Event()
+        async def evaluate(script, args):
+            if script == app.AI_POLL_JS:
+                polling.set()
+                return None
+            if script == app.AI_CANCEL_JS:
+                return await self.held()
+        self.page.evaluate = evaluate
+        waiter = asyncio.create_task(self.host._run_job(
+            self.page, '/fixture', {}, 'token', 'bearer', 'job', None, 30))
+        await asyncio.wait_for(polling.wait(), 1)
+        waiter.cancel()
+        await asyncio.wait_for(self.entered.wait(), 1)
+        self.assertFalse(waiter.done())
+        waiter.cancel()
+        with self.assertRaises(asyncio.CancelledError):
+            await waiter
+        self.assertEqual(len(self.life.activity.pending), 1)
+        self.assertFalse(await self.host._close_account('a'))
+        self.release.set()
+        await asyncio.gather(*self.life.activity.pending)
+        self.assertTrue(await self.host._close_account('a'))
+
     async def test_command_cancellation_stops_followup_work(self):
         async def command(request):
             await self.host._rpc('a', self.held)
