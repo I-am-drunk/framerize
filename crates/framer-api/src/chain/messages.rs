@@ -44,6 +44,15 @@ pub async fn complete_long(
     // streams these as SSE frames from the first second (no silent socket).
     events: Option<&(dyn Fn(ChainEvent) + Send + Sync)>,
 ) -> Result<AssembledResponse, String> {
+    if cfg.chunk_tokens == 0 {
+        return Err("Messages chain chunk_tokens must be greater than zero".into());
+    }
+    if cfg.max_chunks == 0 {
+        return Err("Messages chain max_chunks must be greater than zero".into());
+    }
+    if cfg.max_total_tokens == Some(0) {
+        return Err("Messages chain max_total_tokens must be greater than zero".into());
+    }
     // CONCURRENCY BUCKETS (verified 2026-10-04): the workspace's ~5-concurrent
     // 429 cap counts per (route × step tag). Each chunk rotates to the next
     // bucket, and a 429 advances to the next bucket INSTANTLY instead of

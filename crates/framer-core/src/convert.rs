@@ -1958,9 +1958,7 @@ pub fn responses_json(r: &AssembledResponses, client_model: &str, logical_id: &s
     let mut usage = r.usage.clone();
     usage["input_tokens"] = json!(r.input_tokens);
     usage["output_tokens"] = json!(r.output_tokens);
-    if usage.get("total_tokens").is_none() {
-        usage["total_tokens"] = json!(r.input_tokens + r.output_tokens);
-    }
+    usage["total_tokens"] = json!(r.input_tokens + r.output_tokens);
     // Response-id continuity: every event in a stream must carry the same id,
     // and codex's client state machine keys on it — created mints ,
     // so completed must too (a bare id here makes codex discard the whole turn:
@@ -1993,6 +1991,10 @@ pub fn responses_json(r: &AssembledResponses, client_model: &str, logical_id: &s
 // Item-driven SSE composers for the native chain: one per OpenAI dialect,
 // both fed by ChainEvent::ResponsesItems (spec-exact frames per dialect).
 // ---------------------------------------------------------------------------
+
+#[cfg(test)]
+#[path = "responses_usage_tests.rs"]
+mod responses_usage_tests;
 
 #[cfg(test)]
 #[path = "responses_stream_tests.rs"]
