@@ -3,6 +3,14 @@
 The rearchitecture is on `refactor/separate-apps-and-ci-20261025` in draft
 [PR #2](https://github.com/I-am-drunk/framerize/pull/2). It is not deployed.
 
+The `measure/shared-context-isolation-20261026` experiment now passes its
+local storage, HTTPS connection, concurrent-stream and cleanup checks.
+At the two-account snapshot, one browser used 551.233 MiB PSS versus
+772.981 MiB for two browsers, including the harness and driver. This single
+fixture comparison does not establish production savings, distinct browser
+fingerprints or live acceptance. No serving path changed. See the
+[recorded result and next step](../reference/analysis/shared-context-isolation-20261026.md).
+
 ## Implemented
 
 - Separate browser and native applications in one Cargo workspace.
