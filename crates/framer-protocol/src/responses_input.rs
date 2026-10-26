@@ -26,6 +26,11 @@ pub fn record_chunk_events(items: &[Value], continues_text: bool, events: Option
 }
 
 pub fn prepare_input(client_payload: &Value) -> Vec<Value> {
+    prepare_input_controlled(client_payload, None)
+}
+
+pub(crate) fn prepare_input_controlled(client_payload: &Value,
+    control: Option<&dyn crate::forward::ChainControl>) -> Vec<Value> {
     // Normalize the client's input to an item array (a bare string prompt is
     // legal Responses input).
     let mut input_items: Vec<Value> = match &client_payload["input"] {
@@ -91,6 +96,9 @@ pub fn prepare_input(client_payload: &Value) -> Vec<Value> {
         }
         if healed > 0 {
             eprintln!("[nativechain] namespace backfill: healed {healed} call item(s) from tool declarations");
+            if let Some(control) = control {
+                control.diag(crate::forward::PolicyDiag::NamespaceBackfill { count: healed.into() });
+            }
         }
     }
 

@@ -3,6 +3,7 @@ pub mod convert;
 pub mod cooldown_wait;
 pub mod error;
 pub mod forward;
+pub mod forward_error;
 pub mod responses;
 pub mod responses_input;
 pub mod responses_sink;

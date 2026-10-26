@@ -15,6 +15,17 @@ the legacy string method still classifies and delegates. Two inert controls
 cover exact sequence/byte equivalence and a redacted context-overflow message.
 The fixed kernel failure helper and encoder clock are unchanged.
 
+The policy now has one typed retry path with a legacy-result adapter.
+Runtime Forward facts, local validation, output closure and control failure
+remain distinct. Saturation acknowledgment is awaited before any next
+Forward; the default calls the existing callback. Closed numeric diagnostics
+accompany the unchanged legacy stderr lines. Twelve new inert controls cover
+retry wrappers, the invocation-wide saturation budget, control failure,
+cooldown facts, output closure and diagnostic hooks. All are UNRUN here.
+The worker, HTTP connection and public failure DTO remain unfinished.
+Next: review this adapter in the existing architecture discussion, then
+complete the strict message set and owned process runner.
+
 Free Responses streaming now uses the bounded, awaited output path from
 `4447080`, composed after `1aef73d` with the newer account and store fixes.
 All 21 focused integration checks pass with 801 matching source pins and
