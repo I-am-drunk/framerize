@@ -26,6 +26,7 @@ mod pool_config;
 mod pool_control;
 mod request_token_budget;
 mod request_body_object;
+mod responses_aggregate;
 pub use serving_accounts::{ServingAccountPolicy, SERVING_ACCOUNTS_ENV};
 pub use pool_config::{PoolConfig, EligibleAccounts, AllAccounts, POOL_SETTING_KEY};
 pub use pool_control::prewarm_accounts;
@@ -652,7 +653,18 @@ async fn compat_forward_observed(
             buf.extend_from_slice(&pool_control::observe_lease_result(&residency, cleanup.external(chunk))
                 .map_err(ApiError::Internal)?);
         }
-        let aggregated = aggregate_sse(dialect, &String::from_utf8_lossy(&buf));
+        let aggregated = match std::str::from_utf8(&buf) {
+            Ok(body) => aggregate_sse(dialect, body),
+            Err(_) if dialect == "openai-responses" => Err("Responses stream is not valid UTF-8"),
+            Err(_) => aggregate_sse(dialect, &String::from_utf8_lossy(&buf)),
+        };
+        let (status, aggregated) = match aggregated {
+            Ok(value) => (status, value),
+            Err(message) => (
+                if status.is_success() { StatusCode::BAD_GATEWAY } else { status },
+                serde_json::json!({"error":{"code":"invalid_upstream_response","message":message}}),
+            ),
+        };
         let mut resp = axum::response::Response::new(axum::body::Body::from(
             serde_json::to_string(&aggregated).map_err(|e| ApiError::Internal(e.to_string()))?,
         ));
@@ -710,7 +722,8 @@ fn retain_owner<S: futures::Stream, T>(stream: S, owner: T) -> impl futures::Str
     })
 }
 
-fn aggregate_sse(dialect: &str, body: &str) -> serde_json::Value {
+fn aggregate_sse(dialect: &str, body: &str) -> Result<serde_json::Value, &'static str> {
+    if dialect == "openai-responses" { return responses_aggregate::parse(body); }
     let events: Vec<serde_json::Value> = body
         .split("\n\n")
         .filter_map(|block| {
@@ -726,13 +739,7 @@ fn aggregate_sse(dialect: &str, body: &str) -> serde_json::Value {
         })
         .collect();
 
-    match dialect {
-        // response.completed carries the entire final Responses object — use it.
-        "openai-responses" => events
-            .iter()
-            .find(|e| e["type"] == "response.completed")
-            .map(|e| e["response"].clone())
-            .unwrap_or(serde_json::json!({"error": "stream ended without response.completed"})),
+    Ok(match dialect {
         // chat.completion.chunk deltas → one chat.completion.
         "openrouter-chat" => {
             let text: String = events
@@ -769,7 +776,7 @@ fn aggregate_sse(dialect: &str, body: &str) -> serde_json::Value {
             msg["content"] = serde_json::json!([{"type": "text", "text": text}]);
             msg
         }
-    }
+    })
 }
 
 fn rand_u32() -> u32 {

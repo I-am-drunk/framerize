@@ -3,6 +3,14 @@
 The rearchitecture is on `refactor/separate-apps-and-ci-20261025` in draft
 [PR #2](https://github.com/I-am-drunk/framerize/pull/2). It is not deployed.
 
+Paid Responses aggregation now rejects missing, malformed and failed terminal
+streams, including named errors and CR-only framing. Invalid successful
+upstream responses become fixed 502 errors; valid incomplete results and
+existing non-success status survive. All 25 decoder/caller/cleanup checks pass.
+Two earlier comparisons reproduced eleven legacy and seven framing failures,
+with seven controls passing. All 687 tracked inputs and three candidate paths
+match. This source change is not deployed and adds no live acceptance evidence.
+
 Responses and Messages now apply refusal policy to the second attempt before
 considering paid fallback, with timing measured for that attempt. Completed
 Messages streams use the buffered block validator before publication.

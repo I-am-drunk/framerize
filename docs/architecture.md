@@ -43,6 +43,12 @@ status. Its output text replaces intermediate deltas, including an explicitly
 empty output; absent output preserves compatibility with delta-only replies.
 Malformed terminal text fails before a successful result is published.
 
+Paid Responses aggregation validates each terminal before returning JSON.
+Its SSE decoder accepts LF, CRLF and lone CR, rejects named failures, and
+requires matching typed data for named completion/incomplete events. Invalid
+2xx streams become fixed 502 errors; other upstream status and independently
+confirmed cleanup are preserved. Valid incomplete output stays incomplete.
+
 Responses metered fallback carries its successful request's actual token
 budget and queue timing into the common completion path. Both response modes
 apply tool-completeness, continuation and final-status checks before emitting
