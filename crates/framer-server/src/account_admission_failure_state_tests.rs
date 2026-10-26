@@ -420,7 +420,7 @@ fn assert_calls(ports: &AdmissionPorts, login: bool) {
         Case::ProfileError => {}
         Case::UpdateReadError => expected.extend(["usage", "update_read_error"]),
         Case::UpdateWriteError => expected.extend(["usage", "get", "list", "update_write_error"]),
-        Case::Refused => expected.extend(["usage", "upsert"]),
+        Case::Refused => expected.extend(["usage", "get", "upsert"]),
         Case::Success => expected.extend([
             "usage", "get", "list", "upsert", "projects", "me", "usage", "get", "list", "upsert",
         ]),

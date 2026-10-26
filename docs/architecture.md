@@ -18,9 +18,12 @@ probe failure; without such a team it returns the probe error before treating
 the account as ineligible. Complete-scan ranking and refusals stay unchanged.
 
 Registration distinguishes admission refusal from profile and storage errors.
-Only the existing `NotEligible` result persists an exhausted account. Other
-errors preserve the initial saved record and propagate the original failure;
-earlier session, grant and account writes remain separate operations.
+Only `NotEligible` triggers an exhausted-state update. The update reads and
+validates the current record under the shared account lock and changes only
+its state. A missing or changed subject retains the original refusal without
+another write. Storage failures propagate their original error. Other admission
+errors preserve the initial saved record; earlier session, grant and account
+writes remain separate operations.
 
 Registration starts with a claim snapshot containing peer primary and
 secondary team IDs. It filters admission and extra-scope project work while
@@ -36,8 +39,8 @@ recheck peer claims and filter prepared extras before saving. It preserves
 fresh unrelated fields. The expected scope is captured after admission and,
 for import, advances only after a successful intermediate project save.
 Project and usage requests remain outside the publication lock. Initial
-writes, intermediate saves, rotations and refusal marking retain separate
-contracts. This does not establish global uniqueness, roll back project
+writes, intermediate saves and rotations retain separate contracts.
+This does not establish global uniqueness, roll back project
 creation or repair older saved records.
 
 The qualified S2b integration moves Responses policy and protocol conversion into

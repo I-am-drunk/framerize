@@ -29,6 +29,8 @@ mod workspace_scan;
 mod primary_workspace_claim;
 #[path = "account_secondary_workspace_claim_tests.rs"]
 mod secondary_workspace_claim;
+#[path = "account_admission_refusal_publication_tests.rs"]
+mod admission_refusal_publication;
 
 
 use super::{account, policy};

@@ -1,5 +1,22 @@
 # Development status
 
+Admission refusal now updates only the latest matching account record under
+the existing account lock. Removed or changed subjects keep the original
+refusal; fresh unrelated fields survive, and storage errors stay explicit.
+This contextually integrates `ae64d04` after `5b0354e`. All 75 exact checks
+pass: 24 core and 51 server, with 792 matching source pins and stopped units.
+The ten new caller methods all failed on the parent. Scope loops stopped at
+their first mismatch; the two removal cases reached the parent's upsert and
+panicked in its missing-record fixture, rather than completing recreation.
+The candidate executes all cases without baseline scaffolding. Initial
+writes, rotation and multiprocess uniqueness remain outside this correction.
+
+Separate passive observation of the live `c7d4516` repair through 22:21:36 UTC
+on October 26 covered 1,170 successful and 13 error chains. Every completed
+chain joined cleanup and released its root. Admission refusals, unresolved
+operations and restarts remained zero over about 23 minutes. No generated
+canary ran; this is partial live evidence, not full browserless acceptance.
+
 Final secondary workspace publication now validates the saved subject and
 rechecks peer claims under the same update lock used by primary admission.
 This contextually integrates `7771149` after primary integration `45897f0`.

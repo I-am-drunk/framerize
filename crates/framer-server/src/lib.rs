@@ -2886,8 +2886,7 @@ async fn complete_login_observed(State(s): State<AppState>, Json(body): Json<Com
         cleanup.core(framer_core::credits::admit(&deps, &mut account, &session, &claimed).await);
     if let Err(e) = admission {
         if matches!(&e, framer_core::error::CoreError::NotEligible(_)) {
-            account.state = framer_core::account::AccountState::Exhausted;
-            s.state.upsert(&account).await.map_err(ApiError::Internal)?;
+            account_scope_publication::mark_refused(&s, &mut account).await?;
         }
         return Err(ApiError::Internal(e.to_string()));
     }
@@ -3099,8 +3098,7 @@ async fn import_account_observed(State(s): State<AppState>, Json(body): Json<Imp
             cleanup.core(framer_core::credits::admit(&deps, &mut account, &session, &claimed).await)
         {
             if matches!(&e, framer_core::error::CoreError::NotEligible(_)) {
-                account.state = framer_core::account::AccountState::Exhausted;
-                s.state.upsert(&account).await.map_err(ApiError::Internal)?;
+                account_scope_publication::mark_refused(&s, &mut account).await?;
             }
             return Err(ApiError::Internal(e.to_string()));
         }
