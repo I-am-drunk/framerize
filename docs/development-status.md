@@ -11,6 +11,13 @@ These checks stub service/network operations and do not prove live recovery.
 The pinned packages remain at `72886b2`. No live migration or request occurred
 during this helper work; the controller qualification follows below.
 
+The first live supervisor exited during preflight, before changing admission,
+stopping the service, migrating history or sending a request. Read-only probes
+reproduced a permission error resolving the service executable with
+`PrivateTmp=yes`; the identical preflight passed with `PrivateTmp=no`.
+The corrected supervisor retains its ownership checks and resource bounds.
+Live delivery, memory savings and per-account TLS separation remain unproven.
+
 The one-shot transition controller now passes 18 inert tests. It refuses to
 stop the original service before an empty, fenced pool; verifies the genuine
 expiry record; and durably claims one canary attempt before sending it.
