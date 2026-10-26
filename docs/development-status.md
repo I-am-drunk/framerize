@@ -3,6 +3,16 @@
 The rearchitecture is on `refactor/separate-apps-and-ci-20261025` in draft
 [PR #2](https://github.com/I-am-drunk/framerize/pull/2). It is not deployed.
 
+The supervised transition now has an explicit mode for existing schema-2
+history. It refuses missing/unknown history and requires the account snapshot
+to remain unchanged through native startup. An early abort restores only
+owned admission changes under the original invocation; recovery after a stop
+still requires a history-ready browser return. Legacy migration is preserved.
+All 79 inert checks pass: 12 new and 67 existing controls. The original code
+reproduced six failures with four controls. All 724 tracked and three candidate
+inputs match. No live transition ran. The packages remain pinned to `f33362b`.
+Next: bind a fresh attempt to the repaired service and these qualified inputs.
+
 Matched browser/native packages and supplied runtime are qualified at `f33362b`.
 All 724 source pins and seven package/helper bindings match. Nine browser and
 eight native package controls pass, along with five history/failed-host checks

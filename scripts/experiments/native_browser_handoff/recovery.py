@@ -1,5 +1,7 @@
 """Return an owned canary transition to a compatible browser service."""
 import fcntl, hashlib, json, os, pathlib, stat, subprocess, sys, time, urllib.request, uuid
+from contextlib import closing
+import sqlite3
 
 HERE = pathlib.Path(__file__).resolve().parent
 UNIT = 'framerize.service'
@@ -42,6 +44,7 @@ def status():
 def read_plan():
     plan = json.loads((HERE / 'plan.json').read_text())
     require(plan['version'] == 1, 'unsupported transition plan')
+    existing_history(plan)
     require('pool-config.json' in plan['artifacts'], 'pool configuration is not pinned')
     for name, expected in plan['artifacts'].items():
         require(digest(HERE / name) == expected, 'transition artifact changed')
@@ -164,6 +167,27 @@ def has_history(plan):
     return True
 
 
+def existing_history(plan):
+    mode = plan.get('history_mode', 'legacy')
+    require(mode in ('legacy', 'existing-v2'), 'unsupported history mode')
+    return mode == 'existing-v2'
+
+
+def history_snapshot(plan):
+    require(has_history(plan), 'existing history is required')
+    path = pathlib.Path(plan['profiles']) / '.sidecar/camoufox/rate-history.sqlite3'
+    try:
+        with closing(sqlite3.connect(path.as_uri() + '?mode=ro', uri=True, timeout=5)) as db:
+            require(db.execute('PRAGMA user_version').fetchone()[0] == 2,
+                    'existing history schema is unsupported')
+            rows = db.execute('SELECT account, snapshot, runtime_owner FROM accounts ORDER BY account').fetchall()
+    except sqlite3.Error:
+        raise RecoveryFailure('existing history could not be read') from None
+    require(bool(rows), 'existing account history is empty')
+    encoded = json.dumps(rows, separators=(',', ':'), ensure_ascii=True).encode()
+    return dict(accounts=len(rows), sha256=hashlib.sha256(encoded).hexdigest())
+
+
 def stopped(plan):
     deadline = time.monotonic() + 10
     group = plan['expected']['service']['ControlGroup']
@@ -187,19 +211,25 @@ def stopped(plan):
         time.sleep(0.1)
 
 
-def finish_return(kind, pid, plan):
+def finish_return(kind, pid, plan, *, phase=None, expected_invocation=None):
     saved = json.loads((HERE / 'pool-config.json').read_text())
     observed = http_json('/api/pool/config')
     require(observed in owned_pool_versions(plan, saved),
             'pool configuration changed outside this transition')
+    if expected_invocation is not None:
+        current = status()
+        require(current['MainPID'] == str(pid) and current['ActiveState'] == 'active'
+                and current['InvocationID'] == expected_invocation, 'original service owner changed')
     if observed != saved:
         http_json('/api/pool/config', saved)
     require(http_json('/api/pool/config') == saved, 'pool configuration was not restored')
     current = status()
-    require(current['MainPID'] == str(pid) and current['ActiveState'] == 'active',
+    require(current['MainPID'] == str(pid) and current['ActiveState'] == 'active'
+            and (expected_invocation is None or current['InvocationID'] == expected_invocation),
             'returned service changed')
-    remember('restored-' + kind, pid=pid, invocation=current['InvocationID'])
-    return {'status': 'restored-' + kind, 'pid': pid}
+    phase = phase or 'restored-' + kind
+    remember(phase, pid=pid, invocation=current['InvocationID'])
+    return {'status': phase, 'pid': pid}
 
 
 def restore_started(plan, dropin):
@@ -273,11 +303,19 @@ def restore_locked():
     if dropin.exists() or fallback.exists() or state['phase'].startswith('restoring-'):
         return restore_started(plan, dropin)
     require(state['phase'] in ('armed', 'draining', 'fencing', 'fenced', 'restored-original',
+            'aborted-original-running',
             'restoring-original'), 'transition configuration is missing')
     require(pid and executable(pid) == plan['expected']['binary'], 'original service is missing')
-    require(not has_history(plan), 'original service cannot resume migrated history')
+    existing = existing_history(plan)
+    if existing:
+        history_snapshot(plan)
+    else:
+        require(not has_history(plan), 'original service cannot resume migrated history')
     expected_invocation = state.get('invocation', plan['expected']['service']['InvocationID'])
     require(current['InvocationID'] == expected_invocation, 'original service owner changed')
+    if existing:
+        return finish_return('original', pid, plan, phase='aborted-original-running',
+                             expected_invocation=expected_invocation)
     ready(plan['expected']['binary'])
     return finish_return('original', pid, plan)
 
