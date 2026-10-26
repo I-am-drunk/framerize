@@ -2850,6 +2850,9 @@ async fn complete_login_observed(State(s): State<AppState>, Json(body): Json<Com
         account.alias = a.clone();
     }
     if team.is_some() {
+        if account.current_team != team {
+            account.current_project = None;
+        }
         account.current_team = team;
     }
     if let Some(pid) = &body.project_id {
@@ -3050,6 +3053,9 @@ async fn import_account_observed(State(s): State<AppState>, Json(body): Json<Imp
         account.alias = a.clone();
     }
     if team.is_some() {
+        if account.current_team != team {
+            account.current_project = None;
+        }
         account.current_team = team;
     }
     if let Some(pid) = &body.project_id {

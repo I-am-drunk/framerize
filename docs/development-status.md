@@ -1,5 +1,16 @@
 # Development status
 
+Login and import now clear the carried primary project when metadata selects
+a different team, before applying any explicit project override. Both
+changed-team baseline cases reproduced the old project leaking into the new
+team; four compatibility controls passed. All ten final checks pass, covering
+adoption, creation, absent/same-team metadata, explicit overrides and four
+affected admission controls. All 770 source and three contextual hashes match;
+both isolated units are stopped. This integrates A's `f05af662` on `96e4c0c`
+with only the supplied private S1 constructor adaptation. The earlier S1,
+S2a and admission results remain valid. Secondary-workspace claim exclusion
+and the S2b forwarding extraction remain separate source work.
+
 Credit admission now clears the previous primary project when it selects
 a different team. Login and import then adopt or create a project in that
 selected team. All eight isolated checks pass after both changed-team
@@ -8,8 +19,7 @@ candidate covers adoption, creation, same-team reuse and four existing
 workspace-selection controls. All 768 source and three candidate hashes
 match; both test units are stopped. This integrates A's `9822c17` on the
 qualified S1 source, with one private fixture-constructor adaptation.
-Earlier metadata-driven team assignment remains a separate queued correction.
-Next: qualify that follow-up when its immutable packet is delivered.
+The earlier metadata-driven assignment is now corrected as recorded above.
 
 The S2a legacy forwarding baseline at `d22d2b5` passed all 165 selected
 checks: 19 new cases and 146 retained controls. Rust 1.99.0 release compilation
