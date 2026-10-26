@@ -36,6 +36,8 @@ mod cdp_auth_diagnostics_tests;
 mod cdp_unconfirmed_shutdown_tests;
 #[cfg(test)]
 mod cdp_device_record_tests;
+#[cfg(test)]
+mod cdp_eval_tests;
 use async_trait::async_trait;
 use framer_core::ids::AccountId;
 use framer_core::port::{BrowserBridge, CastleToken};
@@ -379,6 +381,14 @@ struct CdpInstance {
 }
 
 impl CdpInstance {
+    fn evaluated_value(result: Value) -> Result<Value, String> {
+        if result.get("exceptionDetails").is_some_and(|details| !details.is_null()) {
+            // Exception descriptions can contain expressions and credentials.
+            return Err("cdp JavaScript evaluation failed".into());
+        }
+        Ok(result["result"]["value"].clone())
+    }
+
     async fn cmd(&mut self, method: &str, params: Value) -> Result<Value, String> {
         self.cmd_deadline(method, params, std::time::Duration::from_secs(30)).await
     }
@@ -417,7 +427,7 @@ impl CdpInstance {
                 json!({ "expression": expression, "awaitPromise": true, "returnByValue": true }),
             )
             .await?;
-        Ok(r["result"]["value"].clone())
+        Self::evaluated_value(r)
     }
 
     /// Eval with a long deadline — in-page AI calls wait out a full generation
@@ -430,7 +440,7 @@ impl CdpInstance {
                 std::time::Duration::from_secs(300),
             )
             .await?;
-        Ok(r["result"]["value"].clone())
+        Self::evaluated_value(r)
     }
 }
 

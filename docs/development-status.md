@@ -3,6 +3,14 @@
 The rearchitecture is on `refactor/separate-apps-and-ci-20261025` in draft
 [PR #2](https://github.com/I-am-drunk/framerize/pull/2). It is not deployed.
 
+CDP normal and long evaluations now reject reported JavaScript exceptions
+with a fixed error that omits exception payloads. All three local WebSocket
+checks pass; the previous code reproduced two false-success failures while
+the normal-result control passed. All 719 tracked inputs and two candidate
+files match. These fixtures execute no JavaScript or real browser. This
+source-only correction is outside the frozen `8fe2259` recovery packages.
+Next: qualify the separate CDP proxy-credential refusal input `1c58b43`.
+
 Browser session-cookie propagation now reports failed writes, waits for
 in-flight device initialization, and preserves update order through caller
 cancellation. All ten selected inert checks pass; the previous behavior
