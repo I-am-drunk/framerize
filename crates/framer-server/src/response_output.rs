@@ -585,7 +585,7 @@ pub(crate) async fn pump_until_producer_returns(
     use futures::{FutureExt, StreamExt};
     let (parts, body) = response.into_parts();
     let mut body = body.into_data_stream();
-    let (mut prefix, mut frames) = (Vec::new(), 0);
+    let (mut prefix, mut frames) = (Vec::with_capacity(65_536), 0);
     tokio::time::timeout(Duration::from_secs(2), async {
         while !returned() {
             assert!(frames < 64, "producer did not return within 64 frames");
