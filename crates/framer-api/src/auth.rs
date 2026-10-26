@@ -7,6 +7,10 @@
 use crate::transport::{Auth, Transport};
 use framer_core::port::Session;
 
+#[cfg(test)]
+#[path = "auth_retry_tests.rs"]
+mod retry_tests;
+
 #[derive(Clone)]
 pub struct AiToken {
     pub bearer: String,
@@ -28,6 +32,10 @@ fn now_ms() -> i64 {
 }
 
 async fn mint(t: &Transport, session: &Session, path: &str) -> Result<AiToken, String> {
+    #[cfg(test)]
+    if let Some(result) = retry_tests::mint_fixture(session, path) {
+        return result;
+    }
     // JWT relay (2026-10-13): when the host's egress IP is edge-WAF-blocked
     // on /auth/* (measured: household 403 CloudFront block while datacenter
     // IPs mint fine), an external relay mints JWTs and publishes them at a
@@ -131,6 +139,16 @@ pub async fn ai_access_token(t: &Transport, session: &Session) -> Result<AiToken
 
 pub async fn web_access_token(t: &Transport, session: &Session) -> Result<AiToken, String> {
     cached_mint(t, session, "/auth/web/access-token").await
+}
+
+/// A rejected AI bearer must not survive in the shared session cache. A late
+/// rejection must also leave a newer bearer and the web-token cache intact.
+pub(crate) fn invalidate_ai_token(session: &Session, rejected: &AiToken) {
+    let key = (session.cookie_header.clone(), "/auth/ai/access-token".to_owned());
+    let mut guard = cache().lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+    if guard.get(&key).is_some_and(|current| current.bearer == rejected.bearer) {
+        guard.remove(&key);
+    }
 }
 
 /// Called only after the corresponding native generation and its pending

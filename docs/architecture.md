@@ -24,6 +24,11 @@ terminal status and optional usage. Invalid envelopes fail before item
 publication. Explicit SSE failure events cannot be masked by completion;
 empty output and the existing incomplete response-body contract remain valid.
 
+The existing 401 retry invalidates the rejected AI bearer in both account and
+shared session caches before refreshing. Shared-cache eviction compares the
+bearer so a late rejection cannot remove a newer value; web-token entries
+and other sessions are outside that eviction.
+
 Browser launch converts authenticated proxy URLs into separate server,
 username and password options before passing them to the browser driver.
 The conversion preserves decoded credentials and endpoint identity while
