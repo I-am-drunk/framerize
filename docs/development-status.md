@@ -12,9 +12,10 @@ fixture bodies until the producer returns, retaining the original remainder.
 Three approved fixture parents use a copying consumer; the pool mock gains
 an awaited port. The pump has explicit frame, byte and time limits.
 Rust syntax parsing and whitespace checks ran; no compilation, test or
-measurement ran in this lane. Main owns qualification. Hosted CI still has
-the recorded billing blocker. Next: finish the existing vision source review
-and freeze one exact qualification packet with the released fixture changes.
+measurement ran in this lane. The packet selects 355 distinct cases in 26
+launch groups. Main owns qualification after the existing vision source review.
+The latest hosted build was skipped by the repository gate; the earlier
+billing blocker remains separate. Neither outcome is a validation pass.
 
 Output-credit waits now record pending heartbeat demand while publication is
 blocked. A focused virtual-time fixture isolates that transition; unpaused
