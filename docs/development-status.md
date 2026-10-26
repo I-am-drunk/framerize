@@ -1,5 +1,16 @@
 # Development status
 
+The idle-close admission repair `c7d4516` is integrated on the experimental
+branch. A retained browser RPC now keeps status busy after its caller is
+cancelled. The host refuses idle closure before it starts; a close already
+in progress is still joined and real cleanup failures remain unconfirmed.
+The deployed-source baseline reproduced two failures with five controls.
+All 31 lifecycle cases pass on the repair and after composition with the
+current branch (80 runtime source pins). The existing 27 test bodies
+are unchanged. This is isolated evidence, not a live deployment result.
+Next: stage the minimal repair package and establish fresh deployment and
+recovery conditions while preserving the user's operational repairs.
+
 The S3a measurement preparation now includes `scripts/process_phase.py`, a
 Linux point sampler for thread count and virtual address space. The caller
 captures the process identity once and supplies it at each phase; samples
