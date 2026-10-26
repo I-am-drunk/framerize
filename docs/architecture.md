@@ -271,11 +271,12 @@ cancellation. A finishing waiter clears that cache only if it still owns
 the same task, so an older failure cannot erase a newer retry. Shutdown
 retains and joins the retry before stopping the acquired driver.
 
-Login completion and session import reject a duplicate normalized email before
-saving the user-keyed session or claiming a workspace grant. Reauthentication
-of the same account retains save-before-grant and admission ordering. This is
-sequential validation; concurrent duplicate registration and rollback after a
-later persistence or admission failure are separate concerns.
+Login completion and session import share one registration mutex from the
+normalized-email duplicate check through initial account publication. The
+guard releases before credit admission and on early return, preserving the
+existing session-save and grant ordering. This protects callers sharing the
+same in-process policy. It does not enforce database or cross-process
+uniqueness or undo partial session/grant work after a later failure.
 
 Both CDP evaluation helpers reject a non-null exceptionDetails field before
 returning a value. Reported JavaScript failures return a fixed error without
