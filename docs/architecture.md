@@ -15,6 +15,13 @@ The real-browser fixture exercises this same script with only its target
 origin changed to loopback. It confirms body delivery and refusal, socket
 closure after cancellation, and browser descendant exit in private namespaces.
 
+The separate response-transfer experiment compares the production full-body
+poll with bounded chunks from an already completed body. Python still joins
+those chunks into one response. Nine fresh local trials preserve contents
+and cleanup, but show no clear memory win. The production transfer is
+unchanged; a bounded queue drained during fetch remains an experiment to
+implement. See the [comparison](../reference/analysis/browser-response-transfer-20261026.md).
+
 The native HTTP transport still builds an independent reqwest client per
 account scope. A private builder helper now allows local TLS fixtures to
 trust an ephemeral certificate without changing production trust or TLS
