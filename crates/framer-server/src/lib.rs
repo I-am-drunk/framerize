@@ -11,6 +11,7 @@ use framer_core::convert::{self, ClientDialect};
 use framer_core::error::AccountCooldown;
 use framer_core::ids::AccountId;
 use framer_core::pipeline::{self, Deps, InferenceOutcome, InferenceRequest};
+#[cfg(test)]
 use framer_core::port::{BrowserBridge, FramerClient, SessionStore, StateStore};
 use serde::Deserialize;
 use serde_json::Value;

@@ -10,6 +10,13 @@ bridge. The Python host owns browser processes, page work and the rate journal.
 The native application has its own request, session, device and worker owners.
 Starting a second complete application would contend with these owners.
 
+Some ownership is currently implicit: `core/rotation.rs` has process-global
+workspace saturation and selection cursors, while `api/auth.rs` has a shared
+session-keyed token cache. Those cannot become independent worker-local state
+without changing behavior. `Session` contains the private cookie and has no
+serialization implementation. A process adapter must use request-bound opaque
+handles rather than serialize the current credential-bearing port objects.
+
 An update boundary must retain one state owner and pin each accepted request
 to its application generation through response delivery and external cleanup.
 A response body ending is not proof that browser or worker cleanup completed.
