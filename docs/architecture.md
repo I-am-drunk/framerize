@@ -11,6 +11,9 @@ waits for fetch/body cleanup through the existing account-owned RPC. The
 abandoned-job timer keeps unfinished cleanup joinable. These are browser
 resource bounds, not a native-token transport connection. See the
 [qualification and limits](../reference/analysis/browser-response-bounds-20261026.md).
+The real-browser fixture exercises this same script with only its target
+origin changed to loopback. It confirms body delivery and refusal, socket
+closure after cancellation, and browser descendant exit in private namespaces.
 
 The native HTTP transport still builds an independent reqwest client per
 account scope. A private builder helper now allows local TLS fixtures to

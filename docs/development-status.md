@@ -5,6 +5,10 @@ The rearchitecture is on `refactor/separate-apps-and-ci-20261025` in draft
 
 The `fix/browser-response-bounds-20261026` branch now limits browser AI
 responses to 8 MiB and keeps cancellation owned until the fetch settles.
+The real-browser local HTTPS fixture also passes exact-limit delivery,
+oversize refusal, cancellation and full process cleanup. Its buffered-response
+snapshot used 578.818 MiB PSS including the harness and driver; this is not a
+production memory-saving result and includes no SDK or real-account request.
 All 17 focused Python tests pass, including 11 JavaScript fetch scenarios.
 The oversize regression reproduces on the previous source. This is locally
 qualified and undeployed; the native-minter/lightweight-browser connection
