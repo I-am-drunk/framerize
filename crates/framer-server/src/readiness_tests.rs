@@ -14,7 +14,7 @@ struct History {
 #[tokio::test]
 async fn ready_reply_is_bound_to_the_serving_process() {
     let mut f = fixture::Fixture::new();
-    f.state.browser = Arc::new(History { checked: Mutex::new(Vec::new()), fail: false });
+    f.state.runtime_mut().unwrap().browser = Arc::new(History { checked: Mutex::new(Vec::new()), fail: false });
     let app = crate::router(f.state, "/nonexistent-fixture-web");
     let response = app.oneshot(Request::builder().uri("/api/ready").body(Body::empty()).unwrap())
         .await.unwrap();
@@ -28,7 +28,7 @@ async fn ready_reply_is_bound_to_the_serving_process() {
 async fn sealed_admission_does_not_start_history_work() {
     let mut f = fixture::Fixture::new();
     let history = Arc::new(History { checked: Mutex::new(Vec::new()), fail: false });
-    f.state.browser = history.clone();
+    f.state.runtime_mut().unwrap().browser = history.clone();
     f.state = operation_ownership::with_owned_operations(f.state, 32).unwrap();
     let _ticket = f.state.operation_ownership.as_ref().unwrap().seal().unwrap();
     let app = crate::router(f.state, "/nonexistent-fixture-web");
@@ -58,7 +58,7 @@ impl BrowserBridge for History {
 async fn live_http_does_not_mask_unavailable_account_history() {
     let mut f = fixture::Fixture::new();
     let history = Arc::new(History { checked: Mutex::new(Vec::new()), fail: true });
-    f.state.browser = history.clone();
+    f.state.runtime_mut().unwrap().browser = history.clone();
     let app = crate::router(f.state.clone(), "/nonexistent-fixture-web");
     let request = |path| Request::builder().uri(path).body(Body::empty()).unwrap();
     let live = app.clone().oneshot(request("/api/health")).await.unwrap();
