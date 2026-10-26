@@ -3,6 +3,16 @@
 The rearchitecture is on `refactor/separate-apps-and-ci-20261025` in draft
 [PR #2](https://github.com/I-am-drunk/framerize/pull/2). It is not deployed.
 
+Shared Python driver startup now clears the cached start task only while
+the finishing waiter still owns that exact task. An obsolete failed waiter
+can no longer discard a pending retry, create a duplicate driver or hide
+that retry from shutdown. All six isolated checks pass after the parent
+reproduced both failures with four controls. All 759 tracked and five
+candidate hashes match; both test units are stopped. This is qualified
+source on `feat/native-browser-handoff-20261026`, outside the frozen `3ead4b8`
+packages. It preserves cancellation shielding and adds no startup deadline.
+Next: prepare fresh acceptance from the qualified package and recovery inputs.
+
 Matched browser and native packages at `3ead4b8` now include the qualified
 startup and cleanup changes below. Both optimized applications build; nine
 browser and eight native package checks pass, together with five packaged
@@ -12,8 +22,8 @@ files match. The seven earlier `f33362b` artifact pins remain unchanged.
 All four isolated build/package/test units are stopped with no remaining
 processes. These checks use synthetic profiles and make no upstream request;
 they do not establish real-account delivery or authorize a service switch.
-The packages are undeployed. Next: qualify the separate driver-start identity
-guard while preserving these archives, then prepare fresh live acceptance.
+The packages are undeployed. The subsequent driver-start source qualification
+is recorded above; it does not change these archives.
 
 Owned CDP startup now selects the exact Framer origin, bounds WebSocket
 connection and upgrade to five seconds, and retains its process group until

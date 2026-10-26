@@ -266,6 +266,11 @@ preserves cancellation and marks account cleanup unconfirmed, preventing
 ambient mint fallback and new account admission until browser cleanup.
 These guarantees concern local RPC ownership, not remote work termination.
 
+Shared Python driver startup keeps one cached task through caller
+cancellation. A finishing waiter clears that cache only if it still owns
+the same task, so an older failure cannot erase a newer retry. Shutdown
+retains and joins the retry before stopping the acquired driver.
+
 Login completion and session import reject a duplicate normalized email before
 saving the user-keyed session or claiming a workspace grant. Reauthentication
 of the same account retains save-before-grant and admission ordering. This is
