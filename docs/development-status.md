@@ -3,6 +3,17 @@
 The rearchitecture is on `refactor/separate-apps-and-ci-20261025` in draft
 [PR #2](https://github.com/I-am-drunk/framerize/pull/2). It is not deployed.
 
+Duplicate login and import now validate email conflicts before saving a
+replacement session or claiming a workspace grant. Both rejected operations
+preserve saved sessions and account records; same-account reauthentication
+keeps its existing grant and admission policy. Four new regressions and six
+existing import/admission controls pass in the isolated runner. The parent
+reproduced two session-replacement failures with two passing controls. All
+725 tracked and two candidate source hashes match. This source milestone on
+`feat/native-browser-handoff-20261026` is outside the frozen `f33362b` packages.
+Concurrent registration and rollback after later failures remain separate.
+Next: qualify the pending host deltas while preparing a fresh admission window.
+
 The supervised transition now has an explicit mode for existing schema-2
 history. It refuses missing/unknown history and requires the account snapshot
 to remain unchanged through native startup. An early abort restores only
@@ -10,8 +21,11 @@ owned admission changes under the original invocation; recovery after a stop
 still requires a history-ready browser return. Legacy migration is preserved.
 All 79 inert checks pass: 12 new and 67 existing controls. The original code
 reproduced six failures with four controls. All 724 tracked and three candidate
-inputs match. No live transition ran. The packages remain pinned to `f33362b`.
-Next: bind a fresh attempt to the repaired service and these qualified inputs.
+inputs match. The subsequent existing-history attempt reached its drain
+deadline after 181.917 seconds and aborted before stopping the original
+service or starting native delivery. Original process, pool and configuration
+were preserved. No native canary ran. The packages remain pinned to `f33362b`;
+another attempt requires a fresh quiet interval or an effective ingress fence.
 
 Matched browser/native packages and supplied runtime are qualified at `f33362b`.
 All 724 source pins and seven package/helper bindings match. Nine browser and

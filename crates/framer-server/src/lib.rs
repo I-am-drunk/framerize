@@ -117,6 +117,9 @@ mod readiness_tests;
 #[cfg(test)]
 mod free_responses_context_tests;
 
+#[cfg(test)]
+mod account_registration_persistence_tests;
+
 /// Keep the producer owned by its response body, including before the first poll.
 fn proxy_response_stream(
     rx: tokio::sync::mpsc::Receiver<Result<framer_core::port::ProxyResponse, String>>,
@@ -2790,13 +2793,6 @@ async fn complete_login_observed(State(s): State<AppState>, Json(body): Json<Com
         active_user: framer_core::ids::FramerUserId(user_id.to_string()),
         cookie_header,
     };
-    s.sessions.save(&session).await.map_err(ApiError::Internal)?;
-
-    // Claim the second workspace's 500-credit grant BEFORE admission scans
-    // (first TWO workspaces each get one, verified 2026-10-05). Best-effort.
-    {
-        let _ = cleanup.external(s.client.claim_workspace_grant(&session).await);
-    }
     let spaces = me["spaces"].as_array().cloned().unwrap_or_default();
     let first_org = spaces.iter().find(|sp| sp["scope"].as_str() == Some("organization")).cloned();
     let team = first_org
@@ -2845,6 +2841,13 @@ async fn complete_login_observed(State(s): State<AppState>, Json(body): Json<Com
             account.alias = email.clone();
         }
         account.email = Some(email);
+    }
+    s.sessions.save(&session).await.map_err(ApiError::Internal)?;
+
+    // Claim the second workspace's 500-credit grant BEFORE admission scans
+    // (first TWO workspaces each get one, verified 2026-10-05). Best-effort.
+    {
+        let _ = cleanup.external(s.client.claim_workspace_grant(&session).await);
     }
     account.framer_user_id = session.active_user.clone();
     account.state = framer_core::account::AccountState::Ready;
@@ -2985,15 +2988,6 @@ async fn import_account_observed(State(s): State<AppState>, Json(body): Json<Imp
         active_user: framer_core::ids::FramerUserId(user_id.to_string()),
         cookie_header,
     };
-    s.sessions.save(&session).await.map_err(ApiError::Internal)?;
-
-    // Claim the second workspace's 500-credit grant BEFORE admission scans
-    // (first TWO workspaces each get one, verified 2026-10-05). Best-effort:
-    // admission below decides usability either way.
-    if body.team_id.is_none() {
-        let _ = cleanup.external(s.client.claim_workspace_grant(&session).await);
-    }
-
     let spaces = me["spaces"].as_array().cloned().unwrap_or_default();
     let first_org = if let Some(tid) = &body.team_id {
         spaces.iter().find(|sp| sp["ownerId"].as_str() == Some(tid.as_str())).cloned()
@@ -3044,6 +3038,15 @@ async fn import_account_observed(State(s): State<AppState>, Json(body): Json<Imp
         }
         account.email = Some(email);
     }
+    s.sessions.save(&session).await.map_err(ApiError::Internal)?;
+
+    // Claim the second workspace's 500-credit grant BEFORE admission scans
+    // (first TWO workspaces each get one, verified 2026-10-05). Best-effort:
+    // admission below decides usability either way.
+    if body.team_id.is_none() {
+        let _ = cleanup.external(s.client.claim_workspace_grant(&session).await);
+    }
+
     account.framer_user_id = session.active_user.clone();
     account.state = framer_core::account::AccountState::Ready;
     if let Some(a) = &body.alias {
