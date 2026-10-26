@@ -26,8 +26,8 @@ async fn refund_respects_disconnect_and_preserves_unknown_completion() {
         let project = ProjectId("fixture-project".into());
         let session = Session { active_user: FramerUserId("fixture-user".into()),
             cookie_header: "fixture-only".into() };
-        let cache = Mutex::new(vec![(account, AiToken {
-            bearer: "fixture-only".into(), expires_at_ms: i64::MAX })]);
+        let cache = Mutex::new(vec![(account, AiToken::for_session(
+            &session, "fixture-only".into(), i64::MAX))]);
         let transport = Transport::with_base("http://127.0.0.1:9".into());
         let check = || browser.stopped.load(Ordering::SeqCst);
         let mut request = Box::pin(super::proxy::forward_cancellable(&transport, &cache, &session,
@@ -75,8 +75,8 @@ async fn check(native: bool) {
             let project = ProjectId("fixture-project".into());
             let session = Session { active_user: FramerUserId("fixture-user".into()),
                 cookie_header: "fixture-only".into() };
-            let cache = Mutex::new(vec![(account, AiToken {
-                bearer: "fixture-only".into(), expires_at_ms: i64::MAX })]);
+            let cache = Mutex::new(vec![(account, AiToken::for_session(
+                &session, "fixture-only".into(), i64::MAX))]);
             let transport = Transport::with_base("http://127.0.0.1:9".into());
             let config = ChainConfig { chunk_tokens: 600, max_chunks: 3,
                 max_total_tokens: Some(2048), metered_fallback: true,

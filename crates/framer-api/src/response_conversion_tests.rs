@@ -23,8 +23,8 @@ fn run(replies: Vec<Value>) -> Observed {
         let account = AccountId(uuid::Uuid::from_u128(41));
         let session = Session { active_user: FramerUserId("fixture-user".into()),
             cookie_header:"fixture-only".into() };
-        let cache = Mutex::new(vec![(account, AiToken {
-            bearer:"fixture-only".into(), expires_at_ms:i64::MAX })]);
+        let cache = Mutex::new(vec![(account,
+            AiToken::for_session(&session, "fixture-only".into(), i64::MAX))]);
         let browser = Fixture { replies:Mutex::new(replies.into()),
             requests:Mutex::new(Vec::new()) };
         let composer = Mutex::new(Some(ResponsesComposer::new("fixture-model", "fixture-response")));
@@ -147,4 +147,46 @@ fn continued_text_and_tool_keep_one_ordered_terminal_snapshot() {
         assert_eq!(output[0]["content"][0]["text"], "before tool");
         assert_eq!(output[1], tool);
     }
+}
+
+#[test]
+fn annotated_continuation_preserves_part_boundaries_and_offsets() {
+    let first = message("first", "prefix 🚀 ", "incomplete");
+    let mut last = message("last", "word", "completed");
+    let citation = json!({"type":"url_citation","start_index":0,"end_index":4,
+        "url":"https://example.invalid/fixture","title":"fixture"});
+    last["content"][0]["annotations"] = json!([citation]);
+    let expected = json!([first["content"][0], last["content"][0]]);
+    let observed = run(vec![reply(vec![first], "incomplete"), reply(vec![last], "completed")]);
+    assert_eq!(observed.requests.len(), 2);
+    assert_eq!(observed.response.output[0]["content"], expected);
+    let parts: Vec<Value> = selected(&observed, "response.content_part.done").iter()
+        .map(|event| event["part"].clone()).collect();
+    assert_eq!(json!(parts), expected);
+    let annotations = selected(&observed, "response.output_text.annotation.added");
+    assert_eq!(annotations.len(), 1);
+    assert_eq!(annotations[0]["content_index"], 1);
+    assert_eq!(annotations[0]["annotation"], citation);
+    assert_eq!(selected(&observed, "response.output_item.done")[0]["item"],
+        selected(&observed, "response.completed")[0]["response"]["output"][0]);
+}
+
+#[test]
+fn refusal_continuation_preserves_typed_content_and_order() {
+    let first = message("first", "before", "incomplete");
+    let refusal = json!({"type":"refusal","refusal":"restricted portion"});
+    let mut last = message("last", "after", "completed");
+    last["content"].as_array_mut().unwrap().insert(0, refusal.clone());
+    let expected = json!([first["content"][0], refusal, last["content"][1]]);
+    let observed = run(vec![reply(vec![first], "incomplete"), reply(vec![last], "completed")]);
+    assert_eq!(observed.response.output[0]["content"], expected);
+    let parts: Vec<Value> = selected(&observed, "response.content_part.done").iter()
+        .map(|event| event["part"].clone()).collect();
+    assert_eq!(json!(parts), expected);
+    let refusals = selected(&observed, "response.refusal.done");
+    assert_eq!(refusals.len(), 1);
+    assert_eq!(refusals[0]["content_index"], 1);
+    assert_eq!(refusals[0]["refusal"], "restricted portion");
+    assert_eq!(selected(&observed, "response.output_item.done")[0]["item"],
+        selected(&observed, "response.completed")[0]["response"]["output"][0]);
 }

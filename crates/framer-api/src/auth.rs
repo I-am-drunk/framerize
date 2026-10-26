@@ -15,9 +15,24 @@ mod retry_tests;
 pub struct AiToken {
     pub bearer: String,
     pub expires_at_ms: i64,
+    // An account ID can outlive the login that authorized this bearer.
+    session: Session,
 }
 
 impl AiToken {
+    pub(crate) fn for_session(session: &Session, bearer: String, expires_at_ms: i64) -> Self {
+        Self { bearer, expires_at_ms, session: session.clone() }
+    }
+
+    fn belongs_to(&self, session: &Session) -> bool {
+        self.session.active_user == session.active_user
+            && self.session.cookie_header == session.cookie_header
+    }
+
+    pub(crate) fn usable_for(&self, session: &Session) -> bool {
+        self.belongs_to(session) && self.usable()
+    }
+
     pub fn usable(&self) -> bool {
         // 30 s skew, mirroring the app's refresher.
         self.expires_at_ms > now_ms() + 30_000
@@ -58,7 +73,7 @@ async fn mint(t: &Transport, session: &Session, path: &str) -> Result<AiToken, S
         .and_then(|s| chrono::DateTime::parse_from_rfc3339(s).ok())
         .map(|d| d.timestamp_millis())
         .ok_or("bad expiresAt")?;
-    Ok(AiToken { bearer, expires_at_ms })
+    Ok(AiToken::for_session(session, bearer, expires_at_ms))
 }
 
 
@@ -96,7 +111,7 @@ async fn relay_mint(session: &Session) -> Result<AiToken, String> {
         .and_then(|s| chrono::DateTime::parse_from_rfc3339(s).ok())
         .map(|d| d.timestamp_millis())
         .ok_or("relay: bad expiresAt")?;
-    let token = AiToken { bearer, expires_at_ms };
+    let token = AiToken::for_session(session, bearer, expires_at_ms);
     if !token.usable() {
         return Err("relay: token is expired or within the refresh window".into());
     }
@@ -121,7 +136,7 @@ async fn cached_mint(t: &Transport, session: &Session, path: &str) -> Result<AiT
     let key = (session.cookie_header.clone(), path.to_string());
     if let Ok(guard) = cache().lock() {
         if let Some(tok) = guard.get(&key) {
-            if tok.usable() {
+            if tok.usable_for(session) {
                 return Ok(tok.clone());
             }
         }
@@ -146,7 +161,8 @@ pub async fn web_access_token(t: &Transport, session: &Session) -> Result<AiToke
 pub(crate) fn invalidate_ai_token(session: &Session, rejected: &AiToken) {
     let key = (session.cookie_header.clone(), "/auth/ai/access-token".to_owned());
     let mut guard = cache().lock().unwrap_or_else(std::sync::PoisonError::into_inner);
-    if guard.get(&key).is_some_and(|current| current.bearer == rejected.bearer) {
+    if guard.get(&key).is_some_and(|current|
+        current.belongs_to(session) && current.bearer == rejected.bearer) {
         guard.remove(&key);
     }
 }

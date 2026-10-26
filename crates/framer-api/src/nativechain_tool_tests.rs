@@ -95,7 +95,8 @@ fn run_with_clock(replies: Vec<Reply>, cfg: ChainConfig, paused: bool) -> Run {
         let started = tokio::time::Instant::now();
         let account = AccountId(uuid::Uuid::from_u128(1));
         let session = Session { active_user:FramerUserId("fixture-user".into()), cookie_header:"fixture-only".into() };
-        let cache = Mutex::new(vec![(account, AiToken { bearer:"fixture-only".into(), expires_at_ms:i64::MAX })]);
+        let cache = Mutex::new(vec![(account, AiToken::for_session(
+            &session, "fixture-only".into(), i64::MAX))]);
         let browser = Fixture { replies:Mutex::new(replies.into()), requests:Mutex::new(Vec::new()) };
         let events = Mutex::new(Vec::new());
         let callback = |event| {
