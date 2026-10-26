@@ -51,6 +51,8 @@ items. Failed attempts before streaming do not count as stream throughput.
 Responses reject an initial total below the payload builder's 16-token
 minimum and stop when less than 16 remains. They preserve incomplete output
 instead of rounding a continuation beyond the client's remaining allowance.
+They also reject a zero chunk limit before dispatch, so an unattempted request
+cannot become a fabricated empty completion.
 The free-completion handler checks its selected u64 token limit before
 narrowing to u32. Overflow returns a fixed client error before dispatch;
 field precedence, fallback, zero and the default limit are preserved.

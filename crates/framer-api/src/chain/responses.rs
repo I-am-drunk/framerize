@@ -66,6 +66,10 @@ pub async fn complete_long(
         .map(|d| d.as_secs() ^ ((d.subsec_nanos() as u64) << 20))
         .unwrap_or(0x9e3779b97f4a7c15);
 
+    if cfg.max_chunks == 0 {
+        return Err("Responses chain max_chunks must be greater than zero".into());
+    }
+
     let mut input_items = prepare_input(&client_payload);
 
     // Per-chunk payload: client verbatim, model normalized, stream off,
