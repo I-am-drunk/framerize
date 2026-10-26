@@ -1,5 +1,22 @@
 # Kernel and application updates
 
+S3w currently supplies source-only wire and policy building blocks. Its
+message set separates operation, invocation and Forward identities; the
+kernel alone authorizes terminal encoding and classifies public failures.
+Results and diagnostics contain only closed enums and numeric facts.
+Public failures carry bounded UTF-8 message, type and code fields. The
+kernel may retain HTTP-origin public text; local causes use fixed display.
+The wire does not filter characters in upstream type or code fields.
+
+Operation text fields are limited to 16 KiB, each opaque segment to 16 KiB,
+and each encoded frame to 1 MiB. Larger bodies use ordered parts.
+These are transport limits, not a bound on retained history or total memory.
+Serde's internally tagged decoding can temporarily retain a content tree
+alongside the input frame. Numeric-byte arrays add representation overhead;
+the eventual W3 measurements must include it rather than assume a fixed
+two-frame memory cost. No child, HTTP transition or retirement proof has
+run for these source building blocks.
+
 S3a prepares the free Responses SSE path for replacement policy workers.
 It adds an in-process awaited sink and incremental borrowed event encoder.
 The publisher owns accepted sequence state and irreversible content flags;

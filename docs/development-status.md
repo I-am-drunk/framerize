@@ -7,7 +7,6 @@ acceptance frontier. Twelve inert controls cover malformed/truncated frames,
 depth and size limits, fragmented writes, exhausted credit and acknowledgments.
 No build or test has run in this lane; main retains all execution.
 The worker, generation manager and real SSE connection are still incomplete.
-The next slice supplies typed policy/control results and the owned worker.
 Legacy0 and workspace default-members remain unchanged. The accepted
 preclassified-error encoder extension is allocated separately within S3w.
 That hook now accepts a validated error object without reclassification;
@@ -22,9 +21,14 @@ Forward; the default calls the existing callback. Closed numeric diagnostics
 accompany the unchanged legacy stderr lines. Twelve new inert controls cover
 retry wrappers, the invocation-wide saturation budget, control failure,
 cooldown facts, output closure and diagnostic hooks. All are UNRUN here.
-The worker, HTTP connection and public failure DTO remain unfinished.
-Next: review this adapter in the existing architecture discussion, then
-complete the strict message set and owned process runner.
+The adapter's source review is accepted. Execution remains with main.
+
+The wire message set now includes bounded request/reply parts, invocation
+results, acknowledged saturation, output credit and typed public failures.
+Six additional inert controls exercise round trips, nested strictness,
+segment bounds, drop counts and verbatim Unicode error types. They are
+UNRUN; message shape alone does not establish runtime ordering or cleanup.
+Next: review the message slice and connect the owned reader/writer process.
 
 Free Responses streaming now uses the bounded, awaited output path from
 `4447080`, composed after `1aef73d` with the newer account and store fixes.
