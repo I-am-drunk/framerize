@@ -8,10 +8,15 @@ ownership, preserving both native mutation paths and legacy request handling.
 Store ownership lasts through host shutdown. New fixtures cover shared routers,
 store exclusion, authorization isolation and invalidation after native drain.
 The draft passed read-only Rust syntax parsing and `git diff --check`.
-No S1 test or build has run. Main's next step is bounded qualification of the
-published S1 pin; vision's complete S1 review follows the same source handoff.
-S2/S3 require accepted S1 evidence and vision review. Hosted CI remains blocked
-by GitHub's reported payment/spending-limit issue; no success is claimed.
+Main's compile of `b1fedb4` failed with nine E0594 fixture assignments after
+121.9 seconds; no S1 tests ran. All 765 source pins matched and the test unit
+stopped with an empty cgroup. This follow-up changes only those four fixture
+files to configure each private runtime before sharing. Assertions and
+production ownership are unchanged. The correction has not been compiled or
+tested; main owns bounded requalification of the corrected pin. Vision approved
+the S1 source, with behavior approval conditional on executed evidence.
+S2/S3 remain gated. Origin Actions skipped S1; the build fork remains blocked
+by GitHub's reported payment/spending-limit issue. No CI success is claimed.
 
 The `refactor/kernel-hot-swap-20261026` overhaul starts from qualified
 `c8371bf`, without changing the deployed service. The ownership map and

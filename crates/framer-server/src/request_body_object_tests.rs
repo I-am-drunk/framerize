@@ -55,7 +55,7 @@ async fn valid_objects_reach_existing_account_lookup() {
         .chain(FREE.into_iter().map(|p| (p, true))) {
         let mut f = fixture::Fixture::new();
         let state = Arc::new(BoundaryState::default());
-        f.state.state = state.clone();
+        f.state.runtime_mut().unwrap().state = state.clone();
         let model = if path.contains("anthropic") { "claude-opus-5-5" } else { "gpt-6-astra" };
         let response = request(f.state.clone(), path, paid, json!({
             "model":model, "messages":[{"role":"user","content":"fixture"}],
@@ -74,7 +74,7 @@ async fn object_validation_preserves_checked_budget_rejection() {
     for path in FREE {
         let mut f = fixture::Fixture::new();
         let state = Arc::new(BoundaryState::default());
-        f.state.state = state.clone();
+        f.state.runtime_mut().unwrap().state = state.clone();
         f.state = operation_ownership::with_owned_operations(f.state, 32).unwrap();
         let response = request(f.state.clone(), path, false, json!({
             "model":"gpt-6-astra", "max_tokens":u64::from(u32::MAX) + 1,
@@ -103,7 +103,7 @@ async fn rejects_before_ports(path: &str, paid: bool) {
     for owned in [false, true] {
         let mut f = fixture::Fixture::new();
         let state = Arc::new(BoundaryState::default());
-        f.state.state = state.clone();
+        f.state.runtime_mut().unwrap().state = state.clone();
         if owned { f.state = operation_ownership::with_owned_operations(f.state, 32).unwrap(); }
         for body in non_objects() {
             let response = request(f.state.clone(), path, paid, body).await;
