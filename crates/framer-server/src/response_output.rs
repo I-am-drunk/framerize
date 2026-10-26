@@ -530,13 +530,13 @@ impl FreeRequest {
     }
     fn log(&self, result: &ResponseResult, elapsed: Duration) {
         let event = operation_ownership::correlate_chain(framer_core::observability::Event::new("ai.chain"))
-            .account(&self.account.id).field("model", &self.gate_model)
+            .account(&self.account.id).field("model", self.gate_model.as_str())
             .field("dialect", "OpenAiResponses").duration_ms(elapsed.as_millis());
         match result {
             Ok(result) => event.field("chunks", result.chunks).field("metered_chunks", result.metered_chunks)
                 .field("prompt_tokens", result.input_tokens).field("completion_tokens", result.output_tokens)
-                .field("finish_reason", &result.status).outcome("ok").emit(),
-            Err(error) => event.error(error.to_string()).emit(),
+                .field("finish_reason", result.status.as_str()).outcome("ok").emit(),
+            Err(error) => event.error(&error.to_string()).emit(),
         }
     }
 }
