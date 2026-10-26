@@ -26,10 +26,31 @@ phases, delayed cleanup, cancellation and the abandoned-job timer.
 The new oversize regression fails on the exact previous script: it returns
 HTTP 200 for an oversized response. Both isolated test units exited cleanly.
 
-These fixtures use inert browser ports and standard JavaScript streams.
-They run with private networking and private account paths masked. No browser,
-SDK, account, live request or service deployment ran for this change.
+Those unit tests use inert browser ports and standard JavaScript streams.
+They ran with private networking and private account paths masked. No browser,
+SDK, account, live request or service deployment ran in the unit-test step.
 
 The native-minter-to-lightweight-browser handoff remains unimplemented.
 This fix does not establish live delivery, account unlinkability or measured
 memory savings for that combination. Token generation is unchanged.
+
+## Real-browser qualification
+
+The separate local HTTPS fixture passed on browser `152.0.4-beta.31`.
+It delivered the exact 8 MiB body, rejected the oversized body, and joined
+cancellation of a held body. The server observed both aborted connections
+close. No browser job or descendant process remained after cleanup.
+
+Measured PSS for the harness, driver and browser together was 484.153 MiB
+while idle, 578.818 MiB with the exact-limit body buffered, and 629.497 MiB
+during the later held response. These snapshots include earlier allocations
+and garbage-collection timing; their differences do not isolate body memory.
+There was no swap, memory-limit event or task-limit hit. The complete owned
+run took 4.627 seconds. Local cancellation plus observed peer closure took
+4.681 ms; this is one fixture observation, not an upstream latency claim.
+
+Only the request destination changed to the ephemeral loopback origin.
+The scripts, fixture and reused helpers are bound in the
+[machine-readable result](browser-response-bounds-20261026.json).
+See the [fixture instructions](../../scripts/experiments/browser_response_bounds/README.md).
+No SDK, real account, upstream request or service deployment was involved.
