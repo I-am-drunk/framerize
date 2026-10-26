@@ -1,5 +1,18 @@
 # Development status
 
+Primary workspace publication now rechecks peer primary and secondary claims
+under the shared account-update lock after all usage probes settle. This
+contextually integrates `9de49ce` on `df2d815`. All 44 exact checks pass:
+24 core and 20 server cases, with 789 matching source pins and a fully stopped
+isolated test unit. The fixture-only baseline reproduced 15 failures while
+six controls passed. Earlier failure subcases are not counted as later
+subcase evidence; the candidate completed every selected method.
+Subject validation, latest unrelated fields, original probe errors, backup
+ranking and registration-lock release remain covered. This does not serialize
+initial writes, rotations or final secondary publication. The queued secondary
+publication and refusal-marking corrections remain separate work. No package
+or live service changed during this qualification.
+
 The idle-close admission repair `c7d4516` is integrated on the experimental
 branch. A retained browser RPC now keeps status busy after its caller is
 cancelled. The host refuses idle closure before it starts; a close already

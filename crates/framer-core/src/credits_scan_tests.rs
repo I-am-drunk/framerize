@@ -108,7 +108,7 @@ impl StateStore for Fixture {
         *self.saved.lock().unwrap() = account.clone();
         Ok(())
     }
-    async fn list(&self) -> Result<Vec<ManagedAccount>, String> { panic!("unexpected listing") }
+    async fn list(&self) -> Result<Vec<ManagedAccount>, String> { Ok(vec![self.saved.lock().unwrap().clone()]) }
     async fn remove(&self, _: AccountId) -> Result<(), String> { panic!("unexpected removal") }
 }
 

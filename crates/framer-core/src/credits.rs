@@ -213,11 +213,21 @@ pub async fn admit(
     claimed: &std::collections::BTreeSet<String>,
 ) -> Result<TeamId, CoreError> {
     let who = account.email.clone().unwrap_or_else(|| account.alias.clone());
-    let WorkspaceScan { credited, first_error } = scan_workspace_results(deps, session).await?;
+    let mut scan = scan_workspace_results(deps, session).await?;
+    select_admission(&who, &mut scan, claimed)?;
+    publish_admission(deps, account, &who, &mut scan, claimed).await
+}
+
+fn select_admission<'a>(
+    who: &str,
+    scan: &'a mut WorkspaceScan,
+    claimed: &std::collections::BTreeSet<String>,
+) -> Result<&'a WorkspaceCredit, CoreError> {
+    let credited = &scan.credited;
     // Observed capacity can be admitted; incomplete observations cannot prove refusal.
     let fresh = credited.iter().find(|w| !claimed.contains(&w.team.0));
     if fresh.is_none() {
-        if let Some(error) = first_error {
+        if let Some(error) = scan.first_error.take() {
             return Err(error);
         }
     }
@@ -237,13 +247,37 @@ pub async fn admit(
         )));
     };
 
-    deps.update(account, |current| {
-        if current.current_team.as_ref() != Some(&fresh.team) {
-            current.current_project = None;
-        }
-        current.current_team = Some(fresh.team.clone());
-        current.credit = Some(fresh.snapshot);
-    }).await?;
+    Ok(fresh)
+}
+
+async fn publish_admission(
+    deps: &Deps<'_>, account: &mut ManagedAccount, who: &str,
+    scan: &mut WorkspaceScan, claimed: &std::collections::BTreeSet<String>,
+) -> Result<TeamId, CoreError> {
+    // Probes have settled. Competing primary admissions share this publication lock.
+    let _update = deps.account_updates.lock().await;
+    let mut current = deps.state.get(account.id).await.map_err(CoreError::Store)?
+        .ok_or_else(|| CoreError::NotEligible("account removed during update".into()))?;
+    if current.framer_user_id != account.framer_user_id
+        || current.castle_device_id != account.castle_device_id
+        || current.current_team != account.current_team
+        || current.current_project != account.current_project || current.proxy != account.proxy {
+        return Err(CoreError::NotEligible("account scope changed during update".into()));
+    }
+    let pool = deps.state.list().await.map_err(CoreError::Store)?;
+    let mut claimed = claimed.clone();
+    claimed.extend(pool.iter().filter(|peer| peer.id != account.id)
+        .flat_map(|peer| peer.current_team.iter()
+            .chain(peer.extra_workspaces.iter().map(|scope| &scope.team)))
+        .map(|team| team.0.clone()));
+    let fresh = select_admission(who, scan, &claimed)?;
+    if current.current_team.as_ref() != Some(&fresh.team) {
+        current.current_project = None;
+    }
+    current.current_team = Some(fresh.team.clone());
+    current.credit = Some(fresh.snapshot);
+    deps.state.upsert(&current).await.map_err(CoreError::Store)?;
+    *account = current;
     Ok(fresh.team.clone())
 }
 
@@ -254,3 +288,7 @@ mod rotation_tests;
 #[cfg(test)]
 #[path = "credits_scan_tests.rs"]
 mod scan_tests;
+
+#[cfg(test)]
+#[path = "credits_claim_tests.rs"]
+mod claim_tests;
