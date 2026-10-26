@@ -6,6 +6,9 @@ use tokio::time::{timeout, Duration};
 #[path = "startup_migration_tests.rs"]
 mod migration;
 
+#[path = "startup_diagnostics_tests.rs"]
+mod diagnostics;
+
 struct Fixture { root: PathBuf, config: ServeConfig }
 impl Fixture {
     async fn new() -> Self {

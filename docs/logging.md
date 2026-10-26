@@ -12,6 +12,12 @@ standard field names, no secrets, retention, and a query interface.
 `FRAMERIZE_LOG_DIR`). Daily files; files older than 7 days are deleted at
 daemon start.
 
+Native serving initializes the same sink after selected-account validation.
+It preserves the profile's filesystem path, including non-UTF-8 names. If the
+daily log cannot open, a fixed warning goes to stderr once and requests keep
+running. Later events retry opening it; an obstructing file is never replaced.
+Events dropped before the destination becomes available remain lost evidence.
+
 The Rust writer serializes each event, including its newline, before one append
 attempt. It does not stream JSON fragments into the shared file or retry a short
 write with a suffix that could follow a sidecar record. A short write or error is

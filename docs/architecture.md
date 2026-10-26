@@ -574,6 +574,12 @@ A rejected or throwing stop waits for exit before reporting failure. An exit
 does not discard a pending stop result. If exit never arrives, the existing
 Rust process deadline still owns termination and joining of the whole worker.
 
+Native startup activates the shared event sink after selected-account
+validation, retaining the actual profile path without lossy text conversion.
+Log-open errors produce one fixed stderr warning and leave the writer unset
+so later events can retry. They never replace an obstructing file or abort
+serving. Events lost while the destination is unavailable cannot be recovered.
+
 Each native service request creates an internal random diagnostic ID. Its
 credential source passes that ID to the worker minter, and JSON or SSE
 completion logging uses the same ID. These IDs contain no account or inbound

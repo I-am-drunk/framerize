@@ -3,6 +3,21 @@
 The rearchitecture is on `refactor/separate-apps-and-ci-20261025` in draft
 [PR #2](https://github.com/I-am-drunk/framerize/pull/2). It is not deployed.
 
+Native startup now initializes structured diagnostics after validating selected
+accounts, preserving the actual profile path, including non-UTF-8 paths. An
+unavailable log emits one fixed stderr warning, never panics or replaces the
+blocking file, and can recover on a later event after the path is repaired.
+Four new regressions and 23 existing startup/disconnect/diagnostic controls
+pass. The old code reproduced three failures; a separate control exposed an
+older worker fixture's process-global logger assumption, now isolated without
+changing its assertions. All 721 tracked inputs and five candidate files match
+the final control run. The four regression inputs are unchanged. This is source
+on `feat/native-browser-handoff-20261026`, outside the frozen `8fe2259` packages.
+The saved R6 response identifies Upstream but lacks its HTTP status and request
+phases; this correction cannot recover missing historical events. Live delivery
+remains unverified. Next: integrate the queued login-cookie scope correction
+and prepare fresh acceptance using matched packages and the repaired state.
+
 Chrome CDP registration now rejects unsupported embedded proxy credentials
 before changing account routes. All five selected inert checks pass; the old
 code reproduced two failures with one new control passing. All 720 tracked

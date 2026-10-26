@@ -25,10 +25,15 @@ mod append;
 
 static LOG_DIR: OnceLock<PathBuf> = OnceLock::new();
 static WRITER: OnceLock<Mutex<std::fs::File>> = OnceLock::new();
+static LOG_OPEN_WARNING: OnceLock<()> = OnceLock::new();
 static RETENTION_DAYS: u64 = 7;
 
 pub fn init(profiles: &str) {
-    let dir = Path::new(profiles).join(".logs");
+    init_path(Path::new(profiles));
+}
+
+pub fn init_path(profiles: &Path) {
+    let dir = profiles.join(".logs");
     let _ = std::fs::create_dir_all(&dir);
     let _ = LOG_DIR.set(dir);
     // Retention: drop daily files older than RETENTION_DAYS.
@@ -57,16 +62,27 @@ fn file_for_today() -> Option<&'static Mutex<std::fs::File>> {
     // Never panic for logging: uninitialized → no writer → emit() is a no-op.
     // (Library callers like convert::to_openrouter_id run in tests without init.)
     let dir = LOG_DIR.get()?;
-    WRITER.get_or_init(|| {
-        let day = chrono_today();
-        let f = std::fs::OpenOptions::new()
-            .create(true)
-            .append(true)
-            .open(dir.join(format!("events-{day}.ndjson")))
-            .expect("open event log");
-        Mutex::new(f)
-    });
-    WRITER.get()
+    if let Some(writer) = WRITER.get() {
+        return Some(writer);
+    }
+    let day = chrono_today();
+    let file = match std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(dir.join(format!("events-{day}.ndjson")))
+    {
+        Ok(file) => file,
+        Err(_) => {
+            LOG_OPEN_WARNING.get_or_init(|| {
+                use std::io::Write;
+                let _ = std::io::stderr().lock().write_all(
+                    b"Framerize: event log unavailable; structured diagnostics are being lost.\n",
+                );
+            });
+            return None;
+        }
+    };
+    Some(WRITER.get_or_init(|| Mutex::new(file)))
 }
 
 fn chrono_today() -> String {
