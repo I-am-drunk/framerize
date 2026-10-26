@@ -241,11 +241,28 @@ pub struct ChainConfig {
 }
 
 impl ChainConfig {
+    pub fn limits(&self) -> framer_protocol::forward::ChainLimits {
+        framer_protocol::forward::ChainLimits {
+            chunk_tokens: self.chunk_tokens,
+            max_chunks: self.max_chunks,
+            continue_prompt: self.continue_prompt.clone(),
+            max_total_tokens: self.max_total_tokens,
+            metered_fallback: self.metered_fallback,
+        }
+    }
+
     pub fn is_cancelled(&self) -> bool {
         self.cancelled.as_ref().is_some_and(|cancelled| cancelled())
     }
     pub fn check_cancelled(&self) -> Result<(), String> {
         if self.is_cancelled() { Err("client cancelled".into()) } else { Ok(()) }
+    }
+}
+
+impl framer_protocol::forward::ChainControl for ChainConfig {
+    fn is_cancelled(&self) -> bool { self.is_cancelled() }
+    fn on_429(&self) {
+        if let Some(callback) = &self.on_429 { callback(); }
     }
 }
 

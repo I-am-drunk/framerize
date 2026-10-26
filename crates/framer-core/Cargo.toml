@@ -5,6 +5,7 @@ edition.workspace = true
 license.workspace = true
 
 [dependencies]
+framer-protocol = { path = "../framer-protocol" }
 async-trait = "0.1"
 bytes = "1"
 futures = "0.3"
