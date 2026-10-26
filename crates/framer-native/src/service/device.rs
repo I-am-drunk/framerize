@@ -28,7 +28,8 @@ impl DeviceLease {
         self.owned.as_ref().map(|(_, grant)| grant.clone())
     }
 
-    /// Called only after the native scope and transport cleanup have settled.
+    /// Called only after request work and transport cleanup have settled.
+    /// An idle client can be retained only after this and final publication succeed.
     /// A lost acknowledgement keeps the caller's existing account owner armed.
     pub(crate) async fn finish(self, joined: bool, risk_refused: bool) -> bool {
         let Some((bridge, grant)) = self.owned else { return joined; };

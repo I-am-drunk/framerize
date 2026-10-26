@@ -25,6 +25,10 @@ use crate::authorization::source::Failure;
 
 #[path = "offline_session_tests.rs"]
 mod shared_sessions;
+#[path = "retained_transport_tests.rs"]
+mod retained_transport;
+#[path = "retained_finalization_tests.rs"]
+mod retained_finalization;
 #[path = "admission_tests.rs"]
 mod admission;
 #[path = "offline_store_failure_tests.rs"]
@@ -377,6 +381,7 @@ impl DeviceOwner for Ports {
         self.device_closing.add_permits(1);
         self.device_finish.acquire().await.unwrap().forget();
         self.events.lock().unwrap().push("device_close");
+        assert_ne!(self.device_mode.load(Ordering::SeqCst), 4, "fixture device close panic");
         if self.device_mode.load(Ordering::SeqCst) == 3 {
             return Err(crate::account::device::DeviceFailure::Unconfirmed);
         }
