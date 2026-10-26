@@ -1,5 +1,20 @@
 # Development status
 
+Passive repaired-service telemetry through 22:57 UTC on October 26 records
+117 memory samples with one unchanged service invocation. Resident accounts
+varied from one to six; sampled cgroup usage ranged from 1.3 to 6.6 GiB.
+The last periodic sample was 5.5 GiB with four resident accounts. A separate
+22:57:33 point sample attributed 3,759 MiB of proportional resident memory
+to 42 browser processes, 383 MiB to the Node helper, 188 MiB to the server,
+and 143 MiB to Python. The cgroup reported no out-of-memory events.
+Across 3,015 completed successful Responses chains, median duration was
+3.843 seconds and p95 was 18.985 seconds. The 116 successful Messages
+chains had a 9.188-second median and 48.279-second p95. These are natural
+requests with varying output and account activity, not controlled latency
+comparisons. Cgroup usage includes cache and kernel memory; point process
+samples are not peaks. No leak attribution or memory saving follows from
+this observation. Browser memory remains the dominant measured cost.
+
 Changed-user registration now clears the saved primary team and project
 when metadata supplies no selected team. This integrates `5e67911` after
 `4256d3c`. All 23 exact server methods pass with 794 source pins and three
