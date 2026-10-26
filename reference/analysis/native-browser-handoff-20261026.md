@@ -100,6 +100,28 @@ fingerprints or remote account unlinkability.
 
 ## Release package qualification
 
+The current matching pair is staged from
+`c16fd245ee4a7c26268ab961319581b644d8965a`. The offline, single-job release
+build completed in 151.94 seconds within its 1,536 MiB boundary. All 802
+source hashes matched through build, package checks and staging. The
+1,264-file worker bundle was assembled without SDK execution. Both archived
+binaries match the compiler artifacts; earlier immutable archives remain.
+
+The browser package passed nine ordinary checks plus five checks for usable
+history, rejected unusable history, preservation of unknown history, host
+shutdown failure reporting and an empty owned process group. The native
+package passed eight ordinary checks plus request diagnostics, joined
+cleanup and absence of private fields. The checks used synthetic local
+state. Staging completed with the isolated unit inactive and no process left.
+
+Neither package was installed or deployed. The native build enables
+`browser-transport` and still requires a browser sender. Package qualification
+therefore does not establish native mint acceptance, browser-free delivery,
+total memory savings or request latency. Package identity remains `c16fd24`
+as subsequent documentation and source commits advance.
+
+### Earlier 72886b2 qualification
+
 Both release binaries build at `72886b2e1c3fb48aad5d89b4f0f8488f83d21d9b`.
 The first build reached its three-minute runtime bound; an incremental build
 finished successfully in 79.69 seconds. All 655 recorded source files match.

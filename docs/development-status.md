@@ -1,5 +1,25 @@
 # Development status
 
+The browser and native release packages are rebuilt, qualified and staged
+from `c16fd245ee4a7c26268ab961319581b644d8965a`. Both binaries compiled
+offline with one build job and a 1,536 MiB boundary. The 1,264-file worker
+bundle was assembled without executing the SDK. All 802 source hashes
+matched, and both archived binaries matched their compiler artifacts.
+
+The browser package passed nine ordinary checks and five history/shutdown
+checks. The native package passed eight ordinary checks and three request
+diagnostic, joined-cleanup and privacy checks. These used local synthetic
+state. Both packages are staged, not installed or deployed; the final
+isolated unit is inactive with no remaining process. Earlier immutable
+archives remain preserved. The package source identity stays `c16fd24`
+when later documentation or source commits advance this branch.
+
+The native package still includes `browser-transport`, so these results
+do not establish browser-free delivery, native mint acceptance, total memory
+savings or request latency. The next local qualification is the separate
+legacy text-encoding correction. Native transport investigation and the
+source-only worker implementation continue independently.
+
 SQLite lookup now rejects an embedded account identity different from its
 requested key. Listing requires each raw text key to equal the decoded
 canonical UUID. Invalid, noncanonical and nontext keys return the fixed
