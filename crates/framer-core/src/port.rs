@@ -10,6 +10,9 @@ use crate::workspace::CreditSnapshot;
 use async_trait::async_trait;
 pub use framer_protocol::responses_sink::{OutputError, ResponseError, ResponseResult,
     ResponsesSink, ValidatedChunk, emit_assembled};
+pub use framer_protocol::forward::{AuthorizedForward, ChainControl, ChainLimits, ForwardReply};
+pub use framer_protocol::forward_error::{ControlError, ErrorClass, ErrorOrigin, ErrorRecipe,
+    ForwardError, LocalFailure, PolicyError};
 use bytes::Bytes;
 use futures::Stream;
 use std::pin::Pin;
@@ -379,6 +382,16 @@ pub trait FramerClient: Send + Sync {
         chat_session: &str,
         events: Option<&(dyn Fn(crate::convert::ChainEvent) + Send + Sync)>,
     ) -> Result<crate::convert::AssembledResponses, String>;
+
+    /// Borrow one invocation's authorized Forward. Credentials and callbacks
+    /// stay in the runtime; a worker receives only the resulting wire facts.
+    /// Absence means this client does not implement the worker boundary.
+    #[allow(clippy::too_many_arguments)]
+    fn bind_responses<'a>(
+        &'a self, _session: &'a Session, _browser: &'a dyn BrowserBridge,
+        _account: &'a AccountId, _project: &'a ProjectId,
+        _cfg: &'a ChainConfig, _chat_session: &'a str,
+    ) -> Option<Box<dyn AuthorizedForward + 'a>> { None }
 
     /// Awaited publication for free Responses SSE. No buffering fallback.
     #[allow(clippy::too_many_arguments)]

@@ -265,6 +265,16 @@ impl FramerClient for HttpFramerClient {
         .await
     }
 
+    fn bind_responses<'a>(
+        &'a self, session: &'a Session, browser: &'a dyn BrowserBridge,
+        account: &'a AccountId, project: &'a framer_core::ids::ProjectId,
+        cfg: &'a framer_core::port::ChainConfig, chat_session: &'a str,
+    ) -> Option<Box<dyn framer_core::port::AuthorizedForward + 'a>> {
+        Some(Box::new(forward::ResponsesForward::new(&self.transport,
+            &self.transport.authorization.accounts, session, browser, account,
+            project, chat_session, cfg.cancelled.as_deref(), cfg.on_429.as_deref())))
+    }
+
     async fn native_long_with_sink(
         &self, session: &Session, browser: &dyn BrowserBridge,
         account: &AccountId, project: &framer_core::ids::ProjectId,

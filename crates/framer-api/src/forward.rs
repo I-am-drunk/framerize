@@ -2,6 +2,7 @@
 use crate::{auth::AiToken, proxy::{self, Dialect}, transport::Transport};
 use framer_core::{ids::{AccountId, ProjectId}, port::{BrowserBridge, Session}};
 use framer_protocol::forward::{AuthorizedForward, ChainControl, ForwardReply};
+use framer_protocol::forward_error::{ForwardError, PolicyError};
 use futures::StreamExt;
 use serde_json::Value;
 use std::sync::Mutex;
@@ -48,13 +49,18 @@ impl AuthorizedForward for ResponsesForward<'_> {
     async fn forward(&self, step: &str, payload: Value, step_index: u32)
         -> Result<ForwardReply, String>
     {
-        let mut response = proxy::forward_with_category(self.transport, self.cache,
+        self.forward_typed(step, payload, step_index).await.map_err(|error| error.to_string())
+    }
+    async fn forward_typed(&self, step: &str, payload: Value, step_index: u32)
+        -> Result<ForwardReply, PolicyError>
+    {
+        let mut response = proxy::forward_typed_with_category(self.transport, self.cache,
             self.session, self.browser, self.account, self.project,
             Dialect::OpenRouterResponses, step, payload, self.chat_session,
             step_index, self.cancelled, Some(&self.category)).await?;
         let mut body = bytes::BytesMut::new();
         while let Some(chunk) = response.stream.next().await {
-            body.extend_from_slice(&chunk?);
+            body.extend_from_slice(&chunk.map_err(ForwardError::from_legacy)?);
         }
         Ok(ForwardReply { status: response.status, content_type: response.content_type,
             body: body.freeze(), queue_wait_ms: response.queue_wait_ms })

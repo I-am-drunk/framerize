@@ -35,6 +35,14 @@ value and assertion using a test-only unrestricted envelope, and a new
 inert control covers the handshake field bound. Cleanup and error-origin
 enforcement remain kernel duties. All new execution is still pending main.
 
+The runtime now exposes a borrowed Responses binding factory. It reuses the
+same Forward implementation, token cache and optional callbacks; constructing
+it performs no browser work. The proxy tags errors from received HTTP
+statuses separately from bridge, seed, token and refund failures while
+retaining the legacy string entry. Seven new inert factory/provenance
+controls are UNRUN. Existing native and Messages entry signatures remain.
+Next: review the runtime adapter, then connect owned policy child processes.
+
 Free Responses streaming now uses the bounded, awaited output path from
 `4447080`, composed after `1aef73d` with the newer account and store fixes.
 All 21 focused integration checks pass with 801 matching source pins and

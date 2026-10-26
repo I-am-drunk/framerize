@@ -14,6 +14,7 @@ use crate::auth::{self, AiToken};
 use crate::transport::Transport;
 use framer_core::ids::{AccountId, ProjectId};
 use framer_core::port::{BrowserBridge, Session};
+use framer_protocol::forward_error::ForwardError;
 use serde_json::{json, Value};
 use std::sync::Mutex;
 
@@ -92,6 +93,19 @@ pub(crate) async fn forward_with_category(
     chat_session: &str, step_index: u32,
     cancelled: Option<&(dyn Fn() -> bool + Send + Sync)>, category: Option<&str>,
 ) -> Result<framer_core::port::ProxyResponse, String> {
+    forward_typed_with_category(t, token_cache, session, browser, account, project,
+        dialect, step, payload, chat_session, step_index, cancelled, category)
+        .await.map_err(|error| error.to_string())
+}
+
+#[allow(clippy::too_many_arguments)]
+pub(crate) async fn forward_typed_with_category(
+    t: &Transport, token_cache: &Mutex<Vec<(AccountId, AiToken)>>,
+    session: &Session, browser: &dyn BrowserBridge, account: &AccountId,
+    project: &ProjectId, dialect: Dialect, step: &str, payload: Value,
+    chat_session: &str, step_index: u32,
+    cancelled: Option<&(dyn Fn() -> bool + Send + Sync)>, category: Option<&str>,
+) -> Result<framer_core::port::ProxyResponse, ForwardError> {
     check_cancelled(cancelled)?;
     let t0 = std::time::Instant::now();
     let req_id = uuid::Uuid::new_v4().to_string();
@@ -111,7 +125,7 @@ pub(crate) async fn forward_with_category(
                 .emit();
             Ok(resp)
         }
-        Err(e) if e == "unauthorized" => {
+        Err(e) if e.original_message() == "unauthorized" => {
             check_cancelled(cancelled)?;
             auth::invalidate_ai_token(t, session, &token);
             if let Ok(mut guard) = token_cache.lock() {
@@ -120,7 +134,7 @@ pub(crate) async fn forward_with_category(
             let fresh = cached_token(t, token_cache, session, account).await?;
             attempt(browser, session, account, &fresh, project, dialect, step, &payload, chat_session, &category, step_index, cancelled).await
         }
-        Err(e) if e == "category-rejected" => {
+        Err(e) if e.original_message() == "category-rejected" => {
             check_cancelled(cancelled)?;
             // Structured event so rejected models are visible via
             // `framerize logs --event category.rejected` — that's the signal
@@ -145,7 +159,7 @@ pub(crate) async fn forward_with_category(
                 .field("dialect", format!("{dialect:?}"))
                 .field("streaming", payload["stream"].as_bool() == Some(true))
                 .duration_ms(framer_core::observability::elapsed_ms(t0))
-                .error(&e)
+                .error(&e.to_string())
                 .emit();
             Err(e)
         }
@@ -170,7 +184,7 @@ async fn attempt(
     category: &str,
     step_index: u32,
     cancelled: Option<&(dyn Fn() -> bool + Send + Sync)>,
-) -> Result<framer_core::port::ProxyResponse, String> {
+) -> Result<framer_core::port::ProxyResponse, ForwardError> {
     check_cancelled(cancelled)?;
     // featureCategory (THE VELOCITY GOOSE, verified 2026-10-05): the
     // "translation" category is accepted on all inference routes, keeps
@@ -245,7 +259,13 @@ async fn attempt(
     }
     let elapsed = sent_at.elapsed();
     let streaming = payload["stream"].as_bool() == Some(true);
-    check_response_status(status, &text, dialect.path(), category, elapsed.as_millis() as u64)?;
+    check_response_status(status, &text, dialect.path(), category, elapsed.as_millis() as u64)
+        .map_err(|message| {
+            let error = ForwardError::from_legacy(message);
+            // Tag only a received HTTP status. A bridge/seed/refund error with
+            // identical text has no permission to expose a public message.
+            if (400..600).contains(&status) { error.http() } else { error }
+        })?;
     // Auto-refund (verified 2026-10-05): /ai/v3/refund/ has NO Castle layer
     // and fully reverses a streamed charge — `{"granted":true}` restores the
     // exact debit. Idempotent (second refund on the same turn is denied), and
@@ -271,7 +291,7 @@ async fn attempt(
                 eprintln!("[refund] turn {} — {}", &turn_id[..8.min(turn_id.len())], if granted { "GRANTED (charge reversed)" } else { "denied (quota exhausted)" });
             }
             Ok((s, _, text)) => eprintln!("[refund] turn {} — HTTP {s}: {}", &turn_id[..8.min(turn_id.len())], crate::error_body::prefix(&text, 120)),
-            Err(e) if cancelled.is_some() => return Err(e),
+            Err(e) if cancelled.is_some() => return Err(e.into()),
             Err(e) => eprintln!("[refund] turn {} — transport error: {e}", &turn_id[..8.min(turn_id.len())]),
         }
     }
