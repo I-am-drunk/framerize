@@ -10,6 +10,19 @@ Both fixes are integrated on `feat/native-browser-handoff-20261026`. All twelve
 focused checks pass. Each old parser reproduced three failures with three
 passing controls. These are local parser results; live acceptance is pending.
 
+The Responses metered fallback now uses the same tool-completion and remaining
+token-budget checks as ordinary responses, preserving incomplete status when
+the chunk limit is reached. All 31 affected response/cancellation checks pass;
+the parent reproduced six failures with two passing controls.
+
+Browser launch now separates proxy credentials from the server URL, preserving
+decoded credentials, IPv6 endpoints and account/global route precedence.
+Eight inert proxy-launch tests and five existing browser tests pass; the parent
+failed six proxy methods with two controls passing. Both fixes are integrated
+on `feat/native-browser-handoff-20261026`, with all 519 saved source bindings
+verified before publication. These checks make no live-request, memory-saving
+or deployment claim.
+
 Messages fallback now requires closed content and `message_stop` before
 publishing output, rejects malformed tool input, preserves retry token limits,
 and retains `max_tokens` when the final text chunk is incomplete. The integrated
