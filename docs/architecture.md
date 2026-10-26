@@ -99,9 +99,12 @@ An attached CDP browser bridge claims one account before route or browser work.
 That claim survives failures, cancellation and disconnect for its lifetime.
 Owned-browser modes retain independent account admission. This claim does not
 validate the attached browser's login or exclude other bridge instances.
-Owned CDP shutdown reports uncertain starts even when no instance was saved,
-while still closing every known instance. That error retains the uncertainty;
-it does not recover a process handle lost during startup.
+Owned CDP startup retains its child until instance publication or joined exit.
+Cancellation requests termination and retains the actual wait result across
+abandoned shutdown callers. Version probes use the same ownership mechanism
+without an account, so their exit cannot clear a browser's uncertainty.
+Shutdown joins these children and still closes every known instance. Only
+confirmed exits clear their account flags; missing exit evidence stays an error.
 The CDP device loader creates an identity only when the record is missing.
 Read, UTF-8, JSON and identity-field errors preserve the existing bytes and
 refuse startup instead of silently replacing the browser identity.

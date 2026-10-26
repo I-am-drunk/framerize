@@ -3,6 +3,15 @@
 The rearchitecture is on `refactor/separate-apps-and-ci-20261025` in draft
 [PR #2](https://github.com/I-am-drunk/framerize/pull/2). It is not deployed.
 
+Owned CDP startup and version-probe children now remain owned through
+cancellation until their exit is joined. Abandoned shutdown waiters retain
+the cleanup result, and a probe exit cannot clear browser uncertainty.
+All 17 selected startup/probe/shutdown checks pass, including disposable
+processes whose PIDs are absent after failed or cancelled startup. The five
+source files and 670 tracked qualification inputs match. These tests prove
+the owned child paths, not real browser descendant cleanup or live delivery.
+The source changes are not deployed; pinned live packages remain unchanged.
+
 Saved CDP device records now survive read, decoding and field errors instead
 of being replaced with a fresh identity. Chat keeps content-filter completion
 reasons and supplied function strictness through both continuation requests.
