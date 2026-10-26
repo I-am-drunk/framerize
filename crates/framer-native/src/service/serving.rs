@@ -6,6 +6,7 @@ use crate::account::client::NativeAccountClient;
 use crate::transport::http::NativeEgress;
 use crate::transport::http::NativeHttpLimits;
 use crate::account::sessions::OpenAccountError;
+use crate::account::sessions::AccountLease;
 use crate::request::complete_json::CompletedJson;
 use crate::request::complete_json::Evidence;
 use crate::request::complete_json::FreeRoute;
@@ -67,6 +68,17 @@ pub(crate) struct Outcome {
     pub evidence: Option<Evidence>,
     pub failure: Option<FailureKind>,
     pub cleanup_confirmed: bool,
+}
+
+struct PendingSession {
+    outcome: Outcome,
+    retained: Option<AccountLease>,
+    device: Option<DeviceLease>,
+}
+impl PendingSession {
+    fn without_device(outcome: Outcome) -> Self {
+        Self { outcome, retained: None, device: None }
+    }
 }
 
 impl Outcome {
@@ -174,23 +186,53 @@ async fn owned(state: ServiceState, spec: Specification, source: Arc<dyn SourceB
     if let Some(kind) = stopped(&stop, spec.deadline) { return Outcome::failed(kind); }
     let AdmittedControl { identity, proxy, capacity, pool, mut completion } = admitted;
     completion.start();
-    let mut outcome = session(&state, spec, source, (capacity, pool), &completion,
+    let pending = session(&state, spec, source, (capacity, pool), &completion,
         &proxy, stop.clone(), &sessions, delivery).await;
+    finish_owned(&state, &identity, &proxy, completion, &stop, deadline, pending).await
+}
+
+async fn finish_owned(state: &ServiceState, identity: &port::Identity, proxy: &Option<String>,
+    completion: native_control::ControlOwner, stop: &Stop, deadline: Instant,
+    pending: PendingSession) -> Outcome {
+    let PendingSession { mut outcome, mut retained, device } = pending;
+    if let Some(device) = device {
+        let risk = outcome.evidence.as_ref().is_some_and(|e| e.status == Some(403)
+            && e.refusal.is_some_and(|r| r.policy == Refusal::Castle));
+        if !device.finish(outcome.cleanup_confirmed, risk).await {
+            outcome.cleanup_confirmed = false;
+            outcome.reject(FailureKind::Cleanup);
+        }
+    }
     let health = match &outcome.evidence {
         Some(e) if e.status == Some(403)
             && e.refusal.is_some_and(|r| r.policy == Refusal::Castle) => HealthOutcome::RiskRefused,
         Some(e) if e.accepted => HealthOutcome::Complete,
         _ => HealthOutcome::Unclassified,
     };
-    if let Err(error) = completion.publish(&state, &identity, &proxy, health).await {
+    if let Err(error) = completion.publish(state, identity, proxy, health).await {
         outcome.reject(error.into());
     }
     if let Some(kind) = stopped(&stop, deadline) { outcome.reject(kind); }
+    if outcome.failure.is_some() || !outcome.cleanup_confirmed {
+        finish_transport(retained.take(), &mut outcome).await;
+    }
     if outcome.cleanup_confirmed && completion.complete().is_err() {
         outcome.cleanup_confirmed = false;
         outcome.reject(FailureKind::Cleanup);
     }
+    if let Some(kind) = stopped(&stop, deadline) { outcome.reject(kind); }
+    finish_transport(retained, &mut outcome).await;
     outcome
+}
+
+async fn finish_transport(retained: Option<AccountLease>, outcome: &mut Outcome) {
+    if let Some(lease) = retained {
+        let reusable = outcome.cleanup_confirmed && outcome.failure.is_none();
+        if !lease.finish(reusable).await {
+            outcome.cleanup_confirmed = false;
+            outcome.reject(FailureKind::Cleanup);
+        }
+    }
 }
 
 type Admission = (tokio::sync::OwnedSemaphorePermit, port::PoolAdmission);
@@ -253,52 +295,51 @@ async fn observe(mut probe: ProbeRun, stop: Arc<Stop>, deadline: Instant) -> Out
 
 async fn session(state: &ServiceState, spec: Specification, source: Arc<dyn SourceBuilder>,
     admission: Admission, owner: &native_control::ControlOwner, proxy: &Option<String>,
-    stop: Arc<Stop>, sessions: &Sessions, delivery: Delivery) -> Outcome {
+    stop: Arc<Stop>, sessions: &Sessions, delivery: Delivery) -> PendingSession {
     use crate::account::device::DeviceFailure;
     let device = match DeviceLease::open(source.as_ref(), spec.identity.account).await {
         Ok(device) => device,
-        Err(DeviceFailure::Rejected) => return Outcome::failed(FailureKind::Ineligible),
+        Err(DeviceFailure::Rejected) =>
+            return PendingSession::without_device(Outcome::failed(FailureKind::Ineligible)),
         Err(DeviceFailure::Unconfirmed) => {
             admission.0.forget();
-            return Outcome::unconfirmed();
+            return PendingSession::without_device(Outcome::unconfirmed());
         }
     };
-    let mut outcome = if let Some(kind) = stopped(&stop, spec.deadline) {
+    let mut retained = None;
+    let outcome = if let Some(kind) = stopped(&stop, spec.deadline) {
         Outcome::failed(kind)
     } else {
         AssertUnwindSafe(session_inner(state, spec, source, admission, owner, proxy,
-            stop, sessions, device.grant(), delivery)).catch_unwind().await
+            stop, sessions, device.grant(), delivery, &mut retained)).catch_unwind().await
             .unwrap_or_else(|_| Outcome::unconfirmed())
     };
-    let risk = outcome.evidence.as_ref().is_some_and(|e| e.status == Some(403)
-        && e.refusal.is_some_and(|r| r.policy == Refusal::Castle));
-    if !device.finish(outcome.cleanup_confirmed, risk).await {
-        outcome.cleanup_confirmed = false;
-        outcome.reject(FailureKind::Cleanup);
-    }
-    outcome
+    PendingSession { outcome, retained, device: Some(device) }
 }
 
 async fn session_inner(state: &ServiceState, spec: Specification, source: Arc<dyn SourceBuilder>,
     admission: Admission, owner: &native_control::ControlOwner, proxy: &Option<String>,
     stop: Arc<Stop>, sessions: &Sessions,
-    device: Option<Arc<crate::account::device::DeviceGrant>>, delivery: Delivery) -> Outcome {
+    device: Option<Arc<crate::account::device::DeviceGrant>>, delivery: Delivery,
+    retained: &mut Option<AccountLease>) -> Outcome {
     let native = sessions.native();
     let bridge = sessions.bridge();
     let route = proxy.as_deref().map(NativeEgress::Proxy).unwrap_or(NativeEgress::Direct);
     // Do not drop a private-store operation on cancellation. Its owner waits
-    // for the actual read, then closes the resulting scope without issuing.
-    let opened = AssertUnwindSafe(bridge.open_account_observed(spec.identity.account,
+    // for the actual read, then releases the resulting lease without issuing.
+    let opened = AssertUnwindSafe(bridge.lease_account_observed(spec.identity.account,
         spec.identity.user.clone(), NativeHttpLimits::default(), route)).catch_unwind().await;
     match opened {
-        Ok(Ok(scope)) => {
+        Ok(Ok(lease)) => {
             let mut outcome = AssertUnwindSafe(execute(state, spec, source, admission,
-                owner, proxy, stop, native, &scope, device, delivery)).catch_unwind().await
+                owner, proxy, stop, native, lease.scope(), device, delivery)).catch_unwind().await
                 .unwrap_or_else(|_| Outcome::unconfirmed());
-            let closed = match native.close_account(&scope) {
-                Ok(observer) => observer.await.is_ok(), Err(_) => false,
-            };
-            if !closed { outcome.cleanup_confirmed = false; outcome.reject(FailureKind::Cleanup); }
+            if outcome.cleanup_confirmed && outcome.failure.is_none() {
+                // Keep the lease active through device cleanup and publication.
+                *retained = Some(lease);
+            } else {
+                finish_transport(Some(lease), &mut outcome).await;
+            }
             outcome
         }
         Ok(Err(OpenAccountError::Rejected(_))) => Outcome::failed(FailureKind::Authorization),

@@ -34,6 +34,11 @@ use versions::Key;
 use versions::Stamp;
 use versions::Versions;
 
+#[path = "session_leases.rs"]
+mod leases;
+use leases::LeaseCache;
+pub(crate) use leases::AccountLease;
+
 #[path = "session_account_change.rs"]
 mod account_change;
 pub use account_change::AccountChangeResult;
@@ -68,6 +73,7 @@ impl ChangingSession {
 
 struct Admission {
     versions: Versions,
+    leases: LeaseCache,
     sender: Option<mpsc::Sender<Job>>,
 }
 impl Admission {
@@ -117,7 +123,11 @@ struct Worker(JoinHandle<()>);
 impl Drop for Worker { fn drop(&mut self) { self.0.abort(); } }
 struct WorkerGuard(Arc<Mutex<Admission>>);
 impl Drop for WorkerGuard {
-    fn drop(&mut self) { lock(&self.0).sender.take(); }
+    fn drop(&mut self) {
+        let mut admission = lock(&self.0);
+        admission.sender.take();
+        admission.leases.close_all();
+    }
 }
 impl Drop for Inner {
     fn drop(&mut self) { lock(&self.admission).sender.take(); }
@@ -207,13 +217,16 @@ impl SessionStoreBridge {
         let runtime = tokio::runtime::Handle::try_current().map_err(|_| STOPPED.to_owned())?;
         let (sender, mut receiver) = mpsc::channel::<Job>(CAPACITY);
         let admission = Arc::new(Mutex::new(Admission {
-            versions: Versions::default(), sender: Some(sender),
+            versions: Versions::default(), leases: LeaseCache::default(), sender: Some(sender),
         }));
         let guard = WorkerGuard(admission.clone());
+        let expiry = admission.clone();
         let worker = runtime.spawn(async move {
             let _guard = guard;
             let mut pending = FuturesUnordered::<Job>::new();
             let mut receiving = true;
+            let mut sweep = tokio::time::interval(std::time::Duration::from_secs(1));
+            sweep.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
             loop {
                 if !receiving && pending.is_empty() { break; }
                 tokio::select! {
@@ -222,11 +235,20 @@ impl SessionStoreBridge {
                         None => receiving = false,
                     },
                     _ = pending.next(), if !pending.is_empty() => {}
+                    _ = sweep.tick() => { lock(&expiry).leases.expire(); }
                 }
             }
         });
         let mut worker = Worker(worker);
-        let closed = async move { (&mut worker.0).await.map_err(|_| STOPPED) }.boxed().shared();
+        let closing = admission.clone();
+        let closed = async move {
+            let joined = (&mut worker.0).await.map_err(|_| STOPPED);
+            let retained = lock(&closing).leases.take();
+            let mut confirmed = true;
+            for owner in retained { confirmed &= owner.close().await; }
+            if !confirmed { return Err("native retained account cleanup unconfirmed"); }
+            joined
+        }.boxed().shared();
         Ok(Self { inner: Arc::new(Inner {
             native, store, admission, slots: Arc::new(Semaphore::new(CAPACITY)), closed,
         }) })
@@ -404,6 +426,18 @@ impl SessionStore for SessionStoreBridge {
 #[cfg(test)]
 #[path = "session_open_tests.rs"]
 mod open_tests;
+
+#[cfg(test)]
+#[path = "session_lease_race_tests.rs"]
+mod lease_race_tests;
+
+#[cfg(test)]
+#[path = "session_lease_tests.rs"]
+mod lease_tests;
+
+#[cfg(test)]
+#[path = "session_lease_shutdown_tests.rs"]
+mod lease_shutdown_tests;
 
 #[cfg(test)]
 mod tests {

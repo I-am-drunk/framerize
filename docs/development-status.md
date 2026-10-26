@@ -3,6 +3,18 @@
 The rearchitecture is on `refactor/separate-apps-and-ci-20261025` in draft
 [PR #2](https://github.com/I-am-drunk/framerize/pull/2). It is not deployed.
 
+The native service now retains account HTTP clients on
+`feat/retain-native-account-transports-20261026`. Successful requests reuse
+their own account generation; session, proxy or limit changes require a new
+one. The cache holds at most ten accounts, protects active leases and expires
+idle entries after 15 seconds. All 99 focused account, serving and lifecycle
+checks pass. Shared shutdown now retains cleanup and its failure across
+concurrent callers; reuse waits for device cleanup and the final outcome.
+This is undeployed, with memory savings and live acceptance still unmeasured.
+Distinct TLS fingerprints remain unimplemented. The next delivery milestone
+is the fresh-minter/browser handoff and its controlled acceptance test. See the
+[retention record](../reference/analysis/native-account-retention-20261026.md).
+
 The integrated response path now has a direct local comparison against the
 previous full-body host. Across three trials per mode, median sampled peak
 PSS fell from 674.653 to 638.521 MiB (5.356%). Separate controls without
@@ -60,8 +72,9 @@ The `test/native-tls-account-isolation-20261026` branch passes three local
 TLS tests: separate account connections and credentials, forced reconnection,
 and required certificate verification. Both TLS 1.2 and TLS 1.3 were tested.
 Neither resumed a session, so working session-cache isolation remains unproved.
-No serving lifetime or TLS backend changed. Account transport retention
-remains unimplemented and is separate from the missing browser handoff.
+That earlier milestone changed neither serving lifetime nor TLS backend.
+Account transport retention is now implemented above; the missing browser
+handoff remains separate.
 See the [result and limits](../reference/analysis/native-tls-isolation-20261026.md).
 
 The `measure/shared-context-isolation-20261026` experiment now passes its

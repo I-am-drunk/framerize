@@ -330,7 +330,7 @@ fn fetch_text(bytes: Vec<u8>, limit: usize) -> Result<String, String> {
 }
 
 /// Finite prototype limits. Over-limit input is rejected, never retried.
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct NativeHttpLimits {
     pub request_bytes: usize,
     pub buffered_response_bytes: usize,

@@ -42,13 +42,20 @@ Historical comparisons require their recorded source revisions. See the
 [queue measurements](../reference/analysis/browser-response-queue-20261026.md)
 and [acknowledgement contract](../reference/analysis/browser-response-ack-20261026.md).
 
-The native HTTP transport still builds an independent reqwest client per
-account scope. A private builder helper now allows local TLS fixtures to
-trust an ephemeral certificate without changing production trust or TLS
-selection. Three tests verify account connection reuse, credential separation,
-forced reconnection and certificate refusal. Retaining these clients across
-service requests remains unimplemented; any such lifetime must preserve
-session generation and active-stream ownership. See the
+The native HTTP transport builds an independent reqwest client per account
+generation. The service now leases that generation and retains it after a
+successful request with confirmed cleanup. Reuse requires identical account,
+user, session, proxy and limits. Active leases prevent idle eviction; the cache
+holds at most ten accounts and expires idle entries after 15 seconds.
+Reuse is committed only after device cleanup, account-state publication and
+the final cancellation check. An unfinished lease closes on drop. Shutdown
+callers share the same native closure and its result, including failures.
+Mutation barriers still close the actual generations. See the
+[retention contract and qualification](../reference/analysis/native-account-retention-20261026.md).
+A private builder helper allows local TLS fixtures to trust an ephemeral
+certificate without changing production trust or TLS selection. Three earlier
+tests verify connection reuse, credential separation and certificate refusal.
+See the
 [TLS result and limits](../reference/analysis/native-tls-isolation-20261026.md).
 
 The separate shared-context experiment measures two synthetic accounts in
