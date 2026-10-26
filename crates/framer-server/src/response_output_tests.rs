@@ -308,3 +308,87 @@ async fn cancelling_copying_consumer_drops_its_pending_source() {
     assert!(task.await.unwrap_err().is_cancelled());
     assert_eq!(drops.load(Ordering::SeqCst), 1);
 }
+
+#[tokio::test]
+async fn blocked_publication_coalesces_heartbeat_at_an_event_boundary() {
+    let budget = OutputBudget::new(1);
+    let (mut emitter, sink, mut body) = output(budget.reserve().unwrap(), "fixture", "logical");
+    emitter.heartbeat = tokio::time::interval_at(
+        tokio::time::Instant::now() + Duration::from_millis(2), Duration::from_millis(2));
+    emitter.heartbeat.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+    let job = tokio::spawn(emitter.run());
+    for _ in 0..2 { drop(body.next().await.unwrap().unwrap()); }
+    let caller = tokio::spawn(async move {
+        let result = framer_core::port::emit_assembled(result(SEGMENT * 8), &sink).await.unwrap();
+        sink.request(Input::Finish(result)).await.unwrap();
+    });
+    reached(&budget.metrics.buffers, 5).await;
+    tokio::time::sleep(Duration::from_millis(10)).await;
+    let wire = drain_wire(&mut body).await;
+    caller.await.unwrap(); job.await.unwrap();
+    assert_heartbeat_boundary(&wire);
+    assert_eq!(budget.counts(), (0, 0, 0));
+}
+
+async fn drain_wire(body: &mut OutputBody) -> Vec<u8> {
+    let mut wire = Vec::new();
+    while let Some(frame) = tokio::time::timeout(WAIT, body.next()).await.unwrap() {
+        wire.extend_from_slice(&frame.unwrap());
+    }
+    wire
+}
+fn assert_heartbeat_boundary(wire: &[u8]) {
+    let events: Vec<Value> = std::str::from_utf8(wire).unwrap().lines()
+        .filter_map(|line| line.strip_prefix("data: "))
+        .map(|line| serde_json::from_str(line).unwrap()).collect();
+    let last_content = events.iter().rposition(|e| e["type"] == "response.output_item.done").unwrap();
+    assert!(events[last_content + 1..].iter().any(|e| e["type"] == "response.in_progress"));
+    assert_eq!(events.last().unwrap()["type"], "response.completed");
+    assert!(events.windows(2).all(|pair| pair[1]["sequence_number"].as_u64().unwrap()
+        == pair[0]["sequence_number"].as_u64().unwrap() + 1));
+}
+
+#[tokio::test]
+async fn retained_polled_bytes_cannot_keep_body_cancellation_open() {
+    let budget = OutputBudget::new(1);
+    let (sink, mut body, emitter) = start(&budget).await;
+    let caller = tokio::spawn(async move {
+        framer_core::port::emit_assembled(result(SEGMENT * 20), &sink).await
+    });
+    let retained = body.next().await.unwrap().unwrap();
+    reached(&budget.metrics.buffers, 5).await;
+    drop(body);
+    assert!(tokio::time::timeout(WAIT, caller).await.unwrap().unwrap().is_err());
+    assert_eq!(budget.metrics.jobs.current.load(Ordering::SeqCst), 0);
+    assert!(!emitter.is_finished());
+    assert!(budget.reserve().is_err());
+    drop(retained);
+    tokio::time::timeout(WAIT, emitter).await.unwrap().unwrap();
+    assert_eq!(budget.counts(), (0, 0, 0));
+}
+
+#[tokio::test(start_paused = true)]
+async fn blocked_publication_records_ticks_before_output_credit_returns() {
+    let budget = OutputBudget::new(1);
+    let (mut emitter, sink, mut body) = output(budget.reserve().unwrap(), "fixture", "logical");
+    let held = emitter.publisher.lease.output.clone()
+        .acquire_many_owned(OUTPUT_SLOTS as u32).await.unwrap();
+    let mut buffer = Buffer::new(budget.metrics.clone());
+    buffer.bytes.extend_from_slice(b"data: fixture\n\n");
+    assert!(!emitter.pending_heartbeat);
+    {
+        let publication = emitter.publish_segment(Segment {
+            buffer, sequence: 0, content: false, last: true,
+        });
+        tokio::pin!(publication);
+        assert!(futures::poll!(&mut publication).is_pending());
+        tokio::time::advance(Duration::from_secs(24)).await;
+        assert!(futures::poll!(&mut publication).is_pending());
+        drop(held);
+        assert!(matches!(futures::poll!(&mut publication), Poll::Ready(Ok(()))));
+    }
+    assert!(emitter.pending_heartbeat, "ticks must be recorded while credit is unavailable");
+    assert_eq!(body.next().await.unwrap().unwrap().as_ref(), b"data: fixture\n\n");
+    drop(body); drop(sink); drop(emitter);
+    assert_eq!(budget.counts(), (0, 0, 0));
+}

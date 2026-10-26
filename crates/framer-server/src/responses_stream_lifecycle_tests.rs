@@ -251,3 +251,18 @@ async fn responses_stalled_http_body_resumes_with_complete_unicode_output() {
     available(&f.state.gate, &f.key(0, RESPONSE_MODEL)).await;
     f.no_call();
 }
+
+#[test]
+fn responses_explicit_library_limit_cannot_replace_owned_output_capacity() {
+    for owned in [false, true] {
+        let mut f = Fixture::new();
+        if owned { f.state = crate::operation_ownership::with_owned_operations(f.state, 3).unwrap(); }
+        let runtime = f.state.runtime().clone();
+        drop(f.state);
+        let runtime = std::sync::Arc::try_unwrap(runtime).ok().unwrap();
+        let configured = runtime.with_response_output_limit(0);
+        if owned {
+            assert!(matches!(configured, Err(crate::operation_ownership::OwnershipConfigError::AlreadyConfigured)));
+        } else { assert!(configured.is_ok()); }
+    }
+}

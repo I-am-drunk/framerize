@@ -263,6 +263,16 @@ struct Emitter {
 struct JobCount(Arc<Metrics>);
 impl Drop for JobCount { fn drop(&mut self) { self.0.jobs.sub(1); } }
 impl Emitter {
+    async fn publish_segment(&mut self, segment: Segment) -> Result<(), OutputError> {
+        let publish = self.publisher.publish(segment);
+        tokio::pin!(publish);
+        loop {
+            tokio::select! {
+                result = &mut publish => return result,
+                _ = self.heartbeat.tick() => self.pending_heartbeat = true,
+            }
+        }
+    }
     async fn encode(&mut self, input: Input) -> Result<Input, OutputError> {
         if self.publisher.cancel.is_cancelled() { return Err(OutputError::Cancelled); }
         let mut encoder = self.encoder.take().ok_or(OutputError::Encoding)?;
@@ -300,8 +310,9 @@ impl Emitter {
                 biased;
                 _ = self.publisher.cancel.cancelled() => { output = Err(OutputError::Cancelled); break; }
                 segment = receiver.recv() => match segment {
-                    Some(segment) => if let Err(error) = self.publisher.publish(segment).await {
-                        output = Err(error); break;
+                    Some(segment) => {
+                        let accepted = self.publish_segment(segment).await;
+                        if let Err(error) = accepted { output = Err(error); break; }
                     },
                     None => break,
                 },
