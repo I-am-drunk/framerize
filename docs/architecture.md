@@ -91,6 +91,9 @@ logprobs and metadata. Only adjacent plain-text boundary parts concatenate;
 rich parts retain their offsets and order. Chain and stream share this merge.
 Chat JSON retains a separate refusal field, streaming preserves refusal/text
 order, and assistant history carries both kinds of content into the next request.
+Both Chat renderers preserve an incomplete response's content-filter reason.
+Chat function tools retain supplied strictness values through conversion and
+continuation, including explicit false/null and omitted-field semantics.
 
 An attached CDP browser bridge claims one account before route or browser work.
 That claim survives failures, cancellation and disconnect for its lifetime.
@@ -99,6 +102,9 @@ validate the attached browser's login or exclude other bridge instances.
 Owned CDP shutdown reports uncertain starts even when no instance was saved,
 while still closing every known instance. That error retains the uncertainty;
 it does not recover a process handle lost during startup.
+The CDP device loader creates an identity only when the record is missing.
+Read, UTF-8, JSON and identity-field errors preserve the existing bytes and
+refuse startup instead of silently replacing the browser identity.
 
 Browser launch converts authenticated proxy URLs into separate server,
 username and password options before passing them to the browser driver.

@@ -29,6 +29,8 @@ mod cdp_attach_owner_tests;
 mod cdp_auth_diagnostics_tests;
 #[cfg(test)]
 mod cdp_unconfirmed_shutdown_tests;
+#[cfg(test)]
+mod cdp_device_record_tests;
 use async_trait::async_trait;
 use framer_core::ids::AccountId;
 use framer_core::port::{BrowserBridge, CastleToken};
@@ -340,12 +342,16 @@ impl DeviceRecord {
     }
     async fn load_or_create(profile: &Path) -> Result<String, String> {
         let p = Self::path(profile);
-        if let Ok(raw) = tokio::fs::read_to_string(&p).await {
-            if let Ok(v) = serde_json::from_str::<Value>(&raw) {
-                if let Some(id) = v["castle_device_id"].as_str() {
-                    return Ok(id.to_string());
-                }
+        match tokio::fs::read_to_string(&p).await {
+            Ok(raw) => {
+                let value: Value = serde_json::from_str(&raw)
+                    .map_err(|_| "invalid browser device record JSON".to_owned())?;
+                return value.get("castle_device_id").and_then(Value::as_str)
+                    .map(str::to_owned)
+                    .ok_or_else(|| "browser device record has no string castle_device_id".to_owned());
             }
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+            Err(error) => return Err(format!("read browser device record: {error}")),
         }
         let id = uuid::Uuid::new_v4().to_string();
         tokio::fs::create_dir_all(profile).await.map_err(|e| e.to_string())?;
