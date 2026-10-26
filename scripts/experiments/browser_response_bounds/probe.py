@@ -97,7 +97,7 @@ async def cases(page, source, server, report):
     report['checks'].append('cancellation_joined_and_peer_closed')
 
 
-async def run(browser):
+async def run(browser, exercise_operation=exercise):
     for kind in ('net', 'pid'):
         parent = os.environ.get('FIXTURE_PARENT_' + kind.upper())
         require(parent and os.readlink('/proc/self/ns/' + kind) != parent,
@@ -110,7 +110,7 @@ async def run(browser):
         server = ResponseServer(scripts.AI_RESPONSE_LIMIT)
         await server.start(directory)
         try:
-            await asyncio.wait_for(exercise(browser, server, report), 45)
+            await asyncio.wait_for(exercise_operation(browser, server, report), 45)
         except Exception as error:
             failure = type(error).__name__ + ': ' + str(error)
         finally:

@@ -1,0 +1,53 @@
+{
+  "base_commit": "20452d876c95cbec6391094e8c6a8fcf5bdd79ed",
+  "started_at": "2026-10-26T00:38:12.190Z",
+  "ended_at": "2026-10-26T00:38:52.875Z",
+  "browser_version": "152.0.4-beta.31",
+  "status": "passed",
+  "scope": "Nine fresh local browsers; no SDK, account or upstream request.",
+  "body_bytes": 8388608,
+  "body_sha256": "ad97f87076920684e2ca66fc44e5d322797dc9d64706b174e51b5d0828937043",
+  "cleanup_joined": true,
+  "resource_limit_events": 0,
+  "source_sha256": {
+    "runtime/framerize_host/__init__.py": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "runtime/framerize_host/__main__.py": "208ce40e7239e0d7c5d4daf0241e3e8bcac019ab1db09492f1d9202bf76d82a4",
+    "runtime/framerize_host/accounts/__init__.py": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "runtime/framerize_host/accounts/activity.py": "eccfc811681987fc92d4c2e62c0fe56bb1ec7faba81c253c5b222a847acb1a7c",
+    "runtime/framerize_host/accounts/state.py": "e7b4d6af67fe56723ac5143d0300415be55eb354ef2b72bfefb7467ed6af4109",
+    "runtime/framerize_host/app.py": "ace16dad6bf9a9f939514d33d2239073dbb1270c3f7d167d6eb0010013131d82",
+    "runtime/framerize_host/browser/__init__.py": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "runtime/framerize_host/browser/actions.py": "c4e74f2dff48426f897459d073bbc1ebb782af4f8d8331fc491a4e82456d0db1",
+    "runtime/framerize_host/browser/driver.py": "75a458139fa750876dcc7eb93caa65d6316bb8b42702f5e93185e6ea7a10302e",
+    "runtime/framerize_host/browser/scripts.py": "153f25492590b5ad44bdbbaf9e1c401553b6a475f6f0b3b09d7bf956c45db72a",
+    "runtime/framerize_host/browser/transport.py": "a82b535815643a10d785d3b1caa2a8e2676f434725d7f71700b11fc6d070bfad",
+    "runtime/framerize_host/castle_forge.py": "4e584d396aebf18fd545282f4dbe78fc0ad40ee809306a18a64f62c234d57f7e",
+    "runtime/framerize_host/events.py": "deea443f25062a2cd64a50044c03d498a4318cb59b0b9f25659c4e60700db500",
+    "runtime/framerize_host/resources.py": "1ebc7aff69310e061f2d0b2603748f73c6ae4bd407e3a4875174b9db1005b9fa",
+    "runtime/framerize_host/settings.py": "b6d6db767d6a89f221ddaefdef78e9311960f67ed6f64aab2b18c61bd39e9816",
+    "scripts/experiments/browser_response_bounds/fixture.py": "a8cca2185fdfe8122a634740dad4d3de515ba3aac7a358829329aaa3c0afa149",
+    "scripts/experiments/browser_response_bounds/probe.py": "78a8001dd5f6734edadbf564226e6d0a6d0c29049b767c8232ebd4695f82b99d",
+    "scripts/experiments/browser_response_bounds/transfer.js": "e3981a20fbd15b45e2db6e3bbbcbaca92793815de336751fb929503515ec9568",
+    "scripts/experiments/browser_response_bounds/transfer.py": "5d8ace110bf9b040d3c0255d6aea3979ca45c35b6a7baa92f4c4cd5e677f2839",
+    "scripts/experiments/shared_context_isolation/memory.py": "308b347102ea02420c62ba40c1695374ba3ee010db1d0796d131bae7afe79f39",
+    "scripts/experiments/shared_context_isolation/probe.py": "60186c62b4020c0cf1c316b0be1c5a37242c554e4b338a372c5fa0f44a0b8783",
+    "scripts/experiments/shared_context_isolation/server.py": "501f6c5a360da48903585284deb14c537534312985ee7925ad96df88727ea311"
+  },
+  "trials": [
+    {"round":1,"mode":"131072","start_unix":1792975101.3845885,"end_unix":1792975105.469471,"transfer_ms":434.17160399258137,"calls":64,"memory":{"after_browser_close":{"pss_kib":29841,"cgroup_memory_bytes":33566720,"cgroup_peak_bytes":607268864},"after_transfer":{"pss_kib":707274,"cgroup_memory_bytes":606732288,"cgroup_peak_bytes":606973952},"before_browser":{"pss_kib":19722,"cgroup_memory_bytes":17854464,"cgroup_peak_bytes":17854464},"before_transfer":{"pss_kib":600307,"cgroup_memory_bytes":493068288,"cgroup_peak_bytes":508579840},"browser_idle":{"pss_kib":498067,"cgroup_memory_bytes":381673472,"cgroup_peak_bytes":381673472}}},
+    {"round":1,"mode":"32768","start_unix":1792975096.6669378,"end_unix":1792975101.3842008,"transfer_ms":1061.9918759912252,"calls":256,"memory":{"after_browser_close":{"pss_kib":32139,"cgroup_memory_bytes":36069376,"cgroup_peak_bytes":590438400},"after_transfer":{"pss_kib":693222,"cgroup_memory_bytes":589074432,"cgroup_peak_bytes":589144064},"before_browser":{"pss_kib":19720,"cgroup_memory_bytes":17858560,"cgroup_peak_bytes":17858560},"before_transfer":{"pss_kib":595314,"cgroup_memory_bytes":487714816,"cgroup_peak_bytes":504582144},"browser_idle":{"pss_kib":495859,"cgroup_memory_bytes":379564032,"cgroup_peak_bytes":379564032}}},
+    {"round":1,"mode":"full","start_unix":1792975092.1904948,"end_unix":1792975096.666497,"transfer_ms":768.6086408793926,"calls":1,"memory":{"after_browser_close":{"pss_kib":40397,"cgroup_memory_bytes":44474368,"cgroup_peak_bytes":586915840},"after_transfer":{"pss_kib":678980,"cgroup_memory_bytes":578502656,"cgroup_peak_bytes":586915840},"before_browser":{"pss_kib":19502,"cgroup_memory_bytes":17833984,"cgroup_peak_bytes":17833984},"before_transfer":{"pss_kib":586261,"cgroup_memory_bytes":477511680,"cgroup_peak_bytes":496631808},"browser_idle":{"pss_kib":490180,"cgroup_memory_bytes":376422400,"cgroup_peak_bytes":376426496}}},
+    {"round":2,"mode":"131072","start_unix":1792975110.1685178,"end_unix":1792975114.3527474,"transfer_ms":511.97389094159007,"calls":64,"memory":{"after_browser_close":{"pss_kib":32250,"cgroup_memory_bytes":36073472,"cgroup_peak_bytes":595980288},"after_transfer":{"pss_kib":695630,"cgroup_memory_bytes":594821120,"cgroup_peak_bytes":594829312},"before_browser":{"pss_kib":19708,"cgroup_memory_bytes":17850368,"cgroup_peak_bytes":17850368},"before_transfer":{"pss_kib":587940,"cgroup_memory_bytes":480358400,"cgroup_peak_bytes":502919168},"browser_idle":{"pss_kib":497996,"cgroup_memory_bytes":381034496,"cgroup_peak_bytes":381034496}}},
+    {"round":2,"mode":"32768","start_unix":1792975105.4698017,"end_unix":1792975110.168193,"transfer_ms":876.4856248162687,"calls":256,"memory":{"after_browser_close":{"pss_kib":32140,"cgroup_memory_bytes":35815424,"cgroup_peak_bytes":591904768},"after_transfer":{"pss_kib":694724,"cgroup_memory_bytes":590442496,"cgroup_peak_bytes":590503936},"before_browser":{"pss_kib":19721,"cgroup_memory_bytes":17846272,"cgroup_peak_bytes":17846272},"before_transfer":{"pss_kib":598404,"cgroup_memory_bytes":491188224,"cgroup_peak_bytes":506757120},"browser_idle":{"pss_kib":497838,"cgroup_memory_bytes":381923328,"cgroup_peak_bytes":382029824}}},
+    {"round":2,"mode":"full","start_unix":1792975114.3530807,"end_unix":1792975118.8621435,"transfer_ms":762.9417818970978,"calls":1,"memory":{"after_browser_close":{"pss_kib":40365,"cgroup_memory_bytes":44367872,"cgroup_peak_bytes":597655552},"after_transfer":{"pss_kib":687480,"cgroup_memory_bytes":586260480,"cgroup_peak_bytes":597655552},"before_browser":{"pss_kib":19739,"cgroup_memory_bytes":17846272,"cgroup_peak_bytes":17846272},"before_transfer":{"pss_kib":596025,"cgroup_memory_bytes":488681472,"cgroup_peak_bytes":504434688},"browser_idle":{"pss_kib":492190,"cgroup_memory_bytes":375119872,"cgroup_peak_bytes":375169024}}},
+    {"round":3,"mode":"131072","start_unix":1792975118.862727,"end_unix":1792975123.128762,"transfer_ms":423.42881788499653,"calls":64,"memory":{"after_browser_close":{"pss_kib":29568,"cgroup_memory_bytes":33169408,"cgroup_peak_bytes":606683136},"after_transfer":{"pss_kib":706732,"cgroup_memory_bytes":606437376,"cgroup_peak_bytes":606683136},"before_browser":{"pss_kib":19717,"cgroup_memory_bytes":17850368,"cgroup_peak_bytes":17850368},"before_transfer":{"pss_kib":597822,"cgroup_memory_bytes":491294720,"cgroup_peak_bytes":507469824},"browser_idle":{"pss_kib":492468,"cgroup_memory_bytes":377470976,"cgroup_peak_bytes":377552896}}},
+    {"round":3,"mode":"32768","start_unix":1792975127.8371322,"end_unix":1792975132.8755352,"transfer_ms":916.9641740154475,"calls":256,"memory":{"after_browser_close":{"pss_kib":32169,"cgroup_memory_bytes":35659776,"cgroup_peak_bytes":584454144},"after_transfer":{"pss_kib":687118,"cgroup_memory_bytes":583114752,"cgroup_peak_bytes":583380992},"before_browser":{"pss_kib":19714,"cgroup_memory_bytes":17833984,"cgroup_peak_bytes":17833984},"before_transfer":{"pss_kib":595581,"cgroup_memory_bytes":481280000,"cgroup_peak_bytes":503685120},"browser_idle":{"pss_kib":496350,"cgroup_memory_bytes":379834368,"cgroup_peak_bytes":380395520}}},
+    {"round":3,"mode":"full","start_unix":1792975123.1293736,"end_unix":1792975127.8368022,"transfer_ms":757.3051929939538,"calls":1,"memory":{"after_browser_close":{"pss_kib":40345,"cgroup_memory_bytes":44322816,"cgroup_peak_bytes":597311488},"after_transfer":{"pss_kib":687498,"cgroup_memory_bytes":586719232,"cgroup_peak_bytes":597311488},"before_browser":{"pss_kib":19714,"cgroup_memory_bytes":17838080,"cgroup_peak_bytes":17838080},"before_transfer":{"pss_kib":602236,"cgroup_memory_bytes":495214592,"cgroup_peak_bytes":505487360},"browser_idle":{"pss_kib":496985,"cgroup_memory_bytes":382095360,"cgroup_peak_bytes":382095360}}}
+  ],
+  "summary": {
+    "32768": {"transfer_ms":{"median":916.9641740154475,"min":876.4856248162687,"max":1061.9918759912252},"pss_after_mib":{"median":676.974609375,"min":671.013671875,"max":678.44140625},"pss_delta_mib":{"median":94.0625,"min":89.3916015625,"max":95.61328125},"cgroup_peak_mib":{"median":561.8515625,"min":556.35546875,"max":563.1484375}},
+    "131072": {"transfer_ms":{"median":434.17160399258137,"min":423.42881788499653,"max":511.97389094159007},"pss_after_mib":{"median":690.16796875,"min":679.326171875,"max":690.697265625},"pss_delta_mib":{"median":105.166015625,"min":104.4599609375,"max":106.357421875},"cgroup_peak_mib":{"median":578.578125,"min":567.2734375,"max":578.85546875}},
+    "full": {"transfer_ms":{"median":762.9417818970978,"min":757.3051929939538,"max":768.6086408793926},"pss_after_mib":{"median":671.3671875,"min":663.06640625,"max":671.384765625},"pss_delta_mib":{"median":89.3115234375,"min":83.263671875,"max":90.5458984375},"cgroup_peak_mib":{"median":569.640625,"min":559.7265625,"max":569.96875}}
+  },
+  "limits": ["Three trials per mode; no confidence interval.", "PSS values are snapshots, not PSS peaks.", "Cgroup peaks include startup and differ from PSS accounting.", "Fetch and validation are outside transfer timing.", "All modes retain a completed browser body and a final Python body.", "No production memory or live acceptance result."]
+}

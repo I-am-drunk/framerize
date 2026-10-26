@@ -3,6 +3,14 @@
 The rearchitecture is on `refactor/separate-apps-and-ci-20261025` in draft
 [PR #2](https://github.com/I-am-drunk/framerize/pull/2). It is not deployed.
 
+Nine fresh-browser response-transfer trials now pass on
+`fix/browser-response-bounds-20261026`. For a completed 8 MiB local response,
+128K-unit chunks reduced median transfer time from 763 ms to 434 ms, but
+increased post-transfer memory. Neither chunk size established a memory win,
+so the production transfer remains unchanged. The next memory experiment is
+a bounded queue drained during the fetch. See the
+[comparison and limits](../reference/analysis/browser-response-transfer-20261026.md).
+
 The `fix/browser-response-bounds-20261026` branch now limits browser AI
 responses to 8 MiB and keeps cancellation owned until the fetch settles.
 The real-browser local HTTPS fixture also passes exact-limit delivery,
