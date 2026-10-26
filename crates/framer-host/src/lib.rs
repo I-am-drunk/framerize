@@ -27,6 +27,8 @@ use cdp_proxy_registration::CdpAccountRoute;
 #[cfg(test)]
 mod cdp_proxy_tests;
 #[cfg(test)]
+mod cdp_proxy_credentials_tests;
+#[cfg(test)]
 mod cdp_shutdown_tests;
 #[cfg(test)]
 mod cdp_attach_owner_tests;

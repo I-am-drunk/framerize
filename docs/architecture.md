@@ -199,6 +199,9 @@ Browser launch converts authenticated proxy URLs into separate server,
 username and password options before passing them to the browser driver.
 The conversion preserves decoded credentials and endpoint identity while
 retaining the account-specific route and existing global fallback.
+Chrome CDP registration rejects embedded proxy credentials before changing
+account routes, because Chrome ignores credentials in manual proxy settings.
+Unauthenticated settings remain supported; this adds no CDP authentication.
 
 Messages fallback validates message and content completion before publishing
 blocks. A malformed or incomplete tool call fails the attempt. Retries retain
