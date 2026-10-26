@@ -136,7 +136,8 @@ impl OfflineSessionSource {
             }
             let castle = FreshCastleToken::from_sdk_output_at(
                 scope.account(), token, minted.received_at)
-                .map_err(|_| PreparationFailure::Rejected)?;
+                .map_err(|_| PreparationFailure::Rejected)?
+                .with_device(minted.device);
             Ok(PreparedCredentials {
                 material: CredentialMaterial { bearer, castle },
                 current_cookies,

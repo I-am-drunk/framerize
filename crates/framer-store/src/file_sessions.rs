@@ -10,6 +10,7 @@ use std::{fs::{File, OpenOptions}, io::{Read, Write}, path::PathBuf};
 pub struct FileSessionStore {
     dir: PathBuf,
     _ownership: File,
+    max_session_bytes: Option<usize>,
 }
 
 impl FileSessionStore {
@@ -23,12 +24,28 @@ impl FileSessionStore {
         }
         builder.create(&dir).map_err(|e| e.to_string())?;
         let dir = dir.canonicalize().map_err(|e| e.to_string())?;
+        #[cfg(unix)] {
+            use std::os::unix::fs::PermissionsExt;
+            let permissions = std::fs::metadata(&dir).map_err(|e| e.to_string())?.permissions();
+            if permissions.mode() & 0o077 != 0 {
+                return Err("session directory must not allow group or other access".into());
+            }
+        }
         let mut options = OpenOptions::new();
         options.read(true).write(true).create(true);
         private_file(&mut options);
         let ownership = options.open(dir.join(".owner.lock")).map_err(|e| e.to_string())?;
+        require_regular_file(&ownership)?;
         ownership.try_lock().map_err(|e| format!("session store ownership unavailable: {e}"))?;
-        Ok(Self { dir, _ownership: ownership })
+        Ok(Self { dir, _ownership: ownership, max_session_bytes: None })
+    }
+
+    /// Reject larger reads and saves without imposing a limit on other consumers.
+    pub fn new_bounded(dir: impl Into<PathBuf>, max_bytes: usize) -> Result<Self, String> {
+        max_bytes.checked_add(1).ok_or("session byte limit is too large")?;
+        let mut store = Self::new(dir)?;
+        store.max_session_bytes = Some(max_bytes);
+        Ok(store)
     }
 
     fn path(&self, user: &FramerUserId) -> Result<PathBuf, String> {
@@ -42,15 +59,37 @@ impl FileSessionStore {
 fn private_file(options: &mut OpenOptions) {
     #[cfg(unix)] {
         use std::os::unix::fs::OpenOptionsExt;
-        options.mode(0o600).custom_flags(libc::O_NOFOLLOW | libc::O_CLOEXEC);
+        // A FIFO must not block before its opened-file metadata can be checked.
+        options.mode(0o600).custom_flags(libc::O_NOFOLLOW | libc::O_CLOEXEC | libc::O_NONBLOCK);
     }
     #[cfg(not(unix))]
     let _ = options;
 }
 
+fn require_regular_file(file: &File) -> Result<(), String> {
+    if !file.metadata().map_err(|e| e.to_string())?.is_file() {
+        return Err("session store entry must be a regular file".into());
+    }
+    Ok(())
+}
+
+fn read_bounded_session(reader: impl Read, max_bytes: usize) -> Result<String, String> {
+    let read_limit = max_bytes.checked_add(1).ok_or("session byte limit is too large")?;
+    let mut bytes = Vec::new();
+    // Limit the read itself: metadata cannot bound a file that grows during reading.
+    reader.take(read_limit as u64).read_to_end(&mut bytes).map_err(|e| e.to_string())?;
+    if bytes.len() > max_bytes {
+        return Err("session exceeds configured byte limit".into());
+    }
+    String::from_utf8(bytes).map_err(|_| "session file is not UTF-8".into())
+}
+
 #[async_trait]
 impl SessionStore for FileSessionStore {
     async fn save(&self, session: &Session) -> Result<(), String> {
+        if self.max_session_bytes.is_some_and(|max| session.cookie_header.len() > max) {
+            return Err("session exceeds configured byte limit".into());
+        }
         use std::sync::atomic::{AtomicU64, Ordering};
         static NEXT: AtomicU64 = AtomicU64::new(0);
         let path = self.path(&session.active_user)?;
@@ -90,8 +129,14 @@ impl SessionStore for FileSessionStore {
         private_file(&mut options);
         match options.open(self.path(user)?) {
             Ok(mut file) => {
-                let mut cookie_header = String::new();
-                file.read_to_string(&mut cookie_header).map_err(|e| e.to_string())?;
+                require_regular_file(&file)?;
+                let cookie_header = if let Some(max_bytes) = self.max_session_bytes {
+                    read_bounded_session(file, max_bytes)?
+                } else {
+                    let mut value = String::new();
+                    file.read_to_string(&mut value).map_err(|e| e.to_string())?;
+                    value
+                };
                 Ok(Some(Session { active_user: user.clone(), cookie_header }))
             }
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(None),

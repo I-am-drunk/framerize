@@ -1,5 +1,8 @@
 use super::*;
 
+#[path = "startup_browser_tests.rs"]
+mod browser;
+
 #[tokio::test]
 async fn unknown_accounts_are_rejected_before_starting_migration() {
     for include_known in [false, true] {

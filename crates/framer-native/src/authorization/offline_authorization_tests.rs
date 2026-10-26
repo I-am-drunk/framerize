@@ -15,6 +15,8 @@ use fixture::scope;
 
 #[path = "offline_scope_tests.rs"]
 mod scope_tests;
+#[path = "offline_browser_tests.rs"]
+mod browser_tests;
 
 struct Minter {
     scope: AccountScope,

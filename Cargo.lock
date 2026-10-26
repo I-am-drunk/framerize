@@ -477,6 +477,7 @@ dependencies = [
  "chrono",
  "framer-api",
  "framer-core",
+ "framer-host",
  "framer-server",
  "framer-store",
  "futures",

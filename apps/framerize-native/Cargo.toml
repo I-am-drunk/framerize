@@ -8,3 +8,6 @@ license.workspace = true
 framer-native = { path = "../../crates/framer-native" }
 clap = { version = "4", features = ["derive"] }
 tokio = { version = "1", features = ["macros", "rt-multi-thread", "signal"] }
+
+[features]
+browser-transport = ["framer-native/browser-transport"]

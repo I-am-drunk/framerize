@@ -42,6 +42,8 @@ const CANCELLED: &str = "native-http: cancelled";
 const REQUEST_LIMIT: &str = "native-http: request exceeds byte limit";
 const RESPONSE_LIMIT: &str = "native-http: response exceeds byte limit";
 type WireBody = Pin<Box<dyn Stream<Item = Result<Bytes, reqwest::Error>> + Send>>;
+type NativeCleanup = futures::future::Shared<futures::future::BoxFuture<'static,
+    Result<(), NativeCloseError>>>;
 
 #[path = "closure.rs"]
 pub mod closure;
@@ -55,6 +57,13 @@ pub(crate) mod send_evidence;
 
 #[path = "native_transport_facts.rs"]
 mod transport_facts;
+
+#[path = "browser_send.rs"]
+mod browser_send;
+
+#[cfg(test)]
+#[path = "browser_send_tests.rs"]
+mod browser_send_tests;
 
 /// Headers and an on-demand raw stream. Native HTTP exposes a real usage
 /// header even when browser CORS would have hidden it.
@@ -78,6 +87,7 @@ struct CancellationInner {
     claimed: AtomicBool,
     waker: AtomicWaker,
     response: Mutex<Option<Weak<Mutex<StreamingState>>>>,
+    cleanup: Mutex<Option<NativeCleanup>>,
 }
 
 impl NativeCancellation {
@@ -97,7 +107,9 @@ impl NativeCancellation {
         Ok(())
     }
 
-    fn cancelled(&self) -> impl Future<Output = ()> + '_ {
+    pub fn is_cancelled(&self) -> bool { self.inner.cancelled.load(Ordering::Acquire) }
+
+    pub fn cancelled(&self) -> impl Future<Output = ()> + '_ {
         futures::future::poll_fn(|cx| {
             self.inner.waker.register(cx.waker());
             if self.inner.cancelled.load(Ordering::Acquire) { Poll::Ready(()) }
@@ -400,13 +412,18 @@ pub struct FreshCastleToken {
     account: AccountId,
     token: CastleToken,
     received_at: Instant,
+    device: Option<String>,
 }
 
 impl FreshCastleToken {
+    pub(crate) fn with_device(mut self, device: Option<String>) -> Self {
+        self.device = device;
+        self
+    }
     /// Wrap immediately after a fresh mint in this account's own browser.
     /// The integration must establish provenance; this wrapper cannot prove it.
     pub fn from_browser(account: AccountId, token: CastleToken) -> Self {
-        Self { account, token, received_at: Instant::now() }
+        Self { account, token, received_at: Instant::now(), device: None }
     }
 
     /// Preserve the trusted resident owner's timestamp from before acquire.
@@ -416,14 +433,14 @@ impl FreshCastleToken {
         if received_at > Instant::now() {
             return Err("native-http: invalid browser acquire time".into());
         }
-        Ok(Self { account, token, received_at })
+        Ok(Self { account, token, received_at, device: None })
     }
 
     /// Fresh, unchanged output from this account's isolated SDK invocation.
     /// The caller establishes provenance and single use. This constructor
     /// does not establish browser execution or upstream token acceptance.
     pub fn from_sdk_output(account: AccountId, token: CastleToken) -> Self {
-        Self { account, token, received_at: Instant::now() }
+        Self { account, token, received_at: Instant::now(), device: None }
     }
 
     /// Preserve the original SDK handoff time across worker cleanup and joins.
@@ -433,7 +450,7 @@ impl FreshCastleToken {
         if received_at > Instant::now() {
             return Err("native-http: invalid SDK handoff time".into());
         }
-        Ok(Self { account, token, received_at })
+        Ok(Self { account, token, received_at, device: None })
     }
 }
 
@@ -452,6 +469,7 @@ pub struct NativeHttp {
     in_flight: Arc<AtomicUsize>,
     explicit_proxy: Option<String>,
     resident_browser_headers: bool,
+    browser: Option<Arc<dyn super::browser::BrowserTransport>>,
     _session_owner: Option<Arc<dyn framer_core::port::SessionStore>>,
 }
 
@@ -460,6 +478,11 @@ pub struct NativeHttp {
 pub use framer_api::session_auth::Egress as NativeEgress;
 
 impl NativeHttp {
+    pub(crate) fn with_browser(mut self,
+        browser: Arc<dyn super::browser::BrowserTransport>) -> Self {
+        self.browser = Some(browser);
+        self
+    }
     /// Keep the store's process ownership alive with every request using it.
     pub(crate) fn with_session_owner(mut self, owner: Arc<dyn framer_core::port::SessionStore>) -> Self {
         self._session_owner = Some(owner);
@@ -545,6 +568,7 @@ impl NativeHttp {
             account, active_user, client, base, limits, explicit_proxy,
             in_flight: Arc::new(AtomicUsize::new(0)),
             resident_browser_headers: false,
+            browser: None,
             _session_owner: None,
         })
     }
@@ -652,9 +676,9 @@ impl NativeHttp {
         castle: FreshCastleToken,
         cancellation: NativeCancellation,
     ) -> NativeTrackedRequest<'a> {
-        closure::track(self.ai_post_stream(
-            account, path, auth, body, castle, cancellation,
-        ))
+        closure::track_owned(self.ai_post_stream(
+            account, path, auth, body, castle, cancellation.clone(),
+        ), cancellation)
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -672,6 +696,10 @@ impl NativeHttp {
         cancellation.claim()?;
         let permit = Permit::acquire(&self.in_flight, self.limits.in_flight)?;
         let wire = envelope(body, &castle.token.0, self.limits.request_bytes)?;
+        if let Some(browser) = &self.browser {
+            return self.send_browser(browser.clone(), path, auth, castle,
+                wire, cancellation, permit, response_limit).await;
+        }
         let mut bearer = HeaderValue::from_str(&format!("Bearer {}", auth.bearer))
             .map_err(|_| "native-http: invalid authorization header".to_owned())?;
         bearer.set_sensitive(true);

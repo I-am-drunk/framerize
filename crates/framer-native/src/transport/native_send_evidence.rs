@@ -33,3 +33,8 @@ pub(crate) fn settled(cleanup_confirmed: bool) {
             "cleanup_confirmed": cleanup_confirmed,
         })).emit();
 }
+
+pub(super) fn browser_received(invocation: u64, status: u16) {
+    framer_core::observability::Event::new("native.browser.head")
+        .field("invocation", invocation).field("status", status).emit();
+}

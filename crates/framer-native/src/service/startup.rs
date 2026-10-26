@@ -21,6 +21,18 @@ pub struct ServeConfig {
 
 pub async fn serve(config: ServeConfig, shutdown: impl Future<Output = ()> + Send + 'static)
     -> Result<(), String> {
+    serve_using(config, None, shutdown).await
+}
+
+pub async fn serve_with_browser(config: ServeConfig,
+    browser: Arc<dyn crate::transport::browser::BrowserTransport>,
+    shutdown: impl Future<Output = ()> + Send + 'static) -> Result<(), String> {
+    serve_using(config, Some(browser), shutdown).await
+}
+
+async fn serve_using(config: ServeConfig,
+    browser: Option<Arc<dyn crate::transport::browser::BrowserTransport>>,
+    shutdown: impl Future<Output = ()> + Send + 'static) -> Result<(), String> {
     let shutdown = shutdown.boxed().shared();
     if !config.address.ip().is_loopback() { return Err("native service requires a loopback address".into()); }
     let selected = config.selected_accounts.iter().map(|value|
@@ -44,7 +56,8 @@ pub async fn serve(config: ServeConfig, shutdown: impl Future<Output = ()> + Sen
         .map_err(|_| "native worker verification timed out")?
         .map_err(|_| "native worker input verification failed")?;
     let worker = WorkerBackend::V3(worker);
-    let sessions = Arc::new(FileSessionStore::new(sessions_path)?);
+    let sessions = Arc::new(FileSessionStore::new_bounded(
+        sessions_path, crate::authorization::MAX_COOKIE_HEADER_BYTES)?);
     if shutdown.clone().now_or_never().is_some() { return Ok(()); }
     let database = database.to_str().ok_or("account database path is not UTF-8")?;
     let store = Arc::new(SqliteStateStore::open(database)?);
@@ -64,8 +77,17 @@ pub async fn serve(config: ServeConfig, shutdown: impl Future<Output = ()> + Sen
     let ledger = Arc::new(LedgerOwner::start(&config.python, &config.runtime_script,
         &history, sessions.clone()).await.map_err(|_| "native history ownership unavailable")?);
     let result = AssertUnwindSafe(async {
+        // Migration and the journal capture require the native owner to start
+        // before unrelated child processes. Warm the sender before admission.
+        if let Some(browser) = &browser {
+            tokio::select! {
+                _ = shutdown.clone() => return Ok(()),
+                _ = ledger.wait_for_exit() => return Err("native history exited during browser preparation".into()),
+                result = browser.prepare() => result.map_err(|_| "browser transport preparation failed".to_owned())?,
+            }
+        }
         let state = ServiceState::new(sessions, store, selected)?;
-        let (state, runtime) = http::configure(state, worker, ledger.clone())?;
+        let (state, runtime) = http::configure_browser(state, worker, ledger.clone(), browser)?;
         let monitor = ledger.clone();
         let stop = async move {
             tokio::select! {

@@ -3,6 +3,23 @@
 The rearchitecture is on `refactor/separate-apps-and-ci-20261025` in draft
 [PR #2](https://github.com/I-am-drunk/framerize/pull/2). It is not deployed.
 
+The native minter now connects to the supplied-token browser sender on
+`feat/native-browser-handoff-20261026`. It preserves the request's actual
+minted device, account and session, and joins browser cleanup. Browser warm-up
+now follows history migration and ledger startup, before request admission.
+The final startup/credential selection passes 31 tests, the storage selection
+passes 20, and the real Rust/Python/browser pipe passes response delivery and
+cancellation with no remaining descendants. The feature-enabled CLI builds.
+Earlier transport, authorization, service, Python and JavaScript results are
+retained for unchanged paths. See the
+[handoff and qualification](../reference/analysis/native-browser-handoff-20261026.md).
+
+This milestone also integrates private session-directory checks, nonblocking
+regular-file checks, native 16 KiB session-file bounds and correct propagation
+of SQLite account-lookup errors. The native browser handoff is undeployed.
+Live acceptance, total memory savings, upstream streaming and distinct
+per-account TLS fingerprints remain unverified or unfinished.
+
 The native service now retains account HTTP clients on
 `feat/retain-native-account-transports-20261026`. Successful requests reuse
 their own account generation; session, proxy or limit changes require a new
@@ -12,7 +29,7 @@ checks pass. Shared shutdown now retains cleanup and its failure across
 concurrent callers; reuse waits for device cleanup and the final outcome.
 This is undeployed, with memory savings and live acceptance still unmeasured.
 Distinct TLS fingerprints remain unimplemented. The next delivery milestone
-is the fresh-minter/browser handoff and its controlled acceptance test. See the
+is controlled live acceptance of the handoff described above. See the
 [retention record](../reference/analysis/native-account-retention-20261026.md).
 
 The integrated response path now has a direct local comparison against the

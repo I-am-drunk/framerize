@@ -1,6 +1,8 @@
 //! Standalone native application. Browser operation stays in `framerize`.
 use clap::{Parser, Subcommand, ValueEnum};
 use std::{net::SocketAddr, path::PathBuf, process::ExitCode};
+#[cfg(feature = "browser-transport")]
+mod hybrid;
 
 #[derive(Parser)]
 #[command(version, about = "Native Framer runtime development tools")]
@@ -19,6 +21,8 @@ enum Command {
         #[arg(long, default_value = "/usr/bin/python3")] python: PathBuf,
         /// Explicit development override; installed packages use their own runtime.
         #[arg(long)] runtime_script: Option<PathBuf>,
+        /// Experimental supplied-token browser sender; requires browser-transport feature.
+        #[arg(long)] browser_transport_script: Option<PathBuf>,
         /// First migration only: hold the profile idle for legacy rate expiry.
         /// The file identifies the previous invocation of this same service.
         #[arg(long)] expire_legacy_from: Option<PathBuf>,
@@ -35,7 +39,7 @@ enum Sdk { V2, V3 }
 
 async fn run(db: PathBuf, profiles: PathBuf, worker_config: Option<String>, accounts: Vec<String>,
     listen: SocketAddr, python: PathBuf, runtime_script: Option<PathBuf>,
-    expire_legacy_from: Option<PathBuf>) -> Result<(), String> {
+    expire_legacy_from: Option<PathBuf>, browser_transport_script: Option<PathBuf>) -> Result<(), String> {
     use tokio::signal::unix::{signal, SignalKind};
     let mut term = signal(SignalKind::terminate()).map_err(|e| e.to_string())?;
     let mut interrupt = signal(SignalKind::interrupt()).map_err(|e| e.to_string())?;
@@ -58,9 +62,16 @@ async fn run(db: PathBuf, profiles: PathBuf, worker_config: Option<String>, acco
     let config = framer_native::ServeConfig { database: db, profiles, worker_config,
         selected_accounts: accounts, address: listen, python, runtime_script: script,
         expire_legacy_from };
-    framer_native::serve(config, async move {
+    let stop = async move {
         tokio::select! { _ = term.recv() => {}, _ = interrupt.recv() => {} }
-    }).await
+    };
+    if let Some(script) = browser_transport_script {
+        #[cfg(feature = "browser-transport")]
+        return hybrid::run(config, script, stop).await;
+        #[cfg(not(feature = "browser-transport"))]
+        { let _ = script; return Err("rebuild with the browser-transport feature".into()); }
+    }
+    framer_native::serve(config, stop).await
 }
 
 #[tokio::main]
@@ -72,9 +83,9 @@ async fn main() -> ExitCode {
                 .map_err(str::to_owned)
         }
         Command::Serve { db, profiles, worker_config, accounts, listen, python, runtime_script,
-            expire_legacy_from } => {
+            expire_legacy_from, browser_transport_script } => {
             run(db, profiles, worker_config, accounts, listen, python, runtime_script,
-                expire_legacy_from).await
+                expire_legacy_from, browser_transport_script).await
         }
     };
     match result {

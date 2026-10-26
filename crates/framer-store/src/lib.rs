@@ -15,6 +15,9 @@ const KEYCHAIN_SERVICE: &str = "framerize.session";
 mod file_sessions;
 pub use file_sessions::FileSessionStore;
 
+#[cfg(test)]
+mod sqlite_tests;
+
 pub struct SqliteStateStore {
     conn: Mutex<Connection>,
 }
@@ -61,7 +64,8 @@ impl StateStore for SqliteStateStore {
                 [id.0.to_string()],
                 |r| r.get(0),
             )
-            .ok();
+            .optional()
+            .map_err(|e| e.to_string())?;
         match row {
             Some(json) => serde_json::from_str(&json).map(Some).map_err(|e| e.to_string()),
             None => Ok(None),

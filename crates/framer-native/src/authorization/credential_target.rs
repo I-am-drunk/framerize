@@ -105,7 +105,7 @@ impl CurrentRequestCookies {
 }
 
 fn login_cookie(header: &str) -> Option<&str> {
-    if header.is_empty() || header.len() > 16 * 1024
+    if header.is_empty() || header.len() > super::MAX_COOKIE_HEADER_BYTES
         || header.bytes().any(|b| !(0x20..=0x7e).contains(&b)) { return None; }
     let mut session = None;
     for part in header.split(';') {
