@@ -49,8 +49,11 @@ All 22 recorded source pins still matched after execution. All nine owned
 units were then inactive/dead with MainPID 0. Raw receipts are retained in
 `investigation/browser-response-transfer-r1` in the investigation workspace.
 See the [fixture instructions](../../scripts/experiments/browser_response_bounds/README.md)
-for reproduction. The independent chunk-contract source fixture was queued
-separately; no result from that pending assignment is claimed here.
+for reproduction. The independent chunk-contract fixture subsequently passed
+all ten Node tests, including UTF-8 round trips at non-BMP boundaries, invalid
+offsets and preservation of unrelated jobs. Its source SHA256 is
+`04712a583f759be09bff3a58f7214288dcdad6a31b87543b74c0280d2ae84933`.
+These Node cases do not add a real-browser Unicode measurement.
 
 The next memory experiment should drain a bounded response queue while the
 fetch is still running, with backpressure and joined cancellation, instead

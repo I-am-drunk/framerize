@@ -51,3 +51,7 @@ The comparison checks exact content, status, usage, job removal and joined
 descendant cleanup. Use rotated mode order across repeated fresh invocations
 and retain every result, including failures. This experiment does not change
 the production poll operation or establish live request savings.
+
+Run the pure chunk-contract fixtures with
+`node --test scripts/experiments/browser_response_bounds/transfer_contract.cjs`.
+They exercise an isolated VM and do not launch a browser or import an SDK.
