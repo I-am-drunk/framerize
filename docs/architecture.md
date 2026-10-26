@@ -9,6 +9,11 @@ event name, without upstream diagnostic payloads. The Responses fallback
 groups SSE data fields at event boundaries before decoding the terminal
 response, preserving the complete tool output and usage object.
 
+Direct completion requires a response object and, when supplied, a completed
+status. Its output text replaces intermediate deltas, including an explicitly
+empty output; absent output preserves compatibility with delta-only replies.
+Malformed terminal text fails before a successful result is published.
+
 Responses metered fallback carries its successful request's actual token
 budget and queue timing into the common completion path. Both response modes
 apply tool-completeness, continuation and final-status checks before emitting

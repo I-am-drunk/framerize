@@ -10,6 +10,15 @@ Both fixes are integrated on `feat/native-browser-handoff-20261026`. All twelve
 focused checks pass. Each old parser reproduced three failures with three
 passing controls. These are local parser results; live acceptance is pending.
 
+Direct inference also uses supplied terminal text as authoritative, avoiding
+lost or duplicated deltas, and rejects missing response objects and invalid
+completion statuses. Older replies without output/status retain compatibility.
+The a471fa5/e921c90 stack is integrated with the earlier 401 cache correction.
+All 147 integrated API tests pass, including all 16 affected inference cases;
+the previous parser reproduced nine failures with seven controls passing.
+All 523 saved source bindings matched before publication. No live request
+or service deployment was involved in this qualification.
+
 The Responses metered fallback now uses the same tool-completion and remaining
 token-budget checks as ordinary responses, preserving incomplete status when
 the chunk limit is reached. All 31 affected response/cancellation checks pass;
