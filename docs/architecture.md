@@ -289,6 +289,10 @@ uniqueness or undo partial session/grant work after a later failure.
 Dedupe reports shorten device and team identifiers to a valid UTF-8 prefix
 of at most eight bytes. Classification retains the complete identifiers;
 short or non-ASCII values cannot panic solely while constructing previews.
+The successful extra-workspace provisioning log uses the same bounded prefix.
+Short or non-ASCII metadata team IDs therefore cannot panic between project
+creation and retaining its returned ID. Discovery, adoption and stored IDs
+keep their existing behavior.
 
 Both CDP evaluation helpers reject a non-null exceptionDetails field before
 returning a value. Reported JavaScript failures return a fixed error without

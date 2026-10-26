@@ -11,6 +11,8 @@ mod local_request_completion;
 mod import_identity;
 #[path = "account_dedupe_preview_tests.rs"]
 mod dedupe_preview;
+#[path = "account_provisioning_preview_tests.rs"]
+mod provisioning_preview;
 
 
 use super::{account, policy};
