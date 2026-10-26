@@ -11,6 +11,13 @@ journal and retains the compatible browser in a persistent service override.
 Recovery restores only the saved or transition-fenced pool configuration.
 It does not admit requests, migrate history or launch a canary by itself.
 
+The separate transition controller requires a systemd recovery supervisor
+with finite runtime and stop limits. It uses the existing pool configuration
+API to exclude new inference only after active work finishes, then requires
+all resident closures before stopping the old service. The native successor
+must publish a fresh, same-service expiry record before its one permitted
+canary request. A durable attempt marker prevents replay after a lost reply.
+
 Direct inference requires an explicit successful completion event before
 publishing its result. Failure events return a bounded error containing the
 event name, without upstream diagnostic payloads. The Responses fallback
