@@ -36,6 +36,7 @@ def supervised(plan):
 
 def preflight(plan):
     r.require(not (r.HERE / 'state.json').exists(), 'transition has already been used')
+    r.require(not (r.HERE / 'pool-write.json').exists(), 'transition has an existing pool write')
     r.require(not r.has_history(plan), 'this transition requires unmigrated history')
     for name in ('dropin', 'return_dropin'):
         path = Path(plan[name])
@@ -61,19 +62,34 @@ def original_owner(plan):
               ('MainPID', 'ActiveState', 'InvocationID')), 'original service changed')
 
 
+def drain_step(plan, saved, current, deadline):
+    original_owner(plan)
+    r.require(r.http_json('/api/pool/config') == current, 'pool changed during drain')
+    slots = r.http_json('/api/pool')['residency']['residents']
+    r.require(time.monotonic() < deadline, 'active work did not drain within the bound')
+    if any(slot['close_started'] for slot in slots):
+        return current, False
+    active = sorted({slot['account'] for slot in slots if slot['users'] > 0})
+    narrowed = dict(current, eligible_accounts=active)
+    if narrowed != current:
+        report('draining', remaining_accounts=len(active))
+        original_owner(plan)
+        r.record_pool_change(plan, saved, current, narrowed)
+        r.require(r.http_json('/api/pool/config', narrowed) == narrowed,
+                  'pool drain was not installed')
+        current = narrowed
+    return current, not active
+
+
 def fence(plan, saved, seconds=180):
     deadline = time.monotonic() + seconds
+    current = saved
     while True:
-        original_owner(plan)
-        slots = r.http_json('/api/pool')['residency']['residents']
-        if all(slot['users'] == 0 and not slot['close_started'] for slot in slots):
+        current, empty = drain_step(plan, saved, current, deadline)
+        if empty:
             break
-        r.require(time.monotonic() < deadline, 'active work did not drain within the bound')
         time.sleep(1)
-    report('fencing')
-    original_owner(plan)
     fenced = dict(saved, eligible_accounts=[])
-    r.require(r.http_json('/api/pool/config', fenced) == fenced, 'pool fence was not installed')
     snapshot = r.http_json('/api/pool')['residency']
     r.require(snapshot['occupied'] == 0 and snapshot['residents'] == [],
               'resident cleanup is unconfirmed')

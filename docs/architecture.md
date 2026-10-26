@@ -13,8 +13,11 @@ It does not admit requests, migrate history or launch a canary by itself.
 
 The separate transition controller requires a systemd recovery supervisor
 with finite runtime and stop limits. It uses the existing pool configuration
-API to exclude new inference only after active work finishes, then requires
-all resident closures before stopping the old service. The native successor
+API to exclude idle accounts progressively while preserving active accounts,
+then requires all resident closures before stopping the old service. Each
+attempted pool change is recorded before dispatch; recovery accepts its exact
+before/after configurations and preserves the original pool settings.
+The native successor
 must publish a fresh, same-service expiry record before its one permitted
 canary request. A durable attempt marker prevents replay after a lost reply.
 

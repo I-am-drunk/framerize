@@ -22,6 +22,8 @@ class TransitionTests(unittest.TestCase):
             profiles=str(self.root / 'profiles'), dropin=str(self.root / 'native.conf'),
             return_dropin=str(self.root / 'return.conf'), artifacts={})
         self.saved = {'eligible_accounts': 'all', 'active_capacity': 2}
+        (self.root / 'pool-config.json').write_text(json.dumps(self.saved))
+        self.plan['artifacts']['pool-config.json'] = self.t.r.digest(self.root / 'pool-config.json')
         self.pool = dict(self.saved)
         self.slots, self.posts = [], []
         self.close_on_fence = True
