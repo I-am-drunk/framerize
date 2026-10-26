@@ -17,6 +17,11 @@
 
 pub mod sidecar;
 mod cdp_attach_owner;
+mod cdp_startup_children;
+#[cfg(all(test, target_os = "linux"))]
+mod cdp_startup_process_tests;
+#[cfg(all(test, target_os = "linux"))]
+mod cdp_version_probe_tests;
 mod cdp_proxy_registration;
 use cdp_proxy_registration::CdpAccountRoute;
 #[cfg(test)]
@@ -54,8 +59,12 @@ const DESKTOP_UA: &str = "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KH
 
 /// Derive the desktop UA from the actual chrome binary (so it always matches
 /// the engine's real version — a UA/version mismatch is itself a bot signal).
-async fn desktop_ua(chrome: &Path) -> String {
-    let out = Command::new(chrome).arg("--version").output().await;
+async fn desktop_ua(chrome: &Path, children: &cdp_startup_children::StartupChildren) -> String {
+    let out = match Command::new(chrome).arg("--version")
+        .stdout(Stdio::piped()).stderr(Stdio::piped()).kill_on_drop(true).spawn() {
+        Ok(child) => children.track_probe(child).output().await,
+        Err(error) => Err(error),
+    };
     let ver = out.ok().and_then(|o| {
         let s = String::from_utf8_lossy(&o.stdout).to_string();
         s.split_whitespace()
@@ -455,6 +464,7 @@ pub struct CdpBridge {
     profiles_dir: PathBuf,
     engine: EngineKind,
     attached_owner: cdp_attach_owner::AttachOwner,
+    startup_children: cdp_startup_children::StartupChildren,
     /// Per-account proxy override: account uuid → proxy URL. Populated by the
     /// daemon from account records (and reloadable); applied as
     /// `--proxy-server` at chrome launch for that account's profile.
@@ -477,6 +487,7 @@ impl CdpBridge {
             profiles_dir: profiles_dir.into(),
             engine,
             attached_owner: Default::default(),
+            startup_children: Default::default(),
             proxies: std::sync::Arc::new(tokio::sync::RwLock::new(HashMap::new())),
             instances: Mutex::new(HashMap::new()),
             routes: Mutex::new(HashMap::new()),
@@ -566,7 +577,7 @@ impl CdpBridge {
             .arg("--no-sandbox")
             .arg("--disable-dev-shm-usage")
             .arg("--mute-audio");
-        let ua = desktop_ua(&self.chrome).await;
+        let ua = desktop_ua(&self.chrome, &self.startup_children).await;
         match self.engine {
             EngineKind::FullChrome => {
                 // Stealth: present as an ordinary desktop browser. The two
@@ -605,25 +616,19 @@ impl CdpBridge {
             .stderr(Stdio::null())
             .kill_on_drop(true)
             .spawn();
-        let mut child = match child {
+        let child = match child {
             Ok(child) => child,
             Err(error) => {
                 route.may_have_browser = false;
                 return Err(format!("launch chrome: {error}"));
             }
         };
+        let starting = self.startup_children.track(*account, child);
 
-        // Everything from here to a constructed CdpInstance must kill the
-        // child on error — a leaked chrome is ~300MB and a few of them OOM
-        // the host (this bit us repeatedly in live testing).
-        let ws = match bring_up_ws(&profile).await {
-            Ok(ws) => ws,
-            Err(e) => {
-                let _ = child.start_kill();
-                return Err(e);
-            }
-        };
-        let mut inst = CdpInstance { child: Some(child), ws, next_id: 0 };
+        // The startup guard retains cleanup through errors and cancellation,
+        // including cancellation while waiting to publish the final instance.
+        let ws = bring_up_ws(&profile).await?;
+        let mut inst = CdpInstance { child: None, ws, next_id: 0 };
 
         // Wait for framer.com to be ready (window.castlePublishableAPIKey set).
         for _ in 0..50 {
@@ -640,21 +645,17 @@ impl CdpBridge {
         }
 
         // Backstop: seed the stable Castle device id before any mint.
-        if let Err(e) = inst.eval(seed_device_snippet(&device_id)).await {
-            if let Some(c) = inst.child.as_mut() { let _ = c.start_kill(); }
-            return Err(e);
-        }
+        inst.eval(seed_device_snippet(&device_id)).await?;
         // Containers report hardwareConcurrency=1 / tiny screens — automation
         // tells. Level what CDP can (CPU count; memory has no override).
         let _ = inst
             .cmd("Emulation.setHardwareConcurrencyOverride", json!({"hardwareConcurrency": 4}))
             .await;
 
+        let mut instances = self.instances.lock().await;
+        inst.child = Some(starting.into_child());
         let inst = Arc::new(Mutex::new(inst));
-        self.instances
-            .lock()
-            .await
-            .insert(*account, inst.clone());
+        instances.insert(*account, inst.clone());
         Ok(inst)
     }
 
@@ -673,13 +674,22 @@ fn body_preview(v: &Value) -> String {
 impl BrowserBridge for CdpBridge {
     async fn shutdown(&self) -> Result<(), String> {
         self.stopping.store(true, Ordering::Release);
+        let mut failed = false;
+        for (account, outcome) in self.startup_children.join().await {
+            if outcome.is_ok() {
+                if let Some(account) = account {
+                    self.route_cell(&account).await.lock().await.may_have_browser = false;
+                }
+            } else {
+                failed = true;
+            }
+        }
         let instances: Vec<_> = self.instances.lock().await.iter()
             .map(|(account, instance)| (*account, instance.clone())).collect();
         let routes: Vec<_> = if matches!(self.engine, EngineKind::FullChrome | EngineKind::HeadlessShell) {
             self.routes.lock().await.iter()
                 .map(|(account, route)| (*account, route.clone())).collect()
         } else { Vec::new() };
-        let mut failed = false;
         // Failed or cancelled starts may have a child without a saved instance.
         // Application work is drained, but those children have no joined exit.
         for (account, route) in &routes {
