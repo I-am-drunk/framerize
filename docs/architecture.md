@@ -22,10 +22,16 @@ Only the existing `NotEligible` result persists an exhausted account. Other
 errors preserve the initial saved record and propagate the original failure;
 earlier session, grant and account writes remain separate operations.
 
-Registration uses one claim snapshot containing every peer's primary and
-secondary team IDs. That snapshot filters admission and extra-scope project
-work while excluding the current account. This corrects sequential reuse;
-it does not add concurrent claim reservations or repair older saved records.
+Registration starts with a claim snapshot containing peer primary and
+secondary team IDs. It filters admission and extra-scope project work while
+excluding the current account. After usage probes settle, primary admission
+holds the shared account-update lock through subject validation, fresh peer
+listing, selection and publication. Late claims can select an unclaimed
+backup; incomplete observations retain the original probe error. The helper
+patches the latest record and replaces its caller only after a successful
+save. Network probes run outside the lock. Initial writes, rotations,
+secondary publication and refusal marking retain their separate contracts;
+this does not establish global uniqueness or repair older saved records.
 
 The qualified S2b integration moves Responses policy and protocol conversion into
 `framer-protocol`, which has no dependency on account, browser or session
