@@ -3,6 +3,15 @@
 The rearchitecture is on `refactor/separate-apps-and-ci-20261025` in draft
 [PR #2](https://github.com/I-am-drunk/framerize/pull/2). It is not deployed.
 
+Messages streams preserve cumulative usage and metadata, replace opaque
+signatures, reject malformed late metadata and named errors, and accept
+LF, CRLF and lone-CR framing. Final SSE includes input, cache and tool usage.
+All 134 selected checks pass: 90 API, 39 core and five native consumers.
+The prepared old behavior reproduced 24 failures with six controls passing.
+All 689 tracked inputs and 18 candidate source files match the final runs.
+This source milestone is not deployed; live packages remain at `72886b2`.
+Live delivery, request-time memory and account TLS isolation remain unverified.
+
 Paid Responses aggregation now rejects missing, malformed and failed terminal
 streams, including named errors and CR-only framing. Invalid successful
 upstream responses become fixed 502 errors; valid incomplete results and

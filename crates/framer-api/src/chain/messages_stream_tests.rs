@@ -6,6 +6,21 @@ mod citations;
 #[path = "messages_block_validation_tests.rs"]
 mod validation;
 
+#[path = "messages_stream_usage_tests.rs"]
+mod usage;
+
+#[path = "messages_signature_tests.rs"]
+mod signatures;
+
+#[path = "messages_metadata_tests.rs"]
+mod metadata;
+
+#[path = "messages_sse_event_tests.rs"]
+mod sse_events;
+
+#[path = "messages_line_endings_tests.rs"]
+mod line_endings;
+
 fn events(block: Value, deltas: Vec<Value>, reason: &str) -> Vec<Value> {
     let mut events = vec![
         json!({"type":"message_start","message":{"id":"msg-fixture",
@@ -77,7 +92,7 @@ fn thinking_and_signature_deltas_are_preserved() {
             json!({"type":"signature_delta","signature":"first"}),
             json!({"type":"signature_delta","signature":"second"})], "end_turn");
     assert_eq!(parse(&encode(&values)).unwrap().content,
-        vec![json!({"type":"thinking","thinking":"thought","signature":"firstsecond"})]);
+        vec![json!({"type":"thinking","thinking":"thought","signature":"second"})]);
 }
 
 #[test]

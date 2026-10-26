@@ -1,4 +1,4 @@
-use serde_json::{json, Value};
+use serde_json::{json, Map, Value};
 
 #[cfg(test)]
 #[path = "messages_json_tests.rs"]
@@ -15,24 +15,44 @@ pub(super) fn decode(body: &Value) -> Result<(Vec<Value>, String, Value), String
     if body["type"] == "error" || body.get("error").is_some_and(|error| !error.is_null()) {
         return Err("Messages response reported an upstream error".into());
     }
+    validate_message_metadata(body)?;
+    let blocks = body["content"].as_array().ok_or("Messages response has no content array")?;
+    let stop = terminal_stop_reason(&body["stop_reason"])?;
+    validate_stop_sequence(body)?;
+    let usage = body.get("usage").cloned().unwrap_or_else(|| json!({}));
+    validate_usage(&usage)?;
+    validate_blocks(blocks, stop)?;
+    Ok((blocks.clone(), stop.to_string(), usage))
+}
+
+pub(super) fn validate_message_metadata(body: &Value) -> Result<(), String> {
     if body.get("type").is_some_and(|kind| kind != "message")
         || body.get("role").is_some_and(|role| role != "assistant")
         || body.get("id").is_some_and(|id| !nonempty_text(id)) {
         return Err("Messages response has invalid message metadata".into());
     }
-    let blocks = body["content"].as_array().ok_or("Messages response has no content array")?;
-    let stop = body.get("stop_reason").filter(|reason| nonempty_text(reason))
-        .and_then(Value::as_str).ok_or("Messages response has no terminal stop reason")?;
+    Ok(())
+}
+
+pub(super) fn terminal_stop_reason(reason: &Value) -> Result<&str, String> {
+    reason.as_str().filter(|reason| !reason.trim().is_empty())
+        .ok_or_else(|| "Messages response has no terminal stop reason".into())
+}
+
+pub(super) fn validate_stop_sequence(body: &Value) -> Result<(), String> {
     if body.get("stop_sequence").is_some_and(|sequence| !sequence.is_null() && !sequence.is_string()) {
         return Err("Messages response has invalid stop sequence metadata".into());
     }
-    let usage = body.get("usage").cloned().unwrap_or_else(|| json!({}));
-    if !usage.is_object() || ["input_tokens", "output_tokens"].iter().any(|field|
-        usage.get(*field).is_some_and(|count| count.as_u64().is_none())) {
+    Ok(())
+}
+
+pub(super) fn validate_usage(usage: &Value) -> Result<&Map<String, Value>, String> {
+    let fields = usage.as_object().ok_or("Messages response has invalid usage metadata")?;
+    if ["input_tokens", "output_tokens"].iter().any(|field|
+        fields.get(*field).is_some_and(|count| count.as_u64().is_none())) {
         return Err("Messages response has invalid usage metadata".into());
     }
-    validate_blocks(blocks, stop)?;
-    Ok((blocks.clone(), stop.to_string(), usage))
+    Ok(fields)
 }
 
 pub(super) fn validate_blocks(blocks: &[Value], stop: &str) -> Result<(), String> {

@@ -42,6 +42,19 @@ fn append_delta(block: &mut Value, kind: &str, field: &str, delta: &Value) -> Re
     Ok(())
 }
 
+fn replace_signature(block: &mut Value, signature: &Value) -> Result<(), String> {
+    if block["type"] != "thinking" {
+        return Err("streamed Messages response has a delta for the wrong block type".into());
+    }
+    let signature = signature.as_str().ok_or("streamed Messages response has a non-text delta")?;
+    if block.get("signature").is_some_and(|value| !value.is_string()) {
+        return Err("streamed Messages response has a non-text block field".into());
+    }
+    // Signatures are complete opaque values, not incremental text fragments.
+    block["signature"] = json!(signature);
+    Ok(())
+}
+
 fn append_citation(block: &mut Value, citation: &Value) -> Result<(), String> {
     if block["type"] != "text" || !citation.is_object() {
         return Err("streamed Messages response has an invalid citation delta".into());
@@ -55,6 +68,26 @@ fn append_citation(block: &mut Value, citation: &Value) -> Result<(), String> {
     Ok(())
 }
 
+fn merge_usage(event: &Value, usage: &mut Value, partial: bool) -> Result<(), String> {
+    if let Some(update) = event.get("usage") {
+        let mut update = update.clone();
+        if partial {
+            if let Some(fields) = update.as_object_mut() {
+                // These nullable delta fields mean no update in the Messages SDK.
+                for field in ["input_tokens", "cache_creation_input_tokens",
+                    "cache_read_input_tokens", "server_tool_use", "output_tokens_details"] {
+                    if fields.get(field).is_some_and(Value::is_null) { fields.remove(field); }
+                }
+            }
+        }
+        for (field, value) in super::buffered::validate_usage(&update)? {
+            // Event counters are cumulative snapshots, not increments.
+            usage[field] = value.clone();
+        }
+    }
+    Ok(())
+}
+
 #[derive(Default)]
 struct Completion {
     started: bool,
@@ -62,26 +95,45 @@ struct Completion {
     open_blocks: Vec<bool>,
 }
 
+// SSE accepts LF, CRLF and lone CR. A CRLF pair is one line ending.
+fn sse_lines(mut text: &str) -> impl Iterator<Item = &str> {
+    std::iter::from_fn(move || {
+        if text.is_empty() { return None; }
+        let end = text.find(['\r', '\n']).unwrap_or(text.len());
+        let (line, rest) = text.split_at(end);
+        text = rest.strip_prefix("\r\n")
+            .or_else(|| rest.strip_prefix('\r'))
+            .or_else(|| rest.strip_prefix('\n'))
+            .unwrap_or_default();
+        Some(line)
+    })
+}
+
 pub(super) fn parse(text: &str) -> Result<StreamedChunk, String> {
     let mut id = String::new();
     let mut blocks: Vec<Value> = Vec::new();
     let mut stop_reason = String::new();
     let mut stop_sequence: Option<String> = None;
-    let (mut ptok, mut ctok) = (0u64, 0u64);
+    let mut usage = json!({});
     let mut current_data = String::new();
+    let mut current_event = String::new();
     let mut completion = Completion::default();
 
     #[allow(clippy::too_many_arguments)]
     fn handle_event(
         data: &str,
+        event: &str,
         id: &mut String,
         blocks: &mut Vec<Value>,
         stop_reason: &mut String,
         stop_sequence: &mut Option<String>,
-        ptok: &mut u64,
-        ctok: &mut u64,
+        usage: &mut Value,
         completion: &mut Completion,
     ) -> Result<(), String> {
+        if event == "error" {
+            return Err("streamed Messages response reported an upstream error".into());
+        }
+        if data.is_empty() { return Ok(()); }
         let v: Value = serde_json::from_str(data)
             .map_err(|_| "streamed Messages response has malformed event JSON")?;
         if v["type"] == "error" {
@@ -94,8 +146,9 @@ pub(super) fn parse(text: &str) -> Result<StreamedChunk, String> {
                 }
                 *id = v["message"]["id"].as_str().filter(|id| !id.is_empty())
                     .ok_or("streamed Messages response has no message id")?.to_string();
+                super::buffered::validate_message_metadata(&v["message"])?;
                 completion.started = true;
-                *ptok = v["message"]["usage"]["input_tokens"].as_u64().unwrap_or(0);
+                merge_usage(&v["message"], usage, false)?;
             }
             Some("content_block_start") => {
                 require_active(completion)?;
@@ -119,7 +172,7 @@ pub(super) fn parse(text: &str) -> Result<StreamedChunk, String> {
                         append_citation(&mut blocks[idx], &v["delta"]["citation"])?;
                     }
                     Some("signature_delta") => {
-                        append_delta(&mut blocks[idx], "thinking", "signature", &v["delta"]["signature"])?;
+                        replace_signature(&mut blocks[idx], &v["delta"]["signature"])?;
                     }
                     Some("thinking_delta") => {
                         append_delta(&mut blocks[idx], "thinking", "thinking", &v["delta"]["thinking"])?;
@@ -137,11 +190,14 @@ pub(super) fn parse(text: &str) -> Result<StreamedChunk, String> {
             }
             Some("message_delta") => {
                 require_active(completion)?;
-                if let Some(reason) = v["delta"]["stop_reason"].as_str() {
-                    *stop_reason = reason.to_string();
+                let delta = v["delta"].as_object()
+                    .ok_or("streamed Messages response has an invalid message delta")?;
+                super::buffered::validate_stop_sequence(&v["delta"])?;
+                if let Some(reason) = delta.get("stop_reason").filter(|reason| !reason.is_null()) {
+                    *stop_reason = super::buffered::terminal_stop_reason(reason)?.to_string();
                     *stop_sequence = v["delta"]["stop_sequence"].as_str().map(str::to_string);
                 }
-                *ctok = v["usage"]["output_tokens"].as_u64().unwrap_or(*ctok);
+                merge_usage(&v, usage, true)?;
             }
             Some("message_stop") => {
                 require_active(completion)?;
@@ -156,22 +212,27 @@ pub(super) fn parse(text: &str) -> Result<StreamedChunk, String> {
         Ok(())
     }
 
-    for line in text.lines() {
+    for line in sse_lines(text) {
         if let Some(d) = line.strip_prefix("data:") {
             let d = d.trim_start();
             if !current_data.is_empty() {
                 current_data.push('\n');
             }
             current_data.push_str(d);
-        } else if line.trim().is_empty() && !current_data.is_empty() {
-            handle_event(&current_data, &mut id, &mut blocks, &mut stop_reason,
-                &mut stop_sequence, &mut ptok, &mut ctok, &mut completion)?;
+        } else if let Some(event) = line.strip_prefix("event:") {
+            current_event = event.strip_prefix(' ').unwrap_or(event).to_string();
+        } else if line == "event" {
+            current_event.clear();
+        } else if line.trim().is_empty() {
+            handle_event(&current_data, &current_event, &mut id, &mut blocks, &mut stop_reason,
+                &mut stop_sequence, &mut usage, &mut completion)?;
             current_data.clear();
+            current_event.clear();
         }
     }
-    if !current_data.is_empty() {
-        handle_event(&current_data, &mut id, &mut blocks, &mut stop_reason,
-            &mut stop_sequence, &mut ptok, &mut ctok, &mut completion)?;
+    if !current_data.is_empty() || !current_event.is_empty() {
+        handle_event(&current_data, &current_event, &mut id, &mut blocks, &mut stop_reason,
+            &mut stop_sequence, &mut usage, &mut completion)?;
     }
 
     if !completion.stopped {
@@ -200,12 +261,16 @@ pub(super) fn parse(text: &str) -> Result<StreamedChunk, String> {
     }
 
     super::buffered::validate_blocks(&blocks, &stop_reason)?;
+    let ptok = usage["input_tokens"].as_u64().unwrap_or(0);
+    let ctok = usage["output_tokens"].as_u64().unwrap_or(0);
+    usage["input_tokens"] = json!(ptok);
+    usage["output_tokens"] = json!(ctok);
     Ok(StreamedChunk {
         id,
         content: blocks,
         stop_reason,
         stop_sequence,
-        usage: json!({"input_tokens": ptok, "output_tokens": ctok}),
+        usage,
         input_tokens: ptok,
         output_tokens: ctok,
     })
