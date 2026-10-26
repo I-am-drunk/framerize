@@ -1,6 +1,6 @@
-//! REST/SSE server. Dumb by design: it renders state and forwards typed calls into
-//! `framer-core`. No account logic lives here. Also serves the built web UI and the
-//! compat surfaces for Claude Code (`/anthropic`) and Codex (`/openai`).
+//! REST/SSE routes, account admission and compatibility streaming.
+//! Shared resource ownership lives in `state`; handlers retain those owners
+//! through response delivery and independently observed external cleanup.
 
 use axum::extract::{rejection::JsonRejection, State};
 use axum::http::StatusCode;
@@ -19,6 +19,8 @@ use std::sync::Arc;
 use tower_http::services::ServeDir;
 
 pub mod operation_ownership;
+mod state;
+pub use state::AppState;
 
 mod serving_accounts;
 mod account_wait;
@@ -31,41 +33,6 @@ pub use serving_accounts::{ServingAccountPolicy, SERVING_ACCOUNTS_ENV};
 pub use pool_config::{PoolConfig, EligibleAccounts, AllAccounts, POOL_SETTING_KEY};
 pub use pool_control::prewarm_accounts;
 use pool_control::{lease_account, RequestResidency};
-
-#[derive(Clone)]
-pub struct AppState {
-    /// Explicit application ownership; no default activation.
-    pub operation_ownership: Option<Arc<operation_ownership::ServingOwnership>>,
-    pub client: Arc<dyn FramerClient>,
-    pub browser: Arc<dyn BrowserBridge>,
-    pub sessions: Arc<dyn SessionStore>,
-    pub state: Arc<dyn StateStore>,
-    /// Paces requests against Framer's per-workspace concurrency cap so a large
-    /// fleet queues instead of collecting 429s (framer_core::gate).
-    pub gate: Arc<framer_core::gate::ConcurrencyGate>,
-    /// Environment-level Castle-wave guard: pauses ALL traffic when refusals
-    /// cluster across accounts (framer_core::wave).
-    pub wave: Arc<framer_core::wave::WaveGuard>,
-    /// Shared eligibility, residency and admission controls.
-    pub serving_accounts: Arc<ServingAccountPolicy>,
-}
-
-impl AppState {
-    pub fn new(
-        client: Arc<dyn FramerClient>,
-        browser: Arc<dyn BrowserBridge>,
-        sessions: Arc<dyn SessionStore>,
-        state: Arc<dyn StateStore>,
-        serving_accounts: Arc<ServingAccountPolicy>,
-    ) -> Self {
-        Self {
-            operation_ownership: None,
-            client, browser, sessions, state, serving_accounts,
-            gate: Arc::new(framer_core::gate::ConcurrencyGate::new()),
-            wave: Arc::new(framer_core::wave::WaveGuard::new()),
-        }
-    }
-}
 
 /// Build the router: REST under `/api`, compat under `/anthropic` + `/openai`,
 /// everything else served from `web_dir`.
