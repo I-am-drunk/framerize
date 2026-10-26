@@ -3,6 +3,14 @@
 The rearchitecture is on `refactor/separate-apps-and-ci-20261025` in draft
 [PR #2](https://github.com/I-am-drunk/framerize/pull/2). It is not deployed.
 
+Messages reject zero configuration limits before dispatch, and Responses JSON
+and final SSE consistently report aggregate total_tokens while retaining usage
+metadata. All 72 selected checks pass: 41 API fallback cases and 31 core
+conversion cases. The parent reproduced nine failures with five controls
+passing. Six candidate files and 674 tracked inputs match. The qualified
+Responses zero-chunk guard and session-token constructors remain intact.
+These source changes are not deployed and leave the pinned live candidate alone.
+
 Owned CDP startup and version-probe children now remain owned through
 cancellation until their exit is joined. Abandoned shutdown waiters retain
 the cleanup result, and a probe exit cannot clear browser uncertainty.

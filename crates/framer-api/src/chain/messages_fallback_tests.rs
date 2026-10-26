@@ -8,6 +8,9 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 #[path = "messages_json_chain_tests.rs"]
 mod json_tests;
 
+#[path = "messages_config_tests.rs"]
+mod config_tests;
+
 struct Observed {
     result: Result<AssembledResponse, String>,
     emitted: Vec<Value>,

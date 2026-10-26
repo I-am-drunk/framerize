@@ -247,6 +247,73 @@ fn malformed_nonstream_completion_never_emits_items() {
     }
 }
 
+fn usage_response(value: &str, status: &str) -> Value {
+    let mut body = response(text(value), status);
+    body["usage"]["total_tokens"] = json!(18);
+    body["usage"]["input_tokens_details"] = json!({"cached_tokens":3});
+    body["usage"]["output_tokens_details"] = json!({"reasoning_tokens":2});
+    body
+}
+
+fn two_chunk_usage() -> Run {
+    run(vec![
+        Reply { streamed:false, at_budget:false,
+            body:Some(usage_response("first", "incomplete")) },
+        Reply { streamed:false, at_budget:false,
+            body:Some(usage_response("second", "completed")) },
+    ], config())
+}
+
+#[test]
+fn responses_json_total_matches_accumulated_chunk_counters() {
+    let actual = two_chunk_usage();
+    assert_eq!(actual.requests.len(), 2);
+    let result = actual.result.unwrap();
+    assert_eq!((result.input_tokens, result.output_tokens, result.chunks), (11, 14, 2));
+    let full = framer_core::convert::responses_json(&result, "fixture-model", "local-response");
+    assert_eq!(full["usage"]["input_tokens"], 11);
+    assert_eq!(full["usage"]["output_tokens"], 14);
+    assert_eq!(full["usage"]["total_tokens"], 25);
+    assert_eq!(full["usage"]["input_tokens_details"], json!({"cached_tokens":3}));
+    assert_eq!(full["usage"]["output_tokens_details"], json!({"reasoning_tokens":2}));
+}
+
+#[test]
+fn responses_completed_total_matches_accumulated_chunk_counters() {
+    let actual = two_chunk_usage();
+    assert_eq!(actual.requests.len(), 2);
+    let result = actual.result.unwrap();
+    let mut composer = framer_core::convert::ResponsesComposer::new("fixture-model", "local-response");
+    let mut frames = Vec::new();
+    for (items, continues_text) in &actual.events {
+        frames.extend(composer.push_items(items, *continues_text));
+    }
+    frames.extend(composer.finish(&result));
+    let completed: Vec<Value> = frames.iter().map(|frame| {
+        let data = frame.lines().find_map(|line| line.strip_prefix("data: ")).unwrap();
+        serde_json::from_str::<Value>(data).unwrap()
+    }).filter(|event| event["type"] == "response.completed").collect();
+    assert_eq!(completed.len(), 1);
+    let usage = &completed[0]["response"]["usage"];
+    assert_eq!(usage["input_tokens"], 11);
+    assert_eq!(usage["output_tokens"], 14);
+    assert_eq!(usage["total_tokens"], 25);
+    assert_eq!(usage["input_tokens_details"], json!({"cached_tokens":3}));
+    assert_eq!(usage["output_tokens_details"], json!({"reasoning_tokens":2}));
+}
+
+#[test]
+fn single_chunk_responses_usage_preserves_total_and_details() {
+    let expected = usage_response("only", "completed");
+    let actual = run(vec![Reply { streamed:false, at_budget:false,
+        body:Some(expected.clone()) }], config());
+    assert_eq!(actual.requests.len(), 1);
+    let result = actual.result.unwrap();
+    assert_eq!((result.input_tokens, result.output_tokens, result.chunks), (11, 7, 1));
+    let full = framer_core::convert::responses_json(&result, "fixture-model", "local-response");
+    assert_eq!(full["usage"], expected["usage"]);
+}
+
 #[test]
 fn zero_chunk_limit_cannot_fabricate_a_completed_response() {
     for metered in [false, true] {
