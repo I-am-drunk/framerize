@@ -1,5 +1,15 @@
 # Development status
 
+Deduplication now releases a dead record's device from the retained-device
+set, so a later cooling account with a project is preserved. All four
+isolated checks pass after the parent reproduced both preview/apply failures
+with two passing controls. All 762 source and three candidate hashes match;
+both test units are stopped. True clones and all-dead peers remain removable,
+and the tests retain the full surviving record and existing cleanup guards.
+This integrates A's `ce6882b` outside the frozen `3ead4b8` packages. No live
+account was changed. Next: compose the separately qualified S1 ownership
+rewrite with this branch's newer fixes.
+
 The separate S1 runtime-ownership candidate at `71581d5` in
 [PR #7](https://github.com/I-am-drunk/framerize/pull/7) now compiles and passes
 all 351 selected isolated checks: API 13, core 8, native 66, server 252 and
@@ -8,8 +18,8 @@ test units are stopped with no remaining processes. The initial nine fixture
 assignment errors were corrected before these runs; production ownership
 was unchanged by that correction. This qualifies the separate S1 branch,
 not its integration here or live delivery. Frozen `3ead4b8` packages remain
-unchanged. S2/S3 are not released. Next: qualify the queued account-retention
-correction, then compose S1 with the newer feature changes.
+unchanged. S2/S3 are not released. Composition with the newer feature changes
+is the next S1 integration step.
 
 Extra-workspace provisioning now uses the existing UTF-8-safe preview in its
 successful-create log. Short or non-ASCII metadata IDs can no longer panic

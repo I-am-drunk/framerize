@@ -2581,6 +2581,7 @@ async fn dedupe_accounts_observed(State(s): State<AppState>, Json(body): Json<De
             .map_err(ApiError::Internal)?
             .is_some();
         if a.current_project.is_none() && !has_credits && !has_session {
+            seen_devices.remove(&a.castle_device_id);
             doomed.push((a, "no project, no credits, no session — nothing to recover"));
             continue;
         }
