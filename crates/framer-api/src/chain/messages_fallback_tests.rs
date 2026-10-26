@@ -23,6 +23,24 @@ mod validation_tests;
 #[path = "messages_retry_policy_tests.rs"]
 mod retry_policy_tests;
 
+#[path = "messages_stream_usage_chain_tests.rs"]
+mod stream_usage_tests;
+
+#[path = "messages_output_usage_tests.rs"]
+mod output_usage_tests;
+
+#[path = "messages_signature_chain_tests.rs"]
+mod signature_tests;
+
+#[path = "messages_metadata_chain_tests.rs"]
+mod metadata_tests;
+
+#[path = "messages_sse_event_chain_tests.rs"]
+mod sse_events;
+
+#[path = "messages_line_endings_chain_tests.rs"]
+mod line_endings;
+
 struct Observed {
     result: Result<AssembledResponse, String>,
     emitted: Vec<Value>,

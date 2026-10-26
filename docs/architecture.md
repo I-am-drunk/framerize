@@ -76,6 +76,12 @@ discarded tool responses do not contribute to delivered output usage.
 Buffered Messages validate their envelope and tool content before callbacks;
 all token-limited tools use the existing repair policy, regardless of position.
 Completed Messages streams share that block validator after tool reconstruction.
+They validate each supplied usage and stop-metadata update, preserve cumulative
+usage fields, and treat nullable SDK delta fields as no update. Thinking text
+accumulates while each opaque signature replaces the previous value. Named
+errors are rejected even without data, and LF, CRLF and lone CR delimit frames.
+Messages SSE rendering includes final input, output, cache and tool usage;
+already-open snapshots cannot retroactively acquire start-only metadata.
 Both chain dialects apply their existing refusal policy to each failed attempt
 before paid fallback. Retry timing excludes earlier work and local cooldowns,
 while the existing delayed idle-window and genuine transport fallbacks remain.

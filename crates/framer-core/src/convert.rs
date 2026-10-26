@@ -26,6 +26,13 @@ pub use messages_content::merge_message_blocks;
 #[path = "messages_content_tests.rs"]
 mod messages_content_tests;
 
+#[path = "messages_usage.rs"]
+mod messages_usage;
+
+#[cfg(test)]
+#[path = "messages_usage_tests.rs"]
+mod messages_usage_tests;
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ClientDialect {
     AnthropicMessages,
@@ -775,7 +782,7 @@ fn anthropic_sse(r: &AssembledResponse, client_model: &str) -> Vec<String> {
             "id": r.id, "type": "message", "role": "assistant",
             "content": [], "model": client_model,
             "stop_reason": null, "stop_sequence": null,
-            "usage": {"input_tokens": r.input_tokens, "output_tokens": 0},
+            "usage": messages_usage::snapshot(r),
         },
     })));
     for (i, b) in r.content.iter().enumerate() {
@@ -784,7 +791,7 @@ fn anthropic_sse(r: &AssembledResponse, client_model: &str) -> Vec<String> {
     frames.push(sse("message_delta", json!({
         "type": "message_delta",
         "delta": {"stop_reason": r.stop_reason, "stop_sequence": r.stop_sequence},
-        "usage": {"output_tokens": r.output_tokens},
+        "usage": messages_usage::delta(r),
     })));
     frames.push(sse("message_stop", json!({"type": "message_stop"})));
     frames
@@ -1209,7 +1216,7 @@ impl SseComposer {
                 f.push(sse("message_delta", json!({
                     "type": "message_delta",
                     "delta": {"stop_reason": r.stop_reason, "stop_sequence": r.stop_sequence},
-                    "usage": {"output_tokens": r.output_tokens},
+                    "usage": messages_usage::delta(r),
                 })));
                 f.push(sse("message_stop", json!({"type": "message_stop"})));
                 f
