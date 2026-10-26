@@ -1,5 +1,10 @@
 # Architecture
 
+Browser lifecycle status includes retained raw RPCs after caller cancellation.
+Idle close reports a busy resident while those operations remain owned, and
+joins a close already in progress. Disconnected or unconfirmed browsers keep
+their cleanup fences; this does not reopen a globally unconfirmed gate.
+
 Isolated measurements can use `scripts/process_phase.py` to sample a test
 process's thread count and virtual address space at established phase barriers.
 Each reading checks the PID, start tick and boot ID before and after reading.

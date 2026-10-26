@@ -106,6 +106,23 @@ class ResidentLifecycleTests(unittest.IsolatedAsyncioTestCase):
         return dict(cmd="close_idle", account=account, host_generation=status["host_generation"],
                     account_incarnation=status["account_incarnation"])
 
+    @asynccontextmanager
+    async def pending_rpc(self, account="account-a"):
+        entered, release = asyncio.Event(), asyncio.Event()
+        async def raw():
+            entered.set()
+            await release.wait()
+        waiter = asyncio.create_task(self.host._rpc(account, raw))
+        self.tasks.append(waiter)
+        try:
+            await asyncio.wait_for(entered.wait(), 1)
+            yield waiter
+        finally:
+            release.set()
+            await asyncio.gather(waiter, return_exceptions=True)
+            await asyncio.gather(*self.host.lifecycles[account].activity.pending,
+                                 return_exceptions=True)
+
     def registration(self, account="account-a", proxy=None):
         previous = self.host.proxy_revisions.get(account, 0)
         return dict(cmd="register_proxy", account=account, expected_revision=previous,
@@ -166,6 +183,47 @@ class ResidentLifecycleTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(acc.browser.calls, 0)
             self.assertFalse(acc.closing)
 
+    async def test_retained_rpc_is_busy_after_waiter_cancellation(self):
+        acc = await self.opened()
+        request = self.request()
+        async with self.pending_rpc() as waiter:
+            waiter.cancel()
+            with self.assertRaises(asyncio.CancelledError):
+                await waiter
+            result = await self.host.handle(request)
+            self.assertEqual(result["outcome"], "busy")
+            self.assertEqual(result["status"]["state"], "resident")
+            self.assertGreater(result["status"]["active_commands"], 0)
+            self.assertEqual(acc.browser.calls, 0)
+            self.assertIsNone(acc.lifecycle.close_task)
+            self.assertFalse(acc.closing)
+        self.assertEqual((await self.host.handle(self.request()))["outcome"], "closed")
+
+    async def test_status_counts_retained_rpc_without_blocking_another_account(self):
+        acc, other = await self.opened(), await self.opened("account-b")
+        async with self.pending_rpc():
+            status = await self.host.handle(dict(cmd="browser_status", account="account-a"))
+            self.assertEqual(status["state"], "resident")
+            self.assertGreater(status["active_commands"], 0)
+            closed = await self.host.handle(self.request("account-b"))
+            self.assertEqual(closed["outcome"], "closed")
+            self.assertFalse(other.browser.is_connected())
+            self.assertTrue(acc.browser.is_connected())
+            self.assertEqual(acc.browser.calls, 0)
+        self.assertEqual(self.host._browser_status("account-a")["active_commands"], 0)
+
+    async def test_disconnected_browser_with_retained_rpc_is_not_confirmed_busy(self):
+        acc = await self.opened()
+        request = self.request()
+        async with self.pending_rpc():
+            acc.browser.disconnect()
+            result = await self.host.handle(request)
+            self.assertEqual(result["outcome"], "unconfirmed")
+            self.assertEqual(result["status"]["state"], "unconfirmed")
+            self.assertIs(self.host.accounts["account-a"], acc)
+            self.assertIsNone(acc.lifecycle.close_task)
+            self.assertEqual(acc.browser.calls, 0)
+
     async def test_closing_one_account_does_not_touch_another(self):
         first, other = await self.opened(), await self.opened("account-b")
         other.dev_cooling["other-device"] = 12345
@@ -225,6 +283,31 @@ class ResidentLifecycleTests(unittest.IsolatedAsyncioTestCase):
         acc.browser.release.set()
         self.assertTrue(await asyncio.wait_for(owned, 1))
         self.assertEqual(self.host._browser_status("account-a")["state"], "absent")
+        self.assertEqual(acc.browser.calls, 1)
+
+    async def test_idle_close_joins_started_close_with_retained_rpc(self):
+        acc = await self.opened()
+        request = self.request()
+        acc.browser.release.clear()
+        first = asyncio.create_task(self.host.handle(request))
+        self.tasks.append(first)
+        await asyncio.wait_for(acc.browser.called.wait(), 1)
+        owned = acc.lifecycle.close_task
+        self.assertTrue(acc.lifecycle.activity.pending)
+        entered = asyncio.Event()
+        async def again():
+            entered.set()
+            return await self.host.handle(request)
+        second = asyncio.create_task(again())
+        self.tasks.append(second)
+        await asyncio.wait_for(entered.wait(), 1)
+        self.assertFalse(second.done())
+        self.assertIs(acc.lifecycle.close_task, owned)
+        self.assertEqual(acc.browser.calls, 1)
+        acc.browser.release.set()
+        results = await asyncio.wait_for(asyncio.gather(first, second), 1)
+        self.assertEqual([r["outcome"] for r in results], ["closed", "closed"])
+        self.assertTrue(all(r["status"]["state"] == "absent" for r in results))
         self.assertEqual(acc.browser.calls, 1)
 
     async def test_missing_close_ack_retains_browser_and_limits(self):

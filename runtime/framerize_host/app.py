@@ -278,10 +278,13 @@ class Host:
                 life.phase = "unconfirmed"
                 if account in self.accounts:
                     self.accounts[account].closing = True
+        # A cancelled waiter can leave its raw browser RPC running and owned.
+        # Idle admission must observe that work until the actual RPC settles.
         return {"account_id": account, "host_generation": self.generation,
                 "account_incarnation": 0 if life is None else life.incarnation,
                 "state": ("unconfirmed" if account in self.accounts else "absent") if life is None else life.phase,
-                "active_commands": 0 if life is None else life.active_commands}
+                "active_commands": 0 if life is None else
+                    life.active_commands + len(life.activity.pending)}
 
     async def _close_idle(self, req):
         account = req["account"]
@@ -291,7 +294,9 @@ class Host:
             raise ValueError("idle close requires the observed browser identity")
         if any(req[key] != current[key] for key in ("host_generation", "account_incarnation")):
             return {"outcome": "stale_generation", "status": current}
-        if current["active_commands"] or current["state"] == "starting":
+        # Pending close RPCs belong to the existing close task: join it below.
+        if current["state"] == "starting" or (
+                current["state"] == "resident" and current["active_commands"]):
             return {"outcome": "busy", "status": current}
         if current["state"] == "absent":
             return {"outcome": "already_absent", "status": current}
