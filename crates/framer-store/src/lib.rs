@@ -13,10 +13,14 @@ use std::sync::Mutex;
 const KEYCHAIN_SERVICE: &str = "framerize.session";
 
 mod file_sessions;
+mod legacy_device_ids;
 pub use file_sessions::FileSessionStore;
 
 #[cfg(test)]
 mod sqlite_tests;
+
+#[cfg(test)]
+mod legacy_device_id_tests;
 
 pub struct SqliteStateStore {
     conn: Mutex<Connection>,
@@ -24,7 +28,7 @@ pub struct SqliteStateStore {
 
 impl SqliteStateStore {
     pub fn open(path: &str) -> Result<Self, String> {
-        let conn = Connection::open(path).map_err(|e| e.to_string())?;
+        let mut conn = Connection::open(path).map_err(|e| e.to_string())?;
         conn.execute_batch(
             "CREATE TABLE IF NOT EXISTS accounts (
                 id            TEXT PRIMARY KEY,
@@ -36,6 +40,7 @@ impl SqliteStateStore {
              );",
         )
         .map_err(|e| e.to_string())?;
+        legacy_device_ids::persist(&mut conn)?;
         Ok(Self { conn: Mutex::new(conn) })
     }
 }

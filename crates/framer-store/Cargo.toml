@@ -9,7 +9,7 @@ framer-core = { path = "../framer-core" }
 async-trait = "0.1"
 keyring = "3"
 rusqlite = { version = "0.32", features = ["bundled"] }
-serde_json = "1"
+serde_json = { version = "1", features = ["raw_value"] }
 
 [target.'cfg(unix)'.dependencies]
 libc = "0.2"

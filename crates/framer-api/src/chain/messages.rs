@@ -195,7 +195,7 @@ pub async fn complete_long(
                         } else {
                             eprintln!("[freechat] chunk {i} 429 on {cur_dialect:?}/{cur_step} — instant retry on next bucket {d2:?}/{s2}");
                         }
-                        attempt_payload = build_payload(&messages, chunk_tokens, d2);
+                        attempt_payload = build_payload(&messages, chunk, d2);
                         cur_dialect = d2;
                         cur_step = s2;
                     }
@@ -235,7 +235,7 @@ pub async fn complete_long(
                 bucket_idx += 1;
                 let (d3, s3) = bucket(bucket_idx);
                 eprintln!("[freechat] chunk {i} died at {elapsed:.1}s ({e}) — retrying with max_tokens={chunk_tokens} on {d3:?}/{s3}");
-                let retry_payload = build_payload(&messages, chunk_tokens, d3);
+                let retry_payload = build_payload(&messages, budget.min(chunk_tokens), d3);
                 match cooldown_wait.run(cfg, !blocks.is_empty(), || proxy::forward_cancellable(
                     t, token_cache, session, browser, account, project,
                     d3, &s3, retry_payload.clone(), chat_session, i, cfg.cancelled.as_deref(),
@@ -245,7 +245,7 @@ pub async fn complete_long(
                     Err(e2) if cfg.is_cancelled() => return Err(e2),
                     Err(e2) if cfg.metered_fallback => {
                         eprintln!("[freechat] chunk {i} retry died ({e2}) — metered stream fallback for this chunk");
-                        let stream_payload = build_payload(&messages, chunk_tokens, d3);
+                        let stream_payload = build_payload(&messages, budget.min(chunk_tokens), d3);
                         let streamed = stream_chunk(
                             t, token_cache, session, browser, account, project,
                             d3, &s3, stream_payload, chat_session, i, cfg.cancelled.as_deref(),
@@ -259,6 +259,8 @@ pub async fn complete_long(
                         }
                         let streamed_stop = streamed.stop_reason.clone();
                         let streamed_seq = streamed.stop_sequence.clone();
+                        stop_reason = streamed_stop.clone();
+                        stop_sequence = streamed_seq.clone();
                         let streamed_blocks = streamed.content.clone();
                         merge_blocks(&mut blocks, streamed_blocks.clone());
                         if let Some(cb) = events {
@@ -341,6 +343,9 @@ pub async fn complete_long(
             .map(|b| b["type"].as_str() == Some("tool_use"))
             .unwrap_or(false);
         if chunk_stop == "max_tokens" && ends_in_tool_use && tool_cut_retries < 2 {
+            if i + 1 >= cfg.max_chunks {
+                return Err(format!("chunk {i}: incomplete tool call has no remaining retry chunk"));
+            }
             // Free retry with a WINDOW-PROPORTIONAL budget: ~70s of the
             // model's own measured throughput (the messages-route window is
             // ~100s; the old 45s/3000-cap sat below real capacity, so
@@ -373,7 +378,7 @@ pub async fn complete_long(
             }
             eprintln!("[freechat] chunk {i} cut mid-tool_use again — streaming this chunk metered (explicit opt-in)");
             ctok = ctok.saturating_sub(out_t);
-            let stream_payload = build_payload(&messages, cfg.max_total_tokens.map(|cap| cap.saturating_sub(ctok as u32).max(1024)).unwrap_or(8000), dialect);
+            let stream_payload = build_payload(&messages, cfg.max_total_tokens.map(|cap| cap.saturating_sub(ctok as u32).max(1)).unwrap_or(8000), dialect);
             let streamed = stream_chunk(
                 t, token_cache, session, browser, account, project,
                 dialect, &step, stream_payload, chat_session, i, cfg.cancelled.as_deref(),
@@ -387,6 +392,8 @@ pub async fn complete_long(
             }
             let streamed_stop = streamed.stop_reason.clone();
             let streamed_seq = streamed.stop_sequence.clone();
+            stop_reason = streamed_stop.clone();
+            stop_sequence = streamed_seq.clone();
             let streamed_blocks = streamed.content.clone();
             merge_blocks(&mut blocks, streamed_blocks.clone());
             if let Some(cb) = events {
@@ -465,10 +472,18 @@ fn assemble(
 /// Only ever called when the chunk is text-only (any tool_use ends the
 /// chain), so the assistant message is spec-valid.
 
+#[path = "messages_stream.rs"]
+mod stream;
+
+#[cfg(test)]
+#[path = "messages_fallback_tests.rs"]
+mod fallback_tests;
+
 // ---------------------------------------------------------------------------
 // Metered streaming fallback (rung 3): consume one SSE stream, BLOCK-AWARE.
 // ---------------------------------------------------------------------------
 
+#[derive(Debug)]
 struct StreamedChunk {
     id: String,
     content: Vec<Value>,
@@ -498,115 +513,7 @@ async fn stream_chunk(
     let resp = proxy::forward_cancellable(t, token_cache, session, browser, account, project, upstream, step, payload, chat_session, step_index, cancelled).await?;
     let text = body_text(resp).await?;
 
-    let mut id = String::new();
-    let mut blocks: Vec<Value> = Vec::new();
-    let mut stop_reason = "end_turn".to_string();
-    let mut stop_sequence: Option<String> = None;
-    let (mut ptok, mut ctok) = (0u64, 0u64);
-    let mut current_data = String::new();
-
-    fn handle_event(
-        data: &str,
-        id: &mut String,
-        blocks: &mut Vec<Value>,
-        stop_reason: &mut String,
-        stop_sequence: &mut Option<String>,
-        ptok: &mut u64,
-        ctok: &mut u64,
-    ) {
-        let Ok(v) = serde_json::from_str::<Value>(data) else { return };
-        match v["type"].as_str() {
-            Some("message_start") => {
-                *id = v["message"]["id"].as_str().unwrap_or_default().to_string();
-                *ptok = v["message"]["usage"]["input_tokens"].as_u64().unwrap_or(0);
-            }
-            Some("content_block_start") => {
-                let idx = v["index"].as_u64().unwrap_or(blocks.len() as u64) as usize;
-                while blocks.len() <= idx {
-                    blocks.push(json!({"type":"text","text":""}));
-                }
-                blocks[idx] = v["content_block"].clone();
-            }
-            Some("content_block_delta") => {
-                let idx = v["index"].as_u64().unwrap_or(0) as usize;
-                while blocks.len() <= idx {
-                    blocks.push(json!({"type":"text","text":""}));
-                }
-                match v["delta"]["type"].as_str() {
-                    Some("text_delta") => {
-                        let joined = format!(
-                            "{}{}",
-                            blocks[idx]["text"].as_str().unwrap_or_default(),
-                            v["delta"]["text"].as_str().unwrap_or_default()
-                        );
-                        blocks[idx]["text"] = json!(joined);
-                    }
-                    Some("signature_delta") => {
-                        let prev = blocks[idx]["signature"].as_str().unwrap_or_default().to_string();
-                        blocks[idx]["signature"] = json!(format!("{}{}", prev, v["delta"]["signature"].as_str().unwrap_or_default()));
-                    }
-                    Some("thinking_delta") => {
-                        let prev = blocks[idx]["thinking"].as_str().unwrap_or_default().to_string();
-                        blocks[idx]["thinking"] = json!(format!("{}{}", prev, v["delta"]["thinking"].as_str().unwrap_or_default()));
-                    }
-                    Some("input_json_delta") => {
-                        let prev = blocks[idx]["_partial_json"].as_str().unwrap_or_default().to_string();
-                        blocks[idx]["_partial_json"] =
-                            json!(format!("{}{}", prev, v["delta"]["partial_json"].as_str().unwrap_or_default()));
-                    }
-                    _ => {}
-                }
-            }
-            Some("message_delta") => {
-                *stop_reason = v["delta"]["stop_reason"].as_str().unwrap_or("end_turn").to_string();
-                *stop_sequence = v["delta"]["stop_sequence"].as_str().map(str::to_string);
-                *ctok = v["usage"]["output_tokens"].as_u64().unwrap_or(*ctok);
-            }
-            _ => {}
-        }
-    }
-
-    for line in text.lines() {
-        if let Some(d) = line.strip_prefix("data:") {
-            let d = d.trim_start();
-            if !current_data.is_empty() {
-                current_data.push('\n');
-            }
-            current_data.push_str(d);
-        } else if line.trim().is_empty() && !current_data.is_empty() {
-            handle_event(&current_data, &mut id, &mut blocks, &mut stop_reason, &mut stop_sequence, &mut ptok, &mut ctok);
-            current_data.clear();
-        }
-    }
-    if !current_data.is_empty() {
-        handle_event(&current_data, &mut id, &mut blocks, &mut stop_reason, &mut stop_sequence, &mut ptok, &mut ctok);
-    }
-
-    // finalize tool_use blocks: parse the accumulated partial JSON into `input`
-    for b in blocks.iter_mut() {
-        if b["type"].as_str() == Some("tool_use") {
-            let raw = b["_partial_json"].as_str().unwrap_or_default().to_string();
-            // Only overwrite when deltas actually accumulated — otherwise keep
-            // the input the upstream sent in content_block_start (clobbering
-            // it with {"_raw":""} produced malformed tool calls).
-            if !raw.is_empty() {
-                b["input"] = serde_json::from_str::<Value>(&raw).unwrap_or_else(|_| json!({"_raw": raw}));
-            }
-            if let Some(obj) = b.as_object_mut() {
-                obj.remove("_partial_json");
-            }
-        }
-    }
-
-    Ok(StreamedChunk {
-        id,
-        content: blocks,
-        stop_reason,
-        stop_sequence,
-        usage: json!({"input_tokens": ptok, "output_tokens": ctok}),
-        input_tokens: ptok,
-        output_tokens: ctok,
-    })
+    stream::parse(&text)
 }
 
 // Shared preparation only. Transport and retry policies remain separate.
