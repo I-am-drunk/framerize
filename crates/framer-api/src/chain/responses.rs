@@ -330,6 +330,11 @@ pub async fn complete_long(
             ));
         }
 
+        // Refuse unrepresentable usage before publishing this chunk's items.
+        let next_ptok = ptok.max(usage["input_tokens"].as_u64().unwrap_or(0));
+        let next_ctok = ctok.checked_add(out_t).ok_or("Responses output usage overflow")?;
+        next_ptok.checked_add(next_ctok).ok_or("Responses total usage overflow")?;
+
         // Normal chunk completion: merge items, emit, decide continuation.
         let continues_text = hit_cap
             && items.last().map(|it| it["type"].as_str() == Some("message")).unwrap_or(false);
@@ -339,8 +344,8 @@ pub async fn complete_long(
             resp_id = body["id"].as_str().unwrap_or_default().to_string();
             created_at = body["created_at"].as_u64().unwrap_or(0);
         }
-        ptok = ptok.max(usage["input_tokens"].as_u64().unwrap_or(0));
-        ctok += out_t;
+        ptok = next_ptok;
+        ctok = next_ctok;
         last_usage = usage.clone();
         if !body["service_tier"].is_null() {
             last_service_tier = body["service_tier"].clone();

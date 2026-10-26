@@ -42,6 +42,19 @@ fn append_delta(block: &mut Value, kind: &str, field: &str, delta: &Value) -> Re
     Ok(())
 }
 
+fn append_citation(block: &mut Value, citation: &Value) -> Result<(), String> {
+    if block["type"] != "text" || !citation.is_object() {
+        return Err("streamed Messages response has an invalid citation delta".into());
+    }
+    if block.get("citations").map_or(true, Value::is_null) {
+        block["citations"] = json!([]);
+    }
+    block["citations"].as_array_mut()
+        .ok_or("streamed Messages response has invalid citations")?
+        .push(citation.clone());
+    Ok(())
+}
+
 #[derive(Default)]
 struct Completion {
     started: bool,
@@ -101,6 +114,9 @@ pub(super) fn parse(text: &str) -> Result<StreamedChunk, String> {
                 match v["delta"]["type"].as_str() {
                     Some("text_delta") => {
                         append_delta(&mut blocks[idx], "text", "text", &v["delta"]["text"])?;
+                    }
+                    Some("citations_delta") => {
+                        append_citation(&mut blocks[idx], &v["delta"]["citation"])?;
                     }
                     Some("signature_delta") => {
                         append_delta(&mut blocks[idx], "thinking", "signature", &v["delta"]["signature"])?;

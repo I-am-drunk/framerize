@@ -18,6 +18,14 @@
 
 use serde_json::{json, Value};
 
+#[path = "messages_content.rs"]
+mod messages_content;
+pub use messages_content::merge_message_blocks;
+
+#[cfg(test)]
+#[path = "messages_content_tests.rs"]
+mod messages_content_tests;
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ClientDialect {
     AnthropicMessages,
@@ -771,35 +779,7 @@ fn anthropic_sse(r: &AssembledResponse, client_model: &str) -> Vec<String> {
         },
     })));
     for (i, b) in r.content.iter().enumerate() {
-        match b["type"].as_str() {
-            Some("text") => {
-                frames.push(sse("content_block_start", json!({
-                    "type": "content_block_start", "index": i,
-                    "content_block": {"type": "text", "text": ""},
-                })));
-                frames.push(sse("content_block_delta", json!({
-                    "type": "content_block_delta", "index": i,
-                    "delta": {"type": "text_delta", "text": b["text"]},
-                })));
-            }
-            Some("tool_use") => {
-                frames.push(sse("content_block_start", json!({
-                    "type": "content_block_start", "index": i,
-                    "content_block": {"type": "tool_use", "id": b["id"], "name": b["name"], "input": {}},
-                })));
-                frames.push(sse("content_block_delta", json!({
-                    "type": "content_block_delta", "index": i,
-                    "delta": {"type": "input_json_delta", "partial_json": b["input"].to_string()},
-                })));
-            }
-            _ => {
-                // thinking / redacted_thinking / image / server blocks: pass through raw.
-                frames.push(sse("content_block_start", json!({
-                    "type": "content_block_start", "index": i, "content_block": b,
-                })));
-            }
-        }
-        frames.push(sse("content_block_stop", json!({"type": "content_block_stop", "index": i})));
+        frames.extend(messages_content::block_frames(i, b));
     }
     frames.push(sse("message_delta", json!({
         "type": "message_delta",
@@ -1323,7 +1303,7 @@ impl SseComposer {
         let mut f = Vec::new();
         for b in blocks {
             match b["type"].as_str() {
-                Some("text") => {
+                Some("text") if messages_content::plain_text(b) => {
                     if !self.text_open {
                         f.push(sse("content_block_start", json!({
                             "type": "content_block_start", "index": self.next_idx,
@@ -1336,34 +1316,14 @@ impl SseComposer {
                         "delta": {"type": "text_delta", "text": b["text"]},
                     })));
                 }
-                Some("tool_use") => {
-                    if self.text_open {
-                        f.push(sse("content_block_stop", json!({"type": "content_block_stop", "index": self.next_idx})));
-                        self.text_open = false;
-                        self.next_idx += 1;
-                    }
-                    f.push(sse("content_block_start", json!({
-                        "type": "content_block_start", "index": self.next_idx,
-                        "content_block": {"type": "tool_use", "id": b["id"], "name": b["name"], "input": {}},
-                    })));
-                    f.push(sse("content_block_delta", json!({
-                        "type": "content_block_delta", "index": self.next_idx,
-                        "delta": {"type": "input_json_delta", "partial_json": b["input"].to_string()},
-                    })));
-                    f.push(sse("content_block_stop", json!({"type": "content_block_stop", "index": self.next_idx})));
-                    self.next_idx += 1;
-                }
                 _ => {
-                    // thinking etc.: close text, pass through as its own block
+                    // Preserve metadata and its block boundaries, including citations.
                     if self.text_open {
                         f.push(sse("content_block_stop", json!({"type": "content_block_stop", "index": self.next_idx})));
                         self.text_open = false;
                         self.next_idx += 1;
                     }
-                    f.push(sse("content_block_start", json!({
-                        "type": "content_block_start", "index": self.next_idx, "content_block": b,
-                    })));
-                    f.push(sse("content_block_stop", json!({"type": "content_block_stop", "index": self.next_idx})));
+                    f.extend(messages_content::block_frames(self.next_idx, b));
                     self.next_idx += 1;
                 }
             }
@@ -1507,23 +1467,7 @@ impl SseComposer {
 }
 
 fn merge_blocks_local(acc: &mut Vec<Value>, new: Vec<Value>) {
-    for b in new {
-        let is_text = b["type"].as_str() == Some("text");
-        if is_text {
-            if let Some(last) = acc.last_mut() {
-                if last["type"].as_str() == Some("text") {
-                    let joined = format!(
-                        "{}{}",
-                        last["text"].as_str().unwrap_or_default(),
-                        b["text"].as_str().unwrap_or_default()
-                    );
-                    last["text"] = json!(joined);
-                    continue;
-                }
-            }
-        }
-        acc.push(b);
-    }
+    merge_message_blocks(acc, new);
 }
 
 /// Mid-stream failure frames: a REAL error event per dialect so clients retry

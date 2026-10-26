@@ -332,6 +332,86 @@ fn zero_chunk_limit_cannot_fabricate_a_completed_response() {
     }
 }
 
+fn counted_reply(input: u64, output: u64, status: &str, value: &str) -> Reply {
+    let mut body = response(text(value), status);
+    body["usage"]["input_tokens"] = json!(input);
+    body["usage"]["output_tokens"] = json!(output);
+    Reply { streamed:false, at_budget:false, body:Some(body) }
+}
+
+#[test]
+fn overflowing_single_chunk_total_is_refused_before_emission() {
+    let actual = run(vec![counted_reply(u64::MAX, 1, "completed", "private-fixture")], config());
+    assert_eq!(actual.result.unwrap_err(), "Responses total usage overflow");
+    assert!(actual.events.is_empty());
+    assert_eq!(actual.requests.len(), 1);
+}
+
+#[test]
+fn overflowing_metered_total_is_refused_before_emission() {
+    let body = counted_reply(u64::MAX, 1, "completed", "private-fixture").body.unwrap();
+    let actual = run(fallback(body, false), config());
+    assert_eq!(actual.result.unwrap_err(), "Responses total usage overflow");
+    assert!(actual.events.is_empty());
+    assert_eq!(actual.requests.len(), 3);
+}
+
+#[test]
+fn accumulating_output_overflow_withholds_the_offending_chunk() {
+    let mut cfg = config();
+    cfg.max_total_tokens = None;
+    cfg.max_chunks = 2;
+    let actual = run(vec![
+        counted_reply(0, u64::MAX, "incomplete", "first"),
+        counted_reply(0, 1, "completed", "private-fixture"),
+    ], cfg);
+    assert_eq!(actual.result.unwrap_err(), "Responses output usage overflow");
+    assert_eq!(actual.events, vec![(vec![text("first")], true)]);
+    assert_eq!(actual.requests.len(), 2);
+}
+
+#[test]
+fn larger_input_count_cannot_overflow_accumulated_total() {
+    let mut cfg = config();
+    cfg.max_total_tokens = None;
+    cfg.max_chunks = 2;
+    let actual = run(vec![
+        counted_reply(2, u64::MAX - 8, "incomplete", "first"),
+        counted_reply(6, 3, "completed", "private-fixture"),
+    ], cfg);
+    assert_eq!(actual.result.unwrap_err(), "Responses total usage overflow");
+    assert_eq!(actual.events, vec![(vec![text("first")], true)]);
+    assert_eq!(actual.requests.len(), 2);
+}
+
+#[test]
+fn maximum_representable_total_remains_valid() {
+    let actual = run(vec![counted_reply(u64::MAX - 7, 7, "completed", "answer")], config());
+    let result = actual.result.unwrap();
+    assert_eq!((result.input_tokens, result.output_tokens), (u64::MAX - 7, 7));
+    let full = framer_core::convert::responses_json(&result, "fixture-model", "local-response");
+    assert_eq!(full["usage"]["total_tokens"], json!(u64::MAX));
+    assert_eq!(actual.events, vec![(vec![text("answer")], false)]);
+    assert_eq!(actual.requests.len(), 1);
+}
+
+#[test]
+fn maximum_representable_accumulated_output_remains_valid() {
+    let mut cfg = config();
+    cfg.max_total_tokens = None;
+    cfg.max_chunks = 2;
+    let actual = run(vec![
+        counted_reply(0, u64::MAX - 1, "incomplete", "first"),
+        counted_reply(0, 1, "completed", "second"),
+    ], cfg);
+    let result = actual.result.unwrap();
+    assert_eq!((result.input_tokens, result.output_tokens, result.chunks), (0, u64::MAX, 2));
+    let full = framer_core::convert::responses_json(&result, "fixture-model", "local-response");
+    assert_eq!(full["usage"]["total_tokens"], json!(u64::MAX));
+    assert_eq!(actual.events, vec![(vec![text("first")], true), (vec![text("second")], false)]);
+    assert_eq!(actual.requests.len(), 2);
+}
+
 #[test]
 fn empty_nonstream_completion_remains_valid() {
     let actual = run(vec![Reply { streamed:false, at_budget:false,
