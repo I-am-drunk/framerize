@@ -7,3 +7,6 @@ pub mod responses;
 pub mod responses_input;
 pub mod responses_sink;
 pub mod response_stream;
+
+#[cfg(test)]
+mod forward_error_tests;

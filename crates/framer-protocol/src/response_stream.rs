@@ -131,10 +131,16 @@ impl ResponseEncoder {
         self.write(writer, false, |this, events| this.pulse(events))
     }
     pub fn fail(&mut self, writer: &mut impl ResponseWriter, error: &str) -> io::Result<()> {
+        let (_, shaped) = error_json(ClientDialect::OpenAiResponses, error);
+        self.fail_shaped(writer, &shaped["error"])
+    }
+    /// Encode a validated inner error object already classified by the kernel.
+    /// Its display text must not be parsed to recover status or error codes.
+    pub fn fail_shaped(&mut self, writer: &mut impl ResponseWriter, error: &Value)
+        -> io::Result<()> {
         self.write(writer, false, |_, events| {
-            let (_, shaped) = error_json(ClientDialect::OpenAiResponses, error);
             events.emit("response.failed", vec![("response", Object(vec![
-                ("status", Text("failed")), ("error", View::Value(&shaped["error"])),
+                ("status", Text("failed")), ("error", View::Value(error)),
             ]))])
         })
     }

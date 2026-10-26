@@ -10,6 +10,10 @@ The worker, generation manager and real SSE connection are still incomplete.
 The next slice supplies typed policy/control results and the owned worker.
 Legacy0 and workspace default-members remain unchanged. The accepted
 preclassified-error encoder extension is allocated separately within S3w.
+That hook now accepts a validated error object without reclassification;
+the legacy string method still classifies and delegates. Two inert controls
+cover exact sequence/byte equivalence and a redacted context-overflow message.
+The fixed kernel failure helper and encoder clock are unchanged.
 
 Free Responses streaming now uses the bounded, awaited output path from
 `4447080`, composed after `1aef73d` with the newer account and store fixes.
