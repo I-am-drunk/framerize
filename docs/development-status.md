@@ -1,5 +1,15 @@
 # Development status
 
+The S3a measurement preparation now includes `scripts/process_phase.py`, a
+Linux point sampler for thread count and virtual address space. The caller
+captures the process identity once and supplies it at each phase; samples
+reject changed identities and incomplete counters. Four focused checks pass,
+including barrier-controlled thread creation/join, process exit, stale
+identity refusal and the CLI. No application memory or latency result is
+claimed. Next: pair empty/active/idle readings with exact output counters and
+owned-tree memory samples in the frozen S3a P2/P5 qualification. The source
+packet is still pending; no live request or package change occurred.
+
 The contextual `49cbc898` workspace-scan correction is qualified on `8ca3ddc`.
 Every probe settles before selection, and the first probe error follows input
 order. Public scans reject incomplete results, preserving saved extra scopes
