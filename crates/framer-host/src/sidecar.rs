@@ -414,10 +414,27 @@ impl SidecarBridge {
     async fn call_with_policy(
         &self,
         cmd: &str,
-        mut fields: Value,
+        fields: Value,
         timeout: std::time::Duration,
         start_missing: bool,
     ) -> Result<Value, String> {
+        self.call_controlled(cmd, fields, timeout, start_missing, None).await
+    }
+
+    /// Experimental supplied-token host. Cancellation retains the real reply.
+    pub async fn prepare_supplied(&self) -> Result<Value, String> {
+        self.call_with_timeout("prepare_supplied", json!({}), std::time::Duration::from_secs(60)).await
+    }
+
+    /// Only the separate experimental host implements this operation.
+    pub async fn post_supplied(&self, fields: Value, timeout: std::time::Duration,
+        cancelled: &(dyn Fn() -> bool + Send + Sync)) -> Result<Value, String> {
+        self.call_controlled("send_supplied", fields, timeout, true, Some(cancelled)).await
+    }
+
+    async fn call_controlled(&self, cmd: &str, mut fields: Value,
+        timeout: std::time::Duration, start_missing: bool,
+        cancelled: Option<&(dyn Fn() -> bool + Send + Sync)>) -> Result<Value, String> {
         let _admission = self.admit_unscoped()?;
         let started = std::time::Instant::now();
         // Apply one deadline to setup, queueing, writing and the reply.
@@ -440,7 +457,7 @@ impl SidecarBridge {
             let id = s.next_id.fetch_add(1, Ordering::Relaxed) + 1;
             fields["id"] = json!(id);
             fields["cmd"] = json!(cmd);
-            let (tx, rx) = oneshot::channel();
+            let (tx, mut rx) = oneshot::channel();
             s.pending.lock().unwrap().insert(id, tx);
             let _pending_call = PendingCall {
                 id,
@@ -452,9 +469,19 @@ impl SidecarBridge {
             // The cloned pipe belongs to this generation, and its own mutex
             // still keeps complete command frames in order.
             drop(guard);
-            write_registered_command(stdin, fields, self.transport_tasks.as_ref())
+            write_registered_command(stdin.clone(), fields, self.transport_tasks.as_ref())
                 .await
                 .map_err(|e| format!("sidecar write: {e}"))?;
+            if let Some(cancelled) = cancelled {
+                while !cancelled() {
+                    tokio::select! {
+                        reply = &mut rx => return reply.map_err(|_| "sidecar dropped the request".to_owned())?,
+                        _ = tokio::time::sleep(std::time::Duration::from_millis(10)) => {},
+                    }
+                }
+                write_registered_command(stdin, json!({"cmd": "cancel", "request_id": id}),
+                    self.transport_tasks.as_ref()).await.map_err(|_| "sidecar cancellation write failed")?;
+            }
             rx.await.map_err(|_| "sidecar dropped the request".to_owned())?
         };
         match tokio::time::timeout(timeout, request).await {

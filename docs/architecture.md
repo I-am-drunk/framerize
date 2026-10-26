@@ -3,6 +3,21 @@
 The current reorganization is in progress. See [the design](rearchitecture.md)
 for decisions, boundaries and the remaining migration work.
 
+The optional native `browser-transport` feature connects the native minter
+to a supplied-token browser sender. Each request carries its actual minted
+device, account/session binding and freshness deadline. One browser creates
+a separate context per active request and closes it before confirming cleanup.
+The sender performs one POST without minting or retrying a refused request.
+It returns a bounded complete body through the native response owner.
+
+Native startup verifies inputs and accounts, completes any required history
+migration and starts the ledger before preparing the browser. Admission waits
+for preparation. The application retains browser shutdown ownership across
+preparation failure or cancellation; the service joins its ledger before
+releasing the profile. This is an experimental development option. Separate
+contexts do not provide distinct TLS fingerprints or prove remote unlinkability.
+See the [handoff contract](../reference/analysis/native-browser-handoff-20261026.md).
+
 Browser AI response reads enforce an 8 MiB byte limit and drain a queue
 during the fetch. Queued and unacknowledged text share a 131,072 UTF-16-unit
 capacity. Each chunk remains replayable until the host validates and
@@ -282,6 +297,16 @@ matching the journal's profile ownership. Different paths to that directory
 do not create independent owners. The lock file stays in place across exits;
 kernel lock ownership, not its presence, determines whether startup can proceed.
 Session replacement uses a private temporary file and an atomic rename.
+On Unix, opening a store rejects a session directory with any group or other
+permission bits. This also applies to existing directories, before taking
+ownership. The store does not change existing permissions or migrate files.
+Session and ownership entries must be regular files. Unix opens are nonblocking
+so a FIFO can be rejected through its opened-file metadata without waiting for
+a writer, before locking or reading any contents.
+Native startup uses the store's optional byte limit with the same 16 KiB bound
+as native credential validation. Reads take at most one byte beyond that bound
+to detect overflow even if a file grows; oversized saves fail before replacement.
+The default store constructor has no size limit, preserving other consumers.
 
 Native generations retain the store with their HTTP client. Credential
 preparation also retains that client until its worker ends. Closing the store

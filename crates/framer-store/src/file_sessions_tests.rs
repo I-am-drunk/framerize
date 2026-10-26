@@ -1,18 +1,145 @@
 use super::*;
 use std::sync::atomic::{AtomicU64, Ordering};
 
+#[tokio::test]
+async fn bounded_session_roundtrips_at_exact_byte_limit() {
+    let root = Directory::new();
+    let store = FileSessionStore::new_bounded(&root.0, 16 * 1024).unwrap();
+    let session = Session { active_user: FramerUserId("fixture-user".into()),
+        cookie_header: "é".repeat(8 * 1024) };
+    store.save(&session).await.unwrap();
+    assert_eq!(store.load(&session.active_user).await.unwrap().unwrap().cookie_header,
+        session.cookie_header);
+}
+
+#[tokio::test]
+async fn bounded_save_preserves_existing_session_on_overflow() {
+    let root = Directory::new();
+    let store = FileSessionStore::new_bounded(&root.0, 16 * 1024).unwrap();
+    let mut session = Session { active_user: FramerUserId("fixture-user".into()),
+        cookie_header: "session=fixture".into() };
+    store.save(&session).await.unwrap();
+    session.cookie_header = "x".repeat(16 * 1024 + 1);
+    assert_eq!(store.save(&session).await.unwrap_err(), "session exceeds configured byte limit");
+    assert_eq!(std::fs::read(store.path(&session.active_user).unwrap()).unwrap(), b"session=fixture");
+    assert_eq!(store.load(&session.active_user).await.unwrap().unwrap().cookie_header, "session=fixture");
+    assert_eq!(std::fs::read_dir(&root.0).unwrap().count(), 2);
+}
+
+#[tokio::test]
+async fn bounded_load_rejects_existing_oversized_file() {
+    let root = Directory::new();
+    let user = FramerUserId("fixture-user".into());
+    let large_header = "x".repeat(16 * 1024 + 1);
+    let unbounded = FileSessionStore::new(&root.0).unwrap();
+    unbounded.save(&Session { active_user: user.clone(), cookie_header: large_header.clone() })
+        .await.unwrap();
+    drop(unbounded);
+    let bounded = FileSessionStore::new_bounded(&root.0, 16 * 1024).unwrap();
+    assert_eq!(bounded.load(&user).await.unwrap_err(), "session exceeds configured byte limit");
+    assert_eq!(std::fs::read(bounded.path(&user).unwrap()).unwrap(), large_header.as_bytes());
+}
+
+#[tokio::test]
+async fn default_session_store_retains_large_header_support() {
+    let root = Directory::new();
+    let store = FileSessionStore::new(&root.0).unwrap();
+    let session = Session { active_user: FramerUserId("fixture-user".into()),
+        cookie_header: "x".repeat(16 * 1024 + 1) };
+    store.save(&session).await.unwrap();
+    assert_eq!(store.load(&session.active_user).await.unwrap().unwrap().cookie_header,
+        session.cookie_header);
+}
+
+#[test]
+fn bounded_reader_stops_at_limit_plus_one_when_more_data_remains() {
+    struct ContinuousReader { bytes_read: usize }
+    impl Read for ContinuousReader {
+        fn read(&mut self, bytes: &mut [u8]) -> std::io::Result<usize> {
+            bytes.fill(b'x');
+            self.bytes_read += bytes.len();
+            Ok(bytes.len())
+        }
+    }
+    let mut reader = ContinuousReader { bytes_read: 0 };
+    assert_eq!(read_bounded_session(&mut reader, 16 * 1024).unwrap_err(),
+        "session exceeds configured byte limit");
+    assert_eq!(reader.bytes_read, 16 * 1024 + 1);
+}
+
 struct Directory(PathBuf);
 impl Directory {
     fn new() -> Self {
         static NEXT: AtomicU64 = AtomicU64::new(0);
         let path = std::env::temp_dir().join(format!("framerize-session-test-{}-{}",
             std::process::id(), NEXT.fetch_add(1, Ordering::Relaxed)));
-        std::fs::create_dir(&path).unwrap();
+        let mut builder = std::fs::DirBuilder::new();
+        #[cfg(unix)] {
+            use std::os::unix::fs::DirBuilderExt;
+            builder.mode(0o700);
+        }
+        builder.create(&path).unwrap();
         Self(path)
     }
 }
 impl Drop for Directory {
     fn drop(&mut self) { let _ = std::fs::remove_dir_all(&self.0); }
+}
+
+#[cfg(unix)]
+fn make_fifo(path: &std::path::Path) {
+    use std::os::unix::ffi::OsStrExt;
+    let path = std::ffi::CString::new(path.as_os_str().as_bytes()).unwrap();
+    // The CString keeps the NUL-terminated path alive for the entire call.
+    let result = unsafe { libc::mkfifo(path.as_ptr(), 0o600) };
+    assert_eq!(result, 0, "{}", std::io::Error::last_os_error());
+}
+
+#[cfg(unix)]
+#[test]
+fn ownership_file_must_be_regular() {
+    use std::os::unix::fs::FileTypeExt;
+    let root = Directory::new();
+    let path = root.0.join(".owner.lock");
+    make_fifo(&path);
+    assert_eq!(FileSessionStore::new(&root.0).err().as_deref(),
+        Some("session store entry must be a regular file"));
+    assert!(std::fs::metadata(path).unwrap().file_type().is_fifo());
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn session_fifo_without_a_writer_is_refused() {
+    // An async timeout cannot interrupt the old blocking open; the test process needs a deadline.
+    let root = Directory::new();
+    let store = FileSessionStore::new(&root.0).unwrap();
+    let session = Session { active_user: FramerUserId("fixture-user".into()),
+        cookie_header: "session=inert-fixture".into() };
+    let path = store.path(&session.active_user).unwrap();
+    make_fifo(&path);
+    assert_eq!(store.load(&session.active_user).await.err().as_deref(),
+        Some("session store entry must be a regular file"));
+    std::fs::remove_file(path).unwrap();
+    store.save(&session).await.unwrap();
+    assert_eq!(store.load(&session.active_user).await.unwrap().unwrap().cookie_header,
+        session.cookie_header);
+}
+
+#[cfg(unix)]
+#[test]
+fn existing_shared_session_directory_is_refused_without_modification() {
+    use std::os::unix::fs::PermissionsExt;
+    for mode in [0o740, 0o720, 0o710, 0o704, 0o702, 0o701] {
+        let root = Directory::new();
+        let saved = root.0.join("fixture.session");
+        std::fs::write(&saved, b"inert-fixture").unwrap();
+        std::fs::set_permissions(&root.0, std::fs::Permissions::from_mode(mode)).unwrap();
+        assert_eq!(FileSessionStore::new(&root.0).err().as_deref(),
+            Some("session directory must not allow group or other access"));
+        assert!(!root.0.join(".owner.lock").exists());
+        assert_eq!(std::fs::metadata(&root.0).unwrap().permissions().mode() & 0o777, mode);
+        assert_eq!(std::fs::read(saved).unwrap(), b"inert-fixture");
+    }
 }
 
 struct Child(std::process::Child);
@@ -95,6 +222,7 @@ async fn replacement_is_private_and_does_not_truncate_the_previous_file() {
     assert_eq!(old, "session=first-fixture");
     #[cfg(unix)] {
         use std::os::unix::fs::PermissionsExt;
+        assert_eq!(std::fs::metadata(&store.dir).unwrap().permissions().mode() & 0o777, 0o700);
         assert_eq!(std::fs::metadata(path).unwrap().permissions().mode() & 0o777, 0o600);
     }
     store.delete(&session.active_user).await.unwrap();

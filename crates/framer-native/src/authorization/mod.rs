@@ -30,6 +30,8 @@ mod credential_target;
 pub use credential_target::CredentialTarget;
 pub use credential_target::CurrentRequestCookies;
 
+pub(crate) const MAX_COOKIE_HEADER_BYTES: usize = 16 * 1024;
+
 pub struct CredentialMaterial { pub bearer: String, pub castle: FreshCastleToken }
 
 pub struct PreparedCredentials {

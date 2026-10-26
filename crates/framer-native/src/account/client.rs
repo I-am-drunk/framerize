@@ -241,6 +241,7 @@ impl Drop for SessionChange {
 
 struct Inner {
     pool: RequestPool,
+    browser: Option<Arc<dyn crate::transport::browser::BrowserTransport>>,
     state: Mutex<State>,
     wake: AtomicWaker,
     supervisor: Mutex<Option<JoinHandle<()>>>,
@@ -729,9 +730,20 @@ impl NativeAccountClient {
     }
 
     pub fn new() -> Result<Self, ClientError> {
+        Self::build(None)
+    }
+
+    pub fn with_browser_transport(browser: Arc<dyn crate::transport::browser::BrowserTransport>)
+        -> Result<Self, ClientError> {
+        Self::build(Some(browser))
+    }
+
+    fn build(browser: Option<Arc<dyn crate::transport::browser::BrowserTransport>>)
+        -> Result<Self, ClientError> {
         let runtime = tokio::runtime::Handle::try_current().map_err(|_| ClientError::NoRuntime)?;
         let inner = Arc::new(Inner {
             pool: RequestPool::new(CAPACITY).map_err(ClientError::Admission)?,
+            browser,
             state: Mutex::new(State { healthy: true, next: 1, accounts: Vec::new(), changes: Vec::new() }),
             wake: AtomicWaker::new(), supervisor: Mutex::new(None),
         });
@@ -770,6 +782,10 @@ impl NativeAccountClient {
         let user = session.active_user.clone();
         self.open_with(account, session, || {
             let client = NativeHttp::new(account, user, limits, egress)?;
+            let client = match &self.inner.browser {
+                Some(browser) => client.with_browser(browser.clone()),
+                None => client,
+            };
             Ok(match owner {
                 Some(owner) => client.with_session_owner(owner),
                 None => client,

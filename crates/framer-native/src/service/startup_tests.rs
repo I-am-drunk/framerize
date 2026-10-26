@@ -11,7 +11,7 @@ impl Fixture {
     async fn new() -> Self {
         let root = std::env::temp_dir().join(format!("framerize-native-startup-{}", uuid::Uuid::new_v4()));
         let profiles = root.join("profiles");
-        std::fs::create_dir_all(profiles.join(".sessions")).unwrap();
+        drop(FileSessionStore::new(profiles.join(".sessions")).unwrap());
         let runtime = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../runtime")
             .canonicalize().unwrap();
         let result = Command::new("/usr/bin/python3").args(["-I", "-B"])

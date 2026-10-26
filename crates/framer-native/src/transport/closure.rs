@@ -38,19 +38,27 @@ impl std::error::Error for NativeCloseError {}
 pub struct NativeClosed {
     receiver: oneshot::Receiver<()>,
     result: Option<Result<(), NativeCloseError>>,
+    cancellation: Option<super::NativeCancellation>,
+    external: Option<super::NativeCleanup>,
 }
 
 impl Future for NativeClosed {
     type Output = Result<(), NativeCloseError>;
     fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
         let this = self.get_mut();
-        if let Some(result) = this.result { return Poll::Ready(result); }
-        let result = match Pin::new(&mut this.receiver).poll(cx) {
+        let result = if let Some(result) = this.result { result } else { match Pin::new(&mut this.receiver).poll(cx) {
             Poll::Pending => return Poll::Pending,
             Poll::Ready(Ok(())) => Ok(()),
             Poll::Ready(Err(_)) => Err(NativeCloseError::AcknowledgementLost),
-        };
+        }};
         this.result = Some(result);
+        if result.is_ok() {
+            if this.external.is_none() {
+                this.external = this.cancellation.as_ref()
+                    .and_then(|cancel| lock(&cancel.inner.cleanup).clone());
+            }
+            if let Some(cleanup) = this.external.as_mut() { return Pin::new(cleanup).poll(cx); }
+        }
         Poll::Ready(result)
     }
 }
@@ -64,7 +72,15 @@ impl CompletionSignal {
 
 fn pair() -> (CompletionSignal, NativeClosed) {
     let (sender, receiver) = oneshot::channel();
-    (CompletionSignal(sender), NativeClosed { receiver, result: None })
+    (CompletionSignal(sender), NativeClosed { receiver, result: None, cancellation: None, external: None })
+}
+
+pub(super) fn track_owned<'a, F>(future: F, cancellation: super::NativeCancellation)
+    -> NativeTrackedRequest<'a>
+where F: Future<Output = Result<NativeResponse, String>> + Send + 'a {
+    let mut request = track(future);
+    request.closed.cancellation = Some(cancellation);
+    request
 }
 
 pub(super) fn track<'a, F>(future: F) -> NativeTrackedRequest<'a>

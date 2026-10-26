@@ -27,6 +27,8 @@ use crate::authorization::source::Failure;
 mod shared_sessions;
 #[path = "retained_transport_tests.rs"]
 mod retained_transport;
+#[path = "browser_transport_tests.rs"]
+mod browser_transport;
 #[path = "retained_finalization_tests.rs"]
 mod retained_finalization;
 #[path = "admission_tests.rs"]
@@ -242,6 +244,11 @@ struct Ports {
 }
 
 fn fixture() -> (ServiceState, Arc<Ports>, Specification, Sessions) {
+    fixture_browser(None)
+}
+
+fn fixture_browser(browser: Option<Arc<dyn crate::transport::browser::BrowserTransport>>)
+    -> (ServiceState, Arc<Ports>, Specification, Sessions) {
     let id = AccountId::new();
     let other_id = AccountId::new();
     let account = ManagedAccount { id, alias: "fixture".into(), email: None,
@@ -269,8 +276,8 @@ fn fixture() -> (ServiceState, Arc<Ports>, Specification, Sessions) {
     state.gate = Arc::new(framer_core::gate::ConcurrencyGate::with_config(framer_core::gate::GateConfig {
             initial: 1, min: 1, max: 1, recover_ms: 60_000, relax_ms: 60_000, min_interval_ms: 0,
         }));
-    let sessions = Sessions::new(state.sessions.clone(),
-        state.operation_ownership.clone().unwrap()).unwrap();
+    let sessions = Sessions::with_browser(state.sessions.clone(),
+        state.operation_ownership.clone().unwrap(), browser).unwrap();
     state.sessions = sessions.store();
     let spec = Specification { identity, route: FreeRoute::Responses, token_limit: 32,
         payload: serde_json::json!({"model":"gpt-4.1", "input":"fixture", "stream":false}),
