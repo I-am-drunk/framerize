@@ -308,6 +308,10 @@ existing session-save and grant ordering. This protects callers sharing the
 same in-process policy. It does not enforce database or cross-process
 uniqueness or undo partial session/grant work after a later failure.
 
+Credit admission clears the previous primary project in the same account
+update when it selects another team. Existing login/import paths then adopt
+or create a project in that team. Same-team admission preserves its project.
+
 Dedupe reports shorten device and team identifiers to a valid UTF-8 prefix
 of at most eight bytes. Classification retains the complete identifiers;
 short or non-ASCII values cannot panic solely while constructing previews.

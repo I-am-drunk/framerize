@@ -1,5 +1,16 @@
 # Development status
 
+Credit admission now clears the previous primary project when it selects
+a different team. Login and import then adopt or create a project in that
+selected team. All eight isolated checks pass after both changed-team
+regressions failed on the parent and the same-team controls passed. The
+candidate covers adoption, creation, same-team reuse and four existing
+workspace-selection controls. All 768 source and three candidate hashes
+match; both test units are stopped. This integrates A's `9822c17` on the
+qualified S1 source, with one private fixture-constructor adaptation.
+Earlier metadata-driven team assignment remains a separate queued correction.
+Next: qualify that follow-up and the released S2 forwarding fixtures.
+
 S1 is now composed with the newer heartbeat, account preview, provisioning
 and retention fixes on `feat/native-browser-handoff-20261026`. All 37 focused
 integration checks pass across core, native and server; all 768 source hashes

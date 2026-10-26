@@ -212,6 +212,9 @@ pub async fn admit(
     };
 
     deps.update(account, |current| {
+        if current.current_team.as_ref() != Some(&fresh.team) {
+            current.current_project = None;
+        }
         current.current_team = Some(fresh.team.clone());
         current.credit = Some(fresh.snapshot);
     }).await?;

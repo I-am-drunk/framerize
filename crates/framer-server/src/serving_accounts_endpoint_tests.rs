@@ -15,6 +15,8 @@ mod dedupe_retention;
 mod dedupe_preview;
 #[path = "account_provisioning_preview_tests.rs"]
 mod provisioning_preview;
+#[path = "account_admission_project_scope_tests.rs"]
+mod admission_project_scope;
 
 
 use super::{account, policy};
