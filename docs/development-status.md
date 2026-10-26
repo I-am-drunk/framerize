@@ -3,6 +3,20 @@
 The rearchitecture is on `refactor/separate-apps-and-ci-20261025` in draft
 [PR #2](https://github.com/I-am-drunk/framerize/pull/2). It is not deployed.
 
+CDP attachment now selects the exact HTTPS Framer app origin before using a
+page. Discovery GET and new-tab PUT share an owned async HTTP connection
+with a five-second total deadline, 16 KiB header limit and 8 MiB body limit.
+Complete fixed-length or EOF-delimited replies are required; failed status,
+truncation and unsupported transfer encoding are rejected. Cancellation and
+timeout close the socket. All 15 isolated origin/GET/PUT checks pass after
+13 reproduced baseline failures and two controls. All 741 tracked and six
+candidate hashes match, and both test units are stopped. This qualified
+source is outside the frozen `f33362b` packages. Real-browser interoperability
+and live acceptance remain untested; chunked HTTP is explicitly unsupported.
+Next: integrate the remaining owned-startup and cleanup inputs before making
+a new package decision. Live draining still needs effective ingress control
+or a freshly coordinated quiet interval.
+
 CDP commands now use one deadline for both writing the command and waiting
 for its reply. A stalled socket write can no longer bypass the caller's
 timeout, including during browser shutdown. The blocked-write regression
@@ -10,8 +24,7 @@ and both reply/error controls pass after the parent reproduced the write
 hang. All 740 tracked and two candidate hashes match; both isolated units
 are stopped. This source-only change preserves every caller duration and
 does not cancel browser JavaScript or establish process exit. It is outside
-the frozen `f33362b` packages. Next: qualify the queued CDP origin selection
-and HTTP transport group.
+the frozen `f33362b` packages. The origin/HTTP result is recorded above.
 
 Python browser-page ownership now survives repeated caller cancellation.
 Cancelled pool allocation settles and reclaims its page before unlocking;
