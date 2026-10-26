@@ -3,6 +3,16 @@
 The rearchitecture is on `refactor/separate-apps-and-ci-20261025` in draft
 [PR #2](https://github.com/I-am-drunk/framerize/pull/2). It is not deployed.
 
+Matched browser/native packages and supplied runtime are qualified at `f33362b`.
+All 724 source pins and seven package/helper bindings match. Nine browser and
+eight native package controls pass, along with five history/failed-host checks
+and three diagnostic checks. Both native shutdown modes retain correlated
+request/cleanup records without private request fields. These used synthetic
+state with no browser, SDK or upstream work. The previous packages are retained.
+The repaired live service is unchanged. Its existing schema-2 history requires
+a new acceptance controller path; the old first-migration procedure cannot be
+reused. Next: implement and qualify that path before any live transition.
+
 Login completion in both browser adapters now reads session cookies applicable
 to the API origin. Website-only cookies can no longer replace the API session;
 host-only API cookies and shared-domain sessions remain supported. Two Rust and
