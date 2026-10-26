@@ -46,14 +46,12 @@ previous milestone. Its 8 MiB byte bound and cancellation behavior are
 unchanged. The original full-body and unacknowledged-queue measurements
 remain evidence for those exact sources, not for this protocol.
 
-Production integration remains separate. The current host's
-`Host._run_job_active` polls the old complete-body operation. Every production
-start, poll and cancellation must stay inside `Host._rpc` and its account
-activity owner; a timed-out waiter does not release that underlying RPC.
-Integration must share the request deadline and retain that ownership during
-retries and final cleanup. The standalone fixture does not qualify this host
-lifecycle, a new minter/browser connection or any real Framer request.
+The standalone fixture did not qualify the host lifecycle. The subsequent
+[host integration](browser-response-host-20261026.md) preserves `Host._rpc`
+ownership and the shared request deadline, with separate host and real-browser
+qualification. Neither fixture establishes a new minter/browser connection
+or a real Framer request.
 
-Intake owns the independent `queue_ack_contract.cjs` source reservation.
-Its source and qualification are pending; the browser result above does not
-stand in for that test selection.
+Intake completed the independent `queue_ack_contract.cjs` reservation. All
+twelve cases passed with fixture SHA256 `8e6561fb…`. The integration reuses
+that result and the byte-identical reader and poll; the source remains frozen.

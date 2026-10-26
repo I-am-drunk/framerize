@@ -3,35 +3,35 @@
 The current reorganization is in progress. See [the design](rearchitecture.md)
 for decisions, boundaries and the remaining migration work.
 
-Browser AI response reads now count streamed bytes and enforce an 8 MiB
-payload limit before decoding further input. UTF-8 decoding is incremental;
-the caller still receives one complete body. Oversized responses follow the
-existing body-failure path, retaining the observed HTTP status. Cancellation
-waits for fetch/body cleanup through the existing account-owned RPC. The
-abandoned-job timer keeps unfinished cleanup joinable. These are browser
-resource bounds, not a native-token transport connection. See the
-[qualification and limits](../reference/analysis/browser-response-bounds-20261026.md).
-The real-browser fixture exercises this same script with only its target
-origin changed to loopback. It confirms body delivery and refusal, socket
-closure after cancellation, and browser descendant exit in private namespaces.
+Browser AI response reads enforce an 8 MiB byte limit and drain a queue
+during the fetch. Queued and unacknowledged text share a 131,072 UTF-16-unit
+capacity. Each chunk remains replayable until the host validates and
+acknowledges it; final acknowledgement removes the job. Python still returns
+one complete body and discards partial output on a body failure.
+Every start, poll and cancellation uses the account-owned `Host._rpc`.
+The receiver shares the request deadline; a timed-out waiter retains the
+underlying RPC owner until settlement. The abandoned-job timer keeps cleanup
+joinable. Local host and browser tests cover delivery, lost replies, bounds,
+ownership and cleanup. See the
+[integration result](../reference/analysis/browser-response-host-20261026.md).
 
-The separate response-transfer experiment compares the production full-body
+The earlier response-transfer experiment compares the then-current full-body
 poll with bounded chunks from an already completed body. Python still joins
 those chunks into one response. Nine fresh local trials preserve contents
 and cleanup, but show no clear memory win. See the
 [comparison](../reference/analysis/browser-response-transfer-20261026.md).
 
-A second experiment drains a 131,072 UTF-16-unit queue during the fetch,
+A second experiment drained a 131,072 UTF-16-unit queue during the fetch,
 with backpressure and the same joined cancellation. Thirteen local browser
 runs preserve complete bodies, limits and cleanup. The original reader shows
 a modest sampled memory reduction; twelve Node cases pass after a separate
-absent-body cancellation correction. Production transfer remains unchanged.
-The measured poll consumes text before the host confirms receipt. A separate
-acknowledged protocol now retains each frame and its capacity until receipt,
-including final-job removal. Its local browser fixture passes five injected
-RPC-loss points without repeating an HTTP request. Production integration
-must route those retries through `Host._rpc`, preserve account ownership and
-share the request deadline. See the
+absent-body cancellation correction. Those measurements retain their original
+source identity. The measured poll consumed text before receipt confirmation.
+A subsequent acknowledged protocol retained each frame and its capacity until
+receipt, including final-job removal. Its standalone browser fixture passed
+five injected RPC-loss points. That protocol is now integrated above; the
+prototype measurements do not establish performance for the integrated host.
+Historical comparisons require their recorded source revisions. See the
 [queue measurements](../reference/analysis/browser-response-queue-20261026.md)
 and [acknowledgement contract](../reference/analysis/browser-response-ack-20261026.md).
 

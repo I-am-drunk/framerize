@@ -91,7 +91,7 @@ class ActivityTests(unittest.IsolatedAsyncioTestCase):
         async def evaluate(script, args):
             if script == app.AI_POLL_JS:
                 polling.set()
-                return None
+                return {'kind': 'pending'}
             if script == app.AI_CANCEL_JS:
                 return await self.held()
         self.page.evaluate = evaluate

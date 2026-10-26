@@ -1,33 +1,14 @@
 """Browser-page operations used by the host."""
 import json
+from pathlib import Path
 from ..settings import API, CASTLE_CHUNK
+from .responses import BODY_LIMIT
 
-AI_RESPONSE_LIMIT = 8 * 1024**2
-_READ_RESPONSE_JS = """async (response, controller) => {
-  if (!response.body) return "";
-  const reader = response.body.getReader(), decoder = new TextDecoder();
-  const parts = [];
-  let received = 0, tail = "";
-  try {
-    while (true) {
-      const {value, done} = await reader.read();
-      if (done) {
-        parts.push(tail + decoder.decode());
-        return parts.join("");
-      }
-      received += value.byteLength;
-      if (received > %d) throw new Error("response body limit exceeded");
-      tail += decoder.decode(value, {stream: true});
-      if (tail.length >= 32768) { parts.push(tail); tail = ""; }
-    }
-  } catch (error) {
-    controller.abort();
-    try { await reader.cancel(); } catch (_) {}
-    throw error;
-  } finally {
-    reader.releaseLock();
-  }
-}""" % AI_RESPONSE_LIMIT
+AI_RESPONSE_LIMIT = BODY_LIMIT
+_READ_RESPONSE_JS = (
+    '(response, controller) => ('
+    + Path(__file__).with_name('response_reader.js').read_text()
+    + f')(response, controller, job, {AI_RESPONSE_LIMIT})')
 
 WARM_JS = """(async () => {
   if (!window.castlePublishableAPIKey) {
@@ -169,13 +150,7 @@ AI_START_JS = """(async ([path, body, token, bearer, jobId, dev]) => {
 })""" % (_READ_RESPONSE_JS, API)
 
 
-AI_POLL_JS = """((jobId) => {
-  const j = (window.__aiJobs || {})[jobId];
-  if (!j || !j.done) return null;
-  clearTimeout(j.timer);
-  delete window.__aiJobs[jobId];
-  return j.value;
-})"""
+AI_POLL_JS = Path(__file__).with_name('response_poll.js').read_text()
 
 
 AI_CANCEL_JS = """(async (jobId) => {
