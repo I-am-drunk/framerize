@@ -61,6 +61,12 @@ pub struct WorkspaceSpec {
 /// webview only.
 #[async_trait]
 pub trait BrowserBridge: Send + Sync {
+    /// Validate local account history without browsers, credentials or upstream work.
+    /// Adapters without a separate history process have no extra dependency.
+    async fn check_account_history(&self, _accounts: &[AccountId]) -> Result<(), String> {
+        Ok(())
+    }
+
     /// Whether admission can inspect incarnation-bound browser lifecycle state.
     /// Bridges without this facility retain their existing admission behavior.
     fn supports_browser_lifecycle(&self) -> bool { false }

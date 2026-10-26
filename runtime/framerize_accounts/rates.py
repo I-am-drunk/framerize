@@ -4,6 +4,7 @@ from copy import deepcopy
 from dataclasses import asdict, dataclass
 from datetime import date
 import math
+import os
 from pathlib import Path
 import time
 import uuid
@@ -16,6 +17,13 @@ class RatePolicy:
     mint_gap: float = 0.25
     capacity: int = 180
     reserves: int = 8
+
+    @classmethod
+    def from_environment(cls):
+        policy = cls(reserves=int(os.environ.get('FRAMERIZE_RESERVE_PER_DAY', '8')),
+                     mint_gap=float(os.environ.get('FRAMERIZE_MINT_GAP_S', '0.25')))
+        AccountRates(None, 'policy-validation', policy)
+        return policy
 
 
 class SystemClock:
@@ -46,7 +54,7 @@ class AccountRates:
             if self.needs_cleanup and (rebooted or journal.previous_runtime_stopped(
                     account, self.clock.boot_id)):
                 self.confirm_runtime_stopped()
-            elif rebooted:
+            elif rebooted or (record['policy'] != asdict(self.policy) and not self.needs_cleanup):
                 self._commit(deepcopy(self.state))
         elif journal is not None:
             self._commit(deepcopy(self.state))
@@ -113,8 +121,13 @@ class AccountRates:
         if (type(record) is not dict or set(record) != fields
                 or type(record['version']) is not int or record['version'] != 1
                 or type(record['boot_id']) is not str or not record['boot_id']
-                or record['policy'] != asdict(self.policy)):
+                or type(record['policy']) is not dict):
             raise ValueError('incompatible account rate history')
+        previous = record['policy']
+        if (set(previous) != set(asdict(self.policy))
+                or type(previous['reserves']) is not int or not 0 <= previous['reserves'] <= 64
+                or dict(previous, reserves=self.policy.reserves) != asdict(self.policy)):
+            raise ValueError('incompatible account rate policy; restore the recorded rate configuration')
         saved = self._number(record['saved_at'])
         state = self._decode(record['state'], saved)
         now = self.clock.now()
@@ -155,7 +168,7 @@ class AccountRates:
                 or state['primary'] is not None and state['primary'] not in devices):
             raise ValueError('invalid saved device selection')
         if (type(state['reserve_used']) is not int
-                or not 0 <= state['reserve_used'] <= self.policy.reserves):
+                or not 0 <= state['reserve_used'] <= 64):
             raise ValueError('invalid saved reserve count')
         if state['reserve_day'] != '':
             date.fromisoformat(state['reserve_day'])

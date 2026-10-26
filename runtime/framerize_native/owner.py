@@ -64,7 +64,7 @@ class LedgerOwner:
     def __init__(self, root, policy=None, clock=None, sleep=asyncio.sleep):
         history = Path(root) / 'rate-history.sqlite3'
         require(history.is_file() and not history.is_symlink(), 'existing rate history required')
-        self._policy = policy or RatePolicy()
+        self._policy = policy or RatePolicy.from_environment()
         self._clock = clock or SystemClock()
         self._sleep = sleep
         self._generation = uuid.uuid4().hex

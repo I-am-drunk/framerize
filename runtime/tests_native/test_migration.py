@@ -11,7 +11,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from framerize_accounts import runtime_owner
 from framerize_accounts.expiry import ExpiryWitness
 from framerize_accounts.journal import RateJournal
-from framerize_accounts.rates import AccountRates
+from framerize_accounts.rates import AccountRates, RatePolicy
 from framerize_native.migration import expire_legacy
 from framerize_native.owner import LedgerOwner, OwnershipError
 
@@ -23,6 +23,27 @@ class Clock:
 
 
 class MigrationTests(unittest.IsolatedAsyncioTestCase):
+    async def test_native_migration_and_return_keep_configured_disabled_reserves(self):
+        settings = {'FRAMERIZE_RESERVE_PER_DAY': '0', 'FRAMERIZE_MINT_GAP_S': '0.75'}
+        with patch.dict('os.environ', settings):
+            self.assertEqual(self.migrate(), 1)
+            owner = LedgerOwner(self.root, clock=self.clock)
+            try:
+                grant = owner.open(self.account, str(uuid.uuid4()))
+                sequence = await owner.admit_mint(grant, 1000)
+                self.assertTrue(owner.finish_mint(grant, sequence, True))
+                self.assertTrue(owner.close_grant(grant, True))
+            finally:
+                owner.shutdown()
+        with RateJournal(self.root) as journal:
+            policy = RatePolicy(reserves=0, mint_gap=0.75)
+            rates = AccountRates(journal, self.account, policy, self.clock)
+            self.assertEqual(rates.state['reserve_used'], 0)
+            self.assertEqual(rates.mint_ready_in(), 0.75)
+            self.assertIsNone(rates.allocate_reserve())
+            self.assertEqual(list(rates.state['requests']['first']), [1600])
+        self.assertEqual(self.devices.read_text(), '["first", "second"]')
+
     def setUp(self):
         temporary = tempfile.TemporaryDirectory()
         self.addCleanup(temporary.cleanup)

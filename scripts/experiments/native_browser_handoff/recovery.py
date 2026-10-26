@@ -6,17 +6,22 @@ UNIT = 'framerize.service'
 CGROUP_ROOT = pathlib.Path('/sys/fs/cgroup')
 
 
-class ServiceShutdownUnconfirmed(RuntimeError):
+class RecoveryFailure(RuntimeError):
+    """A fixed diagnostic owned by this module, safe for the operator log."""
     pass
 
 
-class ServiceDescendantsRemain(RuntimeError):
+class ServiceShutdownUnconfirmed(RecoveryFailure):
+    pass
+
+
+class ServiceDescendantsRemain(RecoveryFailure):
     pass
 
 
 def require(condition, message):
     if not condition:
-        raise RuntimeError(message)
+        raise RecoveryFailure(message)
 
 
 def digest(path):
@@ -121,7 +126,7 @@ def owned_pool_versions(plan, saved):
     return versions
 
 
-def ready(expected, seconds=60):
+def ready(expected, seconds=60, *, verify_history=False):
     http = urllib.request.build_opener(urllib.request.ProxyHandler({}))
     deadline = time.monotonic() + seconds
     while time.monotonic() < deadline:
@@ -133,12 +138,20 @@ def ready(expected, seconds=60):
             matching = False
         if matching:
             try:
-                with http.open('http://127.0.0.1:8787/api/health', timeout=1) as reply:
-                    if reply.status == 200 and reply.headers.get('x-framerize-pid') == str(pid):
+                path = '/api/ready' if verify_history else '/api/health'
+                with http.open('http://127.0.0.1:8787' + path, timeout=1) as reply:
+                    valid_history = True
+                    if verify_history:
+                        raw = reply.read(4097)
+                        value = json.loads(raw) if len(raw) <= 4096 else None
+                        valid_history = type(value) is dict and value.get('ready') is True
+                    if (reply.status == 200 and reply.headers.get('x-framerize-pid') == str(pid)
+                            and valid_history):
                         return pid
-            except OSError: pass
+            except (OSError, ValueError, UnicodeError): pass
         time.sleep(0.2)
-    raise RuntimeError('browser return did not become ready')
+    raise RecoveryFailure('browser return did not become ready: local account history readiness failed'
+                          if verify_history else 'browser return did not become healthy')
 
 
 def has_history(plan):
@@ -214,7 +227,7 @@ def restore_started(plan, dropin):
     command('daemon-reload')
     if running is None:
         command('start', UNIT)
-    pid = ready(target)
+    pid = ready(target, verify_history=migrated)
     return finish_return(kind, pid, plan)
 
 
@@ -276,13 +289,24 @@ def restore():
         return restore_locked()
 
 
+def failure_details(error):
+    result = {'error_type': type(error).__name__}
+    if isinstance(error, RecoveryFailure):
+        result['reason'] = str(error)
+    if isinstance(error, subprocess.CalledProcessError):
+        result['exit_code'] = error.returncode
+    if isinstance(error, OSError):
+        result['errno'] = error.errno
+    return result
+
+
 def main(directory):
     global HERE
     HERE = pathlib.Path(directory).resolve(strict=True)
     try:
         result = restore()
     except Exception as error:
-        print(json.dumps({'status': 'failed', 'error_type': type(error).__name__}), flush=True)
+        print(json.dumps({'status': 'failed', **failure_details(error)}), flush=True)
         return 1
     print(json.dumps(result), flush=True)
     return 0

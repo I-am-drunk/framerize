@@ -111,6 +111,8 @@ mod permit_lifetime_tests;
 
 #[cfg(test)]
 mod upstream_health_tests;
+#[cfg(test)]
+mod readiness_tests;
 
 #[cfg(test)]
 mod free_responses_context_tests;
@@ -188,6 +190,20 @@ pub fn router(state: AppState, web_dir: &str) -> Router {
 
 async fn health(State(state): State<AppState>) -> impl axum::response::IntoResponse {
     health_response(state.operation_ownership.as_deref())
+}
+
+async fn readiness(State(state): State<AppState>) -> impl axum::response::IntoResponse {
+    let check = async {
+        let accounts = state.state.list().await?;
+        let ids: Vec<_> = accounts.into_iter().map(|account| account.id).collect();
+        state.browser.check_account_history(&ids).await
+    };
+    let ready = state.operation_ownership.as_ref().is_none_or(|scope| scope.accepting_requests())
+        && matches!(tokio::time::timeout(std::time::Duration::from_secs(5), check).await, Ok(Ok(())));
+    (if ready { StatusCode::OK } else { StatusCode::SERVICE_UNAVAILABLE },
+        [("x-framerize-pid", std::process::id().to_string())],
+        Json(serde_json::json!({"ready": ready,
+            "reason": if ready { "ready" } else { "account-history-unavailable" }})))
 }
 
 fn health_response(ownership: Option<&operation_ownership::ServingOwnership>)
@@ -297,6 +313,7 @@ pub fn router_with_request_layer(state: AppState, web_dir: &str,
     layer: impl FnOnce(Router) -> Router) -> Router {
     let api = Router::new()
         .route("/health", get(health))
+        .route("/ready", get(readiness))
         // Claude Code connection-warming probe (gateway protocol: safe to
         // answer or reject; we answer 200).
         .route("/hello", get(hello).head(hello))

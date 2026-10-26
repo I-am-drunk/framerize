@@ -15,6 +15,13 @@ use process::{Connection, Undo};
 
 pub struct LedgerOwner { connection: Connection }
 
+/// Keep migration and both runtime consumers on the configured rate policy.
+/// Pass only these public settings through the otherwise empty child environment.
+pub(crate) fn rate_policy_environment() -> Vec<(&'static str, std::ffi::OsString)> {
+    ["FRAMERIZE_RESERVE_PER_DAY", "FRAMERIZE_MINT_GAP_S"].into_iter()
+        .filter_map(|key| std::env::var_os(key).map(|value| (key, value))).collect()
+}
+
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct GrantReply { generation: String, lease: Uuid, device: String, authority: String }

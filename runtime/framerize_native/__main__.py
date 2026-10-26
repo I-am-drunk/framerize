@@ -80,7 +80,9 @@ def main(script):
             print(json.dumps({'migrated': count}), flush=True)
             return 0
         owner = LedgerOwner(args.root)
-    except (Exception, KeyboardInterrupt):
+    except (Exception, KeyboardInterrupt) as error:
+        from framerize_accounts.diagnostics import report
+        report(error)
         print(json.dumps({'ready': 0}), flush=True)
         return 1
     try:
