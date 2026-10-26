@@ -21,6 +21,9 @@ The controller records stop intent and joins the original service and its
 descendants before installing or loading the native runtime limit. Recovery
 recognizes interrupted stops even when no override has been installed yet,
 and retains the original invocation check before joining that shutdown.
+Shutdown confirmation waits at most ten seconds for systemd state and the
+cgroup to settle. It still requires PID zero and no remaining descendants;
+deadline failures distinguish service state from remaining processes.
 The native successor must publish a fresh, same-service expiry record before
 its one permitted canary request. A durable attempt marker prevents replay
 after a lost reply.

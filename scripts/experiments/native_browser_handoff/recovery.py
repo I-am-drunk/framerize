@@ -6,6 +6,14 @@ UNIT = 'framerize.service'
 CGROUP_ROOT = pathlib.Path('/sys/fs/cgroup')
 
 
+class ServiceShutdownUnconfirmed(RuntimeError):
+    pass
+
+
+class ServiceDescendantsRemain(RuntimeError):
+    pass
+
+
 def require(condition, message):
     if not condition:
         raise RuntimeError(message)
@@ -144,16 +152,26 @@ def has_history(plan):
 
 
 def stopped(plan):
-    current = status()
-    require(current['MainPID'] == '0' and current['ActiveState'] in ('inactive', 'failed'),
-            'service shutdown is unconfirmed')
+    deadline = time.monotonic() + 10
     group = plan['expected']['service']['ControlGroup']
     require(group.startswith('/user.slice/') and '..' not in group.split('/'),
             'unexpected service cgroup')
     events = CGROUP_ROOT / group.lstrip('/') / 'cgroup.events'
-    if events.exists():
-        values = dict(line.split() for line in events.read_text().splitlines())
-        require(values.get('populated') == '0', 'service descendants remain')
+    while True:
+        current = status()
+        idle = current['MainPID'] == '0' and current['ActiveState'] in ('inactive', 'failed')
+        try:
+            values = dict(line.split() for line in events.read_text().splitlines())
+            empty = values.get('populated') == '0'
+        except FileNotFoundError:
+            empty = True
+        if idle and empty:
+            return
+        if time.monotonic() >= deadline:
+            if not idle:
+                raise ServiceShutdownUnconfirmed('service shutdown is unconfirmed')
+            raise ServiceDescendantsRemain('service descendants remain')
+        time.sleep(0.1)
 
 
 def finish_return(kind, pid, plan):

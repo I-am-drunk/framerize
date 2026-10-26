@@ -48,6 +48,16 @@ implementation reproduced ordering and interrupted-stop failures. No live
 request or memory measurement occurred in these tests. The next attempt must
 use a fresh plan bound to the restored service's current invocation.
 
+The following attempt drained successfully but stopped before override
+installation. Systemd reported the original stopped; recovery restored it
+shortly afterward. The saved generic error does not identify the failed
+shutdown condition. Confirmation now waits up to ten seconds for both service
+exit and an empty cgroup, preserving both requirements. Distinct failure types
+identify an unsettled service or remaining descendants without private data.
+All 64 helper checks pass in 1.256 seconds, including delayed exit, deadline
+and unexpected-restart cases. No history migration or canary occurred in that
+attempt. The next live attempt remains independent of queued source fixes.
+
 The one-shot transition controller now passes 18 inert tests. It refuses to
 stop the original service before an empty, fenced pool; verifies the genuine
 expiry record; and durably claims one canary attempt before sending it.
