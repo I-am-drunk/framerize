@@ -1,5 +1,13 @@
 # Development status
 
+The `refactor/kernel-hot-swap-20261026` overhaul starts from qualified
+`c8371bf`, without changing the deployed service. The ownership map and
+pre-2022 reference evidence are in [kernel updates](kernel-updates.md).
+Initial offline baselines passed: 10 Python account-activity tests and nine
+activation/rollback tests. The production generation boundary is under vision
+review; the next step is an offline request-pinning and generation-transition
+slice. No hot-swap capability or hosted CI success is claimed yet.
+
 The rearchitecture is on `refactor/separate-apps-and-ci-20261025` in draft
 [PR #2](https://github.com/I-am-drunk/framerize/pull/2). It is not deployed.
 

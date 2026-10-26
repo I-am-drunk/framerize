@@ -1,5 +1,9 @@
 # Architecture
 
+The kernel/application-generation overhaul is being investigated separately
+in [kernel updates](kernel-updates.md). Existing ownership guarantees below
+remain authoritative while the new boundary is tested incrementally.
+
 The current reorganization is in progress. See [the design](rearchitecture.md)
 for decisions, boundaries and the remaining migration work.
 
