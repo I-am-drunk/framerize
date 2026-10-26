@@ -101,7 +101,7 @@ pub async fn run(
         }),
         // 401 = the cached JWT died mid-flight: drop it, remint, retry exactly once.
         Send::Unauthorized => {
-            auth::invalidate_ai_token(session, &token);
+            auth::invalidate_ai_token(t, session, &token);
             if let Ok(mut guard) = token_cache.lock() {
                 guard.retain(|(id, _)| id != account);
             }

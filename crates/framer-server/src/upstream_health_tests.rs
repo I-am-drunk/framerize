@@ -37,7 +37,7 @@ async fn upstream_403_multibyte_diagnostic_preserves_account_health_and_writes()
     let observed = Arc::new(ObservedState {
         inner: f.state.state.clone(), writes: AtomicUsize::new(0),
     });
-    f.state.state = observed.clone();
+    f.state.runtime_mut().unwrap().state = observed.clone();
     let before = serde_json::to_value(f.state.state.list().await.unwrap()).unwrap();
     // Refusal::Upstream.as_error("/p", body) keeps this sub-500-byte body intact.
     let error = format!("upstream 403 on /p: provider {}é", "a".repeat(210));

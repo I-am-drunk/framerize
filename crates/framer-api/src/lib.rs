@@ -49,19 +49,21 @@ use framer_core::port::{
 use framer_core::pipeline::{InferenceRequest, InferenceResult};
 use framer_core::workspace::CreditSnapshot;
 use transport::Transport;
+mod authorization;
+pub use authorization::SessionAuthorization;
+
+#[cfg(any(test, feature = "test-support"))]
+pub mod authorization_fixture;
 
 /// Live implementation of the core `FramerClient` port.
 pub struct HttpFramerClient {
     transport: Transport,
-    /// Cached AI JWT; 600 s TTL upstream, refreshed 30 s early (mirrors the app).
-    ai_token: std::sync::Mutex<Vec<(AccountId, auth::AiToken)>>,
 }
 
 impl HttpFramerClient {
     pub fn new() -> Self {
         Self {
             transport: Transport::new(),
-            ai_token: std::sync::Mutex::new(Vec::new()),
         }
     }
 
@@ -69,8 +71,12 @@ impl HttpFramerClient {
     /// account lease has drained, before publishing a changed login/session.
     /// The session bridge separately invalidates the cookie-keyed cache.
     pub fn invalidate_account_authorization(&self, account: &AccountId) {
-        self.ai_token.lock().unwrap_or_else(std::sync::PoisonError::into_inner)
+        self.transport.authorization.accounts.lock().unwrap_or_else(std::sync::PoisonError::into_inner)
             .retain(|(id, _)| id != account);
+    }
+
+    pub fn session_authorization(&self) -> SessionAuthorization {
+        SessionAuthorization(self.transport.authorization.clone())
     }
 }
 
@@ -98,7 +104,7 @@ impl HttpFramerClient {
     ) -> Result<framer_core::port::ProxyResponse, String> {
         proxy::forward(
             &self.transport,
-            &self.ai_token,
+            &self.transport.authorization.accounts,
             session,
             browser,
             account,
@@ -150,7 +156,7 @@ impl FramerClient for HttpFramerClient {
         project: &framer_core::ids::ProjectId,
         req: &InferenceRequest,
     ) -> Result<InferenceResult, String> {
-        inference::run(&self.transport, &self.ai_token, session, browser, account, project, req).await
+        inference::run(&self.transport, &self.transport.authorization.accounts, session, browser, account, project, req).await
     }
 
     async fn usage(&self, session: &Session, team: &TeamId) -> Result<CreditSnapshot, String> {
@@ -245,7 +251,7 @@ impl FramerClient for HttpFramerClient {
     ) -> Result<framer_core::convert::AssembledResponse, String> {
         chain::messages::complete_long(
             &self.transport,
-            &self.ai_token,
+            &self.transport.authorization.accounts,
             session,
             browser,
             account,
@@ -271,7 +277,7 @@ impl FramerClient for HttpFramerClient {
     ) -> Result<framer_core::convert::AssembledResponses, String> {
         chain::responses::complete_long(
             &self.transport,
-            &self.ai_token,
+            &self.transport.authorization.accounts,
             session,
             browser,
             account,
@@ -329,5 +335,3 @@ fn collect_project_ids(
 
 #[cfg(test)]
 mod account_auth_tests;
-
-pub fn invalidate_session_authorization(session: &Session) { auth::invalidate_session(session); }

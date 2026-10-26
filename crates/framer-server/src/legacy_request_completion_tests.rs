@@ -33,7 +33,7 @@ fn request(dialect: &str, header: bool, stream: bool, account: AccountId) -> Req
 async fn metered_first_permit_disconnect_drains_before_permit_release() {
     for dialect in DIALECTS { for header in [false, true] { for stream in [false, true] {
         let (mut state, ports, scope, gate) = setup().await;
-        state.gate = Arc::new(framer_core::gate::ConcurrencyGate::with_config(
+        state.runtime_mut().expect("unique fixture runtime").gate = Arc::new(framer_core::gate::ConcurrencyGate::with_config(
             framer_core::gate::GateConfig { initial: 1, min: 1, max: 1,
                 recover_ms: 100_000, relax_ms: 100_000, min_interval_ms: 0 }));
         let key = format!("team-1:{}", framer_core::convert::to_openrouter_id("fixture"));
@@ -133,7 +133,7 @@ async fn setup() -> (AppState, Arc<Ports>, Arc<ServingOwnership>, OperationGate)
     activated(&state, 1).await;
     let (scope, gate) = ServingOwnership::new_with_host_factory(
         state.wave.clone(), 32, |gate| gate).unwrap();
-    state.operation_ownership = Some(scope.clone());
+    state.runtime_mut().expect("unique fixture runtime").operation_ownership = Some(scope.clone());
     (state, ports, scope, gate)
 }
 

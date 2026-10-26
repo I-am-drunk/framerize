@@ -167,9 +167,10 @@ fn fixture(target: u128, login: bool) -> (AppState, Arc<RegistrationPorts>) {
     });
     // Exclude imports from prewarm, while login needs browser admission.
     let allowed = account(if login { target } else { 1 }).id.0.to_string();
-    let state = AppState::new(
+    let state = AppState::fixture(
         ports.clone(), ports.clone(), ports.clone(), ports.clone(),
-        Arc::new(ServingAccountPolicy::parse(Some(&allowed)).unwrap()),
+        ServingAccountPolicy::parse(Some(&allowed)).unwrap(),
+        framer_core::gate::ConcurrencyGate::new(),
     );
     (state, ports)
 }

@@ -97,6 +97,7 @@ fn validate_user(user: &FramerUserId) -> Result<(), String> {
     Ok(())
 }
 struct Inner {
+    authorization: framer_api::SessionAuthorization,
     native: NativeAccountClient,
     store: Arc<dyn SessionStore>,
     admission: Arc<Mutex<Admission>>,
@@ -163,6 +164,7 @@ impl Drop for Mutation {
     }
 }
 struct UserMutation {
+    authorization: framer_api::SessionAuthorization,
     mutation: Mutation,
     stamp: Stamp,
     access: ChangingSession,
@@ -170,10 +172,11 @@ struct UserMutation {
 }
 impl UserMutation {
     fn new(admission: &mut Admission, native: &NativeAccountClient,
-        store: Arc<dyn SessionStore>, user: FramerUserId) -> Result<Self, String> {
+        store: Arc<dyn SessionStore>, user: FramerUserId,
+        authorization: framer_api::SessionAuthorization) -> Result<Self, String> {
         let (stamp, ticket) = admission.user_change(native, &user)?;
         Ok(Self { mutation: Mutation { native: native.clone(), ticket, uncertain: false },
-            stamp, access: ChangingSession { user, store }, ready: false })
+            stamp, access: ChangingSession { user, store }, ready: false, authorization })
     }
     async fn initialize(&mut self) -> Result<(), String> {
         self.mutation.ticket.ready().await
@@ -182,7 +185,7 @@ impl UserMutation {
         // No old-generation authorization can repopulate this cache now.
         let previous = self.access.store.load(&self.access.user).await;
         match previous {
-            Ok(Some(old)) if old.active_user == self.access.user => framer_api::invalidate_session_authorization(&old),
+            Ok(Some(old)) if old.active_user == self.access.user => self.authorization.invalidate(&old),
             Ok(None) => {},
             Ok(Some(_)) => {
                 self.mutation.uncertain = false;
@@ -214,6 +217,12 @@ impl Drop for Opened {
 }
 impl SessionStoreBridge {
     pub fn new(native: NativeAccountClient, store: Arc<dyn SessionStore>) -> Result<Self, String> {
+        Self::with_authorization(native, store, Default::default())
+    }
+
+    /// Use the forwarding client's handle when sharing its private sessions.
+    pub fn with_authorization(native: NativeAccountClient, store: Arc<dyn SessionStore>,
+        authorization: framer_api::SessionAuthorization) -> Result<Self, String> {
         let runtime = tokio::runtime::Handle::try_current().map_err(|_| STOPPED.to_owned())?;
         let (sender, mut receiver) = mpsc::channel::<Job>(CAPACITY);
         let admission = Arc::new(Mutex::new(Admission {
@@ -250,7 +259,7 @@ impl SessionStoreBridge {
             joined
         }.boxed().shared();
         Ok(Self { inner: Arc::new(Inner {
-            native, store, admission, slots: Arc::new(Semaphore::new(CAPACITY)), closed,
+            native, store, authorization, admission, slots: Arc::new(Semaphore::new(CAPACITY)), closed,
         }) })
     }
 
@@ -365,10 +374,11 @@ impl SessionStoreBridge {
         F: for<'a> FnOnce(&'a ChangingSession) -> BoxFuture<'a, ChangeOutcome<T>> + Send + 'static,
     {
         let native = self.inner.native.clone();
+        let authorization = self.inner.authorization.clone();
         let store = self.inner.store.clone();
         let gate = self.inner.admission.clone();
         let receiver = self.submit(move |admission| {
-            let mut held = UserMutation::new(admission, &native, store, user)?;
+            let mut held = UserMutation::new(admission, &native, store, user, authorization)?;
             Ok(async move {
                 held.initialize().await?;
                 let outcome = update(&held.access).await;

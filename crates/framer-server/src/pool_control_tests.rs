@@ -514,23 +514,21 @@ fn account(n: u128) -> ManagedAccount {
         current_team: Some(TeamId(format!("team-{n}"))), current_project: Some(ProjectId(format!("project-{n}"))),
         extra_workspaces: vec![], state: AccountState::Ready, credit: None,
         // Distinct ranks make the initial automatic pick deterministic without
-        // disabling retry by pinning an account header. Ties use a global cursor.
+        // disabling retry by pinning an account header. Ties use the runtime cursor.
         consecutive_failures: (n - 1) as u32, cooldown_step: 2, cooling_until_ms: None,
     }
 }
 fn fixture(capacity: usize, saved: u128) -> (AppState, Arc<Ports>) {
     let ports = Arc::new(Ports::new(saved));
-    let state = AppState {
-        operation_ownership: None,
-        client: ports.clone(), browser: ports.clone(), sessions: ports.clone(), state: ports.clone(),
-        gate: Arc::new(framer_core::gate::ConcurrencyGate::with_config(
-            framer_core::gate::GateConfig { initial: 5, min: 4, max: 8,
-                recover_ms: 1_000, relax_ms: 30_000, min_interval_ms: 0 })),
-        wave: Arc::new(framer_core::wave::WaveGuard::new()),
-        serving_accounts: Arc::new(ServingAccountPolicy::from_config(PoolConfig {
+    let state = AppState::fixture(
+        ports.clone(), ports.clone(), ports.clone(), ports.clone(),
+        ServingAccountPolicy::from_config(PoolConfig {
             active_capacity: capacity, ..Default::default()
-        }).unwrap()),
-    };
+        }).unwrap(),
+        framer_core::gate::ConcurrencyGate::with_config(
+            framer_core::gate::GateConfig { initial: 5, min: 4, max: 8,
+                recover_ms: 1_000, relax_ms: 30_000, min_interval_ms: 0 }),
+    );
     (state, ports)
 }
 fn update(value: Value) -> ConfigUpdate { serde_json::from_value(value).unwrap() }
@@ -1224,7 +1222,7 @@ fn assert_repick_chats(ports: &Ports, explicit: Option<&str>, before: &[String; 
 async fn all_stream_handlers_retain_residency_through_chain_and_unread_completed_body() {
     for route in ROUTES {
         let (mut state, ports) = fixture(1, 2);
-        state.gate = one_slot_gate();
+        state.runtime_mut().expect("unique fixture runtime").gate = one_slot_gate();
         let response = streaming_response(&state, route).await;
         until(|| ports.request_started.load(Ordering::SeqCst) == 1).await;
         assert_stream_residency(&state).await;
@@ -1562,7 +1560,7 @@ async fn handlers_recheck_account_and_wave_after_waiting_for_the_model_gate() {
         for stream in [false, true] {
             for wave in [false, true] {
                 let (mut state, ports) = fixture(1, 1);
-                state.gate = one_slot_gate();
+                state.runtime_mut().expect("unique fixture runtime").gate = one_slot_gate();
                 let model = match route {
                     Route::Free => "claude-opus-5-5", Route::Native => "gpt-6-astra", Route::Compat => "fixture",
                 };
@@ -1678,7 +1676,7 @@ fn one_slot_gate() -> Arc<framer_core::gate::ConcurrencyGate> {
 #[tokio::test]
 async fn nonstream_overload_retry_does_not_wait_on_its_own_original_gate_permit() {
     let (mut state, ports) = fixture(1, 1);
-    state.gate = one_slot_gate();
+    state.runtime_mut().expect("unique fixture runtime").gate = one_slot_gate();
     ports.records.lock().unwrap()[0].current_team = Some(TeamId("overload-fixture-team".into()));
     ports.free_overload_once.store(true, Ordering::SeqCst);
     let key = "overload-fixture-team:claude-opus-5-5";
@@ -1704,7 +1702,7 @@ async fn account_repicks_wait_on_destination_gate_and_recheck_health_before_invo
         for stream in [false, true] {
             for wave in [false, true] {
                 let (mut state, ports) = fixture(1, 2);
-                state.gate = one_slot_gate();
+                state.runtime_mut().expect("unique fixture runtime").gate = one_slot_gate();
                 ports.fail_first_account.store(true, Ordering::SeqCst);
                 let model = if matches!(route, Route::Free) { "claude-opus-5-5" } else { "gpt-6-astra" };
                 let gate_key = format!("team-2:{model}");

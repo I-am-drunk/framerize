@@ -1,5 +1,16 @@
 # Development status
 
+S1 is now composed with the newer heartbeat, account preview, provisioning
+and retention fixes on `feat/native-browser-handoff-20261026`. All 37 focused
+integration checks pass across core, native and server; all 768 source hashes
+match, and the isolated test unit is stopped with no remaining processes.
+The merge preserves both inputs. Only two newer private fixtures needed
+unique-runtime access during setup; their assertions are unchanged. The
+original 351-check S1 qualification and its source/behavior review remain
+valid evidence. This is published source, outside the frozen `3ead4b8`
+packages. Next: the reviewed S2 forwarding fixtures, then the forwarding
+boundary after main qualifies those fixtures. Live acceptance remains open.
+
 Deduplication now releases a dead record's device from the retained-device
 set, so a later cooling account with a project is preserved. All four
 isolated checks pass after the parent reproduced both preview/apply failures
@@ -7,8 +18,7 @@ with two passing controls. All 762 source and three candidate hashes match;
 both test units are stopped. True clones and all-dead peers remain removable,
 and the tests retain the full surviving record and existing cleanup guards.
 This integrates A's `ce6882b` outside the frozen `3ead4b8` packages. No live
-account was changed. Next: compose the separately qualified S1 ownership
-rewrite with this branch's newer fixes.
+account was changed. The subsequent S1 composition is recorded above.
 
 The separate S1 runtime-ownership candidate at `71581d5` in
 [PR #7](https://github.com/I-am-drunk/framerize/pull/7) now compiles and passes
@@ -17,9 +27,8 @@ browser application 12. All 765 source hashes match; compilation and both
 test units are stopped with no remaining processes. The initial nine fixture
 assignment errors were corrected before these runs; production ownership
 was unchanged by that correction. This qualifies the separate S1 branch,
-not its integration here or live delivery. Frozen `3ead4b8` packages remain
-unchanged. S2/S3 are not released. Composition with the newer feature changes
-is the next S1 integration step.
+with integration evidence recorded above. Frozen `3ead4b8` packages remain
+unchanged. S2/S3 implementation and live acceptance remain separate steps.
 
 Extra-workspace provisioning now uses the existing UTF-8-safe preview in its
 successful-create log. Short or non-ASCII metadata IDs can no longer panic
@@ -30,6 +39,37 @@ Discovery, newest-project adoption, client-call order and full identities are
 preserved. This integrates A's `d9eb887` on the experimental feature branch,
 outside the frozen `3ead4b8` packages. Live provisioning was not exercised.
 Next: resume qualification of the separately corrected S1 runtime fixtures.
+Historical S1 source handoff: the overhaul integrated `92f1fa07`, including driver-start
+guard `e3895a4` and the shared account-registration guard. This integration
+reuses main's recorded qualification; no tests or builds were rerun here.
+S1 now factors runtime, rotation and authorization state under explicit shared
+ownership, preserving both native mutation paths and legacy request handling.
+Store ownership lasts through host shutdown. New fixtures cover shared routers,
+store exclusion, authorization isolation and invalidation after native drain.
+The draft passed read-only Rust syntax parsing and `git diff --check`.
+Main's compile of `b1fedb4` failed with nine E0594 fixture assignments after
+121.9 seconds; no S1 tests ran. All 765 source pins matched and the test unit
+stopped with an empty cgroup. This follow-up changes only those four fixture
+files to configure each private runtime before sharing. Assertions and
+production ownership are unchanged. The correction was initially uncompiled;
+the subsequent 351 passing checks are recorded above. Vision approved
+the S1 source, with behavior approval conditional on executed evidence.
+S2/S3 remain gated. Origin Actions skipped S1; the build fork remains blocked
+by GitHub's reported payment/spending-limit issue. No CI success is claimed.
+
+The `refactor/kernel-hot-swap-20261026` overhaul starts from qualified
+`c8371bf`, without changing the deployed service. The ownership map and
+pre-2022 reference evidence are in [kernel updates](kernel-updates.md).
+Pre-S1 focused offline checks passed: 10 Python
+account-activity tests, nine activation/rollback tests, 28 core operation-gate
+tests and 58 server operation-ownership tests. Six response-queue tests also
+passed. These results predate S1 and do not qualify its changed code. The
+agreed order is S1 ownership, S2 authorized forwarding, then S3 Responses
+worker integration. The exact-head
+[Actions attempt](https://github.com/diddletime/framerize/actions/runs/40365806170)
+for `0b21bbe` ended in `startup_failure` with zero jobs. GitHub's annotation
+reports a payment/spending-limit issue. Account-owner action is required.
+No hot-swap or hosted CI success is claimed yet.
 
 The rearchitecture is on `refactor/separate-apps-and-ci-20261025` in draft
 [PR #2](https://github.com/I-am-drunk/framerize/pull/2). It is not deployed.

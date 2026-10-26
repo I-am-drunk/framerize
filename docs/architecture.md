@@ -1,14 +1,29 @@
 # Architecture
 
+The S1 ownership extraction factors browser resources
+into one `AccountRuntime`. Each `AppState` shares that runtime. Construction
+consumes the stores, reads configuration before moving them, and installs the
+concurrency gate and operation owner before sharing. The session-store lock
+remains held through host shutdown. Test-only shared mock stores are separate
+from this production constructor.
+
+Rotation state belongs to the serving policy. The existing Framer client owns
+both authorization caches through its transport. Native session mutation can
+carry that same client's narrow cookie-cache invalidator, after the existing
+generation drain; account invalidation remains separate. Standalone native
+authorization is uncached and does not construct a browser client.
+
+Legacy request handling remains in process. The original `71581d5` candidate
+passed 351 isolated checks, and its composition with the newer feature source
+passed 37 focused checks. Replacing application generations remains later
+work. This step does not remove browser transport or establish memory savings.
+
+The kernel/application-generation overhaul is being investigated separately
+in [kernel updates](kernel-updates.md). Existing ownership guarantees below
+remain authoritative while the new boundary is tested incrementally.
+
 The current reorganization is in progress. See [the design](rearchitecture.md)
 for decisions, boundaries and the remaining migration work.
-
-The separate S1 candidate in [PR #7](https://github.com/I-am-drunk/framerize/pull/7)
-gives account state, rotation and authorization one owned runtime. It retains
-that runtime through request and host cleanup, with account-scoped cache
-invalidation on session changes. Its 351 isolated checks pass at `71581d5`;
-integration with this branch's newer changes remains pending. This ownership
-step does not remove browser transport or establish memory/latency savings.
 
 The experimental native/browser transition has an explicit recovery helper.
 It verifies pinned inputs and service ownership, joins native shutdown, and
