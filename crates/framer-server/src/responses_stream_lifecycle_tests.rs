@@ -13,6 +13,58 @@ fn assert_sequence(events: &[Value]) {
     assert_eq!(actual, expected);
 }
 
+#[tokio::test]
+async fn responses_disconnect_requires_validated_terminal_success() {
+    use tower::ServiceExt;
+    for valid in [false, true] {
+        let mut f = Fixture::new();
+        f.accounts[0].consecutive_failures = 3;
+        f.state.state.upsert(&f.accounts[0]).await.unwrap();
+        f.state = crate::operation_ownership::with_owned_operations(f.state, 3).unwrap();
+        let scope = f.state.operation_ownership.clone().unwrap();
+        let response = crate::router(f.state.clone(), "/nonexistent-fixture-web")
+            .oneshot(owned_request(&f)).await.unwrap();
+        let call = f.next().await;
+        drop(response);
+        assert!(!call.reply.is_closed());
+        let Reply::Responses(mut result) = success("responses") else { unreachable!() };
+        if !valid { result.status = "failed".into(); }
+        call.reply.send(Ok(Reply::Responses(result))).ok().unwrap();
+        tokio::time::timeout(WAIT, call.dropped).await.unwrap().unwrap();
+        gate_released(&scope).await;
+        let account = f.state.state.get(call.account).await.unwrap().unwrap();
+        assert_eq!(account.consecutive_failures, if valid { 0 } else { 3 });
+        assert_eq!(f.state.response_output.counts(), (0, 0, 0));
+        f.no_call();
+    }
+}
+
+#[tokio::test]
+async fn responses_disconnected_success_preserves_newer_health_update() {
+    use tower::ServiceExt;
+    let mut f = Fixture::new();
+    f.accounts[0].consecutive_failures = 3;
+    f.state.state.upsert(&f.accounts[0]).await.unwrap();
+    f.state = crate::operation_ownership::with_owned_operations(f.state, 3).unwrap();
+    let scope = f.state.operation_ownership.clone().unwrap();
+    let response = crate::router(f.state.clone(), "/nonexistent-fixture-web")
+        .oneshot(owned_request(&f)).await.unwrap();
+    let call = f.next().await;
+    let mut newer = f.state.state.get(call.account).await.unwrap().unwrap();
+    newer.note_risk_refused(framer_core::rotation::now_ms());
+    f.state.state.upsert(&newer).await.unwrap();
+    drop(response);
+    assert!(!call.reply.is_closed());
+    call.reply.send(Ok(success("responses"))).ok().unwrap();
+    tokio::time::timeout(WAIT, call.dropped).await.unwrap().unwrap();
+    gate_released(&scope).await;
+    let current = f.state.state.get(call.account).await.unwrap().unwrap();
+    assert_eq!(current.consecutive_failures, newer.consecutive_failures);
+    assert_eq!(current.cooldown_step, newer.cooldown_step);
+    assert_eq!(current.cooling_until_ms, newer.cooling_until_ms);
+    f.no_call();
+}
+
 async fn run_reply(reply: Result<Reply, String>) -> String {
     let mut f = Fixture::new();
     let response = chain(f.state.clone(), f.headers(0), false, true).await.unwrap();

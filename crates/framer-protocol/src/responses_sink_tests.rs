@@ -63,6 +63,14 @@ async fn continuation_waits_for_emission_and_keeps_original_history() {
 }
 
 struct Reject;
+struct CompletionReject { observed: Mutex<Vec<bool>> }
+#[async_trait]
+impl ResponsesSink for CompletionReject {
+    async fn emit(&self, chunk: ValidatedChunk) -> Result<ValidatedChunk, OutputError> {
+        self.observed.lock().unwrap().push(chunk.completes_chain());
+        Err(OutputError::Cancelled)
+    }
+}
 #[async_trait]
 impl ResponsesSink for Reject {
     async fn emit(&self, _: ValidatedChunk) -> Result<ValidatedChunk, OutputError> { Err(OutputError::Encoding) }
@@ -77,6 +85,23 @@ async fn output_failure_never_dispatches_or_retries_the_next_chunk() {
     assert_eq!(forward.replies.lock().unwrap().len(), 1);
 }
 struct Slow;
+#[tokio::test(start_paused = true)]
+async fn completion_evidence_matches_policy_before_cancelled_publication() {
+    for (partial, chunks, total, complete) in [(false, 2, 64, true),
+        (true, 2, 64, false), (true, 1, 64, true), (true, 2, 16, true),
+        (true, 2, 31, true), (true, 2, 32, false)] {
+        let forward = forward();
+        forward.replies.lock().unwrap()[0] = reply(partial);
+        let sink = CompletionReject { observed: Mutex::new(Vec::new()) };
+        let mut cfg = limits();
+        cfg.max_chunks = chunks; cfg.max_total_tokens = Some(total);
+        let result = responses::complete_long_with_sink(forward.as_ref(),
+            json!({"model":"fixture","input":"hello"}), &cfg, &sink).await;
+        assert!(matches!(result, Err(ResponseError::Output(OutputError::Cancelled))));
+        assert_eq!(*sink.observed.lock().unwrap(), vec![complete]);
+        assert_eq!(forward.calls.load(Ordering::SeqCst), 1);
+    }
+}
 #[async_trait]
 impl ResponsesSink for Slow {
     async fn emit(&self, chunk: ValidatedChunk) -> Result<ValidatedChunk, OutputError> {
@@ -92,6 +117,23 @@ async fn emission_wait_charges_active_budget_before_next_dispatch() {
     assert_eq!(forward.calls.load(Ordering::SeqCst), 1);
 }
 struct Identity;
+#[tokio::test]
+async fn assembled_completion_evidence_requires_validated_result() {
+    for valid in [false, true] {
+        let sink = CompletionReject { observed: Mutex::new(Vec::new()) };
+        let mut value = fixture_result();
+        if !valid { value.status = "failed".into(); }
+        let result = emit_assembled(value, &sink).await;
+        if valid {
+            assert!(matches!(result, Err(ResponseError::Output(OutputError::Cancelled))));
+            assert_eq!(*sink.observed.lock().unwrap(), vec![true]);
+        } else {
+            assert!(matches!(result, Err(ResponseError::Upstream(_))));
+            assert!(sink.observed.lock().unwrap().is_empty());
+        }
+    }
+    assert!(!ValidatedChunk::validate(Vec::new(), &[], false).unwrap().completes_chain());
+}
 #[async_trait]
 impl ResponsesSink for Identity {
     async fn emit(&self, chunk: ValidatedChunk) -> Result<ValidatedChunk, OutputError> { Ok(chunk) }

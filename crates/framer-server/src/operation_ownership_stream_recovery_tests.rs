@@ -321,6 +321,11 @@ async fn read_only_heads_and_discarded_gets_preserve_running_stream_and_admissio
     let body = tokio::time::timeout(WAIT, to_bytes(stream.into_body(), 65536))
         .await.unwrap().unwrap();
     assert!(String::from_utf8_lossy(&body).contains("response.completed"));
+    drop(body);
+    // Channel EOF does not wait for the owned producer's disposal join.
+    tokio::time::timeout(WAIT, async {
+        while ownership.gate.stats().unwrap().active > 1 { tokio::task::yield_now().await; }
+    }).await.expect("owned stream did not settle after body disposal");
     assert_eq!(ownership.gate.stats().unwrap().active, 1);
     assert!(!ownership.gate.stats().unwrap().unconfirmed);
     let next = app.oneshot(fixture_request(&f, true)).await.unwrap();

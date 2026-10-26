@@ -335,7 +335,11 @@ pub async fn complete_long_with_sink(
         // Normal chunk completion: merge items, emit, decide continuation.
         let continues_text = hit_cap
             && items.last().map(|it| it["type"].as_str() == Some("message")).unwrap_or(false);
-        let items = sink.emit(ValidatedChunk::new(items, continues_text)).await?.into_items();
+        let budget_left = cfg.max_total_tokens.map(|cap| u64::from(cap).saturating_sub(next_ctok));
+        let completes_chain = !hit_cap || budget_left.is_some_and(|left| left < 16)
+            || i + 1 == cfg.max_chunks;
+        let items = sink.emit(ValidatedChunk::new(items, continues_text)
+            .with_completion(completes_chain)).await?.into_items();
         merge_items(&mut output_items, items.clone());
         if resp_id.is_empty() {
             resp_id = body["id"].as_str().unwrap_or_default().to_string();
@@ -350,7 +354,6 @@ pub async fn complete_long_with_sink(
         final_status = status.clone();
         final_incomplete = body.get("incomplete_details").cloned();
 
-        let budget_left = cfg.max_total_tokens.map(|cap| u64::from(cap).saturating_sub(ctok));
         // prepare_payload enforces the upstream 16-token minimum. Do not
         // round a smaller remainder up beyond the client's total cap.
         if !hit_cap || budget_left.is_some_and(|left| left < 16) {

@@ -338,6 +338,28 @@ async fn output_profile_observer_control() {
 }
 
 struct TrackedBytes { bytes: Vec<u8>, drops: Arc<AtomicUsize> }
+#[tokio::test]
+async fn disconnected_sink_keeps_only_terminal_completion_evidence() {
+    let budget = OutputBudget::new(1);
+    let (emitter, sink, body) = output(budget.reserve().unwrap(), "fixture", "logical");
+    let cancel = emitter.publisher.cancel.clone();
+    let task = tokio::spawn(emitter.run());
+    drop(body);
+    for terminal in [true, false] {
+        let attempt = AttemptSink { output: &sink, cancel: &cancel,
+            completed_on_disconnect: false.into() };
+        if terminal {
+            assert!(framer_core::port::emit_assembled(result(0), &attempt).await.is_err());
+        } else {
+            let chunk = ValidatedChunk::validate(result(0).output, &[], false).unwrap();
+            assert!(attempt.emit(chunk).await.is_err());
+        }
+        assert_eq!(attempt.completed_on_disconnect.load(Ordering::SeqCst), terminal);
+    }
+    drop(sink);
+    tokio::time::timeout(WAIT, task).await.unwrap().unwrap();
+    assert_eq!(budget.counts(), (0, 0, 0));
+}
 impl AsRef<[u8]> for TrackedBytes { fn as_ref(&self) -> &[u8] { &self.bytes } }
 impl Drop for TrackedBytes {
     fn drop(&mut self) { self.drops.fetch_add(1, Ordering::SeqCst); }
@@ -368,6 +390,8 @@ async fn copying_consumer_preserves_aggregate_limit_and_body_errors() {
         Err::<bytes::Bytes, _>(io::Error::new(io::ErrorKind::InvalidData, "fixture source error"))
     ]));
     let error = consume_body(body, 1024).await.unwrap_err().into_inner();
+    // StreamBody and Body::new each wrap the original source error.
+    let error = error.downcast::<axum::Error>().unwrap().into_inner();
     let error = error.downcast::<io::Error>().unwrap();
     assert_eq!(error.kind(), io::ErrorKind::InvalidData);
     assert_eq!(error.to_string(), "fixture source error");

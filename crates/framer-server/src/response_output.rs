@@ -256,6 +256,24 @@ impl ResponsesSink for Sink {
             .ok_or(OutputError::Encoding) })
     }
 }
+struct AttemptSink<'a> {
+    output: &'a Sink, cancel: &'a Cancel,
+    completed_on_disconnect: std::sync::atomic::AtomicBool,
+}
+impl ResponsesSink for AttemptSink<'_> {
+    fn emit<'s, 'a>(&'s self, chunk: ValidatedChunk)
+        -> BoxFuture<'a, Result<ValidatedChunk, OutputError>> where 's: 'a, Self: 'a {
+        Box::pin(async move {
+            let complete = chunk.completes_chain();
+            let result = self.output.emit(chunk).await;
+            if complete && self.cancel.is_cancelled()
+                && matches!(&result, Err(OutputError::Cancelled | OutputError::Closed)) {
+                self.completed_on_disconnect.store(true, Ordering::SeqCst);
+            }
+            result
+        })
+    }
+}
 struct Emitter {
     publisher: Publisher, encoder: Option<ResponseEncoder>, commands: mpsc::Receiver<Command>,
     heartbeat: tokio::time::Interval, pending_heartbeat: bool,
@@ -470,16 +488,25 @@ impl FreeRequest {
             if let Err(error) = self.config.check_cancelled() { break Err(error.into()); }
             let admission = current_account(&self.state, self.account.id).await;
             let admitted = admission.is_ok();
+            let output = AttemptSink { output: sink, cancel,
+                completed_on_disconnect: false.into() };
             let result = match admission {
                 Err(error) => Err(chain_admission_error(error).into()),
                 Ok(_) => self.state.client.native_long_with_sink(&self.session,
                     self.state.browser.as_ref(), &self.account.id, &self.project,
-                    self.payload.clone(), &self.config, &self.chat_session, sink).await,
+                    self.payload.clone(), &self.config, &self.chat_session, &output).await,
             };
             drop(permit);
-            // Output failures never become account-health or retry decisions.
+            // Keep a joined terminal success when delivery is cancelled.
+            // Local encoding failures and intermediate chunks cannot earn it.
             let result = match result {
-                Err(ResponseError::Output(error)) => break Err(error.into()),
+                Err(ResponseError::Output(error)) => {
+                    if admitted && output.completed_on_disconnect.load(Ordering::SeqCst)
+                        && matches!(error, OutputError::Cancelled | OutputError::Closed) {
+                        record_account_health(&self.state, &self.account, &Ok::<(), String>(())).await;
+                    }
+                    break Err(error.into());
+                }
                 Err(ResponseError::Upstream(error)) => Err(error),
                 Ok(value) => Ok(value),
             };

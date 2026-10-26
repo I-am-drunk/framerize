@@ -13,7 +13,7 @@ closes staging before joining a cancelled serializer, closes body output
 before waiting for final buffer disposal, and joins already-sent Forward
 cleanup separately. Channel EOF never waits for producer completion.
 
-This slice is uncompiled and unqualified. Source fixtures cover bounds,
+The current correction is uncompiled and unqualified. Source fixtures cover bounds,
 faults, gate mapping and P2/P5 progress; main owns their execution.
 It does not switch application generations or change host retirement.
 

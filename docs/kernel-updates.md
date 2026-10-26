@@ -4,8 +4,10 @@ S3a prepares the free Responses SSE path for replacement policy workers.
 It adds an in-process awaited sink and incremental borrowed event encoder.
 The publisher owns accepted sequence state and irreversible content flags;
 the encoder cannot declare output accepted merely by entering a job queue.
-Output failures stop later dispatch and bypass account-health and repick
-logic. At a complete event boundary failure may emit one sequenced error;
+Output failures stop later dispatch and repick. A validated terminal success
+survives client disconnection for guarded account-health accounting; intermediate
+chunks and encoder failures cannot supply that success. At a complete event
+boundary failure may emit one sequenced error;
 after a partial event the body aborts without a fabricated completion.
 
 One admitted stream holds at most one serializer job, one queued emission
