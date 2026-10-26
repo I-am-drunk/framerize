@@ -1,5 +1,13 @@
 # Architecture
 
+SQLite account lookup validates the decoded identity against the requested
+key. Listing validates raw text keys against decoded canonical UUIDs before
+returning the complete account set. Inconsistent or nontext keys return a
+fixed identity error; earlier JSON and SQL errors keep their precedence.
+Valid alternate UUID spelling inside JSON is accepted, and reads do not
+repair or rekey stored records. This preserves the identity boundary used
+by the account guards even when stored rows are inconsistent.
+
 Free Responses SSE uses an awaited output sink. Policy transfers a validated
 chunk to one encoder and waits for its segments to enter the bounded body
 queue before receiving the same chunk owner and continuing the request.
