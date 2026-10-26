@@ -37,6 +37,10 @@ mod responses_sse_tests;
 #[path = "responses_fallback_tests.rs"]
 mod responses_fallback_tests;
 
+#[cfg(test)]
+#[path = "responses_active_budget_tests.rs"]
+mod responses_active_budget_tests;
+
 fn allows_transport_retry(error: &str, elapsed_secs: f32) -> bool {
     (error == "risk-refused" && elapsed_secs > 8.0)
         || (!error.starts_with("upstream 403")
@@ -122,15 +126,20 @@ pub async fn complete_long(
     let mut cooldown_wait = super::cooldown_wait::CooldownWait::default();
     let chain_started = cooldown_wait.timer();
     let max_active = std::time::Duration::from_secs(300);
+    let check_active_budget = |wait: &super::cooldown_wait::CooldownWait, i: u32| {
+        if wait.elapsed(chain_started) > max_active {
+            Err(format!(
+                "chain exceeded {}s active-time budget after {i} chunks (excluding local cooldown waits), retry the request",
+                max_active.as_secs()
+            ))
+        } else {
+            Ok(())
+        }
+    };
 
     for i in 0..cfg.max_chunks {
         cfg.check_cancelled()?;
-        if cooldown_wait.elapsed(chain_started) > max_active {
-            return Err(format!(
-                "chain exceeded {}s active-time budget after {i} chunks (excluding local cooldown waits), retry the request",
-                max_active.as_secs()
-            ));
-        }
+        check_active_budget(&cooldown_wait, i)?;
         let budget = cfg
             .max_total_tokens
             .map(|cap| cap.saturating_sub(ctok as u32).max(1))
@@ -153,6 +162,7 @@ pub async fn complete_long(
             let mut out = None;
             while out.is_none() {
                 cfg.check_cancelled()?;
+                check_active_budget(&cooldown_wait, i)?;
                 last_attempt_t0 = cooldown_wait.timer();
                 match cooldown_wait.run(cfg, !output_items.is_empty(), || proxy::forward_cancellable(
                     t, token_cache, session, browser, account, project,
@@ -206,6 +216,7 @@ pub async fn complete_long(
                 if !(allows_transport_retry(&e, elapsed) && chunk_tokens > 200) {
                     return Err(e);
                 }
+                check_active_budget(&cooldown_wait, i)?;
                 // Died silently (idle window or transport): halve and retry once.
                 chunk_tokens /= 2;
                 let retry_chunk = budget.min(chunk_tokens).min(chunk_cap).max(16);
@@ -224,6 +235,7 @@ pub async fn complete_long(
                     Err(e2) if !allows_transport_retry(&e2,
                         cooldown_wait.elapsed(retry_t0).as_secs_f32()) => return Err(e2),
                     Err(e2) if cfg.metered_fallback => {
+                        check_active_budget(&cooldown_wait, i)?;
                         eprintln!("[nativechain] chunk {i} retry died ({e2}) — metered stream fallback for this chunk");
                         let sp = build_payload(&input_items, retry_chunk);
                         let streamed =

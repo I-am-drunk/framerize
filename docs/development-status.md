@@ -3,6 +3,15 @@
 The rearchitecture is on `refactor/separate-apps-and-ci-20261025` in draft
 [PR #2](https://github.com/I-am-drunk/framerize/pull/2). It is not deployed.
 
+Responses check the existing 300-second active-time budget before explicit
+rate, halved-transport and metered retries. All 18 selected checks pass,
+including eight new cases; the previous behavior reproduced three extra
+dispatch failures with five controls passing. All 707 tracked inputs and
+both candidate files match. Exact-boundary and successful in-flight results,
+original nonretryable errors and local cooldown subtraction are preserved.
+This source change is not deployed. The internal cooldown retry guard is a
+separate pending input, and the guarded live history handoff remains open.
+
 Responses emit response.incomplete when their assembled output is incomplete,
 preserving content, IDs, usage and event sequence. Direct inference honors
 indexed output_text.done, including empty text, and prevents later deltas
