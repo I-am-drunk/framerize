@@ -62,6 +62,7 @@ async fn serve_using(config: ServeConfig,
     let database = database.to_str().ok_or("account database path is not UTF-8")?;
     let store = Arc::new(SqliteStateStore::open(database)?);
     validate_accounts(store.as_ref(), &selected).await?;
+    framer_core::observability::init_path(&profiles);
     if needs_history {
         let previous = config.expire_legacy_from.clone().ok_or("legacy runtime is required")?;
         if !super::migration::expire(config.python.clone(), config.runtime_script.clone(),

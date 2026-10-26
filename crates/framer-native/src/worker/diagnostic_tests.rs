@@ -3,6 +3,20 @@ use sha2::{Digest, Sha256};
 
 #[tokio::test]
 async fn worker_failure_and_completion_share_only_the_request_diagnostic_id() {
+    const CHILD: &str = "FRAMER_TEST_WORKER_DIAGNOSTICS_DONE";
+    if std::env::var_os(CHILD).is_none() {
+        let done = std::env::temp_dir().join(format!("worker-diagnostic-{}", uuid::Uuid::new_v4()));
+        let name = concat!(module_path!(), "::worker_failure_and_completion_share_only_the_request_diagnostic_id");
+        let mut child = tokio::process::Command::new(std::env::current_exe().unwrap())
+            .args(["--exact", name.split_once("::").unwrap().1, "--nocapture", "--test-threads=1"])
+            .env(CHILD, &done).kill_on_drop(true).spawn().unwrap();
+        let status = tokio::time::timeout(std::time::Duration::from_secs(20), child.wait()).await;
+        if status.is_err() { child.kill().await.unwrap(); }
+        assert!(status.expect("diagnostic fixture deadline").unwrap().success());
+        assert_eq!(std::fs::read(&done).unwrap(), b"completed");
+        std::fs::remove_file(done).unwrap();
+        return;
+    }
     struct Directory(PathBuf);
     impl Drop for Directory {
         fn drop(&mut self) { let _ = std::fs::remove_dir_all(&self.0); }
@@ -53,4 +67,5 @@ async fn worker_failure_and_completion_share_only_the_request_diagnostic_id() {
             assert!(row.get("account").is_none());
         }
     }
+    std::fs::write(std::env::var_os(CHILD).unwrap(), b"completed").unwrap();
 }
