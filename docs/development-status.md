@@ -3,6 +3,15 @@
 The rearchitecture is on `refactor/separate-apps-and-ci-20261025` in draft
 [PR #2](https://github.com/I-am-drunk/framerize/pull/2). It is not deployed.
 
+Browser session-cookie propagation now reports failed writes, waits for
+in-flight device initialization, and preserves update order through caller
+cancellation. All ten selected inert checks pass; the previous behavior
+reproduced four failures with three controls passing. All 717 tracked inputs
+and four candidate files match the qualification. Failed updates may apply a
+prefix and require retry; real browser descendant cleanup is not established
+by these fixtures. Journal changes are preserved. This source-only correction
+is not in the recovery packages built from `8fe2259` and is not deployed.
+
 The rate-history recovery correction is integrated from `8d45b5e`. Browser
 and native migration now carry the same configured reserve policy, preserve
 existing debt and identities, and recover supported incomplete history only

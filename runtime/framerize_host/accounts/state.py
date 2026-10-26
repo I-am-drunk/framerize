@@ -100,6 +100,7 @@ class Account:
         self.browser = None         # non-persistent camoufox Browser (context parent)
         self.dev_objs = {}          # device id -> Device (isolated context each)
         self.session_cookie = None  # (name, value) — fanned into every device context
+        self.cookie_lock = asyncio.Lock()  # held until the complete fanout settles
         self.last_used = time.monotonic()
         self.active_requests = 0
         self.closing = False

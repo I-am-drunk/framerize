@@ -14,6 +14,7 @@ from .accounts.state import Device, AccountLifecycle, Account
 from framerize_accounts.rates import AccountRates, RatePolicy, SystemClock
 from .browser.driver import browser_runtime, BrowserCloseReceipt
 from .browser.proxy import proxy_options
+from .browser.session import set_account_cookie
 from .browser.scripts import (WARM_JS, MINT_JS, post_js, AI_START_JS,
     AI_POLL_JS, AI_CANCEL_JS, DEVPOOL_WARM_JS, DEVPOOL_MINT_JS)
 from .browser.actions import human_burst
@@ -1494,26 +1495,8 @@ class Host:
             # set_cookie waiting for a free page starves behind the very
             # requests it unblocks; measured: 300s timeouts across the board).
             acc = await self._account(account)
-            await self._rpc(account, self._ctx(account).add_cookies, [{
-                "name": req["name"], "value": req["value"],
-                "domain": ".framer.com", "path": "/",
-                "secure": True, "httpOnly": True, "sameSite": "None",
-            }])
-            # Fan into every device context (present and future): the AI fetch
-            # in a device context must carry the account session.
-            if req["name"] == "session":
-                acc.session_cookie = (req["name"], req["value"])
-                for d in list(acc.dev_objs.values()):
-                    if d.ctx is not None:
-                        try:
-                            await self._rpc(account, d.ctx.add_cookies, [{
-                                "name": req["name"], "value": req["value"],
-                                "domain": ".framer.com", "path": "/",
-                                "secure": True, "httpOnly": True, "sameSite": "None",
-                            }])
-                        except Exception:
-                            pass
-            return True
+            return await self._rpc(account, set_account_cookie,
+                                   self, account, acc, req["name"], req["value"])
         if cmd == "eval":
             async with self._page(account) as page:
                 return await self._rpc(account, page.evaluate, req["expr"])
