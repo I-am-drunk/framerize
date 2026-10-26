@@ -3,6 +3,13 @@
 The current reorganization is in progress. See [the design](rearchitecture.md)
 for decisions, boundaries and the remaining migration work.
 
+The separate shared-context experiment measures two synthetic accounts in
+one browser versus two browsers using a local HTTPS server. It verifies
+storage and connection ownership while another account streams or closes.
+It does not change account launch, generate TLS fingerprints or establish
+remote unlinkability. The production browser service still owns a browser
+per account. See the [measurement and limits](../reference/analysis/shared-context-isolation-20261026.md).
+
 The experimental V3 worker collects values in a fresh JavaScript SDK instance
 for each operation. Its private pipe returns a bounded, typed collection to
 Rust, which serializes, compresses and encodes it after the child exits.
