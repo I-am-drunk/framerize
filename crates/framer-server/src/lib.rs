@@ -2852,6 +2852,9 @@ async fn complete_login_observed(State(s): State<AppState>, Json(body): Json<Com
     {
         let _ = cleanup.external(s.client.claim_workspace_grant(&session).await);
     }
+    if account.framer_user_id != session.active_user {
+        account.extra_workspaces.clear();
+    }
     account.framer_user_id = session.active_user.clone();
     account.state = framer_core::account::AccountState::Ready;
     if let Some(a) = &body.alias {
@@ -3057,6 +3060,9 @@ async fn import_account_observed(State(s): State<AppState>, Json(body): Json<Imp
         let _ = cleanup.external(s.client.claim_workspace_grant(&session).await);
     }
 
+    if account.framer_user_id != session.active_user {
+        account.extra_workspaces.clear();
+    }
     account.framer_user_id = session.active_user.clone();
     account.state = framer_core::account::AccountState::Ready;
     if let Some(a) = &body.alias {
