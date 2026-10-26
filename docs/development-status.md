@@ -10,6 +10,17 @@ Both fixes are integrated on `feat/native-browser-handoff-20261026`. All twelve
 focused checks pass. Each old parser reproduced three failures with three
 passing controls. These are local parser results; live acceptance is pending.
 
+Messages fallback now requires closed content and `message_stop` before
+publishing output, rejects malformed tool input, preserves retry token limits,
+and retains `max_tokens` when the final text chunk is incomplete. The integrated
+API suite passed 97 checks; all 12 affected fallback cases then passed with the
+retry-limit follow-up. The 13 unchanged parser cases retain their earlier pass.
+
+SQLite startup now persists missing legacy device IDs once in a transaction,
+preserving explicit IDs and existing JSON bytes. All 29 store checks pass,
+including nine new stability and rollback cases. These changes are integrated
+on `feat/native-browser-handoff-20261026` and remain undeployed.
+
 The native minter now connects to the supplied-token browser sender on
 `feat/native-browser-handoff-20261026`. It preserves the request's actual
 minted device, account and session, and joins browser cleanup. Browser warm-up

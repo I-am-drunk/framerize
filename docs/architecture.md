@@ -9,6 +9,16 @@ event name, without upstream diagnostic payloads. The Responses fallback
 groups SSE data fields at event boundaries before decoding the terminal
 response, preserving the complete tool output and usage object.
 
+Messages fallback validates message and content completion before publishing
+blocks. A malformed or incomplete tool call fails the attempt. Retries retain
+the caller's remaining output budget, and text continuation retains the final
+provider stop reason when the allowed chunk count is exhausted.
+
+SQLite startup assigns the existing default device ID once to valid legacy
+records that lack it. One transaction persists these assignments before the
+store becomes usable; explicit IDs and original JSON field bytes are preserved.
+Any failed update or commit rolls the migration back and refuses startup.
+
 The optional native `browser-transport` feature connects the native minter
 to a supplied-token browser sender. Each request carries its actual minted
 device, account/session binding and freshness deadline. One browser creates
