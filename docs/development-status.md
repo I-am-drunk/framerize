@@ -1,5 +1,18 @@
 # Development status
 
+Final secondary workspace publication now validates the saved subject and
+rechecks peer claims under the same update lock used by primary admission.
+This contextually integrates `7771149` after primary integration `45897f0`.
+All 65 exact checks pass: 24 core and 41 server, with 791 matching source
+pins and fully stopped isolated units. The caller baseline reproduced
+14 failures with four controls; three new private-helper methods had no
+raw-parent baseline and ran only on the full candidate. The candidate
+fixture matches its frozen source without baseline exclusions.
+Project preparation stays outside the lock, and publication preserves fresh
+unrelated fields. Initial writes, intermediate saves, rotations and refusal
+marking retain their separate contracts. A correction to refusal handling is
+queued; no global uniqueness or live deployment is claimed by this result.
+
 Primary workspace publication now rechecks peer primary and secondary claims
 under the shared account-update lock after all usage probes settle. This
 contextually integrates `9de49ce` on `df2d815`. All 44 exact checks pass:

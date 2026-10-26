@@ -29,9 +29,16 @@ holds the shared account-update lock through subject validation, fresh peer
 listing, selection and publication. Late claims can select an unclaimed
 backup; incomplete observations retain the original probe error. The helper
 patches the latest record and replaces its caller only after a successful
-save. Network probes run outside the lock. Initial writes, rotations,
-secondary publication and refusal marking retain their separate contracts;
-this does not establish global uniqueness or repair older saved records.
+save. Network probes run outside the lock.
+
+Final secondary publication uses that same lock to validate the saved subject,
+recheck peer claims and filter prepared extras before saving. It preserves
+fresh unrelated fields. The expected scope is captured after admission and,
+for import, advances only after a successful intermediate project save.
+Project and usage requests remain outside the publication lock. Initial
+writes, intermediate saves, rotations and refusal marking retain separate
+contracts. This does not establish global uniqueness, roll back project
+creation or repair older saved records.
 
 The qualified S2b integration moves Responses policy and protocol conversion into
 `framer-protocol`, which has no dependency on account, browser or session
