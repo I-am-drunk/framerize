@@ -2884,8 +2884,10 @@ async fn complete_login_observed(State(s): State<AppState>, Json(body): Json<Com
     let admission =
         cleanup.core(framer_core::credits::admit(&deps, &mut account, &session, &claimed).await);
     if let Err(e) = admission {
-        account.state = framer_core::account::AccountState::Exhausted;
-        s.state.upsert(&account).await.map_err(ApiError::Internal)?;
+        if matches!(&e, framer_core::error::CoreError::NotEligible(_)) {
+            account.state = framer_core::account::AccountState::Exhausted;
+            s.state.upsert(&account).await.map_err(ApiError::Internal)?;
+        }
         return Err(ApiError::Internal(e.to_string()));
     }
 
@@ -3094,8 +3096,10 @@ async fn import_account_observed(State(s): State<AppState>, Json(body): Json<Imp
         if let Err(e) =
             cleanup.core(framer_core::credits::admit(&deps, &mut account, &session, &claimed).await)
         {
-            account.state = framer_core::account::AccountState::Exhausted;
-            s.state.upsert(&account).await.map_err(ApiError::Internal)?;
+            if matches!(&e, framer_core::error::CoreError::NotEligible(_)) {
+                account.state = framer_core::account::AccountState::Exhausted;
+                s.state.upsert(&account).await.map_err(ApiError::Internal)?;
+            }
             return Err(ApiError::Internal(e.to_string()));
         }
         // Adopt an existing project if the account has one. Every AI call needs
