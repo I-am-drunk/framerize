@@ -109,6 +109,11 @@ Direct, chained and paid Responses also reject non-null terminal response
 errors before publication; omitted/null errors remain compatible. The direct
 SSE parser treats a bare data field as an empty data field.
 
+Indexed legacy text is assembled by output/content position in a sparse map
+and captured at each completion. Mixed nonempty indexed/unindexed text and
+invalid coordinates are rejected only when no explicit terminal output is
+available. Later deltas cannot extend the captured answer.
+
 The existing 401 retry invalidates the rejected AI bearer in both account and
 shared session caches before refreshing. Shared-cache eviction compares the
 bearer so a late rejection cannot remove a newer value; web-token entries

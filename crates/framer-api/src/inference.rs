@@ -284,6 +284,9 @@ fn completed_usage(response: &serde_json::Value) -> Result<Usage, &'static str> 
 /// HTTP success and an SSE terminator alone do not establish provider completion.
 fn parse_sse(body: &str) -> Result<(String, Usage), String> {
     let mut out = String::new();
+    let mut indexed = std::collections::BTreeMap::<(u64, u64), String>::new();
+    let mut completed_indexed = None;
+    let mut mixed_text = false;
     let mut invalid_text_delta = false;
     let mut final_text = None;
     let mut completed_delta_len = 0;
@@ -333,7 +336,18 @@ fn parse_sse(body: &str) -> Result<(String, Usage), String> {
                     match ev["type"].as_str() {
                         Some("response.output_text.delta") => {
                             if let Some(d) = ev["delta"].as_str() {
-                                out.push_str(d);
+                                match (ev.get("output_index"), ev.get("content_index")) {
+                                    (None, None) => out.push_str(d),
+                                    (Some(output), Some(content)) => match (output.as_u64(), content.as_u64()) {
+                                        (Some(output), Some(content)) => {
+                                            if !d.is_empty() {
+                                                indexed.entry((output, content)).or_default().push_str(d);
+                                            }
+                                        }
+                                        _ => invalid_text_delta = true,
+                                    },
+                                    _ => invalid_text_delta = true,
+                                }
                             } else {
                                 invalid_text_delta = true;
                             }
@@ -345,6 +359,9 @@ fn parse_sse(body: &str) -> Result<(String, Usage), String> {
                             completed = true;
                             usage = completed_usage(&ev["response"])
                                 .map_err(|reason| format!("invalid inference completion: {reason}"))?;
+                            completed_indexed = (!indexed.is_empty())
+                                .then(|| indexed.values().map(String::as_str).collect::<String>());
+                            mixed_text = completed_indexed.is_some() && !out.is_empty();
                         }
                         Some(kind @ ("response.failed" | "response.incomplete" | "error")) => {
                             return Err(format!("inference stream ended with {kind}"));
@@ -358,12 +375,12 @@ fn parse_sse(body: &str) -> Result<(String, Usage), String> {
     }
     if completed {
         // Only legacy replies without authoritative output rely on the deltas.
-        if final_text.is_none() && invalid_text_delta {
+        if final_text.is_none() && (invalid_text_delta || mixed_text) {
             return Err("invalid inference completion: invalid output text delta".into());
         }
         // A legacy answer ends at its last completion, not at a trailing delta.
         out.truncate(completed_delta_len);
-        Ok((final_text.unwrap_or(out), usage))
+        Ok((final_text.or(completed_indexed).unwrap_or(out), usage))
     } else {
         Err("inference stream ended before response.completed".into())
     }

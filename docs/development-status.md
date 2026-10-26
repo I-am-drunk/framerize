@@ -3,6 +3,13 @@
 The rearchitecture is on `refactor/separate-apps-and-ci-20261025` in draft
 [PR #2](https://github.com/I-am-drunk/framerize/pull/2). It is not deployed.
 
+Direct inference now orders indexed legacy text by output/content position
+and captures it at the last completion. Explicit final output still wins;
+ambiguous mixed text or invalid coordinates cannot become a legacy answer.
+All 24 selected cases pass, including six new cases. The previous behavior
+reproduced five failures with one control passing; all 706 tracked inputs
+and both candidate files match. This source change is not deployed.
+
 Responses preserve opaque output items and their positions between messages
 and tools. Direct, chained and paid responses reject non-null terminal errors
 before publication, while absent/null errors remain compatible. The direct
