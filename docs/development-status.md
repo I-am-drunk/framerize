@@ -3,6 +3,13 @@
 The rearchitecture is on `refactor/separate-apps-and-ci-20261025` in draft
 [PR #2](https://github.com/I-am-drunk/framerize/pull/2). It is not deployed.
 
+Chat structured-output schemas now retain their constraints and optional
+settings in every Responses continuation request. Malformed schema wrappers
+return an error instead of losing the requested output format. All thirteen
+selected checks pass (four core, nine API), after the parent reproduced three
+failures with one control passing. Three source files and 680 tracked inputs
+match. Provider schema support and live delivery remain untested here.
+
 Messages preserve citations and rich-block metadata through merging and SSE.
 The API Responses chain rejects token-count overflow before publishing the
 offending chunk. The parent reproduced all twelve expected failures, with

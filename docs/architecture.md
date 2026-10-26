@@ -98,6 +98,9 @@ order, and assistant history carries both kinds of content into the next request
 Both Chat renderers preserve an incomplete response's content-filter reason.
 Chat function tools retain supplied strictness values through conversion and
 continuation, including explicit false/null and omitted-field semantics.
+Chat structured-output schemas map to Responses text.format with their name,
+constraints and optional settings intact on every continuation request.
+Malformed schema wrappers fail conversion before dispatch.
 
 An attached CDP browser bridge claims one account before route or browser work.
 That claim survives failures, cancellation and disconnect for its lifetime.
