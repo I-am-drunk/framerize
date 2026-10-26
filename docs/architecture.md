@@ -296,6 +296,9 @@ uniqueness or undo partial session/grant work after a later failure.
 Dedupe reports shorten device and team identifiers to a valid UTF-8 prefix
 of at most eight bytes. Classification retains the complete identifiers;
 short or non-ASCII values cannot panic solely while constructing previews.
+The device set excludes records classified as dead, so they cannot cause a
+later recoverable peer to be removed as a clone. Retained records still
+reserve their complete device identity for subsequent clone checks.
 The successful extra-workspace provisioning log uses the same bounded prefix.
 Short or non-ASCII metadata team IDs therefore cannot panic between project
 creation and retaining its returned ID. Discovery, adoption and stored IDs
