@@ -41,6 +41,8 @@ mod cdp_shutdown_tests;
 mod cdp_attach_owner_tests;
 #[cfg(test)]
 mod cdp_auth_diagnostics_tests;
+mod cdp_device_publication;
+mod cdp_device_preparation;
 #[cfg(test)]
 mod cdp_unconfirmed_shutdown_tests;
 #[cfg(test)]
@@ -366,25 +368,27 @@ impl DeviceRecord {
     fn path(profile: &Path) -> PathBuf {
         profile.join("framerize-device.json")
     }
+    fn decode(raw: &str) -> Result<String, String> {
+        let value: Value = serde_json::from_str(raw)
+            .map_err(|_| "invalid browser device record JSON".to_owned())?;
+        value.get("castle_device_id").and_then(Value::as_str)
+            .map(str::to_owned)
+            .ok_or_else(|| "browser device record has no string castle_device_id".to_owned())
+    }
     async fn load_or_create(profile: &Path) -> Result<String, String> {
         let p = Self::path(profile);
         match tokio::fs::read_to_string(&p).await {
-            Ok(raw) => {
-                let value: Value = serde_json::from_str(&raw)
-                    .map_err(|_| "invalid browser device record JSON".to_owned())?;
-                return value.get("castle_device_id").and_then(Value::as_str)
-                    .map(str::to_owned)
-                    .ok_or_else(|| "browser device record has no string castle_device_id".to_owned());
-            }
+            Ok(raw) => return Self::decode(&raw),
             Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
             Err(error) => return Err(format!("read browser device record: {error}")),
         }
         let id = uuid::Uuid::new_v4().to_string();
         tokio::fs::create_dir_all(profile).await.map_err(|e| e.to_string())?;
-        tokio::fs::write(&p, json!({"castle_device_id": id}).to_string())
+        let raw = cdp_device_publication::create(p,
+            json!({"castle_device_id": id}).to_string().into_bytes())
             .await
             .map_err(|e| e.to_string())?;
-        Ok(id)
+        Self::decode(&raw)
     }
 }
 
@@ -553,8 +557,9 @@ impl CdpBridge {
             return Err("cdp-lifecycle-unconfirmed: browser cleanup is unconfirmed".into());
         }
         let profile = self.profile_dir(account);
-        tokio::fs::create_dir_all(&profile).await.map_err(|e| e.to_string())?;
-        let device_id = DeviceRecord::load_or_create(&profile).await?;
+        let (prepared_route, device_id) =
+            cdp_device_preparation::prepare(profile.clone(), route).await?;
+        route = prepared_route;
 
         // The profile persists between launches, so a STALE DevToolsActivePort
         // from a previous (dead) chrome can be sitting there. Reading it wins
