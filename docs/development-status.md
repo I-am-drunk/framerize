@@ -1,5 +1,20 @@
 # Development status
 
+The contextual `49cbc898` workspace-scan correction is qualified on `8ca3ddc`.
+Every probe settles before selection, and the first probe error follows input
+order. Public scans reject incomplete results, preserving saved extra scopes
+through the existing caller error path. Admission may still select an observed
+unclaimed credited team; otherwise an incomplete scan returns its probe error.
+All 22 exact checks pass: ten core, four caller and eight admission controls.
+The baseline reproduced seven failures with seven passing controls. Its core
+failures stopped before later admission subcases; caller failures stopped
+before partial-scan subcases. The candidate exercises those remaining paths.
+All 785 source pins match, and both isolated units are fully stopped. The
+existing server error path is unchanged. A's separate primary-claim
+publication race correction is source-only work on the frozen scan commit.
+S3a output ownership remains a separate source allocation on `8ca3ddc`.
+Live acceptance remains open; no deployment occurred.
+
 Login and import now persist `Exhausted` only for admission's existing
 `NotEligible` refusal. Propagated profile or store failures preserve the full
 initial saved record and the original error. This contextually integrates

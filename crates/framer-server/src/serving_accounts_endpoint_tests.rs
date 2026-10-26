@@ -23,6 +23,8 @@ mod secondary_workspace_claims;
 mod registration_project_scope;
 #[path = "account_admission_failure_state_tests.rs"]
 mod admission_failure_state;
+#[path = "account_workspace_scan_tests.rs"]
+mod workspace_scan;
 
 
 use super::{account, policy};

@@ -126,8 +126,14 @@ pub struct WorkspaceCredit {
     pub snapshot: crate::workspace::CreditSnapshot,
 }
 
+struct WorkspaceScan {
+    credited: Vec<WorkspaceCredit>,
+    first_error: Option<CoreError>,
+}
+
 /// Scan EVERY workspace the account owns, concurrently, and return the credited
 /// ones (richest first).
+/// An incomplete scan returns its first probe error after all probes settle.
 ///
 /// Why concurrent: `rotate_workspace` checks teams one at a time and stops at
 /// the first hit, so admitting an account with N workspaces costs N sequential
@@ -142,6 +148,15 @@ pub async fn scan_workspaces(
     deps: &Deps<'_>,
     session: &Session,
 ) -> Result<Vec<WorkspaceCredit>, CoreError> {
+    let scan = scan_workspace_results(deps, session).await?;
+    match scan.first_error {
+        Some(error) => Err(error),
+        None => Ok(scan.credited),
+    }
+}
+
+async fn scan_workspace_results(deps: &Deps<'_>, session: &Session)
+    -> Result<WorkspaceScan, CoreError> {
     let me = deps.client.me(session).await.map_err(CoreError::Framer)?;
 
     let teams: Vec<TeamId> = me["spaces"]
@@ -155,25 +170,29 @@ pub async fn scan_workspaces(
         })
         .unwrap_or_default();
 
-    if teams.is_empty() {
-        return Ok(Vec::new());
-    }
-
-    // Fan out. A failed probe is NOT evidence of exhaustion -- it is evidence of
-    // nothing -- so it is dropped rather than counted as "no credits".
+    // Join all probes before deciding. A failed probe does not prove exhaustion.
     let probes = teams.into_iter().map(|team| async move {
         match deps.client.usage(session, &team).await {
-            Ok(snapshot) if !snapshot.looks_exhausted() => Some(WorkspaceCredit { team, snapshot }),
-            _ => None,
+            Ok(snapshot) if !snapshot.looks_exhausted() => Ok(Some(WorkspaceCredit { team, snapshot })),
+            Ok(_) => Ok(None),
+            Err(error) => Err(CoreError::Framer(error)),
         }
     });
 
-    let mut credited: Vec<WorkspaceCredit> =
-        futures::future::join_all(probes).await.into_iter().flatten().collect();
+    let mut credited = Vec::new();
+    let mut first_error = None;
+    // join_all returns results in input order, independent of completion order.
+    for result in futures::future::join_all(probes).await {
+        match result {
+            Ok(Some(workspace)) => credited.push(workspace),
+            Err(error) if first_error.is_none() => first_error = Some(error),
+            _ => {},
+        }
+    }
 
     // Richest first so the caller lands on the workspace that will last longest.
     credited.sort_by(|a, b| b.snapshot.available.total_cmp(&a.snapshot.available));
-    Ok(credited)
+    Ok(WorkspaceScan { credited, first_error })
 }
 
 /// Admission: the account must bring a NEW credited workspace, or it is refused.
@@ -194,7 +213,14 @@ pub async fn admit(
     claimed: &std::collections::BTreeSet<String>,
 ) -> Result<TeamId, CoreError> {
     let who = account.email.clone().unwrap_or_else(|| account.alias.clone());
-    let credited = scan_workspaces(deps, session).await?;
+    let WorkspaceScan { credited, first_error } = scan_workspace_results(deps, session).await?;
+    // Observed capacity can be admitted; incomplete observations cannot prove refusal.
+    let fresh = credited.iter().find(|w| !claimed.contains(&w.team.0));
+    if fresh.is_none() {
+        if let Some(error) = first_error {
+            return Err(error);
+        }
+    }
 
     if credited.is_empty() {
         return Err(CoreError::NotEligible(format!(
@@ -203,7 +229,7 @@ pub async fn admit(
     }
 
     // Richest-first among the workspaces nobody else holds.
-    let Some(fresh) = credited.iter().find(|w| !claimed.contains(&w.team.0)) else {
+    let Some(fresh) = fresh else {
         let names: Vec<&str> = credited.iter().map(|w| w.team.0.as_str()).collect();
         return Err(CoreError::NotEligible(format!(
             "{who}: every credited workspace is already in use ({}) — adding this              account would split one credit pool and one concurrency budget, not              add capacity. Create a new workspace for it first.",
@@ -224,3 +250,7 @@ pub async fn admit(
 #[cfg(test)]
 #[path = "credits_rotation_tests.rs"]
 mod rotation_tests;
+
+#[cfg(test)]
+#[path = "credits_scan_tests.rs"]
+mod scan_tests;
