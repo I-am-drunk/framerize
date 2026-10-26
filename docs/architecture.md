@@ -1,5 +1,12 @@
 # Architecture
 
+SQLite account listing returns the complete decoded list or an error. A row
+that fails JSON or account decoding returns the fixed, payload-free message
+`stored account could not be decoded`. Registration, administration and peer
+claim checks therefore cannot silently treat an unreadable account as absent.
+Listing does not delete, repair or rewrite rows. Query and row-read errors
+retain their existing behavior, as do migration, lookup and writes.
+
 Login and import clear carried extra workspace scopes before replacing the
 saved Framer user identity. Incomplete later workspace discovery can retain
 extra scopes only from the same identity. Same-user reauthentication, primary

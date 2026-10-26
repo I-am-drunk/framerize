@@ -20,6 +20,9 @@ pub use file_sessions::FileSessionStore;
 mod sqlite_tests;
 
 #[cfg(test)]
+mod sqlite_list_tests;
+
+#[cfg(test)]
 mod legacy_device_id_tests;
 
 pub struct SqliteStateStore {
@@ -86,10 +89,9 @@ impl StateStore for SqliteStateStore {
         let mut out = Vec::new();
         for r in rows {
             let json = r.map_err(|e| e.to_string())?;
-            // Skip rather than crash on a row that no longer decodes.
-            if let Ok(acc) = serde_json::from_str(&json) {
-                out.push(acc);
-            }
+            let account = serde_json::from_str(&json)
+                .map_err(|_| "stored account could not be decoded".to_string())?;
+            out.push(account);
         }
         Ok(out)
     }
