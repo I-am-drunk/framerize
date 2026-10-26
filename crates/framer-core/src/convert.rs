@@ -1119,6 +1119,7 @@ pub fn ping_frame(d: ClientDialect) -> String {
 }
 
 /// Opening frames per dialect, sent IMMEDIATELY on connection.
+/// Item-driven Responses streams use ResponsesComposer::open instead.
 pub fn stream_open(d: ClientDialect, client_model: &str, msg_id: &str) -> Vec<String> {
     match d {
         ClientDialect::AnthropicMessages => vec![sse("message_start", json!({
@@ -1532,6 +1533,7 @@ pub fn error_json(d: ClientDialect, msg: &str) -> (u16, serde_json::Value) {
     (status, shaped)
 }
 
+/// Item-driven Responses streams use ResponsesComposer::fail to retain order.
 pub fn error_frames(d: ClientDialect, msg: &str) -> Vec<String> {
     let (_, shaped) = error_json(d, msg);
     match d {
@@ -1963,6 +1965,9 @@ mod responses_stream_tests;
 #[path = "responses_content_tests.rs"]
 mod responses_content_tests;
 #[cfg(test)]
+#[path = "responses_event_tests.rs"]
+mod responses_event_tests;
+#[cfg(test)]
 #[path = "chat_refusal_tests.rs"]
 mod chat_refusal_tests;
 #[cfg(test)]
@@ -1988,6 +1993,9 @@ pub struct ResponsesComposer {
     msg_seq: usize,
     /// Message ids already used by added/done events, in output order.
     message_ids: Vec<String>,
+    /// Tool ids used by item and argument/input events, in tool output order.
+    tool_ids: Vec<String>,
+    next_sequence_number: u64,
 }
 
 impl ResponsesComposer {
@@ -1999,7 +2007,36 @@ impl ResponsesComposer {
             message: None,
             msg_seq: 0,
             message_ids: Vec::new(),
+            tool_ids: Vec::new(),
+            next_sequence_number: 0,
         }
+    }
+
+    /// Open this stream once before publishing items. The same composer owns
+    /// sequence numbers through finish or fail, including terminal errors.
+    pub fn open(&mut self) -> Vec<String> {
+        let id = if self.logical_id.starts_with("resp_") {
+            self.logical_id.clone()
+        } else {
+            format!("resp_{}", self.logical_id)
+        };
+        vec![
+            self.ev("response.created", json!({"response": {
+                "id":id, "object":"response", "created_at":now_unix(),
+                "status":"in_progress", "model":self.client_model,
+            }})),
+            self.ev("response.in_progress", json!({"response": {
+                "id":id, "status":"in_progress",
+            }})),
+        ]
+    }
+
+    /// Terminate without promoting open content to a successful completion.
+    pub fn fail(mut self, message: &str) -> Vec<String> {
+        let (_, shaped) = error_json(ClientDialect::OpenAiResponses, message);
+        vec![self.ev("response.failed", json!({"response": {
+            "status":"failed", "error":shaped["error"],
+        }}))]
     }
 
     fn next_msg_id(&mut self) -> String {
@@ -2013,16 +2050,35 @@ impl ResponsesComposer {
         id
     }
 
-    fn ev(ty: &str, extra: Value) -> String {
+    fn tool_item(&mut self, source: &Value) -> Value {
+        let mut item = source.clone();
+        let id = source["id"].as_str().map(str::to_owned).unwrap_or_else(|| {
+            let prefix = if source["type"] == "function_call" { "fc" } else { "ctc" };
+            format!("{prefix}_{}_{}", self.logical_id.trim_start_matches("resp_"),
+                self.tool_ids.len() + 1)
+        });
+        item["id"] = json!(id);
+        self.tool_ids.push(id);
+        item
+    }
+
+    fn frame(&mut self, mut event: Value) -> String {
+        event["sequence_number"] = json!(self.next_sequence_number);
+        self.next_sequence_number += 1;
+        let kind = event["type"].as_str().unwrap().to_string();
+        sse(&kind, event)
+    }
+
+    fn ev(&mut self, ty: &str, extra: Value) -> String {
         let mut v = json!({"type": ty});
         merge(&mut v, extra);
-        sse(ty, v)
+        self.frame(v)
     }
 
     fn close_text(&mut self) -> Vec<String> {
         let Some(message) = self.message.take() else { return Vec::new() };
         self.item_idx += 1;
-        message.finish()
+        message.finish().into_iter().map(|event| self.frame(event)).collect()
     }
 
     pub fn push_items(&mut self, items: &[Value], continues_text: bool) -> Vec<String> {
@@ -2033,19 +2089,20 @@ impl ResponsesComposer {
                     if self.message.is_none() {
                         let id = self.next_msg_id();
                         let message = response_message::MessageStream::new(it, id, self.item_idx);
-                        f.push(message.start());
+                        f.push(self.frame(message.start()));
                         self.message = Some(message);
                     }
-                    f.extend(self.message.as_mut().unwrap().append(it));
+                    let events = self.message.as_mut().unwrap().append(it);
+                    f.extend(events.into_iter().map(|event| self.frame(event)));
                 }
                 Some("reasoning") => {
                     f.extend(self.close_text());
                     let idx = self.item_idx;
                     self.item_idx += 1;
-                    f.push(Self::ev("response.output_item.added", json!({
+                    f.push(self.ev("response.output_item.added", json!({
                         "output_index": idx, "item": it,
                     })));
-                    f.push(Self::ev("response.output_item.done", json!({
+                    f.push(self.ev("response.output_item.done", json!({
                         "output_index": idx, "item": it,
                     })));
                 }
@@ -2053,53 +2110,53 @@ impl ResponsesComposer {
                     f.extend(self.close_text());
                     let idx = self.item_idx;
                     self.item_idx += 1;
-                    let args = it["arguments"].as_str().unwrap_or("").to_string();
+                    let item = self.tool_item(it);
+                    let args = item["arguments"].as_str().unwrap_or("").to_string();
                     // Item fields pass through VERBATIM (namespace + any future
                     // upstream fields) — codex round-trips the streamed item and
                     // the upstream rejects re-sent calls missing `namespace`
                     // (2026-10-06: "Missing namespace for function_call 'spawn_agent'").
-                    let mut added_item = it.clone();
+                    let mut added_item = item.clone();
                     added_item["status"] = json!("in_progress");
                     added_item["arguments"] = json!("");
-                    f.push(Self::ev("response.output_item.added", json!({
+                    f.push(self.ev("response.output_item.added", json!({
                         "output_index": idx,
                         "item": added_item,
                     })));
-                    f.push(Self::ev("response.function_call_arguments.delta", json!({
-                        "output_index": idx, "delta": args,
+                    f.push(self.ev("response.function_call_arguments.delta", json!({
+                        "output_index": idx, "item_id": item["id"], "delta": args,
                     })));
-                    f.push(Self::ev("response.function_call_arguments.done", json!({
-                        "output_index": idx, "arguments": args,
-                        "name": it["name"], "call_id": it["call_id"],
+                    f.push(self.ev("response.function_call_arguments.done", json!({
+                        "output_index": idx, "item_id": item["id"], "arguments": args,
+                        "name": item["name"], "call_id": item["call_id"],
                     })));
-                    let mut done_item = it.clone();
-                    done_item["status"] = json!("completed");
-                    f.push(Self::ev("response.output_item.done", json!({
+                    f.push(self.ev("response.output_item.done", json!({
                         "output_index": idx,
-                        "item": done_item,
+                        "item": item,
                     })));
                 }
                 Some("custom_tool_call") => {
                     f.extend(self.close_text());
                     let idx = self.item_idx;
                     self.item_idx += 1;
-                    let input = it["input"].as_str().unwrap_or("").to_string();
-                    let mut added_item = it.clone();
+                    let item = self.tool_item(it);
+                    let input = item["input"].as_str().unwrap_or("").to_string();
+                    let mut added_item = item.clone();
                     added_item["input"] = json!("");
-                    f.push(Self::ev("response.output_item.added", json!({
+                    f.push(self.ev("response.output_item.added", json!({
                         "output_index": idx,
                         "item": added_item,
                     })));
-                    f.push(Self::ev("response.custom_tool_call_input.delta", json!({
-                        "output_index": idx, "delta": input,
+                    f.push(self.ev("response.custom_tool_call_input.delta", json!({
+                        "output_index": idx, "item_id": item["id"], "delta": input,
                     })));
-                    f.push(Self::ev("response.custom_tool_call_input.done", json!({
-                        "output_index": idx, "input": input,
-                        "name": it["name"], "call_id": it["call_id"],
+                    f.push(self.ev("response.custom_tool_call_input.done", json!({
+                        "output_index": idx, "item_id": item["id"], "input": input,
+                        "name": item["name"], "call_id": item["call_id"],
                     })));
-                    f.push(Self::ev("response.output_item.done", json!({
+                    f.push(self.ev("response.output_item.done", json!({
                         "output_index": idx,
-                        "item": it,
+                        "item": item,
                     })));
                 }
                 _ => {}
@@ -2114,15 +2171,21 @@ impl ResponsesComposer {
     pub fn finish(mut self, r: &AssembledResponses) -> Vec<String> {
         let mut f = self.close_text();
         let mut full = responses_json(r, &self.client_model, &self.logical_id);
-        // Keep the terminal snapshot attached to the same streamed messages.
-        // Tool/reasoning identity and all other upstream fields stay intact.
-        let mut ids = self.message_ids.iter();
+        // Attach the final snapshot to the same streamed message/tool ids.
+        // Supplied tool ids and all other upstream fields stay intact.
+        let mut message_ids = self.message_ids.iter();
+        let mut tool_ids = self.tool_ids.iter();
         if let Some(items) = full["output"].as_array_mut() {
-            for item in items.iter_mut().filter(|item| item["type"] == "message") {
-                if let Some(id) = ids.next() { item["id"] = json!(id); }
+            for item in items {
+                let id = match item["type"].as_str() {
+                    Some("message") => message_ids.next(),
+                    Some("function_call" | "custom_tool_call") => tool_ids.next(),
+                    _ => None,
+                };
+                if let Some(id) = id { item["id"] = json!(id); }
             }
         }
-        f.push(Self::ev("response.completed", json!({"response": full})));
+        f.push(self.ev("response.completed", json!({"response": full})));
         f
     }
 }

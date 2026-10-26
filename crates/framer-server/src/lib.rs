@@ -1875,7 +1875,7 @@ async fn native_complete(
     let mut cfg = mk_cfg(&scope_team);
     let mut account = account;
 
-    // ONE logical id for the whole response (minted here, before stream_open
+    // ONE logical id for the whole response (minted here, before the composer
     // sends response.created): chunk ids never surface to the client.
     let logical_id = format!("{:08x}{:08x}", rand_u32(), rand_u32());
 
@@ -2016,20 +2016,18 @@ async fn native_complete(
             (result, cleanup_confirmed)
         }).map_err(|_| ApiError::ServingCapacity("operation admission closed".into()))?;
 
-        let open_frames = convert::stream_open(dialect, &client_model, &logical_id);
+        let mut composer = NativeComposerState::new(dialect, &client_model, &logical_id);
+        let open_frames = composer.open(&client_model, &logical_id);
         let stream = futures::stream::unfold(
-            (rx, open_frames, None::<NativeComposerState>, false, handle, client_model.clone(), logical_id.clone(), include_usage, dialect),
-            |(mut rx, mut pending, mut composer, mut done, mut handle, client_model, logical_id, include_usage, dialect)| async move {
+            (rx, open_frames, Some(composer), false, handle, include_usage, dialect),
+            |(mut rx, mut pending, mut composer, mut done, mut handle, include_usage, dialect)| async move {
                 if done {
                     return None;
                 }
                 if !pending.is_empty() {
                     let out = pending.join("\n\n") + "\n\n";
                     pending.clear();
-                    return Some((Ok::<_, std::convert::Infallible>(axum::body::Bytes::from(out)), (rx, pending, composer, done, handle, client_model, logical_id, include_usage, dialect)));
-                }
-                if composer.is_none() {
-                    composer = Some(NativeComposerState::new(dialect, &client_model, &logical_id));
+                    return Some((Ok::<_, std::convert::Infallible>(axum::body::Bytes::from(out)), (rx, pending, composer, done, handle, include_usage, dialect)));
                 }
                 let frames: Vec<String> = tokio::select! {
                     biased;
@@ -2043,7 +2041,9 @@ async fn native_complete(
                         }
                         let tail = match r {
                             Ok(Ok(assembled)) => composer.take().unwrap().finish(&assembled, include_usage),
-                            Ok(Err(e)) => convert::error_frames(dialect, &e),
+                            Ok(Err(e)) => composer.take().unwrap().fail(&e),
+                            Err(_) if dialect == ClientDialect::OpenAiResponses =>
+                                composer.take().unwrap().fail("upstream operation task failed"),
                             Err(je) => vec![convert::ping_frame(dialect), format!(": join error {je}")],
                         };
                         drained.into_iter().chain(tail).collect()
@@ -2060,7 +2060,7 @@ async fn native_complete(
                     }
                 };
                 let out = if frames.is_empty() { String::new() } else { frames.join("\n\n") + "\n\n" };
-                Some((Ok(axum::body::Bytes::from(out)), (rx, pending, composer, done, handle, client_model, logical_id, include_usage, dialect)))
+                Some((Ok(axum::body::Bytes::from(out)), (rx, pending, composer, done, handle, include_usage, dialect)))
             },
         );
         let stream = retain_owner(stream, body_residency);
@@ -2230,6 +2230,12 @@ impl NativeComposerState {
             _ => Self::Responses(convert::ResponsesComposer::new(client_model, logical_id)),
         }
     }
+    fn open(&mut self, client_model: &str, logical_id: &str) -> Vec<String> {
+        match self {
+            Self::Responses(c) => c.open(),
+            Self::Chat(_) => convert::stream_open(ClientDialect::OpenAiChat, client_model, logical_id),
+        }
+    }
     fn push(&mut self, items: &[serde_json::Value], continues_text: bool) -> Vec<String> {
         match self {
             Self::Responses(c) => c.push_items(items, continues_text),
@@ -2240,6 +2246,12 @@ impl NativeComposerState {
         match self {
             Self::Responses(c) => c.finish(r),
             Self::Chat(c) => c.finish(r, include_usage),
+        }
+    }
+    fn fail(self, message: &str) -> Vec<String> {
+        match self {
+            Self::Responses(c) => c.fail(message),
+            Self::Chat(_) => convert::error_frames(ClientDialect::OpenAiChat, message),
         }
     }
 }

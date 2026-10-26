@@ -3,6 +3,17 @@
 The rearchitecture is on `refactor/separate-apps-and-ci-20261025` in draft
 [PR #2](https://github.com/I-am-drunk/framerize/pull/2). It is not deployed.
 
+Responses streams now use one composer for opening, content and terminal
+events in both server adapters. Event numbers remain continuous; tool IDs
+match their argument/input events and final output. Opening and final response
+IDs agree. Failure emits no synthetic completion, including a joined task
+failure; native cleanup refusal remains authoritative after partial output.
+All 142 selected checks pass: 46 core, 12 API, 78 server and six native.
+All 14 new cases ran, after 13 failures were reproduced on the old behavior.
+The 702 tracked inputs and ten candidate files match the final run. This
+source milestone is not deployed. At 04:35 UTC the original live service and
+saved pool remained intact with two active users; live acceptance is pending.
+
 Responses validate terminal content, roles, usage and executable tool fields
 before publication. Named failures and malformed terminals cannot hide behind
 a later completion. CR framing, valid partial results and opaque fields remain

@@ -32,9 +32,9 @@ fn run_with_payload(replies: Vec<Value>, payload: Value) -> Observed {
             AiToken::for_session(&session, "fixture-only".into(), i64::MAX))]);
         let browser = Fixture { replies:Mutex::new(replies.into()),
             requests:Mutex::new(Vec::new()) };
-        let composer = Mutex::new(Some(ResponsesComposer::new("fixture-model", "fixture-response")));
-        let frames = Mutex::new(convert::stream_open(
-            ClientDialect::OpenAiResponses, "fixture-model", "fixture-response"));
+        let mut response_composer = ResponsesComposer::new("fixture-model", "fixture-response");
+        let frames = Mutex::new(response_composer.open());
+        let composer = Mutex::new(Some(response_composer));
         let chat = Mutex::new(Some(convert::ChatComposer::new("fixture-model", "fixture-response")));
         let chat_frames = Mutex::new(convert::stream_open(
             ClientDialect::OpenAiChat, "fixture-model", "fixture-response"));
@@ -115,6 +115,90 @@ fn reply(output: Vec<Value>, status: &str) -> Value {
 
 fn selected<'a>(observed: &'a Observed, kind: &str) -> Vec<&'a Value> {
     observed.events.iter().filter(|event| event["type"] == kind).collect()
+}
+
+fn assert_event_sequence(observed: &Observed) {
+    for (index, event) in observed.events.iter().enumerate() {
+        assert_eq!(event["sequence_number"].as_u64(), Some(index as u64), "{event}");
+    }
+}
+
+fn event_tool(kind: &str, field: &str) -> Value {
+    let mut item = json!({"type":kind,"id":format!("{kind}-item"),
+        "call_id":format!("call/{kind}"),"name":"run","namespace":"tools",
+        "status":"completed","extension":{"retained":true}});
+    item[field] = json!("{\"n\":1}");
+    item
+}
+
+fn assert_anonymous_tool_events(observed: &Observed, index: usize, source: &Value) {
+    let terminals = selected(observed, "response.completed");
+    let item = &terminals[0]["response"]["output"][index];
+    assert!(!item["id"].as_str().unwrap().is_empty());
+    let mut expected = source.clone();
+    expected["id"] = item["id"].clone();
+    assert_eq!(*item, expected);
+    assert_eq!(observed.response.output[index], *source);
+    assert_eq!(selected(observed, "response.output_item.added")[index]["item"]["id"], item["id"]);
+    assert_eq!(selected(observed, "response.output_item.done")[index]["item"], *item);
+    let stem = if source["type"] == "function_call" {
+        "response.function_call_arguments"
+    } else { "response.custom_tool_call_input" };
+    for suffix in ["delta", "done"] {
+        let events = selected(observed, &format!("{stem}.{suffix}"));
+        assert_eq!(events.len(), 1);
+        assert_eq!(events[0]["output_index"], index);
+        assert_eq!(events[0]["item_id"], item["id"]);
+    }
+}
+
+#[test]
+fn anonymous_tool_event_ids_leave_chain_output_and_history_unchanged() {
+    let mut tools = vec![event_tool("function_call", "arguments"),
+        event_tool("custom_tool_call", "input")];
+    for item in &mut tools {
+        item.as_object_mut().unwrap().remove("id");
+        item.as_object_mut().unwrap().remove("status");
+    }
+    let first = message("first", "before ", "incomplete");
+    let mut second = vec![message("last", "tools", "completed")];
+    second.extend(tools.clone());
+    let observed = run(vec![reply(vec![first.clone()], "incomplete"),
+        reply(second, "completed")]);
+    assert_eq!(observed.requests.len(), 2);
+    assert!(observed.requests[1]["request"]["input"].as_array().unwrap().contains(&first));
+    assert_anonymous_tool_events(&observed, 1, &tools[0]);
+    assert_anonymous_tool_events(&observed, 2, &tools[1]);
+    let terminals = selected(&observed, "response.completed");
+    let output = &terminals[0]["response"]["output"];
+    assert_ne!(output[1]["id"], output[2]["id"]);
+    assert_event_sequence(&observed);
+}
+
+#[test]
+fn supplied_tool_event_ids_and_sequence_survive_chain_continuation() {
+    for (kind, field, stem) in [
+        ("function_call", "arguments", "response.function_call_arguments"),
+        ("custom_tool_call", "input", "response.custom_tool_call_input"),
+    ] {
+        let tool = event_tool(kind, field);
+        let observed = run(vec![
+            reply(vec![message("first", "before ", "incomplete")], "incomplete"),
+            reply(vec![message("last", "tool", "completed"), tool.clone()], "completed")]);
+        assert_eq!(observed.requests.len(), 2);
+        for (suffix, payload) in [("delta", "delta"), ("done", field)] {
+            let events = selected(&observed, &format!("{stem}.{suffix}"));
+            assert_eq!(events.len(), 1);
+            assert_eq!(events[0]["output_index"], 1);
+            assert_eq!(events[0]["item_id"], tool["id"]);
+            assert_eq!(events[0][payload], tool[field]);
+        }
+        assert_eq!(selected(&observed, "response.output_item.added")[1]["item"]["id"], tool["id"]);
+        assert_eq!(selected(&observed, "response.output_item.done")[1]["item"], tool);
+        assert_eq!(selected(&observed, "response.completed")[0]["response"]["output"][1], tool);
+        assert_eq!(observed.response.output[1], tool);
+        assert_event_sequence(&observed);
+    }
 }
 
 #[test]
