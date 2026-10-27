@@ -6,6 +6,12 @@ Serialization, SQL, parameters and earlier errors are unchanged. This checks
 the direct statement acknowledgement; it does not read the record back or
 roll back arbitrary trigger effects.
 
+After a zero-row account DELETE, the same connection mutex protects a raw
+key-existence check. A remaining row returns
+`stored account removal was not applied`; an absent key still succeeds.
+Nonzero deletes add no read, and malformed account JSON does not prevent
+deletion. This is not a general verification of trigger side effects.
+
 File-session IDs retain the empty/separator/NUL checks and Windows drive-prefix
 rejection. Accepted IDs use `session-v2-<lowercase SHA-256>.data`; the digest
 covers `framerize-session-v2`, NUL and the complete UTF-8 ID. POSIX colon names
