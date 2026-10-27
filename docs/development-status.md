@@ -1,3 +1,13 @@
+# Hotfix source-review corrections, 2026-10-27
+
+The first hotfix review found a hardcoded fixture version, unwrapped browser
+CI builds and a slow-response branch that discarded a terminal reasoning
+reply. The fixture now reads each application manifest; the browser CI and
+release commands use the identity wrapper. Identity enforcement applies only
+to the versioned browser target, preserving native packaging on this branch.
+One package-identity test passes locally. A fifth chain method covers two
+slow chunks ending in thinking-only max_tokens. Rust execution is pending.
+
 # Browser reliability candidate 0.5.1-alpha.1, 2026-10-27
 
 This candidate combines the previously qualified memory-admission repair

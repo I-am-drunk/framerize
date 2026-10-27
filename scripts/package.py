@@ -79,7 +79,7 @@ def package(app, output, target_dir, allow_dirty=False, worker_bundle=None):
     binary = target_dir / app
     if not binary.is_file():
         raise ValueError(f'build the {app} target first: {binary}')
-    identity = identify(ROOT, app, binary, commit, dirty)
+    identity = identify(ROOT, app, binary, commit, dirty) if app == "framerize" else {}
     output.mkdir(parents=True, exist_ok=True)
     archive = output / f'{name}.tar.gz'
     with tempfile.TemporaryDirectory() as temporary:

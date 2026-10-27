@@ -46,11 +46,30 @@ fn mixed_thinking_text_continues_with_nonempty_text_history() {
 }
 
 fn adaptive(replies: Vec<Reply>, max_chunks: u32) -> Observed {
+    adaptive_delayed(replies, max_chunks, Vec::new())
+}
+
+fn adaptive_delayed(replies: Vec<Reply>, max_chunks: u32,
+    delays: Vec<std::time::Duration>) -> Observed {
     run_with_payload(replies, ChainConfig { chunk_tokens:600, max_chunks,
         max_total_tokens:Some(4096), metered_fallback:true, ..ChainConfig::default() },
-        Vec::new(), json!({"model":"claude-opus-5-5", "thinking":{"type":"adaptive"},
+        delays, json!({"model":"claude-opus-5-5", "thinking":{"type":"adaptive"},
             "output_config":{"effort":"high"}, "speed":"fast",
             "messages":[{"role":"user","content":"fixture"}]}))
+}
+
+#[test]
+fn slow_thinking_terminal_preserves_output_instead_of_discarding_it() {
+    let text = json!({"type":"text","text":"first"});
+    let observed = adaptive_delayed(vec![buffered(text.clone(), "max_tokens"),
+        buffered(thought(), "max_tokens")], 3,
+        vec![std::time::Duration::from_secs(12); 2]);
+    let response = observed.result.as_ref().unwrap();
+    assert_eq!(response.stop_reason, "max_tokens");
+    assert_eq!(response.output_tokens, 160);
+    assert_eq!(response.content, vec![text, thought()]);
+    assert_eq!(observed.emitted, response.content);
+    assert_eq!(observed.requests.len(), 2);
 }
 
 fn buffered_blocks(content: Vec<Value>, stop: &str) -> Reply {
