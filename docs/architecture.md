@@ -56,6 +56,10 @@ until its acceptance frontier and terminal state are recorded, so disposal
 cannot return its output credit before acceptance. Encoded wire capacity is
 reserved separately from decoded output. The worker path remains optional;
 these local controls do not establish native upstream acceptance.
+Worker invocations carry the optional total output limit without inventing
+a default. HTTP authorization stays in the shared kernel client, including
+its per-key mint guard. Independent worker and authorization controls do not
+substitute for a combined real-child cold-cache concurrency proof.
 
 Free Responses SSE uses an awaited output sink. Policy transfers a validated
 chunk to one encoder and waits for its segments to enter the bounded body

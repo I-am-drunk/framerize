@@ -1,5 +1,14 @@
 # Development status
 
+The S3w composition at `9dfb408` passes all 172 selected worker/lifecycle
+launches and 32 retained Responses-budget/authentication checks. These are
+204 launches covering 203 distinct package/name pairs. All 834 execution
+source pins match, and every isolated phase has joined its processes.
+The worker and fault executables and eight test binaries are hash-bound.
+The separate combined real-child cold-cache mint proof remains source-held.
+Default selection remains legacy0; the live browser package stays `7ccd059`.
+Next: complete that combined proof and investigate the measured worker cost.
+
 S3w candidate `b349b2a` passes 172 selected launches covering 171 distinct
 package/name pairs, including all four retention controls. Its baseline on
 `a27b70c` reproduced premature output-credit return after joined cleanup;
@@ -11,7 +20,7 @@ figures do not measure socket latency or Framer inference performance.
 The two output slots reserve 132,096 encoded wire bytes separately from
 32,768 decoded bytes. RSS measurements are process point samples; request
 Values, transient decoder trees and exact total memory remain unmeasured.
-This composition preserves `bde62af` and awaits its own compatibility checks.
+The composed validation above preserves the newer `bde62af` safeguards.
 Default selection remains legacy0. The live browser package stays `7ccd059`.
 
 Credit usage rejects a missing or nonnumeric `availableCredits` field with
