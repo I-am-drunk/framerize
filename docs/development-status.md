@@ -1,5 +1,11 @@
 # Development status
 
+The project-adoption candidate checks present root and first-project team
+metadata against the full requested team before adopting that project's ID.
+Absent metadata and the existing no-ID fallback remain unchanged. The two
+Rust files match `307fd08` on the current composition, retaining the qualified
+request deadlines. All 18 selected controls await qualification here.
+
 Personal-space filtering passes all 15 selected checks on `4de67cf`, with
 848 matching source pins, a hash-bound executable and settled process groups.
 Workspace scans skip explicit `scope: "user"` entries before extracting

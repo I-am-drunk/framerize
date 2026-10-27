@@ -86,25 +86,30 @@ pub async fn ensure_project(
         .json::<serde_json::Value>()
         .await
         .map_err(|e| e.to_string())?;
-    if let Some(id) = v["projects"]
-        .as_array()
-        .and_then(|ps| ps.first().cloned())
-        .and_then(|p| p["id"].as_str().map(|s| s.to_string()))
-    {
-        return Ok(ProjectId(id));
+    if let Some(project) = project_to_adopt(&v, team)? {
+        return Ok(project);
     }
     create_project(session, space_id).await
 }
 
 fn project_to_adopt(
-    v: &serde_json::Value,
-    _team: &TeamId,
+    response: &serde_json::Value,
+    team: &TeamId,
 ) -> Result<Option<ProjectId>, String> {
-    Ok(v["projects"]
-        .as_array()
-        .and_then(|ps| ps.first().cloned())
-        .and_then(|p| p["id"].as_str().map(|s| s.to_string()))
-        .map(ProjectId))
+    let Some(project) = response["projects"].as_array().and_then(|ps| ps.first()) else {
+        return Ok(None);
+    };
+    let Some(id) = project["id"].as_str() else {
+        return Ok(None);
+    };
+    for metadata in [response, project] {
+        if let Some(value) = metadata.get("teamId") {
+            if value.as_str() != Some(team.0.as_str()) {
+                return Err("project adoption response has incompatible teamId".into());
+            }
+        }
+    }
+    Ok(Some(ProjectId(id.to_string())))
 }
 
 /// GET framer.com/projects/new?team=<spaceId> WITHOUT following redirects;
