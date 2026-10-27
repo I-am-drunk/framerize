@@ -58,8 +58,10 @@ reserved separately from decoded output. The worker path remains optional;
 these local controls do not establish native upstream acceptance.
 Worker invocations carry the optional total output limit without inventing
 a default. HTTP authorization stays in the shared kernel client, including
-its per-key mint guard. Independent worker and authorization controls do not
-substitute for a combined real-child cold-cache concurrency proof.
+its per-key mint guard. A combined real-child fixture holds the first loopback
+mint reply until two actual Forward futures are Pending. It checks one mint,
+both complete responses, settled application owners and a reaped child.
+This exercises composition with an inert browser port, not live authentication.
 Frame encoders grow buffers under an explicit allocation ceiling and return
 a buffer whose capacity equals its length. Data encoding uses the already
 reserved wire credit as its ceiling, including the four-byte frame prefix.

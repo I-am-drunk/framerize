@@ -1,18 +1,21 @@
 # Development status
 
-The experimental decoder slice removes the outer Message Content tree.
-Typed fields retain strict variant membership, duplicates, nullability and
-field-order independence. The existing positional Serde representation is
-also preserved. All seven new compatibility controls pass against both
-the published decoder and `f5ab4ea` in the isolated wire preflight.
-Full composed worker/application qualification is still pending.
-On frozen `106dc96`, five fresh processes each measured a 606,790-byte
-requested-heap peak when decoding one 16 KiB Data payload. The raw frame
-accounts for 65,606 bytes and the retained payload for 16,384 bytes. All
-tracked allocations returned to zero after disposal. These measurements
-exclude allocator internals, the original input, stacks and process RSS.
-The candidate must pass compatibility, retained behavior and matched
-allocation/profile qualification before any improvement is claimed.
+The worker decoder reads typed fields without the outer Message Content
+tree. On `fd45cd0`, all 194 selected launches pass across 188 distinct
+package/name pairs. The 543 bound names are the inventory, not execution.
+Every phase retained 837 matching source pins and a settled process group.
+All seven new compatibility controls also pass against the prior decoder.
+Strict fields, nullability, arbitrary field order and positional input remain.
+For one 16 KiB Data payload, five processes each measured a requested-heap
+peak of 81,990 bytes, down from 606,790. Raw-frame and retained-payload sizes
+stay 65,606 and 16,384 bytes. Tracked allocations return to zero. This excludes
+allocator backing copies, original input, stacks and total process memory.
+All ten current profiles pass, five per mode. Worker completion was
+25,020/26,348/26,533 microseconds as minimum/median/maximum, compared with
+the saved 39,803/41,225/52,080. These runs used separate time windows and
+fixture Forward calls. They are diagnostic observations, not live latency.
+Current legacy0 completion was 2,294/2,476/3,145 microseconds; substantial
+worker overhead remains. Default selection and the live service are unchanged.
 
 The experimental wire-encoding slice replaces one exact buffer growth per
 small JSON write with amortized growth under an explicit allocation limit.
@@ -25,34 +28,32 @@ Five fresh processes per mode and source retain all 20 profile observations.
 Worker completion was 43,262/44,331/69,269 microseconds before and
 39,803/41,225/52,080 after, reported as minimum/median/maximum. The median
 improvement is about 7%; the ranges overlap. These local fixture timings
-do not establish live latency or a memory saving. Next: complete the combined
-cold-mint proof and investigate the remaining worker cost.
+do not establish live latency or a memory saving. The newer decoder and
+cold-mint results above retain these earlier observations unchanged.
 
-The combined cold-cache worker mint fixture is now source-only on
-`refactor/s3w-cold-mint-20261027`, based on exact `f61d69e`. It is UNRUN.
-It uses the real worker, router, HttpFramerClient and shared authorization
-owner with loopback HTTP and an inert browser port. Both real Forward
-futures must first return Pending and remain Pending while the first mint
-reply is held. Two existing model keys retain their one-per-key gate limit.
-The fixture requires one final mint, both exact terminal/EOF streams, zero
-application owners/output, and joined loopback connections and worker child.
-The retained legacy host marker is not a zero-total-owners claim.
-This new ignored selector needs main's fresh-process binary/hash binding;
-hosted CI does not run it. No build, test or runtime action ran in this lane.
-F1/E1/D1, point-RSS, unmeasured allocation peaks and simplicity limits remain.
-Next: main qualifies
-`policy_process::tests::cold_mint::real_worker_concurrent_cold_forwards_share_one_mint`
-with `--exact --ignored`, then owns contextual composition and publication.
+The combined cold-cache mint proof passes on `fd45cd0` in its own process
+with exact worker and test-binary hashes. It uses the real worker, router,
+HttpFramerClient and shared authorization owner, with loopback HTTP and an
+inert browser port. Both actual Forward futures returned Pending while the
+first mint reply was held. Both original one-per-key model permits remained
+held. Exactly one mint served both complete terminal/EOF responses.
+Application owners and output settled to zero, the child was reaped, and
+loopback connection handlers joined. The retained legacy host marker is
+not a zero-total-owners claim. All twelve packet selections passed on this
+composition. The ignored proof ran locally with `--exact --ignored`;
+hosted CI did not supply this evidence. Native upstream acceptance remains
+unproved. F1/E1/D1, point-RSS, total-memory and simplicity limits remain.
 
 The S3w composition at `9dfb408` passes all 172 selected worker/lifecycle
 launches and 32 retained Responses-budget/authentication checks. These are
 204 launches covering 203 distinct package/name pairs. All 834 execution
 source pins match, and every isolated phase has joined its processes.
 The worker and fault executables and eight test binaries are hash-bound.
-The separate combined real-child cold-cache mint proof has a bounded source
-allocation on `f61d69e`; it remains unexecuted.
+The combined cold-cache mint proof was subsequently qualified on `fd45cd0`
+as recorded above; these earlier composition results remain separate.
 Default selection remains legacy0; the live browser package stays `7ccd059`.
-Next: complete that combined proof and investigate the measured worker cost.
+Next: qualify the queued finite credit-allocation total guard and continue
+investigating the remaining worker cost without changing the live default.
 
 S3w candidate `b349b2a` passes 172 selected launches covering 171 distinct
 package/name pairs, including all four retention controls. Its baseline on
