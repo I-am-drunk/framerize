@@ -1441,3 +1441,23 @@ delivery. Continuation is explicit and retains the original account owner.
 
 Earlier investigation notes are preserved in
 [architecture history](history/architecture-before-reorganization-20261025.md).
+# Explicit legacy-session migration
+
+The experimental `session_migration.py` helper is separate from startup,
+registration and ordinary session loads. It accepts one private plan binding
+an existing account UUID, exact Framer user, raw account-record hash, database
+and session directory. Without `--execute` it validates only that plan.
+
+Execution requires the existing session-directory ownership lock. The helper
+refuses configured proxies in this first version. It verifies the unchanged
+legacy cookie through the fixed HTTPS `/web/users/me` endpoint with no retry
+or redirect, a 10-second socket timeout and a 30-second process alarm.
+Only an exact user match permits an atomic, non-replacing v2 publication.
+It never updates registration, devices, grants, rate history or legacy files.
+
+A failed directory sync after publication is an uncertain result, not a
+rollback. The published record remains and subsequent attempts refuse it.
+The operation needs a separately authorized, supervised maintenance plan,
+settled writers and an outer process bound. Its lock does not establish
+service quiescence, and successful identity verification is not inference
+acceptance. The helper's initial source qualification is recorded separately.

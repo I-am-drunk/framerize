@@ -2384,3 +2384,18 @@ no hosted build has succeeded.
 
 See [architecture](architecture.md), [packages](releases.md), and the
 [collected milestone record](history/rearchitecture-progress-20261025.md).
+### Verified legacy-session migration source, 2026-10-27
+
+An explicit experimental helper now covers the missing-v2 recovery path.
+It binds one existing account, verifies the exact legacy cookie against the
+fixed authenticated identity endpoint, and publishes v2 without replacement.
+Normal session loads retain their existing refusal to adopt legacy files.
+The first version supports explicit direct routes only and preserves account,
+device, history and legacy data. Stock CLI login and Add account create new
+account IDs, so neither is a substitute for existing-account recovery.
+
+This source is initially unqualified. Its 22 synthetic controls and the
+cross-process ownership check remain unrun at this source checkpoint.
+No cookie, external endpoint, browser or live service was used to develop it.
+The earlier native launch and assembled-package qualifications remain intact.
+Live migration, current-state admission and upstream acceptance are separate.
