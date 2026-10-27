@@ -1,12 +1,15 @@
 # Development status
 
 The explicit Python launcher is implemented on
-`feat/browser-control-launcher-20261027` and awaits offline qualification.
+`feat/browser-control-launcher-20261027`. All 30 selected controls pass on
+`30be253`, with 882 matching source pins and a settled test process group.
 Fourteen new controls cover the shared frame parser, exact native reply,
 lost or malformed replies, cancellation, private state directory, paired
 egress samples, pipe closure and malformed input through the real entry point.
-Sixteen retained child controls are selected for the parser-wiring change.
-All 30 selections remain UNRUN. The browser and network ports are inert.
+Sixteen retained child controls also pass for the parser-wiring change.
+The browser and network ports are inert. The real launcher process rejects
+malformed input before creating browser state. All 879 unaffected prior
+source pins match their saved evidence; no native suite was rerun.
 The caller supplies the endpoint, finite limits and empty private state
 directory. Service startup still needs to retain the exact native account
 lease through preparation and request use. No live acceptance is claimed.
