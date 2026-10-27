@@ -16,6 +16,7 @@ from review_packet import write
 
 HEAD, BASE = 'a' * 40, 'b' * 40
 POLICY = dict(model=MODEL, effort='xhigh', max_input_tokens=8192, max_output_tokens=4096)
+EOF_MARKER = '\\ No newline at end of file'
 
 
 def snapshot():
@@ -34,6 +35,43 @@ def response(packet):
 
 
 class ReviewPacketTests(unittest.TestCase):
+    def test_eof_refuses_later_content_and_skipped_lines(self):
+        for status, patch in [
+                ('added', f'@@ -0,0 +1,2 @@\n+one\n{EOF_MARKER}\n+two'),
+                ('removed', f'@@ -1,2 +0,0 @@\n-one\n{EOF_MARKER}\n-two'),
+                ('modified', f'@@ -1 +1 @@\n-one\n+two\n{EOF_MARKER}\n@@ -3 +3 @@\n-three\n+four'),
+                ('modified', f'@@ -1 +1 @@\n-one\n{EOF_MARKER}\n+two\n@@ -3 +3 @@\n-three\n+four'),
+                ('modified', f'@@ -1,2 +1,2 @@\n-one\n+two\n shared\n{EOF_MARKER}\n@@ -3 +3 @@\n-x\n+y'),
+                ('modified', f'@@ -1 +1 @@\n-one\n+two\n{EOF_MARKER}\n@@ -3 +2,0 @@\n-three'),
+                ('modified', f'@@ -1 +1 @@\n-one\n{EOF_MARKER}\n+two\n@@ -2,0 +3 @@\n+three')]:
+            source = snapshot()
+            added = sum(line.startswith('+') for line in patch.split('\n'))
+            removed = sum(line.startswith('-') for line in patch.split('\n'))
+            source['files'][0].update(status=status, patch=patch, additions=added, deletions=removed)
+            source['pull'].update(additions=added, deletions=removed)
+            with self.subTest(status=status, patch=patch), self.assertRaisesRegex(ValueError, 'EOF'):
+                prepare(source, POLICY, HEAD, BASE)
+
+    def test_eof_markers_require_an_immediately_preceding_content_line(self):
+        for patch in [
+                f'{EOF_MARKER}\n@@ -1 +1 @@\n-old\n+new',
+                f'@@ -1 +1 @@\n{EOF_MARKER}\n-old\n+new',
+                f'@@ -1 +1 @@\n-old\n+new\n{EOF_MARKER}\n{EOF_MARKER}',
+                f'@@ -1 +1 @@\n-old\n+new\n@@ -1,0 +1,0 @@\n{EOF_MARKER}']:
+            with self.subTest(patch=patch), self.assertRaises(ValueError):
+                anchors(patch)
+
+    def test_eof_allows_content_only_on_the_other_side(self):
+        for patch, left, right in [
+                (f'@@ -1 +1 @@\n-old\n{EOF_MARKER}\n+new', [1], [1]),
+                (f'@@ -1 +1 @@\n+new\n{EOF_MARKER}\n-old', [1], [1]),
+                (f'@@ -1 +1 @@\n-old\n{EOF_MARKER}\n+new\n{EOF_MARKER}', [1], [1]),
+                (f'@@ -1,2 +1,2 @@\n-old\n+new\n same\n{EOF_MARKER}', [1], [1]),
+                (f'@@ -1 +1 @@\n-old\n{EOF_MARKER}\n+new\n@@ -1,0 +2 @@\n+extra', [1], [1, 2]),
+                (f'@@ -1 +1 @@\n+new\n{EOF_MARKER}\n-old\n@@ -2 +1,0 @@\n-extra', [1, 2], [1])]:
+            with self.subTest(patch=patch):
+                self.assertEqual(anchors(patch)[0], {'LEFT': left, 'RIGHT': right})
+
     def test_inconsistent_unchanged_spans_are_refused(self):
         for patch, count in [
                 ('@@ -1 +500 @@\n-old\n+new', 1),

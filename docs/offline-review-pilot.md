@@ -32,6 +32,12 @@ Added files must have one complete new-content hunk starting at line 1, an
 empty old side, and only added lines. Removed files require the reverse.
 Neither status accepts context lines or changes on the nonexistent side.
 
+An end-of-file marker must immediately follow a content line and cannot repeat.
+It ends the old side after a deletion, the new side after an addition, or both
+sides after context. No remaining hunk content, later content or skipped lines
+may extend an ended side. Changes on the other side can still follow, including
+in a later hunk with an empty range at the ended side's exact position.
+
 The policy contains exactly `model`, `effort`, `max_input_tokens` and
 `max_output_tokens`. The model is `gpt-6-astra-ultrafast`; effort and positive
 integer limits are required, with no default. Output limits below 4096 are
@@ -84,7 +90,9 @@ limits, route, fallback behavior and reported coverage before live inference.
 A separate publisher and quality evaluation remain future work. No Actions
 workflow or service consumes these files yet.
 
-The 13 focused tests exercise the actual CLI, stale/partial data, settings
+The 16 focused tests exercise the actual CLI, stale/partial data, settings
 isolation, coverage, line anchors, duplicates, private exclusive outputs,
 nonblocking FIFO refusal, hunk continuity, added/removed semantics and the
-pinned output minimum. They use synthetic inputs and perform no network I/O.
+pinned output minimum. EOF regressions cover marker placement, ended-side
+content and skipped ranges, plus valid changes on the other side. All tests
+use synthetic inputs and perform no network I/O.

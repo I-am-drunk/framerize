@@ -61,6 +61,8 @@ def anchors(patch, status='modified'):
     require(type(patch) is str and len(patch.encode()) <= 1024 * 1024, 'missing or oversized diff')
     old = new = 1
     old_left = new_left = added = removed = 0
+    old_eof = new_eof = False
+    previous = None
     result = {'LEFT': [], 'RIGHT': []}
     active = False
     lines = patch.split('\n')
@@ -83,17 +85,29 @@ def anchors(patch, status='modified'):
             # Normalize to the next 1-based line before comparing consumed spans.
             old_start += old_left == 0
             new_start += new_left == 0
+            require(not old_eof or old_start == old and old_left == 0, 'old range after EOF')
+            require(not new_eof or new_start == new and new_left == 0, 'new range after EOF')
             require(old_start >= old and new_start >= new, 'overlapping diff hunks')
             require(old_start - old == new_start - new, 'inconsistent unchanged span')
             old, new = old_start, new_start
             active = True
+            previous = None
             continue
         require(active and line, 'invalid diff line')
         if line == '\\ No newline at end of file':
+            require(previous is not None, 'EOF marker must follow content')
+            if previous in ' -':
+                require(old_left == 0, 'old content after EOF')
+                old_eof = True
+            if previous in ' +':
+                require(new_left == 0, 'new content after EOF')
+                new_eof = True
+            previous = None
             continue
         if status in ('added', 'removed'):
             require(line[0] == ('+' if status == 'added' else '-'), f'invalid {status} file line')
         if line[0] in ' -':
+            require(not old_eof, 'old content after EOF')
             require(old_left > 0 and old > 0, 'invalid old diff range')
             if line[0] == '-':
                 result['LEFT'].append(old)
@@ -101,6 +115,7 @@ def anchors(patch, status='modified'):
             old += 1
             old_left -= 1
         if line[0] in ' +':
+            require(not new_eof, 'new content after EOF')
             require(new_left > 0 and new > 0, 'invalid new diff range')
             if line[0] == '+':
                 result['RIGHT'].append(new)
@@ -108,6 +123,7 @@ def anchors(patch, status='modified'):
             new += 1
             new_left -= 1
         require(line[0] in ' +-', 'invalid diff marker')
+        previous = line[0]
     require(old_left == new_left == 0, 'truncated diff hunk')
     require(all(len(v) == len(set(v)) for v in result.values()), 'overlapping diff hunks')
     return result, added, removed

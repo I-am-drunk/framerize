@@ -3,7 +3,7 @@
 The separate `feat/offline-review-pilot-20261027` topic starts at PR13's
 source-reviewed11b49fa. Its local-only CLI binds normalized PR diffs to exact
 head/base pins and explicit model settings, then checks result identity,
-coverage declarations and changed-line findings. Thirteen focused tests pass,
+coverage declarations and changed-line findings. Sixteen focused tests pass,
 including command entry points and FIFO refusal. No model, GitHub API,
 container, service or publisher is invoked by this code. The output explicitly
 carries no runtime verification or authority. No PR-Agent image was installed.
@@ -14,8 +14,16 @@ and refuses output caps below the pinned PR-Agent minimum of 4096. It does
 not raise a supplied cap. Five new regression methods cover those refusals
 and valid empty-range, added/removed and cap-preservation controls. The old
 production code failed 19 subtests and errored on a valid adjacent insertion;
-all 13 methods pass after correction. Next: independent review of the frozen
-correction commit. No merge, deployment or live reviewer is authorized by this.
+all 13 methods passed at `707e5d3`. The second independent review accepted those
+corrections and found a separate EOF-marker defect.
+
+EOF markers now require an immediately preceding content line and close only
+that line's old/new sides. Remaining or later content and skipped lines on
+ended sides are refused; changes on the other side stay valid. Three added
+test methods reproduced ten failing subcases on `707e5d3`. All 16 methods pass
+after correction, including six valid EOF controls in the new group. Next:
+independent review of the frozen EOF correction. No merge, deployment or live
+reviewer is authorized by these local checks.
 
 The independent PR13 R2 review accepted11b49fa with no new source findings.
 Its private-runner admission and real CI evidence remain unverified. The
