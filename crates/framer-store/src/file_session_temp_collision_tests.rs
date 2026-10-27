@@ -40,7 +40,8 @@ fn stale_candidates_do_not_block_session_replacement() {
             let store = FileSessionStore::new(root)?;
             let session = session();
             let target = store.path(&session.active_user)?;
-            io(std::fs::write(&target, b"session=previous-inert-value"))?;
+            io(std::fs::write(&target, super::exact_identity_tests::record(
+                &session.active_user.0, b"session=previous-inert-value")))?;
             io(std::fs::write(candidate(&store, 0), stale))?;
             io(std::fs::write(candidate(&store, 1), b"another-stale-candidate"))?;
             let mut sequence = [0, 1, 2].into_iter();
@@ -58,7 +59,8 @@ fn stale_candidates_do_not_block_session_replacement() {
         let (result, calls, saved, first, second, temporary_exists, count) = observed.unwrap();
         assert_eq!(result, Ok(()));
         assert_eq!(calls, [0, 1, 2]);
-        assert_eq!(saved, session().cookie_header.as_bytes());
+        assert_eq!(saved, super::exact_identity_tests::record(
+            "fixture-user", session().cookie_header.as_bytes()));
         assert_eq!(first, stale.as_bytes());
         assert_eq!(second, b"another-stale-candidate");
         assert!(!temporary_exists);
@@ -77,7 +79,8 @@ fn occupied_nonfile_candidates_are_preserved() {
             let target = store.path(&session.active_user)?;
             let protected = root.join("protected");
             let occupied = candidate(&store, 0);
-            io(std::fs::write(&target, b"previous-inert-value"))?;
+            io(std::fs::write(&target, super::exact_identity_tests::record(
+                &session.active_user.0, b"previous-inert-value")))?;
             io(std::fs::write(&protected, b"protected-inert-value"))?;
             match kind {
                 "directory" => {
@@ -109,7 +112,8 @@ fn occupied_nonfile_candidates_are_preserved() {
         });
         let (result, saved, retained, protected, temporary_exists) = observed.unwrap();
         assert_eq!(result, Ok(()), "{kind}");
-        assert_eq!(saved, session().cookie_header.as_bytes());
+        assert_eq!(saved, super::exact_identity_tests::record(
+            "fixture-user", session().cookie_header.as_bytes()));
         assert!(retained, "{kind}");
         assert_eq!(protected, b"protected-inert-value");
         assert!(!temporary_exists);

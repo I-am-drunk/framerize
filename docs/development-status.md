@@ -1,5 +1,13 @@
 # Development status
 
+The exact-ID session-store candidate uses a versioned digest filename and
+records the complete ID with the cookie. Save/delete conflict checks share
+one per-store mutation guard. Missing v2 records require reauthentication;
+legacy files remain untouched. Stored labels do not authenticate cookies.
+The seven owner files match `f1bdc80`; the lock change adds only the store's
+sha2 dependency and preserves all 242 external records. Its 36 selected
+checks are pending qualification on the current composition.
+
 Session deletion synchronization passes all 25 selected checks on `224e985`,
 with 842 matching source pins and a settled process group. The directory
 sync runs after unlink or NotFound; validation and other removal errors keep

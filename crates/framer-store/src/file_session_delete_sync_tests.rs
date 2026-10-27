@@ -38,7 +38,8 @@ fn missing_session_retry_repeats_failed_directory_sync() {
         let user = FramerUserId("deleted-fixture-user".into());
         let target = store.path(&user)?;
         let peer = store.path(&FramerUserId("retained-fixture-user".into()))?;
-        io(std::fs::write(&target, b"deleted-inert-value"))?;
+        io(std::fs::write(&target, super::exact_identity_tests::record(
+            &user.0, b"deleted-inert-value")))?;
         io(std::fs::write(&peer, b"retained-inert-value"))?;
         let mut calls = Vec::new();
         let first = store.delete_with_sync(&user, |dir| {
@@ -97,7 +98,8 @@ fn validation_and_removal_errors_precede_directory_sync() {
             io(std::fs::write(&peer, b"retained-inert-value"))?;
             let name = if kind == "invalid-user" { "../outside" } else { "directory" };
             let user = FramerUserId(name.into());
-            let target = root.join("directory.session");
+            let target = if kind == "directory" { store.path(&user)? }
+                else { root.join("directory.session") };
             let expected = if kind == "directory" {
                 io(std::fs::create_dir(&target))?;
                 io(std::fs::write(target.join("retained"), b"directory-inert-value"))?;

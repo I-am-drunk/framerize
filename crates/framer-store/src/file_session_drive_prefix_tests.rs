@@ -51,7 +51,16 @@ fn non_drive_names_and_original_errors_are_preserved() {
 fn host_path_uses_the_build_platform() {
     let root = Directory::new();
     let store = FileSessionStore::new(&root.0).unwrap();
-    for (user, expected) in DRIVE_USERS {
+    let addresses = [
+        "session-v2-528aab892e3efcd8feec8f0a30b35adcc3c53eef5892a0c427f6affca078eb1d.data",
+        "session-v2-d0b24d0b949fda4d0f7ee05ca39efaa9b90ab00167f64ed185863c33a23e6980.data",
+        "session-v2-b9f1df1f8d76d8a9425ebfc0feb17d6e742cade5e700544b419a5cf347fa01f3.data",
+        "session-v2-88c525b317bac6d4046722ba3eb32c37315085b239515b1eda29e8121d3db375.data",
+        "session-v2-07e4632d887763cd6bf29692c78e8f00ed19d3b768ea3d91f86982cca0b6e70d.data",
+        "session-v2-ef3ba3f42f71cbbad9465981521f5dde36b8fde1521d172942b4c3f1593d1628.data",
+    ];
+    for (index, (user, _)) in DRIVE_USERS.iter().enumerate() {
+        let expected = addresses[index];
         let result = store.path(&FramerUserId((*user).into()));
         if cfg!(windows) {
             assert_eq!(result, Err("invalid session user".into()));

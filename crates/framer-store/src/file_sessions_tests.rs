@@ -21,7 +21,8 @@ async fn bounded_save_preserves_existing_session_on_overflow() {
     store.save(&session).await.unwrap();
     session.cookie_header = "x".repeat(16 * 1024 + 1);
     assert_eq!(store.save(&session).await.unwrap_err(), "session exceeds configured byte limit");
-    assert_eq!(std::fs::read(store.path(&session.active_user).unwrap()).unwrap(), b"session=fixture");
+    assert_eq!(std::fs::read(store.path(&session.active_user).unwrap()).unwrap(),
+        super::exact_identity_tests::record(&session.active_user.0, b"session=fixture"));
     assert_eq!(store.load(&session.active_user).await.unwrap().unwrap().cookie_header, "session=fixture");
     assert_eq!(std::fs::read_dir(&root.0).unwrap().count(), 2);
 }
@@ -37,7 +38,8 @@ async fn bounded_load_rejects_existing_oversized_file() {
     drop(unbounded);
     let bounded = FileSessionStore::new_bounded(&root.0, 16 * 1024).unwrap();
     assert_eq!(bounded.load(&user).await.unwrap_err(), "session exceeds configured byte limit");
-    assert_eq!(std::fs::read(bounded.path(&user).unwrap()).unwrap(), large_header.as_bytes());
+    assert_eq!(std::fs::read(bounded.path(&user).unwrap()).unwrap(),
+        super::exact_identity_tests::record(&user.0, large_header.as_bytes()));
 }
 
 #[tokio::test]
@@ -217,9 +219,9 @@ async fn replacement_is_private_and_does_not_truncate_the_previous_file() {
     store.save(&session).await.unwrap();
     assert_eq!(store.load(&session.active_user).await.unwrap().unwrap().cookie_header,
         session.cookie_header);
-    let mut old = String::new();
-    previous.read_to_string(&mut old).unwrap();
-    assert_eq!(old, "session=first-fixture");
+    let mut old = Vec::new();
+    previous.read_to_end(&mut old).unwrap();
+    assert_eq!(old, super::exact_identity_tests::record(&session.active_user.0, b"session=first-fixture"));
     #[cfg(unix)] {
         use std::os::unix::fs::PermissionsExt;
         assert_eq!(std::fs::metadata(&store.dir).unwrap().permissions().mode() & 0o777, 0o700);
