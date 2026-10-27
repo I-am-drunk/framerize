@@ -27,6 +27,9 @@ mod sqlite_upsert_ack_tests;
 mod sqlite_remove_ack_tests;
 
 #[cfg(test)]
+mod sqlite_setting_ack_tests;
+
+#[cfg(test)]
 mod sqlite_list_tests;
 
 #[cfg(test)]
