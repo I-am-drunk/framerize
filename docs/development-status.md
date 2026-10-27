@@ -3,7 +3,9 @@
 The experimental decoder slice removes the outer Message Content tree.
 Typed fields retain strict variant membership, duplicates, nullability and
 field-order independence. The existing positional Serde representation is
-also preserved. Seven new compatibility controls are currently UNRUN.
+also preserved. All seven new compatibility controls pass against both
+the published decoder and `f5ab4ea` in the isolated wire preflight.
+Full composed worker/application qualification is still pending.
 On frozen `106dc96`, five fresh processes each measured a 606,790-byte
 requested-heap peak when decoding one 16 KiB Data payload. The raw frame
 accounts for 65,606 bytes and the retained payload for 16,384 bytes. All
@@ -25,6 +27,22 @@ Worker completion was 43,262/44,331/69,269 microseconds before and
 improvement is about 7%; the ranges overlap. These local fixture timings
 do not establish live latency or a memory saving. Next: complete the combined
 cold-mint proof and investigate the remaining worker cost.
+
+The combined cold-cache worker mint fixture is now source-only on
+`refactor/s3w-cold-mint-20261027`, based on exact `f61d69e`. It is UNRUN.
+It uses the real worker, router, HttpFramerClient and shared authorization
+owner with loopback HTTP and an inert browser port. Both real Forward
+futures must first return Pending and remain Pending while the first mint
+reply is held. Two existing model keys retain their one-per-key gate limit.
+The fixture requires one final mint, both exact terminal/EOF streams, zero
+application owners/output, and joined loopback connections and worker child.
+The retained legacy host marker is not a zero-total-owners claim.
+This new ignored selector needs main's fresh-process binary/hash binding;
+hosted CI does not run it. No build, test or runtime action ran in this lane.
+F1/E1/D1, point-RSS, unmeasured allocation peaks and simplicity limits remain.
+Next: main qualifies
+`policy_process::tests::cold_mint::real_worker_concurrent_cold_forwards_share_one_mint`
+with `--exact --ignored`, then owns contextual composition and publication.
 
 The S3w composition at `9dfb408` passes all 172 selected worker/lifecycle
 launches and 32 retained Responses-budget/authentication checks. These are

@@ -217,6 +217,17 @@ pub struct Fixture {
     _base_calls: mpsc::UnboundedReceiver<base::Call>, _loads: mpsc::UnboundedReceiver<FramerUserId>,
 }
 impl Fixture {
+    pub fn with_client_browser(client: Arc<dyn FramerClient>, browser: Arc<dyn BrowserBridge>) -> Self {
+        let mut base = base::Fixture::new();
+        let (_, receiver) = mpsc::channel(8);
+        let runtime = base.state.runtime_mut().unwrap();
+        runtime.client = client;
+        runtime.browser = browser;
+        let state = crate::operation_ownership::with_owned_operations(base.state, 64).unwrap();
+        let state = crate::policy_generations::with_policy_workers(state).unwrap();
+        Self { state, accounts: base.accounts, calls: receiver,
+            _base_calls: base.calls, _loads: base.loads }
+    }
     pub fn new() -> Self {
         let mut base = base::Fixture::new();
         let (calls, receiver) = mpsc::channel(8);

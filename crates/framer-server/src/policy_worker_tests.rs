@@ -1,6 +1,8 @@
 use super::*;
 #[path = "policy_worker_fixture.rs"]
 mod router_fixture;
+#[path = "policy_cold_mint_tests.rs"]
+mod cold_mint;
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn real_worker_cancel_after_early_disposal_keeps_generation_ready() {

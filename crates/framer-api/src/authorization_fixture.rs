@@ -2,6 +2,15 @@
 use crate::{auth, HttpFramerClient};
 use framer_core::{AccountId, port::Session};
 
+/// Fresh authorization owner whose HTTP success and error paths stay on loopback.
+/// Callers must also refuse configured JWT relays, which bypass this transport.
+pub fn cold_loopback(address: std::net::SocketAddr) -> Result<HttpFramerClient, String> {
+    Ok(HttpFramerClient {
+        transport: crate::transport::Transport::control_for_loopback(
+            address, crate::session_auth::Egress::Direct)?,
+    })
+}
+
 /// Exercise both production cache-hit paths. Refuse misses before any I/O.
 pub async fn reuse(client: &HttpFramerClient, session: &Session) {
     {
