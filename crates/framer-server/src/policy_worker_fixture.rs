@@ -7,6 +7,50 @@ use tokio::sync::{mpsc, oneshot};
 #[path = "permit_lifetime_fixture.rs"]
 mod base;
 pub const BOUND: Duration = Duration::from_secs(3);
+pub struct RealPeer {
+    pub process: crate::policy_process::PolicyProcess,
+    pub input: mpsc::Receiver<framer_worker_wire::frame::Decoded<framer_worker_wire::message::Message>>,
+    control: framer_worker_wire::frame::WriteSlot,
+}
+impl RealPeer {
+    pub async fn new() -> Self {
+        use crate::policy_process::{Dispatch, Executable, PolicyProcess};
+        use framer_worker_wire::{message::Message, WireError};
+        let (send, input) = mpsc::channel(8);
+        let dispatch: Dispatch = Arc::new(move |frame| send.try_send(frame).map_err(|_| WireError::Protocol));
+        let (path, sha256) = executable("WORKER");
+        let process = tokio::time::timeout(BOUND,
+            PolicyProcess::spawn(Executable { path, sha256 }, 1, dispatch)).await.unwrap().unwrap();
+        let control = process.outbox.register(1).unwrap();
+        let mut peer = Self { process, input, control };
+        assert!(matches!(peer.next().await.message, Message::Hello { wire: 1, .. }));
+        peer.send(Message::Ready { generation: 1 }).await;
+        peer
+    }
+    pub async fn next(&mut self) -> framer_worker_wire::frame::Decoded<framer_worker_wire::message::Message> {
+        tokio::time::timeout(BOUND, self.input.recv()).await.unwrap().unwrap()
+    }
+    pub async fn send(&self, message: framer_worker_wire::message::Message) {
+        tokio::time::timeout(BOUND, self.control.send(&message)).await.unwrap().unwrap();
+    }
+    pub async fn begin(&mut self) {
+        use framer_worker_wire::message::{Message, Text, Mode, Limits, Part, Segment};
+        self.send(Message::Start { op: 7, logical_id: Text::new("fixed".into()).unwrap(),
+            model: Text::new("gpt-6-astra".into()).unwrap(), mode: Mode::Sse,
+            output: crate::response_output::WORKER_OUTPUT }).await;
+        assert!(matches!(self.next().await.message, Message::Head { op: 7, status: 200, .. }));
+        self.send(Message::Invoke { op: 7, n: 1, category: Text::new("translation".into()).unwrap(),
+            limits: Limits { chunk_tokens: 600, max_chunks: 1, max_total_tokens: None,
+                metered_fallback: false, continue_prompt: Text::new("continue".into()).unwrap() },
+            request: Part { offset: 0, last: true,
+                bytes: Segment::new(serde_json::to_vec(&payload()).unwrap()).unwrap() } }).await;
+    }
+    pub async fn close(mut self) {
+        self.process.request_drain();
+        let exit = tokio::time::timeout(BOUND, self.process.join()).await.unwrap().unwrap();
+        assert!(exit.reaped);
+    }
+}
 pub fn executable(kind: &str) -> (std::path::PathBuf, [u8; 32]) {
     let path = std::env::var_os(format!("FRAMERIZE_TEST_POLICY_{kind}_PATH"))
         .expect("main must supply an explicit built executable path");
@@ -29,6 +73,60 @@ pub fn reply(text: &str) -> ForwardReply {
                 "content":[{"type":"output_text", "text":text, "annotations":[]}]}],
             "usage":{"input_tokens":1,"output_tokens":1}})).unwrap().into() }
 }
+#[derive(Default)]
+pub struct EncoderBytes(pub Vec<u8>);
+impl std::io::Write for EncoderBytes {
+    fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
+        self.0.extend_from_slice(bytes); Ok(bytes.len())
+    }
+    fn flush(&mut self) -> std::io::Result<()> { Ok(()) }
+}
+impl framer_core::convert::ResponseWriter for EncoderBytes {
+    fn begin_event(&mut self, _: u64, _: bool) -> std::io::Result<()> { Ok(()) }
+    fn end_event(&mut self) -> std::io::Result<()> { Ok(()) }
+}
+pub fn expected_tool_stream(reply: &ForwardReply) -> Vec<u8> {
+    use framer_core::convert::{AssembledResponses, ResponseEncoder};
+    let body: Value = serde_json::from_slice(&reply.body).unwrap();
+    let assembled = AssembledResponses { id: "upstream".into(), created_at: 123,
+        output: body["output"].as_array().unwrap().clone(), status: "completed".into(),
+        incomplete_details: None, usage: body["usage"].clone(), service_tier: Value::Null,
+        input_tokens: 1, output_tokens: 1, chunks: 1, metered_chunks: 0 };
+    let mut encoder = ResponseEncoder::new("gpt-6-astra", "fixed");
+    let mut bytes = EncoderBytes::default();
+    encoder.open(&mut bytes).unwrap();
+    bytes.0.clear(); // Wall-clock opening is checked separately by the router trace.
+    encoder.push_items(&mut bytes, &assembled.output, false).unwrap();
+    encoder.finish(&mut bytes, &assembled).unwrap();
+    bytes.0
+}
+pub fn tool_reply(arguments: &str) -> ForwardReply {
+    let mut result = reply("");
+    let mut body: Value = serde_json::from_slice(&result.body).unwrap();
+    body["output"] = json!([{"type":"function_call", "id":"fc_fixed",
+        "call_id":"call_Exact-Café_42", "name":"write", "arguments":arguments,
+        "status":"completed"}]);
+    result.body = serde_json::to_vec(&body).unwrap().into();
+    result
+}
+pub fn trace_tool(text: &str, arguments: &str) {
+    let events: Vec<Value> = text.lines().filter_map(|line| line.strip_prefix("data: "))
+        .filter(|line| *line != "[DONE]").map(|line| serde_json::from_str(line).unwrap()).collect();
+    let id = events[0]["response"]["id"].as_str().unwrap();
+    assert_eq!(events[0]["type"], "response.created");
+    for (index, event) in events.iter().enumerate() {
+        assert_eq!(event["sequence_number"], index as u64);
+        if let Some(response) = event.get("response") { assert_eq!(response["id"], id); }
+    }
+    let terminal: Vec<_> = events.iter().filter(|e| e["type"] == "response.completed").collect();
+    assert_eq!(terminal.len(), 1);
+    assert_eq!(terminal[0]["response"]["output"][0], json!({"type":"function_call",
+        "id":"fc_fixed", "call_id":"call_Exact-Café_42", "name":"write",
+        "arguments":arguments, "status":"completed"}));
+    let delta: String = events.iter().filter(|e| e["type"] == "response.function_call_arguments.delta")
+        .map(|e| e["delta"].as_str().unwrap()).collect();
+    assert_eq!(delta, arguments);
+}
 pub async fn consume(response: axum::response::Response) -> String {
     assert_eq!(response.status(), axum::http::StatusCode::OK);
     let body = tokio::time::timeout(BOUND,
@@ -50,7 +148,7 @@ pub fn trace(text: &str, expected: &str) -> String {
     let terminal: Vec<_> = events.iter().filter(|event| event["type"] == "response.completed").collect();
     assert_eq!(terminal.len(), 1);
     let item = &terminal[0]["response"]["output"][0];
-    assert_eq!(item["id"], "msg_exact");
+    assert_eq!(item["id"], format!("msg_{}_1", id.trim_start_matches("resp_")));
     assert_eq!(item["content"][0]["text"], expected);
     let delta: String = events.iter().filter(|event| event["type"] == "response.output_text.delta")
         .map(|event| event["delta"].as_str().unwrap()).collect();

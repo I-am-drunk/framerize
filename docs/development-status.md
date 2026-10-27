@@ -1,5 +1,14 @@
 # Development status
 
+Seven further UNRUN controls cover worker pinning through repick, the ban on
+replaying published content, rollback with the two-slot cap, exact tool call
+identity, HTTP/private error classification, control failure and fixed-ID
+content/terminal byte equality through a real child. The new router helper's
+message-ID expectation now follows the existing logical-ID rule rather than
+the upstream message ID. No retained S3a assertion changed. The byte control
+shares the production encoder as its oracle and proves transport agreement,
+not an independent encoder implementation. Source review remains buffered.
+
 The separately built fault peer now drives seven real-router controls for
 loss before Head, malformed/unheaded messages, unread over-credit, event
 boundaries, partial events, terminal loss and pending Forward cleanup. The

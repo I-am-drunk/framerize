@@ -281,6 +281,230 @@ async fn real_worker_uses_original_input_and_returns_exact_content() {
     f.finish().await;
 }
 
+#[tokio::test]
+async fn real_worker_precontent_repick_keeps_generation_after_activation() {
+    use router_fixture::*;
+    let mut f = Fixture::new();
+    let a = f.stage().await;
+    f.manager().activate(a).unwrap();
+    let response = f.post(None, payload()).await;
+    let first = f.next().await;
+    let b = f.stage().await;
+    f.manager().activate(b).unwrap();
+    first.reply.send(Err(framer_core::port::ForwardError::from_legacy(
+        "risk-refused".into()).into())).ok().unwrap();
+    first.joined.await.unwrap();
+    let second = f.next().await;
+    assert_ne!(first.account, second.account);
+    let slots = f.manager().snapshot().unwrap();
+    assert_eq!(slots.iter().find(|s| s.generation == a).unwrap().pins, 1);
+    assert_eq!(slots.iter().find(|s| s.generation == b).unwrap().pins, 0);
+    second.reply.send(Ok(reply("repicked exactly once"))).ok().unwrap();
+    second.joined.await.unwrap();
+    trace(&consume(response).await, "repicked exactly once");
+    assert!(f.calls.try_recv().is_err());
+    f.finish().await;
+}
+
+#[tokio::test]
+async fn real_worker_published_content_prevents_account_replay() {
+    use router_fixture::*;
+    let mut f = Fixture::new();
+    let worker = f.stage().await;
+    f.manager().activate(worker).unwrap();
+    let response = f.post(None, payload()).await;
+    let first = f.next().await;
+    let mut partial = reply("published once");
+    let mut body: serde_json::Value = serde_json::from_slice(&partial.body).unwrap();
+    body["status"] = "incomplete".into();
+    body["incomplete_details"] = serde_json::json!({"reason":"max_output_tokens"});
+    partial.body = serde_json::to_vec(&body).unwrap().into();
+    first.reply.send(Ok(partial)).ok().unwrap();
+    first.joined.await.unwrap();
+    let consume = tokio::spawn(consume(response));
+    let second = f.next().await;
+    assert_eq!(first.account, second.account);
+    second.reply.send(Err(framer_core::port::ForwardError::from_legacy(
+        "risk-refused".into()).into())).ok().unwrap();
+    second.joined.await.unwrap();
+    let text = tokio::time::timeout(BOUND, consume).await.unwrap().unwrap();
+    assert_eq!(text.matches("event: response.created\n").count(), 1);
+    assert_eq!(text.matches("event: response.failed\n").count(), 1);
+    assert!(text.contains("published once"));
+    assert!(!text.contains("risk-refused"));
+    assert!(f.calls.try_recv().is_err());
+    f.finish().await;
+}
+
+#[tokio::test]
+async fn real_worker_rollback_and_third_slot_refusal_preserve_accepted_work() {
+    use router_fixture::*;
+    let mut f = Fixture::new();
+    let a = f.stage().await;
+    f.manager().activate(a).unwrap();
+    let original = f.post(Some(0), payload()).await;
+    let first = f.next().await;
+    let b = f.stage().await;
+    f.manager().activate(b).unwrap();
+    let (path, hash) = executable("WORKER");
+    assert_eq!(f.manager().stage(path, hash).await, Err(crate::policy_generations::GenerationError::Full));
+    let middle = f.post(Some(1), payload()).await;
+    let second = f.next().await;
+    second.reply.send(Ok(reply("B"))).ok().unwrap();
+    second.joined.await.unwrap();
+    trace(&consume(middle).await, "B");
+    f.manager().activate(a).unwrap();
+    let rolled_back = f.post(Some(1), payload()).await;
+    let third = f.next().await;
+    assert_eq!(f.manager().snapshot().unwrap().iter().find(|s| s.generation == a).unwrap().pins, 2);
+    third.reply.send(Ok(reply("A new"))).ok().unwrap();
+    third.joined.await.unwrap();
+    trace(&consume(rolled_back).await, "A new");
+    first.reply.send(Ok(reply("A original"))).ok().unwrap();
+    first.joined.await.unwrap();
+    trace(&consume(original).await, "A original");
+    assert!(f.calls.try_recv().is_err());
+    f.finish().await;
+}
+
+#[tokio::test]
+async fn real_worker_activation_keeps_exact_tool_call_identity_and_arguments() {
+    use router_fixture::*;
+    use futures::StreamExt;
+    let mut f = Fixture::new();
+    let a = f.stage().await;
+    f.manager().activate(a).unwrap();
+    let original = f.post(Some(0), payload()).await;
+    let first = f.next().await;
+    let arguments = serde_json::json!({"content":"exact 日本語 ".repeat(8192)}).to_string();
+    first.reply.send(Ok(tool_reply(&arguments))).ok().unwrap();
+    first.joined.await.unwrap();
+    let mut body = original.into_body().into_data_stream();
+    let mut prefix = Vec::new();
+    for _ in 0..3 {
+        let part = tokio::time::timeout(BOUND, body.next()).await.unwrap().unwrap().unwrap();
+        prefix.extend_from_slice(&part);
+    }
+    let b = f.stage().await;
+    f.manager().activate(b).unwrap();
+    let second = f.post(Some(1), payload()).await;
+    let call = f.next().await;
+    call.reply.send(Ok(reply("new generation"))).ok().unwrap();
+    call.joined.await.unwrap();
+    trace(&consume(second).await, "new generation");
+    assert_eq!(f.manager().snapshot().unwrap().iter().find(|s| s.generation == a).unwrap().pins, 1);
+    let tail = axum::response::Response::new(axum::body::Body::from_stream(body));
+    prefix.extend_from_slice(consume(tail).await.as_bytes());
+    trace_tool(std::str::from_utf8(&prefix).unwrap(), &arguments);
+    assert!(f.calls.try_recv().is_err());
+    f.finish().await;
+}
+
+#[tokio::test]
+async fn real_worker_http_origin_and_private_failures_keep_kernel_classification() {
+    use router_fixture::*;
+    let raw = r#"upstream 403 on /responses: {"error":{"message":"maximum context length: private marker","type":"quota 日本語"}}"#;
+    for http in [true, false] {
+        let mut f = Fixture::new();
+        let worker = f.stage().await;
+        f.manager().activate(worker).unwrap();
+        let response = f.post(Some(0), payload()).await;
+        let call = f.next().await;
+        let error = framer_core::port::ForwardError::from_legacy(raw.into());
+        let error = if http { error.http() } else { error };
+        call.reply.send(Err(error.into())).ok().unwrap();
+        call.joined.await.unwrap();
+        let text = consume(response).await;
+        let failure: serde_json::Value = text.lines().filter_map(|l| l.strip_prefix("data: "))
+            .filter_map(|l| serde_json::from_str::<serde_json::Value>(l).ok())
+            .find(|event| event["type"] == "response.failed").unwrap();
+        let (_, mut expected) = framer_core::convert::error_json(
+            framer_core::convert::ClientDialect::OpenAiResponses, raw);
+        if !http { expected["error"]["message"] = "upstream operation failed".into(); }
+        assert_eq!(failure["response"]["error"], expected["error"]);
+        assert_eq!(failure["response"]["error"]["code"], "context_length_exceeded");
+        assert_eq!(text.contains("private marker"), http);
+        assert!(f.calls.try_recv().is_err());
+        f.finish().await;
+    }
+}
+
+#[tokio::test]
+async fn real_worker_control_failure_stops_dispatch_and_fences() {
+    use router_fixture::*;
+    let mut f = Fixture::new();
+    let worker = f.stage().await;
+    f.manager().activate(worker).unwrap();
+    let response = f.post(None, payload()).await;
+    let call = f.next().await;
+    call.reply.send(Err(framer_core::port::ControlError.into())).ok().unwrap();
+    call.joined.await.unwrap();
+    let text = consume(response).await;
+    assert!(text.contains("upstream operation task failed"));
+    assert!(f.calls.try_recv().is_err());
+    f.finish_fenced().await;
+}
+
+#[tokio::test]
+async fn real_worker_fixed_identity_content_and_terminal_bytes_match_encoder() {
+    use router_fixture::*;
+    use framer_worker_wire::{credit::{Window, Capacity, data_cost}, message::{self as wire, Message}};
+    let mut peer = RealPeer::new().await;
+    peer.begin().await;
+    let reply = tool_reply(r#"{"content":"fixed 日本語","count":3}"#);
+    let expected = expected_tool_stream(&reply);
+    let mut actual = Vec::new();
+    let mut window = Window::new(crate::response_output::WORKER_OUTPUT).unwrap();
+    let (mut accepted, mut forwards, mut terminal) = (0, 0, 0);
+    loop {
+        let received = peer.next().await;
+        match received.message {
+            Message::Data { op: 7, seq, event, bytes, last } => {
+                assert_eq!(seq, accepted);
+                let cost = data_cost(received.wire_bytes);
+                window.reserve(cost).unwrap();
+                if event != wire::DataKind::Opening { actual.extend_from_slice(bytes.as_slice()); }
+                if event == wire::DataKind::Terminal && last { terminal += 1; }
+                if last { accepted += 1; }
+                drop(bytes);
+                peer.send(Message::Credit { op: 7, returned: cost, accepted_event_seq: accepted }).await;
+                window.release(cost).unwrap();
+            }
+            message => if fixed_peer_control(&peer, message, &reply, &mut forwards, terminal).await { break; },
+        }
+    }
+    assert_eq!(window.outstanding(), Capacity::default());
+    assert_eq!(actual, expected);
+    assert_eq!(forwards, 1);
+    assert_eq!(terminal, 1);
+    peer.close().await;
+}
+
+async fn fixed_peer_control(peer: &router_fixture::RealPeer, message: framer_worker_wire::message::Message,
+    reply: &framer_core::port::ForwardReply, forwards: &mut usize, terminal: usize) -> bool {
+    use framer_worker_wire::message::{self as wire, Message};
+    match message {
+        Message::Forward { op: 7, n: 1, fwd: 1, payload, .. } => {
+            assert!(payload.last);
+            *forwards += 1;
+            peer.send(Message::ForwardReply { op: 7, n: 1, fwd: 1,
+                status: reply.status, content_type: wire::Text::new(reply.content_type.clone()).unwrap(),
+                queue_wait_ms: reply.queue_wait_ms, body: wire::Part { offset: 0, last: true,
+                    bytes: wire::Segment::new(reply.body.to_vec()).unwrap() } }).await;
+        }
+        Message::Result { op: 7, n: 1, outcome: wire::Outcome::Success { summary }, .. } => {
+            assert_eq!(summary.chunks, 1);
+            peer.send(Message::Finish { op: 7, n: 1 }).await;
+        }
+        Message::Diag { op: 7, n: 1, .. } => {},
+        Message::Done { op: 7, outcome: wire::DoneOutcome::Completed, .. } => {
+            assert_eq!(terminal, 1); return true;
+        }
+        other => panic!("unexpected worker message: {other:?}"),
+    }
+    false
+}
+
 mod invocation_contract {
     use crate::policy_worker_request::InvocationLedger;
     use framer_core::port::{ForwardError, OutputError, ResponseError};
