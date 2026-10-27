@@ -171,8 +171,11 @@ impl StateStore for SqliteStateStore {
 /// Session cookie in the OS keychain. The entry value is the raw `Cookie:` header.
 pub struct KeyringSessionStore;
 
-#[cfg(test)]
 fn save_keyring_entry(entry: &keyring::Entry, session: &Session) -> Result<(), String> {
+    // The default mock keeps the secret only until this entry is dropped.
+    if entry.get_credential().is::<keyring::mock::MockCredential>() {
+        return Err("session keyring backend is not persistent".into());
+    }
     entry.set_password(&session.cookie_header).map_err(|e| e.to_string())
 }
 
@@ -193,7 +196,7 @@ impl SessionStore for KeyringSessionStore {
     async fn save(&self, session: &Session) -> Result<(), String> {
         let entry = keyring::Entry::new(KEYCHAIN_SERVICE, &session.active_user.0)
             .map_err(|e| e.to_string())?;
-        entry.set_password(&session.cookie_header).map_err(|e| e.to_string())
+        save_keyring_entry(&entry, session)
     }
 
     async fn delete(&self, user: &FramerUserId) -> Result<(), String> {

@@ -1,5 +1,10 @@
 # Development status
 
+The keyring-save candidate rejects the built-in mock credential before
+acknowledging a persistent save. Other credentials retain their write bytes
+and errors. The exact fixture and guard from `b2b3c6c` preserve newer store
+changes. All nine selected controls await qualification on this composition.
+
 Ten fresh aggregate-memory profiles passed on archived, qualified `bd78f83`
 binaries, five per mode. A small native supervisor read Linux `memory.peak`
 in a new isolated service for each run, after the host and worker joined.
