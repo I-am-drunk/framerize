@@ -211,6 +211,15 @@ async fn operation_messages_round_trip_through_bounded_frames() {
 }
 
 #[tokio::test]
+async fn control_outcome_retains_its_exact_wire_shape() {
+    let message = Message::Result { op: 1, n: 0, outcome: Outcome::Control, diag_dropped: 0 };
+    let expected = framed(br#"{"kind":"result","op":1,"n":0,"outcome":{"kind":"control"},"diag_dropped":0}"#);
+    assert_eq!(encode(&message).unwrap(), expected);
+    let decoded = read::<_, Message>(&mut expected.as_slice()).await.unwrap().unwrap();
+    assert_eq!(decoded.message, message);
+}
+
+#[tokio::test]
 async fn nested_recipes_diagnostics_and_failures_reject_unknown_or_duplicate_fields() {
     for json in [
         r#"{"kind":"result","op":1,"n":0,"diag_dropped":0,"outcome":{"kind":"control","text":"private"}}"#,

@@ -192,6 +192,40 @@ impl RunnerPeer {
             output: Capacity { wire_bytes: 2 * DATA_WIRE_RESERVE, slots: 2, downstream_bytes: 32768 } }).await;
         assert!(matches!(self.next().await, Message::Head { op: 7, status: 200, .. }));
     }
+    async fn next_panicked(&mut self) -> Message {
+        let mut returns = Vec::with_capacity(2);
+        let done = loop {
+            let frame = self.raw().await;
+            match frame.message {
+                Message::Data { op, event, seq, bytes, last } => {
+                    assert_eq!(op, 7); assert_eq!(seq, self.accepted);
+                    if last { self.accepted += 1; }
+                    if event == DataKind::Terminal { self.terminal += 1; }
+                    self.output.extend_from_slice(bytes.as_slice());
+                    drop(bytes);
+                    assert!(returns.len() < 2);
+                    returns.push(Message::Credit { op, returned: data_cost(frame.wire_bytes),
+                        accepted_event_seq: self.accepted });
+                }
+                Message::Diag { op: 7, .. } => self.diagnostics += 1,
+                message => break message,
+            }
+        };
+        assert!(matches!(&done, Message::Done { op: 7,
+            outcome: framer_worker_wire::message::DoneOutcome::Panicked, .. }));
+        for credit in returns { self.return_after_panic(credit).await; }
+        done
+    }
+    async fn return_after_panic(&mut self, credit: Message) {
+        // Done was read first. Only confirmed runner loss excuses a late return.
+        if let Err(error) = frame::write(&mut self.peer, &frame::encode(&credit).unwrap()).await {
+            assert!(matches!(error, WireError::Io(error)
+                if error.kind() == std::io::ErrorKind::BrokenPipe));
+            tokio::time::timeout(Duration::from_secs(2), async {
+                while !self.task.is_finished() { tokio::task::yield_now().await; }
+            }).await.unwrap();
+        }
+    }
     async fn invoke(&mut self, n: u32) {
         use framer_worker_wire::message::{Limits, Part, Segment};
         self.send(Message::Invoke { op: 7, n, category: Text::new("translation".into()).unwrap(),
@@ -381,7 +415,7 @@ async fn runner_policy_panic_joins_emitter_before_done() {
         limits: Limits { chunk_tokens: 600, max_chunks: 1, max_total_tokens: None,
             metered_fallback: false, continue_prompt: Text::new("continue".into()).unwrap() },
         request: Part { offset: 0, last: true, bytes: Segment::new(b"true".to_vec()).unwrap() } }).await;
-    assert!(matches!(f.next().await, Message::Done { op: 7, outcome: DoneOutcome::Panicked, .. }));
+    assert!(matches!(f.next_panicked().await, Message::Done { op: 7, outcome: DoneOutcome::Panicked, .. }));
     assert_eq!(f.terminal, 0);
     f.end(false).await;
 }

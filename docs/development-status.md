@@ -1,5 +1,16 @@
 # Development status
 
+The S3w correction on frozen `790b720` is source-only and UNRUN. Main compiled
+that base, bound 521 names and ran 167 selected cases: 162 passed and five failed.
+The wire correction requires an empty payload for the existing Control variant,
+preserving its public API and serialized shape. The panic fixture reads Done
+before returning credit and accepts BrokenPipe only after confirmed runner loss.
+Shutdown fixtures configure workers
+before installing their Weak runtime observer; production ownership guards and
+all prior assertions remain unchanged. A new control checks exact Control bytes.
+Next: same-discussion source review, then main-owned compilation and qualification.
+The original five failures, profile limits and open simplicity work remain separate.
+
 The remaining S3w profile and diagnostic controls are now source-complete and
 UNRUN. Two ignored selectors exercise the same real router in legacy0 and
 worker mode; main owns five fresh-process runs of each. They report unpaused

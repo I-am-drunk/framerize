@@ -115,7 +115,15 @@ pub enum Outcome {
     Forward { failure: FailureRecipe },
     Local { failure: LocalFailure },
     Output { failure: OutputFailure, completed: bool },
+    #[serde(deserialize_with = "control_outcome")]
     Control,
+}
+fn control_outcome<'de, D: serde::Deserializer<'de>>(d: D) -> Result<(), D::Error> {
+    // Internally tagged unit variants otherwise ignore their payload fields.
+    #[derive(Deserialize)]
+    #[serde(deny_unknown_fields)]
+    struct Empty {}
+    Empty::deserialize(d).map(|_| ())
 }
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
