@@ -2426,3 +2426,12 @@ execution scopes settled empty. The original baseline collector rejection was
 reconciled from saved exits and summaries without repeating any test.
 No live browser or service changed. Existing-account recovery and the admitted
 native/browser comparison remain the next runtime steps.
+
+## CDP admission during shutdown
+
+The experimental shutdown-admission change rechecks the stopping flag after
+acquiring the account route, before cached-instance lookup or preparation.
+It preserves the existing shutdown error and attachment-owner precedence.
+Source `8fb0bf9` is composed onto the qualified CDP expiry milestone.
+The nineteen selected controls are unrun on this composition. Application
+work must still drain before shutdown; this check is not a complete drain.
