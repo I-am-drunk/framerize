@@ -1,5 +1,11 @@
 # Architecture
 
+SQLite account upsert requires exactly one affected row before acknowledging
+success. A suppressed write returns `stored account write was not applied`.
+Serialization, SQL, parameters and earlier errors are unchanged. This checks
+the direct statement acknowledgement; it does not read the record back or
+roll back arbitrary trigger effects.
+
 File-session IDs retain the empty/separator/NUL checks and Windows drive-prefix
 rejection. Accepted IDs use `session-v2-<lowercase SHA-256>.data`; the digest
 covers `framerize-session-v2`, NUL and the complete UTF-8 ID. POSIX colon names

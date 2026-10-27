@@ -1,12 +1,15 @@
 # Development status
 
-The SQLite upsert acknowledgement candidate requires exactly one affected
-row before returning success. Other counts return the fixed error
-`stored account write was not applied`. The SQL, parameters, serialization
-and existing error order remain. This checks the direct acknowledgement,
-without readback or rollback of arbitrary trigger effects. The two Rust
-files match `b0a9feb` on the newer exact-ID composition. Nine selected
-checks remain pending candidate qualification.
+SQLite upsert acknowledgement passes all nine selected checks on `c72a85b`,
+with 844 matching execution pins, a hash-bound executable and settled
+process groups. The store requires one affected row before returning success;
+other counts return `stored account write was not applied`. The SQL,
+parameters, serialization and existing error order remain. Baseline `f06e455`
+passed seven controls and wrongly returned success for ignored inserts and
+conflict updates. Both methods stopped at their first result assertion;
+later preservation assertions are candidate evidence only. The two Rust
+files match `b0a9feb` on the newer exact-ID composition. This checks the
+statement acknowledgement, without rollback of arbitrary trigger effects.
 
 The exact-ID session store passes all 36 selected checks on `437e772`:
 33 store controls and three server controls bound to their built names.
