@@ -1,12 +1,19 @@
 # Development status
 
-The exact-ID session-store candidate uses a versioned digest filename and
-records the complete ID with the cookie. Save/delete conflict checks share
-one per-store mutation guard. Missing v2 records require reauthentication;
-legacy files remain untouched. Stored labels do not authenticate cookies.
-The seven owner files match `f1bdc80`; the lock change adds only the store's
-sha2 dependency and preserves all 242 external records. Its 36 selected
-checks are pending qualification on the current composition.
+The exact-ID session store passes all 36 selected checks on `437e772`:
+33 store controls and three server controls bound to their built names.
+All 843 execution source pins match, both executables are hash-bound, and
+the isolated process groups are settled. Baseline `861e5a7` passed 28 and
+failed all eight new regression methods at their first recorded assertions.
+The original 33 store outcomes were preserved; only the three unmatched
+server names needed a later launch. No completed baseline case was rerun.
+Later branches of failed baseline methods remain candidate evidence only.
+Versioned digest filenames and embedded full IDs preserve exact identity.
+Save/delete conflict checks share one per-store mutation guard. Missing v2
+records require reauthentication; legacy files remain untouched. Stored
+labels do not authenticate cookies. The seven owner files match `f1bdc80`;
+the lock adds only the store sha2 edge and preserves 242 external records.
+This is isolated Linux evidence, not Windows execution or a live rollout.
 
 Session deletion synchronization passes all 25 selected checks on `224e985`,
 with 842 matching source pins and a settled process group. The directory
@@ -103,7 +110,7 @@ The worker and fault executables and eight test binaries are hash-bound.
 The combined cold-cache mint proof was subsequently qualified on `fd45cd0`
 as recorded above; these earlier composition results remain separate.
 Default selection remains legacy0; the live browser package stays `7ccd059`.
-Next: qualify the exact-ID session-file format and continue
+Next: qualify the buffered SQLite acknowledgement guards and continue
 investigating the remaining worker cost without changing the live default.
 
 S3w candidate `b349b2a` passes 172 selected launches covering 171 distinct

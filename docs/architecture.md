@@ -1,8 +1,17 @@
 # Architecture
 
-File-session path validation rejects ASCII-letter/colon prefixes under
-Windows rules before joining a user-derived filename to its owned directory.
-POSIX colon names and the earlier empty/separator/NUL checks are preserved.
+File-session IDs retain the empty/separator/NUL checks and Windows drive-prefix
+rejection. Accepted IDs use `session-v2-<lowercase SHA-256>.data`; the digest
+covers `framerize-session-v2`, NUL and the complete UTF-8 ID. POSIX colon names
+remain accepted. The record contains `FRMSESS2`, an eight-byte big-endian ID
+length, the exact ID and the cookie. Reads validate that ID before the cookie.
+Missing v2 records require reauthentication; the store never reads, adopts or
+removes legacy raw-name files. Record labels do not authenticate cookies.
+A per-store mutex holds save/delete identity checks through publication and
+directory sync. A mismatched or malformed regular record returns
+`session record identity conflict`; a poisoned mutation guard returns
+`session store mutation unavailable`. Existing validation, I/O and cookie
+limit errors retain their order. Nonregular destinations retain OS behavior.
 
 Session saves claim temporary names with create-new semantics. An occupied
 name advances the existing sequence; the occupant is never opened or
@@ -883,9 +892,11 @@ ownership. The store does not change existing permissions or migrate files.
 Session and ownership entries must be regular files. Unix opens are nonblocking
 so a FIFO can be rejected through its opened-file metadata without waiting for
 a writer, before locking or reading any contents.
-Native startup uses the store's optional byte limit with the same 16 KiB bound
-as native credential validation. Reads take at most one byte beyond that bound
-to detect overflow even if a file grows; oversized saves fail before replacement.
+Native startup uses the store's optional cookie limit with the same 16 KiB bound
+as native credential validation. After the record header and ID, cookie reads
+take at most one byte beyond that bound to detect overflow even if a file grows;
+oversized saves fail before replacement. The cookie bound excludes the record
+header and ID.
 The default store constructor has no size limit, preserving other consumers.
 
 Native generations retain the store with their HTTP client. Credential
