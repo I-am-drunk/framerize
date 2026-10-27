@@ -294,3 +294,27 @@ async fn factory_requires_original_grant_route_and_one_claim() {
     assert_eq!(owner.close_native_device(&grant, true, false).await, Ok(true));
     fixture::close(&client, &scope).await;
 }
+
+#[tokio::test]
+async fn changed_session_or_target_refuses_before_auth_or_mint() {
+    for change in 0..4 {
+        let (case, listener) = case().await;
+        let source = case.source.clone(); let scope = case.scope.clone();
+        let pending = case.client.prepare_owned(&case.scope, tokio::time::Instant::now() + Duration::from_secs(2),
+            move |mut session, control| async move {
+                let mut wanted = CredentialTarget { project: target().project().clone(), path: target().path() };
+                match change {
+                    0 => session.active_user.0.push('x'),
+                    1 => session.cookie_header.push_str("; __cuid=other-device"),
+                    2 => wanted.project.0.push('x'), _ => wanted.path = "/ai/v3/messages/",
+                }
+                let result = source.issue_for_target(&scope, &session, &wanted, &control).await;
+                PreparationResult { value: result.value.map(|_| ()), cleanup_confirmed: result.cleanup_confirmed }
+            }).unwrap();
+        assert_eq!(pending.await, Err(PreparationFailure::Rejected), "{change}");
+        assert_eq!(*case.ports.events.lock().unwrap(), ["open"]);
+        drop(listener);
+        assert_eq!(case.owner.close_native_device(&case.grant, true, false).await, Ok(true));
+        fixture::close(&case.client, &case.scope).await;
+    }
+}

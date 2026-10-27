@@ -142,8 +142,9 @@ pub(super) async fn prepare_control(peer: &dyn BrowserCredentialControl,
     // Cancellation cannot discard an in-progress external preparation. The
     // peer owns its finite deadline; shutdown follows its actual settlement.
     let (ready, stopped) = tokio::select! {
-        ready = &mut preparing => (ready, false),
+        biased;
         _ = stop => (preparing.await, true),
+        ready = &mut preparing => (ready, false),
     };
     if !ready { return Err("browser credential control preparation failed".into()); }
     Ok(!stopped)

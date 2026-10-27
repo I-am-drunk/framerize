@@ -72,7 +72,9 @@ pub use offline_authorization::OfflineMintTarget;
 pub use offline_authorization::OfflineMinter;
 pub use offline_authorization::OfflineSessionSource;
 
+#[path = "browser_control.rs"]
 mod browser_control;
+#[path = "browser_control_owner.rs"]
 pub(crate) mod browser_control_owner;
 pub use browser_control::{BrowserControlMint, BrowserCredentialControl};
 pub(crate) use browser_control::BrowserControlFactory;

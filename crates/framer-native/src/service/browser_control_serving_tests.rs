@@ -173,3 +173,26 @@ async fn preparation_is_joined_when_startup_is_stopped() {
     assert!(ports.shutdown().await);
     assert_eq!(*ports.events.lock().unwrap(), ["prepare", "prepared", "shutdown"]);
 }
+
+#[tokio::test]
+async fn already_stopped_startup_wins_over_ready_preparation() {
+    let ports = shared::Ports::new();
+    assert_eq!(crate::service::startup::prepare_control(ports.as_ref(), async {}).await, Ok(false));
+    assert_eq!(*ports.events.lock().unwrap(), ["prepare", "prepared"]);
+    assert!(ports.shutdown().await);
+}
+
+#[tokio::test]
+async fn explicit_control_entry_rejects_multiple_accounts_before_preparation() {
+    let ports = shared::Ports::new();
+    let config = crate::ServeConfig {
+        database: "/must-not-open".into(), profiles: "/must-not-open".into(),
+        python: "/must-not-execute".into(), runtime_script: "/must-not-execute".into(),
+        worker_config: "/must-not-read".into(), selected_accounts: vec![
+            uuid::Uuid::new_v4().to_string(), uuid::Uuid::new_v4().to_string()],
+        address: "127.0.0.1:0".parse().unwrap(), expire_legacy_from: None,
+    };
+    let result = crate::serve_with_browser_control(config, ports.clone(), None, std::future::pending()).await;
+    assert_eq!(result.unwrap_err(), "browser credential control requires one selected account");
+    assert!(ports.events.lock().unwrap().is_empty());
+}
