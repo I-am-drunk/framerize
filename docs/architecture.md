@@ -1,5 +1,22 @@
 # Architecture
 
+The experimental `PreparedControlHost` prepares one selected device page using
+the existing browser launch, tracked RPC and acknowledged-close ownership.
+It installs the supplied session cookie, device cookie and device init script
+before navigating to the exact requested page. It starts no explicit warm mint,
+device allocation, heartbeat, human loop or ordinary command consumer.
+Its lifecycle ledger is in memory. Durable admission and mint accounting stay
+with the native owner. Account IDs are canonical UUIDs, and an explicit direct
+route refuses a nonempty ambient proxy instead of silently inheriting it.
+
+Preparation has its own deadline. Cancellation stops new preparation calls,
+joins the actual in-flight operation and closes any late-created browser.
+Repeated cancellation cannot abandon that cleanup. An unresponsive operation
+still requires the owning process's external bound. A failed close remains
+unconfirmed. The initializer is an internal component, not a child entry point
+or an actual-egress verifier. Page-driven traffic and live acceptance remain
+unmeasured; skipping explicit warm-up does not prove absence of page requests.
+
 The experimental `BrowserControlProcess` connects the native control interface
 to a private, single-use Python child. Construction is inert. Explicit prepare
 verifies the absolute interpreter and script hashes before spawning; the caller
