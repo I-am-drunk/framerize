@@ -1,13 +1,18 @@
 # Development status
 
 The scoped control startup connection is implemented on
-`feat/control-account-startup-20261027` and awaits compilation and tests.
+`feat/control-account-startup-20261027`. All 36 selected controls pass on
+`a53d8d4`, with 884 matching source pins and empty settled process groups.
 Ten new controls cover retaining the attested account past idle expiry,
 request lease reuse, session and proxy binding, readiness ordering,
 cancellation, refusal, panic and shutdown error precedence. Twenty-six
-retained startup, browser-control and history controls are also selected.
-All 36 are UNRUN. Fixtures use inert control peers, local HTTP and the
-existing isolated history fixture. The explicit native CLI selection and
+retained startup, browser-control and history controls also pass.
+The original result collector misclassified six successful tests whose
+expected diagnostics interrupted its single-line pattern. Exact commands,
+zero exit codes and passing libtest summaries reconcile all 36 saved runs;
+the original collector rejection is retained and no test was repeated.
+All 879 unaffected prior source pins match. Fixtures use inert control peers,
+local HTTP and the existing isolated history fixture. Native CLI selection and
 supervised live comparison remain unfinished. No service was changed.
 
 The explicit Python launcher is implemented on
