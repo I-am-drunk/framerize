@@ -1,16 +1,20 @@
 # Development status
 
 The account-scoped browser-control handshake is implemented on
-`feat/control-native-egress-20261027` and is awaiting compilation and offline
-qualification. Fifteen new controls cover endpoint refusal, unbound or wrong
+`feat/control-native-egress-20261027`. All 33 selected controls pass on
+`c199a98`, with a fresh native build and 880 matching source pins. Fifteen new
+controls cover endpoint refusal, unbound or wrong
 account preparation, probe-before-ready ordering, duplicate probe refusal,
 native response rejection, cancellation, deadlines, dropped waiters, account
 closure and generation replacement before mint. Eighteen retained process
-controls will check the existing mode. All 33 selections are currently UNRUN.
+controls pass for the existing mode. Every test process and child is settled;
+874 unaffected prior source pins match their retained evidence.
 The fixtures use a hash-bound Python interpreter, an inert child and joined
 loopback requests. Successful local cleanup does not establish live acceptance.
-Next qualify this slice, then connect the explicit Python launcher and service
-startup without publishing readiness before the real account probe succeeds.
+Next connect the explicit Python launcher and service startup. Retain the
+same native account lease through preparation and request use, and share the
+child's frame parser so buffered input is preserved. Readiness must follow
+the real account probe. These attachments and live comparison remain unfinished.
 
 The native account egress probe is implemented on
 `feat/native-egress-probe-20261027`, with all nineteen selected controls passing
