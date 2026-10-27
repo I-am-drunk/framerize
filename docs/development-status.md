@@ -1,12 +1,14 @@
 # Development status
 
 The internal browser-control child runner now connects the private preparation
-frame, dedicated initializer and existing protocol. Its 16 new controls and
-15 retained protocol controls are unrun on this delta. The new controls cover
+frame, dedicated initializer and existing protocol. All 16 new controls and
+15 retained protocol/frame controls pass on `f97a135`. The new controls cover
 buffered input, readiness after attestation, cancelled or expired setup,
 complete request ownership and failed cleanup. Actual egress observations,
-standalone executable wiring and live acceptance remain unfinished. The new
-attester is an explicit dependency, with inert ports used only by the fixtures.
+standalone executable wiring and live acceptance remain unfinished. Egress
+attestation is an explicit dependency, with inert ports used by the fixtures.
+The Python run left no test process and matched all 871 source pins. Native
+controls were not rerun; their earlier results remain separately recorded.
 
 The dedicated browser-control initializer is implemented on
 `feat/browser-control-preparation-20261027`. All 20 new offline controls pass
