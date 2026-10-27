@@ -2536,8 +2536,8 @@ async fn dedupe_accounts_observed(State(s): State<AppState>, Json(body): Json<De
     let now = framer_core::rotation::now_ms();
 
     // Device clones: keep the first record per device id, flag later ones.
-    let mut seen_devices: std::collections::BTreeSet<String> = Default::default();
-    let mut doomed: Vec<(ManagedAccount, &'static str)> = Vec::new();
+    let mut seen_devices: std::collections::BTreeMap<String, ManagedAccount> = Default::default();
+    let mut doomed: Vec<(ManagedAccount, &'static str, Option<ManagedAccount>)> = Vec::new();
     let mut keeping = Vec::new();
     let mut needs_project: Vec<serde_json::Value> = Vec::new();
 
@@ -2560,10 +2560,11 @@ async fn dedupe_accounts_observed(State(s): State<AppState>, Json(body): Json<De
     for a in ordered {
         let name = a.email.clone().unwrap_or_else(|| a.alias.clone());
         // Device clones first: that judgement needs no external state.
-        if !seen_devices.insert(a.castle_device_id.clone()) {
-            doomed.push((a, "shares a Castle device id with another record"));
+        if let Some(keeper) = seen_devices.get(&a.castle_device_id) {
+            doomed.push((a, "shares a Castle device id with another record", Some(keeper.clone())));
             continue;
         }
+        seen_devices.insert(a.castle_device_id.clone(), a.clone());
         // Dead = nothing of value to recover. Credits or a live session make an
         // account worth provisioning rather than deleting.
         let has_credits = a.credit.as_ref().is_some_and(|c| c.available > 0.0);
@@ -2575,7 +2576,7 @@ async fn dedupe_accounts_observed(State(s): State<AppState>, Json(body): Json<De
             .is_some();
         if a.current_project.is_none() && !has_credits && !has_session {
             seen_devices.remove(&a.castle_device_id);
-            doomed.push((a, "no project, no credits, no session — nothing to recover"));
+            doomed.push((a, "no project, no credits, no session — nothing to recover", None));
             continue;
         }
         if a.current_project.is_none() {
@@ -2595,7 +2596,7 @@ async fn dedupe_accounts_observed(State(s): State<AppState>, Json(body): Json<De
     }
 
     let mut removed = Vec::new();
-    for (dup, why) in doomed {
+    for (dup, why, keeper) in doomed {
         let name = dup.email.clone().unwrap_or_else(|| dup.alias.clone());
         if body.apply {
             let _management = cleanup.outcome(pool_control::management_observed(&s, dup.id, false).await)?;
@@ -2605,6 +2606,18 @@ async fn dedupe_accounts_observed(State(s): State<AppState>, Json(body): Json<De
             if current != expected {
                 return Err(ApiError::PoolBusy("account changed during deduplication; retry the preview".into()));
             }
+            let _keeper_management = if let Some(keeper) = keeper {
+                let management = cleanup.outcome(pool_control::management_observed(&s, keeper.id, false).await)?;
+                let current = s.state.get(keeper.id).await.map_err(ApiError::Internal)?;
+                let current = serde_json::to_value(current).map_err(|e| ApiError::Internal(e.to_string()))?;
+                let expected = serde_json::to_value(Some(&keeper)).map_err(|e| ApiError::Internal(e.to_string()))?;
+                if current != expected {
+                    return Err(ApiError::PoolBusy("account changed during deduplication; retry the preview".into()));
+                }
+                Some(management)
+            } else {
+                None
+            };
             cleanup.outcome(s.serving_accounts.park_managed_observed(s.browser.as_ref(), dup.id).await)?;
             s.state.remove(dup.id).await.map_err(ApiError::Internal)?;
         }

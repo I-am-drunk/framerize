@@ -1,5 +1,19 @@
 # Development status
 
+Account dedupe now guards and rereads the selected survivor before deleting
+its clone, and holds both management guards through clone cleanup and removal.
+This prevents concurrent removal of the survivor from leaving neither record.
+Busy, missing or changed survivors refuse that deletion; storage errors remain
+unchanged. Earlier successful deletions are not rolled back.
+
+The contextual `dabe063` integration after `e33fb44` passes all 15 exact
+server selections, with 805 matching source hashes and four matching candidate
+files. The isolated unit is inactive with no remaining process. The baseline
+reproduced all four new failures and passed 11 retained controls. Its failures
+stopped at the first unexpected success or missing-guard assertion; the combined
+error test stopped before its busy subcase. The candidate completes every
+assertion and subcase. Live service and staged packages remain unchanged.
+
 Login and import now reject another account with the same full verified
 Framer user ID before saving its session, claiming grants or publishing the
 initial account. One account-list snapshot is read under the existing
@@ -21,15 +35,17 @@ initial list-read expectation. The live service and staged `c16fd24`
 packages remain unchanged.
 
 A native-token/browser-sender acceptance attempt remains prepared from the
-qualified `c16fd24` pair. Fresh eligibility passed at 00:06:39 UTC on
-October 27, with eight active users. Its proposed 00:10 wait window was
-cancelled before observation or launch when the active vision run changed.
-No controller, pool write, service switch or canary ran; no replacement
-window is armed. The completed evidence checker distinguishes native-token
-acceptance through the browser from native HTTP and full browserless delivery.
-Any later attempt still requires current eligibility, observed participant
-bindings, the actual work drain and independent recovery. The live
-`c7d4516` repair remains in place.
+qualified `c16fd24` pair. The October 27 00:10 and 00:28 wait windows both
+ended before launch when the assigned review run changed. In the latter,
+a background timer ended the assigned run and resumed in a new one. Future
+timing must keep the assigned run active through foreground waits.
+The observer also now recognizes both providers' recorded names for the
+same wait tool; 13 synthetic checks preserve its refusal conditions.
+No controller, pool write, service switch or canary ran, and no replacement
+window is armed. Native-token acceptance, native HTTP delivery and full
+browserless acceptance remain separate unproven outcomes. Any later attempt
+still requires current eligibility, observed participant bindings, the actual
+work drain and independent recovery. The live `c7d4516` repair remains in place.
 
 Legacy device migration now reads raw SQLite text with checked UTF-8.
 Malformed text and nontext rows remain byte-for-byte unchanged while valid

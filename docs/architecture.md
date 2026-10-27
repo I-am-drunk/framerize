@@ -1,5 +1,13 @@
 # Architecture
 
+Dedupe retains the chosen survivor's full account snapshot with each clone.
+During apply, it validates the clone under its management guard, then acquires
+the survivor's guard and rereads its snapshot. Both guards remain held through
+clone parking and removal. A missing, changed or busy survivor prevents that
+removal; storage errors retain their original meaning. Dedupe never parks the
+survivor. Earlier removals remain committed, and this is not a transaction
+across the sweep or across processes.
+
 Registration checks one account-list snapshot under the existing registration
 lock before saving a verified session, claiming grants or publishing the
 initial account. Normalized-email rejection has precedence; a different

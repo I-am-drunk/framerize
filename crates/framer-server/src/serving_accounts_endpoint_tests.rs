@@ -11,6 +11,8 @@ mod local_request_completion;
 mod import_identity;
 #[path = "account_dedupe_retention_tests.rs"]
 mod dedupe_retention;
+#[path = "account_dedupe_survivor_tests.rs"]
+mod dedupe_survivor;
 #[path = "account_dedupe_preview_tests.rs"]
 mod dedupe_preview;
 #[path = "account_provisioning_preview_tests.rs"]

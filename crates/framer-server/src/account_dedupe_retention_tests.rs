@@ -65,7 +65,11 @@ async fn sweep(rows: Vec<ManagedAccount>, apply: bool) -> (Value, Arc<DedupeStor
     assert!(ports.saved.lock().unwrap().is_empty());
     assert!(ports.registered_proxies.lock().unwrap().is_empty());
     let removed = store.removed.lock().unwrap().len();
-    assert_eq!(ports.state_reads.load(Ordering::SeqCst), 1 + removed);
+    assert_eq!(ports.state_reads.load(Ordering::SeqCst), 1 + removed + if apply {
+        report["removing"].as_array().unwrap().iter()
+            .filter(|row| row["reason"] == "shares a Castle device id with another record")
+            .count()
+    } else { 0 });
     assert_eq!(ports.state_writes.load(Ordering::SeqCst), removed);
     (report, store)
 }
