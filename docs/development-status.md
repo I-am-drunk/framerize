@@ -1,9 +1,12 @@
 # Development status
 
-The composed session deletion path synchronizes its directory after either
-unlink or NotFound, so retries retain directory-sync errors. Validation and
-other removal errors keep precedence. Its 25 checks are pending execution;
-these fixtures do not simulate a power failure or establish Windows behavior.
+Session deletion synchronization passes all 25 selected checks on `224e985`,
+with 842 matching source pins and a settled process group. The directory
+sync runs after unlink or NotFound; validation and other removal errors keep
+precedence. Baseline `45e5196` passed 23 checks and failed at the retry callback
+count and initially-absent error assertions, after fixture cleanup. Later
+assertions in those methods remain candidate evidence. Both stages rebuilt
+the store. These fixtures do not simulate power failure or Windows execution.
 
 The session temporary-file correction passes all 22 checks on `62feebc`,
 with 841 matching source pins and a settled process group. Occupied names
@@ -92,7 +95,7 @@ The worker and fault executables and eight test binaries are hash-bound.
 The combined cold-cache mint proof was subsequently qualified on `fd45cd0`
 as recorded above; these earlier composition results remain separate.
 Default selection remains legacy0; the live browser package stays `7ccd059`.
-Next: qualify session deletion synchronization and continue
+Next: qualify the exact-ID session-file format and continue
 investigating the remaining worker cost without changing the live default.
 
 S3w candidate `b349b2a` passes 172 selected launches covering 171 distinct

@@ -9,6 +9,11 @@ name advances the existing sequence; the occupant is never opened or
 deleted. Other creation errors return unchanged. The claimed file retains
 the existing private permissions, write, sync, rename and cleanup sequence.
 
+Session deletion synchronizes the directory after unlink or an already
+absent file. A retry therefore completes the directory-sync step instead
+of treating NotFound as proof of completion. Validation and other removal
+errors return before synchronization; directory-sync errors propagate.
+
 Credit-ledger parsing requires finite available credits and a finite sum of
 allocated credits before constructing a snapshot. Available-credit errors
 retain precedence. Overflowing allocation totals return the fixed error
