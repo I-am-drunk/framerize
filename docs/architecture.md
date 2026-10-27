@@ -1,5 +1,10 @@
 # Architecture
 
+Responses requests without a numeric output limit leave the chain's total
+output limit unset. Explicit limits retain their alias precedence and range
+validation. Existing chunk, elapsed-time, cancellation and cleanup bounds
+still apply. Chat and Messages retain their existing default limits.
+
 The optional JWT relay builds its request with a query parameter for the
 cache nonce. Timestamp capture remains before client construction; URL
 validation stays deferred in the request builder. Queryless endpoints and

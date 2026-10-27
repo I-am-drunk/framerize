@@ -566,7 +566,7 @@ async fn parked_native_complete_stops_before_session_browser_or_client_io() {
         let result = crate::native_complete(
             state, &parked_headers(), ClientDialect::OpenAiResponses,
             json!({"model": "gpt-6-astra", "input": "fixture", "stream": stream}),
-            stream, false, 64,
+            stream, false, Some(64),
         ).await;
         assert_capacity(result, &ports, 1);
     }

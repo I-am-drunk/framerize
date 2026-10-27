@@ -1235,7 +1235,7 @@ async fn handler_response_with_session(state: &AppState, route: Route, stream: b
             json!({"model":"claude-opus-5-5","stream":stream,
                 "messages":[{"role":"user","content":"fixture"}]})).await,
         Route::Native => crate::native_complete(state.clone(), &headers, ClientDialect::OpenAiResponses,
-            json!({"model":"gpt-6-astra","input":"fixture","stream":stream}), stream, false, 64).await,
+            json!({"model":"gpt-6-astra","input":"fixture","stream":stream}), stream, false, Some(64)).await,
         Route::Compat => crate::compat_forward(state.clone(), "openai-responses", Some(id(1).0.to_string()), session.map(str::to_owned),
             json!({"model":"fixture","input":"fixture","stream":stream})).await,
     }

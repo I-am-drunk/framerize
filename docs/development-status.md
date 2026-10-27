@@ -1,5 +1,15 @@
 # Development status
 
+Responses requests that omit a numeric output limit no longer receive an
+implicit 4,096-token total cap. Explicit limits retain their alias precedence
+and validation; Chat and Messages retain their existing defaults.
+All 15 selected handler and parser checks pass on the integration source,
+with 808 matching source pins and a settled unit. The regression baseline
+had three expected failures and 12 passes. These results were retained at
+matching hashes rather than rerun for publication.
+The narrower browser backport is deployed separately as `7ccd059`.
+Its nine package smoke checks passed before the supervised activation.
+
 Relay requests now append the cache nonce through the URL query builder.
 Queryless URLs keep their endpoint path, and fragments cannot hide the nonce.
 Existing query pairs, encoding, deferred URL errors and the per-key mint guard
