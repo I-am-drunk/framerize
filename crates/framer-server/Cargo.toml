@@ -21,6 +21,7 @@ tracing = "0.1"
 uuid = { version = "1", features = ["v4"] }
 
 [dev-dependencies]
+framer-api = { path = "../framer-api", features = ["test-support"] }
 framer-protocol = { path = "../framer-protocol" }
 async-trait = "0.1"
 tokio = { version = "1", features = ["test-util"] }

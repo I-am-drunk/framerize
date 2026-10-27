@@ -1,5 +1,21 @@
 # Development status
 
+The combined cold-cache worker mint fixture is now source-only on
+`refactor/s3w-cold-mint-20261027`, based on exact `f61d69e`. It is UNRUN.
+It uses the real worker, router, HttpFramerClient and shared authorization
+owner with loopback HTTP and an inert browser port. Both real Forward
+futures must first return Pending and remain Pending while the first mint
+reply is held. Two existing model keys retain their one-per-key gate limit.
+The fixture requires one final mint, both exact terminal/EOF streams, zero
+application owners/output, and joined loopback connections and worker child.
+The retained legacy host marker is not a zero-total-owners claim.
+This new ignored selector needs main's fresh-process binary/hash binding;
+hosted CI does not run it. No build, test or runtime action ran in this lane.
+F1/E1/D1, point-RSS, unmeasured allocation peaks and simplicity limits remain.
+Next: main qualifies
+`policy_process::tests::cold_mint::real_worker_concurrent_cold_forwards_share_one_mint`
+with `--exact --ignored`, then owns contextual composition and publication.
+
 The S3w composition at `9dfb408` passes all 172 selected worker/lifecycle
 launches and 32 retained Responses-budget/authentication checks. These are
 204 launches covering 203 distinct package/name pairs. All 834 execution
