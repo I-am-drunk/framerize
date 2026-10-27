@@ -86,10 +86,10 @@ impl Lease {
 }
 
 #[derive(Clone)]
-struct Cancel(watch::Receiver<bool>);
+pub(super) struct Cancel(watch::Receiver<bool>);
 impl Cancel {
-    fn is_cancelled(&self) -> bool { *self.0.borrow() || self.0.has_changed().is_err() }
-    async fn cancelled(&self) {
+    pub(super) fn is_cancelled(&self) -> bool { *self.0.borrow() || self.0.has_changed().is_err() }
+    pub(super) async fn cancelled(&self) {
         let mut receiver = self.0.clone();
         while !*receiver.borrow() { if receiver.changed().await.is_err() { return; } }
     }
@@ -425,6 +425,27 @@ pub(super) struct FreeRequest {
     pub chat_session: String, pub explicit_session: Option<String>, pub allow_repick: bool,
     pub client_model: String, pub logical_id: String,
 }
+pub(super) type InvocationResult<T> = (Result<T, ResponseError>, bool);
+/// Only policy invocation varies. The one account/health/repick loop stays here.
+pub(super) trait Invocation: Send {
+    type Output: Send;
+    fn invoke<'a>(&'a mut self, request: &'a FreeRequest, cancel: &'a Cancel)
+        -> BoxFuture<'a, InvocationResult<Self::Output>>;
+}
+struct LegacyInvocation<'a>(&'a Sink);
+impl Invocation for LegacyInvocation<'_> {
+    type Output = AssembledResponses;
+    fn invoke<'a>(&'a mut self, request: &'a FreeRequest, cancel: &'a Cancel)
+        -> BoxFuture<'a, InvocationResult<Self::Output>> {
+        Box::pin(async move {
+            let output = AttemptSink { output: self.0, cancel, completed_on_disconnect: false.into() };
+            let result = request.state.client.native_long_with_sink(&request.session,
+                request.state.browser.as_ref(), &request.account.id, &request.project,
+                request.payload.clone(), &request.config, &request.chat_session, &output).await;
+            (result, output.completed_on_disconnect.load(Ordering::SeqCst))
+        })
+    }
+}
 pub(super) async fn serve(mut request: FreeRequest) -> Result<axum::response::Response, ApiError> {
     if request.config.is_cancelled() {
         let (status, body) = convert::error_json(ClientDialect::OpenAiResponses, "client cancelled");
@@ -445,7 +466,7 @@ pub(super) async fn serve(mut request: FreeRequest) -> Result<axum::response::Re
             // This owner survives a dropped request future and joins all serializers.
             let encoding = tokio::spawn(emitter.run());
             let started = Instant::now();
-            let (result, cleanup) = request.drive(&sink, &cancelled, &published).await;
+            let (result, cleanup) = request.drive(&mut LegacyInvocation(&sink), &cancelled, &published).await;
             request.log(&result, started.elapsed());
             let result = match result {
                 Ok(result) => sink.request(Input::Finish(result)).await.map(|_| ()).map_err(|e| e.to_string()),
@@ -472,8 +493,8 @@ pub(super) async fn serve(mut request: FreeRequest) -> Result<axum::response::Re
     Ok(response)
 }
 impl FreeRequest {
-    async fn drive(&mut self, sink: &Sink, cancel: &Cancel,
-        published: &std::sync::atomic::AtomicBool) -> (ResponseResult, bool) {
+    pub(super) async fn drive<I: Invocation>(&mut self, invocation: &mut I, cancel: &Cancel,
+        published: &std::sync::atomic::AtomicBool) -> (Result<I::Output, ResponseError>, bool) {
         let mut tried = Vec::new();
         let mut attempts = 0u32;
         let mut cleanup = true;
@@ -490,20 +511,16 @@ impl FreeRequest {
             if let Err(error) = self.config.check_cancelled() { break Err(error.into()); }
             let admission = current_account(&self.state, self.account.id).await;
             let admitted = admission.is_ok();
-            let output = AttemptSink { output: sink, cancel,
-                completed_on_disconnect: false.into() };
-            let result = match admission {
-                Err(error) => Err(chain_admission_error(error).into()),
-                Ok(_) => self.state.client.native_long_with_sink(&self.session,
-                    self.state.browser.as_ref(), &self.account.id, &self.project,
-                    self.payload.clone(), &self.config, &self.chat_session, &output).await,
+            let (result, completed_on_disconnect) = match admission {
+                Err(error) => (Err(chain_admission_error(error).into()), false),
+                Ok(_) => invocation.invoke(self, cancel).await,
             };
             drop(permit);
             // Keep a joined terminal success when delivery is cancelled.
             // Local encoding failures and intermediate chunks cannot earn it.
             let result = match result {
                 Err(ResponseError::Output(error)) => {
-                    if admitted && output.completed_on_disconnect.load(Ordering::SeqCst)
+                    if admitted && completed_on_disconnect
                         && matches!(error, OutputError::Cancelled | OutputError::Closed) {
                         record_account_health(&self.state, &self.account, &Ok::<(), String>(())).await;
                     }

@@ -1,5 +1,12 @@
 # Development status
 
+The free Responses driver now accepts a policy invocation adapter. Its existing
+account selection, guarded health, cancellation and cleanup loop is shared;
+legacy0 still calls native_long_with_sink with the same attempt sink. This
+source-only seam adds no worker route or fourth account loop. The runner has
+source approval, with all controls UNRUN. Next: implement the kernel adapter
+and retain generation/output ownership through the real SSE body.
+
 Worker invocations now apply the existing split-write instruction to their
 fresh original payload. One additive preparation control is UNRUN. The later
 router attachment must skip the kernel-side preparation for selected workers;
