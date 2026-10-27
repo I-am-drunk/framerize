@@ -1,5 +1,12 @@
 # Architecture
 
+Offline aggregate-memory diagnostics place the router profile and its worker
+in one fresh Linux cgroup. A native supervisor reads `memory.peak` after the
+test processes join, preserving peaks between the existing RSS samples.
+The counter includes memory charged to the cgroup, such as test buffers and
+kernel allocations. Shared pages charged elsewhere are excluded, so this
+measurement does not establish total resident memory or per-request heap.
+
 Access-token decoding rejects an empty local or selected relay bearer before
 checking expiry. The existing `bad access-token response` and
 `relay: no token for user` errors identify their respective paths. An empty

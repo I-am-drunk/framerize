@@ -1,5 +1,19 @@
 # Development status
 
+Ten fresh aggregate-memory profiles passed on archived, qualified `bd78f83`
+binaries, five per mode. A small native supervisor read Linux `memory.peak`
+in a new isolated service for each run, after the host and worker joined.
+Kernel-accounted peak minimum/median/maximum was 3.813/4.000/4.176 MiB for
+legacy0 and 4.754/4.852/5.160 MiB for the worker. The median difference was
+872 KiB. All twelve build, calibration and profile stages retained 847 source
+pins and settled process groups. Each profile reported zero final output
+charges and no remaining child process. Every observation is retained.
+These warm-cache service charges include fixture, supervisor and kernel costs;
+shared executable pages can be charged outside the group. They are not total
+RSS, isolated request heap or live browser/native memory. New fixture EOF
+medians were 2.335/24.109 ms; substantial worker overhead remains. This adds
+diagnostic evidence without changing the running service or performance gates.
+
 Empty-bearer validation passes all 26 selected checks on `5506bdd`, with
 850 matching source pins, a hash-bound executable and settled process groups.
 Local and selected relay decoders reject empty token strings before expiry
