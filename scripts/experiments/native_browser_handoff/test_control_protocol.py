@@ -3,7 +3,7 @@ import asyncio
 import json
 import unittest
 
-import test_control_owner as fixtures
+import control_protocol_fixture as fixtures
 from control_protocol import ControlProtocol, Frames, MAX_FRAME
 from test_control_mint import EXPECTED
 
@@ -28,7 +28,7 @@ class Writer:
 
 class ProtocolTests(unittest.IsolatedAsyncioTestCase):
     async def asyncSetUp(self):
-        self.fixture = fixtures.OwnerTests("test_success_joins_one_consumer_and_rejects_control_reuse")
+        self.fixture = fixtures.OwnerFixture("test_success_joins_one_consumer_and_rejects_control_reuse")
         await self.fixture.asyncSetUp()
         self.egress = True
         self.reader, self.writer = asyncio.StreamReader(), Writer()
@@ -45,7 +45,7 @@ class ProtocolTests(unittest.IsolatedAsyncioTestCase):
         if self.task:
             await asyncio.gather(self.task, return_exceptions=True)
         await self.fixture.asyncTearDown()
-        self.fixture.doCleanups()
+        self.assertTrue(self.fixture.doCleanups(), "inert owner cleanup failed")
 
     def send(self, **value):
         self.reader.feed_data(json.dumps(dict(version=1, **value)).encode() + b"\n")

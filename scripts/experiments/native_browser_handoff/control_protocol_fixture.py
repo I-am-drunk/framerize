@@ -4,6 +4,7 @@ import json
 import os
 from pathlib import Path
 import sys
+import unittest
 
 ROOT = Path(__file__).resolve().parents[3]
 sys.path[:0] = [str(ROOT / "runtime"), str(ROOT / "runtime/tests")]
@@ -11,6 +12,12 @@ import test_control_owner as fixtures
 from control_mint import ExpectedContext
 from control_owner import ControlIdentity
 from control_protocol import ControlProtocol, Frames, open_stdio
+
+
+class OwnerFixture(fixtures.OwnerTests):
+    # This fixture borrows the caller's loop. Its three cleanups are synchronous;
+    # the nested IsolatedAsyncioTestCase has no separately initialized runner.
+    _callCleanup = unittest.TestCase._callCleanup
 
 
 class PrefixReader:
@@ -74,7 +81,7 @@ async def main():
     reader, writer, input_transport = await open_stdio()
     request = await Frames(reader, writer).read()
     binding = request["binding"]
-    f = fixtures.OwnerTests("test_success_joins_one_consumer_and_rejects_control_reuse")
+    f = OwnerFixture("test_success_joins_one_consumer_and_rejects_control_reuse")
     await f.asyncSetUp()
     account = binding["account"]
     f.host.accounts = {account: f.acc}
@@ -119,7 +126,7 @@ async def main():
     finally:
         input_transport.close()
         await f.asyncTearDown()
-        f.doCleanups()
+        assert f.doCleanups(), "inert owner cleanup failed"
 
 
 if __name__ == "__main__":
