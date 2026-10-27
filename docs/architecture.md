@@ -1497,6 +1497,10 @@ release publication use hosted runners, separate from the private build machine.
 proposed result envelopes. It uses strict normalized records, full commit pins,
 patch-derived changed-line anchors and a retained packet hash. It derives
 proposed PR-Agent settings only from explicit trusted model/effort/token fields.
+Patch validation requires equal unchanged spans between consumed coordinates.
+Added and removed files have complete single-sided content from line 1.
+The pinned PR-Agent 0.49.0 requires at least 4096 output tokens, so preparation
+refuses smaller limits instead of letting the candidate silently raise them.
 It does not authenticate snapshot origin, observe a model, or publish findings.
 Successful contract validation carries `runtime_verified: false` and no
 authority. Trusted API collection, worker execution and publishing are separate

@@ -3,10 +3,19 @@
 The separate `feat/offline-review-pilot-20261027` topic starts at PR13's
 source-reviewed11b49fa. Its local-only CLI binds normalized PR diffs to exact
 head/base pins and explicit model settings, then checks result identity,
-coverage declarations and changed-line findings. Eight focused tests pass,
+coverage declarations and changed-line findings. Thirteen focused tests pass,
 including command entry points and FIFO refusal. No model, GitHub API,
 container, service or publisher is invoked by this code. The output explicitly
 carries no runtime verification or authority. No PR-Agent image was installed.
+
+PR14's first independent review requested three corrections. Preparation now
+rejects unequal unchanged spans, enforces complete added/removed file content,
+and refuses output caps below the pinned PR-Agent minimum of 4096. It does
+not raise a supplied cap. Five new regression methods cover those refusals
+and valid empty-range, added/removed and cap-preservation controls. The old
+production code failed 19 subtests and errored on a valid adjacent insertion;
+all 13 methods pass after correction. Next: independent review of the frozen
+correction commit. No merge, deployment or live reviewer is authorized by this.
 
 The independent PR13 R2 review accepted11b49fa with no new source findings.
 Its private-runner admission and real CI evidence remain unverified. The

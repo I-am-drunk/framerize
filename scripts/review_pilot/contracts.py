@@ -7,6 +7,8 @@ import re
 MODEL = 'gpt-6-astra-ultrafast'
 IMAGE = 'pragent/pr-agent@sha256:10a8893d5e081be1a5ae825843d9fc14f8e8d59d8a4f61d67c1775415156079f'
 REPOSITORY = 'I-am-drunk/framerize'
+# PR-Agent 0.49.0 raises smaller output caps inside LiteLLMAIHandler.
+MIN_OUTPUT_TOKENS = 4096
 
 
 def canonical(value):
@@ -45,6 +47,8 @@ def policy(value):
     require(value['effort'] in ('low', 'medium', 'high', 'xhigh', 'max', 'ultra'), 'explicit effort required')
     for field in ('max_input_tokens', 'max_output_tokens'):
         require(type(value[field]) is int and 0 < value[field] <= 1000000, 'explicit positive token limit required')
+    require(value['max_output_tokens'] >= MIN_OUTPUT_TOKENS,
+            f'PR-Agent 0.49.0 requires max_output_tokens of at least {MIN_OUTPUT_TOKENS}')
     return dict(value)
 
 
@@ -53,9 +57,10 @@ def sha(value):
     return value
 
 
-def anchors(patch):
+def anchors(patch, status='modified'):
     require(type(patch) is str and len(patch.encode()) <= 1024 * 1024, 'missing or oversized diff')
-    old = new = old_left = new_left = added = removed = 0
+    old = new = 1
+    old_left = new_left = added = removed = 0
     result = {'LEFT': [], 'RIGHT': []}
     active = False
     lines = patch.split('\n')
@@ -67,14 +72,27 @@ def anchors(patch):
             require(old_left == new_left == 0, 'truncated diff hunk')
             old_start, old_count, new_start, new_count = match.groups()
             old_start, new_start = int(old_start), int(new_start)
-            require(not active or old_start >= old and new_start >= new, 'overlapping diff hunks')
-            old, new = old_start, new_start
             old_left, new_left = int(old_count or 1), int(new_count or 1)
+            if status == 'added':
+                require(not active and old_start == old_left == 0 and new_start == 1 and new_left > 0,
+                        'invalid added file range')
+            if status == 'removed':
+                require(not active and new_start == new_left == 0 and old_start == 1 and old_left > 0,
+                        'invalid removed file range')
+            # An empty range names the line before its insertion point.
+            # Normalize to the next 1-based line before comparing consumed spans.
+            old_start += old_left == 0
+            new_start += new_left == 0
+            require(old_start >= old and new_start >= new, 'overlapping diff hunks')
+            require(old_start - old == new_start - new, 'inconsistent unchanged span')
+            old, new = old_start, new_start
             active = True
             continue
         require(active and line, 'invalid diff line')
         if line == '\\ No newline at end of file':
             continue
+        if status in ('added', 'removed'):
+            require(line[0] == ('+' if status == 'added' else '-'), f'invalid {status} file line')
         if line[0] in ' -':
             require(old_left > 0 and old > 0, 'invalid old diff range')
             if line[0] == '-':
@@ -115,7 +133,7 @@ def prepare(snapshot, settings, expected_head, expected_base):
         previous = path(file['previous_path']) if file['status'] == 'renamed' else None
         require(previous != name, 'rename must change the path')
         require(file['status'] == 'renamed' or file['previous_path'] is None, 'unexpected previous path')
-        positions, added, removed = anchors(file['patch'])
+        positions, added, removed = anchors(file['patch'], file['status'])
         require(type(file['additions']) is int and type(file['deletions']) is int, 'invalid change counts')
         require(added == file['additions'] and removed == file['deletions'], 'incomplete diff')
         require(added + removed > 0 or file['status'] == 'renamed', 'unreviewable file change')

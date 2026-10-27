@@ -26,9 +26,20 @@ preparation. Pure renames may have an empty patch and have no line anchors.
 Counts must agree across patches, files and the pull request. Both supplied
 commit pins must match, and no duplicate file path is accepted.
 
+Unchanged spans before and between hunks must have equal old/new lengths.
+Empty ranges use the unified-diff convention of naming the preceding line.
+Added files must have one complete new-content hunk starting at line 1, an
+empty old side, and only added lines. Removed files require the reverse.
+Neither status accepts context lines or changes on the nonexistent side.
+
 The policy contains exactly `model`, `effort`, `max_input_tokens` and
 `max_output_tokens`. The model is `gpt-6-astra-ultrafast`; effort and positive
-integer limits are required, with no default. Limits here are proposed model
+integer limits are required, with no default. Output limits below 4096 are
+refused because the pinned PR-Agent 0.49.0 handler would raise them to 4096.
+Accepted limits remain unchanged. This minimum follows
+[`MIN_MAX_OUTPUT_TOKENS` and `_configured_max_output_tokens()` in the pinned source](https://github.com/The-PR-Agent/pr-agent/blob/efdde4afe14aa401a3889012c7f3e9ef3081a430/pr_agent/algo/ai_handlers/litellm_ai_handler.py).
+It is a compatibility constraint, not a chosen default or a usage budget.
+Limits here are proposed model
 configuration, not observed token usage or a tokenizer qualification.
 The generated PR-Agent settings disable fallback models, repository settings,
 publication, model routing, callbacks and parallel suggestion calls. No endpoint
@@ -73,6 +84,7 @@ limits, route, fallback behavior and reported coverage before live inference.
 A separate publisher and quality evaluation remain future work. No Actions
 workflow or service consumes these files yet.
 
-The eight focused tests exercise the actual CLI, stale/partial data, settings
-isolation, coverage, line anchors, duplicates, private exclusive outputs and
-nonblocking FIFO refusal. They use synthetic inputs and perform no network I/O.
+The 13 focused tests exercise the actual CLI, stale/partial data, settings
+isolation, coverage, line anchors, duplicates, private exclusive outputs,
+nonblocking FIFO refusal, hunk continuity, added/removed semantics and the
+pinned output minimum. They use synthetic inputs and perform no network I/O.
