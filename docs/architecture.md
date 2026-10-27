@@ -1,5 +1,11 @@
 # Architecture
 
+The optional JWT relay builds its request with a query parameter for the
+cache nonce. Timestamp capture remains before client construction; URL
+validation stays deferred in the request builder. Queryless endpoints and
+fragments therefore preserve the request path and transmit the nonce in the
+query, while headers, timeout, decoding, expiry and fallback stay unchanged.
+
 AuthorizationState owns a weak registry of asynchronous mint locks keyed by
 the complete cookie and endpoint. A cache miss acquires its key's lock and
 rechecks token expiry and full-session compatibility before minting. Fast

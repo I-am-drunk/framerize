@@ -15,6 +15,10 @@ mod retry_tests;
 #[path = "auth_mint_concurrency_tests.rs"]
 mod mint_concurrency_tests;
 
+#[cfg(test)]
+#[path = "auth_relay_query_tests.rs"]
+mod relay_query_tests;
+
 #[derive(Clone)]
 pub struct AiToken {
     pub bearer: String,
@@ -81,6 +85,10 @@ async fn mint(t: &Transport, session: &Session, path: &str) -> Result<AiToken, S
 }
 
 
+fn relay_request(client: &reqwest::Client, relay: &str, timestamp: i64) -> reqwest::RequestBuilder {
+    client.get(relay).query(&[("r", timestamp)])
+}
+
 /// Fetch a relayed JWT for this session's user from FRAMERIZE_JWT_RELAY_URL.
 /// The relay publishes `{accounts: {<user_id>: {accessToken, expiresAt}}}`.
 /// Auth to the relay itself comes from FRAMERIZE_JWT_RELAY_TOKEN (sent as a
@@ -93,13 +101,12 @@ async fn relay_mint(session: &Session) -> Result<AiToken, String> {
     // Contents-API form avoids raw.githubusercontent.com's ~5min edge cache
     // (a 600s JWT cannot tolerate stale relay files). The `r` param is a
     // cache-buster regardless.
-    let url = format!("{}&r={}", relay, now_ms());
+    let timestamp = now_ms();
     let client = reqwest::Client::builder()
         .timeout(std::time::Duration::from_secs(10))
         .build()
         .map_err(|e| e.to_string())?;
-    let mut req = client
-        .get(&url)
+    let mut req = relay_request(&client, &relay, timestamp)
         .header("accept", "application/vnd.github.raw")
         .header("user-agent", "framerize-relay/0.1");
     if let Ok(tok) = std::env::var("FRAMERIZE_JWT_RELAY_TOKEN") {

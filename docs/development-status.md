@@ -1,5 +1,19 @@
 # Development status
 
+Relay requests now append the cache nonce through the URL query builder.
+Queryless URLs keep their endpoint path, and fragments cannot hide the nonce.
+Existing query pairs, encoding, deferred URL errors and the per-key mint guard
+are preserved. No live relay configuration or credentials were read.
+
+The contextual `b7c3186` integration on `5a48e68` passes all 21 exact API
+selections, with 807 matching source hashes and both candidate files matched.
+The isolated unit is inactive with no remaining process. The baseline used
+the bound old-expression helper and exact new fixture; it reproduced two
+failures and passed 19 controls. The queryless failure stopped at the path
+assertion, and the fragment failure stopped before its second URL shape.
+The candidate completes all assertions. This correction is published source;
+the running `c16fd24` browser package does not contain it.
+
 Concurrent token-cache misses now share one successful mint per runtime,
 full cookie and endpoint. The cache is checked again after acquiring the
 key's lock. Different keys and runtimes proceed independently; failed mints
@@ -63,17 +77,25 @@ all 11 history rows ready, restored pool settings and no native listener or
 supervisor process. Five assigned one-call waits returned; that alone does
 not establish endpoint quiescence. The earlier 00:10 and 00:28 windows ended
 before launch. Every window is closed; the consumed attempt cannot replay.
-Next compare the native mint and request context with saved successful
-browser-produced-token evidence. No immediate native HTTP retry is scheduled.
+Read-only comparison confirms that the earlier successful browser-token
+control and this refusal used different account/user/team/project identities,
+models and request categories. They are not a matched counterfactual. A
+fresh browser-token control with matching bindings and bounded context
+observations is the next discriminating experiment to prepare. No immediate
+native HTTP retry or new live experiment is scheduled.
 
-The frozen relay-query correction `b7c3186` is next for local qualification;
-its 21 selections remain unrun on that delta. Two independent A source-only
-slices are released from exact `6526b90`: project creation gains the normal
+Two independent A source-only slices are released from exact `6526b90`:
+project creation gains the normal
 10-second connect/30-second total deadlines, and malformed successful credit
 replies must return an explicit error instead of zero capacity. Their 14 and
 11 planned selections remain unrun; neither change is implemented here.
-S3w source through `f304a1a` has resumed-review approval, with startup-isolation
-and heartbeat-publication follow-ups still pending and all new proofs unrun.
+The final S3w `790b720` source packet has same-discussion review approval.
+All 1,379 committed hashes, 49 allocated paths and 48 changed paths match.
+Its 521 unique source-declared package/name pairs include retained controls;
+they are not a blanket execution request. Compilation, real-child behavior
+and W1-W4 qualification remain unrun. Main must bind both executable hashes
+and actual libtest names, run ignored diagnostics in fresh processes, and
+preserve the later mint guard and registration fixes during composition.
 
 Legacy device migration now reads raw SQLite text with checked UTF-8.
 Malformed text and nontext rows remain byte-for-byte unchanged while valid
