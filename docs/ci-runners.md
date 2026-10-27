@@ -10,7 +10,7 @@ has three CPUs, 5 GiB of memory and a 6 GiB combined memory/swap limit.
 Rosetta runs the existing x86_64 toolchain and preserves Linux artifacts.
 The tests require Linux procfs, so they run inside Linux rather than macOS.
 Cargo uses two build processes, with a 90-minute job timeout for cold builds.
-The VM shares no Mac folders. Containers have no mounts or Docker socket.
+The VM shares no user folders. Containers have no mounts or Docker socket.
 Runner registration uses the owner's existing private GitHub CLI login;
 the container receives only a single-use runner configuration.
 
