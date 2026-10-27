@@ -1,5 +1,25 @@
 # Kernel and application updates
 
+The worker runner owns one nonblocking pipe reader and one complete-frame
+writer. Each admitted operation has three writer records: control/Forward,
+Data, and low-priority diagnostics. A single pending command and at most one
+policy invocation are allowed. Unknown identities or overlapping invocations
+end the channel. Invocation repick preserves the same encoder and sequence.
+
+Policy and emitter tasks are joined before Done. Cancellation stops new work
+and closes output, while an accepted Forward or saturation acknowledgment
+remains joined. A policy panic joins its emitter, sends Panicked when possible,
+and ends the generation. The kernel still owns Forward cleanup and reaping;
+no worker outcome clears a runtime fence. Queued inputs and assembly are
+dropped before the post-Done credit wait.
+
+The runner keeps its thin operation record until final W/S/D returns or
+channel failure. Cancellation does not satisfy that wait, and Done is sent
+first. The kernel adapter must send final credit on a live channel. Request
+assembly has a separate conservative ceiling of six times the 64 MiB ingress
+limit for JSON re-encoding. It is not an output-event or retained-history cap.
+These sources and in-memory controls are UNRUN; real-child evidence is pending.
+
 S3w currently supplies source-only wire and policy building blocks. Its
 message set separates operation, invocation and Forward identities; the
 kernel alone authorizes terminal encoding and classifies public failures.

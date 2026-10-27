@@ -146,3 +146,218 @@ async fn credit_covering_unsent_event_ends_output() {
     f.outbox.close();
     f.writer.await.unwrap().unwrap();
 }
+
+struct RunnerPeer {
+    peer: DuplexStream, task: JoinHandle<Result<(), WireError>>,
+    output: Vec<u8>, accepted: u64, terminal: usize, diagnostics: usize,
+}
+impl RunnerPeer {
+    async fn new() -> Self {
+        let (pipe, peer) = tokio::io::duplex(131072);
+        let (read, write) = tokio::io::split(pipe);
+        let task = tokio::spawn(crate::runner::run(read, write));
+        let mut f = Self { peer, task, output: vec![], accepted: 0, terminal: 0, diagnostics: 0 };
+        assert!(matches!(f.raw().await.message, Message::Hello { wire: 1, .. }));
+        f.send(Message::Ready { generation: 11 }).await;
+        f
+    }
+    async fn send(&mut self, message: Message) {
+        frame::write(&mut self.peer, &frame::encode(&message).unwrap()).await.unwrap();
+    }
+    async fn raw(&mut self) -> Decoded<Message> {
+        tokio::time::timeout(Duration::from_secs(2), frame::read(&mut self.peer))
+            .await.unwrap().unwrap().unwrap()
+    }
+    async fn next(&mut self) -> Message {
+        loop {
+            let frame = self.raw().await;
+            match frame.message {
+                Message::Data { op, event, seq, bytes, last } => {
+                    assert_eq!(op, 7); assert_eq!(seq, self.accepted);
+                    if last { self.accepted += 1; }
+                    if event == DataKind::Terminal { self.terminal += 1; }
+                    self.output.extend_from_slice(bytes.as_slice());
+                    drop(bytes);
+                    self.send(Message::Credit { op, returned: data_cost(frame.wire_bytes),
+                        accepted_event_seq: self.accepted }).await;
+                }
+                Message::Diag { op: 7, .. } => self.diagnostics += 1,
+                message => return message,
+            }
+        }
+    }
+    async fn start(&mut self) {
+        self.send(Message::Start { op: 7, logical_id: Text::new("fixed".into()).unwrap(),
+            model: Text::new("model".into()).unwrap(), mode: framer_worker_wire::message::Mode::Sse,
+            output: Capacity { wire_bytes: 2 * DATA_WIRE_RESERVE, slots: 2, downstream_bytes: 32768 } }).await;
+        assert!(matches!(self.next().await, Message::Head { op: 7, status: 200, .. }));
+    }
+    async fn invoke(&mut self, n: u32) {
+        use framer_worker_wire::message::{Limits, Part, Segment};
+        self.send(Message::Invoke { op: 7, n, category: Text::new("translation".into()).unwrap(),
+            limits: Limits { chunk_tokens: 600, max_chunks: 1, max_total_tokens: Some(600),
+                metered_fallback: false, continue_prompt: Text::new("continue".into()).unwrap() },
+            request: Part { offset: 0, last: true, bytes: Segment::new(serde_json::to_vec(
+                &json!({"model":"model", "input":"hello"})).unwrap()).unwrap() } }).await;
+    }
+    async fn reply(&mut self, n: u32, fwd: u64) {
+        use framer_worker_wire::message::{Part, Segment};
+        let body = json!({"id":"upstream", "created_at":123, "status":"completed",
+            "output":[{"type":"opaque","value":"exact"}],
+            "usage":{"input_tokens":1,"output_tokens":1}});
+        self.send(Message::ForwardReply { op: 7, n, fwd, status: 200,
+            content_type: Text::new("application/json".into()).unwrap(), queue_wait_ms: 73,
+            body: Part { offset: 0, last: true,
+                bytes: Segment::new(serde_json::to_vec(&body).unwrap()).unwrap() } }).await;
+    }
+    async fn end(mut self, expect_ok: bool) {
+        use tokio::io::AsyncWriteExt;
+        self.peer.shutdown().await.unwrap();
+        let result = tokio::time::timeout(Duration::from_secs(2), self.task).await.unwrap().unwrap();
+        assert_eq!(result.is_ok(), expect_ok);
+    }
+}
+
+#[tokio::test]
+async fn runner_result_precedes_commanded_terminal_and_done() {
+    let mut f = RunnerPeer::new().await;
+    f.start().await; f.invoke(1).await;
+    assert!(matches!(f.next().await, Message::Forward { op: 7, n: 1, fwd: 1, .. }));
+    f.reply(1, 1).await;
+    assert!(matches!(f.next().await, Message::Result { op: 7, n: 1,
+        outcome: framer_worker_wire::message::Outcome::Success { .. }, .. }));
+    assert_eq!(f.terminal, 0);
+    let diagnostics = f.diagnostics;
+    f.send(Message::Finish { op: 7, n: 1 }).await;
+    assert!(matches!(f.next().await, Message::Done { op: 7,
+        outcome: framer_worker_wire::message::DoneOutcome::Completed, .. }));
+    assert_eq!(f.terminal, 1); assert_eq!(f.diagnostics, diagnostics);
+    let output = std::str::from_utf8(&f.output).unwrap();
+    assert_eq!(output.matches("event: response.created\n").count(), 1);
+    assert_eq!(output.matches("event: response.completed\n").count(), 1);
+    assert!(output.contains("exact"));
+    f.end(true).await;
+}
+
+#[tokio::test]
+async fn runner_rebind_keeps_one_encoder_and_closed_failure_recipe() {
+    use framer_worker_wire::message::{ErrorClass, Outcome, FailureTag};
+    let mut f = RunnerPeer::new().await;
+    f.start().await; f.invoke(1).await;
+    assert!(matches!(f.next().await, Message::Forward { n: 1, fwd: 1, .. }));
+    f.send(Message::ForwardError { op: 7, n: 1, fwd: 1,
+        class: ErrorClass::Unauthorized, cooldown_seconds: None }).await;
+    let Message::Result { outcome: Outcome::Forward { failure }, .. } = f.next().await
+        else { panic!("closed failure recipe expected"); };
+    assert_eq!((failure.cause.op, failure.cause.n, failure.cause.fwd), (7, 1, 1));
+    assert_eq!((failure.tag, failure.chunk), (FailureTag::Direct, 0));
+    assert_eq!(f.terminal, 0);
+    f.invoke(2).await;
+    assert!(matches!(f.next().await, Message::Forward { n: 2, fwd: 1, .. }));
+    f.reply(2, 1).await;
+    assert!(matches!(f.next().await, Message::Result { n: 2, outcome: Outcome::Success { .. }, .. }));
+    f.send(Message::Finish { op: 7, n: 2 }).await;
+    assert!(matches!(f.next().await, Message::Done { .. }));
+    assert_eq!(std::str::from_utf8(&f.output).unwrap().matches("event: response.created\n").count(), 1);
+    assert_eq!(f.terminal, 1);
+    f.end(true).await;
+}
+
+#[tokio::test]
+async fn runner_cancel_keeps_forward_joined_and_completed_output_fact() {
+    use framer_worker_wire::message::{DoneOutcome, Outcome, OutputFailure};
+    let mut f = RunnerPeer::new().await;
+    f.start().await; f.invoke(1).await;
+    assert!(matches!(f.next().await, Message::Forward { n: 1, fwd: 1, .. }));
+    f.send(Message::Cancel { op: 7 }).await;
+    f.reply(1, 1).await;
+    assert!(matches!(f.next().await, Message::Result { n: 1,
+        outcome: Outcome::Output { completed: true,
+            failure: OutputFailure::Cancelled | OutputFailure::Closed }, .. }));
+    assert!(matches!(f.next().await, Message::Done { outcome: DoneOutcome::Cancelled, .. }));
+    assert_eq!(f.terminal, 0);
+    f.end(true).await;
+}
+
+#[tokio::test]
+async fn runner_overlapping_invocation_poison_joins_pending_policy() {
+    let mut f = RunnerPeer::new().await;
+    f.start().await; f.invoke(1).await;
+    assert!(matches!(f.next().await, Message::Forward { n: 1, fwd: 1, .. }));
+    f.invoke(2).await;
+    let result = tokio::time::timeout(Duration::from_secs(2), f.task).await.unwrap().unwrap();
+    assert!(result.is_err());
+}
+
+#[tokio::test]
+async fn runner_done_precedes_final_disposal_credit() {
+    use framer_worker_wire::message::Outcome;
+    let mut f = RunnerPeer::new().await;
+    f.start().await; f.invoke(1).await;
+    assert!(matches!(f.next().await, Message::Forward { .. }));
+    f.reply(1, 1).await;
+    assert!(matches!(f.next().await, Message::Result { outcome: Outcome::Success { .. }, .. }));
+    f.send(Message::Finish { op: 7, n: 1 }).await;
+    let terminal = f.raw().await;
+    let Message::Data { event: DataKind::Terminal, seq, last: true, .. } = terminal.message
+        else { panic!("terminal frame expected"); };
+    f.send(Message::Credit { op: 7, returned: Capacity { wire_bytes: terminal.wire_bytes,
+        ..Capacity::default() }, accepted_event_seq: seq + 1 }).await;
+    assert!(matches!(f.raw().await.message, Message::Done { op: 7, .. }));
+    assert!(!f.task.is_finished());
+    f.send(Message::Credit { op: 7, returned: Capacity { wire_bytes: 0,
+        slots: 1, downstream_bytes: 16384 }, accepted_event_seq: seq + 1 }).await;
+    f.end(true).await;
+}
+
+#[tokio::test]
+async fn runner_cancel_during_saturation_wait_keeps_ack_order() {
+    use framer_worker_wire::message::{ErrorClass, DoneOutcome, LocalFailure, Outcome};
+    let mut f = RunnerPeer::new().await;
+    f.start().await; f.invoke(1).await;
+    assert!(matches!(f.next().await, Message::Forward { n: 1, fwd: 1, .. }));
+    f.send(Message::ForwardError { op: 7, n: 1, fwd: 1,
+        class: ErrorClass::Retryable429, cooldown_seconds: None }).await;
+    assert!(matches!(f.next().await, Message::Saturated { op: 7, n: 1, fwd: 1 }));
+    f.send(Message::Cancel { op: 7 }).await;
+    f.send(Message::SaturatedAck { op: 7, n: 1, fwd: 1 }).await;
+    assert!(matches!(f.next().await, Message::Result {
+        outcome: Outcome::Local { failure: LocalFailure::Cancelled }, .. }));
+    assert!(matches!(f.next().await, Message::Done { outcome: DoneOutcome::Cancelled, .. }));
+    f.end(true).await;
+}
+
+#[tokio::test]
+async fn refused_writer_refunds_unaccepted_output_reservation() {
+    use framer_worker_wire::message::Segment;
+    let (outbox, writer) = Outbox::new(1).unwrap();
+    let slot = outbox.register(7).unwrap();
+    let control = OutputControl::new(Capacity { wire_bytes: DATA_WIRE_RESERVE,
+        slots: 1, downstream_bytes: 16384 }).unwrap();
+    control.reserve().await.unwrap();
+    let permit = slot.reserve().await.unwrap();
+    let encoded = frame::encode(&Message::Data { op: 7, event: DataKind::Opening,
+        seq: 0, bytes: Segment::new(vec![42]).unwrap(), last: true });
+    outbox.close();
+    assert!(matches!(emitter::enqueue_reserved(&control, permit, encoded, 0, true),
+        Err(OutputError::Closed)));
+    assert_eq!(control.outstanding(), Capacity::default());
+    control.disposed().await.unwrap();
+    drop(writer);
+}
+
+#[tokio::test]
+async fn runner_policy_panic_joins_emitter_before_done() {
+    use framer_worker_wire::message::{DoneOutcome, Limits, Part, Segment};
+    let mut f = RunnerPeer::new().await;
+    f.start().await;
+    // Internal policy requires an object. A scalar reaches its existing
+    // indexed-write panic, exercising the sibling join without a fault hook.
+    f.send(Message::Invoke { op: 7, n: 1, category: Text::new("translation".into()).unwrap(),
+        limits: Limits { chunk_tokens: 600, max_chunks: 1, max_total_tokens: None,
+            metered_fallback: false, continue_prompt: Text::new("continue".into()).unwrap() },
+        request: Part { offset: 0, last: true, bytes: Segment::new(b"true".to_vec()).unwrap() } }).await;
+    assert!(matches!(f.next().await, Message::Done { op: 7, outcome: DoneOutcome::Panicked, .. }));
+    assert_eq!(f.terminal, 0);
+    f.end(false).await;
+}

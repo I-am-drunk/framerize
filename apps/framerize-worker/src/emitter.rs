@@ -108,7 +108,7 @@ impl OutputControl {
             changed.await;
         }
     }
-    async fn reserve(&self) -> Result<(), OutputError> {
+    pub(crate) async fn reserve(&self) -> Result<(), OutputError> {
         loop {
             let changed = self.changed.notified();
             {
@@ -126,6 +126,17 @@ impl OutputControl {
         }
     }
     pub fn outstanding(&self) -> Capacity { self.lock().window.outstanding() }
+    pub async fn disposed(&self) -> Result<(), WireError> {
+        loop {
+            let changed = self.changed.notified();
+            {
+                let state = self.lock();
+                if state.failed { return Err(WireError::Protocol); }
+                if state.window.outstanding() == Capacity::default() { return Ok(()); }
+            }
+            changed.await;
+        }
+    }
     pub fn jobs(&self) -> usize { self.jobs.load(Ordering::SeqCst) }
     pub fn peaks(&self) -> (Capacity, usize) {
         (self.lock().peak, self.peak_jobs.load(Ordering::SeqCst))
@@ -293,6 +304,16 @@ impl Emitter {
             bytes };
         let encoded = frame::encode(&message);
         drop(message); // Producer bytes never remain in a pipe-write waiter.
+        enqueue_reserved(control, permit, encoded, seq, last)?
+            .wait().await.map_err(|_| OutputError::Closed)
+    }
+}
+
+/// The caller holds one full Data reservation and one writer permit.
+pub(crate) fn enqueue_reserved(control: &OutputControl, permit: frame::WritePermit,
+    encoded: Result<Vec<u8>, WireError>, seq: u64, last: bool)
+    -> Result<frame::WriteReceipt, OutputError> {
+        let cost = data_cost(DATA_WIRE_RESERVE);
         let receipt = {
             let mut state = control.lock();
             let encoded = match encoded {
@@ -306,12 +327,17 @@ impl Emitter {
                 state.window.release(cost).expect("unused reservation"); return Err(OutputError::Encoding);
             }
             let actual = encoded.len() as u64;
-            let receipt = permit.enqueue_encoded(encoded).map_err(|_| OutputError::Closed)?;
+            let receipt = match permit.enqueue_encoded(encoded) {
+                Ok(receipt) => receipt,
+                Err(_) => {
+                    state.window.release(cost).expect("unaccepted reservation");
+                    return Err(OutputError::Closed);
+                }
+            };
             state.frontier.segment(seq, last).expect("checked sequence");
             state.window.release(Capacity { wire_bytes: DATA_WIRE_RESERVE - actual,
                 ..Capacity::default() }).expect("unused wire reservation");
             receipt
         };
-        receipt.wait().await.map_err(|_| OutputError::Closed)
-    }
+        Ok(receipt)
 }

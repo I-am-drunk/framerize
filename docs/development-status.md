@@ -1,5 +1,16 @@
 # Development status
 
+The source-only worker executable now uses nonblocking inherited pipes and
+owns its reader, writer and per-operation policy/emitter tasks through join.
+Result carries bounded metadata; assembled output remains with the emitter
+until the kernel commands Finish or Fail. The runner closes diagnostics before
+Result/Done and retains only the operation credit record for late returns.
+Eight new in-memory controls are UNRUN, including joined cancellation, repick,
+policy panic and a corrected refund when the writer refuses an unaccepted frame.
+The emitter slice has source approval. No worker build or test ran here.
+Next: attach the kernel adapter to FreeRequest::drive and the real SSE body,
+then add the real-child transition and W1-W4 proofs for main's qualification.
+
 The worker emitter now owns one encoder and joins each incremental serializer.
 It waits for the kernel's accepted-event frontier before returning content,
 and terminal encoding requires a Finish or Fail command. Cancellation closes
