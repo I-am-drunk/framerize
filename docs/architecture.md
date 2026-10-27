@@ -31,9 +31,9 @@ Physical shutdown uses only the host's close task and its account close tasks.
 It first joins the control owner, consumer and tracked RPCs, then calls normal
 browser cleanup without clearing the fence. The consumer must report actual
 joined cleanup and must not await this same host's close from inside its call.
-This dedicated experimental class has no CLI or service wiring. Actual egress
-attestation, native credential-source integration and the supervised live
-comparison remain separate work. Nonsettling I/O still needs the existing
+This dedicated experimental class has no CLI or concrete native transport.
+Actual egress attestation and the supervised live comparison remain separate
+work. Nonsettling I/O still needs the existing
 outer process timeout and confirmed reaping before any recovery.
 
 The inert browser-mint observer in `scripts/experiments/native_browser_handoff`

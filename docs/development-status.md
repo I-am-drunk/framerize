@@ -1,11 +1,18 @@
 # Development status
 
 The experimental native browser-control source is implemented on
-`feat/native-browser-control-source-20261027`. Its new authorization and
-service ownership fixtures are UNRUN. The source joins browser-control
-completion before underlying device release and leaves ordinary source
-selection unchanged. No Python transport, real browser, live request,
-deployment or timing window is included in this milestone.
+`feat/native-browser-control-source-20261027`. Its 16 new offline controls
+and 27 retained authorization, device, startup and transport controls pass.
+The initial run passed 42 controls. One cancellation fixture then failed by
+requesting a second shutdown seal; its corrected cleanup passed an exact
+rerun. Production and the other 42 controls were unchanged. The passing native
+builds and test executions have pinned inputs and confirmed process settlement.
+
+The source joins browser-control completion before underlying device release
+and leaves ordinary source selection unchanged. No concrete Python transport,
+real browser, live request, deployment or timing window is included. The next
+connection is the private transport that keeps the Python consumer held from
+token delivery through the native completion acknowledgement.
 
 The dedicated browser-control owner on `feat/browser-control-owner-20261027`
 passes all 15 new offline tests against the current Host and account classes.
@@ -15,10 +22,9 @@ generation/proxy revision, payload-free failures and physical shutdown while
 the admission fence remains set. No real browser or external request ran.
 The 17 earlier observer results are retained for unchanged source.
 
-This connects the observer to an owned, isolated Python caller. It does not
-connect the native service's credential source, attest actual network egress,
-or release a live experiment. The next integration is an explicit experimental
-native credential source using the caller's completion and cleanup report.
+This connects the observer to an owned, isolated Python caller. The native
+source interface described above still needs its concrete Python transport.
+Actual network egress and a supervised live comparison remain unverified.
 The browser remains the running default; runtime and timing holds are unchanged.
 
 The browser-mint observation slice on `feat/browser-mint-observation-20261027`
