@@ -21,6 +21,9 @@ pub use file_sessions::FileSessionStore;
 mod sqlite_tests;
 
 #[cfg(test)]
+mod sqlite_upsert_ack_tests;
+
+#[cfg(test)]
 mod sqlite_list_tests;
 
 #[cfg(test)]
@@ -121,12 +124,15 @@ impl StateStore for SqliteStateStore {
     async fn upsert(&self, account: &ManagedAccount) -> Result<(), String> {
         let json = serde_json::to_string(account).map_err(|e| e.to_string())?;
         let conn = self.conn.lock().unwrap();
-        conn.execute(
+        let changed = conn.execute(
             "INSERT INTO accounts (id, json) VALUES (?1, ?2)
              ON CONFLICT(id) DO UPDATE SET json = excluded.json",
             (account.id.0.to_string(), json),
         )
         .map_err(|e| e.to_string())?;
+        if changed != 1 {
+            return Err("stored account write was not applied".into());
+        }
         Ok(())
     }
 
