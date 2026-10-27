@@ -1,5 +1,21 @@
 # Architecture
 
+The experimental ControlHost connects the browser-mint observer to the current
+Host's RPC ownership. One admitted control binds an existing exact device page,
+session, host generation, account incarnation and configured proxy revision.
+It refuses concurrent account work and blocks ordinary commands and RPCs
+through observation and consumer settlement. It never replaces the activity
+tracker. Cancellation or uncertainty leaves an admission fence in place.
+
+Physical shutdown uses only the host's close task and its account close tasks.
+It first joins the control owner, consumer and tracked RPCs, then calls normal
+browser cleanup without clearing the fence. The consumer must report actual
+joined cleanup and must not await this same host's close from inside its call.
+This dedicated experimental class has no CLI or service wiring. Actual egress
+attestation, native credential-source integration and the supervised live
+comparison remain separate work. Nonsettling I/O still needs the existing
+outer process timeout and confirmed reaping before any recovery.
+
 The inert browser-mint observer in `scripts/experiments/native_browser_handoff`
 checks the selected page, context and caller-owned generation predicate. It
 compares effective session and device cookies at both the profile and inference

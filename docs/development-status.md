@@ -1,5 +1,19 @@
 # Development status
 
+The dedicated browser-control owner on `feat/browser-control-owner-20261027`
+passes all 15 new offline tests against the current Host and account classes.
+Inert ports exercise exact identity, selected-device refusal, concurrent work,
+one-use admission, cancelled waiters, RPC and consumer deadlines, changed
+generation/proxy revision, payload-free failures and physical shutdown while
+the admission fence remains set. No real browser or external request ran.
+The 17 earlier observer results are retained for unchanged source.
+
+This connects the observer to an owned, isolated Python caller. It does not
+connect the native service's credential source, attest actual network egress,
+or release a live experiment. The next integration is an explicit experimental
+native credential source using the caller's completion and cleanup report.
+The browser remains the running default; runtime and timing holds are unchanged.
+
 The browser-mint observation slice on `feat/browser-mint-observation-20261027`
 passes all 17 new offline checks on the `d7c0641` base. Python page/RPC doubles
 check both URL cookie scopes, identity changes, bounded inputs, cancellation
