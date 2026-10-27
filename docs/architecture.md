@@ -95,6 +95,11 @@ scopes. Admission can use an observed unclaimed credited team despite another
 probe failure; without such a team it returns the probe error before treating
 the account as ineligible. Complete-scan ranking and refusals stay unchanged.
 
+The API credit probe requires a finite numeric `availableCredits` value.
+A malformed successful reply returns a fixed payload-free error instead of
+an exhausted snapshot. Valid zero, negative and fractional balances remain
+unchanged, and authentication, HTTP and JSON errors take precedence.
+
 Registration distinguishes admission refusal from profile and storage errors.
 Only `NotEligible` triggers an exhausted-state update. The update reads and
 validates the current record under the shared account lock and changes only

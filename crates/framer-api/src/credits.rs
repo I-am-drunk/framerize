@@ -10,6 +10,10 @@ use framer_core::ids::TeamId;
 use framer_core::port::Session;
 use framer_core::workspace::CreditSnapshot;
 
+#[cfg(test)]
+#[path = "credit_ledger_validation_tests.rs"]
+mod ledger_validation_tests;
+
 /// GET /web/users/me — profile + workspaces. `spaces[].ownerId` is the
 /// credit-bearing team for each workspace space.
 pub async fn me(t: &Transport, session: &Session) -> Result<serde_json::Value, String> {
@@ -32,6 +36,10 @@ pub async fn usage(
         .json::<serde_json::Value>()
         .await
         .map_err(|e| e.to_string())?;
+    let available = v["availableCredits"]
+        .as_f64()
+        .filter(|available| available.is_finite())
+        .ok_or("bad credit ledger response: invalid availableCredits")?;
     // One fund can hold MANY grants: a 1000-credit account read as
     // {funds:1, availableCredits:1000} is two 500 grants stacked in one fund
     // (reference/analysis/framer-credits.md:61-74 shows the nesting). Counting
@@ -58,7 +66,7 @@ pub async fn usage(
         .unwrap_or(0.0);
 
     Ok(CreditSnapshot {
-        available: v["availableCredits"].as_f64().unwrap_or(0.0),
+        available,
         funds: v["funds"].as_array().map(|a| a.len() as u32).unwrap_or(0),
         grants,
         allocated,

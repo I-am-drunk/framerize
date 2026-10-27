@@ -1,5 +1,16 @@
 # Development status
 
+Credit usage rejects a missing or nonnumeric `availableCredits` field with
+the fixed error `bad credit ledger response: invalid availableCredits`.
+Finite zero, negative and fractional balances keep their values. Earlier
+authentication, HTTP and JSON errors retain their precedence. This composes
+`387c1c4` after `37d1a98`, preserving the newer auth and Responses changes.
+All 11 selected API/core/server checks pass with 810 matching source pins
+and a settled unit. The old behavior failed the two malformed-balance
+checks and passed nine controls. Those failures stopped at their first
+assertions after fixture joins; later loop and wire assertions are confirmed
+only by the candidate. The deployed browser package remains `7ccd059`.
+
 Project creation now uses the normal transport's 10-second connection and
 30-second total request deadlines, while preserving redirect handling,
 headers, error order and project adoption. This composes `e5419e3` after
