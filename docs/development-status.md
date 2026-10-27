@@ -5,7 +5,9 @@ or response headers. Four Rust controls pass for stream continuity, refusal,
 reservation disposal and host/ancestor-cgroup accounting. All 55 selected
 browser lifecycle, page, activity and shutdown controls pass. A subsequent
 diagnostic addition records headroom and reservation bytes without changing
-the admission decision. The release build and packaged HTTP checks are pending.
+the admission decision. Browser release `df04c07` builds successfully. All nine
+standard package checks pass. Its seven inference routes refuse a simulated
+low-memory request with 503 while health stays available; shutdown is clean.
 The error says "Low available RAM". The old fixed 90% message also covered
 estimated allocation and reservation costs below that utilization. The
 October 27 incident included a confirmed host-wide OOM that killed the service.
