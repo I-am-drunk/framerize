@@ -1,5 +1,11 @@
 # Development status
 
+The personal-space candidate skips explicit `scope: "user"` entries before
+extracting credit-ledger owner IDs. Other scopes, full IDs, probe ordering,
+joins and errors keep their behavior. The two Rust files match `9fa38a4` on
+the current composition. All 15 selected controls await qualification;
+the frozen fixture-only baseline and candidate are separate from live state.
+
 The bounded wire writer permits cross-crate inlining on `bd78f83`, without
 changing its bytes, allocation limits or error paths. All 74 focused checks
 passed: 39 wire, 27 worker and eight real-worker server controls. Candidate

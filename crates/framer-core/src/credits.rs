@@ -164,6 +164,7 @@ async fn scan_workspace_results(deps: &Deps<'_>, session: &Session)
         .map(|spaces| {
             spaces
                 .iter()
+                .filter(|s| s["scope"].as_str() != Some("user"))
                 .filter_map(|s| s["ownerId"].as_str())
                 .map(|id| TeamId(id.to_string()))
                 .collect()
@@ -292,3 +293,7 @@ mod scan_tests;
 #[cfg(test)]
 #[path = "credits_claim_tests.rs"]
 mod claim_tests;
+
+#[cfg(test)]
+#[path = "credits_personal_space_tests.rs"]
+mod personal_space_tests;
