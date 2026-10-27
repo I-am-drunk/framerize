@@ -1,5 +1,19 @@
 # Architecture
 
+Scoped browser-control startup now constructs the native session owner
+before preparing the child. It obtains the selected account's lease using
+the stored user, session, proxy and ordinary native HTTP limits. Preparation
+uses that lease's actual account scope. The lease remains held through
+serving, so idle expiry cannot replace the generation before request use.
+
+HTTP serving begins only after scoped preparation succeeds. Cancellation
+waits for the tracked preparation and any already-started store operation.
+Startup owns session finalization on successful serving, preparation refusal
+and caught panic paths. It drains the session owner before releasing the
+retained lease, control and ledger. Unconfirmed cleanup stays an error.
+Unscoped controls keep their existing preparation order. The native CLI
+still needs explicit selection and pinned launch inputs for this route.
+
 The explicit `control_launcher.py` entry point connects the prepared Python
 child to the native egress exchange. One `Frames` instance handles the initial
 binding, probe reply and later control messages, including coalesced input.

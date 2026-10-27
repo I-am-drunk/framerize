@@ -7,6 +7,9 @@ use crate::authorization::control::BrowserCredentialControl;
 use futures::FutureExt;
 use std::{future::Future, net::SocketAddr, panic::AssertUnwindSafe, path::PathBuf, sync::Arc};
 
+#[path = "startup_control.rs"]
+mod control_scope;
+
 #[derive(Clone)]
 pub struct ServeConfig {
     pub database: PathBuf,
@@ -91,6 +94,9 @@ async fn serve_using(config: ServeConfig,
         .map_err(|_| "native listen address is unavailable")?;
     let ledger = Arc::new(LedgerOwner::start(&config.python, &config.runtime_script,
         &history, sessions.clone()).await.map_err(|_| "native history ownership unavailable")?);
+    let selected_account = selected[0];
+    let mut owned_sessions = None;
+    let mut prepared_lease = None;
     let result = AssertUnwindSafe(async {
         // Migration and the journal capture require the native owner to start
         // before unrelated child processes. Warm the sender before admission.
@@ -101,7 +107,7 @@ async fn serve_using(config: ServeConfig,
                 result = browser.prepare() => result.map_err(|_| "browser transport preparation failed".to_owned())?,
             }
         }
-        if let Some(peer) = &control {
+        if let Some(peer) = control.as_ref().filter(|peer| !peer.requires_account_scope()) {
             let stop = async { tokio::select! {
                 _ = shutdown.clone() => {}, _ = ledger.wait_for_exit() => {},
             }};
@@ -113,6 +119,16 @@ async fn serve_using(config: ServeConfig,
                 peer.clone())?,
             None => http::configure_browser(state, worker, ledger.clone(), browser)?,
         };
+        owned_sessions = Some(runtime.sessions());
+        if let Some(peer) = control.as_ref().filter(|peer| peer.requires_account_scope()) {
+            let stop = async { tokio::select! {
+                _ = shutdown.clone() => {}, _ = ledger.wait_for_exit() => {},
+            }};
+            prepared_lease = control_scope::prepare(peer.clone(),
+                owned_sessions.as_ref().expect("configured sessions"), &state,
+                selected_account, stop).await?;
+            if prepared_lease.is_none() { return Ok(()); }
+        }
         let monitor = ledger.clone();
         let stop = async move {
             tokio::select! {
@@ -122,6 +138,7 @@ async fn serve_using(config: ServeConfig,
         };
         http::serve(state, runtime, listener, stop).await.map_err(|error| error.to_string())
     }).catch_unwind().await.unwrap_or_else(|_| Err("native service failed during startup or serving".into()));
+    let sessions_closed = control_scope::close(owned_sessions, prepared_lease).await;
     let control_closed = match &control {
         Some(peer) => AssertUnwindSafe(async { peer.shutdown().await })
             .catch_unwind().await.unwrap_or(false),
@@ -132,6 +149,7 @@ async fn serve_using(config: ServeConfig,
     if !ledger_closed {
         return Err("native ledger shutdown is unconfirmed".into());
     }
+    sessions_closed?;
     result
 }
 

@@ -1,5 +1,15 @@
 # Development status
 
+The scoped control startup connection is implemented on
+`feat/control-account-startup-20261027` and awaits compilation and tests.
+Ten new controls cover retaining the attested account past idle expiry,
+request lease reuse, session and proxy binding, readiness ordering,
+cancellation, refusal, panic and shutdown error precedence. Twenty-six
+retained startup, browser-control and history controls are also selected.
+All 36 are UNRUN. Fixtures use inert control peers, local HTTP and the
+existing isolated history fixture. The explicit native CLI selection and
+supervised live comparison remain unfinished. No service was changed.
+
 The explicit Python launcher is implemented on
 `feat/browser-control-launcher-20261027`. All 30 selected controls pass on
 `30be253`, with 882 matching source pins and a settled test process group.

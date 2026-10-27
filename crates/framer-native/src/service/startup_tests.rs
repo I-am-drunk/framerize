@@ -9,6 +9,9 @@ mod migration;
 #[path = "startup_diagnostics_tests.rs"]
 mod diagnostics;
 
+#[path = "startup_control_tests.rs"]
+mod control_scope;
+
 struct Fixture { root: PathBuf, config: ServeConfig }
 impl Fixture {
     async fn new() -> Self {

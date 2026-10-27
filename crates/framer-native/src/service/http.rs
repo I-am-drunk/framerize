@@ -48,6 +48,9 @@ pub(crate) struct Runtime {
     device_owner: Arc<dyn DeviceOwner>,
     control: Option<Arc<ControlDeviceOwner>>,
 }
+impl Runtime {
+    pub(super) fn sessions(&self) -> Sessions { self.sessions.clone() }
+}
 #[derive(Clone)]
 struct Endpoint { state: ServiceState, runtime: Runtime }
 
@@ -204,13 +207,11 @@ fn health_response(owner: Option<&framer_server::operation_ownership::ServingOwn
 pub(crate) async fn serve(state: ServiceState, runtime: Runtime,
     listener: tokio::net::TcpListener,
     shutdown: impl std::future::Future<Output = ()> + Send + 'static) -> std::io::Result<()> {
-    let sessions = runtime.sessions.clone();
     let router = Router::new().route("/api/offline/complete", post(complete))
         .route("/api/offline/stream", post(stream))
         .route("/api/health", axum::routing::get(health))
         .layer(DefaultBodyLimit::max(96 * 1024))
         .with_state(Endpoint { state: state.clone(), runtime });
-    let result = axum::serve(listener, router).with_graceful_shutdown(shutdown).await;
-    sessions.shutdown().await.map_err(std::io::Error::other)?;
-    result
+    // Startup retains and joins Sessions on every success and failure path.
+    axum::serve(listener, router).with_graceful_shutdown(shutdown).await
 }
