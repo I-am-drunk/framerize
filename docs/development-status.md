@@ -1,5 +1,14 @@
 # Development status
 
+The bounded egress observer is implemented and UNRUN. Eighteen new controls
+cover matching samples, identity changes, cancellation and late cleanup,
+shutdown ownership, malformed replies, URL validation, response limits and
+the JavaScript fetch's credential and cleanup behavior. Page and native
+ports are inert; the script runs in an isolated Node fixture.
+The production native-route attachment and observation endpoint remain
+required caller inputs. No live egress match or browserless acceptance is
+claimed. This adds no default-service selection or timing authority.
+
 The native browser-control FIFO pin correction passes all four new controls
 and fourteen retained process controls on `3ef960a`. The new controls cover
 interpreter and script FIFOs, regular files, symlinks, directories, missing

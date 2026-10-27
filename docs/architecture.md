@@ -1,5 +1,20 @@
 # Architecture
 
+The experimental `EgressAttester` compares two observations of one explicit
+HTTPS endpoint and nonce URL. One request runs through the prepared page;
+the other must use a caller-supplied native route owner. The page fetch omits
+credentials and referrer, rejects redirects, and bounds the response to
+1,024 bytes and 2,048 reads. Both replies must name the exact URL and a valid
+matching IP address. The native callback must return only after its request
+has joined; this component does not implement that native attachment.
+
+The host holds both observations through cancellation, timeout and shutdown.
+Failures fence the control. A successful witness has an explicit finite
+lifetime and rechecks the page, native route owner and cancellation state.
+Equal IP samples describe that endpoint at those times, not every destination
+or future route. Endpoint selection, native attachment and live comparison
+remain caller responsibilities. Tests use inert ports and no network.
+
 The Unix browser-control pin check opens files with `O_NONBLOCK` before
 validating the opened handle. FIFO descriptors therefore reach the existing
 nonregular-file rejection without waiting for a writer while holding the
