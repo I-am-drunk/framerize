@@ -27,6 +27,7 @@ use crate::worker::backend::WorkerBackend;
 use crate::account::device_owner::DeviceOwner;
 use crate::request::complete_json::CompletedJson;
 use framer_core::convert;
+use crate::authorization::control::{BrowserCredentialControl, browser_control_owner::ControlDeviceOwner};
 
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -45,6 +46,7 @@ pub(crate) struct Runtime {
     worker: WorkerBackend,
     sessions: Sessions,
     device_owner: Arc<dyn DeviceOwner>,
+    control: Option<Arc<ControlDeviceOwner>>,
 }
 #[derive(Clone)]
 struct Endpoint { state: ServiceState, runtime: Runtime }
@@ -65,7 +67,16 @@ pub(crate) fn configure_browser(mut state: ServiceState, worker: WorkerBackend,
         state.operation_ownership.clone().ok_or("missing serving owner")?, browser,
         state.session_authorization.clone())?;
     state.sessions = sessions.store();
-    Ok((state, Runtime { worker, sessions, device_owner }))
+    Ok((state, Runtime { worker, sessions, device_owner, control: None }))
+}
+
+pub(crate) fn configure_browser_control(state: ServiceState, worker: WorkerBackend,
+    device_owner: Arc<dyn DeviceOwner>, browser: Option<Arc<dyn crate::transport::browser::BrowserTransport>>,
+    peer: Arc<dyn BrowserCredentialControl>) -> Result<(ServiceState, Runtime), &'static str> {
+    let owner = Arc::new(ControlDeviceOwner::new(device_owner.clone(), peer));
+    let (state, mut runtime) = configure_browser(state, worker, device_owner, browser)?;
+    runtime.control = Some(owner);
+    Ok((state, runtime))
 }
 
 async fn complete(State(endpoint): State<Endpoint>, Json(input): Json<Input>) -> Response {
@@ -86,9 +97,14 @@ async fn dispatch(endpoint: Endpoint, input: Input, streaming: bool) -> Response
         Ok(value) => value, Err(kind) => return failure(kind),
     };
     let (sender, receiver) = tokio::sync::mpsc::channel(capacity);
-    let run = match offline_serving::launch(endpoint.state, request,
-        endpoint.runtime.worker, endpoint.runtime.sessions, endpoint.runtime.device_owner,
-        streaming.then_some(sender)) {
+    let events = streaming.then_some(sender);
+    let launched = match endpoint.runtime.control {
+        Some(owner) => offline_serving::launch_browser_control(endpoint.state, request,
+            owner, endpoint.runtime.sessions, events),
+        None => offline_serving::launch(endpoint.state, request, endpoint.runtime.worker,
+            endpoint.runtime.sessions, endpoint.runtime.device_owner, events),
+    };
+    let run = match launched {
         Ok(value) => value, Err(error) => return failure(error.kind),
     };
     if streaming { return super::stream::response(run.result, receiver, route, model, run.diagnostic_id); }

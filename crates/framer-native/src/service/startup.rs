@@ -3,6 +3,7 @@ use super::{http, state::ServiceState};
 use crate::{account::ledger::LedgerOwner, worker::backend::WorkerBackend};
 use framer_core::{ids::AccountId, port::StateStore};
 use framer_store::{FileSessionStore, SqliteStateStore};
+use crate::authorization::control::BrowserCredentialControl;
 use futures::FutureExt;
 use std::{future::Future, net::SocketAddr, panic::AssertUnwindSafe, path::PathBuf, sync::Arc};
 
@@ -21,17 +22,27 @@ pub struct ServeConfig {
 
 pub async fn serve(config: ServeConfig, shutdown: impl Future<Output = ()> + Send + 'static)
     -> Result<(), String> {
-    serve_using(config, None, shutdown).await
+    serve_using(config, None, None, shutdown).await
 }
 
 pub async fn serve_with_browser(config: ServeConfig,
     browser: Arc<dyn crate::transport::browser::BrowserTransport>,
     shutdown: impl Future<Output = ()> + Send + 'static) -> Result<(), String> {
-    serve_using(config, Some(browser), shutdown).await
+    serve_using(config, Some(browser), None, shutdown).await
+}
+
+/// Explicit single-use diagnostic producer, independent of sender selection.
+/// The peer must be inert until prepare and retain its control until finish.
+pub async fn serve_with_browser_control(config: ServeConfig,
+    control: Arc<dyn BrowserCredentialControl>,
+    browser: Option<Arc<dyn crate::transport::browser::BrowserTransport>>,
+    shutdown: impl Future<Output = ()> + Send + 'static) -> Result<(), String> {
+    serve_using(config, browser, Some(control), shutdown).await
 }
 
 async fn serve_using(config: ServeConfig,
     browser: Option<Arc<dyn crate::transport::browser::BrowserTransport>>,
+    control: Option<Arc<dyn BrowserCredentialControl>>,
     shutdown: impl Future<Output = ()> + Send + 'static) -> Result<(), String> {
     let shutdown = shutdown.boxed().shared();
     if !config.address.ip().is_loopback() { return Err("native service requires a loopback address".into()); }
@@ -41,6 +52,9 @@ async fn serve_using(config: ServeConfig,
     if selected.is_empty() || selected.len() > 64
         || selected.iter().collect::<std::collections::HashSet<_>>().len() != selected.len() {
         return Err("select 1 to 64 distinct native accounts".into());
+    }
+    if control.is_some() && selected.len() != 1 {
+        return Err("browser credential control requires one selected account".into());
     }
     let profiles = config.profiles.canonicalize().map_err(|_| "existing profile required")?;
     let database = config.database.canonicalize().map_err(|_| "existing account database required")?;
@@ -87,8 +101,18 @@ async fn serve_using(config: ServeConfig,
                 result = browser.prepare() => result.map_err(|_| "browser transport preparation failed".to_owned())?,
             }
         }
+        if let Some(peer) = &control {
+            let stop = async { tokio::select! {
+                _ = shutdown.clone() => {}, _ = ledger.wait_for_exit() => {},
+            }};
+            if !prepare_control(peer.as_ref(), stop).await? { return Ok(()); }
+        }
         let state = ServiceState::new(sessions, store, selected)?;
-        let (state, runtime) = http::configure_browser(state, worker, ledger.clone(), browser)?;
+        let (state, runtime) = match &control {
+            Some(peer) => http::configure_browser_control(state, worker, ledger.clone(), browser,
+                peer.clone())?,
+            None => http::configure_browser(state, worker, ledger.clone(), browser)?,
+        };
         let monitor = ledger.clone();
         let stop = async move {
             tokio::select! {
@@ -98,10 +122,31 @@ async fn serve_using(config: ServeConfig,
         };
         http::serve(state, runtime, listener, stop).await.map_err(|error| error.to_string())
     }).catch_unwind().await.unwrap_or_else(|_| Err("native service failed during startup or serving".into()));
-    if ledger.shutdown().await.is_err() {
+    let control_closed = match &control {
+        Some(peer) => AssertUnwindSafe(async { peer.shutdown().await })
+            .catch_unwind().await.unwrap_or(false),
+        None => true,
+    };
+    let ledger_closed = ledger.shutdown().await.is_ok();
+    if !control_closed { return Err("browser credential control shutdown is unconfirmed".into()); }
+    if !ledger_closed {
         return Err("native ledger shutdown is unconfirmed".into());
     }
     result
+}
+
+pub(super) async fn prepare_control(peer: &dyn BrowserCredentialControl,
+    stop: impl Future<Output = ()>) -> Result<bool, String> {
+    let preparing = peer.prepare();
+    tokio::pin!(preparing);
+    // Cancellation cannot discard an in-progress external preparation. The
+    // peer owns its finite deadline; shutdown follows its actual settlement.
+    let (ready, stopped) = tokio::select! {
+        ready = &mut preparing => (ready, false),
+        _ = stop => (preparing.await, true),
+    };
+    if !ready { return Err("browser credential control preparation failed".into()); }
+    Ok(!stopped)
 }
 
 async fn validate_accounts(store: &dyn StateStore, selected: &[AccountId]) -> Result<(), String> {

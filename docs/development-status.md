@@ -1,5 +1,12 @@
 # Development status
 
+The experimental native browser-control source is implemented on
+`feat/native-browser-control-source-20261027`. Its new authorization and
+service ownership fixtures are UNRUN. The source joins browser-control
+completion before underlying device release and leaves ordinary source
+selection unchanged. No Python transport, real browser, live request,
+deployment or timing window is included in this milestone.
+
 The dedicated browser-control owner on `feat/browser-control-owner-20261027`
 passes all 15 new offline tests against the current Host and account classes.
 Inert ports exercise exact identity, selected-device refusal, concurrent work,

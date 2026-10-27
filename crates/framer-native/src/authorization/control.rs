@@ -71,3 +71,10 @@ pub use offline_authorization::MintedCastle;
 pub use offline_authorization::OfflineMintTarget;
 pub use offline_authorization::OfflineMinter;
 pub use offline_authorization::OfflineSessionSource;
+
+mod browser_control;
+pub(crate) mod browser_control_owner;
+pub use browser_control::{BrowserControlMint, BrowserCredentialControl};
+pub(crate) use browser_control::BrowserControlFactory;
+#[cfg(test)]
+pub(crate) use browser_control::tests as browser_control_fixture;

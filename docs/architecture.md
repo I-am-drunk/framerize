@@ -1,5 +1,25 @@
 # Architecture
 
+The explicit `serve_with_browser_control` entry point connects an injected
+browser credential peer to native request ownership. One runtime shares one
+device owner and permits one opened grant and one issuance. It binds the
+account, user, native generation, host generation, lease, device and project
+page. Native mint-rate admission and completion still run. The bearer must
+cover the request deadline; the peer receives the admitted mint time budget.
+
+Mint RPC settlement leaves the browser control held. `DeviceLease::finish`
+finishes that control after request work and transport cleanup, before closing
+the underlying device. Unknown cleanup and risk refusal remain conservative.
+Startup joins an in-progress peer preparation before peer shutdown, then
+shuts down the ledger. Diagnostic requests reject continuation and deadlines
+over 180 seconds. HTTP requests retain the existing 60-second limit.
+
+Ordinary `serve` and sender-only `serve_with_browser` keep their credential
+source. The new entry point still verifies the pinned worker configuration;
+it does not invoke that worker to mint credentials. The concrete private
+Python transport, prepared-page launcher, actual egress attestation and live
+comparison remain unfinished. The interface alone proves no live acceptance.
+
 The experimental ControlHost connects the browser-mint observer to the current
 Host's RPC ownership. One admitted control binds an existing exact device page,
 session, host generation, account incarnation and configured proxy revision.

@@ -35,10 +35,16 @@ use crate::authorization::source::SourceBuilder;
 use crate::service::sessions::Sessions;
 use crate::service::device::DeviceLease;
 use crate::account::device_owner::DeviceOwner;
+use crate::authorization::control::BrowserControlFactory;
+use crate::authorization::control::browser_control_owner::ControlDeviceOwner;
 
 #[cfg(test)]
 #[path = "offline_serving_tests.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "browser_control_serving_tests.rs"]
+mod browser_control_tests;
 
 pub(crate) struct Request {
     spec: Specification, target: OfflineMintTarget, continuation: Option<Continuation>,
@@ -125,6 +131,18 @@ pub(crate) fn launch(state: ServiceState, request: Request, worker: impl Into<Wo
         .with_diagnostic_id(diagnostic_id));
     launch_owned(state, request.spec, source, sessions,
         Delivery { events, continuation: request.continuation }, diagnostic_id)
+}
+
+pub(crate) fn launch_browser_control(state: ServiceState, request: Request,
+    owner: Arc<ControlDeviceOwner>, sessions: Sessions, events: Option<ChunkSender>)
+    -> Result<Run, DispatchError> {
+    if request.continuation.is_some() || request.spec.deadline
+        .saturating_duration_since(Instant::now()) > std::time::Duration::from_secs(180) {
+        return Err(DispatchError::new(FailureKind::InvalidRequest));
+    }
+    let source = Arc::new(BrowserControlFactory { target: request.target, owner });
+    launch_owned(state, request.spec, source, sessions,
+        Delivery { events, continuation: None }, uuid::Uuid::new_v4())
 }
 
 fn launch_with_source(state: ServiceState, spec: Specification, source: Arc<dyn SourceBuilder>,
