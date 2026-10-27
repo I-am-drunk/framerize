@@ -10,15 +10,16 @@ concurrency:
   cancel-in-progress: true
 jobs:
   build:
-    if: github.repository == 'diddletime/framerize'
-    runs-on: ubuntu-22.04
-    timeout-minutes: 30
+    if: github.repository == 'I-am-drunk/framerize'
+    runs-on: [self-hosted, Linux, X64, iris, framerize]
+    timeout-minutes: 90
     strategy:
       fail-fast: false
+      max-parallel: 1
       matrix:
         app: [framerize, framerize-native]
     env:
-      CARGO_BUILD_JOBS: 2
+      CARGO_BUILD_JOBS: 1
       CARGO_TERM_COLOR: never
       RUST_TEST_THREADS: 1
     steps:

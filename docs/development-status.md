@@ -1,5 +1,11 @@
 # Development status
 
+The CI migration on `ci/iris-self-hosted-20261027` routes application builds
+in the main repository to Iris's isolated Linux runner. Workflow lint passes;
+the runner is online. The first full build is pending. See `ci-runners.md`.
+This changes build infrastructure only. Next verify both application jobs
+before merging the workflow change into `browserless`.
+
 Experimental launch software is assembled at `6355731`. Seven new package
 checks pass for the exact native binary, runtime imports, worker configuration,
 descriptor validation and launcher refusal before browser creation. The control
