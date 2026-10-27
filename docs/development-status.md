@@ -1,9 +1,15 @@
 # Development status
 
-The keyring-save candidate rejects the built-in mock credential before
-acknowledging a persistent save. Other credentials retain their write bytes
-and errors. The exact fixture and guard from `b2b3c6c` preserve newer store
-changes. All nine selected controls await qualification on this composition.
+Keyring-save acknowledgement passes all nine selected checks on `67d917b`,
+with 851 matching source pins, a hash-bound executable and settled groups.
+The built-in mock credential is rejected before its nonpersistent write can
+report success. Other credentials retain their write bytes and errors.
+Baseline `842d4b5` passed eight controls and failed the first fresh-entry,
+nonempty-cookie result assertion. Later combinations and state assertions
+are candidate evidence only. The exact `b2b3c6c` guard and fixture preserve
+newer store changes. These private-helper checks use memory-only credentials;
+they do not establish public-call, OS-keychain or reboot persistence.
+Application constructors continue to use FileSessionStore.
 
 Ten fresh aggregate-memory profiles passed on archived, qualified `bd78f83`
 binaries, five per mode. A small native supervisor read Linux `memory.peak`

@@ -1,5 +1,11 @@
 # Architecture
 
+KeyringSessionStore refuses keyring's built-in MockCredential before writing,
+returning `session keyring backend is not persistent`. That backend stores
+the value only in the temporary Entry. Entry-construction errors retain
+precedence, and other credential implementations keep their existing writes
+and errors. This guard does not enable an operating-system keychain backend.
+
 Offline aggregate-memory diagnostics place the router profile and its worker
 in one fresh Linux cgroup. A native supervisor reads `memory.peak` after the
 test processes join, preserving peaks between the existing RSS samples.
