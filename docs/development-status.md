@@ -2394,11 +2394,13 @@ The first version supports explicit direct routes only and preserves account,
 device, history and legacy data. Stock CLI login and Add account create new
 account IDs, so neither is a substitute for existing-account recovery.
 
-The initial 22 synthetic controls passed in a separate network namespace.
-The Python/Rust ownership check passed in both directions and permitted
-synthetic publication after the owner exited and joined. A correction now
-recognizes an interrupt immediately after file publication; its added control
-and the resulting 23-control source selection remain unrun at this checkpoint.
+All 23 synthetic controls pass on `90d4709` in a separate network namespace.
+They cover identity refusal, source changes, occupied destinations, interrupted
+publication, disk-sync failure, bounded replies and payload-free diagnostics.
+The Python/Rust ownership check passes in both directions and permits
+synthetic publication after the owner exits and joins. Its five relevant
+function bodies are unchanged by the final publication-interrupt correction.
+Network identity replies were simulated. Real identity acceptance is untested.
 No cookie, external endpoint, browser or live service was used to develop it.
 The earlier native launch and assembled-package qualifications remain intact.
 Live migration, current-state admission and upstream acceptance are separate.
