@@ -160,7 +160,8 @@ struct State {
     slots: BTreeMap<u64, Slot>, shutdown: Option<Retirement>,
 }
 struct Slot {
-    phase: GenerationPhase, pins: usize, unconfirmed: bool,
+    // A never-Ready candidate cannot own a Forward, even when its reap is unknown.
+    phase: GenerationPhase, pins: usize, unconfirmed: bool, ever_ready: bool,
     worker: Option<Arc<Worker>>, starting: Option<Completion>, retiring: Option<Retirement>,
     cancel_stage: watch::Sender<bool>,
 }
@@ -321,7 +322,7 @@ impl GenerationManager {
     pub fn activate(&self, generation: u64) -> Result<(), GenerationError> {
         let mut state = self.lock()?;
         if state.closed { return Err(GenerationError::Closed); }
-        if !self.ownership.accepting_requests() || state.slots.values().any(|s| s.unconfirmed) {
+        if !self.ownership.accepting_requests() || state.slots.values().any(|s| s.unconfirmed && s.ever_ready) {
             return Err(GenerationError::Unconfirmed);
         }
         let slot = state.slots.get(&generation).ok_or(GenerationError::Unknown)?;
@@ -342,7 +343,7 @@ impl GenerationManager {
             state.next = generation.checked_add(1).ok_or(GenerationError::Full)?;
             let (cancel_stage, closing) = watch::channel(false);
             state.slots.insert(generation, Slot { phase: GenerationPhase::Starting,
-                pins: 0, unconfirmed: false, worker: None, starting: None, retiring: None,
+                pins: 0, unconfirmed: false, ever_ready: false, worker: None, starting: None, retiring: None,
                 cancel_stage });
             self.logger.start();
             let (reply, result) = oneshot::channel();
@@ -364,7 +365,7 @@ impl GenerationManager {
     pub(crate) fn select(self: &Arc<Self>) -> Result<Option<GenerationPin>, GenerationError> {
         let mut state = self.lock()?;
         if state.closed { return Err(GenerationError::Closed); }
-        if !self.ownership.accepting_requests() || state.slots.values().any(|s| s.unconfirmed) {
+        if !self.ownership.accepting_requests() || state.slots.values().any(|s| s.unconfirmed && s.ever_ready) {
             return Err(GenerationError::Unconfirmed);
         }
         let Some(generation) = state.active else { return Ok(None); };
@@ -522,6 +523,7 @@ impl GenerationManager {
             return Err(GenerationError::NotReady);
         }
         slot.phase = GenerationPhase::Ready;
+        slot.ever_ready = true;
         Ok(())
     }
 }

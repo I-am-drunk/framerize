@@ -247,6 +247,14 @@ Activation and pin selection share that lock. Old Ready workers stay eligible
 for rollback until explicit retirement. At most two slots exist, including
 unconfirmed tombstones. Dead workers cannot become eligible through stale Ready.
 
+A slot records whether it ever reached Ready. An unreaped staging failure
+that never reached Ready still occupies its slot, but does not prevent using
+an existing healthy generation. It cannot have served a Forward. Unconfirmed
+generations that reached Ready continue to refuse new SSE selection, and
+unknown operation cleanup keeps the existing one-way runtime admission fence.
+Restart is the accepted recovery. Two unconfirmed tombstones exhaust staging
+slots until restart; local reaping or a manual clear cannot verify cleanup.
+
 Retirement first excludes selection, then waits for final pins, drains the
 writer and joins the child. A final pin without explicit confirmation keeps
 the generation unconfirmed. The adapter must confirm only after worker Done

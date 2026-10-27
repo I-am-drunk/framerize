@@ -1,11 +1,28 @@
-//! Manager ordering controls with a synthetic process verdict, not OS reap proofs.
+//! Manager controls. Injected process verdicts are not OS reap proofs.
 use super::*;
 use std::time::Duration;
 use crate::response_output::{OutputBudget, WorkerOutput, WORKER_OUTPUT};
 use framer_worker_wire::{credit::Capacity, message::{DataKind, DoneOutcome, Segment}};
 use futures::StreamExt;
+#[path = "policy_worker_fixture.rs"]
+mod router_fixture;
 
 const BOUND: Duration = Duration::from_secs(2);
+fn unreaped_candidate(manager: &Arc<GenerationManager>) -> u64 {
+    let generation = {
+        let mut state = manager.lock().unwrap();
+        assert!(state.slots.len() < 2);
+        let id = state.next; state.next += 1;
+        let (cancel_stage, _) = watch::channel(false);
+        state.slots.insert(id, Slot { phase: GenerationPhase::Starting, pins: 0,
+            unconfirmed: false, ever_ready: false, worker: None, starting: None,
+            retiring: None, cancel_stage });
+        id
+    };
+    // Only this process verdict is injected; A uses the real router and child.
+    finish_failed_stage(&Arc::downgrade(manager), generation, false);
+    generation
+}
 fn output_fixture() -> (Arc<GenerationManager>, GenerationPin, OutputBudget, WorkerOutput, oneshot::Sender<()>) {
     let manager = manager(2);
     let (generation, exit) = ready(&manager);
@@ -195,6 +212,40 @@ async fn worker_terminal_requires_authorization_and_loss_after_it_adds_nothing()
     outbox.close(); writer.await.unwrap().unwrap();
     pin.confirm(); drop(pin); manager.shutdown(false).await.unwrap();
 }
+#[tokio::test]
+async fn worker_heartbeat_advances_frontier_without_publishing_content() {
+    let (manager, pin, budget, output, _exit) = output_fixture();
+    let WorkerOutput { publisher, mut body, published, .. } = output;
+    let (outbox, writer) = Outbox::new(1).unwrap();
+    let slot = outbox.register(1).unwrap();
+    let (write, mut read) = tokio::io::duplex(4096);
+    let writer = tokio::spawn(writer.run(write));
+    let (_alive, alive) = watch::channel(true);
+    let credit = publisher.credit.clone();
+    let returned = tokio::spawn(async move { credit.run(7, slot, alive).await });
+    publisher.head(200, "text/event-stream").unwrap();
+    for seq in 0..3 {
+        let kind = if seq < 2 { DataKind::Opening } else { DataKind::Heartbeat };
+        publisher.data(kind, seq, Segment::new(vec![1]).unwrap(), true, 100).unwrap();
+        assert_eq!(credit_frame(&mut read).await, Message::Credit { op: 7,
+            returned: Capacity { wire_bytes: 100, ..Capacity::default() }, accepted_event_seq: seq + 1 });
+        assert!(!published.load(Ordering::SeqCst));
+        drop(body.next().await.unwrap().unwrap());
+        assert_eq!(credit_frame(&mut read).await, Message::Credit { op: 7,
+            returned: Capacity { wire_bytes: 0, slots: 1, downstream_bytes: 16384 },
+            accepted_event_seq: seq + 1 });
+    }
+    assert_eq!(publisher.credit.accounting().2, 3);
+    assert!(!published.load(Ordering::SeqCst));
+    publisher.done(DoneOutcome::Cancelled).unwrap();
+    assert!(body.next().await.is_none()); drop(body);
+    tokio::time::timeout(BOUND, returned).await.unwrap().unwrap().unwrap();
+    publisher.disposed().await; drop(publisher);
+    assert_eq!(budget.counts(), (0, 0, 0));
+    outbox.close(); writer.await.unwrap().unwrap();
+    pin.confirm(); drop(pin); manager.shutdown(false).await.unwrap();
+}
+
 fn log_context() -> LogContext {
     LogContext { generation: 7, op: 11, request: uuid::Uuid::from_u128(13),
         operation: uuid::Uuid::from_u128(17) }
@@ -313,9 +364,38 @@ fn ready(manager: &Arc<GenerationManager>) -> (u64, oneshot::Sender<()>) {
     let id = state.next; state.next += 1;
     let (cancel_stage, _) = watch::channel(false);
     state.slots.insert(id, Slot { phase: GenerationPhase::Ready, pins: 0,
-        unconfirmed: false, worker: Some(worker), starting: None, retiring: None, cancel_stage });
+        unconfirmed: false, ever_ready: true, worker: Some(worker), starting: None, retiring: None, cancel_stage });
     (id, exit)
 }
+#[tokio::test]
+async fn unreaped_never_ready_candidate_preserves_real_active_sse_and_slot_cap() {
+    use router_fixture::*;
+    let mut f = Fixture::new();
+    let a = f.stage().await;
+    let manager = f.manager();
+    manager.activate(a).unwrap();
+    let b = unreaped_candidate(&manager);
+    manager.activate(a).unwrap();
+    let (path, hash) = executable("WORKER");
+    assert_eq!(manager.stage(path, hash).await, Err(GenerationError::Full));
+    assert!(manager.lock().unwrap().slots[&b].unconfirmed);
+    assert!(!manager.lock().unwrap().slots[&b].ever_ready);
+    let response = f.post(Some(0), payload()).await;
+    let call = f.next().await;
+    call.reply.send(Ok(reply("A remains available"))).ok().unwrap();
+    call.joined.await.unwrap();
+    trace(&consume(response).await, "A remains available");
+    f.settle().await;
+    assert!(f.state.operation_ownership.as_ref().unwrap().accepting_requests());
+    assert_eq!(tokio::time::timeout(BOUND, manager.shutdown(false)).await.unwrap(),
+        Err(GenerationError::Unconfirmed));
+    let remaining = manager.snapshot().unwrap();
+    assert_eq!(remaining.len(), 1);
+    assert_eq!(remaining[0].generation, b);
+    assert!(remaining[0].unconfirmed);
+    assert_eq!(remaining[0].phase, GenerationPhase::ReapedUnconfirmed);
+}
+
 async fn pending<F: std::future::Future>(mut future: std::pin::Pin<&mut F>) {
     std::future::poll_fn(|cx| {
         assert!(future.as_mut().poll(cx).is_pending()); std::task::Poll::Ready(())

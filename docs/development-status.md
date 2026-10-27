@@ -1,5 +1,13 @@
 # Development status
 
+A failed candidate that never reached Ready now retains its slot without
+blocking selection of an existing healthy worker. Once Ready, its unknown
+cleanup still blocks selection. The new real-router control uses a real A
+and an injected unreaped B verdict; it does not induce an OS reap failure.
+A second inert control proves heartbeat acceptance advances the frontier
+without publishing content. Both are UNRUN. Restart remains the accepted
+recovery for one-way cleanup fences; no manual-clear path is proposed.
+
 Seven further UNRUN controls cover worker pinning through repick, the ban on
 replaying published content, rollback with the two-slot cap, exact tool call
 identity, HTTP/private error classification, control failure and fixed-ID
@@ -91,8 +99,8 @@ within that bound. Two additional inert controls cover exact-limit acceptance
 and poisoning before oversized growth; all ten remain UNRUN.
 
 The manager and logger/association slices have source approval in the same
-review. Two ReapedUnconfirmed tombstones intentionally exhaust both slots;
-an operator-confirmed clearing path is later work. Synthetic manager outcomes
+review. Two ReapedUnconfirmed tombstones intentionally exhaust both slots
+until restart. Synthetic manager outcomes
 are not real-child reaping evidence.
 
 The manager now owns a bounded diagnostic inbox and one joined append job.
