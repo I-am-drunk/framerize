@@ -1,11 +1,14 @@
 # Development status
 
-The SQLite poison candidate returns the existing lock error from get, list,
-upsert and remove instead of unwrapping a poisoned mutex. It matches the
-settings methods without taking the poisoned guard, clearing poison or
-retrying. JSON/SQL ordering and all acknowledgement guards remain. The two
-Rust files match `fc0251d`; all 21 selected controls remain pending candidate
-qualification. The fixture uses deliberate in-memory poison only.
+SQLite poison handling passes all 21 selected controls on `a70cd06`, with
+847 matching source pins, a hash-bound executable and settled process groups.
+Account get, list, upsert and remove return the existing lock error, matching
+the settings methods. They do not acquire the poisoned guard, clear poison
+or retry. JSON/SQL ordering and all three acknowledgement guards remain.
+Baseline `e10b9c1` passed 17 controls and panicked at all four account locks,
+before the later result and row-preservation assertions. The two Rust files
+match `fc0251d`. These fixtures deliberately poison an in-memory store; they
+do not establish live poison recovery or change the running service.
 
 Settings-write acknowledgement passes all 16 selected checks on `b4f7b26`,
 with 846 matching source pins, a hash-bound executable and settled units.

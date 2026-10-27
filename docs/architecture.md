@@ -1,5 +1,10 @@
 # Architecture
 
+SQLite account and settings operations return the existing mutex error if
+the connection lock is poisoned. Account reads and writes no longer unwrap
+that error. They do not recover the poisoned connection, clear its state or
+retry the operation. Serialization and SQL errors retain their order.
+
 SQLite account upsert requires exactly one affected row before acknowledging
 success. A suppressed write returns `stored account write was not applied`.
 Serialization, SQL, parameters and earlier errors are unchanged. This checks
