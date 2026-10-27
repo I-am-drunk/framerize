@@ -2,6 +2,9 @@
 #[cfg(test)]
 #[path = "file_sessions_tests.rs"]
 mod tests;
+#[cfg(test)]
+#[path = "file_session_drive_prefix_tests.rs"]
+mod drive_prefix_tests;
 
 use async_trait::async_trait;
 use framer_core::{ids::FramerUserId, port::{Session, SessionStore}};
@@ -49,11 +52,21 @@ impl FileSessionStore {
     }
 
     fn path(&self, user: &FramerUserId) -> Result<PathBuf, String> {
-        if user.0.is_empty() || user.0.contains(['/', '\\', '\0']) {
-            return Err("invalid session user".into());
-        }
-        Ok(self.dir.join(format!("{}.session", user.0)))
+        Ok(self.dir.join(session_filename(user, cfg!(windows))?))
     }
+}
+
+fn session_filename(user: &FramerUserId, windows: bool) -> Result<String, String> {
+    if user.0.is_empty() || user.0.contains(['/', '\\', '\0']) {
+        return Err("invalid session user".into());
+    }
+    // A Windows drive prefix makes PathBuf::join discard the owned directory.
+    if windows && user.0.as_bytes().get(..2).is_some_and(|prefix| {
+        prefix[0].is_ascii_alphabetic() && prefix[1] == b':'
+    }) {
+        return Err("invalid session user".into());
+    }
+    Ok(format!("{}.session", user.0))
 }
 
 fn private_file(options: &mut OpenOptions) {

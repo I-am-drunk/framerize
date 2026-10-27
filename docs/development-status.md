@@ -1,5 +1,11 @@
 # Development status
 
+The composed file-session path guard rejects drive-relative user prefixes
+when Windows path rules apply. POSIX colon names retain their existing
+behavior, as do earlier validation and I/O errors. Its 18 selected checks
+are pending qualification on the current composition. Linux fixture calls
+with selected Windows rules do not establish Windows runtime behavior.
+
 The credit-ledger team guard passes all 18 selected checks on `d336dd8`,
 with 839 matching execution pins and a settled process group. Any present
 root teamId must match the complete requested ID. Missing metadata remains
