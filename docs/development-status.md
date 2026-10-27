@@ -1,17 +1,26 @@
 # Development status
 
 The private browser-control transport is implemented on
-`feat/browser-control-transport-20261027` and awaits its first qualification.
+`feat/browser-control-transport-20261027`. All 14 native process controls and
+15 Python protocol controls pass. The native library built successfully and
+all 14 names matched its frozen libtest inventory. Each native case left no
+child process behind; build and test units settled with 867 matching source pins.
 Rust starts an explicitly pinned Python child and binds its private protocol
 to the account, session, target and device grant. Python retains the browser
 consumer through completion and physical cleanup. Rust requires EOF and a
 successful reaped child before confirming cleanup. Cancellation, deadlines,
 malformed replies and uncertain completion have dedicated inert fixtures.
 
-All new transport controls are UNRUN. Earlier observer, owner and native-source
-results remain retained for their unchanged source. No real browser, external
-request, service mutation or timing window is part of this slice. The prepared
-page launcher, actual-egress verification and live comparison remain unfinished.
+The first Python run passed its assertions but exposed missing nested-fixture
+cleanup. Its corrected rerun passed without those warnings. The first native
+build failed because a new fixture tried to clone a non-Clone device grant;
+the corrected fixture built and all 14 native controls passed on `66f99f4`.
+These initial results remain separate. The 15 Python passes on `e08e571` and
+earlier observer, owner and native-source results are retained by source checks.
+No real browser, external request, service mutation or timing window ran.
+The prepared-page launcher, actual-egress verification and live comparison
+remain unfinished. Ordinary host initialization warms tokens and starts
+background loops, so the diagnostic caller needs a dedicated initializer.
 Qualified publication goes to I-am-drunk/framerize on both the integration and
 `browserless` branches; the browser remains the default and running service.
 
@@ -24,10 +33,9 @@ rerun. Production and the other 42 controls were unchanged. The passing native
 builds and test executions have pinned inputs and confirmed process settlement.
 
 The source joins browser-control completion before underlying device release
-and leaves ordinary source selection unchanged. No concrete Python transport,
-real browser, live request, deployment or timing window is included. The next
-connection is the private transport that keeps the Python consumer held from
-token delivery through the native completion acknowledgement.
+and leaves ordinary source selection unchanged. That source milestone did
+not include the concrete Python transport now described above. No real browser,
+live request, deployment or timing window ran in either qualification.
 
 The dedicated browser-control owner on `feat/browser-control-owner-20261027`
 passes all 15 new offline tests against the current Host and account classes.
@@ -37,8 +45,8 @@ generation/proxy revision, payload-free failures and physical shutdown while
 the admission fence remains set. No real browser or external request ran.
 The 17 earlier observer results are retained for unchanged source.
 
-This connects the observer to an owned, isolated Python caller. The native
-source interface described above still needs its concrete Python transport.
+This connects the observer to an owned, isolated Python caller. The concrete
+transport described above now connects that caller to the native interface.
 Actual network egress and a supervised live comparison remain unverified.
 The browser remains the running default; runtime and timing holds are unchanged.
 

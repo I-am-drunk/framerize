@@ -1,6 +1,6 @@
 # Architecture
 
-The experimental `BrowserControlProcess` connects that native control interface
+The experimental `BrowserControlProcess` connects the native control interface
 to a private, single-use Python child. Construction is inert. Explicit prepare
 verifies the absolute interpreter and script hashes before spawning; the caller
 must publish those files immutably. Credentials travel only over private stdin
@@ -39,8 +39,8 @@ over 180 seconds. HTTP requests retain the existing 60-second limit.
 Ordinary `serve` and sender-only `serve_with_browser` keep their credential
 source. The new entry point still verifies the pinned worker configuration;
 it does not invoke that worker to mint credentials. The prepared-page launcher,
-actual egress attestation and live
-comparison remain unfinished. The interface alone proves no live acceptance.
+actual egress attestation and live comparison remain unfinished. The interface
+alone proves no live acceptance.
 
 The experimental ControlHost connects the browser-mint observer to the current
 Host's RPC ownership. One admitted control binds an existing exact device page,
