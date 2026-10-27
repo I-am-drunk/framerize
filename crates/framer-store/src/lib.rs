@@ -70,10 +70,13 @@ impl StateStore for SqliteStateStore {
     }
 
     async fn save_setting(&self, key: &str, value: &str) -> Result<(), String> {
-        self.conn.lock().map_err(|e| e.to_string())?.execute(
+        let changed = self.conn.lock().map_err(|e| e.to_string())?.execute(
             "INSERT INTO settings (key, value) VALUES (?1, ?2)
              ON CONFLICT(key) DO UPDATE SET value = excluded.value", (key, value),
         ).map_err(|e| e.to_string())?;
+        if changed != 1 {
+            return Err("stored setting write was not applied".into());
+        }
         Ok(())
     }
 
