@@ -240,6 +240,30 @@ async fn runner_result_precedes_commanded_terminal_and_done() {
 }
 
 #[tokio::test]
+async fn kernel_failure_before_first_invoke_finishes_without_policy_dispatch() {
+    let mut f = RunnerPeer::new().await;
+    f.start().await;
+    f.send(Message::Fail { op: 7, n: 0, error: public_failure() }).await;
+    assert!(matches!(f.next().await, Message::Done { op: 7,
+        outcome: framer_worker_wire::message::DoneOutcome::Completed, diag_dropped: 0 }));
+    assert_eq!(f.terminal, 1);
+    assert_eq!(f.diagnostics, 0);
+    let text = std::str::from_utf8(&f.output).unwrap();
+    assert!(text.contains("context_length_exceeded"));
+    assert!(text.contains("upstream operation failed"));
+    f.end(true).await;
+}
+
+#[tokio::test]
+async fn initial_kernel_failure_refuses_an_unstarted_invocation_number() {
+    let mut f = RunnerPeer::new().await;
+    f.start().await;
+    f.send(Message::Fail { op: 7, n: 1, error: public_failure() }).await;
+    let result = tokio::time::timeout(Duration::from_secs(2), f.task).await.unwrap().unwrap();
+    assert!(result.is_err());
+}
+
+#[tokio::test]
 async fn runner_rebind_keeps_one_encoder_and_closed_failure_recipe() {
     use framer_worker_wire::message::{ErrorClass, Outcome, FailureTag};
     let mut f = RunnerPeer::new().await;

@@ -2,9 +2,11 @@
 
 The optional S3w manager owns at most two policy generations under the same
 AccountRuntime. Production construction, stage, activate and retire methods
-are now present, with retained joins and default legacy0 selection. Request
-pin attachment, the worker runner and real SSE switching remain incomplete;
-the manager source and its synthetic transition controls are unqualified.
+are now present, with retained joins and default legacy0 selection. The real
+free Responses SSE route attaches the selected pin and invokes the worker
+through the existing account driver. The attachment and its real-child
+controls are source-only and UNRUN; fault coverage, measurements and
+qualification remain incomplete.
 
 Free Responses SSE uses an awaited output sink. Policy transfers a validated
 chunk to one encoder and waits for its segments to enter the bounded body

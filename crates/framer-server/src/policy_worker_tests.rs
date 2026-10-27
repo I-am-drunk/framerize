@@ -1,4 +1,173 @@
 use super::*;
+#[path = "policy_worker_fixture.rs"]
+mod router_fixture;
+
+#[tokio::test]
+async fn real_worker_terminal_bytes_hold_retirement_after_eof_and_body_drop() {
+    use router_fixture::*;
+    use futures::StreamExt;
+    let mut f = Fixture::new();
+    let worker = f.stage().await;
+    f.manager().activate(worker).unwrap();
+    let response = f.post(Some(0), payload()).await;
+    let call = f.next().await;
+    call.reply.send(Ok(reply("retained"))).ok().unwrap();
+    call.joined.await.unwrap();
+    let mut body = response.into_body().into_data_stream();
+    let mut retained = None;
+    while let Some(bytes) = tokio::time::timeout(BOUND, body.next()).await.unwrap() {
+        let bytes = bytes.unwrap();
+        if String::from_utf8_lossy(&bytes).contains("event: response.completed\n") {
+            retained = Some(bytes.clone());
+        }
+    }
+    drop(body);
+    assert!(retained.is_some());
+    let manager = f.manager();
+    let retiring = manager.retire(worker);
+    tokio::pin!(retiring);
+    assert!(futures::poll!(&mut retiring).is_pending());
+    assert_eq!(manager.snapshot().unwrap()[0].pins, 1);
+    drop(retained);
+    tokio::time::timeout(BOUND, retiring).await.unwrap().unwrap();
+    f.finish().await;
+}
+
+#[tokio::test]
+async fn real_worker_stalled_output_does_not_block_terminal_or_cancelled_forward() {
+    use router_fixture::*;
+    let mut f = Fixture::new();
+    let worker = f.stage().await;
+    f.manager().activate(worker).unwrap();
+    let stalled = f.post(Some(0), payload()).await;
+    let a = f.next().await;
+    a.reply.send(Ok(reply(&"stalled".repeat(16384)))).ok().unwrap();
+    a.joined.await.unwrap();
+    let healthy = f.post(Some(1), payload()).await;
+    let b = f.next().await;
+    b.reply.send(Ok(reply("healthy"))).ok().unwrap();
+    b.joined.await.unwrap();
+    trace(&consume(healthy).await, "healthy");
+    let cancelled = f.post(Some(1), payload()).await;
+    let c = f.next().await;
+    drop(cancelled);
+    c.reply.send(Ok(reply("cancelled after Forward"))).ok().unwrap();
+    tokio::time::timeout(BOUND, c.joined).await.unwrap().unwrap();
+    tokio::time::timeout(BOUND, async {
+        while f.manager().snapshot().unwrap()[0].pins != 1 { tokio::task::yield_now().await; }
+    }).await.expect("C cleanup was blocked by A");
+    assert_eq!(f.manager().snapshot().unwrap()[0].pins, 1);
+    assert!(f.state.response_output.counts().2 > 0);
+    drop(stalled);
+    f.finish().await;
+}
+
+#[tokio::test]
+async fn real_worker_disconnect_preserves_unconfirmed_forward_cleanup() {
+    use router_fixture::*;
+    let mut f = Fixture::new();
+    let worker = f.stage().await;
+    f.manager().activate(worker).unwrap();
+    let response = f.post(Some(0), payload()).await;
+    let call = f.next().await;
+    drop(response);
+    call.reply.send(Err(framer_core::port::ForwardError::from_legacy(
+        "host-lifecycle-unconfirmed: fixture".into()).into())).ok().unwrap();
+    call.joined.await.unwrap();
+    f.settle().await;
+    assert!(f.manager().snapshot().unwrap()[0].unconfirmed);
+    assert!(!f.state.operation_ownership.as_ref().unwrap().accepting_requests());
+    assert_eq!(tokio::time::timeout(BOUND, f.manager().shutdown(true)).await.unwrap(),
+        Err(crate::policy_generations::GenerationError::Unconfirmed));
+    let snapshot = f.manager().snapshot().unwrap();
+    assert_eq!(snapshot[0].phase, crate::policy_generations::GenerationPhase::ReapedUnconfirmed);
+    assert!(!snapshot[0].alive);
+}
+
+#[tokio::test]
+async fn real_worker_activation_preserves_the_open_stream_and_exact_identity() {
+    use router_fixture::*;
+    use futures::StreamExt;
+    let mut f = Fixture::new();
+    let a = f.stage().await;
+    f.manager().activate(a).unwrap();
+    let response = f.post(Some(0), payload()).await;
+    let call = f.next().await;
+    let expected = "A exact café ".repeat(8192);
+    call.reply.send(Ok(reply(&expected))).ok().unwrap();
+    call.joined.await.unwrap();
+    let mut body = response.into_body().into_data_stream();
+    let mut prefix = Vec::new();
+    for _ in 0..3 {
+        let bytes = tokio::time::timeout(BOUND, body.next()).await.unwrap().unwrap().unwrap();
+        prefix.extend_from_slice(&bytes);
+    }
+    let b = f.stage().await;
+    f.manager().activate(b).unwrap();
+    let second = f.post(Some(1), payload()).await;
+    let second_call = f.next().await;
+    assert!(f.manager().snapshot().unwrap().iter().any(|slot| slot.generation == b && slot.pins == 1));
+    second_call.reply.send(Ok(reply("B exact"))).ok().unwrap();
+    second_call.joined.await.unwrap();
+    let b_id = trace(&consume(second).await, "B exact");
+    assert!(f.manager().snapshot().unwrap().iter().any(|slot| slot.generation == a && slot.pins == 1));
+    let remainder = axum::response::Response::new(axum::body::Body::from_stream(body));
+    prefix.extend_from_slice(consume(remainder).await.as_bytes());
+    let a_id = trace(std::str::from_utf8(&prefix).unwrap(), &expected);
+    assert_ne!(a_id, b_id);
+    assert!(f.calls.try_recv().is_err());
+    f.finish().await;
+}
+
+#[tokio::test]
+async fn real_worker_disconnect_joins_forward_and_keeps_success_health() {
+    use router_fixture::*;
+    let mut f = Fixture::new();
+    f.accounts[0].consecutive_failures = 3;
+    f.state.state.upsert(&f.accounts[0]).await.unwrap();
+    let worker = f.stage().await;
+    f.manager().activate(worker).unwrap();
+    let response = f.post(Some(0), payload()).await;
+    let call = f.next().await;
+    drop(response);
+    assert_eq!(f.manager().snapshot().unwrap()[0].pins, 1);
+    {
+        let settling = f.settle();
+        tokio::pin!(settling);
+        assert!(futures::poll!(&mut settling).is_pending());
+        call.reply.send(Ok(reply("joined success"))).ok().unwrap();
+        call.joined.await.unwrap();
+        settling.await;
+    }
+    assert_eq!(f.state.state.get(f.accounts[0].id).await.unwrap().unwrap().consecutive_failures, 0);
+    f.finish().await;
+}
+
+#[tokio::test]
+async fn real_worker_uses_original_input_and_returns_exact_content() {
+    use router_fixture::*;
+    let mut f = Fixture::new();
+    let worker = f.stage().await;
+    f.manager().activate(worker).unwrap();
+    let mut input = payload();
+    input["instructions"] = "original instructions".into();
+    input["tools"] = serde_json::json!([{"type":"function", "name":"f", "parameters":{"type":"object"}}]);
+    let response = f.post(Some(0), input).await;
+    let call = f.next().await;
+    assert_eq!(call.account, f.accounts[0].id);
+    assert_eq!(call.chunk, 0);
+    assert_eq!(call.step, "translate");
+    let instructions = call.payload["instructions"].as_str().unwrap();
+    assert!(instructions.starts_with("original instructions\n\n"));
+    assert_eq!(instructions.matches("at most ~40 lines").count(), 1);
+    call.reply.send(Ok(reply("exact café 日本語 😀"))).ok().unwrap();
+    call.joined.await.unwrap();
+    let text = consume(response).await;
+    assert!(text.contains("exact café 日本語 😀"));
+    assert_eq!(text.matches("event: response.created\n").count(), 1);
+    assert_eq!(text.matches("event: response.completed\n").count(), 1);
+    f.finish().await;
+}
 
 mod invocation_contract {
     use crate::policy_worker_request::InvocationLedger;

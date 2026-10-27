@@ -75,7 +75,9 @@ impl Operation {
                 self.commands.try_send(Command::Finish).map_err(|_| WireError::Protocol)
             }
             Message::Fail { n, error, .. } => {
-                if !matches!(&state.phase, Phase::Decision { n: expected, .. } if *expected == n) {
+                // A kernel admission failure can precede the first invocation.
+                if !(n == 0 && matches!(&state.phase, Phase::Initial))
+                    && !matches!(&state.phase, Phase::Decision { n: expected, .. } if *expected == n) {
                     return Err(WireError::Protocol);
                 }
                 state.phase = Phase::Finalizing;

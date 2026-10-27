@@ -279,6 +279,11 @@ impl GenerationPin {
     }
     pub(crate) fn subscribe(&self) -> watch::Receiver<bool> { self.0.worker.alive.clone() }
     pub(crate) fn poison(&self) { self.0.worker.control.request_stop(); }
+    /// Channel loss never confirms cleanup. Join it before discarding controls.
+    pub(crate) async fn join_lost(&self) -> bool {
+        if *self.0.worker.alive.borrow() { return false; }
+        self.0.worker.process.lock().await.join().await.is_ok_and(|exit| exit.reaped)
+    }
     pub fn unconfirmed(&self) {
         if let Some(manager) = self.0.manager.upgrade() {
             if let Ok(mut state) = manager.lock() {

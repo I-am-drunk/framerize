@@ -596,13 +596,23 @@ impl FreeRequest {
         (result, cleanup)
     }
     fn log(&self, result: &ResponseResult, elapsed: Duration) {
+        self.log_fields(result.as_ref().map(|result| (result.chunks, result.metered_chunks,
+            result.input_tokens, result.output_tokens, result.status.as_str())), elapsed);
+    }
+    pub(super) fn log_worker(&self, result: &Result<wire::Summary, ResponseError>, elapsed: Duration) {
+        self.log_fields(result.as_ref().map(|result| (result.chunks, result.metered_chunks,
+            result.input_tokens, result.output_tokens, match result.finish {
+                wire::FinishReason::Completed => "completed", wire::FinishReason::Incomplete => "incomplete",
+            })), elapsed);
+    }
+    fn log_fields(&self, result: Result<(u32, u32, u64, u64, &str), &ResponseError>, elapsed: Duration) {
         let event = operation_ownership::correlate_chain(framer_core::observability::Event::new("ai.chain"))
             .account(&self.account.id).field("model", self.gate_model.as_str())
             .field("dialect", "OpenAiResponses").duration_ms(elapsed.as_millis());
         match result {
-            Ok(result) => event.field("chunks", result.chunks).field("metered_chunks", result.metered_chunks)
-                .field("prompt_tokens", result.input_tokens).field("completion_tokens", result.output_tokens)
-                .field("finish_reason", result.status.as_str()).outcome("ok").emit(),
+            Ok((chunks, metered, input, output, status)) => event.field("chunks", chunks).field("metered_chunks", metered)
+                .field("prompt_tokens", input).field("completion_tokens", output)
+                .field("finish_reason", status).outcome("ok").emit(),
             Err(error) => event.error(&error.to_string()).emit(),
         }
     }
@@ -638,6 +648,9 @@ impl WorkerOutputState {
     }
 }
 impl WorkerPublisher {
+    pub(crate) fn terminal(&self) -> Result<bool, WireError> {
+        Ok(self.state.lock().map_err(|_| WireError::Protocol)?.terminal)
+    }
     /// Called by the single reader. Never waits for the body or a credit write.
     pub(crate) fn data(&self, event: wire::DataKind, seq: u64, bytes: wire::Segment,
         last: bool, wire_bytes: u64) -> Result<(), WireError> {

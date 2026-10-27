@@ -518,6 +518,7 @@ dependencies = [
  "axum",
  "bytes",
  "framer-core",
+ "framer-protocol",
  "framer-worker-wire",
  "futures",
  "http-body",

@@ -1,11 +1,22 @@
 # Development status
 
+The selected worker is now attached to the real free Responses SSE route.
+Selection precedes preparation and survives repick; only the invocation call
+varies inside the existing driver. Invoke fragments and Cancel are ordered,
+input serialization is joined, and a nested driver keeps the existing owner.
+Six new real-child controls and two runner controls are UNRUN. No compilation,
+child launch or qualification ran in this lane. The output slice and this
+attachment still await the same source review, currently stopped by main.
+Next: finish fault, typed-error, diagnostic and W1-W4 coverage and bind the
+complete immutable packet for main. The auth-mint publication at 6526b90 is a
+later composition dependency; this lane retains its released 3a62a24 base.
+
 The worker output adapter now uses the existing two-slot SSE reservation.
 Its last Bytes owner retains the generation pin and returns one slot plus
 16 KiB of downstream credit. Accepted-event credit advances at body enqueue;
 EOF does not wait for disposal. Seven new in-memory controls are UNRUN.
-The kernel invocation records have source approval. Next: attach the bounded
-reader dispatch and invocation adapter to the real free Responses router.
+The kernel invocation records have source approval. The attached reader and
+invocation adapter are source-only and still require review and qualification.
 
 The kernel invocation record now binds each Forward to its operation,
 invocation and captured saturation callback. Result closes dispatch and waits

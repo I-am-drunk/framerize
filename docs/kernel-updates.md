@@ -1,5 +1,30 @@
 # Kernel and application updates
 
+The construction-selected worker now enters through the real Responses SSE
+route. A preflight selection guard releases an unused pin without claiming
+worker cleanup; Start transfers it to the existing observed producer. Every
+invocation binds the current account afresh and carries the original input.
+The shared driver still owns admission, health and repick. Summary logging
+does not require transferring assembled output back from the worker.
+
+Invoke fragments and Cancel share a per-operation gate. Accepted fragments
+finish writing before Cancel, and no later fragment follows it. A cancelled
+serializer has its staging receiver closed before join. The reader enqueues
+bounded actions without awaiting Forward. The nested driver retains CURRENT;
+the supervisor joins it before releasing output ownership or Forward facts.
+Channel loss joins the process and pipes, then retains the unconfirmed fence.
+
+The kernel can send Fail with invocation zero only before the first Invoke,
+for an admission failure from the shared driver. This carries the same bounded
+public-failure DTO and does not run policy or add an account loop. Once a
+terminal event is accepted, no late Cancel is sent. The remaining final credit
+and Bytes disposal still complete before pin confirmation. These paths and
+the eight added controls are UNRUN; the same source review is pending.
+The server's test-only protocol dependency runs the same policy body for its
+legacy0 comparison fixture. It changes no production dependency boundary or
+external lock record. The six real-child controls require explicit executable
+path and SHA256 launch bindings; they never compile or search PATH themselves.
+
 Worker Data uses the same two downstream slots as legacy0. A synchronous
 reader dispatch reserves actual wire bytes, one slot and 16 KiB downstream
 before retaining a frame. Body acceptance advances the exclusive event
@@ -9,7 +34,7 @@ One thin credit record accumulates returns, and an owned writer task sends
 them in bounded frames. Done closes the body sender first and still allows
 late credit returns. Channel loss grants no further credit. Fixed boundary
 failure and partial-event abort reuse the existing S3a encoder path.
-These adapters are not yet connected to router dispatch or qualified.
+The router attachment remains unqualified.
 
 Kernel invocation records capture the optional saturation callback with the
 accepted Forward. Receiving Saturated applies it before Ack, at most once for
@@ -20,7 +45,7 @@ The kernel renders Direct, SaturationExhausted or FallbackOff from the recorded
 cause and classifies that exact string before applying display redaction.
 Worker Summary contains only counts and finish status. A disconnect completion
 also requires the kernel's last joined Forward success. These records and
-their controls are source-only and not yet attached to the pipe reader.
+their controls and the attached pipe reader remain source-only and UNRUN.
 
 The worker runner owns one nonblocking pipe reader and one complete-frame
 writer. Each admitted operation has three writer records: control/Forward,
