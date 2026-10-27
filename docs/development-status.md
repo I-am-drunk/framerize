@@ -11,6 +11,10 @@ The fixtures use joined loopback peers. They do not establish live egress
 equivalence or browserless acceptance. Next qualify this API, then connect
 the child protocol to the account-owned observation and explicit launcher.
 
+The first build on `ee9ebfd` stopped at a fixture-only `Display` error for
+`AccountId`. The corrected fixture formats the underlying UUID. Its rerun
+is pending; production code did not change after this compile result.
+
 The empty reserved nonce correction on
 `feat/browser-control-empty-nonce-20261027` now retains blank query values
 during the refusal check. The extended endpoint fixture fails for all three

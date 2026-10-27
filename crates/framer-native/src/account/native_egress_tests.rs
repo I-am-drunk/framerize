@@ -3,7 +3,7 @@ use crate::transport::http::egress_probe_fixture::{Peer, response, NONCE};
 
 fn open(client: &NativeAccountClient, peer: &Peer) -> AccountScope {
     let account = AccountId::new();
-    let user = FramerUserId(format!("fixture-{account}"));
+    let user = FramerUserId(format!("fixture-{}", account.0));
     let session = Session { active_user: user.clone(), cookie_header: "session=fixture-only".into() };
     client.open_account_for_test(account, session, || NativeHttp::for_loopback(
         account, user, peer.address, NativeHttpLimits::default())).unwrap()
