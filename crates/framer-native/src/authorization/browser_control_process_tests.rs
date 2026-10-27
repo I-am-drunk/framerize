@@ -4,6 +4,87 @@ use crate::account::device::DeviceAuthority;
 use crate::authorization::control::browser_control_fixture::{target, fixture};
 use std::sync::Arc;
 
+#[cfg(target_os = "linux")]
+async fn fifo_prepare_rejection(executable: bool) {
+    use std::{ffi::CString, fs::OpenOptions, os::unix::fs::OpenOptionsExt, sync::mpsc};
+    let mut case = case("normal");
+    let fifo = case.directory.join("pin.fifo");
+    let name = CString::new(fifo.as_os_str().as_encoded_bytes()).unwrap();
+    assert_eq!(unsafe { libc::mkfifo(name.as_ptr(), 0o600) }, 0);
+    let launch = &mut Arc::get_mut(&mut case.peer).unwrap().launch;
+    if executable { launch.python = fifo.clone(); }
+    else { launch.script = fifo.clone(); }
+    let peer = case.peer.clone();
+    let (started_tx, started_rx) = mpsc::channel();
+    let (done_tx, done_rx) = mpsc::channel();
+    let worker = std::thread::spawn(move || {
+        let runtime = tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap();
+        let _ = started_tx.send(());
+        let result = runtime.block_on(async {
+            (peer.prepare().await, peer.shutdown().await)
+        });
+        let _ = done_tx.send(result);
+        result
+    });
+    let started = started_rx.recv_timeout(Duration::from_secs(3));
+    let early = done_rx.recv_timeout(Duration::from_secs(1));
+    // Linux O_RDWR supplies a writer even if the old reader has not opened yet.
+    // Hold it through the join so the faulty implementation can finish safely.
+    let rescue = early.is_err().then(|| OpenOptions::new().read(true).write(true)
+        .custom_flags(libc::O_NONBLOCK).open(&fifo));
+    let joined = worker.join();
+    drop(rescue);
+    let spawned = case.directory.join("pid").exists();
+    let no_process = case.peer.state.lock().await.process.is_none();
+    case.close().await;
+    assert!(started.is_ok(), "worker did not reach preparation");
+    assert_eq!(joined.unwrap(), (false, false));
+    assert!(!spawned && no_process, "invalid pin started or retained a child");
+    assert!(early.is_ok(), "FIFO open needed a rescue writer before shutdown");
+}
+
+#[cfg(target_os = "linux")]
+#[tokio::test]
+async fn fifo_interpreter_refuses_without_blocking_shutdown() {
+    fifo_prepare_rejection(true).await;
+}
+
+#[cfg(target_os = "linux")]
+#[tokio::test]
+async fn fifo_script_refuses_without_blocking_shutdown() {
+    fifo_prepare_rejection(false).await;
+}
+
+#[test]
+fn pin_preserves_regular_file_and_symlink_hash_checks() {
+    let directory = std::env::temp_dir().join(format!("pin-{}", uuid::Uuid::new_v4()));
+    std::fs::create_dir(&directory).unwrap();
+    let file = directory.join("regular");
+    let link = directory.join("link");
+    std::fs::write(&file, b"pin fixture").unwrap();
+    std::os::unix::fs::symlink(&file, &link).unwrap();
+    let expected = sha(&file);
+    let results = [pinned(&file, &expected), pinned(&link, &expected),
+        pinned(&link, &"0".repeat(64))];
+    std::fs::remove_dir_all(&directory).unwrap();
+    assert_eq!(results, [true, true, false]);
+}
+
+#[test]
+fn pin_rejects_directory_and_oversized_regular_file() {
+    let directory = std::env::temp_dir().join(format!("pin-{}", uuid::Uuid::new_v4()));
+    std::fs::create_dir(&directory).unwrap();
+    let link = directory.join("directory-link");
+    std::os::unix::fs::symlink(&directory, &link).unwrap();
+    let oversized = directory.join("oversized");
+    std::fs::File::create(&oversized).unwrap().set_len(64 * 1024 * 1024 + 1).unwrap();
+    let expected = "0".repeat(64);
+    let results = [pinned(&directory, &expected), pinned(&link, &expected),
+        pinned(&oversized, &expected), pinned(&directory.join("missing"), &expected)];
+    std::fs::remove_dir_all(&directory).unwrap();
+    assert_eq!(results, [false; 4]);
+}
+
 struct Case {
     client: NativeAccountClient,
     scope: AccountScope,

@@ -1,5 +1,13 @@
 # Development status
 
+The native browser-control FIFO pin correction is implemented and UNRUN.
+It uses nonblocking open before the existing opened-handle checks. Four new
+controls cover interpreter and script FIFOs, regular files, symlinks,
+directories, missing files and oversized files. The FIFO fixtures provide a
+rescue writer and join their worker before asserting prompt refusal and
+shutdown. Fourteen retained process controls are selected for qualification.
+No live browser, external request or service change belongs to this slice.
+
 The internal browser-control child runner now connects the private preparation
 frame, dedicated initializer and existing protocol. All 16 new controls and
 15 retained protocol/frame controls pass on `f97a135`. The new controls cover

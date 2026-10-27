@@ -47,7 +47,10 @@ struct Process {
 }
 
 fn pinned(path: &Path, expected: &str) -> bool {
-    let Ok(file) = std::fs::File::open(path) else { return false; };
+    use std::os::unix::fs::OpenOptionsExt;
+    // Reject special files without blocking before the opened-handle check.
+    let Ok(file) = std::fs::OpenOptions::new().read(true)
+        .custom_flags(libc::O_NONBLOCK).open(path) else { return false; };
     let Ok(metadata) = file.metadata() else { return false; };
     if !metadata.is_file() || metadata.len() > 64 * 1024 * 1024 { return false; }
     let mut hash = Sha256::new();

@@ -1,5 +1,13 @@
 # Architecture
 
+The Unix browser-control pin check opens files with `O_NONBLOCK` before
+validating the opened handle. FIFO descriptors therefore reach the existing
+nonregular-file rejection without waiting for a writer while holding the
+preparation mutex. Symlinks to regular files remain supported. Size limits,
+hash verification and immutable-publication requirements are unchanged.
+This does not bound ordinary file or mount I/O; the owning process still
+needs an external bound for dependencies that do not respond.
+
 `PreparedControlChild` joins private input parsing, dedicated page preparation
 and the control protocol. It validates the initial binding before launching
 anything, then reuses the same frame reader so coalesced input is not lost.
