@@ -23,31 +23,6 @@ mod relay_query_tests;
 #[path = "auth_token_body_tests.rs"]
 mod token_body_tests;
 
-fn decode_local_token(v: &serde_json::Value, session: &Session) -> Result<AiToken, String> {
-    let bearer = v["accessToken"].as_str().ok_or("bad access-token response")?.to_string();
-    let expires_at_ms = v["expiresAt"]
-        .as_str()
-        .and_then(|s| chrono::DateTime::parse_from_rfc3339(s).ok())
-        .map(|d| d.timestamp_millis())
-        .ok_or("bad expiresAt")?;
-    Ok(AiToken::for_session(session, bearer, expires_at_ms))
-}
-
-fn decode_relay_token(v: &serde_json::Value, session: &Session) -> Result<AiToken, String> {
-    let entry = &v["accounts"][&session.active_user.0];
-    let bearer = entry["accessToken"].as_str().ok_or("relay: no token for user")?.to_string();
-    let expires_at_ms = entry["expiresAt"]
-        .as_str()
-        .and_then(|s| chrono::DateTime::parse_from_rfc3339(s).ok())
-        .map(|d| d.timestamp_millis())
-        .ok_or("relay: bad expiresAt")?;
-    let token = AiToken::for_session(session, bearer, expires_at_ms);
-    if !token.usable() {
-        return Err("relay: token is expired or within the refresh window".into());
-    }
-    Ok(token)
-}
-
 #[derive(Clone)]
 pub struct AiToken {
     pub bearer: String,
@@ -104,7 +79,13 @@ async fn mint(t: &Transport, session: &Session, path: &str) -> Result<AiToken, S
         }
     }
     let v = t.get(path, Auth::Cookie(session)).await?.json::<serde_json::Value>().await.map_err(|e| e.to_string())?;
-    let bearer = v["accessToken"].as_str().ok_or("bad access-token response")?.to_string();
+    decode_local_token(&v, session)
+}
+
+fn decode_local_token(v: &serde_json::Value, session: &Session) -> Result<AiToken, String> {
+    let bearer = v["accessToken"].as_str()
+        .filter(|bearer| !bearer.is_empty())
+        .ok_or("bad access-token response")?.to_string();
     let expires_at_ms = v["expiresAt"]
         .as_str()
         .and_then(|s| chrono::DateTime::parse_from_rfc3339(s).ok())
@@ -144,8 +125,14 @@ async fn relay_mint(session: &Session) -> Result<AiToken, String> {
         }
     }
     let v: serde_json::Value = req.send().await.map_err(|e| e.to_string())?.json().await.map_err(|e| e.to_string())?;
+    decode_relay_token(&v, session)
+}
+
+fn decode_relay_token(v: &serde_json::Value, session: &Session) -> Result<AiToken, String> {
     let entry = &v["accounts"][&session.active_user.0];
-    let bearer = entry["accessToken"].as_str().ok_or("relay: no token for user")?.to_string();
+    let bearer = entry["accessToken"].as_str()
+        .filter(|bearer| !bearer.is_empty())
+        .ok_or("relay: no token for user")?.to_string();
     let expires_at_ms = entry["expiresAt"]
         .as_str()
         .and_then(|s| chrono::DateTime::parse_from_rfc3339(s).ok())

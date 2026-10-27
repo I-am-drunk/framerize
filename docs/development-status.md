@@ -1,5 +1,11 @@
 # Development status
 
+The empty-bearer candidate rejects empty local and selected relay token
+strings before expiry validation, using their existing decoder errors.
+Nonempty bytes, cache ownership, mint locks and fallback remain unchanged.
+Both Rust files match `f33db41` on the current composition. All 26 selected
+controls await qualification here, including joined web-mint cache recovery.
+
 Project-adoption validation passes all 18 selected checks on `c5813b9`, with
 849 matching source pins, a hash-bound executable and settled process groups.
 Present root and first-project team metadata must match the complete requested
