@@ -1,10 +1,12 @@
 # Development status
 
-The bounded egress observer is implemented and UNRUN. Eighteen new controls
+The bounded egress observer passes all 18 new controls on `7d296b7`. They
 cover matching samples, identity changes, cancellation and late cleanup,
 shutdown ownership, malformed replies, URL validation, response limits and
 the JavaScript fetch's credential and cleanup behavior. Page and native
-ports are inert; the script runs in an isolated Node fixture.
+ports are inert; the script runs in an isolated Node fixture. The Python run
+matched all 874 source pins and left no test processes or cleanup warnings.
+All 871 prior source pins remain unchanged, retaining their earlier results.
 The production native-route attachment and observation endpoint remain
 required caller inputs. No live egress match or browserless acceptance is
 claimed. This adds no default-service selection or timing authority.
