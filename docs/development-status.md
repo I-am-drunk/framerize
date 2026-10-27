@@ -1,19 +1,24 @@
 # Development status
 
 The native account egress probe is implemented on
-`feat/native-egress-probe-20261027`, with qualification pending. It uses the
+`feat/native-egress-probe-20261027`, with all nineteen selected controls passing
+on `f020690`. It uses the
 existing account HTTP client through the tracked preparation owner. Twelve
 new controls cover URL validation, response guards, client identity,
 credential omission, transport capacity, cancellation, account shutdown and
 isolation. Seven retained preparation controls are selected for the private
-preparation-wiring change. All nineteen selections are currently unrun.
+preparation-wiring change. All 878 source pins match, and build, inventory and
+test processes are settled. The libtest executable was freshly compiled and
+hash-bound. All 871 unaffected prior source pins match their saved evidence.
 The fixtures use joined loopback peers. They do not establish live egress
-equivalence or browserless acceptance. Next qualify this API, then connect
-the child protocol to the account-owned observation and explicit launcher.
+equivalence or browserless acceptance. Next connect the child protocol to the
+account-owned observation and explicit launcher. Startup currently prepares
+the child before the account scope exists, so that attachment must preserve
+the real account owner and withhold readiness until attestation completes.
 
 The first build on `ee9ebfd` stopped at a fixture-only `Display` error for
-`AccountId`. The corrected fixture formats the underlying UUID. Its rerun
-is pending; production code did not change after this compile result.
+`AccountId`. The corrected fixture formats the underlying UUID. The next build
+and all nineteen tests passed; production code did not change between builds.
 
 The empty reserved nonce correction on
 `feat/browser-control-empty-nonce-20261027` now retains blank query values
