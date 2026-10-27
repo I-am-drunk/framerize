@@ -1,5 +1,11 @@
 # Architecture
 
+Workspace credit scans omit explicit `scope: "user"` metadata entries before
+reading their owner IDs. Personal spaces therefore do not produce team-ledger
+probes. Every other scope retains the existing ID selection, ordering,
+duplicate handling, concurrent joins and error propagation. A profile with
+only personal spaces is a complete empty scan, not a failed team probe.
+
 SQLite account and settings operations return the existing mutex error if
 the connection lock is poisoned. Account reads and writes no longer unwrap
 that error. They do not recover the poisoned connection, clear its state or

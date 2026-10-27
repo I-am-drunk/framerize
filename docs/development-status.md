@@ -1,10 +1,15 @@
 # Development status
 
-The personal-space candidate skips explicit `scope: "user"` entries before
-extracting credit-ledger owner IDs. Other scopes, full IDs, probe ordering,
-joins and errors keep their behavior. The two Rust files match `9fa38a4` on
-the current composition. All 15 selected controls await qualification;
-the frozen fixture-only baseline and candidate are separate from live state.
+Personal-space filtering passes all 15 selected checks on `4de67cf`, with
+848 matching source pins, a hash-bound executable and settled process groups.
+Workspace scans skip explicit `scope: "user"` entries before extracting
+credit-ledger owner IDs. Other scopes, full IDs, probe ordering, joins and
+errors keep their behavior. The two Rust files match `9fa38a4` on the newer
+composition. Baseline `71399a8` passed 11 controls and failed four methods at
+their first scan-result, unwanted-probe or wrong-error assertions. Later
+orders and admission-state assertions are candidate evidence only. These
+fixtures use synthetic metadata and inert ports; they do not establish a
+live API contract or account result. The running service is unchanged.
 
 The bounded wire writer permits cross-crate inlining on `bd78f83`, without
 changing its bytes, allocation limits or error paths. All 74 focused checks
