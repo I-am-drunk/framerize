@@ -1,5 +1,10 @@
 # Architecture
 
+Responses requests without a numeric output limit leave the chain's total
+output limit unset. Explicit token limits retain their alias precedence and
+range validation. The existing chunk, elapsed-time, cancellation and cleanup
+bounds still apply. Chat and Messages retain their existing default limits.
+
 SQLite account lookup validates the decoded identity against the requested
 key. Listing validates raw text keys against decoded canonical UUIDs before
 returning the complete account set. Inconsistent or nontext keys return a

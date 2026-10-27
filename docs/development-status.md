@@ -1,5 +1,15 @@
 # Development status
 
+The browser repair on `fix/responses-budget-live-20261027` removes the implicit
+4,096-token total limit from Responses requests that omit a numeric limit.
+All 15 selected handler and parser checks pass on the deployed-source
+`c16fd24` backport, with 803 matching source pins and a settled test unit.
+The original regression baseline had three expected failures and 12 passes;
+the newer-source candidate also passed all 15 checks. Explicit limits,
+other dialect defaults and ownership cleanup remain covered.
+This is a source qualification. Release packaging and activation follow
+separately, with the browser backend retained.
+
 SQLite lookup now rejects an embedded account identity different from its
 requested key. Listing requires each raw text key to equal the decoded
 canonical UUID. Invalid, noncanonical and nontext keys return the fixed

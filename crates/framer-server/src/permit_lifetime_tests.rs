@@ -133,7 +133,7 @@ async fn chain(state: AppState, headers: HeaderMap, messages: bool, stream: bool
             json!({"model":MESSAGE_MODEL,"messages":[{"role":"user","content":"fixture"}],"stream":stream})).await
     } else {
         crate::native_complete(state, &headers, ClientDialect::OpenAiResponses,
-            json!({"model":RESPONSE_MODEL,"input":"fixture","stream":stream}), stream, false, 64).await
+            json!({"model":RESPONSE_MODEL,"input":"fixture","stream":stream}), stream, false, Some(64)).await
     }
 }
 async fn delivered(response: Response) {

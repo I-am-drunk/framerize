@@ -20,6 +20,7 @@ pub enum Reply {
 }
 pub struct Call {
     pub kind: &'static str,
+    pub config: Option<ChainConfig>,
     pub account: AccountId,
     pub reply: oneshot::Sender<Result<Reply, String>>,
     pub dropped: oneshot::Receiver<()>,
@@ -39,11 +40,11 @@ struct Ports {
 impl Ports {
     fn unexpected(&self, port: &str) -> ! { panic!("unexpected {port} I/O") }
 
-    async fn invoke(&self, kind: &'static str, account: &AccountId) -> Result<Reply, String> {
+    async fn invoke(&self, kind: &'static str, account: &AccountId, config: Option<&ChainConfig>) -> Result<Reply, String> {
         let (reply, receive) = oneshot::channel();
         let (dropped, observed) = oneshot::channel();
         let _drop = CallDrop(Some(dropped));
-        self.calls.send(Call { kind, account: account.clone(), reply, dropped: observed })
+        self.calls.send(Call { kind, config: config.cloned(), account: account.clone(), reply, dropped: observed })
             .map_err(|_| "fixture calls closed".to_string())?;
         receive.await.map_err(|_| "fixture reply closed".to_string())?
     }
@@ -78,7 +79,7 @@ impl FramerClient for Ports {
     ) -> BoxFuture<'a, ResponseResult>
     where 's: 'a, 'b: 'a, 'c: 'a, 'd: 'a, 'e: 'a, 'f: 'a, 'g: 'a, 'h: 'a, Self: 'a {
         Box::pin(async move {
-            match self.invoke("responses", account).await? {
+            match self.invoke("responses", account, Some(_cfg)).await? {
                 Reply::Responses(value) => emit_assembled(value, sink).await,
                 _ => panic!("wrong fixture reply"),
             }
@@ -98,19 +99,19 @@ impl FramerClient for Ports {
     }
     fn proxy<'s, 'b, 'c, 'd, 'e, 'f, 'g, 'a>(&'s self, _session: &'b Session, _browser: &'c dyn BrowserBridge, account: &'d AccountId, _project: &'e ProjectId, _dialect: &'f str, _payload: Value, _chat: &'g str) -> BoxFuture<'a, Result<ProxyResponse, String>>
     where 's: 'a, 'b: 'a, 'c: 'a, 'd: 'a, 'e: 'a, 'f: 'a, 'g: 'a, Self: 'a {
-        Box::pin(async move { match self.invoke("proxy", account).await? {
+        Box::pin(async move { match self.invoke("proxy", account, None).await? {
             Reply::Proxy(value) => Ok(value), _ => panic!("wrong fixture reply"),
         } })
     }
     fn freechat_long<'s, 'b, 'c, 'd, 'e, 'f, 'g, 'h, 'a>(&'s self, _session: &'b Session, _browser: &'c dyn BrowserBridge, account: &'d AccountId, _project: &'e ProjectId, _payload: Value, _cfg: &'f ChainConfig, _chat: &'g str, events: Option<&'h (dyn Fn(ChainEvent) + Send + Sync)>) -> BoxFuture<'a, Result<AssembledResponse, String>>
     where 's: 'a, 'b: 'a, 'c: 'a, 'd: 'a, 'e: 'a, 'f: 'a, 'g: 'a, 'h: 'a, Self: 'a {
-        Box::pin(async move { match self.invoke("messages", account).await? {
+        Box::pin(async move { match self.invoke("messages", account, Some(_cfg)).await? {
             Reply::Messages(value) => { if let Some(cb) = events { cb(ChainEvent::Chunk(value.content.clone())); } Ok(value) }, _ => panic!("wrong fixture reply"),
         } })
     }
     fn native_long<'s, 'b, 'c, 'd, 'e, 'f, 'g, 'h, 'a>(&'s self, _session: &'b Session, _browser: &'c dyn BrowserBridge, account: &'d AccountId, _project: &'e ProjectId, _payload: Value, _cfg: &'f ChainConfig, _chat: &'g str, events: Option<&'h (dyn Fn(ChainEvent) + Send + Sync)>) -> BoxFuture<'a, Result<AssembledResponses, String>>
     where 's: 'a, 'b: 'a, 'c: 'a, 'd: 'a, 'e: 'a, 'f: 'a, 'g: 'a, 'h: 'a, Self: 'a {
-        Box::pin(async move { match self.invoke("responses", account).await? {
+        Box::pin(async move { match self.invoke("responses", account, Some(_cfg)).await? {
             Reply::Responses(value) => { if let Some(cb) = events { cb(ChainEvent::ResponsesItems { items: value.output.clone(), continues_text: false }); } Ok(value) }, _ => panic!("wrong fixture reply"),
         } })
     }

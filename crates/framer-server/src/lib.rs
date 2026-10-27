@@ -32,6 +32,8 @@ mod account_wait;
 mod pool_config;
 mod pool_control;
 mod request_token_budget;
+#[cfg(test)]
+mod responses_default_budget_tests;
 mod request_body_object;
 mod responses_aggregate;
 mod response_output;
@@ -1147,7 +1149,11 @@ async fn free_complete(
     }
     let wants_stream = payload["stream"].as_bool().unwrap_or(false);
     let include_usage = payload["stream_options"]["include_usage"].as_bool().unwrap_or(false);
-    let max_tokens = request_token_budget::from_payload(&payload)
+    let max_tokens = if dialect == ClientDialect::OpenAiResponses {
+        request_token_budget::explicit_from_payload(&payload)
+    } else {
+        request_token_budget::from_payload(&payload).map(Some)
+    }
         .map_err(|message| ApiError::InvalidRequest(message.into()))
         .map_err(operation_ownership::completed_preflight)?;
 
@@ -1160,6 +1166,7 @@ async fn free_complete(
     if dialect != ClientDialect::AnthropicMessages {
         return native_complete(s, headers, dialect, payload, wants_stream, include_usage, max_tokens).await;
     }
+    let max_tokens = max_tokens.unwrap_or(4096);
 
     // Client request → faithful Anthropic Messages payload (model normalized).
     let anthro = convert::to_anthropic_request(dialect, &payload)
@@ -1740,7 +1747,7 @@ async fn native_complete(
     payload: serde_json::Value,
     wants_stream: bool,
     include_usage: bool,
-    max_tokens: u32,
+    max_tokens: Option<u32>,
 ) -> Result<axum::response::Response, ApiError> {
     let client_model = payload["model"].as_str().unwrap_or_default().to_string();
     let mut native_payload = if dialect == ClientDialect::OpenAiChat {
@@ -1857,7 +1864,7 @@ async fn native_complete(
     let mut gate_key = format!("{}:{gate_model}", scope_team.0);
     let cancelled = operation_ownership::request_cancelled();
     let mk_cfg = |team: &framer_core::ids::TeamId| framer_core::port::ChainConfig {
-        max_total_tokens: Some(max_tokens),
+        max_total_tokens: max_tokens,
         cancelled: cancelled.clone(),
         metered_fallback: std::env::var("FRAMERIZE_ALLOW_METERED").map(|v| v == "1").unwrap_or(false),
         on_429: {
