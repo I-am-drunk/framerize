@@ -268,7 +268,7 @@ fn assert_saved(ports: &IdentityPorts, initial: &ManagedAccount, case: Case) {
 
 fn assert_calls(ports: &IdentityPorts, login: bool, case: Case) {
     let mut expected = vec![if login { "auth_complete" } else { "probe" },
-        "get", "save", "grant"];
+        "get", "list", "save", "grant"];
     if !login { expected.push("proxy"); }
     expected.extend(["upsert", "list", "scan"]);
     if case != Case::AdmissionError {

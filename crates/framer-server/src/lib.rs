@@ -2837,9 +2837,9 @@ async fn complete_login_observed(State(s): State<AppState>, Json(body): Json<Com
     // Dedupe by email BEFORE anything else: adding the same account twice
     // splits its credit ledger across two records and makes rotation think it
     // has more capacity than it does.
+    let pool = s.state.list().await.map_err(ApiError::Internal)?;
     if let Some(raw) = body.email.as_deref() {
         let email = framer_core::account::normalize_email(raw);
-        let pool = s.state.list().await.map_err(ApiError::Internal)?;
         if let Some(dup) = pool
             .iter()
             .find(|a| a.id != account.id && a.email.as_deref() == Some(email.as_str()))
@@ -2854,6 +2854,11 @@ async fn complete_login_observed(State(s): State<AppState>, Json(body): Json<Com
             account.alias = email.clone();
         }
         account.email = Some(email);
+    }
+    if pool.iter().any(|a| a.id != account.id && a.framer_user_id == session.active_user) {
+        return Err(ApiError::Internal(
+            "Framer user is already registered to another account".into(),
+        ));
     }
     s.sessions.save(&session).await.map_err(ApiError::Internal)?;
 
@@ -3048,9 +3053,9 @@ async fn import_account_observed(State(s): State<AppState>, Json(body): Json<Imp
         });
     let registration = s.serving_accounts.registration.lock().await;
     // Same dedupe + naming rule as complete_login: one email, one account.
+    let pool = s.state.list().await.map_err(ApiError::Internal)?;
     if let Some(raw) = body.email.as_deref() {
         let email = framer_core::account::normalize_email(raw);
-        let pool = s.state.list().await.map_err(ApiError::Internal)?;
         if let Some(dup) = pool
             .iter()
             .find(|a| a.id != account.id && a.email.as_deref() == Some(email.as_str()))
@@ -3064,6 +3069,11 @@ async fn import_account_observed(State(s): State<AppState>, Json(body): Json<Imp
             account.alias = email.clone();
         }
         account.email = Some(email);
+    }
+    if pool.iter().any(|a| a.id != account.id && a.framer_user_id == session.active_user) {
+        return Err(ApiError::Internal(
+            "Framer user is already registered to another account".into(),
+        ));
     }
     s.sessions.save(&session).await.map_err(ApiError::Internal)?;
 

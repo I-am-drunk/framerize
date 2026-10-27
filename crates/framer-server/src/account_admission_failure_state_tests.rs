@@ -409,6 +409,7 @@ fn assert_calls(ports: &AdmissionPorts, login: bool) {
     let mut expected = vec![
         if login { "auth_complete" } else { "probe" },
         "get",
+        "list",
         "save",
         "grant",
     ];

@@ -35,6 +35,8 @@ mod admission_refusal_publication;
 mod registration_identity_scope;
 #[path = "account_registration_missing_team_tests.rs"]
 mod registration_missing_team;
+#[path = "account_registration_user_identity_tests.rs"]
+mod registration_user_identity;
 
 
 use super::{account, policy};

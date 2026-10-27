@@ -334,7 +334,7 @@ fn assert_records(
 
 fn assert_calls(ports: &RefusalPorts, login: bool, case: Case) {
     let mut expected = vec![if login { "auth_complete" } else { "probe" },
-        "get", "save", "grant"];
+        "get", "list", "save", "grant"];
     if !login { expected.push("proxy"); }
     expected.extend(["upsert", "list", "me", "usage"]);
     match case {

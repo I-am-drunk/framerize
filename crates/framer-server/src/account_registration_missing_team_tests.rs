@@ -298,7 +298,7 @@ fn assert_scopes(writes: &[ManagedAccount], same: bool, case: Case) {
 
 fn assert_calls(ports: &MissingTeamPorts, login: bool) {
     let mut expected = vec![if login { "auth_complete" } else { "probe" },
-        "get", "save"];
+        "get", "list", "save"];
     if !ports.unmatched { expected.push("grant"); }
     if !login { expected.push("proxy"); }
     expected.extend(["upsert", "list", "scan"]);

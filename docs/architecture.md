@@ -1,5 +1,15 @@
 # Architecture
 
+Registration checks one account-list snapshot under the existing registration
+lock before saving a verified session, claiming grants or publishing the
+initial account. Normalized-email rejection has precedence; a different
+account with the same full verified Framer user ID then receives a fixed,
+payload-free error. Calls without email perform the same list read and
+propagate its original error before persistence. Same-account registration
+is excluded from the duplicate check, but another colliding peer still
+blocks reauthentication. This preserves user-keyed sessions without repairing
+existing duplicates or claiming uniqueness across processes.
+
 SQLite account lookup validates the decoded identity against the requested
 key. Listing validates raw text keys against decoded canonical UUIDs before
 returning the complete account set. Inconsistent or nontext keys return a

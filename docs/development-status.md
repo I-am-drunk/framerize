@@ -1,13 +1,35 @@
 # Development status
 
-A new native-token/browser-sender acceptance attempt is prepared from the
-qualified `c16fd24` package pair. Full read-only eligibility passed at
-23:55 UTC on October 26, after the selected account's cooldown expired;
-seven active users were still observed. No timed wait or service switch is
-armed. The experiment must establish whether the native minter's fresh
-output is accepted before attributing the previous refusal to HTTP transport.
-Its existing controller retains the actual work drain and independent
-recovery checks. The live `c7d4516` repair remains in place.
+Login and import now reject another account with the same full verified
+Framer user ID before saving its session, claiming grants or publishing the
+initial account. One account-list snapshot is read under the existing
+registration lock. Normalized-email rejection retains precedence; calls
+without email now propagate list errors before persistence as well.
+Same-account reauthentication remains valid unless a colliding peer exists.
+Existing duplicates are not repaired, and this is not a global uniqueness
+or whole-operation rollback guarantee.
+
+The `2c8cec3` registration identity slice, composed on `1b5cdf8`, passes all
+50 exact server library selections: eight new methods and 42 retained
+controls. All 804 source hashes and seven candidate-file hashes matched.
+The isolated unit is inactive with no remaining process. The fixture-only
+baseline reproduced four session-preservation failures and passed four
+controls. Those failures stopped at the first session-map assertion;
+different-email loop cases and later record/error/cleanup assertions are
+candidate evidence only. The four existing fixture changes add only the
+initial list-read expectation. The live service and staged `c16fd24`
+packages remain unchanged.
+
+A native-token/browser-sender acceptance attempt remains prepared from the
+qualified `c16fd24` pair. Fresh eligibility passed at 00:06:39 UTC on
+October 27, with eight active users. Its proposed 00:10 wait window was
+cancelled before observation or launch when the active vision run changed.
+No controller, pool write, service switch or canary ran; no replacement
+window is armed. The completed evidence checker distinguishes native-token
+acceptance through the browser from native HTTP and full browserless delivery.
+Any later attempt still requires current eligibility, observed participant
+bindings, the actual work drain and independent recovery. The live
+`c7d4516` repair remains in place.
 
 Legacy device migration now reads raw SQLite text with checked UTF-8.
 Malformed text and nontext rows remain byte-for-byte unchanged while valid
