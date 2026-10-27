@@ -16,6 +16,20 @@ use crate::transport::{Auth, Transport};
 use framer_core::ids::{ProjectId, TeamId};
 use framer_core::port::Session;
 
+#[cfg(test)]
+#[path = "project_creation_deadline_tests.rs"]
+mod deadline_tests;
+
+fn project_client_builder(
+    connect_timeout: std::time::Duration,
+    request_timeout: std::time::Duration,
+) -> reqwest::ClientBuilder {
+    reqwest::Client::builder()
+        .redirect(reqwest::redirect::Policy::none())
+        .connect_timeout(connect_timeout)
+        .timeout(request_timeout)
+}
+
 /// Create the account's second workspace if it has fewer than two, claiming
 /// its 500-credit grant. Returns Ok(true) when a workspace was created.
 /// Best-effort: failures are logged, never fatal — admission decides whether
@@ -81,8 +95,10 @@ pub async fn ensure_project(
 /// GET framer.com/projects/new?team=<spaceId> WITHOUT following redirects;
 /// the 307 Location header carries the new bare project id.
 async fn create_project(session: &Session, space_id: &str) -> Result<ProjectId, String> {
-    let client = reqwest::Client::builder()
-        .redirect(reqwest::redirect::Policy::none())
+    let client = project_client_builder(
+        std::time::Duration::from_secs(10),
+        std::time::Duration::from_secs(30),
+    )
         .build()
         .map_err(|e| e.to_string())?;
     let resp = client

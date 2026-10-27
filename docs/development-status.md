@@ -1,5 +1,14 @@
 # Development status
 
+Project creation now uses the normal transport's 10-second connection and
+30-second total request deadlines, while preserving redirect handling,
+headers, error order and project adoption. This composes `e5419e3` after
+`4e32999`. All 14 selected API controls pass with 809 matching source pins
+and a settled unit. The old redirect-only helper exceeded the outer fixture
+bound in both stalled cases; its other 12 controls passed. Those baseline
+failures did not reach their later timing and request-count assertions.
+The deployed browser package remains `7ccd059`; this is source publication.
+
 Responses requests that omit a numeric output limit no longer receive an
 implicit 4,096-token total cap. Explicit limits retain their alias precedence
 and validation; Chat and Messages retain their existing defaults.
