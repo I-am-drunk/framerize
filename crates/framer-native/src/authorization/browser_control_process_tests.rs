@@ -171,8 +171,10 @@ async fn one_use_peer_retains_owner_after_rejected_second_mint_or_finish() {
     assert!(case.peer.prepare().await);
     case.mint(2000).await.unwrap();
     assert_eq!(case.mint(2000).await, Err(PreparationFailure::Rejected));
-    let mut other = (*case.grant).clone();
-    other.lease = uuid::Uuid::new_v4();
+    let other = DeviceGrant { account: case.grant.account,
+        host_generation: case.grant.host_generation.clone(),
+        lease: uuid::Uuid::new_v4(), device: case.grant.device.clone(),
+        authority: DeviceAuthority::Ledger };
     assert!(!case.peer.finish(&other, true, false).await);
     assert!(!case.directory.join("physically-closed").exists());
     assert!(case.peer.finish(&case.grant, true, true).await);
