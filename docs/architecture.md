@@ -20,6 +20,13 @@ the deferred peer; shutdown closes admission before joining that peer.
 The Python state directory and imported modules retain their existing
 caller preparation and immutable-publication requirements.
 
+The experimental launch package freezes the default native binary, worker,
+control Python/JavaScript tree and browser runtime separately. Its copied
+Python and browser dependencies have their own content manifests. The browser
+cache binds at its expected path inside the launch namespace; fontconfig uses
+a separate writable directory. Host OS libraries remain external dependencies.
+Inert package checks establish imports and refusal paths, not live acceptance.
+
 The existing native-egress guard still refuses a browser-backed sender.
 Parsing both source and sender flags does not establish a runnable four-way
 comparison. This descriptor work neither weakens that guard nor changes

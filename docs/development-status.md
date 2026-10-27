@@ -1,5 +1,20 @@
 # Development status
 
+Experimental launch software is assembled at `6355731`. Seven new package
+checks pass for the exact native binary, runtime imports, worker configuration,
+descriptor validation and launcher refusal before browser creation. The control
+runtime and installed Python/browser software have separate frozen inventories.
+The checks used verified network and mount namespaces and left an empty scope.
+The package keeps the default native HTTP sender. An explicit observation
+endpoint and current admission evidence are still required for a live comparison.
+No live browser, account, request, restart or deployment occurred.
+
+The earlier user-service wrapper requested `PrivateNetwork`, but the kernel
+did not apply it. Those runs retain their offline behavioral evidence; the
+option does not establish network isolation. The new package checks used an
+explicit sandbox in a resource-limited scope. Host OS libraries remain external
+dependencies, and the browser software needs its specified namespace binding.
+
 Explicit native browser-control launch selection is implemented on
 `feat/control-launch-descriptor-20261027`. All 41 offline launches pass on
 `0962a15`, with 887 matching source pins and empty settled process groups.
