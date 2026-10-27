@@ -1,5 +1,13 @@
 # Architecture
 
+AuthorizationState owns a weak registry of asynchronous mint locks keyed by
+the complete cookie and endpoint. A cache miss acquires its key's lock and
+rechecks token expiry and full-session compatibility before minting. Fast
+cache hits remain direct, and different keys and runtimes remain independent.
+Registry pruning retains locks with live holders or waiters, including across
+token invalidation. No standard mutex spans an await, errors are not cached
+or shared, and caller cancellation releases its guard without detached work.
+
 Dedupe retains the chosen survivor's full account snapshot with each clone.
 During apply, it validates the clone under its management guard, then acquires
 the survivor's guard and rereads its snapshot. Both guards remain held through

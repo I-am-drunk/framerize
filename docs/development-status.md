@@ -1,5 +1,20 @@
 # Development status
 
+Concurrent token-cache misses now share one successful mint per runtime,
+full cookie and endpoint. The cache is checked again after acquiring the
+key's lock. Different keys and runtimes proceed independently; failed mints
+remain uncached, and cancellation releases the ordinary awaited guard.
+Token invalidation preserves the identity of any lock still held or awaited.
+
+The contextual `7522e37` integration on `bfbfcc7` passes all 17 exact API
+selections, with 806 matching source hashes and three matching candidate
+files. The isolated unit has exited with no remaining process. The baseline
+observed four same-key mints instead of one and passed the other 16 checks.
+Its failure stopped the cold-cache case before the expired-cache iteration
+and later assertions. The candidate completes both iterations, independent
+progress, failed-mint and cancellation checks. This is local fixture evidence;
+the live service and staged `c16fd24` packages remain unchanged.
+
 Account dedupe now guards and rereads the selected survivor before deleting
 its clone, and holds both management guards through clone cleanup and removal.
 This prevents concurrent removal of the survivor from leaving neither record.

@@ -11,6 +11,10 @@ use framer_core::port::Session;
 #[path = "auth_retry_tests.rs"]
 mod retry_tests;
 
+#[cfg(test)]
+#[path = "auth_mint_concurrency_tests.rs"]
+mod mint_concurrency_tests;
+
 #[derive(Clone)]
 pub struct AiToken {
     pub bearer: String,
@@ -127,6 +131,15 @@ async fn relay_mint(session: &Session) -> Result<AiToken, String> {
 // caller (credits::usage mints a web token per call otherwise).
 async fn cached_mint(t: &Transport, session: &Session, path: &str) -> Result<AiToken, String> {
     let key = (session.cookie_header.clone(), path.to_string());
+    if let Ok(guard) = t.authorization.sessions.lock() {
+        if let Some(tok) = guard.get(&key) {
+            if tok.usable_for(session) {
+                return Ok(tok.clone());
+            }
+        }
+    }
+    let _mint = t.authorization.mint_guard(&key).await;
+    // A compatible caller may have filled this key while we waited.
     if let Ok(guard) = t.authorization.sessions.lock() {
         if let Some(tok) = guard.get(&key) {
             if tok.usable_for(session) {
