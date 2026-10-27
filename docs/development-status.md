@@ -1,5 +1,13 @@
 # Development status
 
+The internal browser-control child runner now connects the private preparation
+frame, dedicated initializer and existing protocol. Its 16 new controls and
+15 retained protocol controls are unrun on this delta. The new controls cover
+buffered input, readiness after attestation, cancelled or expired setup,
+complete request ownership and failed cleanup. Actual egress observations,
+standalone executable wiring and live acceptance remain unfinished. The new
+attester is an explicit dependency, with inert ports used only by the fixtures.
+
 The dedicated browser-control initializer is implemented on
 `feat/browser-control-preparation-20261027`. All 20 new offline controls pass
 on `60c67aa`. They cover exact identity and route binding, installation

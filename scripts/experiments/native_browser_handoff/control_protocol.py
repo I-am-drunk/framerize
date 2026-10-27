@@ -86,10 +86,12 @@ class ControlProtocol:
         if self.host.proxies.get(self.identity.account) != self.proxy:
             refuse()
 
-    async def prepare(self, io):
-        request = await io.read()
+    async def prepare(self, io, request=None):
+        if request is None:
+            request = await io.read()
         fields(request, "version op binding")
-        if request["op"] != "prepare" or request["binding"] != self.binding:
+        if (type(request["version"]) is not int or request["version"] != 1
+                or request["op"] != "prepare" or request["binding"] != self.binding):
             refuse()
         _Binding(self.host, self.identity, self.expected)
         self.current()
@@ -195,10 +197,13 @@ class ControlProtocol:
             return False
 
     async def run(self, reader, writer):
-        io = Frames(reader, writer)
+        return await self.run_frames(Frames(reader, writer))
+
+    async def run_frames(self, io, first_request=None):
+        writer = io.writer
         cancelled = False
         try:
-            await self.prepare(io)
+            await self.prepare(io, first_request)
             request = await io.read()
             if request == {"version": 1, "op": "shutdown"}:
                 self.known, self.reason = True, "finished"

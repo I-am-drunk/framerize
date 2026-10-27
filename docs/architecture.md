@@ -1,5 +1,15 @@
 # Architecture
 
+`PreparedControlChild` joins private input parsing, dedicated page preparation
+and the control protocol. It validates the initial binding before launching
+anything, then reuses the same frame reader so coalesced input is not lost.
+Its caller must supply an asynchronous actual-egress attester that returns a
+synchronous current-validity predicate. There is no default successful witness.
+Readiness follows preparation and attestation. Cancelled or expired setup joins
+the attester before physical closure; an outer process bound is still required
+for an unresponsive dependency. This is an internal runner, not a standalone
+launcher or a route sampler. It adds no production source selection.
+
 The experimental `PreparedControlHost` prepares one selected device page using
 the existing browser launch, tracked RPC and acknowledged-close ownership.
 It installs the supplied session cookie, device cookie and device init script
