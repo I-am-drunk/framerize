@@ -1,5 +1,14 @@
 # Development status
 
+The empty reserved nonce correction on
+`feat/browser-control-empty-nonce-20261027` now retains blank query values
+during the refusal check. The extended endpoint fixture fails for all three
+new forms on unchanged production code: bare, explicit empty and encoded
+name with an empty value. The raw-query preservation control passes on that
+baseline. Candidate qualification is pending. The original 18 egress results
+below remain separate; actual native-route attachment and live comparison
+are still unfinished.
+
 The bounded egress observer passes all 18 new controls on `7d296b7`. They
 cover matching samples, identity changes, cancellation and late cleanup,
 shutdown ownership, malformed replies, URL validation, response limits and

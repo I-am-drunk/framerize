@@ -1,5 +1,9 @@
 # Architecture
 
+The observation URL rejects an existing `framerize_probe` query key, including
+bare keys, empty values and percent-encoded names. Parsing is only for this
+refusal check. Other query bytes remain unchanged before the fresh nonce.
+
 The experimental `EgressAttester` compares two observations of one explicit
 HTTPS endpoint and nonce URL. One request runs through the prepared page;
 the other must use a caller-supplied native route owner. The page fetch omits

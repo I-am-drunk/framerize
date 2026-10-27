@@ -26,7 +26,7 @@ def _probe_url(endpoint):
             host = "[" + str(ipaddress.IPv6Address(host)) + "]"
         if parts.port is not None and parts.port != 443:
             host += ":" + str(parts.port)
-        if any(key == "framerize_probe" for key, _ in parse_qsl(parts.query)):
+        if any(key == "framerize_probe" for key, _ in parse_qsl(parts.query, keep_blank_values=True)):
             refuse()
         nonce = urlencode({"framerize_probe": uuid.uuid4().hex})
         query = parts.query + "&" + nonce if parts.query else nonce

@@ -210,16 +210,26 @@ class ValidationTests(unittest.TestCase):
         for endpoint in ("http://example.com/ip", "https://user:pass@example.com/ip",
                          "https://example.com/ip#fragment", "https://example.com:bad/ip",
                          "https://example.com/\n", "https://example.com/\\ip",
-                         "https://example.com/?framerize_probe=old"):
+                         "https://example.com/?framerize_probe=old",
+                         "https://example.com/?framerize_probe",
+                         "https://example.com/?framerize_probe=",
+                         "https://example.com/?%66ramerize_probe="):
             with self.subTest(endpoint=endpoint), self.assertRaises(ObservationRefused):
                 _probe_url(endpoint)
 
     def test_nonce_urls_preserve_query_and_differ_per_observation(self):
-        first, second = (_probe_url("https://EXAMPLE.com:443?format=json") for _ in range(2))
+        raw = "format=json&flag&blank=&encoded=%2f%2B+&repeat=1&repeat=2"
+        first, second = (_probe_url("https://EXAMPLE.com:443?" + raw) for _ in range(2))
         self.assertNotEqual(first, second)
         self.assertEqual(urlsplit(first).netloc, "example.com")
         self.assertEqual(urlsplit(first).path, "/")
         self.assertEqual(parse_qs(urlsplit(first).query)["format"], ["json"])
+        for value in (first, second):
+            query = urlsplit(value).query
+            self.assertEqual(query.rsplit("&", 1)[0], raw)
+            fields = parse_qs(query, keep_blank_values=True)
+            self.assertEqual(len(fields["framerize_probe"]), 1)
+            self.assertEqual(len(fields["framerize_probe"][0]), 32)
 
     def test_replies_require_exact_url_schema_and_valid_ip(self):
         url = "https://example.com/?framerize_probe=fixture"
