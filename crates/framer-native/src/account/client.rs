@@ -184,6 +184,17 @@ impl AccountScope {
         Weak::ptr_eq(&self.owner, &other.owner) && self.generation() == other.generation()
     }
     pub fn closed(&self) -> CloseObserver { self.identity.closed.clone() }
+    /// Private handoff from the exact retained account, never descriptor input.
+    pub(crate) fn browser_control_proxy(&self) -> Result<Option<String>, ClientError> {
+        let owner = self.owner.upgrade().ok_or(ClientError::Unavailable)?;
+        let state = lock(&owner.state);
+        if !state.healthy { return Err(ClientError::Unavailable); }
+        state.accounts.iter().find(|account| Arc::ptr_eq(&account.identity, &self.identity))
+            .filter(|account| !account.opening && !account.closing && account.failure.is_none())
+            .and_then(|account| account.resources.as_ref())
+            .map(|resources| resources.client.browser_control_proxy())
+            .ok_or(ClientError::NotReady)
+    }
     /// Compare a supplied route without exposing the stored proxy or client.
     /// This is an identity check, not a work reservation.
     pub fn matches_egress(&self, egress: &NativeEgress<'_>) -> bool {

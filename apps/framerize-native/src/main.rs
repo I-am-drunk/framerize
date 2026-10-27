@@ -23,6 +23,12 @@ enum Command {
         #[arg(long)] runtime_script: Option<PathBuf>,
         /// Experimental supplied-token browser sender; requires browser-transport feature.
         #[arg(long)] browser_transport_script: Option<PathBuf>,
+        /// Experimental browser credential source. This does not select the HTTP sender.
+        #[arg(long, requires = "browser_control_sha256")]
+        browser_control_descriptor: Option<PathBuf>,
+        /// Exact SHA256 of the credential-free browser control descriptor.
+        #[arg(long, requires = "browser_control_descriptor")]
+        browser_control_sha256: Option<String>,
         /// First migration only: hold the profile idle for legacy rate expiry.
         /// The file identifies the previous invocation of this same service.
         #[arg(long)] expire_legacy_from: Option<PathBuf>,
@@ -32,6 +38,11 @@ enum Command {
         #[arg(long)] config: String,
         #[arg(long, value_enum, default_value = "v3")] sdk: Sdk,
     },
+    /// Check a pinned launch descriptor without opening accounts or starting a child.
+    CheckBrowserControl {
+        #[arg(long)] descriptor: PathBuf,
+        #[arg(long)] sha256: String,
+    },
 }
 
 #[derive(Clone, Copy, ValueEnum)]
@@ -39,8 +50,15 @@ enum Sdk { V2, V3 }
 
 async fn run(db: PathBuf, profiles: PathBuf, worker_config: Option<String>, accounts: Vec<String>,
     listen: SocketAddr, python: PathBuf, runtime_script: Option<PathBuf>,
-    expire_legacy_from: Option<PathBuf>, browser_transport_script: Option<PathBuf>) -> Result<(), String> {
+    expire_legacy_from: Option<PathBuf>, browser_transport_script: Option<PathBuf>,
+    browser_control_descriptor: Option<PathBuf>, browser_control_sha256: Option<String>) -> Result<(), String> {
     use tokio::signal::unix::{signal, SignalKind};
+    let control = match (browser_control_descriptor, browser_control_sha256) {
+        (None, None) => None,
+        (Some(path), Some(hash)) => Some(framer_native::authorization::control::load_browser_control(
+            &path, &hash).map_err(str::to_owned)?),
+        _ => return Err("browser control requires both descriptor and SHA256".into()),
+    };
     let mut term = signal(SignalKind::terminate()).map_err(|e| e.to_string())?;
     let mut interrupt = signal(SignalKind::interrupt()).map_err(|e| e.to_string())?;
     let script = match runtime_script {
@@ -67,11 +85,14 @@ async fn run(db: PathBuf, profiles: PathBuf, worker_config: Option<String>, acco
     };
     if let Some(script) = browser_transport_script {
         #[cfg(feature = "browser-transport")]
-        return hybrid::run(config, script, stop).await;
+        return hybrid::run(config, script, control, stop).await;
         #[cfg(not(feature = "browser-transport"))]
         { let _ = script; return Err("rebuild with the browser-transport feature".into()); }
     }
-    framer_native::serve(config, stop).await
+    match control {
+        Some(control) => framer_native::serve_with_browser_control(config, control, None, stop).await,
+        None => framer_native::serve(config, stop).await,
+    }
 }
 
 #[tokio::main]
@@ -82,10 +103,16 @@ async fn main() -> ExitCode {
                 .map(|()| println!("Worker configuration structure is valid. No dependencies were verified or executed."))
                 .map_err(str::to_owned)
         }
+        Command::CheckBrowserControl { descriptor, sha256 } => {
+            framer_native::authorization::control::load_browser_control(&descriptor, &sha256)
+                .map(|_| println!("Browser control descriptor structure and file hash are valid. Executables were not verified or started."))
+                .map_err(str::to_owned)
+        }
         Command::Serve { db, profiles, worker_config, accounts, listen, python, runtime_script,
-            expire_legacy_from, browser_transport_script } => {
+            expire_legacy_from, browser_transport_script, browser_control_descriptor, browser_control_sha256 } => {
             run(db, profiles, worker_config, accounts, listen, python, runtime_script,
-                expire_legacy_from, browser_transport_script).await
+                expire_legacy_from, browser_transport_script, browser_control_descriptor,
+                browser_control_sha256).await
         }
     };
     match result {
@@ -93,3 +120,6 @@ async fn main() -> ExitCode {
         Err(error) => { eprintln!("{error}"); ExitCode::FAILURE }
     }
 }
+
+#[cfg(test)]
+mod control_cli_tests;

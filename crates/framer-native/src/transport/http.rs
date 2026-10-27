@@ -511,6 +511,10 @@ impl NativeHttp {
         }
     }
 
+    pub(crate) fn browser_control_proxy(&self) -> Option<String> {
+        self.explicit_proxy.clone()
+    }
+
     pub fn new(
         account: AccountId,
         active_user: FramerUserId,

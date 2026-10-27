@@ -90,4 +90,6 @@ mod browser_control_process;
 #[cfg(unix)]
 pub use browser_control_process::{BrowserControlLaunch, BrowserControlProcess};
 #[cfg(unix)]
+pub use browser_control_process::load_browser_control;
+#[cfg(unix)]
 pub use browser_control_wire::BrowserControlBinding;

@@ -14,6 +14,10 @@ use tokio::{io::{AsyncReadExt, BufReader}, process::{Child, ChildStdin, ChildStd
 #[path = "browser_control_egress.rs"]
 mod egress;
 
+#[path = "browser_control_descriptor.rs"]
+mod descriptor;
+pub use descriptor::load_browser_control;
+
 /// Caller-published immutable files. Credentials never belong in arguments.
 pub struct BrowserControlLaunch {
     pub python: PathBuf,

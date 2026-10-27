@@ -1,5 +1,30 @@
 # Architecture
 
+The native CLI accepts `--browser-control-descriptor` together with
+`--browser-control-sha256` for an explicit browser credential producer.
+`check-browser-control --descriptor PATH --sha256 HASH` only checks that
+file and its schema. It opens no account and launches no child. Sender
+selection remains a separate `--browser-transport-script` option.
+
+The version 1 descriptor supplies `account`, `user`, `device`, `page_url`,
+`wrapper_url`, `post_path`, `python`, `python_sha256`, `script`,
+`script_sha256`, `state_directory`, `egress_endpoint`, `proxy_revision`,
+`prepare_ms`, `probe_ms` and `witness_ms`. Unknown fields are refused.
+The file is limited to 64 KiB, opened nonblocking and checked as a regular
+file before reading. Loading freezes its parsed values in memory.
+
+Cookies and proxy credentials come only from the retained account scope
+and current preparation session. They enter the existing private child
+pipe, never its arguments or the descriptor. One preparation attempt owns
+the deferred peer; shutdown closes admission before joining that peer.
+The Python state directory and imported modules retain their existing
+caller preparation and immutable-publication requirements.
+
+The existing native-egress guard still refuses a browser-backed sender.
+Parsing both source and sender flags does not establish a runnable four-way
+comparison. This descriptor work neither weakens that guard nor changes
+the ordinary native source, browser default, or live-execution authority.
+
 Scoped browser-control startup now constructs the native session owner
 before preparing the child. It obtains the selected account's lease using
 the stored user, session, proxy and ordinary native HTTP limits. Preparation
