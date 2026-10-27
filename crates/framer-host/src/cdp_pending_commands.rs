@@ -48,7 +48,7 @@ pub(super) async fn before_deadline<F: std::future::Future>(
     future: F,
 ) -> Result<F::Output, String> {
     tokio::pin!(future);
-    let guarded = futures_util::future::poll_fn(|cx| {
+    let guarded = futures::future::poll_fn(|cx| {
         if Instant::now() >= deadline {
             std::task::Poll::Ready(Err("cdp eval timed out".to_owned()))
         } else {

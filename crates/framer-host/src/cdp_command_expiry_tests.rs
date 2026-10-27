@@ -1,5 +1,5 @@
 use super::*;
-use futures_util::{SinkExt, StreamExt};
+use futures::{SinkExt, StreamExt};
 use tokio::io::AsyncReadExt;
 use tokio::net::{TcpListener, TcpStream};
 use tokio::time::timeout;

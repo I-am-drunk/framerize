@@ -2415,3 +2415,8 @@ ownership barrier. Command durations, errors and shutdown ownership remain.
 Four new caller methods cover six inert scenarios; nine existing controls
 are retained. All 13 selections are UNRUN here. Next, main qualifies the
 fixture-only baseline and candidate before contextual integration.
+
+Main intake corrected two `futures_util` references to the existing `futures`
+dependency. The baseline fixture receives the same import correction; its
+production code stays at the parent. These corrections are not yet compiled
+or executed. The original source packet and baseline remain preserved.
