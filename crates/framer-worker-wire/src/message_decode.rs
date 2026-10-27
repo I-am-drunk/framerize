@@ -99,7 +99,7 @@ impl<'de> Visitor<'de> for MessageVisitor {
             Kind::ForwardReply => message!(ForwardReply { op, n, fwd, status, content_type, queue_wait_ms, body }),
             Kind::ForwardError => Message::ForwardError {
                 op: take!(op), n: take!(n), fwd: take!(fwd), class: take!(class),
-                cooldown_seconds: seq.next_element()?.unwrap_or(None),
+                cooldown_seconds: take!(cooldown_seconds),
             },
             Kind::Saturated => message!(Saturated { op, n, fwd }),
             Kind::SaturatedAck => message!(SaturatedAck { op, n, fwd }),

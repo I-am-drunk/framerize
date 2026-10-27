@@ -161,8 +161,7 @@ fn positional_messages_reject_extra_and_missing_required_values() {
         let mut missing = positional.clone();
         missing.pop();
         let result = serde_json::from_value::<Message>(Value::Array(missing));
-        if positional[0] == "forward_error" { assert!(result.is_ok()); }
-        else { assert!(result.is_err()); }
+        assert!(result.is_err());
         let mut unknown = positional;
         unknown[0] = Value::from("unknown");
         assert!(serde_json::from_value::<Message>(Value::Array(unknown)).is_err());
