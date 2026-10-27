@@ -1,5 +1,12 @@
 # Architecture
 
+Project adoption first selects the newest project's string ID, then checks
+any root or selected-project teamId against the complete requested team.
+Contradictory or malformed metadata returns
+`project adoption response has incompatible teamId` before creation.
+Missing team metadata stays route-bound. If the first project has no string
+ID, the existing creation fallback remains; later projects do not replace it.
+
 Workspace credit scans omit explicit `scope: "user"` metadata entries before
 reading their owner IDs. Personal spaces therefore do not produce team-ledger
 probes. Every other scope retains the existing ID selection, ordering,

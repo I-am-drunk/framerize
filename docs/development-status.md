@@ -1,10 +1,15 @@
 # Development status
 
-The project-adoption candidate checks present root and first-project team
-metadata against the full requested team before adopting that project's ID.
-Absent metadata and the existing no-ID fallback remain unchanged. The two
-Rust files match `307fd08` on the current composition, retaining the qualified
-request deadlines. All 18 selected controls await qualification here.
+Project-adoption validation passes all 18 selected checks on `c5813b9`, with
+849 matching source pins, a hash-bound executable and settled process groups.
+Present root and first-project team metadata must match the complete requested
+team before adoption. Absent metadata and the no-ID fallback keep their
+behavior; the two Rust files match `307fd08` and retain the qualified deadlines.
+Baseline `86651d3` passed 15 controls and wrongly adopted the first project
+for foreign, contradictory-root and null-root metadata. Each failed method
+stopped at its first assertion; later forms are candidate evidence only.
+The new checks exercise the selection helper. Error propagation before creation
+is source-inspected, not an executed creation or live-account result.
 
 Personal-space filtering passes all 15 selected checks on `4de67cf`, with
 848 matching source pins, a hash-bound executable and settled process groups.
