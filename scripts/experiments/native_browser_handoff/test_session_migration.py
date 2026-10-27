@@ -315,5 +315,19 @@ class MigrationTests(unittest.TestCase):
             signal.setitimer(signal.ITIMER_REAL, 0)
 
 
+    def test_interruption_after_link_reports_uncertain_and_keeps_record(self):
+        real_link = os.link
+        def interrupted(*args, **kwargs):
+            real_link(*args, **kwargs)
+            raise KeyboardInterrupt()
+        with mock.patch.object(migration.os, 'link', side_effect=interrupted):
+            with self.assertRaisesRegex(migration.Refused, 'V2_PUBLISHED_DURABILITY_UNCONFIRMED'):
+                migration.migrate(self.plan, self.verify)
+        self.assertTrue(self.destination.read_bytes().endswith(self.cookie))
+        self.assertEqual(self.legacy.read_bytes(), self.cookie)
+        self.assertEqual(list(self.sessions.glob('.session-migration-*.tmp')), [])
+        self.assert_lock_available()
+
+
 if __name__ == '__main__':
     unittest.main(verbosity=2)

@@ -214,7 +214,7 @@ def publish(directory, name, user, cookie, validate):
     temporary = '.session-migration-' + secrets.token_hex(16) + '.tmp'
     fd = os.open(temporary, os.O_WRONLY | os.O_CREAT | os.O_EXCL | FLAGS,
                  0o600, dir_fd=directory)
-    linked, failure = False, None
+    linked, link_attempted, failure = False, False, None
     try:
         private_regular(fd)
         label = user.encode('utf-8')
@@ -222,6 +222,7 @@ def publish(directory, name, user, cookie, validate):
         os.fsync(fd)
         unchanged(directory, temporary, fd, os.fstat(fd))
         validate()
+        link_attempted = True
         os.link(temporary, name, src_dir_fd=directory, dst_dir_fd=directory,
                 follow_symlinks=False)
         linked = True
@@ -230,6 +231,16 @@ def publish(directory, name, user, cookie, validate):
         os.fsync(directory)
     except BaseException as error:
         failure = error
+    # A signal may arrive after link(2) succeeds but before Python assigns linked.
+    if failure is not None and link_attempted and not linked:
+        try:
+            target = os.stat(name, dir_fd=directory, follow_symlinks=False)
+            owned = os.fstat(fd)
+            linked = (target.st_dev, target.st_ino) == (owned.st_dev, owned.st_ino)
+        except FileNotFoundError:
+            pass
+        except OSError:
+            linked = True  # Publication cannot be ruled out.
     try:
         cleaned = remove_owned_temporary(directory, temporary, fd)
     except OSError:

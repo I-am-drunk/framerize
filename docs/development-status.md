@@ -2394,8 +2394,11 @@ The first version supports explicit direct routes only and preserves account,
 device, history and legacy data. Stock CLI login and Add account create new
 account IDs, so neither is a substitute for existing-account recovery.
 
-This source is initially unqualified. Its 22 synthetic controls and the
-cross-process ownership check remain unrun at this source checkpoint.
+The initial 22 synthetic controls passed in a separate network namespace.
+The Python/Rust ownership check passed in both directions and permitted
+synthetic publication after the owner exited and joined. A correction now
+recognizes an interrupt immediately after file publication; its added control
+and the resulting 23-control source selection remain unrun at this checkpoint.
 No cookie, external endpoint, browser or live service was used to develop it.
 The earlier native launch and assembled-package qualifications remain intact.
 Live migration, current-state admission and upstream acceptance are separate.
