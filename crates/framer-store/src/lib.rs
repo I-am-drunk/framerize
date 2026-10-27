@@ -84,7 +84,7 @@ impl StateStore for SqliteStateStore {
     }
 
     async fn get(&self, id: AccountId) -> Result<Option<ManagedAccount>, String> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn.lock().map_err(|e| e.to_string())?;
         let row: Option<String> = conn
             .query_row(
                 "SELECT json FROM accounts WHERE id = ?1",
@@ -106,7 +106,7 @@ impl StateStore for SqliteStateStore {
     }
 
     async fn list(&self) -> Result<Vec<ManagedAccount>, String> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn.lock().map_err(|e| e.to_string())?;
         let mut stmt = conn.prepare("SELECT json, id FROM accounts").map_err(|e| e.to_string())?;
         let rows = stmt
             .query_map([], |r| {
@@ -135,7 +135,7 @@ impl StateStore for SqliteStateStore {
 
     async fn upsert(&self, account: &ManagedAccount) -> Result<(), String> {
         let json = serde_json::to_string(account).map_err(|e| e.to_string())?;
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn.lock().map_err(|e| e.to_string())?;
         let changed = conn.execute(
             "INSERT INTO accounts (id, json) VALUES (?1, ?2)
              ON CONFLICT(id) DO UPDATE SET json = excluded.json",
@@ -149,7 +149,7 @@ impl StateStore for SqliteStateStore {
     }
 
     async fn remove(&self, id: AccountId) -> Result<(), String> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn.lock().map_err(|e| e.to_string())?;
         let changed = conn.execute("DELETE FROM accounts WHERE id = ?1", [id.0.to_string()])
             .map_err(|e| e.to_string())?;
         if changed == 0 {

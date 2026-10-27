@@ -1,5 +1,12 @@
 # Development status
 
+The SQLite poison candidate returns the existing lock error from get, list,
+upsert and remove instead of unwrapping a poisoned mutex. It matches the
+settings methods without taking the poisoned guard, clearing poison or
+retrying. JSON/SQL ordering and all acknowledgement guards remain. The two
+Rust files match `fc0251d`; all 21 selected controls remain pending candidate
+qualification. The fixture uses deliberate in-memory poison only.
+
 Settings-write acknowledgement passes all 16 selected checks on `b4f7b26`,
 with 846 matching source pins, a hash-bound executable and settled units.
 The store requires one affected row, otherwise returning
