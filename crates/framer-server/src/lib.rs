@@ -37,6 +37,9 @@ mod responses_default_budget_tests;
 mod request_body_object;
 mod responses_aggregate;
 mod response_output;
+mod policy_process;
+mod policy_worker_request;
+pub mod policy_generations;
 pub use serving_accounts::{ServingAccountPolicy, SERVING_ACCOUNTS_ENV};
 pub use pool_config::{PoolConfig, EligibleAccounts, AllAccounts, POOL_SETTING_KEY};
 pub use pool_control::prewarm_accounts;
@@ -1749,6 +1752,10 @@ async fn native_complete(
     include_usage: bool,
     max_tokens: Option<u32>,
 ) -> Result<axum::response::Response, ApiError> {
+    // Select once before preparation. Repick keeps this operation's generation.
+    let worker = if wants_stream && dialect == ClientDialect::OpenAiResponses {
+        policy_worker_request::select(&s).map_err(operation_ownership::completed_preflight)?
+    } else { None };
     let client_model = payload["model"].as_str().unwrap_or_default().to_string();
     let mut native_payload = if dialect == ClientDialect::OpenAiChat {
         convert::chat_to_responses_request(&payload)
@@ -1759,7 +1766,8 @@ async fn native_complete(
     // The split-writes rule (same as the anthro chain): with tools present,
     // tell the model to chunk big writes — the strongest mid-call-cut
     // prevention there is.
-    let has_tools = native_payload["tools"].as_array().map(|a| !a.is_empty()).unwrap_or(false);
+    let has_tools = worker.is_none()
+        && native_payload["tools"].as_array().map(|a| !a.is_empty()).unwrap_or(false);
     if has_tools {
         let note = "When using tools to write or edit files, split large writes: at most ~40 lines per tool call, then append the next section with a separate call, and repeat until done.";
         match native_payload["instructions"].as_str() {
@@ -1886,12 +1894,16 @@ async fn native_complete(
     let logical_id = format!("{:08x}{:08x}", rand_u32(), rand_u32());
 
     if wants_stream && dialect == ClientDialect::OpenAiResponses {
-        return response_output::serve(response_output::FreeRequest {
+        let request = response_output::FreeRequest {
             state: s, account, residency, session, project, config: cfg,
             payload: native_payload, gate_model, gate_key, first_permit,
             chat_session, explicit_session: hdr(headers, "x-framerize-session"),
             allow_repick: allow_account_repick, client_model, logical_id,
-        }).await;
+        };
+        return match worker {
+            Some(worker) => policy_worker_request::serve(request, worker).await,
+            None => response_output::serve(request).await,
+        };
     }
 
     if wants_stream {

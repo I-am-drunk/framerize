@@ -11,20 +11,12 @@
 //! appended to `input` verbatim (reasoning items included — verified), plus a
 //! "continue exactly where you stopped" user message.
 
-use crate::responses_input::{merge_items, record_chunk_events, prepare_input, prepare_payload};
+use crate::responses_input::{merge_items, record_chunk_events, prepare_input_controlled, prepare_payload};
 use crate::convert::{AssembledResponses, ChainEvent};
-use crate::forward::{AuthorizedForward, ChainLimits, ForwardReply};
+use crate::forward::{AuthorizedForward, ChainLimits, ForwardReply, PolicyDiag};
+use crate::forward_error::{ErrorRecipe, LocalFailure, PolicyError};
 use crate::responses_sink::{OutputError, ResponseResult, ResponsesSink, ValidatedChunk};
 use serde_json::{json, Value};
-
-fn allows_transport_retry(error: &str, elapsed_secs: f32) -> bool {
-    (error == "risk-refused" && elapsed_secs > 8.0)
-        || (!error.starts_with("upstream 403")
-            && error != "risk-refused"
-            && error != "credits-exhausted"
-            && error != "unauthorized"
-            && !error.starts_with("retryable 4"))
-}
 
 /// Fire a full (possibly multi-chunk) generation on the responses passthrough
 /// and return the assembled native Responses object.
@@ -52,6 +44,14 @@ pub async fn complete_long_with_sink(
     forward: &dyn AuthorizedForward, client_payload: Value, cfg: &ChainLimits,
     sink: &dyn ResponsesSink,
 ) -> ResponseResult {
+    complete_long_typed(forward, client_payload, cfg, sink).await
+        .map_err(PolicyError::into_legacy)
+}
+
+pub async fn complete_long_typed(
+    forward: &dyn AuthorizedForward, client_payload: Value, cfg: &ChainLimits,
+    sink: &dyn ResponsesSink,
+) -> Result<AssembledResponses, PolicyError> {
     if cfg.max_total_tokens.is_some_and(|cap| cap < 16) {
         return Err("Responses output budget must be at least 16 tokens".into());
     }
@@ -70,7 +70,7 @@ pub async fn complete_long_with_sink(
         return Err("Responses chain max_chunks must be greater than zero".into());
     }
 
-    let mut input_items = prepare_input(&client_payload);
+    let mut input_items = prepare_input_controlled(&client_payload, Some(forward));
 
     // Per-chunk payload: client verbatim, model normalized, stream off,
     // budget set, proxy-unsupported persistence fields stripped (measured
@@ -140,6 +140,7 @@ pub async fn complete_long_with_sink(
         let payload = build_payload(&input_items, chunk);
         let t0 = cooldown_wait.timer();
         eprintln!("[nativechain] chunk {i} start (max_output_tokens={chunk})");
+        forward.diag(PolicyDiag::ChunkStart { chunk: i, max_tokens: chunk });
 
         // 429 handling: instant in-chain retries (≤4) with the saturation
         // callback, then an honest error — same policy as freechat.
@@ -151,28 +152,33 @@ pub async fn complete_long_with_sink(
                 forward.check_cancelled()?;
                 check_active_budget(&cooldown_wait, i)?;
                 last_attempt_t0 = cooldown_wait.timer();
-                match cooldown_wait.run(forward, !output_items.is_empty(), || forward.forward(&chain_step, attempt_payload.clone(), i))
+                match cooldown_wait.run_typed(forward, !output_items.is_empty(), || forward.forward_typed(&chain_step, attempt_payload.clone(), i))
                 .await
                 {
                     Ok(r) => out = Some(Ok(r)),
                     Err(e) if forward.is_cancelled() => return Err(e.into()),
-                    Err(e) if e.starts_with("retryable 429") => {
+                    Err(e) if e.is_control() => return Err(e),
+                    Err(e) if e.is_saturated() => {
                         if rate_retries >= 9 {
-                            out = Some(Err(format!(
-                                "chunk {i}: workspace still saturated after {rate_retries} retries ({e})"
-                            )));
+                            out = Some(Err(e.with_recipe(ErrorRecipe::SaturationExhausted {
+                                chunk: i, retries: rate_retries,
+                            })));
                             break;
                         }
                         rate_retries += 1;
-                        forward.on_429();
+                        forward.saturated().await?;
                         if rate_retries > 3 {
                             let wait = std::time::Duration::from_millis(
                                 1500 * (1 << (rate_retries - 3).min(4)),
                             );
                             eprintln!("[nativechain] chunk {i} 429 — backoff {wait:?} (attempt {rate_retries})");
+                            forward.diag(PolicyDiag::Backoff { chunk: i,
+                                attempt: rate_retries, wait_ms: wait.as_millis() as u64 });
                             tokio::time::sleep(wait).await;
                         } else {
                             eprintln!("[nativechain] chunk {i} 429 — instant retry ({rate_retries})");
+                            forward.diag(PolicyDiag::Backoff { chunk: i,
+                                attempt: rate_retries, wait_ms: 0 });
                         }
                         attempt_payload = build_payload(&input_items, chunk);
                     }
@@ -186,7 +192,8 @@ pub async fn complete_long_with_sink(
         // A transport retry can lower it after the original payload was sent.
         let (resp, response_budget, streamed) = match first {
             Ok(r) => (r, chunk, false),
-            Err(e) if crate::error::AccountCooldown::from_error(&e).is_some() => return Err(e.into()),
+            Err(e) if e.cooldown().is_some() => return Err(e),
+            Err(e) if e.is_control() => return Err(e),
             Err(e) if forward.is_cancelled() => return Err(e.into()),
             Err(e) => {
                 // The idle-kill check must time the FAILING ATTEMPT — the whole
@@ -194,7 +201,7 @@ pub async fn complete_long_with_sink(
                 // velocity 403 after >8s of waiting as an idle-window kill
                 // (audit 2026-10-11: wasted halve-retries on velocity bans).
                 let elapsed = cooldown_wait.elapsed(last_attempt_t0).as_secs_f32();
-                if !(allows_transport_retry(&e, elapsed) && chunk_tokens > 200) {
+                if !(e.allows_transport_retry(elapsed) && chunk_tokens > 200) {
                     return Err(e.into());
                 }
                 check_active_budget(&cooldown_wait, i)?;
@@ -202,19 +209,24 @@ pub async fn complete_long_with_sink(
                 chunk_tokens /= 2;
                 let retry_chunk = budget.min(chunk_tokens).min(chunk_cap).max(16);
                 eprintln!("[nativechain] chunk {i} died at {elapsed:.1}s ({e}) — retrying with max_output_tokens={retry_chunk}");
+                forward.diag(PolicyDiag::RetryHalved { chunk: i,
+                    elapsed_ms: (elapsed * 1000.0) as u64,
+                    max_tokens: retry_chunk, cause: e.class() });
                 let retry_payload = build_payload(&input_items, retry_chunk);
                 let retry_t0 = cooldown_wait.timer();
-                match cooldown_wait.run(forward, !output_items.is_empty(), || forward.forward(&chain_step, retry_payload.clone(), i))
+                match cooldown_wait.run_typed(forward, !output_items.is_empty(), || forward.forward_typed(&chain_step, retry_payload.clone(), i))
                 .await
                 {
                     Ok(r) => (r, retry_chunk, false),
-                    Err(e2) if crate::error::AccountCooldown::from_error(&e2).is_some() => return Err(e2.into()),
+                    Err(e2) if e2.cooldown().is_some() => return Err(e2),
+                    Err(e2) if e2.is_control() => return Err(e2),
                     Err(e2) if forward.is_cancelled() => return Err(e2.into()),
-                    Err(e2) if !allows_transport_retry(&e2,
+                    Err(e2) if !e2.allows_transport_retry(
                         cooldown_wait.elapsed(retry_t0).as_secs_f32()) => return Err(e2.into()),
                     Err(e2) if cfg.metered_fallback => {
                         check_active_budget(&cooldown_wait, i)?;
                         eprintln!("[nativechain] chunk {i} retry died ({e2}) — metered stream fallback for this chunk");
+                        forward.diag(PolicyDiag::MeteredFallback { chunk: i, cause: e2.class() });
                         let sp = build_payload(&input_items, retry_chunk);
                         let streamed =
                             stream_chunk(forward, &chain_step, sp, i).await?;
@@ -223,7 +235,7 @@ pub async fn complete_long_with_sink(
                         // before publishing output from either transport mode.
                         (streamed, retry_chunk, true)
                     }
-                    Err(e2) => return Err(format!("chunk {i} retry died (fallback off): {e2}").into()),
+                    Err(e2) => return Err(e2.with_recipe(ErrorRecipe::FallbackOff { chunk: i })),
                 }
             }
         };
@@ -233,6 +245,8 @@ pub async fn complete_long_with_sink(
         let elapsed = (wall - queued).max(0.5);
         if queued > 2.0 {
             eprintln!("[nativechain] chunk {i} queued {queued:.1}s of {wall:.1}s (excluded from tok/s)");
+            forward.diag(PolicyDiag::UpstreamQueued { chunk: i,
+                queue_ms: resp.queue_wait_ms, wall_ms: (wall * 1000.0) as u64 });
         }
         let text = body_text(resp).await?;
         let body: Value = if streamed {
@@ -248,7 +262,8 @@ pub async fn complete_long_with_sink(
             body
         } else {
             let body: Value = serde_json::from_str(&text)
-                .map_err(|e| format!("chunk {i} not json: {e}"))?;
+                .map_err(|e| PolicyError::Local { kind: LocalFailure::InvalidResponse,
+                    message: format!("chunk {i} not json: {e}") })?;
             validate_response_body(&body)
                 .map_err(|problem| format!("response chunk has {problem}"))?;
             body
@@ -262,6 +277,8 @@ pub async fn complete_long_with_sink(
 
         let tps = out_t as f32 / elapsed.max(0.5);
         eprintln!("[nativechain] chunk {i} done in {elapsed:.1}s ({out_t} tok, {tps:.0} tok/s, status {status})");
+        forward.diag(PolicyDiag::ChunkDone { chunk: i, tokens: out_t,
+            elapsed_ms: (elapsed * 1000.0) as u64 });
         // Failed attempts before streaming do not measure stream throughput.
         // Keep that recovery path outside the non-stream speed heuristic.
         if !streamed {
@@ -292,6 +309,7 @@ pub async fn complete_long_with_sink(
             || tool_budget_exhausted;
         if tool_budget_exhausted && status != "incomplete" {
             eprintln!("[nativechain] chunk {i} tool output exhausted {response_budget}-token budget (status {status}); withholding for retry");
+            forward.diag(PolicyDiag::ToolBudgetWithheld { chunk: i });
         }
 
         // Mid-tool-call cut: same policy as freechat — free retry with a
@@ -299,11 +317,13 @@ pub async fn complete_long_with_sink(
         // truncated call is dropped; its text survives as context).
         if hit_cap && ends_in_call && tool_cut_retries < 2 {
             if i + 1 >= cfg.max_chunks {
-                return Err(format!("chunk {i}: incomplete tool call has no remaining retry chunk").into());
+                return Err(PolicyError::Local { kind: LocalFailure::IncompleteTool,
+                    message: format!("chunk {i}: incomplete tool call has no remaining retry chunk") });
             }
             tool_cut_retries += 1;
             let budget = ((tps * 70.0) as u32).clamp(1200, 5000).max(chunk_tokens);
             eprintln!("[nativechain] chunk {i} cut mid-tool-call — free retry #{tool_cut_retries} (max_output_tokens={budget}, {tps:.0} tok/s, instructing split)");
+            forward.diag(PolicyDiag::ToolRetry { chunk: i, max_tokens: budget });
             chunk_tokens = budget;
             // This discarded chunk has not been added to ctok. Previously
             // subtracting it erased the usage of already delivered chunks.
@@ -412,9 +432,9 @@ async fn body_text(resp: ForwardReply) -> Result<String, String> {
 /// Request an SSE chunk without bypassing the caller's completion checks.
 async fn stream_chunk(
     forward: &dyn AuthorizedForward, step: &str, mut payload: Value, step_index: u32,
-) -> Result<ForwardReply, String> {
+) -> Result<ForwardReply, PolicyError> {
     payload["stream"] = json!(true);
-    forward.forward(step, payload, step_index).await
+    forward.forward_typed(step, payload, step_index).await
 }
 
 pub(crate) fn validate_tool_fields(items: &[Value], previous: &[Value]) -> Result<(), &'static str> {
@@ -603,7 +623,8 @@ fn parse_streamed_chunk(text: &str) -> Result<AssembledResponses, String> {
 #[cfg(feature = "test-support")]
 pub mod test_support {
     pub fn allows_transport_retry(error: &str, elapsed_secs: f32) -> bool {
-        super::allows_transport_retry(error, elapsed_secs)
+        crate::forward_error::ForwardError::from_legacy(error.to_owned())
+            .allows_transport_retry(elapsed_secs)
     }
     pub fn parse_streamed_chunk(text: &str) -> Result<crate::convert::AssembledResponses, String> {
         super::parse_streamed_chunk(text)

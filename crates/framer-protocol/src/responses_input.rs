@@ -26,6 +26,11 @@ pub fn record_chunk_events(items: &[Value], continues_text: bool, events: Option
 }
 
 pub fn prepare_input(client_payload: &Value) -> Vec<Value> {
+    prepare_input_controlled(client_payload, None)
+}
+
+pub(crate) fn prepare_input_controlled(client_payload: &Value,
+    control: Option<&dyn crate::forward::ChainControl>) -> Vec<Value> {
     // Normalize the client's input to an item array (a bare string prompt is
     // legal Responses input).
     let mut input_items: Vec<Value> = match &client_payload["input"] {
@@ -91,6 +96,9 @@ pub fn prepare_input(client_payload: &Value) -> Vec<Value> {
         }
         if healed > 0 {
             eprintln!("[nativechain] namespace backfill: healed {healed} call item(s) from tool declarations");
+            if let Some(control) = control {
+                control.diag(crate::forward::PolicyDiag::NamespaceBackfill { count: healed.into() });
+            }
         }
     }
 
@@ -111,4 +119,17 @@ pub fn prepare_payload(client_payload: &Value, input: &[Value], chunk_budget: u3
         }
     }
     p
+}
+
+/// Preparation for a selected free Responses worker invocation. The kernel
+/// sends the original payload, so retries and repicks never append this twice.
+pub fn prepare_worker_payload(mut payload: Value) -> Value {
+    if payload["tools"].as_array().is_some_and(|tools| !tools.is_empty()) {
+        let note = "When using tools to write or edit files, split large writes: at most ~40 lines per tool call, then append the next section with a separate call, and repeat until done.";
+        payload["instructions"] = match payload["instructions"].as_str() {
+            Some(existing) if !existing.is_empty() => Value::String(format!("{existing}\n\n{note}")),
+            _ => Value::String(note.into()),
+        };
+    }
+    payload
 }

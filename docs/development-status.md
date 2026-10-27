@@ -1,5 +1,19 @@
 # Development status
 
+S3w candidate `b349b2a` passes 172 selected launches covering 171 distinct
+package/name pairs, including all four retention controls. Its baseline on
+`a27b70c` reproduced premature output-credit return after joined cleanup;
+the other three controls passed. All 825 execution pins matched throughout.
+Ten fresh-process profiles passed, five per mode. For a 114,937-byte fixture
+reply, median completion was 58,234 microseconds through the worker and
+2,574 through legacy0. Every observation is retained. These diagnostic
+figures do not measure socket latency or Framer inference performance.
+The two output slots reserve 132,096 encoded wire bytes separately from
+32,768 decoded bytes. RSS measurements are process point samples; request
+Values, transient decoder trees and exact total memory remain unmeasured.
+This composition preserves `bde62af` and awaits its own compatibility checks.
+Default selection remains legacy0. The live browser package stays `7ccd059`.
+
 Credit usage rejects a missing or nonnumeric `availableCredits` field with
 the fixed error `bad credit ledger response: invalid availableCredits`.
 Finite zero, negative and fractional balances keep their values. Earlier
@@ -179,6 +193,231 @@ only the candidate establishes the later forms and reopen assertions.
 Streaming, account publication and current dependency changes are retained.
 The separate legacy UTF-8 migration correction remains source-only, as does
 the real worker implementation. This milestone changes no running service.
+
+The S3w watermark-retention correction on frozen `a27b70c` is source-only and
+UNRUN. Worker publication retains one shared Bytes owner through the accepted
+frontier and terminal recording. This prevents disposal credit from preceding
+acceptance; legacy publication creates no extra clone. Discarded Data remains
+unaccepted. Four new controls cover both cancellation orders at a per-fixture
+pause, refused enqueue, delayed Cancel after full credit without a watermark,
+and continued service from the same real child after early disposal.
+The deterministic credit-order control and real-child availability control are
+separate evidence. The handoff binds an old-behavior fixture/pause adaptation;
+neither baseline nor candidate was compiled or executed in this source lane.
+Next: main-owned qualification, then contextual composition after the qualified
+optional Responses budget. Existing F1/E1, D1 and simplicity limits remain.
+
+The S3w correction on frozen `790b720` is source-only and UNRUN. Main compiled
+that base, bound 521 names and ran 167 selected cases: 162 passed and five failed.
+The wire correction requires an empty payload for the existing Control variant,
+preserving its public API and serialized shape. The panic fixture reads Done
+before returning credit and accepts BrokenPipe only after confirmed runner loss.
+Shutdown fixtures configure workers
+before installing their Weak runtime observer; production ownership guards and
+all prior assertions remain unchanged. A new control checks exact Control bytes.
+Next: same-discussion source review, then main-owned compilation and qualification.
+The original five failures, profile limits and open simplicity work remain separate.
+
+The remaining S3w profile and diagnostic controls are now source-complete and
+UNRUN. Two ignored selectors exercise the same real router in legacy0 and
+worker mode; main owns five fresh-process runs of each. They report unpaused
+aggregate milestones, output-counter peaks, final zero counters and separate
+kernel/child RSS point samples. They do not measure transient decoder peaks.
+The fresh-process log control checks correlated backoff/chunk events and raw
+error exclusion. W4 now checks A's unread slots at both progress milestones.
+CI builds and binds the worker/fault ELF paths from Cargo artifact records and
+adds the two packages; isolated log/profile selectors remain in the packet.
+Next: source review of these controls in the same discussion, then main's
+qualification on immutable source and executable bindings.
+
+The entries below retain earlier milestone context. Their then-pending source
+steps are superseded by the current status above; historical test results and
+runtime limits remain separate.
+
+A failed candidate that never reached Ready now retains its slot without
+blocking selection of an existing healthy worker. Once Ready, its unknown
+cleanup still blocks selection. The new real-router control uses a real A
+and an injected unreaped B verdict; it does not induce an OS reap failure.
+A second inert control proves heartbeat acceptance advances the frontier
+without publishing content. Both have source approval and are UNRUN. Restart remains the accepted
+recovery for one-way cleanup fences; no manual-clear path is proposed.
+
+Seven further UNRUN controls cover worker pinning through repick, the ban on
+replaying published content, rollback with the two-slot cap, exact tool call
+identity, HTTP/private error classification, control failure and fixed-ID
+content/terminal byte equality through a real child. The new router helper's
+message-ID expectation now follows the existing logical-ID rule rather than
+the upstream message ID. No retained S3a assertion changed. The byte control
+shares the production encoder as its oracle and proves transport agreement,
+not an independent encoder implementation. Source review remains buffered.
+
+The separately built fault peer now drives seven real-router controls for
+loss before Head, malformed/unheaded messages, unread over-credit, event
+boundaries, partial events, terminal loss and pending Forward cleanup. The
+controls preserve persistent fences after local reaping and are all UNRUN.
+The peer selects faults from synthetic request metadata and is never a
+production worker mode. A test-only output counter exposes unread slots.
+The prior output and attachment reviews remain buffered while vision is
+stopped. Next: finish the remaining transition, typed-error, diagnostic and
+profile controls, then bind the full source packet for main qualification.
+
+The selected worker is now attached to the real free Responses SSE route.
+Selection precedes preparation and survives repick; only the invocation call
+varies inside the existing driver. Invoke fragments and Cancel are ordered,
+input serialization is joined, and a nested driver keeps the existing owner.
+Six new real-child controls and two runner controls are UNRUN. No compilation,
+child launch or qualification ran in this lane. The output slice and this
+attachment still await the same source review, currently stopped by main.
+Next: finish fault, typed-error, diagnostic and W1-W4 coverage and bind the
+complete immutable packet for main. The auth-mint publication at 6526b90 is a
+later composition dependency; this lane retains its released 3a62a24 base.
+
+The worker output adapter now uses the existing two-slot SSE reservation.
+Its last Bytes owner retains the generation pin and returns one slot plus
+16 KiB of downstream credit. Accepted-event credit advances at body enqueue;
+EOF does not wait for disposal. Seven new in-memory controls are UNRUN.
+The kernel invocation records have source approval. The attached reader and
+invocation adapter are source-only and still require review and qualification.
+
+The kernel invocation record now binds each Forward to its operation,
+invocation and captured saturation callback. Result closes dispatch and waits
+for accepted effects before resolving a bounded Summary or a kernel-classified
+failure. Nine new inert controls cover barriers, saturation, private causes,
+cleanup uncertainty and disconnect completion. They are UNRUN; pipe/router
+attachment is still pending. The invocation seam has source approval.
+
+The free Responses driver now accepts a policy invocation adapter. Its existing
+account selection, guarded health, cancellation and cleanup loop is shared;
+legacy0 still calls native_long_with_sink with the same attempt sink. This
+source-only seam adds no worker route or fourth account loop. The runner has
+source approval, with all controls UNRUN. Next: implement the kernel adapter
+and retain generation/output ownership through the real SSE body.
+
+Worker invocations now apply the existing split-write instruction to their
+fresh original payload. One additive preparation control is UNRUN. The later
+router attachment must skip the kernel-side preparation for selected workers;
+legacy0 continues through its existing path.
+
+The source-only worker executable now uses nonblocking inherited pipes and
+owns its reader, writer and per-operation policy/emitter tasks through join.
+Result carries bounded metadata; assembled output remains with the emitter
+until the kernel commands Finish or Fail. The runner closes diagnostics before
+Result/Done and retains only the operation credit record for late returns.
+Eight new in-memory controls are UNRUN, including joined cancellation, repick,
+policy panic and a corrected refund when the writer refuses an unaccepted frame.
+The emitter slice has source approval. No worker build or test ran here.
+Next: attach the kernel adapter to FreeRequest::drive and the real SSE body,
+then add the real-child transition and W1-W4 proofs for main's qualification.
+
+The worker emitter now owns one encoder and joins each incremental serializer.
+It waits for the kernel's accepted-event frontier before returning content,
+and terminal encoding requires a Finish or Fail command. Cancellation closes
+staging before joining and does not wait for downstream disposal credit.
+Five new emitter controls and two wire controls are UNRUN. They use an in-memory
+peer, not a child or real HTTP route. Next: attach the sibling policy runner,
+kernel invocation adapter and production body ownership.
+
+The 8 MiB reply-bound correction has source approval. Its two controls and
+all preceding worker/manager fixtures remain UNRUN in this lane.
+
+The worker package now has a per-invocation Forward adapter with ordered
+payload segments, joined serialization, exact reply offsets and metadata,
+and an awaited saturation acknowledgment. Its single diagnostic slot includes
+an in-progress frame and keeps cumulative drops across invocations. Eight
+new inert controls cover transfer, cancellation, protocol loss and diagnostics.
+All remain UNRUN. The executable, sibling runner/emitter and real SSE adapter
+remain incomplete. Next: connect these interfaces without another account loop.
+The Forward adapter has source approval. Its follow-up caps each reply at
+the upstream 8 MiB byte bound before reserving memory and keeps Vec capacity
+within that bound. Two additional inert controls cover exact-limit acceptance
+and poisoning before oversized growth; all ten remain UNRUN.
+
+The manager and logger/association slices have source approval in the same
+review. Two ReapedUnconfirmed tombstones intentionally exhaust both slots
+until restart. Synthetic manager outcomes
+are not real-child reaping evidence.
+
+The manager now owns a bounded diagnostic inbox and one joined append job.
+Records contain kernel UUIDs, generation/operation numbers and closed numeric
+events. Full inboxes count drops without waiting for disk I/O; append failures
+remain invisible to these counters. Three new NDJSON controls require separate
+fresh processes because the core logger initializes once. They are UNRUN.
+Generation association and nested CURRENT scoping reuse existing registrations;
+the request adapter must still attach the selected pin and route diagnostics.
+
+S3w now has an opt-in two-slot generation manager in the isolated overhaul
+branch. It owns staging through caller cancellation, checks Hello and the
+completed Ready write before publication, serializes activation with pin
+selection, and retains retirement and shutdown jobs. Explicit construction
+requires the existing operation owner and an unshared runtime. It creates
+no child or default worker selection. The SSE adapter is still incomplete.
+
+Graceful process shutdown drains accepted frames before stopping the child;
+error shutdown can interrupt that drain. Closed exit causes replace an
+undifferentiated channel failure. Frame acknowledgments follow disposal of
+the encoded allocation and slot guard. The browser app joins the manager
+after application drain and also reaps workers on seal or drain errors.
+
+New controls cover manager state transitions with a synthetic process
+verdict, empty-manager app shutdown, and synchronous slot removal at the
+writer acknowledgment. They are UNRUN and do not prove real-child retirement.
+Only source parsing and whitespace checks ran. Next: review this manager
+slice in the existing discussion, then attach the worker runner, kernel
+Forward adapter, final output owners and real-child transition fixtures.
+
+The preceding S3w slice adds an owned child transport and a bounded fair writer.
+Accepted frames survive operation-waiter cancellation. The process monitor
+marks channel loss, reaps the child and joins reader/writer/stderr tasks.
+Launch hashes and executes one retained ELF descriptor, clears the environment
+and applies CLOEXEC above stderr; unsupported close_range fails closed.
+Ten new inert controls cover queue failure/fairness, descriptor identity,
+bounded dispatch and stderr counting. They remain UNRUN, as do all prior
+S3w fixtures. Only whitespace and source syntax checks ran in this lane.
+Its source review is accepted. No worker launch or route selection has been
+qualified; the manager and remaining request adapter still need that evidence.
+
+S3w source work starts on qualified `3a62a24` in the isolated overhaul lane.
+The first slice adds a dependency leaf for bounded frames, strict typed
+decoding, independent wire/message/downstream credit and an exclusive event
+acceptance frontier. Twelve inert controls cover malformed/truncated frames,
+depth and size limits, fragmented writes, exhausted credit and acknowledgments.
+No build or test has run in this lane; main retains all execution.
+The worker, generation manager and real SSE connection are still incomplete.
+Legacy0 and workspace default-members remain unchanged. The accepted
+preclassified-error encoder extension is allocated separately within S3w.
+That hook now accepts a validated error object without reclassification;
+the legacy string method still classifies and delegates. Two inert controls
+cover exact sequence/byte equivalence and a redacted context-overflow message.
+The fixed kernel failure helper and encoder clock are unchanged.
+
+The policy now has one typed retry path with a legacy-result adapter.
+Runtime Forward facts, local validation, output closure and control failure
+remain distinct. Saturation acknowledgment is awaited before any next
+Forward; the default calls the existing callback. Closed numeric diagnostics
+accompany the unchanged legacy stderr lines. Twelve new inert controls cover
+retry wrappers, the invocation-wide saturation budget, control failure,
+cooldown facts, output closure and diagnostic hooks. All are UNRUN here.
+The adapter's source review is accepted. Execution remains with main.
+
+The wire message set now includes bounded request/reply parts, invocation
+results, acknowledged saturation, output credit and typed public failures.
+Six additional inert controls exercise round trips, nested strictness,
+segment bounds, drop counts and verbatim Unicode error types. They are
+UNRUN; message shape alone does not establish runtime ordering or cleanup.
+Next: review the message slice and connect the owned reader/writer process.
+The message slice's source review is accepted. Its follow-up bounds the
+handshake build label too. The oversized-frame fixture retains its original
+value and assertion using a test-only unrestricted envelope, and a new
+inert control covers the handshake field bound. Cleanup and error-origin
+enforcement remain kernel duties. All new execution is still pending main.
+
+The runtime now exposes a borrowed Responses binding factory. It reuses the
+same Forward implementation, token cache and optional callbacks; constructing
+it performs no browser work. The proxy tags errors from received HTTP
+statuses separately from bridge, seed, token and refund failures while
+retaining the legacy string entry. Seven new inert factory/provenance
+controls are UNRUN. Existing native and Messages entry signatures remain.
+Next: review the runtime adapter, then connect owned policy child processes.
 
 Free Responses streaming now uses the bounded, awaited output path from
 `4447080`, composed after `1aef73d` with the newer account and store fixes.

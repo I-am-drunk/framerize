@@ -2,6 +2,8 @@
 resolver = "2"
 default-members = ["apps/framerize"]
 members = [
+    "apps/framerize-worker",
+    "crates/framer-worker-wire",
     "crates/framer-protocol",
     "crates/framer-core",
     "crates/framer-api",

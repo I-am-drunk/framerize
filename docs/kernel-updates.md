@@ -1,5 +1,112 @@
 # Kernel and application updates
 
+The construction-selected worker now enters through the real Responses SSE
+route. A preflight selection guard releases an unused pin without claiming
+worker cleanup; Start transfers it to the existing observed producer. Every
+invocation binds the current account afresh and carries the original input.
+The shared driver still owns admission, health and repick. Summary logging
+does not require transferring assembled output back from the worker.
+
+Invoke fragments and Cancel share a per-operation gate. Accepted fragments
+finish writing before Cancel, and no later fragment follows it. A cancelled
+serializer has its staging receiver closed before join. The reader enqueues
+bounded actions without awaiting Forward. The nested driver retains CURRENT;
+the supervisor joins it before releasing output ownership or Forward facts.
+Channel loss joins the process and pipes, then retains the unconfirmed fence.
+
+The kernel can send Fail with invocation zero only before the first Invoke,
+for an admission failure from the shared driver. This carries the same bounded
+public-failure DTO and does not run policy or add an account loop. Once a
+terminal event is accepted, no late Cancel is sent. The remaining final credit
+and Bytes disposal still complete before pin confirmation. These paths and
+the eight added controls are UNRUN; the same source review is pending.
+The server's test-only protocol dependency runs the same policy body for its
+legacy0 comparison fixture. It changes no production dependency boundary or
+external lock record. The six real-child controls require explicit executable
+path and SHA256 launch bindings; they never compile or search PATH themselves.
+
+Worker Data uses the same two downstream slots as legacy0. A synchronous
+reader dispatch reserves actual wire bytes, one slot and 16 KiB downstream
+before retaining a frame. Body acceptance advances the exclusive event
+frontier only on last=true. The final Bytes owner drops its allocation and
+slot before making S/D credit returnable; that owner also retains the pin.
+One thin credit record accumulates returns, and an owned writer task sends
+them in bounded frames. Done closes the body sender first and still allows
+late credit returns. Channel loss grants no further credit. Fixed boundary
+failure and partial-event abort reuse the existing S3a encoder path.
+The router attachment remains unqualified.
+
+Kernel invocation records capture the optional saturation callback with the
+accepted Forward. Receiving Saturated applies it before Ack, at most once for
+that 429; an unacknowledged effect blocks the next Forward. The nine-effect
+budget is per invocation chain. Result closes dispatch, then resolution waits
+for accepted Forward and Ack settlement. Private causes remain kernel-side.
+The kernel renders Direct, SaturationExhausted or FallbackOff from the recorded
+cause and classifies that exact string before applying display redaction.
+Worker Summary contains only counts and finish status. A disconnect completion
+also requires the kernel's last joined Forward success. These records and
+their controls and the attached pipe reader remain source-only and UNRUN.
+
+The worker runner owns one nonblocking pipe reader and one complete-frame
+writer. Each admitted operation has three writer records: control/Forward,
+Data, and low-priority diagnostics. A single pending command and at most one
+policy invocation are allowed. Unknown identities or overlapping invocations
+end the channel. Invocation repick preserves the same encoder and sequence.
+
+Policy and emitter tasks are joined before Done. Cancellation stops new work
+and closes output, while an accepted Forward or saturation acknowledgment
+remains joined. A policy panic joins its emitter, sends Panicked when possible,
+and ends the generation. The kernel still owns Forward cleanup and reaping;
+no worker outcome clears a runtime fence. Queued inputs and assembly are
+dropped before the post-Done credit wait.
+
+The runner keeps its thin operation record until final W/S/D returns or
+channel failure. Cancellation does not satisfy that wait, and Done is sent
+first. The kernel adapter must send final credit on a live channel. Request
+assembly has a separate conservative ceiling of six times the 64 MiB ingress
+limit for JSON re-encoding. It is not an output-event or retained-history cap.
+These sources and in-memory controls are UNRUN; real-child evidence is pending.
+
+S3w currently supplies source-only wire and policy building blocks. Its
+message set separates operation, invocation and Forward identities; the
+kernel alone authorizes terminal encoding and classifies public failures.
+Results and diagnostics contain only closed enums and numeric facts.
+Public failures carry bounded UTF-8 message, type and code fields. The
+kernel may retain HTTP-origin public text; local causes use fixed display.
+The wire does not filter characters in upstream type or code fields.
+The kernel must enforce origin before sending PublicFailure: only an actual
+HTTP-origin cause may supply public text. The DTO carries no worker-asserted
+origin. Local causes retain fixed display and kernel-classified type/code.
+ForwardError intentionally omits cleanup: only the kernel retains joined
+Forward verdicts and decides retirement. Worker Done is not a cleanup proof.
+
+Handshake and operation text fields are limited to 16 KiB, each opaque segment to 16 KiB,
+and each encoded frame to 1 MiB. Larger bodies use ordered parts.
+These are transport limits, not a bound on retained history or total memory.
+The worker separately bounds each buffered Forward reply to 8 MiB of bytes,
+matching the integrated browser reader. It checks length before reservation
+and bounds Vec capacity; a violation poisons the channel. This is unrelated
+to the browser queue's 131,072 UTF-16-unit capacity. Assembly may retain many
+valid replies, so this per-Forward bound is not an aggregate history limit.
+Serde's internally tagged decoding can temporarily retain a content tree
+alongside the input frame. Numeric-byte arrays add representation overhead;
+the eventual W3 measurements must include it rather than assume a fixed
+two-frame memory cost. No child, HTTP transition or retirement proof has
+run for these source building blocks.
+
+The worker emitter reserves a conservative Data frame budget before allocating
+its encoded frame. Numeric byte arrays need at most four bytes per payload byte,
+plus a 512-byte envelope allowance. Unused wire credit returns locally after
+encoding; actual wire credit returns at kernel decode. Every retained Data item
+charges one slot and a full 16 KiB decoded allocation, including empty items.
+The kernel must use that same charge until the final Bytes owner drops.
+These are capacity reservations, not measured allocator or total-memory peaks.
+
+Enqueue and the worker's completed-event record share the credit-reader lock.
+The started write is awaited independently of cancellation. Chunk completion
+then waits on the accepted frontier, while Finish/Fail also waits for terminal
+acceptance. This emitter source has no child or router qualification yet.
+
 S3a prepares the free Responses SSE path for replacement policy workers.
 It adds an in-process awaited sink and incremental borrowed event encoder.
 The publisher owns accepted sequence state and irreversible content flags;
@@ -114,6 +221,70 @@ CI currently runs on pushes to the `diddletime/framerize` build fork. It builds
 both applications with locked dependencies and runs offline/package fixtures.
 Upstream PRs do not trigger a duplicate build. A successful local fixture run
 does not establish hosted CI success or live account acceptance.
+
+The child transport has one owning reader and writer. Its writer reserves a
+fixed number of producer records; a record permits one encoded allocation,
+capped at 1 MiB plus the prefix. Ready producers rotate between complete
+frames. Operation cancellation cannot retract an accepted frame. Generation
+teardown poisons the channel before aborting and joining its pipe tasks.
+These transport bounds do not establish per-operation W/S/D accounting.
+
+Worker launch currently requires Linux with close_range CLOEXEC support
+(kernel 5.11 or newer). It hashes and executes the same open ELF descriptor,
+keeps that descriptor above stderr, clears environment variables and marks
+all other inherited descriptors CLOEXEC. A syscall failure refuses launch.
+Immutable inode contents remain a publication requirement. The process owns
+its direct child; this is not a sandbox for executables spawning descendants.
+Stderr is discarded through 4 KiB scratch. Counts cover observed bytes only;
+bytes still unread at teardown are unknown. OS errors retain a closed stage
+and numeric errno, without executable paths or raw error text.
+
+The optional manager reserves Starting before launch and retains staging,
+retirement and shutdown through caller cancellation. It accepts one exact
+Hello, completes the Ready write, removes the settled writer slot, then
+checks process liveness under its lifecycle lock before publication.
+Activation and pin selection share that lock. Old Ready workers stay eligible
+for rollback until explicit retirement. At most two slots exist, including
+unconfirmed tombstones. Dead workers cannot become eligible through stale Ready.
+
+A slot records whether it ever reached Ready. An unreaped staging failure
+that never reached Ready still occupies its slot, but does not prevent using
+an existing healthy generation. It cannot have served a Forward. Unconfirmed
+generations that reached Ready continue to refuse new SSE selection, and
+unknown operation cleanup keeps the existing one-way runtime admission fence.
+Restart is the accepted recovery. Two unconfirmed tombstones exhaust staging
+slots until restart; local reaping or a manual clear cannot verify cleanup.
+
+Retirement first excludes selection, then waits for final pins, drains the
+writer and joins the child. A final pin without explicit confirmation keeps
+the generation unconfirmed. The adapter must confirm only after worker Done
+or joined channel loss, local jobs and kernel Forward verdicts, and must put
+pin clones in every final Bytes owner. That adapter is still incomplete.
+Forced error shutdown reaps even with pins outstanding and retains the fence.
+Drop requests teardown only; library callers must await manager shutdown.
+The browser app now does so after application drain and before host shutdown.
+Semantic credit and Forward verdict attachment are implemented. Real-child
+proof fixtures remain UNRUN; synthetic outcomes do not establish reaping.
+
+The manager logger has one bounded inbox and one joined blocking append job.
+Each queued record has fixed-size kernel identifiers and closed numeric data;
+request correlation is captured under CURRENT before dispatch. Full inboxes
+increment a saturating counter. Worker drop reports log only increases and
+mark MAX as a lower bound; channel loss reports the remaining count unknown.
+Neither counter covers silent disk-append errors. The existing core log-open
+warning is unchanged. NDJSON fixtures run individually in fresh processes.
+
+The router profile selectors are separate ignored fixtures for legacy0 and
+the real worker. Main runs each in five fresh processes and retains all runs
+plus min/median/max. The milestones include routing, scheduling, encoding and
+transfer, so their difference measures aggregate overhead. A 2x median is a
+diagnostic prompt, not a new gate. Shutdown follows the timed EOF milestone.
+Kernel and child RSS are separate point samples. The output counter excludes
+request Values, the 8 MiB reply buffer, assembled history and transient serde
+Content trees. JSON byte-array frames can expand to four encoded bytes per
+payload byte; the 66,048-byte frame reserve remains explicit. No fixed 2 MiB
+decoder bound, sampled peak or total-memory saving follows from this profile.
+Transient decoder allocations still require separate measurement by main.
 
 ## Reference evidence
 

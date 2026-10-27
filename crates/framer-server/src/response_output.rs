@@ -6,9 +6,15 @@ use futures::{future::BoxFuture, Stream};
 use std::{io::{self, Write}, pin::Pin, sync::{Mutex, atomic::{AtomicUsize, Ordering}},
     task::{Context, Poll}, time::{Duration, Instant}};
 use tokio::sync::{mpsc, oneshot, watch, Notify, OwnedSemaphorePermit, Semaphore};
+use framer_worker_wire::{credit::{Capacity, Window, data_cost, DATA_WIRE_RESERVE},
+    frame::{self, WriteSlot}, message::{self as wire, Message}, WireError};
 
 const SEGMENT: usize = 16 * 1024;
 const OUTPUT_SLOTS: usize = 2;
+pub(crate) const WORKER_OUTPUT: Capacity = Capacity {
+    wire_bytes: DATA_WIRE_RESERVE * OUTPUT_SLOTS as u64,
+    slots: OUTPUT_SLOTS as u64, downstream_bytes: (SEGMENT * OUTPUT_SLOTS) as u64,
+};
 pub(crate) const DEFAULT_UNOWNED_OUTPUT_LIMIT: usize = 256;
 
 #[derive(Default)]
@@ -33,13 +39,34 @@ struct Metrics {
 #[cfg(test)]
 #[derive(Clone, Copy)]
 pub(crate) enum Fault { BeforeContent, AfterFirstSegment, Panic }
+#[cfg(test)]
+struct WorkerAcceptPause {
+    seq: u64, reached: Notify, released: Mutex<bool>, resume: std::sync::Condvar,
+}
+#[cfg(test)]
+pub(crate) struct WorkerAcceptGuard(Arc<WorkerAcceptPause>);
+#[cfg(test)]
+impl WorkerAcceptGuard {
+    pub(crate) async fn reached(&self) { self.0.reached.notified().await; }
+}
+#[cfg(test)]
+impl Drop for WorkerAcceptGuard {
+    fn drop(&mut self) {
+        *self.0.released.lock().unwrap_or_else(|e| e.into_inner()) = true;
+        self.0.resume.notify_one();
+    }
+}
 pub(crate) struct OutputBudget {
     slots: Arc<Semaphore>, metrics: Arc<Metrics>,
     #[cfg(test)] fault: Mutex<Option<Fault>>,
+    #[cfg(test)] accept_pause: Arc<Mutex<Option<Arc<WorkerAcceptPause>>>>,
 }
 impl OutputBudget {
+    // Called only while the runtime is exclusively owned, before any request.
+    pub(crate) fn construction_limit(&self) -> usize { self.slots.available_permits() }
     pub(crate) fn new(limit: usize) -> Self {
         Self { slots: Arc::new(Semaphore::new(limit)), metrics: Arc::new(Metrics::default()),
+            #[cfg(test)] accept_pause: Arc::new(Mutex::new(None)),
             #[cfg(test)] fault: Mutex::new(None) }
     }
     fn reserve(&self) -> Result<Arc<Lease>, ApiError> {
@@ -49,15 +76,33 @@ impl OutputBudget {
         Ok(Arc::new(Lease { _permit: permit, metrics: self.metrics.clone(),
             output: Arc::new(Semaphore::new(OUTPUT_SLOTS)), live_output: AtomicUsize::new(0),
             disposed: Notify::new(), timings: Arc::new(Mutex::new(Timings::default())), started: Instant::now(),
+            #[cfg(test)] accept_pause: self.accept_pause.clone(),
             #[cfg(test)] fault: *self.fault.lock().unwrap() }))
     }
     #[cfg(test)]
     pub(crate) fn inject(&self, fault: Fault) { *self.fault.lock().unwrap() = Some(fault); }
     #[cfg(test)]
+    pub(crate) fn pause_worker_accept(&self, seq: u64) -> WorkerAcceptGuard {
+        let pause = Arc::new(WorkerAcceptPause { seq, reached: Notify::new(),
+            released: Mutex::new(false), resume: std::sync::Condvar::new() });
+        assert!(self.accept_pause.lock().unwrap().replace(pause.clone()).is_none());
+        WorkerAcceptGuard(pause)
+    }
+    #[cfg(test)]
     pub(crate) fn counts(&self) -> (usize, usize, usize) {
         (self.metrics.leases.current.load(Ordering::SeqCst),
             self.metrics.jobs.current.load(Ordering::SeqCst),
             self.metrics.bytes.current.load(Ordering::SeqCst))
+    }
+    #[cfg(test)]
+    pub(crate) fn output_counts(&self) -> (usize, usize) {
+        (self.metrics.output_bytes.current.load(Ordering::SeqCst),
+            self.metrics.output_slots.current.load(Ordering::SeqCst))
+    }
+    #[cfg(test)]
+    pub(crate) fn peak_output_counts(&self) -> (usize, usize) {
+        (self.metrics.output_bytes.peak.load(Ordering::SeqCst),
+            self.metrics.output_slots.peak.load(Ordering::SeqCst))
     }
 }
 #[derive(Default, Debug)]
@@ -71,9 +116,23 @@ struct Lease {
     _permit: OwnedSemaphorePermit, metrics: Arc<Metrics>, output: Arc<Semaphore>,
     live_output: AtomicUsize, disposed: Notify, timings: Arc<Mutex<Timings>>, started: Instant,
     #[cfg(test)] fault: Option<Fault>,
+    #[cfg(test)] accept_pause: Arc<Mutex<Option<Arc<WorkerAcceptPause>>>>,
 }
 impl Drop for Lease { fn drop(&mut self) { self.metrics.leases.sub(1); } }
 impl Lease {
+    #[cfg(test)]
+    fn pause_worker_accept(&self, seq: u64) {
+        let pause = {
+            let mut pending = self.accept_pause.lock().unwrap();
+            if pending.as_ref().is_some_and(|pause| pause.seq == seq) { pending.take() }
+            else { None }
+        };
+        if let Some(pause) = pause {
+            pause.reached.notify_one();
+            let mut released = pause.released.lock().unwrap();
+            while !*released { released = pause.resume.wait(released).unwrap(); }
+        }
+    }
     async fn wait_disposed(&self) {
         loop {
             let notified = self.disposed.notified();
@@ -84,16 +143,16 @@ impl Lease {
 }
 
 #[derive(Clone)]
-struct Cancel(watch::Receiver<bool>);
+pub(super) struct Cancel(watch::Receiver<bool>);
 impl Cancel {
-    fn is_cancelled(&self) -> bool { *self.0.borrow() || self.0.has_changed().is_err() }
-    async fn cancelled(&self) {
+    pub(super) fn is_cancelled(&self) -> bool { *self.0.borrow() || self.0.has_changed().is_err() }
+    pub(super) async fn cancelled(&self) {
         let mut receiver = self.0.clone();
         while !*receiver.borrow() { if receiver.changed().await.is_err() { return; } }
     }
 }
 struct Queued { data: bytes::Bytes, content: bool, lease: Arc<Lease> }
-struct OutputBody {
+pub(crate) struct OutputBody {
     receiver: mpsc::Receiver<Queued>, cancel: watch::Sender<bool>,
     aborted: Arc<std::sync::atomic::AtomicBool>, failed: bool,
 }
@@ -114,6 +173,10 @@ impl Stream for OutputBody {
     }
 }
 impl Drop for OutputBody { fn drop(&mut self) { self.cancel.send_replace(true); } }
+#[cfg(test)]
+impl OutputBody {
+    pub(crate) fn refuse_enqueue(&mut self) { self.receiver.close(); }
+}
 
 struct Buffer { bytes: Vec<u8>, metrics: Arc<Metrics> }
 impl Buffer {
@@ -129,6 +192,11 @@ impl Drop for Buffer {
 struct Segment { buffer: Buffer, sequence: u64, content: bool, last: bool }
 
 struct OwnedBytes { buffer: Option<Buffer>, lease: Arc<Lease>, slot: Option<OwnedSemaphorePermit> }
+struct WorkerBytes {
+    // Field order disposes bytes/slot before returning credit and dropping the pin.
+    inner: OwnedBytes, _credit: CreditReturn, _pin: crate::policy_generations::GenerationPin,
+}
+impl AsRef<[u8]> for WorkerBytes { fn as_ref(&self) -> &[u8] { self.inner.as_ref() } }
 impl AsRef<[u8]> for OwnedBytes { fn as_ref(&self) -> &[u8] { &self.buffer.as_ref().unwrap().bytes } }
 impl Drop for OwnedBytes {
     fn drop(&mut self) {
@@ -161,12 +229,25 @@ impl Publisher {
         self.accept(segment, slot)
     }
     fn accept(&mut self, segment: Segment, slot: OwnedSemaphorePermit) -> Result<(), OutputError> {
+        self.accept_retained(segment, slot, None).map(drop)
+    }
+    fn accept_retained(&mut self, segment: Segment, slot: OwnedSemaphorePermit,
+        retention: Option<(CreditReturn, crate::policy_generations::GenerationPin)>)
+        -> Result<Option<bytes::Bytes>, OutputError> {
         let (content, last) = (segment.content, segment.last);
+        let worker_owned = retention.is_some();
         self.lease.metrics.output_bytes.add(segment.buffer.bytes.capacity());
         self.lease.metrics.output_slots.add(1);
         self.lease.live_output.fetch_add(1, Ordering::SeqCst);
-        let data = bytes::Bytes::from_owner(OwnedBytes {
-            buffer: Some(segment.buffer), lease: self.lease.clone(), slot: Some(slot) });
+        let owner = OwnedBytes {
+            buffer: Some(segment.buffer), lease: self.lease.clone(), slot: Some(slot) };
+        let data = match retention {
+            Some((credit, pin)) => bytes::Bytes::from_owner(WorkerBytes {
+                inner: owner, _credit: credit, _pin: pin }),
+            None => bytes::Bytes::from_owner(owner),
+        };
+        // Keep the shared owner until the worker acceptance frontier is recorded.
+        let retained = worker_owned.then(|| data.clone());
         self.sender.as_ref().ok_or(OutputError::Closed)?.try_send(Queued {
             data, content, lease: self.lease.clone(),
         }).map_err(|_| OutputError::Closed)?;
@@ -178,7 +259,7 @@ impl Publisher {
             timings.first_enqueued.get_or_insert(self.lease.started.elapsed());
             timings.last_enqueued = Some(self.lease.started.elapsed());
         }
-        Ok(())
+        Ok(retained)
     }
 }
 
@@ -423,6 +504,27 @@ pub(super) struct FreeRequest {
     pub chat_session: String, pub explicit_session: Option<String>, pub allow_repick: bool,
     pub client_model: String, pub logical_id: String,
 }
+pub(super) type InvocationResult<T> = (Result<T, ResponseError>, bool);
+/// Only policy invocation varies. The one account/health/repick loop stays here.
+pub(super) trait Invocation: Send {
+    type Output: Send;
+    fn invoke<'a>(&'a mut self, request: &'a FreeRequest, cancel: &'a Cancel)
+        -> BoxFuture<'a, InvocationResult<Self::Output>>;
+}
+struct LegacyInvocation<'a>(&'a Sink);
+impl Invocation for LegacyInvocation<'_> {
+    type Output = AssembledResponses;
+    fn invoke<'a>(&'a mut self, request: &'a FreeRequest, cancel: &'a Cancel)
+        -> BoxFuture<'a, InvocationResult<Self::Output>> {
+        Box::pin(async move {
+            let output = AttemptSink { output: self.0, cancel, completed_on_disconnect: false.into() };
+            let result = request.state.client.native_long_with_sink(&request.session,
+                request.state.browser.as_ref(), &request.account.id, &request.project,
+                request.payload.clone(), &request.config, &request.chat_session, &output).await;
+            (result, output.completed_on_disconnect.load(Ordering::SeqCst))
+        })
+    }
+}
 pub(super) async fn serve(mut request: FreeRequest) -> Result<axum::response::Response, ApiError> {
     if request.config.is_cancelled() {
         let (status, body) = convert::error_json(ClientDialect::OpenAiResponses, "client cancelled");
@@ -443,7 +545,7 @@ pub(super) async fn serve(mut request: FreeRequest) -> Result<axum::response::Re
             // This owner survives a dropped request future and joins all serializers.
             let encoding = tokio::spawn(emitter.run());
             let started = Instant::now();
-            let (result, cleanup) = request.drive(&sink, &cancelled, &published).await;
+            let (result, cleanup) = request.drive(&mut LegacyInvocation(&sink), &cancelled, &published).await;
             request.log(&result, started.elapsed());
             let result = match result {
                 Ok(result) => sink.request(Input::Finish(result)).await.map(|_| ()).map_err(|e| e.to_string()),
@@ -470,8 +572,8 @@ pub(super) async fn serve(mut request: FreeRequest) -> Result<axum::response::Re
     Ok(response)
 }
 impl FreeRequest {
-    async fn drive(&mut self, sink: &Sink, cancel: &Cancel,
-        published: &std::sync::atomic::AtomicBool) -> (ResponseResult, bool) {
+    pub(super) async fn drive<I: Invocation>(&mut self, invocation: &mut I, cancel: &Cancel,
+        published: &std::sync::atomic::AtomicBool) -> (Result<I::Output, ResponseError>, bool) {
         let mut tried = Vec::new();
         let mut attempts = 0u32;
         let mut cleanup = true;
@@ -488,20 +590,16 @@ impl FreeRequest {
             if let Err(error) = self.config.check_cancelled() { break Err(error.into()); }
             let admission = current_account(&self.state, self.account.id).await;
             let admitted = admission.is_ok();
-            let output = AttemptSink { output: sink, cancel,
-                completed_on_disconnect: false.into() };
-            let result = match admission {
-                Err(error) => Err(chain_admission_error(error).into()),
-                Ok(_) => self.state.client.native_long_with_sink(&self.session,
-                    self.state.browser.as_ref(), &self.account.id, &self.project,
-                    self.payload.clone(), &self.config, &self.chat_session, &output).await,
+            let (result, completed_on_disconnect) = match admission {
+                Err(error) => (Err(chain_admission_error(error).into()), false),
+                Ok(_) => invocation.invoke(self, cancel).await,
             };
             drop(permit);
             // Keep a joined terminal success when delivery is cancelled.
             // Local encoding failures and intermediate chunks cannot earn it.
             let result = match result {
                 Err(ResponseError::Output(error)) => {
-                    if admitted && output.completed_on_disconnect.load(Ordering::SeqCst)
+                    if admitted && completed_on_disconnect
                         && matches!(error, OutputError::Cancelled | OutputError::Closed) {
                         record_account_health(&self.state, &self.account, &Ok::<(), String>(())).await;
                     }
@@ -556,15 +654,244 @@ impl FreeRequest {
         (result, cleanup)
     }
     fn log(&self, result: &ResponseResult, elapsed: Duration) {
+        self.log_fields(result.as_ref().map(|result| (result.chunks, result.metered_chunks,
+            result.input_tokens, result.output_tokens, result.status.as_str())), elapsed);
+    }
+    pub(super) fn log_worker(&self, result: &Result<wire::Summary, ResponseError>, elapsed: Duration) {
+        self.log_fields(result.as_ref().map(|result| (result.chunks, result.metered_chunks,
+            result.input_tokens, result.output_tokens, match result.finish {
+                wire::FinishReason::Completed => "completed", wire::FinishReason::Incomplete => "incomplete",
+            })), elapsed);
+    }
+    fn log_fields(&self, result: Result<(u32, u32, u64, u64, &str), &ResponseError>, elapsed: Duration) {
         let event = operation_ownership::correlate_chain(framer_core::observability::Event::new("ai.chain"))
             .account(&self.account.id).field("model", self.gate_model.as_str())
             .field("dialect", "OpenAiResponses").duration_ms(elapsed.as_millis());
         match result {
-            Ok(result) => event.field("chunks", result.chunks).field("metered_chunks", result.metered_chunks)
-                .field("prompt_tokens", result.input_tokens).field("completion_tokens", result.output_tokens)
-                .field("finish_reason", result.status.as_str()).outcome("ok").emit(),
+            Ok((chunks, metered, input, output, status)) => event.field("chunks", chunks).field("metered_chunks", metered)
+                .field("prompt_tokens", input).field("completion_tokens", output)
+                .field("finish_reason", status).outcome("ok").emit(),
             Err(error) => event.error(&error.to_string()).emit(),
         }
+    }
+}
+
+struct CreditState {
+    window: Window, pending: Capacity, accepted: u64, sent: u64,
+    done: bool, failed: bool,
+}
+struct WorkerOutputState {
+    publisher: Option<Publisher>, received: u64, kind: Option<wire::DataKind>,
+    head: bool, finish_allowed: bool, terminal: bool,
+}
+pub(crate) struct WorkerPublisher {
+    state: Mutex<WorkerOutputState>, pub credit: Arc<WorkerCredit>, lease: Arc<Lease>,
+    pin: crate::policy_generations::GenerationPin,
+}
+pub(crate) struct WorkerOutput {
+    pub publisher: Arc<WorkerPublisher>, pub body: OutputBody,
+    pub cancel: Cancel, pub published: Arc<std::sync::atomic::AtomicBool>,
+}
+impl WorkerOutputState {
+    fn receive(&mut self, event: wire::DataKind, seq: u64, last: bool) -> Result<(), WireError> {
+        if !self.head || self.terminal || seq != self.received
+            || self.kind.is_some_and(|kind| kind != event)
+            || (event == wire::DataKind::Opening) != (seq < 2)
+            || (event == wire::DataKind::Terminal && !self.finish_allowed) {
+            return Err(WireError::Protocol);
+        }
+        if last { self.received = seq.checked_add(1).ok_or(WireError::Protocol)?; }
+        self.kind = if last { None } else { Some(event) };
+        Ok(())
+    }
+}
+impl WorkerPublisher {
+    pub(crate) fn terminal(&self) -> Result<bool, WireError> {
+        Ok(self.state.lock().map_err(|_| WireError::Protocol)?.terminal)
+    }
+    /// Called by the single reader. Never waits for the body or a credit write.
+    pub(crate) fn data(&self, event: wire::DataKind, seq: u64, bytes: wire::Segment,
+        last: bool, wire_bytes: u64) -> Result<(), WireError> {
+        let mut state = self.state.lock().map_err(|_| WireError::Protocol)?;
+        state.receive(event, seq, last)?;
+        let credit = self.credit.receive(wire_bytes)?;
+        let publisher = state.publisher.as_mut().ok_or(WireError::Protocol)?;
+        if publisher.cancel.is_cancelled() {
+            drop(bytes);
+            drop(credit);
+            return Ok(());
+        }
+        let bytes = bytes.into_vec();
+        if bytes.capacity() > SEGMENT { return Err(WireError::Credit); }
+        let slot = self.lease.output.clone().try_acquire_owned().map_err(|_| WireError::Credit)?;
+        self.lease.metrics.bytes.add(bytes.capacity());
+        self.lease.metrics.buffers.add(1);
+        let content = event == wire::DataKind::Content && !bytes.is_empty();
+        let segment = Segment { buffer: Buffer { bytes, metrics: self.lease.metrics.clone() },
+            sequence: seq, content, last };
+        match publisher.accept_retained(segment, slot, Some((credit, self.pin.clone()))) {
+            Ok(retained) => {
+                #[cfg(test)]
+                self.lease.pause_worker_accept(seq);
+                if last { self.credit.accepted(publisher.next_sequence)?; }
+                if event == wire::DataKind::Terminal && last { state.terminal = true; }
+                drop(retained);
+                Ok(())
+            }
+            Err(_) if publisher.cancel.is_cancelled() => Ok(()),
+            Err(_) => Err(WireError::Protocol),
+        }
+    }
+    pub(crate) fn head(&self, status: u16, content_type: &str) -> Result<(), WireError> {
+        let mut state = self.state.lock().map_err(|_| WireError::Protocol)?;
+        if state.head || status != 200 || content_type != "text/event-stream" {
+            return Err(WireError::Protocol);
+        }
+        state.head = true;
+        Ok(())
+    }
+    pub(crate) fn allow_finish(&self) -> Result<(), WireError> {
+        let mut state = self.state.lock().map_err(|_| WireError::Protocol)?;
+        if !state.head || state.finish_allowed { return Err(WireError::Protocol); }
+        state.finish_allowed = true;
+        Ok(())
+    }
+    pub(crate) async fn disposed(&self) { self.lease.wait_disposed().await; }
+    pub(crate) fn done(&self, outcome: wire::DoneOutcome) -> Result<(), WireError> {
+        let mut state = self.state.lock().map_err(|_| WireError::Protocol)?;
+        if !state.head || outcome == wire::DoneOutcome::Panicked
+            || (outcome == wire::DoneOutcome::Completed && !state.terminal) {
+            return Err(WireError::Protocol);
+        }
+        let publisher = state.publisher.as_mut().ok_or(WireError::Protocol)?;
+        if publisher.sender.take().is_none() { return Err(WireError::Protocol); }
+        // Body EOF is independent of both final credit writes and Bytes disposal.
+        self.credit.done();
+        Ok(())
+    }
+    pub(crate) async fn channel_lost(&self) {
+        self.credit.fail();
+        let (publisher, terminal) = {
+            let mut state = self.state.lock().unwrap_or_else(|e| e.into_inner());
+            (state.publisher.take(), state.terminal)
+        };
+        let Some(publisher) = publisher else { return; };
+        let (_, commands) = mpsc::channel(1);
+        let mut heartbeat = tokio::time::interval_at(tokio::time::Instant::now()
+            + Duration::from_secs(8), Duration::from_secs(8));
+        heartbeat.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+        let mut emitter = Emitter { publisher, encoder: None, commands, heartbeat,
+            pending_heartbeat: false };
+        if !terminal { emitter.fail_fixed("upstream operation task failed").await; }
+        emitter.publisher.sender.take();
+    }
+}
+impl WorkerOutput {
+    pub(crate) fn reserve(budget: &OutputBudget, pin: crate::policy_generations::GenerationPin)
+        -> Result<Self, ApiError> {
+        let lease = budget.reserve()?;
+        let (sender, receiver) = mpsc::channel(OUTPUT_SLOTS);
+        let (cancel, cancelled) = watch::channel(false);
+        let cancelled = Cancel(cancelled);
+        let aborted = Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let published = Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let publisher = Publisher { sender: Some(sender), lease: lease.clone(), cancel: cancelled.clone(),
+            next_sequence: 0, partial: false, content_published: published.clone(), aborted: aborted.clone() };
+        Ok(Self { body: OutputBody { receiver, cancel, aborted, failed: false },
+            cancel: cancelled, published, publisher: Arc::new(WorkerPublisher {
+                state: Mutex::new(WorkerOutputState { publisher: Some(publisher), received: 0,
+                    kind: None, head: false, finish_allowed: false, terminal: false }),
+                credit: WorkerCredit::new(), lease, pin,
+            }) })
+    }
+}
+pub(crate) struct WorkerCredit { state: Mutex<CreditState>, changed: Notify }
+impl WorkerCredit {
+    #[cfg(test)]
+    pub(crate) fn accounting(&self) -> (Capacity, Capacity, u64) {
+        let state = self.state.lock().unwrap();
+        (state.window.outstanding(), state.pending, state.accepted)
+    }
+    async fn send_returns(&self, op: u64, slot: &WriteSlot, alive: &mut watch::Receiver<bool>)
+        -> Result<(), WireError> {
+        loop {
+            let changed = self.changed.notified();
+            let pending = {
+                let state = self.state.lock().map_err(|_| WireError::Protocol)?;
+                if state.failed || !*alive.borrow() { return Err(WireError::Protocol); }
+                if state.done && state.window.outstanding() == Capacity::default() { return Ok(()); }
+                state.pending != Capacity::default() || state.sent != state.accepted
+            };
+            if !pending {
+                tokio::select! { _ = changed => {}, _ = alive.changed() => {} }
+                continue;
+            }
+            let permit = tokio::select! {
+                permit = slot.reserve() => permit?,
+                _ = alive.changed() => continue,
+            };
+            let receipt = {
+                let mut state = self.state.lock().map_err(|_| WireError::Protocol)?;
+                if state.failed || !*alive.borrow() { return Err(WireError::Protocol); }
+                let returned = state.pending;
+                let bytes = frame::encode(&Message::Credit { op, returned,
+                    accepted_event_seq: state.accepted })?;
+                let receipt = permit.enqueue_encoded(bytes)?;
+                state.window.release(returned)?;
+                state.pending = Capacity::default();
+                state.sent = state.accepted;
+                receipt
+            };
+            receipt.wait().await?; // The owning writer completes every accepted frame.
+        }
+    }
+    fn accepted(&self, next: u64) -> Result<(), WireError> {
+        let mut state = self.state.lock().map_err(|_| WireError::Protocol)?;
+        if next != state.accepted.checked_add(1).ok_or(WireError::Credit)? {
+            return Err(WireError::Credit);
+        }
+        state.accepted = next;
+        self.changed.notify_one();
+        Ok(())
+    }
+    fn done(&self) {
+        self.state.lock().unwrap_or_else(|e| e.into_inner()).done = true;
+        self.changed.notify_one();
+    }
+    pub(crate) fn fail(&self) {
+        self.state.lock().unwrap_or_else(|e| e.into_inner()).failed = true;
+        self.changed.notify_one();
+    }
+    pub(crate) async fn run(&self, op: u64, slot: WriteSlot, mut alive: watch::Receiver<bool>)
+        -> Result<(), WireError> {
+        let result = self.send_returns(op, &slot, &mut alive).await;
+        if result.is_err() { self.fail(); }
+        result
+    }
+    fn new() -> Arc<Self> {
+        Arc::new(Self { state: Mutex::new(CreditState {
+            window: Window::new(WORKER_OUTPUT).expect("fixed nonzero credit"),
+            pending: Capacity::default(), accepted: 0, sent: 0, done: false, failed: false,
+        }), changed: Notify::new() })
+    }
+    fn receive(self: &Arc<Self>, wire_bytes: u64) -> Result<CreditReturn, WireError> {
+        let mut state = self.state.lock().map_err(|_| WireError::Protocol)?;
+        if state.done || state.failed || wire_bytes == 0 || wire_bytes > DATA_WIRE_RESERVE {
+            return Err(WireError::Credit);
+        }
+        state.window.reserve(data_cost(wire_bytes))?;
+        state.pending.wire_bytes += wire_bytes;
+        self.changed.notify_one();
+        Ok(CreditReturn(self.clone()))
+    }
+}
+struct CreditReturn(Arc<WorkerCredit>);
+impl Drop for CreditReturn {
+    fn drop(&mut self) {
+        let mut state = self.0.state.lock().unwrap_or_else(|e| e.into_inner());
+        state.pending.slots += 1;
+        state.pending.downstream_bytes += SEGMENT as u64;
+        self.0.changed.notify_one();
     }
 }
 

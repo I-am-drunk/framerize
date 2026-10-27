@@ -45,6 +45,18 @@ Valid alternate UUID spelling inside JSON is accepted, and reads do not
 repair or rekey stored records. This preserves the identity boundary used
 by the account guards even when stored rows are inconsistent.
 
+The optional S3w manager owns at most two policy generations under the same
+AccountRuntime. Production construction, stage, activate and retire methods
+are now present, with retained joins and default legacy0 selection. The real
+free Responses SSE route attaches the selected pin and invokes the worker
+through the existing account driver. The attachment and its real-child
+controls use real child processes with fixture Forward bindings. Credentials,
+accounts and cleanup remain kernel-owned. Worker-owned output stays retained
+until its acceptance frontier and terminal state are recorded, so disposal
+cannot return its output credit before acceptance. Encoded wire capacity is
+reserved separately from decoded output. The worker path remains optional;
+these local controls do not establish native upstream acceptance.
+
 Free Responses SSE uses an awaited output sink. Policy transfers a validated
 chunk to one encoder and waits for its segments to enter the bounded body
 queue before receiving the same chunk owner and continuing the request.

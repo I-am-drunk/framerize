@@ -139,23 +139,38 @@ impl CooldownWait {
     }
 
     pub async fn run<T, F, Fut>(&mut self, cfg: &(impl ChainControl + ?Sized),
-        has_output: bool, mut attempt: F) -> Result<T, String>
+        has_output: bool, attempt: F) -> Result<T, String>
     where F: FnMut() -> Fut, Fut: Future<Output = Result<T, String>> {
-        cfg.check_cancelled()?;
+        self.run_with(cfg, has_output, attempt, |e| AccountCooldown::from_error(e), |e| e).await
+    }
+
+    pub(crate) async fn run_typed<T, F, Fut>(&mut self, cfg: &(impl ChainControl + ?Sized),
+        has_output: bool, attempt: F) -> Result<T, crate::forward_error::PolicyError>
+    where F: FnMut() -> Fut,
+        Fut: Future<Output = Result<T, crate::forward_error::PolicyError>> {
+        self.run_with(cfg, has_output, attempt,
+            crate::forward_error::PolicyError::cooldown, Into::into).await
+    }
+    async fn run_with<T, E, F, Fut, C, M>(&mut self,
+        cfg: &(impl ChainControl + ?Sized), has_output: bool, mut attempt: F,
+        cooldown: C, cancelled: M) -> Result<T, E>
+    where F: FnMut() -> Fut, Fut: Future<Output = Result<T, E>>,
+        C: Fn(&E) -> Option<AccountCooldown>, M: Fn(String) -> E {
+        cfg.check_cancelled().map_err(&cancelled)?;
         let error = match attempt().await {
             Ok(value) => return Ok(value),
             Err(error) => error,
         };
-        let Some(cooldown) = AccountCooldown::from_error(&error).filter(|_| has_output) else {
+        let Some(cooldown) = cooldown(&error).filter(|_| has_output) else {
             return Err(error);
         };
         let wait = Duration::from_secs(cooldown.retry_after_secs.max(1));
         if wait > Duration::from_secs(600).saturating_sub(self.spent) {
             return Err(error);
         }
-        self.wait(cfg, wait).await?;
+        self.wait(cfg, wait).await.map_err(&cancelled)?;
         // Only the locally refused attempt is retried, once, with the same input.
-        cfg.check_cancelled()?;
+        cfg.check_cancelled().map_err(&cancelled)?;
         attempt().await
     }
 }

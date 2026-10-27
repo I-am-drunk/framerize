@@ -24,15 +24,66 @@ impl BrowserBridge for Browser {
 }
 
 fn fixture(fail: bool) -> (AppState, Arc<Browser>) {
+    let (state, browser) = configurable_fixture(fail);
+    observe_runtime(&state, &browser);
+    (state, browser)
+}
+
+fn observe_runtime(state: &AppState, browser: &Browser) {
+    *browser.runtime.lock().unwrap() = Arc::downgrade(state.runtime());
+}
+
+fn configurable_fixture(fail: bool) -> (AppState, Arc<Browser>) {
     let browser = Arc::new(Browser { closes: AtomicUsize::new(0), fail,
         runtime: Default::default() });
     let state = crate::browser_request_ownership_startup_tests::state_with_browser(browser.clone());
     let state = crate::configure_browser_request_ownership(state).unwrap();
-    *browser.runtime.lock().unwrap() = Arc::downgrade(state.runtime());
     (state, browser)
 }
 
 const WAIT: Duration = Duration::from_secs(3);
+
+#[tokio::test]
+async fn empty_worker_manager_joins_before_browser_close() {
+    let (state, browser) = configurable_fixture(false);
+    let state = framer_server::policy_generations::with_policy_workers(state).unwrap();
+    observe_runtime(&state, &browser);
+    let manager = state.policy_generations().unwrap().clone();
+    assert!(manager.snapshot().unwrap().is_empty());
+    tokio::time::timeout(WAIT, close(state)).await.unwrap().unwrap();
+    assert_eq!(browser.closes.load(Ordering::SeqCst), 1);
+    assert_eq!(manager.activate(1), Err(framer_server::policy_generations::GenerationError::Closed));
+}
+
+#[tokio::test]
+async fn drain_error_closes_worker_manager_and_preserves_original_error() {
+    let (state, browser) = configurable_fixture(false);
+    let state = framer_server::policy_generations::with_policy_workers(state).unwrap();
+    observe_runtime(&state, &browser);
+    let manager = state.policy_generations().unwrap().clone();
+    drop(state.operation_ownership.as_ref().unwrap().external_cleanup().unwrap());
+    let error = tokio::time::timeout(WAIT, close(state)).await.unwrap().unwrap_err();
+    assert!(error.contains("Unconfirmed"));
+    assert_eq!(browser.closes.load(Ordering::SeqCst), 0);
+    assert_eq!(manager.activate(1), Err(framer_server::policy_generations::GenerationError::Closed));
+}
+
+#[tokio::test]
+async fn worker_construction_rejects_shared_runtime() {
+    let (state, _browser) = fixture(false);
+    let held = state.clone();
+    assert!(matches!(framer_server::policy_generations::with_policy_workers(state),
+        Err(framer_server::policy_generations::GenerationError::RuntimeShared)));
+    drop(held);
+}
+
+#[tokio::test]
+async fn worker_construction_rejects_duplicate_configuration() {
+    let (state, _browser) = configurable_fixture(false);
+    let state = framer_server::policy_generations::with_policy_workers(state).unwrap();
+    assert!(matches!(framer_server::policy_generations::with_policy_workers(state),
+        Err(framer_server::policy_generations::GenerationError::AlreadyConfigured)));
+}
 fn addr() -> SocketAddr { "127.0.0.1:0".parse().unwrap() }
 
 #[tokio::test]

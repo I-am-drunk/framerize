@@ -518,10 +518,14 @@ dependencies = [
  "axum",
  "bytes",
  "framer-core",
+ "framer-protocol",
+ "framer-worker-wire",
  "futures",
  "http-body",
+ "libc",
  "serde",
  "serde_json",
+ "sha2",
  "tokio",
  "tower",
  "tower-http",
@@ -539,6 +543,16 @@ dependencies = [
  "libc",
  "rusqlite",
  "serde_json",
+ "tokio",
+]
+
+[[package]]
+name = "framer-worker-wire"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+ "thiserror 1.0.69",
  "tokio",
 ]
 
@@ -566,6 +580,18 @@ version = "0.1.0"
 dependencies = [
  "clap",
  "framer-native",
+ "tokio",
+]
+
+[[package]]
+name = "framerize-worker"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "bytes",
+ "framer-protocol",
+ "framer-worker-wire",
+ "serde_json",
  "tokio",
 ]
 
