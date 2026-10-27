@@ -1,3 +1,14 @@
+# Low-memory diagnostic completion, 2026-10-27
+
+The browser candidate now reports measured RAM usage/capacity in both refusal
+paths, labelled as host used/unavailable or limiting cgroup usage. Each pair
+comes from the same controlling sample. Headroom, existing reservations and
+new-request estimates remain separate. Admission thresholds and accepted
+stream behavior are unchanged. All 35 Python diagnostic/lifecycle checks
+pass. Four adapted Rust admission controls await the existing iMac build
+owner. The preceding hotfix has source acceptance; this diagnostic delta
+still needs review and exact-source qualification before activation.
+
 # Hotfix source-review corrections, 2026-10-27
 
 The first hotfix review found a hardcoded fixture version, unwrapped browser

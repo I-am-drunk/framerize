@@ -8,7 +8,10 @@ fn fixture() -> (Arc<Admission>, Arc<AtomicI64>) {
     let free = Arc::new(AtomicI64::new(i64::MAX));
     let sample = free.clone();
     (Arc::new(Admission { reserved: AtomicU64::new(0),
-        sample: Arc::new(move || Some(i128::from(sample.load(Ordering::SeqCst)))) }), free)
+        sample: Arc::new(move || Some(MemorySample {
+            headroom: i128::from(sample.load(Ordering::SeqCst)),
+            scope: "host RAM used/unavailable", used: 15 * 1024_i128.pow(3),
+            total: 16 * 1024_i128.pow(3) })) }), free)
 }
 fn request() -> Request {
     HttpRequest::post("/openai/v1/responses").body(Body::empty()).unwrap()
@@ -37,6 +40,11 @@ async fn pressure_refuses_new_request_while_existing_stream_completes() {
     let refused = app.oneshot(request()).await.unwrap();
     assert_eq!(refused.status(), StatusCode::SERVICE_UNAVAILABLE);
     assert_eq!(refused.headers()["retry-after"], "5");
+    let body = axum::body::to_bytes(refused.into_body(), 2048).await.unwrap();
+    let error: serde_json::Value = serde_json::from_slice(&body).unwrap();
+    let message = error["error"]["message"].as_str().unwrap();
+    assert!(message.contains("host RAM used/unavailable: 15.00 of 16.00 GiB"));
+    assert!(message.contains("reserved 64.00 MiB, new request needs 64.00 MiB"));
     assert_eq!(calls.load(Ordering::SeqCst), 1);
     assert_eq!(gate.reserved.load(Ordering::SeqCst), REQUEST_RESERVE);
     tx.send(Ok("last".into())).await.unwrap();
@@ -49,8 +57,10 @@ async fn pressure_refuses_new_request_while_existing_stream_completes() {
 
 #[test]
 fn host_headroom_uses_available_memory_and_ten_percent_reserve() {
-    assert_eq!(host_headroom("MemTotal: 1000 kB\nMemAvailable: 300 kB\n"), Some(200 * 1024));
-    assert_eq!(host_headroom("MemTotal: 1000 kB\nMemAvailable: 90 kB\n"), Some(-10 * 1024));
+    let positive = host_headroom("MemTotal: 1000 kB\nMemAvailable: 300 kB\n").unwrap();
+    assert_eq!((positive.headroom, positive.used, positive.total), (200 * 1024, 700 * 1024, 1000 * 1024));
+    assert_eq!(positive.scope, "host RAM used/unavailable");
+    assert_eq!(host_headroom("MemTotal: 1000 kB\nMemAvailable: 90 kB\n").unwrap().headroom, -10 * 1024);
     assert_eq!(host_headroom("MemFree: 2 kB\n"), None);
     assert_eq!(host_headroom("MemTotal: broken\nMemAvailable: 100 kB\n"), None);
 }
@@ -65,7 +75,7 @@ fn tighter_cgroup_ancestor_limits_new_requests() {
     std::fs::write(proc.join("meminfo"), "MemTotal: 1000 kB\nMemAvailable: 500 kB\n").unwrap();
     std::fs::write(proc.join("self/cgroup"), "0::/parent/child\n").unwrap();
     for (path, value) in [("parent/child/memory.current", "10"),
-        ("parent/child/memory.max", "max"), ("parent/memory.current", "899"),
+        ("parent/child/memory.max", "500"), ("parent/memory.current", "899"),
         ("parent/memory.max", "1000")] {
         std::fs::write(cg.join(path), value).unwrap();
     }
@@ -73,8 +83,12 @@ fn tighter_cgroup_ancestor_limits_new_requests() {
     std::fs::write(cg.join("parent/memory.current"), "901").unwrap();
     let breached = headroom(&proc, &cg);
     std::fs::remove_dir_all(&root).unwrap();
-    assert_eq!(constrained, Some(1));
-    assert_eq!(breached, Some(-1));
+    let constrained = constrained.unwrap();
+    assert_eq!((constrained.headroom, constrained.used, constrained.total), (1, 899, 1000));
+    assert_eq!(constrained.scope, "limiting cgroup RAM used");
+    let breached = breached.unwrap();
+    assert_eq!((breached.headroom, breached.used, breached.total), (-1, 901, 1000));
+    assert!(breached.refusal(0).contains("limiting cgroup RAM used:"));
 }
 
 #[tokio::test]

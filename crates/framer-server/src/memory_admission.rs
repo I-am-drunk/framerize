@@ -4,7 +4,26 @@ use axum::{body::Body, extract::{Request, State}, middleware::Next,
 use std::{path::Path, sync::{Arc, atomic::{AtomicU64, Ordering}}};
 
 const REQUEST_RESERVE: u64 = 64 * 1024 * 1024;
-type Sample = Arc<dyn Fn() -> Option<i128> + Send + Sync>;
+type Sample = Arc<dyn Fn() -> Option<MemorySample> + Send + Sync>;
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+struct MemorySample {
+    headroom: i128,
+    scope: &'static str,
+    used: i128,
+    total: i128,
+}
+
+impl MemorySample {
+    fn refusal(self, reserved: u64) -> String {
+        let gib = 1024_f64.powi(3);
+        let mib = 1024_f64.powi(2);
+        format!("Low available RAM: new request deferred. {}: {:.2} of {:.2} GiB; \
+            admission headroom {:.2} MiB, reserved {:.2} MiB, new request needs {:.2} MiB. Retry shortly.",
+            self.scope, self.used as f64 / gib, self.total as f64 / gib,
+            self.headroom as f64 / mib, reserved as f64 / mib, REQUEST_RESERVE as f64 / mib)
+    }
+}
 
 pub(crate) struct Admission {
     reserved: AtomicU64,
@@ -31,17 +50,17 @@ pub(crate) async fn middleware(State(gate): State<Arc<Admission>>,
     if !inference(&request) { return next.run(request).await; }
     let reserved = gate.reserved.fetch_add(REQUEST_RESERVE, Ordering::SeqCst);
     let permit = Reservation(gate.clone());
-    if let Some(free) = (gate.sample)().filter(|free|
-        *free < i128::from(reserved) + i128::from(REQUEST_RESERVE)) {
+    if let Some(sample) = (gate.sample)().filter(|sample|
+        sample.headroom < i128::from(reserved) + i128::from(REQUEST_RESERVE)) {
         framer_core::observability::Event::new("memory.request_refused")
-            .field("headroom_bytes", free.clamp(i64::MIN as i128, i64::MAX as i128) as i64)
+            .field("headroom_bytes", sample.headroom.clamp(i64::MIN as i128, i64::MAX as i128) as i64)
             .field("reserved_bytes", reserved)
             .field("requested_bytes", REQUEST_RESERVE)
             .outcome("deferred").emit();
         return crate::operation_ownership::completed_response((
             StatusCode::SERVICE_UNAVAILABLE, [("retry-after", "5")],
             Json(serde_json::json!({"error": {"type": "server_overloaded",
-                "code": "memory_pressure", "message": "Low available RAM: new request deferred. Retry shortly."}}))
+                "code": "memory_pressure", "message": sample.refusal(reserved)}}))
         ).into_response(), true);
     }
     let (parts, body) = next.run(request).await.into_parts();
@@ -65,15 +84,17 @@ fn number(path: &Path) -> Option<i128> {
     std::fs::read_to_string(path).ok()?.trim().parse::<u64>().ok().map(i128::from)
 }
 
-fn host_headroom(text: &str) -> Option<i128> {
+fn host_headroom(text: &str) -> Option<MemorySample> {
     let value = |key| text.lines().find_map(|line| {
         let mut fields = line.split_whitespace();
         (fields.next()? == key).then(|| fields.next()?.parse::<u64>().ok()).flatten()
     }).map(|kb| i128::from(kb) * 1024);
-    Some(value("MemAvailable:")? - value("MemTotal:")? / 10)
+    let (available, total) = (value("MemAvailable:")?, value("MemTotal:")?);
+    Some(MemorySample { headroom: available - total / 10,
+        scope: "host RAM used/unavailable", used: total - available, total })
 }
 
-fn headroom(proc: &Path, root: &Path) -> Option<i128> {
+fn headroom(proc: &Path, root: &Path) -> Option<MemorySample> {
     let mut available = std::fs::read_to_string(proc.join("meminfo")).ok()
         .and_then(|text| host_headroom(&text));
     if let Ok(groups) = std::fs::read_to_string(proc.join("self/cgroup")) {
@@ -83,7 +104,10 @@ fn headroom(proc: &Path, root: &Path) -> Option<i128> {
                 if let (Some(current), Some(limit)) =
                     (number(&node.join("memory.current")), number(&node.join("memory.max"))) {
                     let remaining = limit * 9 / 10 - current;
-                    available = Some(available.map_or(remaining, |old| old.min(remaining)));
+                    if available.is_none_or(|old| remaining < old.headroom) {
+                        available = Some(MemorySample { headroom: remaining,
+                            scope: "limiting cgroup RAM used", used: current, total: limit });
+                    }
                 }
                 if node == root || !node.pop() { break; }
             }

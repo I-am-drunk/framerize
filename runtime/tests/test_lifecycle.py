@@ -368,8 +368,10 @@ class ResidentLifecycleTests(unittest.IsolatedAsyncioTestCase):
         self.host._playwright = object()
         self.host._launch = self.real_launch
         self.ns["AsyncNewBrowser"] = forbidden_launch
-        self.ns["memory_snapshot"] = lambda: {"allocation_headroom_bytes": 0}
-        with self.assertRaisesRegex(RuntimeError, "insufficient memory headroom"):
+        self.ns["memory_snapshot"] = lambda: {"allocation_headroom_bytes": 0,
+            "admission_scope": "host RAM used/unavailable",
+            "admission_used_bytes": 15 * 1024**3, "admission_total_bytes": 16 * 1024**3}
+        with self.assertRaisesRegex(RuntimeError, "host RAM used/unavailable: 15.00 of 16.00 GiB"):
             await self.opened()
         status = self.host._browser_status("account-a")
         self.assertEqual(status["state"], "absent")
@@ -378,9 +380,11 @@ class ResidentLifecycleTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_pressure_refusal_preserves_running_account_and_warm_reuse(self):
         acc = await self.opened()
-        self.ns["memory_snapshot"] = lambda: {"allocation_headroom_bytes": -1}
+        self.ns["memory_snapshot"] = lambda: {"allocation_headroom_bytes": -1,
+            "admission_scope": "limiting cgroup RAM used",
+            "admission_used_bytes": 8 * 1024**3, "admission_total_bytes": 8 * 1024**3}
         async with self.host._use_account("account-a"):
-            with self.assertRaisesRegex(RuntimeError, "insufficient memory headroom"):
+            with self.assertRaisesRegex(RuntimeError, "limiting cgroup RAM used: 8.00 of 8.00 GiB"):
                 async with self.host._allocation(1024):
                     self.fail("a new allocation must be refused")
             self.assertTrue(acc.browser.connected)

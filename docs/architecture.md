@@ -16,6 +16,11 @@ ancestor cgroup ceiling at 90%. Each admitted response reserves an additional
 64 MiB estimate through body disposal. The check runs once, so pressure does
 not cancel or recheck an accepted response. Health and management routes stay
 available. Refusal is a retryable 503 with a low-available-RAM explanation.
+Both HTTP and browser-allocation refusals report the controlling sample's RAM
+usage and capacity in GiB, plus headroom, reserved and requested MiB. Host
+usage means total minus MemAvailable, labelled used/unavailable. A cgroup
+sample pairs current usage and limit from the same ancestor. These values
+describe the host or limiting cgroup, not the Framerize process's RSS.
 Browser allocation checks remain separate. Neither estimate bounds subsequent
 browser growth, and an operating-system OOM can still terminate the service.
 

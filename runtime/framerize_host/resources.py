@@ -27,8 +27,12 @@ def memory_snapshot(proc_root=Path("/proc"), cgroup_root=Path("/sys/fs/cgroup"))
             if key in ("MemTotal", "MemAvailable"):
                 mem[key] = int(value.split()[0]) * 1024
         result["host_available_bytes"] = mem["MemAvailable"]
+        result["host_total_bytes"] = mem["MemTotal"]
         result["host_reserve_bytes"] = mem["MemTotal"] // 10
         headroom.append(mem["MemAvailable"] - result["host_reserve_bytes"])
+        result.update(admission_scope="host RAM used/unavailable",
+                      admission_used_bytes=mem["MemTotal"] - mem["MemAvailable"],
+                      admission_total_bytes=mem["MemTotal"])
     except (OSError, ValueError, KeyError):
         pass
     try:
@@ -46,7 +50,11 @@ def memory_snapshot(proc_root=Path("/proc"), cgroup_root=Path("/sys/fs/cgroup"))
                         result["cgroup_swap_bytes"] = int(swap.read_text())
                 if limit_text != "max":
                     limit = int(limit_text)
-                    headroom.append(limit * 9 // 10 - current)
+                    remaining = limit * 9 // 10 - current
+                    if not headroom or remaining < min(headroom):
+                        result.update(admission_scope="limiting cgroup RAM used",
+                                      admission_used_bytes=current, admission_total_bytes=limit)
+                    headroom.append(remaining)
                     result["cgroup_limit_bytes"] = min(result.get("cgroup_limit_bytes", limit), limit)
             except (OSError, ValueError):
                 pass
@@ -72,6 +80,20 @@ def trim_unused_heap():
         return bool(trim(0))
     except (AttributeError, OSError):
         return None
+
+
+def memory_pressure_message(snapshot, reserved, requested):
+    # The admission pair always comes from the same host or ancestor sample.
+    # The older cgroup_current_bytes/cgroup_limit_bytes fields may not.
+    scope = snapshot.get("admission_scope")
+    used, total = snapshot.get("admission_used_bytes"), snapshot.get("admission_total_bytes")
+    measured = (f"{scope}: {used / 1024**3:.2f} of {total / 1024**3:.2f} GiB"
+                if scope is not None and used is not None and total is not None
+                else "RAM usage unavailable")
+    return ("Low available RAM: insufficient memory headroom for a new browser allocation. "
+            f"{measured}; admission headroom {snapshot['allocation_headroom_bytes'] / 1024**2:.2f} MiB, "
+            f"reserved {reserved / 1024**2:.2f} MiB, new allocation needs {requested / 1024**2:.2f} MiB. "
+            "Retry shortly.")
 
 
 class MemoryPressureError(RuntimeError):
