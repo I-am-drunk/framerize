@@ -2433,5 +2433,8 @@ The experimental shutdown-admission change rechecks the stopping flag after
 acquiring the account route, before cached-instance lookup or preparation.
 It preserves the existing shutdown error and attachment-owner precedence.
 Source `8fb0bf9` is composed onto the qualified CDP expiry milestone.
-The nineteen selected controls are unrun on this composition. Application
-work must still drain before shutdown; this check is not a complete drain.
+All nineteen selected controls pass on freshly built `d354fa8`. The baseline
+has sixteen passes and three expected first-assertion failures. Both runs
+settled with empty process groups; their saved results were not repeated.
+Application work must still drain before shutdown; this check is not a
+complete drain. This qualification does not change the running service.
