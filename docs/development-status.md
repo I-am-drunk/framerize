@@ -1,10 +1,13 @@
 # Development status
 
-The composed credit-ledger team guard requires any present root teamId to
-match the complete requested ID. Missing metadata remains accepted. Both
-numeric guards retain precedence, and no ID normalization is introduced.
-This candidate preserves the qualified allocation-total and worker changes.
-Its 18 selected checks are pending execution; the baseline remains separate.
+The credit-ledger team guard passes all 18 selected checks on `d336dd8`,
+with 839 matching execution pins and a settled process group. Any present
+root teamId must match the complete requested ID. Missing metadata remains
+accepted, and both numeric guards retain precedence. No ID normalization
+is introduced. Baseline `428c112` passed 16 checks and wrongly accepted a
+foreign ID and null ID as valid snapshots. Both failures followed cleanup.
+Those methods stopped at their first error assertion; their later forms
+and wire checks are candidate evidence only. The live service is unchanged.
 
 The composed credit-allocation guard passes all 14 selected checks on
 `6963324`, with 838 matching execution pins and a settled process group.
@@ -67,7 +70,7 @@ The worker and fault executables and eight test binaries are hash-bound.
 The combined cold-cache mint proof was subsequently qualified on `fd45cd0`
 as recorded above; these earlier composition results remain separate.
 Default selection remains legacy0; the live browser package stays `7ccd059`.
-Next: qualify the dependent credit-ledger team-scope guard and continue
+Next: qualify the queued session-file storage fixes and continue
 investigating the remaining worker cost without changing the live default.
 
 S3w candidate `b349b2a` passes 172 selected launches covering 171 distinct

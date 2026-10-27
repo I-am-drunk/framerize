@@ -5,6 +5,10 @@ allocated credits before constructing a snapshot. Available-credit errors
 retain precedence. Overflowing allocation totals return the fixed error
 `bad credit ledger response: invalid allocatedCredits total`, while finite
 negative, zero and fractional totals retain their original meaning.
+After both numeric checks, any present root teamId must be a string exactly
+equal to the full requested ID. Missing metadata remains accepted. A
+contradiction returns `bad credit ledger response: incompatible teamId`
+without normalizing either ID or changing the request, totals or counts.
 
 Responses requests without a numeric output limit leave the chain's total
 output limit unset. Explicit limits retain their alias precedence and range
