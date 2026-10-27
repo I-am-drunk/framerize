@@ -30,6 +30,12 @@ products do not establish an arbitrary-router option for this deployment.
 Macroscope explicitly excludes custom endpoints. CodeRabbit documents
 self-hosting for Enterprise deployments with at least 500 seats.
 
+The existing Framerize CodeRabbit installation did not review PR #13. Its
+check reported `SKIPPED` because automatic reviews exclude non-default base
+branches. The bot also reported the Free plan, which supplies summaries and
+walkthroughs rather than comprehensive line review. A bot check appearing
+on a PR is therefore not evidence that its changes were reviewed.
+
 Sources inspected on 2026-10-27:
 - [PR-Agent model configuration](https://github.com/The-PR-Agent/pr-agent/blob/efdde4afe14aa401a3889012c7f3e9ef3081a430/docs/docs/usage-guide/changing_a_model.md)
 - [T3 Code CI](https://github.com/pingdotgg/t3code/blob/5e9d56416f6b395095c772c597e79cd5f94e3052/.github/workflows/ci.yml)
