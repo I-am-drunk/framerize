@@ -33,6 +33,15 @@ pub(super) struct Grant {
 }
 
 impl BrowserControlBinding {
+    pub(super) fn matches_account(&self, scope: &AccountScope, session: &Session) -> bool {
+        let route = self.proxy.as_deref().map(NativeEgress::Proxy).unwrap_or(NativeEgress::Direct);
+        self.account == scope.account() && &self.user == scope.active_user()
+            && self.user == session.active_user && scope.matches_egress(&route)
+            && CurrentRequestCookies::valid_session(session)
+            && session.cookie_header.split(';').any(|part|
+                part.trim().strip_prefix("session=") == Some(self.session.as_str()))
+    }
+
     pub(super) fn valid(&self) -> bool {
         let strings = [&self.user.0, &self.session, &self.device, &self.page_url,
             &self.wrapper_url, &self.post_path];
@@ -92,6 +101,7 @@ pub(super) enum Reason { Finished, Cancelled, Deadline, Rejected, Unconfirmed }
 #[derive(Deserialize)]
 #[serde(tag = "op", rename_all = "snake_case", deny_unknown_fields)]
 pub(super) enum Reply {
+    EgressProbe { version: u8, url: String, budget_ms: u64 },
     Ready { version: u8, host_generation: String, incarnation: u64, proxy_revision: u64 },
     Minted { version: u8, grant: Grant, token: String },
     Closed { version: u8, grant: Option<Grant>, cleanup_confirmed: bool, reason: Reason },

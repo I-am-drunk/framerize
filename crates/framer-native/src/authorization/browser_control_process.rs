@@ -11,6 +11,9 @@ use std::{ffi::OsString, io::Read, path::{Path, PathBuf}, process::Stdio, time::
 use tokio::{io::{AsyncReadExt, BufReader}, process::{Child, ChildStdin, ChildStdout, Command},
     sync::Mutex, time::{timeout, Instant}};
 
+#[path = "browser_control_egress.rs"]
+mod egress;
+
 /// Caller-published immutable files. Credentials never belong in arguments.
 pub struct BrowserControlLaunch {
     pub python: PathBuf,
@@ -26,6 +29,7 @@ pub struct BrowserControlProcess {
     state: Mutex<State>,
     prepare_limit: Duration,
     cleanup_limit: Duration,
+    native_egress: Option<egress::Endpoint>,
 }
 
 #[derive(PartialEq, Eq)]
@@ -36,6 +40,7 @@ struct State {
     process: Option<Process>,
     grant: Option<Grant>,
     closed: Option<bool>,
+    native_observation: Option<crate::account::client::NativeEgressObservation>,
 }
 
 struct Process {
@@ -67,6 +72,16 @@ fn pinned(path: &Path, expected: &str) -> bool {
 }
 
 impl BrowserControlProcess {
+    /// Select account-scoped preparation. The unbound prepare entry refuses
+    /// this mode; the caller must supply the account and its tracked control.
+    pub fn with_native_egress(mut self, endpoint: &str) -> Result<Self, &'static str> {
+        if self.state.get_mut().phase != Phase::Fresh {
+            return Err("browser control is already used");
+        }
+        self.native_egress = Some(egress::Endpoint::new(endpoint)?);
+        Ok(self)
+    }
+
     /// Inert construction. Only prepare starts the explicitly pinned child.
     pub fn new(launch: BrowserControlLaunch, binding: BrowserControlBinding)
         -> Result<Self, &'static str> {
@@ -76,8 +91,9 @@ impl BrowserControlProcess {
             return Err("invalid browser control descriptor");
         }
         Ok(Self { launch, binding, state: Mutex::new(State { phase: Phase::Fresh,
-            process: None, grant: None, closed: None }),
-            prepare_limit: Duration::from_secs(180), cleanup_limit: Duration::from_secs(30) })
+            process: None, grant: None, closed: None, native_observation: None }),
+            prepare_limit: Duration::from_secs(180), cleanup_limit: Duration::from_secs(30),
+            native_egress: None })
     }
 
     async fn end_command(&self, state: &mut State, command: serde_json::Value, known: bool) -> bool {
@@ -176,6 +192,10 @@ impl BrowserControlProcess {
         let mut state = self.state.lock().await;
         if control.is_cancelled() { return PreparationResult::finished(Err(stop_reason(control))); }
         if state.phase != Phase::Ready {
+            return PreparationResult::finished(Err(PreparationFailure::Rejected));
+        }
+        if self.native_egress.is_some() && !state.native_observation.as_ref()
+            .is_some_and(|value| value.matches_scope(scope) && value.owner_is_current()) {
             return PreparationResult::finished(Err(PreparationFailure::Rejected));
         }
         let remaining = control.deadline().saturating_duration_since(Instant::now()).as_millis();
@@ -281,6 +301,7 @@ impl State {
             None => claim,
         };
         self.process.take();
+        self.native_observation = None;
         self.closed = Some(closed);
         self.phase = Phase::Closed;
         closed
@@ -296,8 +317,16 @@ fn closed_reply(reply: Reply, grant: &Option<Grant>) -> Option<(bool, Reason)> {
 }
 
 impl BrowserCredentialControl for BrowserControlProcess {
+    fn requires_account_scope(&self) -> bool { self.native_egress.is_some() }
+
+    fn prepare_for_account<'a>(&'a self, scope: &'a AccountScope, session: &'a Session,
+        control: &'a PreparationControl) -> BoxFuture<'a, bool> {
+        self.prepare_account(scope, session, control).boxed()
+    }
+
     fn prepare(&self) -> BoxFuture<'_, bool> {
         async move {
+            if self.requires_account_scope() { return false; }
             let mut state = self.state.lock().await;
             if state.phase != Phase::Fresh { return false; }
             state.phase = Phase::Uncertain;

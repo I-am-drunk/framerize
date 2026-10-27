@@ -1,5 +1,22 @@
 # Architecture
 
+`BrowserControlProcess::with_native_egress` selects explicit account-scoped
+preparation. Ordinary `prepare` refuses that mode. `prepare_for_account`
+checks the account, user, session and configured route before starting its
+child. The child must request the configured endpoint with one 32-hex nonce;
+premature readiness, another endpoint or a second probe is refused.
+
+The native owner runs that request through `AccountScope::observe_egress`,
+awaits its actual completion through cancellation, and sends the observation
+over private stdin. Readiness requires the subsequent child reply. The owner
+retains the observation's weak account generation and checks it again before
+mint. Closing clears the observation. Forced child termination remains
+unconfirmed cleanup even when the child has been reaped.
+
+These controls use an inert real child and loopback HTTP. The Python launcher
+and service startup still need explicit attachment in account-creation order.
+There is no new default, live route comparison or browserless acceptance.
+
 `AccountScope::observe_egress` reserves an ordinary account preparation and
 uses that generation's existing native HTTP client. The reservation captures
 the transport atomically with the session, so account closure cannot pass an
@@ -14,7 +31,7 @@ It uses the existing proxy and certificate policy, disables redirects and
 retries, and limits work to 30 seconds, 1,024 reply bytes and 2,048 reads.
 Only status 200 with JSON containing exactly one valid `ip` field is accepted.
 Local completion does not prove remote cleanup or future route equivalence.
-Child-protocol attachment and selection of an observation endpoint remain
+Python-launcher attachment and selection of an observation endpoint remain
 separate work; this API does not start either automatically.
 
 The observation URL rejects an existing `framerize_probe` query key, including

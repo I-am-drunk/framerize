@@ -12,6 +12,14 @@ pub struct NativeEgressObservation {
 }
 
 impl AccountScope {
+    #[cfg(test)]
+    pub(crate) fn observe_egress_for_test(&self, url: &str, budget: Duration)
+        -> Result<PendingPreparation<NativeEgressObservation>, ClientError> {
+        let request = EgressProbeRequest::for_loopback(url, budget)
+            .map_err(|_| ClientError::InvalidContext)?;
+        self.begin_egress(request, budget)
+    }
+
     /// Explicit credential-free HTTPS probe, limited to 30 seconds and 1 KiB.
     /// The returned preparation retains cancellation and cleanup ownership.
     pub fn observe_egress(&self, url: &str, budget: Duration)

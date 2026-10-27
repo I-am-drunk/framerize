@@ -30,6 +30,11 @@ pub struct BrowserControlMint {
 /// scope, session, grant, target and actual egress without logging credentials.
 pub trait BrowserCredentialControl: Send + Sync {
     fn prepare(&self) -> BoxFuture<'_, bool>;
+    fn requires_account_scope(&self) -> bool { false }
+    fn prepare_for_account<'a>(&'a self, _: &'a AccountScope, _: &'a Session,
+        _: &'a PreparationControl) -> BoxFuture<'a, bool> {
+        async { false }.boxed()
+    }
     fn mint<'a>(&'a self, scope: &'a AccountScope, session: &'a Session,
         grant: &'a DeviceGrant, target: &'a OfflineMintTarget,
         budget_ms: u64, control: &'a PreparationControl)
