@@ -1,5 +1,10 @@
 # Development status
 
+Worker invocations now apply the existing split-write instruction to their
+fresh original payload. One additive preparation control is UNRUN. The later
+router attachment must skip the kernel-side preparation for selected workers;
+legacy0 continues through its existing path.
+
 The source-only worker executable now uses nonblocking inherited pipes and
 owns its reader, writer and per-operation policy/emitter tasks through join.
 Result carries bounded metadata; assembled output remains with the emitter

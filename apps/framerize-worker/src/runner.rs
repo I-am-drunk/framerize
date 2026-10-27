@@ -255,6 +255,7 @@ async fn invoke(input: Invocation, client: Arc<ForwardClient>, sink: Arc<Attempt
     let cfg = ChainLimits { chunk_tokens: limits.chunk_tokens, max_chunks: limits.max_chunks,
         max_total_tokens: limits.max_total_tokens, metered_fallback: limits.metered_fallback,
         continue_prompt: limits.continue_prompt.into_string() };
+    let payload = framer_protocol::responses_input::prepare_worker_payload(payload);
     (n, framer_protocol::responses::complete_long_typed(client.as_ref(), payload, &cfg, sink.as_ref()).await)
 }
 fn result_outcome(op: u64, n: u32, result: &Result<AssembledResponses, PolicyError>,

@@ -120,3 +120,16 @@ pub fn prepare_payload(client_payload: &Value, input: &[Value], chunk_budget: u3
     }
     p
 }
+
+/// Preparation for a selected free Responses worker invocation. The kernel
+/// sends the original payload, so retries and repicks never append this twice.
+pub fn prepare_worker_payload(mut payload: Value) -> Value {
+    if payload["tools"].as_array().is_some_and(|tools| !tools.is_empty()) {
+        let note = "When using tools to write or edit files, split large writes: at most ~40 lines per tool call, then append the next section with a separate call, and repeat until done.";
+        payload["instructions"] = match payload["instructions"].as_str() {
+            Some(existing) if !existing.is_empty() => Value::String(format!("{existing}\n\n{note}")),
+            _ => Value::String(note.into()),
+        };
+    }
+    payload
+}

@@ -361,3 +361,24 @@ async fn runner_policy_panic_joins_emitter_before_done() {
     assert_eq!(f.terminal, 0);
     f.end(false).await;
 }
+
+#[test]
+fn worker_preparation_preserves_fields_and_restarts_from_original_input() {
+    use framer_protocol::responses_input::prepare_worker_payload;
+    let input = json!({"model":"model", "instructions":"base", "opaque":{"keep":[1,true]},
+        "tools":[{"type":"function", "name":"write", "parameters":{}}]});
+    let first = prepare_worker_payload(input.clone());
+    let repicked = prepare_worker_payload(input.clone());
+    assert_eq!(first, repicked);
+    assert_eq!(first["opaque"], input["opaque"]);
+    assert_eq!(first["tools"], input["tools"]);
+    assert!(first["instructions"].as_str().unwrap().starts_with("base\n\n"));
+    assert_eq!(first["instructions"].as_str().unwrap().matches("split large writes").count(), 1);
+    for instructions in [json!(""), json!(null), json!(false)] {
+        let mut raw = input.clone(); raw["instructions"] = instructions;
+        let result = prepare_worker_payload(raw);
+        assert!(result["instructions"].as_str().unwrap().starts_with("When using tools"));
+    }
+    let no_tools = json!({"instructions":"unchanged", "tools":[]});
+    assert_eq!(prepare_worker_payload(no_tools.clone()), no_tools);
+}
