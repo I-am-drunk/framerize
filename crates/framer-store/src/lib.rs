@@ -21,6 +21,9 @@ pub use file_sessions::FileSessionStore;
 mod sqlite_tests;
 
 #[cfg(test)]
+mod keyring_save_ack_tests;
+
+#[cfg(test)]
 mod sqlite_upsert_ack_tests;
 
 #[cfg(test)]
@@ -167,6 +170,11 @@ impl StateStore for SqliteStateStore {
 
 /// Session cookie in the OS keychain. The entry value is the raw `Cookie:` header.
 pub struct KeyringSessionStore;
+
+#[cfg(test)]
+fn save_keyring_entry(entry: &keyring::Entry, session: &Session) -> Result<(), String> {
+    entry.set_password(&session.cookie_header).map_err(|e| e.to_string())
+}
 
 #[async_trait]
 impl SessionStore for KeyringSessionStore {
