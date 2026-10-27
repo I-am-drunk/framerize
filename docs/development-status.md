@@ -1,8 +1,9 @@
 # Development status
 
 The CI migration on `ci/iris-self-hosted-20261027` routes application builds
-in the main repository to Iris's isolated Linux runner. Workflow lint passes;
-the runner is online. The first full build is pending. See `ci-runners.md`.
+in the main repository to a Linux VM on the iMac. Rosetta preserves the
+Linux x86_64 builds and Linux-specific checks. Verification is pending.
+See `ci-runners.md`.
 This changes build infrastructure only. Next verify both application jobs
 before merging the workflow change into `browserless`.
 

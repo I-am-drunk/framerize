@@ -1,2 +1,2 @@
 self-hosted-runner:
-  labels: [iris, framerize]
+  labels: [imac, framerize]

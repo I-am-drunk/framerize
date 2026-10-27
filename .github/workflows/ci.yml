@@ -11,7 +11,7 @@ concurrency:
 jobs:
   build:
     if: github.repository == 'I-am-drunk/framerize'
-    runs-on: [self-hosted, Linux, X64, iris, framerize]
+    runs-on: [self-hosted, Linux, X64, imac, framerize]
     timeout-minutes: 90
     strategy:
       fail-fast: false
@@ -19,7 +19,7 @@ jobs:
       matrix:
         app: [framerize, framerize-native]
     env:
-      CARGO_BUILD_JOBS: 1
+      CARGO_BUILD_JOBS: 2
       CARGO_TERM_COLOR: never
       RUST_TEST_THREADS: 1
     steps:
