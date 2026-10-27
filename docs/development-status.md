@@ -1,3 +1,21 @@
+# Reviewed alpha release pipeline, 2026-10-27
+
+`ci/reviewed-alpha-releases-20261027` proposes PR-only promotion, an aggregate
+CI result, embedded version/commit identity and manual alpha drafts from the
+same successful CI artifacts. It is based on the still-open iMac CI PR12.
+No application has been deployed and no release has been published by this change.
+
+Focused package checks pass after repairing the existing worker fixture's
+missing source stamp. New identity checks and five release checks pass,
+including both script entry points. The standalone Rust build script compiles
+and passes clean, dirty and linked-worktree checks. Full application builds
+and actual iMac CI are pending. This does not qualify browserless live serving.
+
+The confirmed deployment outage is documented in
+`incidents/2026-10-27-deployment.md`. The consumed private controller must not
+be reused. `reviewed-alpha-releases.md` describes review and release boundaries; GitHub branch
+protection remains dependent on the private repository's plan capabilities.
+
 # Development status
 
 The CI migration on `ci/iris-self-hosted-20261027` routes application builds

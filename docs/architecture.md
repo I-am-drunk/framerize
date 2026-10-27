@@ -1,3 +1,13 @@
+# Release identity and activation boundary
+
+Both application executables embed their package version and Git commit.
+Packaging requires an exact match with the checkout, including dirty state.
+CI packages are immutable release inputs. Alpha publication checks their
+manifests and checksums and drafts a release without rebuilding. Source review,
+package qualification and production activation remain separate operations.
+No CI or release job receives production sessions or changes the live service.
+See `reviewed-alpha-releases.md` and `incidents/2026-10-27-deployment.md`.
+
 # Architecture
 
 The native CLI accepts `--browser-control-descriptor` together with

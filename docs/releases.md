@@ -1,3 +1,9 @@
+# Current review and publication policy
+
+See [Reviewed alpha releases](reviewed-alpha-releases.md) for the new PR,
+version and publication requirements. The package and activation mechanisms
+below do not grant permission to deploy.
+
 # Application packages
 
 A browser release contains `bin/framerize`, `web/`, `runtime/`, build information

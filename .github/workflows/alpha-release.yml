@@ -1,0 +1,52 @@
+name: Draft an alpha release
+on:
+  workflow_dispatch:
+    inputs:
+      ci_run_id:
+        description: Successful Build applications run on a maintained branch
+        required: true
+        type: string
+permissions:
+  actions: read
+  contents: write
+concurrency:
+  group: alpha-release
+  cancel-in-progress: false
+jobs:
+  draft:
+    if: github.repository == 'I-am-drunk/framerize'
+    runs-on: [self-hosted, Linux, X64, imac, framerize]
+    timeout-minutes: 15
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+      CI_RUN_ID: ${{ inputs.ci_run_id }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - name: Require a successful maintained-branch build
+        id: source
+        run: |
+          python3 scripts/check_release_run.py "$CI_RUN_ID"
+      - name: Download the existing packages
+        env:
+          SOURCE_SHA: ${{ steps.source.outputs.sha }}
+        run: |
+          gh run download "$CI_RUN_ID" -n "framerize-linux-x86_64-$SOURCE_SHA" -D release-assets/browser
+          gh run download "$CI_RUN_ID" -n "framerize-native-linux-x86_64-$SOURCE_SHA" -D release-assets/native
+      - name: Verify package identities and checksums
+        id: release
+        env:
+          SOURCE_SHA: ${{ steps.source.outputs.sha }}
+        run: python3 scripts/prepare_alpha.py release-assets "$SOURCE_SHA"
+      - name: Create a new tag and release draft without rebuilding
+        env:
+          SOURCE_SHA: ${{ steps.source.outputs.sha }}
+          RELEASE_TAG: ${{ steps.release.outputs.tag }}
+        run: |
+          gh api --method POST "repos/$GH_REPO/git/refs" -f "ref=refs/tags/$RELEASE_TAG" -f "sha=$SOURCE_SHA"
+          gh release create "$RELEASE_TAG" --verify-tag --draft --prerelease --latest=false \
+            --title "$RELEASE_TAG" --notes-file release-notes.md \
+            release-assets/browser/*.tar.gz release-assets/browser/*.sha256 \
+            release-assets/native/*.tar.gz release-assets/native/*.sha256 release-evidence.json

@@ -5,7 +5,7 @@ use std::{net::SocketAddr, path::PathBuf, process::ExitCode};
 mod hybrid;
 
 #[derive(Parser)]
-#[command(version, about = "Native Framer runtime development tools")]
+#[command(version = env!("FRAMERIZE_BUILD_VERSION"), about = "Native Framer runtime development tools")]
 struct Cli { #[command(subcommand)] command: Command }
 
 #[derive(Subcommand)]
