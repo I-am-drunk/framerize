@@ -1,9 +1,20 @@
 # Development status
 
-An experimental compiler hint permits cross-crate inlining of the bounded
-wire writer. Its byte output, allocation limits and error paths are unchanged.
-The source is unqualified. Main owns the component measurement and the
-subsequent wire and real-worker checks before accepting this optimization.
+The bounded wire writer permits cross-crate inlining on `bd78f83`, without
+changing its bytes, allocation limits or error paths. All 74 focused checks
+passed: 39 wire, 27 worker and eight real-worker server controls. Candidate
+phases retained 847 matching source pins and empty process groups.
+In the full-response component probe, median Data encoding fell from
+12.387 ms to 8.233 ms across five processes; decoding stayed near 10.6 ms.
+Twenty fresh router profiles passed, five per source and mode. The baseline
+uses archived `fd45cd0` binaries; the policy fixture is unchanged.
+Worker EOF minimum/median/maximum was 24.946/28.746/42.196 ms before and
+23.022/24.482/35.728 ms after. The median fell about 15%, with overlapping
+ranges. Legacy medians were 2.474/2.612 ms; its 22.754 ms baseline maximum
+is retained. These are local fixture timings, not live latency or total
+memory results. The remaining worker overhead is substantial. Wire byte
+conversion accounts for material cost; serial probe timings are not an
+additive decomposition of the concurrent router. The live service is unchanged.
 
 SQLite poison handling passes all 21 selected controls on `a70cd06`, with
 847 matching source pins, a hash-bound executable and settled process groups.

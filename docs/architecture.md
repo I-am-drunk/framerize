@@ -120,6 +120,8 @@ This exercises composition with an inert browser port, not live authentication.
 Frame encoders grow buffers under an explicit allocation ceiling and return
 a buffer whose capacity equals its length. Data encoding uses the already
 reserved wire credit as its ceiling, including the four-byte frame prefix.
+The bounded writer permits compiler inlining across crate boundaries. This
+keeps the same per-write checks while reducing serialization call overhead.
 Message decoding collects typed fields and then validates their membership
 in the selected variant. Segment arrays decode directly into bounded bytes,
 without an outer generic Content tree. Unknown, duplicate, missing and
