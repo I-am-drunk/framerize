@@ -139,8 +139,10 @@ async fn cancelled_request_joins_transport_before_browser_control_and_device() {
     assert!(outcome.response.is_none() && outcome.cleanup_confirmed);
     shared::fixture::result(server).await;
     assert_eq!(*case.ports.closed.lock().unwrap(), [(true, false)]);
-    seal.wait_application().await.unwrap(); drop(seal);
-    case.sessions.shutdown().await.unwrap();
+    let drained = seal.wait_application().await.unwrap();
+    case.state.operation_ownership.as_ref().unwrap().check_application_drained(&drained).unwrap();
+    case.sessions.bridge().shutdown().await.unwrap();
+    case.sessions.native().shutdown_idle().await.unwrap();
 }
 #[tokio::test]
 async fn unconfirmed_control_finish_suppresses_success_and_fences_account() {
