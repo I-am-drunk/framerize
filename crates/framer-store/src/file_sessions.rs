@@ -8,6 +8,9 @@ mod drive_prefix_tests;
 #[cfg(test)]
 #[path = "file_session_temp_collision_tests.rs"]
 mod temp_collision_tests;
+#[cfg(all(test, unix))]
+#[path = "file_session_delete_sync_tests.rs"]
+mod delete_sync_tests;
 
 use async_trait::async_trait;
 use framer_core::{ids::FramerUserId, port::{Session, SessionStore}};
@@ -130,6 +133,17 @@ impl FileSessionStore {
         if result.is_err() { let _ = std::fs::remove_file(temporary); }
         result.map_err(|e| e.to_string())
     }
+
+    fn delete_with_sync(&self, user: &FramerUserId,
+        sync_directory: impl FnOnce(&std::path::Path) -> std::io::Result<()>) -> Result<(), String> {
+        match std::fs::remove_file(self.path(user)?) {
+            Ok(()) => {},
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {},
+            Err(error) => return Err(error.to_string()),
+        }
+        // A retry must finish synchronization even if the previous unlink succeeded.
+        sync_directory(&self.dir).map_err(|error| error.to_string())
+    }
 }
 
 #[async_trait]
@@ -141,15 +155,15 @@ impl SessionStore for FileSessionStore {
     }
 
     async fn delete(&self, user: &FramerUserId) -> Result<(), String> {
-        match std::fs::remove_file(self.path(user)?) {
-            Ok(()) => {
-                #[cfg(unix)]
-                File::open(&self.dir).and_then(|dir| dir.sync_all()).map_err(|e| e.to_string())?;
+        self.delete_with_sync(user, |dir| {
+            #[cfg(unix)]
+            { File::open(dir).and_then(|dir| dir.sync_all()) }
+            #[cfg(not(unix))]
+            {
+                let _ = dir;
                 Ok(())
             }
-            Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(()),
-            Err(e) => Err(e.to_string()),
-        }
+        })
     }
 
     async fn load(&self, user: &FramerUserId) -> Result<Option<Session>, String> {

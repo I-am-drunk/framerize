@@ -1,5 +1,10 @@
 # Development status
 
+The composed session deletion path synchronizes its directory after either
+unlink or NotFound, so retries retain directory-sync errors. Validation and
+other removal errors keep precedence. Its 25 checks are pending execution;
+these fixtures do not simulate a power failure or establish Windows behavior.
+
 The session temporary-file correction passes all 22 checks on `62feebc`,
 with 841 matching source pins and a settled process group. Occupied names
 advance the existing sequence without opening or deleting their occupants.
