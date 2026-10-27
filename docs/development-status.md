@@ -1,5 +1,18 @@
 # Development status
 
+Browser memory admission now checks new inference requests before handlers
+or response headers. Four Rust controls pass for stream continuity, refusal,
+reservation disposal and host/ancestor-cgroup accounting. All 55 selected
+browser lifecycle, page, activity and shutdown controls pass. A subsequent
+diagnostic addition records headroom and reservation bytes without changing
+the admission decision. The release build and packaged HTTP checks are pending.
+The error says "Low available RAM". The old fixed 90% message also covered
+estimated allocation and reservation costs below that utilization. The
+October 27 incident included a confirmed host-wide OOM that killed the service.
+The packaged unit uses normal OOM priority instead of preferential sacrifice.
+Existing memory ceilings remain required. Admission is not a hard bound on
+future browser growth or other processes. This source is not yet deployed.
+
 The browser repair on `fix/responses-budget-live-20261027` removes the implicit
 4,096-token total limit from Responses requests that omit a numeric limit.
 All 15 selected handler and parser checks pass on the deployed-source

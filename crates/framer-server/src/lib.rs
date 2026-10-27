@@ -35,6 +35,7 @@ mod request_token_budget;
 #[cfg(test)]
 mod responses_default_budget_tests;
 mod request_body_object;
+mod memory_admission;
 mod responses_aggregate;
 mod response_output;
 pub use serving_accounts::{ServingAccountPolicy, SERVING_ACCOUNTS_ENV};
@@ -357,7 +358,8 @@ pub fn router_with_request_layer(state: AppState, web_dir: &str,
         .nest("/openai", openai)
         .nest("/paid", paid)
         .fallback_service(files);
-    layer(router)
+    layer(router.layer(axum::middleware::from_fn_with_state(
+        Arc::new(memory_admission::Admission::default()), memory_admission::middleware)))
         .layer(axum::middleware::from_fn_with_state(
             state.operation_ownership.clone(), operation_ownership::middleware))
         // The outer access logger observes ownership refusals as well.

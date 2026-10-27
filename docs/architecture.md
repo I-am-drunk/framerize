@@ -1,5 +1,14 @@
 # Architecture
 
+New HTTP inference requests have a memory admission check before body parsing
+and handler work. It leaves 10% of host RAM available and respects the tightest
+ancestor cgroup ceiling at 90%. Each admitted response reserves an additional
+64 MiB estimate through body disposal. The check runs once, so pressure does
+not cancel or recheck an accepted response. Health and management routes stay
+available. Refusal is a retryable 503 with a low-available-RAM explanation.
+Browser allocation checks remain separate. Neither estimate bounds subsequent
+browser growth, and an operating-system OOM can still terminate the service.
+
 Responses requests without a numeric output limit leave the chain's total
 output limit unset. Explicit token limits retain their alias precedence and
 range validation. The existing chunk, elapsed-time, cancellation and cleanup

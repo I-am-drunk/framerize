@@ -149,8 +149,9 @@ class Host:
             snapshot = memory_snapshot()
             available = snapshot.get("allocation_headroom_bytes")
             if available is not None and available < self._reserved_bytes + estimate:
-                emit("memory.admission", level="warn", outcome="deferred", **snapshot)
-                raise MemoryPressureError("browser allocation deferred at the 90% memory watermark; retry after memory is available")
+                emit("memory.admission", level="warn", outcome="deferred",
+                     requested_bytes=estimate, reserved_bytes=self._reserved_bytes, **snapshot)
+                raise MemoryPressureError("Low available RAM: insufficient memory headroom for a new browser allocation; retry shortly")
             self._reserved_bytes += estimate
         try:
             yield

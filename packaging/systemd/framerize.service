@@ -12,6 +12,9 @@ KillMode=mixed
 SendSIGKILL=yes
 Delegate=no
 UMask=0077
+# Keep the service at normal OOM priority. A value of 1000 sacrifices all streams
+# to host-wide pressure even when this unit is below its own memory ceiling.
+OOMScoreAdjust=0
 
 [Install]
 WantedBy=default.target
