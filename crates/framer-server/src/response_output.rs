@@ -39,15 +39,34 @@ struct Metrics {
 #[cfg(test)]
 #[derive(Clone, Copy)]
 pub(crate) enum Fault { BeforeContent, AfterFirstSegment, Panic }
+#[cfg(test)]
+struct WorkerAcceptPause {
+    seq: u64, reached: Notify, released: Mutex<bool>, resume: std::sync::Condvar,
+}
+#[cfg(test)]
+pub(crate) struct WorkerAcceptGuard(Arc<WorkerAcceptPause>);
+#[cfg(test)]
+impl WorkerAcceptGuard {
+    pub(crate) async fn reached(&self) { self.0.reached.notified().await; }
+}
+#[cfg(test)]
+impl Drop for WorkerAcceptGuard {
+    fn drop(&mut self) {
+        *self.0.released.lock().unwrap_or_else(|e| e.into_inner()) = true;
+        self.0.resume.notify_one();
+    }
+}
 pub(crate) struct OutputBudget {
     slots: Arc<Semaphore>, metrics: Arc<Metrics>,
     #[cfg(test)] fault: Mutex<Option<Fault>>,
+    #[cfg(test)] accept_pause: Arc<Mutex<Option<Arc<WorkerAcceptPause>>>>,
 }
 impl OutputBudget {
     // Called only while the runtime is exclusively owned, before any request.
     pub(crate) fn construction_limit(&self) -> usize { self.slots.available_permits() }
     pub(crate) fn new(limit: usize) -> Self {
         Self { slots: Arc::new(Semaphore::new(limit)), metrics: Arc::new(Metrics::default()),
+            #[cfg(test)] accept_pause: Arc::new(Mutex::new(None)),
             #[cfg(test)] fault: Mutex::new(None) }
     }
     fn reserve(&self) -> Result<Arc<Lease>, ApiError> {
@@ -57,10 +76,18 @@ impl OutputBudget {
         Ok(Arc::new(Lease { _permit: permit, metrics: self.metrics.clone(),
             output: Arc::new(Semaphore::new(OUTPUT_SLOTS)), live_output: AtomicUsize::new(0),
             disposed: Notify::new(), timings: Arc::new(Mutex::new(Timings::default())), started: Instant::now(),
+            #[cfg(test)] accept_pause: self.accept_pause.clone(),
             #[cfg(test)] fault: *self.fault.lock().unwrap() }))
     }
     #[cfg(test)]
     pub(crate) fn inject(&self, fault: Fault) { *self.fault.lock().unwrap() = Some(fault); }
+    #[cfg(test)]
+    pub(crate) fn pause_worker_accept(&self, seq: u64) -> WorkerAcceptGuard {
+        let pause = Arc::new(WorkerAcceptPause { seq, reached: Notify::new(),
+            released: Mutex::new(false), resume: std::sync::Condvar::new() });
+        assert!(self.accept_pause.lock().unwrap().replace(pause.clone()).is_none());
+        WorkerAcceptGuard(pause)
+    }
     #[cfg(test)]
     pub(crate) fn counts(&self) -> (usize, usize, usize) {
         (self.metrics.leases.current.load(Ordering::SeqCst),
@@ -89,9 +116,23 @@ struct Lease {
     _permit: OwnedSemaphorePermit, metrics: Arc<Metrics>, output: Arc<Semaphore>,
     live_output: AtomicUsize, disposed: Notify, timings: Arc<Mutex<Timings>>, started: Instant,
     #[cfg(test)] fault: Option<Fault>,
+    #[cfg(test)] accept_pause: Arc<Mutex<Option<Arc<WorkerAcceptPause>>>>,
 }
 impl Drop for Lease { fn drop(&mut self) { self.metrics.leases.sub(1); } }
 impl Lease {
+    #[cfg(test)]
+    fn pause_worker_accept(&self, seq: u64) {
+        let pause = {
+            let mut pending = self.accept_pause.lock().unwrap();
+            if pending.as_ref().is_some_and(|pause| pause.seq == seq) { pending.take() }
+            else { None }
+        };
+        if let Some(pause) = pause {
+            pause.reached.notify_one();
+            let mut released = pause.released.lock().unwrap();
+            while !*released { released = pause.resume.wait(released).unwrap(); }
+        }
+    }
     async fn wait_disposed(&self) {
         loop {
             let notified = self.disposed.notified();
@@ -132,6 +173,10 @@ impl Stream for OutputBody {
     }
 }
 impl Drop for OutputBody { fn drop(&mut self) { self.cancel.send_replace(true); } }
+#[cfg(test)]
+impl OutputBody {
+    pub(crate) fn refuse_enqueue(&mut self) { self.receiver.close(); }
+}
 
 struct Buffer { bytes: Vec<u8>, metrics: Arc<Metrics> }
 impl Buffer {
@@ -184,12 +229,13 @@ impl Publisher {
         self.accept(segment, slot)
     }
     fn accept(&mut self, segment: Segment, slot: OwnedSemaphorePermit) -> Result<(), OutputError> {
-        self.accept_retained(segment, slot, None)
+        self.accept_retained(segment, slot, None).map(drop)
     }
     fn accept_retained(&mut self, segment: Segment, slot: OwnedSemaphorePermit,
         retention: Option<(CreditReturn, crate::policy_generations::GenerationPin)>)
-        -> Result<(), OutputError> {
+        -> Result<Option<bytes::Bytes>, OutputError> {
         let (content, last) = (segment.content, segment.last);
+        let worker_owned = retention.is_some();
         self.lease.metrics.output_bytes.add(segment.buffer.bytes.capacity());
         self.lease.metrics.output_slots.add(1);
         self.lease.live_output.fetch_add(1, Ordering::SeqCst);
@@ -200,6 +246,8 @@ impl Publisher {
                 inner: owner, _credit: credit, _pin: pin }),
             None => bytes::Bytes::from_owner(owner),
         };
+        // Keep the shared owner until the worker acceptance frontier is recorded.
+        let retained = worker_owned.then(|| data.clone());
         self.sender.as_ref().ok_or(OutputError::Closed)?.try_send(Queued {
             data, content, lease: self.lease.clone(),
         }).map_err(|_| OutputError::Closed)?;
@@ -211,7 +259,7 @@ impl Publisher {
             timings.first_enqueued.get_or_insert(self.lease.started.elapsed());
             timings.last_enqueued = Some(self.lease.started.elapsed());
         }
-        Ok(())
+        Ok(retained)
     }
 }
 
@@ -682,9 +730,12 @@ impl WorkerPublisher {
         let segment = Segment { buffer: Buffer { bytes, metrics: self.lease.metrics.clone() },
             sequence: seq, content, last };
         match publisher.accept_retained(segment, slot, Some((credit, self.pin.clone()))) {
-            Ok(()) => {
+            Ok(retained) => {
+                #[cfg(test)]
+                self.lease.pause_worker_accept(seq);
                 if last { self.credit.accepted(publisher.next_sequence)?; }
                 if event == wire::DataKind::Terminal && last { state.terminal = true; }
+                drop(retained);
                 Ok(())
             }
             Err(_) if publisher.cancel.is_cancelled() => Ok(()),

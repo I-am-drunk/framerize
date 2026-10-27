@@ -2,6 +2,52 @@ use super::*;
 #[path = "policy_worker_fixture.rs"]
 mod router_fixture;
 
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn real_worker_cancel_after_early_disposal_keeps_generation_ready() {
+    use router_fixture::*;
+    use futures::StreamExt;
+    let mut f = Fixture::new();
+    let generation = f.stage().await;
+    f.manager().activate(generation).unwrap();
+    // Only this fixture pauses its reader. The other runtime thread drives disposal.
+    let pause = f.state.response_output.pause_worker_accept(2);
+    let response = f.post(Some(0), payload()).await;
+    assert_eq!(response.status(), axum::http::StatusCode::OK);
+    let call = f.next().await;
+    call.reply.send(Ok(reply("cancel at acceptance"))).ok().unwrap();
+    tokio::time::timeout(BOUND, call.joined).await.unwrap().unwrap();
+    let mut body = response.into_body().into_data_stream();
+    for _ in 0..2 {
+        drop(tokio::time::timeout(BOUND, body.next()).await.unwrap().unwrap().unwrap());
+    }
+    tokio::time::timeout(BOUND, pause.reached()).await.unwrap();
+    let bytes = tokio::time::timeout(BOUND, body.next()).await.unwrap().unwrap().unwrap();
+    assert!(String::from_utf8_lossy(&bytes).contains("event: response.output_item.added\n"));
+    drop(bytes);
+    drop(body);
+    drop(pause);
+    f.settle().await;
+    let snapshot = f.manager().snapshot().unwrap();
+    assert_eq!(snapshot.len(), 1);
+    assert_eq!(snapshot[0].generation, generation);
+    assert!(snapshot[0].alive && !snapshot[0].unconfirmed);
+    assert!(snapshot[0].active);
+    assert_eq!(snapshot[0].phase, crate::policy_generations::GenerationPhase::Ready);
+    assert_eq!(snapshot[0].pins, 0);
+    assert!(f.state.operation_ownership.as_ref().unwrap().accepting_requests());
+    assert_eq!(f.state.response_output.output_counts(), (0, 0));
+    let response = f.post(Some(1), payload()).await;
+    let call = f.next().await;
+    assert_eq!(f.manager().snapshot().unwrap()[0].generation, generation);
+    call.reply.send(Ok(reply("same generation"))).ok().unwrap();
+    tokio::time::timeout(BOUND, call.joined).await.unwrap().unwrap();
+    trace(&consume(response).await, "same generation");
+    assert!(f.calls.try_recv().is_err());
+    f.settle().await;
+    assert_eq!(f.state.response_output.output_counts(), (0, 0));
+    f.finish().await;
+}
+
 async fn fault_response(mode: &str) -> (router_fixture::Fixture, u64, axum::response::Response) {
     let f = router_fixture::Fixture::new();
     let generation = f.stage_kind("FAULT").await;

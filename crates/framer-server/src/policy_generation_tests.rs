@@ -36,6 +36,135 @@ async fn credit_frame(reader: &mut tokio::io::DuplexStream) -> Message {
     tokio::time::timeout(BOUND, framer_worker_wire::frame::read(reader))
         .await.unwrap().unwrap().unwrap().message
 }
+struct CreditPeer {
+    outbox: Outbox, read: tokio::io::DuplexStream, _alive: watch::Sender<bool>,
+    writer: tokio::task::JoinHandle<Result<(), framer_worker_wire::WireError>>,
+    returns: tokio::task::JoinHandle<Result<(), framer_worker_wire::WireError>>,
+}
+impl CreditPeer {
+    fn start(credit: Arc<crate::response_output::WorkerCredit>) -> Self {
+        let (outbox, writer) = Outbox::new(1).unwrap();
+        let slot = outbox.register(1).unwrap();
+        let (write, read) = tokio::io::duplex(4096);
+        let (sender, alive) = watch::channel(true);
+        Self { outbox, read, _alive: sender, writer: tokio::spawn(writer.run(write)),
+            returns: tokio::spawn(async move { credit.run(7, slot, alive).await }) }
+    }
+    async fn join(self) {
+        tokio::time::timeout(BOUND, self.returns).await.unwrap().unwrap().unwrap();
+        self.outbox.close();
+        tokio::time::timeout(BOUND, self.writer).await.unwrap().unwrap().unwrap();
+    }
+}
+async fn early_disposal_order(cancel_before_accept: bool) {
+    let (manager, pin, budget, output, _exit) = output_fixture();
+    let WorkerOutput { publisher, body, cancel, .. } = output;
+    publisher.head(200, "text/event-stream").unwrap();
+    let pause = budget.pause_worker_accept(0);
+    let data = publisher.clone();
+    let paused = PausedData { pause: Some(pause), thread: Some(std::thread::spawn(move || {
+        data.data(DataKind::Opening, 0, Segment::new(b"first".to_vec()).unwrap(), true, 100)
+    })) };
+    tokio::time::timeout(BOUND, paused.pause.as_ref().unwrap().reached()).await.unwrap();
+    let mut body = Some(body);
+    let bytes = body.as_mut().unwrap().next().await.unwrap().unwrap();
+    assert_eq!(&bytes[..], b"first");
+    drop(bytes);
+    if cancel_before_accept { drop(body.take()); }
+    let mut peer = CreditPeer::start(publisher.credit.clone());
+    let mut frames = vec![credit_frame(&mut peer.read).await];
+    paused.join();
+    drop(body.take());
+    assert!(cancel.is_cancelled());
+    let slots = |frames: &[Message]| frames.iter().map(|frame| match frame {
+        Message::Credit { returned, .. } => returned.slots, _ => panic!("Credit expected"),
+    }).sum::<u64>();
+    while slots(&frames) < 1 {
+        assert!(frames.len() < 3, "unbounded return frames");
+        frames.push(credit_frame(&mut peer.read).await);
+    }
+    publisher.done(DoneOutcome::Cancelled).unwrap();
+    peer.join().await;
+    assert_eq!(publisher.credit.accounting(), (Capacity::default(), Capacity::default(), 1));
+    tokio::time::timeout(BOUND, publisher.disposed()).await.unwrap();
+    drop(publisher);
+    assert_eq!(budget.counts(), (0, 0, 0));
+    assert_eq!(budget.output_counts(), (0, 0));
+    assert_eq!(budget.peak_output_counts(), (5, 1));
+    assert_eq!(manager.snapshot().unwrap()[0].pins, 1);
+    pin.confirm(); drop(pin);
+    tokio::time::timeout(BOUND, manager.shutdown(false)).await.unwrap().unwrap();
+    // Delay the baseline discriminator until every owner and writer has joined.
+    assert_eq!(frames[0], Message::Credit { op: 7,
+        returned: Capacity { wire_bytes: 100, ..Capacity::default() }, accepted_event_seq: 0 });
+    for frame in frames {
+        if let Message::Credit { op: 7, returned, accepted_event_seq } = frame {
+            if returned.slots != 0 || returned.downstream_bytes != 0 {
+                assert_eq!(returned, Capacity { wire_bytes: 0, slots: 1, downstream_bytes: 16384 });
+                assert_eq!(accepted_event_seq, 1);
+            }
+        } else { panic!("Credit expected"); }
+    }
+}
+async fn unaccepted_worker_data(refused: bool) {
+    let (manager, pin, budget, output, _exit) = output_fixture();
+    let WorkerOutput { publisher, mut body, cancel, published } = output;
+    publisher.head(200, "text/event-stream").unwrap();
+    if refused { body.refuse_enqueue(); }
+    let mut body = Some(body);
+    if !refused { drop(body.take()); }
+    assert_eq!(cancel.is_cancelled(), !refused);
+    let result = publisher.data(DataKind::Opening, 0,
+        Segment::new(b"discarded".to_vec()).unwrap(), true, 100);
+    assert_eq!(result.is_err(), refused);
+    assert!(!publisher.terminal().unwrap());
+    assert!(!published.load(Ordering::SeqCst));
+    let cost = Capacity { wire_bytes: 100, slots: 1, downstream_bytes: 16384 };
+    assert_eq!(publisher.credit.accounting(), (cost, cost, 0));
+    assert_eq!(budget.counts(), (1, 0, 0));
+    assert_eq!(budget.output_counts(), (0, 0));
+    let mut peer = CreditPeer::start(publisher.credit.clone());
+    publisher.done(DoneOutcome::Cancelled).unwrap();
+    assert_eq!(credit_frame(&mut peer.read).await,
+        Message::Credit { op: 7, returned: cost, accepted_event_seq: 0 });
+    peer.join().await;
+    assert_eq!(publisher.credit.accounting(), (Capacity::default(), Capacity::default(), 0));
+    drop(body.take());
+    tokio::time::timeout(BOUND, publisher.disposed()).await.unwrap();
+    drop(publisher);
+    assert_eq!(budget.counts(), (0, 0, 0));
+    assert_eq!(budget.output_counts(), (0, 0));
+    pin.confirm(); drop(pin);
+    tokio::time::timeout(BOUND, manager.shutdown(false)).await.unwrap().unwrap();
+}
+#[tokio::test]
+async fn disposal_return_never_precedes_acceptance_frontier() {
+    for cancel_before_accept in [true, false] { early_disposal_order(cancel_before_accept).await; }
+    unaccepted_worker_data(false).await;
+}
+
+#[tokio::test]
+async fn refused_worker_enqueue_releases_owner_without_frontier() {
+    unaccepted_worker_data(true).await;
+}
+
+struct PausedData {
+    pause: Option<crate::response_output::WorkerAcceptGuard>,
+    thread: Option<std::thread::JoinHandle<Result<(), framer_worker_wire::WireError>>>,
+}
+impl PausedData {
+    fn join(mut self) {
+        drop(self.pause.take());
+        self.thread.take().unwrap().join().unwrap().unwrap();
+    }
+}
+impl Drop for PausedData {
+    fn drop(&mut self) {
+        // An assertion must never strand the synchronous reader at the pause.
+        drop(self.pause.take());
+        if let Some(thread) = self.thread.take() { let _ = thread.join(); }
+    }
+}
 #[tokio::test]
 async fn worker_output_keeps_disposal_credit_and_pin_after_eof_and_body_drop() {
     let (manager, pin, budget, output, _exit) = output_fixture();

@@ -337,6 +337,69 @@ async fn runner_cancel_keeps_forward_joined_and_completed_output_fact() {
     f.end(true).await;
 }
 
+async fn return_without_content_watermark(f: &mut RunnerPeer, frame: Decoded<Message>,
+    next: &mut u64) -> bool {
+    let Message::Data { op, event, seq, bytes, last } = frame.message
+        else { panic!("Data expected"); };
+    assert_eq!(op, 7);
+    assert_eq!(seq, *next);
+    assert_ne!(event, DataKind::Terminal);
+    if last { *next += 1; }
+    if event == DataKind::Opening { f.accepted = *next; }
+    f.output.extend_from_slice(bytes.as_slice());
+    drop(bytes);
+    // This models discarded Data: return every resource, without claiming acceptance.
+    f.send(Message::Credit { op, returned: data_cost(frame.wire_bytes),
+        accepted_event_seq: f.accepted }).await;
+    event == DataKind::Content && last
+}
+
+#[tokio::test]
+async fn runner_cancel_joins_after_full_credit_without_watermark() {
+    use framer_worker_wire::message::{DoneOutcome, Outcome, OutputFailure};
+    let mut f = RunnerPeer::new().await;
+    f.start().await; f.invoke(1).await;
+    assert!(matches!(f.next().await, Message::Forward { op: 7, n: 1, fwd: 1, .. }));
+    f.reply(1, 1).await;
+    let mut next = f.accepted;
+    let mut content = 0;
+    while content < 2 {
+        let frame = f.raw().await;
+        match &frame.message {
+            Message::Data { .. } => {
+                if return_without_content_watermark(&mut f, frame, &mut next).await { content += 1; }
+            }
+            Message::Diag { op: 7, .. } => f.diagnostics += 1,
+            message => panic!("policy advanced before acceptance or Cancel: {message:?}"),
+        }
+    }
+    assert_eq!(next, 4);
+    assert_eq!(f.accepted, 2);
+    assert!(!f.task.is_finished());
+    f.send(Message::Cancel { op: 7 }).await;
+    let mut result_seen = false;
+    loop {
+        let frame = f.raw().await;
+        match &frame.message {
+            Message::Data { .. } => { return_without_content_watermark(&mut f, frame, &mut next).await; }
+            Message::Diag { op: 7, .. } => f.diagnostics += 1,
+            Message::Result { op: 7, n: 1, outcome, .. } => {
+                assert!(!result_seen);
+                assert!(matches!(outcome, Outcome::Output { completed: true,
+                    failure: OutputFailure::Cancelled | OutputFailure::Closed }));
+                result_seen = true;
+            }
+            Message::Done { op: 7, outcome: DoneOutcome::Cancelled, .. } => break,
+            message => panic!("unexpected cancellation message: {message:?}"),
+        }
+    }
+    assert!(result_seen);
+    assert_eq!(f.accepted, 2);
+    assert_eq!(f.terminal, 0);
+    assert!(!String::from_utf8_lossy(&f.output).contains("event: response.completed\n"));
+    f.end(true).await;
+}
+
 #[tokio::test]
 async fn runner_overlapping_invocation_poison_joins_pending_policy() {
     let mut f = RunnerPeer::new().await;

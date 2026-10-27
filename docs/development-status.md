@@ -1,5 +1,18 @@
 # Development status
 
+The S3w watermark-retention correction on frozen `a27b70c` is source-only and
+UNRUN. Worker publication retains one shared Bytes owner through the accepted
+frontier and terminal recording. This prevents disposal credit from preceding
+acceptance; legacy publication creates no extra clone. Discarded Data remains
+unaccepted. Four new controls cover both cancellation orders at a per-fixture
+pause, refused enqueue, delayed Cancel after full credit without a watermark,
+and continued service from the same real child after early disposal.
+The deterministic credit-order control and real-child availability control are
+separate evidence. The handoff binds an old-behavior fixture/pause adaptation;
+neither baseline nor candidate was compiled or executed in this source lane.
+Next: main-owned qualification, then contextual composition after the qualified
+optional Responses budget. Existing F1/E1, D1 and simplicity limits remain.
+
 The S3w correction on frozen `790b720` is source-only and UNRUN. Main compiled
 that base, bound 521 names and ran 167 selected cases: 162 passed and five failed.
 The wire correction requires an empty payload for the existing Control variant,
