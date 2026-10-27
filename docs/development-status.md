@@ -4,8 +4,12 @@ The CI migration on `ci/iris-self-hosted-20261027` routes application builds
 in the main repository to a Linux VM on the iMac. Rosetta preserves the
 Linux x86_64 builds and Linux-specific checks. Verification is pending.
 See `ci-runners.md`.
-This changes build infrastructure only. Next verify both application jobs
-before merging the workflow change into `browserless`.
+The first Iris run found a stale error expectation in the uncertain-startup
+proxy fixture. It now requires `OWNED_STARTUP_UNCONFIRMED`, matching the
+existing owned-browser contract. All 16 focused proxy, startup and attach-owner
+tests pass locally. Runtime behavior and the fixture's refusal and filesystem
+checks are unchanged. Next verify both application jobs on the iMac before
+merging the workflow change into `browserless`.
 
 Experimental launch software is assembled at `6355731`. Seven new package
 checks pass for the exact native binary, runtime imports, worker configuration,
