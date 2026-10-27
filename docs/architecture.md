@@ -1,5 +1,11 @@
 # Architecture
 
+Credit-ledger parsing requires finite available credits and a finite sum of
+allocated credits before constructing a snapshot. Available-credit errors
+retain precedence. Overflowing allocation totals return the fixed error
+`bad credit ledger response: invalid allocatedCredits total`, while finite
+negative, zero and fractional totals retain their original meaning.
+
 Responses requests without a numeric output limit leave the chain's total
 output limit unset. Explicit limits retain their alias precedence and range
 validation. Existing chunk, elapsed-time, cancellation and cleanup bounds

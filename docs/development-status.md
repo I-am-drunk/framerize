@@ -1,11 +1,13 @@
 # Development status
 
-The composed credit-allocation candidate rejects nonfinite sums after the
-existing available-credit validation. It preserves finite values, summation
-order, defaults, and fund/grant counts. The fixture-only baseline on `0f058ac`
-passed 12 controls and returned successful positive/negative infinity
-snapshots in the first two overflow checks. Later failed-method subcases
-remain unobserved there. All 14 candidate selections are pending execution.
+The composed credit-allocation guard passes all 14 selected checks on
+`6963324`, with 838 matching execution pins and a settled process group.
+It rejects nonfinite sums after available-credit validation, preserving
+finite values, summation order, defaults and fund/grant counts. Baseline
+`70bfe30` passed 12 controls and returned successful positive/negative
+infinity snapshots in the first two overflow checks. Those failures followed
+fixture cleanup; later subcases in the failed methods remain unobserved.
+This qualification is local and isolated. The live browser service is unchanged.
 
 The worker decoder reads typed fields without the outer Message Content
 tree. On `fd45cd0`, all 194 selected launches pass across 188 distinct
@@ -59,7 +61,7 @@ The worker and fault executables and eight test binaries are hash-bound.
 The combined cold-cache mint proof was subsequently qualified on `fd45cd0`
 as recorded above; these earlier composition results remain separate.
 Default selection remains legacy0; the live browser package stays `7ccd059`.
-Next: qualify the queued finite credit-allocation total guard and continue
+Next: qualify the dependent credit-ledger team-scope guard and continue
 investigating the remaining worker cost without changing the live default.
 
 S3w candidate `b349b2a` passes 172 selected launches covering 171 distinct
