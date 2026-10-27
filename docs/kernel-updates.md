@@ -1,5 +1,16 @@
 # Kernel and application updates
 
+Kernel invocation records capture the optional saturation callback with the
+accepted Forward. Receiving Saturated applies it before Ack, at most once for
+that 429; an unacknowledged effect blocks the next Forward. The nine-effect
+budget is per invocation chain. Result closes dispatch, then resolution waits
+for accepted Forward and Ack settlement. Private causes remain kernel-side.
+The kernel renders Direct, SaturationExhausted or FallbackOff from the recorded
+cause and classifies that exact string before applying display redaction.
+Worker Summary contains only counts and finish status. A disconnect completion
+also requires the kernel's last joined Forward success. These records and
+their controls are source-only and not yet attached to the pipe reader.
+
 The worker runner owns one nonblocking pipe reader and one complete-frame
 writer. Each admitted operation has three writer records: control/Forward,
 Data, and low-priority diagnostics. A single pending command and at most one

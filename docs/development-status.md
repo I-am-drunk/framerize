@@ -1,5 +1,12 @@
 # Development status
 
+The kernel invocation record now binds each Forward to its operation,
+invocation and captured saturation callback. Result closes dispatch and waits
+for accepted effects before resolving a bounded Summary or a kernel-classified
+failure. Nine new inert controls cover barriers, saturation, private causes,
+cleanup uncertainty and disconnect completion. They are UNRUN; pipe/router
+attachment is still pending. The invocation seam has source approval.
+
 The free Responses driver now accepts a policy invocation adapter. Its existing
 account selection, guarded health, cancellation and cleanup loop is shared;
 legacy0 still calls native_long_with_sink with the same attempt sink. This
