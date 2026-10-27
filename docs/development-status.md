@@ -1,10 +1,12 @@
 # Development status
 
-The composed file-session path guard rejects drive-relative user prefixes
-when Windows path rules apply. POSIX colon names retain their existing
-behavior, as do earlier validation and I/O errors. Its 18 selected checks
-are pending qualification on the current composition. Linux fixture calls
-with selected Windows rules do not establish Windows runtime behavior.
+The file-session drive-prefix guard passes all 18 selected Linux checks on
+`d2037a1`, with 840 matching source pins and a settled process group. It
+rejects ASCII-letter/colon prefixes under Windows rules while preserving
+POSIX colon names and earlier validation and I/O errors. Baseline `54aecae`
+passed 17 checks and failed at its first selected-Windows `C:` assertion.
+Later drive forms are candidate evidence only. These fixtures do not
+establish execution on Windows. No live service or file layout changed.
 
 The credit-ledger team guard passes all 18 selected checks on `d336dd8`,
 with 839 matching execution pins and a settled process group. Any present
@@ -76,7 +78,7 @@ The worker and fault executables and eight test binaries are hash-bound.
 The combined cold-cache mint proof was subsequently qualified on `fd45cd0`
 as recorded above; these earlier composition results remain separate.
 Default selection remains legacy0; the live browser package stays `7ccd059`.
-Next: qualify the queued session-file storage fixes and continue
+Next: qualify the session temporary-file collision fix and continue
 investigating the remaining worker cost without changing the live default.
 
 S3w candidate `b349b2a` passes 172 selected launches covering 171 distinct

@@ -1,5 +1,9 @@
 # Architecture
 
+File-session path validation rejects ASCII-letter/colon prefixes under
+Windows rules before joining a user-derived filename to its owned directory.
+POSIX colon names and the earlier empty/separator/NUL checks are preserved.
+
 Credit-ledger parsing requires finite available credits and a finite sum of
 allocated credits before constructing a snapshot. Available-credit errors
 retain precedence. Overflowing allocation totals return the fixed error
