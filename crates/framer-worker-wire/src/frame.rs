@@ -134,8 +134,11 @@ impl FrameWriter {
                 }
             };
             if let Some(request) = next {
-                let result = write(&mut writer, &request.bytes).await;
-                let _ = request.reply.send(result.as_ref().map(|_| ()).map_err(|_| ()));
+                let WriteRequest { bytes, reply, _permit } = request;
+                let result = write(&mut writer, &bytes).await;
+                drop(bytes);
+                drop(_permit);
+                let _ = reply.send(result.as_ref().map(|_| ()).map_err(|_| ()));
                 result?;
             } else {
                 wake.await;

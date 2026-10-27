@@ -27,18 +27,29 @@ fn os_error(stage: ProcessStage, error: std::io::Error) -> ProcessError {
 pub(crate) struct ProcessExit {
     pub reaped: bool,
     pub channel_failed: bool,
+    pub cause: ProcessCause,
     pub stderr_bytes: u64,
-    pub stderr_discarded: u64,
+}
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum ChannelEnd { Eof, Io, Protocol, Task }
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum ProcessCause {
+    Stopped, Drained, ChildExited, WaitError, Reader(ChannelEnd), Writer(ChannelEnd),
 }
 
 /// Callback implementations must only perform bounded synchronous dispatch.
 pub(crate) type Dispatch = Arc<dyn Fn(Decoded<Message>) -> Result<(), WireError> + Send + Sync>;
 pub(crate) struct PolicyProcess {
     pub outbox: Outbox,
-    alive: watch::Sender<bool>,
-    stop: Option<oneshot::Sender<()>>,
+    control: ProcessControl,
     joined: JoinHandle<ProcessExit>,
     result: Option<Result<ProcessExit, ProcessError>>,
+}
+#[derive(Clone)]
+pub(crate) struct ProcessControl {
+    alive: watch::Sender<bool>,
+    stop: Arc<std::sync::Mutex<Option<oneshot::Sender<()>>>>,
+    drain: Arc<std::sync::Mutex<Option<oneshot::Sender<()>>>>,
 }
 
 fn verify(executable: &Executable) -> Result<File, ProcessError> {
@@ -112,16 +123,23 @@ impl PolicyProcess {
         let counts = Arc::new(StderrCount::default());
         let stderr = tokio::spawn(drain_stderr(stderr, counts.clone()));
         let (stop, stopped) = oneshot::channel();
+        let (drain, draining) = oneshot::channel();
         let (alive, _) = watch::channel(true);
         let joined = tokio::spawn(monitor(child, reader, writer, stderr,
-            counts, outbox.clone(), alive.clone(), stopped));
-        Self { outbox, alive, stop: Some(stop), joined, result: None }
+            counts, outbox.clone(), alive.clone(), stopped, draining));
+        let control = ProcessControl { alive,
+            stop: Arc::new(std::sync::Mutex::new(Some(stop))),
+            drain: Arc::new(std::sync::Mutex::new(Some(drain))) };
+        Self { outbox, control, joined, result: None }
     }
-    pub fn is_alive(&self) -> bool { *self.alive.borrow() }
-    pub fn subscribe(&self) -> watch::Receiver<bool> { self.alive.subscribe() }
+    pub fn is_alive(&self) -> bool { self.control.is_alive() }
+    pub fn subscribe(&self) -> watch::Receiver<bool> { self.control.alive.subscribe() }
+    pub fn control(&self) -> ProcessControl { self.control.clone() }
     pub fn request_stop(&mut self) {
-        self.alive.send_replace(false);
-        if let Some(stop) = self.stop.take() { let _ = stop.send(()); }
+        self.control.request_stop();
+    }
+    pub fn request_drain(&mut self) {
+        self.control.request_drain();
     }
     pub async fn join(&mut self) -> Result<ProcessExit, ProcessError> {
         if let Some(result) = &self.result { return result.clone(); }
@@ -151,27 +169,68 @@ impl PolicyProcess {
 impl Drop for PolicyProcess {
     fn drop(&mut self) { self.request_stop(); }
 }
+impl ProcessControl {
+    pub fn is_alive(&self) -> bool { *self.alive.borrow() }
+    pub fn request_stop(&self) {
+        self.alive.send_replace(false);
+        if let Some(sender) = self.stop.lock().unwrap_or_else(|e| e.into_inner()).take() {
+            let _ = sender.send(());
+        }
+    }
+    pub fn request_drain(&self) {
+        if let Some(sender) = self.drain.lock().unwrap_or_else(|e| e.into_inner()).take() {
+            let _ = sender.send(());
+        }
+    }
+}
 
 enum End {
     Stop,
+    Drained,
     Child(std::io::Result<std::process::ExitStatus>),
-    Reader,
-    Writer,
+    Reader(ChannelEnd),
+    Writer(ChannelEnd),
+}
+fn channel_end(result: Result<Result<(), WireError>, tokio::task::JoinError>) -> ChannelEnd {
+    match result {
+        Ok(Ok(())) => ChannelEnd::Eof,
+        Ok(Err(WireError::Io(_))) => ChannelEnd::Io,
+        Ok(Err(_)) => ChannelEnd::Protocol,
+        Err(_) => ChannelEnd::Task,
+    }
 }
 
 async fn monitor(mut child: Child, mut reader: JoinHandle<Result<(), WireError>>,
     mut writer: JoinHandle<Result<(), WireError>>, stderr: JoinHandle<()>,
     counts: Arc<StderrCount>, outbox: Outbox, alive: watch::Sender<bool>,
-    stopped: oneshot::Receiver<()>) -> ProcessExit {
+    mut stopped: oneshot::Receiver<()>, draining: oneshot::Receiver<()>) -> ProcessExit {
     let end = tokio::select! {
-        _ = stopped => End::Stop,
+        biased;
+        _ = &mut stopped => End::Stop,
+        _ = draining => drain_writer(&outbox, &mut child, &mut reader,
+            &mut writer, &mut stopped).await,
         result = child.wait() => End::Child(result),
-        _ = &mut reader => End::Reader,
-        _ = &mut writer => End::Writer,
+        result = &mut reader => End::Reader(channel_end(result)),
+        result = &mut writer => End::Writer(channel_end(result)),
     };
     alive.send_replace(false);
     outbox.poison();
     settle(child, reader, writer, stderr, counts, end).await
+}
+
+async fn drain_writer(outbox: &Outbox, child: &mut Child,
+    reader: &mut JoinHandle<Result<(), WireError>>,
+    writer: &mut JoinHandle<Result<(), WireError>>, stopped: &mut oneshot::Receiver<()>) -> End {
+    outbox.close();
+    tokio::select! {
+        biased;
+        _ = stopped => End::Stop,
+        result = writer => match channel_end(result) {
+            ChannelEnd::Eof => End::Drained, cause => End::Writer(cause),
+        },
+        result = child.wait() => End::Child(result),
+        result = reader => End::Reader(channel_end(result)),
+    }
 }
 
 async fn settle(mut child: Child, reader: JoinHandle<Result<(), WireError>>,
@@ -182,13 +241,21 @@ async fn settle(mut child: Child, reader: JoinHandle<Result<(), WireError>>,
         child.wait().await.is_ok()
     };
     // Cancellation here belongs to a dead/poisoned channel, never one op.
-    if !matches!(&end, End::Reader) { reader.abort(); let _ = reader.await; }
-    if !matches!(&end, End::Writer) { writer.abort(); let _ = writer.await; }
+    if !matches!(&end, End::Reader(_)) { reader.abort(); let _ = reader.await; }
+    if !matches!(&end, End::Writer(_) | End::Drained) { writer.abort(); let _ = writer.await; }
     stderr.abort();
     let _ = stderr.await;
     let observed = counts.read.load(Ordering::Relaxed);
-    ProcessExit { reaped, channel_failed: !matches!(end, End::Stop),
-        stderr_bytes: observed, stderr_discarded: observed }
+    let cause = match &end {
+        End::Stop => ProcessCause::Stopped,
+        End::Drained => ProcessCause::Drained,
+        End::Child(Ok(_)) => ProcessCause::ChildExited,
+        End::Child(Err(_)) => ProcessCause::WaitError,
+        End::Reader(cause) => ProcessCause::Reader(*cause),
+        End::Writer(cause) => ProcessCause::Writer(*cause),
+    };
+    ProcessExit { reaped, channel_failed: !matches!(end, End::Stop | End::Drained),
+        cause, stderr_bytes: observed }
 }
 
 async fn read_frames<R: AsyncRead + Unpin>(mut reader: R, dispatch: Dispatch)
@@ -217,3 +284,33 @@ async fn drain_stderr<R: AsyncRead + Unpin>(mut reader: R, count: Arc<StderrCoun
 #[cfg(test)]
 #[path = "policy_worker_tests.rs"]
 mod tests;
+
+#[cfg(test)]
+impl PolicyProcess {
+    // Manager state-machine fixture only. No child exists; `reaped` is a
+    // supplied outcome, not evidence about the production process monitor.
+    pub(crate) fn fixture(records: usize) -> (Self, oneshot::Sender<()>) {
+        let (outbox, writer) = Outbox::new(records).unwrap();
+        let (stop, stopped) = oneshot::channel();
+        let (drain, draining) = oneshot::channel();
+        let (exit, exited) = oneshot::channel();
+        let (alive, _) = watch::channel(true);
+        let control = ProcessControl { alive: alive.clone(),
+            stop: Arc::new(std::sync::Mutex::new(Some(stop))),
+            drain: Arc::new(std::sync::Mutex::new(Some(drain))) };
+        let queue = outbox.clone();
+        let joined = tokio::spawn(async move {
+            let cause = tokio::select! {
+                _ = stopped => ProcessCause::Stopped,
+                _ = draining => ProcessCause::Drained,
+                _ = exited => ProcessCause::ChildExited,
+            };
+            alive.send_replace(false);
+            queue.close();
+            let _ = writer.run(tokio::io::sink()).await;
+            ProcessExit { reaped: true, channel_failed: cause == ProcessCause::ChildExited,
+                cause, stderr_bytes: 0 }
+        });
+        (Self { outbox, control, joined, result: None }, exit)
+    }
+}

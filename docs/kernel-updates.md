@@ -154,10 +154,24 @@ Stderr is discarded through 4 KiB scratch. Counts cover observed bytes only;
 bytes still unread at teardown are unknown. OS errors retain a closed stage
 and numeric errno, without executable paths or raw error text.
 
-The manager must reserve Starting before launch and retain the process
-through its joined result. Drop requests teardown as a fallback; it does not
-certify retirement. Handshake, activation, generation pins, semantic credit,
-Forward verdicts and application shutdown attachment remain the next slices.
+The optional manager reserves Starting before launch and retains staging,
+retirement and shutdown through caller cancellation. It accepts one exact
+Hello, completes the Ready write, removes the settled writer slot, then
+checks process liveness under its lifecycle lock before publication.
+Activation and pin selection share that lock. Old Ready workers stay eligible
+for rollback until explicit retirement. At most two slots exist, including
+unconfirmed tombstones. Dead workers cannot become eligible through stale Ready.
+
+Retirement first excludes selection, then waits for final pins, drains the
+writer and joins the child. A final pin without explicit confirmation keeps
+the generation unconfirmed. The adapter must confirm only after worker Done
+or joined channel loss, local jobs and kernel Forward verdicts, and must put
+pin clones in every final Bytes owner. That adapter is still incomplete.
+Forced error shutdown reaps even with pins outstanding and retains the fence.
+Drop requests teardown only; library callers must await manager shutdown.
+The browser app now does so after application drain and before host shutdown.
+Semantic credit, Forward verdict attachment, the manager logger and real-child
+proofs remain unfinished. Synthetic process outcomes do not establish reaping.
 
 ## Reference evidence
 

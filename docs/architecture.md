@@ -1,5 +1,11 @@
 # Architecture
 
+The optional S3w manager owns at most two policy generations under the same
+AccountRuntime. Production construction, stage, activate and retire methods
+are now present, with retained joins and default legacy0 selection. Request
+pin attachment, the worker runner and real SSE switching remain incomplete;
+the manager source and its synthetic transition controls are unqualified.
+
 Free Responses SSE uses an awaited output sink. Policy transfers a validated
 chunk to one encoder and waits for its segments to enter the bounded body
 queue before receiving the same chunk owner and continuing the request.

@@ -38,6 +38,8 @@ pub(crate) struct OutputBudget {
     #[cfg(test)] fault: Mutex<Option<Fault>>,
 }
 impl OutputBudget {
+    // Called only while the runtime is exclusively owned, before any request.
+    pub(crate) fn construction_limit(&self) -> usize { self.slots.available_permits() }
     pub(crate) fn new(limit: usize) -> Self {
         Self { slots: Arc::new(Semaphore::new(limit)), metrics: Arc::new(Metrics::default()),
             #[cfg(test)] fault: Mutex::new(None) }

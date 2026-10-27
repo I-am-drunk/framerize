@@ -1,6 +1,26 @@
 # Development status
 
-The next S3w slice adds an owned child transport and a bounded fair writer.
+S3w now has an opt-in two-slot generation manager in the isolated overhaul
+branch. It owns staging through caller cancellation, checks Hello and the
+completed Ready write before publication, serializes activation with pin
+selection, and retains retirement and shutdown jobs. Explicit construction
+requires the existing operation owner and an unshared runtime. It creates
+no child or default worker selection. The SSE adapter is still incomplete.
+
+Graceful process shutdown drains accepted frames before stopping the child;
+error shutdown can interrupt that drain. Closed exit causes replace an
+undifferentiated channel failure. Frame acknowledgments follow disposal of
+the encoded allocation and slot guard. The browser app joins the manager
+after application drain and also reaps workers on seal or drain errors.
+
+New controls cover manager state transitions with a synthetic process
+verdict, empty-manager app shutdown, and synchronous slot removal at the
+writer acknowledgment. They are UNRUN and do not prove real-child retirement.
+Only source parsing and whitespace checks ran. Next: review this manager
+slice in the existing discussion, then attach the worker runner, kernel
+Forward adapter, final output owners and real-child transition fixtures.
+
+The preceding S3w slice adds an owned child transport and a bounded fair writer.
 Accepted frames survive operation-waiter cancellation. The process monitor
 marks channel loss, reaps the child and joins reader/writer/stderr tasks.
 Launch hashes and executes one retained ELF descriptor, clears the environment
@@ -8,9 +28,8 @@ and applies CLOEXEC above stderr; unsupported close_range fails closed.
 Ten new inert controls cover queue failure/fairness, descriptor identity,
 bounded dispatch and stderr counting. They remain UNRUN, as do all prior
 S3w fixtures. Only whitespace and source syntax checks ran in this lane.
-There is no manager attachment, worker launch or route selection yet.
-Next: obtain the same-discussion process review and connect the manager's
-Starting reservation, generation selection/pinning and joined retirement.
+Its source review is accepted. No worker launch or route selection has been
+qualified; the manager and remaining request adapter still need that evidence.
 
 S3w source work starts on qualified `3a62a24` in the isolated overhaul lane.
 The first slice adds a dependency leaf for bounded frames, strict typed

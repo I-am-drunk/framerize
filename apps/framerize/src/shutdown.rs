@@ -6,7 +6,6 @@ pub async fn serve(state: AppState, web_dir: &str, addr: SocketAddr,
 ) -> Result<(), String> {
     let ownership = state.operation_ownership.clone()
         .ok_or("application request ownership is unavailable")?;
-    let browser = state.browser.clone();
     let sealing = ownership.clone();
     let (sender, receiver) = tokio::sync::oneshot::channel();
     // Retain the runtime, including the private-store lock, through host join.
@@ -15,9 +14,8 @@ pub async fn serve(state: AppState, web_dir: &str, addr: SocketAddr,
         let _ = sender.send(sealing.seal());
     }).await;
     // Bind failure drops the signal future. Startup work still needs draining.
-    let ticket = receiver.await.unwrap_or_else(|_| ownership.seal())
-        .map_err(|error| format!("shutdown admission: {error:?}"))?;
-    let closed = close_browser(browser, ticket).await;
+    let ticket = receiver.await.unwrap_or_else(|_| ownership.seal());
+    let closed = close_browser(&state, ticket).await;
     match (result, closed) {
         (Ok(()), closed) => closed,
         (Err(error), Ok(())) => Err(error.to_string()),
@@ -28,16 +26,32 @@ pub async fn serve(state: AppState, web_dir: &str, addr: SocketAddr,
 pub async fn close(state: AppState) -> Result<(), String> {
     let ownership = state.operation_ownership.as_ref()
         .ok_or("application request ownership is unavailable")?;
-    let ticket = ownership.seal().map_err(|error| format!("shutdown admission: {error:?}"))?;
-    close_browser(state.browser.clone(), ticket).await
+    close_browser(&state, ownership.seal()).await
 }
 
-async fn close_browser(browser: std::sync::Arc<dyn framer_core::port::BrowserBridge>,
-    mut ticket: framer_core::operation_gate::DrainTicket,
+async fn close_browser(state: &AppState,
+    ticket: Result<framer_core::operation_gate::DrainTicket, framer_core::operation_gate::GateError>,
 ) -> Result<(), String> {
-    let _drained = ticket.wait_application().await
-        .map_err(|error| format!("shutdown drain: {error:?}"))?;
-    browser.shutdown().await
+    let mut ticket = match ticket {
+        Ok(ticket) => ticket,
+        Err(error) => { let _ = reap_workers(state, true).await;
+            return Err(format!("shutdown admission: {error:?}")); }
+    };
+    let _drained = match ticket.wait_application().await {
+        Ok(drained) => drained,
+        Err(error) => { let _ = reap_workers(state, true).await;
+            return Err(format!("shutdown drain: {error:?}")); }
+    };
+    reap_workers(state, false).await?;
+    state.browser.shutdown().await
+}
+
+async fn reap_workers(state: &AppState, force: bool) -> Result<(), String> {
+    match state.policy_generations() {
+        Some(manager) => manager.shutdown(force).await
+            .map_err(|error| format!("shutdown policy workers: {error:?}")),
+        None => Ok(()),
+    }
 }
 
 #[cfg(test)]

@@ -26,6 +26,32 @@ async fn outbox_bounds_records_and_refuses_stale_slot_reuse() {
 
 fn text(value: &str) -> Text { Text::new(value.into()).unwrap() }
 
+struct AckObserver { slot: WriteSlot, removed: std::sync::atomic::AtomicBool }
+impl std::task::Wake for AckObserver {
+    fn wake(self: Arc<Self>) {
+        // oneshot invokes this on send, before FrameWriter can do later work.
+        self.slot.outbox.remove(&self.slot).expect("ack still owned its slot");
+        self.removed.store(true, std::sync::atomic::Ordering::SeqCst);
+    }
+}
+#[tokio::test]
+async fn success_ack_is_a_safe_synchronous_slot_removal_point() {
+    use std::future::Future;
+    let (outbox, writer) = Outbox::new(1).unwrap();
+    let slot = outbox.register(0).unwrap();
+    let observer = Arc::new(AckObserver { slot: slot.clone(),
+        removed: std::sync::atomic::AtomicBool::new(false) });
+    let message = Message::Ready { generation: 1 };
+    let mut sending = Box::pin(slot.send(&message));
+    let waker = std::task::Waker::from(observer.clone());
+    let mut context = std::task::Context::from_waker(&waker);
+    assert!(sending.as_mut().poll(&mut context).is_pending());
+    outbox.close();
+    writer.run(tokio::io::sink()).await.unwrap();
+    sending.await.unwrap();
+    assert!(observer.removed.load(std::sync::atomic::Ordering::SeqCst));
+}
+
 #[tokio::test]
 async fn cancelled_waiter_keeps_its_partial_frame_and_next_frame_intact() {
     let (outbox, writer) = Outbox::new(2).unwrap();

@@ -26,6 +26,7 @@ impl std::ops::Deref for AppState {
 /// Public port handles preserve legacy application wiring. AppState exposes
 /// only shared access; configuring owners after sharing is rejected.
 pub struct AccountRuntime {
+    pub(crate) policy_generations: Option<Arc<crate::policy_generations::GenerationManager>>,
     pub(crate) response_output: Arc<crate::response_output::OutputBudget>,
     /// Explicit application ownership; no default activation.
     pub operation_ownership: Option<Arc<ServingOwnership>>,
@@ -42,6 +43,9 @@ pub struct AccountRuntime {
 }
 
 impl AccountRuntime {
+    pub fn policy_generations(&self) -> Option<&Arc<crate::policy_generations::GenerationManager>> {
+        self.policy_generations.as_ref()
+    }
     /// Explicit bounded admission for library callers without operation ownership.
     pub fn with_response_output_limit(mut self, limit: usize)
         -> Result<Self, crate::operation_ownership::OwnershipConfigError> {
@@ -63,6 +67,7 @@ impl AccountRuntime {
         serving_accounts: ServingAccountPolicy,
     ) -> Self {
         Self {
+            policy_generations: None,
             response_output: Arc::new(crate::response_output::OutputBudget::new(
                 crate::response_output::DEFAULT_UNOWNED_OUTPUT_LIMIT)),
             operation_ownership: None,
@@ -82,6 +87,7 @@ impl AppState {
         serving_accounts: ServingAccountPolicy, gate: framer_core::gate::ConcurrencyGate,
     ) -> Self {
         Self::new(Arc::new(AccountRuntime {
+            policy_generations: None,
             response_output: Arc::new(crate::response_output::OutputBudget::new(
                 crate::response_output::DEFAULT_UNOWNED_OUTPUT_LIMIT)),
             operation_ownership: None, client, browser, sessions, state,
