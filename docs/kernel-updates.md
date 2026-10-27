@@ -1,5 +1,16 @@
 # Kernel and application updates
 
+Worker Data uses the same two downstream slots as legacy0. A synchronous
+reader dispatch reserves actual wire bytes, one slot and 16 KiB downstream
+before retaining a frame. Body acceptance advances the exclusive event
+frontier only on last=true. The final Bytes owner drops its allocation and
+slot before making S/D credit returnable; that owner also retains the pin.
+One thin credit record accumulates returns, and an owned writer task sends
+them in bounded frames. Done closes the body sender first and still allows
+late credit returns. Channel loss grants no further credit. Fixed boundary
+failure and partial-event abort reuse the existing S3a encoder path.
+These adapters are not yet connected to router dispatch or qualified.
+
 Kernel invocation records capture the optional saturation callback with the
 accepted Forward. Receiving Saturated applies it before Ack, at most once for
 that 429; an unacknowledged effect blocks the next Forward. The nine-effect

@@ -1,8 +1,200 @@
 //! Manager ordering controls with a synthetic process verdict, not OS reap proofs.
 use super::*;
 use std::time::Duration;
+use crate::response_output::{OutputBudget, WorkerOutput, WORKER_OUTPUT};
+use framer_worker_wire::{credit::Capacity, message::{DataKind, DoneOutcome, Segment}};
+use futures::StreamExt;
 
 const BOUND: Duration = Duration::from_secs(2);
+fn output_fixture() -> (Arc<GenerationManager>, GenerationPin, OutputBudget, WorkerOutput, oneshot::Sender<()>) {
+    let manager = manager(2);
+    let (generation, exit) = ready(&manager);
+    manager.activate(generation).unwrap();
+    let pin = manager.select().unwrap().unwrap();
+    let budget = OutputBudget::new(1);
+    let output = WorkerOutput::reserve(&budget, pin.clone()).unwrap();
+    (manager, pin, budget, output, exit)
+}
+async fn credit_frame(reader: &mut tokio::io::DuplexStream) -> Message {
+    tokio::time::timeout(BOUND, framer_worker_wire::frame::read(reader))
+        .await.unwrap().unwrap().unwrap().message
+}
+#[tokio::test]
+async fn worker_output_keeps_disposal_credit_and_pin_after_eof_and_body_drop() {
+    let (manager, pin, budget, output, _exit) = output_fixture();
+    let WorkerOutput { publisher, mut body, cancel, .. } = output;
+    let (outbox, writer) = Outbox::new(1).unwrap();
+    let slot = outbox.register(1).unwrap();
+    let (write, mut read) = tokio::io::duplex(4096);
+    let writer = tokio::spawn(writer.run(write));
+    let (_alive, alive) = watch::channel(true);
+    let credit = publisher.credit.clone();
+    let returned = tokio::spawn(async move { credit.run(7, slot, alive).await });
+    publisher.head(200, "text/event-stream").unwrap();
+    publisher.data(DataKind::Opening, 0, Segment::new(b"first".to_vec()).unwrap(), true, 100).unwrap();
+    assert_eq!(credit_frame(&mut read).await, Message::Credit { op: 7,
+        returned: Capacity { wire_bytes: 100, ..Capacity::default() }, accepted_event_seq: 1 });
+    let first = body.next().await.unwrap().unwrap();
+    let retained = first.clone(); drop(first);
+    publisher.done(DoneOutcome::Cancelled).unwrap();
+    assert!(body.next().await.is_none());
+    drop(body);
+    assert!(cancel.is_cancelled());
+    assert_eq!(publisher.credit.accounting().0.downstream_bytes, 16384);
+    assert!(!returned.is_finished());
+    assert_eq!(manager.snapshot().unwrap()[0].pins, 1);
+    drop(retained);
+    assert_eq!(credit_frame(&mut read).await, Message::Credit { op: 7,
+        returned: Capacity { slots: 1, downstream_bytes: 16384, wire_bytes: 0 }, accepted_event_seq: 1 });
+    tokio::time::timeout(BOUND, returned).await.unwrap().unwrap().unwrap();
+    publisher.disposed().await; drop(publisher);
+    assert_eq!(budget.counts(), (0, 0, 0));
+    outbox.close(); writer.await.unwrap().unwrap();
+    pin.confirm(); drop(pin);
+    manager.shutdown(false).await.unwrap();
+}
+#[tokio::test]
+async fn worker_empty_frames_exhaust_slots_before_another_allocation() {
+    let (manager, pin, budget, output, _exit) = output_fixture();
+    output.publisher.head(200, "text/event-stream").unwrap();
+    for seq in 0..2 {
+        output.publisher.data(DataKind::Opening, seq, Segment::new(vec![]).unwrap(), true, 100).unwrap();
+    }
+    let held = output.publisher.credit.accounting().0;
+    assert_eq!(held.slots, WORKER_OUTPUT.slots);
+    assert_eq!(held.downstream_bytes, WORKER_OUTPUT.downstream_bytes);
+    assert_eq!(held.wire_bytes, 200);
+    assert!(output.publisher.data(DataKind::Heartbeat, 2,
+        Segment::new(vec![]).unwrap(), true, 100).is_err());
+    assert_eq!(output.publisher.credit.accounting().0, held);
+    output.publisher.credit.fail();
+    drop(output);
+    assert_eq!(budget.counts(), (0, 0, 0));
+    pin.confirm(); drop(pin);
+    manager.shutdown(false).await.unwrap();
+}
+#[tokio::test]
+async fn worker_output_rejects_unheaded_skipped_and_unauthorized_terminal_data() {
+    for (headed, kind, seq) in [(false, DataKind::Opening, 0),
+        (true, DataKind::Opening, 1), (true, DataKind::Terminal, 0)] {
+        let (manager, pin, budget, output, _exit) = output_fixture();
+        if headed { output.publisher.head(200, "text/event-stream").unwrap(); }
+        assert!(output.publisher.data(kind, seq, Segment::new(vec![1]).unwrap(), true, 100).is_err());
+        assert_eq!(output.publisher.credit.accounting().0, Capacity::default());
+        drop(output); assert_eq!(budget.counts(), (0, 0, 0));
+        pin.confirm(); drop(pin); manager.shutdown(false).await.unwrap();
+    }
+    let (manager, pin, _, output, _exit) = output_fixture();
+    output.publisher.head(200, "text/event-stream").unwrap();
+    for seq in 0..2 {
+        output.publisher.data(DataKind::Opening, seq, Segment::new(vec![1]).unwrap(), true, 100).unwrap();
+    }
+    assert!(output.publisher.data(DataKind::Terminal, 2,
+        Segment::new(vec![1]).unwrap(), true, 100).is_err());
+    drop(output); pin.confirm(); drop(pin); manager.shutdown(false).await.unwrap();
+}
+#[tokio::test]
+async fn worker_loss_at_event_boundary_emits_fixed_failure_without_reopening_a_fence() {
+    let (manager, pin, budget, output, _exit) = output_fixture();
+    let WorkerOutput { publisher, mut body, .. } = output;
+    publisher.head(200, "text/event-stream").unwrap();
+    for seq in 0..2 {
+        publisher.data(DataKind::Opening, seq, Segment::new(vec![1]).unwrap(), true, 100).unwrap();
+        drop(body.next().await.unwrap().unwrap());
+    }
+    pin.unconfirmed();
+    publisher.channel_lost().await;
+    let bytes = body.next().await.unwrap().unwrap();
+    let text = std::str::from_utf8(&bytes).unwrap();
+    assert!(text.contains("response.failed"));
+    assert!(text.contains("upstream operation task failed"));
+    assert!(text.contains("\"sequence_number\":2"));
+    drop(bytes); assert!(body.next().await.is_none()); drop(body);
+    publisher.disposed().await; drop(publisher); drop(pin);
+    assert_eq!(budget.counts(), (0, 0, 0));
+    assert_eq!(manager.shutdown(false).await, Err(GenerationError::Unconfirmed));
+}
+#[tokio::test]
+async fn worker_loss_mid_event_aborts_body_without_appending_an_error_event() {
+    let (manager, pin, budget, output, _exit) = output_fixture();
+    let WorkerOutput { publisher, mut body, .. } = output;
+    publisher.head(200, "text/event-stream").unwrap();
+    publisher.data(DataKind::Opening, 0, Segment::new(b"partial".to_vec()).unwrap(), false, 100).unwrap();
+    assert_eq!(publisher.credit.accounting().2, 0);
+    let bytes = body.next().await.unwrap().unwrap();
+    assert_eq!(&bytes[..], b"partial"); drop(bytes);
+    pin.unconfirmed();
+    publisher.channel_lost().await;
+    assert!(body.next().await.unwrap().is_err());
+    assert!(body.next().await.is_none());
+    drop(body); publisher.disposed().await; drop(publisher); drop(pin);
+    assert_eq!(budget.counts(), (0, 0, 0));
+    assert_eq!(manager.shutdown(false).await, Err(GenerationError::Unconfirmed));
+}
+#[tokio::test]
+async fn worker_acceptance_waits_for_last_segment_but_not_for_body_polling() {
+    let (manager, pin, _, output, _exit) = output_fixture();
+    let WorkerOutput { publisher, mut body, published, .. } = output;
+    let (outbox, writer) = Outbox::new(1).unwrap();
+    let slot = outbox.register(1).unwrap();
+    let (write, mut read) = tokio::io::duplex(4096);
+    let writer = tokio::spawn(writer.run(write));
+    let (_alive, alive) = watch::channel(true);
+    let credit = publisher.credit.clone();
+    let returned = tokio::spawn(async move { credit.run(7, slot, alive).await });
+    publisher.head(200, "text/event-stream").unwrap();
+    for last in [false, true] {
+        publisher.data(DataKind::Opening, 0, Segment::new(vec![1]).unwrap(), last, 100).unwrap();
+        assert_eq!(credit_frame(&mut read).await, Message::Credit { op: 7,
+            returned: Capacity { wire_bytes: 100, ..Capacity::default() },
+            accepted_event_seq: if last { 1 } else { 0 } });
+    }
+    assert!(!published.load(Ordering::SeqCst));
+    publisher.done(DoneOutcome::Cancelled).unwrap();
+    for _ in 0..2 {
+        drop(body.next().await.unwrap().unwrap());
+        assert_eq!(credit_frame(&mut read).await, Message::Credit { op: 7,
+            returned: Capacity { slots: 1, downstream_bytes: 16384, wire_bytes: 0 }, accepted_event_seq: 1 });
+    }
+    assert!(body.next().await.is_none()); drop(body);
+    tokio::time::timeout(BOUND, returned).await.unwrap().unwrap().unwrap();
+    publisher.disposed().await; drop(publisher);
+    outbox.close(); writer.await.unwrap().unwrap();
+    pin.confirm(); drop(pin); manager.shutdown(false).await.unwrap();
+}
+#[tokio::test]
+async fn worker_terminal_requires_authorization_and_loss_after_it_adds_nothing() {
+    let (manager, pin, _, output, _exit) = output_fixture();
+    let WorkerOutput { publisher, mut body, .. } = output;
+    let (outbox, writer) = Outbox::new(1).unwrap();
+    let slot = outbox.register(1).unwrap();
+    let (write, mut read) = tokio::io::duplex(4096);
+    let writer = tokio::spawn(writer.run(write));
+    let (_alive, alive) = watch::channel(true);
+    let credit = publisher.credit.clone();
+    let returned = tokio::spawn(async move { credit.run(7, slot, alive).await });
+    publisher.head(200, "text/event-stream").unwrap();
+    for seq in 0..2 {
+        publisher.data(DataKind::Opening, seq, Segment::new(vec![1]).unwrap(), true, 100).unwrap();
+        let _wire = credit_frame(&mut read).await;
+        drop(body.next().await.unwrap().unwrap());
+        let _disposed = credit_frame(&mut read).await;
+    }
+    assert!(publisher.data(DataKind::Terminal, 2, Segment::new(vec![2]).unwrap(), true, 100).is_err());
+    publisher.allow_finish().unwrap();
+    assert!(publisher.done(DoneOutcome::Completed).is_err());
+    publisher.data(DataKind::Terminal, 2, Segment::new(vec![2]).unwrap(), true, 100).unwrap();
+    let _wire = credit_frame(&mut read).await;
+    publisher.done(DoneOutcome::Completed).unwrap();
+    let terminal = body.next().await.unwrap().unwrap();
+    assert_eq!(&terminal[..], &[2]); drop(terminal);
+    let _disposed = credit_frame(&mut read).await;
+    tokio::time::timeout(BOUND, returned).await.unwrap().unwrap().unwrap();
+    publisher.channel_lost().await;
+    assert!(body.next().await.is_none()); drop(body); drop(publisher);
+    outbox.close(); writer.await.unwrap().unwrap();
+    pin.confirm(); drop(pin); manager.shutdown(false).await.unwrap();
+}
 fn log_context() -> LogContext {
     LogContext { generation: 7, op: 11, request: uuid::Uuid::from_u128(13),
         operation: uuid::Uuid::from_u128(17) }

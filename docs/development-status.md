@@ -1,5 +1,12 @@
 # Development status
 
+The worker output adapter now uses the existing two-slot SSE reservation.
+Its last Bytes owner retains the generation pin and returns one slot plus
+16 KiB of downstream credit. Accepted-event credit advances at body enqueue;
+EOF does not wait for disposal. Seven new in-memory controls are UNRUN.
+The kernel invocation records have source approval. Next: attach the bounded
+reader dispatch and invocation adapter to the real free Responses router.
+
 The kernel invocation record now binds each Forward to its operation,
 invocation and captured saturation callback. Result closes dispatch and waits
 for accepted effects before resolving a bounded Summary or a kernel-classified

@@ -6,9 +6,15 @@ use futures::{future::BoxFuture, Stream};
 use std::{io::{self, Write}, pin::Pin, sync::{Mutex, atomic::{AtomicUsize, Ordering}},
     task::{Context, Poll}, time::{Duration, Instant}};
 use tokio::sync::{mpsc, oneshot, watch, Notify, OwnedSemaphorePermit, Semaphore};
+use framer_worker_wire::{credit::{Capacity, Window, data_cost, DATA_WIRE_RESERVE},
+    frame::{self, WriteSlot}, message::{self as wire, Message}, WireError};
 
 const SEGMENT: usize = 16 * 1024;
 const OUTPUT_SLOTS: usize = 2;
+pub(crate) const WORKER_OUTPUT: Capacity = Capacity {
+    wire_bytes: DATA_WIRE_RESERVE * OUTPUT_SLOTS as u64,
+    slots: OUTPUT_SLOTS as u64, downstream_bytes: (SEGMENT * OUTPUT_SLOTS) as u64,
+};
 pub(crate) const DEFAULT_UNOWNED_OUTPUT_LIMIT: usize = 256;
 
 #[derive(Default)]
@@ -95,7 +101,7 @@ impl Cancel {
     }
 }
 struct Queued { data: bytes::Bytes, content: bool, lease: Arc<Lease> }
-struct OutputBody {
+pub(crate) struct OutputBody {
     receiver: mpsc::Receiver<Queued>, cancel: watch::Sender<bool>,
     aborted: Arc<std::sync::atomic::AtomicBool>, failed: bool,
 }
@@ -131,6 +137,11 @@ impl Drop for Buffer {
 struct Segment { buffer: Buffer, sequence: u64, content: bool, last: bool }
 
 struct OwnedBytes { buffer: Option<Buffer>, lease: Arc<Lease>, slot: Option<OwnedSemaphorePermit> }
+struct WorkerBytes {
+    // Field order disposes bytes/slot before returning credit and dropping the pin.
+    inner: OwnedBytes, _credit: CreditReturn, _pin: crate::policy_generations::GenerationPin,
+}
+impl AsRef<[u8]> for WorkerBytes { fn as_ref(&self) -> &[u8] { self.inner.as_ref() } }
 impl AsRef<[u8]> for OwnedBytes { fn as_ref(&self) -> &[u8] { &self.buffer.as_ref().unwrap().bytes } }
 impl Drop for OwnedBytes {
     fn drop(&mut self) {
@@ -163,12 +174,22 @@ impl Publisher {
         self.accept(segment, slot)
     }
     fn accept(&mut self, segment: Segment, slot: OwnedSemaphorePermit) -> Result<(), OutputError> {
+        self.accept_retained(segment, slot, None)
+    }
+    fn accept_retained(&mut self, segment: Segment, slot: OwnedSemaphorePermit,
+        retention: Option<(CreditReturn, crate::policy_generations::GenerationPin)>)
+        -> Result<(), OutputError> {
         let (content, last) = (segment.content, segment.last);
         self.lease.metrics.output_bytes.add(segment.buffer.bytes.capacity());
         self.lease.metrics.output_slots.add(1);
         self.lease.live_output.fetch_add(1, Ordering::SeqCst);
-        let data = bytes::Bytes::from_owner(OwnedBytes {
-            buffer: Some(segment.buffer), lease: self.lease.clone(), slot: Some(slot) });
+        let owner = OwnedBytes {
+            buffer: Some(segment.buffer), lease: self.lease.clone(), slot: Some(slot) };
+        let data = match retention {
+            Some((credit, pin)) => bytes::Bytes::from_owner(WorkerBytes {
+                inner: owner, _credit: credit, _pin: pin }),
+            None => bytes::Bytes::from_owner(owner),
+        };
         self.sender.as_ref().ok_or(OutputError::Closed)?.try_send(Queued {
             data, content, lease: self.lease.clone(),
         }).map_err(|_| OutputError::Closed)?;
@@ -584,6 +605,219 @@ impl FreeRequest {
                 .field("finish_reason", result.status.as_str()).outcome("ok").emit(),
             Err(error) => event.error(&error.to_string()).emit(),
         }
+    }
+}
+
+struct CreditState {
+    window: Window, pending: Capacity, accepted: u64, sent: u64,
+    done: bool, failed: bool,
+}
+struct WorkerOutputState {
+    publisher: Option<Publisher>, received: u64, kind: Option<wire::DataKind>,
+    head: bool, finish_allowed: bool, terminal: bool,
+}
+pub(crate) struct WorkerPublisher {
+    state: Mutex<WorkerOutputState>, pub credit: Arc<WorkerCredit>, lease: Arc<Lease>,
+    pin: crate::policy_generations::GenerationPin,
+}
+pub(crate) struct WorkerOutput {
+    pub publisher: Arc<WorkerPublisher>, pub body: OutputBody,
+    pub cancel: Cancel, pub published: Arc<std::sync::atomic::AtomicBool>,
+}
+impl WorkerOutputState {
+    fn receive(&mut self, event: wire::DataKind, seq: u64, last: bool) -> Result<(), WireError> {
+        if !self.head || self.terminal || seq != self.received
+            || self.kind.is_some_and(|kind| kind != event)
+            || (event == wire::DataKind::Opening) != (seq < 2)
+            || (event == wire::DataKind::Terminal && !self.finish_allowed) {
+            return Err(WireError::Protocol);
+        }
+        if last { self.received = seq.checked_add(1).ok_or(WireError::Protocol)?; }
+        self.kind = if last { None } else { Some(event) };
+        Ok(())
+    }
+}
+impl WorkerPublisher {
+    /// Called by the single reader. Never waits for the body or a credit write.
+    pub(crate) fn data(&self, event: wire::DataKind, seq: u64, bytes: wire::Segment,
+        last: bool, wire_bytes: u64) -> Result<(), WireError> {
+        let mut state = self.state.lock().map_err(|_| WireError::Protocol)?;
+        state.receive(event, seq, last)?;
+        let credit = self.credit.receive(wire_bytes)?;
+        let publisher = state.publisher.as_mut().ok_or(WireError::Protocol)?;
+        if publisher.cancel.is_cancelled() {
+            drop(bytes);
+            drop(credit);
+            return Ok(());
+        }
+        let bytes = bytes.into_vec();
+        if bytes.capacity() > SEGMENT { return Err(WireError::Credit); }
+        let slot = self.lease.output.clone().try_acquire_owned().map_err(|_| WireError::Credit)?;
+        self.lease.metrics.bytes.add(bytes.capacity());
+        self.lease.metrics.buffers.add(1);
+        let content = event == wire::DataKind::Content && !bytes.is_empty();
+        let segment = Segment { buffer: Buffer { bytes, metrics: self.lease.metrics.clone() },
+            sequence: seq, content, last };
+        match publisher.accept_retained(segment, slot, Some((credit, self.pin.clone()))) {
+            Ok(()) => {
+                if last { self.credit.accepted(publisher.next_sequence)?; }
+                if event == wire::DataKind::Terminal && last { state.terminal = true; }
+                Ok(())
+            }
+            Err(_) if publisher.cancel.is_cancelled() => Ok(()),
+            Err(_) => Err(WireError::Protocol),
+        }
+    }
+    pub(crate) fn head(&self, status: u16, content_type: &str) -> Result<(), WireError> {
+        let mut state = self.state.lock().map_err(|_| WireError::Protocol)?;
+        if state.head || status != 200 || content_type != "text/event-stream" {
+            return Err(WireError::Protocol);
+        }
+        state.head = true;
+        Ok(())
+    }
+    pub(crate) fn allow_finish(&self) -> Result<(), WireError> {
+        let mut state = self.state.lock().map_err(|_| WireError::Protocol)?;
+        if !state.head || state.finish_allowed { return Err(WireError::Protocol); }
+        state.finish_allowed = true;
+        Ok(())
+    }
+    pub(crate) async fn disposed(&self) { self.lease.wait_disposed().await; }
+    pub(crate) fn done(&self, outcome: wire::DoneOutcome) -> Result<(), WireError> {
+        let mut state = self.state.lock().map_err(|_| WireError::Protocol)?;
+        if !state.head || outcome == wire::DoneOutcome::Panicked
+            || (outcome == wire::DoneOutcome::Completed && !state.terminal) {
+            return Err(WireError::Protocol);
+        }
+        let publisher = state.publisher.as_mut().ok_or(WireError::Protocol)?;
+        if publisher.sender.take().is_none() { return Err(WireError::Protocol); }
+        // Body EOF is independent of both final credit writes and Bytes disposal.
+        self.credit.done();
+        Ok(())
+    }
+    pub(crate) async fn channel_lost(&self) {
+        self.credit.fail();
+        let (publisher, terminal) = {
+            let mut state = self.state.lock().unwrap_or_else(|e| e.into_inner());
+            (state.publisher.take(), state.terminal)
+        };
+        let Some(publisher) = publisher else { return; };
+        let (_, commands) = mpsc::channel(1);
+        let mut heartbeat = tokio::time::interval_at(tokio::time::Instant::now()
+            + Duration::from_secs(8), Duration::from_secs(8));
+        heartbeat.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+        let mut emitter = Emitter { publisher, encoder: None, commands, heartbeat,
+            pending_heartbeat: false };
+        if !terminal { emitter.fail_fixed("upstream operation task failed").await; }
+        emitter.publisher.sender.take();
+    }
+}
+impl WorkerOutput {
+    pub(crate) fn reserve(budget: &OutputBudget, pin: crate::policy_generations::GenerationPin)
+        -> Result<Self, ApiError> {
+        let lease = budget.reserve()?;
+        let (sender, receiver) = mpsc::channel(OUTPUT_SLOTS);
+        let (cancel, cancelled) = watch::channel(false);
+        let cancelled = Cancel(cancelled);
+        let aborted = Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let published = Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let publisher = Publisher { sender: Some(sender), lease: lease.clone(), cancel: cancelled.clone(),
+            next_sequence: 0, partial: false, content_published: published.clone(), aborted: aborted.clone() };
+        Ok(Self { body: OutputBody { receiver, cancel, aborted, failed: false },
+            cancel: cancelled, published, publisher: Arc::new(WorkerPublisher {
+                state: Mutex::new(WorkerOutputState { publisher: Some(publisher), received: 0,
+                    kind: None, head: false, finish_allowed: false, terminal: false }),
+                credit: WorkerCredit::new(), lease, pin,
+            }) })
+    }
+}
+pub(crate) struct WorkerCredit { state: Mutex<CreditState>, changed: Notify }
+impl WorkerCredit {
+    #[cfg(test)]
+    pub(crate) fn accounting(&self) -> (Capacity, Capacity, u64) {
+        let state = self.state.lock().unwrap();
+        (state.window.outstanding(), state.pending, state.accepted)
+    }
+    async fn send_returns(&self, op: u64, slot: &WriteSlot, alive: &mut watch::Receiver<bool>)
+        -> Result<(), WireError> {
+        loop {
+            let changed = self.changed.notified();
+            let pending = {
+                let state = self.state.lock().map_err(|_| WireError::Protocol)?;
+                if state.failed || !*alive.borrow() { return Err(WireError::Protocol); }
+                if state.done && state.window.outstanding() == Capacity::default() { return Ok(()); }
+                state.pending != Capacity::default() || state.sent != state.accepted
+            };
+            if !pending {
+                tokio::select! { _ = changed => {}, _ = alive.changed() => {} }
+                continue;
+            }
+            let permit = tokio::select! {
+                permit = slot.reserve() => permit?,
+                _ = alive.changed() => continue,
+            };
+            let receipt = {
+                let mut state = self.state.lock().map_err(|_| WireError::Protocol)?;
+                if state.failed || !*alive.borrow() { return Err(WireError::Protocol); }
+                let returned = state.pending;
+                let bytes = frame::encode(&Message::Credit { op, returned,
+                    accepted_event_seq: state.accepted })?;
+                let receipt = permit.enqueue_encoded(bytes)?;
+                state.window.release(returned)?;
+                state.pending = Capacity::default();
+                state.sent = state.accepted;
+                receipt
+            };
+            receipt.wait().await?; // The owning writer completes every accepted frame.
+        }
+    }
+    fn accepted(&self, next: u64) -> Result<(), WireError> {
+        let mut state = self.state.lock().map_err(|_| WireError::Protocol)?;
+        if next != state.accepted.checked_add(1).ok_or(WireError::Credit)? {
+            return Err(WireError::Credit);
+        }
+        state.accepted = next;
+        self.changed.notify_one();
+        Ok(())
+    }
+    fn done(&self) {
+        self.state.lock().unwrap_or_else(|e| e.into_inner()).done = true;
+        self.changed.notify_one();
+    }
+    pub(crate) fn fail(&self) {
+        self.state.lock().unwrap_or_else(|e| e.into_inner()).failed = true;
+        self.changed.notify_one();
+    }
+    pub(crate) async fn run(&self, op: u64, slot: WriteSlot, mut alive: watch::Receiver<bool>)
+        -> Result<(), WireError> {
+        let result = self.send_returns(op, &slot, &mut alive).await;
+        if result.is_err() { self.fail(); }
+        result
+    }
+    fn new() -> Arc<Self> {
+        Arc::new(Self { state: Mutex::new(CreditState {
+            window: Window::new(WORKER_OUTPUT).expect("fixed nonzero credit"),
+            pending: Capacity::default(), accepted: 0, sent: 0, done: false, failed: false,
+        }), changed: Notify::new() })
+    }
+    fn receive(self: &Arc<Self>, wire_bytes: u64) -> Result<CreditReturn, WireError> {
+        let mut state = self.state.lock().map_err(|_| WireError::Protocol)?;
+        if state.done || state.failed || wire_bytes == 0 || wire_bytes > DATA_WIRE_RESERVE {
+            return Err(WireError::Credit);
+        }
+        state.window.reserve(data_cost(wire_bytes))?;
+        state.pending.wire_bytes += wire_bytes;
+        self.changed.notify_one();
+        Ok(CreditReturn(self.clone()))
+    }
+}
+struct CreditReturn(Arc<WorkerCredit>);
+impl Drop for CreditReturn {
+    fn drop(&mut self) {
+        let mut state = self.0.state.lock().unwrap_or_else(|e| e.into_inner());
+        state.pending.slots += 1;
+        state.pending.downstream_bytes += SEGMENT as u64;
+        self.0.changed.notify_one();
     }
 }
 
