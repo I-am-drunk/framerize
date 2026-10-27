@@ -1,3 +1,19 @@
+# Offline review packet pilot, 2026-10-27
+
+The separate `feat/offline-review-pilot-20261027` topic starts at PR13's
+source-reviewed11b49fa. Its local-only CLI binds normalized PR diffs to exact
+head/base pins and explicit model settings, then checks result identity,
+coverage declarations and changed-line findings. Eight focused tests pass,
+including command entry points and FIFO refusal. No model, GitHub API,
+container, service or publisher is invoked by this code. The output explicitly
+carries no runtime verification or authority. No PR-Agent image was installed.
+
+The independent PR13 R2 review accepted11b49fa with no new source findings.
+Its private-runner admission and real CI evidence remain unverified. The
+accepted commit stays unchanged. See `offline-review-pilot.md` for this new
+slice's limits. Trusted collection, actual PR-Agent fake-provider tests,
+worker isolation and a separate review publisher still need implementation.
+
 # Alpha release review corrections, 2026-10-27
 
 PR13 remains a topic-branch proposal on the still-open iMac CI PR12.
