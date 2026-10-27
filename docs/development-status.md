@@ -1,11 +1,14 @@
 # Development status
 
-The settings-write candidate requires exactly one affected row before
-returning success, otherwise returning `stored setting write was not applied`.
-It preserves SQL and lock errors, exact key/value bytes and both account
-acknowledgement guards. The two Rust files match `1adaf7d` on the current
-composition. All 16 selected checks remain pending qualification. No live
-settings change or rollback of earlier caller work is included.
+Settings-write acknowledgement passes all 16 selected checks on `b4f7b26`,
+with 846 matching source pins, a hash-bound executable and settled units.
+The store requires one affected row, otherwise returning
+`stored setting write was not applied`. SQL and lock errors, exact key/value
+bytes and both account guards remain. Baseline `b24456c` passed 14 controls
+and wrongly returned success at both ignored-write result assertions.
+Their later raw-row/value checks are candidate evidence only. The two Rust
+files match `1adaf7d`. No live setting was read or changed, and no rollback
+of earlier caller work or arbitrary trigger effects is claimed.
 
 SQLite removal acknowledgement passes all 12 selected checks on `177d993`,
 with 845 matching source pins, a hash-bound executable and settled units.

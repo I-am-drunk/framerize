@@ -12,6 +12,11 @@ key-existence check. A remaining row returns
 Nonzero deletes add no read, and malformed account JSON does not prevent
 deletion. This is not a general verification of trigger side effects.
 
+Settings writes likewise require one affected row. Other counts return
+`stored setting write was not applied` before the caller treats the value
+as persisted. Exact keys and values, including whitespace and empty values,
+keep their meaning. Existing lock/SQL errors and earlier caller work remain.
+
 File-session IDs retain the empty/separator/NUL checks and Windows drive-prefix
 rejection. Accepted IDs use `session-v2-<lowercase SHA-256>.data`; the digest
 covers `framerize-session-v2`, NUL and the complete UTF-8 ID. POSIX colon names
