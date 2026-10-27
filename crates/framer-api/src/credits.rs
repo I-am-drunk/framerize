@@ -18,6 +18,10 @@ mod ledger_validation_tests;
 #[path = "credit_allocation_total_tests.rs"]
 mod allocation_total_tests;
 
+#[cfg(test)]
+#[path = "credit_ledger_team_scope_tests.rs"]
+mod team_scope_tests;
+
 /// GET /web/users/me — profile + workspaces. `spaces[].ownerId` is the
 /// credit-bearing team for each workspace space.
 pub async fn me(t: &Transport, session: &Session) -> Result<serde_json::Value, String> {
@@ -70,6 +74,9 @@ pub async fn usage(
         .unwrap_or(0.0);
     if !allocated.is_finite() {
         return Err("bad credit ledger response: invalid allocatedCredits total".into());
+    }
+    if v.get("teamId").is_some_and(|id| id.as_str() != Some(team.0.as_str())) {
+        return Err("bad credit ledger response: incompatible teamId".into());
     }
 
     Ok(CreditSnapshot {

@@ -1,5 +1,11 @@
 # Development status
 
+The composed credit-ledger team guard requires any present root teamId to
+match the complete requested ID. Missing metadata remains accepted. Both
+numeric guards retain precedence, and no ID normalization is introduced.
+This candidate preserves the qualified allocation-total and worker changes.
+Its 18 selected checks are pending execution; the baseline remains separate.
+
 The composed credit-allocation guard passes all 14 selected checks on
 `6963324`, with 838 matching execution pins and a settled process group.
 It rejects nonfinite sums after available-credit validation, preserving
