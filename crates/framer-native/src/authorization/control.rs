@@ -80,3 +80,14 @@ pub use browser_control::{BrowserControlMint, BrowserCredentialControl};
 pub(crate) use browser_control::BrowserControlFactory;
 #[cfg(test)]
 pub(crate) use browser_control::tests as browser_control_fixture;
+
+#[cfg(unix)]
+#[path = "browser_control_wire.rs"]
+mod browser_control_wire;
+#[cfg(unix)]
+#[path = "browser_control_process.rs"]
+mod browser_control_process;
+#[cfg(unix)]
+pub use browser_control_process::{BrowserControlLaunch, BrowserControlProcess};
+#[cfg(unix)]
+pub use browser_control_wire::BrowserControlBinding;

@@ -1,5 +1,27 @@
 # Architecture
 
+The experimental `BrowserControlProcess` connects that native control interface
+to a private, single-use Python child. Construction is inert. Explicit prepare
+verifies the absolute interpreter and script hashes before spawning; the caller
+must publish those files immutably. Credentials travel only over private stdin
+and stdout, never process arguments or diagnostics. Each JSON frame is bounded
+to 128 KiB, and replies must match the native account generation and device grant.
+
+The Python `ControlProtocol` attaches to an already prepared `ControlHost` and
+a caller-supplied actual-egress check. It verifies the complete expected context
+and holds its consumer after token delivery. Mint and request deadlines differ.
+Finish joins the control, tracked RPCs and physical browser close. Rust then
+requires clean EOF, a successful child exit and an empty child process group.
+Malformed replies, lost ownership, forced termination and unknown native
+completion cannot acknowledge successful cleanup. Cancelled frame reads retain
+their partial bytes for the final joined reply. An interrupted prepare remains
+owned until explicit shutdown reaps the child; dropping a handle is no proof
+of cleanup. The process transport is available only on Unix.
+
+This transport has no default-service wiring. The real prepared-page launcher,
+actual network-egress verifier and supervised comparison remain unfinished.
+Its child fixtures use current Host classes with inert browser ports.
+
 The explicit `serve_with_browser_control` entry point connects an injected
 browser credential peer to native request ownership. One runtime shares one
 device owner and permits one opened grant and one issuance. It binds the
@@ -16,8 +38,8 @@ over 180 seconds. HTTP requests retain the existing 60-second limit.
 
 Ordinary `serve` and sender-only `serve_with_browser` keep their credential
 source. The new entry point still verifies the pinned worker configuration;
-it does not invoke that worker to mint credentials. The concrete private
-Python transport, prepared-page launcher, actual egress attestation and live
+it does not invoke that worker to mint credentials. The prepared-page launcher,
+actual egress attestation and live
 comparison remain unfinished. The interface alone proves no live acceptance.
 
 The experimental ControlHost connects the browser-mint observer to the current

@@ -1,5 +1,20 @@
 # Development status
 
+The private browser-control transport is implemented on
+`feat/browser-control-transport-20261027` and awaits its first qualification.
+Rust starts an explicitly pinned Python child and binds its private protocol
+to the account, session, target and device grant. Python retains the browser
+consumer through completion and physical cleanup. Rust requires EOF and a
+successful reaped child before confirming cleanup. Cancellation, deadlines,
+malformed replies and uncertain completion have dedicated inert fixtures.
+
+All new transport controls are UNRUN. Earlier observer, owner and native-source
+results remain retained for their unchanged source. No real browser, external
+request, service mutation or timing window is part of this slice. The prepared
+page launcher, actual-egress verification and live comparison remain unfinished.
+Qualified publication goes to I-am-drunk/framerize on both the integration and
+`browserless` branches; the browser remains the default and running service.
+
 The experimental native browser-control source is implemented on
 `feat/native-browser-control-source-20261027`. Its 16 new offline controls
 and 27 retained authorization, device, startup and transport controls pass.
