@@ -176,6 +176,13 @@ Before recording a compatible return, it requires account-history readiness
 and the expected serving process identity. HTTP liveness alone is insufficient.
 It does not admit requests, migrate history or launch a canary by itself.
 
+Acceptance records distinguish upstream refusal, request cleanup and recovery.
+A refused request may confirm both attempt and request cleanup even when an
+aggregate success-shaped check is false. The October 27 native-token/browser
+attempt demonstrated that distinction and returned to the history-ready
+`c16fd24` browser. It did not establish native-token acceptance, identify a
+TLS cause or justify replaying the consumed attempt.
+
 Matched browser and native archives are checked against isolated synthetic
 profiles before live acceptance. The browser package must report usable
 account history, preserve unknown history on refusal and report failed-host

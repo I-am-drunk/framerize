@@ -13,7 +13,7 @@ observed four same-key mints instead of one and passed the other 16 checks.
 Its failure stopped the cold-cache case before the expired-cache iteration
 and later assertions. The candidate completes both iterations, independent
 progress, failed-mint and cancellation checks. This is local fixture evidence;
-the live service and staged `c16fd24` packages remain unchanged.
+the running `c16fd24` browser package lacks this later correction.
 
 Account dedupe now guards and rereads the selected survivor before deleting
 its clone, and holds both management guards through clone cleanup and removal.
@@ -49,18 +49,31 @@ candidate evidence only. The four existing fixture changes add only the
 initial list-read expectation. The live service and staged `c16fd24`
 packages remain unchanged.
 
-A native-token/browser-sender acceptance attempt remains prepared from the
-qualified `c16fd24` pair. The October 27 00:10 and 00:28 wait windows both
-ended before launch when the assigned review run changed. In the latter,
-a background timer ended the assigned run and resumed in a new one. Future
-timing must keep the assigned run active through foreground waits.
-The observer also now recognizes both providers' recorded names for the
-same wait tool; 13 synthetic checks preserve its refusal conditions.
-No controller, pool write, service switch or canary ran, and no replacement
-window is armed. Native-token acceptance, native HTTP delivery and full
-browserless acceptance remain separate unproven outcomes. Any later attempt
-still requires current eligibility, observed participant bindings, the actual
-work drain and independent recovery. The live `c7d4516` repair remains in place.
+The October 27 01:17 UTC experiment used the qualified `c16fd24` pair for
+one fresh native-produced token and one supplied-token browser POST. Framer
+returned HTTP 403; the local canary returned 502 without a complete answer.
+Both request and attempt cleanup were confirmed. The assessor's false
+`joined_cleanup` also requires a successful request and does not negate those
+cleanup records. One initial diagnostic file was missing, so the strict
+diagnostic-preservation check failed; SDK phase timing was not independently
+observed. Native-token acceptance and a TLS cause are not established.
+
+Independent recovery at 01:18:12 UTC verified the compatible `c16fd24` browser,
+all 11 history rows ready, restored pool settings and no native listener or
+supervisor process. Five assigned one-call waits returned; that alone does
+not establish endpoint quiescence. The earlier 00:10 and 00:28 windows ended
+before launch. Every window is closed; the consumed attempt cannot replay.
+Next compare the native mint and request context with saved successful
+browser-produced-token evidence. No immediate native HTTP retry is scheduled.
+
+The frozen relay-query correction `b7c3186` is next for local qualification;
+its 21 selections remain unrun on that delta. Two independent A source-only
+slices are released from exact `6526b90`: project creation gains the normal
+10-second connect/30-second total deadlines, and malformed successful credit
+replies must return an explicit error instead of zero capacity. Their 14 and
+11 planned selections remain unrun; neither change is implemented here.
+S3w source through `f304a1a` has resumed-review approval, with startup-isolation
+and heartbeat-publication follow-ups still pending and all new proofs unrun.
 
 Legacy device migration now reads raw SQLite text with checked UTF-8.
 Malformed text and nontext rows remain byte-for-byte unchanged while valid
@@ -86,8 +99,9 @@ matched, and both archived binaries matched their compiler artifacts.
 The browser package passed nine ordinary checks and five history/shutdown
 checks. The native package passed eight ordinary checks and three request
 diagnostic, joined-cleanup and privacy checks. These used local synthetic
-state. Both packages are staged, not installed or deployed; the final
-isolated unit is inactive with no remaining process. Earlier immutable
+state. Both packages were initially staged without deployment; the browser
+package later became the verified R4 recovery target described above. The
+package-check unit is inactive with no remaining process. Earlier immutable
 archives remain preserved. The package source identity stays `c16fd24`
 when later documentation or source commits advance this branch.
 

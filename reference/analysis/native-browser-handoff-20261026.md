@@ -4,25 +4,34 @@ The experimental `feat/native-browser-handoff-20261026` branch connects the
 native request owner to a shared browser sender. The sender uses the fresh
 token and actual device returned by that request's minter. It performs one
 inference POST and returns the response through the existing native owner.
-This work is not deployed and does not establish live Framer acceptance.
+One live attempt on October 27 received HTTP 403 and returned to the
+qualified browser package. Native-token acceptance remains unestablished.
 
 ## Contract
 
-The next acceptance experiment uses a freshly minted V3 token through this
-supplied-token browser sender. The earlier browser-token/native-HTTP success
-establishes neither native-minter acceptance nor the cause of the later
-direct-native `403/request_blocked`. No saved token or browser remint belongs
-in the new experiment. An accepted first leg would support a separately
-bound comparison using another fresh token and the native HTTP sender.
+The October 27 01:17 UTC experiment used one fresh V3 token through this
+supplied-token browser sender, with no browser remint. It recorded one
+authorization and one browser transport invocation, followed by upstream
+HTTP 403 and local HTTP 502. Request and attempt cleanup were both confirmed.
+The earlier browser-token/native-HTTP success and direct-native refusal used
+different runs; they do not isolate the rejected token or context field.
+Refusal through a browser means native HTTP transport alone is an inadequate
+explanation. Neither a TLS cause nor native-token acceptance is established.
 
-The `c16fd24` pair is prepared for that experiment. The current repaired
-browser uses the older binary without `/api/ready`; a post-switch return
-therefore needs the qualified browser package and its account-history
-readiness check. The original invocation remains the pre-switch abort target.
-Full read-only eligibility passed at 23:55 UTC on October 26, with seven
-active users still observed. No common quiet interval or live attempt was
-established by that result. Actual drain, joined cleanup and recovery remain
-required before the single-request experiment can produce acceptance evidence.
+Independent recovery at 01:18:12 UTC verified the `c16fd24` browser, all
+11 account-history rows ready, restored pool configuration, no native
+listener and no remaining supervisor process. Five assigned one-call waits
+returned, but those receipts alone do not prove endpoint quiescence.
+The experiment is consumed and must not replay. The next investigation
+compares existing native mint and request-context evidence with the saved
+successful browser-produced-token control; no immediate native HTTP retry
+is scheduled.
+
+The strict preservation check found one missing initial diagnostic file.
+SDK phase timing was not independently observed. The assessor field
+`joined_cleanup` is false because it also requires a successful request;
+both explicit cleanup confirmations remain true. These limits and the
+refusal preclude any full-acceptance, memory-saving or latency claim.
 
 `FreshCastleToken` carries the minted device through authorization. The
 browser path checks account, private session, device and token age before
@@ -116,7 +125,7 @@ fingerprints or remote account unlinkability.
 
 ## Release package qualification
 
-The current matching pair is staged from
+The matching pair was built and staged from
 `c16fd245ee4a7c26268ab961319581b644d8965a`. The offline, single-job release
 build completed in 151.94 seconds within its 1,536 MiB boundary. All 802
 source hashes matched through build, package checks and staging. The
@@ -130,11 +139,12 @@ package passed eight ordinary checks plus request diagnostics, joined
 cleanup and absence of private fields. The checks used synthetic local
 state. Staging completed with the isolated unit inactive and no process left.
 
-Neither package was installed or deployed. The native build enables
-`browser-transport` and still requires a browser sender. Package qualification
-therefore does not establish native mint acceptance, browser-free delivery,
-total memory savings or request latency. Package identity remains `c16fd24`
-as subsequent documentation and source commits advance.
+The native package was used for the single refused experiment; the browser
+package became its verified recovery target. The native build enables
+`browser-transport` and still requires a browser sender. The isolated package
+checks establish no native mint acceptance, browser-free delivery, total
+memory savings or request latency. Package identity remains `c16fd24` as
+subsequent documentation and source commits advance.
 
 ### Earlier 72886b2 qualification
 
