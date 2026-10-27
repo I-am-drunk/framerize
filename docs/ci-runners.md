@@ -7,9 +7,12 @@ Jobs require the labels `self-hosted`, `Linux`, `X64`, `imac`, and `framerize`.
 The iMac runs one application job at a time in a fresh Linux container.
 Its Lima VM has four CPUs, 6 GiB of memory and a 40 GiB disk. Each container
 has three CPUs, 5 GiB of memory and a 6 GiB combined memory/swap limit.
-Rosetta runs the existing x86_64 toolchain and preserves Linux artifacts.
-The tests require Linux procfs, so they run inside Linux rather than macOS.
-Cargo uses two build processes, with a 90-minute job timeout for cold builds.
+QEMU emulates a complete x86_64 Linux machine and preserves Linux artifacts.
+The tests require Linux procfs and the x86_64 worker syscall sandbox.
+Rosetta cannot apply that sandbox and changes missing-executable behavior,
+so it cannot run this test suite correctly.
+Cargo uses two build processes, with a 180-minute job timeout for cold builds
+under full system emulation. GitHub's Rust cache reduces later compile work.
 The VM shares no user folders. Containers have no mounts or Docker socket.
 Runner registration uses the owner's existing private GitHub CLI login;
 the container receives only a single-use runner configuration.
@@ -38,6 +41,6 @@ journalctl --user -u fleet-runner@framerize.service -n 50
 ```
 
 The job's runner name is `imac-framerize`. On the iMac, `limactl list`
-shows the `framerize-ci` VM. Both Iris and the iMac must be reachable.
+shows the `framerize-ci-x86` VM. Both Iris and the iMac must be reachable.
 FileVault can require unlocking the iMac after a reboot. Fleet's native
 macOS runner remains separate and keeps the Mac awake while enabled.
