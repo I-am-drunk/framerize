@@ -58,6 +58,12 @@ pub(crate) mod send_evidence;
 #[path = "native_transport_facts.rs"]
 mod transport_facts;
 
+#[path = "egress_probe.rs"]
+mod egress_probe;
+pub(crate) use egress_probe::{EgressProbeError, EgressProbeRequest};
+#[cfg(test)]
+pub(crate) use egress_probe::tests as egress_probe_fixture;
+
 #[path = "browser_send.rs"]
 mod browser_send;
 

@@ -1,5 +1,22 @@
 # Architecture
 
+`AccountScope::observe_egress` reserves an ordinary account preparation and
+uses that generation's existing native HTTP client. The reservation captures
+the transport atomically with the session, so account closure cannot pass an
+unregistered probe. Dropping the waiter cancels work; the account supervisor
+retains its completion. The returned observation holds only a weak scope and
+can check whether its exact owner still exists.
+
+This explicit probe requires a canonical credential-free HTTPS URL with one
+32-hex `framerize_probe` value. It sends no account cookies or authorization,
+shares native transport capacity, and refuses a configured browser sender.
+It uses the existing proxy and certificate policy, disables redirects and
+retries, and limits work to 30 seconds, 1,024 reply bytes and 2,048 reads.
+Only status 200 with JSON containing exactly one valid `ip` field is accepted.
+Local completion does not prove remote cleanup or future route equivalence.
+Child-protocol attachment and selection of an observation endpoint remain
+separate work; this API does not start either automatically.
+
 The observation URL rejects an existing `framerize_probe` query key, including
 bare keys, empty values and percent-encoded names. Parsing is only for this
 refusal check. Other query bytes remain unchanged before the fresh nonce.

@@ -80,7 +80,7 @@ impl NativeAccountClient {
         F: FnOnce(Session, PreparationControl) -> Fut + Send + 'static,
         Fut: Future<Output = PreparationResult<T>> + Send + 'static,
     {
-        self.prepare_with(scope, deadline, work, hook)
+        self.prepare_with(scope, deadline, move |session, _, control| work(session, control), hook)
     }
 
     /// Reserve before invoking work, using this generation's stored session.
@@ -93,13 +93,23 @@ impl NativeAccountClient {
         F: FnOnce(Session, PreparationControl) -> Fut + Send + 'static,
         Fut: Future<Output = PreparationResult<T>> + Send + 'static,
     {
-        self.prepare_with(scope, deadline, work, || {})
+        self.prepare_with(scope, deadline, move |session, _, control| work(session, control), || {})
+    }
+
+    pub(super) fn prepare_transport_owned<T, F, Fut>(
+        &self, scope: &AccountScope, deadline: Instant, work: F,
+    ) -> Result<PendingPreparation<T>, ClientError>
+    where T: Send + 'static,
+        F: FnOnce(Arc<NativeHttp>, PreparationControl) -> Fut + Send + 'static,
+        Fut: Future<Output = PreparationResult<T>> + Send + 'static,
+    {
+        self.prepare_with(scope, deadline, move |_, client, control| work(client, control), || {})
     }
 
     fn prepare_with<T, F, Fut>(&self, scope: &AccountScope, deadline: Instant,
         work: F, before_registration: impl FnOnce()) -> Result<PendingPreparation<T>, ClientError>
     where T: Send + 'static,
-        F: FnOnce(Session, PreparationControl) -> Fut + Send + 'static,
+        F: FnOnce(Session, Arc<NativeHttp>, PreparationControl) -> Fut + Send + 'static,
         Fut: Future<Output = PreparationResult<T>> + Send + 'static,
     {
         if !Weak::ptr_eq(&scope.owner, &Arc::downgrade(&self.inner)) {
@@ -137,11 +147,11 @@ impl NativeAccountClient {
         let (settled_tx, settled) = signal();
         reservation.may_have_started = true;
         let worker = runtime.spawn(async move {
-            let _session_owner = session_owner;
+            let _session_owner = session_owner.clone();
             if worker_control.is_cancelled() {
                 return PreparationResult::finished(Err(PreparationFailure::Cancelled));
             }
-            work(session, worker_control).await
+            work(session, session_owner, worker_control).await
         });
         let mut worker = OwnedWorker(worker);
         let driver = async move {

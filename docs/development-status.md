@@ -1,5 +1,16 @@
 # Development status
 
+The native account egress probe is implemented on
+`feat/native-egress-probe-20261027`, with qualification pending. It uses the
+existing account HTTP client through the tracked preparation owner. Twelve
+new controls cover URL validation, response guards, client identity,
+credential omission, transport capacity, cancellation, account shutdown and
+isolation. Seven retained preparation controls are selected for the private
+preparation-wiring change. All nineteen selections are currently unrun.
+The fixtures use joined loopback peers. They do not establish live egress
+equivalence or browserless acceptance. Next qualify this API, then connect
+the child protocol to the account-owned observation and explicit launcher.
+
 The empty reserved nonce correction on
 `feat/browser-control-empty-nonce-20261027` now retains blank query values
 during the refusal check. The extended endpoint fixture fails for all three

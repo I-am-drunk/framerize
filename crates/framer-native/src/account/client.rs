@@ -19,6 +19,10 @@ pub use preparation::PreparationControl;
 pub use preparation::PreparationFailure;
 pub use preparation::PreparationResult;
 
+#[path = "native_egress.rs"]
+mod egress;
+pub use egress::NativeEgressObservation;
+
 use crate::transport::downstream as downstream_owner;
 
 use crate::transport::downstream::Cleanup;
