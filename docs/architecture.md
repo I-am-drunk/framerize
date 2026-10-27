@@ -1,5 +1,22 @@
 # Architecture
 
+The inert browser-mint observer in `scripts/experiments/native_browser_handoff`
+checks the selected page, context and caller-owned generation predicate. It
+compares effective session and device cookies at both the profile and inference
+URLs before and after one direct call to the installed wrapper. Inside that
+page it reads the current profile, verifies the complete user ID, and checks
+page, device and wrapper identity around the call. Non-200 profile bodies are
+cancelled and awaited; bounded profile readers release their locks on failure.
+It never calls Host._mint, imports another wrapper or selects another page.
+
+The observer is not a live adapter. Its caller owns RPC deadlines, cancellation,
+account-generation authority and joined cleanup. The returned time interval
+encloses the entire page evaluation, including the profile read; it is not an
+isolated SDK duration. Observations do not identify the wrapper's internal SDK
+branch or detect transient state changes restored between checks. A matched
+comparison still needs the tracked caller and supplied-token sender bound to
+one admitted request. This helper grants no timing window or live acceptance.
+
 Dedupe treats a nonempty secondary-project list as recoverable account state.
 The dead-account predicate therefore requires no primary or secondary project,
 no positive credits and no saved session. Full device identity still controls

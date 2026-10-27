@@ -1,5 +1,22 @@
 # Development status
 
+The browser-mint observation slice on `feat/browser-mint-observation-20261027`
+passes all 17 new offline checks on the `d7c0641` base. Python page/RPC doubles
+check both URL cookie scopes, identity changes, bounded inputs, cancellation
+and payload-free refusal. Node executes the actual page script with synthetic
+profile streams and wrappers. The checks include an intentionally held body
+cancellation, invalid UTF-8 and oversized profiles, a released reader lock,
+page/device/wrapper changes, token byte limits and no retry after failure.
+The observer now awaits non-200 profile-body cancellation and checks effective
+cookies at both `/web/users/me` and the inference URL before and after minting.
+
+No browser was launched and no real profile, mint or inference request ran.
+The helper does not activate a live caller, prove the wrapper's internal SDK
+version, or establish native-token acceptance. The next step is to bind its
+caller-owned RPC and lifecycle observations to the supplied-token comparison.
+Live admission, cleanup ownership and the repaired browser default remain
+unchanged. Publication belongs on I-am-drunk/framerize; its CI fork is separate.
+
 Secondary-project dedupe passes all 19 selected checks on `17fc457`, with
 852 matching source pins, a hash-bound executable and settled process groups.
 Accounts with recoverable secondary projects survive the dead-account check
