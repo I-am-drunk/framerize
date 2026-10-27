@@ -14,6 +14,10 @@ use framer_core::workspace::CreditSnapshot;
 #[path = "credit_ledger_validation_tests.rs"]
 mod ledger_validation_tests;
 
+#[cfg(test)]
+#[path = "credit_allocation_total_tests.rs"]
+mod allocation_total_tests;
+
 /// GET /web/users/me — profile + workspaces. `spaces[].ownerId` is the
 /// credit-bearing team for each workspace space.
 pub async fn me(t: &Transport, session: &Session) -> Result<serde_json::Value, String> {
@@ -64,6 +68,9 @@ pub async fn usage(
                 .sum()
         })
         .unwrap_or(0.0);
+    if !allocated.is_finite() {
+        return Err("bad credit ledger response: invalid allocatedCredits total".into());
+    }
 
     Ok(CreditSnapshot {
         available,
