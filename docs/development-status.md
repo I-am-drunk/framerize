@@ -1,5 +1,11 @@
 # Development status
 
+The composed session save path skips occupied temporary names using its
+existing sequence, without opening or deleting those occupants. Other
+creation errors retain their original behavior. The fresh baseline ran all
+22 selections with 19 passes and three expected first-assertion failures.
+Candidate qualification is pending. The earlier cached run is invalid.
+
 The file-session drive-prefix guard passes all 18 selected Linux checks on
 `d2037a1`, with 840 matching source pins and a settled process group. It
 rejects ASCII-letter/colon prefixes under Windows rules while preserving

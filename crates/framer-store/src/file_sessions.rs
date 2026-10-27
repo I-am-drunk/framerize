@@ -5,6 +5,9 @@ mod tests;
 #[cfg(test)]
 #[path = "file_session_drive_prefix_tests.rs"]
 mod drive_prefix_tests;
+#[cfg(test)]
+#[path = "file_session_temp_collision_tests.rs"]
+mod temp_collision_tests;
 
 use async_trait::async_trait;
 use framer_core::{ids::FramerUserId, port::{Session, SessionStore}};
@@ -97,21 +100,25 @@ fn read_bounded_session(reader: impl Read, max_bytes: usize) -> Result<String, S
     String::from_utf8(bytes).map_err(|_| "session file is not UTF-8".into())
 }
 
-#[async_trait]
-impl SessionStore for FileSessionStore {
-    async fn save(&self, session: &Session) -> Result<(), String> {
+impl FileSessionStore {
+    fn save_with_sequence(&self, session: &Session, mut next: impl FnMut() -> u64) -> Result<(), String> {
         if self.max_session_bytes.is_some_and(|max| session.cookie_header.len() > max) {
             return Err("session exceeds configured byte limit".into());
         }
-        use std::sync::atomic::{AtomicU64, Ordering};
-        static NEXT: AtomicU64 = AtomicU64::new(0);
         let path = self.path(&session.active_user)?;
-        let temporary = self.dir.join(format!(".session-{}-{}.tmp",
-            std::process::id(), NEXT.fetch_add(1, Ordering::Relaxed)));
-        let mut options = OpenOptions::new();
-        options.write(true).create_new(true);
-        private_file(&mut options);
-        let mut file = options.open(&temporary).map_err(|e| e.to_string())?;
+        let (temporary, mut file) = loop {
+            let temporary = self.dir.join(format!(".session-{}-{}.tmp",
+                std::process::id(), next()));
+            let mut options = OpenOptions::new();
+            options.write(true).create_new(true);
+            private_file(&mut options);
+            match options.open(&temporary) {
+                Ok(file) => break (temporary, file),
+                // A previous process with this PID can leave a candidate behind.
+                Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => continue,
+                Err(error) => return Err(error.to_string()),
+            }
+        };
         let result = (|| -> std::io::Result<()> {
             file.write_all(session.cookie_header.as_bytes())?;
             file.sync_all()?;
@@ -122,6 +129,15 @@ impl SessionStore for FileSessionStore {
         })();
         if result.is_err() { let _ = std::fs::remove_file(temporary); }
         result.map_err(|e| e.to_string())
+    }
+}
+
+#[async_trait]
+impl SessionStore for FileSessionStore {
+    async fn save(&self, session: &Session) -> Result<(), String> {
+        use std::sync::atomic::{AtomicU64, Ordering};
+        static NEXT: AtomicU64 = AtomicU64::new(0);
+        self.save_with_sequence(session, || NEXT.fetch_add(1, Ordering::Relaxed))
     }
 
     async fn delete(&self, user: &FramerUserId) -> Result<(), String> {
