@@ -39,11 +39,30 @@ impl PendingCommands {
 #[path = "cdp_pending_commands_tests.rs"]
 mod tests;
 
+#[cfg(test)]
+#[path = "cdp_command_expiry_tests.rs"]
+mod expiry_tests;
+
+pub(super) async fn before_deadline<F: std::future::Future>(
+    deadline: Instant,
+    future: F,
+) -> Result<F::Output, String> {
+    tokio::pin!(future);
+    let guarded = futures_util::future::poll_fn(|cx| {
+        if Instant::now() >= deadline {
+            std::task::Poll::Ready(Err("cdp eval timed out".to_owned()))
+        } else {
+            future.as_mut().poll(cx).map(Ok)
+        }
+    });
+    timeout_at(deadline, guarded).await
+        .map_err(|_| "cdp eval timed out".to_owned())?
+}
+
 impl CdpInstance {
     pub(super) async fn next_reply(&mut self, deadline: Instant) -> Result<(u64, Value), String> {
         loop {
-            let next = timeout_at(deadline, self.ws.next()).await
-                .map_err(|_| "cdp eval timed out".to_owned())?
+            let next = before_deadline(deadline, self.ws.next()).await?
                 .ok_or("cdp ws closed")?.map_err(|error| error.to_string())?;
             if let Message::Text(text) = next {
                 let value: Value = serde_json::from_str(&text).map_err(|error| error.to_string())?;

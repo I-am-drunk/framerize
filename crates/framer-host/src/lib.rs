@@ -419,14 +419,15 @@ impl CdpInstance {
         // Do not dispatch another operation over an unobserved earlier one.
         // Owned shutdown can close the browser and prove its group exited.
         if method != "Browser.close" { self.observe_pending(deadline).await?; }
-        self.next_id += 1;
-        let id = self.next_id;
-        self.pending.record(id)?;
-        let msg = json!({ "id": id, "method": method, "params": params });
-        tokio::time::timeout_at(deadline, self.ws.send(Message::Text(msg.to_string().into())))
-            .await
-            .map_err(|_| "cdp eval timed out".to_string())?
-            .map_err(|e| e.to_string())?;
+        let id = self.next_id + 1;
+        let msg = Message::Text(json!({ "id": id, "method": method, "params": params })
+            .to_string().into());
+        let send = async {
+            self.next_id = id;
+            self.pending.record(id)?;
+            self.ws.send(msg).await.map_err(|e| e.to_string())
+        };
+        cdp_pending_commands::before_deadline(deadline, send).await??;
         loop {
             let (reply_id, v) = self.next_reply(deadline).await?;
             if reply_id == id {

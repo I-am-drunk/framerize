@@ -2404,3 +2404,14 @@ Network identity replies were simulated. Real identity acceptance is untested.
 No cookie, external endpoint, browser or live service was used to develop it.
 The earlier native launch and assembled-package qualifications remain intact.
 Live migration, current-state admission and upstream acceptance are separate.
+
+## CDP expiry before I/O polling
+
+Branch `fix/cdp-command-expiry-20261027` checks the existing CDP deadline
+before each socket-future poll. Expired calls leave buffered replies for a
+fresh observation and do not reserve a new command ID or pending entry.
+Once sending begins, timeout and cancellation retain the existing pending
+ownership barrier. Command durations, errors and shutdown ownership remain.
+Four new caller methods cover six inert scenarios; nine existing controls
+are retained. All 13 selections are UNRUN here. Next, main qualifies the
+fixture-only baseline and candidate before contextual integration.
