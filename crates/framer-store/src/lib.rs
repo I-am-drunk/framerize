@@ -141,8 +141,17 @@ impl StateStore for SqliteStateStore {
 
     async fn remove(&self, id: AccountId) -> Result<(), String> {
         let conn = self.conn.lock().unwrap();
-        conn.execute("DELETE FROM accounts WHERE id = ?1", [id.0.to_string()])
+        let changed = conn.execute("DELETE FROM accounts WHERE id = ?1", [id.0.to_string()])
             .map_err(|e| e.to_string())?;
+        if changed == 0 {
+            let present: bool = conn.query_row(
+                "SELECT EXISTS(SELECT 1 FROM accounts WHERE id = ?1)",
+                [id.0.to_string()], |row| row.get(0),
+            ).map_err(|e| e.to_string())?;
+            if present {
+                return Err("stored account removal was not applied".into());
+            }
+        }
         Ok(())
     }
 }

@@ -1,5 +1,13 @@
 # Development status
 
+The SQLite removal candidate checks raw key existence after a zero-row
+DELETE under the same connection mutex. A retained row returns
+`stored account removal was not applied`; an absent key still succeeds.
+Nonzero deletes keep their existing path. The two Rust files match
+`ad295c2` and retain the qualified upsert guard. All twelve selected checks
+remain pending qualification. No general post-delete or rollback claim
+follows from this bounded acknowledgement check.
+
 SQLite upsert acknowledgement passes all nine selected checks on `c72a85b`,
 with 844 matching execution pins, a hash-bound executable and settled
 process groups. The store requires one affected row before returning success;
