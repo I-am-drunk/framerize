@@ -1,13 +1,128 @@
 use super::*;
 use crate::message::{self as dto, *};
 
+async fn pending<F: std::future::Future>(mut future: std::pin::Pin<&mut F>) {
+    std::future::poll_fn(|cx| {
+        assert!(future.as_mut().poll(cx).is_pending());
+        std::task::Poll::Ready(())
+    }).await;
+}
+
+#[tokio::test]
+async fn outbox_bounds_records_and_refuses_stale_slot_reuse() {
+    assert!(Outbox::new(0).is_err());
+    let (outbox, _writer) = Outbox::new(1).unwrap();
+    let old = outbox.register(7).unwrap();
+    assert!(outbox.register(7).is_err());
+    assert!(outbox.register(8).is_err());
+    let held = old.reserve().await.unwrap();
+    assert!(outbox.remove(&old).is_err());
+    drop(held);
+    outbox.remove(&old).unwrap();
+    let fresh = outbox.register(7).unwrap();
+    assert!(old.reserve().await.is_err());
+    assert!(fresh.reserve().await.is_ok());
+}
+
 fn text(value: &str) -> Text { Text::new(value.into()).unwrap() }
+
+#[tokio::test]
+async fn cancelled_waiter_keeps_its_partial_frame_and_next_frame_intact() {
+    let (outbox, writer) = Outbox::new(2).unwrap();
+    let a = outbox.register(1).unwrap();
+    let b = outbox.register(2).unwrap();
+    let first = Message::Ready { generation: 1 };
+    let second = Message::Ready { generation: 2 };
+    let mut send_a = Box::pin(a.send(&first));
+    let mut send_b = Box::pin(b.send(&second));
+    pending(send_a.as_mut()).await;
+    pending(send_b.as_mut()).await;
+    let (tx, mut rx) = tokio::io::duplex(1);
+    let job = tokio::spawn(writer.run(tx));
+    let mut bytes = vec![0];
+    rx.read_exact(&mut bytes).await.unwrap();
+    drop(send_a); // A byte is already on the wire; its owner remains the writer.
+    outbox.close();
+    rx.read_to_end(&mut bytes).await.unwrap();
+    send_b.await.unwrap();
+    job.await.unwrap().unwrap();
+    assert_eq!(bytes, [encode(&first).unwrap(), encode(&second).unwrap()].concat());
+    assert!(a.reserve().await.is_err());
+}
 fn part() -> Part {
     Part { offset: 0, bytes: Segment::new(vec![0, 255]).unwrap(), last: true }
+}
+
+#[tokio::test]
+async fn ready_producers_get_a_complete_frame_before_a_repeat_sender() {
+    let (outbox, writer) = Outbox::new(2).unwrap();
+    let a = outbox.register(1).unwrap();
+    let b = outbox.register(2).unwrap();
+    let messages = [1, 2, 3].map(|generation| Message::Ready { generation });
+    let mut first = Box::pin(a.send(&messages[0]));
+    let mut peer = Box::pin(b.send(&messages[1]));
+    pending(first.as_mut()).await;
+    pending(peer.as_mut()).await;
+    let (tx, mut rx) = tokio::io::duplex(1);
+    let job = tokio::spawn(writer.run(tx));
+    assert_eq!(read::<_, Message>(&mut rx).await.unwrap().unwrap().message, messages[0]);
+    first.await.unwrap();
+    let mut repeat = Box::pin(a.send(&messages[2]));
+    pending(repeat.as_mut()).await;
+    outbox.close();
+    for expected in &messages[1..] {
+        assert_eq!(&read::<_, Message>(&mut rx).await.unwrap().unwrap().message, expected);
+    }
+    peer.await.unwrap();
+    repeat.await.unwrap();
+    job.await.unwrap().unwrap();
 }
 fn public_failure() -> PublicFailure {
     PublicFailure { status: 429, message: text("busy"), error_type: text("api error / λ"),
         code: text("api error / λ") }
+}
+
+#[tokio::test]
+async fn abandoned_writer_fails_pending_frames_and_frees_slot_owners() {
+    let (outbox, writer) = Outbox::new(1).unwrap();
+    let slot = outbox.register(1).unwrap();
+    let message = Message::Ready { generation: 9 };
+    let mut send = Box::pin(slot.send(&message));
+    pending(send.as_mut()).await;
+    assert!(outbox.remove(&slot).is_err());
+    drop(writer);
+    assert!(send.await.is_err());
+    outbox.remove(&slot).unwrap();
+}
+
+#[tokio::test]
+async fn oversized_reserved_capacity_is_not_hidden_by_a_small_frame() {
+    let (outbox, _writer) = Outbox::new(1).unwrap();
+    let slot = outbox.register(1).unwrap();
+    let mut bytes = Vec::with_capacity(FRAME_LIMIT + 5);
+    bytes.extend_from_slice(&encode(&Message::Ready { generation: 9 }).unwrap());
+    assert!(matches!(slot.reserve().await.unwrap().send_encoded(bytes).await,
+        Err(WireError::FrameLimit)));
+    outbox.remove(&slot).unwrap();
+}
+
+#[tokio::test]
+async fn writer_failure_closes_all_waiters_without_reusing_the_channel() {
+    let (outbox, writer) = Outbox::new(2).unwrap();
+    let a = outbox.register(1).unwrap();
+    let b = outbox.register(2).unwrap();
+    let message = Message::Ready { generation: 7 };
+    let mut first = Box::pin(a.send(&message));
+    let mut peer = Box::pin(b.send(&message));
+    pending(first.as_mut()).await;
+    pending(peer.as_mut()).await;
+    let (tx, rx) = tokio::io::duplex(1);
+    drop(rx);
+    assert!(writer.run(tx).await.is_err());
+    assert!(first.await.is_err());
+    assert!(peer.await.is_err());
+    assert!(a.reserve().await.is_err());
+    assert!(outbox.register(3).is_err());
 }
 fn all_messages() -> Vec<Message> {
     vec![

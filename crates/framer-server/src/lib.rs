@@ -35,6 +35,7 @@ mod request_token_budget;
 mod request_body_object;
 mod responses_aggregate;
 mod response_output;
+mod policy_process;
 pub use serving_accounts::{ServingAccountPolicy, SERVING_ACCOUNTS_ENV};
 pub use pool_config::{PoolConfig, EligibleAccounts, AllAccounts, POOL_SETTING_KEY};
 pub use pool_control::prewarm_accounts;

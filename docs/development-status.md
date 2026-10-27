@@ -1,5 +1,17 @@
 # Development status
 
+The next S3w slice adds an owned child transport and a bounded fair writer.
+Accepted frames survive operation-waiter cancellation. The process monitor
+marks channel loss, reaps the child and joins reader/writer/stderr tasks.
+Launch hashes and executes one retained ELF descriptor, clears the environment
+and applies CLOEXEC above stderr; unsupported close_range fails closed.
+Ten new inert controls cover queue failure/fairness, descriptor identity,
+bounded dispatch and stderr counting. They remain UNRUN, as do all prior
+S3w fixtures. Only whitespace and source syntax checks ran in this lane.
+There is no manager attachment, worker launch or route selection yet.
+Next: obtain the same-discussion process review and connect the manager's
+Starting reservation, generation selection/pinning and joined retirement.
+
 S3w source work starts on qualified `3a62a24` in the isolated overhaul lane.
 The first slice adds a dependency leaf for bounded frames, strict typed
 decoding, independent wire/message/downstream credit and an exclusive event

@@ -137,6 +137,28 @@ both applications with locked dependencies and runs offline/package fixtures.
 Upstream PRs do not trigger a duplicate build. A successful local fixture run
 does not establish hosted CI success or live account acceptance.
 
+The child transport has one owning reader and writer. Its writer reserves a
+fixed number of producer records; a record permits one encoded allocation,
+capped at 1 MiB plus the prefix. Ready producers rotate between complete
+frames. Operation cancellation cannot retract an accepted frame. Generation
+teardown poisons the channel before aborting and joining its pipe tasks.
+These transport bounds do not establish per-operation W/S/D accounting.
+
+Worker launch currently requires Linux with close_range CLOEXEC support
+(kernel 5.11 or newer). It hashes and executes the same open ELF descriptor,
+keeps that descriptor above stderr, clears environment variables and marks
+all other inherited descriptors CLOEXEC. A syscall failure refuses launch.
+Immutable inode contents remain a publication requirement. The process owns
+its direct child; this is not a sandbox for executables spawning descendants.
+Stderr is discarded through 4 KiB scratch. Counts cover observed bytes only;
+bytes still unread at teardown are unknown. OS errors retain a closed stage
+and numeric errno, without executable paths or raw error text.
+
+The manager must reserve Starting before launch and retain the process
+through its joined result. Drop requests teardown as a fallback; it does not
+certify retirement. Handshake, activation, generation pins, semantic credit,
+Forward verdicts and application shutdown attachment remain the next slices.
+
 ## Reference evidence
 
 These historical revisions were inspected, rather than inferring quality from
