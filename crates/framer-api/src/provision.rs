@@ -20,6 +20,10 @@ use framer_core::port::Session;
 #[path = "project_creation_deadline_tests.rs"]
 mod deadline_tests;
 
+#[cfg(test)]
+#[path = "project_adoption_scope_tests.rs"]
+mod adoption_scope_tests;
+
 fn project_client_builder(
     connect_timeout: std::time::Duration,
     request_timeout: std::time::Duration,
@@ -90,6 +94,17 @@ pub async fn ensure_project(
         return Ok(ProjectId(id));
     }
     create_project(session, space_id).await
+}
+
+fn project_to_adopt(
+    v: &serde_json::Value,
+    _team: &TeamId,
+) -> Result<Option<ProjectId>, String> {
+    Ok(v["projects"]
+        .as_array()
+        .and_then(|ps| ps.first().cloned())
+        .and_then(|p| p["id"].as_str().map(|s| s.to_string()))
+        .map(ProjectId))
 }
 
 /// GET framer.com/projects/new?team=<spaceId> WITHOUT following redirects;
