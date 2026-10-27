@@ -1,10 +1,13 @@
 # Development status
 
-The composed session save path skips occupied temporary names using its
-existing sequence, without opening or deleting those occupants. Other
-creation errors retain their original behavior. The fresh baseline ran all
-22 selections with 19 passes and three expected first-assertion failures.
-Candidate qualification is pending. The earlier cached run is invalid.
+The session temporary-file correction passes all 22 checks on `62feebc`,
+with 841 matching source pins and a settled process group. Occupied names
+advance the existing sequence without opening or deleting their occupants.
+Other creation errors retain their behavior. The fresh baseline passed 19
+checks and failed three first assertions after cleanup. Later failed-method
+subcases remain candidate evidence. Both qualified stages rebuilt the store;
+an earlier cached run omitted four tests and was rejected. These fixtures
+do not simulate an actual crash, PID reuse or a power failure.
 
 The file-session drive-prefix guard passes all 18 selected Linux checks on
 `d2037a1`, with 840 matching source pins and a settled process group. It
@@ -84,7 +87,7 @@ The worker and fault executables and eight test binaries are hash-bound.
 The combined cold-cache mint proof was subsequently qualified on `fd45cd0`
 as recorded above; these earlier composition results remain separate.
 Default selection remains legacy0; the live browser package stays `7ccd059`.
-Next: qualify the session temporary-file collision fix and continue
+Next: qualify session deletion synchronization and continue
 investigating the remaining worker cost without changing the live default.
 
 S3w candidate `b349b2a` passes 172 selected launches covering 171 distinct

@@ -4,6 +4,11 @@ File-session path validation rejects ASCII-letter/colon prefixes under
 Windows rules before joining a user-derived filename to its owned directory.
 POSIX colon names and the earlier empty/separator/NUL checks are preserved.
 
+Session saves claim temporary names with create-new semantics. An occupied
+name advances the existing sequence; the occupant is never opened or
+deleted. Other creation errors return unchanged. The claimed file retains
+the existing private permissions, write, sync, rename and cleanup sequence.
+
 Credit-ledger parsing requires finite available credits and a finite sum of
 allocated credits before constructing a snapshot. Available-credit errors
 retain precedence. Overflowing allocation totals return the fixed error
