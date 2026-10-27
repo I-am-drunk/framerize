@@ -1,3 +1,27 @@
+# Alpha release review corrections, 2026-10-27
+
+PR13 remains a topic-branch proposal on the still-open iMac CI PR12.
+The first independent review found extra upload selection, stale clean build
+identity, missing CI artifact provenance and private-runner admission gaps.
+The corrected scripts pass nine alpha tests, one incremental Cargo test and
+one package-identity test. Both workflows pass actionlint. The seven earlier
+release checks remain unchanged evidence, not new executions.
+
+Release uploads now use explicit verified paths. Evidence retains the exact
+CI attempt, successful jobs, artifact IDs and API digests. Preparation checks
+ZIP digests and package identities; publication rechecks the CI snapshot.
+The Cargo entry point refreshes identity before cache evaluation. Its fixture
+covers untracked additions/removals, tracked edits, packed refs, new commits,
+linked worktrees and unchanged cached builds. Unwrapped builds are unverified.
+
+Private-runner build jobs require an opt-in readiness variable and environment.
+These do not enforce trusted admission against a modified PR workflow.
+Platform restrictions and runner operation remain unverified. Aggregate checks
+and draft publication use hosted runners. No runner setting, real release,
+full application build, live request or production service changed here.
+Next: independent review of these corrections, then verify runner admission
+before enabling CI. No automatic merge or browser-branch promotion.
+
 # Reviewed alpha release pipeline, 2026-10-27
 
 `ci/reviewed-alpha-releases-20261027` proposes PR-only promotion, an aggregate

@@ -21,6 +21,7 @@ class PackageIdentityTests(unittest.TestCase):
                     self.assertEqual(info['version_output'], expected)
                     self.assertEqual(info['release_tag'], 'v0.6.0-alpha.1')
                 for wrong in [expected.replace(commit, 'b' * 40),
+                              f'{app} 0.6.0-alpha.1 (unverified source; build with scripts/cargo_with_identity.py)',
                               expected.replace('0.6.0-alpha.1', '0.1.0'),
                               expected.replace(app, 'unrelated-app'),
                               expected.replace(', dirty)', ')') if dirty else expected.replace(')', ', dirty)')]:

@@ -14,8 +14,9 @@ concurrency:
   cancel-in-progress: false
 jobs:
   draft:
-    if: github.repository == 'I-am-drunk/framerize'
-    runs-on: [self-hosted, Linux, X64, imac, framerize]
+    if: github.repository == 'I-am-drunk/framerize' && github.ref == 'refs/heads/main'
+    environment: framerize-alpha-release
+    runs-on: ubuntu-24.04
     timeout-minutes: 15
     env:
       GH_TOKEN: ${{ github.token }}
@@ -29,24 +30,8 @@ jobs:
         id: source
         run: |
           python3 scripts/check_release_run.py "$CI_RUN_ID"
-      - name: Download the existing packages
-        env:
-          SOURCE_SHA: ${{ steps.source.outputs.sha }}
-        run: |
-          gh run download "$CI_RUN_ID" -n "framerize-linux-x86_64-$SOURCE_SHA" -D release-assets/browser
-          gh run download "$CI_RUN_ID" -n "framerize-native-linux-x86_64-$SOURCE_SHA" -D release-assets/native
-      - name: Verify package identities and checksums
+      - name: Download pinned artifacts and verify package identities
         id: release
-        env:
-          SOURCE_SHA: ${{ steps.source.outputs.sha }}
-        run: python3 scripts/prepare_alpha.py release-assets "$SOURCE_SHA"
+        run: python3 scripts/prepare_alpha.py release-assets ci-evidence.json
       - name: Create a new tag and release draft without rebuilding
-        env:
-          SOURCE_SHA: ${{ steps.source.outputs.sha }}
-          RELEASE_TAG: ${{ steps.release.outputs.tag }}
-        run: |
-          gh api --method POST "repos/$GH_REPO/git/refs" -f "ref=refs/tags/$RELEASE_TAG" -f "sha=$SOURCE_SHA"
-          gh release create "$RELEASE_TAG" --verify-tag --draft --prerelease --latest=false \
-            --title "$RELEASE_TAG" --notes-file release-notes.md \
-            release-assets/browser/*.tar.gz release-assets/browser/*.sha256 \
-            release-assets/native/*.tar.gz release-assets/native/*.sha256 release-evidence.json
+        run: python3 scripts/publish_alpha.py release-assets release-evidence.json

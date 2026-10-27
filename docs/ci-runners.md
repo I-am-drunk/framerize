@@ -1,5 +1,11 @@
 # Build runners
 
+This describes the proposed runner topology. Framerize runner registration and
+end-to-end execution remain unverified. Keep `FRAMERIZE_PRIVATE_CI_READY` unset
+until platform-side admission and the `framerize-ci` environment are verified.
+PR-editable workflow predicates cannot enforce that trust boundary. The aggregate
+`Check` job and alpha draft publisher use hosted runners, not this private runner.
+
 The build workflow on `browserless` runs in the main `I-am-drunk/framerize`
 repository on the iMac. It no longer depends on the `diddletime` CI mirror.
 Jobs require the labels `self-hosted`, `Linux`, `X64`, `imac`, and `framerize`.

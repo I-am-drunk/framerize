@@ -1471,3 +1471,22 @@ The operation needs a separately authorized, supervised maintenance plan,
 settled writers and an outer process bound. Its lock does not establish
 service quiescence, and successful identity verification is not inference
 acceptance. The helper's initial source qualification is recorded separately.
+
+# Reviewed build identity and release provenance
+
+Versioned application builds enter Cargo through `scripts/cargo_with_identity.py`.
+It reads the current commit and dirty state on every invocation, before Cargo
+checks cached outputs. The shared build script watches those environment inputs.
+Unchanged builds stay cached, and raw Cargo builds report unverified source.
+Packaging rejects an unverified or mismatched identity.
+
+Release preparation binds one completed maintained-branch CI attempt, its jobs,
+and each attempt-named artifact ID and SHA256 digest. Downloaded ZIPs contain
+only the expected package and checksum. The publisher revalidates this evidence
+and passes an explicit verified asset list to GitHub. It creates a draft only.
+Neither publishing a topic branch nor creating a draft activates a service.
+
+Private-runner admission still requires platform configuration and verification.
+The readiness variable and environment declarations are default-off workflow
+controls, not protection against edits to that workflow. Aggregate checks and
+release publication use hosted runners, separate from the private build machine.

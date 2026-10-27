@@ -16,7 +16,7 @@ Build from a committed checkout:
 ```sh
 npm --prefix web ci
 npm --prefix web run build
-cargo build --locked --release -p framerize
+python3 scripts/cargo_with_identity.py build --locked --release -p framerize
 python3 scripts/package.py framerize
 ```
 
@@ -43,7 +43,7 @@ and loopback permissions; it does not install or activate a service.
 Build the native package with Node 24.13.0 and the pinned Rust toolchain:
 
 ```sh
-cargo build --locked --release -p framerize-native
+python3 scripts/cargo_with_identity.py build --locked --release -p framerize-native
 node scripts/offline_worker/bundle.mjs --output target/native-worker
 python3 scripts/package.py framerize-native
 ```
