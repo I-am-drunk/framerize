@@ -268,6 +268,7 @@ pub async fn complete_long(
                             cb(ChainEvent::Chunk(streamed_blocks.clone()));
                         }
                         let finished = streamed_stop != "max_tokens"
+                            || !has_continuation_text(&streamed_blocks)
                             || remaining_tokens(cfg, ctok) == Some(0);
                         if finished {
                             return Ok(assemble(msg_id, blocks, streamed_stop, streamed_seq, last_usage, ptok, ctok, i + 1, metered_chunks));
@@ -394,6 +395,7 @@ pub async fn complete_long(
                 cb(ChainEvent::Chunk(streamed_blocks.clone()));
             }
             let finished = streamed_stop != "max_tokens"
+                || !has_continuation_text(&streamed_blocks)
                 || remaining_tokens(cfg, ctok) == Some(0);
             if finished {
                 return Ok(assemble(msg_id, blocks, streamed_stop, streamed_seq, last_usage, ptok, ctok, i + 1, metered_chunks));
@@ -413,12 +415,20 @@ pub async fn complete_long(
         }
 
         let budget_left = remaining_tokens(cfg, ctok);
-        if chunk_stop != "max_tokens" || budget_left == Some(0) {
+        if chunk_stop != "max_tokens" || budget_left == Some(0)
+            || !has_continuation_text(&chunk_blocks) {
             return Ok(assemble(msg_id, blocks, stop_reason, stop_sequence, last_usage, ptok, ctok, i + 1, metered_chunks));
         }
         push_continuation(&mut messages, &chunk_blocks, cfg);
     }
     Ok(assemble(msg_id, blocks, stop_reason, stop_sequence, last_usage, ptok, ctok, cfg.max_chunks, metered_chunks))
+}
+
+fn has_continuation_text(blocks: &[Value]) -> bool {
+    // Continuation history copies only text. Keep the real truncation result
+    // when reasoning or other non-text output would leave an empty assistant.
+    blocks.iter().any(|block| block["type"] == "text"
+        && block["text"].as_str().is_some_and(|text| !text.trim().is_empty()))
 }
 
 fn retryable_failure(error: &str, elapsed: f32) -> bool {

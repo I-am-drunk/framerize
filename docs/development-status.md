@@ -1,3 +1,15 @@
+# Browser reliability candidate 0.5.1-alpha.1, 2026-10-27
+
+This candidate combines the previously qualified memory-admission repair
+with Anthropic effort preservation and a thinking-only continuation guard.
+It starts from the deployed browser lineage, preserving its account storage.
+Four new chain methods and the effort regression still require execution on
+this composition. The iMac owner holds compilation and package qualification.
+Version identity and package checks reuse the reviewed alpha-release code.
+No candidate deployment is claimed. Explicit-thinking budget sizing and
+useful High-effort completion remain open; returning an honest max_tokens
+result does not establish resolution of the user's reported stall.
+
 # Development status
 
 Browser memory admission now checks new inference requests before handlers

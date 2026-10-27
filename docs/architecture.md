@@ -1,3 +1,13 @@
+# Browser reliability hotfix
+
+The 0.5.1-alpha.1 browser candidate extends the deployed 7ccd059 lineage.
+It retains the memory admission repair and preserves Anthropic output_config.
+A token-limited Messages reply without nonempty text terminates with its real
+max_tokens result, instead of creating empty assistant continuation history.
+Buffered replies and both stream fallback paths share this rule. The binary
+reports its version and exact source commit; packaging rejects mismatches.
+Account storage and native worker architecture remain at the browser baseline.
+
 # Architecture
 
 New HTTP inference requests have a memory admission check before body parsing

@@ -157,7 +157,7 @@ fn join_version(rest: &str) -> String {
 const ANTHROPIC_FIELDS: &[&str] = &[
     "model", "messages", "system", "max_tokens", "stream", "tools",
     "tool_choice", "temperature", "top_p", "top_k", "stop_sequences",
-    "metadata", "thinking",
+    "metadata", "thinking", "output_config",
     // OpenRouter service tiers (2026-10-06): service_tier (default|flex|
     // priority|fast|ultrafast) and Anthropic's native speed:"fast" pass
     // straight through the gateway and are STILL FREE non-streaming —
@@ -935,6 +935,26 @@ mod tests {
         assert_eq!(out["tool_choice"], body["tool_choice"]);
         assert_eq!(out["messages"], body["messages"]);
         assert!(out.get("unknown_field").is_none());
+    }
+
+    #[test]
+    fn anthropic_adaptive_effort_and_fast_mode_survive_conversion() {
+        for effort in ["low", "medium", "high", "max"] {
+            let body = json!({
+                "model": "claude-opus-5-5", "max_tokens": 4096, "stream": true,
+                "messages": [{"role": "user", "content": "fixture"}],
+                "thinking": {"type": "adaptive"}, "speed": "fast",
+                "output_config": {"effort": effort},
+            });
+            let out = to_anthropic_request(ClientDialect::AnthropicMessages, &body).unwrap();
+            assert_eq!(out, body, "native request settings changed for {effort}");
+        }
+        let body = json!({
+            "model": "claude-opus-5-5", "max_tokens": 4096,
+            "messages": [{"role": "user", "content": "fixture"}],
+        });
+        let out = to_anthropic_request(ClientDialect::AnthropicMessages, &body).unwrap();
+        assert!(out.get("output_config").is_none(), "do not invent an effort default");
     }
 
     #[test]
