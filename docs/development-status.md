@@ -7,6 +7,10 @@ an in-progress frame and keeps cumulative drops across invocations. Eight
 new inert controls cover transfer, cancellation, protocol loss and diagnostics.
 All remain UNRUN. The executable, sibling runner/emitter and real SSE adapter
 remain incomplete. Next: connect these interfaces without another account loop.
+The Forward adapter has source approval. Its follow-up caps each reply at
+the upstream 8 MiB byte bound before reserving memory and keeps Vec capacity
+within that bound. Two additional inert controls cover exact-limit acceptance
+and poisoning before oversized growth; all ten remain UNRUN.
 
 The manager and logger/association slices have source approval in the same
 review. Two ReapedUnconfirmed tombstones intentionally exhaust both slots;

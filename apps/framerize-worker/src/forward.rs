@@ -9,6 +9,9 @@ use serde_json::Value;
 use std::{io::{self, Write}, sync::{Arc, Mutex, atomic::{AtomicBool, Ordering}}};
 use tokio::sync::{mpsc, oneshot, Notify};
 
+// Same byte bound as the runtime browser reader. Queue UTF-16 units are separate.
+const REPLY_BODY_LIMIT: usize = 8 * 1024 * 1024;
+
 struct ReplyBody { status: u16, content_type: wire::Text, queue_ms: u64, bytes: Vec<u8> }
 enum Pending {
     Forward { id: u64, chunk: u32, sent: bool, body: Option<ReplyBody>,
@@ -38,6 +41,11 @@ impl ForwardClient {
     pub fn cancel(&self) { self.cancelled.store(true, Ordering::SeqCst); }
     /// Called synchronously by the sole reader. Never waits on policy or output.
     pub fn dispatch(&self, message: Message) -> Result<(), WireError> {
+        let result = self.dispatch_inner(message);
+        if result.is_err() { self.outbox.poison(); }
+        result
+    }
+    fn dispatch_inner(&self, message: Message) -> Result<(), WireError> {
         let mut state = self.lock();
         match message {
             Message::ForwardError { op, n, fwd, class, cooldown_seconds }
@@ -87,7 +95,13 @@ fn receive_part(state: &mut State, fwd: u64, status: u16,
         || part.offset != body.bytes.len() as u64 {
         return Err(WireError::Protocol);
     }
-    body.bytes.try_reserve(part.bytes.as_slice().len()).map_err(|_| WireError::Allocation)?;
+    let next = body.bytes.len().checked_add(part.bytes.as_slice().len())
+        .filter(|length| *length <= REPLY_BODY_LIMIT).ok_or(WireError::Protocol)?;
+    if next > body.bytes.capacity() {
+        let capacity = next.max(SEGMENT_LIMIT).next_power_of_two().min(REPLY_BODY_LIMIT);
+        body.bytes.try_reserve_exact(capacity - body.bytes.len()).map_err(|_| WireError::Allocation)?;
+        if body.bytes.capacity() > REPLY_BODY_LIMIT { return Err(WireError::Allocation); }
+    }
     body.bytes.extend_from_slice(part.bytes.as_slice());
     if part.last {
         let Some(Pending::Forward { body: Some(body), reply, .. }) = state.pending.take()

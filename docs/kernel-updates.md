@@ -16,6 +16,11 @@ Forward verdicts and decides retirement. Worker Done is not a cleanup proof.
 Handshake and operation text fields are limited to 16 KiB, each opaque segment to 16 KiB,
 and each encoded frame to 1 MiB. Larger bodies use ordered parts.
 These are transport limits, not a bound on retained history or total memory.
+The worker separately bounds each buffered Forward reply to 8 MiB of bytes,
+matching the integrated browser reader. It checks length before reservation
+and bounds Vec capacity; a violation poisons the channel. This is unrelated
+to the browser queue's 131,072 UTF-16-unit capacity. Assembly may retain many
+valid replies, so this per-Forward bound is not an aggregate history limit.
 Serde's internally tagged decoding can temporarily retain a content tree
 alongside the input frame. Numeric-byte arrays add representation overhead;
 the eventual W3 measurements must include it rather than assume a fixed

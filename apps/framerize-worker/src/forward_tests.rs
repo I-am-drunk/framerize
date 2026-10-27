@@ -184,3 +184,37 @@ async fn closed_staging_releases_and_joins_payload_serializer() {
     assert!(tokio::time::timeout(std::time::Duration::from_secs(2), job)
         .await.unwrap().unwrap().is_err());
 }
+
+fn buffered_reply(length: usize) -> (State, oneshot::Receiver<Result<ForwardReply, PolicyError>>) {
+    let (reply, receiver) = oneshot::channel();
+    (State { pending: Some(Pending::Forward { id: 1, chunk: 0, sent: true,
+        body: Some(ReplyBody { status: 200, content_type: wire::Text::new("application/json".into()).unwrap(),
+            queue_ms: 731, bytes: vec![b'x'; length] }), reply }), ..State::default() }, receiver)
+}
+
+#[test]
+fn reply_accepts_exact_upstream_byte_limit_with_bounded_capacity() {
+    let (mut state, mut receiver) = buffered_reply(REPLY_BODY_LIMIT - 1);
+    receive_part(&mut state, 1, 200, wire::Text::new("application/json".into()).unwrap(), 731,
+        wire::Part { offset: (REPLY_BODY_LIMIT - 1) as u64,
+            bytes: wire::Segment::new(vec![b'x']).unwrap(), last: true }).unwrap();
+    let result = receiver.try_recv().unwrap().unwrap();
+    assert_eq!(result.body.len(), REPLY_BODY_LIMIT);
+    assert!(state.pending.is_none());
+}
+
+#[tokio::test]
+async fn oversized_reply_poison_precedes_growth() {
+    let f = Fixture::new();
+    let (state, _receiver) = buffered_reply(REPLY_BODY_LIMIT);
+    *f.client.lock() = state;
+    assert!(f.client.dispatch(reply(1, REPLY_BODY_LIMIT as u64, b"x", true)).is_err());
+    {
+        let state = f.client.lock();
+        let Some(Pending::Forward { body: Some(body), .. }) = &state.pending else { panic!("pending"); };
+        assert_eq!(body.bytes.len(), REPLY_BODY_LIMIT);
+        assert_eq!(body.bytes.capacity(), REPLY_BODY_LIMIT);
+    }
+    assert!(f.client.slot.reserve().await.is_err());
+    f.finish().await;
+}
