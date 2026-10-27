@@ -1,5 +1,17 @@
 # Development status
 
+The experimental decoder slice removes the outer Message Content tree.
+Typed fields retain strict variant membership, duplicates, nullability and
+field-order independence. The existing positional Serde representation is
+also preserved. Seven new compatibility controls are currently UNRUN.
+On frozen `106dc96`, five fresh processes each measured a 606,790-byte
+requested-heap peak when decoding one 16 KiB Data payload. The raw frame
+accounts for 65,606 bytes and the retained payload for 16,384 bytes. All
+tracked allocations returned to zero after disposal. These measurements
+exclude allocator internals, the original input, stacks and process RSS.
+The candidate must pass compatibility, retained behavior and matched
+allocation/profile qualification before any improvement is claimed.
+
 The experimental wire-encoding slice replaces one exact buffer growth per
 small JSON write with amortized growth under an explicit allocation limit.
 Data passes its existing 66,048-byte wire reservation; generic frames keep

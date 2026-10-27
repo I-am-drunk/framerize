@@ -63,6 +63,13 @@ substitute for a combined real-child cold-cache concurrency proof.
 Frame encoders grow buffers under an explicit allocation ceiling and return
 a buffer whose capacity equals its length. Data encoding uses the already
 reserved wire credit as its ceiling, including the four-byte frame prefix.
+Message decoding collects typed fields and then validates their membership
+in the selected variant. Segment arrays decode directly into bounded bytes,
+without an outer generic Content tree. Unknown, duplicate, missing and
+wrong-variant fields remain errors, including explicitly null extra fields.
+The discriminator may appear anywhere. Existing positional Serde input
+remains accepted. Small nested outcome and diagnostic enums still use their
+strict derived decoders; this does not bound total process memory.
 
 Free Responses SSE uses an awaited output sink. Policy transfers a validated
 chunk to one encoder and waits for its segments to enter the bounded body

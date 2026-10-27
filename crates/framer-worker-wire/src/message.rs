@@ -166,7 +166,7 @@ pub enum Diagnostic {
 #[serde(rename_all = "snake_case")]
 pub enum Dialect { OpenRouterResponses }
 
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
 #[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
 pub enum Message {
     Hello { wire: u16, build: Text, routes: Vec<Route> },
@@ -199,3 +199,6 @@ pub enum Message {
         accepted_event_seq: u64,
     },
 }
+
+#[path = "message_decode.rs"]
+mod decode;
