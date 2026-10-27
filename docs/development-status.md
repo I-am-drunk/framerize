@@ -5,9 +5,12 @@ The empty reserved nonce correction on
 during the refusal check. The extended endpoint fixture fails for all three
 new forms on unchanged production code: bare, explicit empty and encoded
 name with an empty value. The raw-query preservation control passes on that
-baseline. Candidate qualification is pending. The original 18 egress results
-below remain separate; actual native-route attachment and live comparison
-are still unfinished.
+baseline. Both extended URL controls pass on `b4f6181` in an isolated offline
+run, with 874 matching source pins and no remaining test processes. Of the
+original 874 pins, only the intended Python source and fixture changed. The
+original 18 egress outcomes below retain their original coverage limits and
+were not rerun. Next is the actual native-route attachment; live comparison
+also remains unfinished.
 
 The bounded egress observer passes all 18 new controls on `7d296b7`. They
 cover matching samples, identity changes, cancellation and late cleanup,
