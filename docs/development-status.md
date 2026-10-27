@@ -1,5 +1,18 @@
 # Development status
 
+The worker package now has a per-invocation Forward adapter with ordered
+payload segments, joined serialization, exact reply offsets and metadata,
+and an awaited saturation acknowledgment. Its single diagnostic slot includes
+an in-progress frame and keeps cumulative drops across invocations. Eight
+new inert controls cover transfer, cancellation, protocol loss and diagnostics.
+All remain UNRUN. The executable, sibling runner/emitter and real SSE adapter
+remain incomplete. Next: connect these interfaces without another account loop.
+
+The manager and logger/association slices have source approval in the same
+review. Two ReapedUnconfirmed tombstones intentionally exhaust both slots;
+an operator-confirmed clearing path is later work. Synthetic manager outcomes
+are not real-child reaping evidence.
+
 The manager now owns a bounded diagnostic inbox and one joined append job.
 Records contain kernel UUIDs, generation/operation numbers and closed numeric
 events. Full inboxes count drops without waiting for disk I/O; append failures
