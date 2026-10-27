@@ -67,6 +67,11 @@ impl OutputBudget {
             self.metrics.jobs.current.load(Ordering::SeqCst),
             self.metrics.bytes.current.load(Ordering::SeqCst))
     }
+    #[cfg(test)]
+    pub(crate) fn output_counts(&self) -> (usize, usize) {
+        (self.metrics.output_bytes.current.load(Ordering::SeqCst),
+            self.metrics.output_slots.current.load(Ordering::SeqCst))
+    }
 }
 #[derive(Default, Debug)]
 struct Timings {

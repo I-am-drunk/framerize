@@ -1,5 +1,15 @@
 # Development status
 
+The separately built fault peer now drives seven real-router controls for
+loss before Head, malformed/unheaded messages, unread over-credit, event
+boundaries, partial events, terminal loss and pending Forward cleanup. The
+controls preserve persistent fences after local reaping and are all UNRUN.
+The peer selects faults from synthetic request metadata and is never a
+production worker mode. A test-only output counter exposes unread slots.
+The prior output and attachment reviews remain buffered while vision is
+stopped. Next: finish the remaining transition, typed-error, diagnostic and
+profile controls, then bind the full source packet for main qualification.
+
 The selected worker is now attached to the real free Responses SSE route.
 Selection precedes preparation and survives repick; only the invocation call
 varies inside the existing driver. Invoke fragments and Cancel are ordered,

@@ -76,8 +76,31 @@ impl Fixture {
         self.state.policy_generations().unwrap().clone()
     }
     pub async fn stage(&self) -> u64 {
-        let (path, hash) = executable("WORKER");
+        self.stage_kind("WORKER").await
+    }
+    pub async fn stage_kind(&self, kind: &str) -> u64 {
+        let (path, hash) = executable(kind);
         tokio::time::timeout(BOUND, self.manager().stage(path, hash)).await.unwrap().unwrap()
+    }
+    pub async fn wait_failed(&self, generation: u64) {
+        tokio::time::timeout(BOUND, async {
+            while self.manager().snapshot().unwrap().iter()
+                .any(|slot| slot.generation == generation && slot.alive) {
+                tokio::task::yield_now().await;
+            }
+        }).await.expect("fault peer did not terminate");
+    }
+    pub async fn finish_fenced(self) {
+        use crate::policy_generations::{GenerationError, GenerationPhase};
+        self.settle().await;
+        assert!(!self.state.operation_ownership.as_ref().unwrap().accepting_requests());
+        assert_eq!(tokio::time::timeout(BOUND, self.manager().shutdown(true)).await.unwrap(),
+            Err(GenerationError::Unconfirmed));
+        let slots = self.manager().snapshot().unwrap();
+        assert!(!slots.is_empty());
+        assert!(slots.iter().all(|slot| slot.pins == 0 && !slot.alive
+            && slot.unconfirmed && slot.phase == GenerationPhase::ReapedUnconfirmed));
+        assert_eq!(self.state.response_output.counts(), (0, 0, 0));
     }
     pub async fn next(&mut self) -> Call {
         tokio::time::timeout(BOUND, self.calls.recv()).await.unwrap().unwrap()

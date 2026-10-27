@@ -2,6 +2,118 @@ use super::*;
 #[path = "policy_worker_fixture.rs"]
 mod router_fixture;
 
+async fn fault_response(mode: &str) -> (router_fixture::Fixture, u64, axum::response::Response) {
+    let f = router_fixture::Fixture::new();
+    let generation = f.stage_kind("FAULT").await;
+    f.manager().activate(generation).unwrap();
+    let mut input = router_fixture::payload();
+    input["model"] = mode.into();
+    let response = f.post(Some(0), input).await;
+    (f, generation, response)
+}
+
+#[tokio::test]
+async fn real_fault_before_head_emits_only_fixed_failure_and_fences() {
+    let (mut f, generation, response) = fault_response("fixture-before-head").await;
+    let text = router_fixture::consume(response).await;
+    f.wait_failed(generation).await;
+    assert_eq!(text.matches("event: response.failed\n").count(), 1);
+    assert!(text.contains("upstream operation task failed"));
+    assert!(text.contains("\"sequence_number\":0"));
+    assert!(!text.contains("response.created"));
+    assert!(f.calls.try_recv().is_err());
+    f.finish_fenced().await;
+}
+
+#[tokio::test]
+async fn real_fault_malformed_or_unheaded_frames_refuse_without_forward() {
+    for mode in ["fixture-oversize", "fixture-duplicate", "fixture-unheaded", "fixture-foreign-op"] {
+        let (mut f, generation, response) = fault_response(mode).await;
+        let text = router_fixture::consume(response).await;
+        f.wait_failed(generation).await;
+        assert_eq!(text.matches("event: response.failed\n").count(), 1, "{mode}");
+        assert!(text.contains("\"sequence_number\":0"), "{mode}");
+        assert!(f.calls.try_recv().is_err(), "{mode}");
+        f.finish_fenced().await;
+    }
+}
+
+#[tokio::test]
+async fn real_fault_over_credit_poisons_while_body_is_unread() {
+    let (mut f, generation, response) = fault_response("fixture-over-credit").await;
+    f.wait_failed(generation).await;
+    assert_eq!(f.state.response_output.output_counts(), (0, 2));
+    let text = router_fixture::consume(response).await;
+    assert!(text.contains("\"sequence_number\":2"));
+    assert_eq!(text.matches("event: response.failed\n").count(), 1);
+    assert!(f.calls.try_recv().is_err());
+    f.finish_fenced().await;
+}
+
+#[tokio::test]
+async fn real_fault_mid_event_aborts_without_splicing_failure_bytes() {
+    use futures::StreamExt;
+    let (mut f, _, response) = fault_response("fixture-mid-event").await;
+    let mut body = response.into_body().into_data_stream();
+    let first = tokio::time::timeout(router_fixture::BOUND, body.next()).await.unwrap().unwrap().unwrap();
+    assert_eq!(&first[..], b"event: response.created\ndata: {");
+    drop(first);
+    assert!(tokio::time::timeout(router_fixture::BOUND, body.next()).await.unwrap().unwrap().is_err());
+    assert!(tokio::time::timeout(router_fixture::BOUND, body.next()).await.unwrap().is_none());
+    drop(body);
+    assert!(f.calls.try_recv().is_err());
+    f.finish_fenced().await;
+}
+
+#[tokio::test]
+async fn real_fault_event_boundary_appends_one_sequenced_fixed_failure() {
+    let (mut f, _, response) = fault_response("fixture-boundary").await;
+    let text = router_fixture::consume(response).await;
+    assert!(text.starts_with("event: response.created\ndata: {}\n\n"));
+    assert_eq!(text.matches("event: response.failed\n").count(), 1);
+    assert!(text.contains("\"sequence_number\":1"));
+    assert!(text.contains("upstream operation task failed"));
+    assert!(f.calls.try_recv().is_err());
+    f.finish_fenced().await;
+}
+
+#[tokio::test]
+async fn real_fault_after_terminal_adds_no_second_terminal() {
+    let (mut f, _, response) = fault_response("fixture-after-terminal").await;
+    let call = f.next().await;
+    call.reply.send(Ok(router_fixture::reply("joined"))).ok().unwrap();
+    call.joined.await.unwrap();
+    let text = router_fixture::consume(response).await;
+    assert_eq!(text, concat!("event: response.created\ndata: {}\n\n",
+        "event: response.in_progress\ndata: {}\n\n", "event: response.completed\ndata: {}\n\n"));
+    assert!(f.calls.try_recv().is_err());
+    f.finish_fenced().await;
+}
+
+#[tokio::test]
+async fn real_fault_channel_loss_joins_pending_forward_without_clearing_fence() {
+    for confirmed in [true, false] {
+        let (mut f, generation, response) = fault_response("fixture-pending-forward").await;
+        let call = f.next().await;
+        drop(response);
+        f.wait_failed(generation).await;
+        assert_eq!(f.manager().snapshot().unwrap()[0].pins, 1);
+        {
+            let settle = f.settle();
+            tokio::pin!(settle);
+            assert!(futures::poll!(&mut settle).is_pending());
+            let result = if confirmed { Ok(router_fixture::reply("joined")) }
+                else { Err(framer_core::port::ForwardError::from_legacy(
+                    "host-lifecycle-unconfirmed: fixture".into()).into()) };
+            call.reply.send(result).ok().unwrap();
+            tokio::time::timeout(router_fixture::BOUND, call.joined).await.unwrap().unwrap();
+            settle.await;
+        }
+        assert!(f.calls.try_recv().is_err());
+        f.finish_fenced().await;
+    }
+}
+
 #[tokio::test]
 async fn real_worker_terminal_bytes_hold_retirement_after_eof_and_body_drop() {
     use router_fixture::*;
