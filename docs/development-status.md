@@ -4,18 +4,23 @@ The experimental wire-encoding slice replaces one exact buffer growth per
 small JSON write with amortized growth under an explicit allocation limit.
 Data passes its existing 66,048-byte wire reservation; generic frames keep
 their original frame limit. Encoded bytes and final capacity remain exact.
-Three new controls cover growth count, wire parity and allocation limits.
-This source is UNRUN. The retained baseline allocation probe observed 32,809
-reallocation calls for one 16 KiB Data payload. It does not attribute the
-complete router cost or measure live latency. Next: compile and qualify
-the candidate, then measure the same encoder and real-child profiles.
+All three new controls and 172 retained launches pass on `106dc96`, with
+834 matching execution pins and settled processes. The 16 KiB Data probe
+now makes 16 reallocation calls instead of 32,809, with identical wire size.
+Five fresh processes per mode and source retain all 20 profile observations.
+Worker completion was 43,262/44,331/69,269 microseconds before and
+39,803/41,225/52,080 after, reported as minimum/median/maximum. The median
+improvement is about 7%; the ranges overlap. These local fixture timings
+do not establish live latency or a memory saving. Next: complete the combined
+cold-mint proof and investigate the remaining worker cost.
 
 The S3w composition at `9dfb408` passes all 172 selected worker/lifecycle
 launches and 32 retained Responses-budget/authentication checks. These are
 204 launches covering 203 distinct package/name pairs. All 834 execution
 source pins match, and every isolated phase has joined its processes.
 The worker and fault executables and eight test binaries are hash-bound.
-The separate combined real-child cold-cache mint proof remains source-held.
+The separate combined real-child cold-cache mint proof has a bounded source
+allocation on `f61d69e`; it remains unexecuted.
 Default selection remains legacy0; the live browser package stays `7ccd059`.
 Next: complete that combined proof and investigate the measured worker cost.
 
