@@ -1,5 +1,10 @@
 # Development status
 
+The secondary-project dedupe candidate preserves an account's recoverable
+secondary projects when its primary project, positive credits and saved
+session are absent. The one-condition change and exact `9da0d8e` fixture
+retain newer source. All 19 selected controls await qualification here.
+
 Keyring-save acknowledgement passes all nine selected checks on `67d917b`,
 with 851 matching source pins, a hash-bound executable and settled groups.
 The built-in mock credential is rejected before its nonpersistent write can
