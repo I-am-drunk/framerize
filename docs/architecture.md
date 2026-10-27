@@ -60,6 +60,9 @@ Worker invocations carry the optional total output limit without inventing
 a default. HTTP authorization stays in the shared kernel client, including
 its per-key mint guard. Independent worker and authorization controls do not
 substitute for a combined real-child cold-cache concurrency proof.
+Frame encoders grow buffers under an explicit allocation ceiling and return
+a buffer whose capacity equals its length. Data encoding uses the already
+reserved wire credit as its ceiling, including the four-byte frame prefix.
 
 Free Responses SSE uses an awaited output sink. Policy transfers a validated
 chunk to one encoder and waits for its segments to enter the bounded body

@@ -302,7 +302,7 @@ impl Emitter {
         let message = Message::Data { op, seq, last,
             event: if segment.content { DataKind::Content } else { kind },
             bytes };
-        let encoded = frame::encode(&message);
+        let encoded = frame::encode_with_limit(&message, DATA_WIRE_RESERVE as usize);
         drop(message); // Producer bytes never remain in a pipe-write waiter.
         enqueue_reserved(control, permit, encoded, seq, last)?
             .wait().await.map_err(|_| OutputError::Closed)

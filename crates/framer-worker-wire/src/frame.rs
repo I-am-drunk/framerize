@@ -163,22 +163,37 @@ impl Drop for FrameWriter {
     fn drop(&mut self) { self.0.poison(); }
 }
 
-struct Limited(Vec<u8>);
+struct Limited { bytes: Vec<u8>, allocation_limit: usize }
 impl Write for Limited {
     fn write(&mut self, bytes: &[u8]) -> io::Result<usize> {
-        if bytes.len() > (FRAME_LIMIT + 4).saturating_sub(self.0.len()) {
+        if bytes.len() > self.allocation_limit.saturating_sub(self.bytes.len()) {
             return Err(io::Error::other("frame byte limit"));
         }
-        self.0.try_reserve_exact(bytes.len())
-            .map_err(|_| io::Error::from(io::ErrorKind::OutOfMemory))?;
-        self.0.extend_from_slice(bytes);
+        let needed = self.bytes.len() + bytes.len();
+        if needed > self.bytes.capacity() {
+            let capacity = needed.max(self.bytes.capacity().saturating_mul(2))
+                .min(self.allocation_limit);
+            self.bytes.try_reserve_exact(capacity - self.bytes.len())
+                .map_err(|_| io::Error::from(io::ErrorKind::OutOfMemory))?;
+        }
+        self.bytes.extend_from_slice(bytes);
         Ok(bytes.len())
     }
     fn flush(&mut self) -> io::Result<()> { Ok(()) }
 }
 
 pub fn encode<T: Serialize>(message: &T) -> Result<Vec<u8>, WireError> {
-    let mut encoded = Limited(vec![0; 4]);
+    encode_with_limit(message, FRAME_LIMIT + 4)
+}
+
+/// Bound the encoder allocation, including its four-byte length prefix.
+/// Callers with byte credit must pass their already-reserved capacity.
+pub fn encode_with_limit<T: Serialize>(message: &T, allocation_limit: usize)
+    -> Result<Vec<u8>, WireError> {
+    if !(5..=FRAME_LIMIT + 4).contains(&allocation_limit) {
+        return Err(WireError::FrameLimit);
+    }
+    let mut encoded = Limited { bytes: vec![0; 4], allocation_limit };
     if let Err(error) = serde_json::to_writer(&mut encoded, message) {
         return Err(match error.io_error_kind() {
             Some(io::ErrorKind::OutOfMemory) => WireError::Allocation,
@@ -186,9 +201,9 @@ pub fn encode<T: Serialize>(message: &T) -> Result<Vec<u8>, WireError> {
             None => error.into(),
         });
     }
-    let length = (encoded.0.len() - 4) as u32;
-    encoded.0[..4].copy_from_slice(&length.to_be_bytes());
-    Ok(encoded.0.into_boxed_slice().into_vec())
+    let length = (encoded.bytes.len() - 4) as u32;
+    encoded.bytes[..4].copy_from_slice(&length.to_be_bytes());
+    Ok(encoded.bytes.into_boxed_slice().into_vec())
 }
 
 pub struct Decoded<T> { pub message: T, pub wire_bytes: u64 }

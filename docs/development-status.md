@@ -1,5 +1,15 @@
 # Development status
 
+The experimental wire-encoding slice replaces one exact buffer growth per
+small JSON write with amortized growth under an explicit allocation limit.
+Data passes its existing 66,048-byte wire reservation; generic frames keep
+their original frame limit. Encoded bytes and final capacity remain exact.
+Three new controls cover growth count, wire parity and allocation limits.
+This source is UNRUN. The retained baseline allocation probe observed 32,809
+reallocation calls for one 16 KiB Data payload. It does not attribute the
+complete router cost or measure live latency. Next: compile and qualify
+the candidate, then measure the same encoder and real-child profiles.
+
 The S3w composition at `9dfb408` passes all 172 selected worker/lifecycle
 launches and 32 retained Responses-budget/authentication checks. These are
 204 launches covering 203 distinct package/name pairs. All 834 execution

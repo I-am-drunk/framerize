@@ -1,11 +1,46 @@
 use super::*;
 use crate::message::{self as dto, *};
 
+#[test]
+fn bounded_writer_amortizes_growth_within_reserved_credit() {
+    let limit = crate::credit::DATA_WIRE_RESERVE as usize;
+    let mut writer = Limited { bytes: vec![0; 4], allocation_limit: limit };
+    let mut growths = 0;
+    for _ in 4..limit {
+        let capacity = writer.bytes.capacity();
+        writer.write_all(b"x").unwrap();
+        growths += usize::from(writer.bytes.capacity() != capacity);
+        assert!(writer.bytes.capacity() <= limit);
+    }
+    assert!(growths <= 32, "{growths} buffer growths for one reserved frame");
+    assert_eq!(writer.bytes.len(), limit);
+    assert!(writer.write_all(b"x").is_err());
+    assert_eq!(writer.bytes.len(), limit);
+    assert!(writer.bytes.capacity() <= limit);
+}
+
 async fn pending<F: std::future::Future>(mut future: std::pin::Pin<&mut F>) {
     std::future::poll_fn(|cx| {
         assert!(future.as_mut().poll(cx).is_pending());
         std::task::Poll::Ready(())
     }).await;
+}
+
+#[test]
+fn bounded_data_encoding_preserves_wire_and_exact_capacity() {
+    for size in [0, 1, 1024, crate::SEGMENT_LIMIT] {
+        let message = Message::Data { op: u64::MAX, seq: u64::MAX,
+            event: DataKind::Content, last: true,
+            bytes: Segment::new(vec![255; size]).unwrap() };
+        let json = serde_json::to_vec(&message).unwrap();
+        let mut expected = (json.len() as u32).to_be_bytes().to_vec();
+        expected.extend_from_slice(&json);
+        let bytes = encode_with_limit(&message, crate::credit::DATA_WIRE_RESERVE as usize)
+            .unwrap();
+        assert_eq!(bytes, expected);
+        assert_eq!(bytes.capacity(), bytes.len());
+        assert!(bytes.len() <= crate::credit::DATA_WIRE_RESERVE as usize);
+    }
 }
 
 #[tokio::test]
@@ -40,6 +75,18 @@ async fn outbox_bounds_records_and_refuses_stale_slot_reuse() {
     let fresh = outbox.register(7).unwrap();
     assert!(old.reserve().await.is_err());
     assert!(fresh.reserve().await.is_ok());
+}
+
+#[test]
+fn bounded_encoding_enforces_the_prefix_in_its_allocation_limit() {
+    let message = Message::Ready { generation: 42 };
+    let expected = encode(&message).unwrap();
+    for limit in [0, 1, 4, expected.len() - 1, FRAME_LIMIT + 5, usize::MAX] {
+        assert!(matches!(encode_with_limit(&message, limit), Err(WireError::FrameLimit)));
+    }
+    let actual = encode_with_limit(&message, expected.len()).unwrap();
+    assert_eq!(actual, expected);
+    assert_eq!(actual.capacity(), actual.len());
 }
 
 fn text(value: &str) -> Text { Text::new(value.into()).unwrap() }
