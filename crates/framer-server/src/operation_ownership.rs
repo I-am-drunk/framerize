@@ -91,6 +91,8 @@ impl ServingOwnership {
             parent_operation_id: parent.map(|p| p.1), operation_id,
             owner: Mutex::new(Some(owner)), scope: self.clone(),
             preflight_completed: std::sync::atomic::AtomicBool::new(false),
+            generation: CURRENT.try_with(|parent| parent.generation.get().cloned())
+                .ok().flatten().map(std::sync::OnceLock::from).unwrap_or_default(),
         });
         context.observe("operation.registered", "active", None);
         Ok(context)
@@ -114,6 +116,33 @@ struct OwnerContext {
     request_id: String, operation_id: String, parent_operation_id: Option<String>,
     kind: OperationKind,
     preflight_completed: std::sync::atomic::AtomicBool,
+    generation: std::sync::OnceLock<crate::policy_generations::GenerationPin>,
+}
+
+/// Associate the selected generation with the existing registration. Nested
+/// cleanup inherits this pin; no second admission or completion is created.
+pub(crate) fn associate_generation(pin: crate::policy_generations::GenerationPin)
+    -> Result<crate::policy_generations::LogContext, GateError> {
+    CURRENT.try_with(|owner| {
+        if !pin.belongs_to(&owner.scope) { return Err(GateError::WrongGate); }
+        let context = crate::policy_generations::LogContext::new(&pin,
+            &owner.request_id, &owner.operation_id).map_err(|_| GateError::Unconfirmed)?;
+        owner.generation.set(pin).map_err(|_| GateError::Unconfirmed)?;
+        Ok(context)
+    }).map_err(|_| GateError::Unconfirmed)?
+}
+
+/// Capture CURRENT before spawn, then poll a nested driver under that same
+/// owner. Its caller still owns joining and the existing completion verdict.
+pub(crate) fn scope_current<F: Future>(future: F) -> impl Future<Output = F::Output> {
+    let owner = CURRENT.try_with(Clone::clone).ok();
+    async move {
+        match owner { Some(owner) => CURRENT.scope(owner, future).await, None => future.await }
+    }
+}
+
+pub(crate) fn current_generation() -> Option<crate::policy_generations::GenerationPin> {
+    CURRENT.try_with(|owner| owner.generation.get().cloned()).ok().flatten()
 }
 
 /// Preserve typed errors while attesting a terminal refusal before any

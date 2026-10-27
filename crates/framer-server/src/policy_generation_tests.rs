@@ -3,6 +3,109 @@ use super::*;
 use std::time::Duration;
 
 const BOUND: Duration = Duration::from_secs(2);
+fn log_context() -> LogContext {
+    LogContext { generation: 7, op: 11, request: uuid::Uuid::from_u128(13),
+        operation: uuid::Uuid::from_u128(17) }
+}
+fn operation_log(logger: Arc<Logger>) -> OperationLog {
+    OperationLog { context: log_context(), logger,
+        worker_drops: std::sync::atomic::AtomicU32::new(0) }
+}
+struct LogDirectory(std::path::PathBuf);
+impl LogDirectory {
+    fn new() -> Self {
+        let path = std::env::temp_dir().join(format!("policy-log-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir(&path).unwrap();
+        framer_core::observability::init_path(&path);
+        Self(path)
+    }
+    fn records(&self) -> Vec<serde_json::Value> {
+        let files: Vec<_> = std::fs::read_dir(self.0.join(".logs")).unwrap().collect();
+        assert_eq!(files.len(), 1);
+        std::fs::read_to_string(files[0].as_ref().unwrap().path()).unwrap()
+            .lines().map(|line| serde_json::from_str(line).unwrap()).collect()
+    }
+}
+impl Drop for LogDirectory { fn drop(&mut self) { std::fs::remove_dir_all(&self.0).unwrap(); } }
+
+#[tokio::test]
+#[ignore = "run exactly once in a fresh process; global core logger"]
+async fn isolated_logger_keeps_numeric_events_and_operation_correlation() {
+    use framer_worker_wire::message::Diagnostic;
+    let directory = LogDirectory::new();
+    let logger = Logger::new(2);
+    let log = operation_log(logger.clone());
+    log.diagnostic(3, Diagnostic::Backoff { chunk: 1, attempt: 2, wait_ms: 30 });
+    log.diagnostic(3, Diagnostic::ChunkDone { chunk: 1, tokens: 20, elapsed_ms: 50 });
+    assert!(logger.shutdown().await);
+    let records = directory.records();
+    assert_eq!(records.len(), 2);
+    for record in &records {
+        assert_eq!(record["request_id"], log_context().request.to_string());
+        assert_eq!(record["operation_id"], log_context().operation.to_string());
+        assert_eq!(record["op"], 11); assert_eq!(record["generation"], 7);
+        assert_eq!(record["invocation"], 3);
+    }
+    assert_eq!(records[0]["diagnostic"], serde_json::json!({"kind":"backoff","chunk":1,"attempt":2,"wait_ms":30}));
+    assert_eq!(records[1]["diagnostic"], serde_json::json!({"kind":"chunk_done","chunk":1,"tokens":20,"elapsed_ms":50}));
+}
+
+#[tokio::test]
+#[ignore = "run exactly once in a fresh process; global core logger"]
+async fn isolated_logger_counts_full_inbox_before_append_starts() {
+    let directory = LogDirectory::new();
+    let logger = Logger::new(1);
+    let log = operation_log(logger.clone());
+    for _ in 0..101 {
+        log.diagnostic(0, framer_worker_wire::message::Diagnostic::ToolBudgetWithheld { chunk: 0 });
+    }
+    assert_eq!(logger.dropped.load(Ordering::Relaxed), 100);
+    assert!(logger.shutdown().await);
+    let records = directory.records();
+    assert_eq!(records.len(), 2);
+    assert_eq!(records[0]["event"], "policy.diagnostic");
+    assert_eq!(records[1]["kernel_inbox_dropped"], 100);
+    assert_eq!(records[1]["kernel_inbox_dropped_at_least"], false);
+}
+
+#[tokio::test]
+#[ignore = "run exactly once in a fresh process; global core logger"]
+async fn isolated_logger_retains_saturation_and_marks_loss_unknown() {
+    let directory = LogDirectory::new();
+    let logger = Logger::new(3);
+    let log = operation_log(logger.clone());
+    log.dropped(2).unwrap(); log.dropped(2).unwrap();
+    assert!(log.dropped(1).is_err());
+    log.dropped(u32::MAX).unwrap(); log.worker_lost();
+    assert!(logger.shutdown().await);
+    let records = directory.records();
+    assert_eq!(records.len(), 3);
+    assert_eq!(records[1]["worker_dropped_at_least"], true);
+    assert_eq!(records[2]["worker_drops_unknown"], true);
+    assert_eq!(records[2]["worker_dropped_last_known"], u32::MAX);
+}
+
+#[tokio::test]
+async fn nested_scope_inherits_the_existing_registration_generation() {
+    use crate::operation_ownership::{associate_generation, current_generation, scope_current};
+    let manager = manager(2);
+    let (a, _exit) = ready(&manager);
+    manager.activate(a).unwrap();
+    let serving = manager.clone();
+    let task = crate::operation_ownership::spawn(Some(&manager.ownership),
+        framer_core::operation_gate::OperationKind::Inference, async move {
+            let pin = serving.select().unwrap().unwrap();
+            let context = associate_generation(pin.clone()).unwrap();
+            assert!(Arc::ptr_eq(&pin.logger(context).unwrap(), &pin.logger(context).unwrap()));
+            let nested = tokio::spawn(scope_current(async {
+                let pin = current_generation().unwrap(); (pin.generation(), pin.operation())
+            })).await.unwrap();
+            assert_eq!(nested, (pin.generation(), pin.operation()));
+            pin.confirm();
+        }).unwrap();
+    task.await.unwrap();
+    tokio::time::timeout(BOUND, manager.shutdown(false)).await.unwrap().unwrap();
+}
 fn manager(limit: usize) -> Arc<GenerationManager> {
     let scope = crate::operation_ownership::ServingOwnership::new_unmanaged(
         Arc::new(framer_core::wave::WaveGuard::new()), limit).unwrap();

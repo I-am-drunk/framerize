@@ -25,7 +25,133 @@ pub struct GenerationSnapshot {
 }
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum GenerationError { Closed, Full, Unknown, NotReady, Protocol, Process, InvalidLimit,
-    Unconfirmed, OwnershipRequired, RuntimeShared, AlreadyConfigured }
+    Unconfirmed, OwnershipRequired, RuntimeShared, AlreadyConfigured, Logger }
+
+#[derive(Clone, Copy)]
+pub(crate) struct LogContext {
+    generation: u64, op: u64, request: uuid::Uuid, operation: uuid::Uuid,
+}
+impl LogContext {
+    pub(crate) fn new(pin: &GenerationPin, request: &str, operation: &str)
+        -> Result<Self, uuid::Error> {
+        Ok(Self { generation: pin.generation(), op: pin.operation(),
+            request: request.parse()?, operation: operation.parse()? })
+    }
+}
+#[derive(Clone, Copy)]
+enum LogEvent {
+    Policy { invocation: u32, event: framer_worker_wire::message::Diagnostic },
+    WorkerDrops { total: u32 },
+    WorkerLost { last_known: u32 },
+}
+struct LogRecord { context: LogContext, event: LogEvent }
+impl LogRecord {
+    fn emit(self) {
+        let context = self.context;
+        let event = framer_core::observability::Event::new("policy.diagnostic")
+            .request_id(&context.request.to_string())
+            .field("operation_id", context.operation.to_string())
+            .field("generation", context.generation).field("op", context.op);
+        let event = match self.event {
+            LogEvent::Policy { invocation, event: diagnostic } => event
+                .field("invocation", invocation)
+                .field("diagnostic", serde_json::to_value(diagnostic).expect("numeric diagnostic")),
+            LogEvent::WorkerDrops { total } => event.field("worker_dropped", total)
+                .field("worker_dropped_at_least", total == u32::MAX),
+            LogEvent::WorkerLost { last_known } => event.field("worker_drops_unknown", true)
+                .field("worker_dropped_last_known", last_known),
+        };
+        event.emit();
+    }
+}
+fn append_logs(mut receiver: tokio::sync::mpsc::Receiver<LogRecord>,
+    dropped: Arc<std::sync::atomic::AtomicU64>) {
+    let mut previous = 0;
+    while let Some(record) = receiver.blocking_recv() {
+        record.emit();
+        previous = emit_logger_drops(&dropped, previous);
+    }
+    emit_logger_drops(&dropped, previous);
+}
+fn emit_logger_drops(dropped: &std::sync::atomic::AtomicU64, previous: u64) -> u64 {
+    let total = dropped.load(Ordering::Relaxed);
+    if total > previous {
+        framer_core::observability::Event::new("policy.logger_dropped")
+            .field("kernel_inbox_dropped", total)
+            .field("kernel_inbox_dropped_at_least", total == u64::MAX).emit();
+    }
+    total
+}
+
+pub(crate) struct OperationLog {
+    context: LogContext, logger: Arc<Logger>, worker_drops: std::sync::atomic::AtomicU32,
+}
+impl OperationLog {
+    pub(crate) fn dropped(&self, total: u32) -> Result<(), WireError> {
+        let previous = self.worker_drops.fetch_update(Ordering::Relaxed, Ordering::Relaxed,
+            |old| (total >= old).then_some(total)).map_err(|_| WireError::Protocol)?;
+        if total > previous {
+            self.logger.enqueue(LogRecord { context: self.context, event: LogEvent::WorkerDrops { total } });
+        }
+        Ok(())
+    }
+    pub(crate) fn diagnostic(&self, invocation: u32, event: framer_worker_wire::message::Diagnostic) {
+        self.logger.enqueue(LogRecord { context: self.context, event: LogEvent::Policy { invocation, event } });
+    }
+    pub(crate) fn worker_lost(&self) {
+        self.logger.enqueue(LogRecord { context: self.context,
+            event: LogEvent::WorkerLost { last_known: self.worker_drops.load(Ordering::Relaxed) } });
+    }
+}
+type LogJoin = Shared<BoxFuture<'static, bool>>;
+struct LogState {
+    sender: Option<tokio::sync::mpsc::Sender<LogRecord>>,
+    receiver: Option<tokio::sync::mpsc::Receiver<LogRecord>>,
+    joined: Option<LogJoin>,
+}
+struct Logger { state: Mutex<LogState>, dropped: Arc<std::sync::atomic::AtomicU64> }
+impl Logger {
+    fn enqueue(&self, record: LogRecord) {
+        let state = self.state.lock().unwrap_or_else(|e| e.into_inner());
+        if state.sender.as_ref().is_none_or(|sender| sender.try_send(record).is_err()) {
+            let _ = self.dropped.fetch_update(Ordering::Relaxed, Ordering::Relaxed,
+                |count| Some(count.saturating_add(1)));
+        }
+    }
+    async fn shutdown(&self) -> bool {
+        let joined = {
+            let mut state = self.state.lock().unwrap_or_else(|e| e.into_inner());
+            self.start_locked(&mut state);
+            state.sender.take();
+            state.joined.clone().expect("logger start installs join")
+        };
+        joined.await
+    }
+}
+impl Drop for Logger {
+    fn drop(&mut self) {
+        // Fallback closes the channel. Only shutdown() attests the joined job.
+        self.state.get_mut().unwrap_or_else(|e| e.into_inner()).sender.take();
+    }
+}
+impl Logger {
+    fn new(limit: usize) -> Arc<Self> {
+        let (sender, receiver) = tokio::sync::mpsc::channel(limit);
+        Arc::new(Self { state: Mutex::new(LogState {
+            sender: Some(sender), receiver: Some(receiver), joined: None,
+        }), dropped: Arc::new(std::sync::atomic::AtomicU64::new(0)) })
+    }
+    fn start(&self) {
+        let mut state = self.state.lock().unwrap_or_else(|e| e.into_inner());
+        self.start_locked(&mut state);
+    }
+    fn start_locked(&self, state: &mut LogState) {
+        let Some(receiver) = state.receiver.take() else { return; };
+        let dropped = self.dropped.clone();
+        let job = tokio::task::spawn_blocking(move || append_logs(receiver, dropped));
+        state.joined = Some(async move { job.await.is_ok() }.boxed().shared());
+    }
+}
 
 type Completion = Shared<BoxFuture<'static, ()>>;
 type Retirement = Shared<BoxFuture<'static, Result<(), GenerationError>>>;
@@ -59,6 +185,7 @@ struct Inbox { state: Mutex<InboxState>, limit: usize }
 pub struct GenerationManager {
     state: Mutex<State>, changed: watch::Sender<()>, limit: usize,
     ownership: Arc<crate::operation_ownership::ServingOwnership>,
+    logger: Arc<Logger>,
 }
 impl GenerationManager {
     fn new(limit: usize, ownership: Arc<crate::operation_ownership::ServingOwnership>)
@@ -68,7 +195,7 @@ impl GenerationManager {
         Ok(Arc::new(Self { state: Mutex::new(State {
             next: 1, next_op: 1, active: None, closed: false, forced: false,
             slots: BTreeMap::new(), shutdown: None,
-        }), changed, limit, ownership }))
+        }), changed, limit, ownership, logger: Logger::new(limit) }))
     }
     fn lock(&self) -> Result<std::sync::MutexGuard<'_, State>, GenerationError> {
         self.state.lock().map_err(|_| GenerationError::Protocol)
@@ -81,6 +208,8 @@ impl GenerationManager {
             alive: slot.worker.as_ref().is_some_and(|w| *w.alive.borrow()),
         }).collect())
     }
+    /// Queue admission losses only. Event::emit cannot report disk-append loss.
+    pub fn diagnostic_drops(&self) -> u64 { self.logger.dropped.load(Ordering::Relaxed) }
 }
 struct StageGuard { owner: Weak<GenerationManager>, generation: u64, finished: bool }
 impl Drop for StageGuard {
@@ -111,8 +240,20 @@ impl Drop for GenerationManager {
 #[derive(Clone)]
 pub(crate) struct GenerationPin(Arc<PinLease>);
 struct PinLease { manager: Weak<GenerationManager>, generation: u64, op: u64,
-    worker: Arc<Worker>, confirmed: AtomicBool, channels: Mutex<Option<(WriteSlot, WriteSlot)>> }
+    worker: Arc<Worker>, confirmed: AtomicBool, channels: Mutex<Option<(WriteSlot, WriteSlot)>>,
+    log: std::sync::OnceLock<Arc<OperationLog>> }
 impl GenerationPin {
+    pub(crate) fn logger(&self, context: LogContext) -> Result<Arc<OperationLog>, GenerationError> {
+        if context.generation != self.generation() || context.op != self.operation() {
+            return Err(GenerationError::Protocol);
+        }
+        let manager = self.0.manager.upgrade().ok_or(GenerationError::Closed)?;
+        Ok(self.0.log.get_or_init(|| Arc::new(OperationLog { context, logger: manager.logger.clone(),
+            worker_drops: std::sync::atomic::AtomicU32::new(0) })).clone())
+    }
+    pub(crate) fn belongs_to(&self, scope: &Arc<crate::operation_ownership::ServingOwnership>) -> bool {
+        self.0.manager.upgrade().is_some_and(|manager| Arc::ptr_eq(&manager.ownership, scope))
+    }
     pub fn generation(&self) -> u64 { self.0.generation }
     pub fn operation(&self) -> u64 { self.0.op }
     /// Only after Done (or joined channel loss), all accepted Forward verdicts
@@ -198,6 +339,7 @@ impl GenerationManager {
             state.slots.insert(generation, Slot { phase: GenerationPhase::Starting,
                 pins: 0, unconfirmed: false, worker: None, starting: None, retiring: None,
                 cancel_stage });
+            self.logger.start();
             let (reply, result) = oneshot::channel();
             let owner = Arc::downgrade(self);
             let limit = self.limit;
@@ -236,7 +378,7 @@ impl GenerationManager {
         state.slots.get_mut(&generation).unwrap().pins += 1;
         Ok(Some(GenerationPin(Arc::new(PinLease {
             manager: Arc::downgrade(self), generation, op, worker,
-            confirmed: AtomicBool::new(false), channels: Mutex::new(None),
+            confirmed: AtomicBool::new(false), channels: Mutex::new(None), log: std::sync::OnceLock::new(),
         }))))
     }
 }
@@ -317,8 +459,10 @@ impl GenerationManager {
                 let job = tokio::spawn(async move {
                     let results = futures::future::join_all(generations.into_iter()
                         .map(|generation| owner.retire(generation))).await;
-                    results.into_iter().filter(|r| *r != Err(GenerationError::Unknown))
-                        .collect::<Result<Vec<_>, _>>().map(|_| ())
+                    let result = results.into_iter().filter(|r| *r != Err(GenerationError::Unknown))
+                        .collect::<Result<Vec<_>, _>>().map(|_| ());
+                    let logged = owner.logger.shutdown().await;
+                    result.and(if logged { Ok(()) } else { Err(GenerationError::Logger) })
                 });
                 let completion = async move { job.await.unwrap_or(Err(GenerationError::Process)) }
                     .boxed().shared();

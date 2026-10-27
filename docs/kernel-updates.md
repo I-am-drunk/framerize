@@ -170,8 +170,16 @@ pin clones in every final Bytes owner. That adapter is still incomplete.
 Forced error shutdown reaps even with pins outstanding and retains the fence.
 Drop requests teardown only; library callers must await manager shutdown.
 The browser app now does so after application drain and before host shutdown.
-Semantic credit, Forward verdict attachment, the manager logger and real-child
-proofs remain unfinished. Synthetic process outcomes do not establish reaping.
+Semantic credit, Forward verdict attachment and real-child proofs remain
+unfinished. Synthetic process outcomes do not establish reaping.
+
+The manager logger has one bounded inbox and one joined blocking append job.
+Each queued record has fixed-size kernel identifiers and closed numeric data;
+request correlation is captured under CURRENT before dispatch. Full inboxes
+increment a saturating counter. Worker drop reports log only increases and
+mark MAX as a lower bound; channel loss reports the remaining count unknown.
+Neither counter covers silent disk-append errors. The existing core log-open
+warning is unchanged. NDJSON fixtures run individually in fresh processes.
 
 ## Reference evidence
 

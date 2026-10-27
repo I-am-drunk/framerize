@@ -1,5 +1,13 @@
 # Development status
 
+The manager now owns a bounded diagnostic inbox and one joined append job.
+Records contain kernel UUIDs, generation/operation numbers and closed numeric
+events. Full inboxes count drops without waiting for disk I/O; append failures
+remain invisible to these counters. Three new NDJSON controls require separate
+fresh processes because the core logger initializes once. They are UNRUN.
+Generation association and nested CURRENT scoping reuse existing registrations;
+the request adapter must still attach the selected pin and route diagnostics.
+
 S3w now has an opt-in two-slot generation manager in the isolated overhaul
 branch. It owns staging through caller cancellation, checks Hello and the
 completed Ready write before publication, serializes activation with pin
