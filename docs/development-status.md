@@ -1,9 +1,14 @@
 # Development status
 
-The secondary-project dedupe candidate preserves an account's recoverable
-secondary projects when its primary project, positive credits and saved
-session are absent. The one-condition change and exact `9da0d8e` fixture
-retain newer source. All 19 selected controls await qualification here.
+Secondary-project dedupe passes all 19 selected checks on `17fc457`, with
+852 matching source pins, a hash-bound executable and settled process groups.
+Accounts with recoverable secondary projects survive the dead-account check
+even without a primary project, positive credits or a saved session. The
+single predicate term and exact `9da0d8e` fixture preserve newer source.
+Baseline `38b2b17` passed 16 controls and failed the first preview, apply and
+clone assertions. Later states, team and zero-credit variants, and clone
+application are candidate evidence only. Retention does not grant request
+eligibility. These inert store/session checks establish no live dedupe result.
 
 Keyring-save acknowledgement passes all nine selected checks on `67d917b`,
 with 851 matching source pins, a hash-bound executable and settled groups.

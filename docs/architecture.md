@@ -1,5 +1,11 @@
 # Architecture
 
+Dedupe treats a nonempty secondary-project list as recoverable account state.
+The dead-account predicate therefore requires no primary or secondary project,
+no positive credits and no saved session. Full device identity still controls
+clone selection, and survivor management guards still protect applied removals.
+Keeping a recoverable record does not make it eligible to serve requests.
+
 KeyringSessionStore refuses keyring's built-in MockCredential before writing,
 returning `session keyring backend is not persistent`. That backend stores
 the value only in the temporary Entry. Entry-construction errors retain
