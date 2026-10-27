@@ -1,5 +1,21 @@
 # Architecture
 
+The explicit `control_launcher.py` entry point connects the prepared Python
+child to the native egress exchange. One `Frames` instance handles the initial
+binding, probe reply and later control messages, including coalesced input.
+The native pipe callback accepts one exact URL result and invalidates its
+channel on malformed input, loss or cancellation. It joins a pending reply
+through cancellation instead of dropping the exchange.
+
+The caller must supply the endpoint, proxy revision and finite preparation,
+probe and witness limits. An existing empty private state directory is also
+required before host imports. The launcher leaves that directory with its
+caller and does not adopt an existing browser profile. Protocol output uses
+the private stdout pipe; incidental Python output is suppressed. Pipe closure
+is awaited through repeated cancellation. An unresponsive peer still needs
+the caller's outer process bound. Native account checks remain authoritative;
+channel liveness in Python is not an independent account-generation proof.
+
 `BrowserControlProcess::with_native_egress` selects explicit account-scoped
 preparation. Ordinary `prepare` refuses that mode. `prepare_for_account`
 checks the account, user, session and configured route before starting its

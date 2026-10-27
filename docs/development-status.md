@@ -1,5 +1,16 @@
 # Development status
 
+The explicit Python launcher is implemented on
+`feat/browser-control-launcher-20261027` and awaits offline qualification.
+Fourteen new controls cover the shared frame parser, exact native reply,
+lost or malformed replies, cancellation, private state directory, paired
+egress samples, pipe closure and malformed input through the real entry point.
+Sixteen retained child controls are selected for the parser-wiring change.
+All 30 selections remain UNRUN. The browser and network ports are inert.
+The caller supplies the endpoint, finite limits and empty private state
+directory. Service startup still needs to retain the exact native account
+lease through preparation and request use. No live acceptance is claimed.
+
 The account-scoped browser-control handshake is implemented on
 `feat/control-native-egress-20261027`. All 33 selected controls pass on
 `c199a98`, with a fresh native build and 880 matching source pins. Fifteen new

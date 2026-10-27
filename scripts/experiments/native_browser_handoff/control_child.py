@@ -65,10 +65,12 @@ class PreparedControlChild:
             self.host._control_cancelled.set()
 
     async def run(self, reader, writer):
+        return await self.run_frames(Frames(reader, writer))
+
+    async def run_frames(self, io):
         if self.used:
             refuse()
         self.used = True
-        io = Frames(reader, writer)
         cancelled = protocol_started = result = False
         try:
             seconds = self.prepare_seconds
