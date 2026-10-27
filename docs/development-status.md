@@ -1,8 +1,8 @@
 # Development status
 
 The dedicated browser-control initializer is implemented on
-`feat/browser-control-preparation-20261027`. Its 20 new offline controls are
-currently unrun. They cover exact identity and route binding, installation
+`feat/browser-control-preparation-20261027`. All 20 new offline controls pass
+on `60c67aa`. They cover exact identity and route binding, installation
 before navigation, refusal of ordinary commands, cancellation at each resource
 creation boundary, repeated cancellation, deadlines and unconfirmed cleanup.
 The fixtures use the real Host ownership code with inert browser and driver
@@ -10,6 +10,9 @@ ports. They do not launch a browser or establish authenticated preparation.
 The child entry point, actual-egress verification and supervised matched live
 comparison remain unfinished. The previous transport and native-control
 qualifications are retained; this slice changes none of their source files.
+The Python 3.12 run matched all 869 source pins and left an inactive test unit
+with no processes. All 867 previous transport source pins also match. No
+previous test was rerun, and no live browser or request was used.
 
 The private browser-control transport is implemented on
 `feat/browser-control-transport-20261027`. All 14 native process controls and
