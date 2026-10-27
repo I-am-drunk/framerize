@@ -1,5 +1,12 @@
 # Architecture
 
+Access-token decoding rejects an empty local or selected relay bearer before
+checking expiry. The existing `bad access-token response` and
+`relay: no token for user` errors identify their respective paths. An empty
+reply cannot enter the token cache, so a later caller may retry the mint.
+Nonempty token bytes and the existing session, expiry and fallback rules stay
+unchanged; this check does not establish that a token will authenticate.
+
 Project adoption first selects the newest project's string ID, then checks
 any root or selected-project teamId against the complete requested team.
 Contradictory or malformed metadata returns

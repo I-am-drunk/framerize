@@ -1,10 +1,15 @@
 # Development status
 
-The empty-bearer candidate rejects empty local and selected relay token
-strings before expiry validation, using their existing decoder errors.
-Nonempty bytes, cache ownership, mint locks and fallback remain unchanged.
-Both Rust files match `f33db41` on the current composition. All 26 selected
-controls await qualification here, including joined web-mint cache recovery.
+Empty-bearer validation passes all 26 selected checks on `5506bdd`, with
+850 matching source pins, a hash-bound executable and settled process groups.
+Local and selected relay decoders reject empty token strings before expiry
+validation, using their existing errors. Nonempty bytes, session ownership,
+mint locks and fallback retain their behavior. The web fixture confirms an
+uncached error, a successful recovery mint and a cache hit with two requests.
+Baseline `3f0d7e5` passed 23 controls and failed three first expected-error
+assertions; its web fixture joined before failure. Later expiry, cache,
+recovery and request-count assertions are candidate evidence only. Both Rust
+files match `f33db41`. No real relay or live authentication call was made.
 
 Project-adoption validation passes all 18 selected checks on `c5813b9`, with
 849 matching source pins, a hash-bound executable and settled process groups.
