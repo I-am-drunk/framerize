@@ -1,6 +1,15 @@
 use crate::WireError;
 use serde::{Deserialize, Serialize};
 
+// Numeric JSON bytes need at most four encoded bytes each. The fixed Data
+// envelope, including maximal decimal IDs, fits within the remaining 512.
+pub const DATA_WIRE_RESERVE: u64 = (crate::SEGMENT_LIMIT * 4 + 512) as u64;
+/// Charge a whole decoded segment allocation, including short/empty frames.
+/// This matches the two fixed-size output slots; it does not charge history.
+pub fn data_cost(wire_bytes: u64) -> Capacity {
+    Capacity { wire_bytes, slots: 1, downstream_bytes: crate::SEGMENT_LIMIT as u64 }
+}
+
 /// Exclusive event frontiers: zero means that no event has completed.
 #[derive(Default, Debug)]
 pub struct Frontier { complete: u64, accepted: u64 }

@@ -1,5 +1,16 @@
 # Development status
 
+The worker emitter now owns one encoder and joins each incremental serializer.
+It waits for the kernel's accepted-event frontier before returning content,
+and terminal encoding requires a Finish or Fail command. Cancellation closes
+staging before joining and does not wait for downstream disposal credit.
+Five new emitter controls and two wire controls are UNRUN. They use an in-memory
+peer, not a child or real HTTP route. Next: attach the sibling policy runner,
+kernel invocation adapter and production body ownership.
+
+The 8 MiB reply-bound correction has source approval. Its two controls and
+all preceding worker/manager fixtures remain UNRUN in this lane.
+
 The worker package now has a per-invocation Forward adapter with ordered
 payload segments, joined serialization, exact reply offsets and metadata,
 and an awaited saturation acknowledgment. Its single diagnostic slot includes

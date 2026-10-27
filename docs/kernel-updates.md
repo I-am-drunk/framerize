@@ -27,6 +27,19 @@ the eventual W3 measurements must include it rather than assume a fixed
 two-frame memory cost. No child, HTTP transition or retirement proof has
 run for these source building blocks.
 
+The worker emitter reserves a conservative Data frame budget before allocating
+its encoded frame. Numeric byte arrays need at most four bytes per payload byte,
+plus a 512-byte envelope allowance. Unused wire credit returns locally after
+encoding; actual wire credit returns at kernel decode. Every retained Data item
+charges one slot and a full 16 KiB decoded allocation, including empty items.
+The kernel must use that same charge until the final Bytes owner drops.
+These are capacity reservations, not measured allocator or total-memory peaks.
+
+Enqueue and the worker's completed-event record share the credit-reader lock.
+The started write is awaited independently of cancellation. Chunk completion
+then waits on the accepted frontier, while Finish/Fail also waits for terminal
+acceptance. This emitter source has no child or router qualification yet.
+
 S3a prepares the free Responses SSE path for replacement policy workers.
 It adds an in-process awaited sink and incremental borrowed event encoder.
 The publisher owns accepted sequence state and irreversible content flags;

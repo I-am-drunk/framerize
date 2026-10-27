@@ -9,6 +9,24 @@ async fn pending<F: std::future::Future>(mut future: std::pin::Pin<&mut F>) {
 }
 
 #[tokio::test]
+async fn synchronous_enqueue_keeps_accepted_frame_after_receipt_drop() {
+    let (outbox, writer) = Outbox::new(1).unwrap();
+    let slot = outbox.register(1).unwrap();
+    let expected = encode(&Message::Ready { generation: 42 }).unwrap();
+    let receipt = slot.reserve().await.unwrap().enqueue_encoded(expected.clone()).unwrap();
+    drop(receipt);
+    assert!(outbox.remove(&slot).is_err());
+    outbox.close();
+    let (pipe, mut reader) = tokio::io::duplex(17);
+    let joined = tokio::spawn(writer.run(pipe));
+    let mut actual = Vec::new();
+    reader.read_to_end(&mut actual).await.unwrap();
+    joined.await.unwrap().unwrap();
+    assert_eq!(actual, expected);
+    outbox.remove(&slot).unwrap();
+}
+
+#[tokio::test]
 async fn outbox_bounds_records_and_refuses_stale_slot_reuse() {
     assert!(Outbox::new(0).is_err());
     let (outbox, _writer) = Outbox::new(1).unwrap();

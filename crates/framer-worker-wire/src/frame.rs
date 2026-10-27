@@ -28,6 +28,14 @@ pub struct FrameWriter(Outbox);
 pub struct WriteSlot { outbox: Outbox, op: u64, gate: Arc<tokio::sync::Mutex<()>> }
 /// Reserve before allocating a frame. At most one allocation per slot exists.
 pub struct WritePermit { slot: WriteSlot, permit: OwnedMutexGuard<()> }
+/// Receipt for a frame already owned by the writer. Dropping this receipt
+/// cannot remove the frame or cancel its write.
+pub struct WriteReceipt(oneshot::Receiver<Result<(), ()>>);
+impl WriteReceipt {
+    pub async fn wait(self) -> Result<(), WireError> {
+        self.0.await.map_err(|_| WireError::Protocol)?.map_err(|_| WireError::Protocol)
+    }
+}
 
 impl Outbox {
     pub fn new(limit: usize) -> Result<(Self, FrameWriter), WireError> {
@@ -103,6 +111,11 @@ impl WriteSlot {
 }
 impl WritePermit {
     pub async fn send_encoded(self, bytes: Vec<u8>) -> Result<(), WireError> {
+        self.enqueue_encoded(bytes)?.wait().await
+    }
+    /// Synchronous acceptance lets a caller publish its local sequence record
+    /// under the same lock that its reply dispatcher consults.
+    pub fn enqueue_encoded(self, bytes: Vec<u8>) -> Result<WriteReceipt, WireError> {
         validate_frame(&bytes)?;
         if bytes.capacity() > FRAME_LIMIT + 4 { return Err(WireError::FrameLimit); }
         let (reply, receive) = oneshot::channel();
@@ -117,7 +130,7 @@ impl WritePermit {
             state.ready.push_back(self.slot.op);
         }
         self.slot.outbox.0.wake.notify_one();
-        receive.await.map_err(|_| WireError::Protocol)?.map_err(|_| WireError::Protocol)
+        Ok(WriteReceipt(receive))
     }
 }
 

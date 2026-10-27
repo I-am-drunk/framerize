@@ -1,6 +1,21 @@
 use super::*;
 
 #[test]
+fn worst_case_data_frame_fits_reserved_wire_and_decoded_capacity() {
+    use crate::message::{DataKind, Message, Segment};
+    for event in [DataKind::Opening, DataKind::Content, DataKind::Heartbeat, DataKind::Terminal] {
+        let data = Message::Data { op: u64::MAX, seq: u64::MAX, event, last: false,
+            bytes: Segment::new(vec![255; crate::SEGMENT_LIMIT]).unwrap() };
+        let encoded = crate::frame::encode(&data).unwrap();
+        assert!(encoded.capacity() as u64 <= DATA_WIRE_RESERVE);
+        let cost = data_cost(encoded.len() as u64);
+        assert_eq!(cost.slots, 1);
+        assert_eq!(cost.downstream_bytes, crate::SEGMENT_LIMIT as u64);
+    }
+    assert_eq!(data_cost(1).downstream_bytes, crate::SEGMENT_LIMIT as u64);
+}
+
+#[test]
 fn incomplete_or_unsent_events_cannot_be_acknowledged() {
     let mut frontier = Frontier::default();
     assert_eq!(frontier.accepted(), 0);
