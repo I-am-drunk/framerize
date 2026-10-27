@@ -165,6 +165,7 @@ impl Drop for FrameWriter {
 
 struct Limited { bytes: Vec<u8>, allocation_limit: usize }
 impl Write for Limited {
+    #[inline]
     fn write(&mut self, bytes: &[u8]) -> io::Result<usize> {
         if bytes.len() > self.allocation_limit.saturating_sub(self.bytes.len()) {
             return Err(io::Error::other("frame byte limit"));

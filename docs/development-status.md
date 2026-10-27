@@ -1,5 +1,10 @@
 # Development status
 
+An experimental compiler hint permits cross-crate inlining of the bounded
+wire writer. Its byte output, allocation limits and error paths are unchanged.
+The source is unqualified. Main owns the component measurement and the
+subsequent wire and real-worker checks before accepting this optimization.
+
 SQLite poison handling passes all 21 selected controls on `a70cd06`, with
 847 matching source pins, a hash-bound executable and settled process groups.
 Account get, list, upsert and remove return the existing lock error, matching
