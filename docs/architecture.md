@@ -37,7 +37,7 @@ Startup owns session finalization on successful serving, preparation refusal
 and caught panic paths. It drains the session owner before releasing the
 retained lease, control and ledger. Unconfirmed cleanup stays an error.
 Unscoped controls keep their existing preparation order. The native CLI
-still needs explicit selection and pinned launch inputs for this route.
+selects this route through the explicit pinned descriptor described above.
 
 The explicit `control_launcher.py` entry point connects the prepared Python
 child to the native egress exchange. One `Frames` instance handles the initial
@@ -69,8 +69,9 @@ mint. Closing clears the observation. Forced child termination remains
 unconfirmed cleanup even when the child has been reaped.
 
 These controls use an inert real child and loopback HTTP. The Python launcher
-and service startup still need explicit attachment in account-creation order.
-There is no new default, live route comparison or browserless acceptance.
+and scoped service startup are attached in account-creation order. Runtime
+packaging and live route comparison remain separate requirements.
+There is no new default or browserless acceptance.
 
 `AccountScope::observe_egress` reserves an ordinary account preparation and
 uses that generation's existing native HTTP client. The reservation captures

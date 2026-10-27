@@ -1,7 +1,8 @@
 # Development status
 
 Explicit native browser-control launch selection is implemented on
-`feat/control-launch-descriptor-20261027`, with qualification pending.
+`feat/control-launch-descriptor-20261027`. All 41 offline launches pass on
+`0962a15`, with 887 matching source pins and empty settled process groups.
 The CLI requires both the descriptor path and its SHA256. The closed JSON
 schema accepts only typed context, pinned executable paths, an explicit
 endpoint, state directory and bounded timings. It excludes credentials
@@ -9,12 +10,15 @@ and arbitrary child arguments. The selected account supplies its actual
 session and proxy inside owned preparation; a different account or user
 is refused before child creation. Shutdown prevents later preparation.
 
-New descriptor, identity, lifecycle, inert-child and CLI controls are UNRUN.
-Default and browser-transport application variants still need compilation
-and exact executable-name binding. Earlier source qualifications remain
-separate. The existing native-egress guard refuses a browser-backed sender;
-that combination is not enabled merely by parsing both options. No live
-browser, request, service change or matched acceptance is claimed.
+Sixteen new native controls and thirteen retained controls pass. Six new CLI
+controls pass in each of the default and browser-transport builds, for 35
+unique package/name pairs. All three libtests were freshly compiled and
+bound by path and hash before execution. All 878 unaffected prior source
+pins match their saved evidence. Earlier qualifications remain separate.
+The existing native-egress guard refuses a browser-backed sender; parsing
+both options does not enable that combination. Immutable launch packaging,
+an explicit observation endpoint and admitted live comparison remain.
+No live browser, request, service change or matched acceptance is claimed.
 
 The scoped control startup connection is implemented on
 `feat/control-account-startup-20261027`. All 36 selected controls pass on
@@ -28,8 +32,8 @@ expected diagnostics interrupted its single-line pattern. Exact commands,
 zero exit codes and passing libtest summaries reconcile all 36 saved runs;
 the original collector rejection is retained and no test was repeated.
 All 879 unaffected prior source pins match. Fixtures use inert control peers,
-local HTTP and the existing isolated history fixture. Native CLI selection and
-supervised live comparison remain unfinished. No service was changed.
+local HTTP and the existing isolated history fixture. Native CLI selection is
+qualified above; supervised live comparison remains. No service was changed.
 
 The explicit Python launcher is implemented on
 `feat/browser-control-launcher-20261027`. All 30 selected controls pass on
