@@ -7,6 +7,63 @@ use tokio::sync::{mpsc, oneshot};
 #[path = "permit_lifetime_fixture.rs"]
 mod base;
 pub const BOUND: Duration = Duration::from_secs(3);
+pub fn memory_points() -> Value {
+    let mut children = std::collections::BTreeSet::new();
+    for task in std::fs::read_dir("/proc/self/task").unwrap() {
+        let path = task.unwrap().path().join("children");
+        if let Ok(text) = std::fs::read_to_string(path) {
+            children.extend(text.split_whitespace().map(|pid| pid.parse::<u32>().unwrap()));
+        }
+    }
+    json!({"kernel":memory_point(std::process::id()),
+        "children":children.into_iter().map(memory_point).collect::<Vec<_>>()})
+}
+fn memory_point(pid: u32) -> Value {
+    let read = || -> std::io::Result<Value> {
+        let before = std::fs::read_to_string(format!("/proc/{pid}/stat"))?;
+        let status = std::fs::read_to_string(format!("/proc/{pid}/status"))?;
+        let after = std::fs::read_to_string(format!("/proc/{pid}/stat"))?;
+        let start = |stat: &str| stat.rsplit_once(')').unwrap().1.split_whitespace()
+            .nth(19).unwrap().parse::<u64>().unwrap();
+        if start(&before) != start(&after) { return Err(std::io::Error::other("process changed")); }
+        let field = |name: &str| status.lines().find_map(|line| line.strip_prefix(name))
+            .and_then(|value| value.split_whitespace().next()).and_then(|v| v.parse::<u64>().ok());
+        Ok(json!({"pid":pid, "start_ticks":start(&after), "rss_kib":field("VmRSS:"),
+            "vmsize_kib":field("VmSize:"), "threads":field("Threads:")}))
+    };
+    read().unwrap_or_else(|_| json!({"pid":pid,"unavailable":true}))
+}
+pub struct LogDirectory(std::path::PathBuf);
+impl LogDirectory {
+    pub fn new() -> Self {
+        let path = std::env::temp_dir().join(format!("policy-router-log-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir(&path).unwrap();
+        framer_core::observability::init_path(&path);
+        Self(path)
+    }
+    pub fn records(&self) -> Vec<Value> {
+        let files: Vec<_> = std::fs::read_dir(self.0.join(".logs")).unwrap().collect();
+        assert_eq!(files.len(), 1);
+        std::fs::read_to_string(files[0].as_ref().unwrap().path()).unwrap()
+            .lines().map(|line| serde_json::from_str(line).unwrap()).collect()
+    }
+    pub async fn wait_diagnostic(&self, kind: &str) {
+        tokio::time::timeout(BOUND, async {
+            loop {
+                for file in std::fs::read_dir(self.0.join(".logs")).unwrap() {
+                    let text = std::fs::read_to_string(file.unwrap().path()).unwrap();
+                    // A concurrent append may leave the last line incomplete.
+                    if text.lines().filter_map(|line| serde_json::from_str::<Value>(line).ok())
+                        .any(|record| record["diagnostic"]["kind"] == kind) { return; }
+                }
+                tokio::task::yield_now().await;
+            }
+        }).await.expect("diagnostic did not reach the private log");
+    }
+}
+impl Drop for LogDirectory {
+    fn drop(&mut self) { std::fs::remove_dir_all(&self.0).unwrap(); }
+}
 pub struct RealPeer {
     pub process: crate::policy_process::PolicyProcess,
     pub input: mpsc::Receiver<framer_worker_wire::frame::Decoded<framer_worker_wire::message::Message>>,
@@ -231,6 +288,72 @@ impl Fixture {
         assert!(self.manager().snapshot().unwrap().is_empty());
     }
 }
+pub async fn profile(worker: bool) {
+    use futures::StreamExt;
+    let mut f = Fixture::new();
+    if worker { let generation = f.stage().await; f.manager().activate(generation).unwrap(); }
+    let before = memory_points();
+    assert_eq!(before["children"].as_array().unwrap().len(), usize::from(worker));
+    let input = payload();
+    let request_bytes = input.to_string().len();
+    let expected = "profile café ".repeat(8192);
+    let reply = reply(&expected);
+    let reply_bytes = reply.body.len();
+    let started = std::time::Instant::now();
+    let response = f.post(Some(0), input).await;
+    let head_us = started.elapsed().as_micros();
+    assert_eq!(response.status(), axum::http::StatusCode::OK);
+    let call = f.next().await;
+    let forward_us = started.elapsed().as_micros();
+    call.reply.send(Ok(reply)).ok().unwrap();
+    call.joined.await.unwrap();
+    let mut body = response.into_body().into_data_stream();
+    let mut output = Vec::new();
+    let (mut content_us, mut terminal_us) = (None, None);
+    while let Some(bytes) = tokio::time::timeout(BOUND, body.next()).await.unwrap() {
+        let bytes = bytes.unwrap();
+        let text = String::from_utf8_lossy(&bytes);
+        if text.contains("event: response.output_item.added\n") {
+            content_us.get_or_insert(started.elapsed().as_micros());
+        }
+        if text.contains("event: response.completed\n") {
+            terminal_us.get_or_insert(started.elapsed().as_micros());
+        }
+        output.extend_from_slice(&bytes);
+        assert!(output.len() <= 2 * 1024 * 1024);
+    }
+    let eof_us = started.elapsed().as_micros();
+    drop(body);
+    finish_profile(f, &output, &expected, before, worker, request_bytes, reply_bytes,
+        [head_us, forward_us, content_us.unwrap(), terminal_us.unwrap(), eof_us]).await;
+}
+
+#[allow(clippy::too_many_arguments)]
+async fn finish_profile(f: Fixture, output: &[u8], expected: &str, before: Value,
+    worker: bool, request_bytes: usize, reply_bytes: usize, milestones: [u128; 5]) {
+    trace(std::str::from_utf8(output).unwrap(), expected);
+    let after_eof = memory_points();
+    let peaks = f.state.response_output.peak_output_counts();
+    assert!(peaks.0 > 0 && peaks.0 <= 32768);
+    assert!(peaks.1 > 0 && peaks.1 <= 2);
+    let state = f.state.clone();
+    f.finish().await;
+    assert_eq!(state.response_output.counts(), (0, 0, 0));
+    assert_eq!(state.response_output.output_counts(), (0, 0));
+    let after_join = memory_points();
+    assert!(after_join["children"].as_array().unwrap().is_empty());
+    println!("{}", json!({"profile":"s3w_router", "mode":if worker {"worker"} else {"legacy0"},
+        "head_us":milestones[0], "forward_us":milestones[1], "first_content_us":milestones[2],
+        "terminal_start_us":milestones[3], "eof_us":milestones[4],
+        "peak_output_bytes":peaks.0, "peak_output_slots":peaks.1,
+        "final_leases":0, "final_jobs":0, "final_bytes":0,
+        "final_output_bytes":0, "final_output_slots":0,
+        "request_json_bytes":request_bytes, "reply_bytes":reply_bytes,
+        "data_wire_reserve":framer_worker_wire::credit::DATA_WIRE_RESERVE,
+        "before":before, "after_eof":after_eof, "after_join":after_join,
+        "limits":"RSS point samples; unpaused aggregate milestones; no socket or exact total-memory claim"}));
+}
+
 pub struct Call {
     pub account: AccountId, pub payload: Value, pub step: String, pub chunk: u32,
     pub reply: oneshot::Sender<Result<ForwardReply, PolicyError>>,

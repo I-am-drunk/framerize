@@ -5,8 +5,9 @@ AccountRuntime. Production construction, stage, activate and retire methods
 are now present, with retained joins and default legacy0 selection. The real
 free Responses SSE route attaches the selected pin and invokes the worker
 through the existing account driver. The attachment and its real-child
-controls are source-only and UNRUN; fault coverage, measurements and
-qualification remain incomplete.
+controls are source-only and UNRUN. Fault, continuity, diagnostic and profile
+fixtures are present; compilation, measurements and qualification remain
+main-owned and incomplete.
 
 Free Responses SSE uses an awaited output sink. Policy transfers a validated
 chunk to one encoder and waits for its segments to enter the bounded body

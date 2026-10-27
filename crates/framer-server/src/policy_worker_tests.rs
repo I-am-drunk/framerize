@@ -155,11 +155,22 @@ async fn real_worker_stalled_output_does_not_block_terminal_or_cancelled_forward
     let a = f.next().await;
     a.reply.send(Ok(reply(&"stalled".repeat(16384)))).ok().unwrap();
     a.joined.await.unwrap();
+    tokio::time::timeout(BOUND, async {
+        while f.state.response_output.output_counts().1 != 2 {
+            tokio::task::yield_now().await;
+        }
+    }).await.expect("A never filled its unread output slots");
     let healthy = f.post(Some(1), payload()).await;
     let b = f.next().await;
     b.reply.send(Ok(reply("healthy"))).ok().unwrap();
     b.joined.await.unwrap();
     trace(&consume(healthy).await, "healthy");
+    tokio::time::timeout(BOUND, async {
+        while f.manager().snapshot().unwrap()[0].pins != 1 {
+            tokio::task::yield_now().await;
+        }
+    }).await.expect("B did not settle while A remained unread");
+    assert_eq!(f.state.response_output.output_counts().1, 2);
     let cancelled = f.post(Some(1), payload()).await;
     let c = f.next().await;
     drop(cancelled);
@@ -170,6 +181,7 @@ async fn real_worker_stalled_output_does_not_block_terminal_or_cancelled_forward
     }).await.expect("C cleanup was blocked by A");
     assert_eq!(f.manager().snapshot().unwrap()[0].pins, 1);
     assert!(f.state.response_output.counts().2 > 0);
+    assert_eq!(f.state.response_output.output_counts().1, 2);
     drop(stalled);
     f.finish().await;
 }
@@ -504,6 +516,49 @@ async fn fixed_peer_control(peer: &router_fixture::RealPeer, message: framer_wor
     }
     false
 }
+
+#[tokio::test]
+#[ignore = "fresh process and private log directory; real worker required"]
+async fn isolated_real_worker_diagnostics_keep_op_and_exclude_raw_failure() {
+    use router_fixture::*;
+    let directory = LogDirectory::new();
+    let mut f = Fixture::new();
+    let worker = f.stage().await;
+    f.manager().activate(worker).unwrap();
+    let response = f.post(Some(0), payload()).await;
+    let first = f.next().await;
+    directory.wait_diagnostic("chunk_start").await;
+    first.reply.send(Err(framer_core::port::ForwardError::from_legacy(
+        "retryable 429 on /responses: raw-private-fixture-cause".into()).http().into())).ok().unwrap();
+    first.joined.await.unwrap();
+    let second = f.next().await;
+    directory.wait_diagnostic("backoff").await;
+    assert!(f.state.serving_accounts.rotation().is_saturated(&f.accounts[0].current_team.as_ref().unwrap().0));
+    let mut upstream = reply(&"diagnostic output ".repeat(4096));
+    upstream.queue_wait_ms = 0; // Avoid a competing UpstreamQueued diagnostic.
+    second.reply.send(Ok(upstream)).ok().unwrap();
+    second.joined.await.unwrap();
+    directory.wait_diagnostic("chunk_done").await;
+    consume(response).await;
+    f.finish().await; // Logger is joined before inspecting or removing its directory.
+    let records = directory.records();
+    let backoff = records.iter().find(|e| e["diagnostic"]["kind"] == "backoff").unwrap();
+    let done = records.iter().find(|e| e["diagnostic"]["kind"] == "chunk_done").unwrap();
+    for key in ["request_id", "operation_id", "generation", "op", "invocation"] {
+        assert!(!backoff[key].is_null()); assert_eq!(backoff[key], done[key]);
+    }
+    assert_eq!(backoff["diagnostic"]["attempt"], 1);
+    assert_eq!(backoff["diagnostic"]["wait_ms"], 0);
+    assert!(!serde_json::to_string(&records).unwrap().contains("raw-private-fixture-cause"));
+}
+
+#[tokio::test]
+#[ignore = "isolated unpaused profile; main runs five fresh processes"]
+async fn isolated_legacy0_router_profile() { router_fixture::profile(false).await; }
+
+#[tokio::test]
+#[ignore = "isolated unpaused profile with explicitly bound real worker"]
+async fn isolated_real_worker_router_profile() { router_fixture::profile(true).await; }
 
 mod invocation_contract {
     use crate::policy_worker_request::InvocationLedger;

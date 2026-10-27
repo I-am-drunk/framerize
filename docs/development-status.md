@@ -1,11 +1,27 @@
 # Development status
 
+The remaining S3w profile and diagnostic controls are now source-complete and
+UNRUN. Two ignored selectors exercise the same real router in legacy0 and
+worker mode; main owns five fresh-process runs of each. They report unpaused
+aggregate milestones, output-counter peaks, final zero counters and separate
+kernel/child RSS point samples. They do not measure transient decoder peaks.
+The fresh-process log control checks correlated backoff/chunk events and raw
+error exclusion. W4 now checks A's unread slots at both progress milestones.
+CI builds and binds the worker/fault ELF paths from Cargo artifact records and
+adds the two packages; isolated log/profile selectors remain in the packet.
+Next: source review of these controls in the same discussion, then main's
+qualification on immutable source and executable bindings.
+
+The entries below retain earlier milestone context. Their then-pending source
+steps are superseded by the current status above; historical test results and
+runtime limits remain separate.
+
 A failed candidate that never reached Ready now retains its slot without
 blocking selection of an existing healthy worker. Once Ready, its unknown
 cleanup still blocks selection. The new real-router control uses a real A
 and an injected unreaped B verdict; it does not induce an OS reap failure.
 A second inert control proves heartbeat acceptance advances the frontier
-without publishing content. Both are UNRUN. Restart remains the accepted
+without publishing content. Both have source approval and are UNRUN. Restart remains the accepted
 recovery for one-way cleanup fences; no manual-clear path is proposed.
 
 Seven further UNRUN controls cover worker pinning through repick, the ban on

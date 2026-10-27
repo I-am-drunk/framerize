@@ -263,8 +263,8 @@ pin clones in every final Bytes owner. That adapter is still incomplete.
 Forced error shutdown reaps even with pins outstanding and retains the fence.
 Drop requests teardown only; library callers must await manager shutdown.
 The browser app now does so after application drain and before host shutdown.
-Semantic credit, Forward verdict attachment and real-child proofs remain
-unfinished. Synthetic process outcomes do not establish reaping.
+Semantic credit and Forward verdict attachment are implemented. Real-child
+proof fixtures remain UNRUN; synthetic outcomes do not establish reaping.
 
 The manager logger has one bounded inbox and one joined blocking append job.
 Each queued record has fixed-size kernel identifiers and closed numeric data;
@@ -273,6 +273,18 @@ increment a saturating counter. Worker drop reports log only increases and
 mark MAX as a lower bound; channel loss reports the remaining count unknown.
 Neither counter covers silent disk-append errors. The existing core log-open
 warning is unchanged. NDJSON fixtures run individually in fresh processes.
+
+The router profile selectors are separate ignored fixtures for legacy0 and
+the real worker. Main runs each in five fresh processes and retains all runs
+plus min/median/max. The milestones include routing, scheduling, encoding and
+transfer, so their difference measures aggregate overhead. A 2x median is a
+diagnostic prompt, not a new gate. Shutdown follows the timed EOF milestone.
+Kernel and child RSS are separate point samples. The output counter excludes
+request Values, the 8 MiB reply buffer, assembled history and transient serde
+Content trees. JSON byte-array frames can expand to four encoded bytes per
+payload byte; the 66,048-byte frame reserve remains explicit. No fixed 2 MiB
+decoder bound, sampled peak or total-memory saving follows from this profile.
+Transient decoder allocations still require separate measurement by main.
 
 ## Reference evidence
 

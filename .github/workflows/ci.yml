@@ -34,9 +34,41 @@ jobs:
         uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
         with:
           node-version: '24.13.0'
+      - name: Build policy worker fixtures
+        if: matrix.app == 'framerize'
+        run: |
+          mkdir -p target
+          cargo +1.99.0 build --locked --release -p framerize-worker --bin framerize-worker --message-format=json > target/policy-worker-artifacts.jsonl
+          cargo +1.99.0 build --locked --release -p framerize-worker --example worker_fault --message-format=json > target/policy-fault-artifacts.jsonl
+      - name: Bind policy fixture executable paths and hashes
+        if: matrix.app == 'framerize'
+        run: |
+          python3 - <<'PY'
+          import hashlib, json, os, pathlib
+          fixtures = [('WORKER', 'worker', 'framerize-worker', 'bin'),
+                      ('FAULT', 'fault', 'worker_fault', 'example')]
+          with open(os.environ['GITHUB_ENV'], 'a') as env:
+              for label, stem, name, kind in fixtures:
+                  records = [json.loads(line) for line in pathlib.Path(
+                      f'target/policy-{stem}-artifacts.jsonl').read_text().splitlines()]
+                  paths = {record['executable'] for record in records
+                      if record.get('reason') == 'compiler-artifact'
+                      and record.get('executable')
+                      and record['target']['name'] == name
+                      and kind in record['target']['kind']}
+                  assert len(paths) == 1, (label, paths)
+                  path = pathlib.Path(paths.pop()).resolve(strict=True)
+                  assert not any(c in str(path) for c in '\r\n')
+                  digest = hashlib.sha256()
+                  with path.open('rb') as source:
+                      for block in iter(lambda: source.read(1024 * 1024), b''):
+                          digest.update(block)
+                  env.write(f'FRAMERIZE_TEST_POLICY_{label}_PATH={path}\n')
+                  env.write(f'FRAMERIZE_TEST_POLICY_{label}_SHA256={digest.hexdigest()}\n')
+          PY
       - name: Browser and shared-library tests
         if: matrix.app == 'framerize'
-        run: cargo +1.99.0 test --locked --release -p framer-protocol -p framer-core -p framer-api -p framer-store -p framer-server -p framer-host -p framerize
+        run: cargo +1.99.0 test --locked --release -p framer-protocol -p framer-core -p framer-api -p framer-store -p framer-server -p framer-host -p framerize -p framer-worker-wire -p framerize-worker
       - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
         with:
           python-version: '3.12'
