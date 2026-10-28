@@ -1,3 +1,13 @@
+# Release identity and activation boundary
+
+Both application executables embed their package version and Git commit.
+Packaging requires an exact match with the checkout, including dirty state.
+CI packages are immutable release inputs. Alpha publication checks their
+manifests and checksums and drafts a release without rebuilding. Source review,
+package qualification and production activation remain separate operations.
+No CI or release job receives production sessions or changes the live service.
+See `reviewed-alpha-releases.md` and `incidents/2026-10-27-deployment.md`.
+
 # Architecture
 
 The native CLI accepts `--browser-control-descriptor` together with
@@ -1461,3 +1471,40 @@ The operation needs a separately authorized, supervised maintenance plan,
 settled writers and an outer process bound. Its lock does not establish
 service quiescence, and successful identity verification is not inference
 acceptance. The helper's initial source qualification is recorded separately.
+
+# Reviewed build identity and release provenance
+
+Versioned application builds enter Cargo through `scripts/cargo_with_identity.py`.
+It reads the current commit and dirty state on every invocation, before Cargo
+checks cached outputs. The shared build script watches those environment inputs.
+Unchanged builds stay cached, and raw Cargo builds report unverified source.
+Packaging rejects an unverified or mismatched identity.
+
+Release preparation binds one completed maintained-branch CI attempt, its jobs,
+and each attempt-named artifact ID and SHA256 digest. Downloaded ZIPs contain
+only the expected package and checksum. The publisher revalidates this evidence
+and passes an explicit verified asset list to GitHub. It creates a draft only.
+Neither publishing a topic branch nor creating a draft activates a service.
+
+Private-runner admission still requires platform configuration and verification.
+The readiness variable and environment declarations are default-off workflow
+controls, not protection against edits to that workflow. Aggregate checks and
+release publication use hosted runners, separate from the private build machine.
+
+# Offline review packet contracts
+
+`scripts/review_packet.py` prepares local-only review packets and validates
+proposed result envelopes. It uses strict normalized records, full commit pins,
+patch-derived changed-line anchors and a retained packet hash. It derives
+proposed PR-Agent settings only from explicit trusted model/effort/token fields.
+Patch validation requires equal unchanged spans between consumed coordinates.
+Added and removed files have complete single-sided content from line 1.
+EOF markers close the side or sides of the immediately preceding content
+line. Ended sides cannot gain content or skipped lines in this or later hunks;
+the other side may continue. Orphan and repeated markers are rejected.
+The pinned PR-Agent 0.49.0 requires at least 4096 output tokens, so preparation
+refuses smaller limits instead of letting the candidate silently raise them.
+It does not authenticate snapshot origin, observe a model, or publish findings.
+Successful contract validation carries `runtime_verified: false` and no
+authority. Trusted API collection, worker execution and publishing are separate
+future components, documented in `offline-review-pilot.md`.

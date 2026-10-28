@@ -53,6 +53,15 @@ explain any required transition and retain the exact next action.
 
 ## Branches and commits
 
+Do not automatically merge PRs or push changes directly to `main`,
+`browser-based`, `browserless`, or the integration branch. Publish isolated
+topic branches and request review. CI success is evidence for a review,
+not permission to merge, publish a release, or activate a binary.
+The user controls merge and production activation decisions.
+Every release must identify its version, source commit and artifact hashes.
+Production service, account and history changes require a separate reviewed
+activation procedure. Never execute a deployment from a PR test job.
+
 `main` remains browser-based until an explicitly reviewed switch. Keep the
 `browser-based` branch as the maintained browser fallback. Develop the native
 path on `browserless`; never enable it on `main` just because fixtures pass.
