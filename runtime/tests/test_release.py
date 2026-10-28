@@ -3,6 +3,7 @@ import hashlib
 import json
 from pathlib import Path
 import sys
+import subprocess
 import tempfile
 import tarfile
 import unittest
@@ -109,6 +110,22 @@ class StageTests(unittest.TestCase):
         with tarfile.open(self.archive, 'w:gz') as archive:
             archive.add(self.tree, arcname=self.tree.name)
         return installer.sha256(self.archive)
+
+    def test_verify_cli_checks_binary_through_current_symlink_without_execution(self):
+        current = self.root / 'current'
+        current.symlink_to(self.tree)
+        command = [sys.executable, '-B', installer.__file__, 'verify', str(current)]
+        valid = subprocess.run(command, capture_output=True, text=True, timeout=10)
+        self.assertEqual(valid.returncode, 0, valid.stderr)
+        self.assertEqual(json.loads(valid.stdout)['application'], 'framerize-native')
+        binary = self.tree / 'bin/framerize-native'
+        original_manifest = (self.tree / 'manifest.json').read_bytes()
+        binary.write_text('older executable under the newer release name')
+        changed = subprocess.run(command, capture_output=True, text=True, timeout=10)
+        self.assertEqual(changed.returncode, 1)
+        self.assertIn('release file checksum differs', changed.stderr)
+        self.assertEqual((self.tree / 'manifest.json').read_bytes(), original_manifest)
+        self.assertEqual(current.resolve(), self.tree)
 
     def test_staging_keeps_current_release_and_refuses_overwrite(self):
         releases = self.root / 'releases'
