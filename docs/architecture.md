@@ -1,5 +1,10 @@
 # Release identity and activation boundary
 
+Reviewed PRs may merge automatically under the user's authorization, with
+validation tied to the actual source being merged. GitHub's repository plan
+currently prevents native auto-merge enforcement. Merge policy does not
+enable private runners, publish artifacts, or operate the service.
+
 Both application executables embed their package version and Git commit.
 Packaging requires an exact match with the checkout, including dirty state.
 CI packages are immutable release inputs. Alpha publication checks their

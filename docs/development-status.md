@@ -1,5 +1,11 @@
 # PR resolution and merge policy, 2026-10-28
 
+The CI proposal now includes the current `browserless` CDP command-expiry
+and shutdown-admission fixes. `AGENTS.md` also reflects the restored merge
+authorization; its previous prohibition contradicted the release policy.
+Private application jobs remain disabled pending trusted runner admission.
+The isolated `8513a2e` browser package build remains separate and unchanged.
+
 The user reauthorized automatic merging after validation and review. The
 policy now reflects that instruction. GitHub currently refuses branch
 protection for the private repository under its plan; built-in auto-merge

@@ -53,11 +53,13 @@ explain any required transition and retain the exact next action.
 
 ## Branches and commits
 
-Do not automatically merge PRs or push changes directly to `main`,
-`browser-based`, `browserless`, or the integration branch. Publish isolated
-topic branches and request review. CI success is evidence for a review,
-not permission to merge, publish a release, or activate a binary.
-The user controls merge and production activation decisions.
+The user authorizes automatic merging after relevant validation passes and
+review findings are resolved. Publish isolated topic branches and use PRs;
+do not bypass them with direct pushes to `main`, `browser-based`,
+`browserless`, or the integration branch. Record exact source and validation
+evidence when GitHub checks cannot run. Skipped or billing-blocked checks are
+not passing checks. A merge does not authorize release publication or binary
+activation. The user retains control of production activation.
 Every release must identify its version, source commit and artifact hashes.
 Production service, account and history changes require a separate reviewed
 activation procedure. Never execute a deployment from a PR test job.
