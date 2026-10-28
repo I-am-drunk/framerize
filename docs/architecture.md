@@ -1,5 +1,15 @@
 # Browser reliability hotfix
 
+Explicit enabled Anthropic thinking retains the requested budget. Conversion
+rejects invalid budgets instead of replacing them with 1024. Browser Messages
+requests use at least budget_tokens + 1 output tokens, within the caller's
+remaining total, on initial calls, retries and opted-in streaming fallbacks.
+If the initial total is too small, the request fails locally. After accepted
+output exhausts that allowance, the chain returns its actual terminal result.
+Adaptive effort and fallback permission keep their existing behavior. This
+floor satisfies the manual-budget relationship; it does not guarantee useful
+answer text, shorter latency or resolution of a reported stall.
+
 The 0.5.1-alpha.1 browser candidate extends the deployed 7ccd059 lineage.
 It retains the memory admission repair and preserves Anthropic output_config.
 A token-limited Messages reply without nonempty text terminates with its real

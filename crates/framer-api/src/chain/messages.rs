@@ -53,6 +53,10 @@ pub async fn complete_long(
     if cfg.max_total_tokens == Some(0) {
         return Err("Messages chain max_total_tokens must be greater than zero".into());
     }
+    let output_floor = framer_core::convert::anthropic_output_floor(&anthro_payload)?;
+    if cfg.max_total_tokens.is_some_and(|total| total < output_floor) {
+        return Err("Messages total output limit cannot accommodate the enabled thinking budget".into());
+    }
     // CONCURRENCY BUCKETS (verified 2026-10-04): the workspace's ~5-concurrent
     // 429 cap counts per (route × step tag). Each chunk rotates to the next
     // bucket, and a 429 advances to the next bucket INSTANTLY instead of
@@ -136,8 +140,8 @@ pub async fn complete_long(
         if cooldown_wait.elapsed(chain_started) > max_active {
             return Err(format!("chain exceeded {}s active-time budget after {i} chunks (excluding local cooldown waits), retry the request", max_active.as_secs()));
         }
-        let budget = remaining_tokens(cfg, ctok).unwrap_or(chunk_tokens);
-        let chunk = budget.min(chunk_tokens);
+        let budget = remaining_tokens(cfg, ctok).unwrap_or(u32::MAX);
+        let chunk = budget.min(chunk_tokens.max(output_floor));
         // Human cadence: a metronomic chunk train is itself a bot signature.
         // 0.7-2.3s of jitter between chunks (derived from the nonce — no
         // external entropy needed), invisible against 10-60s generations.
@@ -229,8 +233,9 @@ pub async fn complete_long(
                 chunk_tokens /= 2;
                 bucket_idx += 1;
                 let (d3, s3) = bucket(bucket_idx);
-                eprintln!("[freechat] chunk {i} died at {elapsed:.1}s ({e}) — retrying with max_tokens={chunk_tokens} on {d3:?}/{s3}");
-                let retry_payload = build_payload(&messages, budget.min(chunk_tokens), d3);
+                let retry_tokens = budget.min(chunk_tokens.max(output_floor));
+                eprintln!("[freechat] chunk {i} died at {elapsed:.1}s ({e}), retrying with max_tokens={retry_tokens} on {d3:?}/{s3}");
+                let retry_payload = build_payload(&messages, retry_tokens, d3);
                 let mut retry_started = tokio::time::Instant::now();
                 match cooldown_wait.run(cfg, !blocks.is_empty(), || {
                     // Reset after a local cooldown so only the failing attempt counts.
@@ -246,7 +251,7 @@ pub async fn complete_long(
                     Err(e2) if !retryable_failure(&e2, retry_started.elapsed().as_secs_f32()) => return Err(e2),
                     Err(e2) if cfg.metered_fallback => {
                         eprintln!("[freechat] chunk {i} retry died ({e2}) — metered stream fallback for this chunk");
-                        let stream_payload = build_payload(&messages, budget.min(chunk_tokens), d3);
+                        let stream_payload = build_payload(&messages, budget.min(chunk_tokens.max(output_floor)), d3);
                         let streamed = stream_chunk(
                             t, token_cache, session, browser, account, project,
                             d3, &s3, stream_payload, chat_session, i, cfg.cancelled.as_deref(),
@@ -269,7 +274,7 @@ pub async fn complete_long(
                         }
                         let finished = streamed_stop != "max_tokens"
                             || !has_continuation_text(&streamed_blocks)
-                            || remaining_tokens(cfg, ctok) == Some(0);
+                            || remaining_tokens(cfg, ctok).is_some_and(|left| left < output_floor);
                         if finished {
                             return Ok(assemble(msg_id, blocks, streamed_stop, streamed_seq, last_usage, ptok, ctok, i + 1, metered_chunks));
                         }
@@ -375,7 +380,8 @@ pub async fn complete_long(
                 return Err(format!("chunk {i}: tool call exceeds the free non-streaming window; set FRAMERIZE_ALLOW_METERED=1 to allow a tiny metered chunk here"));
             }
             eprintln!("[freechat] chunk {i} cut mid-tool_use again — streaming this chunk metered (explicit opt-in)");
-            let stream_payload = build_payload(&messages, remaining_tokens(cfg, ctok).unwrap_or(8000), dialect);
+            let stream_tokens = budget.min(remaining_tokens(cfg, ctok).unwrap_or(8000).max(output_floor));
+            let stream_payload = build_payload(&messages, stream_tokens, dialect);
             let streamed = stream_chunk(
                 t, token_cache, session, browser, account, project,
                 dialect, &step, stream_payload, chat_session, i, cfg.cancelled.as_deref(),
@@ -398,7 +404,7 @@ pub async fn complete_long(
             }
             let finished = streamed_stop != "max_tokens"
                 || !has_continuation_text(&streamed_blocks)
-                || remaining_tokens(cfg, ctok) == Some(0);
+                || remaining_tokens(cfg, ctok).is_some_and(|left| left < output_floor);
             if finished {
                 return Ok(assemble(msg_id, blocks, streamed_stop, streamed_seq, last_usage, ptok, ctok, i + 1, metered_chunks));
             }
@@ -417,7 +423,7 @@ pub async fn complete_long(
         }
 
         let budget_left = remaining_tokens(cfg, ctok);
-        if chunk_stop != "max_tokens" || budget_left == Some(0)
+        if chunk_stop != "max_tokens" || budget_left.is_some_and(|left| left < output_floor)
             || !has_continuation_text(&chunk_blocks) {
             return Ok(assemble(msg_id, blocks, stop_reason, stop_sequence, last_usage, ptok, ctok, i + 1, metered_chunks));
         }

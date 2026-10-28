@@ -1,3 +1,16 @@
+# Explicit thinking budget source proposal, 2026-10-28
+
+Separate from frozen hotfix 8513a2e, this branch implements the accepted
+manual-thinking budget design. Conversion preserves valid explicit budgets;
+browser Messages sizes all request paths above that budget without exceeding
+the remaining caller total. Ten new methods cover preservation, invalid and
+insufficient budgets, retries, both fallback paths, terminal assembly and
+unchanged adaptive High sizing. They are UNRUN. Rustfmt parsed the source and
+diff whitespace checks passed; neither is a typecheck or behavioral pass.
+The existing iMac owner retains the sole build slot for 8513a2e. This proposal
+is not part of that build or deployment. Next: review and qualify this separate
+source after the hotfix completes. Native chain sizing is unchanged.
+
 # Low-memory diagnostic completion, 2026-10-27
 
 The browser candidate now reports measured RAM usage/capacity in both refusal
