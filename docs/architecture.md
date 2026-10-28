@@ -1,3 +1,12 @@
+# Release identity at restart
+
+The current release symlink and build-info are labels. `release.py verify`
+checks the complete installed file inventory and hashes before startup.
+A restart precondition can use a pinned copy outside the selected release.
+Stage restored archives at a fresh path; never replace an executable inside
+an already published release. Activation still requires drained streams and
+preserves account databases and rate history.
+
 # Browser reliability hotfix
 
 The 0.5.1-alpha.1 browser candidate extends the deployed 7ccd059 lineage.

@@ -1,3 +1,18 @@
+# Restored Responses budget fix, 2026-10-28
+
+The live executable had regressed to c16fd24 under a directory and build-info
+labelled 7ccd059. Its hash differed from the package manifest. Ten recorded
+Responses chains ended incomplete at or just below the old 4,096-token total.
+The original verified 7ccd059 archive was staged at a fresh path and activated
+after drainage. The supervisor completed in 4.6 seconds; health and executable
+hash match. All eleven account records are unchanged; history rows and current
+pool configuration are retained. No historical database was restored.
+
+The release CLI now supports read-only `verify` for restart preconditions.
+Five staging/verification tests pass, including a replaced binary beneath an
+unchanged manifest and current symlink. The separate 8513a2e memory/Anthropic
+hotfix remains pending final qualification; it is not the deployed package.
+
 # Low-memory diagnostic completion, 2026-10-27
 
 The browser candidate now reports measured RAM usage/capacity in both refusal

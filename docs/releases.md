@@ -5,6 +5,20 @@ and a file manifest. The executable selects its own host and UI after resolving
 symlinks. Account data belongs outside the release directory. A loose host in
 `~/.framerize` no longer overrides packaged code.
 
+Check the actual installed files before a service restart:
+
+```sh
+python3 -B scripts/release.py verify ~/.local/share/framerize/current
+```
+
+This checks the executable and full manifest through the current symlink.
+A directory name or build-info commit alone does not establish binary identity.
+It exits nonzero for replaced binaries without starting the app or changing
+account state. Operators can install a pinned copy of this script outside the
+release and invoke `verify` from systemd `ExecStartPre`. Preserve that copy
+when changing the current symlink. Do not repair an active release in place;
+stage its original verified archive at a fresh path and switch after drainage.
+
 Build from a committed checkout:
 
 ```sh
