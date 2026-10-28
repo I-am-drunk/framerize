@@ -1,3 +1,18 @@
+# Browser alpha.2 package candidate, 2026-10-28
+
+Version `0.5.1-alpha.2` identifies the successor containing the merged PR17
+explicit-thinking-budget repair and PR18 restart verifier. The Rust code
+retains the exact `d03eebc` sources that passed all 73 selected tests. This
+candidate changes only the browser package version and its lockfile entry;
+it does not choose a different thinking or output-token default.
+
+The running service remains verified `0.5.1-alpha.1` at `8513a2e`. Alpha.2
+requires its own identity-wrapped release build, complete archive verification
+and nine package smoke checks before activation. The existing iMac build
+owner retains the only heavy build slot. Prior Rust tests and unchanged host
+fixtures are reused, not repeated. Live Anthropic High acceptance remains
+unverified. No alpha.2 release or deployment is claimed yet.
+
 # Browser alpha deployed, 2026-10-28 15:26 UTC
 
 The qualified `8513a2e` browser package is now running as version
