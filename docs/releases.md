@@ -10,7 +10,7 @@ Build from a committed checkout:
 ```sh
 npm --prefix web ci
 npm --prefix web run build
-cargo build --locked --release -p framerize
+python3 scripts/cargo_with_identity.py build --locked --release -p framerize
 python3 scripts/package.py framerize
 ```
 

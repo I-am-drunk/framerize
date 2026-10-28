@@ -8,7 +8,7 @@ from .settings import (ROOT, LOGIN_URL, API, CASTLE_CHUNK, POOL_CAP, FORGE_MAX_A
     DEV_WINDOW_CAP, MINT_GAP_S)
 from .events import trace, emit
 from framerize_runtime.wire import AsyncReplyWriter
-from .resources import (memory_snapshot, trim_unused_heap, MemoryPressureError,
+from .resources import (memory_snapshot, memory_pressure_message, trim_unused_heap, MemoryPressureError,
     BROWSER_STARTUP_RESERVE, prepared_memory_browser, prepared_memory_addon)
 from .accounts.state import Device, AccountLifecycle, Account
 from .accounts.context_creation import (create_device_context,
@@ -151,7 +151,7 @@ class Host:
             if available is not None and available < self._reserved_bytes + estimate:
                 emit("memory.admission", level="warn", outcome="deferred",
                      requested_bytes=estimate, reserved_bytes=self._reserved_bytes, **snapshot)
-                raise MemoryPressureError("Low available RAM: insufficient memory headroom for a new browser allocation; retry shortly")
+                raise MemoryPressureError(memory_pressure_message(snapshot, self._reserved_bytes, estimate))
             self._reserved_bytes += estimate
         try:
             yield

@@ -268,6 +268,7 @@ pub async fn complete_long(
                             cb(ChainEvent::Chunk(streamed_blocks.clone()));
                         }
                         let finished = streamed_stop != "max_tokens"
+                            || !has_continuation_text(&streamed_blocks)
                             || remaining_tokens(cfg, ctok) == Some(0);
                         if finished {
                             return Ok(assemble(msg_id, blocks, streamed_stop, streamed_seq, last_usage, ptok, ctok, i + 1, metered_chunks));
@@ -305,6 +306,10 @@ pub async fn complete_long(
         let out_t = usage["output_tokens"].as_u64().unwrap_or(0);
         ptok = ptok.max(in_t); // input counts the whole conversation; keep latest
         last_usage = usage;
+        let contains_tool_use = chunk_blocks.iter().any(|block|
+            matches!(block["type"].as_str(), Some("tool_use" | "server_tool_use")));
+        let terminal_without_text = chunk_stop == "max_tokens"
+            && !contains_tool_use && !has_continuation_text(&chunk_blocks);
 
         // Adapt chunk size from measured throughput (floor 400: completes even
         // when the upstream degrades to a crawl; ceiling 3000 ≈ 75% window).
@@ -319,7 +324,7 @@ pub async fn complete_long(
         // and multiplying user wait through client retries.
         if tps > 0.0 && tps < 8.0 {
             slow_chunks += 1;
-            if slow_chunks >= 2 {
+            if slow_chunks >= 2 && !terminal_without_text {
                 return Err(format!("upstream degraded ({tps:.0} tok/s sustained) — retry in a minute"));
             }
         } else if tps >= 12.0 {
@@ -336,8 +341,6 @@ pub async fn complete_long(
         // credit touch for exactly one chunk; the chain resumes free after.
         // Match the streaming gate: a token-limited chunk cannot publish a
         // tool merely because another block followed it or it is server-owned.
-        let contains_tool_use = chunk_blocks.iter().any(|block|
-            matches!(block["type"].as_str(), Some("tool_use" | "server_tool_use")));
         if chunk_stop == "max_tokens" && contains_tool_use && tool_cut_retries < 2 {
             if i + 1 >= cfg.max_chunks {
                 return Err(format!("chunk {i}: incomplete tool call has no remaining retry chunk"));
@@ -394,6 +397,7 @@ pub async fn complete_long(
                 cb(ChainEvent::Chunk(streamed_blocks.clone()));
             }
             let finished = streamed_stop != "max_tokens"
+                || !has_continuation_text(&streamed_blocks)
                 || remaining_tokens(cfg, ctok) == Some(0);
             if finished {
                 return Ok(assemble(msg_id, blocks, streamed_stop, streamed_seq, last_usage, ptok, ctok, i + 1, metered_chunks));
@@ -413,12 +417,20 @@ pub async fn complete_long(
         }
 
         let budget_left = remaining_tokens(cfg, ctok);
-        if chunk_stop != "max_tokens" || budget_left == Some(0) {
+        if chunk_stop != "max_tokens" || budget_left == Some(0)
+            || !has_continuation_text(&chunk_blocks) {
             return Ok(assemble(msg_id, blocks, stop_reason, stop_sequence, last_usage, ptok, ctok, i + 1, metered_chunks));
         }
         push_continuation(&mut messages, &chunk_blocks, cfg);
     }
     Ok(assemble(msg_id, blocks, stop_reason, stop_sequence, last_usage, ptok, ctok, cfg.max_chunks, metered_chunks))
+}
+
+fn has_continuation_text(blocks: &[Value]) -> bool {
+    // Continuation history copies only text. Keep the real truncation result
+    // when reasoning or other non-text output would leave an empty assistant.
+    blocks.iter().any(|block| block["type"] == "text"
+        && block["text"].as_str().is_some_and(|text| !text.trim().is_empty()))
 }
 
 fn retryable_failure(error: &str, elapsed: f32) -> bool {

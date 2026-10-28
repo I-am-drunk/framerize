@@ -8,6 +8,7 @@ import shutil
 import subprocess
 import tarfile
 import tempfile
+from package_identity import identify
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -78,6 +79,7 @@ def package(app, output, target_dir, allow_dirty=False, worker_bundle=None):
     binary = target_dir / app
     if not binary.is_file():
         raise ValueError(f'build the {app} target first: {binary}')
+    identity = identify(ROOT, app, binary, commit, dirty) if app == "framerize" else {}
     output.mkdir(parents=True, exist_ok=True)
     archive = output / f'{name}.tar.gz'
     with tempfile.TemporaryDirectory() as temporary:
@@ -96,6 +98,7 @@ def package(app, output, target_dir, allow_dirty=False, worker_bundle=None):
                 'build_profile': profile, 'development': development,
                 'rustc': subprocess.check_output(['rustc', '--version'], text=True).strip(),
                 'capability': 'browser-serving' if app == 'framerize' else 'experimental-native-serving'}
+        info.update(identity)
         if app == 'framerize':
             info['rate_history_schema'] = 2
             info['activation_protocol'] = 1

@@ -79,7 +79,12 @@ jobs:
           python -I -B scripts/check_v3_deflate.py
           python -I -B scripts/check_v3_envelope.py
       - name: Build explicit application
-        run: cargo +1.99.0 build --locked --release --package ${{ matrix.app }}
+        run: |
+          if [ '${{ matrix.app }}' = 'framerize' ]; then
+            python3 scripts/cargo_with_identity.py +1.99.0 build --locked --release --package framerize
+          else
+            cargo +1.99.0 build --locked --release --package ${{ matrix.app }}
+          fi
       - name: Check executable startup
         run: target/release/${{ matrix.app }} --help
       - name: Package application

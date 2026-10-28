@@ -1,3 +1,36 @@
+# Low-memory diagnostic completion, 2026-10-27
+
+The browser candidate now reports measured RAM usage/capacity in both refusal
+paths, labelled as host used/unavailable or limiting cgroup usage. Each pair
+comes from the same controlling sample. Headroom, existing reservations and
+new-request estimates remain separate. Admission thresholds and accepted
+stream behavior are unchanged. All 35 Python diagnostic/lifecycle checks
+pass. Four adapted Rust admission controls await the existing iMac build
+owner. The preceding hotfix has source acceptance; this diagnostic delta
+still needs review and exact-source qualification before activation.
+
+# Hotfix source-review corrections, 2026-10-27
+
+The first hotfix review found a hardcoded fixture version, unwrapped browser
+CI builds and a slow-response branch that discarded a terminal reasoning
+reply. The fixture now reads each application manifest; the browser CI and
+release commands use the identity wrapper. Identity enforcement applies only
+to the versioned browser target, preserving native packaging on this branch.
+One package-identity test passes locally. A fifth chain method covers two
+slow chunks ending in thinking-only max_tokens. Rust execution is pending.
+
+# Browser reliability candidate 0.5.1-alpha.1, 2026-10-27
+
+This candidate combines the previously qualified memory-admission repair
+with Anthropic effort preservation and a thinking-only continuation guard.
+It starts from the deployed browser lineage, preserving its account storage.
+Four new chain methods and the effort regression still require execution on
+this composition. The iMac owner holds compilation and package qualification.
+Version identity and package checks reuse the reviewed alpha-release code.
+No candidate deployment is claimed. Explicit-thinking budget sizing and
+useful High-effort completion remain open; returning an honest max_tokens
+result does not establish resolution of the user's reported stall.
+
 # Development status
 
 Browser memory admission now checks new inference requests before handlers

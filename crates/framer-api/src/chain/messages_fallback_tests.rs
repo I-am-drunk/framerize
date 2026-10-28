@@ -41,6 +41,9 @@ mod sse_events;
 #[path = "messages_line_endings_chain_tests.rs"]
 mod line_endings;
 
+#[path = "messages_thinking_chain_tests.rs"]
+mod thinking_tests;
+
 struct Observed {
     result: Result<AssembledResponse, String>,
     emitted: Vec<Value>,
@@ -61,6 +64,12 @@ fn run_with_config(replies: Vec<Reply>, config: ChainConfig) -> Observed {
 
 fn run_with_delays(replies: Vec<Reply>, config: ChainConfig,
     delays: Vec<std::time::Duration>) -> Observed {
+    run_with_payload(replies, config, delays, json!({"model":"claude-sonnet-4",
+        "messages":[{"role":"user","content":"fixture"}]}))
+}
+
+fn run_with_payload(replies: Vec<Reply>, config: ChainConfig,
+    delays: Vec<std::time::Duration>, payload: Value) -> Observed {
     let runtime = tokio::runtime::Builder::new_current_thread()
         .enable_all().start_paused(true).build().unwrap();
     runtime.block_on(async {
@@ -85,8 +94,7 @@ fn run_with_delays(replies: Vec<Reply>, config: ChainConfig,
         };
         let transport = Transport::with_base("http://127.0.0.1:9".into());
         let result = complete_long(&transport, &cache, &session, &browser, &account,
-            &ProjectId("fixture-project".into()), json!({"model":"claude-sonnet-4",
-                "messages":[{"role":"user","content":"fixture"}]}),
+            &ProjectId("fixture-project".into()), payload,
             &config, "fixture-chat", Some(&callback)).await;
         assert!(browser.replies.lock().unwrap().is_empty(), "missing expected request");
         assert!(browser.delays.lock().unwrap().is_empty(), "unused request delay");
