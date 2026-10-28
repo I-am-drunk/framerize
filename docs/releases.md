@@ -1,5 +1,12 @@
 # Application packages
 
+The qualified Linux x86_64 browser alpha is
+[v0.5.1-alpha.1](https://github.com/I-am-drunk/framerize/releases/tag/v0.5.1-alpha.1),
+source `8513a2ed52dfe96580ba06f89d4796d09feeae02`. Its assets contain the
+complete package, SHA256 checksum and a qualification record. The record
+distinguishes the manual Linux-container checks from GitHub-hosted CI, which
+did not supply this build. No macOS, Windows or native artifact is included.
+
 A browser release contains `bin/framerize`, `web/`, `runtime/`, build information
 and a file manifest. The executable selects its own host and UI after resolving
 symlinks. Account data belongs outside the release directory. A loose host in

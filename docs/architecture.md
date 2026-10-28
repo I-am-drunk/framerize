@@ -9,6 +9,11 @@ preserves account databases and rate history.
 
 # Browser reliability hotfix
 
+The Linux `v0.5.1-alpha.1` browser package binds source `8513a2e` to its
+executable, runtime, web assets and full file manifest. The release publishes
+the archive checksum and the qualification record. The later explicit
+thinking-budget change below is separate from that packaged revision.
+
 Explicit enabled Anthropic thinking retains the requested budget. Conversion
 rejects invalid budgets instead of replacing them with 1024. Browser Messages
 requests use at least budget_tokens + 1 output tokens, within the caller's

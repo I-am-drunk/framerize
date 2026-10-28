@@ -1,3 +1,25 @@
+# Browser alpha deployed, 2026-10-28 15:26 UTC
+
+The qualified `8513a2e` browser package is now running as version
+`0.5.1-alpha.1`. The supervised update waited for every active request and
+resident cleanup before switching. It completed in 21 seconds. The running
+executable hash, all 48 manifest entries and health-process identity match.
+Four subsequent natural Responses chains completed with confirmed cleanup.
+One new request received 503 during startup before admission reopened.
+
+All eleven account identities and history entries remain present. Settings
+and migration evidence are unchanged. Account and history row values changed
+during the interval, so they are not claimed byte-identical. The update did
+not restore a database snapshot. Broad concurrency and Anthropic High live
+acceptance remain unverified.
+
+The exact Linux archive is published at
+[v0.5.1-alpha.1](https://github.com/I-am-drunk/framerize/releases/tag/v0.5.1-alpha.1)
+with its checksum and qualification record. GitHub's uploaded asset digest
+matches the deployed archive. This is a prerelease, not a default-branch or
+stable-release promotion. PR17 is merged with 73 passing tests; its later
+thinking-budget change is not in this artifact and needs a successor build.
+
 # Browser hotfix and explicit thinking qualification, 2026-10-28
 
 Exact `d03eebcd8d57e1008fd1e9299b58b662b7aa7225` passed 73 tests in the
