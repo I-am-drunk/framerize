@@ -560,7 +560,7 @@ dependencies = [
 
 [[package]]
 name = "framerize"
-version = "0.1.0"
+version = "0.6.0-alpha.1"
 dependencies = [
  "async-trait",
  "clap",
@@ -578,7 +578,7 @@ dependencies = [
 
 [[package]]
 name = "framerize-native"
-version = "0.1.0"
+version = "0.6.0-alpha.1"
 dependencies = [
  "clap",
  "framer-native",

@@ -20,6 +20,7 @@ def worker_fixture(root):
     (root / 'bin').mkdir()
     for name in ('bin/node', 'worker.mjs', 'worker-config.json'):
         (root / name).write_text('synthetic, never executed')
+    (root / 'bundle-source.json').write_text(json.dumps({'commit': 'f' * 40}))
     files = {p.relative_to(root).as_posix(): installer.sha256(p)
              for p in root.rglob('*') if p.is_file()}
     (root / 'bundle-manifest.json').write_text(json.dumps(files))
@@ -53,6 +54,8 @@ class ReleaseTests(unittest.TestCase):
             (target / 'framerize-native').write_bytes(b'synthetic executable')
             worker = worker_fixture(root / 'worker')
             def output(args, **kwargs):
+                if args[0] == str(target / 'framerize-native'):
+                    return 'framerize-native 0.6.0-alpha.1 (' + 'f' * 40 + ')'
                 return {'rev-parse': 'f' * 40, 'status': b'', '--version': 'fixture rustc'}[args[1]]
             with patch.object(builder.subprocess, 'check_output', side_effect=output):
                 with self.assertRaisesRegex(ValueError, 'release build'):
@@ -66,6 +69,8 @@ class ReleaseTests(unittest.TestCase):
             self.assertFalse(info['source_dirty'])
             self.assertTrue(info['development'])
             self.assertEqual(info['build_profile'], 'debug')
+            self.assertEqual(info['version'], '0.6.0-alpha.1')
+            self.assertEqual(info['release_tag'], 'v0.6.0-alpha.1')
 
     def test_manifest_detects_changed_missing_and_extra_runtime_files(self):
         with tempfile.TemporaryDirectory() as directory:

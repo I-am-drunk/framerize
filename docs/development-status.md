@@ -1,4 +1,111 @@
+# PR resolution and merge policy, 2026-10-28
+
+The CI proposal now includes the current `browserless` CDP command-expiry
+and shutdown-admission fixes. `AGENTS.md` also reflects the restored merge
+authorization; its previous prohibition contradicted the release policy.
+Private application jobs remain disabled pending trusted runner admission.
+The isolated `8513a2e` browser package build remains separate and unchanged.
+
+The user reauthorized automatic merging after validation and review. The
+policy now reflects that instruction. GitHub currently refuses branch
+protection for the private repository under its plan; built-in auto-merge
+remains unavailable. PR14's reviewed offline validator is merged into this
+tooling branch. Application builds and real runner admission remain separate
+requirements. Neither this source merge nor a policy edit activates a service.
+
+# Offline review packet pilot, 2026-10-27
+
+The separate `feat/offline-review-pilot-20261027` topic starts at PR13's
+source-reviewed11b49fa. Its local-only CLI binds normalized PR diffs to exact
+head/base pins and explicit model settings, then checks result identity,
+coverage declarations and changed-line findings. Sixteen focused tests pass,
+including command entry points and FIFO refusal. No model, GitHub API,
+container, service or publisher is invoked by this code. The output explicitly
+carries no runtime verification or authority. No PR-Agent image was installed.
+
+PR14's first independent review requested three corrections. Preparation now
+rejects unequal unchanged spans, enforces complete added/removed file content,
+and refuses output caps below the pinned PR-Agent minimum of 4096. It does
+not raise a supplied cap. Five new regression methods cover those refusals
+and valid empty-range, added/removed and cap-preservation controls. The old
+production code failed 19 subtests and errored on a valid adjacent insertion;
+all 13 methods passed at `707e5d3`. The second independent review accepted those
+corrections and found a separate EOF-marker defect.
+
+EOF markers now require an immediately preceding content line and close only
+that line's old/new sides. Remaining or later content and skipped lines on
+ended sides are refused; changes on the other side stay valid. Three added
+test methods reproduced ten failing subcases on `707e5d3`. All 16 methods pass
+after correction, including six valid EOF controls in the new group. Next:
+independent review of the frozen EOF correction. No merge, deployment or live
+reviewer is authorized by these local checks.
+
+The independent PR13 R2 review accepted11b49fa with no new source findings.
+Its private-runner admission and real CI evidence remain unverified. The
+accepted commit stays unchanged. See `offline-review-pilot.md` for this new
+slice's limits. Trusted collection, actual PR-Agent fake-provider tests,
+worker isolation and a separate review publisher still need implementation.
+
+# Alpha release review corrections, 2026-10-27
+
+PR13 remains a topic-branch proposal on the still-open iMac CI PR12.
+The first independent review found extra upload selection, stale clean build
+identity, missing CI artifact provenance and private-runner admission gaps.
+The corrected scripts pass nine alpha tests, one incremental Cargo test and
+one package-identity test. Both workflows pass actionlint. The seven earlier
+release checks remain unchanged evidence, not new executions.
+
+Release uploads now use explicit verified paths. Evidence retains the exact
+CI attempt, successful jobs, artifact IDs and API digests. Preparation checks
+ZIP digests and package identities; publication rechecks the CI snapshot.
+The Cargo entry point refreshes identity before cache evaluation. Its fixture
+covers untracked additions/removals, tracked edits, packed refs, new commits,
+linked worktrees and unchanged cached builds. Unwrapped builds are unverified.
+
+Private-runner build jobs require an opt-in readiness variable and environment.
+These do not enforce trusted admission against a modified PR workflow.
+Platform restrictions and runner operation remain unverified. Aggregate checks
+and draft publication use hosted runners. No runner setting, real release,
+full application build, live request or production service changed here.
+Next: independent review of these corrections, then verify runner admission
+before enabling CI. No automatic merge or browser-branch promotion.
+
+# Reviewed alpha release pipeline, 2026-10-27
+
+`ci/reviewed-alpha-releases-20261027` proposes PR-only promotion, an aggregate
+CI result, embedded version/commit identity and manual alpha drafts from the
+same successful CI artifacts. It is based on the still-open iMac CI PR12.
+No application has been deployed and no release has been published by this change.
+
+Focused package checks pass after repairing the existing worker fixture's
+missing source stamp. New identity checks and five release checks pass,
+including both script entry points. The standalone Rust build script compiles
+and passes clean, dirty and linked-worktree checks. Full application builds
+and actual iMac CI are pending. This does not qualify browserless live serving.
+
+The confirmed deployment outage is documented in
+`incidents/2026-10-27-deployment.md`. The consumed private controller must not
+be reused. `reviewed-alpha-releases.md` describes review and release boundaries; GitHub branch
+protection remains dependent on the private repository's plan capabilities.
+
 # Development status
+
+The CI migration on `ci/iris-self-hosted-20261027` routes application builds
+in the main repository to a Linux VM on the iMac. QEMU emulates a complete
+x86_64 machine to preserve Linux kernel behavior. Verification is pending.
+See `ci-runners.md`.
+The first Iris run found a stale error expectation in the uncertain-startup
+proxy fixture. It now requires `OWNED_STARTUP_UNCONFIRMED`, matching the
+existing owned-browser contract. All 16 focused proxy, startup and attach-owner
+tests pass locally. Runtime behavior and the fixture's refusal and filesystem
+checks are unchanged. Next verify both application jobs on the iMac before
+merging the workflow change into `browserless`.
+
+The iMac run on `839b519` passed that assertion but exposed two Rosetta
+limitations: the worker syscall sandbox is unsupported, and a missing
+executable is reported as a started process. The replacement VM uses full
+system emulation. CI now also binds the Python interpreter path and hash
+required by native control fixtures. Full application verification remains.
 
 Experimental launch software is assembled at `6355731`. Seven new package
 checks pass for the exact native binary, runtime imports, worker configuration,

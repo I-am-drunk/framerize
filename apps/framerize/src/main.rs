@@ -14,7 +14,7 @@ mod startup;
 mod shutdown;
 use startup::start_prewarm;
 #[derive(Parser)]
-#[command(name = "framerize", about = "Multi-account Framer AI service")]
+#[command(name = "framerize", version = env!("FRAMERIZE_BUILD_VERSION"), about = "Multi-account Framer AI service")]
 struct Cli {
     #[command(subcommand)]
     cmd: Cmd,

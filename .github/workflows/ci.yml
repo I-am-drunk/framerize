@@ -1,20 +1,24 @@
 name: Build applications
 on:
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
   push:
-    paths: ['apps/**', 'crates/**', 'scripts/**', 'runtime/**', 'web/**', 'reference/decompiled/castle/**', 'Cargo.*', 'rust-toolchain.toml', '.github/workflows/ci.yml']
+    branches: [main, browser-based, browserless]
   workflow_dispatch:
 permissions:
   contents: read
 concurrency:
-  group: applications-${{ github.ref }}
-  cancel-in-progress: true
+  group: applications-${{ github.event.pull_request.number || github.sha }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 jobs:
   build:
-    if: github.repository == 'diddletime/framerize'
-    runs-on: ubuntu-22.04
-    timeout-minutes: 30
+    if: vars.FRAMERIZE_PRIVATE_CI_READY == 'true' && github.repository == 'I-am-drunk/framerize' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
+    environment: framerize-ci
+    runs-on: [self-hosted, Linux, X64, imac, framerize]
+    timeout-minutes: 180
     strategy:
       fail-fast: false
+      max-parallel: 1
       matrix:
         app: [framerize, framerize-native]
     env:
@@ -68,10 +72,22 @@ jobs:
           PY
       - name: Browser and shared-library tests
         if: matrix.app == 'framerize'
-        run: cargo +1.99.0 test --locked --release -p framer-protocol -p framer-core -p framer-api -p framer-store -p framer-server -p framer-host -p framerize -p framer-worker-wire -p framerize-worker
+        run: python3 scripts/cargo_with_identity.py +1.99.0 test --locked --release -p framer-protocol -p framer-core -p framer-api -p framer-store -p framer-server -p framer-host -p framerize -p framer-worker-wire -p framerize-worker
       - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
         with:
           python-version: '3.12'
+      - name: Bind Python interpreter for native control fixtures
+        if: matrix.app == 'framerize-native'
+        run: |
+          python -I -B - <<'PY'
+          import hashlib, os, pathlib, sys
+          path = pathlib.Path(sys.executable).resolve(strict=True)
+          assert not any(c in str(path) for c in '\r\n')
+          digest = hashlib.sha256(path.read_bytes()).hexdigest()
+          with open(os.environ['GITHUB_ENV'], 'a') as env:
+              env.write(f'FRAMERIZE_TEST_CONTROL_PYTHON={path}\n')
+              env.write(f'FRAMERIZE_TEST_CONTROL_PYTHON_SHA256={digest}\n')
+          PY
       - name: Browser host fixtures
         if: matrix.app == 'framerize'
         run: python -I -B -m unittest discover -s runtime/tests -v
@@ -82,7 +98,7 @@ jobs:
           npm --prefix web run build
       - name: Native library tests
         if: matrix.app == 'framerize-native'
-        run: cargo +1.99.0 test --locked --release -p framer-native -p framerize-native
+        run: python3 scripts/cargo_with_identity.py +1.99.0 test --locked --release -p framer-native -p framerize-native
       - name: Native worker cleanup and handoff fixtures
         if: matrix.app == 'framerize-native'
         run: node --experimental-vm-modules --test scripts/offline_worker/dedicated_pool_tests.mjs scripts/offline_worker/shared_cleanup_tests.mjs scripts/offline_worker/worker_handoff_tests.mjs scripts/offline_worker/collection_tests.mjs scripts/castle_v3_snapshot_values_tests.mjs
@@ -111,9 +127,11 @@ jobs:
           python -I -B scripts/check_v3_deflate.py
           python -I -B scripts/check_v3_envelope.py
       - name: Build explicit application
-        run: cargo +1.99.0 build --locked --release --package ${{ matrix.app }}
+        run: python3 scripts/cargo_with_identity.py +1.99.0 build --locked --release --package ${{ matrix.app }}
       - name: Check executable startup
-        run: target/release/${{ matrix.app }} --help
+        run: |
+          target/release/${{ matrix.app }} --help
+          target/release/${{ matrix.app }} --version
       - name: Package application
         run: |
           if [ '${{ matrix.app }}' = 'framerize-native' ]; then
@@ -126,9 +144,21 @@ jobs:
       - name: Check native package lifecycle with synthetic state
         if: matrix.app == 'framerize-native'
         run: python -I -B scripts/smoke_native_package.py dist/framerize-native-*.tar.gz
-      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+      - name: Upload tested application package
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
-          name: ${{ matrix.app }}-linux-x86_64-${{ github.sha }}
+          name: ${{ matrix.app }}-linux-x86_64-${{ github.sha }}-run-${{ github.run_id }}-attempt-${{ github.run_attempt }}
           path: dist/*
           if-no-files-found: error
           retention-days: 14
+  check:
+    name: Check
+    if: always()
+    needs: [build]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Require both application jobs
+        env:
+          BUILD_RESULT: ${{ needs.build.result }}
+        run: test "$BUILD_RESULT" = success
