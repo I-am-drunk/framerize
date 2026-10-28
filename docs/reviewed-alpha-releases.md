@@ -1,7 +1,8 @@
 # Reviewed alpha releases
 
-Changes enter a topic branch and a PR. Do not automatically merge or push
-directly to `main`, `browser-based`, `browserless`, or the integration branch.
+Changes enter a topic branch and a PR. Automatic merging is authorized after
+the relevant validation passes and review findings are resolved. Do not bypass
+the PR by pushing directly to a maintained branch.
 `main` remains the browser default. An experimental package is not a default
 switch, and a release is not a production deployment.
 
@@ -29,10 +30,16 @@ PR jobs on a private runner; use trusted manual dispatch or hosted isolation.
 `Check` runs on a GitHub-hosted runner and fails when an application job fails,
 is cancelled or is skipped. Fork aggregate checks never need the private runner.
 
-Require an independent review and resolve findings before a human merges.
-AI findings do not grant approval. Require the `Check` status in GitHub branch
+Require an independent review and resolve findings before merging.
+AI findings alone do not grant approval. Require the `Check` status in GitHub branch
 protection when repository permissions and plan support it. Policy text does
 not enforce a server-side merge restriction by itself.
+
+The private repository currently lacks plan access to GitHub branch protection
+and built-in auto-merge. Owner-directed merges must retain exact source and
+validation evidence. A skipped or billing-blocked check is not a pass; record
+any applicable local validation separately. Do not change repository visibility
+or claim that writing this policy enables GitHub enforcement.
 
 ## Publishing
 

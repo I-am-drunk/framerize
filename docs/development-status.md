@@ -1,3 +1,12 @@
+# PR resolution and merge policy, 2026-10-28
+
+The user reauthorized automatic merging after validation and review. The
+policy now reflects that instruction. GitHub currently refuses branch
+protection for the private repository under its plan; built-in auto-merge
+remains unavailable. PR14's reviewed offline validator is merged into this
+tooling branch. Application builds and real runner admission remain separate
+requirements. Neither this source merge nor a policy edit activates a service.
+
 # Offline review packet pilot, 2026-10-27
 
 The separate `feat/offline-review-pilot-20261027` topic starts at PR13's
