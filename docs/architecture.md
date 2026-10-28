@@ -854,6 +854,10 @@ error path. Successful values, undefined results and deadlines stay unchanged.
 Each CDP command starts one deadline before sending and reuses it for reply
 reads, so socket backpressure consumes the same budget. A timeout bounds the
 host's wait; it cannot retract bytes or stop JavaScript already dispatched.
+Dispatch and reply reads check the deadline before each future poll. An already
+expired command cannot reserve an ID or pending entry, dispatch bytes, or
+consume a buffered terminal reply. A later observation with a fresh budget
+can settle retained replies before another command is sent.
 Command IDs are recorded before writing and remain owned after cancellation.
 Subsequent commands observe prior terminal replies within the existing
 deadline. Owned Browser.close may bypass that wait, but only joined child

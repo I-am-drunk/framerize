@@ -2505,3 +2505,37 @@ Network identity replies were simulated. Real identity acceptance is untested.
 No cookie, external endpoint, browser or live service was used to develop it.
 The earlier native launch and assembled-package qualifications remain intact.
 Live migration, current-state admission and upstream acceptance are separate.
+
+## CDP expiry before I/O polling
+
+Branch `fix/cdp-command-expiry-qualified-20261027` checks the existing CDP deadline
+before each socket-future poll. Expired calls leave buffered replies for a
+fresh observation and do not reserve a new command ID or pending entry.
+Once sending begins, timeout and cancellation retain the existing pending
+ownership barrier. Command durations, errors and shutdown ownership remain.
+All 13 exact controls pass on `7fa9390` in separate network-isolated processes.
+Four new methods cover six inert scenarios; nine existing controls remain.
+The fixture-only baseline fails all four new methods at their first expected
+assertions and passes all nine controls. Later baseline loop forms are unobserved.
+
+Main intake corrected two `futures_util` references to the existing `futures`
+dependency. The baseline fixture received the same correction; its production
+code stays at the parent. A reused baseline executable was rejected before
+candidate execution. The replacement build was fresh and had a distinct hash.
+Both binaries, exact names, arguments, source pins and logs are retained; all
+execution scopes settled empty. The original baseline collector rejection was
+reconciled from saved exits and summaries without repeating any test.
+No live browser or service changed. Existing-account recovery and the admitted
+native/browser comparison remain the next runtime steps.
+
+## CDP admission during shutdown
+
+The experimental shutdown-admission change rechecks the stopping flag after
+acquiring the account route, before cached-instance lookup or preparation.
+It preserves the existing shutdown error and attachment-owner precedence.
+Source `8fb0bf9` is composed onto the qualified CDP expiry milestone.
+All nineteen selected controls pass on freshly built `d354fa8`. The baseline
+has sixteen passes and three expected first-assertion failures. Both runs
+settled with empty process groups; their saved results were not repeated.
+Application work must still drain before shutdown; this check is not a
+complete drain. This qualification does not change the running service.
