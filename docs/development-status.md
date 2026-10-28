@@ -1,3 +1,31 @@
+# Browser hotfix and explicit thinking qualification, 2026-10-28
+
+Exact `d03eebcd8d57e1008fd1e9299b58b662b7aa7225` passed 73 tests in the
+bounded Linux qualification container with Rust and Cargo 1.99.0. These are
+two protocol budget tests, eight browser-chain budget tests, seven conversion
+controls and 56 existing chain controls. All commands exited zero. The saved
+log SHA256 is `bdcf4730de4f1300f8100086df0cf8983b663310a15359e730012bc0f31ea53e`.
+This integration retains those exact Rust sources and dependency manifests;
+the added restart verifier has its separate five passing tests.
+
+Conversion preserves valid explicit thinking budgets. Browser Messages keeps
+every request above the thinking budget and within the caller's remaining
+total. Invalid initial budgets fail before dispatch; insufficient remaining
+allowance returns the actual terminal result. Adaptive High retains its
+existing sizing. These fixtures do not establish useful High-effort output
+or resolution of the reported live stalls. Native chain sizing is unchanged.
+
+The separate `8513a2e` browser artifact passed its release build, all nine
+package smoke checks, four memory tests and 37 Python tests. Its unchanged
+chain and conversion sources retain the earlier 56 and seven passing tests.
+The archive SHA256 is `fd93f2e5b54ee8133bbc521cd1b9384a491e69da3853b84549855b436c6c2c9a`.
+It does not include the later explicit-thinking-budget change. It is staged;
+two activation attempts aborted because existing requests had not drained.
+The running browser remains `7ccd059`, with account records and rate history
+preserved. Next: activate the qualified artifact only after actual drainage.
+The thinking-budget successor still needs its own release build and package
+qualification before it can be deployed.
+
 # Restored Responses budget fix, 2026-10-28
 
 The live executable had regressed to c16fd24 under a directory and build-info
@@ -10,8 +38,9 @@ pool configuration are retained. No historical database was restored.
 
 The release CLI now supports read-only `verify` for restart preconditions.
 Five staging/verification tests pass, including a replaced binary beneath an
-unchanged manifest and current symlink. The separate 8513a2e memory/Anthropic
-hotfix remains pending final qualification; it is not the deployed package.
+unchanged manifest and current symlink. The later hotfix qualification is
+recorded above; this recovery remains the current deployment.
+
 
 # Low-memory diagnostic completion, 2026-10-27
 

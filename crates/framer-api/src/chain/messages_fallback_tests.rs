@@ -44,6 +44,9 @@ mod line_endings;
 #[path = "messages_thinking_chain_tests.rs"]
 mod thinking_tests;
 
+#[path = "messages_thinking_budget_tests.rs"]
+mod thinking_budget_tests;
+
 struct Observed {
     result: Result<AssembledResponse, String>,
     emitted: Vec<Value>,
