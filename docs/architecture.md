@@ -10,7 +10,9 @@ requests can reopen the same device when needed.
 Trimming requires no account work or pending browser call. The device lock
 stays held until closure is confirmed, including after caller cancellation.
 Failed preparation retains its context until cleanup; uncertain closure blocks
-new account work and forbids fallback. Continuously busy accounts defer
+new account work and forbids fallback. Cancellation received during that cleanup
+propagates after cleanup settles, before fallback minting or a request charge.
+Continuously busy accounts defer
 trimming, so this is not a hard RAM limit or a measured total-memory guarantee.
 
 # Release identity at restart

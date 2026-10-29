@@ -1,7 +1,7 @@
 """Device preparation retains its dispatched RPCs through cancellation."""
 import asyncio
 import unittest
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, Mock
 
 import test_device_context_creation as creation
 import test_page_acquisition as acquisition
@@ -25,6 +25,88 @@ class DevicePreparationTests(unittest.IsolatedAsyncioTestCase):
             return result
         method.side_effect = invoke
         return gate
+
+    async def test_cancel_during_error_cleanup_never_mints_fallback(self):
+        acc = self.account()
+        context = acc.browser.next_context
+        context.add_cookies.side_effect = RuntimeError("fixture prepare failure")
+        disposal = self.block(context.disposal)
+        fallback = acquisition.Page()
+        fallback.evaluate = AsyncMock(return_value="fixture-fallback")
+        self.host._new_mint_page = AsyncMock(return_value=fallback)
+        request = self.command(mint=True)
+        await asyncio.wait_for(disposal.entered.wait(), 1)
+        for _ in range(2):
+            request.cancel("cancel during cleanup")
+            await self.assert_waiting(request)
+            self.assertTrue(acc.dev_objs["device-a"].lock.locked())
+        disposal.release.set()
+        with self.assertRaises(asyncio.CancelledError) as cancelled:
+            await asyncio.wait_for(request, 1)
+        self.assertEqual(cancelled.exception.args, ("cancel during cleanup",))
+        self.host._new_mint_page.assert_not_awaited()
+        fallback.evaluate.assert_not_awaited()
+        self.assertTrue(context.closed)
+        self.assertIsNone(acc.dev_objs["device-a"].ctx)
+        self.assertFalse(acc.closing)
+        self.assert_idle(acc)
+
+    async def test_cancel_during_error_cleanup_never_charges_or_posts(self):
+        acc = self.account()
+        context = acc.browser.next_context
+        context.add_cookies.side_effect = RuntimeError("fixture prepare failure")
+        disposal = self.block(context.disposal)
+        self.host._pick_device_sticky = lambda _acc: "device-a"
+        self.host._ensure_editor = AsyncMock()
+        self.host._token_acquire = AsyncMock(return_value=(None, "token", "device-a"))
+        self.host._note_request = Mock()
+        self.host._run_job = AsyncMock(return_value={"status": 200, "body": "ok"})
+        request = self.start(self.host.handle({"cmd": "ai_post", "account": "a",
+                                              "path": "/fixture", "body": {}}))
+        await asyncio.wait_for(disposal.entered.wait(), 1)
+        request.cancel("post cancelled during cleanup")
+        await self.assert_waiting(request)
+        self.assertTrue(acc.dev_objs["device-a"].lock.locked())
+        self.assertEqual(self.host._reserved_bytes, 64 * 1024**2)
+        disposal.release.set()
+        with self.assertRaises(asyncio.CancelledError) as cancelled:
+            await asyncio.wait_for(request, 1)
+        self.assertEqual(cancelled.exception.args, ("post cancelled during cleanup",))
+        self.host._ensure_editor.assert_not_awaited()
+        self.host._token_acquire.assert_not_awaited()
+        self.host._note_request.assert_not_called()
+        self.host._run_job.assert_not_awaited()
+        self.assertTrue(context.closed)
+        self.assertFalse(acc.closing)
+        self.assert_idle(acc)
+
+    async def test_cancel_during_failed_error_cleanup_keeps_account_blocked(self):
+        acc = self.account()
+        context = acc.browser.next_context
+        context.add_cookies.side_effect = RuntimeError("fixture prepare failure")
+        disposal = self.block(context.disposal)
+        disposal.failure = RuntimeError("fixture private close failure")
+        self.host._new_mint_page = AsyncMock()
+        request = self.command(mint=True)
+        await asyncio.wait_for(disposal.entered.wait(), 1)
+        request.cancel("cancel before failed cleanup")
+        await self.assert_waiting(request)
+        disposal.release.set()
+        with self.assertRaises(asyncio.CancelledError) as cancelled:
+            await asyncio.wait_for(request, 1)
+        self.assertEqual(cancelled.exception.args, ("cancel before failed cleanup",))
+        self.host._new_mint_page.assert_not_awaited()
+        self.assertIs(acc.dev_objs["device-a"].ctx, context)
+        self.assertIn(context, acc.browser.contexts)
+        self.assertFalse(context.closed)
+        self.assertTrue(acc.closing)
+        self.assertEqual(acc.lifecycle.phase, "unconfirmed")
+        self.events.assert_called_once_with("browser.cleanup", level="warn",
+            outcome="unconfirmed", error="device-preparation-close-failed")
+        with self.assertRaisesRegex(RuntimeError, "cleanup is unconfirmed"):
+            await self.command()
+        acc.browser.new_context.assert_awaited_once()
+        self.assert_idle(acc)
 
     async def test_cancelled_seed_retains_raw_rpc_and_device_lock(self):
         acc = self.account()

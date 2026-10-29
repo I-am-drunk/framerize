@@ -14,11 +14,14 @@ async def create_device_context(acc, make, close):
 
 async def close_cancelled_device_context(
         acc, close, *, reason="cancelled-device-context-close-failed"):
+    """Join cleanup and return cancellation received while it was running."""
+    cancelled = None
     closing = asyncio.create_task(close())
     while not closing.done():
         try:
             await asyncio.shield(closing)
-        except asyncio.CancelledError:
+        except asyncio.CancelledError as error:
+            cancelled = error
             continue
         except Exception:
             break
@@ -31,3 +34,4 @@ async def close_cancelled_device_context(
         acc.lifecycle.phase = "unconfirmed"
         events.emit("browser.cleanup", level="warn", outcome="unconfirmed",
                     error=reason)
+    return cancelled

@@ -790,12 +790,15 @@ class Host:
                         d.ctx, d.page = None, None
                     raise
                 except BaseException:
-                    await close_cancelled_device_context(acc,
+                    cancelled = await close_cancelled_device_context(acc,
                         close_prepared_context,
                         reason="device-preparation-close-failed")
+                    if not acc.closing:
+                        d.ctx, d.page = None, None
+                    if cancelled is not None:
+                        raise cancelled
                     if acc.closing:
                         raise RuntimeError("browser cleanup unconfirmed")
-                    d.ctx, d.page = None, None
                     raise
                 d.ctx, d.page = ctx, page
                 trace(f"{account[:8]}: device {dev[:8]} context ready (isolated, pre-seeded)")

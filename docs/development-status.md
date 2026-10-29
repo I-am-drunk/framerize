@@ -7,8 +7,11 @@ accounts fairly, and retains ownership until each close is confirmed. Failed
 device preparation cannot continue to an ambient fallback after failed cleanup.
 Account identities, cookies, usage, rate policy and cooldowns remain unchanged.
 
-The affected Python groups now pass 132 tests using saved unchanged results
-and the corrected seven-test cookie group. That group's earlier failure was
+The affected Python groups now pass 135 tests in a fresh run after the
+cancellation correction. Three added regressions cover cancellation during
+ordinary-error cleanup for minting, POST and failed closure. The first two
+fail against the frozen pre-correction methods, confirming the regression.
+The corrected seven-test cookie group's earlier failure was
 an assertion that the context handle stayed unpublished during preparation;
 the new cleanup ownership deliberately retains that handle under its lock.
 The remaining cookie ordering and isolation assertions pass. Rust logic and
