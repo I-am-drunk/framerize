@@ -1,3 +1,18 @@
+# Adaptive thinking output limits
+
+Adaptive thinking uses the configured total output allowance in its upstream
+request. The ordinary 600-token starting chunk does not limit it. The service
+preserves the upstream response and its ending instead of synthesizing a
+continuation from incomplete reasoning. Without a configured total, the
+explicit per-request chunk allowance applies.
+
+An uncertain transport failure returns through the existing error path.
+Adaptive requests do not enter the chunk-halving or paid-fallback paths.
+An incomplete tool call cannot be published or retried with a synthetic
+instruction. Classified local waits and ordinary admission rules remain.
+Model, effort, Fast mode, account history and cleanup ownership are unchanged.
+This does not guarantee that a long request fits the upstream time window.
+
 # Fresh browser request tokens
 
 Each outbound attempt obtains a fresh token from the existing browser SDK

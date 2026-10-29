@@ -54,6 +54,7 @@ pub async fn complete_long(
         return Err("Messages chain max_total_tokens must be greater than zero".into());
     }
     let output_floor = framer_core::convert::anthropic_output_floor(&anthro_payload)?;
+    let adaptive_thinking = anthro_payload["thinking"]["type"] == "adaptive";
     if cfg.max_total_tokens.is_some_and(|total| total < output_floor) {
         return Err("Messages total output limit cannot accommodate the enabled thinking budget".into());
     }
@@ -141,7 +142,13 @@ pub async fn complete_long(
             return Err(format!("chain exceeded {}s active-time budget after {i} chunks (excluding local cooldown waits), retry the request", max_active.as_secs()));
         }
         let budget = remaining_tokens(cfg, ctok).unwrap_or(u32::MAX);
-        let chunk = budget.min(chunk_tokens.max(output_floor));
+        // Adaptive reasoning cannot resume through a synthetic user turn.
+        // Preserve the caller's full allowance and return that request's result.
+        let chunk = if adaptive_thinking {
+            cfg.max_total_tokens.unwrap_or(cfg.chunk_tokens)
+        } else {
+            budget.min(chunk_tokens.max(output_floor))
+        };
         // Human cadence: a metronomic chunk train is itself a bot signature.
         // 0.7-2.3s of jitter between chunks (derived from the nonce — no
         // external entropy needed), invisible against 10-60s generations.
@@ -227,7 +234,7 @@ pub async fn complete_long(
                 // velocity 403 after >8s of waiting as an idle-window kill
                 // (audit 2026-10-11: wasted halve-retries on velocity bans).
                 let elapsed = cooldown_wait.elapsed(last_attempt_t0).as_secs_f32();
-                if !(retryable_failure(&e, elapsed) && chunk_tokens > 200) {
+                if adaptive_thinking || !(retryable_failure(&e, elapsed) && chunk_tokens > 200) {
                     return Err(e);
                 }
                 chunk_tokens /= 2;
@@ -313,6 +320,9 @@ pub async fn complete_long(
         last_usage = usage;
         let contains_tool_use = chunk_blocks.iter().any(|block|
             matches!(block["type"].as_str(), Some("tool_use" | "server_tool_use")));
+        if adaptive_thinking && chunk_stop == "max_tokens" && contains_tool_use {
+            return Err("adaptive thinking reached the requested output limit during a tool call".into());
+        }
         let terminal_without_text = chunk_stop == "max_tokens"
             && !contains_tool_use && !has_continuation_text(&chunk_blocks);
 
@@ -423,7 +433,7 @@ pub async fn complete_long(
         }
 
         let budget_left = remaining_tokens(cfg, ctok);
-        if chunk_stop != "max_tokens" || budget_left.is_some_and(|left| left < output_floor)
+        if adaptive_thinking || chunk_stop != "max_tokens" || budget_left.is_some_and(|left| left < output_floor)
             || !has_continuation_text(&chunk_blocks) {
             return Ok(assemble(msg_id, blocks, stop_reason, stop_sequence, last_usage, ptok, ctok, i + 1, metered_chunks));
         }

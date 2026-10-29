@@ -1,3 +1,23 @@
+# Adaptive thinking candidate, 2026-10-29
+
+Alpha.7 on `fix/anthropic-adaptive-budget-20261029` removes the 600-token
+first-call cap for adaptive thinking. Two requested Opus 5.5 planning runs
+stopped with a client output-limit error. At both final timestamps, the
+running alpha.6 logged a 600-token response ending in `max_tokens`.
+A focused test failed against the original implementation, observing 600
+instead of the configured 4096-token allowance.
+
+The corrected API library passed 430 tests. Its two environment-specific
+tests passed separately under their required agents category, for 432 by
+composition. Tests cover small and large allowances, effort and Fast mode,
+cancellation, honest truncation, and no replay of incomplete adaptive work.
+The package version changed after the main run; only version metadata differs.
+
+The current service remains alpha.6. Alpha.7 still needs its exact-source
+release build, package checks and normal-traffic verification. Long adaptive
+requests may still exceed the provider's time window. No live claim follows
+from these fixtures. No model settings, accounts or running service changed.
+
 # Fresh-token correction, 2026-10-29
 
 Branch `fix/browser-fresh-tokens-20261029` prepares alpha.6 without token reuse,

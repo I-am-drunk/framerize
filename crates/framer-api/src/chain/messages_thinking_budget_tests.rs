@@ -104,14 +104,60 @@ fn tool_fallback_stops_when_remaining_allowance_is_below_floor() {
 }
 
 #[test]
-fn adaptive_high_keeps_existing_first_chunk_size() {
+fn adaptive_thinking_keeps_the_requested_output_limit() {
     let mut request = payload(Value::Null);
     request["thinking"] = json!({"type":"adaptive"});
     let observed = run_with_payload(vec![buffered(text(), "end_turn")],
         ChainConfig { chunk_tokens:600, max_chunks:1,
             max_total_tokens:Some(4096), ..ChainConfig::default() }, Vec::new(), request);
     assert!(observed.result.is_ok());
-    assert_eq!(observed.requests[0]["request"]["max_tokens"], 600);
+    assert_eq!(observed.requests[0]["request"]["max_tokens"], 4096);
     assert_eq!(observed.requests[0]["request"]["thinking"], json!({"type":"adaptive"}));
     assert_eq!(observed.requests[0]["request"]["output_config"]["effort"], "high");
+}
+
+#[test]
+fn adaptive_small_and_large_limits_preserve_effort_and_fast_mode() {
+    for total in [256, 128000] {
+        for effort in ["low", "medium", "high", "xhigh"] {
+            let mut request = payload(Value::Null);
+            request["thinking"] = json!({"type":"adaptive"});
+            request["output_config"]["effort"] = json!(effort);
+            let observed = run_with_payload(vec![buffered(text(), "end_turn")],
+                ChainConfig { max_total_tokens:Some(total),
+                    ..ChainConfig::default() }, Vec::new(), request);
+            assert!(observed.result.is_ok());
+            assert_eq!(observed.requests.len(), 1);
+            let sent = &observed.requests[0]["request"];
+            assert_eq!(sent["max_tokens"], total);
+            assert_eq!(sent["thinking"]["type"], "adaptive");
+            assert_eq!(sent["output_config"]["effort"], effort);
+            assert_eq!(sent["speed"], "fast");
+            assert_eq!(sent["stream"], false);
+        }
+    }
+}
+
+#[test]
+fn adaptive_without_a_total_uses_the_configured_request_allowance() {
+    let mut request = payload(Value::Null);
+    request["thinking"] = json!({"type":"adaptive"});
+    let observed = run_with_payload(vec![buffered(text(), "end_turn")],
+        ChainConfig { chunk_tokens:2048, max_total_tokens:None,
+            ..ChainConfig::default() }, Vec::new(), request);
+    assert!(observed.result.is_ok());
+    assert_eq!(observed.requests[0]["request"]["max_tokens"], 2048);
+}
+
+#[test]
+fn cancelled_adaptive_request_never_dispatches() {
+    let mut request = payload(Value::Null);
+    request["thinking"] = json!({"type":"adaptive"});
+    let observed = run_with_payload(vec![],
+        ChainConfig { max_total_tokens:Some(128000),
+            cancelled:Some(std::sync::Arc::new(|| true)),
+            ..ChainConfig::default() }, Vec::new(), request);
+    assert!(observed.result.unwrap_err().contains("cancelled"));
+    assert!(observed.requests.is_empty());
+    assert!(observed.emitted.is_empty());
 }
