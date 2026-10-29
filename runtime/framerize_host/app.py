@@ -16,6 +16,7 @@ from .accounts.context_creation import (create_device_context,
 from .accounts.page_acquisition import acquire_page
 from .accounts.page_creation import create_page
 from .accounts.page_use import page_use, record_page_call
+from .accounts.device_retention import trim_idle_device_contexts
 from framerize_accounts.rates import AccountRates, RatePolicy, SystemClock
 from .browser.driver import browser_runtime, BrowserCloseReceipt
 from .browser.proxy import proxy_options
@@ -53,6 +54,7 @@ class Host:
         self._command_tasks = {}
         self._reply_writer = None
         self._last_heap_trim = None
+        self._last_device_trim = None
         # Closing idle browsers adds a cold start. Keep them warm by default.
         self.idle_timeout = float(os.environ.get("FRAMERIZE_IDLE_TIMEOUT_S", "0"))
         configured_gc = os.environ.get("FRAMERIZE_IDLE_GC_S")
@@ -397,6 +399,18 @@ class Host:
                     await self._close_account(account, idle_before=cutoff)
                 except Exception as exc:
                     emit("browser.cleanup", level="warn", outcome="error", error=type(exc).__name__)
+        candidates = list(self.accounts.items())
+        for index, (account, _) in enumerate(candidates):
+            if account == self._last_device_trim:
+                candidates = candidates[index + 1:] + candidates[:index + 1]
+                break
+        for account, acc in candidates:
+            closed = await trim_idle_device_contexts(self, account, acc)
+            if closed:
+                self._last_device_trim = account
+                emit("memory.device_trim", closed=closed,
+                     retained=sum(d.ctx is not None for d in acc.dev_objs.values()))
+                break
         await self._reclaim_idle_memory(snapshot)
         self._trim_idle_heap(snapshot)
 
@@ -727,9 +741,14 @@ class Host:
         # Single-flight initialization keeps simultaneous first requests from
         # overwriting and leaking each other's context.
         async with d.lock:
+            if (self.accounts.get(account) is not acc or acc.closing
+                    or acc.lifecycle.phase == "unconfirmed"):
+                raise RuntimeError("browser cleanup unconfirmed")
             # A cancelled waiter does not settle its shielded device RPCs.
             async with page_use(account):
-                return await self._prepare_device(acc, account, d)
+                result = await self._prepare_device(acc, account, d)
+                result.last_used = time.monotonic()
+                return result
 
     async def _prepare_device(self, acc, account, d):
         dev = d.id
@@ -744,6 +763,12 @@ class Host:
                 ctx = await create_device_context(acc,
                     lambda: self._rpc(account, acc.browser.new_context),
                     lambda created: self._rpc(account, created.close))
+                d.ctx = ctx
+                async def close_prepared_context():
+                    await self._rpc(account, ctx.close)
+                    if (not acc.browser.is_connected() or ctx in acc.browser.contexts
+                            or (d.page is not None and not d.page.is_closed())):
+                        raise RuntimeError("device context close is unconfirmed")
                 try:
                     await self._rpc(account, ctx.add_init_script,
                         f"try {{ localStorage.setItem('__cuid', {json.dumps(dev)}); }} catch(e) {{}}"
@@ -756,13 +781,21 @@ class Host:
                                         "path": "/", "secure": True, "httpOnly": True, "sameSite": "None"})
                     await self._rpc(account, ctx.add_cookies, cookies)
                     page = await self._rpc(account, ctx.new_page)
+                    d.page = page
                     await self._rpc(account, page.goto, LOGIN_URL, wait_until="domcontentloaded", timeout=90000)
                 except asyncio.CancelledError:
                     await close_cancelled_device_context(acc,
-                        lambda: self._rpc(account, ctx.close))
+                        close_prepared_context)
+                    if not acc.closing:
+                        d.ctx, d.page = None, None
                     raise
                 except BaseException:
-                    await self._rpc(account, ctx.close)
+                    await close_cancelled_device_context(acc,
+                        close_prepared_context,
+                        reason="device-preparation-close-failed")
+                    if acc.closing:
+                        raise RuntimeError("browser cleanup unconfirmed")
+                    d.ctx, d.page = None, None
                     raise
                 d.ctx, d.page = ctx, page
                 trace(f"{account[:8]}: device {dev[:8]} context ready (isolated, pre-seeded)")
@@ -941,6 +974,8 @@ class Host:
                     tok = await self._rpc(account, d.page.evaluate, MINT_JS)
                     used_dev = dev
                 except Exception as e:
+                    if acc.closing or acc.lifecycle.phase == "unconfirmed":
+                        raise RuntimeError("browser cleanup unconfirmed") from e
                     trace(f"{account[:8]}: context mint failed on {str(dev)[:8]} ({type(e).__name__})")
                     tok = None
             if not tok:
@@ -1164,10 +1199,10 @@ class Host:
         return acc
 
     async def _heartbeat_loop(self, acc, account):
-        """Keep every pool device on a steady learned-as-normal cadence: one
+        """Keep already-open devices on a steady cadence: one
         tiny free-route AI request per HEARTBEAT_S, cycling all devices equally
         (each device ~DEVICE_POOL x HEARTBEAT_S between beats). Waits for the
-        pool to warm, skips cooling devices, uses the mint page so production
+        pool to warm, skips cooling and dormant devices, uses the mint page so production
         pool pages are never blocked, and tolerates every failure silently —
         the heartbeat is pure background training, never a request source."""
         import random as _rnd
@@ -1198,6 +1233,11 @@ class Host:
                     for _ in range(len(acc.devices)):
                         d = acc.devices[hb_idx % len(acc.devices)]
                         hb_idx += 1
+                        device = acc.dev_objs.get(d)
+                        if (device is None or device.lock.locked()
+                                or device.page is None or not device.warm
+                                or device.page.is_closed()):
+                            continue
                         if acc.dev_cooling.get(d, 0) > now:
                             continue
                         dev = d
@@ -1209,10 +1249,10 @@ class Host:
                     # to a different device every beat — reintroducing the exact
                     # churn this architecture exists to hide, concentrated in one
                     # page's storage for the SDK to see.
-                    try:
-                        page = (await self._dev_page(acc, account, dev)).page
-                    except Exception:
-                        continue
+                    # This activity prevents idle trimming from starting. A
+                    # trim already in progress holds device.lock and is skipped.
+                    # Background work must never reopen a dormant context.
+                    page = acc.dev_objs[dev].page
                     tid, tok, used_dev = await self._token_acquire(acc, page, account, dev)
                     if not tok:
                         continue
@@ -1444,6 +1484,8 @@ class Host:
                         try:
                             fire_page = (await self._dev_page(acc, account, dev)).page
                         except Exception:
+                            if acc.closing or acc.lifecycle.phase == "unconfirmed":
+                                raise RuntimeError("browser cleanup unconfirmed")
                             fire_page = page
                     if fire_page is page:
                         await self._ensure_editor(acc, page, account)

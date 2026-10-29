@@ -1,3 +1,18 @@
+# Browser page retention
+
+The resident-account limit does not bound pages within each account.
+Heartbeats use already-open, warm device pages and never open dormant ones.
+The monitor rotates across idle accounts and closes at most two excess device
+contexts per pass, retaining the primary device and the most recently used.
+Device IDs, cookies, usage and cooldown history remain unchanged. Foreground
+requests can reopen the same device when needed.
+
+Trimming requires no account work or pending browser call. The device lock
+stays held until closure is confirmed, including after caller cancellation.
+Failed preparation retains its context until cleanup; uncertain closure blocks
+new account work and forbids fallback. Continuously busy accounts defer
+trimming, so this is not a hard RAM limit or a measured total-memory guarantee.
+
 # Release identity at restart
 
 The current release symlink and build-info are labels. `release.py verify`

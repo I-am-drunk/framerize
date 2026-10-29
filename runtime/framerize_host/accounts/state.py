@@ -9,7 +9,7 @@ class Device:
     churn the velocity/risk layers key on (2026-10-11: the old single-page
     __cuid-swap pool was visible to the SDK's storage and read as a device
     farm)."""
-    __slots__ = ("id", "ctx", "page", "warm", "lock")
+    __slots__ = ("id", "ctx", "page", "warm", "lock", "last_used")
 
     def __init__(self, dev_id):
         self.id = dev_id
@@ -17,6 +17,7 @@ class Device:
         self.page = None
         self.warm = False
         self.lock = asyncio.Lock()
+        self.last_used = time.monotonic()
 
 
 class AccountLifecycle:

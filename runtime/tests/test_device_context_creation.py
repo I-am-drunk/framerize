@@ -26,6 +26,8 @@ class DeviceContext:
     async def close(self):
         await self.disposal()
         self.closed = self.page.closed = True
+        if self in self.browser.contexts:
+            self.browser.contexts.remove(self)
 
 
 class DeviceContextCreationTests(unittest.IsolatedAsyncioTestCase):
@@ -56,6 +58,7 @@ class DeviceContextCreationTests(unittest.IsolatedAsyncioTestCase):
         async def create():
             await browser.creation()
             context = browser.next_context
+            context.browser = browser
             browser.next_context = DeviceContext()
             browser.created_contexts.append(context)
             browser.contexts.append(context)

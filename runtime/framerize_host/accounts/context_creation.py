@@ -12,7 +12,8 @@ async def create_device_context(acc, make, close):
     return await create_page(make, close_cancelled)
 
 
-async def close_cancelled_device_context(acc, close):
+async def close_cancelled_device_context(
+        acc, close, *, reason="cancelled-device-context-close-failed"):
     closing = asyncio.create_task(close())
     while not closing.done():
         try:
@@ -29,4 +30,4 @@ async def close_cancelled_device_context(acc, close):
         acc.closing = True
         acc.lifecycle.phase = "unconfirmed"
         events.emit("browser.cleanup", level="warn", outcome="unconfirmed",
-                    error="cancelled-device-context-close-failed")
+                    error=reason)

@@ -130,11 +130,15 @@ class SessionCookieTests(unittest.IsolatedAsyncioTestCase):
         creating = self.start(self.host._dev_page(acc, "a", "starting-device"))
         await asyncio.wait_for(entered.wait(), 1)
         self.assertEqual(ctx.cookies["session"], "old-a")
-        self.assertIsNone(acc.dev_objs["starting-device"].ctx)
+        device = acc.dev_objs["starting-device"]
+        self.assertIs(device.ctx, ctx)
+        self.assertIsNone(device.page)
+        self.assertTrue(device.lock.locked())
         seeding = self.start(self.seed("new-a"))
         with self.assertRaises(asyncio.TimeoutError):
             await asyncio.wait_for(asyncio.shield(seeding), 0.02)
         self.assertEqual(acc.ctx.cookies["session"], "new-a")
+        self.assertEqual(ctx.cookies["session"], "old-a")
         release.set()
         device = await asyncio.wait_for(creating, 1)
         self.assertTrue(await seeding)

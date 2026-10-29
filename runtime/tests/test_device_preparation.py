@@ -170,3 +170,75 @@ class DevicePreparationTests(unittest.IsolatedAsyncioTestCase):
         unrelated.release.set()
         await asyncio.wait_for(pending, 1)
         self.assert_idle(acc)
+
+    async def test_failed_preparation_and_close_retain_context_and_forbid_fallback(self):
+        acc = self.account()
+        context = acc.browser.next_context
+        context.add_cookies.side_effect = RuntimeError("fixture prepare failure")
+        context.disposal.failure = RuntimeError("fixture private close failure")
+        self.host._new_mint_page = AsyncMock()
+        with self.assertRaisesRegex(RuntimeError, "browser cleanup unconfirmed"):
+            await self.command(mint=True)
+        self.assertIs(acc.dev_objs["device-a"].ctx, context)
+        self.assertIn(context, acc.browser.contexts)
+        self.assertTrue(acc.closing)
+        self.assertEqual(acc.lifecycle.phase, "unconfirmed")
+        self.host._new_mint_page.assert_not_awaited()
+        context.new_page.assert_not_awaited()
+        self.events.assert_called_once_with("browser.cleanup", level="warn",
+            outcome="unconfirmed", error="device-preparation-close-failed")
+        with self.assertRaisesRegex(RuntimeError, "cleanup is unconfirmed"):
+            await self.command()
+        acc.browser.new_context.assert_awaited_once()
+        self.assert_idle(acc)
+
+    async def test_failed_post_preparation_never_uses_ambient_page(self):
+        acc = self.account()
+        context = acc.browser.next_context
+        context.page.goto.side_effect = RuntimeError("fixture navigation failure")
+        context.disposal.failure = RuntimeError("fixture close failure")
+        self.host._pick_device_sticky = lambda _acc: "device-a"
+        self.host._token_acquire = AsyncMock()
+        self.host._ensure_editor = AsyncMock()
+        with self.assertRaisesRegex(RuntimeError, "browser cleanup unconfirmed"):
+            await self.host.handle({"cmd": "ai_post", "account": "a", "body": {}})
+        self.assertIs(acc.dev_objs["device-a"].ctx, context)
+        self.assertIs(acc.dev_objs["device-a"].page, context.page)
+        self.host._token_acquire.assert_not_awaited()
+        self.host._ensure_editor.assert_not_awaited()
+        self.assertTrue(acc.closing)
+        self.assert_idle(acc)
+
+    async def test_returned_cleanup_without_context_closure_is_not_success(self):
+        acc = self.account()
+        context = acc.browser.next_context
+        context.add_init_script.side_effect = RuntimeError("fixture preparation failure")
+        context.close = AsyncMock()
+        with self.assertRaisesRegex(RuntimeError, "browser cleanup unconfirmed"):
+            await self.command()
+        self.assertIs(acc.dev_objs["device-a"].ctx, context)
+        self.assertTrue(acc.closing)
+        self.assertEqual(acc.lifecycle.phase, "unconfirmed")
+        self.assert_idle(acc)
+
+    async def test_waiting_device_request_cannot_replace_unconfirmed_context(self):
+        acc = self.account()
+        context = acc.browser.next_context
+        gate = self.block(acquisition.Call())
+        async def fail_after_wait(*_args):
+            await gate()
+            raise RuntimeError("fixture preparation failure")
+        context.add_init_script.side_effect = fail_after_wait
+        context.disposal.failure = RuntimeError("fixture close failure")
+        first = self.command()
+        await asyncio.wait_for(gate.entered.wait(), 1)
+        waiting = self.command()
+        await self.assert_waiting(waiting)
+        gate.release.set()
+        for request in (first, waiting):
+            with self.assertRaisesRegex(RuntimeError, "browser cleanup unconfirmed"):
+                await asyncio.wait_for(request, 1)
+        acc.browser.new_context.assert_awaited_once()
+        self.assertIs(acc.dev_objs["device-a"].ctx, context)
+        self.assertTrue(acc.closing)
+        self.assert_idle(acc)
