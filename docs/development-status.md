@@ -5,10 +5,12 @@ unbound Responses request encounters the global pause or account cooldown.
 It also narrows security-refusal classification and replaces internal errors
 with useful public messages. Production remains on alpha.4 during qualification.
 
-New regressions cover waiting, cancellation, recovery on an untried account
-and false security classification. Existing cleanup and no-replay checks remain.
-Qualification is pending. No deployment or live success is claimed here.
-Next: run the affected checks, review the frozen source and qualify the package.
+The local run passed 83 protocol and 460 server tests, with unchanged Rust
+inputs before and after execution. New cases cover waiting, cancellation,
+finite wait budgets, untried-account recovery and false security classification.
+Existing cleanup, account-isolation and no-replay checks remain.
+Independent review and release-runtime qualification are pending. No deployment
+or live success is claimed here. Next: review this source and qualify the package.
 
 # Local device-capacity recovery, 2026-10-29
 

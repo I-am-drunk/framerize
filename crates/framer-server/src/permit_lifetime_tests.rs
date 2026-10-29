@@ -77,7 +77,8 @@ async fn capacity_wait_is_bounded_and_never_waits_for_upstream_refusal() {
         }
         let mut budget = crate::account_wait::MAX_WAIT;
         let started = tokio::time::Instant::now();
-        let result = crate::account_wait::pick(&f.state, &[], local, &mut budget).await;
+        let wait = crate::account_wait::WaitFor::after_attempt(local, true);
+        let result = crate::account_wait::pick(&f.state, &[], wait, &mut budget).await;
         assert!(matches!(result.result, Err(ApiError::AccountCooling { .. })));
         assert!(result.cleanup_confirmed);
         assert_eq!(started.elapsed(), if local { crate::account_wait::MAX_WAIT }
