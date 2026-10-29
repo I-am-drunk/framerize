@@ -1528,18 +1528,18 @@ pub fn is_context_overflow(msg: &str) -> bool {
 /// client sees the real upstream cause (e.g. context overflow → compact) instead
 /// of a generic 500 it retries forever ("gave up after repeated API errors").
 pub fn error_json(d: ClientDialect, msg: &str) -> (u16, serde_json::Value) {
-    let (status, umsg, utype) = match parse_upstream_error(msg) {
-        Some((st, body)) => {
+    let cause = crate::error::chain_error_cause(msg);
+    let (status, umsg, utype) = match (
+        crate::error::public_unavailable_message(msg), parse_upstream_error(cause),
+    ) {
+        (Some(message), _) => (503, message, "overloaded_error".to_string()),
+        (None, Some((st, body))) => {
             let um = body.pointer("/error/message").and_then(|m| m.as_str()).unwrap_or(msg).to_string();
             let ut = body.pointer("/error/type").and_then(|m| m.as_str()).unwrap_or("invalid_request_error").to_string();
             (st, um, ut)
         }
-        None if crate::error::AccountCooldown::from_error(msg).is_some() => {
-            let cooldown = crate::error::AccountCooldown::from_error(msg).expect("matched local cooldown");
-            (503, format!("This account is temporarily cooling down. Retry in {} seconds.", cooldown.retry_after_secs), "overloaded_error".to_string())
-        }
-        None => {
-            let st = if msg.contains("risk-refused") { 403 } else { 500 };
+        (None, None) => {
+            let st = if cause.starts_with("upstream 403 on ") || cause.starts_with("upstream 403:") { 403 } else { 500 };
             (st, msg.to_string(), "api_error".to_string())
         }
     };

@@ -136,8 +136,10 @@ async fn routed_completion(messages: bool, disconnect: bool) {
     assert_eq!(call.account, f.accounts[0].id);
     assert_eq!(call.kind, if messages { "messages" } else { "responses" });
     let child = child_id(&events.snapshot(), &root);
+    let completion = response.extensions().get::<ResponseCompletion>().unwrap().clone();
     let mut response = Some(response);
     if disconnect { drop(response.take()); }
+    if disconnect && !messages { assert!(call.config.as_ref().unwrap().is_cancelled()); }
     assert!(!call.reply.is_closed());
     assert_eq!(ownership.gate.stats().unwrap().active, 3);
     assert_eq!(operation_events(&events.snapshot(), &child).len(), 1);
@@ -151,14 +153,18 @@ async fn routed_completion(messages: bool, disconnect: bool) {
         let body = tokio::time::timeout(WAIT, to_bytes(response.into_body(), 65536)).await.unwrap().unwrap();
         assert_output(&body, messages);
     }
+    assert!(tokio::time::timeout(WAIT, completion.0).await.unwrap());
     events.event(&root, "operation.released").await;
     let proof = tokio::time::timeout(WAIT, ticket.wait_application()).await.unwrap().unwrap();
     ownership.check_application_drained(&proof).unwrap();
-    assert_join(&events.snapshot(), &child, "ok", true);
+    // The original attempt joined cleanly, but disconnected Responses output failed.
+    assert_join(&events.snapshot(), &child,
+        if disconnect && !messages { "error" } else { "ok" }, true);
     let root_rows = events.snapshot();
     assert_eq!(operation_events(&root_rows, &root).len(), 2);
     assert_eq!(ownership.gate.stats().unwrap().active, 1);
     assert!(!ownership.gate.stats().unwrap().unconfirmed);
+    assert_eq!(f.state.response_output.counts(), (0, 0, 0));
     f.no_call();
     drop(proof);
     assert!(ownership.unmanaged_host_close_required());
@@ -263,7 +269,7 @@ async fn shared_join_preserves_original_panic_and_cancel_error() {
 }
 
 #[tokio::test]
-async fn prior_unknown_cleanup_keeps_joined_route_success_fenced() {
+async fn prior_unknown_cleanup_keeps_success_and_disconnected_output_fenced() {
     for messages in [true, false] {
         for disconnect in [false, true] {
             let mut f = fixture::Fixture::new();
@@ -284,8 +290,10 @@ async fn prior_unknown_cleanup_keeps_joined_route_success_fenced() {
             assert_eq!(second.account, f.accounts[1].id);
             assert_eq!(second.kind, first.kind);
             let child = child_id(&events.snapshot(), &root);
+            let completion = response.extensions().get::<ResponseCompletion>().unwrap().clone();
             let mut response = Some(response);
             if disconnect { drop(response.take()); }
+            if disconnect && !messages { assert!(second.config.as_ref().unwrap().is_cancelled()); }
             assert!(!second.reply.is_closed());
             assert_eq!(ownership.gate.stats().unwrap().active, 3);
             second.reply.send(Ok(fixture::success(second.kind))).ok().unwrap();
@@ -294,9 +302,11 @@ async fn prior_unknown_cleanup_keeps_joined_route_success_fenced() {
                 let body = tokio::time::timeout(WAIT, to_bytes(response.into_body(), 65536)).await.unwrap().unwrap();
                 assert_output(&body, messages);
             }
+            assert!(!tokio::time::timeout(WAIT, completion.0).await.unwrap());
             events.event(&root, "operation.unresolved").await;
             let values = events.snapshot();
-            assert_join(&values, &child, "ok", false);
+            assert_join(&values, &child,
+                if disconnect && !messages { "error" } else { "ok" }, false);
             assert_eq!(operation_events(&values, &root).len(), 2);
             assert!(!values.iter().any(|event| event["event"] == "operation.released"));
             assert!(matches!(ownership.seal(), Err(GateError::Unconfirmed)));
@@ -306,6 +316,7 @@ async fn prior_unknown_cleanup_keeps_joined_route_success_fenced() {
                 slot.account == first.account && slot.uncertain && slot.users == 0));
             assert!(snapshot.residents.iter().any(|slot|
                 slot.account == second.account && !slot.uncertain && slot.users == 0));
+            assert_eq!(f.state.response_output.counts(), (0, 0, 0));
             f.no_call();
         }
     }
@@ -375,7 +386,9 @@ async fn concurrent_roots_keep_original_children_and_release_evidence_separate()
     let child_b = child_id(&events.snapshot(), &root_b);
     assert_eq!([&root_a, &root_b, &child_a, &child_b].into_iter().collect::<BTreeSet<_>>().len(), 4);
     assert_eq!(ownership.gate.stats().unwrap().active, 5);
+    let completion_a = a.extensions().get::<ResponseCompletion>().unwrap().clone();
     drop(a);
+    assert!(call_a.config.as_ref().unwrap().is_cancelled());
     call_b.reply.send(Ok(fixture::success(call_b.kind))).ok().unwrap();
     tokio::time::timeout(WAIT, call_b.dropped).await.unwrap().unwrap();
     let body = tokio::time::timeout(WAIT, to_bytes(b.into_body(), 65536)).await.unwrap().unwrap();
@@ -388,10 +401,12 @@ async fn concurrent_roots_keep_original_children_and_release_evidence_separate()
     assert_eq!(ownership.gate.stats().unwrap().active, 3);
     call_a.reply.send(Ok(fixture::success(call_a.kind))).ok().unwrap();
     tokio::time::timeout(WAIT, call_a.dropped).await.unwrap().unwrap();
+    assert!(tokio::time::timeout(WAIT, completion_a.0).await.unwrap());
     events.event(&root_a, "operation.released").await;
-    assert_join(&events.snapshot(), &child_a, "ok", true);
+    assert_join(&events.snapshot(), &child_a, "error", true);
     assert_eq!(ownership.gate.stats().unwrap().active, 1);
     assert!(!ownership.gate.stats().unwrap().unconfirmed);
+    assert_eq!(f.state.response_output.counts(), (0, 0, 0));
     for event in events.snapshot() {
         let id = event["operation_id"].as_str().unwrap();
         assert!([&root_a, &root_b, &child_a, &child_b].iter().any(|known| known.as_str() == id));

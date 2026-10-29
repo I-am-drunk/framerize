@@ -422,29 +422,94 @@ pub(super) struct FreeRequest {
     pub gate_model: String, pub gate_key: String, pub first_permit: Option<OwnedSemaphorePermit>,
     pub chat_session: String, pub explicit_session: Option<String>, pub allow_repick: bool,
     pub client_model: String, pub logical_id: String,
+    pub wait_budget: Duration,
 }
-pub(super) async fn serve(mut request: FreeRequest) -> Result<axum::response::Response, ApiError> {
+pub(super) async fn wait(state: AppState, payload: Value, client_model: String,
+    max_tokens: Option<u32>, explicit_session: Option<String>)
+    -> Result<axum::response::Response, ApiError> {
+    let residency = RequestResidency::empty();
+    let id = format!("{:08x}{:08x}", rand_u32(), rand_u32());
+    serve_initialized(state.clone(), client_model.clone(), id.clone(),
+        explicit_session.clone(), residency.clone(), move |cancel| async move {
+            let mut budget = account_wait::MAX_WAIT;
+            let acquired = account_wait::pick_cancellable(&state, &[], account_wait::WaitFor::Capacity, &mut budget,
+                || cancel.is_cancelled()).await;
+            let cleanup_confirmed = acquired.cleanup_confirmed;
+            let result = async {
+                let (account, lease) = acquired.result?;
+                residency.replace(lease);
+                if cancel.is_cancelled() { return Err(ApiError::Internal("client cancelled".into())); }
+                let session = state.sessions.load(&account.framer_user_id).await
+                    .map_err(ApiError::Internal)?
+                    .ok_or_else(|| ApiError::Internal("account has no session".into()))?;
+                let scope = pick_scope(&state, &account)?;
+                let gate_model = convert::to_openrouter_id(&client_model);
+                let chat_session = explicit_session.clone().unwrap_or_else(|| stable_session(&account.id));
+                let config = waiting_config(&state, max_tokens, scope.team.0.clone());
+                Ok(FreeRequest { state, account, residency, session, project: scope.project,
+                    config, payload, gate_key: format!("{}:{gate_model}", scope.team.0),
+                    gate_model, first_permit: None, chat_session, explicit_session,
+                    allow_repick: true, client_model, logical_id: id, wait_budget: budget })
+            }.await;
+            pool_control::CleanupOutcome { result, cleanup_confirmed }
+        }).await
+}
+fn waiting_config(state: &AppState, max_tokens: Option<u32>, team: String)
+    -> framer_core::port::ChainConfig {
+    let rotation = state.serving_accounts.rotation().clone();
+    framer_core::port::ChainConfig {
+        max_total_tokens: max_tokens,
+        metered_fallback: std::env::var("FRAMERIZE_ALLOW_METERED").is_ok_and(|v| v == "1"),
+        on_429: Some(Arc::new(move || rotation.mark_saturated(&team, 45_000))),
+        ..Default::default()
+    }
+}
+
+pub(super) async fn serve(request: FreeRequest) -> Result<axum::response::Response, ApiError> {
     if request.config.is_cancelled() {
         let (status, body) = convert::error_json(ClientDialect::OpenAiResponses, "client cancelled");
         return Ok(operation_ownership::completed_response(axum::response::IntoResponse::into_response(
             ShapedApiError(StatusCode::from_u16(status).unwrap(), body)), true));
     }
-    let lease = request.state.response_output.reserve()?;
-    let (emitter, sink, body) = output(lease, &request.client_model, &request.logical_id);
+    serve_initialized(request.state.clone(), request.client_model.clone(),
+        request.logical_id.clone(), Some(request.chat_session.clone()), request.residency.clone(),
+        move |_| async move { pool_control::CleanupOutcome {
+            result: Ok(request), cleanup_confirmed: true,
+        }}).await
+}
+
+async fn serve_initialized<F, Fut>(state: AppState, model: String, id: String,
+    session_header: Option<String>, residency: RequestResidency, initialize: F)
+    -> Result<axum::response::Response, ApiError>
+where F: FnOnce(Cancel) -> Fut + Send + 'static,
+    Fut: std::future::Future<Output = pool_control::CleanupOutcome<FreeRequest>> + Send {
+    let lease = state.response_output.reserve()?;
+    let (emitter, sink, body) = output(lease, &model, &id);
     let cancelled = emitter.publisher.cancel.clone();
     let published = emitter.publisher.content_published.clone();
-    let cancel = cancelled.clone();
-    request.config.cancelled = Some(Arc::new(move || cancel.is_cancelled()));
-    let session_header = request.chat_session.clone();
-    let residency = request.residency.clone();
-    let scope = request.state.operation_ownership.clone();
+    let scope = state.operation_ownership.clone();
     let (handle, completion) = operation_ownership::spawn_observed(scope.as_ref(),
         framer_core::operation_gate::OperationKind::Inference, async move {
             // This owner survives a dropped request future and joins all serializers.
             let encoding = tokio::spawn(emitter.run());
             let started = Instant::now();
-            let (result, cleanup) = request.drive(&sink, &cancelled, &published).await;
-            request.log(&result, started.elapsed());
+            let initialized = initialize(cancelled.clone()).await;
+            let (result, cleanup) = match initialized.result {
+                Ok(mut request) => {
+                    let cancel = cancelled.clone();
+                    request.config.cancelled = Some(Arc::new(move || cancel.is_cancelled()));
+                    let (result, cleanup) = request.drive(&sink, &cancelled, &published).await;
+                    request.log(&result, started.elapsed());
+                    (result, cleanup && initialized.cleanup_confirmed)
+                }
+                Err(error) => {
+                    let error = chain_admission_error(error);
+                    operation_ownership::correlate_chain(framer_core::observability::Event::new("ai.chain"))
+                        .field("model", model.as_str()).field("dialect", "OpenAiResponses")
+                        .duration_ms(started.elapsed().as_millis()).error(&error).emit();
+                    (Err(error.into()), initialized.cleanup_confirmed)
+                }
+            };
             let result = match result {
                 Ok(result) => sink.request(Input::Finish(result)).await.map(|_| ()).map_err(|e| e.to_string()),
                 Err(ResponseError::Upstream(error)) => {
@@ -465,8 +530,10 @@ pub(super) async fn serve(mut request: FreeRequest) -> Result<axum::response::Re
         axum::http::HeaderValue::from_static("text/event-stream"));
     response.headers_mut().insert(axum::http::header::CACHE_CONTROL,
         axum::http::HeaderValue::from_static("no-cache"));
-    response.headers_mut().insert("x-framerize-session",
-        session_header.parse().unwrap_or(axum::http::HeaderValue::from_static("")));
+    if let Some(session) = session_header {
+        response.headers_mut().insert("x-framerize-session",
+            session.parse().unwrap_or(axum::http::HeaderValue::from_static("")));
+    }
     Ok(response)
 }
 impl FreeRequest {
@@ -475,7 +542,7 @@ impl FreeRequest {
         let mut tried = Vec::new();
         let mut attempts = 0u32;
         let mut cleanup = true;
-        let mut cooldown = account_wait::MAX_WAIT;
+        let mut cooldown = self.wait_budget;
         let result = loop {
             if let Err(error) = self.config.check_cancelled() { break Err(error.into()); }
             let permit = match self.first_permit.take() {
@@ -520,12 +587,14 @@ impl FreeRequest {
             if !(self.allow_repick && refusal && !published.load(Ordering::SeqCst) && attempts < 2) {
                 break result.map_err(Into::into);
             }
-            let local = matches!(&result, Err(error) if AccountCooldown::from_error(error).is_some());
+            let local = matches!(&result, Err(error) if AccountCooldown::from_error(error).is_some()
+                || is_server_cooling(error));
             if !local { tried.push(self.account.id.0.to_string()); }
             drop(self.residency.take());
             let acquired = tokio::select! {
                 _ = cancel.cancelled() => break Err("client cancelled".into()),
-                value = account_wait::pick(&self.state, &tried, local && cleanup,
+                value = account_wait::pick(&self.state, &tried,
+                    account_wait::WaitFor::after_attempt(local, cleanup),
                     &mut cooldown) => value,
             };
             cleanup &= acquired.cleanup_confirmed;

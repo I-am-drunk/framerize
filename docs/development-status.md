@@ -1,3 +1,15 @@
+# Temporary pause recovery, 2026-10-29
+
+Candidate 0.5.1-alpha.5 adds bounded waiting with stream progress frames when an
+unbound Responses request encounters the global pause or account cooldown.
+It also narrows security-refusal classification and replaces internal errors
+with useful public messages. Production remains on alpha.4 during qualification.
+
+New regressions cover waiting, cancellation, recovery on an untried account
+and false security classification. Existing cleanup and no-replay checks remain.
+Qualification is pending. No deployment or live success is claimed here.
+Next: run the affected checks, review the frozen source and qualify the package.
+
 # Local device-capacity recovery, 2026-10-29
 
 Branch `fix/browser-local-capacity-20261029` prepares `0.5.1-alpha.4` from

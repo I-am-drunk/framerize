@@ -1,4 +1,5 @@
 use super::*;
+use futures::StreamExt;
 
 const RISK: &str = "risk-refused";
 const COOLING: &str = "account-cooling:60";
@@ -82,25 +83,29 @@ async fn exercise(error: &str, explicit: bool, consume: bool) {
         }
         let response = tokio::time::timeout(WAIT, task).await.unwrap().unwrap().unwrap();
         let status = if stream || !explicit { StatusCode::OK }
-            else if error == RISK { StatusCode::FORBIDDEN }
-            else if error == COOLING { StatusCode::SERVICE_UNAVAILABLE }
-            else { StatusCode::INTERNAL_SERVER_ERROR };
+            else { StatusCode::SERVICE_UNAVAILABLE };
         assert_eq!(response.status(), status);
-        // Drive the shared original join without polling or dropping the body.
-        // An early disconnect would mask a forbidden peer attempt; an unread
-        // body alone cannot poll the observer that releases the producer owner.
+        // Bounded Responses output must be read before its producer can join.
+        // Stop at the terminal frame, retaining the response owner until EOF
+        // or disposal. This cannot cancel and hide a forbidden peer attempt.
         let completion = response.extensions().get::<ResponseCompletion>()
             .expect("response lost its cleanup observer").clone();
+        let mut body = response.into_body().into_data_stream();
+        let mut output = if !messages && stream { read_response_terminal(&mut body).await }
+            else { Vec::new() };
         let confirmed = tokio::time::timeout(WAIT, completion.0).await
             .expect("producer did not finish while its response stayed connected");
         assert_eq!(confirmed, error != UNKNOWN);
         assert_eq!(ownership.gate.stats().unwrap().active, 2); // Host and response.
         if consume {
-            let body = tokio::time::timeout(WAIT, to_bytes(response.into_body(), 65536))
+            let tail = tokio::time::timeout(WAIT, to_bytes(Body::from_stream(body), 65536 - output.len()))
                 .await.unwrap().unwrap();
-            if explicit { assert_error_output(&body, messages, stream, error); }
-            else { assert_success_output(&body, messages, stream); }
-        } else { drop(response); }
+            output.extend_from_slice(&tail);
+        } else { drop(body); }
+        if consume || (!messages && stream) {
+            if explicit { assert_error_output(&output, messages, stream, error); }
+            else { assert_success_output(&output, messages, stream); }
+        }
         tokio::time::timeout(WAIT, async {
             while ownership.gate.stats().unwrap().active > 1 { tokio::task::yield_now().await; }
         }).await.unwrap();
@@ -135,6 +140,23 @@ async fn exercise(error: &str, explicit: bool, consume: bool) {
         }
         assert!(ownership.unmanaged_host_close_required());
     }
+}
+
+async fn read_response_terminal(body: &mut axum::body::BodyDataStream) -> Vec<u8> {
+    let mut wire = Vec::new();
+    tokio::time::timeout(WAIT, async {
+        loop {
+            let bytes = body.next().await.expect("response ended without a terminal event").unwrap();
+            assert!(wire.len() + bytes.len() <= 65536, "fixture output exceeded its bound");
+            wire.extend_from_slice(&bytes);
+            drop(bytes);
+            if wire.ends_with(b"\n\n") && output_values(&wire, true).last().is_some_and(|event|
+                matches!(event["type"].as_str(), Some("response.failed" | "response.completed"))) {
+                return;
+            }
+        }
+    }).await.expect("response did not publish its terminal event");
+    wire
 }
 
 async fn assert_records(f: &fixture::Fixture, error: &str, explicit: bool, attempted_at: u64) {
@@ -176,7 +198,11 @@ fn assert_error_output(body: &[u8], messages: bool, stream: bool, original: &str
     } else { &values[0]["error"] };
     let (message, kind) = if original == COOLING {
         ("This account is temporarily cooling down. Retry in 60 seconds.", "overloaded_error")
-    } else { (original, "api_error") };
+    } else if original == RISK {
+        ("The upstream service is temporarily unavailable. Please retry shortly.", "overloaded_error")
+    } else {
+        ("Framerize cannot safely start another request yet. Please retry later.", "overloaded_error")
+    };
     assert_eq!(error["message"], message);
     assert_eq!(error["type"], kind);
     if !messages { assert_eq!(error["code"], kind); }
@@ -256,7 +282,7 @@ async fn exercise_undecodable_account(wave: bool) {
                     assert_eq!(value["error"]["type"], "overloaded_error");
                     assert_eq!(value["error"]["retry_after_seconds"], 30);
                     assert_eq!(value["error"]["message"],
-                        "Framerize is temporarily paused after upstream security refusals. Retry in 30 seconds.");
+                        "Framerize is temporarily unavailable. Retry in 30 seconds.");
                 } else {
                     assert_eq!(value, serde_json::json!({"error": {
                         "code": "invalid_request",

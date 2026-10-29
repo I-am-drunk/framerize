@@ -397,7 +397,7 @@ impl FramerClient for Ports {
             browser.castle_token(account).await?;
             if self.fail_first_account.load(Ordering::SeqCst) && *account == id(1) {
                 return Err(self.inference_error.lock().unwrap().clone()
-                    .unwrap_or_else(|| "fixture risk-refused".into()));
+                    .unwrap_or_else(|| "risk-refused".into()));
             }
             if self.free_overload_once.swap(false, Ordering::SeqCst) {
                 return Err("retryable 429 fixture".into());
@@ -434,7 +434,7 @@ impl FramerClient for Ports {
             browser.castle_token(account).await?;
             if self.fail_first_account.load(Ordering::SeqCst) && *account == id(1) {
                 return Err(self.inference_error.lock().unwrap().clone()
-                    .unwrap_or_else(|| "fixture risk-refused".into()).into());
+                    .unwrap_or_else(|| "risk-refused".into()).into());
             }
             let output = vec![json!({"id":"fixture-item","type":"message","role":"assistant",
                 "status":"completed","content":[{"type":"output_text","text":"fixture result","annotations":[]}]})];
@@ -470,7 +470,7 @@ impl FramerClient for Ports {
             browser.castle_token(account).await?;
             if self.fail_first_account.load(Ordering::SeqCst) && *account == id(1) {
                 return Err(self.inference_error.lock().unwrap().clone()
-                    .unwrap_or_else(|| "fixture risk-refused".into()));
+                    .unwrap_or_else(|| "risk-refused".into()));
             }
             let output = vec![json!({"id":"fixture-item","type":"message","role":"assistant",
                 "status":"completed","content":[{"type":"output_text","text":"fixture result","annotations":[]}]})];
@@ -797,7 +797,8 @@ async fn cleanup_after_streamed_content_fences_without_replaying_on_another_acco
         ports.request_gate.add_permits(1);
         let response = handler_response(&state, route, true).await.unwrap();
         let body = to_bytes(response.into_body(), 1024 * 1024).await.unwrap();
-        assert!(String::from_utf8_lossy(&body).contains("cleanup is unconfirmed"));
+        assert!(String::from_utf8_lossy(&body).contains("cannot safely start another request"));
+        assert!(!String::from_utf8_lossy(&body).contains("host-lifecycle-unconfirmed"));
         drop(body);
         // Preserve the cleanup fence while the producer joins output disposal.
         tokio::time::timeout(Duration::from_secs(3), async {
@@ -1630,7 +1631,9 @@ async fn handlers_recheck_account_and_wave_after_waiting_for_the_model_gate() {
                     ports.records.lock().unwrap()[0].cooling_until_ms = Some(framer_core::rotation::now_ms() + 60_000);
                 }
                 drop(permit);
-                assert_cooling_response(request.await, wave).await;
+                if stream && matches!(route, Route::Native) {
+                    assert_waiting_response(request.await).await;
+                } else { assert_cooling_response(request.await, wave).await; }
                 assert_eq!(ports.request_started.load(Ordering::SeqCst), 0);
                 assert!(ports.events.lock().unwrap().iter().all(|event| event.0 == "status"));
                 assert_eq!(slot(&state, id(1)).users, 0);
@@ -1778,17 +1781,10 @@ async fn account_repicks_wait_on_destination_gate_and_recheck_health_before_invo
                 drop(held);
                 if let Some(response) = response {
                     let mut body = Box::pin(to_bytes(response.into_body(), 65_536));
-                    if wave {
-                        let body = tokio::time::timeout(Duration::from_secs(2), body)
-                            .await.unwrap().unwrap();
-                        assert!(!body.is_empty());
-                    } else {
-                        // A local cooldown now keeps an open stream pending.
-                        // Dropping it must still release every permit.
-                        assert!(tokio::time::timeout(Duration::from_millis(20), body.as_mut())
-                            .await.is_err());
-                        drop(body);
-                    }
+                    // Recoverable global and local pauses keep the stream open.
+                    assert!(tokio::time::timeout(Duration::from_millis(20), body.as_mut())
+                        .await.is_err());
+                    drop(body);
                 } else { assert_cooling_response(request.await, wave).await; }
                 assert_eq!(ports.request_started.load(Ordering::SeqCst), 1);
                 assert!(!ports.mint_routes.lock().unwrap().iter().any(|(account, _)| *account == id(2)));
@@ -1797,6 +1793,15 @@ async fn account_repicks_wait_on_destination_gate_and_recheck_health_before_invo
             }
         }
     }
+}
+
+async fn assert_waiting_response(result: Result<axum::response::Response, ApiError>) {
+    let response = result.unwrap();
+    assert_eq!(response.status(), axum::http::StatusCode::OK);
+    assert_eq!(response.headers()["content-type"], "text/event-stream");
+    let mut body = Box::pin(to_bytes(response.into_body(), 65_536));
+    assert!(tokio::time::timeout(Duration::from_millis(20), body.as_mut()).await.is_err());
+    drop(body);
 }
 
 async fn assert_cooling_response(result: Result<axum::response::Response, ApiError>, wave: bool) {

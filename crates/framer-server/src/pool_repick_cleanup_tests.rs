@@ -125,7 +125,7 @@ async fn repick_case(mode: RepickClose, route: Route, stream: bool, consume: boo
     }
     let response = tokio::time::timeout(Duration::from_secs(2), task)
         .await.unwrap().unwrap().unwrap();
-    let expected_status = if stream { StatusCode::OK } else { StatusCode::FORBIDDEN };
+    let expected_status = if stream { StatusCode::OK } else { StatusCode::SERVICE_UNAVAILABLE };
     assert_eq!(response.status(), expected_status, "{mode:?} {route:?} stream={stream}");
     assert!(!response.body().is_end_stream(), "exercise a nonempty response");
     if consume {
@@ -223,8 +223,8 @@ fn assert_original_error(body: &[u8], route: Route, stream: bool) {
             errors[0]["response"]["error"].clone()
         }
     };
-    assert_eq!(error["message"], "fixture risk-refused");
-    assert_eq!(error["type"], "api_error");
+    assert_eq!(error["message"], "The upstream service is temporarily unavailable. Please retry shortly.");
+    assert_eq!(error["type"], "overloaded_error");
 }
 
 #[tokio::test]

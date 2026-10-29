@@ -1,6 +1,6 @@
 use thiserror::Error;
 
-pub use framer_protocol::error::AccountCooldown;
+pub use framer_protocol::error::{AccountCooldown, chain_error_cause, is_security_refusal};
 
 #[cfg(test)]
 mod cooldown_tests {

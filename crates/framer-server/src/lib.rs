@@ -897,19 +897,21 @@ fn pick_scope(s: &AppState, account: &ManagedAccount) -> Result<framer_core::acc
 
 /// Upstream refusal classes that mean this account is being refused. Distinct from
 /// upstream 403s (provider policy — bad model id, region, content), which say
-/// nothing about the account. The chain composes errors as
-/// "chunk N retry died (fallback off): <cause>", so the sentinel is a SUFFIX —
-/// the exact-match bug of 2026-10-11: `e == "risk-refused"` never fired and a
-/// 100%-refused account read fail: 0 through 20 straight chain deaths.
+/// nothing about the account. Unwrap only the chain's known wrapper, then
+/// match its exact sentinel. Provider text cannot contribute to a wave merely
+/// because it ends with the same words.
 fn is_castle_refusal(e: &str) -> bool {
-    if e.starts_with("upstream 403") {
-        return false;
-    }
-    e.ends_with("risk-refused")
+    framer_core::error::is_security_refusal(e)
+}
+
+fn is_server_cooling(error: &str) -> bool {
+    framer_core::error::chain_error_cause(error).strip_prefix("server-cooling:")
+        .and_then(|seconds| seconds.parse::<u64>().ok()).is_some()
 }
 
 fn should_retry_account(error: &str) -> bool {
     is_castle_refusal(error) || AccountCooldown::from_error(error).is_some()
+        || is_server_cooling(error)
         || pool_control::cleanup_unconfirmed(error)
 }
 
@@ -1371,12 +1373,14 @@ async fn free_complete(
                 if cfg2.is_cancelled() { break r; }
                 let refusal = matches!(&r, Err(e) if should_retry_account(e));
                 if allow_account_repick && refusal && !emitted_content.load(std::sync::atomic::Ordering::Relaxed) && acct_attempt < 2 {
-                    let local = matches!(&r, Err(error) if AccountCooldown::from_error(error).is_some());
+                    let local = matches!(&r, Err(error) if AccountCooldown::from_error(error).is_some()
+                        || is_server_cooling(error));
                     if !local { tried.push(account.id.0.to_string()); }
                     drop(residency.take());
                     let acquired = tokio::select! {
                         _ = disconnected.closed() => break Err("client cancelled".into()),
-                        value = account_wait::pick(&s2, &tried, local && cleanup_confirmed,
+                        value = account_wait::pick(&s2, &tried,
+                            account_wait::WaitFor::after_attempt(local, cleanup_confirmed),
                             &mut cooldown_wait) => value,
                     };
                     cleanup_confirmed &= acquired.cleanup_confirmed;
@@ -1775,6 +1779,11 @@ async fn native_complete(
     }
 
     if let Some(remaining) = s.wave.check() {
+        if wants_stream && dialect == ClientDialect::OpenAiResponses
+            && !headers.contains_key("x-framerize-account") {
+            return response_output::wait(s, native_payload, client_model, max_tokens,
+                hdr(headers, "x-framerize-session")).await;
+        }
         return Err(operation_ownership::completed_preflight(ApiError::Cooling {
             retry_after_secs: remaining.as_secs().saturating_add(1),
         }));
@@ -1798,6 +1807,11 @@ async fn native_complete(
         };
         let account = match account {
             Ok(account) => account,
+            Err(ApiError::AccountCooling { .. }) if allow_account_repick && wants_stream
+                && dialect == ClientDialect::OpenAiResponses => {
+                return response_output::wait(s, native_payload, client_model, max_tokens,
+                    hdr(headers, "x-framerize-session")).await;
+            }
             Err(error) if skipped.is_empty() => return Err(operation_ownership::completed_preflight(error)),
             Err(error) => return Ok(operation_ownership::completed_response(
                 axum::response::IntoResponse::into_response(error), true)),
@@ -1805,6 +1819,12 @@ async fn native_complete(
         let acquired = pool_control::lease_account_observed(&s, account.id).await;
         let residency = RequestResidency::new(match acquired.result {
             Ok(lease) => lease,
+            Err(ApiError::Cooling { .. } | ApiError::AccountCooling { .. })
+                if acquired.cleanup_confirmed && allow_account_repick && wants_stream
+                    && dialect == ClientDialect::OpenAiResponses => {
+                return response_output::wait(s, native_payload, client_model, max_tokens,
+                    hdr(headers, "x-framerize-session")).await;
+            }
             Err(error) => return Ok(operation_ownership::completed_response(
                 axum::response::IntoResponse::into_response(error), acquired.cleanup_confirmed)),
         });
@@ -1813,6 +1833,12 @@ async fn native_complete(
             Err(ApiError::AccountCooling { .. }) if allow_account_repick && skipped.len() < 2 => {
                 skipped.push(account.id.0.to_string());
                 continue;
+            },
+            Err(ApiError::Cooling { .. } | ApiError::AccountCooling { .. })
+                if allow_account_repick && wants_stream && dialect == ClientDialect::OpenAiResponses => {
+                drop(residency);
+                return response_output::wait(s, native_payload, client_model, max_tokens,
+                    hdr(headers, "x-framerize-session")).await;
             },
             Err(error @ (ApiError::Cooling { .. } | ApiError::AccountCooling { .. }
                 | ApiError::ServingCapacity(_))) => {
@@ -1848,6 +1874,13 @@ async fn native_complete(
             Err(ApiError::AccountCooling { .. }) if allow_account_repick && skipped.len() < 2 => {
                 skipped.push(account.id.0.to_string());
                 continue;
+            },
+            Err(ApiError::Cooling { .. } | ApiError::AccountCooling { .. })
+                if allow_account_repick && wants_stream && dialect == ClientDialect::OpenAiResponses => {
+                drop(first_permit);
+                drop(residency);
+                return response_output::wait(s, native_payload, client_model, max_tokens,
+                    hdr(headers, "x-framerize-session")).await;
             },
             Err(error @ (ApiError::Cooling { .. } | ApiError::AccountCooling { .. }
                 | ApiError::ServingCapacity(_))) => {
@@ -1893,6 +1926,7 @@ async fn native_complete(
             payload: native_payload, gate_model, gate_key, first_permit,
             chat_session, explicit_session: hdr(headers, "x-framerize-session"),
             allow_repick: allow_account_repick, client_model, logical_id,
+            wait_budget: account_wait::MAX_WAIT,
         }).await;
     }
 
@@ -1969,12 +2003,14 @@ async fn native_complete(
                 if cfg2.is_cancelled() { break r; }
                 let refusal = matches!(&r, Err(e) if should_retry_account(e));
                 if allow_account_repick && refusal && !emitted_content.load(std::sync::atomic::Ordering::Relaxed) && acct_attempt < 2 {
-                    let local = matches!(&r, Err(error) if AccountCooldown::from_error(error).is_some());
+                    let local = matches!(&r, Err(error) if AccountCooldown::from_error(error).is_some()
+                        || is_server_cooling(error));
                     if !local { tried.push(account.id.0.to_string()); }
                     drop(residency.take());
                     let acquired = tokio::select! {
                         _ = disconnected.closed() => break Err("client cancelled".into()),
-                        value = account_wait::pick(&s2, &tried, local && cleanup_confirmed,
+                        value = account_wait::pick(&s2, &tried,
+                            account_wait::WaitFor::after_attempt(local, cleanup_confirmed),
                             &mut cooldown_wait) => value,
                     };
                     cleanup_confirmed &= acquired.cleanup_confirmed;
@@ -3351,7 +3387,7 @@ impl axum::response::IntoResponse for ApiError {
                 let (code, reason) = if account_cooling {
                     ("framerize_account_cooling", "Framerize has no ready account for this request.")
                 } else {
-                    ("framerize_cooling", "Framerize is temporarily paused after upstream security refusals.")
+                    ("framerize_cooling", "Framerize is temporarily unavailable.")
                 };
                 (
                     StatusCode::SERVICE_UNAVAILABLE,
@@ -3382,3 +3418,6 @@ impl axum::response::IntoResponse for ShapedApiError {
             .into_response()
     }
 }
+
+#[cfg(test)]
+mod pause_recovery_tests;

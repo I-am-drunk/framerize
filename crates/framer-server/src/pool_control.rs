@@ -149,6 +149,9 @@ pub(super) fn observe_lease_result<T>(lease: &ResidentLease, result: Result<T, S
 pub(super) struct RequestResidency(std::sync::Arc<std::sync::Mutex<Option<ResidentLease>>>);
 
 impl RequestResidency {
+    pub(super) fn empty() -> Self {
+        Self(std::sync::Arc::new(std::sync::Mutex::new(None)))
+    }
     pub(super) fn new(lease: ResidentLease) -> Self {
         Self(std::sync::Arc::new(std::sync::Mutex::new(Some(lease))))
     }

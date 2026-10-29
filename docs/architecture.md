@@ -1,3 +1,21 @@
+# Waiting through temporary upstream pauses
+
+Unbound streaming Responses requests can wait through a temporary global pause
+or account cooldown. The existing bounded output owner sends progress frames
+while admission waits. It holds no account residency or model permit during
+that wait. Disconnect stops future admission and retains cleanup ownership.
+The total wait budget is 960 seconds, including admission and later recovery.
+An initially waiting request has no account-derived session header yet; an
+explicit session header is preserved. Normal admitted requests are unchanged.
+
+Recovery retains the existing two account replacements and the accounts already
+tried. Published output still forbids replay. Unknown cleanup keeps its fence.
+Security accounting matches only an exact internal refusal, optionally inside
+the known chain wrapper. Arbitrary provider text cannot trigger that accounting.
+Public errors describe temporary unavailability; internal diagnostics retain
+the original cause. Explicit account selection and provider errors remain distinct.
+No cooldown, rate history, wave policy or account identity is reset by this change.
+
 # Local capacity before sending
 
 The rate ledger distinguishes known device unavailability from uncertain
