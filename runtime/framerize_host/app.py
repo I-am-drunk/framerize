@@ -17,7 +17,8 @@ from .accounts.page_acquisition import acquire_page
 from .accounts.page_creation import create_page
 from .accounts.page_use import page_use, record_page_call
 from .accounts.device_retention import trim_idle_device_contexts
-from framerize_accounts.rates import AccountRates, RatePolicy, SystemClock
+from framerize_accounts.rates import (
+    AccountRates, DeviceBudgetUnavailable, RatePolicy, SystemClock)
 from .browser.driver import browser_runtime, BrowserCloseReceipt
 from .browser.proxy import proxy_options
 from .browser.session import set_account_cookie
@@ -1497,7 +1498,14 @@ class Host:
                         r = {"status": 0, "usage": None, "body": "castle-unavailable"}
                         break
                     try:
-                        self._note_request(acc, used_dev)
+                        try:
+                            self._note_request(acc, used_dev)
+                        except DeviceBudgetUnavailable as unavailable:
+                            wait = (unavailable.retry_in if used_dev is None
+                                    else self._device_ready_in(acc) or 0)
+                            r = {"status": 0, "usage": None, "body":
+                                 f"velocity-paused: local device capacity changed; retry in {int(wait)}s"}
+                            break
                         fetch_t0 = time.monotonic()
                         job = "job-" + uuid.uuid4().hex
                         acc.project = req["body"].get("projectId") or acc.project

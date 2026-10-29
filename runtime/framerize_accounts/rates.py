@@ -10,6 +10,13 @@ import time
 import uuid
 
 
+class DeviceBudgetUnavailable(RuntimeError):
+    """The selected device cannot admit a request yet; no charge was made."""
+    def __init__(self, retry_in):
+        super().__init__('device request budget unavailable')
+        self.retry_in = retry_in
+
+
 @dataclass(frozen=True)
 class RatePolicy:
     window: float = 600.0
@@ -262,7 +269,10 @@ class AccountRates:
         requests = self._recent(device, now)
         if (self.state['cooling'].get(device, 0) > now
                 or len(requests) >= self.policy.capacity):
-            raise RuntimeError('device request budget unavailable')
+            wait = max(0, self.state['cooling'].get(device, 0) - now)
+            if len(requests) >= self.policy.capacity:
+                wait = max(wait, requests[0] + self.policy.window - now)
+            raise DeviceBudgetUnavailable(wait)
         state = deepcopy(self.state)
         requests.append(now)
         state['requests'][device] = requests

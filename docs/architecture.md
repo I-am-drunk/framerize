@@ -1,3 +1,19 @@
+# Local capacity before sending
+
+The rate ledger distinguishes known device unavailability from uncertain
+storage failures. Its final check still commits the request charge before
+any send. A failed capacity check makes no charge.
+
+When device availability changes during an awaited preparation step, the
+browser host releases the token and reports the existing local-wait result.
+For saved devices it uses the earliest eligible saved-device delay. For the
+ambient device it preserves that device's own delay. The existing parser
+rounds the delay conservatively before account selection or in-chain waiting.
+No new scheduler, retry loop or rate-policy override is introduced.
+
+This correction is prepared for alpha.4. It does not replace the running
+alpha.3 until that exact successor package is built and qualified.
+
 # Browser page retention
 
 The resident-account limit does not bound pages within each account.

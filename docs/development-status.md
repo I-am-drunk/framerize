@@ -1,3 +1,22 @@
+# Local device-capacity recovery, 2026-10-29
+
+Branch `fix/browser-local-capacity-20261029` prepares `0.5.1-alpha.4` from
+the deployed alpha.3 source. A device can become unavailable while a request
+waits for its token. The final check still prevents sending that request.
+It now reports the existing local-wait response instead of a generic error
+that the Responses chain mistakes for a transport failure.
+
+This preserves rate history, cooldowns, token release and cancellation.
+An unavailable ambient device retains its own wait even when a saved device
+is ready. Unknown storage or cleanup failures do not become retryable waits.
+Recovery after published output retains the existing no-replay protection.
+
+The 31 existing affected Python tests, eight new regression cases and the
+package identity test pass. The new cases ran as six initial tests plus
+separate cancellation and fractional-delay tests; unchanged groups were
+not repeated. Source review and an exact-source package build remain pending.
+This is source work. Alpha.3 remains the running package.
+
 # Browser page-retention repair, 2026-10-29
 
 Branch `fix/browser-page-retention-20261029` prepares `0.5.1-alpha.3` from the
