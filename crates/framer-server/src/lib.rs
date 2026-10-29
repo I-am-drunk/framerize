@@ -41,7 +41,7 @@ mod response_output;
 pub use serving_accounts::{ServingAccountPolicy, SERVING_ACCOUNTS_ENV};
 pub use pool_config::{PoolConfig, EligibleAccounts, AllAccounts, POOL_SETTING_KEY};
 pub use pool_control::prewarm_accounts;
-use pool_control::{lease_account, RequestResidency};
+use pool_control::RequestResidency;
 
 /// Build the router: REST under `/api`, compat under `/anthropic` + `/openai`,
 /// everything else served from `web_dir`.
@@ -464,9 +464,10 @@ async fn compat_forward_observed(
     }
 
     let pool = s.state.list().await.map_err(ApiError::Internal)?;
-    let account = s.serving_accounts.select(pool, account_hdr.as_deref())?;
-    let residency = cleanup.outcome(pool_control::lease_account_observed(&s, account.id).await)?;
-    let account = cleanup.admission(current_account(&s, account.id).await)?;
+    let residency = cleanup.outcome(pool_control::select_account_observed(
+        &s, pool, account_hdr.as_deref(), &[],
+    ).await)?;
+    let account = cleanup.admission(current_account(&s, residency.account()).await)?;
     let session = s
         .sessions
         .load(&account.framer_user_id)
@@ -929,17 +930,24 @@ async fn pick_fresh_account(
         loop {
             // Each original candidate is admitted at most once. A refused
             // local admission has made no inference attempt on that account.
-            let account = s.serving_accounts.select_fresh(pool, &skipped)?;
-            skipped.push(account.id.0.to_string());
-            let acquired = pool_control::lease_account_observed(s, account.id).await;
+            let preferred = s.serving_accounts.preferred_idle(&pool)?;
+            let mut selected_id = None;
+            let acquired = s.serving_accounts.acquire_selected_observed(
+                s.browser.as_ref(), || {
+                    let account = s.serving_accounts.select_fresh(pool.clone(), &skipped)?;
+                    selected_id = Some(account.id);
+                    Ok(account.id)
+                }, preferred, Some(s.state.as_ref()),
+            ).await;
+            if let Some(id) = selected_id { skipped.push(id.0.to_string()); }
             cleanup_confirmed &= acquired.cleanup_confirmed;
             let result = match acquired.result {
-                Ok(lease) => current_account(s, account.id).await.map(|account| (account, lease)),
+                Ok(lease) => current_account(s, lease.account()).await.map(|account| (account, lease)),
                 Err(error) => Err(error),
             };
             match result {
                 Err(ApiError::AccountCooling { .. } | ApiError::PoolBusy(_)
-                    | ApiError::ServingCapacity(_)) if cleanup_confirmed => {},
+                    | ApiError::ServingCapacity(_)) if cleanup_confirmed && selected_id.is_some() => {},
                 result => return result,
             }
             pool = s.state.list().await.map_err(ApiError::Internal)?;
@@ -1194,27 +1202,21 @@ async fn free_complete(
     let mut skipped = Vec::new();
     let (account, residency, mut session, mut scope, mut first_permit) = loop {
         let pool = s.state.list().await.map_err(ApiError::Internal)?;
-        let account = if skipped.is_empty() {
-            s.serving_accounts.select(pool, requested_account.as_deref())
-        } else {
-            s.serving_accounts.select_fresh(pool, &skipped)
-        };
-        let account = match account {
-            Ok(account) => account,
-            Err(error) if skipped.is_empty() => return Err(operation_ownership::completed_preflight(error)),
-            Err(error) => return Ok(operation_ownership::completed_response(
-                axum::response::IntoResponse::into_response(error), true)),
-        };
-        let acquired = pool_control::lease_account_observed(&s, account.id).await;
-        let residency = RequestResidency::new(match acquired.result {
+        let acquired = pool_control::select_account_observed(
+            &s, pool, requested_account.as_deref(), &skipped).await;
+        let lease = match acquired.result {
             Ok(lease) => lease,
+            Err(error) if skipped.is_empty() && acquired.cleanup_confirmed =>
+                return Err(operation_ownership::completed_preflight(error)),
             Err(error) => return Ok(operation_ownership::completed_response(
                 axum::response::IntoResponse::into_response(error), acquired.cleanup_confirmed)),
-        });
-        let account = match current_account(&s, account.id).await {
+        };
+        let selected_id = lease.account();
+        let residency = RequestResidency::new(lease);
+        let account = match current_account(&s, selected_id).await {
             Ok(account) => account,
             Err(ApiError::AccountCooling { .. }) if allow_account_repick && skipped.len() < 2 => {
-                skipped.push(account.id.0.to_string());
+                skipped.push(selected_id.0.to_string());
                 continue;
             },
             Err(error @ (ApiError::Cooling { .. } | ApiError::AccountCooling { .. }
@@ -1800,38 +1802,27 @@ async fn native_complete(
     let mut skipped = Vec::new();
     let (account, residency, mut session, mut scope, mut first_permit) = loop {
         let pool = s.state.list().await.map_err(ApiError::Internal)?;
-        let account = if skipped.is_empty() {
-            s.serving_accounts.select(pool, requested_account.as_deref())
-        } else {
-            s.serving_accounts.select_fresh(pool, &skipped)
-        };
-        let account = match account {
-            Ok(account) => account,
-            Err(ApiError::AccountCooling { .. }) if allow_account_repick && wants_stream
+        let acquired = pool_control::select_account_observed(
+            &s, pool, requested_account.as_deref(), &skipped).await;
+        let lease = match acquired.result {
+            Ok(lease) => lease,
+            Err(ApiError::Cooling { .. } | ApiError::AccountCooling { .. })
+                if acquired.cleanup_confirmed && allow_account_repick && wants_stream
                 && dialect == ClientDialect::OpenAiResponses => {
                 return response_output::wait(s, native_payload, client_model, max_tokens,
                     hdr(headers, "x-framerize-session")).await;
             }
-            Err(error) if skipped.is_empty() => return Err(operation_ownership::completed_preflight(error)),
-            Err(error) => return Ok(operation_ownership::completed_response(
-                axum::response::IntoResponse::into_response(error), true)),
-        };
-        let acquired = pool_control::lease_account_observed(&s, account.id).await;
-        let residency = RequestResidency::new(match acquired.result {
-            Ok(lease) => lease,
-            Err(ApiError::Cooling { .. } | ApiError::AccountCooling { .. })
-                if acquired.cleanup_confirmed && allow_account_repick && wants_stream
-                    && dialect == ClientDialect::OpenAiResponses => {
-                return response_output::wait(s, native_payload, client_model, max_tokens,
-                    hdr(headers, "x-framerize-session")).await;
-            }
+            Err(error) if skipped.is_empty() && acquired.cleanup_confirmed =>
+                return Err(operation_ownership::completed_preflight(error)),
             Err(error) => return Ok(operation_ownership::completed_response(
                 axum::response::IntoResponse::into_response(error), acquired.cleanup_confirmed)),
-        });
-        let account = match current_account(&s, account.id).await {
+        };
+        let selected_id = lease.account();
+        let residency = RequestResidency::new(lease);
+        let account = match current_account(&s, selected_id).await {
             Ok(account) => account,
             Err(ApiError::AccountCooling { .. }) if allow_account_repick && skipped.len() < 2 => {
-                skipped.push(account.id.0.to_string());
+                skipped.push(selected_id.0.to_string());
                 continue;
             },
             Err(ApiError::Cooling { .. } | ApiError::AccountCooling { .. })

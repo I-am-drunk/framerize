@@ -236,6 +236,26 @@ async fn management_inner_observed(s: &AppState, id: AccountId, browser: bool, r
     cleanup.finish(result)
 }
 
+pub(super) async fn select_account_observed(
+    s: &AppState, accounts: Vec<framer_core::account::ManagedAccount>,
+    requested: Option<&str>, excluded: &[String],
+) -> AcquisitionOutcome<ResidentLease> {
+    let preferred = match s.serving_accounts.preferred_idle(&accounts) {
+        Ok(preferred) => preferred,
+        Err(error) => return AcquisitionOutcome {
+            result: Err(error), cleanup_confirmed: true,
+        },
+    };
+    s.serving_accounts.acquire_selected_observed(s.browser.as_ref(), || {
+        let selected = if requested.is_some() || excluded.is_empty() {
+            s.serving_accounts.select(accounts.clone(), requested)
+        } else {
+            s.serving_accounts.select_fresh(accounts.clone(), excluded)
+        };
+        selected.map(|account| account.id)
+    }, preferred, Some(s.state.as_ref())).await
+}
+
 pub(super) async fn lease_account(s: &AppState, id: AccountId) -> Result<ResidentLease, ApiError> {
     lease_account_observed(s, id).await.result
 }
@@ -243,15 +263,11 @@ pub(super) async fn lease_account(s: &AppState, id: AccountId) -> Result<Residen
 pub(super) async fn lease_account_observed(s: &AppState, id: AccountId) -> AcquisitionOutcome<ResidentLease> {
     let mut cleanup_confirmed = true;
     let result = async {
-        let idle = s.serving_accounts.residents.idle_ids().map_err(busy)?;
         let accounts = s.state.list().await.map_err(ApiError::Internal)?;
         if !accounts.iter().any(|account| account.id == id) {
             return Err(ApiError::InvalidRequest("account not found".into()));
         }
-        let now = framer_core::rotation::now_ms();
-        let preferred = idle.iter().find(|victim| accounts.iter().any(|account|
-            account.id == **victim && (!s.serving_accounts.allows(victim) || !account.is_available_at(now))))
-            .copied();
+        let preferred = s.serving_accounts.preferred_idle(&accounts)?;
         let acquired = s.serving_accounts.acquire_observed(s.browser.as_ref(), id, preferred, Some(s.state.as_ref())).await;
         cleanup_confirmed = acquired.cleanup_confirmed;
         let lease = acquired.result?;
@@ -445,6 +461,14 @@ async fn apply_config(s: &AppState, next: PoolConfig, mut tickets: QueuedParks,
 }
 
 impl ServingAccountPolicy {
+    pub(super) fn preferred_idle(&self, accounts: &[framer_core::account::ManagedAccount])
+        -> Result<Option<AccountId>, ApiError> {
+        let now = framer_core::rotation::now_ms();
+        Ok(self.residents.idle_ids().map_err(busy)?.into_iter().find(|victim|
+            accounts.iter().any(|account| account.id == *victim
+                && (!self.allows(victim) || !account.is_available_at(now)))))
+    }
+
     /// The caller retains this account's management guard during the close.
     pub(super) async fn park_managed(&self, browser: &dyn BrowserBridge, id: AccountId) -> Result<(), ApiError> {
         self.park_managed_observed(browser, id).await.result
@@ -514,6 +538,14 @@ impl ServingAccountPolicy {
 
     async fn acquire_observed(&self, browser: &dyn BrowserBridge, id: AccountId,
         preferred_idle: Option<AccountId>, existing: Option<&dyn framer_core::StateStore>) -> AcquisitionOutcome<ResidentLease> {
+        self.acquire_selected_observed(browser, || Ok(id), preferred_idle, existing).await
+    }
+
+    pub(super) async fn acquire_selected_observed(
+        &self, browser: &dyn BrowserBridge,
+        mut choose: impl FnMut() -> Result<AccountId, ApiError> + Send,
+        preferred_idle: Option<AccountId>, existing: Option<&dyn framer_core::StateStore>,
+    ) -> AcquisitionOutcome<ResidentLease> {
         // This survives timeout cancellation. Before reservation there is no
         // new cleanup to prove; a live ticket or observation changes that.
         let mut cleanup_confirmed = true;
@@ -521,6 +553,9 @@ impl ServingAccountPolicy {
             let deadline = tokio::time::Instant::now() + Duration::from_secs(2);
             loop {
                 let operation = self.operation.lock().await;
+                // Select and reserve before another admission can inspect load.
+                // Browser I/O below happens after this lock is released.
+                let id = choose()?;
                 self.require(&id)?;
                 if let Some(next) = self.pending_config.read().map_err(busy)?.as_ref() {
                     let resident = self.residents.resident_ids().map_err(busy)?.contains(&id);

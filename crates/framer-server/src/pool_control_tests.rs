@@ -26,6 +26,8 @@ use tokio::sync::Semaphore;
 
 #[path = "account_health_tests.rs"]
 mod account_health;
+#[path = "account_selection_concurrency_tests.rs"]
+mod account_selection_concurrency;
 #[path = "pool_ownership_tests.rs"]
 mod ownership_merge_tests;
 #[path = "pool_repick_cleanup_tests.rs"]
@@ -61,6 +63,9 @@ struct Ports {
     pause_list: AtomicBool,
     list_captured: AtomicUsize,
     list_gate: Semaphore,
+    pause_get: AtomicBool,
+    get_captured: AtomicUsize,
+    get_gate: Semaphore,
     save_failure: AtomicBool,
     setting_writes: AtomicUsize,
     account_writes: AtomicUsize,
@@ -116,6 +121,8 @@ impl Ports {
             settings: Mutex::new(HashMap::new()), save_failure: AtomicBool::new(false),
             pause_list: AtomicBool::new(false), list_captured: AtomicUsize::new(0),
             list_gate: Semaphore::new(0),
+            pause_get: AtomicBool::new(false), get_captured: AtomicUsize::new(0),
+            get_gate: Semaphore::new(0),
             setting_writes: AtomicUsize::new(0), account_writes: AtomicUsize::new(0),
             pause_usage: AtomicBool::new(false), usage_captured: AtomicUsize::new(0),
             usage_gate: Semaphore::new(0),
@@ -292,7 +299,13 @@ impl BrowserBridge for Ports {
 impl StateStore for Ports {
     fn get<'s, 'a>(&'s self, id: AccountId) -> BoxFuture<'a, Result<Option<ManagedAccount>, String>>
     where 's: 'a, Self: 'a {
-        Box::pin(async move { Ok(self.records.lock().unwrap().iter().find(|a| a.id == id).cloned()) })
+        Box::pin(async move {
+            if self.pause_get.swap(false, Ordering::SeqCst) {
+                self.get_captured.fetch_add(1, Ordering::SeqCst);
+                self.get_gate.acquire().await.unwrap().forget();
+            }
+            Ok(self.records.lock().unwrap().iter().find(|a| a.id == id).cloned())
+        })
     }
     fn list<'s, 'a>(&'s self) -> BoxFuture<'a, Result<Vec<ManagedAccount>, String>>
     where 's: 'a, Self: 'a {

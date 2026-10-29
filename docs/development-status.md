@@ -1,3 +1,20 @@
+# Account selection correction, 2026-10-29
+
+Branch `fix/browser-pause-recovery-20261029` now keeps warm-browser preference
+as a tie-breaker after health, workspace availability and held request load.
+Automatic routes select and reserve together, preventing a burst from choosing
+the same idle account before its first reservation becomes visible.
+
+The corrected source passed 154 core and 469 server tests. Nine new tests cover
+warm preference, load spreading, six slots, eleven eligible accounts, cooldown,
+health, uncertainty, simultaneous selection and slow browser inspection.
+The earlier 83 protocol passes remain unchanged-source evidence. The first
+compilation found a typed error wrapped twice; it was corrected before this run.
+
+This is source qualification only. Production remains on alpha.4. Independent
+review and the existing builder's exact-runtime package checks precede activation.
+No account, rate policy, device identity or global-pause setting was changed.
+
 # Temporary pause recovery, 2026-10-29
 
 Candidate 0.5.1-alpha.5 adds bounded waiting with stream progress frames when an

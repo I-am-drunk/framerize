@@ -1,3 +1,21 @@
+# Account selection under load
+
+Automatic selection retains the configured account allowlist, cooldowns,
+workspace saturation and health ranking. Among otherwise eligible accounts,
+it prefers fewer held request leases, then an already-loaded browser. Equal
+choices rotate. Held leases include preparation, waiting and cleanup, so this
+count is request pressure rather than an exact count of live streams.
+
+Selection and reservation share the existing pool operation lock. The lock is
+released before browser inspection, closure or startup. A simultaneous request
+therefore sees the preceding reservation instead of choosing from stale load.
+No second registry or background scheduler is added.
+
+The six-browser capacity bounds loaded accounts, not eligible saved accounts.
+An unloaded account requires a free slot or a confirmed close of an idle
+resident. Active or unconfirmed browsers cannot be displaced. Explicit account
+selection keeps its identity. Device history and all refusal pauses remain.
+
 # Waiting through temporary upstream pauses
 
 Unbound streaming Responses requests can wait through a temporary global pause

@@ -219,7 +219,6 @@ impl ServingAccountPolicy {
     }
 
     fn pick_ready(&self, pool: &[ManagedAccount], now: u64) -> Result<ManagedAccount, ApiError> {
-        use framer_core::resident_pool::ResidentStatus;
         let snapshot = self.residents.snapshot().map_err(|e| ApiError::PoolBusy(e.to_string()))?;
         let mutations = self.mutations.lock()
             .map_err(|_| ApiError::PoolBusy("account management is unavailable".into()))?.clone();
@@ -230,15 +229,6 @@ impl ServingAccountPolicy {
             return Err(ApiError::PoolBusy("eligible accounts are changing, unconfirmed or lack resident capacity".into()));
         }
         let pool = candidates.as_slice();
-        let ready_residents: Vec<_> = pool.iter().filter(|account| {
-            account.is_available_at(now) && snapshot.residents.iter().any(|slot|
-                slot.account == account.id && matches!(slot.status,
-                    ResidentStatus::Active | ResidentStatus::Idle))
-        }).cloned().collect();
-        if !ready_residents.is_empty() {
-            return self.rotation.pick_at(&ready_residents, now).cloned()
-                .ok_or_else(|| self.no_eligible_account());
-        }
         // The general selector can fall back to a cooling account. HTTP
         // admission must instead let the client back off before SSE starts.
         if !pool.iter().any(|a| a.is_available_at(now)) {
@@ -248,7 +238,12 @@ impl ServingAccountPolicy {
                 return Err(Self::cooling(until, now));
             }
         }
-        self.rotation.pick_at(pool, now).cloned()
+        self.rotation.pick_preferred_at(pool, now, |account| {
+            // Reservations include preparation, queued work and cleanup.
+            // Reuse a warm browser only when its load is otherwise equal.
+            snapshot.residents.iter().find(|slot| slot.account == account.id)
+                .map(|slot| (slot.users, false)).unwrap_or((0, true))
+        }).cloned()
             .ok_or_else(|| self.no_eligible_account())
     }
 }

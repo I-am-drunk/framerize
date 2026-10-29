@@ -89,6 +89,15 @@ impl RotationState {
     /// None: a transient refusal must never take the whole gateway down, and the
     /// caller's own retry/backoff handles the rest.
     pub fn pick_at<'a>(&self, pool: &'a [ManagedAccount], now: u64) -> Option<&'a ManagedAccount> {
+        self.pick_preferred_at(pool, now, |_| ())
+    }
+
+    /// Apply a caller's stable priority after availability, workspace and health
+    /// checks. Equal priorities retain this runtime's round-robin ordering.
+    pub fn pick_preferred_at<'a, P: Ord>(
+        &self, pool: &'a [ManagedAccount], now: u64,
+        priority: impl Fn(&ManagedAccount) -> P,
+    ) -> Option<&'a ManagedAccount> {
         let available: Vec<&ManagedAccount> =
             pool.iter().filter(|a| a.is_available_at(now)).collect();
 
@@ -129,10 +138,12 @@ impl RotationState {
         // never picked => count never clears). Accounts failing WITHOUT a cooldown
         // -- transport errors, say -- are still deprioritized.
         let best = candidates.iter().map(|a| a.effective_failures(now)).min()?;
-        let tied: Vec<&ManagedAccount> = candidates
+        let mut tied: Vec<&ManagedAccount> = candidates
             .into_iter()
             .filter(|a| a.effective_failures(now) == best)
             .collect();
+        let preferred = tied.iter().map(|account| priority(account)).min()?;
+        tied.retain(|account| priority(account) == preferred);
 
         // `tied` is non-empty: `best` came from the same filtered set.
         let n = tied.len();

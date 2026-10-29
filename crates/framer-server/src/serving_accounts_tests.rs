@@ -4,6 +4,9 @@ use axum::response::IntoResponse;
 use framer_core::account::AccountState;
 use framer_core::ids::{FramerUserId, ProjectId, TeamId};
 
+#[path = "serving_account_load_tests.rs"]
+mod load;
+
 fn account(n: u128) -> ManagedAccount {
     ManagedAccount {
         id: AccountId(uuid::Uuid::from_u128(n)),
