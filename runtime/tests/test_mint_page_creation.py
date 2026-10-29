@@ -13,11 +13,7 @@ class MintPageCreationTests(unittest.IsolatedAsyncioTestCase):
     start = acquisition.PageAcquisitionTests.start
     assert_waiting = acquisition.PageAcquisitionTests.assert_waiting
 
-    def setUp(self):
-        acquisition.PageAcquisitionTests.setUp(self)
-        forge = patch.object(self.module, "_cf", None)
-        forge.start()
-        self.addCleanup(forge.stop)
+    setUp = acquisition.PageAcquisitionTests.setUp
 
     def account(self, name="a"):
         acc = acquisition.PageAcquisitionTests.account(self, name)

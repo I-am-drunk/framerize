@@ -1,3 +1,21 @@
+# Fresh browser request tokens
+
+Each outbound attempt obtains a fresh token from the existing browser SDK
+wrapper. The browser and device remain reusable; their tokens do not.
+The host no longer rewrites used tokens or generates tokens from cached parts.
+The existing per-account mint lock, pacing and confirmed cleanup still apply.
+
+The active-use map keeps only ownership metadata until request cleanup,
+then removes the entry. It does not retain the token string. Acquisition
+lasting 120 seconds is rejected conservatively, including time waiting to
+mint. This is a local acquisition limit, not proof of the server's reason
+for any refusal. Token age no longer exempts a refusal from cooldown.
+Background capacity failures also release their token ownership.
+
+The public SDK contract requires fresh tokens and describes a 120-second
+lifetime. This correction aligns token use with that contract. It does not
+establish the cause of the reported refusals or guarantee live acceptance.
+
 # Account selection under load
 
 Automatic selection retains the configured account allowlist, cooldowns,

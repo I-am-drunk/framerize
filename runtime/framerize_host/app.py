@@ -1,9 +1,9 @@
 """Browser host command and account lifecycle orchestration."""
-import asyncio, base64, hashlib, json, os, random, shutil, sys, time, uuid
+import asyncio, hashlib, json, os, random, shutil, sys, time, uuid
 from contextlib import asynccontextmanager
 from contextvars import ContextVar
 from pathlib import Path
-from .settings import (ROOT, LOGIN_URL, API, CASTLE_CHUNK, POOL_CAP, FORGE_MAX_AGE_S,
+from .settings import (ROOT, LOGIN_URL, API, CASTLE_CHUNK, POOL_CAP,
     DEVICE_POOL, HEARTBEAT_S, RESERVE_PER_DAY, DEV_COOLDOWN_S, DEV_WINDOW_S,
     DEV_WINDOW_CAP, MINT_GAP_S)
 from .events import trace, emit
@@ -26,7 +26,6 @@ from .browser.scripts import (WARM_JS, MINT_JS, post_js, AI_START_JS,
     AI_POLL_JS, AI_CANCEL_JS, DEVPOOL_WARM_JS, DEVPOOL_MINT_JS)
 from .browser.actions import human_burst
 from .browser.responses import receive as receive_response, ResponseDeadline
-from . import castle_forge as _cf
 
 _MINT_CALLS = ContextVar('framerize_mint_calls', default=None)
 
@@ -262,7 +261,6 @@ class Host:
         await asyncio.wait_for(self._rpc(account, close_browser), 10)
         acc.dev_objs.clear()
         acc.token_pool.clear()
-        acc.forge_parts.clear()
         acc.session_cookie = None
         acc.borrowed.clear()
 
@@ -720,15 +718,7 @@ class Host:
         trace(f"{account[:8]}: dedicated mint page ready")
         return page
 
-    TOKEN_TTL_S = 480.0  # 2026-10-05: TTL enforcement silently turned ON (~600s
-                         # boundary measured via the velocity-cooling cascade — old
-                         # tokens 403 and were misread as velocity bans). 480 = safe margin.
-    TOKEN_CONTENT_MAX_AGE_S = 1800.0  # re-wrap hygiene: re-mint the base after 30min even though server TTL is unenforced
-    TOKEN_MAX_USES = 5   # contract 2026-10-05: a token is a 6-USE coupon — use #7
-                         # returns 403 deterministically (verified: #1-6 pass, #7+ all
-                         # 403). Retire at 5 to stay under. The old per-chunk-mint
-                         # design was SAFE by accident; unbounded pooling was not.
-    TOKEN_POOL_CAP = 8
+    TOKEN_TTL_S = 120.0  # Published SDK lifetime; tokens are never reused.
 
     async def _dev_page(self, acc, account, dev):
         """Get-or-create the device's isolated context + page, with __cuid
@@ -828,74 +818,22 @@ class Host:
 
     def _cool_device(self, acc, dev, account):
         acc.lifecycle.rates.cool_device(dev)
-        # burn the device's outstanding coupons: a banned device's tokens all
-        # draw from its drained velocity budget
-        for tid in [k for k, v in acc.token_pool.items() if v.get("dev") == dev]:
-            del acc.token_pool[tid]
         trace(f"{account[:8]}: device {str(dev)[:8]} velocity-cooling {int(DEV_COOLDOWN_S)}s (rotating)")
 
-    @staticmethod
-    def _rewrap_token(token):
-        """Outer-layer re-wrap: decode the outer XOR with the embedded key byte,
-        re-XOR with a fresh random byte. New token STRING, byte-identical content.
-        VERIFIED 2026-10-05 (the Castle goose): the server's 6-use coupon tracker
-        keys on the STRING — a burned coupon re-wrapped passes 200, and each
-        re-wrapped string gets its own 6 uses. Pure python, no browser eval:
-        one real mint now yields unlimited coupons."""
-        raw = base64.urlsafe_b64decode(token + "=" * (-len(token) % 4))
-        k1 = raw[0]
-        body = bytes(b ^ k1 for b in raw[1:])
-        k2 = random.randint(1, 255)
-        while k2 == k1:
-            k2 = random.randint(1, 255)
-        return base64.urlsafe_b64encode(bytes([k2]) + bytes(b ^ k2 for b in body)).decode().rstrip("=")
-
     async def _token_acquire(self, acc, page, account, dev=None):
-        """Castle token pool, device-aware (velocity budgets key on the token's
-        embedded CUID): prefers idle coupons minted on the REQUESTED device,
-        else mints on it. Sequential reuse is free; concurrent reuse of one
-        token is the only deny signature (in_use flips atomically before any
-        await in the reuse path — asyncio single-thread)."""
+        """Obtain one fresh wrapper token and retain only its active-use record."""
         now = time.monotonic()
-        for tid, ent in list(acc.token_pool.items()):
-            if now - ent.get("born", ent["ts"]) > self.TOKEN_TTL_S:
-                # 2026-10-05: Framer silently enabled TTL enforcement (~600s; the
-                # velocity-cooling cascade was old tokens 403ing, misread as
-                # velocity bans). Retire well under the boundary.
-                del acc.token_pool[tid]
-                continue
-            if dev is not None and ent.get("dev") != dev:
-                continue  # stay on the velocity-selected device
-            if ent["uses"] >= self.TOKEN_MAX_USES:
-                # Coupon spent — RE-WRAP instead of re-minting: the tracker keys
-                # on the token string, so a fresh string = a fresh 6-use coupon
-                # for byte-identical content (verified 2026-10-05).
-                ent["token"] = self._rewrap_token(ent["token"])
-                ent["uses"] = 0
-                ent["ts"] = now
-                ent["wraps"] = ent.get("wraps", 0) + 1
-                trace(f"{account[:8]}: token re-wrapped (wrap #{ent['wraps']} dev {str(ent.get('dev'))[:8]}) — fresh coupon, no mint")
-            if not ent["in_use"]:
-                ent["in_use"] = True
-                ent["uses"] += 1
-                trace(f"{account[:8]}: token reuse #{ent['uses']} dev {str(ent.get('dev'))[:8]} (age {now - ent['ts']:.0f}s, pool {len(acc.token_pool)})")
-                return tid, ent["token"], ent.get("dev")
-        if len(acc.token_pool) >= self.TOKEN_POOL_CAP:
-            tok, used_dev = await self._mint(acc, page, account, dev)  # all busy: transient
-            return None, tok, used_dev
         tok, used_dev = await self._mint(acc, page, account, dev)
-        if not tok:
+        if not tok or time.monotonic() - now >= self.TOKEN_TTL_S:
             return None, None, None
         tid = uuid.uuid4().hex[:12]
-        acc.token_pool[tid] = {"token": tok, "ts": now, "born": now, "in_use": True, "uses": 1, "dev": used_dev}
+        acc.token_pool[tid] = {"born": now, "in_use": True, "dev": used_dev}
         return tid, tok, used_dev
 
     def _token_release(self, acc, tid):
         if tid is None:
             return
-        ent = acc.token_pool.get(tid)
-        if ent:
-            ent["in_use"] = False
+        acc.token_pool.pop(tid, None)
 
     @asynccontextmanager
     async def _mint_gate(self, acc):
@@ -929,39 +867,7 @@ class Host:
                 await asyncio.shield(completion)
 
     async def _mint(self, acc, page, account, dev=None):
-        """Mint one Castle token, serialized and paced per ACCOUNT.
-
-        All of an account's pages share one device id (__cuid), so simultaneous
-        mints look like one device firing N fingerprint requests at once --
-        the burst signature a risk engine punishes. The lock makes mints
-        one-at-a-time and MINT_GAP_S spaces them, so the device's request
-        pattern stays human-plausible no matter how many agents are running.
-
-        This is PREVENTION. A 403 risk-refusal must never be retried: another
-        mint from an already-refused device is what turns a transient refusal
-        into a sticky one.
-        """
-        # FORGE-FIRST (2026-10-05): if we hold fresh harvested parts for the
-        # requested device, mint locally — no browser eval, no pacing gap, no
-        # SDK race. Parts come from any real browser mint (harvested below)
-        # and are refreshed every FORGE_MAX_AGE_S.
-        if _cf is not None:
-            ent = None
-            fdev = dev
-            if dev is not None:
-                ent = acc.forge_parts.get(dev)
-            else:
-                fresh = [(e["born"], c) for c, e in acc.forge_parts.items()]
-                if fresh:
-                    fdev = max(fresh)[1]
-                    ent = acc.forge_parts[fdev]
-            if ent and (time.monotonic() - ent["born"]) < FORGE_MAX_AGE_S:
-                try:
-                    tok = _cf.forge(ent["parts"], fdev)
-                    emit("castle.forge", account=account[:8], device=str(fdev)[:8], outcome="ok")
-                    return tok, fdev
-                except Exception:
-                    pass  # fall through to a live mint
+        """Call the account's browser wrapper, with existing serialized pacing."""
         async with self._mint_gate(acc):
             t0 = time.monotonic()
             tok = None
@@ -988,12 +894,6 @@ class Host:
                     page = acc.mint_page = await self._new_mint_page(acc, account)
                 tok = await self._rpc(account, page.evaluate, MINT_JS)
                 used_dev = None  # single-device path (ambient __cuid)
-            if tok and _cf is not None:
-                try:
-                    parts = _cf.harvest(tok)
-                    acc.forge_parts[parts["cuid"]] = {"parts": parts, "born": time.monotonic()}
-                except Exception:
-                    pass
             emit("castle.mint", account=account[:8],
                  duration_ms=int((time.monotonic() - t0) * 1000),
                  burst_ms=burst_ms, device=str(used_dev)[:8] if used_dev else None,
@@ -1260,7 +1160,6 @@ class Host:
                     tid, tok, used_dev = await self._token_acquire(acc, page, account, dev)
                     if not tok:
                         continue
-                    self._note_request(acc, used_dev)
                     body = {
                         "projectId": acc.project, "featureCategory": "translation",
                         "featureName": "translation", "step": "translate",
@@ -1272,6 +1171,7 @@ class Host:
                     }
                     job = "hb-" + uuid.uuid4().hex
                     try:
+                        self._note_request(acc, used_dev)
                         r = await self._run_job(page, "/ai/v3/messages/", body, tok,
                                                 acc.bearer, job, used_dev, 30)
                         st = r.get("status")
@@ -1530,30 +1430,15 @@ class Host:
                         )
                         r["_fetch_ms"] = int((time.monotonic() - fetch_t0) * 1000)
                     finally:
-                        # release only after the response fully arrived — the
-                        # token's request is then complete, so a later use is
-                        # the proven-safe SEQUENTIAL case (never concurrent).
+                        # Keep ownership through response cleanup, then discard.
                         self._token_release(acc, tid)
                     # Velocity 403s are FAST (~50-150ms measured); the
                     # idle-window kill is also a 403 but arrives after 8+s of
                     # silence — retrying that on a fresh device would just die
                     # again and wrongly cool the device. Only rotate on fast 403s.
                     if r["status"] == 403 and r.get("_fetch_ms", 9999) < 4000 and attempt + 1 < attempts:
-                        # TTL vs velocity (2026-10-05): TTL enforcement (~600s) makes
-                        # OLD tokens 403 — that is EXPIRY, not a velocity ban, and
-                        # cooling the device over it drains the pool for nothing
-                        # (the cascade that killed chains today). Only a fresh
-                        # token's 403 means velocity.
-                        tok_age = time.monotonic() - acc.token_pool.get(tid, {}).get("born", acc.token_pool.get(tid, {}).get("ts", time.monotonic())) if tid else 0
-                        if tid and tok_age > self.TOKEN_TTL_S * 0.8:
-                            acc.token_pool.pop(tid, None)  # expired — refresh, same device
-                            trace(f"{account[:8]}: token 403 at age {tok_age:.0f}s — TTL expiry, refreshing (device NOT cooled)")
-                            if defer_retries:
-                                r["_retry_device"] = True
-                                break
-                            continue
-                        # velocity ban is per-device (proven): cool this one,
-                        # rotate, retry — invisible to the caller.
+                        # Token age does not establish why a request was refused.
+                        # Preserve the existing cooldown and bounded recovery.
                         self._cool_device(acc, used_dev, account)
                         if defer_retries:
                             r["_retry_device"] = True

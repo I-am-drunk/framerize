@@ -16,7 +16,6 @@ CASTLE_CHUNK = "https://app.framerstatic.com/chunk-5LKSDTQ5.mjs"
 POOL_CAP = int(os.environ.get("FRAMERIZE_PAGE_POOL", "6"))
 
 
-FORGE_MAX_AGE_S = float(os.environ.get("FRAMERIZE_FORGE_MAX_AGE", "1500"))
 
 
 DEVICE_POOL = int(os.environ.get("FRAMERIZE_DEVICE_POOL", "4"))

@@ -40,11 +40,9 @@ class DeviceContextCreationTests(unittest.IsolatedAsyncioTestCase):
     def setUp(self):
         acquisition.PageAcquisitionTests.setUp(self)
         from framerize_host import events
-        for target, name, value in ((self.module, "_cf", None),
-                                    (events, "emit", Mock())):
-            guard = patch.object(target, name, value)
-            guard.start()
-            self.addCleanup(guard.stop)
+        guard = patch.object(events, "emit", Mock())
+        guard.start()
+        self.addCleanup(guard.stop)
         self.events = events.emit
 
     def account(self, name="a"):

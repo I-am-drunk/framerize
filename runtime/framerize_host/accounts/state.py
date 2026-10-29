@@ -90,10 +90,9 @@ class Account:
         self.bearer = None
         self.reserve = self.lifecycle.rates.state['reserve']
         self.reserve_warmed = set() # reserve ids with a warm castle module
-        self.forge_parts = {}       # device cuid -> {parts, born} for offline forging
         self.editor_url = None      # project editor this account "has open"
         self.editor_file = None
-        self.token_pool = {}        # castle token pool: id -> {token, ts, in_use, uses, dev}
+        self.token_pool = {}        # active token uses only; discarded after cleanup
         self.dev_cooling = self.lifecycle.cooling
         self.dev_reqs = self.lifecycle.requests
         self.dev_rr = 0             # device round-robin cursor
