@@ -178,3 +178,43 @@ class FreshTokenTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(acc.token_pool, {})
         self.assertEqual(acc.lifecycle.rates.state["requests"], before)
         device.page.evaluate.assert_awaited_once_with(self.module.MINT_JS)
+
+    async def test_failed_device_mint_never_uses_an_ambient_token(self):
+        acc, device = await self.ready()
+        self.host._new_mint_page = AsyncMock()
+        device.page.evaluate.return_value = None
+        for error in (None, RuntimeError("fixture wrapper failure")):
+            with self.subTest(error=type(error).__name__):
+                device.page.evaluate.side_effect = error
+                self.assertEqual(await self.acquire(), (None, None, None))
+                self.assertEqual(acc.token_pool, {})
+                self.assertFalse(acc.mint_lock.locked())
+        self.host._new_mint_page.assert_not_awaited()
+
+    async def test_mismatched_token_device_is_rejected(self):
+        acc, device = await self.ready()
+        for other_device in (None, "device-b"):
+            with self.subTest(other_device=other_device):
+                self.host._mint = AsyncMock(return_value=("token", other_device))
+                self.assertEqual(await self.acquire(), (None, None, None))
+                self.assertEqual(acc.token_pool, {})
+                self.host._mint.assert_awaited_once_with(
+                    acc, acc.page, "a", device.id)
+
+    async def test_failed_device_preparation_does_not_post_from_ambient_page(self):
+        acc = self.account()
+        context = acc.browser.next_context
+        context.add_cookies.side_effect = RuntimeError("fixture preparation failure")
+        self.host._pick_device_sticky = lambda _acc: "device-a"
+        self.host._ensure_editor = AsyncMock()
+        self.host._token_acquire = AsyncMock()
+        self.host._note_request = Mock()
+        self.host._run_job = AsyncMock()
+        response = await self.host.handle({"cmd": "ai_post", "account": "a",
+                                          "path": "/fixture", "body": {}})
+        self.assertEqual(response["status"], 0)
+        self.assertTrue(context.closed)
+        self.host._ensure_editor.assert_not_awaited()
+        self.host._token_acquire.assert_not_awaited()
+        self.host._note_request.assert_not_called()
+        self.host._run_job.assert_not_awaited()

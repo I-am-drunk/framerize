@@ -1,19 +1,23 @@
 # Fresh-token correction, 2026-10-29
 
-Branch `fix/browser-fresh-tokens-20261029` removes browser-host token reuse,
+Branch `fix/browser-fresh-tokens-20261029` prepares alpha.6 without token reuse,
 rewriting and cached-parts generation. The existing SDK wrapper supplies a
 fresh token for each attempt. Active-use metadata is discarded after cleanup.
 Background capacity failures now release that ownership as well.
 
-The focused Python run passed 111 tests with all 202 recorded inputs unchanged.
-Eight new cases cover fresh tokens, simultaneous requests, stale cache data,
+The focused Python run passed 114 tests with all 202 recorded inputs unchanged.
+Eleven new cases cover fresh tokens, simultaneous requests, stale cache data,
 release, late cancellation, the 120-second acquisition boundary, account/device
-isolation and a background capacity failure. Existing browser lifecycle,
+isolation, a background capacity failure and failed device preparation/minting.
+Existing browser lifecycle,
 cleanup, rate and request tests remain passing. No live request was made.
 
-This is source qualification only. Independent review and package qualification
-remain outstanding. It is separate from the frozen alpha.5 account-selection
-release and is not included in that build. No production change is claimed.
+The initial token patch passed independent review. Its pre-existing device
+fallback finding is corrected by the last three tests: failed device work
+cannot borrow an ambient token or dispatch through another device's page.
+Package qualification remains outstanding. This is separate from the frozen
+alpha.5 account-selection release and is not in that build. No deployment
+or live acceptance is claimed.
 
 # Account selection correction, 2026-10-29
 

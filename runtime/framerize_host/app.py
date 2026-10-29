@@ -824,7 +824,8 @@ class Host:
         """Obtain one fresh wrapper token and retain only its active-use record."""
         now = time.monotonic()
         tok, used_dev = await self._mint(acc, page, account, dev)
-        if not tok or time.monotonic() - now >= self.TOKEN_TTL_S:
+        if (not tok or time.monotonic() - now >= self.TOKEN_TTL_S
+                or (dev is not None and used_dev != dev)):
             return None, None, None
         tid = uuid.uuid4().hex[:12]
         acc.token_pool[tid] = {"born": now, "in_use": True, "dev": used_dev}
@@ -875,7 +876,9 @@ class Host:
             # (19-21s under humanize=True). The per-page humanize loops keep
             # Castle's behavioral buffers warm between mints.
             used_dev = dev
-            if dev is not None and acc.browser is not None:
+            if dev is not None:
+                if acc.browser is None:
+                    raise RuntimeError("castle-unavailable")
                 # CONTEXT-PER-DEVICE: mint inside the device's own isolated
                 # context. The SDK binds the context's single pre-seeded
                 # __cuid — no swaps, no shared-page churn, ever.
@@ -888,7 +891,7 @@ class Host:
                         raise RuntimeError("browser cleanup unconfirmed") from e
                     trace(f"{account[:8]}: context mint failed on {str(dev)[:8]} ({type(e).__name__})")
                     tok = None
-            if not tok:
+            else:
                 page = acc.mint_page
                 if page is None or page.is_closed():
                     page = acc.mint_page = await self._new_mint_page(acc, account)
@@ -1390,7 +1393,8 @@ class Host:
                         except Exception:
                             if acc.closing or acc.lifecycle.phase == "unconfirmed":
                                 raise RuntimeError("browser cleanup unconfirmed")
-                            fire_page = page
+                            r = {"status": 0, "usage": None, "body": "castle-unavailable"}
+                            break
                     if fire_page is page:
                         await self._ensure_editor(acc, page, account)
                     tid, tok, used_dev = await self._token_acquire(acc, fire_page, account, dev)

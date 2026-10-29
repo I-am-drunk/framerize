@@ -12,6 +12,10 @@ mint. This is a local acquisition limit, not proof of the server's reason
 for any refusal. Token age no longer exempts a refusal from cooldown.
 Background capacity failures also release their token ownership.
 
+If a selected device cannot prepare its page or mint its token, the attempt
+stops before sending. It does not borrow an ambient token or another device's
+page. Acquisition also rejects a token returned for a different device.
+
 The public SDK contract requires fresh tokens and describes a 120-second
 lifetime. This correction aligns token use with that contract. It does not
 establish the cause of the reported refusals or guarantee live acceptance.
