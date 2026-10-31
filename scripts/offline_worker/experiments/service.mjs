@@ -42,12 +42,21 @@ try {
 // Replay the captured trace through the SDK's registered listeners.
 // Dispatches every event through the realm hook; handlers run synchronously.
 // Returns how many handler invocations fired.
-function replayTrace(win) {
+// Replay the captured trace with its genuine inter-event timing. Each event's
+// captured dt (ms offset from trace start) becomes a monotonic timeStamp, and
+// the loop sleeps the real gaps so the SDK observes the true rhythm, not a
+// burst. isTrusted cannot be made true from JS; that is a known, named limit.
+async function replayTrace(win) {
   if (!win || typeof win.__dispatchCaptured !== 'function' || TRACE.length === 0) return 0;
   let fired = 0;
+  const base = win.performance ? win.performance.now() : Date.now();
+  let prevDt = 0;
   for (const ev of TRACE) {
     const { type, dt, ...props } = ev;
-    try { fired += win.__dispatchCaptured(type, props) || 0; } catch {}
+    const gap = (typeof dt === 'number' ? dt : prevDt) - prevDt;
+    if (gap > 0) await new Promise(r => setTimeout(r, Math.min(gap, 1000)));
+    if (typeof dt === 'number') prevDt = dt;
+    try { fired += win.__dispatchCaptured(type, { ...props, timeStamp: base + (typeof dt === 'number' ? dt : 0) }) || 0; } catch {}
   }
   return fired;
 }
@@ -81,7 +90,7 @@ async function mintOnce(reqCuid) {
     await modules.evaluate();
     // Listeners are registered now. Replay the real interaction trace so the
     // token carries genuine behavioral content instead of silence.
-    const replayed = replayTrace(dom.window);
+    const replayed = await replayTrace(dom.window);
     const collection = await Promise.race([
       modules.mint(),
       new Promise((_, rej) => setTimeout(() => rej(new Error('mint-timeout')), MINT_TIMEOUT_MS)),

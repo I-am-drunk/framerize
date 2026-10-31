@@ -69,7 +69,11 @@ export function buildRealmGlobals({ publicKey, cuid }) {
   function dispatchCaptured(type, props) {
     const list = listeners.get(type);
     if (!list || list.length === 0) return 0;
-    const ev = Object.assign({ type, timeStamp: performance.now(),
+    // Honor a captured real timestamp when one is supplied (props.timeStamp),
+    // so the inter-event rhythm Castle scores is the genuine one. Fall back
+    // to now only when the trace carries no timing.
+    const ts = (props && typeof props.timeStamp === 'number') ? props.timeStamp : performance.now();
+    const ev = Object.assign({ type, timeStamp: ts,
       isTrusted: false, bubbles: true, cancelable: true,
       preventDefault() {}, stopPropagation() {}, target: null }, props || {});
     let n = 0;
