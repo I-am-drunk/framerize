@@ -61,6 +61,22 @@ export function buildRealmGlobals({ publicKey, cuid }) {
   const measureCursors = new Map();
   const listeners = new Map();
 
+  // Replay support: dispatch one captured real event to every listener that
+  // the SDK registered for its type. Events come from a genuine browser trace
+  // (recorded in the user's own tab), so no signal is invented. The handler
+  // receives a plain object shaped like the event Castle reads: type plus the
+  // captured coordinate/key/timestamp fields.
+  function dispatchCaptured(type, props) {
+    const list = listeners.get(type);
+    if (!list || list.length === 0) return 0;
+    const ev = Object.assign({ type, timeStamp: performance.now(),
+      isTrusted: false, bubbles: true, cancelable: true,
+      preventDefault() {}, stopPropagation() {}, target: null }, props || {});
+    let n = 0;
+    for (const fn of list) { try { fn(ev); n++; } catch {} }
+    return n;
+  }
+
   // 2D context whose reads replay the captured Chrome answers.
   function make2DContext() {
     return {
@@ -259,6 +275,12 @@ export function buildRealmGlobals({ publicKey, cuid }) {
   win.selenium = undefined;
   win.scheduler = undefined;
   win.document.fullscreenElement = null;
+  // Replay hook for the token service: drive the SDK's registered listeners
+  // with a captured real interaction trace before minting. Trace entries are
+  // {type, props}; dispatchCaptured fans each out to every registered handler.
+  win.__dispatchCaptured = dispatchCaptured;
+  win.__listenerCount = () => Array.from(listeners.entries())
+    .map(([t, l]) => ({ type: t, handlers: l.length }));
   return win;
 }
 

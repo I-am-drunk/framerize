@@ -27,6 +27,31 @@ let mintCount = 0;
 let failCount = 0;
 let busy = false;
 
+// Real interaction trace, captured once in the user's own tab through the
+// devtools Input domain (genuine trusted events, real timing). Replayed
+// through the realm's registered listeners before each mint so the token's
+// behavioral content is not silent. If absent, mint still works but stays
+// behaviorally silent, which the live evidence shows Castle rejects.
+let TRACE = [];
+try {
+  const t = JSON.parse(fs.readFileSync(
+    new URL('./interaction-trace.json', import.meta.url), 'utf8'));
+  if (Array.isArray(t.events)) TRACE = t.events;
+} catch {}
+
+// Replay the captured trace through the SDK's registered listeners.
+// Dispatches every event through the realm hook; handlers run synchronously.
+// Returns how many handler invocations fired.
+function replayTrace(win) {
+  if (!win || typeof win.__dispatchCaptured !== 'function' || TRACE.length === 0) return 0;
+  let fired = 0;
+  for (const ev of TRACE) {
+    const { type, dt, ...props } = ev;
+    try { fired += win.__dispatchCaptured(type, props) || 0; } catch {}
+  }
+  return fired;
+}
+
 // Mint one token in a fresh realm. Mirrors experiments/script_mint.mjs,
 // which is the proven path (765-char token, collected: true).
 const ENCODE_TOKEN = new URL('../../../target/debug/examples/encode-token', import.meta.url).pathname;
@@ -54,6 +79,9 @@ async function mintOnce(reqCuid) {
     const modules = new SdkModules(dom.getInternalVMContext());
     await modules.prepare();
     await modules.evaluate();
+    // Listeners are registered now. Replay the real interaction trace so the
+    // token carries genuine behavioral content instead of silence.
+    const replayed = replayTrace(dom.window);
     const collection = await Promise.race([
       modules.mint(),
       new Promise((_, rej) => setTimeout(() => rej(new Error('mint-timeout')), MINT_TIMEOUT_MS)),
@@ -66,7 +94,7 @@ async function mintOnce(reqCuid) {
     header.write('FCLT'); header[4] = 1; header.writeUInt32BE(body.length, 8);
     const frame = Buffer.concat([header, body]);
     const token = await encodeWireToken(frame);
-    return { token, collectedLength: collection.length };
+    return { token, collectedLength: collection.length, replayed };
   } finally {
     try { await dom.close(); } catch {}
   }
@@ -83,11 +111,11 @@ async function handle(req) {
   busy = true;
   try {
     const reqCuid = (typeof req.cuid === 'string' && /^[A-Za-z0-9._~-]{1,256}$/.test(req.cuid)) ? req.cuid : null;
-    const { token, collectedLength } = await mintOnce(reqCuid);
+    const { token, collectedLength, replayed } = await mintOnce(reqCuid);
     mintCount++;
     // token is the compact wire string (clientId|payload). Send it directly.
     return { ok: true, token, cuid: reqCuid || REALM_CUID, token_length: token.length,
-      collected_length: collectedLength, encoding: 'wire-token' };
+      collected_length: collectedLength, replayed, trace_events: TRACE.length, encoding: 'wire-token' };
   } catch (e) {
     failCount++;
     return { ok: false, error: String(e && e.message || e) };
