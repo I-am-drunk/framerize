@@ -28,7 +28,10 @@ export class RealmCastleMinter {
       sources_unchanged: false, async_errors: 0, diagnostics: 0,
       late_settlements: 0, method_ms: 0, elapsed_ms: 0,
       collection_to_handoff_ms: 0, collection_handoff: false };
-    let phase = 'input-identity', dom, modules, inspector, settlement, value, mintedAt, nativeGraphics, graphics, failureDetail;
+    if (this.#input.version === 2) Object.assign(report, {
+      device_storage_seeded: false, device_storage_unchanged: false,
+    });
+    let phase = 'input-identity', dom, modules, inspector, settlement, value, mintedAt, verifyDevice, nativeGraphics, graphics, failureDetail;
     const asynchronousError = () => { report.async_errors = Math.min(1000000, report.async_errors + 1); };
     const diagnostic = () => { report.diagnostics = Math.min(1000000, report.diagnostics + 1); };
     process.on('unhandledRejection', asynchronousError);
@@ -59,6 +62,11 @@ export class RealmCastleMinter {
           || typeof dom.window.cancelAnimationFrame !== 'function'
           || dom.window.document.hidden !== false
           || dom.window.document.visibilityState !== 'visible') throw new Error('environment');
+      if (this.#input.device) {
+        phase = 'device-storage';
+        verifyDevice = this.#input.device.seed(dom.window);
+        report.device_storage_seeded = true;
+      }
       phase = 'module-link';
       modules = new SdkModules(dom.getInternalVMContext());
       await modules.prepare();
@@ -81,6 +89,10 @@ export class RealmCastleMinter {
         throw new Error('mint');
     } catch { report.failure_phase = phase; }
     finally {
+      if (verifyDevice) {
+        try { verifyDevice(); report.device_storage_unchanged = true; }
+        catch { report.failure_phase ??= 'device-storage'; }
+      }
       if (graphics) {
         try {
           const state = graphics.close();
