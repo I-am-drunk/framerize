@@ -1,0 +1,3628 @@
+{
+ "reads": [
+  {
+   "m": "measureText",
+   "a": [
+    "0436M97HDQERGJUInPLXgWjSbYirfqtp"
+   ],
+   "s": {
+    "t": "0436M97HDQERGJUInPLXgWjSbYirfqtp",
+    "w": 193.037109375
+   }
+  },
+  {
+   "m": "getImageData",
+   "a": [
+    0,
+    0,
+    194,
+    15
+   ],
+   "s": {
+    "w": 194,
+    "h": 15,
+    "d": [
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0
+    ]
+   }
+  },
+  {
+   "m": "getImageData",
+   "a": [
+    0,
+    0,
+    194,
+    15
+   ],
+   "s": {
+    "w": 194,
+    "h": 15,
+    "d": [
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0
+    ]
+   }
+  },
+  {
+   "m": "getImageData",
+   "a": [
+    0,
+    0,
+    200,
+    200
+   ],
+   "s": {
+    "w": 200,
+    "h": 200,
+    "d": [
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0
+    ]
+   }
+  },
+  {
+   "m": "measureText",
+   "a": [
+    "mmmmmmmmmmlli"
+   ],
+   "s": {
+    "t": "mmmmmmmmmmlli",
+    "w": 782.666015625
+   }
+  },
+  {
+   "m": "measureText",
+   "a": [
+    "mmmmmmmmmmlli"
+   ],
+   "s": {
+    "t": "mmmmmmmmmmlli",
+    "w": 899.658203125
+   }
+  },
+  {
+   "m": "measureText",
+   "a": [
+    "mmmmmmmmmmlli"
+   ],
+   "s": {
+    "t": "mmmmmmmmmmlli",
+    "w": 861.181640625
+   }
+  },
+  {
+   "m": "measureText",
+   "a": [
+    "mmmmmmmmmmlli"
+   ],
+   "s": {
+    "t": "mmmmmmmmmmlli",
+    "w": 782.666015625
+   }
+  },
+  {
+   "m": "measureText",
+   "a": [
+    "mmmmmmmmmmlli"
+   ],
+   "s": {
+    "t": "mmmmmmmmmmlli",
+    "w": 899.658203125
+   }
+  },
+  {
+   "m": "measureText",
+   "a": [
+    "mmmmmmmmmmlli"
+   ],
+   "s": {
+    "t": "mmmmmmmmmmlli",
+    "w": 861.181640625
+   }
+  },
+  {
+   "m": "measureText",
+   "a": [
+    "mmmmmmmmmmlli"
+   ],
+   "s": {
+    "t": "mmmmmmmmmmlli",
+    "w": 782.666015625
+   }
+  },
+  {
+   "m": "measureText",
+   "a": [
+    "mmmmmmmmmmlli"
+   ],
+   "s": {
+    "t": "mmmmmmmmmmlli",
+    "w": 899.658203125
+   }
+  },
+  {
+   "m": "measureText",
+   "a": [
+    "mmmmmmmmmmlli"
+   ],
+   "s": {
+    "t": "mmmmmmmmmmlli",
+    "w": 861.181640625
+   }
+  },
+  {
+   "m": "measureText",
+   "a": [
+    "mmmmmmmmmmlli"
+   ],
+   "s": {
+    "t": "mmmmmmmmmmlli",
+    "w": 782.666015625
+   }
+  },
+  {
+   "m": "measureText",
+   "a": [
+    "mmmmmmmmmmlli"
+   ],
+   "s": {
+    "t": "mmmmmmmmmmlli",
+    "w": 899.658203125
+   }
+  },
+  {
+   "m": "measureText",
+   "a": [
+    "mmmmmmmmmmlli"
+   ],
+   "s": {
+    "t": "mmmmmmmmmmlli",
+    "w": 861.181640625
+   }
+  },
+  {
+   "m": "measureText",
+   "a": [
+    "mmmmmmmmmmlli"
+   ],
+   "s": {
+    "t": "mmmmmmmmmmlli",
+    "w": 782.666015625
+   }
+  },
+  {
+   "m": "measureText",
+   "a": [
+    "mmmmmmmmmmlli"
+   ],
+   "s": {
+    "t": "mmmmmmmmmmlli",
+    "w": 899.658203125
+   }
+  },
+  {
+   "m": "measureText",
+   "a": [
+    "mmmmmmmmmmlli"
+   ],
+   "s": {
+    "t": "mmmmmmmmmmlli",
+    "w": 861.181640625
+   }
+  },
+  {
+   "m": "measureText",
+   "a": [
+    "mmmmmmmmmmlli"
+   ],
+   "s": {
+    "t": "mmmmmmmmmmlli",
+    "w": 782.666015625
+   }
+  },
+  {
+   "m": "measureText",
+   "a": [
+    "mmmmmmmmmmlli"
+   ],
+   "s": {
+    "t": "mmmmmmmmmmlli",
+    "w": 899.658203125
+   }
+  },
+  {
+   "m": "measureText",
+   "a": [
+    "mmmmmmmmmmlli"
+   ],
+   "s": {
+    "t": "mmmmmmmmmmlli",
+    "w": 861.181640625
+   }
+  },
+  {
+   "m": "measureText",
+   "a": [
+    "mmmmmmmmmmlli"
+   ],
+   "s": {
+    "t": "mmmmmmmmmmlli",
+    "w": 782.666015625
+   }
+  },
+  {
+   "m": "measureText",
+   "a": [
+    "mmmmmmmmmmlli"
+   ],
+   "s": {
+    "t": "mmmmmmmmmmlli",
+    "w": 899.658203125
+   }
+  },
+  {
+   "m": "measureText",
+   "a": [
+    "mmmmmmmmmmlli"
+   ],
+   "s": {
+    "t": "mmmmmmmmmmlli",
+    "w": 861.181640625
+   }
+  },
+  {
+   "m": "measureText",
+   "a": [
+    "mmmmmmmmmmlli"
+   ],
+   "s": {
+    "t": "mmmmmmmmmmlli",
+    "w": 899.658203125
+   }
+  },
+  {
+   "m": "measureText",
+   "a": [
+    "mmmmmmmmmmlli"
+   ],
+   "s": {
+    "t": "mmmmmmmmmmlli",
+    "w": 899.658203125
+   }
+  },
+  {
+   "m": "measureText",
+   "a": [
+    "mmmmmmmmmmlli"
+   ],
+   "s": {
+    "t": "mmmmmmmmmmlli",
+    "w": 899.658203125
+   }
+  },
+  {
+   "m": "measureText",
+   "a": [
+    "mmmmmmmmmmlli"
+   ],
+   "s": {
+    "t": "mmmmmmmmmmlli",
+    "w": 782.666015625
+   }
+  },
+  {
+   "m": "measureText",
+   "a": [
+    "mmmmmmmmmmlli"
+   ],
+   "s": {
+    "t": "mmmmmmmmmmlli",
+    "w": 899.658203125
+   }
+  },
+  {
+   "m": "measureText",
+   "a": [
+    "mmmmmmmmmmlli"
+   ],
+   "s": {
+    "t": "mmmmmmmmmmlli",
+    "w": 861.181640625
+   }
+  },
+  {
+   "m": "measureText",
+   "a": [
+    "mmmmmmmmmmlli"
+   ],
+   "s": {
+    "t": "mmmmmmmmmmlli",
+    "w": 782.666015625
+   }
+  },
+  {
+   "m": "measureText",
+   "a": [
+    "mmmmmmmmmmlli"
+   ],
+   "s": {
+    "t": "mmmmmmmmmmlli",
+    "w": 899.658203125
+   }
+  },
+  {
+   "m": "measureText",
+   "a": [
+    "mmmmmmmmmmlli"
+   ],
+   "s": {
+    "t": "mmmmmmmmmmlli",
+    "w": 861.181640625
+   }
+  },
+  {
+   "m": "measureText",
+   "a": [
+    "mmmmmmmmmmlli"
+   ],
+   "s": {
+    "t": "mmmmmmmmmmlli",
+    "w": 782.666015625
+   }
+  },
+  {
+   "m": "measureText",
+   "a": [
+    "mmmmmmmmmmlli"
+   ],
+   "s": {
+    "t": "mmmmmmmmmmlli",
+    "w": 899.658203125
+   }
+  },
+  {
+   "m": "measureText",
+   "a": [
+    "mmmmmmmmmmlli"
+   ],
+   "s": {
+    "t": "mmmmmmmmmmlli",
+    "w": 861.181640625
+   }
+  },
+  {
+   "m": "measureText",
+   "a": [
+    "mmmmmmmmmmlli"
+   ],
+   "s": {
+    "t": "mmmmmmmmmmlli",
+    "w": 782.666015625
+   }
+  },
+  {
+   "m": "measureText",
+   "a": [
+    "mmmmmmmmmmlli"
+   ],
+   "s": {
+    "t": "mmmmmmmmmmlli",
+    "w": 899.658203125
+   }
+  },
+  {
+   "m": "measureText",
+   "a": [
+    "mmmmmmmmmmlli"
+   ],
+   "s": {
+    "t": "mmmmmmmmmmlli",
+    "w": 861.181640625
+   }
+  },
+  {
+   "m": "measureText",
+   "a": [
+    "mmmmmmmmmmlli"
+   ],
+   "s": {
+    "t": "mmmmmmmmmmlli",
+    "w": 782.666015625
+   }
+  },
+  {
+   "m": "measureText",
+   "a": [
+    "mmmmmmmmmmlli"
+   ],
+   "s": {
+    "t": "mmmmmmmmmmlli",
+    "w": 899.658203125
+   }
+  },
+  {
+   "m": "measureText",
+   "a": [
+    "mmmmmmmmmmlli"
+   ],
+   "s": {
+    "t": "mmmmmmmmmmlli",
+    "w": 861.181640625
+   }
+  },
+  {
+   "m": "measureText",
+   "a": [
+    "mmmmmmmmmmlli"
+   ],
+   "s": {
+    "t": "mmmmmmmmmmlli",
+    "w": 782.666015625
+   }
+  },
+  {
+   "m": "measureText",
+   "a": [
+    "mmmmmmmmmmlli"
+   ],
+   "s": {
+    "t": "mmmmmmmmmmlli",
+    "w": 899.658203125
+   }
+  },
+  {
+   "m": "measureText",
+   "a": [
+    "mmmmmmmmmmlli"
+   ],
+   "s": {
+    "t": "mmmmmmmmmmlli",
+    "w": 861.181640625
+   }
+  },
+  {
+   "m": "measureText",
+   "a": [
+    "mmmmmmmmmmlli"
+   ],
+   "s": {
+    "t": "mmmmmmmmmmlli",
+    "w": 782.666015625
+   }
+  },
+  {
+   "m": "measureText",
+   "a": [
+    "mmmmmmmmmmlli"
+   ],
+   "s": {
+    "t": "mmmmmmmmmmlli",
+    "w": 899.658203125
+   }
+  },
+  {
+   "m": "measureText",
+   "a": [
+    "mmmmmmmmmmlli"
+   ],
+   "s": {
+    "t": "mmmmmmmmmmlli",
+    "w": 861.181640625
+   }
+  },
+  {
+   "m": "measureText",
+   "a": [
+    "mmmmmmmmmmlli"
+   ],
+   "s": {
+    "t": "mmmmmmmmmmlli",
+    "w": 782.666015625
+   }
+  },
+  {
+   "m": "measureText",
+   "a": [
+    "mmmmmmmmmmlli"
+   ],
+   "s": {
+    "t": "mmmmmmmmmmlli",
+    "w": 899.658203125
+   }
+  },
+  {
+   "m": "measureText",
+   "a": [
+    "mmmmmmmmmmlli"
+   ],
+   "s": {
+    "t": "mmmmmmmmmmlli",
+    "w": 861.181640625
+   }
+  },
+  {
+   "m": "measureText",
+   "a": [
+    "mmmmmmmmmmlli"
+   ],
+   "s": {
+    "t": "mmmmmmmmmmlli",
+    "w": 782.666015625
+   }
+  },
+  {
+   "m": "measureText",
+   "a": [
+    "mmmmmmmmmmlli"
+   ],
+   "s": {
+    "t": "mmmmmmmmmmlli",
+    "w": 899.658203125
+   }
+  },
+  {
+   "m": "measureText",
+   "a": [
+    "mmmmmmmmmmlli"
+   ],
+   "s": {
+    "t": "mmmmmmmmmmlli",
+    "w": 861.181640625
+   }
+  },
+  {
+   "m": "measureText",
+   "a": [
+    "mmmmmmmmmmlli"
+   ],
+   "s": {
+    "t": "mmmmmmmmmmlli",
+    "w": 782.666015625
+   }
+  },
+  {
+   "m": "measureText",
+   "a": [
+    "mmmmmmmmmmlli"
+   ],
+   "s": {
+    "t": "mmmmmmmmmmlli",
+    "w": 899.658203125
+   }
+  },
+  {
+   "m": "measureText",
+   "a": [
+    "mmmmmmmmmmlli"
+   ],
+   "s": {
+    "t": "mmmmmmmmmmlli",
+    "w": 861.181640625
+   }
+  },
+  {
+   "m": "measureText",
+   "a": [
+    "mmmmmmmmmmlli"
+   ],
+   "s": {
+    "t": "mmmmmmmmmmlli",
+    "w": 782.666015625
+   }
+  },
+  {
+   "m": "measureText",
+   "a": [
+    "mmmmmmmmmmlli"
+   ],
+   "s": {
+    "t": "mmmmmmmmmmlli",
+    "w": 899.658203125
+   }
+  },
+  {
+   "m": "measureText",
+   "a": [
+    "mmmmmmmmmmlli"
+   ],
+   "s": {
+    "t": "mmmmmmmmmmlli",
+    "w": 861.181640625
+   }
+  },
+  {
+   "m": "measureText",
+   "a": [
+    "mmmmmmmmmmlli"
+   ],
+   "s": {
+    "t": "mmmmmmmmmmlli",
+    "w": 782.666015625
+   }
+  },
+  {
+   "m": "measureText",
+   "a": [
+    "mmmmmmmmmmlli"
+   ],
+   "s": {
+    "t": "mmmmmmmmmmlli",
+    "w": 899.658203125
+   }
+  },
+  {
+   "m": "measureText",
+   "a": [
+    "mmmmmmmmmmlli"
+   ],
+   "s": {
+    "t": "mmmmmmmmmmlli",
+    "w": 861.181640625
+   }
+  },
+  {
+   "m": "measureText",
+   "a": [
+    "mmmmmmmmmmlli"
+   ],
+   "s": {
+    "t": "mmmmmmmmmmlli",
+    "w": 782.666015625
+   }
+  },
+  {
+   "m": "measureText",
+   "a": [
+    "mmmmmmmmmmlli"
+   ],
+   "s": {
+    "t": "mmmmmmmmmmlli",
+    "w": 899.658203125
+   }
+  },
+  {
+   "m": "measureText",
+   "a": [
+    "mmmmmmmmmmlli"
+   ],
+   "s": {
+    "t": "mmmmmmmmmmlli",
+    "w": 861.181640625
+   }
+  },
+  {
+   "m": "measureText",
+   "a": [
+    "mmmmmmmmmmlli"
+   ],
+   "s": {
+    "t": "mmmmmmmmmmlli",
+    "w": 782.666015625
+   }
+  },
+  {
+   "m": "measureText",
+   "a": [
+    "mmmmmmmmmmlli"
+   ],
+   "s": {
+    "t": "mmmmmmmmmmlli",
+    "w": 899.658203125
+   }
+  },
+  {
+   "m": "measureText",
+   "a": [
+    "mmmmmmmmmmlli"
+   ],
+   "s": {
+    "t": "mmmmmmmmmmlli",
+    "w": 861.181640625
+   }
+  },
+  {
+   "m": "measureText",
+   "a": [
+    "mmmmmmmmmmlli"
+   ],
+   "s": {
+    "t": "mmmmmmmmmmlli",
+    "w": 782.666015625
+   }
+  },
+  {
+   "m": "measureText",
+   "a": [
+    "mmmmmmmmmmlli"
+   ],
+   "s": {
+    "t": "mmmmmmmmmmlli",
+    "w": 899.658203125
+   }
+  },
+  {
+   "m": "measureText",
+   "a": [
+    "mmmmmmmmmmlli"
+   ],
+   "s": {
+    "t": "mmmmmmmmmmlli",
+    "w": 861.181640625
+   }
+  },
+  {
+   "m": "measureText",
+   "a": [
+    "mmmmmmmmmmlli"
+   ],
+   "s": {
+    "t": "mmmmmmmmmmlli",
+    "w": 782.666015625
+   }
+  },
+  {
+   "m": "measureText",
+   "a": [
+    "mmmmmmmmmmlli"
+   ],
+   "s": {
+    "t": "mmmmmmmmmmlli",
+    "w": 899.658203125
+   }
+  },
+  {
+   "m": "measureText",
+   "a": [
+    "mmmmmmmmmmlli"
+   ],
+   "s": {
+    "t": "mmmmmmmmmmlli",
+    "w": 861.181640625
+   }
+  },
+  {
+   "m": "measureText",
+   "a": [
+    "mmmmmmmmmmlli"
+   ],
+   "s": {
+    "t": "mmmmmmmmmmlli",
+    "w": 782.666015625
+   }
+  },
+  {
+   "m": "measureText",
+   "a": [
+    "mmmmmmmmmmlli"
+   ],
+   "s": {
+    "t": "mmmmmmmmmmlli",
+    "w": 899.658203125
+   }
+  },
+  {
+   "m": "measureText",
+   "a": [
+    "mmmmmmmmmmlli"
+   ],
+   "s": {
+    "t": "mmmmmmmmmmlli",
+    "w": 861.181640625
+   }
+  },
+  {
+   "m": "measureText",
+   "a": [
+    "mmmmmmmmmmlli"
+   ],
+   "s": {
+    "t": "mmmmmmmmmmlli",
+    "w": 782.666015625
+   }
+  },
+  {
+   "m": "measureText",
+   "a": [
+    "mmmmmmmmmmlli"
+   ],
+   "s": {
+    "t": "mmmmmmmmmmlli",
+    "w": 899.658203125
+   }
+  },
+  {
+   "m": "measureText",
+   "a": [
+    "mmmmmmmmmmlli"
+   ],
+   "s": {
+    "t": "mmmmmmmmmmlli",
+    "w": 861.181640625
+   }
+  },
+  {
+   "m": "measureText",
+   "a": [
+    "mmmmmmmmmmlli"
+   ],
+   "s": {
+    "t": "mmmmmmmmmmlli",
+    "w": 782.666015625
+   }
+  },
+  {
+   "m": "measureText",
+   "a": [
+    "mmmmmmmmmmlli"
+   ],
+   "s": {
+    "t": "mmmmmmmmmmlli",
+    "w": 899.658203125
+   }
+  },
+  {
+   "m": "measureText",
+   "a": [
+    "mmmmmmmmmmlli"
+   ],
+   "s": {
+    "t": "mmmmmmmmmmlli",
+    "w": 861.181640625
+   }
+  },
+  {
+   "m": "measureText",
+   "a": [
+    "mmmmmmmmmmlli"
+   ],
+   "s": {
+    "t": "mmmmmmmmmmlli",
+    "w": 782.666015625
+   }
+  },
+  {
+   "m": "measureText",
+   "a": [
+    "mmmmmmmmmmlli"
+   ],
+   "s": {
+    "t": "mmmmmmmmmmlli",
+    "w": 899.658203125
+   }
+  },
+  {
+   "m": "measureText",
+   "a": [
+    "mmmmmmmmmmlli"
+   ],
+   "s": {
+    "t": "mmmmmmmmmmlli",
+    "w": 861.181640625
+   }
+  },
+  {
+   "m": "measureText",
+   "a": [
+    "mmmmmmmmmmlli"
+   ],
+   "s": {
+    "t": "mmmmmmmmmmlli",
+    "w": 782.666015625
+   }
+  },
+  {
+   "m": "measureText",
+   "a": [
+    "mmmmmmmmmmlli"
+   ],
+   "s": {
+    "t": "mmmmmmmmmmlli",
+    "w": 899.658203125
+   }
+  },
+  {
+   "m": "measureText",
+   "a": [
+    "mmmmmmmmmmlli"
+   ],
+   "s": {
+    "t": "mmmmmmmmmmlli",
+    "w": 861.181640625
+   }
+  },
+  {
+   "m": "measureText",
+   "a": [
+    "mmmmmmmmmmlli"
+   ],
+   "s": {
+    "t": "mmmmmmmmmmlli",
+    "w": 782.666015625
+   }
+  },
+  {
+   "m": "measureText",
+   "a": [
+    "mmmmmmmmmmlli"
+   ],
+   "s": {
+    "t": "mmmmmmmmmmlli",
+    "w": 899.658203125
+   }
+  },
+  {
+   "m": "measureText",
+   "a": [
+    "mmmmmmmmmmlli"
+   ],
+   "s": {
+    "t": "mmmmmmmmmmlli",
+    "w": 861.181640625
+   }
+  },
+  {
+   "m": "measureText",
+   "a": [
+    "mmmmmmmmmmlli"
+   ],
+   "s": {
+    "t": "mmmmmmmmmmlli",
+    "w": 782.666015625
+   }
+  },
+  {
+   "m": "measureText",
+   "a": [
+    "mmmmmmmmmmlli"
+   ],
+   "s": {
+    "t": "mmmmmmmmmmlli",
+    "w": 899.658203125
+   }
+  },
+  {
+   "m": "measureText",
+   "a": [
+    "mmmmmmmmmmlli"
+   ],
+   "s": {
+    "t": "mmmmmmmmmmlli",
+    "w": 861.181640625
+   }
+  },
+  {
+   "m": "measureText",
+   "a": [
+    "mmmmmmmmmmlli"
+   ],
+   "s": {
+    "t": "mmmmmmmmmmlli",
+    "w": 782.666015625
+   }
+  },
+  {
+   "m": "measureText",
+   "a": [
+    "mmmmmmmmmmlli"
+   ],
+   "s": {
+    "t": "mmmmmmmmmmlli",
+    "w": 899.658203125
+   }
+  },
+  {
+   "m": "measureText",
+   "a": [
+    "mmmmmmmmmmlli"
+   ],
+   "s": {
+    "t": "mmmmmmmmmmlli",
+    "w": 861.181640625
+   }
+  },
+  {
+   "m": "measureText",
+   "a": [
+    "mmmmmmmmmmlli"
+   ],
+   "s": {
+    "t": "mmmmmmmmmmlli",
+    "w": 782.666015625
+   }
+  },
+  {
+   "m": "measureText",
+   "a": [
+    "mmmmmmmmmmlli"
+   ],
+   "s": {
+    "t": "mmmmmmmmmmlli",
+    "w": 899.658203125
+   }
+  },
+  {
+   "m": "measureText",
+   "a": [
+    "mmmmmmmmmmlli"
+   ],
+   "s": {
+    "t": "mmmmmmmmmmlli",
+    "w": 861.181640625
+   }
+  },
+  {
+   "m": "measureText",
+   "a": [
+    "mmmmmmmmmmlli"
+   ],
+   "s": {
+    "t": "mmmmmmmmmmlli",
+    "w": 865.59912109375
+   }
+  },
+  {
+   "m": "measureText",
+   "a": [
+    "mmmmmmmmmmlli"
+   ],
+   "s": {
+    "t": "mmmmmmmmmmlli",
+    "w": 865.59912109375
+   }
+  },
+  {
+   "m": "measureText",
+   "a": [
+    "mmmmmmmmmmlli"
+   ],
+   "s": {
+    "t": "mmmmmmmmmmlli",
+    "w": 865.59912109375
+   }
+  },
+  {
+   "m": "measureText",
+   "a": [
+    "mmmmmmmmmmlli"
+   ],
+   "s": {
+    "t": "mmmmmmmmmmlli",
+    "w": 782.666015625
+   }
+  },
+  {
+   "m": "measureText",
+   "a": [
+    "mmmmmmmmmmlli"
+   ],
+   "s": {
+    "t": "mmmmmmmmmmlli",
+    "w": 899.658203125
+   }
+  },
+  {
+   "m": "measureText",
+   "a": [
+    "mmmmmmmmmmlli"
+   ],
+   "s": {
+    "t": "mmmmmmmmmmlli",
+    "w": 861.181640625
+   }
+  },
+  {
+   "m": "measureText",
+   "a": [
+    "mmmmmmmmmmlli"
+   ],
+   "s": {
+    "t": "mmmmmmmmmmlli",
+    "w": 782.666015625
+   }
+  },
+  {
+   "m": "measureText",
+   "a": [
+    "mmmmmmmmmmlli"
+   ],
+   "s": {
+    "t": "mmmmmmmmmmlli",
+    "w": 899.658203125
+   }
+  },
+  {
+   "m": "measureText",
+   "a": [
+    "mmmmmmmmmmlli"
+   ],
+   "s": {
+    "t": "mmmmmmmmmmlli",
+    "w": 861.181640625
+   }
+  },
+  {
+   "m": "measureText",
+   "a": [
+    "mmmmmmmmmmlli"
+   ],
+   "s": {
+    "t": "mmmmmmmmmmlli",
+    "w": 782.666015625
+   }
+  },
+  {
+   "m": "measureText",
+   "a": [
+    "mmmmmmmmmmlli"
+   ],
+   "s": {
+    "t": "mmmmmmmmmmlli",
+    "w": 899.658203125
+   }
+  },
+  {
+   "m": "measureText",
+   "a": [
+    "mmmmmmmmmmlli"
+   ],
+   "s": {
+    "t": "mmmmmmmmmmlli",
+    "w": 861.181640625
+   }
+  },
+  {
+   "m": "measureText",
+   "a": [
+    "mmmmmmmmmmlli"
+   ],
+   "s": {
+    "t": "mmmmmmmmmmlli",
+    "w": 1057.470703125
+   }
+  },
+  {
+   "m": "measureText",
+   "a": [
+    "mmmmmmmmmmlli"
+   ],
+   "s": {
+    "t": "mmmmmmmmmmlli",
+    "w": 1057.470703125
+   }
+  },
+  {
+   "m": "measureText",
+   "a": [
+    "mmmmmmmmmmlli"
+   ],
+   "s": {
+    "t": "mmmmmmmmmmlli",
+    "w": 1057.470703125
+   }
+  },
+  {
+   "m": "getImageData",
+   "a": [
+    0,
+    0,
+    200,
+    200
+   ],
+   "s": {
+    "w": 200,
+    "h": 200,
+    "d": [
+     0,
+     127,
+     255,
+     255,
+     0,
+     127,
+     255,
+     255,
+     0,
+     127,
+     255,
+     255,
+     0,
+     127,
+     255,
+     255,
+     0,
+     127,
+     255,
+     255,
+     0,
+     127,
+     255,
+     255,
+     0,
+     127,
+     255,
+     255,
+     0,
+     127,
+     255,
+     255
+    ]
+   }
+  },
+  {
+   "m": "getImageData",
+   "a": [
+    15,
+    79,
+    1,
+    1
+   ],
+   "s": {
+    "w": 1,
+    "h": 1,
+    "d": [
+     200,
+     200,
+     200,
+     255
+    ]
+   }
+  },
+  {
+   "m": "getImageData",
+   "a": [
+    39,
+    4,
+    1,
+    1
+   ],
+   "s": {
+    "w": 1,
+    "h": 1,
+    "d": [
+     0,
+     0,
+     0,
+     0
+    ]
+   }
+  },
+  {
+   "m": "getImageData",
+   "a": [
+    37,
+    38,
+    1,
+    1
+   ],
+   "s": {
+    "w": 1,
+    "h": 1,
+    "d": [
+     224,
+     224,
+     224,
+     255
+    ]
+   }
+  },
+  {
+   "m": "getImageData",
+   "a": [
+    13,
+    56,
+    1,
+    1
+   ],
+   "s": {
+    "w": 1,
+    "h": 1,
+    "d": [
+     255,
+     255,
+     255,
+     1
+    ]
+   }
+  },
+  {
+   "m": "getImageData",
+   "a": [
+    77,
+    77,
+    1,
+    1
+   ],
+   "s": {
+    "w": 1,
+    "h": 1,
+    "d": [
+     54,
+     180,
+     226,
+     255
+    ]
+   }
+  },
+  {
+   "m": "getImageData",
+   "a": [
+    19,
+    57,
+    1,
+    1
+   ],
+   "s": {
+    "w": 1,
+    "h": 1,
+    "d": [
+     156,
+     211,
+     166,
+     255
+    ]
+   }
+  },
+  {
+   "m": "getImageData",
+   "a": [
+    55,
+    38,
+    1,
+    1
+   ],
+   "s": {
+    "w": 1,
+    "h": 1,
+    "d": [
+     200,
+     200,
+     200,
+     255
+    ]
+   }
+  },
+  {
+   "m": "getImageData",
+   "a": [
+    34,
+    9,
+    1,
+    1
+   ],
+   "s": {
+    "w": 1,
+    "h": 1,
+    "d": [
+     0,
+     0,
+     0,
+     0
+    ]
+   }
+  },
+  {
+   "m": "getImageData",
+   "a": [
+    26,
+    42,
+    1,
+    1
+   ],
+   "s": {
+    "w": 1,
+    "h": 1,
+    "d": [
+     40,
+     137,
+     246,
+     255
+    ]
+   }
+  },
+  {
+   "m": "getImageData",
+   "a": [
+    45,
+    8,
+    1,
+    1
+   ],
+   "s": {
+    "w": 1,
+    "h": 1,
+    "d": [
+     0,
+     0,
+     0,
+     0
+    ]
+   }
+  },
+  {
+   "m": "getImageData",
+   "a": [
+    0,
+    58,
+    1,
+    1
+   ],
+   "s": {
+    "w": 1,
+    "h": 1,
+    "d": [
+     0,
+     0,
+     0,
+     0
+    ]
+   }
+  },
+  {
+   "m": "getImageData",
+   "a": [
+    15,
+    35,
+    1,
+    1
+   ],
+   "s": {
+    "w": 1,
+    "h": 1,
+    "d": [
+     200,
+     200,
+     200,
+     255
+    ]
+   }
+  },
+  {
+   "m": "getImageData",
+   "a": [
+    56,
+    37,
+    1,
+    1
+   ],
+   "s": {
+    "w": 1,
+    "h": 1,
+    "d": [
+     200,
+     200,
+     200,
+     255
+    ]
+   }
+  },
+  {
+   "m": "getImageData",
+   "a": [
+    30,
+    43,
+    1,
+    1
+   ],
+   "s": {
+    "w": 1,
+    "h": 1,
+    "d": [
+     123,
+     179,
+     237,
+     255
+    ]
+   }
+  },
+  {
+   "m": "getImageData",
+   "a": [
+    55,
+    54,
+    1,
+    1
+   ],
+   "s": {
+    "w": 1,
+    "h": 1,
+    "d": [
+     92,
+     200,
+     101,
+     255
+    ]
+   }
+  },
+  {
+   "m": "getImageData",
+   "a": [
+    12,
+    37,
+    1,
+    1
+   ],
+   "s": {
+    "w": 1,
+    "h": 1,
+    "d": [
+     200,
+     200,
+     200,
+     255
+    ]
+   }
+  },
+  {
+   "m": "getImageData",
+   "a": [
+    22,
+    53,
+    1,
+    1
+   ],
+   "s": {
+    "w": 1,
+    "h": 1,
+    "d": [
+     122,
+     220,
+     138,
+     255
+    ]
+   }
+  },
+  {
+   "m": "measureText",
+   "a": [
+    "mmmmmmmmmmlli"
+   ],
+   "s": {
+    "t": "mmmmmmmmmmlli",
+    "w": 782.666015625
+   }
+  },
+  {
+   "m": "measureText",
+   "a": [
+    "mmmmmmmmmmlli"
+   ],
+   "s": {
+    "t": "mmmmmmmmmmlli",
+    "w": 899.658203125
+   }
+  },
+  {
+   "m": "measureText",
+   "a": [
+    "mmmmmmmmmmlli"
+   ],
+   "s": {
+    "t": "mmmmmmmmmmlli",
+    "w": 861.181640625
+   }
+  },
+  {
+   "m": "measureText",
+   "a": [
+    "mmmmmmmmmmlli"
+   ],
+   "s": {
+    "t": "mmmmmmmmmmlli",
+    "w": 782.666015625
+   }
+  },
+  {
+   "m": "measureText",
+   "a": [
+    "mmmmmmmmmmlli"
+   ],
+   "s": {
+    "t": "mmmmmmmmmmlli",
+    "w": 899.658203125
+   }
+  },
+  {
+   "m": "measureText",
+   "a": [
+    "mmmmmmmmmmlli"
+   ],
+   "s": {
+    "t": "mmmmmmmmmmlli",
+    "w": 861.181640625
+   }
+  },
+  {
+   "m": "measureText",
+   "a": [
+    "mmmmmmmmmmlli"
+   ],
+   "s": {
+    "t": "mmmmmmmmmmlli",
+    "w": 782.666015625
+   }
+  },
+  {
+   "m": "measureText",
+   "a": [
+    "mmmmmmmmmmlli"
+   ],
+   "s": {
+    "t": "mmmmmmmmmmlli",
+    "w": 899.658203125
+   }
+  },
+  {
+   "m": "measureText",
+   "a": [
+    "mmmmmmmmmmlli"
+   ],
+   "s": {
+    "t": "mmmmmmmmmmlli",
+    "w": 861.181640625
+   }
+  },
+  {
+   "m": "measureText",
+   "a": [
+    "mmmmmmmmmmlli"
+   ],
+   "s": {
+    "t": "mmmmmmmmmmlli",
+    "w": 782.666015625
+   }
+  },
+  {
+   "m": "measureText",
+   "a": [
+    "mmmmmmmmmmlli"
+   ],
+   "s": {
+    "t": "mmmmmmmmmmlli",
+    "w": 899.658203125
+   }
+  },
+  {
+   "m": "measureText",
+   "a": [
+    "mmmmmmmmmmlli"
+   ],
+   "s": {
+    "t": "mmmmmmmmmmlli",
+    "w": 861.181640625
+   }
+  },
+  {
+   "m": "measureText",
+   "a": [
+    "mmmmmmmmmmlli"
+   ],
+   "s": {
+    "t": "mmmmmmmmmmlli",
+    "w": 782.666015625
+   }
+  },
+  {
+   "m": "measureText",
+   "a": [
+    "mmmmmmmmmmlli"
+   ],
+   "s": {
+    "t": "mmmmmmmmmmlli",
+    "w": 899.658203125
+   }
+  },
+  {
+   "m": "measureText",
+   "a": [
+    "mmmmmmmmmmlli"
+   ],
+   "s": {
+    "t": "mmmmmmmmmmlli",
+    "w": 861.181640625
+   }
+  },
+  {
+   "m": "measureText",
+   "a": [
+    "mmmmmmmmmmlli"
+   ],
+   "s": {
+    "t": "mmmmmmmmmmlli",
+    "w": 782.666015625
+   }
+  },
+  {
+   "m": "measureText",
+   "a": [
+    "mmmmmmmmmmlli"
+   ],
+   "s": {
+    "t": "mmmmmmmmmmlli",
+    "w": 899.658203125
+   }
+  },
+  {
+   "m": "measureText",
+   "a": [
+    "mmmmmmmmmmlli"
+   ],
+   "s": {
+    "t": "mmmmmmmmmmlli",
+    "w": 861.181640625
+   }
+  },
+  {
+   "m": "measureText",
+   "a": [
+    "mmmmmmmmmmlli"
+   ],
+   "s": {
+    "t": "mmmmmmmmmmlli",
+    "w": 782.666015625
+   }
+  },
+  {
+   "m": "measureText",
+   "a": [
+    "mmmmmmmmmmlli"
+   ],
+   "s": {
+    "t": "mmmmmmmmmmlli",
+    "w": 899.658203125
+   }
+  },
+  {
+   "m": "measureText",
+   "a": [
+    "mmmmmmmmmmlli"
+   ],
+   "s": {
+    "t": "mmmmmmmmmmlli",
+    "w": 861.181640625
+   }
+  },
+  {
+   "m": "measureText",
+   "a": [
+    "mmmmmmmmmmlli"
+   ],
+   "s": {
+    "t": "mmmmmmmmmmlli",
+    "w": 782.666015625
+   }
+  },
+  {
+   "m": "measureText",
+   "a": [
+    "mmmmmmmmmmlli"
+   ],
+   "s": {
+    "t": "mmmmmmmmmmlli",
+    "w": 899.658203125
+   }
+  },
+  {
+   "m": "measureText",
+   "a": [
+    "mmmmmmmmmmlli"
+   ],
+   "s": {
+    "t": "mmmmmmmmmmlli",
+    "w": 861.181640625
+   }
+  },
+  {
+   "m": "measureText",
+   "a": [
+    "mmmmmmmmmmlli"
+   ],
+   "s": {
+    "t": "mmmmmmmmmmlli",
+    "w": 782.666015625
+   }
+  },
+  {
+   "m": "measureText",
+   "a": [
+    "mmmmmmmmmmlli"
+   ],
+   "s": {
+    "t": "mmmmmmmmmmlli",
+    "w": 899.658203125
+   }
+  },
+  {
+   "m": "measureText",
+   "a": [
+    "mmmmmmmmmmlli"
+   ],
+   "s": {
+    "t": "mmmmmmmmmmlli",
+    "w": 861.181640625
+   }
+  },
+  {
+   "m": "measureText",
+   "a": [
+    "mmmmmmmmmmlli"
+   ],
+   "s": {
+    "t": "mmmmmmmmmmlli",
+    "w": 782.666015625
+   }
+  },
+  {
+   "m": "measureText",
+   "a": [
+    "mmmmmmmmmmlli"
+   ],
+   "s": {
+    "t": "mmmmmmmmmmlli",
+    "w": 899.658203125
+   }
+  },
+  {
+   "m": "measureText",
+   "a": [
+    "mmmmmmmmmmlli"
+   ],
+   "s": {
+    "t": "mmmmmmmmmmlli",
+    "w": 861.181640625
+   }
+  },
+  {
+   "m": "measureText",
+   "a": [
+    "mmmmmmmmmmlli"
+   ],
+   "s": {
+    "t": "mmmmmmmmmmlli",
+    "w": 782.666015625
+   }
+  },
+  {
+   "m": "measureText",
+   "a": [
+    "mmmmmmmmmmlli"
+   ],
+   "s": {
+    "t": "mmmmmmmmmmlli",
+    "w": 899.658203125
+   }
+  },
+  {
+   "m": "measureText",
+   "a": [
+    "mmmmmmmmmmlli"
+   ],
+   "s": {
+    "t": "mmmmmmmmmmlli",
+    "w": 861.181640625
+   }
+  },
+  {
+   "m": "measureText",
+   "a": [
+    "mmmmmmmmmmlli"
+   ],
+   "s": {
+    "t": "mmmmmmmmmmlli",
+    "w": 782.666015625
+   }
+  },
+  {
+   "m": "measureText",
+   "a": [
+    "mmmmmmmmmmlli"
+   ],
+   "s": {
+    "t": "mmmmmmmmmmlli",
+    "w": 899.658203125
+   }
+  },
+  {
+   "m": "measureText",
+   "a": [
+    "mmmmmmmmmmlli"
+   ],
+   "s": {
+    "t": "mmmmmmmmmmlli",
+    "w": 861.181640625
+   }
+  },
+  {
+   "m": "measureText",
+   "a": [
+    "mmmmmmmmmmlli"
+   ],
+   "s": {
+    "t": "mmmmmmmmmmlli",
+    "w": 782.666015625
+   }
+  },
+  {
+   "m": "measureText",
+   "a": [
+    "mmmmmmmmmmlli"
+   ],
+   "s": {
+    "t": "mmmmmmmmmmlli",
+    "w": 899.658203125
+   }
+  },
+  {
+   "m": "measureText",
+   "a": [
+    "mmmmmmmmmmlli"
+   ],
+   "s": {
+    "t": "mmmmmmmmmmlli",
+    "w": 861.181640625
+   }
+  },
+  {
+   "m": "measureText",
+   "a": [
+    "mmmmmmmmmmlli"
+   ],
+   "s": {
+    "t": "mmmmmmmmmmlli",
+    "w": 782.666015625
+   }
+  },
+  {
+   "m": "measureText",
+   "a": [
+    "mmmmmmmmmmlli"
+   ],
+   "s": {
+    "t": "mmmmmmmmmmlli",
+    "w": 899.658203125
+   }
+  },
+  {
+   "m": "measureText",
+   "a": [
+    "mmmmmmmmmmlli"
+   ],
+   "s": {
+    "t": "mmmmmmmmmmlli",
+    "w": 861.181640625
+   }
+  },
+  {
+   "m": "measureText",
+   "a": [
+    "mmmmmmmmmmlli"
+   ],
+   "s": {
+    "t": "mmmmmmmmmmlli",
+    "w": 782.666015625
+   }
+  },
+  {
+   "m": "measureText",
+   "a": [
+    "mmmmmmmmmmlli"
+   ],
+   "s": {
+    "t": "mmmmmmmmmmlli",
+    "w": 899.658203125
+   }
+  },
+  {
+   "m": "measureText",
+   "a": [
+    "mmmmmmmmmmlli"
+   ],
+   "s": {
+    "t": "mmmmmmmmmmlli",
+    "w": 861.181640625
+   }
+  },
+  {
+   "m": "measureText",
+   "a": [
+    "mmmmmmmmmmlli"
+   ],
+   "s": {
+    "t": "mmmmmmmmmmlli",
+    "w": 782.666015625
+   }
+  },
+  {
+   "m": "measureText",
+   "a": [
+    "mmmmmmmmmmlli"
+   ],
+   "s": {
+    "t": "mmmmmmmmmmlli",
+    "w": 899.658203125
+   }
+  },
+  {
+   "m": "measureText",
+   "a": [
+    "mmmmmmmmmmlli"
+   ],
+   "s": {
+    "t": "mmmmmmmmmmlli",
+    "w": 861.181640625
+   }
+  },
+  {
+   "m": "measureText",
+   "a": [
+    "mmmmmmmmmmlli"
+   ],
+   "s": {
+    "t": "mmmmmmmmmmlli",
+    "w": 782.666015625
+   }
+  },
+  {
+   "m": "measureText",
+   "a": [
+    "mmmmmmmmmmlli"
+   ],
+   "s": {
+    "t": "mmmmmmmmmmlli",
+    "w": 899.658203125
+   }
+  },
+  {
+   "m": "measureText",
+   "a": [
+    "mmmmmmmmmmlli"
+   ],
+   "s": {
+    "t": "mmmmmmmmmmlli",
+    "w": 861.181640625
+   }
+  },
+  {
+   "m": "measureText",
+   "a": [
+    "mmmmmmmmmmlli"
+   ],
+   "s": {
+    "t": "mmmmmmmmmmlli",
+    "w": 782.666015625
+   }
+  },
+  {
+   "m": "measureText",
+   "a": [
+    "mmmmmmmmmmlli"
+   ],
+   "s": {
+    "t": "mmmmmmmmmmlli",
+    "w": 899.658203125
+   }
+  },
+  {
+   "m": "measureText",
+   "a": [
+    "mmmmmmmmmmlli"
+   ],
+   "s": {
+    "t": "mmmmmmmmmmlli",
+    "w": 861.181640625
+   }
+  },
+  {
+   "m": "measureText",
+   "a": [
+    "mmmmmmmmmmlli"
+   ],
+   "s": {
+    "t": "mmmmmmmmmmlli",
+    "w": 782.666015625
+   }
+  },
+  {
+   "m": "measureText",
+   "a": [
+    "mmmmmmmmmmlli"
+   ],
+   "s": {
+    "t": "mmmmmmmmmmlli",
+    "w": 899.658203125
+   }
+  },
+  {
+   "m": "measureText",
+   "a": [
+    "mmmmmmmmmmlli"
+   ],
+   "s": {
+    "t": "mmmmmmmmmmlli",
+    "w": 861.181640625
+   }
+  },
+  {
+   "m": "measureText",
+   "a": [
+    "mmmmmmmmmmlli"
+   ],
+   "s": {
+    "t": "mmmmmmmmmmlli",
+    "w": 782.666015625
+   }
+  },
+  {
+   "m": "measureText",
+   "a": [
+    "mmmmmmmmmmlli"
+   ],
+   "s": {
+    "t": "mmmmmmmmmmlli",
+    "w": 899.658203125
+   }
+  },
+  {
+   "m": "measureText",
+   "a": [
+    "mmmmmmmmmmlli"
+   ],
+   "s": {
+    "t": "mmmmmmmmmmlli",
+    "w": 861.181640625
+   }
+  },
+  {
+   "m": "measureText",
+   "a": [
+    "mmmmmmmmmmlli"
+   ],
+   "s": {
+    "t": "mmmmmmmmmmlli",
+    "w": 782.666015625
+   }
+  },
+  {
+   "m": "measureText",
+   "a": [
+    "mmmmmmmmmmlli"
+   ],
+   "s": {
+    "t": "mmmmmmmmmmlli",
+    "w": 899.658203125
+   }
+  },
+  {
+   "m": "measureText",
+   "a": [
+    "mmmmmmmmmmlli"
+   ],
+   "s": {
+    "t": "mmmmmmmmmmlli",
+    "w": 861.181640625
+   }
+  },
+  {
+   "m": "measureText",
+   "a": [
+    "mmmmmmmmmmlli"
+   ],
+   "s": {
+    "t": "mmmmmmmmmmlli",
+    "w": 782.666015625
+   }
+  },
+  {
+   "m": "measureText",
+   "a": [
+    "mmmmmmmmmmlli"
+   ],
+   "s": {
+    "t": "mmmmmmmmmmlli",
+    "w": 899.658203125
+   }
+  },
+  {
+   "m": "measureText",
+   "a": [
+    "mmmmmmmmmmlli"
+   ],
+   "s": {
+    "t": "mmmmmmmmmmlli",
+    "w": 861.181640625
+   }
+  },
+  {
+   "m": "measureText",
+   "a": [
+    "mmmmmmmmmmlli"
+   ],
+   "s": {
+    "t": "mmmmmmmmmmlli",
+    "w": 782.666015625
+   }
+  },
+  {
+   "m": "measureText",
+   "a": [
+    "mmmmmmmmmmlli"
+   ],
+   "s": {
+    "t": "mmmmmmmmmmlli",
+    "w": 899.658203125
+   }
+  },
+  {
+   "m": "measureText",
+   "a": [
+    "mmmmmmmmmmlli"
+   ],
+   "s": {
+    "t": "mmmmmmmmmmlli",
+    "w": 861.181640625
+   }
+  },
+  {
+   "m": "measureText",
+   "a": [
+    "mmmmmmmmmmlli"
+   ],
+   "s": {
+    "t": "mmmmmmmmmmlli",
+    "w": 782.666015625
+   }
+  },
+  {
+   "m": "measureText",
+   "a": [
+    "mmmmmmmmmmlli"
+   ],
+   "s": {
+    "t": "mmmmmmmmmmlli",
+    "w": 899.658203125
+   }
+  },
+  {
+   "m": "measureText",
+   "a": [
+    "mmmmmmmmmmlli"
+   ],
+   "s": {
+    "t": "mmmmmmmmmmlli",
+    "w": 861.181640625
+   }
+  },
+  {
+   "m": "measureText",
+   "a": [
+    "mmmmmmmmmmlli"
+   ],
+   "s": {
+    "t": "mmmmmmmmmmlli",
+    "w": 782.666015625
+   }
+  },
+  {
+   "m": "measureText",
+   "a": [
+    "mmmmmmmmmmlli"
+   ],
+   "s": {
+    "t": "mmmmmmmmmmlli",
+    "w": 899.658203125
+   }
+  },
+  {
+   "m": "measureText",
+   "a": [
+    "mmmmmmmmmmlli"
+   ],
+   "s": {
+    "t": "mmmmmmmmmmlli",
+    "w": 861.181640625
+   }
+  },
+  {
+   "m": "measureText",
+   "a": [
+    "mmmmmmmmmmlli"
+   ],
+   "s": {
+    "t": "mmmmmmmmmmlli",
+    "w": 782.666015625
+   }
+  },
+  {
+   "m": "measureText",
+   "a": [
+    "mmmmmmmmmmlli"
+   ],
+   "s": {
+    "t": "mmmmmmmmmmlli",
+    "w": 899.658203125
+   }
+  },
+  {
+   "m": "measureText",
+   "a": [
+    "mmmmmmmmmmlli"
+   ],
+   "s": {
+    "t": "mmmmmmmmmmlli",
+    "w": 861.181640625
+   }
+  },
+  {
+   "m": "measureText",
+   "a": [
+    "mmmmmmmmmmlli"
+   ],
+   "s": {
+    "t": "mmmmmmmmmmlli",
+    "w": 782.666015625
+   }
+  },
+  {
+   "m": "measureText",
+   "a": [
+    "mmmmmmmmmmlli"
+   ],
+   "s": {
+    "t": "mmmmmmmmmmlli",
+    "w": 899.658203125
+   }
+  },
+  {
+   "m": "measureText",
+   "a": [
+    "mmmmmmmmmmlli"
+   ],
+   "s": {
+    "t": "mmmmmmmmmmlli",
+    "w": 861.181640625
+   }
+  },
+  {
+   "m": "measureText",
+   "a": [
+    "mmmmmmmmmmlli"
+   ],
+   "s": {
+    "t": "mmmmmmmmmmlli",
+    "w": 782.666015625
+   }
+  },
+  {
+   "m": "measureText",
+   "a": [
+    "mmmmmmmmmmlli"
+   ],
+   "s": {
+    "t": "mmmmmmmmmmlli",
+    "w": 899.658203125
+   }
+  },
+  {
+   "m": "measureText",
+   "a": [
+    "mmmmmmmmmmlli"
+   ],
+   "s": {
+    "t": "mmmmmmmmmmlli",
+    "w": 861.181640625
+   }
+  },
+  {
+   "m": "measureText",
+   "a": [
+    "mmmmmmmmmmlli"
+   ],
+   "s": {
+    "t": "mmmmmmmmmmlli",
+    "w": 782.666015625
+   }
+  },
+  {
+   "m": "measureText",
+   "a": [
+    "mmmmmmmmmmlli"
+   ],
+   "s": {
+    "t": "mmmmmmmmmmlli",
+    "w": 899.658203125
+   }
+  },
+  {
+   "m": "measureText",
+   "a": [
+    "mmmmmmmmmmlli"
+   ],
+   "s": {
+    "t": "mmmmmmmmmmlli",
+    "w": 861.181640625
+   }
+  },
+  {
+   "m": "measureText",
+   "a": [
+    "mmmmmmmmmmlli"
+   ],
+   "s": {
+    "t": "mmmmmmmmmmlli",
+    "w": 782.666015625
+   }
+  },
+  {
+   "m": "measureText",
+   "a": [
+    "mmmmmmmmmmlli"
+   ],
+   "s": {
+    "t": "mmmmmmmmmmlli",
+    "w": 899.658203125
+   }
+  },
+  {
+   "m": "measureText",
+   "a": [
+    "mmmmmmmmmmlli"
+   ],
+   "s": {
+    "t": "mmmmmmmmmmlli",
+    "w": 861.181640625
+   }
+  },
+  {
+   "m": "measureText",
+   "a": [
+    "mmmmmmmmmmlli"
+   ],
+   "s": {
+    "t": "mmmmmmmmmmlli",
+    "w": 782.666015625
+   }
+  },
+  {
+   "m": "measureText",
+   "a": [
+    "mmmmmmmmmmlli"
+   ],
+   "s": {
+    "t": "mmmmmmmmmmlli",
+    "w": 899.658203125
+   }
+  },
+  {
+   "m": "measureText",
+   "a": [
+    "mmmmmmmmmmlli"
+   ],
+   "s": {
+    "t": "mmmmmmmmmmlli",
+    "w": 861.181640625
+   }
+  },
+  {
+   "m": "measureText",
+   "a": [
+    "mmmmmmmmmmlli"
+   ],
+   "s": {
+    "t": "mmmmmmmmmmlli",
+    "w": 782.666015625
+   }
+  },
+  {
+   "m": "measureText",
+   "a": [
+    "mmmmmmmmmmlli"
+   ],
+   "s": {
+    "t": "mmmmmmmmmmlli",
+    "w": 899.658203125
+   }
+  },
+  {
+   "m": "measureText",
+   "a": [
+    "mmmmmmmmmmlli"
+   ],
+   "s": {
+    "t": "mmmmmmmmmmlli",
+    "w": 861.181640625
+   }
+  },
+  {
+   "m": "measureText",
+   "a": [
+    "mmmmmmmmmmlli"
+   ],
+   "s": {
+    "t": "mmmmmmmmmmlli",
+    "w": 782.666015625
+   }
+  },
+  {
+   "m": "measureText",
+   "a": [
+    "mmmmmmmmmmlli"
+   ],
+   "s": {
+    "t": "mmmmmmmmmmlli",
+    "w": 899.658203125
+   }
+  },
+  {
+   "m": "measureText",
+   "a": [
+    "mmmmmmmmmmlli"
+   ],
+   "s": {
+    "t": "mmmmmmmmmmlli",
+    "w": 861.181640625
+   }
+  },
+  {
+   "m": "measureText",
+   "a": [
+    "mmmmmmmmmmlli"
+   ],
+   "s": {
+    "t": "mmmmmmmmmmlli",
+    "w": 782.666015625
+   }
+  },
+  {
+   "m": "measureText",
+   "a": [
+    "mmmmmmmmmmlli"
+   ],
+   "s": {
+    "t": "mmmmmmmmmmlli",
+    "w": 899.658203125
+   }
+  },
+  {
+   "m": "measureText",
+   "a": [
+    "mmmmmmmmmmlli"
+   ],
+   "s": {
+    "t": "mmmmmmmmmmlli",
+    "w": 861.181640625
+   }
+  },
+  {
+   "m": "measureText",
+   "a": [
+    "mmmmmmmmmmlli"
+   ],
+   "s": {
+    "t": "mmmmmmmmmmlli",
+    "w": 782.666015625
+   }
+  },
+  {
+   "m": "measureText",
+   "a": [
+    "mmmmmmmmmmlli"
+   ],
+   "s": {
+    "t": "mmmmmmmmmmlli",
+    "w": 899.658203125
+   }
+  },
+  {
+   "m": "measureText",
+   "a": [
+    "mmmmmmmmmmlli"
+   ],
+   "s": {
+    "t": "mmmmmmmmmmlli",
+    "w": 861.181640625
+   }
+  },
+  {
+   "m": "measureText",
+   "a": [
+    "mmmmmmmmmmlli"
+   ],
+   "s": {
+    "t": "mmmmmmmmmmlli",
+    "w": 782.666015625
+   }
+  },
+  {
+   "m": "measureText",
+   "a": [
+    "mmmmmmmmmmlli"
+   ],
+   "s": {
+    "t": "mmmmmmmmmmlli",
+    "w": 899.658203125
+   }
+  },
+  {
+   "m": "measureText",
+   "a": [
+    "mmmmmmmmmmlli"
+   ],
+   "s": {
+    "t": "mmmmmmmmmmlli",
+    "w": 861.181640625
+   }
+  },
+  {
+   "m": "measureText",
+   "a": [
+    "mmmmmmmmmmlli"
+   ],
+   "s": {
+    "t": "mmmmmmmmmmlli",
+    "w": 782.666015625
+   }
+  },
+  {
+   "m": "measureText",
+   "a": [
+    "mmmmmmmmmmlli"
+   ],
+   "s": {
+    "t": "mmmmmmmmmmlli",
+    "w": 899.658203125
+   }
+  },
+  {
+   "m": "measureText",
+   "a": [
+    "mmmmmmmmmmlli"
+   ],
+   "s": {
+    "t": "mmmmmmmmmmlli",
+    "w": 861.181640625
+   }
+  },
+  {
+   "m": "measureText",
+   "a": [
+    "mmmmmmmmmmlli"
+   ],
+   "s": {
+    "t": "mmmmmmmmmmlli",
+    "w": 782.666015625
+   }
+  },
+  {
+   "m": "measureText",
+   "a": [
+    "mmmmmmmmmmlli"
+   ],
+   "s": {
+    "t": "mmmmmmmmmmlli",
+    "w": 899.658203125
+   }
+  },
+  {
+   "m": "measureText",
+   "a": [
+    "mmmmmmmmmmlli"
+   ],
+   "s": {
+    "t": "mmmmmmmmmmlli",
+    "w": 861.181640625
+   }
+  },
+  {
+   "m": "measureText",
+   "a": [
+    "mmmmmmmmmmlli"
+   ],
+   "s": {
+    "t": "mmmmmmmmmmlli",
+    "w": 782.666015625
+   }
+  },
+  {
+   "m": "measureText",
+   "a": [
+    "mmmmmmmmmmlli"
+   ],
+   "s": {
+    "t": "mmmmmmmmmmlli",
+    "w": 899.658203125
+   }
+  },
+  {
+   "m": "measureText",
+   "a": [
+    "mmmmmmmmmmlli"
+   ],
+   "s": {
+    "t": "mmmmmmmmmmlli",
+    "w": 861.181640625
+   }
+  },
+  {
+   "m": "measureText",
+   "a": [
+    "mmmmmmmmmmlli"
+   ],
+   "s": {
+    "t": "mmmmmmmmmmlli",
+    "w": 782.666015625
+   }
+  },
+  {
+   "m": "measureText",
+   "a": [
+    "mmmmmmmmmmlli"
+   ],
+   "s": {
+    "t": "mmmmmmmmmmlli",
+    "w": 899.658203125
+   }
+  },
+  {
+   "m": "measureText",
+   "a": [
+    "mmmmmmmmmmlli"
+   ],
+   "s": {
+    "t": "mmmmmmmmmmlli",
+    "w": 861.181640625
+   }
+  },
+  {
+   "m": "measureText",
+   "a": [
+    "mmmmmmmmmmlli"
+   ],
+   "s": {
+    "t": "mmmmmmmmmmlli",
+    "w": 782.666015625
+   }
+  },
+  {
+   "m": "measureText",
+   "a": [
+    "mmmmmmmmmmlli"
+   ],
+   "s": {
+    "t": "mmmmmmmmmmlli",
+    "w": 899.658203125
+   }
+  },
+  {
+   "m": "measureText",
+   "a": [
+    "mmmmmmmmmmlli"
+   ],
+   "s": {
+    "t": "mmmmmmmmmmlli",
+    "w": 861.181640625
+   }
+  },
+  {
+   "m": "measureText",
+   "a": [
+    "mmmmmmmmmmlli"
+   ],
+   "s": {
+    "t": "mmmmmmmmmmlli",
+    "w": 782.666015625
+   }
+  },
+  {
+   "m": "measureText",
+   "a": [
+    "mmmmmmmmmmlli"
+   ],
+   "s": {
+    "t": "mmmmmmmmmmlli",
+    "w": 899.658203125
+   }
+  },
+  {
+   "m": "measureText",
+   "a": [
+    "mmmmmmmmmmlli"
+   ],
+   "s": {
+    "t": "mmmmmmmmmmlli",
+    "w": 861.181640625
+   }
+  },
+  {
+   "m": "measureText",
+   "a": [
+    "mmmmmmmmmmlli"
+   ],
+   "s": {
+    "t": "mmmmmmmmmmlli",
+    "w": 782.666015625
+   }
+  },
+  {
+   "m": "measureText",
+   "a": [
+    "mmmmmmmmmmlli"
+   ],
+   "s": {
+    "t": "mmmmmmmmmmlli",
+    "w": 899.658203125
+   }
+  },
+  {
+   "m": "measureText",
+   "a": [
+    "mmmmmmmmmmlli"
+   ],
+   "s": {
+    "t": "mmmmmmmmmmlli",
+    "w": 861.181640625
+   }
+  },
+  {
+   "m": "measureText",
+   "a": [
+    "mmmmmmmmmmlli"
+   ],
+   "s": {
+    "t": "mmmmmmmmmmlli",
+    "w": 782.666015625
+   }
+  },
+  {
+   "m": "measureText",
+   "a": [
+    "mmmmmmmmmmlli"
+   ],
+   "s": {
+    "t": "mmmmmmmmmmlli",
+    "w": 899.658203125
+   }
+  },
+  {
+   "m": "measureText",
+   "a": [
+    "mmmmmmmmmmlli"
+   ],
+   "s": {
+    "t": "mmmmmmmmmmlli",
+    "w": 861.181640625
+   }
+  },
+  {
+   "m": "measureText",
+   "a": [
+    "mmmmmmmmmmlli"
+   ],
+   "s": {
+    "t": "mmmmmmmmmmlli",
+    "w": 782.666015625
+   }
+  },
+  {
+   "m": "measureText",
+   "a": [
+    "mmmmmmmmmmlli"
+   ],
+   "s": {
+    "t": "mmmmmmmmmmlli",
+    "w": 899.658203125
+   }
+  },
+  {
+   "m": "measureText",
+   "a": [
+    "mmmmmmmmmmlli"
+   ],
+   "s": {
+    "t": "mmmmmmmmmmlli",
+    "w": 861.181640625
+   }
+  },
+  {
+   "m": "measureText",
+   "a": [
+    "mmmmmmmmmmlli"
+   ],
+   "s": {
+    "t": "mmmmmmmmmmlli",
+    "w": 782.666015625
+   }
+  },
+  {
+   "m": "measureText",
+   "a": [
+    "mmmmmmmmmmlli"
+   ],
+   "s": {
+    "t": "mmmmmmmmmmlli",
+    "w": 899.658203125
+   }
+  },
+  {
+   "m": "measureText",
+   "a": [
+    "mmmmmmmmmmlli"
+   ],
+   "s": {
+    "t": "mmmmmmmmmmlli",
+    "w": 861.181640625
+   }
+  },
+  {
+   "m": "measureText",
+   "a": [
+    "mmmmmmmmmmlli"
+   ],
+   "s": {
+    "t": "mmmmmmmmmmlli",
+    "w": 782.666015625
+   }
+  },
+  {
+   "m": "measureText",
+   "a": [
+    "mmmmmmmmmmlli"
+   ],
+   "s": {
+    "t": "mmmmmmmmmmlli",
+    "w": 899.658203125
+   }
+  },
+  {
+   "m": "measureText",
+   "a": [
+    "mmmmmmmmmmlli"
+   ],
+   "s": {
+    "t": "mmmmmmmmmmlli",
+    "w": 861.181640625
+   }
+  },
+  {
+   "m": "measureText",
+   "a": [
+    "mmmmmmmmmmlli"
+   ],
+   "s": {
+    "t": "mmmmmmmmmmlli",
+    "w": 782.666015625
+   }
+  },
+  {
+   "m": "measureText",
+   "a": [
+    "mmmmmmmmmmlli"
+   ],
+   "s": {
+    "t": "mmmmmmmmmmlli",
+    "w": 899.658203125
+   }
+  },
+  {
+   "m": "measureText",
+   "a": [
+    "mmmmmmmmmmlli"
+   ],
+   "s": {
+    "t": "mmmmmmmmmmlli",
+    "w": 861.181640625
+   }
+  },
+  {
+   "m": "measureText",
+   "a": [
+    "mmmmmmmmmmlli"
+   ],
+   "s": {
+    "t": "mmmmmmmmmmlli",
+    "w": 782.666015625
+   }
+  },
+  {
+   "m": "measureText",
+   "a": [
+    "mmmmmmmmmmlli"
+   ],
+   "s": {
+    "t": "mmmmmmmmmmlli",
+    "w": 899.658203125
+   }
+  },
+  {
+   "m": "measureText",
+   "a": [
+    "mmmmmmmmmmlli"
+   ],
+   "s": {
+    "t": "mmmmmmmmmmlli",
+    "w": 861.181640625
+   }
+  },
+  {
+   "m": "measureText",
+   "a": [
+    "mmmmmmmmmmlli"
+   ],
+   "s": {
+    "t": "mmmmmmmmmmlli",
+    "w": 782.666015625
+   }
+  },
+  {
+   "m": "measureText",
+   "a": [
+    "mmmmmmmmmmlli"
+   ],
+   "s": {
+    "t": "mmmmmmmmmmlli",
+    "w": 899.658203125
+   }
+  },
+  {
+   "m": "measureText",
+   "a": [
+    "mmmmmmmmmmlli"
+   ],
+   "s": {
+    "t": "mmmmmmmmmmlli",
+    "w": 861.181640625
+   }
+  },
+  {
+   "m": "measureText",
+   "a": [
+    "mmmmmmmmmmlli"
+   ],
+   "s": {
+    "t": "mmmmmmmmmmlli",
+    "w": 782.666015625
+   }
+  },
+  {
+   "m": "measureText",
+   "a": [
+    "mmmmmmmmmmlli"
+   ],
+   "s": {
+    "t": "mmmmmmmmmmlli",
+    "w": 899.658203125
+   }
+  },
+  {
+   "m": "measureText",
+   "a": [
+    "mmmmmmmmmmlli"
+   ],
+   "s": {
+    "t": "mmmmmmmmmmlli",
+    "w": 861.181640625
+   }
+  },
+  {
+   "m": "measureText",
+   "a": [
+    "mmmmmmmmmmlli"
+   ],
+   "s": {
+    "t": "mmmmmmmmmmlli",
+    "w": 782.666015625
+   }
+  },
+  {
+   "m": "measureText",
+   "a": [
+    "mmmmmmmmmmlli"
+   ],
+   "s": {
+    "t": "mmmmmmmmmmlli",
+    "w": 899.658203125
+   }
+  },
+  {
+   "m": "measureText",
+   "a": [
+    "mmmmmmmmmmlli"
+   ],
+   "s": {
+    "t": "mmmmmmmmmmlli",
+    "w": 861.181640625
+   }
+  },
+  {
+   "m": "measureText",
+   "a": [
+    "mmmmmmmmmmlli"
+   ],
+   "s": {
+    "t": "mmmmmmmmmmlli",
+    "w": 782.666015625
+   }
+  },
+  {
+   "m": "measureText",
+   "a": [
+    "mmmmmmmmmmlli"
+   ],
+   "s": {
+    "t": "mmmmmmmmmmlli",
+    "w": 899.658203125
+   }
+  },
+  {
+   "m": "measureText",
+   "a": [
+    "mmmmmmmmmmlli"
+   ],
+   "s": {
+    "t": "mmmmmmmmmmlli",
+    "w": 861.181640625
+   }
+  },
+  {
+   "m": "measureText",
+   "a": [
+    "mmmmmmmmmmlli"
+   ],
+   "s": {
+    "t": "mmmmmmmmmmlli",
+    "w": 782.666015625
+   }
+  },
+  {
+   "m": "measureText",
+   "a": [
+    "mmmmmmmmmmlli"
+   ],
+   "s": {
+    "t": "mmmmmmmmmmlli",
+    "w": 899.658203125
+   }
+  },
+  {
+   "m": "measureText",
+   "a": [
+    "mmmmmmmmmmlli"
+   ],
+   "s": {
+    "t": "mmmmmmmmmmlli",
+    "w": 861.181640625
+   }
+  },
+  {
+   "m": "measureText",
+   "a": [
+    "mmmmmmmmmmlli"
+   ],
+   "s": {
+    "t": "mmmmmmmmmmlli",
+    "w": 782.666015625
+   }
+  },
+  {
+   "m": "measureText",
+   "a": [
+    "mmmmmmmmmmlli"
+   ],
+   "s": {
+    "t": "mmmmmmmmmmlli",
+    "w": 899.658203125
+   }
+  },
+  {
+   "m": "measureText",
+   "a": [
+    "mmmmmmmmmmlli"
+   ],
+   "s": {
+    "t": "mmmmmmmmmmlli",
+    "w": 861.181640625
+   }
+  },
+  {
+   "m": "measureText",
+   "a": [
+    "mmmmmmmmmmlli"
+   ],
+   "s": {
+    "t": "mmmmmmmmmmlli",
+    "w": 782.666015625
+   }
+  },
+  {
+   "m": "measureText",
+   "a": [
+    "mmmmmmmmmmlli"
+   ],
+   "s": {
+    "t": "mmmmmmmmmmlli",
+    "w": 899.658203125
+   }
+  },
+  {
+   "m": "measureText",
+   "a": [
+    "mmmmmmmmmmlli"
+   ],
+   "s": {
+    "t": "mmmmmmmmmmlli",
+    "w": 861.181640625
+   }
+  },
+  {
+   "m": "measureText",
+   "a": [
+    "mmmmmmmmmmlli"
+   ],
+   "s": {
+    "t": "mmmmmmmmmmlli",
+    "w": 782.666015625
+   }
+  },
+  {
+   "m": "measureText",
+   "a": [
+    "mmmmmmmmmmlli"
+   ],
+   "s": {
+    "t": "mmmmmmmmmmlli",
+    "w": 899.658203125
+   }
+  },
+  {
+   "m": "measureText",
+   "a": [
+    "mmmmmmmmmmlli"
+   ],
+   "s": {
+    "t": "mmmmmmmmmmlli",
+    "w": 861.181640625
+   }
+  },
+  {
+   "m": "measureText",
+   "a": [
+    "mmmmmmmmmmlli"
+   ],
+   "s": {
+    "t": "mmmmmmmmmmlli",
+    "w": 782.666015625
+   }
+  },
+  {
+   "m": "measureText",
+   "a": [
+    "mmmmmmmmmmlli"
+   ],
+   "s": {
+    "t": "mmmmmmmmmmlli",
+    "w": 899.658203125
+   }
+  },
+  {
+   "m": "measureText",
+   "a": [
+    "mmmmmmmmmmlli"
+   ],
+   "s": {
+    "t": "mmmmmmmmmmlli",
+    "w": 861.181640625
+   }
+  },
+  {
+   "m": "measureText",
+   "a": [
+    "mmmmmmmmmmlli"
+   ],
+   "s": {
+    "t": "mmmmmmmmmmlli",
+    "w": 782.666015625
+   }
+  },
+  {
+   "m": "measureText",
+   "a": [
+    "mmmmmmmmmmlli"
+   ],
+   "s": {
+    "t": "mmmmmmmmmmlli",
+    "w": 899.658203125
+   }
+  },
+  {
+   "m": "measureText",
+   "a": [
+    "mmmmmmmmmmlli"
+   ],
+   "s": {
+    "t": "mmmmmmmmmmlli",
+    "w": 861.181640625
+   }
+  },
+  {
+   "m": "measureText",
+   "a": [
+    "mmmmmmmmmmlli"
+   ],
+   "s": {
+    "t": "mmmmmmmmmmlli",
+    "w": 782.666015625
+   }
+  },
+  {
+   "m": "measureText",
+   "a": [
+    "mmmmmmmmmmlli"
+   ],
+   "s": {
+    "t": "mmmmmmmmmmlli",
+    "w": 899.658203125
+   }
+  },
+  {
+   "m": "measureText",
+   "a": [
+    "mmmmmmmmmmlli"
+   ],
+   "s": {
+    "t": "mmmmmmmmmmlli",
+    "w": 861.181640625
+   }
+  },
+  {
+   "m": "measureText",
+   "a": [
+    "mmmmmmmmmmlli"
+   ],
+   "s": {
+    "t": "mmmmmmmmmmlli",
+    "w": 782.666015625
+   }
+  },
+  {
+   "m": "measureText",
+   "a": [
+    "mmmmmmmmmmlli"
+   ],
+   "s": {
+    "t": "mmmmmmmmmmlli",
+    "w": 899.658203125
+   }
+  },
+  {
+   "m": "measureText",
+   "a": [
+    "mmmmmmmmmmlli"
+   ],
+   "s": {
+    "t": "mmmmmmmmmmlli",
+    "w": 861.181640625
+   }
+  },
+  {
+   "m": "measureText",
+   "a": [
+    "mmmmmmmmmmlli"
+   ],
+   "s": {
+    "t": "mmmmmmmmmmlli",
+    "w": 782.666015625
+   }
+  },
+  {
+   "m": "measureText",
+   "a": [
+    "mmmmmmmmmmlli"
+   ],
+   "s": {
+    "t": "mmmmmmmmmmlli",
+    "w": 899.658203125
+   }
+  },
+  {
+   "m": "measureText",
+   "a": [
+    "mmmmmmmmmmlli"
+   ],
+   "s": {
+    "t": "mmmmmmmmmmlli",
+    "w": 861.181640625
+   }
+  },
+  {
+   "m": "getImageData",
+   "a": [
+    0,
+    0,
+    200,
+    200
+   ],
+   "s": {
+    "w": 200,
+    "h": 200,
+    "d": [
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0
+    ]
+   }
+  },
+  {
+   "m": "getImageData",
+   "a": [
+    0,
+    0,
+    10,
+    10
+   ],
+   "s": {
+    "w": 10,
+    "h": 10,
+    "d": [
+     104,
+     154,
+     194,
+     255,
+     165,
+     105,
+     255,
+     255,
+     77,
+     188,
+     128,
+     255,
+     1,
+     113,
+     91,
+     255,
+     153,
+     209,
+     53,
+     255,
+     162,
+     98,
+     158,
+     255,
+     75,
+     13,
+     84,
+     255,
+     125,
+     164,
+     170,
+     255
+    ]
+   }
+  }
+ ],
+ "errors": [],
+ "tokenLength": 5001,
+ "mintError": null,
+ "navigator": {
+  "userAgent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/155.0.0.0 Safari/537.36",
+  "platform": "Linux x86_64",
+  "vendor": "Google Inc.",
+  "webdriver": false
+ }
+}
