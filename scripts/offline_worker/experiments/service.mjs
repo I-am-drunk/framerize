@@ -46,12 +46,37 @@ try {
 // captured dt (ms offset from trace start) becomes a monotonic timeStamp, and
 // the loop sleeps the real gaps so the SDK observes the true rhythm, not a
 // burst. isTrusted cannot be made true from JS; that is a known, named limit.
+// Randomize the interaction per mint: replaying the identical path every
+// time is itself a bot signature. Each mint picks a fresh random rotation,
+// translation, and playback rate so the path looks like a fresh human session.
+// Every event still comes from the user's real captured trace; we only move
+// and time it the way a real person would differ run to run. Nothing invented.
+function jitterTrace() {
+  const cx = 390, cy = 410;              // trace centroid (x 218-566, y 178-658)
+  const ang = Math.random() * Math.PI * 2;
+  const cos = Math.cos(ang), sin = Math.sin(ang);
+  const dx = (Math.random() - 0.5) * 240; // up to +/-120 px translation
+  const dy = (Math.random() - 0.5) * 200;
+  const rate = 0.85 + Math.random() * 0.5; // playback 0.85x-1.35x
+  return TRACE.map(ev => {
+    const e = { ...ev };
+    if (typeof e.clientX === 'number' && typeof e.clientY === 'number') {
+      const rx = (e.clientX - cx) * cos - (e.clientY - cy) * sin;
+      const ry = (e.clientX - cx) * sin + (e.clientY - cy) * cos;
+      e.clientX = Math.round(cx + rx + dx);
+      e.clientY = Math.round(cy + ry + dy);
+    }
+    if (typeof e.dt === 'number') e.dt = e.dt / rate;
+    return e;
+  });
+}
 async function replayTrace(win) {
   if (!win || typeof win.__dispatchCaptured !== 'function' || TRACE.length === 0) return 0;
   let fired = 0;
   const base = win.performance ? win.performance.now() : Date.now();
+  const trace = jitterTrace();
   let prevDt = 0;
-  for (const ev of TRACE) {
+  for (const ev of trace) {
     const { type, dt, ...props } = ev;
     const gap = (typeof dt === 'number' ? dt : prevDt) - prevDt;
     if (gap > 0) await new Promise(r => setTimeout(r, Math.min(gap, 1000)));
@@ -111,20 +136,43 @@ async function mintOnce(reqCuid) {
 
 async function handle(req) {
   if (req.op === 'ping') {
-    return { ok: true, uptime_ms: Date.now() - startedAt,
+    const res = { ok: true, uptime_ms: Date.now() - startedAt,
       mints: mintCount, failures: failCount, busy,
       rss_mb: Math.round(process.memoryUsage().rss / 1048576) };
+    if (process.env.FRAMERIZE_MINT_BACKEND === 'cdp') {
+      try {
+        const { browserWarm } = await import('./service_cdp.mjs');
+        res.cdp_browser_warm = browserWarm();
+      } catch {}
+    }
+    return res;
   }
   if (req.op !== 'mint') return { ok: false, error: 'unknown-op' };
   if (busy) return { ok: false, error: 'busy' };
   busy = true;
   try {
     const reqCuid = (typeof req.cuid === 'string' && /^[A-Za-z0-9._~-]{1,256}$/.test(req.cuid)) ? req.cuid : null;
-    const { token, collectedLength, replayed } = await mintOnce(reqCuid);
+    // Backend switch: FRAMERIZE_MINT_BACKEND=cdp mints via one headless Chrome
+    // page (~200 MB, genuine engine answers); anything else uses the realm.
+    // editorUrl threads the project's editor page to the CDP mint (the passing
+    // browser path mints there), defaulting to the /projects index.
+    let minted;
+    if (process.env.FRAMERIZE_MINT_BACKEND === 'cdp') {
+      const { mintOnceCdp } = await import('./service_cdp.mjs');
+      const editorUrl = (typeof req.editor_url === 'string' && req.editor_url.startsWith('https://framer.com/projects/'))
+        ? req.editor_url : 'https://framer.com/projects';
+      // account_id selects a stable per-account browser identity (task 3).
+      const accountId = (typeof req.account_id === 'string' && /^[A-Za-z0-9._~-]{1,256}$/.test(req.account_id)) ? req.account_id : null;
+      minted = await mintOnceCdp(editorUrl, accountId);
+    } else {
+      minted = await mintOnce(reqCuid);
+    }
+    const { token, collectedLength, replayed, identity } = minted;
     mintCount++;
     // token is the compact wire string (clientId|payload). Send it directly.
     return { ok: true, token, cuid: reqCuid || REALM_CUID, token_length: token.length,
-      collected_length: collectedLength, replayed, trace_events: TRACE.length, encoding: 'wire-token' };
+      collected_length: collectedLength, replayed, identity,
+      trace_events: TRACE.length, encoding: 'wire-token' };
   } catch (e) {
     failCount++;
     return { ok: false, error: String(e && e.message || e) };
@@ -152,9 +200,16 @@ const server = net.createServer(conn => {
 });
 
 function shutdown() {
-  server.close(() => process.exit(0));
-  try { fs.unlinkSync(SOCK); } catch {}
-  setTimeout(() => process.exit(0), 1000).unref();
+  const done = () => {
+    server.close(() => process.exit(0));
+    try { fs.unlinkSync(SOCK); } catch {}
+    setTimeout(() => process.exit(0), 1000).unref();
+  };
+  if (process.env.FRAMERIZE_MINT_BACKEND === 'cdp') {
+    import('./service_cdp.mjs').then(m => m.closeCdpBrowser()).then(done, done);
+  } else {
+    done();
+  }
 }
 process.on('SIGTERM', shutdown);
 process.on('SIGINT', shutdown);

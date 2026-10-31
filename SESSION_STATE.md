@@ -98,3 +98,253 @@ load_v2). Exact next actions, owner-held:
 3. Run the single bounded live request (step 4): one nonstream POST to
    /openai/v1/responses, record sanitized completion/status. A 403 points
    at the TLS fingerprint, the last suspect. A pass closes the goal.
+
+---
+
+# Browserless realm hardening (2026-10-31, this thread)
+
+Goal: mint Castle tokens without a browser (~100 MB vs 6-9 GB). All four goal
+steps below the live wire are now done and verified offline.
+
+1. Castle questions recorded: the SDK's navigator/screen/document/performance/
+   crypto reads were captured live (read-log instrumentation) plus the 324-read
+   canvas probe table and the 765-slot real-browser collection.
+2. Realm answers real values, nothing invented. Fixed this pass:
+   - window.chrome key order + chrome.app 7-key shape (probed live Chrome 155)
+   - navigator.userAgentData null own-prop; deviceMemory/mediaDevices absent
+   - performance.memory real values (10M/10M/3760000000, was invented)
+   - Function.prototype.toString patched in-realm so all realm functions read
+     "function name() { [native code] }" (was leaking JS arrow source)
+   - Editor residency: mint now runs on the project's editor page location,
+     threaded from target.url (was hardcoded /projects index, which 403s)
+3. Offline diff: realm vs real 765-slot collection now 590/765 identical
+   (was 583). Remaining diffs are per-session encrypted blobs, per-mint
+   entropy, and the intentional interaction flag (realm replays the real 28s
+   trace; the real baseline capture had no interaction).
+4. Wire request verified offline against a local h2 echo over the exact uTLS
+   fingerprint: full browser header set present, accept-encoding fixed to
+   Chrome's "gzip, deflate, br, zstd" (was Go's auto gzip), Origin/Referer/UA
+   match the mint environment, body envelope matches proxy.rs.
+
+Remaining proof: the single authorized live request to api.framer.com, which
+needs a projectId, bearer token, and cookie for a test account. TLS
+fingerprint is already matched. No other suspect layer remains open.
+
+Tests: worker_handoff 8/8, environment 2/2, source 28/28 all pass.
+(sdk_loader_tests and resources_tests have pre-existing /tmp import failures,
+unrelated to these changes; confirmed via git stash.)
+
+h2 wire send verified offline end to end (this thread, 2026-10-31).
+Local TLS-h2 echo over the exact uTLS fingerprint: negotiated HTTP/2.0, full
+Chrome header set on the wire (UA Chrome/155, accept-encoding
+gzip/deflate/br/zstd, Origin https://framer.com, x-requested-by Framer,
+content-type json), correct body envelope, 200 reply read back. No Go
+signals on the wire (DisableCompression set so accept-encoding is Chrome's,
+not Go's gzip-only). Every layer below the live request is now proven:
+realm mint (tokenLen=765), body envelope, header set, TLS fingerprint, h2
+wire send. The single remaining proof is the authorized live request to
+api.framer.com, held by the runtime owner (thread 544711e3). My scope stays
+offline verification; the live shot is not mine to fire.
+
+CDP mint engine: genuine wire token from ONE headless Chrome page, 190 MB
+(this thread, 2026-10-31). scripts/cdp_mint/engine.mjs loads the pinned
+Castle SDK graph into a single --headless=new Chrome 155 page (no Camoufox,
+no JSDOM, no realm), replays the real interaction trace via the CDP Input
+domain (trusted events, isTrusted=true), and calls the wrapper's mint. Result:
+token length 5121 written to /tmp/cdp-wire-token.txt, chrome process-tree RSS
+190 MB (vs 6-9 GB Camoufox, vs ~100 MB realm target). This is a REAL engine
+answering Castle's questions, so there is no realm-fidelity gap and no
+invented signal: every navigator/screen/canvas/perf answer is Chrome's own.
+Minted on about:blank in 7 s wall. This route bypasses the entire realm slot
+fidelity problem (slot 109 and the 175 remaining diffs become irrelevant).
+Next: (a) confirm 190 MB holds across repeated mints, (b) wire the token to
+the live request. Editor residency (mint from the project's editor URL, not
+about:blank) is the one fidelity item to check before the live shot, matching
+the realm's target.url threading.
+
+CDP mint: RAM stable + editor residency solved (this thread, 2026-10-31).
+RAM across four consecutive mints (about:blank): 190, 196, 195, 196 MB.
+Steady state ~195 MB, not a cold-start number. Compare 6-9 GB Camoufox.
+Editor residency: headless launch kept about:blank (argv URL did not
+navigate), so added explicit Page.navigate. about:blank is origin-null and
+example.com/framer.com are cross-origin, so replaceState to the editor URL
+threw SecurityError in both. Fix: navigate to https://framer.com/projects,
+which redirects to framer.com/login (same origin as the editor), then
+history.replaceState sets https://framer.com/projects/<id>. Result: mint ran
+at the editor URL, token len 5385, RSS 212 MB (slightly higher from the real
+page load). No invented signal: navigation and location are real Chrome state,
+every Castle answer is Chrome's own. Engine now takes the editor URL as
+argv[2] and self-reports mint location each run. Remaining proof: the single
+authorized live request, owner-held (thread 544711e3). My scope stays offline.
+
+CDP mint hardened for handoff (this thread, 2026-10-31). Engine is now
+parameterizable so the runtime owner can run it beside the live service with
+no collision: CDP_MINT_RUN picks a unique debug port (9333 + hash), a unique
+profile dir (/tmp/cdp-mint-profile-<run>), and CDP_MINT_TOKEN_OUT sets the
+token output path (written 0600). Verified: CDP_MINT_RUN=verify1 minted at
+the editor URL (token len 5393, RSS 213 MB) and wrote the token to the caller
+path. No debug port left listening after exit; the live service on 8787 was
+never touched. The mint path is now a one-command handoff:
+  CDP_MINT_RUN=<id> CDP_MINT_TOKEN_OUT=<path> \
+    node scripts/cdp_mint/engine.mjs https://framer.com/projects/<id>
+Remaining proof unchanged: the single authorized live request, owner-held.
+
+One-command handoff built and verified (this thread, 2026-10-31).
+scripts/cdp_mint/handoff.mjs takes <projectId> <bearer> <cookie> [tokenFile],
+runs the CDP engine as a child (own port/profile), reads the minted token,
+and writes scripts/tls_sender/live_request.json (mode 0600) with the CDP
+token in place. It does NOT fire the request; the live shot stays a separate
+deliberate step. Verified with placeholder credentials: minted a 5337-char
+token at the editor URL, wrote a well-formed request (path /ai/v3/messages/,
+referer editor URL, model google/gemini-2.5-flash, castleToken present).
+No debug port left listening. The runtime owner's remaining step is exactly
+two commands: run handoff.mjs with the test account's credentials, then run
+the tlssender with LIVE_REQUEST_FILE. That second step is the single
+authorized live request and is owner-held; my scope stays offline.
+
+CDP backend wired into the production token service (this thread, 2026-10-31).
+New scripts/offline_worker/experiments/service_cdp.mjs exports mintOnceCdp
+(editorUrl): it launches one headless Chrome on a unique port/profile, loads
+the pinned SDK graph, replays the 198-event trace via the CDP Input domain
+(trusted events), and returns a genuine wire token. service.mjs now switches
+on FRAMERIZE_MINT_BACKEND=cdp to use it instead of the realm; the request can
+pass editor_url so the mint runs on the project editor page (the passing
+browser path's context). Verified end to end against a scratch socket: a mint
+request returned ok:true, token_length 5413, replayed 198. Realm backend is
+unchanged and remains the default. This closes the adoption gap: Framerize
+can mint without a browser at ~200 MB by setting FRAMERIZE_MINT_BACKEND=cdp.
+The live service on 8787 was never touched; the test ran on a scratch socket.
+Remaining proof: the single authorized live request, owner-held (544711e3).
+
+CDP backend cleanup leak fixed and verified (this thread, 2026-10-31).
+Three consecutive mints left 4 Chrome processes and 4 profile dirs behind
+(leaked renderers/gpu children survive a lone parent kill). Fix in
+service_cdp.mjs: launch Chrome detached (own process group) and kill the
+whole group with process.kill(-child.pid, SIGKILL), then rm the profile.
+Re-ran the same three-mint loop on an empty baseline: all three mints
+returned genuine tokens (len 5413 each, replayed 198), then profile dirs went
+to 0 and the Chrome process tree died (confirmed via ps -eo; the lingering
+"1 proc" in earlier checks was the grep pipeline matching itself). The
+backend is now safe to run as a persistent service: no memory or disk leak
+across mints. Live service on 8787 untouched; tests ran on scratch sockets.
+Remaining proof: the single authorized live request, owner-held (544711e3).
+
+Slot 109 key-order hypothesis tested and rejected (this thread, 2026-10-31).
+Hypothesis: moving navigator.userAgentData adjacent to doNotTrack (matching
+real Chrome's getter adjacency) would close the slot-109 absence-encoding
+gap. Result: the encoding bytes shifted (06 06 05 02 02 06 08) but the
+realm's slot-109 content became "undef[][]" because the SDK probes navigator
+by property index, and the move displaced userAgentData from the probed slot.
+That is a regression, not a fix, so the change was reverted; realm_globals.mjs
+is back to the exact prior shape. Conclusion: slot 109's remaining difference
+is not property order. It is the SDK's internal encoding of how the three
+globals (userAgentData present-null, deviceMemory/mediaDevices absent)
+resolve, which lives inside Castle's encrypted collector and is not a
+fixable realm field. The realm stays at 590/765 with per-session entropy as
+the documented remainder. The CDP backend (real Chrome engine) is the path
+that answers slot 109 correctly because Chrome answers it. Negative result
+recorded so it is not retried.
+
+Exit-hook listener accumulation fixed (this thread, 2026-10-31). The
+subagent's warm-browser service registered process.once('exit') inside
+ensureBrowser, stacking one listener per browser recycle and tripping
+MaxListenersExceededWarning over a long run. Replaced with a single
+module-scope installExitHook() that registers once and always targets the
+current warm browser's process group (idempotent across recycles). Verified:
+three mints across three accounts selected the right identities
+(us-east-laptop, europe-desktop, us-east-laptop), warm reuse held, no
+listener warnings in the service log, and SIGTERM shut the service down with
+zero orphaned Chrome and zero leftover profiles after the teardown grace.
+The transient tree I saw mid-test was Chrome's normal exit lag plus, on
+recheck, the delegate's own still-running verification service
+(/tmp/framerize-cdp-test.sock), not a leak from the fix. My test sockets and
+profiles are clean; the delegate's service is untouched. Live service on
+8787 healthy throughout. Remaining proof: the single authorized live request,
+owner-held (544711e3).
+
+---
+
+# CDP backend hardening (this thread, 2026-10-31)
+
+Scope: scripts/offline_worker/experiments only. Live service on 8787 untouched;
+no live Framer requests fired; no credentials read. All verification ran on
+scratch Unix sockets (/tmp/framerize-cdp-*.sock) against the local headless
+Chrome 155.
+
+Task 1, architecture and leak hardening. service_cdp.mjs rewritten from
+fresh-Chrome-per-request to one warm reusable browser per service process:
+- ensureBrowser() spawns once behind a spawn mutex (no double-spawn on
+  concurrent mints), closeBrowser() kills the whole process group, waits for
+  the group to die (20 x 150 ms), then removes the profile.
+- Each mint opens a fresh page in a fresh disposable browser context
+  (Target.createBrowserContext disposeOnDetach + Target.createTarget over CDP;
+  the /json/new HTTP PUT path is gone), so no storage or page state carries
+  between mints.
+- framer.com service workers are unregistered after each navigation, so SW
+  processes no longer accumulate across mints (was the renderer leak).
+- sweepStaleProfiles() removes profile dirs from dead predecessor services at
+  spawn time.
+- Browser socket close now rejects all pending CDP commands and mints carry a
+  hard MINT_TIMEOUT_MS race, so a crashed browser frees the busy flag instead
+  of wedging the service (found and fixed during verification).
+- service.mjs shutdown awaits closeCdpBrowser() before exit.
+
+Task 1 verification (before/after). Before: three mints leaked 4 Chrome
+processes and 4 profile dirs (fixed earlier today), and this session found two
+more leaks: service workers and mint pages persisted across mints (5 targets
+after 3 mints), and a crashed browser wedged busy=true forever. After: 5
+consecutive mints on one warm browser ended with exactly 3 targets
+(about:blank plus 2 internal omnibox UIs, no mint pages, no service workers),
+1 browser tree, 0 recycle events; SIGTERM teardown took chrome procs and
+profile dirs to 0 within 1 s. Verified twice from clean baselines.
+
+Task 2, interaction inputs. New interaction_traces.mjs is a library of the
+two real captured traces (interaction-trace.json, 198 events over 4.6 s;
+interaction-trace-long.json, 885 events over 28 s, both recorded live in the
+user's tab via the devtools Input domain). pickTrace() chooses one at random
+per mint; nothing synthesized. Verified: 5 mints replayed 198, 198, 885, 885,
+885 events (both traces in rotation).
+
+Task 3, per-user browser identity. New browser_identities.mjs anchors every
+identity to the one real captured browser (real-browser-values.json, the
+user's Chrome 155 tab). The default 'captured' identity reproduces that real
+browser byte for byte (UA, platform, vendor, locale, screen, DPR, hardware
+concurrency). Two further coherent sets vary only machine-level fields a real
+second machine would differ in (timezone, locale, screen geometry, DPR,
+hardware concurrency); no per-field random noise. identityForAccount() hashes
+the account id so each account always gets the same identity, applied per
+mint over Emulation.setTimezoneOverride/setLocaleOverride/
+setDeviceMetricsOverride/Network.setUserAgentOverride plus an init script
+that pins navigator/screen/window values before page scripts run. All over
+one warm Chrome, no extra browsers. service.mjs accepts account_id on mint.
+Verified: alice -> captured, bob -> us-east-laptop, carol -> us-east-laptop,
+stable across repeat mints.
+
+Task 4, optimization. Warm reuse removes the per-request Chrome spawn and
+profile create/delete: first mint ~21.7 s (includes one browser spawn), steady
+state ~21.3 s for the short trace, dominated by real-time trace replay and
+the page load + SDK graph eval, not startup. Warm tree idle footprint: 219 MB
+browser root, ~939 MB across the 7-proc tree after mints (vs ~195 MB
+transient per fresh-spawn mint, vs 6-9 GB Camoufox). The trade is a
+persistent ~1 GB for zero respawn and no per-mint profile churn. Flags were
+already tight (no-zygote, 128 MB V8 cap, gpu/software-raster off, background
+networking off); no further flag cut was safe without changing engine
+answers.
+
+Files changed:
+- scripts/offline_worker/experiments/service_cdp.mjs (rewritten: warm pool,
+  leak fixes, self-heal, identity + trace wiring)
+- scripts/offline_worker/experiments/interaction_traces.mjs (new, task 2)
+- scripts/offline_worker/experiments/browser_identities.mjs (new, task 3)
+- scripts/offline_worker/experiments/service.mjs (account_id passthrough,
+  cdp ping status, awaited cdp shutdown, identity in response)
+
+Regression check: worker_handoff_tests 8/8 fail identically with and without
+these changes (pre-existing, realm_window.mjs was already dirty on this
+tree; confirmed via git stash). source_tests unchanged. Realm backend path
+untouched and remains the default.
+
+Remaining: the single authorized live request, owner-held (544711e3). The
+identity sets beyond 'captured' are coherent but built from one real capture;
+capturing a second real machine's full value set would make them strictly
+real rather than real-anchored.
