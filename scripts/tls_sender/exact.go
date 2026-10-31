@@ -4,7 +4,6 @@
 package main
 
 import (
-	"encoding/json"
 	"fmt"
 	"net"
 	"os"
@@ -38,7 +37,7 @@ func exactSpec() tls.ClientHelloSpec {
 func main() {
 	// Send mode: skip the capture handshake and go straight to the POST.
 	if os.Getenv("LIVE_REQUEST_FILE") != "" {
-		runLive()
+		h2Live()
 		return
 	}
 	if os.Getenv("SEND_ADDR") != "" {
@@ -86,49 +85,6 @@ func runSend() {
 	fmt.Printf("send-status=%d head=%q\n", status, head[:min(120, len(head))])
 }
 
-func min(a, b int) int {
-	if a < b {
-		return a
-	}
-	return b
-}
-
-// runLive sends the single authorized Framer request over the uTLS fingerprint.
-// It reads the full request (host, path, headers, body) from a JSON file so the
-// body can be complete, and fires exactly once. This is the goal's step 4.
-func runLive() {
-	specFile := os.Getenv("LIVE_REQUEST_FILE")
-	if specFile == "" {
-		fmt.Println("live-skip: LIVE_REQUEST_FILE unset")
-		return
-	}
-	data, err := os.ReadFile(specFile)
-	if err != nil {
-		fmt.Println("live-read-error:", err)
-		return
-	}
-	var req struct {
-		Addr    string            `json:"addr"`
-		Host    string            `json:"host"`
-		Path    string            `json:"path"`
-		Headers map[string]string `json:"headers"`
-		Body    string            `json:"body"`
-	}
-	if err := json.Unmarshal(data, &req); err != nil {
-		fmt.Println("live-parse-error:", err)
-		return
-	}
-	status, head, err := sendPost(req.Addr, req.Host, req.Path, req.Headers, []byte(req.Body))
-	if err != nil {
-		fmt.Println("live-send-error:", err)
-		return
-	}
-	fmt.Printf("live-status=%d head=%q\n", status, head[:min(400, len(head))])
-}
-
-// sendPost performs one HTTPS POST through the uTLS fingerprint to a target
-// address. It is exercised against a local echo server in the offline path
-// test; the production target is api.framer.com. Returns status and body head.
 func sendPost(addr, host, path string, headers map[string]string, body []byte) (int, string, error) {
 	spec := exactSpec()
 	dial, err := net.DialTimeout("tcp", addr, 5*time.Second)

@@ -48,7 +48,7 @@ export class RealmCastleMinter {
       const { settleOnce } = await import(pathToFileURL(SUPPORT.settle[0]));
       const { createErrorLocationReader } = await import(pathToFileURL(SUPPORT.location[0]));
       phase = 'window';
-      dom = createRealmWindow(PUBLIC_KEY);
+      dom = createRealmWindow(PUBLIC_KEY, undefined, this.#input.target.url);
       if (GRAPHICS) {
         phase = 'graphics';
         nativeGraphics = loadGraphics(GRAPHICS);

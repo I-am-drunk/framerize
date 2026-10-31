@@ -20,9 +20,37 @@ const DEDICATED_WORKER_SHA256 = [
   '7fbadc72ebc1e56a4274d005ec9ce05ad2435bbcc2406f8640712bbdd0987176',
 ];
 
-export function createRealmWindow(publicKey, cuid) {
-  const globals = buildRealmGlobals({ publicKey, cuid });
+export function createRealmWindow(publicKey, cuid, targetUrl) {
+  const globals = buildRealmGlobals({ publicKey, cuid, targetUrl });
   const context = vm.createContext(globals);
+  // Patch Function.prototype.toString inside the realm so every function the
+  // realm defined reports the browser's native-source form. The spoof lives on
+  // the prototype, not as an own property on each function, so
+  // hasOwnProperty('toString') is false and Function.prototype.toString.call(fn)
+  // returns the same native string a real browser gives. Real Chrome reports
+  // "function name() { [native code] }" for native methods; the realm used to
+  // leak the JS arrow source through the same call.
+  vm.runInContext(`(() => {
+    const sources = new WeakMap();
+    const orig = Function.prototype.toString;
+    const nameOf = fn => {
+      const n = fn.name;
+      return 'function ' + (n || '') + '() { [native code] }';
+    };
+    Function.prototype.toString = function toString() {
+      if (sources.has(this)) return sources.get(this);
+      let out;
+      try { out = orig.call(this); } catch (e) { out = null; }
+      // A genuine V8 builtin already carries the native marker; pass it through.
+      if (out && out.includes('[native code]')) return out;
+      const spoof = nameOf(this);
+      sources.set(this, spoof);
+      return spoof;
+    };
+    // The patch itself must read as native too, else Function.prototype.toString
+    // .toString() leaks this function's source. Register it before any caller.
+    sources.set(Function.prototype.toString, 'function toString() { [native code] }');
+  })();`, context);
   const win = globals;
   if (typeof win.TextEncoder === 'undefined') win.TextEncoder = TextEncoder;
   win.requestAnimationFrame ??= cb => setTimeout(() => cb(performance.now()), 16);

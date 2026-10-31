@@ -37,9 +37,13 @@ function chromeArgs(port, profile) {
     '--disable-component-update', '--mute-audio', '--no-sandbox',
     '--window-size=1280,800', '--force-device-scale-factor=1',
     '--disable-gpu', '--disable-software-rasterizer', '--disable-dev-shm-usage',
-    '--disable-features=Translate,BackForwardCache,AcceptCHFrame,MediaRouter,OptimizationHints,InterestFeedContentSuggestions,CalculateNativeWinOcclusion',
+    '--disable-features=Translate,BackForwardCache,AcceptCHFrame,MediaRouter,OptimizationHints,InterestFeedContentSuggestions,CalculateNativeWinOcclusion,AudioServiceOutOfProcess',
     '--disable-breakpad', '--disable-crash-reporter', '--disable-logging', '--no-zygote',
     '--disable-renderer-backgrounding', '--disable-background-timer-throttling',
+    '--disable-component-extensions-with-background-pages',
+    '--disable-site-isolation-trials', '--renderer-process-limit=1',
+    '--enable-features=MemoryPurgeOnBackground',
+    '--in-process-gpu',
     '--js-flags=--max-old-space-size=128',
     '--remote-debugging-port=' + port,
     '--user-agent=Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/155.0.0.0 Safari/537.36',
@@ -55,6 +59,20 @@ async function connectBrowserWs(port) {
   const ws = new WebSocket(v.webSocketDebuggerUrl, { perMessageDeflate: false, maxPayload: 64 * 1024 * 1024 });
   await new Promise((res, rej) => { ws.on('open', res); ws.on('error', rej); });
   return ws;
+}
+
+// Close the startup about:blank tab (and any browser_ui target) so the warm
+// browser idles with zero renderers between mints. Mints create their own
+// page target inside a disposable context, so nothing needed is lost.
+async function closeStartupTargets(b) {
+  try {
+    const { targetInfos } = await bsend(b, 'Target.getTargets');
+    for (const t of targetInfos) {
+      if (t.type === 'page' || t.type === 'browser_ui') {
+        await bsend(b, 'Target.closeTarget', { targetId: t.targetId }).catch(() => {});
+      }
+    }
+  } catch {}
 }
 
 // Spawn Chrome detached (own process group) so the whole tree, renderers and
@@ -135,6 +153,7 @@ async function ensureBrowser() {
   try { browser = await spawning; } finally { spawning = null; }
   wireBrowser(browser);
   installExitHook();
+  await closeStartupTargets(browser);
   return browser;
 }
 

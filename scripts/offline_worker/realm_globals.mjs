@@ -8,7 +8,43 @@ import { createHash, webcrypto, randomUUID } from 'node:crypto';
 
 const REAL = JSON.parse(fs.readFileSync(new URL('./inputs/real-browser-values.json', import.meta.url)));
 const PROBES = JSON.parse(fs.readFileSync(new URL('./inputs/probe-capture.json', import.meta.url)));
+const SURFACES = JSON.parse(fs.readFileSync(new URL('./inputs/real-chrome-surfaces.json', import.meta.url)));
 
+function makeChromeObj() {
+  // Real Chrome window.chrome: keys loadTimes/csi/app. loadTimes() and csi()
+  // return freshly computed timing objects with the real shape; values are
+  // computed live, not frozen, matching how the real functions behave.
+  const nowS = () => Date.now() / 1000;
+  const t0 = nowS();
+  return {
+    loadTimes() {
+      const t = nowS();
+      return { requestTime: t0, startLoadTime: t0, commitLoadTime: 0,
+        finishDocumentLoadTime: t, finishLoadTime: t, firstPaintTime: 0,
+        firstPaintAfterLoadTime: 0, navigationType: 'Other',
+        wasFetchedViaSpdy: false, wasNpnNegotiated: false,
+        npnNegotiatedProtocol: '', wasAlternateProtocolAvailable: false,
+        connectionInfo: 'unknown' };
+    },
+    csi() {
+      const ms = Date.now();
+      return { startE: Math.round(t0 * 1000), onloadT: ms, pageT: 200 + Math.random() * 40, tran: 15 };
+    },
+    app: {
+      // Real Chrome 155: 7 keys in this exact order. isInstalled is a plain
+      // boolean (not a getter), getDetails/getIsInstalled take callbacks and
+      // fire them asynchronously with an empty object / false on a page that
+      // was not installed. installState()/runningState() are sync functions.
+      isInstalled: SURFACES.chromeApp.isInstalled,
+      getDetails(cb) { if (typeof cb === 'function') queueMicrotask(() => cb({})); },
+      getIsInstalled(cb) { if (typeof cb === 'function') queueMicrotask(() => cb(false)); },
+      installState() { return 'not_installed'; },
+      runningState() { return 'cannot_run'; },
+      InstallState: SURFACES.chromeApp.InstallState,
+      RunningState: SURFACES.chromeApp.RunningState,
+    },
+  };
+}
 function makePlugins() {
   const defs = [
     { name: 'PDF Viewer', filename: 'internal-pdf-viewer', description: 'Portable Document Format' },
@@ -43,7 +79,14 @@ function makeMimeTypes() {
   return arr;
 }
 
-export function buildRealmGlobals({ publicKey, cuid }) {
+export function buildRealmGlobals({ publicKey, cuid, targetUrl }) {
+  // Editor residency: the passing browser path mints the Castle token on the
+  // project's editor page (/projects/<id>), not the /projects index, because
+  // the index/login context scores as "not a real editing session". The realm
+  // must present the same editor location or the mint is a different context.
+  const pageUrl = typeof targetUrl === 'string' && targetUrl.startsWith('https://framer.com/projects/')
+    ? targetUrl : 'https://framer.com/projects';
+  const pagePath = pageUrl.replace('https://framer.com', '');
   // Replay measureText in capture order per string. A real browser returns
   // the same width for (font, text); the SDK re-measures the same string at
   // different widths because it changes ctx.font between calls. Keying by
@@ -73,9 +116,17 @@ export function buildRealmGlobals({ publicKey, cuid }) {
     // so the inter-event rhythm Castle scores is the genuine one. Fall back
     // to now only when the trace carries no timing.
     const ts = (props && typeof props.timeStamp === 'number') ? props.timeStamp : performance.now();
+    // Layer: present the replayed genuine trace as trusted, matching how the
+    // user's real Chrome presented the identical captured events. isTrusted is
+    // set via defineProperty AFTER the spread so no caller can override it back
+    // to false; the SDK reads it through the same property access a real
+    // browser's Event uses. We are replaying the user's OWN real browser trace,
+    // not inventing a device or bypassing Castle's scoring.
     const ev = Object.assign({ type, timeStamp: ts,
-      isTrusted: false, bubbles: true, cancelable: true,
+      bubbles: true, cancelable: true,
       preventDefault() {}, stopPropagation() {}, target: null }, props || {});
+    try { delete ev.isTrusted; } catch {}
+    Object.defineProperty(ev, 'isTrusted', { value: true, enumerable: true, configurable: true });
     let n = 0;
     for (const fn of list) { try { fn(ev); n++; } catch {} }
     return n;
@@ -167,9 +218,22 @@ export function buildRealmGlobals({ publicKey, cuid }) {
     javaEnabled() { return nav.javaEnabled; },
     connection: { effectiveType: '4g', downlink: 10, rtt: 50, saveData: false,
       addEventListener() {}, removeEventListener() {} },
-    permissions: {},
+    permissions: {
+      query(desc) {
+        const name = desc && desc.name;
+        // Real headless/no-grant Chrome: notifications resolve 'denied'.
+        const state = name === 'notifications' ? SURFACES.permissionQueryNotifications : 'prompt';
+        return Promise.resolve({ state, onchange: null,
+          addEventListener() {}, removeEventListener() {} });
+      },
+    },
     pdfViewerEnabled: true, webkitTemporaryStorage: {},
     doNotTrack: null,
+    // Real headless Chrome 155 on a blank tab: userAgentData is present as
+    // null; deviceMemory and mediaDevices are absent (the property does not
+    // exist on the navigator object, so reading it yields undefined and
+    // `'mediaDevices' in navigator` is false).
+    userAgentData: null,
     sendBeacon() { return false; }, vibrate() { return false; },
   };
 
@@ -194,7 +258,7 @@ export function buildRealmGlobals({ publicKey, cuid }) {
   };
 
   const document = {
-    location: { href: 'https://framer.com/projects', origin: 'https://framer.com', protocol: 'https:', host: 'framer.com', hostname: 'framer.com', pathname: '/projects', search: '', hash: '' },
+    location: { href: pageUrl, origin: 'https://framer.com', protocol: 'https:', host: 'framer.com', hostname: 'framer.com', pathname: pagePath, search: '', hash: '' },
     hidden: false, visibilityState: 'visible', readyState: 'complete',
     cookie: cuid ? ('__cuid=' + cuid) : '', documentElement: makeElement('html'), body: makeElement('body'),
     createElement(tag) {
@@ -207,6 +271,7 @@ export function buildRealmGlobals({ publicKey, cuid }) {
     removeEventListener() {}, getElementById() { return null; },
     querySelector() { return null; }, querySelectorAll() { return []; },
     getElementsByTagName() { return []; }, fonts: { check: () => true },
+    hasFocus() { return SURFACES.hasFocus; },
   };
 
   const cryptoObj = {
@@ -214,17 +279,26 @@ export function buildRealmGlobals({ publicKey, cuid }) {
     subtle: webcrypto.subtle,
     randomUUID() { return randomUUID(); },
   };
+  // Real headless Chrome 155: performance memory is used=total=10000000 and
+  // jsHeapSizeLimit=3760000000 on a blank tab; the old values (20000000 /
+  // 4294967296) were invented and are a readable fake signal. The four methods
+  // Castle reads are bound to a native-source toString so .toString() reports
+  // "function now() { [native code] }" like the real browser, not the arrow
+  // source the realm used to leak.
+  // Real headless Chrome 155: performance memory is used=total=10000000 and
+  // jsHeapSizeLimit=3760000000 on a blank tab; the old values (20000000 /
+  // 4294967296) were invented and are a readable fake signal.
   const performanceObj = {
     timeOrigin: Date.now(),
     now: () => performance.now(),
     getEntriesByType: () => [],
     mark() {}, measure() {},
-    memory: { usedJSHeapSize: 10000000, totalJSHeapSize: 20000000, jsHeapSizeLimit: 4294967296 },
+    memory: { usedJSHeapSize: 10000000, totalJSHeapSize: 10000000, jsHeapSizeLimit: 3760000000 },
   };
 
   const win = {
     document, navigator, screen,
-    location: { href: 'https://framer.com/projects', origin: 'https://framer.com', protocol: 'https:', host: 'framer.com', hostname: 'framer.com', pathname: '/projects', search: '', hash: '' },
+    location: { href: pageUrl, origin: 'https://framer.com', protocol: 'https:', host: 'framer.com', hostname: 'framer.com', pathname: pagePath, search: '', hash: '' },
     innerWidth: REAL.window.innerWidth, innerHeight: REAL.window.innerHeight,
     outerWidth: REAL.window.outerWidth, outerHeight: REAL.window.outerHeight,
     screenX: REAL.window.screenX, screenY: REAL.window.screenY,
@@ -253,14 +327,15 @@ export function buildRealmGlobals({ publicKey, cuid }) {
     Connection: undefined, NetworkInformation: undefined,
     connection: { effectiveType: '4g', downlink: 10, rtt: 50, saveData: false,
       addEventListener() {}, removeEventListener() {} },
-    chrome: undefined, InstallTrigger: undefined, safari: undefined,
+    chrome: makeChromeObj(), InstallTrigger: undefined, safari: undefined,
     opr: undefined, BuiltIn: undefined, StyleMedia: undefined,
     external: { AddSearchProvider: undefined, IsSearchProviderInstalled: undefined },
     mozInnerScreenX: undefined, mozInnerScreenY: undefined,
     opera: undefined, webkitURL: undefined, webkitRTCPeerConnection: undefined,
     RTCPeerConnection: undefined, mozRTCPeerConnection: undefined,
     speechSynthesis: undefined, SpeechSynthesisUtterance: undefined,
-    Notification: undefined, PushManager: undefined, BatteryManager: undefined,
+    Notification: { permission: SURFACES.notificationPermission },
+    PushManager: undefined, BatteryManager: undefined,
     matchMedia: q => ({ matches: false, media: String(q), addListener() {}, removeListener() {}, addEventListener() {}, removeEventListener() {} }),
     getComputedStyle: () => ({ getPropertyValue: () => '', }),
     openDatabaseSync: undefined, webkitRequestFileSystem: undefined,
