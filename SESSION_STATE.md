@@ -84,3 +84,17 @@ the worker contract ({ collection, metadata, collected_at }, status
 worker_handoff_tests.mjs 8/8 pass; source/device tests 37/37 pass. Known
 limit: live acceptance not yet shown. Exact next action: runtime owner
 builds/deploys and runs the single bounded live request (step 4).
+
+Realm worker: handoff checklist for the runtime owner (this thread, 2026-10-31).
+Source is browserless at c0050a2d. The realm path replaces JSDOM in the
+worker entrypoint and is verified at every seam short of the live request:
+mint tokenLen=765, metadata satisfies the v1 acceptor, wire framing
+matches the reader, bundle ships the realm files (39 pins), clean-clone
+reproducibility proven, v1 vs v2 routing confirmed (use config::load, not
+load_v2). Exact next actions, owner-held:
+1. Build the bundle: node v24.13.0, scripts/offline_worker/bundle.mjs
+   --output NEW_DIR --assets scripts/offline_worker/inputs/assets.
+2. Point the service at the new worker-config.json (drop-in, no Rust change).
+3. Run the single bounded live request (step 4): one nonstream POST to
+   /openai/v1/responses, record sanitized completion/status. A 403 points
+   at the TLS fingerprint, the last suspect. A pass closes the goal.
