@@ -43,7 +43,7 @@ function makeMimeTypes() {
   return arr;
 }
 
-export function buildRealmGlobals({ publicKey }) {
+export function buildRealmGlobals({ publicKey, cuid }) {
   // Replay measureText in capture order per string. A real browser returns
   // the same width for (font, text); the SDK re-measures the same string at
   // different widths because it changes ctx.font between calls. Keying by
@@ -128,13 +128,16 @@ export function buildRealmGlobals({ publicKey }) {
       addEventListener() {}, removeEventListener() {},
       querySelector() { return null; }, querySelectorAll() { return []; },
       cloneNode() { return makeElement(tag); },
+      getBoundingClientRect() { return { x: 0, y: 0, top: 0, left: 0, right: 0, bottom: 0, width: 0, height: 0 }; },
+      clientWidth: 0, clientHeight: 0, clientLeft: 0, clientTop: 0,
+      offsetWidth: 0, offsetHeight: 0, offsetLeft: 0, offsetTop: 0,
       contentWindow: undefined,
     };
   }
   const nav = REAL.navigator;
   const navigator = {
     appVersion: nav.appVersion, buildID: nav.buildID, cookieEnabled: nav.cookieEnabled,
-    deviceMemory: nav.deviceMemory, hardwareConcurrency: nav.hardwareConcurrency,
+    hardwareConcurrency: nav.hardwareConcurrency,
     language: nav.language, languages: Object.freeze([...nav.languages]),
     maxTouchPoints: nav.maxTouchPoints, oscpu: nav.oscpu, platform: nav.platform,
     productSub: nav.productSub, standalone: nav.standalone, userAgent: nav.userAgent,
@@ -144,10 +147,9 @@ export function buildRealmGlobals({ publicKey }) {
     javaEnabled() { return nav.javaEnabled; },
     connection: { effectiveType: '4g', downlink: 10, rtt: 50, saveData: false,
       addEventListener() {}, removeEventListener() {} },
-    permissions: {}, storage: {}, credentials: {}, mediaDevices: {},
-    serviceWorker: undefined, userAgentData: undefined, bluetooth: undefined,
-    keyboard: undefined, brave: undefined,
-    getBattery: undefined, battery: undefined, doNotTrack: null,
+    permissions: {},
+    pdfViewerEnabled: true, webkitTemporaryStorage: {},
+    doNotTrack: null,
     sendBeacon() { return false; }, vibrate() { return false; },
   };
 
@@ -159,8 +161,8 @@ export function buildRealmGlobals({ publicKey }) {
     isExtended: false, orientation: { type: scr.orientation || 'landscape-primary', angle: 0 },
   };
 
-  const storageArea = () => {
-    const m = new Map();
+  const storageArea = (seed) => {
+    const m = new Map(Object.entries(seed || {}));
     return {
       get length() { return m.size; },
       getItem(k) { return m.has(k) ? m.get(k) : null; },
@@ -172,9 +174,9 @@ export function buildRealmGlobals({ publicKey }) {
   };
 
   const document = {
-    location: { href: 'https://app.framer.com/', origin: 'https://app.framer.com', protocol: 'https:', host: 'app.framer.com', hostname: 'app.framer.com', pathname: '/', search: '', hash: '' },
+    location: { href: 'https://framer.com/projects', origin: 'https://framer.com', protocol: 'https:', host: 'framer.com', hostname: 'framer.com', pathname: '/projects', search: '', hash: '' },
     hidden: false, visibilityState: 'visible', readyState: 'complete',
-    cookie: '', documentElement: makeElement('html'), body: makeElement('body'),
+    cookie: cuid ? ('__cuid=' + cuid) : '', documentElement: makeElement('html'), body: makeElement('body'),
     createElement(tag) {
       const t = String(tag).toLowerCase();
       if (t === 'canvas') return makeCanvas();
@@ -196,17 +198,18 @@ export function buildRealmGlobals({ publicKey }) {
     timeOrigin: Date.now(),
     now: () => performance.now(),
     getEntriesByType: () => [],
-    mark() {}, measure() {}, memory: undefined,
+    mark() {}, measure() {},
+    memory: { usedJSHeapSize: 10000000, totalJSHeapSize: 20000000, jsHeapSizeLimit: 4294967296 },
   };
 
   const win = {
     document, navigator, screen,
-    location: { href: 'https://app.framer.com/', origin: 'https://app.framer.com', protocol: 'https:', host: 'app.framer.com', hostname: 'app.framer.com', pathname: '/', search: '', hash: '' },
+    location: { href: 'https://framer.com/projects', origin: 'https://framer.com', protocol: 'https:', host: 'framer.com', hostname: 'framer.com', pathname: '/projects', search: '', hash: '' },
     innerWidth: REAL.window.innerWidth, innerHeight: REAL.window.innerHeight,
     outerWidth: REAL.window.outerWidth, outerHeight: REAL.window.outerHeight,
     screenX: REAL.window.screenX, screenY: REAL.window.screenY,
     devicePixelRatio: REAL.window.devicePixelRatio,
-    localStorage: storageArea(), sessionStorage: storageArea(),
+    localStorage: storageArea(cuid ? { __cuid: cuid } : undefined), sessionStorage: storageArea(),
     crypto: cryptoObj, performance: performanceObj,
     addEventListener(type, fn) { if (!listeners.has(type)) listeners.set(type, []); listeners.get(type).push(fn); },
     removeEventListener() {},

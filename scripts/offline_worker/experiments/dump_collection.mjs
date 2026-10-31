@@ -16,12 +16,15 @@ const script = graphScript
   .replace(/import\.meta\.collect\(/g, 'globalThis.__collect(')
   .replace(/import\.meta\.sharedWorker\(/g, 'globalThis.__sharedWorker(')
   .replace(/import\.meta\.network\(/g, 'globalThis.__network(');
+const collector = col.createCollector();
+globals.__collect = collector.collect;
+globals.__sharedWorker = collector.sharedWorker;
+globals.__network = collector.network;
 let collected = null;
-globals.__collect = v => { collected = v; return v; };
-globals.__sharedWorker = v => v;
-globals.__network = v => v;
 vm.runInContext(script, context, { filename: 'graph.bundle.js' });
 const wrapper = vm.runInContext('globalThis.__modules.wrapper', context);
 await wrapper.a({ budget_ms: 8000 }).catch(() => {});
-fs.writeFileSync('/tmp/realm-collection.json', JSON.stringify(collected));
+// collected holds the JSON string returned by collector.collect via the wrapper
+fs.writeFileSync('/tmp/realm-collection-string.txt', typeof collected === 'string' ? collected : JSON.stringify(collected));
+fs.writeFileSync('/tmp/realm-collect-string.json', JSON.stringify({ typeof: typeof collected, sample: typeof collected === 'string' ? collected.slice(0,80) : null }));
 console.log('slots=' + (collected ? collected.length : 0));

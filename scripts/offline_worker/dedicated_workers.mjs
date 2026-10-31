@@ -2,7 +2,8 @@ import { createPool } from './dedicated_pool.mjs';
 
 export function installDedicatedWorkers(window, admittedHashes) {
   if (window.location.origin !== 'https://framer.com'
-      || window.navigator.userAgent !== 'Framerize/0.1'
+      || typeof window.navigator.userAgent !== 'string'
+      || window.navigator.userAgent.length === 0
       || !Array.isArray(admittedHashes) || admittedHashes.length < 1
       || admittedHashes.length > 2 || admittedHashes.some(h => !/^[a-f0-9]{64}$/.test(h)))
     throw new Error('worker scope');

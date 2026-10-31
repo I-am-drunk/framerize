@@ -4,11 +4,12 @@
 // so every token is freshly minted and nothing goes stale between requests.
 import net from 'node:net';
 import fs from 'node:fs';
-import vm from 'node:vm';
+import { execFile } from 'node:child_process';
 import * as col from '../collection.mjs';
 import * as pins from '../pins.mjs';
-import * as realm from './realm.mjs';
-import { buildGraphScript } from './graph_script.mjs';
+import { createRealmWindow } from '../realm_window.mjs';
+import { SdkModules } from '../sdk_loader.mjs';
+import { buildRealmGlobals } from './realm.mjs';
 
 const SOCK = process.env.FRAMERIZE_TOKEN_SOCK
   || '/home/tjninja/.local/share/framerize/token.sock';
@@ -16,37 +17,59 @@ const MINT_BUDGET_MS = 8000;
 const MINT_TIMEOUT_MS = 9000;
 
 const startedAt = Date.now();
+// The realm's seeded device id, so callers can align their fire page storage.
+let REALM_CUID = null;
+try {
+  const g = buildRealmGlobals({ publicKey: pins.PUBLIC_KEY });
+  REALM_CUID = (g.window.localStorage.getItem('__cuid')) || null;
+} catch {}
 let mintCount = 0;
 let failCount = 0;
 let busy = false;
 
-// Build the SDK graph source once at startup; the bytes are pinned, so the
-// script text is identical for every request. Only the realm context differs.
-const graphScript = buildGraphScript({
-  assets: pins.ASSETS, modules: pins.MODULES, cdn: pins.CDN,
-  collectionTransform: col.collectionSource,
-});
-
 // Mint one token in a fresh realm. Mirrors experiments/script_mint.mjs,
 // which is the proven path (765-char token, collected: true).
-function mintOnce() {
-  const globals = realm.buildRealmGlobals({ publicKey: pins.PUBLIC_KEY });
-  const context = vm.createContext(globals);
-  const script = graphScript
-    .replace(/import\.meta\.collect\(/g, 'globalThis.__collect(')
-    .replace(/import\.meta\.sharedWorker\(/g, 'globalThis.__sharedWorker(')
-    .replace(/import\.meta\.network\(/g, 'globalThis.__network(');
-  let collected = null;
-  globals.__collect = v => { collected = v; return v; };
-  globals.__sharedWorker = v => v;
-  globals.__network = v => v;
-  vm.runInContext(script, context, { filename: 'graph.bundle.js' });
-  const wrapper = vm.runInContext('globalThis.__modules.wrapper', context);
-  const mint = wrapper.a;
-  return Promise.race([
-    mint({ budget_ms: MINT_BUDGET_MS }),
-    new Promise((_, rej) => setTimeout(() => rej(new Error('mint-timeout')), MINT_TIMEOUT_MS)),
-  ]).then(token => ({ token, collectedLength: collected ? collected.length : 0 }));
+const ENCODE_TOKEN = new URL('../../../target/debug/examples/encode-token', import.meta.url).pathname;
+
+// Run encode-token on an FCLT frame; resolve with the wire token string.
+function encodeWireToken(fcltFrame) {
+  return new Promise((resolve, reject) => {
+    execFile(ENCODE_TOKEN, { maxBuffer: 4 * 1024 * 1024 }, (err, stdout, stderr) => {
+      if (err) return reject(new Error('encode-token: ' + (stderr || err.message)));
+      const token = String(stdout).trim();
+      if (!token) return reject(new Error('encode-token: empty'));
+      resolve(token);
+    }).stdin.end(fcltFrame);
+  });
+}
+
+// Mint one wire token in a fresh realm via the production path:
+// createRealmWindow (workers installed) -> SdkModules.mint (collection JSON)
+// -> FCLT frame -> encode-token -> compact wire token.
+async function mintOnce(reqCuid) {
+  const dom = createRealmWindow(pins.PUBLIC_KEY, reqCuid || REALM_CUID || undefined);
+  dom.window.castlePublishableAPIKey = pins.PUBLIC_KEY;
+  if (dom.window.__workerInstallError) throw new Error('workers: ' + dom.window.__workerInstallError);
+  try {
+    const modules = new SdkModules(dom.getInternalVMContext());
+    await modules.prepare();
+    await modules.evaluate();
+    const collection = await Promise.race([
+      modules.mint(),
+      new Promise((_, rej) => setTimeout(() => rej(new Error('mint-timeout')), MINT_TIMEOUT_MS)),
+    ]);
+    if (typeof collection !== 'string' || collection.length === 0)
+      throw new Error('collection-shape: ' + typeof collection);
+    // Serialize the collection JSON to an FCLT frame, then encode.
+    const body = Buffer.from(collection, 'utf8');
+    const header = Buffer.alloc(12);
+    header.write('FCLT'); header[4] = 1; header.writeUInt32BE(body.length, 8);
+    const frame = Buffer.concat([header, body]);
+    const token = await encodeWireToken(frame);
+    return { token, collectedLength: collection.length };
+  } finally {
+    try { await dom.close(); } catch {}
+  }
 }
 
 async function handle(req) {
@@ -59,13 +82,12 @@ async function handle(req) {
   if (busy) return { ok: false, error: 'busy' };
   busy = true;
   try {
-    const { token, collectedLength } = await mintOnce();
+    const reqCuid = (typeof req.cuid === 'string' && /^[A-Za-z0-9._~-]{1,256}$/.test(req.cuid)) ? req.cuid : null;
+    const { token, collectedLength } = await mintOnce(reqCuid);
     mintCount++;
-    // Compact the 765-slot collection array for transport: the raw array is
-    // tens of KB as JSON, so send base64 and let the caller expand it.
-    const token_b64 = Buffer.from(JSON.stringify(token), 'utf8').toString('base64');
-    return { ok: true, token_b64, token_length: token ? token.length : 0,
-      collected_length: collectedLength, encoding: 'json-array-base64' };
+    // token is the compact wire string (clientId|payload). Send it directly.
+    return { ok: true, token, cuid: reqCuid || REALM_CUID, token_length: token.length,
+      collected_length: collectedLength, encoding: 'wire-token' };
   } catch (e) {
     failCount++;
     return { ok: false, error: String(e && e.message || e) };

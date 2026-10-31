@@ -2,7 +2,8 @@ import { parentPort, workerData } from 'node:worker_threads';
 import vm from 'node:vm';
 // The parent admits one exact script digest and supplies only its native UA.
 if (!parentPort || typeof workerData?.source !== 'string'
-    || workerData.userAgent !== 'Framerize/0.1') throw new Error('worker input');
+    || typeof workerData.userAgent !== 'string' || workerData.userAgent.length === 0)
+  throw new Error('worker input');
 const navigator = Object.freeze({ userAgent: workerData.userAgent });
 const context = vm.createContext({ navigator }, { codeGeneration: { strings: false, wasm: false } });
 context.self = context;

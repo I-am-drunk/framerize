@@ -4,7 +4,8 @@ import { MessageChannel, Worker } from 'node:worker_threads';
 
 export function installSharedWorkers(window, expectedScriptSha256) {
   if (window.location.origin !== 'https://framer.com'
-      || window.navigator.userAgent !== 'Framerize/0.1'
+      || typeof window.navigator.userAgent !== 'string'
+      || window.navigator.userAgent.length === 0
       || !/^[a-f0-9]{64}$/.test(expectedScriptSha256)) throw new Error('worker scope');
   const urls = new Map(), slots = new Map();
   const counts = { started: 0, joined: 0, errors: 0, connections: 0, messages: 0, sdk_replies: 0 };
@@ -53,7 +54,7 @@ export function installSharedWorkers(window, expectedScriptSha256) {
       port1.on('message', value => {
         counts.messages++;
         if (Array.isArray(value) && value.length === 13 && value[0] === 2
-            && value[1] === false && value[2] === 'Framerize/0.1' && value[12] === 'NA'
+            && value[1] === false && value[2] === window.navigator.userAgent && value[12] === 'NA'
             && Array.from({length:9}, (_,i) => value[i+3]).every(item => item === undefined))
           counts.sdk_replies++;
       });

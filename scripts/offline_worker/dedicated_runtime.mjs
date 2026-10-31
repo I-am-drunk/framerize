@@ -3,7 +3,8 @@ import { performance } from 'node:perf_hooks';
 import vm from 'node:vm';
 
 if (!parentPort || typeof workerData?.source !== 'string'
-    || workerData.source.length > 4096 || workerData.userAgent !== 'Framerize/0.1')
+    || workerData.source.length > 4096
+    || typeof workerData.userAgent !== 'string' || workerData.userAgent.length === 0)
   throw new Error('worker input');
 const context = vm.createContext({
   navigator: Object.freeze({ userAgent: workerData.userAgent }),
