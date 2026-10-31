@@ -37,6 +37,7 @@ export class RealmCastleMinter {
       phase = 'runtime';
       const status = fs.readFileSync('/proc/self/status', 'utf8');
       if (!/^NoNewPrivs:\s+1$/m.test(status) || !/^Seccomp:\s+2$/m.test(status)
+          || !process.execArgv.includes('--max-old-space-size=96')
           || !process.execArgv.includes('--experimental-vm-modules')) throw new Error('runtime');
       phase = 'import';
       const { settleOnce } = await import(pathToFileURL(SUPPORT.settle[0]));
