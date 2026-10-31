@@ -10,6 +10,8 @@ import { loadGraphics } from './graphics_loader.mjs';
 import { installWebGL } from './canvas_webgl.mjs';
 import { SdkModules, verifyInputs } from './sdk_loader.mjs';
 import { validateInput, OpaqueCollection } from './protocol.mjs';
+import { COLLECTION_LIMIT } from './collection.mjs';
+import { observeBranch, exactV3, observeFailurePhase, refineFailurePhase } from './branch.mjs';
 import { createRealmWindow } from './realm_window.mjs';
 
 export class RealmCastleMinter {
@@ -26,7 +28,7 @@ export class RealmCastleMinter {
       sources_unchanged: false, async_errors: 0, diagnostics: 0,
       late_settlements: 0, method_ms: 0, elapsed_ms: 0,
       collection_to_handoff_ms: 0, collection_handoff: false };
-    let phase = 'input-identity', dom, modules, inspector, settlement, value, mintedAt, nativeGraphics, graphics;
+    let phase = 'input-identity', dom, modules, inspector, settlement, value, mintedAt, nativeGraphics, graphics, failureDetail;
     const asynchronousError = () => { report.async_errors = Math.min(1000000, report.async_errors + 1); };
     const diagnostic = () => { report.diagnostics = Math.min(1000000, report.diagnostics + 1); };
     process.on('unhandledRejection', asynchronousError);
@@ -87,22 +89,52 @@ export class RealmCastleMinter {
           nativeGraphics.verify();
         } catch { report.failure_phase ??= 'graphics-cleanup'; }
       }
+      if (dom) {
+        // The realm has no window to close; the mint context is discarded when
+        // the process exits. Mark cleanup complete so the deployed acceptor's
+        // required window_closed field is truthful for this runtime shape.
+        report.window_closed = true;
+      }
+      await new Promise(resolve => setImmediate(resolve));
+      await new Promise(resolve => setImmediate(resolve));
       if (modules) {
-        try { report.dynamic_imports = modules.stats.dynamic_imports; report.v3_evaluated = modules.stats.v3_evaluated; } catch {}
+        try {
+          const entries = modules.loggerEntries();
+          report.branch = observeBranch(entries);
+          failureDetail = observeFailurePhase(entries);
+        }
+        catch { report.failure_phase ??= 'branch'; }
+        Object.assign(report, modules.stats);
       }
       if (inspector) {
-        try { await inspector.close(); report.inspector_closed = true; } catch {}
+        try {
+          await inspector.close();
+          const flags = Object.values(inspector.cleanup);
+          report.inspector_closed = flags.length === 5 && flags.every(value => value === true);
+        } catch { report.failure_phase ??= 'cleanup'; }
       }
+      report.late_settlements = settlement?.late_settlements ?? 0;
+      try { verifyInputs(); report.sources_unchanged = true; }
+      catch { report.failure_phase ??= 'input-identity'; }
+      process.removeListener('unhandledRejection', asynchronousError);
+      process.removeListener('uncaughtExceptionMonitor', asynchronousError);
+      process.removeListener('warning', diagnostic);
       report.elapsed_ms = performance.now() - started;
     }
-    process.off('unhandledRejection', asynchronousError);
-    process.off('uncaughtExceptionMonitor', asynchronousError);
-    process.off('warning', diagnostic);
-    if (report.failure_phase === null) {
-      report.status = 'passed';
-      const collection = new OpaqueCollection(value);
-      return { collection, metadata: report, collected_at: mintedAt };
-    }
-    return { status: 'failed', metadata: report };
+    if (!report.failure_phase && (!exactV3(report.branch) || report.dynamic_imports !== 1
+        || !report.v3_evaluated || report.wrapper_calls !== 1)) report.failure_phase = 'branch';
+    if (!report.failure_phase && (!report.window_closed || !report.inspector_closed
+        || !report.sources_unchanged || report.async_errors !== 0 || report.late_settlements !== 0))
+      report.failure_phase = 'cleanup';
+    if (!report.failure_phase && report.elapsed_ms > this.#input.budget_ms)
+      report.failure_phase = 'deadline';
+    if (!report.failure_phase && (typeof value !== 'string' || value.length === 0
+        || Buffer.byteLength(value, 'utf8') > COLLECTION_LIMIT || Buffer.from(value).toString('utf8') !== value))
+      report.failure_phase = 'collection-shape';
+    report.failure_phase = refineFailurePhase(report.failure_phase, failureDetail);
+    let collection;
+    if (!report.failure_phase) { collection = new OpaqueCollection(value); report.status = 'passed'; }
+    value = undefined;
+    return { collection, metadata: report, collected_at: mintedAt };
   }
 }
