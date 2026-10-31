@@ -1,6 +1,6 @@
 import fs from 'node:fs';
 import { performance } from 'node:perf_hooks';
-import { OfflineCastleMinter } from './offline_mint.mjs';
+import { RealmCastleMinter } from './realm_mint.mjs';
 import { readInput, verifyDescriptors } from './protocol.mjs';
 import { verifyInputs } from './sdk_loader.mjs';
 import { writeCollection } from './collection.mjs';
@@ -12,7 +12,7 @@ let metadata = { version: 1, status: 'failed', failure_phase: phase };
 try {
   verifyDescriptors(); trusted = true;
   phase = 'input';
-  const minter = new OfflineCastleMinter(readInput());
+  const minter = new RealmCastleMinter(readInput());
   phase = 'mint';
   const result = await minter.mint();
   metadata = result.metadata;

@@ -76,3 +76,11 @@ then a bounded successful request after observed completion. Keep one runtime
 owner, original cooldowns, and the same service generation across both checks.
 Record current PID, invocation, binary and support identity with sanitized
 completion/status/cancellation evidence. A restart or pool 200 is insufficient.
+
+Realm adopted into worker entrypoint (this thread, 2026-10-31). worker.mjs
+now constructs RealmCastleMinter; realm_mint.mjs success return aligned to
+the worker contract ({ collection, metadata, collected_at }, status
+'passed'). Verification: realm experiment still tokenLen=765 collected;
+worker_handoff_tests.mjs 8/8 pass; source/device tests 37/37 pass. Known
+limit: live acceptance not yet shown. Exact next action: runtime owner
+builds/deploys and runs the single bounded live request (step 4).

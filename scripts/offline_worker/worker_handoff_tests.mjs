@@ -31,7 +31,7 @@ async function run({ fail, times = [10, 20], version = 1, failedMint = false } =
   const imports = {
     'node:fs': module({ default: fs }),
     'node:perf_hooks': module({ performance: { now() { return times.shift(); } } }),
-    './offline_mint.mjs': module({ OfflineCastleMinter: class {
+    './realm_mint.mjs': module({ RealmCastleMinter: class {
       constructor() { step('input'); }
       async mint() { step('mint'); return { metadata, collected_at: 0,
         collection: failedMint ? undefined : { take() { takes++; return 'synthetic-private-collection'; } } }; }
