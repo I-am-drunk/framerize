@@ -44,12 +44,21 @@ function makeMimeTypes() {
 }
 
 export function buildRealmGlobals({ publicKey }) {
-  const measureTable = new Map();
+  // Replay measureText in capture order per string. A real browser returns
+  // the same width for (font, text); the SDK re-measures the same string at
+  // different widths because it changes ctx.font between calls. Keying by
+  // text alone collapses those to one wrong width, which is a fake signal.
+  // A queue preserves the exact captured sequence for each string.
+  const measureQueues = new Map();
   const imageTable = new Map();
   for (const r of PROBES.reads) {
-    if (r.m === 'measureText') measureTable.set(r.a[0], r.s.w);
-    else if (r.m === 'getImageData') imageTable.set(r.a.join(','), r.s);
+    if (r.m === 'measureText') {
+      const key = String(r.a[0]);
+      if (!measureQueues.has(key)) measureQueues.set(key, []);
+      measureQueues.get(key).push(r.s.w);
+    } else if (r.m === 'getImageData') imageTable.set(r.a.join(','), r.s);
   }
+  const measureCursors = new Map();
   const listeners = new Map();
 
   // 2D context whose reads replay the captured Chrome answers.
@@ -63,7 +72,14 @@ export function buildRealmGlobals({ publicKey }) {
       fill() {}, stroke() {}, save() {}, restore() {}, translate() {}, rotate() {},
       scale() {}, setTransform() {}, drawImage() {}, clip() {}, setLineDash() {},
       measureText(text) {
-        const w = measureTable.get(String(text));
+        const key = String(text);
+        const queue = measureQueues.get(key);
+        let w;
+        if (queue && queue.length) {
+          const i = measureCursors.get(key) || 0;
+          w = queue[i % queue.length];
+          measureCursors.set(key, i + 1);
+        }
         const width = w !== undefined ? w : String(text).length * 8;
         return { width, actualBoundingBoxLeft: 0, actualBoundingBoxRight: width,
           actualBoundingBoxAscent: 11, actualBoundingBoxDescent: 3,
