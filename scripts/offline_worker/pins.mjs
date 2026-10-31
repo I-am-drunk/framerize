@@ -29,6 +29,10 @@ export const SUPPORT = Object.freeze({
   writer: [ROOT + '/support/write-token-once.mjs',
     '6da5ca013764a32c516afe8f01b5b6e5bac63b7b3c40397ef428bfa02275bddb'],
 });
+export const REALM_PINS = Object.freeze({
+  'real-browser-values.json': '8302e85e9400f1d3b961c8cfd90482738057b65ac0607beac540c7de94bb4c12',
+  'probe-capture.json': '16eae8e3681680bf62bcd33334e3e1bc1f153aef65033cb5949a377eb4b4d14b',
+});
 export const DOM_PINS = Object.freeze({
   'package.json': '7fb9926bbecb12bac874dcdeb3ad32af640bbbc66b7fa89c4b1788edfce64b95',
   'package-lock.json': '51b8973cdd703e23e9f632a23e9d80aaa1b52e515aa6f7f5fcfaab4acbf589ff',

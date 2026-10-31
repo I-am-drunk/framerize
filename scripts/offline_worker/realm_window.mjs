@@ -4,7 +4,7 @@
 import { installSharedWorkers } from './shared_workers.mjs';
 import { installDedicatedWorkers } from './dedicated_workers.mjs';
 import { installWebGL } from './canvas_webgl.mjs';
-import { buildRealmGlobals } from './experiments/realm.mjs';
+import { buildRealmGlobals } from './realm_globals.mjs';
 import vm from 'node:vm';
 
 export function createRealmWindow(publicKey) {

@@ -6,13 +6,14 @@ import { dirname, join, resolve, basename } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { spawnSync } from 'node:child_process';
 import { parseArgs } from 'node:util';
-import { CDN, MODULES, SUPPORT, DOM_PINS } from './pins.mjs';
+import { CDN, MODULES, SUPPORT, DOM_PINS, REALM_PINS } from './pins.mjs';
 
 const source = dirname(fileURLToPath(import.meta.url));
 const modules = ['worker', 'offline_mint', 'protocol', 'device', 'pins',
   'graphics_loader', 'canvas_webgl', 'sdk_loader', 'branch', 'resources',
   'shared_workers', 'shared_runtime', 'dedicated_workers', 'dedicated_pool',
-  'dedicated_replies', 'dedicated_runtime', 'collection', 'collected_values'];
+  'dedicated_replies', 'dedicated_runtime', 'collection', 'collected_values',
+  'realm_mint', 'realm_window', 'realm_globals'];
 
 async function digest(path) {
   const hash = createHash('sha256');
@@ -72,10 +73,16 @@ async function assemble(root, options) {
   if (result.error || result.status !== 0) throw new Error('Pinned npm installation failed');
   await fs.rm(join(root, '.npm-cache'), { recursive: true, force: true });
   for (const [name, hash] of Object.entries(DOM_PINS)) await checked(join(dom, name), hash);
+  for (const [name, hash] of Object.entries(REALM_PINS)) {
+    const input = join(source, 'inputs', name);
+    await checked(input, hash);
+    await copy(input, join(root, 'inputs', name));
+  }
   const names = ['bin/node', ...modules.map(name => name + '.mjs'),
     ...Object.values(SUPPORT).map(([name]) => 'inputs/support/' + basename(name)),
     ...Object.values(MODULES).map(([name]) => 'inputs/assets/' + name),
-    ...Object.keys(DOM_PINS).map(name => 'inputs/dom/' + name)];
+    ...Object.keys(DOM_PINS).map(name => 'inputs/dom/' + name),
+    ...Object.keys(REALM_PINS).map(name => 'inputs/' + name)];
   const pins = [];
   for (const path of names) pins.push({ path, sha256: await digest(join(root, path)) });
   if (pins.length > 64) throw new Error('Worker pin limit exceeded');
