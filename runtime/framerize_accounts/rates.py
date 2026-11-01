@@ -50,6 +50,7 @@ class AccountRates:
         self.policy, self.clock = policy or RatePolicy(), clock or SystemClock()
         self.failed = False
         self.needs_cleanup = False
+        self._cooldown_causes = {}
         self.state = dict(devices=[], reserve=[], requests={}, cooling={},
             primary=None, reserve_day='', reserve_used=0, reserve_after=0.0,
             last_mint=0.0, pending_mint=False, clean=True, uncertain=False)
@@ -239,11 +240,15 @@ class AccountRates:
         self._ready()
         selected = self.state['devices'] if devices is None else devices
         now = self.clock.now()
-        cooling = sum(self.state['cooling'].get(d, 0) > now for d in selected)
+        cooling = [d for d in selected if self.state['cooling'].get(d, 0) > now]
         limited = sum(len(self._recent(d, now)) >= self.policy.capacity for d in selected)
-        reasons = []
-        if cooling:
-            reasons.append(f"{cooling} device cooldowns have not expired")
+        causes = {}
+        for device in cooling:
+            recorded = self._cooldown_causes.get(device)
+            cause = (recorded[1] if recorded and recorded[0] == self.state['cooling'][device]
+                     else "saved device cooldown has no recorded triggering cause")
+            causes[cause] = causes.get(cause, 0) + 1
+        reasons = [f"{count} devices: {cause}" for cause, count in causes.items()]
         if limited:
             reasons.append(f"{limited} devices reached the local allowance of "
                            f"{self.policy.capacity} requests per {self.policy.window:g} seconds")
@@ -301,6 +306,8 @@ class AccountRates:
                                       self.clock.now() + self.policy.cooldown)
         state['clean'] = False
         self._commit(state)
+        self._cooldown_causes[device] = (state['cooling'][device],
+            "Framer returned HTTP 403 during its security checks")
 
     def mint_ready_in(self):
         self._ready()
@@ -332,12 +339,17 @@ class AccountRates:
         """Call after acknowledged cleanup or verified removal of the old runtime."""
         state = deepcopy(self.state)
         now = self.clock.now()
-        if self.needs_cleanup or state['uncertain'] or state['pending_mint']:
+        recovering = self.needs_cleanup or state['uncertain'] or state['pending_mint']
+        if recovering:
             for device in [None, *state['devices']]:
                 state['cooling'][device] = now + self.policy.cooldown
             state['last_mint'] = now
         state.update(pending_mint=False, uncertain=False, clean=True)
         self._commit(state)
+        if recovering:
+            for device in [None, *state['devices']]:
+                self._cooldown_causes[device] = (state['cooling'][device],
+                    "an interrupted or unconfirmed browser operation required recovery")
         self.needs_cleanup = False
 
     def device_ready_in(self):

@@ -164,7 +164,7 @@ impl Fixture {
             current_team: Some(TeamId(format!("{prefix}-team-{n}"))),
             current_project: Some(ProjectId(format!("fixture-project-{n}"))),
             extra_workspaces: Vec::new(), state: AccountState::Ready, credit: None,
-            consecutive_failures: 0, cooldown_step: 0, cooling_until_ms: None,
+            consecutive_failures: 0, cooldown_step: 0, cooling_until_ms: None, cooldown_cause: None,
         }).collect();
         let (tx, calls) = mpsc::unbounded_channel();
         let (loads_tx, loads) = mpsc::unbounded_channel();

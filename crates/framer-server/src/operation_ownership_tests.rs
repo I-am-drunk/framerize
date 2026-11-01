@@ -366,8 +366,8 @@ async fn actual_access_log_observes_ownership_rejection_and_handler_panic() {
         assert_eq!(response.status().as_u16(), expected);
         assert_eq!(*capture.0.lock().unwrap(), vec![expected]);
         let body = to_bytes(response.into_body(), 4096).await.unwrap();
-        assert_eq!(body.as_ref(), if reject { b"Cannot start this request: earlier work ended without confirmed cleanup; its resources cannot be reused.".as_slice() }
-            else { b"operation completion unconfirmed".as_slice() });
+        assert_eq!(body.as_ref(), if reject { b"Cannot start this request: the service is draining for maintenance and has paused new operations.".as_slice() }
+            else { b"the request task panicked before reporting completed cleanup".as_slice() });
         if reject { assert!(f.loads.try_recv().is_err()); }
         else { assert_eq!(f.loads.try_recv().unwrap(), f.accounts[0].framer_user_id); }
     }

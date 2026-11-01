@@ -17,7 +17,7 @@ fn operation_events<'a>(events: &'a [Value], id: &str) -> Vec<&'a Value> {
 }
 fn assert_schema(events: &[Value]) {
     let keys: BTreeSet<_> = ["event", "request_id", "operation_id", "parent_operation_id",
-        "kind", "outcome", "cleanup_confirmed"].into_iter().collect();
+        "kind", "outcome", "cleanup_confirmed", "cause"].into_iter().collect();
     for event in events {
         assert_eq!(event.as_object().unwrap().keys().map(String::as_str).collect::<BTreeSet<_>>(), keys);
         for field in ["request_id", "operation_id"] {
@@ -30,6 +30,10 @@ fn assert_schema(events: &[Value]) {
             uuid::Uuid::parse_str(event["parent_operation_id"].as_str().unwrap()).unwrap();
         }
         assert!(matches!(event["kind"].as_str(), Some("Inference" | "ExternalCleanup")));
+        assert!(event["cause"].is_null() || event["cause"].is_string());
+        if event["cleanup_confirmed"] == false {
+            assert!(event["cause"].as_str().is_some_and(|cause| !cause.is_empty()));
+        }
         match event["event"].as_str().unwrap() {
             "operation.registered" => {
                 assert_eq!(event["outcome"], "active");
@@ -269,7 +273,7 @@ async fn shared_join_preserves_original_panic_and_cancel_error() {
 }
 
 #[tokio::test]
-async fn prior_unknown_cleanup_keeps_success_and_disconnected_output_fenced() {
+async fn unknown_cleanup_keeps_error_and_disconnected_output_fenced() {
     for messages in [true, false] {
         for disconnect in [false, true] {
             let mut f = fixture::Fixture::new();
@@ -286,27 +290,18 @@ async fn prior_unknown_cleanup_keeps_success_and_disconnected_output_fenced() {
             assert_eq!(first.account, f.accounts[0].id);
             first.reply.send(Err("host-lifecycle-unconfirmed: synthetic first call".into())).ok().unwrap();
             tokio::time::timeout(WAIT, first.dropped).await.unwrap().unwrap();
-            let second = f.next().await;
-            assert_eq!(second.account, f.accounts[1].id);
-            assert_eq!(second.kind, first.kind);
             let child = child_id(&events.snapshot(), &root);
             let completion = response.extensions().get::<ResponseCompletion>().unwrap().clone();
             let mut response = Some(response);
             if disconnect { drop(response.take()); }
-            if disconnect && !messages { assert!(second.config.as_ref().unwrap().is_cancelled()); }
-            assert!(!second.reply.is_closed());
-            assert_eq!(ownership.gate.stats().unwrap().active, 3);
-            second.reply.send(Ok(fixture::success(second.kind))).ok().unwrap();
-            tokio::time::timeout(WAIT, second.dropped).await.unwrap().unwrap();
             if let Some(response) = response {
                 let body = tokio::time::timeout(WAIT, to_bytes(response.into_body(), 65536)).await.unwrap().unwrap();
-                assert_output(&body, messages);
+                assert!(String::from_utf8_lossy(&body).contains("synthetic first call"));
             }
             assert!(!tokio::time::timeout(WAIT, completion.0).await.unwrap());
             events.event(&root, "operation.unresolved").await;
             let values = events.snapshot();
-            assert_join(&values, &child,
-                if disconnect && !messages { "error" } else { "ok" }, false);
+            assert_join(&values, &child, "error", false);
             assert_eq!(operation_events(&values, &root).len(), 2);
             assert!(!values.iter().any(|event| event["event"] == "operation.released"));
             assert!(matches!(ownership.seal(), Err(GateError::Unconfirmed)));
@@ -314,8 +309,7 @@ async fn prior_unknown_cleanup_keeps_success_and_disconnected_output_fenced() {
             let snapshot = f.state.serving_accounts.residents.snapshot().unwrap();
             assert!(snapshot.residents.iter().any(|slot|
                 slot.account == first.account && slot.uncertain && slot.users == 0));
-            assert!(snapshot.residents.iter().any(|slot|
-                slot.account == second.account && !slot.uncertain && slot.users == 0));
+            assert_eq!(snapshot.residents.len(), 1);
             assert_eq!(f.state.response_output.counts(), (0, 0, 0));
             f.no_call();
         }

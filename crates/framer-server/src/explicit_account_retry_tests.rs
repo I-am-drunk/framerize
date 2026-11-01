@@ -21,13 +21,13 @@ async fn explicit_unknown_cleanup_never_starts_peer_or_clears_fence() {
 }
 
 #[tokio::test]
-async fn unbound_risk_refusal_still_repicks() { exercise(RISK, false, true).await; }
+async fn unbound_risk_refusal_never_starts_peer() { exercise(RISK, false, true).await; }
 
 #[tokio::test]
-async fn unbound_local_cooldown_still_repicks() { exercise(COOLING, false, true).await; }
+async fn unbound_local_cooldown_never_starts_peer() { exercise(COOLING, false, true).await; }
 
 #[tokio::test]
-async fn unbound_unknown_cleanup_still_repicks_and_keeps_fence() {
+async fn unbound_unknown_cleanup_keeps_identity_and_fence() {
     exercise(UNKNOWN, false, true).await;
 }
 
@@ -71,18 +71,8 @@ async fn exercise(error: &str, explicit: bool, consume: bool) {
         let attempted_at = framer_core::rotation::now_ms();
         first.reply.send(Err(error.to_string())).ok().unwrap();
         tokio::time::timeout(WAIT, first.dropped).await.unwrap().unwrap();
-        if !explicit {
-            let second = f.next().await;
-            assert_eq!(second.account, f.accounts[1].id);
-            assert_eq!(second.kind, first.kind);
-            let loaded = tokio::time::timeout(WAIT, f.loads.recv()).await.unwrap().unwrap();
-            assert_eq!(loaded, f.accounts[1].framer_user_id);
-            assert!(f.state.gate.acquire_now(&f.key(1, model)).await.is_none());
-            second.reply.send(Ok(fixture::success(second.kind))).ok().unwrap();
-            tokio::time::timeout(WAIT, second.dropped).await.unwrap().unwrap();
-        }
         let response = tokio::time::timeout(WAIT, task).await.unwrap().unwrap().unwrap();
-        let status = if stream || !explicit { StatusCode::OK }
+        let status = if stream { StatusCode::OK }
             else { StatusCode::SERVICE_UNAVAILABLE };
         assert_eq!(response.status(), status);
         // Bounded Responses output must be read before its producer can join.
@@ -103,8 +93,7 @@ async fn exercise(error: &str, explicit: bool, consume: bool) {
             output.extend_from_slice(&tail);
         } else { drop(body); }
         if consume || (!messages && stream) {
-            if explicit { assert_error_output(&output, messages, stream, error); }
-            else { assert_success_output(&output, messages, stream); }
+            assert_error_output(&output, messages, stream, error);
         }
         tokio::time::timeout(WAIT, async {
             while ownership.gate.stats().unwrap().active > 1 { tokio::task::yield_now().await; }
@@ -114,18 +103,14 @@ async fn exercise(error: &str, explicit: bool, consume: bool) {
         assert_eq!(ownership.gate.stats().unwrap().active, 1); // Unmanaged host remains.
         assert_eq!(ownership.gate.stats().unwrap().unconfirmed, error == UNKNOWN);
         let snapshot = f.state.serving_accounts.residents.snapshot().unwrap();
-        assert_eq!(snapshot.residents.len(), if explicit { 1 } else { 2 });
+        assert_eq!(snapshot.residents.len(), 1);
         assert!(snapshot.residents.iter().all(|slot| slot.users == 0));
         let first_slot = snapshot.residents.iter().find(|slot| slot.account == first.account).unwrap();
         assert_eq!(first_slot.uncertain, error == UNKNOWN);
-        if !explicit {
-            let peer = snapshot.residents.iter().find(|slot| slot.account == f.accounts[1].id).unwrap();
-            assert!(!peer.uncertain);
-        }
         for index in [0, 1] {
             drop(f.state.gate.acquire_now(&f.key(index, model)).await.expect("attempt permit leaked"));
         }
-        assert_records(&f, error, explicit, attempted_at).await;
+        assert_records(&f, error, attempted_at).await;
         assert!(f.state.wave.check().is_none());
         if error == UNKNOWN {
             assert!(matches!(ownership.seal(), Err(GateError::Unconfirmed)));
@@ -159,7 +144,7 @@ async fn read_response_terminal(body: &mut axum::body::BodyDataStream) -> Vec<u8
     wire
 }
 
-async fn assert_records(f: &fixture::Fixture, error: &str, explicit: bool, attempted_at: u64) {
+async fn assert_records(f: &fixture::Fixture, error: &str, attempted_at: u64) {
     let first = f.state.state.get(f.accounts[0].id).await.unwrap().unwrap();
     let mut expected = f.accounts[0].clone();
     if error != UNKNOWN {
@@ -171,11 +156,11 @@ async fn assert_records(f: &fixture::Fixture, error: &str, explicit: bool, attem
     if error == RISK {
         expected.consecutive_failures = 1;
         expected.cooldown_step = 1;
+        expected.cooldown_cause = Some("Framer returned HTTP 403 during its security checks".into());
     }
     assert_eq!(serde_json::to_value(first).unwrap(), serde_json::to_value(expected).unwrap());
     let peer = f.state.state.get(f.accounts[1].id).await.unwrap().unwrap();
-    let mut expected = f.accounts[1].clone();
-    if !explicit { expected.consecutive_failures = 0; }
+    let expected = f.accounts[1].clone();
     assert_eq!(serde_json::to_value(peer).unwrap(), serde_json::to_value(expected).unwrap());
 }
 
@@ -197,40 +182,15 @@ fn assert_error_output(body: &[u8], messages: bool, stream: bool, original: &str
         if messages { &failure["error"] } else { &failure["response"]["error"] }
     } else { &values[0]["error"] };
     let (message, kind) = if original == COOLING {
-        ("Cannot start the request because an earlier security refusal started this account's cooldown. Retry in 60 seconds.", "overloaded_error")
+        ("Cannot start the request because the saved account cooldown has no recorded triggering cause. Retry in 60 seconds.", "overloaded_error")
     } else if original == RISK {
         ("Framer refused the request with HTTP 403 during its security checks. Its response did not disclose a more specific cause.", "overloaded_error")
     } else {
-        ("Framerize cannot safely start another request yet. Please retry later.", "overloaded_error")
+        ("Browser host failure: inert cleanup lost. Browser cleanup remains unconfirmed.", "overloaded_error")
     };
     assert_eq!(error["message"], message);
     assert_eq!(error["type"], kind);
     if !messages { assert_eq!(error["code"], kind); }
-}
-
-fn assert_success_output(body: &[u8], messages: bool, stream: bool) {
-    let values = output_values(body, stream);
-    if stream {
-        assert!(!values.iter().any(|value| value["type"] == "error"
-            || value["type"] == "response.failed"));
-        let kind = if messages { "message_stop" } else { "response.completed" };
-        assert_eq!(values.iter().filter(|value| value["type"] == kind).count(), 1);
-        if messages {
-            let text: String = values.iter().filter(|value| value["type"] == "content_block_delta")
-                .map(|value| value["delta"]["text"].as_str().unwrap()).collect();
-            assert_eq!(text, "fixture");
-        } else {
-            let done = values.iter().find(|value| value["type"] == kind).unwrap();
-            assert_eq!(done["response"]["output"][0]["content"][0]["text"], "fixture");
-            assert_eq!(done["response"]["status"], "completed");
-        }
-    } else if messages {
-        assert_eq!(values[0]["content"][0]["text"], "fixture");
-        assert_eq!(values[0]["stop_reason"], "end_turn");
-    } else {
-        assert_eq!(values[0]["output"][0]["content"][0]["text"], "fixture");
-        assert_eq!(values[0]["status"], "completed");
-    }
 }
 
 #[tokio::test]
@@ -282,7 +242,7 @@ async fn exercise_undecodable_account(wave: bool) {
                     assert_eq!(value["error"]["type"], "overloaded_error");
                     assert_eq!(value["error"]["retry_after_seconds"], 30);
                     assert_eq!(value["error"]["message"],
-                        "Recent security refusals across multiple accounts triggered a global pause. Retry in 30 seconds.");
+                        "Recent security refusals across multiple accounts triggered the global admission pause. Retry in 30 seconds.");
                 } else {
                     assert_eq!(value, serde_json::json!({"error": {
                         "code": "invalid_request",

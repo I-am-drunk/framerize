@@ -993,7 +993,10 @@ async fn current_account(s: &AppState, id: AccountId) -> Result<ManagedAccount, 
     }
     let now = framer_core::rotation::now_ms();
     if let Some(until) = account.cooling_until_ms.filter(|until| *until > now) {
-        return Err(ApiError::AccountCooling { retry_after_secs: until.saturating_sub(now).div_ceil(1000) });
+        return Err(ApiError::AccountCooling {
+            retry_after_secs: until.saturating_sub(now).div_ceil(1000),
+            cause: account.cooldown_reason().to_owned(),
+        });
     }
     if let Some(cause) = account.eligibility_problem() {
         return Err(ApiError::ServingCapacity(cause));
@@ -1003,7 +1006,8 @@ async fn current_account(s: &AppState, id: AccountId) -> Result<ManagedAccount, 
 
 fn chain_admission_error(error: ApiError) -> String {
     match error {
-        ApiError::AccountCooling { retry_after_secs } => format!("account-cooling:{retry_after_secs}"),
+        ApiError::AccountCooling { retry_after_secs, cause } =>
+            format!("account-cooling:{retry_after_secs}; {cause}"),
         ApiError::Cooling { retry_after_secs } => format!("server-cooling:{retry_after_secs}"),
         ApiError::InvalidRequest(message) | ApiError::PoolBusy(message)
         | ApiError::Internal(message) | ApiError::ServingCapacity(message) => message,
@@ -1033,6 +1037,7 @@ async fn record_account_health<T>(
             // A response admitted before a newer refusal cannot clear it.
             if next.cooldown_step != account.cooldown_step
                 || next.cooling_until_ms != account.cooling_until_ms
+                || next.cooldown_cause != account.cooldown_cause
                 || next.consecutive_failures != account.consecutive_failures { return; }
             s.wave.note_success();
             if next.consecutive_failures == 0 && next.cooling_until_ms.is_none() {
@@ -1043,7 +1048,9 @@ async fn record_account_health<T>(
         Err(e) if AccountCooldown::from_error(e).is_some() => {
             let cooldown = AccountCooldown::from_error(e).expect("matched local cooldown");
             let until = now.saturating_add(cooldown.retry_after_secs.saturating_mul(1000));
-            next.cooling_until_ms = Some(next.cooling_until_ms.unwrap_or(0).max(until));
+            let cause = framer_core::error::chain_error_cause(e)
+                .split_once("; ").map(|(_, cause)| cause);
+            next.note_cooldown(until, cause);
             framer_core::observability::Event::new("account.local_cooldown")
                 .account(&account.id)
                 .field("retry_after_secs", cooldown.retry_after_secs)
@@ -1056,9 +1063,7 @@ async fn record_account_health<T>(
         // (their policy refusal is not the account's health).
         Err(e) if is_castle_refusal(e) => {
             s.wave.note_refusal(&account.id.0.to_string());
-            let previous = next.cooling_until_ms.unwrap_or(0);
             next.note_risk_refused(now);
-            next.cooling_until_ms = Some(previous.max(next.cooling_until_ms.unwrap_or(0)));
             eprintln!(
                 "[health] {}: risk-refused -> cooling {}ms (step {})",
                 &next.id.0.to_string()[..8],
@@ -2866,6 +2871,7 @@ async fn complete_login_observed(State(s): State<AppState>, Json(body): Json<Com
             consecutive_failures: 0,
             cooldown_step: 0,
             cooling_until_ms: None,
+            cooldown_cause: None,
         });
     let registration = s.serving_accounts.registration.lock().await;
     // Dedupe by email BEFORE anything else: adding the same account twice
@@ -3079,6 +3085,7 @@ async fn import_account_observed(State(s): State<AppState>, Json(body): Json<Imp
             consecutive_failures: 0,
             cooldown_step: 0,
             cooling_until_ms: None,
+            cooldown_cause: None,
         });
     let registration = s.serving_accounts.registration.lock().await;
     // Same dedupe + naming rule as complete_login: one email, one account.
@@ -3336,8 +3343,8 @@ async fn run(
     }
     let response: Result<Json<InferenceOutcome>, ApiError> = outcome.map(Json)
         .map_err(|error| match error {
-            framer_core::error::CoreError::AccountCooling(cooldown) =>
-                ApiError::AccountCooling { retry_after_secs: cooldown.retry_after_secs },
+            framer_core::error::CoreError::AccountCooling(cooldown, cause) =>
+                ApiError::AccountCooling { retry_after_secs: cooldown.retry_after_secs, cause },
             error @ framer_core::error::CoreError::AccountNotReady(_) =>
                 ApiError::ServingCapacity(error.to_string()),
             error => ApiError::Internal(error.to_string()),
@@ -3352,7 +3359,7 @@ enum ApiError {
     PoolBusy(String),
     ServingCapacity(String),
     Cooling { retry_after_secs: u64 },
-    AccountCooling { retry_after_secs: u64 },
+    AccountCooling { retry_after_secs: u64, cause: String },
 }
 
 impl ApiError {
@@ -3362,8 +3369,9 @@ impl ApiError {
                 | Self::ServingCapacity(value) => framer_core::error::safe_failure_summary(value),
             Self::Cooling { retry_after_secs } => format!(
                 "security refusals triggered a global pause with {retry_after_secs} seconds remaining"),
-            Self::AccountCooling { retry_after_secs } => format!(
-                "a security refusal triggered an account cooldown with {retry_after_secs} seconds remaining"),
+            Self::AccountCooling { retry_after_secs, cause } => format!(
+                "{}; account cooldown has {retry_after_secs} seconds remaining",
+                framer_core::error::safe_failure_summary(cause)),
         }
     }
     fn operation_admission(error: framer_core::operation_gate::GateError) -> Self {
@@ -3378,7 +3386,11 @@ struct ShapedApiError(StatusCode, serde_json::Value);
 
 impl axum::response::IntoResponse for ApiError {
     fn into_response(self) -> axum::response::Response {
-        let account_cooling = matches!(&self, Self::AccountCooling { .. });
+        let account_cause = match &self {
+            Self::AccountCooling { cause, .. } =>
+                Some(framer_core::error::safe_failure_summary(cause)),
+            _ => None,
+        };
         match self {
             Self::InvalidRequest(message) => (StatusCode::BAD_REQUEST,
                 Json(serde_json::json!({"error":{"code":"invalid_request","message":message}}))).into_response(),
@@ -3388,14 +3400,14 @@ impl axum::response::IntoResponse for ApiError {
                     "message":message,"retry_after_seconds":1}}))).into_response(),
             Self::Internal(message) => (StatusCode::INTERNAL_SERVER_ERROR, message).into_response(),
             Self::ServingCapacity(message) => (StatusCode::SERVICE_UNAVAILABLE, message).into_response(),
-            Self::Cooling { retry_after_secs } | Self::AccountCooling { retry_after_secs } => {
+            Self::Cooling { retry_after_secs } | Self::AccountCooling { retry_after_secs, .. } => {
                 // Rechecks can see recovered capacity or an in-flight success.
                 // Their interval never shortens the underlying cooldown.
                 let recheck_after_secs = retry_after_secs.clamp(1, 30);
-                let (code, reason) = if account_cooling {
-                    ("framerize_account_cooling", "An earlier security refusal started this account's cooldown; its recorded deadline has not expired.")
+                let (code, reason) = if let Some(cause) = account_cause {
+                    ("framerize_account_cooling", format!("Cannot start the request because {cause}."))
                 } else {
-                    ("framerize_cooling", "Recent security refusals across multiple accounts triggered the global admission pause.")
+                    ("framerize_cooling", "Recent security refusals across multiple accounts triggered the global admission pause.".to_owned())
                 };
                 (
                     StatusCode::SERVICE_UNAVAILABLE,

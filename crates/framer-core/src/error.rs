@@ -42,8 +42,8 @@ pub enum CoreError {
     NotEligible(String),
     /// Local deadline refusal after account, session and scope checks.
     /// Carries the full remaining seconds; callers bound their retry interval.
-    #[error(transparent)]
-    AccountCooling(AccountCooldown),
+    #[error("{0}; {1}")]
+    AccountCooling(AccountCooldown, String),
     /// Local lifecycle refusal for an otherwise complete, matching scope.
     #[error("account state is {0:?}; inference requires Ready")]
     AccountNotReady(crate::account::AccountState),

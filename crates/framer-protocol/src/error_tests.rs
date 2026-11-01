@@ -28,7 +28,9 @@ fn security_refusal_requires_exact_known_cause() {
 fn temporary_internal_errors_are_readable_in_every_dialect() {
     for (error, expected) in [
         ("risk-refused", "Framer refused the request with HTTP 403 during its security checks. Its response did not disclose a more specific cause."),
-        ("account-cooling:584", "Cannot start the request because an earlier security refusal started this account's cooldown. Retry in 584 seconds."),
+        ("account-cooling:584", "Cannot start the request because the saved account cooldown has no recorded triggering cause. Retry in 584 seconds."),
+        ("account-cooling:584; the selected device exhausted its 180-request allowance",
+            "Cannot start the request because the selected device exhausted its 180-request allowance. Retry in 584 seconds."),
         ("server-cooling:150", "Recent security refusals across multiple accounts triggered a global pause. Retry in 150 seconds."),
         ("castle-unavailable", "The browser's Castle SDK did not supply a usable request token. The host did not report a more specific SDK failure."),
         ("retryable 0 on /ai/v3/responses/: castle-unavailable",
@@ -52,14 +54,17 @@ fn temporary_internal_errors_are_readable_in_every_dialect() {
 
 #[test]
 fn transport_and_http_errors_do_not_become_security_or_capacity_failures() {
-    for error in ["transport closed: risk-refused", "retryable 500 on /p: risk-refused",
-        "retryable 500 on /p: castle-unavailable", "transport closed: account-cooling:10"]
+    for (error, expected) in [
+        ("transport closed: risk-refused", None),
+        ("retryable 500 on /p: risk-refused", Some("Upstream HTTP 500: risk-refused")),
+        ("retryable 500 on /p: castle-unavailable", Some("Upstream HTTP 500: castle-unavailable")),
+        ("transport closed: account-cooling:10", None)]
     {
         for input in [error.to_owned(), format!("chunk 0 retry died (fallback off): {error}")] {
             for dialect in dialects() {
                 let (status, body) = error_json(dialect, &input);
                 assert_eq!(status, 500, "{input}");
-                assert_eq!(body["error"]["message"], input);
+                assert_eq!(body["error"]["message"], expected.unwrap_or(&input));
                 assert!(!is_security_refusal(&input));
             }
         }
@@ -84,7 +89,8 @@ fn provider_refusals_keep_status_and_message_even_with_internal_words() {
     for dialect in dialects() {
         let (status, body) = error_json(dialect, plain);
         assert_eq!(status, 403);
-        assert_eq!(body["error"]["message"], plain);
+        assert_eq!(body["error"]["message"],
+            "Upstream HTTP 403: provider rejected risk-refused");
     }
 }
 

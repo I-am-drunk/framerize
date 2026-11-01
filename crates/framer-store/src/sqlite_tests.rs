@@ -17,7 +17,27 @@ fn account() -> ManagedAccount {
         consecutive_failures: 0,
         cooldown_step: 0,
         cooling_until_ms: None,
+        cooldown_cause: None,
     }
+}
+
+#[tokio::test]
+async fn cooldown_cause_survives_reopening_without_credentials() {
+    let mut record = account();
+    let path = std::env::temp_dir().join(format!("framerize-cooldown-{}.db", record.id.0));
+    record.note_cooldown(100_000,
+        Some("device request allowance exhausted; Authorization: Bearer private-fixture"));
+    let store = SqliteStateStore::open(path.to_str().unwrap()).unwrap();
+    store.upsert(&record).await.unwrap();
+    drop(store);
+    let store = SqliteStateStore::open(path.to_str().unwrap()).unwrap();
+    let restored = store.get(record.id).await.unwrap().unwrap();
+    assert_eq!(restored.cooling_until_ms, Some(100_000));
+    assert!(restored.cooldown_reason().contains("device request allowance exhausted"));
+    assert!(!restored.cooldown_reason().contains("private-fixture"));
+    assert_eq!(restored.castle_device_id, record.castle_device_id);
+    drop(store);
+    std::fs::remove_file(path).unwrap();
 }
 
 #[tokio::test]

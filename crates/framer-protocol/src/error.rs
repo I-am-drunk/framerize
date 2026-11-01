@@ -113,7 +113,7 @@ pub(crate) fn public_unavailable_message(error: &str) -> Option<String> {
     }
     if let Some(cooldown) = AccountCooldown::from_error(error) {
         let reason = cause.split_once("; ").map(|(_, reason)| safe_failure_summary(reason))
-            .unwrap_or_else(|| "an earlier security refusal started this account's cooldown".into());
+            .unwrap_or_else(|| "the saved account cooldown has no recorded triggering cause".into());
         return Some(format!("Cannot start the request because {reason}. Retry in {} seconds.",
                            cooldown.retry_after_secs));
     }

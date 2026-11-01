@@ -110,8 +110,8 @@ async fn closed_new_bridge_cannot_start_a_process() {
     let closed = control.seal_admission(&proof).await.unwrap();
     assert!(closed.matches_bridge(&bridge));
     assert_eq!(closed.observed_incarnation(), None);
-    assert!(bridge.call("fixture", json!({})).await.unwrap_err().contains("Closed"));
-    assert!(bridge.sidecar().await.unwrap_err().contains("Closed"));
+    assert!(bridge.call("fixture", json!({})).await.unwrap_err().contains("closed for shutdown"));
+    assert!(bridge.sidecar().await.unwrap_err().contains("closed for shutdown"));
     assert!(bridge.inner.lock().await.is_none());
 }
 

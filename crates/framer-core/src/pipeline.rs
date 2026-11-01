@@ -157,7 +157,7 @@ async fn check_inference_admission(
     if let Some(until) = current.cooling_until_ms.filter(|until| *until > now) {
         return Err(CoreError::AccountCooling(AccountCooldown {
             retry_after_secs: until.saturating_sub(now).div_ceil(1000),
-        }));
+        }, current.cooldown_reason().to_owned()));
     }
     if current.state != AccountState::Ready {
         return Err(CoreError::AccountNotReady(current.state));

@@ -178,7 +178,7 @@ impl ServingAccountPolicy {
                 .ok_or_else(|| ApiError::Internal("unknown account id".into()))?;
             self.require(&account.id)?;
             if let Some(until) = account.cooling_until_ms.filter(|until| *until > now) {
-                return Err(Self::cooling(until, now));
+                return Err(Self::cooling(until, now, account.cooldown_reason()));
             }
             let snapshot = self.residents.snapshot()
                 .map_err(|error| ApiError::PoolBusy(error.to_string()))?;
@@ -215,11 +215,13 @@ impl ServingAccountPolicy {
     ) -> Result<ManagedAccount, ApiError> {
         let cooling_until = pool.iter()
             .filter(|a| self.allows(&a.id) && a.is_eligible())
-            .filter_map(|a| a.cooling_until_ms.filter(|until| *until > now)).min();
+            .filter_map(|a| a.cooling_until_ms.filter(|until| *until > now)
+                .map(|until| (until, a.cooldown_reason().to_owned())))
+            .min_by_key(|(until, _)| *until);
         pool.retain(|a| self.allows(&a.id) && !excluded.contains(&a.id.0.to_string()));
         if pool.is_empty() {
-            if let Some(until) = cooling_until {
-                return Err(Self::cooling(until, now));
+            if let Some((until, cause)) = cooling_until {
+                return Err(Self::cooling(until, now, &cause));
             }
             return Err(if self.configured_count().is_some() {
                 ApiError::ServingCapacity(
@@ -232,9 +234,10 @@ impl ServingAccountPolicy {
         self.pick_ready(&pool, now)
     }
 
-    fn cooling(until: u64, now: u64) -> ApiError {
+    fn cooling(until: u64, now: u64, cause: &str) -> ApiError {
         ApiError::AccountCooling {
             retry_after_secs: until.saturating_sub(now).div_ceil(1000).max(1),
+            cause: framer_core::error::safe_failure_summary(cause),
         }
     }
 
@@ -254,10 +257,12 @@ impl ServingAccountPolicy {
         // The general selector can fall back to a cooling account. HTTP
         // admission must instead let the client back off before SSE starts.
         if !pool.iter().any(|a| a.is_available_at(now)) {
-            if let Some(until) = pool.iter().filter(|a| a.is_eligible())
-                .filter_map(|a| a.cooling_until_ms.filter(|until| *until > now)).min()
+            if let Some((until, cause)) = pool.iter().filter(|a| a.is_eligible())
+                .filter_map(|a| a.cooling_until_ms.filter(|until| *until > now)
+                    .map(|until| (until, a.cooldown_reason())))
+                .min_by_key(|(until, _)| *until)
             {
-                return Err(Self::cooling(until, now));
+                return Err(Self::cooling(until, now, cause));
             }
         }
         self.rotation.pick_preferred_at(pool, now, |account| {

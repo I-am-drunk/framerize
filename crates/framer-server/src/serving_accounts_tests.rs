@@ -23,6 +23,7 @@ fn account(n: u128) -> ManagedAccount {
         consecutive_failures: 0,
         cooldown_step: 0,
         cooling_until_ms: None,
+        cooldown_cause: None,
     }
 }
 
@@ -30,6 +31,51 @@ fn policy(ids: &[u128]) -> ServingAccountPolicy {
     let raw = ids.iter().map(|n| uuid::Uuid::from_u128(*n).to_string())
         .collect::<Vec<_>>().join(",");
     ServingAccountPolicy::parse(Some(&raw)).unwrap()
+}
+
+#[tokio::test]
+async fn saved_local_cooldown_reports_its_cause_in_every_selection_path() {
+    let mut record = account(1);
+    record.note_cooldown(100_000, Some("the selected device exhausted its 180-request allowance"));
+    let record: ManagedAccount = serde_json::from_value(serde_json::to_value(record).unwrap()).unwrap();
+    let selected = policy(&[1]);
+    let id = record.id.0.to_string();
+    for error in [selected.select_at(vec![record.clone()], Some(&id), 1_000).unwrap_err(),
+        selected.select_at(vec![record.clone()], None, 1_000).unwrap_err(),
+        selected.select_fresh_at(vec![record.clone()], &[id.clone()], 1_000).unwrap_err()] {
+        let response = error.into_response();
+        assert_eq!(response.status(), StatusCode::SERVICE_UNAVAILABLE);
+        let body = axum::body::to_bytes(response.into_body(), 4096).await.unwrap();
+        let message = String::from_utf8(body.to_vec()).unwrap();
+        assert!(message.contains("180-request allowance"));
+        assert!(!message.contains("security refusal"));
+    }
+}
+
+#[test]
+fn shorter_refusal_keeps_the_longer_deadline_cause_and_success_clears_it() {
+    let mut record = account(1);
+    record.note_cooldown(100_000, Some("device allowance exhausted"));
+    record.note_risk_refused(1_000);
+    assert_eq!(record.cooling_until_ms, Some(100_000));
+    assert_eq!(record.cooldown_reason(), "device allowance exhausted");
+    record.note_success();
+    assert_eq!(record.cooling_until_ms, None);
+    assert_eq!(record.cooldown_cause, None);
+}
+
+#[test]
+fn repeated_deadline_keeps_known_cause_and_old_records_load_without_one() {
+    let mut record = account(1);
+    record.note_cooldown(100_000, Some("device allowance exhausted"));
+    record.note_cooldown(100_000, None);
+    assert_eq!(record.cooldown_reason(), "device allowance exhausted");
+    let mut old = serde_json::to_value(record).unwrap();
+    old.as_object_mut().unwrap().remove("cooldown_cause");
+    let restored: ManagedAccount = serde_json::from_value(old).unwrap();
+    assert_eq!(restored.cooling_until_ms, Some(100_000));
+    assert_eq!(restored.cooldown_reason(),
+        "the saved account cooldown has no recorded triggering cause");
 }
 
 #[test]
@@ -44,9 +90,9 @@ fn exhausted_retry_keeps_earliest_allowed_cooldown() {
     let pool = vec![first, second, disabled];
     let selected = policy(&[1, 2]);
     assert!(matches!(selected.select_fresh_at(pool.clone(), &excluded, 1_000),
-        Err(ApiError::AccountCooling { retry_after_secs: 30 })));
+        Err(ApiError::AccountCooling { retry_after_secs: 30, .. })));
     assert!(matches!(selected.select_fresh_at(pool.clone(), &excluded, 31_000),
-        Err(ApiError::AccountCooling { retry_after_secs: 30 })));
+        Err(ApiError::AccountCooling { retry_after_secs: 30, .. })));
     assert!(matches!(selected.select_fresh_at(pool, &excluded, 61_000),
         Err(ApiError::ServingCapacity(_))));
 }
@@ -121,7 +167,7 @@ fn explicit_cooling_id_rejects_without_substituting_a_ready_account() {
     requested.cooling_until_ms = Some(u64::MAX);
     let id = requested.id.0.to_string();
     let error = policy(&[1, 2]).select_at(vec![requested, account(2)], Some(&id), 0).unwrap_err();
-    assert!(matches!(error, ApiError::AccountCooling { retry_after_secs }
+    assert!(matches!(error, ApiError::AccountCooling { retry_after_secs, .. }
         if retry_after_secs == u64::MAX.div_ceil(1000)));
 }
 
@@ -160,7 +206,7 @@ fn all_cooling_returns_earliest_allowed_wait_without_fallback() {
     sooner.cooling_until_ms = Some(310_001);
     let pool = vec![account(3), later, sooner];
     assert!(matches!(policy(&[1, 2]).select_at(pool, None, 10_000),
-        Err(ApiError::AccountCooling { retry_after_secs: 301 })));
+        Err(ApiError::AccountCooling { retry_after_secs: 301, .. })));
 }
 
 #[test]
@@ -278,7 +324,7 @@ fn cooling_account_reenters_at_its_deadline_without_state_changes() {
     a.consecutive_failures = 9;
     let p = policy(&[1]);
     assert!(matches!(p.select_at(vec![a.clone()], None, 1000),
-        Err(ApiError::AccountCooling { retry_after_secs: 1 })));
+        Err(ApiError::AccountCooling { retry_after_secs: 1, .. })));
     let selected = p.select_at(vec![a.clone()], None, 1001).unwrap();
     assert_eq!(serde_json::to_value(selected).unwrap(), serde_json::to_value(a).unwrap());
 }
@@ -290,7 +336,7 @@ fn retry_wait_excludes_tried_parked_and_unprovisioned_accounts() {
     pool[3].current_project = None;
     let tried = vec![pool[0].id.0.to_string()];
     assert!(matches!(policy(&[1, 2, 4]).select_fresh_at(pool, &tried, 100_000),
-        Err(ApiError::AccountCooling { retry_after_secs: 300 })));
+        Err(ApiError::AccountCooling { retry_after_secs: 300, .. })));
 }
 
 #[test]
@@ -300,7 +346,7 @@ fn unrestricted_admission_also_respects_the_full_cooldown() {
     let p = ServingAccountPolicy::default();
     for _ in 0..3 {
         assert!(matches!(p.select_at(vec![a.clone()], None, 1000),
-            Err(ApiError::AccountCooling { retry_after_secs: 600 })));
+            Err(ApiError::AccountCooling { retry_after_secs: 600, .. })));
     }
     assert_eq!(a.cooling_until_ms, Some(601_000));
 }

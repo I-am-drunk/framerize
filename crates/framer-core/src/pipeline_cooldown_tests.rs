@@ -39,7 +39,7 @@ fn account(index: u8) -> ManagedAccount {
         }] } else { vec![] },
         state: AccountState::Ready,
         credit: Some(credit()), consecutive_failures: 0,
-        cooldown_step: 0, cooling_until_ms: None,
+        cooldown_step: 0, cooling_until_ms: None, cooldown_cause: None,
     }
 }
 
@@ -248,7 +248,7 @@ fn assert_risk(result: Result<InferenceOutcome, CoreError>) {
 
 fn assert_cooling_between(result: Result<InferenceOutcome, CoreError>,
     until: u64, before: u64, after: u64) {
-    let Err(CoreError::AccountCooling(cooldown)) = result else {
+    let Err(CoreError::AccountCooling(cooldown, _)) = result else {
         panic!("expected typed local cooldown");
     };
     let minimum = until.saturating_sub(after).div_ceil(1000).max(1);

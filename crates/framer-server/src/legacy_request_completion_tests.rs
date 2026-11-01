@@ -205,8 +205,8 @@ async fn finished(state: &AppState, scope: &ServingOwnership, gate: &OperationGa
     }
     let response = send(state, Request::builder().uri("/api/hello").body(Body::empty()).unwrap()).await;
     assert_eq!(response.status(), if global_unknown { StatusCode::SERVICE_UNAVAILABLE } else { StatusCode::OK });
-    assert_eq!(to_bytes(response.into_body(), 1024).await.unwrap().as_ref(),
-        if global_unknown { b"Cannot start this request: earlier work ended without confirmed cleanup; its resources cannot be reused.".as_slice() } else { b"ok".as_slice() });
+    let expected = if global_unknown { format!("Cannot start this request: {}.", gate.error_explanation(GateError::Unconfirmed)) } else { "ok".into() };
+    assert_eq!(to_bytes(response.into_body(), 1024).await.unwrap().as_ref(), expected.as_bytes());
     assert_eq!(gate.stats().unwrap().active, 1);
     assert_eq!(gate.stats().unwrap().unconfirmed, global_unknown);
 }

@@ -414,7 +414,8 @@ async fn cooldown_guidance_bounds_local_rechecks_and_preserves_full_pause() {
     ] {
         for (error, code) in [
             (ApiError::Cooling { retry_after_secs: remaining }, "framerize_cooling"),
-            (ApiError::AccountCooling { retry_after_secs: remaining }, "framerize_account_cooling"),
+            (ApiError::AccountCooling { retry_after_secs: remaining,
+                cause: "fixture request allowance exhausted".into() }, "framerize_account_cooling"),
         ] {
             let response = error.into_response();
             assert_eq!(response.status(), 503);
@@ -480,12 +481,27 @@ async fn real_refusals_still_pause_the_pool_and_local_cooldowns_do_not_count() {
 }
 
 #[tokio::test]
+async fn old_success_cannot_clear_a_newly_recorded_cooldown_cause() {
+    let (state, ports) = fixture(true);
+    let mut before = account(1);
+    before.note_cooldown(u64::MAX, None);
+    let mut current = before.clone();
+    current.note_cooldown(u64::MAX, Some("device allowance exhausted"));
+    *ports.records.lock().unwrap() = vec![current];
+    crate::record_account_health(&state, &before, &Ok::<_, String>(())).await;
+    let records = ports.records.lock().unwrap();
+    assert_eq!(records[0].cooling_until_ms, Some(u64::MAX));
+    assert_eq!(records[0].cooldown_reason(), "device allowance exhausted");
+}
+
+#[tokio::test]
 async fn local_cooldowns_park_accounts_without_pausing_the_serving_pool() {
     let (mut state, ports) = fixture(true);
     *ports.records.lock().unwrap() = (1..=4).map(account).collect();
     state.runtime_mut().expect("unique fixture runtime").serving_accounts = Arc::new(policy(&[1, 2, 3]));
     let before = framer_core::rotation::now_ms();
-    for (id, error) in [(1, "account-cooling:584"), (2, "chunk 0 retry died (fallback off): account-cooling:584")] {
+    for (id, error) in [(1, "account-cooling:584; device allowance exhausted"),
+        (2, "chunk 0 retry died (fallback off): account-cooling:584; device allowance exhausted")] {
         crate::record_account_health(&state, &account(id), &Err::<(), _>(error.to_string())).await;
     }
     assert!(state.wave.check().is_none());
@@ -494,6 +510,7 @@ async fn local_cooldowns_park_accounts_without_pausing_the_serving_pool() {
         assert!(record.cooling_until_ms.unwrap() >= before + 584_000);
         assert_eq!(record.consecutive_failures, 0);
         assert_eq!(record.cooldown_step, 0);
+        assert_eq!(record.cooldown_reason(), "device allowance exhausted");
     }
     assert_eq!(state.serving_accounts.select(records, None).unwrap().id, account(3).id);
     assert_eq!(ports.browser_calls.load(Ordering::SeqCst), 0);

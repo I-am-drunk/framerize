@@ -226,39 +226,25 @@ fn three_accounts() -> fixture::Fixture {
 }
 
 #[tokio::test(start_paused = true)]
-async fn two_refusals_wait_without_permits_then_use_one_untried_account() {
+async fn refusal_finishes_without_using_another_account() {
     let mut f = three_accounts();
-    let mut body = open(&f).await.into_body().into_data_stream();
-    for index in 0..2 {
-        let call = f.next().await;
-        assert_eq!(call.account, f.accounts[index].id);
-        f.loaded(index).await;
-        call.reply.send(Err("risk-refused".into())).ok().unwrap();
-        tokio::time::timeout(WAIT, call.dropped).await.unwrap().unwrap();
-    }
-    let mut wire = String::new();
-    heartbeat(&mut body, &mut wire).await;
-    assert!(f.state.wave.check().is_some());
-    idle(&mut f).await;
-    let refused = f.state.state.list().await.unwrap();
-    for index in 0..2 {
-        assert_eq!(refused[index].consecutive_failures, f.accounts[index].consecutive_failures + 1);
-        assert_eq!(refused[index].cooldown_step, 1);
-        assert!(refused[index].cooling_until_ms.is_some());
-    }
-    f.state.wave.note_success();
+    let response = open(&f).await;
     let call = f.next().await;
-    assert_eq!(call.account, f.accounts[2].id);
-    f.loaded(2).await;
-    call.reply.send(Ok(fixture::success("responses"))).ok().unwrap();
-    finish(&mut body, &mut wire).await;
+    assert_eq!(call.account, f.accounts[0].id);
+    f.loaded(0).await;
+    call.reply.send(Err("risk-refused".into())).ok().unwrap();
     tokio::time::timeout(WAIT, call.dropped).await.unwrap().unwrap();
-    drop(body);
-    drained(&mut f).await;
-    for account in &refused[..2] {
+    let body = crate::response_output::consume_body(response.into_body(), 65536).await.unwrap();
+    let wire = String::from_utf8(body.to_vec()).unwrap();
+    assert!(wire.contains("HTTP 403 during its security checks"));
+    assert!(wire.contains("response.failed"));
+    assert!(!wire.contains("response.completed"));
+    assert!(f.state.wave.check().is_none());
+    for account in &f.accounts[1..] {
         let current = f.state.state.get(account.id).await.unwrap().unwrap();
         assert_eq!(serde_json::to_value(current).unwrap(), serde_json::to_value(account).unwrap());
     }
+    drained(&mut f).await;
 }
 
 #[tokio::test]

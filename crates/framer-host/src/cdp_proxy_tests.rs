@@ -23,7 +23,7 @@ async fn cdp_uncertain_start_refuses_implicit_relaunch_and_destructive_proxy_set
     let account = AccountId::new();
     bridge.route_cell(&account).await.lock().await.may_have_browser = true;
     let error = bridge.instance(&account).await.err().unwrap();
-    assert!(error.starts_with("cdp-lifecycle-unconfirmed:"));
+    assert_eq!(error, OWNED_STARTUP_UNCONFIRMED);
     assert!(bridge.set_proxy(&account, Some("http://new.invalid:4321".into())).await.is_err());
     assert!(bridge.rotate_identity(&account).await.is_err());
     assert!(bridge.proxies.read().await.is_empty());

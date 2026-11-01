@@ -84,8 +84,8 @@ async fn assert_completion(state: &AppState, ownership: &ServingOwnership,
     assert_eq!(response.status(), if uncertain { StatusCode::SERVICE_UNAVAILABLE }
         else { StatusCode::OK });
     let body = to_bytes(response.into_body(), 1024).await.unwrap();
-    assert_eq!(body.as_ref(), if uncertain { b"Cannot start this request: earlier work ended without confirmed cleanup; its resources cannot be reused.".as_slice() }
-        else { b"ok".as_slice() });
+    let expected = if uncertain { format!("Cannot start this request: {}.", gate.error_explanation(GateError::Unconfirmed)) } else { "ok".into() };
+    assert_eq!(body.as_ref(), expected.as_bytes());
     assert_eq!(gate.stats().unwrap().active, 1); // Host retirement remains unproved.
     assert_eq!(gate.stats().unwrap().unconfirmed, uncertain);
     assert!(state.wave.check().is_none());

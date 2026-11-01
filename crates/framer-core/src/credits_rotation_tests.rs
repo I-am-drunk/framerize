@@ -47,7 +47,7 @@ fn account(index: u8) -> ManagedAccount {
         current_project: Some(ProjectId(PROJECT_A.into())),
         extra_workspaces: vec![], state: AccountState::Ready,
         credit: Some(credit(0.0)), consecutive_failures: 0,
-        cooldown_step: 0, cooling_until_ms: None,
+        cooldown_step: 0, cooling_until_ms: None, cooldown_cause: None,
     }
 }
 

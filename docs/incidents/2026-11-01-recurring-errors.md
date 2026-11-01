@@ -74,8 +74,8 @@ Other candidate corrections follow the observed failure paths:
 | Log/storage errors | Failed writes were discarded. Report bounded I/O failures; build remotely and clean only this effort's disposable artifacts. |
 
 Candidate alpha.8 still requires completed Rust checks, an exact-source package,
-isolated upstream delivery and activation. The package source is
-`72129bd3758d1fdea4d00596ddc9f1d486a144df`.
+isolated upstream delivery and activation. The final cooldown correction is
+undergoing Rust r4 qualification before the package source is frozen.
 The live service has not been changed by this repair.
 
 The separate saved test account passed its normal authentication endpoint with
@@ -96,6 +96,32 @@ cache reclaimed 5,846,847,488 bytes. Available disk space rose from
 the remaining Rust builds run on the separate builder.
 
 ## Causes outside the local repair
+
+The final cooldown review found another lost-cause path. Account cooldowns
+were all presented as security refusals, including local device allowance
+exhaustion. The account record now retains a sanitized cause with its deadline.
+Explicit, automatic and retry admission preserve that cause. A shorter refusal
+cannot replace the cause of a longer restriction, and an older successful
+request cannot clear a newer cause. Existing records with no cause are reported
+as unknown instead of assigning an invented security explanation.
+
+Device diagnostics also distinguish an observed HTTP 403, recovery after an
+interrupted operation, and exhaustion of the configured request allowance.
+The device diagnostic map is bounded by the existing device inventory. It is
+kept outside the rate-history record so the existing schema and rollback remain
+compatible. A restored device deadline with no recorded cause remains unknown.
+The 34 focused Python rate, recovery, capacity and cause checks passed.
+
+The Rust regression update removes assumptions that a failed request may be
+replayed on another account. Its replacement cases verify the original error,
+unchanged peer accounts, released permits and preserved cleanup fences across
+buffered and streaming routes. Existing tests for the old generic messages now
+assert the recorded failure. Rust r4 is the qualification of this final source;
+earlier failing runs are retained and are not counted as passing evidence.
+
+A follow-up audit inspected 21,184 newer structured records. Its only new
+pattern was a single incomplete-tool-call retry diagnostic, already covered
+by the existing output-limit and tool-completion handling.
 
 The matched isolation run exposed another lost-cause path: host shutdown
 replaced the recorded browser-close failure with a generic summary. Shutdown

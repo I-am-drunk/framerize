@@ -152,6 +152,7 @@ fn account(n: u128) -> ManagedAccount {
         consecutive_failures: 2,
         cooldown_step: 1,
         cooling_until_ms: None,
+        cooldown_cause: None,
     }
 }
 

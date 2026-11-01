@@ -9,7 +9,7 @@ use tower::ServiceExt;
 enum RepickClose { Error, Unconfirmed, BeforeCloseBusy }
 
 #[tokio::test]
-async fn cooldown_repick_skips_unavailable_account_and_reaches_ready_peer() {
+async fn cooldown_refusal_does_not_probe_or_send_on_another_account() {
     for stream in [false, true] {
         let (mut state, ports) = fixture(3, 3);
         activated(&state, 1).await;
@@ -24,14 +24,14 @@ async fn cooldown_repick_skips_unavailable_account_and_reaches_ready_peer() {
         state.runtime_mut().expect("unique fixture runtime").operation_ownership = Some(scope);
         let app = crate::router(state.clone(), "/fixture-no-web");
         let response = app.clone().oneshot(repick_request(Route::Native, stream)).await.unwrap();
-        assert_eq!(response.status(), StatusCode::OK);
+        assert_eq!(response.status().as_u16(), if stream { 200 } else { 503 });
         let body = to_bytes(response.into_body(), 65536).await.unwrap();
-        assert!(String::from_utf8_lossy(&body).contains("fixture result"));
+        assert!(String::from_utf8_lossy(&body).contains("saved account cooldown"));
         until(|| gate.stats().unwrap().active == 1).await;
         assert!(!gate.stats().unwrap().unconfirmed, "account B must not poison global admission");
-        assert!(slot(&state, id(2)).uncertain);
-        assert_eq!(slot(&state, id(2)).users, 0);
-        assert_eq!(ports.request_started.load(Ordering::SeqCst), 2);
+        assert!(!state.serving_accounts.residents.snapshot().unwrap().residents.iter()
+            .any(|resident| resident.account == id(2)));
+        assert_eq!(ports.request_started.load(Ordering::SeqCst), 1);
         assert!(!ports.events.lock().unwrap().iter().any(|e| e.0 == "close_started"));
         let mut unavailable = repick_request(Route::Native, false);
         unavailable.headers_mut().insert("x-framerize-account", id(2).0.to_string().parse().unwrap());
@@ -39,7 +39,7 @@ async fn cooldown_repick_skips_unavailable_account_and_reaches_ready_peer() {
         assert_eq!(response.status(), StatusCode::SERVICE_UNAVAILABLE);
         to_bytes(response.into_body(), 65536).await.unwrap();
         assert!(slot(&state, id(2)).uncertain);
-        assert_eq!(ports.request_started.load(Ordering::SeqCst), 2);
+        assert_eq!(ports.request_started.load(Ordering::SeqCst), 1);
         assert!(!ports.mint_routes.lock().unwrap().iter().any(|(account, _)| *account == id(2)));
         until(|| gate.stats().unwrap().active == 1).await;
         assert!(!gate.stats().unwrap().unconfirmed);
@@ -47,7 +47,7 @@ async fn cooldown_repick_skips_unavailable_account_and_reaches_ready_peer() {
 }
 
 #[tokio::test]
-async fn failed_repick_close_preserves_error_and_fences_admission() {
+async fn refusal_does_not_start_an_eviction_that_would_fail() {
     check_repick(RepickClose::Error).await;
 }
 
@@ -72,12 +72,12 @@ async fn repick_exhausts_clean_refusals_but_stops_on_unconfirmed_cleanup() {
 }
 
 #[tokio::test]
-async fn unconfirmed_repick_close_preserves_error_and_fences_admission() {
+async fn refusal_does_not_start_an_unconfirmed_eviction() {
     check_repick(RepickClose::Unconfirmed).await;
 }
 
 #[tokio::test]
-async fn busy_repick_before_close_preserves_error_without_fencing() {
+async fn refusal_keeps_the_original_busy_browser_without_fencing() {
     check_repick(RepickClose::BeforeCloseBusy).await;
 }
 
@@ -85,92 +85,38 @@ async fn check_repick(mode: RepickClose) {
     for route in [Route::Free, Route::Native] {
         for stream in [false, true] {
             for consume in [false, true] {
-                repick_case(mode, route, stream, consume).await;
+                no_replay_case(mode, route, stream, consume).await;
             }
         }
     }
 }
 
-async fn repick_case(mode: RepickClose, route: Route, stream: bool, consume: bool) {
+async fn no_replay_case(mode: RepickClose, route: Route, stream: bool, consume: bool) {
     let (mut state, ports) = fixture(1, 2);
     activated(&state, 1).await;
-    let (ownership, gate) = ServingOwnership::new_with_host_factory(
-        state.wave.clone(), 32, |gate| gate).unwrap();
-    state.runtime_mut().expect("unique fixture runtime").operation_ownership = Some(ownership.clone());
-    let uncertain = !matches!(mode, RepickClose::BeforeCloseBusy);
+    let (ownership, gate) = ServingOwnership::new_with_host_factory(state.wave.clone(), 32, |gate| gate).unwrap();
+    state.runtime_mut().unwrap().operation_ownership = Some(ownership.clone());
     *ports.close_mode.lock().unwrap() = match mode {
         RepickClose::Error => CloseMode::Error,
         RepickClose::Unconfirmed => CloseMode::Unconfirmed,
-        RepickClose::BeforeCloseBusy => CloseMode::Confirm,
+        RepickClose::BeforeCloseBusy => CloseMode::Busy,
     };
-    if !uncertain { *ports.status_mode.lock().unwrap() = StatusMode::Busy; }
     ports.fail_first_account.store(true, Ordering::SeqCst);
-    ports.gate_close.store(uncertain, Ordering::SeqCst);
+    ports.gate_close.store(true, Ordering::SeqCst);
     let peer_before = serde_json::to_value(&ports.records.lock().unwrap()[1]).unwrap();
     let app = crate::router(state.clone(), "/fixture-no-web");
-    let task = tokio::spawn(app.clone().oneshot(repick_request(route, stream)));
-    if uncertain {
-        until(|| ports.events.lock().unwrap().contains(&("close_started", id(1)))).await;
-        let resident = slot(&state, id(1));
-        assert!(resident.close_started);
-        assert_eq!(resident.replacement, Some(id(2)));
-        assert!(gate.stats().unwrap().active > 1);
-        assert_eq!(ports.request_started.load(Ordering::SeqCst), 1);
-        ports.close_gate.add_permits(1);
-        until(|| slot(&state, id(1)).uncertain).await;
-    } else {
-        // Activation, first admission, then eviction status. Do not discard early.
-        until(|| ports.events.lock().unwrap().iter()
-            .filter(|event| **event == ("status", id(1))).count() >= 3).await;
-    }
-    let response = tokio::time::timeout(Duration::from_secs(2), task)
-        .await.unwrap().unwrap().unwrap();
-    let expected_status = if stream { StatusCode::OK } else { StatusCode::SERVICE_UNAVAILABLE };
-    assert_eq!(response.status(), expected_status, "{mode:?} {route:?} stream={stream}");
-    assert!(!response.body().is_end_stream(), "exercise a nonempty response");
+    let response = tokio::time::timeout(Duration::from_secs(2), app.oneshot(repick_request(route, stream))).await.unwrap().unwrap();
+    assert_eq!(response.status().as_u16(), if stream { 200 } else { 503 });
     if consume {
-        let body = tokio::time::timeout(Duration::from_secs(2),
-            to_bytes(response.into_body(), 65536)).await.unwrap().unwrap();
+        let body = to_bytes(response.into_body(), 65536).await.unwrap();
         assert_original_error(&body, route, stream);
     } else { drop(response); }
     until(|| gate.stats().unwrap().active == 1).await;
-    assert_eq!(gate.stats().unwrap().unconfirmed, uncertain);
-    let snapshot = state.serving_accounts.residents.snapshot().unwrap();
-    assert_eq!(snapshot.occupied, 1);
-    assert_eq!(snapshot.residents.len(), 1);
-    let resident = &snapshot.residents[0];
-    assert_eq!(resident.account, id(1));
-    assert_eq!(resident.users, 0);
-    assert_eq!(resident.uncertain, uncertain);
-    assert_eq!(resident.replacement, None);
+    assert!(!gate.stats().unwrap().unconfirmed);
+    assert_eq!(slot(&state, id(1)).users, 0);
     assert_eq!(serde_json::to_value(&ports.records.lock().unwrap()[1]).unwrap(), peer_before);
     assert_single_attempt(&ports);
-    let events = ports.events.lock().unwrap().clone();
-    let mut expected_events = vec![("status", id(1)), ("mint", id(1)),
-        ("status", id(1)), ("mint", id(1)), ("status", id(1))];
-    if uncertain { expected_events.push(("close_started", id(1))); }
-    assert_eq!(events, expected_events);
-    if uncertain { assert!(matches!(ownership.seal(), Err(GateError::Unconfirmed))); }
-    else {
-        let mut ticket = ownership.seal().unwrap();
-        let proof = tokio::time::timeout(Duration::from_secs(2), ticket.wait_application())
-            .await.unwrap().unwrap();
-        ownership.check_application_drained(&proof).unwrap();
-        drop(proof);
-        ticket.cancel_before_control().unwrap();
-    }
-    let probe = Request::builder().uri("/api/hello").body(Body::empty()).unwrap();
-    let response = tokio::time::timeout(Duration::from_secs(2), app.oneshot(probe))
-        .await.unwrap().unwrap();
-    assert_eq!(response.status(), if uncertain { StatusCode::SERVICE_UNAVAILABLE }
-        else { StatusCode::OK });
-    let bytes = to_bytes(response.into_body(), 1024).await.unwrap();
-    assert_eq!(bytes.as_ref(), if uncertain { b"Cannot start this request: earlier work ended without confirmed cleanup; its resources cannot be reused.".as_slice() }
-        else { b"ok".as_slice() });
-    assert_eq!(gate.stats().unwrap().active, 1); // Unmanaged host remains retained.
-    assert_eq!(gate.stats().unwrap().unconfirmed, uncertain);
-    assert_eq!(*ports.events.lock().unwrap(), events);
-    assert_single_attempt(&ports);
+    assert!(!ports.events.lock().unwrap().iter().any(|event| event.0 == "close_started"));
 }
 
 fn assert_single_attempt(ports: &Ports) {
@@ -355,8 +301,8 @@ async fn initial_admission_case(mode: RepickClose, route: Route, stream: bool, c
     assert_eq!(response.status(), if uncertain { StatusCode::SERVICE_UNAVAILABLE }
         else { StatusCode::OK });
     let body = to_bytes(response.into_body(), 1024).await.unwrap();
-    assert_eq!(body.as_ref(), if uncertain { b"Cannot start this request: earlier work ended without confirmed cleanup; its resources cannot be reused.".as_slice() }
-        else { b"ok".as_slice() });
+    let expected = if uncertain { format!("Cannot start this request: {}.", gate.error_explanation(GateError::Unconfirmed)) } else { "ok".into() };
+    assert_eq!(body.as_ref(), expected.as_bytes());
     assert_eq!(gate.stats().unwrap().active, 1); // The unmanaged host stays retained.
     assert_eq!(gate.stats().unwrap().unconfirmed, uncertain);
     assert_eq!(records(&ports), before);
@@ -471,8 +417,8 @@ async fn api_run_acquisition_case(mode: RepickClose, consume: bool) {
     assert_eq!(response.status(), if uncertain { StatusCode::SERVICE_UNAVAILABLE }
         else { StatusCode::OK });
     let body = to_bytes(response.into_body(), 1024).await.unwrap();
-    assert_eq!(body.as_ref(), if uncertain { b"Cannot start this request: earlier work ended without confirmed cleanup; its resources cannot be reused.".as_slice() }
-        else { b"ok".as_slice() });
+    let expected = if uncertain { format!("Cannot start this request: {}.", gate.error_explanation(GateError::Unconfirmed)) } else { "ok".into() };
+    assert_eq!(body.as_ref(), expected.as_bytes());
     assert_eq!(gate.stats().unwrap().active, 1);
     assert_eq!(gate.stats().unwrap().unconfirmed, uncertain);
     assert_eq!(records(&ports), before);

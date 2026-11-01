@@ -44,7 +44,7 @@ pub(super) async fn pick_cancellable(
             None => pick_fresh_account(state, excluded).await,
         };
         let delay = match (&outcome.result, outcome.cleanup_confirmed) {
-            (Err(error @ (ApiError::AccountCooling { retry_after_secs }
+            (Err(error @ (ApiError::AccountCooling { retry_after_secs, .. }
                 | ApiError::Cooling { retry_after_secs })), true)
                 if !budget.is_zero() && (wait == WaitFor::Capacity
                     || (wait == WaitFor::GlobalPause && matches!(error, ApiError::Cooling { .. }))) => {

@@ -177,6 +177,7 @@ mod tests {
             consecutive_failures: failures,
             cooldown_step: 0,
             cooling_until_ms: None,
+            cooldown_cause: None,
         }
     }
 

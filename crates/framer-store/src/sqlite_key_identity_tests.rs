@@ -29,7 +29,7 @@ fn account(n: usize) -> ManagedAccount {
         }),
         consecutive_failures: 2,
         cooldown_step: 3,
-        cooling_until_ms: Some(99_000),
+        cooling_until_ms: Some(99_000), cooldown_cause: None,
     }
 }
 

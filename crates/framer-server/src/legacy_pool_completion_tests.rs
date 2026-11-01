@@ -56,8 +56,8 @@ async fn finished(state: &AppState, scope: &ServingOwnership, gate: &OperationGa
     let response = tokio::time::timeout(WAIT,
         crate::router(state.clone(), "/fixture-no-web").oneshot(request)).await.unwrap().unwrap();
     assert_eq!(response.status(), if unknown { StatusCode::SERVICE_UNAVAILABLE } else { StatusCode::OK });
-    assert_eq!(to_bytes(response.into_body(), 1024).await.unwrap().as_ref(),
-        if unknown { b"Cannot start this request: earlier work ended without confirmed cleanup; its resources cannot be reused.".as_slice() } else { b"ok".as_slice() });
+    let expected = if unknown { format!("Cannot start this request: {}.", gate.error_explanation(GateError::Unconfirmed)) } else { "ok".into() };
+    assert_eq!(to_bytes(response.into_body(), 1024).await.unwrap().as_ref(), expected.as_bytes());
     assert_eq!(gate.stats().unwrap().active, 1);
     assert_eq!(gate.stats().unwrap().unconfirmed, unknown);
 }

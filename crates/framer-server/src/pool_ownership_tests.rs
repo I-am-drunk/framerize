@@ -58,25 +58,25 @@ async fn startup_pool_close_remains_owned_after_waiter_drop_and_seal() {
 }
 
 #[tokio::test]
-async fn owned_legacy_retry_keeps_replacement_residency_and_account_scoped_chats() {
+async fn owned_failure_keeps_original_residency_and_chat() {
     for route in [Route::Free, Route::Native] { for session in [None, Some("explicit-owned-chat")] {
         let (state, ports) = owned(1, 2);
         ports.fail_first_account.store(true, Ordering::SeqCst);
         let before = [crate::stable_session(&id(1)), crate::stable_session(&id(2))];
         let response = response(&state, route, session).await;
-        until(|| ports.request_started.load(Ordering::SeqCst) == 2).await;
-        assert_repick_chats(&ports, session, &before);
-        assert!(slot(&state, id(2)).users > 0);
-        assert!(matches!(parked(&state, 2).await, Err(ApiError::PoolBusy(_))));
+        until(|| ports.request_started.load(Ordering::SeqCst) == 1).await;
+        assert_original_chat(&ports, session, &before);
+        assert!(slot(&state, id(1)).users > 0);
+        assert!(matches!(parked(&state, 1).await, Err(ApiError::PoolBusy(_))));
         ports.request_gate.add_permits(2);
         let response = if matches!(route, Route::Native) {
             crate::response_output::pump_until_producer_returns(response,
-                || ports.request_drops.load(Ordering::SeqCst) == 2).await
+                || ports.request_drops.load(Ordering::SeqCst) == 1).await
         } else { response };
-        until(|| ports.request_drops.load(Ordering::SeqCst) == 2).await;
-        assert!(slot(&state, id(2)).users > 0);
+        until(|| ports.request_drops.load(Ordering::SeqCst) == 1).await;
+        assert!(slot(&state, id(1)).users > 0);
         to_bytes(response.into_body(), 65536).await.unwrap();
-        until(|| slot(&state, id(2)).users == 0).await;
+        until(|| slot(&state, id(1)).users == 0).await;
         assert_eq!(ports.max_live.load(Ordering::SeqCst), 1);
         drained(&state).await;
     } }

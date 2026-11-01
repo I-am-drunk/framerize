@@ -567,7 +567,7 @@ fn account(n: u128) -> ManagedAccount {
         extra_workspaces: vec![], state: AccountState::Ready, credit: None,
         // Distinct ranks make the initial automatic pick deterministic without
         // disabling retry by pinning an account header. Ties use the runtime cursor.
-        consecutive_failures: (n - 1) as u32, cooldown_step: 2, cooling_until_ms: None,
+        consecutive_failures: (n - 1) as u32, cooldown_step: 2, cooling_until_ms: None, cooldown_cause: None,
     }
 }
 fn fixture(capacity: usize, saved: u128) -> (AppState, Arc<Ports>) {
@@ -742,12 +742,12 @@ async fn nonresident_availability_requires_free_or_unmanaged_idle_capacity() {
 }
 
 #[test]
-fn only_exact_local_cleanup_errors_trigger_fencing_and_retry() {
+fn exact_local_cleanup_errors_fence_without_account_replay() {
     let local = "account browser cleanup is unconfirmed; retry after cleanup";
     for error in [local.to_owned(), format!("chunk 0 retry died (fallback off): {local}"),
         "browser launch cleanup is unconfirmed".to_owned()] {
         assert!(super::cleanup_unconfirmed(&error));
-        assert!(crate::should_retry_account(&error));
+        assert!(!crate::should_retry_account(&error));
     }
     for error in [format!("upstream 403: {local}"), format!("retryable 500: {local}"),
         format!("chunk x retry died (fallback off): {local}"), format!("{local} extra"),
@@ -773,28 +773,28 @@ async fn activation_failure_after_healthy_status_fences_without_health_mutation(
 }
 
 #[tokio::test]
-async fn cleanup_failure_repicks_a_healthy_account_before_any_client_content() {
+async fn cleanup_failure_keeps_identity_and_reports_the_original_failure() {
     for route in [Route::Free, Route::Native] {
         for stream in [false, true] {
             let (state, ports) = fixture(2, 2);
             activated(&state, 1).await;
             activated(&state, 2).await;
-            let mut expected = ports.records.lock().unwrap().clone();
-            expected[1].note_success();
+            let expected = ports.records.lock().unwrap().clone();
             ports.cleanup_on_mint.store(true, Ordering::SeqCst);
             ports.request_gate.add_permits(2);
             let response = handler_response(&state, route, stream).await.unwrap();
-            assert_eq!(response.status(), axum::http::StatusCode::OK);
+            assert_eq!(response.status().as_u16(), if stream { 200 } else { 503 });
             let body = to_bytes(response.into_body(), 1024 * 1024).await.unwrap();
-            assert!(String::from_utf8_lossy(&body).contains("fixture"));
+            assert!(String::from_utf8_lossy(&body).contains("original failure was not recorded"));
             assert!(!String::from_utf8_lossy(&body).contains("cleanup is unconfirmed"));
-            assert_eq!(ports.request_started.load(Ordering::SeqCst), 2);
-            assert_eq!(ports.request_finished.load(Ordering::SeqCst), 1);
+            assert_eq!(ports.request_started.load(Ordering::SeqCst), 1);
+            assert_eq!(ports.request_finished.load(Ordering::SeqCst), 0);
+            until(|| slot(&state, id(1)).users == 0).await;
             assert!(slot(&state, id(1)).uncertain);
             assert_eq!(slot(&state, id(1)).users, 0);
             assert!(!slot(&state, id(2)).uncertain);
             assert_eq!(records(&ports), serde_json::to_value(expected).unwrap());
-            assert_eq!(ports.account_writes.load(Ordering::SeqCst), 1);
+            assert_eq!(ports.account_writes.load(Ordering::SeqCst), 0);
             assert!(!ports.events.lock().unwrap().iter().any(|event| event.0 == "close_started"));
         }
     }
@@ -811,7 +811,7 @@ async fn cleanup_after_streamed_content_fences_without_replaying_on_another_acco
         ports.request_gate.add_permits(1);
         let response = handler_response(&state, route, true).await.unwrap();
         let body = to_bytes(response.into_body(), 1024 * 1024).await.unwrap();
-        assert!(String::from_utf8_lossy(&body).contains("cannot safely start another request"));
+        assert!(String::from_utf8_lossy(&body).contains("original failure was not recorded"));
         assert!(!String::from_utf8_lossy(&body).contains("host-lifecycle-unconfirmed"));
         drop(body);
         // Preserve the cleanup fence while the producer joins output disposal.
@@ -1262,9 +1262,9 @@ async fn assert_stream_residency(state: &AppState) {
     assert!(matches!(changed(state, json!({"eligible_accounts":[]})).await, Err(ApiError::PoolBusy(_))));
 }
 
-fn assert_repick_chats(ports: &Ports, explicit: Option<&str>, before: &[String; 2]) {
+fn assert_original_chat(ports: &Ports, explicit: Option<&str>, before: &[String; 2]) {
     let chats = ports.observed_chats.lock().unwrap();
-    assert_eq!(chats.iter().map(|(account, _)| *account).collect::<Vec<_>>(), vec![id(1), id(2)]);
+    assert_eq!(chats.iter().map(|(account, _)| *account).collect::<Vec<_>>(), vec![id(1)]);
     for (index, (account, chat)) in chats.iter().enumerate() {
         if let Some(explicit) = explicit {
             assert_eq!(chat, explicit);
@@ -1273,7 +1273,6 @@ fn assert_repick_chats(ports: &Ports, explicit: Option<&str>, before: &[String; 
             assert!(chat == &before[index] || chat == &crate::stable_session(account));
         }
     }
-    if explicit.is_none() { assert_ne!(chats[0].1, chats[1].1); }
 }
 
 #[tokio::test]
@@ -1330,32 +1329,32 @@ async fn dropping_never_polled_bodies_releases_leases_even_before_producer_first
 }
 
 #[tokio::test]
-async fn retry_releases_previous_account_and_keeps_replacement_until_unread_body_drops() {
+async fn failure_keeps_original_account_until_unread_body_drops() {
     for route in [Route::Free, Route::Native] {
       for requested_session in [None, Some("fixture-explicit-chat")] {
         let (state, ports) = fixture(1, 2);
         ports.fail_first_account.store(true, Ordering::SeqCst);
         let before_chats = [crate::stable_session(&id(1)), crate::stable_session(&id(2))];
         let response = handler_response_with_session(&state, route, true, requested_session).await.unwrap();
-        until(|| ports.request_started.load(Ordering::SeqCst) == 2).await;
-        assert_repick_chats(&ports, requested_session, &before_chats);
+        until(|| ports.request_started.load(Ordering::SeqCst) == 1).await;
+        assert_original_chat(&ports, requested_session, &before_chats);
         let snapshot = state.serving_accounts.residents.snapshot().unwrap();
         assert_eq!(snapshot.occupied, 1);
-        assert_eq!(snapshot.residents[0].account, id(2));
+        assert_eq!(snapshot.residents[0].account, id(1));
         assert!(snapshot.residents[0].users > 0);
         assert_eq!(ports.max_live.load(Ordering::SeqCst), 1);
-        assert!(matches!(parked(&state, 2).await, Err(ApiError::PoolBusy(_))));
+        assert!(matches!(parked(&state, 1).await, Err(ApiError::PoolBusy(_))));
         ports.request_gate.add_permits(2);
         let response = if matches!(route, Route::Native) {
             crate::response_output::pump_until_producer_returns(response,
-                || ports.request_drops.load(Ordering::SeqCst) == 2).await
+                || ports.request_drops.load(Ordering::SeqCst) == 1).await
         } else { response };
-        until(|| ports.request_drops.load(Ordering::SeqCst) == 2).await;
-        assert_eq!(ports.request_finished.load(Ordering::SeqCst), 1);
-        assert!(slot(&state, id(2)).users > 0, "{route:?}");
+        until(|| ports.request_drops.load(Ordering::SeqCst) == 1).await;
+        assert_eq!(ports.request_finished.load(Ordering::SeqCst), 0);
+        assert!(slot(&state, id(1)).users > 0, "{route:?}");
         drop(response);
-        until(|| slot(&state, id(2)).users == 0).await;
-        parked(&state, 2).await.unwrap();
+        until(|| slot(&state, id(1)).users == 0).await;
+        parked(&state, 1).await.unwrap();
         assert_eq!(state.serving_accounts.residents.snapshot().unwrap().occupied, 0);
       }
     }
@@ -1742,71 +1741,40 @@ fn one_slot_gate() -> Arc<framer_core::gate::ConcurrencyGate> {
 }
 
 #[tokio::test]
-async fn nonstream_overload_retry_does_not_wait_on_its_own_original_gate_permit() {
+async fn exhausted_nonstream_overload_returns_without_retaining_its_gate_permit() {
     let (mut state, ports) = fixture(1, 1);
     state.runtime_mut().expect("unique fixture runtime").gate = one_slot_gate();
     ports.records.lock().unwrap()[0].current_team = Some(TeamId("overload-fixture-team".into()));
     ports.free_overload_once.store(true, Ordering::SeqCst);
-    let key = "overload-fixture-team:claude-opus-5-5";
-    let mut request = Box::pin(handler_response(&state, Route::Free, false));
-    assert!(futures::poll!(request.as_mut()).is_pending());
-    if ports.request_started.load(Ordering::SeqCst) == 1 {
-        // No timer is advanced: inspect the permit while the retry is suspended.
-        let available = state.gate.acquire_now(key).await;
-        assert!(available.is_some(), "retry retained its original gate permit");
-        drop(available);
-        drop(request);
-    } else {
-        assert_eq!(ports.request_started.load(Ordering::SeqCst), 2);
-        ports.request_gate.add_permits(2);
-        request.await.unwrap();
-    }
+    let response = handler_response(&state, Route::Free, false).await.unwrap();
+    let body = to_bytes(response.into_body(), 65536).await.unwrap();
+    assert!(String::from_utf8_lossy(&body).contains("429"));
+    assert_eq!(ports.request_started.load(Ordering::SeqCst), 1);
+    assert!(state.gate.acquire_now("overload-fixture-team:claude-opus-5-5").await.is_some());
     assert_eq!(slot(&state, id(1)).users, 0);
 }
 
 #[tokio::test]
-async fn account_repicks_wait_on_destination_gate_and_recheck_health_before_invocation() {
-    for route in [Route::Free, Route::Native] {
-        for stream in [false, true] {
-            for wave in [false, true] {
-                let (mut state, ports) = fixture(1, 2);
-                state.runtime_mut().expect("unique fixture runtime").gate = one_slot_gate();
-                ports.fail_first_account.store(true, Ordering::SeqCst);
-                let model = if matches!(route, Route::Free) { "claude-opus-5-5" } else { "gpt-6-astra" };
-                let gate_key = format!("team-2:{model}");
-                let held = state.gate.acquire(&gate_key).await;
-                let mut request = Box::pin(handler_response(&state, route, stream));
-                let response = if stream { Some(request.as_mut().await.unwrap()) } else {
-                    assert!(futures::poll!(request.as_mut()).is_pending());
-                    None
-                };
-                until(|| state.serving_accounts.residents.snapshot().unwrap().residents.iter()
-                    .any(|slot| slot.account == id(2) && slot.users > 0)).await;
-                tokio::task::yield_now().await;
-                assert_eq!(ports.request_started.load(Ordering::SeqCst), 1, "{route:?}, stream={stream}");
-                assert!(!ports.mint_routes.lock().unwrap().iter().any(|(account, _)| *account == id(2)));
-                if wave {
-                    state.wave.note_refusal("fixture-repick-a");
-                    state.wave.note_refusal("fixture-repick-b");
-                    assert!(state.wave.check().is_some());
-                } else {
-                    ports.records.lock().unwrap()[1].cooling_until_ms = Some(framer_core::rotation::now_ms() + 60_000);
-                }
-                drop(held);
-                if let Some(response) = response {
-                    let mut body = Box::pin(to_bytes(response.into_body(), 65_536));
-                    // Recoverable global and local pauses keep the stream open.
-                    assert!(tokio::time::timeout(Duration::from_millis(20), body.as_mut())
-                        .await.is_err());
-                    drop(body);
-                } else { assert_cooling_response(request.await, wave).await; }
-                assert_eq!(ports.request_started.load(Ordering::SeqCst), 1);
-                assert!(!ports.mint_routes.lock().unwrap().iter().any(|(account, _)| *account == id(2)));
-                until(|| state.serving_accounts.residents.snapshot().unwrap().residents.iter()
-                    .all(|slot| slot.users == 0)).await;
-            }
-        }
-    }
+async fn failed_requests_never_acquire_another_accounts_gate() {
+    for route in [Route::Free, Route::Native] { for stream in [false, true] {
+        let (mut state, ports) = fixture(1, 2);
+        state.runtime_mut().expect("unique fixture runtime").gate = one_slot_gate();
+        ports.fail_first_account.store(true, Ordering::SeqCst);
+        let model = if matches!(route, Route::Free) { "claude-opus-5-5" } else { "gpt-6-astra" };
+        let gate_key = format!("team-2:{model}");
+        let held = state.gate.acquire(&gate_key).await;
+        let response = tokio::time::timeout(Duration::from_secs(2),
+            handler_response(&state, route, stream)).await.unwrap().unwrap();
+        let body = to_bytes(response.into_body(), 65536).await.unwrap();
+        assert!(String::from_utf8_lossy(&body).contains("HTTP 403"));
+        assert_eq!(ports.request_started.load(Ordering::SeqCst), 1);
+        assert!(!ports.mint_routes.lock().unwrap().iter().any(|(account, _)| *account == id(2)));
+        until(|| state.serving_accounts.residents.snapshot().unwrap().residents.iter()
+            .all(|slot| slot.users == 0)).await;
+        assert!(state.gate.acquire_now(&gate_key).await.is_none());
+        drop(held);
+        assert!(state.gate.acquire_now(&gate_key).await.is_some());
+    } }
 }
 
 async fn assert_waiting_response(result: Result<axum::response::Response, ApiError>) {

@@ -256,7 +256,7 @@ fn fixture_browser(browser: Option<Arc<dyn crate::transport::browser::BrowserTra
         proxy: None, current_team: Some(TeamId("fixture-team".into())),
         current_project: Some(ProjectId("fixture-project".into())), extra_workspaces: vec![],
         state: AccountState::Ready, credit: None, consecutive_failures: 0,
-        cooldown_step: 0, cooling_until_ms: None };
+        cooldown_step: 0, cooling_until_ms: None, cooldown_cause: None };
     let identity = port::Identity { account: id, user: account.framer_user_id.clone(),
         team: account.current_team.clone().unwrap(), project: account.current_project.clone().unwrap(),
         chat_session: "fixture-conversation".into() };

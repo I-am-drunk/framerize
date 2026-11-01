@@ -1,12 +1,17 @@
 # Current recurring-error repair, 2026-11-01
 
-Current continuation: package source `72129bd3758d1fdea4d00596ddc9f1d486a144df`.
-The shutdown diagnostic's Rust borrow error is corrected and pushed.
-The exact-source job `/tmp/build-release-72129bd3.py` is running in Docker
-container `framerize-repair-build-20261101` on `framerize-imac-ci`.
-It runs Rust tests, the two category tests, release build and package smoke.
-Progress: `/evidence/build-release-72129bd3.log`; final receipt will be
-`/evidence/package-72129bd3.json`. Earlier Rust run r1 failed; do not reuse it.
+Current continuation: the final cooldown-cause correction and updated
+identity-preservation regressions are undergoing Rust qualification.
+The job is `/tmp/verify-final-r4.py`, in Docker container
+`framerize-repair-build-20261101` on `framerize-imac-ci`.
+Access this restricted builder with `docker -H ssh://framerize-imac-ci`;
+ordinary SSH commands are not its supported command interface.
+Progress is `/evidence/rust-final-r4.log`; completion is
+`/evidence/rust-final-r4.exit`. The source manifest is
+`/home/tjninja/.cache/framerize-recurring-errors-20261101/evidence/source-final-r4.json`.
+All 40 files match the current worktree. Earlier Rust failures are preserved;
+only the unchanged framer-api result, 438 passes, is reusable from r2.
+The 34 Python cooldown/recovery checks passed with matching source hashes.
 
 Matched memory r5 passed and exited 0. Both versions completed 512 requests.
 Baseline final PSS: 1,437,474,816 bytes, ten pages. Repair: 640,508,928 bytes,
@@ -19,8 +24,10 @@ Seven activation/rollback tests pass. The activation helper now includes a
 real live Responses check inside its rollback boundary. Isolation also has
 its own `FRAMERIZE_GATE_STATE`, and its model-list check respects each dialect.
 No candidate activation occurred. Live PID remained 2163191, alpha.7.
-The next action is collect the running Rust/package job, then use the existing
-isolation and activation helpers in the local cache. Preserve all safety gates.
+The next action is collect Rust r4, build the exact committed source with
+`build-final-r3.py`, and use the existing isolation and activation helpers in
+the local cache. The separate test profile is authenticated and outside the
+twelve production accounts. Preserve all safety gates.
 
 ## Earlier continuation
 

@@ -47,6 +47,25 @@ class RateTests(unittest.TestCase):
         self.rates.charge_request(device)
         self.assertEqual(list(self.rates.state['requests'][device]), [1600.0])
 
+    def test_unavailable_diagnostics_name_the_observed_trigger_without_changing_history(self):
+        first, second = self.devices
+        self.rates.cool_device(first)
+        self.rates.charge_request(second)
+        self.rates.charge_request(second)
+        reason = self.rates.unavailable_reason()
+        self.assertIn('HTTP 403 during its security checks', reason)
+        self.assertIn('2 requests per 600 seconds', reason)
+        self.rates.confirm_runtime_stopped()
+        restored = AccountRates(self.journal, 'account', self.policy, self.clock)
+        self.assertIn('no recorded triggering cause', restored.unavailable_reason([first]))
+        self.assertEqual(restored.state, self.rates.state)
+        self.rates.begin_mint()
+        self.rates.confirm_runtime_stopped()
+        self.assertIn('interrupted or unconfirmed browser operation',
+                      self.rates.unavailable_reason([first]))
+        self.assertNotIn('HTTP 403', self.rates.unavailable_reason([first]))
+        self.assertLessEqual(len(self.rates._cooldown_causes), len(self.devices) + 1)
+
     def test_cooldown_and_primary_survive_close_without_affecting_other_device(self):
         self.rates.cool_device(self.devices[0])
         self.assertEqual(self.rates.select_primary(), self.devices[1])

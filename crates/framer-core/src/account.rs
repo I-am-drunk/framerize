@@ -58,6 +58,9 @@ pub struct ManagedAccount {
     /// while rather than retried. `None` means no active cooldown.
     #[serde(default)]
     pub cooling_until_ms: Option<u64>,
+    /// Diagnostic for the persisted deadline, never a session or request body.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cooldown_cause: Option<String>,
 }
 
 /// One usable workspace: a credited team plus a project to scope calls to.
@@ -172,7 +175,25 @@ impl ManagedAccount {
     pub fn note_risk_refused(&mut self, now_ms: u64) {
         self.consecutive_failures = self.consecutive_failures.saturating_add(1);
         self.cooldown_step = self.cooldown_step.saturating_add(1);
-        self.cooling_until_ms = Some(now_ms + Self::cooldown_backoff_ms(self.cooldown_step - 1));
+        self.note_cooldown(now_ms.saturating_add(Self::cooldown_backoff_ms(self.cooldown_step - 1)),
+            Some("Framer returned HTTP 403 during its security checks"));
+    }
+
+    pub fn cooldown_reason(&self) -> &str {
+        self.cooldown_cause.as_deref().filter(|cause| !cause.trim().is_empty()).unwrap_or(
+            "the saved account cooldown has no recorded triggering cause")
+    }
+
+    pub fn note_cooldown(&mut self, until: u64, cause: Option<&str>) {
+        let previous = self.cooling_until_ms.unwrap_or(0);
+        if until >= previous {
+            let cause = cause.map(crate::error::safe_failure_summary)
+                .filter(|cause| !cause.is_empty());
+            if until > previous || cause.is_some() {
+                self.cooldown_cause = cause;
+            }
+            self.cooling_until_ms = Some(until);
+        }
     }
 
     /// Record a healthy response: clear failure state and any cooldown.
@@ -180,5 +201,6 @@ impl ManagedAccount {
         self.consecutive_failures = 0;
         self.cooldown_step = 0;
         self.cooling_until_ms = None;
+        self.cooldown_cause = None;
     }
 }

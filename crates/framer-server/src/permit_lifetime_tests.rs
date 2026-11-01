@@ -17,55 +17,23 @@ const MESSAGE_MODEL: &str = "claude-opus-5-5";
 const RESPONSE_MODEL: &str = "gpt-6-astra";
 
 #[tokio::test(start_paused = true)]
-async fn open_stream_waits_for_local_capacity_without_holding_permits() {
+async fn open_stream_reports_local_capacity_and_releases_its_permit() {
     for messages in [false, true] {
         let mut f = Fixture::new();
-        f.accounts[1].cooling_until_ms = Some(framer_core::rotation::now_ms() + 600_000);
-        f.state.state.upsert(&f.accounts[1]).await.unwrap();
         let response = chain(f.state.clone(), HeaderMap::new(), messages, true).await.unwrap();
         let call = f.next().await;
-        call.reply.send(Err("account-cooling:600".into())).ok().unwrap();
+        call.reply.send(Err("account-cooling:600; device allowance exhausted".into())).ok().unwrap();
         call.dropped.await.unwrap();
-        tokio::time::advance(Duration::from_secs(1)).await;
-        f.no_call();
+        let body = to_bytes(response.into_body(), 65536).await.unwrap();
+        assert!(String::from_utf8_lossy(&body).contains("device allowance exhausted"));
         let model = if messages { MESSAGE_MODEL } else { RESPONSE_MODEL };
         available(&f.state.gate, &f.key(0, model)).await;
-        assert!(f.state.serving_accounts.residents.snapshot().unwrap().residents
-            .iter().all(|resident| resident.users == 0));
-        f.accounts[0].cooling_until_ms = Some(framer_core::rotation::now_ms() - 1);
-        f.state.state.upsert(&f.accounts[0]).await.unwrap();
-        tokio::time::advance(Duration::from_secs(1)).await;
-        let call = f.next().await;
-        assert_eq!(call.account, f.accounts[0].id);
-        call.reply.send(Ok(success(call.kind))).ok().unwrap();
-        delivered(response).await;
-        f.no_call();
-    }
-}
-
-#[tokio::test(start_paused = true)]
-async fn capacity_wait_heartbeats_and_disconnect_prevents_later_inference() {
-    for messages in [false, true] {
-        let mut f = Fixture::new();
-        f.accounts[1].cooling_until_ms = Some(framer_core::rotation::now_ms() + 600_000);
-        f.state.state.upsert(&f.accounts[1]).await.unwrap();
-        let response = chain(f.state.clone(), HeaderMap::new(), messages, true).await.unwrap();
-        let call = f.next().await;
-        call.reply.send(Err("account-cooling:600".into())).ok().unwrap();
-        call.dropped.await.unwrap();
-        let mut body = response.into_body().into_data_stream();
-        body.next().await.unwrap().unwrap();
-        let ping = body.next().await.unwrap().unwrap();
-        let expected = if messages { "event: ping" } else { "event: response.in_progress" };
-        assert!(String::from_utf8_lossy(&ping).contains(expected));
-        drop(body);
-        f.accounts[0].cooling_until_ms = None;
-        f.state.state.upsert(&f.accounts[0]).await.unwrap();
-        tokio::time::advance(Duration::from_secs(2)).await;
+        tokio::time::advance(Duration::from_secs(601)).await;
         tokio::task::yield_now().await;
         f.no_call();
     }
 }
+
 
 #[tokio::test(start_paused = true)]
 async fn capacity_wait_is_bounded_and_never_waits_for_upstream_refusal() {
@@ -89,7 +57,7 @@ async fn capacity_wait_is_bounded_and_never_waits_for_upstream_refusal() {
 }
 
 #[tokio::test(flavor = "current_thread")]
-async fn unbound_stream_reselects_when_account_cools_before_producer_starts() {
+async fn unbound_stream_preserves_identity_when_account_cools_before_producer_starts() {
     for messages in [false, true] {
         let mut f = Fixture::new();
         f.accounts[1].cooling_until_ms = Some(framer_core::rotation::now_ms() + 600_000);
@@ -99,10 +67,8 @@ async fn unbound_stream_reselects_when_account_cools_before_producer_starts() {
         f.accounts[1].cooling_until_ms = None;
         for account in &f.accounts { f.state.state.upsert(account).await.unwrap(); }
         let first = f.state.state.get(f.accounts[0].id).await.unwrap().unwrap();
-        let call = f.next().await;
-        assert_eq!(call.account, f.accounts[1].id);
-        call.reply.send(Ok(success(call.kind))).ok().unwrap();
-        delivered(response).await;
+        let body = to_bytes(response.into_body(), 65536).await.unwrap();
+        assert!(String::from_utf8_lossy(&body).contains("saved account cooldown"));
         assert_eq!(f.state.state.get(first.id).await.unwrap().unwrap().cooling_until_ms,
             first.cooling_until_ms);
         f.no_call();
@@ -264,20 +230,16 @@ async fn paid_nonstreaming_raw_body_releases_slot_at_eof() {
 }
 
 #[tokio::test(flavor = "current_thread")]
-async fn messages_retry_with_one_slot_does_not_acquire_while_holding_it() {
+async fn messages_exhausted_retry_releases_its_only_slot() {
     let mut f = Fixture::new();
     let key = f.key(0, MESSAGE_MODEL);
     let mut task = AbortOnDrop(tokio::spawn(chain(f.state.clone(), f.headers(0), true, false)));
     let first = f.next().await;
-    assert_eq!(first.kind, "messages");
     occupied(&f.state.gate, &key).await;
-    assert!(first.reply.send(Err("retryable 429".into())).is_ok());
-    let second = f.next().await;
-    assert_eq!(second.account, first.account);
-    occupied(&f.state.gate, &key).await;
-    assert!(second.reply.send(Ok(success(second.kind))).is_ok());
+    first.reply.send(Err("retryable 429".into())).ok().unwrap();
     let response = tokio::time::timeout(WAIT, &mut task).await.unwrap().unwrap().unwrap();
-    delivered(response).await;
+    let body = to_bytes(response.into_body(), 65536).await.unwrap();
+    assert!(String::from_utf8_lossy(&body).contains("retryable 429"));
     available(&f.state.gate, &key).await;
     assert!(f.state.wave.check().is_none());
     f.no_call();
@@ -317,7 +279,7 @@ async fn queued_peer_completion(f: &mut Fixture,
     assert!(f.loads.try_recv().is_err());
 }
 
-async fn failover(messages: bool, stream: bool, cancel_wait: bool) {
+async fn failure_keeps_identity(messages: bool, stream: bool, cancel_wait: bool) {
     let mut f = Fixture::new();
     f.accounts[1].consecutive_failures = 3;
     f.state.state.upsert(&f.accounts[1]).await.unwrap();
@@ -326,64 +288,45 @@ async fn failover(messages: bool, stream: bool, cancel_wait: bool) {
     let next_key = f.key(1, model);
     let destination = f.state.gate.acquire(&next_key).await;
     let mut task = AbortOnDrop(tokio::spawn(chain(f.state.clone(), HeaderMap::new(), messages, stream)));
-    let mut response = if stream {
-        Some(tokio::time::timeout(WAIT, &mut task).await.unwrap().unwrap().unwrap())
-    } else { None };
     let first = f.next().await;
     assert_eq!(first.account, f.accounts[0].id);
+    f.loaded(0).await;
     occupied(&f.state.gate, &first_key).await;
-    assert!(first.reply.send(Err("account-cooling:1".into())).is_ok());
-    f.loaded(1).await;
-    f.no_call();
+    first.reply.send(Err("account-cooling:1".into())).ok().unwrap();
+    let response = tokio::time::timeout(WAIT, &mut task).await.unwrap().unwrap().unwrap();
+    assert_eq!(response.status().as_u16(), if stream { 200 } else { 503 });
+    if cancel_wait { drop(response); } else {
+        let bytes = to_bytes(response.into_body(), 65536).await.unwrap();
+        assert!(String::from_utf8_lossy(&bytes).contains("saved account cooldown"));
+    }
     available(&f.state.gate, &first_key).await;
     occupied(&f.state.gate, &next_key).await;
-    if cancel_wait {
-        drop(response.take());
-        if !stream {
-            task.0.abort();
-            assert!((&mut task).await.unwrap_err().is_cancelled());
-        }
-        tokio::task::yield_now().await;
-        drop(destination);
-        available(&f.state.gate, &next_key).await;
-        f.no_call();
-        return;
-    }
+    f.no_call();
+    assert!(f.loads.try_recv().is_err());
     drop(destination);
-    let second = f.next().await;
-    assert_eq!(second.account, f.accounts[1].id);
-    occupied(&f.state.gate, &next_key).await;
-    available(&f.state.gate, &first_key).await;
-    assert!(second.reply.send(Ok(success(second.kind))).is_ok());
-    if !stream {
-        response = Some(tokio::time::timeout(WAIT, &mut task).await.unwrap().unwrap().unwrap());
-    }
-    delivered(response.take().unwrap()).await;
     available(&f.state.gate, &next_key).await;
-    assert!(f.state.wave.check().is_none());
-    f.no_call();
 }
 
 #[tokio::test(flavor = "current_thread")]
-async fn messages_streaming_failover_charges_only_destination_workspace() {
-    failover(true, true, false).await;
+async fn messages_streaming_failure_does_not_charge_another_workspace() {
+    failure_keeps_identity(true, true, false).await;
 }
 #[tokio::test(flavor = "current_thread")]
-async fn responses_streaming_failover_charges_only_destination_workspace() {
-    failover(false, true, false).await;
+async fn responses_streaming_failure_does_not_charge_another_workspace() {
+    failure_keeps_identity(false, true, false).await;
 }
 #[tokio::test(flavor = "current_thread")]
-async fn messages_nonstreaming_failover_charges_only_destination_workspace() {
-    failover(true, false, false).await;
+async fn messages_nonstreaming_failure_does_not_charge_another_workspace() {
+    failure_keeps_identity(true, false, false).await;
 }
 #[tokio::test(flavor = "current_thread")]
-async fn responses_nonstreaming_failover_charges_only_destination_workspace() {
-    failover(false, false, false).await;
+async fn responses_nonstreaming_failure_does_not_charge_another_workspace() {
+    failure_keeps_identity(false, false, false).await;
 }
 #[tokio::test(flavor = "current_thread")]
-async fn cancelling_failover_wait_cannot_start_a_late_attempt() {
+async fn discarding_failed_response_cannot_start_a_late_attempt() {
     for (messages, stream) in [(true, true), (true, false), (false, true), (false, false)] {
-        failover(messages, stream, true).await;
+        failure_keeps_identity(messages, stream, true).await;
     }
 }
 

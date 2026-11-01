@@ -52,7 +52,7 @@ async fn sealed_existing_host_receives_no_pool_command_frames() {
     drop(inner);
     tokio::time::timeout(Duration::from_secs(2), reader).await.unwrap().unwrap();
     assert!(!unexpected_frame);
-    assert!(results.iter().all(|r| r.as_ref().is_err_and(|e| e.contains("Closed"))));
+    assert!(results.iter().all(|r| r.as_ref().is_err_and(|e| e.contains("closed for shutdown"))));
 }
 
 #[tokio::test]
@@ -68,7 +68,7 @@ async fn incomplete_startup_cannot_claim_absence_or_commit_proxy_registration() 
     let changed = bridge.register_proxy(&account, Some("http://proxy.invalid:8080".into()))
         .await.unwrap_err();
     for error in [status, close, unchanged, changed] {
-        assert!(error.contains("ProcessUnconfirmed"));
+        assert!(error.contains("startup or process termination did not complete"));
     }
     let cell = bridge.route_state(&account).await;
     let route = cell.lock().await;
@@ -105,8 +105,8 @@ async fn sealed_route_paths_cannot_launch_or_change_local_proxy_state() {
     let account = AccountId::new();
     assert!(bridge.route_for_command(&account).await.is_err());
     assert!(bridge.register_proxy(&account, Some("http://proxy.invalid:8080".into()))
-        .await.unwrap_err().contains("Closed"));
-    assert!(bridge.inspect_browser(&account).await.unwrap_err().contains("Closed"));
+        .await.unwrap_err().contains("closed for shutdown"));
+    assert!(bridge.inspect_browser(&account).await.unwrap_err().contains("closed for shutdown"));
     assert!(bridge.inner.lock().await.is_none());
     assert!(bridge.routes.lock().await.is_empty());
 }
@@ -121,7 +121,7 @@ async fn sealed_policy_entry_rejects_every_pool_io_command() {
     for cmd in ["browser_status", "close_idle", "register_proxy"] {
         let error = bridge.call_with_policy(cmd, json!({}), Duration::from_secs(1), false)
             .await.unwrap_err();
-        assert!(error.contains("Closed"), "{cmd}: {error}");
+        assert!(error.contains("closed for shutdown"), "{cmd}: {error}");
     }
     assert!(bridge.inner.lock().await.is_none());
     assert!(bridge.routes.lock().await.is_empty());

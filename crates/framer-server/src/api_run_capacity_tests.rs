@@ -137,7 +137,7 @@ async fn api_run_typed_cooldown_preserves_deadline_and_bounds_http_retry() {
             assert_eq!(retry, remaining.clamp(1, 30));
             assert_eq!(body, json!({"type":"error","error":{"type":"overloaded_error",
                 "code":"framerize_account_cooling","message":format!(
-                    "An earlier security refusal started this account's cooldown; its recorded deadline has not expired. Retry in {retry} seconds."),
+                    "Cannot start the request because the saved account cooldown has no recorded triggering cause. Retry in {retry} seconds."),
                 "retry_after_seconds":retry,"cooldown_remaining_seconds":remaining}}));
         } else { drop(response); }
         finished(&state, &scope, &gate).await;

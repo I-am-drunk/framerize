@@ -1,3 +1,5 @@
+// Post-attempt account replay is forbidden. The explicit_account_retry tests
+// cover original-result delivery, disconnection, permits and cleanup fencing.
 use super::*;
 
 #[tokio::test]
@@ -104,37 +106,10 @@ fn assert_cooldown_peer_output(body: &[u8], messages: bool) {
     assert_eq!(value["usage"]["output_tokens"], 1);
 }
 
-#[derive(Clone, Copy)]
-enum RecoveryEnd { Eof, Disconnect, Error }
 
-#[tokio::test]
-async fn repicked_stream_success_keeps_prior_unknown_cleanup_fenced() {
-    for messages in [true, false] { recovery(messages, RecoveryEnd::Eof).await; }
-}
 
-#[tokio::test]
-async fn disconnected_repicked_stream_joins_success_and_keeps_prior_cleanup_fenced() {
-    for messages in [true, false] { recovery(messages, RecoveryEnd::Disconnect).await; }
-}
 
-#[tokio::test]
-async fn repicked_stream_plain_error_preserves_result_and_prior_cleanup_fence() {
-    for messages in [true, false] { recovery(messages, RecoveryEnd::Error).await; }
-}
 
-fn recovery_request(f: &fixture::Fixture, messages: bool) -> HttpRequest<Body> {
-    if !messages {
-        let mut request = fixture_request(f, true);
-        request.headers_mut().remove("x-framerize-account");
-        return request;
-    }
-    HttpRequest::builder().method("POST").uri("/anthropic/v1/messages")
-        .header("content-type", "application/json")
-        .header("x-framerize-session", "fixture-conversation")
-        .body(Body::from(serde_json::json!({"model":"claude-opus-5-5",
-            "messages":[{"role":"user","content":"fixture"}],
-            "max_tokens":16,"stream":true}).to_string())).unwrap()
-}
 
 fn assert_recovery_output(body: &[u8], messages: bool, failed: bool) {
     let text = std::str::from_utf8(body).unwrap();
@@ -173,90 +148,6 @@ fn assert_recovery_output(body: &[u8], messages: bool, failed: bool) {
     }
 }
 
-async fn recovery(messages: bool, end: RecoveryEnd) {
-    let mut f = fixture::Fixture::new();
-    f.state = with_owned_operations(f.state, 32).unwrap();
-    let ownership = f.state.operation_ownership.clone().unwrap();
-    let mut next_account = f.accounts[1].clone();
-    next_account.consecutive_failures = 3;
-    f.state.state.upsert(&next_account).await.unwrap();
-    let model = if messages { "claude-opus-5-5" } else { "gpt-6-astra" };
-    let app = crate::router(f.state.clone(), "/nonexistent-fixture-web");
-    let response = tokio::time::timeout(WAIT, app.clone().oneshot(recovery_request(&f, messages)))
-        .await.unwrap().unwrap();
-    assert_eq!(response.status(), StatusCode::OK);
-    let first = f.next().await;
-    assert_eq!(first.account, f.accounts[0].id);
-    assert_eq!(first.kind, if messages { "messages" } else { "responses" });
-    let loaded = tokio::time::timeout(WAIT, f.loads.recv()).await.unwrap().unwrap();
-    assert_eq!(loaded, f.accounts[0].framer_user_id);
-    first.reply.send(Err("host-lifecycle-unconfirmed: inert first account".into())).ok().unwrap();
-    tokio::time::timeout(WAIT, first.dropped).await.unwrap().unwrap();
-    // Keep the response connected until the replacement actually starts.
-    let second = f.next().await;
-    assert_eq!(second.account, f.accounts[1].id);
-    assert_eq!(second.kind, first.kind);
-    let loaded = tokio::time::timeout(WAIT, f.loads.recv()).await.unwrap().unwrap();
-    assert_eq!(loaded, f.accounts[1].framer_user_id);
-    assert_eq!(ownership.gate.stats().unwrap().active, 3); // Host, body, producer.
-    assert!(f.state.gate.acquire_now(&f.key(1, model)).await.is_none());
-    let snapshot = f.state.serving_accounts.residents.snapshot().unwrap();
-    assert!(snapshot.residents.iter().any(|slot|
-        slot.account == first.account && slot.uncertain && slot.users == 0));
-    assert!(snapshot.residents.iter().any(|slot|
-        slot.account == second.account && !slot.uncertain && slot.users == 1));
-    let mut response = Some(response);
-    if matches!(end, RecoveryEnd::Disconnect) {
-        drop(response.take());
-        assert!(!second.reply.is_closed(), "disconnect cancelled the in-flight call");
-        assert_eq!(ownership.gate.stats().unwrap().active, 3);
-        assert!(f.state.gate.acquire_now(&f.key(1, model)).await.is_none());
-    }
-    let reply = if matches!(end, RecoveryEnd::Error) {
-        Err("inert-final-error".to_string())
-    } else { Ok(fixture::success(second.kind)) };
-    second.reply.send(reply).ok().unwrap();
-    tokio::time::timeout(WAIT, second.dropped).await.unwrap().unwrap();
-    if let Some(response) = response {
-        let body = tokio::time::timeout(WAIT, to_bytes(response.into_body(), 65536))
-            .await.unwrap().unwrap();
-        assert_recovery_output(&body, messages, matches!(end, RecoveryEnd::Error));
-    }
-    // Port return alone is insufficient: wait for the owned producer/body to release.
-    tokio::time::timeout(WAIT, async {
-        while ownership.gate.stats().unwrap().active > 1 { tokio::task::yield_now().await; }
-    }).await.unwrap();
-    assert_eq!(ownership.gate.stats().unwrap().active, 1); // Retained host only.
-    assert!(ownership.gate.stats().unwrap().unconfirmed);
-    assert!(matches!(ownership.seal(), Err(GateError::Unconfirmed)));
-    f.no_call();
-    let snapshot = f.state.serving_accounts.residents.snapshot().unwrap();
-    let first_slot = snapshot.residents.iter().find(|slot| slot.account == first.account).unwrap();
-    let second_slot = snapshot.residents.iter().find(|slot| slot.account == second.account).unwrap();
-    assert!(first_slot.uncertain);
-    assert_eq!(first_slot.users, 0);
-    assert!(!second_slot.uncertain);
-    assert_eq!(second_slot.users, 0);
-    assert_eq!(second_slot.status, framer_core::resident_pool::ResidentStatus::Idle);
-    for index in [0, 1] {
-        let permit = f.state.gate.acquire_now(&f.key(index, model)).await.expect("attempt slot leaked");
-        drop(permit);
-    }
-    let current = f.state.state.get(second.account).await.unwrap().unwrap();
-    // Even after disconnect, only processing B's success can clear its seeded failures.
-    // A plain error preserves them, independently of the global cleanup fence.
-    let expected_failures = if matches!(end, RecoveryEnd::Error) { 3 } else { 0 };
-    assert_eq!(current.consecutive_failures, expected_failures);
-    let mut request = recovery_request(&f, messages);
-    request.headers_mut().insert("x-framerize-account",
-        second.account.0.to_string().parse().unwrap());
-    let refusal = tokio::time::timeout(WAIT, app.oneshot(request)).await.unwrap().unwrap();
-    assert_eq!(refusal.status(), StatusCode::SERVICE_UNAVAILABLE);
-    assert_eq!(to_bytes(refusal.into_body(), 1024).await.unwrap().as_ref(),
-        b"Cannot start this request: earlier work ended without confirmed cleanup; its resources cannot be reused.");
-    f.no_call();
-    assert!(f.loads.try_recv().is_err());
-}
 
 #[tokio::test]
 async fn discarded_messages_wave_refusal_keeps_cooldown_without_sealing() {
@@ -465,116 +356,8 @@ async fn first_permit_disconnect(stream: bool) {
     }
 }
 
-#[tokio::test(flavor = "current_thread")]
-async fn disconnected_nonstream_repick_wait_preserves_risk_cooldown_and_open_admission() {
-    nonstream_repick_disconnect(false).await;
-}
 
-#[tokio::test(flavor = "current_thread")]
-async fn disconnected_nonstream_repick_wait_preserves_prior_unknown_cleanup_fence() {
-    nonstream_repick_disconnect(true).await;
-}
 
-async fn nonstream_repick_disconnect(unknown_cleanup: bool) {
-    for messages in [true, false] {
-        let mut f = fixture::Fixture::new();
-        f.accounts[1].consecutive_failures = 3;
-        f.state.state.upsert(&f.accounts[1]).await.unwrap();
-        f.state = with_owned_operations(f.state, 32).unwrap();
-        let ownership = f.state.operation_ownership.clone().unwrap();
-        let model = if messages { "claude-opus-5-5" } else { "gpt-6-astra" };
-        let first_key = f.key(0, model);
-        let peer_key = f.key(1, model);
-        let peer_permit = f.state.gate.acquire(&peer_key).await;
-        let app = crate::router(f.state.clone(), "/nonexistent-fixture-web");
-        let mut request = cooldown_request(&f, messages, false, 0);
-        request.headers_mut().remove("x-framerize-account");
-        let task = tokio::spawn(app.oneshot(request));
-        let first = f.next().await;
-        assert_eq!(first.account, f.accounts[0].id);
-        assert_eq!(first.kind, if messages { "messages" } else { "responses" });
-        let loaded = tokio::time::timeout(WAIT, f.loads.recv()).await.unwrap().unwrap();
-        assert_eq!(loaded, f.accounts[0].framer_user_id);
-        assert!(f.state.gate.acquire_now(&first_key).await.is_none());
-        f.no_call();
-        let error = if unknown_cleanup { "host-lifecycle-unconfirmed: inert first account" }
-            else { "risk-refused" };
-        first.reply.send(Err(error.into())).ok().unwrap();
-        tokio::time::timeout(WAIT, first.dropped).await.unwrap().unwrap();
-        // The synchronous load reaches the held B permit before this task resumes.
-        let loaded = tokio::time::timeout(WAIT, f.loads.recv()).await.unwrap().unwrap();
-        assert_eq!(loaded, f.accounts[1].framer_user_id);
-        f.no_call();
-        assert_eq!(ownership.gate.stats().unwrap().active, 2);
-        assert!(!ownership.gate.stats().unwrap().unconfirmed);
-        assert!(f.state.gate.acquire_now(&peer_key).await.is_none());
-        drop(f.state.gate.acquire_now(&first_key).await.expect("A permit did not release"));
-        let snapshot = f.state.serving_accounts.residents.snapshot().unwrap();
-        assert_eq!(snapshot.residents.len(), 2);
-        let a = snapshot.residents.iter().find(|slot| slot.account == first.account).unwrap();
-        let b = snapshot.residents.iter().find(|slot| slot.account == f.accounts[1].id).unwrap();
-        assert_eq!(a.users, 0);
-        assert_eq!(a.uncertain, unknown_cleanup);
-        assert_eq!(b.users, 1);
-        assert!(!b.uncertain);
-        let records = f.state.state.list().await.unwrap();
-        let a = records.iter().find(|account| account.id == first.account).unwrap();
-        assert_eq!(a.state, framer_core::account::AccountState::Ready);
-        assert_eq!(a.consecutive_failures, u32::from(!unknown_cleanup));
-        assert_eq!(a.cooldown_step, u32::from(!unknown_cleanup));
-        assert_eq!(a.cooling_until_ms.is_some(), !unknown_cleanup);
-        let b = records.iter().find(|account| account.id == f.accounts[1].id).unwrap();
-        assert_eq!(serde_json::to_value(b).unwrap(), serde_json::to_value(&f.accounts[1]).unwrap());
-        let post_a = serde_json::to_value(&records).unwrap();
-        task.abort();
-        let cancelled = tokio::time::timeout(WAIT, task).await.unwrap().unwrap_err();
-        assert!(cancelled.is_cancelled());
-        tokio::time::timeout(WAIT, async {
-            while ownership.gate.stats().unwrap().active > 1 { tokio::task::yield_now().await; }
-        }).await.expect("repick request retained its owner behind B's held permit");
-        assert_eq!(ownership.gate.stats().unwrap().active, 1); // Retained host only.
-        assert_eq!(ownership.gate.stats().unwrap().unconfirmed, unknown_cleanup);
-        assert!(f.state.gate.acquire_now(&peer_key).await.is_none());
-        let snapshot = f.state.serving_accounts.residents.snapshot().unwrap();
-        assert_eq!(snapshot.residents.len(), 2);
-        let a = snapshot.residents.iter().find(|slot| slot.account == first.account).unwrap();
-        let b = snapshot.residents.iter().find(|slot| slot.account == f.accounts[1].id).unwrap();
-        assert_eq!(a.users, 0);
-        assert_eq!(a.uncertain, unknown_cleanup);
-        assert_eq!(b.users, 0);
-        assert!(!b.uncertain);
-        assert_eq!(b.status, framer_core::resident_pool::ResidentStatus::Idle);
-        // Full records preserve the completed A outcome. Write-attempt count is
-        // unobserved; equality does not rule out identical-value upserts.
-        assert_eq!(serde_json::to_value(f.state.state.list().await.unwrap()).unwrap(), post_a);
-        f.no_call();
-        assert!(matches!(f.loads.try_recv(), Err(tokio::sync::mpsc::error::TryRecvError::Empty)));
-        assert!(f.state.wave.check().is_none());
-        if unknown_cleanup {
-            assert!(matches!(ownership.seal(), Err(GateError::Unconfirmed)));
-            assert!(matches!(ownership.gate.admit(OperationKind::Inference),
-                Err(GateError::Unconfirmed)));
-        } else {
-            let mut ticket = ownership.seal().unwrap();
-            let proof = tokio::time::timeout(WAIT, ticket.wait_application()).await.unwrap().unwrap();
-            ownership.check_application_drained(&proof).unwrap();
-            drop(proof);
-            ticket.cancel_before_control().unwrap();
-            let admitted = ownership.gate.admit(OperationKind::Inference).unwrap();
-            admitted.complete().unwrap();
-            assert!(!ownership.gate.stats().unwrap().sealed);
-        }
-        assert_eq!(ownership.gate.stats().unwrap().active, 1);
-        assert_eq!(ownership.gate.stats().unwrap().unconfirmed, unknown_cleanup);
-        // The cancelled request drained before releasing this independent permit.
-        drop(peer_permit);
-        drop(f.state.gate.acquire_now(&peer_key).await.expect("B permit retained after drain"));
-        drop(f.state.gate.acquire_now(&first_key).await.expect("A permit retained after drain"));
-        f.no_call();
-        assert!(matches!(f.loads.try_recv(), Err(tokio::sync::mpsc::error::TryRecvError::Empty)));
-        assert_eq!(serde_json::to_value(f.state.state.list().await.unwrap()).unwrap(), post_a);
-    }
-}
 
 #[tokio::test(flavor = "current_thread")]
 async fn discarded_first_permit_lifecycle_refusal_keeps_stream_admission_open() {

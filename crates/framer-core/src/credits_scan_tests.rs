@@ -52,7 +52,7 @@ impl Fixture {
                 team: TeamId("saved-extra".into()), project: ProjectId("saved-project".into()),
             }],
             state: AccountState::Ready, credit: Some(credit(7.0)),
-            consecutive_failures: 3, cooldown_step: 2, cooling_until_ms: Some(12_345),
+            consecutive_failures: 3, cooldown_step: 2, cooling_until_ms: Some(12_345), cooldown_cause: None,
         };
         Self {
             probes: spec.iter().map(|(team, verdict)| Probe {
