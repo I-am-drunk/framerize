@@ -139,9 +139,8 @@ async fn bound_category_controls_policy_and_envelope_without_another_env_read() 
 }
 
 #[tokio::test]
-async fn nonzero_queue_wait_and_body_survive_the_post_refund_lookup() {
-    let f = Fixture::new(vec![(206, None, "data: fixture\n\n".into()),
-        (200, None, "{\"granted\":false}".into())]);
+async fn nonzero_queue_wait_and_body_survive_without_a_billing_request() {
+    let f = Fixture::new(vec![(206, None, "data: fixture\n\n".into())]);
     let project = ProjectId("fixture-project".into());
     let forward = ResponsesForward::new(&f.client.transport,
         &f.client.transport.authorization.accounts, &f.session, &f.browser,
@@ -152,7 +151,7 @@ async fn nonzero_queue_wait_and_body_survive_the_post_refund_lookup() {
     assert_eq!(result.content_type, "text/event-stream");
     assert_eq!(result.body.as_ref(), b"data: fixture\n\n");
     assert_eq!(result.queue_wait_ms, 4321);
-    assert_eq!(*f.browser.order.lock().unwrap(), ["seed", "inference", "refund", "queue"]);
+    assert_eq!(*f.browser.order.lock().unwrap(), ["seed", "inference", "queue"]);
     assert!(f.browser.replies.lock().unwrap().is_empty());
 }
 

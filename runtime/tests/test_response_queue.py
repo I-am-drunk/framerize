@@ -21,6 +21,31 @@ def chunk(sequence, offset, text, *, done=False, **extra):
 
 
 class ResponseQueueTests(unittest.IsolatedAsyncioTestCase):
+    async def test_host_preserves_hidden_http_error_and_removes_observers(self):
+        listeners = {}
+        self.page.on = lambda name, fn: listeners.setdefault(name, []).append(fn)
+        self.page.remove_listener = lambda name, fn: listeners[name].remove(fn)
+        failure = dict(kind='chunk', sequence=0, offset=0, next=0, done=True,
+            status=-1, usage=None, body='TypeError: NetworkError',
+            failure_phase='fetch', head_status=None)
+        self.install([failure, {'kind': 'closed', 'sequence': 0}])
+        original = self.page.evaluate
+        async def evaluate(script, args):
+            if script == app.AI_START_JS:
+                request = SimpleNamespace(url=app.API + '/fixture', method='POST',
+                    post_data_json={'turnId': 'fixture-turn'})
+                for callback in listeners['response']:
+                    callback(SimpleNamespace(request=request, status=504))
+            return await original(script, args)
+        self.page.evaluate = evaluate
+        result = await self.host._run_job(self.page, '/fixture',
+            {'turnId': 'fixture-turn'}, 'synthetic-token', 'synthetic-bearer',
+            'job', None, 1)
+        self.assertEqual(result['status'], -1)
+        self.assertIn('HTTP 504 Gateway Timeout', result['body'])
+        self.assertEqual(result['network_status'], 504)
+        self.assertTrue(all(not values for values in listeners.values()))
+
     async def asyncSetUp(self):
         directory = tempfile.TemporaryDirectory()
         self.addCleanup(directory.cleanup)

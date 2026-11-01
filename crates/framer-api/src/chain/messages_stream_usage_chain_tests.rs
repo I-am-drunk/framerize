@@ -18,7 +18,7 @@ fn transport_fallback_rejects_malformed_usage_before_emitting_tools() {
     assert!(observed.result.unwrap_err().contains("usage metadata"));
     assert!(observed.emitted.is_empty());
     assert_eq!(observed.requests.len(), 3);
-    assert_eq!(observed.refunds, 1);
+    assert_eq!(observed.refunds, 0);
 }
 
 #[test]
@@ -29,7 +29,7 @@ fn tool_fallback_rejects_malformed_usage_before_emitting_tools() {
     assert!(observed.result.unwrap_err().contains("usage metadata"));
     assert!(observed.emitted.is_empty());
     assert_eq!(observed.requests.len(), 4);
-    assert_eq!(observed.refunds, 1);
+    assert_eq!(observed.refunds, 0);
 }
 
 #[test]
@@ -50,7 +50,7 @@ fn both_fallbacks_preserve_streamed_usage_metadata() {
         assert_eq!(response.metered_chunks, 1);
         assert_eq!(observed.emitted, vec![tool()]);
         assert_eq!(observed.requests.len(), if tool_repair { 4 } else { 3 });
-        assert_eq!(observed.refunds, 1);
+        assert_eq!(observed.refunds, 0);
     }
 }
 
@@ -69,6 +69,6 @@ fn both_fallbacks_accept_nullable_delta_usage() {
             "output_tokens":80,"cache_read_input_tokens":4}));
         assert_eq!(observed.emitted, vec![tool()]);
         assert_eq!(observed.requests.len(), if tool_repair { 4 } else { 3 });
-        assert_eq!(observed.refunds, 1);
+        assert_eq!(observed.refunds, 0);
     }
 }

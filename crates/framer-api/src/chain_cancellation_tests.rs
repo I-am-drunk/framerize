@@ -12,14 +12,14 @@ struct HeldBrowser {
     status: u16, native: bool,
 }
 
-struct RefundBrowser {
+struct CompletionBrowser {
     calls: AtomicUsize, stopped: AtomicBool, entered: Semaphore, release: Semaphore,
 }
 
 #[tokio::test]
-async fn refund_respects_disconnect_and_preserves_unknown_completion() {
-    for cancel_during_refund in [false, true] {
-        let browser = RefundBrowser { calls: AtomicUsize::new(0),
+async fn completed_stream_does_not_send_billing_requests_after_disconnect() {
+    for cancel_after_call_started in [false, true] {
+        let browser = CompletionBrowser { calls: AtomicUsize::new(0),
             stopped: AtomicBool::new(false), entered: Semaphore::new(0),
             release: Semaphore::new(0) };
         let account = AccountId(uuid::Uuid::from_u128(1));
@@ -34,21 +34,19 @@ async fn refund_respects_disconnect_and_preserves_unknown_completion() {
             &browser, &account, &project, super::proxy::Dialect::OpenRouterResponses,
             "fixture", json!({"model":"fixture","stream":true}), "fixture-chat", 0,
             Some(&check)));
-        let calls = if cancel_during_refund { 2 } else { 1 };
+        let calls = 1;
         for call in 1..=calls {
             tokio::select! {
                 entered = browser.entered.acquire() => entered.unwrap().forget(),
                 result = &mut request => panic!("call {call} ended early: {}", result.is_ok()),
                 _ = tokio::time::sleep(Duration::from_secs(2)) => panic!("missing call {call}"),
             }
-            if call == calls { browser.stopped.store(true, Ordering::SeqCst); }
+            if cancel_after_call_started { browser.stopped.store(true, Ordering::SeqCst); }
             assert!(tokio::time::timeout(Duration::from_millis(5), &mut request).await.is_err());
             browser.release.add_permits(1);
         }
         let result = tokio::time::timeout(Duration::from_secs(2), request).await.unwrap();
-        if !cancel_during_refund { assert!(result.is_ok()); }
-        else { assert!(matches!(result, Err(error)
-            if error == "sidecar account command timed out (cmd ai_post)")); }
+        assert!(result.is_ok());
         assert_eq!(browser.calls.load(Ordering::SeqCst), calls);
     }
 }
@@ -110,7 +108,7 @@ async fn check(native: bool) {
 }
 
 #[async_trait]
-impl BrowserBridge for RefundBrowser {
+impl BrowserBridge for CompletionBrowser {
     async fn castle_token(&self, _: &AccountId) -> Result<CastleToken, String> {
         panic!("unexpected standalone mint")
     }

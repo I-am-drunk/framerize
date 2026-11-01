@@ -113,14 +113,19 @@ fn message_stop_requires_closed_content_and_a_stop_reason() {
 }
 
 #[test]
-fn upstream_error_is_never_a_success_or_a_payload_disclosure() {
+fn upstream_error_reports_its_cause_without_credentials_or_payload() {
     for position in [0, 2, 6] {
         let mut values = text_events("end_turn");
         values.insert(position, json!({"type":"error",
-            "error":{"type":"overloaded_error","message":"private fixture detail"}}));
+            "error":{"type":"overloaded_error","code":529,
+                "message":"provider overloaded; Bearer secret-value",
+                "request":{"private":"fixture payload"}}}));
         let error = parse(&encode(&values)).unwrap_err();
         assert!(error.contains("upstream error"));
-        assert!(!error.contains("private fixture detail"));
+        assert!(error.contains("provider overloaded"));
+        assert!(error.contains("529"));
+        assert!(!error.contains("secret-value"));
+        assert!(!error.contains("fixture payload"));
     }
 }
 

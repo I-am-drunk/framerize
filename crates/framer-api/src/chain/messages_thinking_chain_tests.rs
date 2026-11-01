@@ -50,7 +50,7 @@ fn adaptive(replies: Vec<Reply>, max_chunks: u32) -> Observed {
 fn adaptive_delayed(replies: Vec<Reply>, max_chunks: u32,
     delays: Vec<std::time::Duration>) -> Observed {
     run_with_payload(replies, ChainConfig { chunk_tokens:600, max_chunks,
-        max_total_tokens:Some(4096), metered_fallback:true, ..ChainConfig::default() },
+        max_total_tokens:Some(4096), metered_fallback:false, ..ChainConfig::default() },
         delays, json!({"model":"claude-opus-5-5", "thinking":{"type":"adaptive"},
             "output_config":{"effort":"high"}, "speed":"fast",
             "messages":[{"role":"user","content":"fixture"}]}))

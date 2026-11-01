@@ -55,7 +55,7 @@ fn transport_retry_and_opted_in_fallback_keep_the_budget_floor() {
         streamed(stream(text(), "end_turn"))], json!(1024), Some(4096), true);
     assert!(observed.result.is_ok());
     assert_requests(&observed, 1024, &[1025, 1025, 1025]);
-    assert_eq!(observed.refunds, 1);
+    assert_eq!(observed.refunds, 0);
 }
 
 #[test]

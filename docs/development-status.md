@@ -1,3 +1,14 @@
+# Claude timeout candidate, 2026-11-01
+
+`fix/claude-stalls-20261101` prepares `0.5.1-alpha.10` for the observed
+60-second upstream HTTP 504 hidden behind browser NetworkError.
+The candidate adds request-scoped network diagnostics, adaptive upstream
+streaming when metered access is enabled, and SDK replay prevention for
+incomplete buffered responses. Alpha.9 remains the running release.
+The 51 focused Python checks and 129 real browser failure observations pass.
+Next: finish Rust qualification and verify a long isolated Claude response.
+See [the Claude repair record](incidents/2026-11-01-claude-stalls.md).
+
 # Recurring error repair, 2026-11-01
 
 `fix/live-recurring-errors-20261101` is deployed as `0.5.1-alpha.9`, built from

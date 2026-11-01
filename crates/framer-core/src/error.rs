@@ -1,7 +1,8 @@
 use thiserror::Error;
 
 pub use framer_protocol::error::{AccountCooldown, chain_error_cause, is_security_refusal,
-    is_local_request_failure, is_workspace_saturation, safe_failure_summary};
+    is_local_request_failure, is_workspace_saturation, safe_failure_summary,
+    ADAPTIVE_INCOMPLETE_PREFIX, ADAPTIVE_INCOMPLETE_CODE};
 
 #[cfg(test)]
 mod cooldown_tests {

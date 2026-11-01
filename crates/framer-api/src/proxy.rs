@@ -246,35 +246,7 @@ async fn attempt(
     let elapsed = sent_at.elapsed();
     let streaming = payload["stream"].as_bool() == Some(true);
     check_response_status(status, &text, dialect.path(), category, elapsed.as_millis() as u64)?;
-    // Auto-refund (verified 2026-10-05): /ai/v3/refund/ has NO Castle layer
-    // and fully reverses a streamed charge — `{"granted":true}` restores the
-    // exact debit. Idempotent (second refund on the same turn is denied), and
-    // each account has a small grant quota (~2/window; main exhausted it
-    // during verification, acct2's first-ever refund granted). Pure upside:
-    // denied costs exactly what the stream already cost. The full body is
-    // already awaited above, so the stream has closed and the charge posted.
-    if streaming && !cancelled.is_some_and(|check| check()) {
-        let refund_body = json!({
-            "projectId": project.0,
-            "featureCategory": category,
-            "featureName": feature_name,
-            "step": step,
-            "sessionId": chat_session,
-            "stepIndex": 0,
-            "turnId": turn_id,
-            "userPrompt": "",
-            "castleToken": "garbage", // route ignores it (verified)
-        });
-        match browser.ai_post_cancellable(account, crate::routes::by_id("refund").map(|r| r.path).unwrap_or("/ai/v3/refund/"), &token.bearer, &refund_body, cancelled).await {
-            Ok((200, _, text)) => {
-                let granted = text.contains("\"granted\":true") || text.contains("\"granted\": true");
-                eprintln!("[refund] turn {} — {}", &turn_id[..8.min(turn_id.len())], if granted { "GRANTED (charge reversed)" } else { "denied (quota exhausted)" });
-            }
-            Ok((s, _, text)) => eprintln!("[refund] turn {} — HTTP {s}: {}", &turn_id[..8.min(turn_id.len())], crate::error_body::prefix(&text, 120)),
-            Err(e) if cancelled.is_some() => return Err(e),
-            Err(e) => eprintln!("[refund] turn {} — transport error: {e}", &turn_id[..8.min(turn_id.len())]),
-        }
-    }
+    // Inference never requests an automatic billing refund.
     let content_type = if streaming { "text/event-stream" } else { "application/json" }.to_string();
     // Our own queue time, reported so the chunk sizer can exclude it (see
     // ProxyResponse::queue_wait_ms).

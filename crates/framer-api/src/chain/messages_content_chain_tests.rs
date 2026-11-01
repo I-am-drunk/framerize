@@ -62,7 +62,7 @@ fn metered_citations_reach_assembly_and_client_stream() {
     assert_eq!(client_reply(&observed).content, vec![expected]);
     assert_eq!((response.chunks, response.metered_chunks), (1, 1));
     assert_eq!(observed.requests.len(), 3);
-    assert_eq!(observed.refunds, 1);
+    assert_eq!(observed.refunds, 0);
 }
 
 #[test]
@@ -73,5 +73,5 @@ fn malformed_metered_citations_never_publish_content() {
     assert!(observed.emitted.is_empty());
     assert!(!observed.frames.iter().any(|frame| frame.contains("content_block_start")));
     assert_eq!(observed.requests.len(), 3);
-    assert_eq!(observed.refunds, 1);
+    assert_eq!(observed.refunds, 0);
 }

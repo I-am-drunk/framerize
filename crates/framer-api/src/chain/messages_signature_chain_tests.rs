@@ -28,6 +28,6 @@ fn both_fallbacks_preserve_complete_signature_values() {
         let downstream = super::super::stream::parse(&observed.frames.join("\n\n")).unwrap();
         assert_eq!(downstream.content, vec![expected.clone()]);
         assert_eq!(observed.requests.len(), if tool_repair { 4 } else { 3 });
-        assert_eq!(observed.refunds, 1);
+        assert_eq!(observed.refunds, 0);
     }
 }

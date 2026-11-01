@@ -21,7 +21,9 @@ class FreshTokenTests(unittest.IsolatedAsyncioTestCase):
         after = acc.lifecycle.rates.state
         for field in ("devices", "reserve", "reserve_used", "cooling", "requests"):
             self.assertEqual(after[field], before[field])
-        self.assertIn("cooldowns have not expired", acc.lifecycle.rates.unavailable_reason())
+        reason = acc.lifecycle.rates.unavailable_reason()
+        self.assertIn("HTTP 403", reason)
+        self.assertIn("security checks", reason)
 
     setUp = creation.DeviceContextCreationTests.setUp
     finish = creation.DeviceContextCreationTests.finish

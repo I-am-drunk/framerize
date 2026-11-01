@@ -12,7 +12,7 @@ fn transport_fallback_rejects_completed_tools_without_identity() {
             assert!(observed.result.unwrap_err().contains("tool identity"));
             assert!(observed.emitted.is_empty());
             assert_eq!(observed.requests.len(), 3);
-            assert_eq!(observed.refunds, 1);
+            assert_eq!(observed.refunds, 0);
         }
     }
 }
@@ -26,6 +26,6 @@ fn tool_fallback_rejects_completed_text_without_text_data() {
         assert!(observed.result.unwrap_err().contains("text content"));
         assert!(observed.emitted.is_empty());
         assert_eq!(observed.requests.len(), 4);
-        assert_eq!(observed.refunds, 1);
+        assert_eq!(observed.refunds, 0);
     }
 }

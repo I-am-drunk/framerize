@@ -8,7 +8,6 @@ use framer_protocol::forward::AuthorizedForward;
 use std::{collections::VecDeque, sync::atomic::{AtomicBool, Ordering}};
 
 const PATH: &str = "/ai/v3/responses/";
-const REFUND: &str = "/ai/v3/refund/";
 const REJECTED: &str = "model not allowed for this feature";
 const OLD: &str = "fixture-original-bearer";
 const FRESH: &str = "fixture-newer-session-bearer";
@@ -57,7 +56,7 @@ impl BrowserBridge for Browser {
     }
     async fn last_queue_wait_ms(&self, account: &AccountId) -> u64 {
         self.events.lock().unwrap().push(Event::Queue(*account));
-        // Current lookup order is post-refund. This zero matches today's host,
+        // Queue lookup follows the completed inference. This zero matches today's host,
         // but does not prove correct attribution of nonzero per-post timing.
         0 // Timing redesign is outside S2a.
     }
@@ -152,17 +151,6 @@ fn envelope(post: &Post, payload: &Value, category: &str, bearer: &str, supplied
         "request":payload}));
 }
 
-fn refund(post: &Post, attempt: &Post) {
-    assert_eq!(post.path, REFUND);
-    assert_eq!(post.bearer, attempt.bearer);
-    assert_eq!(post.callback, attempt.callback);
-    assert_eq!(post.body, json!({"projectId":"fixture-project",
-        "featureCategory":attempt.body["featureCategory"],
-        "featureName":attempt.body["featureName"], "step":"translate",
-        "sessionId":"fixture-chat", "stepIndex":0, "turnId":attempt.body["turnId"],
-        "userPrompt":"", "castleToken":"garbage"}));
-}
-
 async fn success(mut response: ProxyResponse, status: u16, streaming: bool) {
     assert_eq!(response.status, status);
     assert_eq!(response.content_type, if streaming { "text/event-stream" } else { "application/json" });
@@ -172,15 +160,15 @@ async fn success(mut response: ProxyResponse, status: u16, streaming: bool) {
 }
 
 #[tokio::test]
-async fn common_streamed_envelope_and_refund_share_the_completed_turn() {
+async fn common_streamed_envelope_never_makes_an_automatic_refund() {
     for supplied in [false, true] {
-        let fixture = Fixture::new(vec![ok(201, BODY), ok(200, r#"{"granted":true}"#)]);
+        let fixture = Fixture::new(vec![ok(201, BODY)]);
         let payload = payload(true);
         success(fixture.run(payload.clone(), supplied).await.unwrap(), 201, true).await;
-        fixture.trace(&["seed", "post", "post", "queue"]);
+        fixture.trace(&["seed", "post", "queue"]);
         let posts = fixture.posts();
         envelope(&posts[0], &payload, &category(), OLD, supplied);
-        refund(&posts[1], &posts[0]);
+        assert_eq!(posts.len(), 1);
     }
 }
 
@@ -194,38 +182,6 @@ async fn common_nonstream_values_preserve_payload_without_refund() {
         success(fixture.run(payload.clone(), true).await.unwrap(), 202, false).await;
         fixture.trace(&["seed", "post", "queue"]);
         envelope(&fixture.posts()[0], &payload, &category(), OLD, true);
-    }
-}
-
-#[tokio::test]
-async fn common_refund_transport_error_is_returned_with_false_callback() {
-    let error = "host-lifecycle-unconfirmed: fixture refund completion unknown";
-    let fixture = Fixture::new(vec![ok(200, BODY), Err(error.into())]);
-    assert_eq!(fixture.run(payload(true), true).await.err().unwrap(), error);
-    fixture.trace(&["seed", "post", "post"]);
-    refund(&fixture.posts()[1], &fixture.posts()[0]);
-}
-
-#[tokio::test]
-async fn common_refund_transport_error_is_ignored_without_callback() {
-    let fixture = Fixture::new(vec![ok(200, BODY),
-        Err("host-lifecycle-unconfirmed: fixture refund completion unknown".into())]);
-    success(fixture.run(payload(true), false).await.unwrap(), 200, true).await;
-    fixture.trace(&["seed", "post", "post", "queue"]);
-    refund(&fixture.posts()[1], &fixture.posts()[0]);
-}
-
-#[tokio::test]
-async fn common_refund_denial_or_http_failure_keeps_original_response() {
-    for supplied in [false, true] {
-        for status in [200, 400, 401, 402, 403, 429, 500] {
-            let fixture = Fixture::new(vec![ok(200, BODY), ok(status, r#"{"granted":false}"#)]);
-            success(fixture.run(payload(true), supplied).await.unwrap(), 200, true).await;
-            fixture.trace(&["seed", "post", "post", "queue"]);
-            let posts = fixture.posts();
-            envelope(&posts[0], &payload(true), &category(), OLD, supplied);
-            refund(&posts[1], &posts[0]);
-        }
     }
 }
 
@@ -267,16 +223,16 @@ async fn common_transport_failure_preserves_cleanup_signal_without_more_work() {
 }
 
 #[tokio::test]
-async fn translation_category_fallback_records_new_turn_and_refunds_only_success() {
+async fn translation_category_fallback_records_new_turn_without_refund() {
     assert_eq!(category(), "translation");
-    let fixture = Fixture::new(vec![ok(400, REJECTED), ok(200, BODY), ok(200, "{}")]);
+    let fixture = Fixture::new(vec![ok(400, REJECTED), ok(200, BODY)]);
     success(fixture.run(payload(true), true).await.unwrap(), 200, true).await;
-    fixture.trace(&["seed", "post", "seed", "post", "post", "queue"]);
+    fixture.trace(&["seed", "post", "seed", "post", "queue"]);
     let posts = fixture.posts();
     envelope(&posts[0], &payload(true), "translation", OLD, true);
     envelope(&posts[1], &payload(true), "agents", OLD, true);
     assert_ne!(posts[0].body["turnId"], posts[1].body["turnId"]);
-    refund(&posts[2], &posts[1]);
+    assert_eq!(posts.len(), 2);
 }
 
 #[tokio::test]
@@ -327,16 +283,16 @@ async fn common_a3_status_classification_never_starts_category_fallback() {
 }
 
 #[tokio::test]
-async fn common_401_refresh_uses_new_bearer_and_turn_for_response_and_refund() {
-    let fixture = Fixture::new(vec![ok(401, "expired"), ok(200, BODY), ok(200, "{}")]);
+async fn common_401_refresh_uses_new_bearer_and_turn_for_response() {
+    let fixture = Fixture::new(vec![ok(401, "expired"), ok(200, BODY)]);
     fixture.newer_session_token();
     success(fixture.run(payload(true), true).await.unwrap(), 200, true).await;
-    fixture.trace(&["seed", "post", "seed", "post", "post", "queue"]);
+    fixture.trace(&["seed", "post", "seed", "post", "queue"]);
     let posts = fixture.posts();
     envelope(&posts[0], &payload(true), &category(), OLD, true);
     envelope(&posts[1], &payload(true), &category(), FRESH, true);
     assert_ne!(posts[0].body["turnId"], posts[1].body["turnId"]);
-    refund(&posts[2], &posts[1]);
+    assert_eq!(posts.len(), 2);
     let cache = fixture.transport.authorization.accounts.lock().unwrap();
     assert_eq!(cache.len(), 1);
     assert_eq!(cache[0].0, fixture.account);
@@ -375,26 +331,6 @@ async fn agents_a1_initial_category_rejection_does_not_retry() {
         format!("retryable 400 on {PATH}: {REJECTED}"));
     fixture.trace(&["seed", "post"]);
     envelope(&fixture.posts()[0], &payload(true), "agents", OLD, true);
-}
-
-#[tokio::test]
-async fn translation_refund_sentinels_still_reach_the_single_outer_retry() {
-    assert_eq!(category(), "translation");
-    for (error, retry_category, retry_bearer) in [
-        ("unauthorized", "translation", FRESH), ("category-rejected", "agents", OLD),
-    ] {
-        let fixture = Fixture::new(vec![ok(200, BODY), Err(error.into()),
-            ok(200, BODY), ok(200, "{}")]);
-        fixture.newer_session_token();
-        success(fixture.run(payload(true), true).await.unwrap(), 200, true).await;
-        fixture.trace(&["seed", "post", "post", "seed", "post", "post", "queue"]);
-        let posts = fixture.posts();
-        envelope(&posts[0], &payload(true), "translation", OLD, true);
-        refund(&posts[1], &posts[0]);
-        envelope(&posts[2], &payload(true), retry_category, retry_bearer, true);
-        refund(&posts[3], &posts[2]);
-        assert_ne!(posts[0].body["turnId"], posts[2].body["turnId"]);
-    }
 }
 
 #[tokio::test]

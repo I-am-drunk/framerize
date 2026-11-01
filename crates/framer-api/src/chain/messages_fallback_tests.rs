@@ -47,6 +47,9 @@ mod thinking_tests;
 #[path = "messages_thinking_budget_tests.rs"]
 mod thinking_budget_tests;
 
+#[path = "messages_adaptive_streaming_tests.rs"]
+mod adaptive_streaming_tests;
+
 struct Observed {
     result: Result<AssembledResponse, String>,
     emitted: Vec<Value>,
@@ -168,7 +171,7 @@ fn transport_fallback_never_publishes_a_truncated_tool_stream() {
     assert!(observed.result.unwrap_err().contains("without message_stop"));
     assert!(observed.emitted.is_empty());
     assert_eq!(observed.requests.len(), 3);
-    assert_eq!(observed.refunds, 1);
+    assert_eq!(observed.refunds, 0);
 }
 
 #[test]
@@ -197,7 +200,7 @@ fn transport_fallback_preserves_a_complete_tool_response() {
     assert_eq!((response.chunks, response.metered_chunks), (1, 1));
     assert_eq!(observed.emitted, vec![tool()]);
     assert_eq!(observed.requests.len(), 3);
-    assert_eq!(observed.refunds, 1);
+    assert_eq!(observed.refunds, 0);
 }
 
 #[test]
@@ -209,7 +212,7 @@ fn repeated_tool_cut_fallback_rejects_upstream_error_before_emission() {
     assert!(observed.result.unwrap_err().contains("upstream error"));
     assert!(observed.emitted.is_empty());
     assert_eq!(observed.requests.len(), 4);
-    assert_eq!(observed.refunds, 1);
+    assert_eq!(observed.refunds, 0);
 }
 
 #[test]
@@ -226,7 +229,7 @@ fn completed_text_limit_fallback_continues_with_its_content_and_usage() {
     assert_eq!(observed.emitted, vec![first.clone(), second]);
     assert_eq!(observed.requests.len(), 4);
     assert_eq!(observed.requests[3]["request"]["messages"][1]["content"], json!([first]));
-    assert_eq!(observed.refunds, 1);
+    assert_eq!(observed.refunds, 0);
 }
 
 #[test]

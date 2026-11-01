@@ -13,7 +13,7 @@ fn both_fallbacks_reject_explicit_named_error_frames() {
             assert!(observed.result.unwrap_err().contains("upstream error"));
             assert!(observed.emitted.is_empty());
             assert_eq!(observed.requests.len(), if tool_repair { 4 } else { 3 });
-            assert_eq!(observed.refunds, 1);
+            assert_eq!(observed.refunds, 0);
         }
     }
 }

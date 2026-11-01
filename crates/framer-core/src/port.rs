@@ -227,10 +227,10 @@ pub struct ChainConfig {
     /// upstream max_tokens is min(chunk_tokens, remaining). None = chain until
     /// finish_reason == "stop".
     pub max_total_tokens: Option<u32>,
-    /// Last-resort rung: finish a failing chunk as a METERED stream (touches
-    /// credits). Default OFF — credit spend is opt-in per daemon via
-    /// FRAMERIZE_ALLOW_METERED=1. With it off, exhausted free retries return a
-    /// clean error instead of spending.
+    /// Allow metered streaming. Adaptive thinking streams from the first
+    /// attempt because its full response may exceed the buffered window.
+    /// Other requests retain their existing fallback policy. Default OFF:
+    /// credit spend requires FRAMERIZE_ALLOW_METERED=1.
     pub metered_fallback: bool,
     /// Fired on the FIRST 429 a chain sees (and each after): lets the server
     /// mark the workspace saturated for rotation steering immediately instead

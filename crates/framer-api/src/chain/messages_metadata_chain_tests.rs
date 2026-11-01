@@ -18,7 +18,7 @@ fn both_fallbacks_reject_late_malformed_stop_metadata() {
             assert!(observed.result.is_err());
             assert!(observed.emitted.is_empty());
             assert_eq!(observed.requests.len(), if tool_repair { 4 } else { 3 });
-            assert_eq!(observed.refunds, 1);
+            assert_eq!(observed.refunds, 0);
         }
     }
 }

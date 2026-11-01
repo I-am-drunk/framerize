@@ -1,3 +1,30 @@
+# Claude timeout repair, 2026-11-01
+
+Branch `fix/claude-stalls-20261101` prepares `0.5.1-alpha.10`.
+Production remains alpha.9 at source `132af226`, PID 2340122.
+No live restart or release mutation occurred during this diagnosis.
+
+The isolated browser trace proves HTTP 504 at 60.122 seconds, hidden from
+page JavaScript as NetworkError. Long buffered adaptive Claude requests
+are the recurring failure. The candidate retains that network cause,
+prevents uncertain buffered replay, and streams adaptive requests when
+metered access is explicitly enabled. It never requests billing refunds.
+
+The 51 focused Python checks pass. A real browser passed 129 local HTTP
+504 observations with request ownership and listener cleanup intact.
+Evidence and local helpers are in
+`/home/tjninja/.cache/framerize-claude-stalls-20261101`.
+Rust qualification is running in the existing Docker SSH builder,
+container `framerize-repair-build-20261101`, directory
+`/home/runner/claude-stalls-source`, log `/evidence/claude-stalls-r1/rust.log`.
+Execution session 68511 owns that run. Do not restart it.
+
+The old diagnostic instance on 8792 has stopped cleanly. The exclusive
+non-production profile remains at
+`/home/tjninja/.local/state/framerize-browserless/enrollment-20261023-r1`.
+Next: collect Rust qualification, build the exact commit, and run the
+long adaptive request against the candidate on 8792 before activation.
+
 # Alpha.9 readiness correction, 2026-11-01
 
 The public endpoint is running at `https://iris-1.javanese-mercat.ts.net:10000/`.

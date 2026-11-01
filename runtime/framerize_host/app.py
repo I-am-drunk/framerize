@@ -26,6 +26,7 @@ from .browser.session import set_account_cookie
 from .browser.scripts import (WARM_JS, MINT_JS, post_js, AI_START_JS,
     AI_POLL_JS, AI_CANCEL_JS, DEVPOOL_WARM_JS, DEVPOOL_MINT_JS)
 from .browser.responses import receive as receive_response, ResponseDeadline
+from .browser.network_failure import NetworkFailure
 
 _MINT_CALLS = ContextVar('framerize_mint_calls', default=None)
 
@@ -1132,14 +1133,23 @@ class Host:
         """Strip private diagnostics; a received head does not complete a response."""
         phase = result.pop("failure_phase", None)
         status = result.pop("head_status", None)
+        network_status = result.pop("network_status", None)
+        network_failure = result.pop("network_failure", None)
         if type(result.get("status")) is not int or result["status"] != -1:
             return {}
+        facts = {}
         if phase == "fetch" and status is None:
-            return {"failure_phase": "fetch", "head_status": None, "job": job}
+            facts.update(failure_phase="fetch", head_status=None)
         if (phase == "body" and type(status) is int
                 and (status == 0 or 100 <= status <= 599)):
-            return {"failure_phase": "body", "head_status": status, "job": job}
-        return {}
+            facts.update(failure_phase="body", head_status=status)
+        if type(network_status) is int and 100 <= network_status <= 599:
+            facts['network_status'] = network_status
+        if isinstance(network_failure, str) and network_failure:
+            facts['network_failure'] = error_message(network_failure)
+        if facts:
+            facts['job'] = job
+        return facts
 
     async def _run_job(self, page, path, body, token, bearer, job, dev, timeout):
         account = self._account_for_page(page)
@@ -1150,6 +1160,7 @@ class Host:
     async def _run_job_active(self, account, page, path, body, token, bearer, job, dev, timeout):
         deadline = time.monotonic() + timeout
         completed = False
+        network = NetworkFailure(page, API + path, body.get('turnId')).watch()
         try:
             await asyncio.wait_for(
                 self._rpc(account, page.evaluate, AI_START_JS, [path, body, token, bearer, job, dev]),
@@ -1164,8 +1175,9 @@ class Host:
             except ResponseDeadline:
                 return {"status": -1, "usage": None, "body": f"sidecar poll timeout ({timeout:g}s)"}
             completed = True
-            return result
+            return network.explain(result)
         finally:
+            network.close()
             try:
                 if not completed:
                     self.lifecycles[account].rates.mark_uncertain()
@@ -1356,15 +1368,19 @@ class Host:
                         # payload never sets max_tokens, so the old default-600
                         # math was a lie for Codex.
                         est_s = 60.0
+                        response_cap = 180.0
                         try:
                             rb = req["body"].get("request", {}) or {}
                             tok_n = rb.get("max_tokens") or rb.get("max_output_tokens") or 600
                             est_s = max(60.0, float(tok_n) / 10.0 * 3.0)
+                            if rb.get("stream") is True:
+                                # Leave cleanup time inside the host's 900s RPC bound.
+                                response_cap = 840.0
                         except Exception:
                             pass
                         r = await self._run_job(
                             fire_page, req["path"], req["body"], tok,
-                            req.get("bearer"), job, used_dev, min(180.0, est_s),
+                            req.get("bearer"), job, used_dev, min(response_cap, est_s),
                         )
                         r["_fetch_ms"] = int((time.monotonic() - fetch_t0) * 1000)
                     finally:

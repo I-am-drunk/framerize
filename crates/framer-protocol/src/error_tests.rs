@@ -152,3 +152,16 @@ fn cleanup_diagnostics_cannot_be_mistaken_for_provider_error_json() {
     assert!(message.starts_with("Browser host failure: internal 500:"));
     assert!(message.contains("private detail"));
 }
+
+#[test]
+fn uncertain_adaptive_response_retains_cause_and_disables_automatic_replay() {
+    let error = format!("{}browser NetworkError after 61 seconds",
+        super::ADAPTIVE_INCOMPLETE_PREFIX);
+    for dialect in dialects() {
+        let (status, body) = error_json(dialect, &error);
+        assert_eq!(status, 502);
+        assert_eq!(body["error"]["message"], "browser NetworkError after 61 seconds");
+        assert_eq!(body["error"]["code"], super::ADAPTIVE_INCOMPLETE_CODE);
+        assert_eq!(body["error"]["retryable"], false);
+    }
+}

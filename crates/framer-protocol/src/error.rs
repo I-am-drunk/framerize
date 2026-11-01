@@ -1,5 +1,8 @@
 use thiserror::Error;
 
+pub const ADAPTIVE_INCOMPLETE_PREFIX: &str = "adaptive-buffered-transport: ";
+pub const ADAPTIVE_INCOMPLETE_CODE: &str = "framerize_adaptive_response_incomplete";
+
 pub fn safe_failure_summary(error: &str) -> String {
     let mut line = error.lines().next().unwrap_or("").to_owned();
     let lower = line.to_ascii_lowercase();

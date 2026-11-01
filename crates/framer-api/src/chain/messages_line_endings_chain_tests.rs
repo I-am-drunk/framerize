@@ -18,7 +18,7 @@ fn both_fallbacks_reject_cr_delimited_errors_after_completion() {
             assert!(observed.result.unwrap_err().contains("upstream error"));
             assert!(observed.emitted.is_empty());
             assert_eq!(observed.requests.len(), if tool_repair { 4 } else { 3 });
-            assert_eq!(observed.refunds, 1);
+            assert_eq!(observed.refunds, 0);
         }
     }
 }
@@ -40,7 +40,7 @@ fn both_fallbacks_accept_cr_and_mixed_line_endings() {
             assert_eq!(response.output_tokens, 80);
             assert_eq!(observed.emitted, vec![block.clone()]);
             assert_eq!(observed.requests.len(), if tool_repair { 4 } else { 3 });
-            assert_eq!(observed.refunds, 1);
+            assert_eq!(observed.refunds, 0);
         }
     }
 }

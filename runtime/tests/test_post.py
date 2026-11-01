@@ -30,11 +30,11 @@ class PostTests(unittest.IsolatedAsyncioTestCase):
         self.host._note_request = Mock()
         self.host._cool_device = Mock(side_effect=AssertionError('unexpected cooldown'))
 
-    async def dispatch(self, result):
+    async def dispatch(self, result, request=None):
         self.host._run_job = AsyncMock(return_value=result)
         returned = await self.host._handle(dict(cmd='ai_post', account='fixture',
             path='/ai/v3/responses/', bearer='private-bearer',
-            body={'projectId': 'project', 'request': {'model': 'fixture'}}))
+            body={'projectId': 'project', 'request': request or {'model': 'fixture'}}))
         self.assertIs(returned, result)
         self.host._token_acquire.assert_awaited_once()
         self.host._run_job.assert_awaited_once()
@@ -57,6 +57,16 @@ class PostTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_fetch_failure_logs_only_fixed_facts(self):
         await self.check_failure('fetch', None)
+
+    async def test_long_stream_has_time_to_complete_inside_host_rpc_deadline(self):
+        await self.dispatch(dict(status=200, usage=None, body='complete'),
+                            {'stream': True, 'max_tokens': 64000})
+        self.assertEqual(self.host._run_job.call_args.args[-1], 840.0)
+
+    async def test_buffered_response_keeps_its_existing_time_limit(self):
+        await self.dispatch(dict(status=200, usage=None, body='complete'),
+                            {'stream': False, 'max_tokens': 64000})
+        self.assertEqual(self.host._run_job.call_args.args[-1], 180.0)
 
     async def test_incomplete_403_body_does_not_retry_or_cool(self):
         await self.check_failure('body', 403)

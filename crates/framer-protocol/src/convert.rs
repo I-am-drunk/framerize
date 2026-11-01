@@ -1543,6 +1543,15 @@ pub fn is_context_overflow(msg: &str) -> bool {
 /// of a generic 500 it retries forever ("gave up after repeated API errors").
 pub fn error_json(d: ClientDialect, msg: &str) -> (u16, serde_json::Value) {
     let cause = crate::error::chain_error_cause(msg);
+    if let Some(message) = cause.strip_prefix(crate::error::ADAPTIVE_INCOMPLETE_PREFIX) {
+        let error = json!({"type":"api_error", "message":message,
+            "code":crate::error::ADAPTIVE_INCOMPLETE_CODE, "retryable":false});
+        let body = match d {
+            ClientDialect::AnthropicMessages => json!({"type":"error", "error":error}),
+            _ => json!({"error":error}),
+        };
+        return (502, body);
+    }
     let (status, umsg, utype) = match (
         crate::error::public_unavailable_message(msg), parse_upstream_error(cause),
     ) {

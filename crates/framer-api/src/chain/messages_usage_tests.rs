@@ -50,7 +50,7 @@ fn transport_fallback_usage_above_u32_exhausts_the_client_budget() {
     assert_eq!(response.stop_reason, "max_tokens");
     assert_eq!(observed.emitted, vec![text("answer")]);
     assert_eq!(observed.requests.len(), 3);
-    assert_eq!(observed.refunds, 1);
+    assert_eq!(observed.refunds, 0);
 }
 
 #[test]
@@ -64,7 +64,7 @@ fn tool_fallback_usage_above_u32_exhausts_the_client_budget() {
     assert_eq!(response.stop_reason, "max_tokens");
     assert_eq!(observed.emitted, vec![text("answer")]);
     assert_eq!(observed.requests.len(), 4);
-    assert_eq!(observed.refunds, 1);
+    assert_eq!(observed.refunds, 0);
 }
 
 #[test]
@@ -85,7 +85,7 @@ fn transport_fallback_usage_overflow_keeps_only_the_published_prefix() {
     assert!(observed.result.unwrap_err().contains("usage overflow"));
     assert_eq!(observed.emitted, vec![text("prefix")]);
     assert_eq!(observed.requests.len(), 4);
-    assert_eq!(observed.refunds, 1);
+    assert_eq!(observed.refunds, 0);
 }
 
 #[test]
@@ -96,7 +96,7 @@ fn tool_fallback_usage_overflow_keeps_only_the_published_prefix() {
     assert!(observed.result.unwrap_err().contains("usage overflow"));
     assert_eq!(observed.emitted, vec![text("prefix")]);
     assert_eq!(observed.requests.len(), 5);
-    assert_eq!(observed.refunds, 1);
+    assert_eq!(observed.refunds, 0);
 }
 
 #[test]
@@ -113,5 +113,5 @@ fn discarded_tool_usage_cannot_overflow_delivered_output() {
     assert_eq!(response.stop_reason, "tool_use");
     assert_eq!((response.chunks, response.metered_chunks), (4, 1));
     assert_eq!(observed.requests.len(), 5);
-    assert_eq!(observed.refunds, 1);
+    assert_eq!(observed.refunds, 0);
 }

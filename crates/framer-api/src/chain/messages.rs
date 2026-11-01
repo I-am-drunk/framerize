@@ -108,6 +108,28 @@ pub async fn complete_long(
         prepare_payload(&anthro_payload, messages, chunk, dialect)
     };
 
+    // Adaptive thinking cannot resume through a synthetic continuation.
+    // Explicitly allowed streaming avoids buffering its whole generation.
+    if adaptive_thinking && cfg.metered_fallback {
+        cfg.check_cancelled()?;
+        let limit = cfg.max_total_tokens.unwrap_or(cfg.chunk_tokens);
+        let payload = build_payload(&anthro_payload["messages"], limit,
+            Dialect::OpenRouterMessages);
+        let mut wait = super::cooldown_wait::CooldownWait::default();
+        let completed = wait.run(cfg, false, || stream_chunk(
+            t, token_cache, session, browser, account, project,
+            Dialect::OpenRouterMessages, &chain_step, payload.clone(),
+            chat_session, 0, cfg.cancelled.as_deref(),
+        )).await?;
+        cfg.check_cancelled()?;
+        if let Some(callback) = events {
+            callback(ChainEvent::Chunk(completed.content.clone()));
+        }
+        return Ok(assemble(completed.id, completed.content,
+            completed.stop_reason, completed.stop_sequence, completed.usage,
+            completed.input_tokens, completed.output_tokens, 1, 1));
+    }
+
     let mut messages = anthro_payload["messages"].clone();
     let mut blocks: Vec<Value> = Vec::new();
     let mut msg_id = String::new();
@@ -203,6 +225,12 @@ pub async fn complete_long(
             }
             Err(e) if framer_core::error::AccountCooldown::from_error(&e).is_some() => return Err(e),
             Err(e) if cfg.is_cancelled() => return Err(e),
+            Err(e) if adaptive_thinking && e.starts_with("in-page fetch failed:") => {
+                let elapsed = cooldown_wait.elapsed(last_attempt_t0).as_secs_f32();
+                let cause = framer_core::error::safe_failure_summary(&e);
+                let prefix = framer_core::error::ADAPTIVE_INCOMPLETE_PREFIX;
+                return Err(format!("{prefix}Claude's buffered upstream request failed after {elapsed:.1}s before a complete response was available. The request allowed {chunk} output tokens with adaptive thinking. Browser cause: {cause}. Automatic replay is disabled because completion is unknown. Long adaptive responses require explicitly enabled metered streaming to avoid the buffered response window."));
+            }
             Err(e) => {
                 // The idle-kill check must time the FAILING ATTEMPT — the whole
                 // loop includes 429 backoffs, which would misclassify a fast

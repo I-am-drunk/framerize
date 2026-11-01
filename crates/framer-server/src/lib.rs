@@ -3433,14 +3433,23 @@ impl axum::response::IntoResponse for ApiError {
 
 impl axum::response::IntoResponse for ShapedApiError {
     fn into_response(self) -> axum::response::Response {
-        (
+        let unreplayable = self.1.pointer("/error/code").and_then(|value| value.as_str())
+            == Some(framer_core::error::ADAPTIVE_INCOMPLETE_CODE);
+        let mut response = (
             self.0,
             [(axum::http::header::CONTENT_TYPE, "application/json")],
             serde_json::to_string(&self.1).unwrap_or_else(|_| "{}".into()),
-        )
-            .into_response()
+        ).into_response();
+        if unreplayable {
+            response.headers_mut().insert("x-should-retry",
+                axum::http::HeaderValue::from_static("false"));
+        }
+        response
     }
 }
 
 #[cfg(test)]
 mod pause_recovery_tests;
+
+#[cfg(test)]
+mod adaptive_retry_tests;
