@@ -176,6 +176,7 @@ async fn health(State(state): State<AppState>) -> impl axum::response::IntoRespo
 }
 
 async fn readiness(State(state): State<AppState>) -> impl axum::response::IntoResponse {
+    use axum::response::IntoResponse;
     let check = async {
         let accounts = state.state.list().await?;
         let ids: Vec<_> = accounts.into_iter().map(|account| account.id).collect();
@@ -196,10 +197,12 @@ async fn readiness(State(state): State<AppState>) -> impl axum::response::IntoRe
     };
     let ready = problem.is_none();
     let (reason, cause) = problem.map_or(("ready", None), |(reason, cause)| (reason, Some(cause)));
-    (if ready { StatusCode::OK } else { StatusCode::SERVICE_UNAVAILABLE },
+    let response = (if ready { StatusCode::OK } else { StatusCode::SERVICE_UNAVAILABLE },
         [("x-framerize-pid", std::process::id().to_string())],
         Json(serde_json::json!({"ready": ready,
-            "reason": reason, "cause": cause})))
+            "reason": reason, "cause": cause}))).into_response();
+    // Discarding this completed diagnostic cannot leave inference work running.
+    operation_ownership::completed_response(response, true)
 }
 
 fn health_response(ownership: Option<&operation_ownership::ServingOwnership>)

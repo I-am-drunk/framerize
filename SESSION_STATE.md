@@ -1,4 +1,23 @@
-# Current recurring-error repair, 2026-11-01
+# Alpha.9 readiness correction, 2026-11-01
+
+The public endpoint is running at `https://iris-1.javanese-mercat.ts.net:10000/`.
+Port 443 is private again. Its separate proxy is recorded in PR27.
+
+Alpha.8 was packaged and passed four isolated real requests. First activation
+rolled back safely because an abandoned readiness response falsely closed
+admission. Production is alpha.7 again, PID 2294848. No old candidate processes
+remain. The test profile is released; the immutable candidate is still staged.
+
+The working change completes only the finished readiness diagnostic. It keeps
+the history check owned after caller cancellation. Two regressions cover both
+cases. `readiness-before-cached` reproduced the failure. Corrected qualification
+runs as `readiness-after-fresh` in `framerize-repair-build-20261101` on
+`framerize-imac-ci`. An earlier run used a stale test executable and is excluded.
+Use the Docker SSH interface. Do not restart its build or the live service.
+The next step is finish the corrected server qualification and build
+alpha.9 with `build-readiness-release.py` in the local repair cache.
+
+# Earlier recurring-error repair, 2026-11-01
 
 Current continuation: the final cooldown-cause correction and updated
 identity-preservation regressions are undergoing Rust qualification.

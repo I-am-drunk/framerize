@@ -142,3 +142,24 @@ existing fixes in this baseline. Their preserved-history and append tests remain
 relevant. Integrity verification stays strict and names differing files. Client
 disconnects, explicit output/time limits, unsupported routes and wrong methods
 are reported as their actual conditions, not provider or security failures.
+
+## Readiness timeout found during activation
+
+The alpha.8 package passed its package checks and four consecutive isolated
+Responses requests. After warmup, process PSS stayed between 1.25 and 1.28 GB.
+The first cold request succeeded, but its immediate successor encountered the
+test container's 2 GiB limit. Idle collection recovered that memory; no OOM
+event occurred. The unchanged limit admitted the four subsequent requests.
+
+The first production activation automatically restored alpha.7 after a health
+503. A readiness caller had timed out while its history check was still owned.
+When the check finished, dropping its unread JSON response marked inference
+cleanup as unconfirmed and closed admission. The deployment's two-second
+client timeout was shorter than the readiness handler's five-second deadline.
+
+Alpha.9 marks the completed readiness result as local completion, including
+failure results. A disconnected caller still leaves the history check owned
+until it finishes. The activation client allows seven seconds for that check.
+Inference producers and their cleanup fences retain their existing behavior.
+Targeted regression qualification and a new package are required before the
+next activation. Both existing release directories remain unchanged.
