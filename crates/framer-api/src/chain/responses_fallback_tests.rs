@@ -38,7 +38,7 @@ fn discarded_truncated_calls_do_not_reserve_call_ids() {
         assert_eq!(actual.result.unwrap().output, vec![good.clone()]);
         assert_eq!(actual.events, vec![(vec![good], false)]);
         assert_eq!(actual.requests.len(), if metered { 4 } else { 2 });
-        assert_eq!(actual.refunds, usize::from(metered));
+        assert_eq!(actual.refunds, 0);
     }
 }
 
@@ -77,7 +77,7 @@ fn duplicate_tool_call_ids_cannot_republish_a_prior_call() {
         assert_eq!(actual.result.unwrap_err(), "response chunk has duplicate tool call id");
         assert_eq!(actual.events, vec![(prior, true)]);
         assert_eq!(actual.requests.len(), if metered { 4 } else { 2 });
-        assert_eq!(actual.refunds, usize::from(metered));
+        assert_eq!(actual.refunds, 0);
     }
 }
 
@@ -95,7 +95,7 @@ fn duplicate_tool_call_ids_withhold_the_current_chunk() {
             assert_eq!(actual.result.unwrap_err(), "response chunk has duplicate tool call id");
             assert!(actual.events.is_empty());
             assert_eq!(actual.requests.len(), if metered { 3 } else { 1 });
-            assert_eq!(actual.refunds, usize::from(metered));
+            assert_eq!(actual.refunds, 0);
         }
     }
 }
@@ -153,7 +153,7 @@ fn repeated_sse_call_references_do_not_duplicate_accepted_output() {
         config(), Some((1, "fixture transport connection closed")), "response.completed", prefix);
     assert_eq!(actual.result.unwrap().output, vec![call.clone()]);
     assert_eq!(actual.events, vec![(vec![call], false)]);
-    assert_eq!((actual.requests.len(), actual.refunds), (3, 1));
+    assert_eq!((actual.requests.len(), actual.refunds), (3, 0));
 }
 
 #[test]
@@ -170,7 +170,7 @@ fn invalid_message_roles_withhold_the_entire_current_chunk() {
             assert_eq!(actual.result.unwrap_err(), format!("{prefix} has invalid message role"));
             assert!(actual.events.is_empty());
             assert_eq!((actual.requests.len(), actual.refunds),
-                (if metered { 3 } else { 1 }, usize::from(metered)));
+                (if metered { 3 } else { 1 }, 0));
         }
     }
 }
@@ -188,7 +188,7 @@ fn invalid_later_message_role_preserves_published_output() {
         assert_eq!(actual.result.unwrap_err(), format!("{prefix} has invalid message role"));
         assert_eq!(actual.events, vec![(vec![text("first")], true)]);
         assert_eq!((actual.requests.len(), actual.refunds),
-            (if metered { 4 } else { 2 }, usize::from(metered)));
+            (if metered { 4 } else { 2 }, 0));
     }
 }
 
@@ -227,7 +227,7 @@ fn response_error_withholds_the_entire_current_chunk() {
             assert_eq!(actual.result.unwrap_err(), expected);
             assert!(actual.events.is_empty());
             assert_eq!((actual.requests.len(), actual.refunds),
-                (if metered { 3 } else { 1 }, usize::from(metered)));
+                (if metered { 3 } else { 1 }, 0));
         }
     }
 }
@@ -246,7 +246,7 @@ fn later_response_error_preserves_previously_published_output() {
             format!("{prefix} contains an upstream error: fixture diagnostic"));
         assert_eq!(actual.events, vec![(vec![text("first")], true)]);
         assert_eq!((actual.requests.len(), actual.refunds),
-            (if metered { 4 } else { 2 }, usize::from(metered)));
+            (if metered { 4 } else { 2 }, 0));
     }
 }
 
@@ -262,7 +262,7 @@ fn absent_or_null_response_error_preserves_accepted_chunk_output() {
             assert_eq!(actual.result.unwrap().output, expected);
             assert_eq!(actual.events, vec![(expected, false)]);
             assert_eq!((actual.requests.len(), actual.refunds),
-                (if metered { 3 } else { 1 }, usize::from(metered)));
+                (if metered { 3 } else { 1 }, 0));
         }
     }
 }
@@ -411,7 +411,7 @@ fn recovered_tool(kind: &str) {
     let result = actual.result.unwrap();
     assert_eq!(result.output, vec![good.clone()]);
     assert_eq!(actual.events, vec![(vec![good], false)]);
-    assert_eq!((result.chunks, result.metered_chunks, actual.refunds), (2, 1, 1));
+    assert_eq!((result.chunks, result.metered_chunks, actual.refunds), (2, 1, 0));
     assert_eq!(result.output_tokens, 7);
     assert_eq!(actual.requests.len(), 4);
     assert_eq!(actual.requests[1]["max_output_tokens"], actual.requests[2]["max_output_tokens"]);
@@ -437,7 +437,7 @@ fn final_metered_chunk_refuses_an_unfinished_tool() {
     let actual = run(fallback(response(tool("custom_tool_call", false), "completed"), true), cfg);
     assert!(actual.result.unwrap_err().contains("no remaining retry chunk"));
     assert!(actual.events.is_empty());
-    assert_eq!((actual.requests.len(), actual.refunds), (3, 1));
+    assert_eq!((actual.requests.len(), actual.refunds), (3, 0));
 }
 
 #[test]
@@ -446,18 +446,18 @@ fn repeated_metered_tool_cuts_stop_after_two_repairs() {
     let actual = run(replies, config());
     assert!(actual.result.unwrap_err().contains("two bounded retries"));
     assert!(actual.events.is_empty());
-    assert_eq!((actual.requests.len(), actual.refunds), (9, 3));
+    assert_eq!((actual.requests.len(), actual.refunds), (9, 0));
 }
 
 #[test]
-fn complete_metered_chunk_preserves_output_usage_and_refund() {
+fn complete_metered_chunk_preserves_output_usage_without_refund() {
     let item = tool("custom_tool_call", true);
     let expected = response(item.clone(), "completed");
     let actual = run(fallback(expected.clone(), false), config());
     let result = actual.result.unwrap();
     assert_eq!(result.output, vec![item.clone()]);
     assert_eq!(actual.events, vec![(vec![item], false)]);
-    assert_eq!((result.chunks, result.metered_chunks, actual.refunds), (1, 1, 1));
+    assert_eq!((result.chunks, result.metered_chunks, actual.refunds), (1, 1, 0));
     assert_eq!((result.id, result.created_at), ("response-fixture".into(), 9));
     assert_eq!(result.status, "completed");
     assert_eq!(result.usage, expected["usage"]);
@@ -476,7 +476,7 @@ fn incomplete_metered_text_uses_the_existing_continuation_path() {
     let actual = run(replies, config());
     let result = actual.result.unwrap();
     assert_eq!(result.status, "completed");
-    assert_eq!((result.chunks, result.metered_chunks, actual.refunds), (2, 1, 1));
+    assert_eq!((result.chunks, result.metered_chunks, actual.refunds), (2, 1, 0));
     assert_eq!(actual.events, vec![(vec![text("first")], true), (vec![text("second")], false)]);
     assert!(actual.requests[3]["input"].as_array().unwrap().contains(&text("first")));
     assert_eq!(result.output[0]["content"][0]["text"], "firstsecond");
@@ -491,7 +491,7 @@ fn final_incomplete_metered_text_preserves_status_and_reason() {
     let result = actual.result.unwrap();
     assert_eq!(result.status, "incomplete");
     assert_eq!(result.incomplete_details, Some(json!({"reason":"max_output_tokens"})));
-    assert_eq!((result.chunks, result.metered_chunks, actual.refunds), (1, 1, 1));
+    assert_eq!((result.chunks, result.metered_chunks, actual.refunds), (1, 1, 0));
     assert_eq!(actual.events, vec![(vec![text("partial")], true)]);
 }
 
@@ -578,7 +578,7 @@ fn malformed_metered_completion_never_emits_items() {
         let actual = run(fallback(body, false), config());
         assert!(actual.result.is_err());
         assert!(actual.events.is_empty());
-        assert_eq!((actual.requests.len(), actual.refunds), (3, 1));
+        assert_eq!((actual.requests.len(), actual.refunds), (3, 0));
     }
 }
 
@@ -778,7 +778,7 @@ fn assert_tool_refused(item: Value, metered: bool) {
     assert_eq!(actual.result.unwrap_err(), "response chunk has invalid tool call fields");
     assert!(actual.events.is_empty());
     assert_eq!(actual.requests.len(), if metered { 3 } else { 1 });
-    assert_eq!(actual.refunds, usize::from(metered));
+    assert_eq!(actual.refunds, 0);
 }
 
 fn reject_tool_identity(metered: bool) {
@@ -1023,7 +1023,7 @@ fn explicit_incomplete_metered_text_uses_existing_continuation() {
     let actual = run_explicit_incomplete(replies, config());
     let result = actual.result.unwrap();
     assert_eq!(result.status, "completed");
-    assert_eq!((result.chunks, result.metered_chunks, actual.refunds), (2, 1, 1));
+    assert_eq!((result.chunks, result.metered_chunks, actual.refunds), (2, 1, 0));
     assert_eq!(actual.events, vec![(vec![text("first")], true), (vec![text("second")], false)]);
     assert_eq!(result.output[0]["content"][0]["text"], "firstsecond");
     assert!(actual.requests[3]["input"].as_array().unwrap().contains(&text("first")));
@@ -1040,7 +1040,7 @@ fn explicit_incomplete_final_text_preserves_partial_status() {
     assert_eq!(result.incomplete_details, Some(json!({"reason":"max_output_tokens"})));
     assert_eq!(result.output, vec![text("partial")]);
     assert_eq!(actual.events, vec![(vec![text("partial")], true)]);
-    assert_eq!((actual.requests.len(), actual.refunds), (3, 1));
+    assert_eq!((actual.requests.len(), actual.refunds), (3, 0));
 }
 
 #[test]
@@ -1070,7 +1070,7 @@ fn reject_invalid_usage_counts(metered: bool) {
             assert_eq!(actual.result.unwrap_err(), format!("{prefix} has invalid usage count"));
             assert!(actual.events.is_empty());
             assert_eq!(actual.requests.len(), if metered { 3 } else { 1 });
-            assert_eq!(actual.refunds, usize::from(metered));
+            assert_eq!(actual.refunds, 0);
         }
     }
 }
@@ -1118,7 +1118,7 @@ fn reject_malformed_output_items(metered: bool) {
             assert_eq!(actual.result.unwrap_err(), format!("{prefix} has invalid output item"));
             assert!(actual.events.is_empty());
             assert_eq!(actual.requests.len(), if metered { 3 } else { 1 });
-            assert_eq!(actual.refunds, usize::from(metered));
+            assert_eq!(actual.refunds, 0);
         }
     }
 }
@@ -1150,7 +1150,7 @@ fn named_error_fallback_cannot_publish_executable_tools() {
             "response.completed", prefix);
         assert_eq!(actual.result.unwrap_err(), "streamed chunk ended with error: the upstream supplied no further cause");
         assert!(actual.events.is_empty());
-        assert_eq!((actual.requests.len(), actual.refunds), (3, 1));
+        assert_eq!((actual.requests.len(), actual.refunds), (3, 0));
     }
 }
 
@@ -1165,7 +1165,7 @@ fn overwritten_error_name_keeps_normal_fallback_output() {
         assert_eq!(result.output, vec![item.clone()]);
         assert_eq!(actual.events, vec![(vec![item.clone()], false)]);
         assert_eq!((result.chunks, result.metered_chunks), (1, 1));
-        assert_eq!((actual.requests.len(), actual.refunds), (3, 1));
+        assert_eq!((actual.requests.len(), actual.refunds), (3, 0));
     }
 }
 
@@ -1187,7 +1187,7 @@ fn malformed_message_content_never_publishes_in_either_response_mode() {
                 assert_eq!(actual.result.unwrap_err(), format!("{prefix} has {reason}"));
                 assert!(actual.events.is_empty());
                 assert_eq!(actual.requests.len(), if metered { 3 } else { 1 });
-                assert_eq!(actual.refunds, usize::from(metered));
+                assert_eq!(actual.refunds, 0);
             }
         }
     }
@@ -1232,7 +1232,7 @@ fn named_terminal_failures_in_fallback_do_not_publish() {
             Some((1, "fixture transport connection closed")), "response.completed", prefix);
         assert_eq!(actual.result.unwrap_err(), expected);
         assert!(actual.events.is_empty());
-        assert_eq!((actual.requests.len(), actual.refunds), (3, 1));
+        assert_eq!((actual.requests.len(), actual.refunds), (3, 0));
     }
 }
 
@@ -1246,7 +1246,7 @@ fn matching_named_fallback_keeps_completed_output() {
     assert_eq!(result.output, vec![item.clone()]);
     assert_eq!(result.status, "completed");
     assert_eq!(actual.events, vec![(vec![item], false)]);
-    assert_eq!((actual.requests.len(), actual.refunds), (3, 1));
+    assert_eq!((actual.requests.len(), actual.refunds), (3, 0));
 }
 
 #[test]
@@ -1326,7 +1326,7 @@ fn malformed_earlier_completion_withholds_later_fallback_tools() {
         } else { format!("streamed chunk has {reason}") };
         assert_eq!(actual.result.unwrap_err(), expected);
         assert!(actual.events.is_empty());
-        assert_eq!((actual.requests.len(), actual.refunds), (3, 1));
+    assert_eq!((actual.requests.len(), actual.refunds), (3, 0));
     }
 }
 
@@ -1340,5 +1340,5 @@ fn malformed_fallback_completion_preserves_prior_published_chunk() {
         "data: {\"type\":\"response.completed\",\"response\":{\"output\":[null]}}\n\n");
     assert_eq!(actual.result.unwrap_err(), "streamed chunk has invalid output item");
     assert_eq!(actual.events, vec![(vec![text("first")], true)]);
-    assert_eq!((actual.requests.len(), actual.refunds), (4, 1));
+    assert_eq!((actual.requests.len(), actual.refunds), (4, 0));
 }
