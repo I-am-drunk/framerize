@@ -24,7 +24,9 @@ async def receive(poll, deadline):
         if remaining <= 0:
             raise ResponseDeadline('browser response deadline exceeded')
         try:
-            value = await asyncio.wait_for(poll(acknowledged), min(8, remaining))
+            # A slow driver still owns the previous poll. Reissuing it every
+            # eight seconds accumulated RPCs while Node was unresponsive.
+            value = await asyncio.wait_for(poll(acknowledged), remaining)
         except asyncio.TimeoutError:
             continue
         require(type(value) is dict, 'invalid browser response envelope')

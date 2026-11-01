@@ -1,3 +1,11 @@
+# Recurring error repair, 2026-11-01
+
+`fix/live-recurring-errors-20261101` starts from the deployed alpha.7 source.
+The isolated startup check and response-poll regression pass. Live service
+state remains unchanged. Memory and delivery qualification are still pending.
+Next: compare browser memory under identical repeated local HTTP requests.
+See [the repair record](incidents/2026-11-01-recurring-errors.md).
+
 # Adaptive thinking candidate, 2026-10-29
 
 Alpha.7 on `fix/anthropic-adaptive-budget-20261029` removes the 600-token
