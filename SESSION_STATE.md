@@ -1,5 +1,29 @@
 # Current recurring-error repair, 2026-11-01
 
+Current continuation: package source `72129bd3758d1fdea4d00596ddc9f1d486a144df`.
+The shutdown diagnostic's Rust borrow error is corrected and pushed.
+The exact-source job `/tmp/build-release-72129bd3.py` is running in Docker
+container `framerize-repair-build-20261101` on `framerize-imac-ci`.
+It runs Rust tests, the two category tests, release build and package smoke.
+Progress: `/evidence/build-release-72129bd3.log`; final receipt will be
+`/evidence/package-72129bd3.json`. Earlier Rust run r1 failed; do not reuse it.
+
+Matched memory r5 passed and exited 0. Both versions completed 512 requests.
+Baseline final PSS: 1,437,474,816 bytes, ten pages. Repair: 640,508,928 bytes,
+three pages, post-warmup range 638,704,640 to 665,662,464 bytes.
+The active stream continued throughout. Evidence is copied to the local cache.
+Only the separately tested shutdown error text and whitespace differ from
+the exercised memory runtime. `final-source-assessment.json` records this.
+
+Seven activation/rollback tests pass. The activation helper now includes a
+real live Responses check inside its rollback boundary. Isolation also has
+its own `FRAMERIZE_GATE_STATE`, and its model-list check respects each dialect.
+No candidate activation occurred. Live PID remained 2163191, alpha.7.
+The next action is collect the running Rust/package job, then use the existing
+isolation and activation helpers in the local cache. Preserve all safety gates.
+
+## Earlier continuation
+
 Branch: `fix/live-recurring-errors-20261101`. Candidate: `0.5.1-alpha.8`.
 The live service still runs the original alpha.7 release. No activation by
 this repair has occurred. Its intervening restarts had other unknown owners.
@@ -9,11 +33,21 @@ after startup. This is local fixture evidence, not a six-account live soak.
 The 289-case Python run passed; subsequent cause checks passed 38 tests.
 Rust verification is running on the existing separate Linux builder.
 The separate saved test account passed authentication with its expected
-identity. Its isolated preflight is healthy on 8788 and preserves the normal
-600-second history-recovery hold. The UI build passed. Clearing inactive
+identity. Its isolated preflight on 8788 stopped cleanly while the final
+package builds. The normal history restrictions remain. The UI build passed. Clearing inactive
 compiler cache reclaimed 5.85 GB, with binaries and live state preserved.
 Next: finish the identical-load memory comparison and Rust checks, build the
 exact package, prove real isolated delivery, then activate and verify live.
+
+Final package source: `fc22ddd10d82b4fff96f80eb22b00ceedf3d1ebd`.
+Its additional shutdown-cause regression passed with seven related checks.
+Rust code is unchanged. The final package job is queued behind those checks
+in `framerize-repair-build-20261101` on `framerize-imac-ci`.
+The matched baseline completed 512 requests. Candidate run r5 is active in
+`framerize-memory-proof-20261101`; earlier setup-cache admission failures remain
+recorded. The test's 2 GiB memory limit and admission guard are unchanged.
+All local helpers and evidence are under
+`/home/tjninja/.cache/framerize-recurring-errors-20261101`.
 
 # Historical admission failure checkpoint
 
