@@ -54,7 +54,7 @@ These measurements cover one browser and local HTTP load, not production AI.
 File cache from fixture preparation was reclaimed before the candidate run;
 process PSS, rather than container cache accounting, is the comparison metric.
 
-## Remaining qualification
+## Error-family corrections
 
 Other candidate corrections follow the observed failure paths:
 
@@ -73,10 +73,9 @@ Other candidate corrections follow the observed failure paths:
 | Relay warnings | A normal cache miss was logged as failure. Preserve real relay HTTP/schema errors and treat a missing account as an ordinary miss. |
 | Log/storage errors | Failed writes were discarded. Report bounded I/O failures; build remotely and clean only this effort's disposable artifacts. |
 
-Candidate alpha.8 still requires completed Rust checks, an exact-source package,
-isolated upstream delivery and activation. The final cooldown correction is
-undergoing Rust r4 qualification before the package source is frozen.
-The live service has not been changed by this repair.
+The alpha.8 package later passed its qualification and isolated delivery.
+Its first activation exposed the readiness defect described below. Alpha.9
+includes that correction and has completed the final live activation.
 
 The separate saved test account passed its normal authentication endpoint with
 HTTP 200 and the expected identity. It is outside the twelve production
@@ -86,8 +85,8 @@ hold and 24-hour reserve restriction. Neither restriction was shortened.
 
 The UI build passed. The pinned Python run passed 289 tests; the later focused
 cause checks passed 38 tests. Eight shutdown-cause checks and seven activation
-and rollback checks also pass. Rust checks and release packaging remain pending.
-No candidate package or production activation is claimed.
+and rollback checks also pass. Final Rust, package and live results are recorded below.
+Earlier failed runs remain excluded from passing evidence.
 
 Disk pressure also required an operational correction. With no local Rust
 compiler running and Cargo's build lock held, cleanup of regenerable compiler
@@ -161,5 +160,38 @@ Alpha.9 marks the completed readiness result as local completion, including
 failure results. A disconnected caller still leaves the history check owned
 until it finishes. The activation client allows seven seconds for that check.
 Inference producers and their cleanup fences retain their existing behavior.
-Targeted regression qualification and a new package are required before the
-next activation. Both existing release directories remain unchanged.
+Both new readiness regressions and all 473 server tests passed. The new
+alpha.9 package completed isolation and live activation as recorded below.
+Both installed release inventories remain intact.
+
+## Completed qualification and activation
+
+Alpha.9 identifies clean source `132af22691dc04680f2ecadaace8e92a4d2f706e`.
+Binary SHA-256: `8779007290dde036087cc27b0832ea4bbff4efd29ef08940135126d9ddaa6b35`.
+Archive SHA-256: `d454ab4164bc19a6c684e74f4a8d7649b065a63b9fe142361533785081d24bb4`.
+
+The corrected server passed 473 tests, including both readiness regressions.
+Unchanged-source evidence covers 155 core, 41 store, 166 host, 89 protocol,
+37 application and 440 API tests, for 1,401 passing Rust tests by composition.
+The API total includes two separately run category-specific tests. The package
+passed its lifecycle checks. An earlier stale executable run is excluded.
+
+The exact staged binary returned a completed Responses HTTP 200 on port 8788
+in 11.517 seconds. Both dialect model-list routes returned 200. Its exclusive
+test account was outside the production account inventory. The isolated
+instance was stopped before activation.
+
+The reviewed activation procedure drained the old service and started alpha.9
+at 2026-11-01 23:03:28 UTC. Health and readiness passed, followed by a completed
+live Responses HTTP 200 in 18.710 seconds. PID changed from 2294848 to 2340122.
+Both immutable release inventories verify. All 12 account identities, launch
+arguments and rate-history schema 2 match. MemoryMax remains 10,737,418,240
+bytes, MemoryHigh 9,663,676,416 bytes and MemorySwapMax 1,073,741,824 bytes.
+KillMode is now mixed, so the main process owns the graceful shutdown.
+
+Public OpenAI Responses and Anthropic Messages also returned 200 through the
+public DNS address without authentication, in 1.871 and 1.138 seconds. Both
+returned the expected text. Optional JWT-relay requests reported two GitHub
+HTTP 401 failures; normal local minting succeeded. The relay's remote credential
+was not changed. External provider refusals remain accurately reported.
+The matched fixture establishes bounded isolated memory, not a production soak.

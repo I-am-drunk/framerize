@@ -1,12 +1,21 @@
 # Recurring error repair, 2026-11-01
 
-`fix/live-recurring-errors-20261101` starts from the deployed alpha.7 source.
-The isolated startup check and response-poll regression pass. The alpha.8
-candidate completed the matched 512-request memory comparison with an active
-stream and three retained pages. Final process PSS fell from 1.44 GB to 641 MB.
-Rust verification and packaging of source `72129bd3` run on the separate
-builder. No candidate activation has occurred.
-Next: finish those checks and verify the package with the separate test account.
+`fix/live-recurring-errors-20261101` is deployed as `0.5.1-alpha.9`, built from
+`132af22691dc04680f2ecadaace8e92a4d2f706e`. It passed 1,401 Rust tests by
+composition, package checks, and an isolated real Responses request.
+The authorized activation completed at 23:03:28 UTC. Health, readiness,
+live Responses and public OpenAI and Anthropic requests returned HTTP 200.
+All 12 account identities, launch arguments and memory limits were preserved.
+
+The matched 512-request browser fixture reduced final PSS from 1.44 GB to
+641 MB, with an active stream preserved and retained pages reduced to three.
+Four warmed real isolated requests stayed between 1.25 and 1.28 GB PSS.
+These are isolated measurements, not a six-account production soak.
+The earlier alpha.8 activation rolled back safely after a readiness ownership
+failure. Alpha.9 fixes that failure and passed the final activation checks.
+
+Binary SHA-256: `8779007290dde036087cc27b0832ea4bbff4efd29ef08940135126d9ddaa6b35`.
+Next: observe normal production traffic for sustained six-browser memory use.
 See [the repair record](incidents/2026-11-01-recurring-errors.md).
 
 # Adaptive thinking candidate, 2026-10-29
