@@ -353,7 +353,7 @@ async fn metered_acquisition_refusal_keeps_original_error_and_close_evidence() {
                     let bytes = to_bytes(response.into_body(), 65536).await.unwrap();
                     let message = match mode {
                         CloseMode::Error => "fixture close failure",
-                        CloseMode::Unconfirmed => "previous account browser has not confirmed closure",
+                        CloseMode::Unconfirmed => "the browser reported state Absent with 0 active commands; browser close returned Unconfirmed and its occupied slot is retained",
                         _ => "account browser is still busy or its identity changed",
                     };
                     assert_eq!(serde_json::from_slice::<Value>(&bytes).unwrap(), json!({"error":{

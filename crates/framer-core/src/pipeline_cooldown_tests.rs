@@ -482,6 +482,7 @@ async fn risk_refused_does_not_revive_nonready_current_accounts() {
             newer.cooldown_step = 1;
             newer.consecutive_failures = 1;
             newer.cooling_until_ms = Some(current.cooling_until_ms.expect("recorded expiry"));
+            newer.cooldown_cause = Some("Framer returned HTTP 403 during its security checks".into());
             assert_record_eq(&current, &newer);
             assert_record_eq(&fixture.stored(current.id).unwrap(), &newer);
             assert!(!current.is_eligible());

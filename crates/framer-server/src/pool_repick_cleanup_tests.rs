@@ -215,7 +215,7 @@ fn assert_no_initial_inference(ports: &Ports) {
 fn assert_initial_refusal(body: &[u8], mode: RepickClose) {
     let message = match mode {
         RepickClose::Error => "fixture close failure",
-        RepickClose::Unconfirmed => "previous account browser has not confirmed closure",
+        RepickClose::Unconfirmed => "the browser reported state Absent with 0 active commands; browser close returned Unconfirmed and its occupied slot is retained",
         RepickClose::BeforeCloseBusy => "account browser is still busy or its identity changed",
     };
     let value: Value = serde_json::from_slice(body).unwrap();

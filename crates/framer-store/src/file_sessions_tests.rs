@@ -31,10 +31,9 @@ async fn bounded_load_rejects_existing_oversized_file() {
     let root = Directory::new();
     let user = FramerUserId("fixture-user".into());
     let large_header = "x".repeat(16 * 1024 + 1);
-    let unbounded = FileSessionStore::new(&root.0).unwrap();
-    unbounded.save(&Session { active_user: user.clone(), cookie_header: large_header.clone() })
-        .await.unwrap();
-    drop(unbounded);
+    // Seed the oversized file directly. This case tests bounded reading;
+    // ownership handoff has separate process-lifecycle coverage.
+    std::fs::write(root.0.join("fixture-user.session"), &large_header).unwrap();
     let bounded = FileSessionStore::new_bounded(&root.0, 16 * 1024).unwrap();
     assert_eq!(bounded.load(&user).await.unwrap_err(), "session exceeds configured byte limit");
     assert_eq!(std::fs::read(bounded.path(&user).unwrap()).unwrap(), large_header.as_bytes());

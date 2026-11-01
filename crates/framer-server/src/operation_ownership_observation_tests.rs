@@ -527,6 +527,7 @@ async fn generated_ids_do_not_reflect_inputs_and_unowned_routes_stay_unchanged()
 async fn final_error_classification_preserves_original_error_and_cleanup() {
     for (text, accumulated, clean) in [("synthetic plain error", true, true),
         ("host-lifecycle-unconfirmed: synthetic error", true, false),
+        ("host-lifecycle-unconfirmed: synthetic error; Authorization: Bearer private-fixture", true, false),
         ("synthetic plain error", false, false)] {
         let ownership = scope();
         let events = Events::install(&ownership);
@@ -543,7 +544,15 @@ async fn final_error_classification_preserves_original_error_and_cleanup() {
         assert_eq!(confirmed, clean);
         let values = events.snapshot();
         assert_join(&values, values[0]["operation_id"].as_str().unwrap(), "error", clean);
-        assert!(!serde_json::to_string(&values).unwrap().contains(text));
+        let joined = values.iter().find(|event| event["event"] == "operation.joined").unwrap();
+        if clean {
+            assert!(joined["cause"].is_null());
+        } else if text.starts_with("host-lifecycle-unconfirmed:") {
+            assert!(joined["cause"].as_str().unwrap().contains("synthetic error"));
+        } else {
+            assert!(joined["cause"].as_str().unwrap().contains("incomplete cleanup"));
+        }
+        assert!(!serde_json::to_string(&values).unwrap().contains("private-fixture"));
         assert_eq!(ownership.gate.stats().unwrap().active, 1);
         assert_eq!(ownership.gate.stats().unwrap().unconfirmed, !clean);
     }

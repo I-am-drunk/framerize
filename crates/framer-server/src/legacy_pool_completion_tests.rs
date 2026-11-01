@@ -88,7 +88,7 @@ async fn admin_park_and_configure_preserve_close_evidence_on_disposal() {
                 } else if ok { json!({"account_id":id(1),"status":"parked","eligible":true}) }
                 else { busy_error(match mode {
                     CloseMode::Error => "fixture close failure",
-                    CloseMode::Unconfirmed => "account browser closure is unconfirmed; its slot is retained",
+                    CloseMode::Unconfirmed => "the browser reported state Absent with 0 active commands; browser close returned Unconfirmed and its occupied slot is retained",
                     _ => "account browser is busy or its identity changed",
                 }) };
                 observe(response, if ok { StatusCode::OK } else { StatusCode::SERVICE_UNAVAILABLE },
@@ -260,7 +260,7 @@ async fn admin_remove_and_dedupe_keep_failed_close_fenced() {
                     } else {
                         assert_eq!(body, busy_error(match mode {
                             CloseMode::Error => "fixture close failure",
-                            CloseMode::Unconfirmed => "account browser closure is unconfirmed; its slot is retained",
+                            CloseMode::Unconfirmed => "the browser reported state Absent with 0 active commands; browser close returned Unconfirmed and its occupied slot is retained",
                             _ => "account browser is busy or its identity changed",
                         }));
                     }
