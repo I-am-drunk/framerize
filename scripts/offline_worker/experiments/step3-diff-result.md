@@ -173,3 +173,27 @@ mint presents the editor page location. prepare_live.mjs Referer now points
 at https://framer.com/projects/<projectId> to match.
 
 Mint still completes (765 slots) with location now on the editor page.
+
+---
+
+# Step 3 update (2026-11-01, full-pixel replay): truncation defect closed
+
+Change: experiments/realm.mjs now loads probe-capture-full.json (complete
+pixels) instead of probe-capture.json (32-byte cap). Verified by replaying
+all 23 getImageData reads through the realm's 2D context and comparing to
+the full capture byte for byte.
+
+Result: 22/23 reads exact, 0 truncated. The large reads now return complete
+real pixels (200x200 -> 160000 bytes, 197x15 -> 11820 bytes), where the old
+capture replayed only the first 32 bytes and zeroed the rest.
+
+The single non-exact read is the second 200x200 rect. It is not a realm
+defect: the three 200x200 reads inside the real browser's own capture differ
+from one another (110427/160000 byte diffs, 32996 vs 120000 nonzero bytes).
+The realm's imageTable keys by coordinates, so duplicate-coordinate reads
+replay the last stored image. Real runs do not agree with each other on
+these either, so cross-run equality is not the scoring signal (same
+conclusion as the first pass).
+
+Remaining named suspect for step 4: the TLS fingerprint. All deterministic
+canvas and env signals the realm controls now replay real, complete values.

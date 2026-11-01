@@ -1,13 +1,13 @@
 // No-JSDOM realm: a plain node:vm context that answers the Castle SDK's
 // browser questions with values copied from the user's real Chrome.
 // Nothing is invented. Property values come from real-browser-values.json;
-// canvas 2D-context reads replay the captured probe table (probe-capture).
+// canvas 2D-context reads replay the captured probe table (probe-capture-full).
 import fs from 'node:fs';
 import vm from 'node:vm';
 import { createHash, webcrypto, randomUUID } from 'node:crypto';
 
 const REAL = JSON.parse(fs.readFileSync(new URL('./real-browser-values.json', import.meta.url)));
-const PROBES = JSON.parse(fs.readFileSync(new URL('./probe-capture.json', import.meta.url)));
+const PROBES = JSON.parse(fs.readFileSync(new URL('./probe-capture-full.json', import.meta.url)));
 
 // Persistent ambient state: storage, cookie, and clock survive across mints
 // so tokens age like a real profile instead of describing a brand-new page.
