@@ -7,8 +7,8 @@ import fs from 'node:fs';
 import { execFile } from 'node:child_process';
 import * as col from '../collection.mjs';
 import * as pins from '../pins.mjs';
-import { createRealmWindow } from '../realm_window.mjs';
-import { SdkModules } from '../sdk_loader.mjs';
+import vm from 'node:vm';
+import { ScriptModules } from '../script_loader.mjs';
 import { buildRealmGlobals } from './realm.mjs';
 
 const SOCK = process.env.FRAMERIZE_TOKEN_SOCK
@@ -103,19 +103,18 @@ function encodeWireToken(fcltFrame) {
 }
 
 // Mint one wire token in a fresh realm via the production path:
-// createRealmWindow (workers installed) -> SdkModules.mint (collection JSON)
+// vm.createContext(buildRealmGlobals) -> ScriptModules.mint (collection JSON)
 // -> FCLT frame -> encode-token -> compact wire token.
 async function mintOnce(reqCuid) {
-  const dom = createRealmWindow(pins.PUBLIC_KEY, reqCuid || REALM_CUID || undefined);
-  dom.window.castlePublishableAPIKey = pins.PUBLIC_KEY;
-  if (dom.window.__workerInstallError) throw new Error('workers: ' + dom.window.__workerInstallError);
+  const globals = buildRealmGlobals({ publicKey: pins.PUBLIC_KEY, seedCuid: reqCuid || REALM_CUID || undefined });
+  const context = vm.createContext(globals);
   try {
-    const modules = new SdkModules(dom.getInternalVMContext());
+    const modules = new ScriptModules(context);
     await modules.prepare();
     await modules.evaluate();
     // Listeners are registered now. Replay the real interaction trace so the
     // token carries genuine behavioral content instead of silence.
-    const replayed = await replayTrace(dom.window);
+    const replayed = await replayTrace(globals);
     const collection = await Promise.race([
       modules.mint(),
       new Promise((_, rej) => setTimeout(() => rej(new Error('mint-timeout')), MINT_TIMEOUT_MS)),
@@ -129,9 +128,7 @@ async function mintOnce(reqCuid) {
     const frame = Buffer.concat([header, body]);
     const token = await encodeWireToken(frame);
     return { token, collectedLength: collection.length, replayed };
-  } finally {
-    try { await dom.close(); } catch {}
-  }
+  } finally {}
 }
 
 async function handle(req) {
