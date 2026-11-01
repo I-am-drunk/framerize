@@ -76,7 +76,7 @@ class ShutdownTests(unittest.IsolatedAsyncioTestCase):
         driver_port = SimpleNamespace(stop=AsyncMock())
         self.host._playwright = driver_port
         for _ in range(2):
-            with self.assertRaisesRegex(RuntimeError, 'every account closed'):
+            with self.assertRaisesRegex(RuntimeError, 'fixture close acknowledgement lost'):
                 await asyncio.wait_for(self.host.close(), 1)
         self.assertEqual(failed.phase, 'unconfirmed')
         self.assertFalse(self.journal.load('broken')['state']['clean'])
@@ -84,6 +84,16 @@ class ShutdownTests(unittest.IsolatedAsyncioTestCase):
         self.assertFalse(browser.connected)
         self.assertEqual(broken_browser.calls, 1)
         driver_port.stop.assert_not_awaited()
+
+    async def test_shutdown_preserves_unexpected_close_error_without_credentials(self):
+        self.resident('account')
+        failure = RuntimeError('history write failed: disk full; Authorization: Bearer private-fixture')
+        with patch.object(self.host, '_close_account', AsyncMock(side_effect=failure)):
+            with self.assertRaises(RuntimeError) as caught:
+                await self.host.close()
+        self.assertIn('history write failed: disk full', str(caught.exception))
+        self.assertNotIn('private-fixture', str(caught.exception))
+        self.assertFalse(self.journal.load('account')['state']['clean'])
 
     async def test_background_loops_stop_before_driver_and_close_runs_once(self):
         _, browser = self.resident('account')

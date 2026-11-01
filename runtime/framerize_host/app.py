@@ -561,11 +561,11 @@ class Host:
         for account in list(self.lifecycles):
             try:
                 if not await self._close_account(account):
-                    unconfirmed.append(account)
-            except Exception:
-                unconfirmed.append(account)
+                    unconfirmed.append(self.lifecycles[account].cleanup_error())
+            except Exception as error:
+                unconfirmed.append(error_cause(error))
         if unconfirmed:
-            raise RuntimeError("browser shutdown could not confirm every account closed")
+            raise RuntimeError("browser shutdown failed: " + "; ".join(dict.fromkeys(unconfirmed)))
         if self._playwright is not None:
             await self._playwright.stop()
             self._playwright = None

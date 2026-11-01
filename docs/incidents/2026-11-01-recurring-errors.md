@@ -85,6 +85,13 @@ the remaining Rust builds run on the separate builder.
 
 ## Causes outside the local repair
 
+The matched isolation run exposed another lost-cause path: host shutdown
+replaced the recorded browser-close failure with a generic summary. Shutdown
+now includes each distinct recorded cause and sanitizes unexpected exceptions.
+The existing close-failure case fails on the old message and passes with this
+correction. All eight shutdown and error-cause checks pass, including credential
+redaction and preservation of unclean history. Rust inputs are unchanged.
+
 Framer's HTTP 403 establishes a security refusal, not its hidden risk decision.
 The candidate keeps that refusal and cooldown, removes replay on another account
 or device, and performs no synthetic human activity, token rewriting or forging.
