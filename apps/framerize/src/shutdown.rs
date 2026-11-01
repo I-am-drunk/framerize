@@ -36,8 +36,14 @@ pub async fn close(state: AppState) -> Result<(), String> {
 async fn close_browser(browser: std::sync::Arc<dyn framer_core::port::BrowserBridge>,
     mut ticket: framer_core::operation_gate::DrainTicket,
 ) -> Result<(), String> {
-    let _drained = ticket.wait_application().await
-        .map_err(|error| format!("shutdown drain: {}", ticket.error_explanation(error)))?;
+    let drained = ticket.wait_application().await;
+    if let Err(error) = &drained {
+        let error = *error;
+        // Release the failed observation before reading the ticket's cause.
+        // A successful observation stays owned through browser shutdown.
+        drop(drained);
+        return Err(format!("shutdown drain: {}", ticket.error_explanation(error)));
+    }
     browser.shutdown().await
 }
 
