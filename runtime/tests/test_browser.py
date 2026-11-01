@@ -49,7 +49,7 @@ class LazyBrowserRuntime(unittest.IsolatedAsyncioTestCase):
             await host.close()
 
     async def test_missing_dependency_starts_no_browser(self):
-        with self.assertRaisesRegex(RuntimeError, '^camoufox not installed'):
+        with self.assertRaisesRegex(RuntimeError, '^browser preparation failed: RuntimeError: camoufox not installed'):
             await self.host._launch('fixture')
         self.assertIsNone(self.host._playwright)
         self.assertIsNone(self.host._browser_runtime)
@@ -113,7 +113,7 @@ class LazyBrowserRuntime(unittest.IsolatedAsyncioTestCase):
     async def test_failed_preparation_is_not_cached(self):
         with patch.object(self.module, 'browser_runtime', return_value=(None, None)), \
              patch.object(self.module, 'prepared_memory_browser', side_effect=ValueError('fixture')):
-            with self.assertRaisesRegex(ValueError, '^fixture$'):
+            with self.assertRaisesRegex(RuntimeError, '^browser preparation failed: ValueError: fixture$'):
                 await self.host._launch('fixture')
         self.assertIsNone(self.host._browser_runtime)
         self.assertIsNone(self.host._playwright)
@@ -127,10 +127,12 @@ class LazyBrowserRuntime(unittest.IsolatedAsyncioTestCase):
             with self.subTest(enabled=enabled, outcome=outcome), \
                  patch('builtins.__import__', IMPORT), patch.dict(sys.modules, modules), \
                  patch.dict(os.environ, {'FRAMERIZE_LINEAR_PYTHON_PIPE': enabled}), \
+                 patch.object(self.driver, 'install_driver_memory') as memory, \
                  patch.object(self.driver, 'install', return_value=outcome) as install, \
                  patch.object(self.driver, 'emit') as emit:
                 self.assertEqual(self.driver.browser_runtime(),
                     (camoufox.AsyncNewBrowser, playwright.async_playwright))
+                memory.assert_called_once_with(self.driver.ROOT)
                 if enabled == '1':
                     install.assert_called_once_with()
                     emit.assert_called_once_with('memory.python_pipe', outcome=outcome,

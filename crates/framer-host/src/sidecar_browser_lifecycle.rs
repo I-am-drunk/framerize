@@ -14,6 +14,7 @@ fn absent_without_host(account: &AccountId) -> BrowserAccountStatus {
         account_incarnation: 0,
         state: BrowserAccountState::Absent,
         active_commands: 0,
+        cleanup_cause: None,
     }
 }
 

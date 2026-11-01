@@ -1,0 +1,50 @@
+--- a/TargetRegistry.js
++++ b/TargetRegistry.js
+@@ -31,6 +31,22 @@
+ const Cr = Components.results;
+ 
+ const helper = new Helper();
++
++let framerizeLastReclaim = -Infinity;
++let framerizeReclaim = null;
++function reclaimClosedContexts() {
++  if (!Services.prefs.getBoolPref('framerize.reclaimClosedContexts', false))
++    return;
++  if (framerizeReclaim) return framerizeReclaim;
++  if (Date.now() - framerizeLastReclaim < 5000) return;
++  framerizeLastReclaim = Date.now();
++  framerizeReclaim = new Promise(resolve => {
++    Cc['@mozilla.org/memory-reporter-manager;1']
++      .getService(Ci.nsIMemoryReporterManager).minimizeMemoryUsage(resolve);
++  }).finally(() => { framerizeReclaim = null; });
++  return framerizeReclaim;
++}
++
+ 
+ const IDENTITY_NAME = 'JUGGLER ';
+ 
+@@ -1173,6 +1189,13 @@
+   }
+ 
+   dispose() {
++    if (this._disposed) return;
++    const browserId = this._linkedBrowser.browsingContext.browserId;
++    this._channel.dispose();
++    this._actor = undefined;
++    this._registry._browserIdToActor.delete(browserId);
++    Services.ppmm.sharedData.delete('juggler:page-cookie-' + browserId);
++    Services.ppmm.sharedData.flush();
+     this.ensureContextMenuClosed();
+     this._disposed = true;
+     if (this._videoRecordingInfo)
+@@ -1325,7 +1348,10 @@
+     }
+     this._registry._browserContextIdToBrowserContext.delete(this.browserContextId);
+     this._registry._userContextIdToBrowserContext.delete(this.userContextId);
++    Services.ppmm.sharedData.delete('juggler:context-cookie-' + this.userContextId);
++    Services.ppmm.sharedData.flush();
+     this._registry._updateProxiesWithSameAuthCacheAndDifferentCredentials();
++    await reclaimClosedContexts();
+   }
+ 
+   setProxy(proxy) {

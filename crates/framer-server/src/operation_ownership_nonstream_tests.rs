@@ -94,7 +94,7 @@ async fn nonstream_unknown_cleanup_stays_fenced_after_body_drop_or_consumption()
         let response = app.oneshot(route.request(&f)).await.unwrap();
         assert_eq!(response.status(), StatusCode::SERVICE_UNAVAILABLE);
         assert_eq!(to_bytes(response.into_body(), 1024).await.unwrap().as_ref(),
-            b"operation admission closed");
+            b"Cannot start this request: earlier work ended without confirmed cleanup; its resources cannot be reused.");
         f.no_call();
     }
 }

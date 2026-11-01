@@ -1,0 +1,24 @@
+--- a/NetworkObserver.js
++++ b/NetworkObserver.js
+@@ -122,7 +122,7 @@
+       this.navigationId = redirectedFrom.navigationId;
+       // Finish previous request now. Since we inherit the listener, we could in theory
+       // use onStopRequest, but that will only happen after the last redirect has finished.
+-      redirectedFrom._sendOnRequestFinished();
++      redirectedFrom._sendOnRequestFinished(true);
+     }
+     // In case of proxy auth, we get two requests with the same channel:
+     // - one is pre-auth
+@@ -586,3 +586,3 @@
+-  _sendOnRequestFinished() {
++  _sendOnRequestFinished(isRedirected = false) {
+     const pageNetwork = this._pageNetwork;
+     // Undefined |responseEndTime| means there has been no response yet.
+@@ -600,5 +600,7 @@
+       };
+       pageNetwork.emit(PageNetwork.Events.RequestFinished, {
++        isRedirected: Services.prefs.getBoolPref("framerize.reportActualRedirects", false)
++          ? isRedirected : undefined,
+         requestId: this.requestId,
+         responseEndTime: this.httpChannel.responseEndTime,
+         transferSize: this.httpChannel.transferSize,

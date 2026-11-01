@@ -34,7 +34,7 @@ fn bundled_host(executable: &Path) -> Result<PathBuf, String> {
     let script = root.join("runtime/host.py");
     for path in [&script, &root.join("runtime/framerize_host/__main__.py"),
         &root.join("runtime/runtime-manifest.json"),
-        &root.join("runtime/framerize_host/app.py"), &root.join("runtime/framerize_host/castle_forge.py")] {
+        &root.join("runtime/framerize_host/app.py"), &root.join("runtime/framerize_host/accounts/device_use.py")] {
         if !path.is_file() {
             return Err("incomplete application package; install the full archive or pass --sidecar-script for development".into());
         }
@@ -209,12 +209,27 @@ mod shutdown_tests;
 
 struct Sidecar {
     healthy: Arc<std::sync::atomic::AtomicBool>,
+    failure: Arc<StdMutex<Option<String>>>,
     incarnation: uuid::Uuid,
     child: Child,
     stdin: Arc<Mutex<tokio::process::ChildStdin>>,
     pending: PendingReplies,
     cancel: mpsc::Sender<u64>,
     next_id: Arc<AtomicU64>,
+}
+
+impl Sidecar {
+    fn unavailable(&mut self) -> Option<String> {
+        let reason = match self.child.try_wait() {
+            Ok(Some(status)) => format!("browser host process exited with {status}"),
+            Err(error) => format!("checking browser host process status failed: {error}"),
+            Ok(None) if !self.healthy.load(Ordering::Acquire) => self.failure.lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner).clone()
+                .unwrap_or_else(|| "browser host reply reader stopped without recording its cause".into()),
+            Ok(None) => return None,
+        };
+        Some(format!("host-lifecycle-unconfirmed: {reason}"))
+    }
 }
 
 impl SidecarBridge {
@@ -250,7 +265,7 @@ impl SidecarBridge {
 
     fn admit_unscoped(&self) -> Result<Option<retirement::LocalCall>, String> {
         self.retirement.as_ref().map(|boundary| boundary.enter())
-            .transpose().map_err(|error| format!("host admission: {error:?}"))
+            .transpose().map_err(|error| format!("host admission: {}", error.explanation()))
     }
 
     // Call only while holding inner. A missing Child after failed startup is
@@ -258,7 +273,7 @@ impl SidecarBridge {
     fn check_unused_startup(&self) -> Result<(), String> {
         self.retirement.as_ref().map(|boundary| boundary.check_unused())
             .transpose().map(|_| ())
-            .map_err(|error| format!("host startup: {error:?}"))
+            .map_err(|error| format!("host startup: {}", error.explanation()))
     }
 
     fn script_path(&self) -> Result<PathBuf, String> {
@@ -274,21 +289,22 @@ impl SidecarBridge {
             return Err("browser host is shutting down".into());
         }
         if let Some(boundary) = &self.retirement {
-            boundary.check_open().map_err(|error| format!("host admission: {error:?}"))?;
+            boundary.check_open().map_err(|error| format!("host admission: {}", error.explanation()))?;
         }
         if let Some(s) = guard.as_mut() {
-            let ready = self.retirement.as_ref().map_or(true, |b| b.check_ready().is_ok());
-            match (ready && s.healthy.load(Ordering::Acquire), s.child.try_wait()) {
-                (true, Ok(None)) => return Ok(()),
-                _ => {
-                    s.healthy.store(false, Ordering::Release);
-                    fail_pending(&s.pending, "host-lifecycle-unconfirmed: sidecar exited");
-                    return Err("host-lifecycle-unconfirmed: sidecar exited; cleanup must be confirmed before recovery".into());
-                }
+            if let Some(boundary) = &self.retirement {
+                boundary.check_ready().map_err(|error|
+                    format!("host-lifecycle-unconfirmed: {}", error.explanation()))?;
             }
+            if let Some(cause) = s.unavailable() {
+                s.healthy.store(false, Ordering::Release);
+                fail_pending(&s.pending, &cause);
+                return Err(cause);
+            }
+            return Ok(());
         }
         if let Some(boundary) = &self.retirement {
-            boundary.begin_start().map_err(|error| format!("host startup: {error:?}"))?;
+            boundary.begin_start().map_err(|error| format!("host startup: {}", error.explanation()))?;
         }
         let script = self.script_path()?;
 
@@ -300,6 +316,7 @@ impl SidecarBridge {
         });
         let incarnation = uuid::Uuid::new_v4();
         let healthy = Arc::new(std::sync::atomic::AtomicBool::new(true));
+        let failure = Arc::new(StdMutex::new(None));
         let mut command = Command::new(&python);
         // The daemon handles terminal signals and drains before closing us.
         #[cfg(unix)]
@@ -334,6 +351,7 @@ impl SidecarBridge {
         *guard = Some(Sidecar {
             child, stdin: stdin.clone(), pending: pending.clone(),
             cancel: cancel.clone(), incarnation, healthy: healthy.clone(),
+            failure: failure.clone(),
             next_id: Arc::new(AtomicU64::new(0)),
         });
         {
@@ -370,13 +388,14 @@ impl SidecarBridge {
             let mut stop = self.transport_tasks.as_ref().map(|tasks| tasks.stopping());
             tasks::launch(self.transport_tasks.as_ref(), async move {
                 let mut lines = BufReader::new(stdout).lines();
-                loop {
+                let cause = loop {
                     let line = tokio::select! {
                         biased;
-                        _ = tasks::stopped(&mut stop) => break,
+                        _ = tasks::stopped(&mut stop) => break "browser host reply reader stopped for shutdown".to_owned(),
                         line = lines.next_line() => match line {
                             Ok(Some(line)) => line,
-                            _ => break,
+                            Ok(None) => break "browser host reply pipe reached end of file".to_owned(),
+                            Err(error) => break format!("reading browser host reply pipe failed: {error}"),
                         },
                     };
                     let v = match serde_json::from_str::<Value>(&line) {
@@ -390,13 +409,14 @@ impl SidecarBridge {
                     if let Some(tx) = tx {
                         let _ = tx.send(take_reply_result(v));
                     }
-                }
+                };
+                *failure.lock().unwrap_or_else(std::sync::PoisonError::into_inner) = Some(cause.clone());
                 healthy.store(false, Ordering::Release);
-                fail_pending(&pending, "host-lifecycle-unconfirmed: sidecar output closed");
+                fail_pending(&pending, &format!("host-lifecycle-unconfirmed: {cause}"));
             }).await?;
         }
         if let Some(boundary) = &self.retirement {
-            boundary.finish_start().map_err(|error| format!("host startup: {error:?}"))?;
+            boundary.finish_start().map_err(|error| format!("host startup: {}", error.explanation()))?;
         }
         Ok(())
     }
@@ -440,22 +460,24 @@ impl SidecarBridge {
         cancelled: Option<&(dyn Fn() -> bool + Send + Sync)>) -> Result<Value, String> {
         let _admission = self.admit_unscoped()?;
         let started = std::time::Instant::now();
+        let phase = AtomicU64::new(0);
         // Apply one deadline to setup, queueing, writing and the reply.
         // A started write retains ownership when this caller times out.
         let request = async {
             if start_missing {
                 self.sidecar().await?;
             }
+            phase.store(1, Ordering::Relaxed);
             let mut guard = self.inner.lock().await;
             if self.stopping.load(Ordering::Acquire) {
                 return Err("browser host is shutting down".into());
             }
-            let s = guard.as_mut().ok_or("sidecar unavailable")?;
-            if !s.healthy.load(Ordering::Acquire) || !matches!(s.child.try_wait(), Ok(None)) {
-                return Err("host-lifecycle-unconfirmed: sidecar exited; browser cleanup is unconfirmed".into());
+            let s = guard.as_mut().ok_or("sidecar unavailable: browser host has not been started")?;
+            if let Some(cause) = s.unavailable() {
+                return Err(cause);
             }
             if let Some(boundary) = &self.retirement {
-                boundary.check_ready().map_err(|error| format!("host startup: {error:?}"))?;
+                boundary.check_ready().map_err(|error| format!("host startup: {}", error.explanation()))?;
             }
             let id = s.next_id.fetch_add(1, Ordering::Relaxed) + 1;
             fields["id"] = json!(id);
@@ -472,9 +494,11 @@ impl SidecarBridge {
             // The cloned pipe belongs to this generation, and its own mutex
             // still keeps complete command frames in order.
             drop(guard);
+            phase.store(2, Ordering::Relaxed);
             write_registered_command(stdin.clone(), fields, self.transport_tasks.as_ref())
                 .await
                 .map_err(|e| format!("sidecar write: {e}"))?;
+            phase.store(3, Ordering::Relaxed);
             if let Some(cancelled) = cancelled {
                 while !cancelled() {
                     tokio::select! {
@@ -489,20 +513,30 @@ impl SidecarBridge {
         };
         match tokio::time::timeout(timeout, request).await {
             Ok(result) => result,
-            Err(_) => Err(format!("sidecar timeout after {:?} (cmd {cmd})", started.elapsed())),
+            Err(_) => {
+                let waiting = match phase.load(Ordering::Relaxed) {
+                    0 => "starting the browser host or acquiring its lifecycle lock",
+                    1 => "acquiring the browser host lifecycle lock",
+                    2 => "writing the command to the browser host pipe",
+                    _ => "waiting for the browser host to finish the command and return its result",
+                };
+                Err(format!("sidecar timeout after {:?} (cmd {cmd}): {waiting}", started.elapsed()))
+            }
         }
     }
 
     async fn ai_post_result(&self, account: &AccountId, value: Value)
         -> Result<(u16, Option<String>, String), String> {
         let ai_result::OwnedAiPostResult { status, usage, text, queue_wait_ms } =
-            ai_result::take_ai_post_result(value);
+            ai_result::take_ai_post_result(value)?;
         self.queue_wait.lock().await.insert(*account, queue_wait_ms);
         if status == 0 {
-            if text.contains("velocity-paused") {
+            if text.starts_with("velocity-paused:") {
                 return Ok((0, usage, text));
             }
-            return Err("castle-v3-unavailable".into());
+            return Err(if text.is_empty() {
+                "browser preparation failed without a diagnostic from the host".into()
+            } else { text });
         }
         if status == -1 {
             return Err(format!("in-page fetch failed: {text}"));
@@ -513,17 +547,16 @@ impl SidecarBridge {
     async fn call_account(&self, account: &AccountId, cmd: &str, extra: Value) -> Result<Value, String> {
         // Own route selection too: it may start the host before the command.
         let _admission = self.admit_unscoped()?;
-        tokio::time::timeout(REQ_TIMEOUT, async {
-            let route = self.route_for_command(account).await?;
-            let mut fields = extra;
-            fields["account"] = json!(account.0.to_string());
-            fields["proxy_revision"] = json!(route.revision);
-            if matches!(cmd, "begin" | "complete" | "mint" | "ai_post" | "set_cookie" | "eval") {
-                // Null explicitly selects the host's global/default egress.
-                fields["proxy"] = json!(route.proxy);
-            }
-            self.call(cmd, fields).await
-        }).await.map_err(|_| format!("sidecar account command timed out (cmd {cmd})"))?
+        let started = std::time::Instant::now();
+        let route = tokio::time::timeout(REQ_TIMEOUT, self.route_for_command(account))
+            .await.map_err(|_| format!("sidecar account command timed out after {}s (cmd {cmd}): waiting for the account's proxy route and host startup", REQ_TIMEOUT.as_secs()))??;
+        let mut fields = extra;
+        fields["account"] = json!(account.0.to_string());
+        fields["proxy_revision"] = json!(route.revision);
+        if matches!(cmd, "begin" | "complete" | "mint" | "ai_post" | "set_cookie" | "eval") {
+            fields["proxy"] = json!(route.proxy);
+        }
+        self.call_with_timeout(cmd, fields, REQ_TIMEOUT.saturating_sub(started.elapsed())).await
     }
 }
 
@@ -635,23 +668,14 @@ impl BrowserBridge for SidecarBridge {
         let Some(cancelled) = cancelled else {
             return self.ai_post(account, path, bearer, body).await;
         };
-        let request = async {
-            for attempt_index in 0..3 {
-                if cancelled() { return Err("client cancelled".into()); }
-                // One host fetch at a time. Keep its real reply owned, then check
-                // cancellation before authorizing a device retry in another call.
-                let value = self.call_account(account, "ai_post", json!({
-                    "path": path, "bearer": bearer, "body": body,
-                    "defer_retries": true, "attempt_index": attempt_index,
-                })).await?;
-                if value.get("_retry_device").and_then(Value::as_bool) != Some(true) {
-                    return self.ai_post_result(account, value).await;
-                }
-            }
-            Err("host-lifecycle-unconfirmed: invalid browser retry budget".into())
-        };
-        tokio::time::timeout(REQ_TIMEOUT, request).await
-            .map_err(|_| "sidecar account command timed out (cmd ai_post)".to_owned())?
+        if cancelled() { return Err("client cancelled".into()); }
+        // Keep the current call owned through its real reply. A refusal is
+        // final for this request, including replies from an older host.
+        let value = self.call_account(account, "ai_post", json!({
+            "path": path, "bearer": bearer, "body": body,
+            "defer_retries": true, "attempt_index": 0,
+        })).await?;
+        self.ai_post_result(account, value).await
     }
 
     async fn last_queue_wait_ms(&self, account: &AccountId) -> u64 {

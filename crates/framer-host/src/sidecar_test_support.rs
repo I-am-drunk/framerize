@@ -23,6 +23,7 @@ pub(super) async fn blocked_input_bridge() -> (SidecarBridge, mpsc::Receiver<u64
     *bridge.inner.lock().await = Some(Sidecar {
         child, stdin, pending, cancel, next_id: Arc::new(AtomicU64::new(0)),
         healthy: Arc::new(std::sync::atomic::AtomicBool::new(true)),
+        failure: Arc::new(StdMutex::new(None)),
         incarnation: uuid::Uuid::new_v4(),
     });
     (bridge, cancellations)

@@ -1,0 +1,2 @@
+# Unified patches require a space on empty context lines.
+runtime/framerize_host/browser/patches/*.patch whitespace=-blank-at-eol

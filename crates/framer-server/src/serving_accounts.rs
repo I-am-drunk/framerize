@@ -107,6 +107,25 @@ impl ServingAccountPolicy {
                 && !protected.contains(&slot.account))
     }
 
+    fn residency_failure(snapshot: &framer_core::resident_pool::PoolSnapshot,
+        id: &AccountId, protected: &HashSet<AccountId>) -> String {
+        if protected.contains(id) {
+            return "account management is in progress".into();
+        }
+        if snapshot.residents.iter().any(|slot| slot.replacement == Some(*id)) {
+            return "the account is reserved while another browser finishes closing".into();
+        }
+        if let Some(slot) = snapshot.residents.iter().find(|slot| slot.account == *id) {
+            if let Some(cause) = &slot.cleanup_cause { return cause.clone(); }
+            if slot.uncertain {
+                return "the browser owner did not confirm cleanup or retain its failure cause".into();
+            }
+            return "the account browser is still closing".into();
+        }
+        format!("all {} resident browser slots are occupied; none is idle and available for closure",
+            snapshot.capacity)
+    }
+
     /// Number of configured UUIDs, including any not yet stored. This is an
     /// admission setting, never a claim about browser residency or availability.
     pub fn configured_count(&self) -> Option<usize> {
@@ -126,13 +145,15 @@ impl ServingAccountPolicy {
         }
     }
 
-    fn no_eligible_account(&self) -> ApiError {
-        if self.configured_count().is_some() {
-            ApiError::ServingCapacity(
-                "no eligible account in the pool configuration".into(),
-            )
+    fn no_eligible_account(&self, pool: &[ManagedAccount]) -> ApiError {
+        if !pool.is_empty() {
+            let causes: std::collections::BTreeSet<_> = pool.iter()
+                .filter_map(ManagedAccount::eligibility_problem).collect();
+            ApiError::ServingCapacity(causes.into_iter().collect::<Vec<_>>().join("; "))
+        } else if self.configured_count().is_some() {
+            ApiError::ServingCapacity("no saved accounts match the configured account allowlist".into())
         } else {
-            ApiError::Internal("no eligible account".into())
+            ApiError::Internal("no saved accounts are available".into())
         }
     }
 
@@ -164,12 +185,11 @@ impl ServingAccountPolicy {
             let protected = self.mutations.lock()
                 .map_err(|_| ApiError::PoolBusy("account management is unavailable".into()))?;
             if !Self::residency_allows(&snapshot, &account.id, &protected) {
-                return Err(ApiError::PoolBusy("account has no admissible resident capacity or cleanup is unconfirmed".into()));
+                return Err(ApiError::PoolBusy(Self::residency_failure(
+                    &snapshot, &account.id, &protected)));
             }
-            if !account.is_eligible() {
-                return Err(ApiError::ServingCapacity(
-                    "account is not ready or is missing its current team or project".into(),
-                ));
+            if let Some(cause) = account.eligibility_problem() {
+                return Err(ApiError::ServingCapacity(cause));
             }
             return Ok(account);
         }
@@ -226,7 +246,9 @@ impl ServingAccountPolicy {
             && Self::residency_allows(&snapshot, &account.id, &mutations))
             .cloned().collect();
         if candidates.is_empty() && !pool.is_empty() {
-            return Err(ApiError::PoolBusy("eligible accounts are changing, unconfirmed or lack resident capacity".into()));
+            let causes: std::collections::BTreeSet<_> = pool.iter().map(|account|
+                Self::residency_failure(&snapshot, &account.id, &mutations)).collect();
+            return Err(ApiError::PoolBusy(causes.into_iter().collect::<Vec<_>>().join("; ")));
         }
         let pool = candidates.as_slice();
         // The general selector can fall back to a cooling account. HTTP
@@ -244,7 +266,7 @@ impl ServingAccountPolicy {
             snapshot.residents.iter().find(|slot| slot.account == account.id)
                 .map(|slot| (slot.users, false)).unwrap_or((0, true))
         }).cloned()
-            .ok_or_else(|| self.no_eligible_account())
+            .ok_or_else(|| self.no_eligible_account(pool))
     }
 }
 

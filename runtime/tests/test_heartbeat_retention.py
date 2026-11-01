@@ -1,4 +1,4 @@
-"""Exercise the actual heartbeat loop without network calls or private files."""
+"""Idle maintenance never sends synthetic AI requests or interaction signals."""
 import asyncio
 from copy import deepcopy
 import unittest
@@ -18,11 +18,9 @@ class HeartbeatRetentionTests(unittest.IsolatedAsyncioTestCase):
     block = acquisition.PageAcquisitionTests.block
 
     async def cycle(self, acc):
-        sleeps = AsyncMock(side_effect=[None, None, asyncio.CancelledError()])
-        with patch.object(self.module.Path, "read_text", return_value="[]"), \
-                patch.object(self.module.asyncio, "sleep", sleeps):
-            with self.assertRaises(asyncio.CancelledError):
-                await self.host._heartbeat_loop(acc, "a")
+        with patch.object(self.module, "memory_snapshot", return_value={
+                "allocation_headroom_bytes": 4 * 1024**3}):
+            await self.host._monitor_once()
 
     def ready(self, acc):
         acc.devices[:] = [f"device-{index}" for index in range(64)]
@@ -43,15 +41,15 @@ class HeartbeatRetentionTests(unittest.IsolatedAsyncioTestCase):
         acc.browser.new_context.assert_not_awaited()
         self.assertEqual(acc.lifecycle.rates.state, before)
 
-    async def test_existing_warm_page_is_used_without_opening_other_devices(self):
+    async def test_existing_warm_page_sends_no_background_requests(self):
         acc = self.account()
         device = await self.prepare(device="device-1")
         self.ready(acc)
         await self.cycle(acc)
         self.host._dev_page.assert_not_awaited()
-        self.host._token_acquire.assert_awaited_once_with(acc, device.page, "a", "device-1")
-        self.host._run_job.assert_awaited_once()
-        self.host._token_release.assert_called_once_with(acc, "token-id")
+        self.host._token_acquire.assert_not_awaited()
+        self.host._run_job.assert_not_awaited()
+        self.host._token_release.assert_not_called()
         acc.browser.new_context.assert_awaited_once()
         self.assertEqual(list(acc.dev_objs), ["device-1"])
 

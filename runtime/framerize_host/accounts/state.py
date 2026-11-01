@@ -9,7 +9,7 @@ class Device:
     churn the velocity/risk layers key on (2026-10-11: the old single-page
     __cuid-swap pool was visible to the SDK's storage and read as a device
     farm)."""
-    __slots__ = ("id", "ctx", "page", "warm", "lock", "last_used")
+    __slots__ = ("id", "ctx", "page", "warm", "lock", "last_used", "users")
 
     def __init__(self, dev_id):
         self.id = dev_id
@@ -18,6 +18,7 @@ class Device:
         self.warm = False
         self.lock = asyncio.Lock()
         self.last_used = time.monotonic()
+        self.users = 0
 
 
 class AccountLifecycle:
@@ -30,12 +31,26 @@ class AccountLifecycle:
         self.creation_lock = asyncio.Lock()
         self.incarnation = 0
         self.phase = "absent"
+        self.cleanup_cause = None
         self.browser = None
         self.close_receipt = None
         self.close_task = None
         self.active_commands = 0
         self.cooling = self.rates.state['cooling']
         self.requests = self.rates.state['requests']
+
+    def unconfirmed(self, cause):
+        from ..events import error_message
+        self.phase = "unconfirmed"
+        if self.cleanup_cause is None:
+            self.cleanup_cause = error_message(cause)
+
+    def cleanup_error(self):
+        cause = self.cleanup_cause
+        if cause is None:
+            cause = ("browser closure is still running" if self.phase == "closing" else
+                     "the browser owner did not provide a cleanup completion result")
+        return "browser cleanup unconfirmed: " + cause
 
     @property
     def reserve_day(self):
@@ -101,6 +116,8 @@ class Account:
         self.dev_objs = {}          # device id -> Device (isolated context each)
         self.session_cookie = None  # (name, value) — fanned into every device context
         self.cookie_lock = asyncio.Lock()  # held until the complete fanout settles
+        self.retention_lock = asyncio.Lock()
+        self.trim_task = None
         self.last_used = time.monotonic()
         self.active_requests = 0
         self.closing = False

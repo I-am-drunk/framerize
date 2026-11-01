@@ -1508,12 +1508,26 @@ fn merge_blocks_local(acc: &mut Vec<Value>, new: Vec<Value>) {
 /// (http_status, upstream_error_body). The upstream body is Anthropic-shaped:
 /// {"type":"error","error":{"type":"invalid_request_error","message":"..."}}.
 pub fn parse_upstream_error(msg: &str) -> Option<(u16, serde_json::Value)> {
-    let idx = msg.rfind(": {")?;
-    let body: serde_json::Value = serde_json::from_str(msg[idx + 2..].trim()).ok()?;
-    let status = msg
-        .split_whitespace()
-        .find_map(|w| w.parse::<u16>().ok().filter(|n| (400..600).contains(n)))?;
+    let (status, text) = crate::error::upstream_status_body(msg)?;
+    let body = serde_json::from_str(text).unwrap_or_else(|_| json!({"error": {
+        "type": "upstream_error", "message": upstream_text_error(status, text)
+    }}));
     Some((status, body))
+}
+
+fn upstream_text_error(status: u16, text: &str) -> String {
+    let text = text.trim();
+    let lower = text.to_ascii_lowercase();
+    let issue = if text.is_empty() {
+        "the upstream returned an empty error body"
+    } else if lower.contains("worker exceeded resource limits") {
+        "Cloudflare Worker exceeded its resource limits"
+    } else if lower.contains("<html") || lower.contains("<!doctype") {
+        if lower.contains("bad gateway") { "the upstream gateway reported Bad Gateway" }
+        else { "the upstream returned an HTML error page without a recognized cause" }
+    } else { text };
+    let summary = crate::error::safe_failure_summary(issue);
+    format!("Upstream HTTP {status}: {summary}")
 }
 
 /// True when the upstream message is a context-window overflow — the client

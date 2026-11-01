@@ -93,7 +93,7 @@ fn assert_expired(outcome: Outcome, requests: usize) {
 #[tokio::test(start_paused = true)]
 async fn rate_retry_does_not_dispatch_after_active_budget() {
     let replies = (0..4).map(|_| Reply { seconds:80,
-        result:Ok((429, "fixture saturation".into())) }).collect();
+        result:Ok((429, "too many concurrent AI requests for this workspace".into())) }).collect();
     let outcome = run(replies).await;
     assert_eq!(outcome.rate_retries, 4);
     assert_expired(outcome, 4);
@@ -146,10 +146,28 @@ async fn local_cooldown_wait_does_not_consume_active_budget() {
 
 #[tokio::test(start_paused = true)]
 async fn rate_retry_with_active_budget_preserves_callback_and_success() {
-    let outcome = run(vec![Reply { seconds:1, result:Ok((429, "fixture saturation".into())) },
+    let outcome = run(vec![Reply { seconds:1, result:Ok((429,
+        "too many concurrent AI requests for this workspace".into())) },
         answer(1, false)]).await;
     assert_eq!(outcome.requests.len(), 2);
     assert_eq!(outcome.rate_retries, 1);
     assert_eq!(outcome.events.len(), 1);
+    assert_eq!(outcome.result.unwrap().status, "completed");
+}
+
+#[tokio::test(start_paused = true)]
+async fn slow_successful_responses_are_delivered() {
+    let outcome = run(vec![answer(20, true), answer(20, false)]).await;
+    assert_eq!(outcome.requests.len(), 2);
+    assert_eq!(outcome.events.len(), 2);
+    assert_eq!(outcome.result.unwrap().status, "completed");
+}
+
+#[tokio::test(start_paused = true)]
+async fn provider_rate_limit_does_not_mark_workspace_saturated() {
+    let outcome = run(vec![Reply { seconds:1, result:Ok((429,
+        "upstream_provider_shared_pool".into())) }, answer(1, false)]).await;
+    assert_eq!(outcome.requests.len(), 2);
+    assert_eq!(outcome.rate_retries, 0);
     assert_eq!(outcome.result.unwrap().status, "completed");
 }

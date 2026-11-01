@@ -18,7 +18,7 @@ impl MemorySample {
     fn refusal(self, reserved: u64) -> String {
         let gib = 1024_f64.powi(3);
         let mib = 1024_f64.powi(2);
-        format!("Low available RAM: new request deferred. {}: {:.2} of {:.2} GiB; \
+        format!("Low available RAM: insufficient memory below the 90% admission watermark for a new request. {}: {:.2} of {:.2} GiB; \
             admission headroom {:.2} MiB, reserved {:.2} MiB, new request needs {:.2} MiB. Retry shortly.",
             self.scope, self.used as f64 / gib, self.total as f64 / gib,
             self.headroom as f64 / mib, reserved as f64 / mib, REQUEST_RESERVE as f64 / mib)
@@ -53,6 +53,10 @@ pub(crate) async fn middleware(State(gate): State<Arc<Admission>>,
     if let Some(sample) = (gate.sample)().filter(|sample|
         sample.headroom < i128::from(reserved) + i128::from(REQUEST_RESERVE)) {
         framer_core::observability::Event::new("memory.request_refused")
+            .field("cause", sample.refusal(reserved))
+            .field("scope", sample.scope)
+            .field("used_bytes", sample.used.clamp(0, u64::MAX as i128) as u64)
+            .field("total_bytes", sample.total.clamp(0, u64::MAX as i128) as u64)
             .field("headroom_bytes", sample.headroom.clamp(i64::MIN as i128, i64::MAX as i128) as i64)
             .field("reserved_bytes", reserved)
             .field("requested_bytes", REQUEST_RESERVE)

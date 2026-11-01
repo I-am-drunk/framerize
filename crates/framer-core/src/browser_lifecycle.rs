@@ -20,6 +20,8 @@ pub struct BrowserAccountStatus {
     pub account_incarnation: u64,
     pub state: BrowserAccountState,
     pub active_commands: usize,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cleanup_cause: Option<String>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -40,6 +42,18 @@ pub struct IdleCloseResult {
 }
 
 impl BrowserAccountStatus {
+    pub fn cleanup_explanation(&self) -> String {
+        if let Some(cause) = self.cleanup_cause.as_deref().filter(|v| !v.is_empty()) {
+            return crate::error::safe_failure_summary(cause);
+        }
+        match self.state {
+            BrowserAccountState::Closing => "browser closure is still running".into(),
+            BrowserAccountState::Unconfirmed =>
+                "the browser owner did not retain the failure that prevented confirmed cleanup".into(),
+            _ => format!("the browser reported state {:?} with {} active commands",
+                self.state, self.active_commands),
+        }
+    }
     pub fn same_identity(&self, other: &Self) -> bool {
         self.account_id == other.account_id
             && self.host_generation == other.host_generation

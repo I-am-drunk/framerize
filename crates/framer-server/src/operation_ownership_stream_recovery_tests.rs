@@ -253,7 +253,7 @@ async fn recovery(messages: bool, end: RecoveryEnd) {
     let refusal = tokio::time::timeout(WAIT, app.oneshot(request)).await.unwrap().unwrap();
     assert_eq!(refusal.status(), StatusCode::SERVICE_UNAVAILABLE);
     assert_eq!(to_bytes(refusal.into_body(), 1024).await.unwrap().as_ref(),
-        b"operation admission closed");
+        b"Cannot start this request: earlier work ended without confirmed cleanup; its resources cannot be reused.");
     f.no_call();
     assert!(f.loads.try_recv().is_err());
 }

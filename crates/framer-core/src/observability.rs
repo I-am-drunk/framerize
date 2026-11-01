@@ -26,7 +26,21 @@ mod append;
 static LOG_DIR: OnceLock<PathBuf> = OnceLock::new();
 static WRITER: OnceLock<Mutex<std::fs::File>> = OnceLock::new();
 static LOG_OPEN_WARNING: OnceLock<()> = OnceLock::new();
+static LOG_WRITE_WARNING: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
 static RETENTION_DAYS: u64 = 7;
+
+fn warn_write_failure(error: &std::io::Error) {
+    use std::io::Write;
+    use std::sync::atomic::Ordering;
+    let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default().as_secs();
+    let previous = LOG_WRITE_WARNING.load(Ordering::Relaxed);
+    if previous != 0 && now.saturating_sub(previous) < 60 { return; }
+    if LOG_WRITE_WARNING.compare_exchange(previous, now, Ordering::Relaxed, Ordering::Relaxed).is_ok() {
+        let _ = writeln!(std::io::stderr().lock(),
+            "Framerize event log write failed: {error}; structured diagnostics are being lost.");
+    }
+}
 
 pub fn init(profiles: &str) {
     init_path(Path::new(profiles));
@@ -72,12 +86,11 @@ fn file_for_today() -> Option<&'static Mutex<std::fs::File>> {
         .open(dir.join(format!("events-{day}.ndjson")))
     {
         Ok(file) => file,
-        Err(_) => {
+        Err(error) => {
             LOG_OPEN_WARNING.get_or_init(|| {
                 use std::io::Write;
-                let _ = std::io::stderr().lock().write_all(
-                    b"Framerize: event log unavailable; structured diagnostics are being lost.\n",
-                );
+                let _ = writeln!(std::io::stderr().lock(),
+                    "Framerize: cannot open event log: {error}; structured diagnostics are being lost.");
             });
             return None;
         }
@@ -173,7 +186,9 @@ impl Event {
     pub fn emit(self) {
         if let Some(f) = file_for_today() {
             if let Ok(mut f) = f.lock() {
-                let _ = append::event(&mut *f, &self.v);
+                if let Err(error) = append::event(&mut *f, &self.v) {
+                    warn_write_failure(&error);
+                }
             }
         }
     }

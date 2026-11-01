@@ -233,7 +233,7 @@ class PageAcquisitionTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(page.waits, [800])
         self.assertEqual(acc.size, 2)
         self.assertEqual(acc.borrowed, {ambient, page})
-        self.assertEqual(len(acc.tasks), 1)
+        self.assertEqual(len(acc.tasks), 0)
         waiting = self.start_acquire()
         await self.assert_waiting(waiting)
         self.assertFalse(acc.lock.locked())

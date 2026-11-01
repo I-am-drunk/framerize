@@ -137,7 +137,7 @@ async fn api_run_typed_cooldown_preserves_deadline_and_bounds_http_retry() {
             assert_eq!(retry, remaining.clamp(1, 30));
             assert_eq!(body, json!({"type":"error","error":{"type":"overloaded_error",
                 "code":"framerize_account_cooling","message":format!(
-                    "Framerize has no ready account for this request. Retry in {retry} seconds."),
+                    "An earlier security refusal started this account's cooldown; its recorded deadline has not expired. Retry in {retry} seconds."),
                 "retry_after_seconds":retry,"cooldown_remaining_seconds":remaining}}));
         } else { drop(response); }
         finished(&state, &scope, &gate).await;
@@ -161,7 +161,7 @@ async fn api_run_typed_not_ready_refuses_after_session_without_peer_substitution
             assert!(!response.headers().contains_key("retry-after"));
             if consume {
                 assert_eq!(to_bytes(response.into_body(), 65536).await.unwrap().as_ref(),
-                    b"account is not ready");
+                    format!("account state is {lifecycle:?}; inference requires Ready").as_bytes());
             } else { drop(response); }
             finished(&state, &scope, &gate).await;
             preserved(&state, &ports, &expected, false);

@@ -10,6 +10,15 @@ fn busy(error: impl std::fmt::Display) -> ApiError {
     ApiError::PoolBusy(error.to_string())
 }
 
+fn close_failure(expected: &framer_core::browser_lifecycle::BrowserAccountStatus,
+    result: &framer_core::browser_lifecycle::IdleCloseResult) -> String {
+    if !result.status.same_identity(expected) {
+        return "the browser identity changed during closure; the occupied slot is retained".into();
+    }
+    format!("{}; browser close returned {:?} and its occupied slot is retained",
+        result.status.cleanup_explanation(), result.outcome)
+}
+
 fn trace_close_refusal(account: AccountId,
     expected: &framer_core::browser_lifecycle::BrowserAccountStatus,
     result: &framer_core::browser_lifecycle::IdleCloseResult) {
@@ -21,6 +30,7 @@ fn trace_close_refusal(account: AccountId,
         .field("identity_matches", result.status.same_identity(expected))
         .field("active_commands", result.status.active_commands)
         .field("close_not_started", result.confirms_busy(expected))
+        .field("cause", close_failure(expected, result))
         .emit();
 }
 
@@ -51,14 +61,30 @@ impl CleanupEvidence {
     }
     pub(super) fn outcome<T>(&self, outcome: CleanupOutcome<T>) -> Result<T, ApiError> {
         self.include(outcome.cleanup_confirmed);
+        if !outcome.cleanup_confirmed {
+            if let Err(ApiError::Internal(error) | ApiError::PoolBusy(error)
+                | ApiError::ServingCapacity(error) | ApiError::InvalidRequest(error)) = &outcome.result {
+                super::operation_ownership::record_cleanup_failure(error);
+            }
+        }
         outcome.result
     }
     pub(super) fn external<T>(&self, result: Result<T, String>) -> Result<T, String> {
+        if let Err(error) = &result {
+            if cleanup_unconfirmed(error) {
+                super::operation_ownership::record_cleanup_failure(error);
+            }
+        }
         self.include(!matches!(&result, Err(error) if cleanup_unconfirmed(error)));
         result
     }
     pub(super) fn core<T>(&self, result: Result<T, framer_core::error::CoreError>)
         -> Result<T, framer_core::error::CoreError> {
+        if let Err(framer_core::error::CoreError::Framer(error)) = &result {
+            if cleanup_unconfirmed(error) {
+                super::operation_ownership::record_cleanup_failure(error);
+            }
+        }
         self.include(!matches!(&result, Err(framer_core::error::CoreError::Framer(error))
             if cleanup_unconfirmed(error)));
         result
@@ -90,6 +116,7 @@ async fn confirm_resident_status(browser: &dyn BrowserBridge, lease: ResidentLea
     cleanup_confirmed = false;
     let observation = tokio::time::timeout(Duration::from_secs(5),
         browser.browser_status(&lease.account())).await;
+    let failure;
     let usable = match observation {
         Ok(Ok(status)) => {
             let identity_valid = match status.host_generation.as_deref() {
@@ -101,17 +128,31 @@ async fn confirm_resident_status(browser: &dyn BrowserBridge, lease: ResidentLea
             // leaving request work unfinished. The resident fence owns the
             // unavailable account; a failed transport still remains unknown.
             cleanup_confirmed = status.account_id == lease.account() && identity_valid;
+            failure = if status.account_id != lease.account() {
+                "browser status belongs to a different account".into()
+            } else if !identity_valid {
+                "browser status has a missing or invalid process identity".into()
+            } else { status.cleanup_explanation() };
             cleanup_confirmed
                 && !matches!(status.state, State::Closing | State::Unconfirmed)
         },
-        _ => false,
+        Ok(Err(error)) => {
+            failure = format!("browser status check failed: {}",
+                framer_core::error::safe_failure_summary(&error));
+            false
+        },
+        Err(_) => {
+            failure = "browser status check did not reply within 5 seconds".into();
+            false
+        },
     };
     if !usable {
-        lease.mark_unconfirmed().map_err(|error| {
+        lease.mark_unconfirmed_with_cause(&failure).map_err(|error| {
             cleanup_confirmed = false;
             busy(error)
         })?;
-        return Err(busy("account browser status is unconfirmed; its occupied slot is retained"));
+        if !cleanup_confirmed { super::operation_ownership::record_cleanup_failure(&failure); }
+        return Err(busy(format!("{failure}; the occupied browser slot is retained")));
     }
     lease.ensure_admissible().map_err(|error| {
         // A concurrent local fence refuses this lease without starting work.
@@ -135,12 +176,17 @@ pub(super) fn cleanup_unconfirmed(error: &str) -> bool {
         || cause.contains("sidecar account command timed out")
         || cause.contains("sidecar dropped the request")
         || cause.contains("sidecar write:")
+        || cause.starts_with("browser cleanup unconfirmed:")
 }
 
 pub(super) fn observe_lease_result<T>(lease: &ResidentLease, result: Result<T, String>)
     -> Result<T, String> {
-    if matches!(&result, Err(error) if cleanup_unconfirmed(error)) {
-        lease.mark_unconfirmed().map_err(|e| format!("account residency fence failed: {e}"))?;
+    if let Err(error) = &result {
+        if cleanup_unconfirmed(error) {
+            super::operation_ownership::record_cleanup_failure(error);
+            lease.mark_unconfirmed_with_cause(error)
+                .map_err(|e| format!("account residency fence failed: {e}"))?;
+        }
     }
     result
 }
@@ -221,10 +267,19 @@ async fn management_inner_observed(s: &AppState, id: AccountId, browser: bool, r
         return Err(busy("pool configuration is in progress"));
     }
     let snapshot = s.serving_accounts.residents.snapshot().map_err(busy)?;
-    if snapshot.residents.iter().any(|slot| slot.replacement == Some(id) || (slot.account == id
+    if let Some(slot) = snapshot.residents.iter().find(|slot| slot.replacement == Some(id) || (slot.account == id
         && (slot.users > usize::from(lease.is_some()) || (slot.uncertain && !reconcile)
             || slot.status == ResidentStatus::Closing))) {
-        return Err(busy("account has active work or unconfirmed cleanup"));
+        let cause = if slot.replacement == Some(id) {
+            "the account is reserved while another browser finishes closing".into()
+        } else if slot.users > usize::from(lease.is_some()) {
+            format!("{} other operations still hold this account's browser", slot.users - usize::from(lease.is_some()))
+        } else if let Some(cause) = &slot.cleanup_cause {
+            cause.clone()
+        } else if slot.uncertain {
+            "the browser owner did not confirm cleanup or retain its failure cause".into()
+        } else { "the account browser is still closing".into() };
+        return Err(busy(cause));
     }
     let mutations = s.serving_accounts.mutations.clone();
     if !mutations.lock().map_err(busy)?.insert(id) {
@@ -353,6 +408,7 @@ pub async fn prewarm_accounts(s: AppState) {
         let result = activate(State(s.clone()), Json(AccountBody { account_id: account.id })).await;
         framer_core::observability::Event::new("account.prewarm").account(&account.id)
             .duration_ms(framer_core::observability::elapsed_ms(t0))
+            .field("cause", result.as_ref().err().map(ApiError::diagnostic))
             .outcome(if result.is_ok() { "ok" } else { "error" }).emit();
     }
 }
@@ -437,7 +493,13 @@ fn reserve_config(policy: &ServingAccountPolicy, next: &PoolConfig) -> Result<Qu
         if !victims.contains(&id) { victims.push(id); }
     }
     if snapshot.occupied.saturating_sub(victims.len()) > next.active_capacity {
-        return Err(busy("unconfirmed browser slots must be parked before shrinking the pool"));
+        let causes: Vec<_> = snapshot.residents.iter()
+            .filter(|slot| !victims.contains(&slot.account))
+            .map(|slot| slot.cleanup_cause.clone().unwrap_or_else(||
+                format!("browser state {:?} with {} active owners", slot.status, slot.users)))
+            .collect();
+        return Err(busy(format!("Cannot reduce browser capacity to {}: {}",
+            next.active_capacity, causes.join("; "))));
     }
     let mut queued = QueuedParks(Default::default());
     for id in victims {
@@ -513,7 +575,11 @@ async fn finish_park_observed(browser: &dyn BrowserBridge, mut ticket: ParkTicke
             return Err(busy("account browser is busy or its identity changed"));
         }
         ticket.close_started().map_err(busy)?;
-        let result = browser.close_idle_browser(&id, &expected).await.map_err(busy)?;
+        let result = browser.close_idle_browser(&id, &expected).await.map_err(|error| {
+            ticket.record_failure(&error);
+            super::operation_ownership::record_cleanup_failure(&error);
+            busy(error)
+        })?;
         if !result.confirms_absence(&expected) {
             trace_close_refusal(id, &expected, &result);
             if result.confirms_busy(&expected) {
@@ -521,7 +587,10 @@ async fn finish_park_observed(browser: &dyn BrowserBridge, mut ticket: ParkTicke
                 cleanup_confirmed = true;
                 return Err(busy("account browser became busy before closure; its slot is retained"));
             }
-            return Err(busy("account browser closure is unconfirmed; its slot is retained"));
+            let cause = close_failure(&expected, &result);
+            ticket.record_failure(&cause);
+            super::operation_ownership::record_cleanup_failure(&cause);
+            return Err(busy(cause));
         }
         ticket.confirm_close().map_err(busy)?;
         cleanup_confirmed = true;
@@ -599,7 +668,11 @@ impl ServingAccountPolicy {
                         }
                         ticket.close_started().map_err(busy)?;
                         let result = browser.close_idle_browser(&ticket.victim(), &expected)
-                            .await.map_err(busy)?;
+                            .await.map_err(|error| {
+                                ticket.record_failure(&error);
+                                super::operation_ownership::record_cleanup_failure(&error);
+                                busy(error)
+                            })?;
                         if !result.confirms_absence(&expected) {
                             trace_close_refusal(ticket.victim(), &expected, &result);
                             if result.confirms_busy(&expected) {
@@ -607,7 +680,10 @@ impl ServingAccountPolicy {
                                 cleanup_confirmed = true;
                                 return Err(busy("account browser became busy before closure; its slot is retained"));
                             }
-                            return Err(busy("previous account browser has not confirmed closure"));
+                            let cause = close_failure(&expected, &result);
+                            ticket.record_failure(&cause);
+                            super::operation_ownership::record_cleanup_failure(&cause);
+                            return Err(busy(cause));
                         }
                         let lease = ticket.confirm_close().map_err(busy)?;
                         let result = confirm_resident_status(browser, lease).await;

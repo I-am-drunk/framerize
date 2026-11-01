@@ -158,8 +158,9 @@ async fn nonzero_queue_wait_and_body_survive_the_post_refund_lookup() {
 
 #[tokio::test(start_paused = true)]
 async fn native_long_rebinds_account_session_project_chat_and_saturation() {
-    let f = Fixture::new(vec![(429, None, "busy".into()), success(),
-        (429, None, "busy".into()), success()]);
+    let limit = "too many concurrent AI requests for this workspace";
+    let f = Fixture::new(vec![(429, None, limit.into()), success(),
+        (429, None, limit.into()), success()]);
     let counts = [Arc::new(AtomicUsize::new(0)), Arc::new(AtomicUsize::new(0))];
     for i in 0..2 {
         let account = AccountId(uuid::Uuid::from_u128(100 + i as u128));

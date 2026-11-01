@@ -60,9 +60,9 @@ fn package_follows_the_selected_executable_and_requires_runtime_files() {
     std::fs::write(&binary, "fixture").unwrap();
     assert!(bundled_host(&binary).is_err());
     let runtime = fixture.0.join("release/runtime");
-    std::fs::create_dir_all(runtime.join("framerize_host")).unwrap();
+    std::fs::create_dir_all(runtime.join("framerize_host/accounts")).unwrap();
     for name in ["host.py", "runtime-manifest.json", "framerize_host/__main__.py", "framerize_host/app.py",
-        "framerize_host/castle_forge.py"] {
+        "framerize_host/accounts/device_use.py"] {
         std::fs::write(runtime.join(name), "# fixture\n").unwrap();
     }
     assert_eq!(bundled_host(&binary).unwrap(), runtime.join("host.py"));
@@ -72,6 +72,6 @@ fn package_follows_the_selected_executable_and_requires_runtime_files() {
         std::os::unix::fs::symlink(&binary, &selected).unwrap();
         assert_eq!(bundled_host(&selected).unwrap(), runtime.join("host.py"));
     }
-    std::fs::remove_file(runtime.join("framerize_host/castle_forge.py")).unwrap();
+    std::fs::remove_file(runtime.join("framerize_host/accounts/device_use.py")).unwrap();
     assert!(bundled_host(&binary).is_err());
 }

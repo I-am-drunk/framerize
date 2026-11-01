@@ -112,6 +112,7 @@ async fn echo_bridge_mode(close_error: Option<&'static str>, mode: &'static str)
     *bridge.inner.lock().await = Some(Sidecar {
         child, stdin, pending, cancel, next_id: Arc::new(AtomicU64::new(0)),
         healthy: Arc::new(std::sync::atomic::AtomicBool::new(true)),
+        failure: Arc::new(StdMutex::new(None)),
         incarnation: uuid::Uuid::new_v4(),
     });
     (bridge, frames, reader)
@@ -132,7 +133,7 @@ async fn seed_route(bridge: &SidecarBridge, account: &AccountId, proxy: &str) {
 }
 
 #[tokio::test]
-async fn cancelled_browser_retry_waits_for_current_reply_without_sending_again() {
+async fn browser_refusal_waits_for_current_reply_without_changing_devices() {
     use std::sync::atomic::AtomicBool;
     use std::time::Duration;
     for cancel in [true, false] {
@@ -159,22 +160,9 @@ async fn cancelled_browser_retry_waits_for_current_reply_without_sending_again()
             assert!(tx.send(Ok(result)).is_ok());
         };
         send(&first, json!({"status":403,"body":"fixture","_retry_device":true}));
-        if cancel {
-            let result = tokio::time::timeout(Duration::from_secs(2), &mut request)
-                .await.unwrap();
-            assert_eq!(result.unwrap_err(), "client cancelled");
-        } else {
-            let second = tokio::select! {
-                frame = frames.recv() => frame.unwrap(),
-                result = &mut request => panic!("missing retry: {result:?}"),
-                _ = tokio::time::sleep(Duration::from_secs(2)) => panic!("no retry"),
-            };
-            assert_eq!(second["attempt_index"], 1);
-            assert_eq!(second["account"], first["account"]);
-            send(&second, json!({"status":200,"body":"fixture"}));
-            assert_eq!(tokio::time::timeout(Duration::from_secs(2), &mut request)
-                .await.unwrap().unwrap().0, 200);
-        }
+        let result = tokio::time::timeout(Duration::from_secs(2), &mut request)
+            .await.unwrap().unwrap();
+        assert_eq!(result.0, 403);
         drop(request);
         assert!(frames.try_recv().is_err());
         finish(bridge, reader).await;

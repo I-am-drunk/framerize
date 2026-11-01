@@ -101,7 +101,7 @@ struct BuiltState {
 fn configure_browser_request_ownership(state: AppState)
     -> Result<AppState, String> {
     framer_server::operation_ownership::with_owned_operations(state, 256)
-        .map_err(|error| format!("browser request ownership unavailable: {error:?}"))
+        .map_err(|error| format!("browser request ownership unavailable: {}", error.explanation()))
 }
 
 #[cfg(test)]
@@ -244,7 +244,12 @@ async fn main() {
                 state.operation_ownership.as_ref(),
                 framer_core::operation_gate::OperationKind::Background,
                 async move { load_proxies(&proxy_state).await },
-            ).await.map_err(|error| format!("startup ownership unavailable: {error:?}"))
+            ).await.map_err(|error| {
+                let cause = state.operation_ownership.as_ref()
+                    .map(|owner| owner.admission_message(error))
+                    .unwrap_or_else(|| error.explanation().to_owned());
+                format!("startup ownership unavailable: {cause}")
+            })
                 .and_then(|result| result);
             if let Err(error) = proxies {
                 eprintln!("failed to initialize: {error}");

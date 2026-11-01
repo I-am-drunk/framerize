@@ -217,10 +217,14 @@ fn response_error_withholds_the_entire_current_chunk() {
         for error in [json!({"code":"server_error", "message":"fixture diagnostic"}),
             json!({}), json!("fixture diagnostic"), json!(false), json!(7), json!([])] {
             let mut body = response(text("withheld"), "completed");
+            let has_cause = error.is_string() || error["message"].is_string();
             body["error"] = error;
             let actual = run_tool_replies(tool_body_replies(body, metered), metered);
             let prefix = if metered { "streamed chunk" } else { "response chunk" };
-            assert_eq!(actual.result.unwrap_err(), format!("{prefix} has non-null response error"));
+            let expected = if has_cause {
+                format!("{prefix} contains an upstream error: fixture diagnostic")
+            } else { format!("{prefix} has non-null response error") };
+            assert_eq!(actual.result.unwrap_err(), expected);
             assert!(actual.events.is_empty());
             assert_eq!((actual.requests.len(), actual.refunds),
                 (if metered { 3 } else { 1 }, usize::from(metered)));
@@ -238,7 +242,8 @@ fn later_response_error_preserves_previously_published_output() {
         let actual = run_with_failure(replies, config(),
             Some((if metered { 2 } else { usize::MAX }, "fixture transport connection closed")));
         let prefix = if metered { "streamed chunk" } else { "response chunk" };
-        assert_eq!(actual.result.unwrap_err(), format!("{prefix} has non-null response error"));
+        assert_eq!(actual.result.unwrap_err(),
+            format!("{prefix} contains an upstream error: fixture diagnostic"));
         assert_eq!(actual.events, vec![(vec![text("first")], true)]);
         assert_eq!((actual.requests.len(), actual.refunds),
             (if metered { 4 } else { 2 }, usize::from(metered)));
@@ -551,9 +556,9 @@ fn retry_local_cooldown_retains_existing_no_fallback_behavior() {
 }
 
 #[test]
-fn transport_retry_policy_preserves_idle_window_and_terminal_errors() {
+fn transport_retry_policy_preserves_security_refusals_at_every_elapsed_time() {
     assert!(!allows_transport_retry("risk-refused", 8.0));
-    assert!(allows_transport_retry("risk-refused", 8.1));
+    assert!(!allows_transport_retry("risk-refused", 8.1));
     assert!(allows_transport_retry("fixture transport connection closed", 0.0));
     assert!(allows_transport_retry("retryable 503 on /ai/v3/responses/: unavailable", 1.0));
     for error in ["unauthorized", "credits-exhausted", "upstream 403 on fixture", "retryable 429 on fixture"] {
@@ -1143,7 +1148,7 @@ fn named_error_fallback_cannot_publish_executable_tools() {
             fallback(response(tool("function_call", true), "completed"), false),
             config(), Some((1, "fixture transport connection closed")),
             "response.completed", prefix);
-        assert_eq!(actual.result.unwrap_err(), "streamed chunk ended with error");
+        assert_eq!(actual.result.unwrap_err(), "streamed chunk ended with error: the upstream supplied no further cause");
         assert!(actual.events.is_empty());
         assert_eq!((actual.requests.len(), actual.refunds), (3, 1));
     }
@@ -1218,7 +1223,7 @@ fn mixed_message_content_retains_refusal_extensions_and_empty_values() {
 #[test]
 fn named_terminal_failures_in_fallback_do_not_publish() {
     for (prefix, expected) in [
-        ("event: response.failed\n", "streamed chunk ended with response.failed"),
+        ("event: response.failed\n", "streamed chunk ended with response.failed: the upstream supplied no further cause"),
         ("event: response.incomplete\n", "streamed chunk has invalid named terminal event"),
         ("event: response.completed\ndata: not-json\n\n", "streamed chunk has invalid named terminal event"),
     ] {
@@ -1316,7 +1321,10 @@ fn malformed_earlier_completion_withholds_later_fallback_tools() {
             fallback(response(tool("function_call", true), "completed"), false),
             config(), Some((1, "fixture transport connection closed")),
             "response.completed", prefix);
-        assert_eq!(actual.result.unwrap_err(), format!("streamed chunk has {reason}"));
+        let expected = if reason == "invalid terminal status" {
+            "upstream response failed: the provider did not supply a failure cause".to_owned()
+        } else { format!("streamed chunk has {reason}") };
+        assert_eq!(actual.result.unwrap_err(), expected);
         assert!(actual.events.is_empty());
         assert_eq!((actual.requests.len(), actual.refunds), (3, 1));
     }

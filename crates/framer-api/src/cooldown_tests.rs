@@ -38,7 +38,7 @@ fn check_chain(native: bool) {
                     json!({"model":"claude-sonnet-4","messages":[{"role":"user","content":"fixture"}]}),
                     &config, "fixture-chat", None).await.map(|_| ())
             };
-            assert_eq!(result.unwrap_err(), "account-cooling:584");
+            assert_eq!(result.unwrap_err(), "account-cooling:584; every device is cooling");
             assert_eq!(browser.calls.load(Ordering::SeqCst), if first_transport_error { 2 } else { 1 });
         }
     });

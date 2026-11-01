@@ -12,6 +12,7 @@ async fn fixture(exit: u8) -> SidecarBridge {
     *bridge.inner.lock().await = Some(Sidecar {
         child, stdin, cancel, pending: Arc::new(StdMutex::new(HashMap::new())),
         healthy: Arc::new(AtomicBool::new(true)),
+        failure: Arc::new(StdMutex::new(None)),
         next_id: Arc::new(AtomicU64::new(0)), incarnation: uuid::Uuid::new_v4(),
     });
     bridge

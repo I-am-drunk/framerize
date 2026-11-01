@@ -24,8 +24,10 @@ WARM_JS = """(async () => {
       });
     }
     const t = await window.__fzCastleM.a();
-    return typeof t === "string" && t.length > 500;
-  } catch (e) { return false; }
+    if (typeof t !== "string" || t.length <= 500)
+      throw new Error("Castle SDK returned no usable token during warmup");
+    return true;
+  } catch (e) { throw e; }
 })()""" % CASTLE_CHUNK
 
 
@@ -47,29 +49,19 @@ MINT_JS = """(async () => {
     });
   }
   const m = window.__fzCastleM;
+  let failure;
   for (let i = 0; i < 3; i++) {
     try {
       const t = await m.a();
       if (typeof t === "string" && t.length > 500) return t;
-    } catch (e) {}
+    } catch (e) { failure = e; }
     await new Promise(r => setTimeout(r, 1500));
   }
-  // Recovery path only: one fresh module (fresh Rh latch) for transient
-  // cold-load races (the original reason for cache-busting).
-  try {
-    const url = "%s?cb=" + Date.now();
-    const fresh = await import(url);
-    const t = await fresh.a();
-    if (typeof t === "string" && t.length > 500) {
-      window.__fzCastleM = fresh;
-      window.__fzResidentWrapper = Object.freeze({
-        module: fresh, callable: fresh.a, url, entry: "a", realm: window
-      });
-      return t;
-    }
-  } catch (e) {}
-  return null;
-})()""" % (CASTLE_CHUNK, CASTLE_CHUNK)
+  // Module instances and their listeners live until the page closes.
+  // Keep the installed wrapper and report its failure without re-importing.
+  if (failure) throw failure;
+  throw new Error("Castle SDK did not return a usable token after three calls");
+})()""" % CASTLE_CHUNK
 
 
 def post_js(path, body, bearer=None):
@@ -79,7 +71,7 @@ def post_js(path, body, bearer=None):
     auth = '"authorization": "Bearer %s",' % bearer if bearer else ""
     return """(async () => {
   const tok = await (%s);
-  if (!tok) return { status: 0, usage: null, body: "castle-unavailable" };
+  if (!tok) return { status: 0, usage: null, body: "browser token acquisition failed: Castle SDK returned no usable token" };
   const body = %s;
   body.castleToken = tok;
   try {

@@ -2,7 +2,9 @@
 import asyncio, hashlib, os
 from pathlib import Path
 from ..events import emit
+from ..settings import ROOT
 from .transport import install
+from .driver_memory import install as install_driver_memory
 
 def browser_runtime():
     """Load browser dependencies only when an account needs a browser."""
@@ -11,6 +13,7 @@ def browser_runtime():
         from playwright.async_api import async_playwright
     except ImportError as error:
         raise RuntimeError("camoufox not installed. Run: scripts/linux/install-camoufox.sh") from error
+    install_driver_memory(ROOT)
     if os.environ.get("FRAMERIZE_LINEAR_PYTHON_PIPE", "1") == "1":
         outcome = install()
         emit("memory.python_pipe", outcome=outcome,

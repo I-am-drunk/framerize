@@ -235,6 +235,20 @@ class AccountRates:
                 if self.state['cooling'].get(d, 0) <= now
                 and len(self._recent(d, now)) < self.policy.capacity]
 
+    def unavailable_reason(self, devices=None):
+        self._ready()
+        selected = self.state['devices'] if devices is None else devices
+        now = self.clock.now()
+        cooling = sum(self.state['cooling'].get(d, 0) > now for d in selected)
+        limited = sum(len(self._recent(d, now)) >= self.policy.capacity for d in selected)
+        reasons = []
+        if cooling:
+            reasons.append(f"{cooling} device cooldowns have not expired")
+        if limited:
+            reasons.append(f"{limited} devices reached the local allowance of "
+                           f"{self.policy.capacity} requests per {self.policy.window:g} seconds")
+        return "; ".join(reasons) or "no saved device has an available request allowance"
+
     def select_primary(self):
         ready = self.ready_devices()
         chosen = self.state['primary']

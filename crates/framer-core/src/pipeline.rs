@@ -150,7 +150,7 @@ async fn check_inference_admission(
     }
     if current.current_team.is_none() || current.current_project.is_none() {
         return Err(CoreError::NotEligible(
-            "account is not ready or is missing its current team or project".into(),
+            current.eligibility_problem().expect("missing current scope"),
         ));
     }
     let now = crate::rotation::now_ms();
@@ -160,7 +160,7 @@ async fn check_inference_admission(
         }));
     }
     if current.state != AccountState::Ready {
-        return Err(CoreError::AccountNotReady);
+        return Err(CoreError::AccountNotReady(current.state));
     }
     Ok(())
 }

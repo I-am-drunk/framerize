@@ -38,6 +38,21 @@ pub(crate) fn correlate_chain(event: framer_core::observability::Event)
     }
 }
 
+pub(crate) fn admission_message(error: GateError) -> String {
+    CURRENT.try_with(|owner| owner.scope.admission_message(error))
+        .unwrap_or_else(|_| format!("Cannot start this request: {}.", error.explanation()))
+}
+
+fn cleanup_failure_cause(error: &str) -> String {
+    let cause = framer_core::error::chain_error_cause(error);
+    framer_core::error::safe_failure_summary(cause)
+}
+
+/// Call while the original failed browser result is still available.
+pub(crate) fn record_cleanup_failure(error: &str) {
+    let _ = CURRENT.try_with(|owner| owner.record_failure(&cleanup_failure_cause(error)));
+}
+
 pub struct ServingOwnership {
     gate: OperationGate,
     _guard: ControlGuard,
@@ -72,7 +87,16 @@ impl ServingOwnership {
     pub fn seal(&self) -> Result<DrainTicket, GateError> { self.gate.seal() }
     /// Report persistent admission closure without changing ownership state.
     pub fn accepting_requests(&self) -> bool {
-        self.gate.stats().is_ok_and(|stats| !stats.sealed && !stats.unconfirmed)
+        self.admission_status().is_ok()
+    }
+    pub(crate) fn admission_status(&self) -> Result<(), GateError> {
+        let stats = self.gate.stats()?;
+        if stats.unconfirmed { return Err(GateError::Unconfirmed); }
+        if stats.sealed { return Err(GateError::Sealed); }
+        Ok(())
+    }
+    pub fn admission_message(&self, error: GateError) -> String {
+        format!("Cannot start this request: {}.", self.gate.error_explanation(error))
     }
     pub fn unmanaged_host_close_required(&self) -> bool { true }
     /// Registered application completion is distinct from host retirement.
@@ -92,7 +116,7 @@ impl ServingOwnership {
             owner: Mutex::new(Some(owner)), scope: self.clone(),
             preflight_completed: std::sync::atomic::AtomicBool::new(false),
         });
-        context.observe("operation.registered", "active", None);
+        context.observe("operation.registered", "active", None, None);
         Ok(context)
     }
     fn registration(self: &Arc<Self>, kind: OperationKind) -> Result<OperationOwner, GateError> {
@@ -124,7 +148,21 @@ pub(crate) fn completed_preflight<E>(error: E) -> E {
     error
 }
 impl OwnerContext {
-    fn observe(&self, event: &'static str, outcome: &'static str, confirmed: Option<bool>) {
+    fn failure_cause(&self) -> Option<String> {
+        self.owner.lock().unwrap_or_else(|e| e.into_inner()).as_ref()
+            .map(|owner| owner.failure_cause().to_owned())
+    }
+    fn record_incomplete_completion(&self) {
+        let cause = self.scope.gate.error_explanation(GateError::Unconfirmed);
+        self.record_failure(&cause);
+    }
+    fn record_failure(&self, cause: &str) {
+        if let Some(owner) = self.owner.lock().unwrap_or_else(|e| e.into_inner()).as_mut() {
+            owner.record_failure(cause);
+        }
+    }
+    fn observe(&self, event: &'static str, outcome: &'static str, confirmed: Option<bool>,
+        cause: Option<&str>) {
         // Diagnostics must never turn a completed operation into a panic/drop.
         let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
             let fields = serde_json::json!({
@@ -132,7 +170,7 @@ impl OwnerContext {
                 "operation_id": self.operation_id,
                 "parent_operation_id": self.parent_operation_id,
                 "kind": format!("{:?}", self.kind), "outcome": outcome,
-                "cleanup_confirmed": confirmed,
+                "cleanup_confirmed": confirmed, "cause": cause,
             });
             #[cfg(test)]
             {
@@ -157,22 +195,27 @@ impl OwnerContext {
             Err(_) => return false,
         };
         let Some(owner) = owner else { return false; };
-        let completed = owner.complete().is_ok();
-        if completed {
-            self.observe("operation.released", "confirmed", Some(true));
-        } else {
-            self.observe("operation.unresolved", "completion_error", Some(false));
+        match owner.complete() {
+            Ok(()) => {
+                self.observe("operation.released", "confirmed", Some(true), None);
+                true
+            }
+            Err(error) => {
+                self.observe("operation.unresolved", "completion_error", Some(false),
+                    Some(error.explanation()));
+                false
+            }
         }
-        completed
     }
 }
 impl Drop for OwnerContext {
     fn drop(&mut self) {
         let owner = self.owner.get_mut().unwrap_or_else(|e| e.into_inner()).take();
-        if owner.is_some() {
+        if let Some(owner) = owner {
+            let cause = owner.failure_cause().to_owned();
             // Set the gate fence before reporting unresolved registration.
             drop(owner);
-            self.observe("operation.unresolved", "dropped", Some(false));
+            self.observe("operation.unresolved", "dropped", Some(false), Some(&cause));
         }
     }
 }
@@ -227,6 +270,7 @@ where T: Send + 'static, F: Future<Output = (T, bool)> + Send + 'static {
     Ok(tokio::spawn(CURRENT.scope(owner.clone(), async move {
         let (result, confirmed) = future.await;
         if confirmed { owner.finish(); }
+        else { owner.record_failure("the background task reported incomplete cleanup without retaining its underlying failure"); }
         result
     })))
 }
@@ -287,12 +331,30 @@ async fn observe_join<T>(task: tokio::task::JoinHandle<(Result<T, String>, bool)
         }
     };
     if let Some(owner) = &owner {
-        owner.observe("operation.joined", outcome, Some(confirmed));
+        let cause = if confirmed { None } else {
+            Some(match &result {
+                Err(error) => task_failure_cause(error).to_owned(),
+                Ok(Err(error)) if crate::pool_control::cleanup_unconfirmed(error) =>
+                    cleanup_failure_cause(error),
+                _ => "the producer reported incomplete cleanup without retaining its underlying failure".into(),
+            })
+        };
+        if let Some(cause) = &cause { owner.record_failure(cause); }
+        let cause = if confirmed { None } else { owner.failure_cause().or(cause) };
+        owner.observe("operation.joined", outcome, Some(confirmed), cause.as_deref());
         if confirmed { confirmed = owner.finish(); }
     }
     drop(owner); // An uncertain child fences admission before completion resolves.
     let _ = send_result.send(result);
     confirmed
+}
+
+fn task_failure_cause(error: &tokio::task::JoinError) -> &'static str {
+    if error.is_panic() {
+        "the request task panicked before reporting completed cleanup"
+    } else {
+        "the request task was cancelled before reporting completed cleanup"
+    }
 }
 
 pub async fn run<T, F>(scope: Option<&Arc<ServingOwnership>>, kind: OperationKind, future: F)
@@ -315,16 +377,18 @@ pub async fn middleware(State(scope): State<Option<Arc<ServingOwnership>>>,
         Err(error) => {
             let mut event = framer_core::observability::Event::new("operation.admission.refused")
                 .field("reason", format!("{error:?}"))
+                .field("cause", scope.gate.error_explanation(error))
                 .field("kind", format!("{kind:?}"));
             if let Ok(stats) = scope.gate.stats() {
                 event = event.field("active", stats.active).field("sealed", stats.sealed)
                     .field("unconfirmed", stats.unconfirmed);
             }
             event.emit();
-            return (StatusCode::SERVICE_UNAVAILABLE, "operation admission closed").into_response();
+            return crate::ApiError::ServingCapacity(scope.admission_message(error)).into_response();
         },
     };
     let request_id = owner.request_id.clone();
+    let handler_owner = owner.clone();
     let (present, client) = tokio::sync::watch::channel(());
     let task = tokio::spawn(CLIENT.scope(client, CURRENT.scope(owner.clone(), async move {
         // Handler remains owned even when the HTTP result waiter disappears.
@@ -343,7 +407,11 @@ pub async fn middleware(State(scope): State<Option<Arc<ServingOwnership>>>,
     drop(present);
     let mut response = match result {
         Ok(response) => response,
-        Err(_) => (StatusCode::INTERNAL_SERVER_ERROR, "operation completion unconfirmed").into_response(),
+        Err(error) => {
+            let cause = task_failure_cause(&error);
+            handler_owner.record_failure(cause);
+            (StatusCode::INTERNAL_SERVER_ERROR, cause).into_response()
+        }
     };
     if let Ok(value) = request_id.parse() {
         response.headers_mut().insert("x-framerize-operation-id", value);
@@ -368,10 +436,14 @@ impl OwnedBody {
             if let Some(owner) = self.owner.take() {
                 if let Some(confirmed) = completion.0.clone().now_or_never() {
                     if confirmed { owner.finish(); }
+                    else { owner.record_incomplete_completion(); }
                 } else if let Ok(runtime) = tokio::runtime::Handle::try_current() {
                     runtime.spawn(async move {
                         if completion.0.await { owner.finish(); }
+                        else { owner.record_incomplete_completion(); }
                     });
+                } else {
+                    owner.record_failure("the async runtime was unavailable before response cleanup could be observed");
                 }
             }
             return true;
@@ -387,8 +459,14 @@ impl HttpBody for OwnedBody {
         let value = Pin::new(&mut self.body).poll_frame(cx);
         match &value {
             Poll::Ready(None) => self.finish(),
-            Poll::Ready(Some(Err(_))) => {
-                if !self.observe_completion() { self.owner.take(); }
+            Poll::Ready(Some(Err(error))) => {
+                if !self.observe_completion() {
+                    if let Some(owner) = self.owner.take() {
+                        owner.record_failure(&format!(
+                            "the response body failed before EOF: {}; no producer cleanup observer was retained",
+                            framer_core::error::safe_failure_summary(&error.to_string())));
+                    }
+                }
             },
             _ => {},
         }
@@ -404,6 +482,9 @@ impl Drop for OwnedBody {
         // particular, do not drain abandoned browser chains: drop must abort
         // them before they can issue another mint or continuation.
         if self.body.is_end_stream() { self.finish(); }
+        else if let Some(owner) = &self.owner {
+            owner.record_failure("the response body was dropped before EOF without a producer cleanup observer");
+        }
     }
 }
 
@@ -428,6 +509,16 @@ pub enum OwnershipConfigError {
     AlreadyConfigured,
     RuntimeShared,
     Gate(GateError),
+}
+
+impl OwnershipConfigError {
+    pub fn explanation(&self) -> &'static str {
+        match self {
+            Self::AlreadyConfigured => "request ownership was already configured for this runtime",
+            Self::RuntimeShared => "the runtime was shared before request ownership could be configured",
+            Self::Gate(error) => error.explanation(),
+        }
+    }
 }
 
 // Test-only observation at the real access_log emission site. No global logger

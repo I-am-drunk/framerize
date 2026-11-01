@@ -204,7 +204,7 @@ class DeviceRetentionTests(unittest.IsolatedAsyncioTestCase):
         acc, other = await self.populated(), await self.populated("b")
         device = acc.dev_objs["device-1"]
         context, page = device.ctx, device.page
-        context.disposal.failure = RuntimeError("private fixture payload")
+        context.disposal.failure = RuntimeError("fixture close failed; token=private-fixture-value")
         self.assertEqual(await self.trim(acc), 0)
         self.assertIs(device.ctx, context)
         self.assertIs(device.page, page)
@@ -212,8 +212,9 @@ class DeviceRetentionTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(acc.closing)
         self.assertEqual(acc.lifecycle.phase, "unconfirmed")
         self.events.assert_called_once_with("browser.cleanup", level="warn",
-            outcome="unconfirmed", error="idle-device-context-close-failed")
-        with self.assertRaisesRegex(RuntimeError, "cleanup is unconfirmed"):
+            outcome="unconfirmed", error="idle-device-context-close-failed",
+            cause="RuntimeError: fixture close failed; token=<redacted>")
+        with self.assertRaisesRegex(RuntimeError, "fixture close failed; token=<redacted>"):
             await self.host._account("a")
         self.assertEqual(await self.trim(other, "b"), 2)
 
@@ -310,23 +311,17 @@ class DeviceRetentionTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(acc.lifecycle.rates.state, before)
         self.assert_idle(acc)
 
-    async def test_monitor_multiple_idle_accounts_progress_across_passes(self):
+    async def test_monitor_reclaims_every_idle_account_in_one_pass(self):
         accounts = [await self.populated(name) for name in ("a", "b", "c")]
-        for _ in range(3):
-            before = sum(d.ctx is not None for acc in accounts
-                         for d in acc.dev_objs.values())
-            await asyncio.wait_for(self.host._monitor_once(), 1)
-            after = sum(d.ctx is not None for acc in accounts
-                        for d in acc.dev_objs.values())
-            self.assertEqual(before - after, 2)
+        await asyncio.wait_for(self.host._monitor_once(), 1)
         self.assertEqual([sum(d.ctx is not None for d in acc.dev_objs.values())
                           for acc in accounts], [2, 2, 2])
 
-    async def test_monitor_skips_busy_account_without_starving_idle_peer(self):
+    async def test_monitor_reclaims_unused_devices_during_account_activity(self):
         first, second = await self.populated(), await self.populated("b")
         async with self.host._activity("a"):
             await asyncio.wait_for(self.host._monitor_once(), 1)
-            self.assertEqual(sum(d.ctx is not None for d in first.dev_objs.values()), 4)
+            self.assertEqual(sum(d.ctx is not None for d in first.dev_objs.values()), 2)
             self.assertEqual(sum(d.ctx is not None for d in second.dev_objs.values()), 2)
         await asyncio.wait_for(self.host._monitor_once(), 1)
         self.assertEqual(sum(d.ctx is not None for d in first.dev_objs.values()), 2)

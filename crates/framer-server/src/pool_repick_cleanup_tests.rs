@@ -165,7 +165,7 @@ async fn repick_case(mode: RepickClose, route: Route, stream: bool, consume: boo
     assert_eq!(response.status(), if uncertain { StatusCode::SERVICE_UNAVAILABLE }
         else { StatusCode::OK });
     let bytes = to_bytes(response.into_body(), 1024).await.unwrap();
-    assert_eq!(bytes.as_ref(), if uncertain { b"operation admission closed".as_slice() }
+    assert_eq!(bytes.as_ref(), if uncertain { b"Cannot start this request: earlier work ended without confirmed cleanup; its resources cannot be reused.".as_slice() }
         else { b"ok".as_slice() });
     assert_eq!(gate.stats().unwrap().active, 1); // Unmanaged host remains retained.
     assert_eq!(gate.stats().unwrap().unconfirmed, uncertain);
@@ -223,7 +223,7 @@ fn assert_original_error(body: &[u8], route: Route, stream: bool) {
             errors[0]["response"]["error"].clone()
         }
     };
-    assert_eq!(error["message"], "The upstream service is temporarily unavailable. Please retry shortly.");
+    assert_eq!(error["message"], "Framer refused the request with HTTP 403 during its security checks. Its response did not disclose a more specific cause.");
     assert_eq!(error["type"], "overloaded_error");
 }
 
@@ -355,7 +355,7 @@ async fn initial_admission_case(mode: RepickClose, route: Route, stream: bool, c
     assert_eq!(response.status(), if uncertain { StatusCode::SERVICE_UNAVAILABLE }
         else { StatusCode::OK });
     let body = to_bytes(response.into_body(), 1024).await.unwrap();
-    assert_eq!(body.as_ref(), if uncertain { b"operation admission closed".as_slice() }
+    assert_eq!(body.as_ref(), if uncertain { b"Cannot start this request: earlier work ended without confirmed cleanup; its resources cannot be reused.".as_slice() }
         else { b"ok".as_slice() });
     assert_eq!(gate.stats().unwrap().active, 1); // The unmanaged host stays retained.
     assert_eq!(gate.stats().unwrap().unconfirmed, uncertain);
@@ -471,7 +471,7 @@ async fn api_run_acquisition_case(mode: RepickClose, consume: bool) {
     assert_eq!(response.status(), if uncertain { StatusCode::SERVICE_UNAVAILABLE }
         else { StatusCode::OK });
     let body = to_bytes(response.into_body(), 1024).await.unwrap();
-    assert_eq!(body.as_ref(), if uncertain { b"operation admission closed".as_slice() }
+    assert_eq!(body.as_ref(), if uncertain { b"Cannot start this request: earlier work ended without confirmed cleanup; its resources cannot be reused.".as_slice() }
         else { b"ok".as_slice() });
     assert_eq!(gate.stats().unwrap().active, 1);
     assert_eq!(gate.stats().unwrap().unconfirmed, uncertain);

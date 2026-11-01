@@ -7,6 +7,22 @@ use tokio::sync::watch;
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum GateError { InvalidLimit, Full, Sealed, Unconfirmed, Poisoned,
     WrongGate, StaleSeal, NotDrained, Exhausted }
+impl GateError {
+    /// Describe the failed ownership check without discarding its cause.
+    pub fn explanation(self) -> &'static str {
+        match self {
+            Self::InvalidLimit => "the configured operation limit is outside 1..=65536",
+            Self::Full => "all operation slots are occupied by active work or retained cleanup",
+            Self::Sealed => "the service is draining for maintenance and has paused new operations",
+            Self::Unconfirmed => "earlier work ended without confirmed cleanup; its resources cannot be reused",
+            Self::Poisoned => "a task panicked while holding the operation state lock",
+            Self::WrongGate => "the operation belongs to a different runtime owner",
+            Self::StaleSeal => "the maintenance request no longer matches the active drain",
+            Self::NotDrained => "active operations or browser cleanup have not finished",
+            Self::Exhausted => "the operation identifier counter is exhausted",
+        }
+    }
+}
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum OperationKind { Inference, Admin, SessionWrite, StateWrite,
     Background, Authorization, ExternalCleanup }
@@ -19,11 +35,15 @@ enum LegacyHostState { Absent, Retained, Abandoned }
 struct State {
     phase: Phase, next: u64, next_operation: u64,
     applications: BTreeMap<u64, OperationKind>,
-    legacy_host: LegacyHostState, unconfirmed: bool,
+    legacy_host: LegacyHostState, unconfirmed: bool, unconfirmed_cause: Option<String>,
 }
 impl State {
     fn occupied(&self) -> usize {
         self.applications.len() + usize::from(self.legacy_host != LegacyHostState::Absent)
+    }
+    fn mark_unconfirmed(&mut self, cause: &str) {
+        self.unconfirmed = true;
+        self.unconfirmed_cause.get_or_insert_with(|| cause.chars().take(600).collect());
     }
 }
 struct Inner { state: Mutex<State>, changed: watch::Sender<()>, limit: usize }
@@ -37,12 +57,24 @@ impl OperationGate {
         Ok(Self { inner: Arc::new(Inner { limit, changed,
             state: Mutex::new(State { phase: Phase::Open, next: 1, next_operation: 1,
                 applications: BTreeMap::new(), legacy_host: LegacyHostState::Absent,
-                unconfirmed: false }) }) })
+                unconfirmed: false, unconfirmed_cause: None }) }) })
     }
     pub fn stats(&self) -> Result<GateStats, GateError> {
         let s = self.inner.state.lock().map_err(|_| GateError::Poisoned)?;
         Ok(GateStats { active: s.occupied(), sealed: s.phase != Phase::Open,
             unconfirmed: s.unconfirmed })
+    }
+    /// The first failed owner explains the fence. Later drops cannot overwrite
+    /// that evidence, and reading it never releases or reopens the gate.
+    pub fn error_explanation(&self, error: GateError) -> String {
+        if error == GateError::Unconfirmed {
+            if let Ok(state) = self.inner.state.lock() {
+                if let Some(cause) = &state.unconfirmed_cause {
+                    return format!("{cause}; cleanup remains unconfirmed and its resources cannot be reused");
+                }
+            }
+        }
+        error.explanation().to_owned()
     }
     /// Construct before any work. The named host owner has no completion API.
     pub fn new_with_legacy_host(limit: usize) -> Result<(Self, LegacyHostOwner), GateError> {
@@ -64,7 +96,7 @@ impl OperationGate {
         let id = s.next_operation;
         s.next_operation = id.checked_add(1).ok_or(GateError::Exhausted)?;
         s.applications.insert(id, kind);
-        Ok(OperationOwner { gate: self.clone(), id, kind, armed: true })
+        Ok(OperationOwner { gate: self.clone(), id, kind, armed: true, failure: None })
     }
     pub fn seal(&self) -> Result<DrainTicket, GateError> {
         let mut s = self.inner.state.lock().map_err(|_| GateError::Poisoned)?;
@@ -128,10 +160,10 @@ impl OperationGate {
         }
         Ok(())
     }
-    fn abandon(&self, id: u64) {
+    fn abandon(&self, id: u64, cause: &'static str) {
         let mut s = self.inner.state.lock().unwrap_or_else(|e| e.into_inner());
         if matches!(s.phase, Phase::Draining(n) | Phase::Retiring(n) | Phase::Held(n) if n == id) {
-            s.unconfirmed = true;
+            s.mark_unconfirmed(cause);
         }
         self.inner.changed.send_replace(());
     }
@@ -140,9 +172,23 @@ impl OperationGate {
 /// Move this owner into the request/background supervisor. Dropping an HTTP
 /// response/body or a future is not affirmative completion of external work.
 #[must_use = "retain through all state writes and observed external cleanup"]
-pub struct OperationOwner { gate: OperationGate, id: u64, kind: OperationKind, armed: bool }
+pub struct OperationOwner {
+    gate: OperationGate, id: u64, kind: OperationKind, armed: bool,
+    failure: Option<String>,
+}
 impl OperationOwner {
     pub fn kind(&self) -> OperationKind { self.kind }
+    /// Retain a bounded, sanitized local failure without releasing the owner.
+    pub fn record_failure(&mut self, cause: &str) {
+        self.failure.get_or_insert_with(|| cause.chars().take(600).collect());
+    }
+    pub fn failure_cause(&self) -> &str {
+        self.failure.as_deref().unwrap_or(if std::thread::panicking() {
+            "a registered operation panicked before reporting completed cleanup"
+        } else {
+            "a registered operation owner was dropped before reporting completed cleanup"
+        })
+    }
     /// Only a continuation/cleanup of this already admitted operation. This
     /// cannot admit unrelated requests. Retain the parent until registration.
     pub fn register_cleanup(&self) -> Result<OperationOwner, GateError> {
@@ -157,7 +203,7 @@ impl OperationOwner {
     pub fn complete(mut self) -> Result<(), GateError> {
         let mut s = self.gate.inner.state.lock().map_err(|_| GateError::Poisoned)?;
         if s.applications.get(&self.id) != Some(&self.kind) {
-            s.unconfirmed = true;
+            s.mark_unconfirmed("an operation's completion no longer matched its registered owner");
             return Err(GateError::Unconfirmed);
         }
         s.applications.remove(&self.id);
@@ -171,7 +217,7 @@ impl Drop for OperationOwner {
         if !self.armed { return; }
         let mut s = self.gate.inner.state.lock().unwrap_or_else(|e| e.into_inner());
         s.applications.remove(&self.id);
-        s.unconfirmed = true;
+        s.mark_unconfirmed(self.failure_cause());
         self.gate.inner.changed.send_replace(());
     }
 }
@@ -183,7 +229,7 @@ impl Drop for LegacyHostOwner {
     fn drop(&mut self) {
         let mut s = self.gate.inner.state.lock().unwrap_or_else(|e| e.into_inner());
         s.legacy_host = LegacyHostState::Abandoned;
-        s.unconfirmed = true;
+        s.mark_unconfirmed("the browser host owner was dropped without confirmed host retirement");
         self.gate.inner.changed.send_replace(());
     }
 }
@@ -191,6 +237,9 @@ impl Drop for LegacyHostOwner {
 #[must_use = "retain seal through drain or explicit pre-child cancellation"]
 pub struct DrainTicket { gate: OperationGate, id: u64, armed: bool }
 impl DrainTicket {
+    pub fn error_explanation(&self, error: GateError) -> String {
+        self.gate.error_explanation(error)
+    }
     /// Borrows this seal. Cancellation of the wait never cancels admitted work.
     /// The observation cannot outlive, cancel or replace its ticket.
     pub async fn wait_application(&mut self) -> Result<ApplicationDrained<'_>, GateError> {
@@ -245,7 +294,7 @@ impl Drop for DrainTicket {
         // begin_host_retirement transferred the seal to its token. The old
         // ticket no longer owns that phase, including if cancellation failed.
         if matches!(s.phase, Phase::Draining(n) | Phase::Held(n) if n == self.id) {
-            s.unconfirmed = true;
+            s.mark_unconfirmed("the maintenance drain owner was dropped before the drain was completed or cancelled");
             self.gate.inner.changed.send_replace(());
         }
     }
@@ -261,7 +310,9 @@ pub struct ApplicationDrained<'ticket> { ticket: &'ticket DrainTicket }
 #[must_use = "dropping retirement retains sealed uncertainty"]
 pub struct HostRetirement { gate: OperationGate, id: u64 }
 impl Drop for HostRetirement {
-    fn drop(&mut self) { self.gate.abandon(self.id); }
+    fn drop(&mut self) {
+        self.gate.abandon(self.id, "the host retirement owner was dropped without confirmed browser host shutdown");
+    }
 }
 
 /// Proves only this gate's registered owners drained. Has no public release
@@ -270,7 +321,9 @@ impl Drop for HostRetirement {
 #[must_use = "local drain is not global exclusion or descendant teardown"]
 pub struct DrainLease { gate: OperationGate, id: u64 }
 impl Drop for DrainLease {
-    fn drop(&mut self) { self.gate.abandon(self.id); }
+    fn drop(&mut self) {
+        self.gate.abandon(self.id, "the maintenance control lease was dropped without an explicit completion");
+    }
 }
 
 #[cfg(test)]

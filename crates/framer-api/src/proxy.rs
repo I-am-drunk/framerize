@@ -305,7 +305,10 @@ fn check_response_status(status: u16, text: &str, path: &str, category: &str, el
                 .and_then(|wait| wait.parse::<u64>().ok())
                 .map(|wait| wait.saturating_add(1))
                 .unwrap_or(60);
-            Err(framer_core::error::AccountCooldown { retry_after_secs }.to_string())
+            let reason = text.strip_prefix("velocity-paused: ").unwrap_or(text);
+            let reason = reason.rsplit_once("; retry in ").map_or(reason, |(reason, _)| reason);
+            Err(format!("account-cooling:{retry_after_secs}; {}",
+                framer_core::error::safe_failure_summary(reason)))
         }
         400 if category != "agents" && text.contains("not allowed for this feature") =>
             Err("category-rejected".into()),
@@ -346,18 +349,18 @@ mod tests {
     use super::check_response_status;
 
     #[test]
-    fn local_device_cooldown_requests_account_failover_without_429_backoff() {
+    fn local_device_cooldown_preserves_the_cause_and_wait() {
         let result = check_response_status(0,
             "velocity-paused: every device is cooling; retry in 583s",
             "/ai/v3/responses/", "translation", 0);
-        assert_eq!(result.unwrap_err(), "account-cooling:584");
+        assert_eq!(result.unwrap_err(), "account-cooling:584; every device is cooling");
     }
 
     #[test]
     fn unrecognized_local_cooldown_keeps_a_bounded_account_wait() {
         let result = check_response_status(0, "velocity-paused: unavailable",
             "/ai/v3/responses/", "translation", 0);
-        assert_eq!(result.unwrap_err(), "account-cooling:60");
+        assert_eq!(result.unwrap_err(), "account-cooling:60; unavailable");
     }
 
     #[test]

@@ -102,8 +102,9 @@ class DevicePreparationTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(acc.closing)
         self.assertEqual(acc.lifecycle.phase, "unconfirmed")
         self.events.assert_called_once_with("browser.cleanup", level="warn",
-            outcome="unconfirmed", error="device-preparation-close-failed")
-        with self.assertRaisesRegex(RuntimeError, "cleanup is unconfirmed"):
+            outcome="unconfirmed", error="device-preparation-close-failed",
+            cause="RuntimeError: fixture private close failure")
+        with self.assertRaisesRegex(RuntimeError, "fixture private close failure"):
             await self.command()
         acc.browser.new_context.assert_awaited_once()
         self.assert_idle(acc)
@@ -187,9 +188,10 @@ class DevicePreparationTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(acc.closing)
         self.assertEqual(acc.lifecycle.phase, "unconfirmed")
         self.events.assert_called_once_with("browser.cleanup", level="warn",
-            outcome="unconfirmed", error="cancelled-device-context-close-failed")
+            outcome="unconfirmed", error="cancelled-device-context-close-failed",
+            cause="RuntimeError: fixture private close payload")
         with self.assertRaisesRegex(RuntimeError,
-                "^account browser cleanup is unconfirmed; retry after cleanup$"):
+                "fixture private close payload"):
             await self.host._account("a")
         self.assertFalse(acc.mint_lock.locked())
         self.assertFalse(acc.lifecycle.rates.state["pending_mint"])
@@ -268,8 +270,9 @@ class DevicePreparationTests(unittest.IsolatedAsyncioTestCase):
         self.host._new_mint_page.assert_not_awaited()
         context.new_page.assert_not_awaited()
         self.events.assert_called_once_with("browser.cleanup", level="warn",
-            outcome="unconfirmed", error="device-preparation-close-failed")
-        with self.assertRaisesRegex(RuntimeError, "cleanup is unconfirmed"):
+            outcome="unconfirmed", error="device-preparation-close-failed",
+            cause="RuntimeError: fixture private close failure")
+        with self.assertRaisesRegex(RuntimeError, "fixture private close failure"):
             await self.command()
         acc.browser.new_context.assert_awaited_once()
         self.assert_idle(acc)

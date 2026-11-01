@@ -151,6 +151,16 @@ class ResidentLifecycleTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(self.host.lifecycles, {})
         self.assertEqual(self.browsers, [])
 
+    async def test_runtime_preparation_failure_keeps_cause_before_browser_start(self):
+        self.host._browser_runtime = None
+        with patch.object(app, 'browser_runtime', side_effect=RuntimeError(
+                'unsupported installed driver; Authorization: Bearer private-fixture')):
+            with self.assertRaisesRegex(RuntimeError,
+                    'browser preparation failed: RuntimeError: unsupported installed driver') as caught:
+                await self.real_launch('fixture')
+        self.assertNotIn('private-fixture', str(caught.exception))
+        self.assertEqual(self.browsers, [])
+
     async def test_closed_account_retains_limits_and_profile_on_reopen(self):
         acc = await self.opened()
         profile = Path(self.directory.name) / "account-a"
@@ -316,11 +326,21 @@ class ResidentLifecycleTests(unittest.IsolatedAsyncioTestCase):
         acc.browser.failure = True
         result = await self.host.handle(self.request())
         self.assertEqual(result["outcome"], "unconfirmed")
+        self.assertIn("fixture close acknowledgement lost", result["status"]["cleanup_cause"])
         self.assertEqual(result["status"]["state"], "unconfirmed")
         self.assertIs(self.host.accounts["account-a"], acc)
         self.assertIn("device", acc.dev_cooling)
-        with self.assertRaises(RuntimeError):
+        with self.assertRaisesRegex(RuntimeError, "fixture close acknowledgement lost"):
             await self.host._account("account-a")
+        with self.assertRaisesRegex(RuntimeError, "fixture close acknowledgement lost"):
+            await self.host.handle(dict(cmd="close", account="account-a"))
+
+    async def test_close_names_pending_browser_calls_without_interrupting_them(self):
+        acc = await self.opened()
+        async with self.pending_rpc():
+            with self.assertRaisesRegex(RuntimeError, "pending browser calls"):
+                await self.host.handle(dict(cmd="close", account="account-a"))
+            self.assertEqual(acc.browser.calls, 0)
 
     async def test_disconnect_without_ack_is_not_absence(self):
         acc = await self.opened()

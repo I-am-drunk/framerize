@@ -9,6 +9,15 @@
 /// strip the prefix when calling the gateway.
 pub const DEFAULT_AGENT_MODEL: &str = "gpt-6-sol"; // shown as "GPT 6 Sol"
 
+/// Compatibility models with explicit routing or successful delivery evidence.
+/// Arbitrary passthrough names remain accepted but are not advertised here.
+pub const COMPAT_MODELS: &[&str] = &[
+    "gpt-6-sol", "gpt-6.1-sol", "gpt-6-luna", "gpt-5.6-terra", "gpt-6-astra",
+    "claude-opus-5-5", "claude-sonnet-5-5", "claude-haiku-4-5",
+    "gpt-4.1", "gpt-4.1-mini", "gemini-2.5-flash", "gemini-3-flash-preview",
+    "moonshotai/kimi-k3:nitro",
+];
+
 #[allow(dead_code)]
 pub const AGENT_MODELS: &[&str] = &[
     "openai/gpt-6-sol",

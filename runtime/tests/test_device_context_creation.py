@@ -164,7 +164,7 @@ class DeviceContextCreationTests(unittest.IsolatedAsyncioTestCase):
         acc = self.account()
         context = acc.browser.next_context
         creation = self.block(acc.browser.creation)
-        context.disposal.failure = RuntimeError("fixture private failure payload")
+        context.disposal.failure = RuntimeError("fixture close failed; cookie=private-fixture-value")
         self.host._new_mint_page = AsyncMock(side_effect=AssertionError("fallback"))
         request = self.command(mint=True)
         await asyncio.wait_for(creation.entered.wait(), 1)
@@ -181,9 +181,10 @@ class DeviceContextCreationTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(self.host._browser_status("a")["state"], "unconfirmed")
         self.assertTrue(acc.closing)
         self.events.assert_called_once_with("browser.cleanup", level="warn",
-            outcome="unconfirmed", error="cancelled-device-context-close-failed")
+            outcome="unconfirmed", error="cancelled-device-context-close-failed",
+            cause="RuntimeError: fixture close failed; cookie=<redacted>")
         with self.assertRaisesRegex(RuntimeError,
-                "^account browser cleanup is unconfirmed; retry after cleanup$"):
+                "fixture close failed; cookie=<redacted>"):
             await self.host._account("a")
         self.assertFalse(acc.mint_lock.locked())
         self.assertFalse(acc.lifecycle.rates.state["pending_mint"])

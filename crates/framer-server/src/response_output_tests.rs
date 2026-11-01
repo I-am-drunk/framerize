@@ -209,6 +209,9 @@ async fn dropped_caller_keeps_a_join_owner_for_blocked_serialization() {
     assert_eq!(budget.metrics.bytes.current.load(Ordering::SeqCst), 0);
 }
 async fn fault_case(fault: Fault, partial: bool) {
+    let expected = if matches!(fault, Fault::Panic) {
+        OutputError::WorkerPanicked
+    } else { OutputError::Serialization("injected encoder failure".into()) };
     let budget = OutputBudget::new(1); budget.inject(fault);
     let (emitter, sink, mut body) = output(budget.reserve().unwrap(), "fixture", "logical");
     let published = emitter.publisher.content_published.clone();
@@ -216,15 +219,22 @@ async fn fault_case(fault: Fault, partial: bool) {
     let caller = tokio::spawn(async move { framer_core::port::emit_assembled(result(SEGMENT * 4), &sink).await });
     let mut wire = Vec::new(); let mut aborted = false;
     while let Some(frame) = tokio::time::timeout(WAIT, body.next()).await.unwrap() {
-        match frame { Ok(bytes) => wire.extend_from_slice(&bytes), Err(_) => { aborted = true; break; } }
+        match frame {
+            Ok(bytes) => wire.extend_from_slice(&bytes),
+            Err(error) => {
+                assert!(error.to_string().contains(&expected.to_string()), "{error}");
+                aborted = true; break;
+            }
+        }
     }
     drop(body);
-    assert!(matches!(caller.await.unwrap(), Err(ResponseError::Output(OutputError::Encoding))));
+    assert!(matches!(caller.await.unwrap(), Err(ResponseError::Output(error)) if error == expected));
     tokio::time::timeout(WAIT, task).await.unwrap().unwrap();
     assert_eq!(aborted, partial);
     assert_eq!(published.load(Ordering::SeqCst), partial);
     let wire = String::from_utf8(wire).unwrap();
     assert_eq!(wire.contains("response.failed"), !partial);
+    if !partial { assert!(wire.contains(&expected.to_string()), "{wire}"); }
     assert!(!wire.contains("response.completed"));
     assert_eq!(budget.metrics.jobs.current.load(Ordering::SeqCst), 0);
     assert_eq!(budget.metrics.bytes.current.load(Ordering::SeqCst), 0);
@@ -241,6 +251,36 @@ async fn unavailable_output_admission_starts_no_job() {
     assert!(budget.reserve().is_err());
     assert_eq!(budget.metrics.jobs.peak.load(Ordering::SeqCst), 0);
     assert_eq!(budget.metrics.bytes.peak.load(Ordering::SeqCst), 0);
+}
+
+#[tokio::test]
+async fn disconnected_output_reports_cancellation_after_emitter_exit() {
+    let budget = OutputBudget::new(1);
+    let (emitter, sink, body) = output(budget.reserve().unwrap(), "fixture", "logical");
+    drop(body);
+    emitter.run().await;
+    assert_eq!(sink.request(Input::Heartbeat).await.err().expect("cancelled output"),
+        OutputError::Cancelled);
+    drop(sink);
+    assert_eq!(budget.counts(), (0, 0, 0));
+}
+
+#[tokio::test]
+async fn producer_exit_reports_its_cause_and_releases_output() {
+    let budget = OutputBudget::new(1);
+    let (sink, mut body, emitter) = start(&budget).await;
+    drop(sink);
+    let mut wire = Vec::new();
+    while let Some(frame) = tokio::time::timeout(WAIT, body.next()).await.unwrap() {
+        wire.extend_from_slice(&frame.unwrap());
+    }
+    drop(body);
+    tokio::time::timeout(WAIT, emitter).await.unwrap().unwrap();
+    let text = String::from_utf8(wire).unwrap();
+    assert!(text.contains(&OutputError::ProducerClosed.to_string()));
+    assert!(text.contains("response.failed"));
+    assert!(!text.contains("response.completed"));
+    assert_eq!(budget.counts(), (0, 0, 0));
 }
 fn process_snapshot() -> Value {
     fn fields(path: &str, names: &[&str]) -> Option<Vec<String>> {

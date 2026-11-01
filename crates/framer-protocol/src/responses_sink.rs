@@ -33,11 +33,23 @@ impl ValidatedChunk {
     pub(crate) fn into_items(self) -> Vec<Value> { self.items }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
 pub enum OutputError {
     #[error("client cancelled")] Cancelled,
-    #[error("response output encoding failed")] Encoding,
-    #[error("response output owner closed")] Closed,
+    #[error("response sink reported an encoding failure without a more specific cause")] Encoding,
+    #[error("response event serialization failed: {0}")] Serialization(String),
+    #[error("response encoder state was missing before the next event")] EncoderMissing,
+    #[error("response emitter acknowledged a content event without returning its chunk")] ChunkMissing,
+    #[error("response emitter stopped before acknowledging the event; no failure cause was recorded")] Closed,
+    #[error("response output buffer allocator was closed before the event could be published")] AllocatorClosed,
+    #[error("response body output channel closed before the event could be accepted")] BodyClosed,
+    #[error("response event sequence did not match the next expected event")] SequenceMismatch,
+    #[error("response output queue was full despite a reserved output slot")] QueueFull,
+    #[error("response serializer task panicked before completing its event")] WorkerPanicked,
+    #[error("response serializer task was cancelled before completing its event")] WorkerCancelled,
+    #[error("upstream response task panicked before completing the request")] ProducerPanicked,
+    #[error("upstream response task was cancelled before completing the request")] ProducerCancelled,
+    #[error("upstream response task ended without sending a completion result")] ProducerClosed,
     #[error("awaited Responses output unsupported")] Unsupported,
 }
 
@@ -65,7 +77,8 @@ pub async fn emit_assembled(mut result: AssembledResponses,
     sink: &dyn ResponsesSink) -> ResponseResult {
     let chunk = ValidatedChunk::validate(std::mem::take(&mut result.output), &[], false)?;
     if !matches!(result.status.as_str(), "completed" | "incomplete") {
-        return Err("invalid terminal status".into());
+        return Err(format!("assembled response has invalid terminal status: {}",
+            crate::error::safe_failure_summary(&result.status)).into());
     }
     result.input_tokens.checked_add(result.output_tokens).ok_or("Responses total usage overflow")?;
     if !result.usage.is_null() && !result.usage.is_object() {

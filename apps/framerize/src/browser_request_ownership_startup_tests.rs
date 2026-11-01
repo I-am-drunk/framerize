@@ -131,7 +131,7 @@ fn ownership_configuration_refuses_an_already_shared_runtime() {
     let original = state();
     let _shared = AppState::new(original.runtime().clone());
     let error = configure_browser_request_ownership(original).err().unwrap();
-    assert!(error.contains("RuntimeShared"), "{error}");
+    assert!(error.contains("runtime was shared before request ownership"), "{error}");
 }
 
 #[tokio::test]

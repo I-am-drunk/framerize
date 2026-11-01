@@ -197,7 +197,7 @@ fn unknown_configured_id_does_not_expand_into_stored_accounts() {
 fn unrestricted_empty_pool_and_retry_preserve_original_errors() {
     let policy = ServingAccountPolicy::default();
     assert!(matches!(policy.select(Vec::new(), None), Err(ApiError::Internal(message))
-        if message == "no eligible account"));
+        if message == "no saved accounts are available"));
     let tried = vec![account(1).id.0.to_string()];
     assert!(matches!(policy.select_fresh(vec![account(1)], &tried), Err(ApiError::Internal(message))
         if message == "pool exhausted: every account was refused for this request"));

@@ -104,8 +104,9 @@ async fn panic_is_sticky_but_other_owned_tasks_still_join() {
     let mut join = Box::pin(tasks.join());
     assert!(futures::poll!(join.as_mut()).is_pending());
     release.send(()).unwrap();
-    assert!(join.await.is_err());
+    let cause = join.await.unwrap_err();
+    assert!(cause.contains("browser transport task panicked"), "{cause}");
     assert_eq!(tasks.state.lock().await.tasks.len(), 0);
-    assert!(tasks.join().await.is_err());
+    assert_eq!(tasks.join().await.unwrap_err(), cause);
     assert!(tasks.spawn(async {}).await.is_err());
 }

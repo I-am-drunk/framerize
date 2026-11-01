@@ -74,10 +74,10 @@ asyncio.run(host.close())
             shutil.copytree(RUNTIME / 'framerize_host', root / 'framerize_host')
             shutil.copytree(RUNTIME / 'framerize_accounts', root / 'framerize_accounts')
             shutil.copytree(RUNTIME / 'framerize_runtime', root / 'framerize_runtime')
-            (root / 'framerize_host/castle_forge.py').unlink()
+            (root / 'framerize_host/accounts/device_use.py').unlink()
             result = self.run_code(root, 'from framerize_host.app import Host')
             self.assertNotEqual(result.returncode, 0)
-            self.assertIn('castle_forge', result.stderr)
+            self.assertIn('device_use', result.stderr)
 
 if __name__ == '__main__':
     unittest.main()

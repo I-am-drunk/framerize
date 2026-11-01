@@ -7,7 +7,8 @@ ExecStart=%h/.local/share/framerize/current/bin/framerize daemon --engine camouf
 Environment=FRAMERIZE_PYTHON=%h/.framerize/venv/bin/python3
 Restart=on-failure
 RestartSec=5s
-TimeoutStopSec=300s
+# Accepted responses can include a 960-second pause and 300 seconds of work.
+TimeoutStopSec=1800s
 KillMode=mixed
 SendSIGKILL=yes
 Delegate=no

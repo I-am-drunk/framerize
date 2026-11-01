@@ -300,6 +300,9 @@ impl Default for ChainConfig {
 /// The one port that talks to Framer. Everything undocumented/fragile is behind this.
 #[async_trait]
 pub trait FramerClient: Send + Sync {
+    /// Qualified model identifiers exposed by the compatibility endpoints.
+    fn model_catalog(&self) -> &'static [&'static str] { &[] }
+
     /// POST /auth/v4/signin — sends the magic-link email. Needs a Castle token
     /// from the account's (not yet authed) webview.
     async fn request_magic_link(&self, email: &str, castle: &CastleToken) -> Result<(), String>;

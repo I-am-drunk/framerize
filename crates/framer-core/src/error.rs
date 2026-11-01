@@ -1,6 +1,7 @@
 use thiserror::Error;
 
-pub use framer_protocol::error::{AccountCooldown, chain_error_cause, is_security_refusal};
+pub use framer_protocol::error::{AccountCooldown, chain_error_cause, is_security_refusal,
+    is_local_request_failure, is_workspace_saturation, safe_failure_summary};
 
 #[cfg(test)]
 mod cooldown_tests {
@@ -44,8 +45,8 @@ pub enum CoreError {
     #[error(transparent)]
     AccountCooling(AccountCooldown),
     /// Local lifecycle refusal for an otherwise complete, matching scope.
-    #[error("account is not ready")]
-    AccountNotReady,
+    #[error("account state is {0:?}; inference requires Ready")]
+    AccountNotReady(crate::account::AccountState),
     #[error("workspace creation not permitted for this account")]
     CannotCreateWorkspace,
     /// Castle risk refusal (HTTP 403 on /ai/v3/*). Transient — cool down.

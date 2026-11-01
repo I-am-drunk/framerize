@@ -36,6 +36,7 @@ mod request_token_budget;
 mod responses_default_budget_tests;
 mod request_body_object;
 mod memory_admission;
+mod model_discovery;
 mod responses_aggregate;
 mod response_output;
 pub use serving_accounts::{ServingAccountPolicy, SERVING_ACCOUNTS_ENV};
@@ -180,20 +181,35 @@ async fn readiness(State(state): State<AppState>) -> impl axum::response::IntoRe
         let ids: Vec<_> = accounts.into_iter().map(|account| account.id).collect();
         state.browser.check_account_history(&ids).await
     };
-    let ready = state.operation_ownership.as_ref().is_none_or(|scope| scope.accepting_requests())
-        && matches!(tokio::time::timeout(std::time::Duration::from_secs(5), check).await, Ok(Ok(())));
+    let admission = state.operation_ownership.as_ref().and_then(|scope|
+        scope.admission_status().err().map(|error| scope.admission_message(error)));
+    let problem = if let Some(cause) = admission {
+        Some(("operation-admission-unavailable", cause))
+    } else {
+        match tokio::time::timeout(std::time::Duration::from_secs(5), check).await {
+            Ok(Ok(())) => None,
+            Ok(Err(error)) => Some(("account-history-unavailable",
+                framer_core::error::safe_failure_summary(&error))),
+            Err(_) => Some(("account-history-unavailable",
+                "account history validation did not finish within 5 seconds".into())),
+        }
+    };
+    let ready = problem.is_none();
+    let (reason, cause) = problem.map_or(("ready", None), |(reason, cause)| (reason, Some(cause)));
     (if ready { StatusCode::OK } else { StatusCode::SERVICE_UNAVAILABLE },
         [("x-framerize-pid", std::process::id().to_string())],
         Json(serde_json::json!({"ready": ready,
-            "reason": if ready { "ready" } else { "account-history-unavailable" }})))
+            "reason": reason, "cause": cause})))
 }
 
 fn health_response(ownership: Option<&operation_ownership::ServingOwnership>)
     -> impl axum::response::IntoResponse {
-    let ready = ownership.is_none_or(|scope| scope.accepting_requests());
+    let failure = ownership.and_then(|scope|
+        scope.admission_status().err().map(|error| scope.admission_message(error)));
+    let ready = failure.is_none();
     (if ready { StatusCode::OK } else { StatusCode::SERVICE_UNAVAILABLE },
         [("x-framerize-pid", std::process::id().to_string())],
-        if ready { "ok" } else { "operation admission closed" })
+        failure.unwrap_or_else(|| "ok".into()))
 }
 
 #[cfg(test)]
@@ -316,6 +332,7 @@ pub fn router_with_request_layer(state: AppState, web_dir: &str,
     // Compat surfaces: thin translating proxies onto Framer's native dialect
     // routes. See reference/analysis/compat-mapping.md.
     let anthropic = Router::new()
+        .route("/v1/models", get(model_discovery::anthropic))
         .route("/v1/messages", post(anthropic_messages))
         // Claude Code gateway protocol: token counting is optional (the client
         // falls back to a character estimate when absent), but cheap to serve.
@@ -326,6 +343,7 @@ pub fn router_with_request_layer(state: AppState, web_dir: &str,
         .route("/api/hello", get(hello).head(hello))
         .with_state(state.clone());
     let openai = Router::new()
+        .route("/v1/models", get(model_discovery::openai))
         .route("/v1/responses", post(openai_responses))
         .route("/v1/chat/completions", post(openai_chat))
         .route("/api/hello", get(hello).head(hello))
@@ -337,10 +355,12 @@ pub fn router_with_request_layer(state: AppState, web_dir: &str,
     // zero client config beyond the base URL; x-framerize-mode: paid remains
     // as a header override for clients that can set it.
     let anthropic_paid = Router::new()
+        .route("/v1/models", get(model_discovery::anthropic))
         .route("/v1/messages", post(anthropic_messages_paid))
         .route("/v1/messages/count_tokens", post(count_tokens))
         .with_state(state.clone());
     let openai_paid = Router::new()
+        .route("/v1/models", get(model_discovery::openai))
         .route("/v1/responses", post(openai_responses_paid))
         .route("/v1/chat/completions", post(openai_chat_paid))
         .with_state(state.clone());
@@ -583,7 +603,7 @@ async fn compat_forward_observed(
             });
             match &r {
                 Ok(_) => gate2.on_success(&gate_key2).await,
-                Err(e) if e.contains("retryable 429") => {
+                Err(e) if framer_core::error::is_workspace_saturation(e) => {
                     gate2.on_overloaded(&gate_key2).await;
                     if let Some(team) = account2.current_team.as_ref() {
                         s2.serving_accounts.rotation().mark_saturated(&team.0, 45_000);
@@ -593,7 +613,7 @@ async fn compat_forward_observed(
             }
             let _ = tx.send(r).await;
             ((), producer_cleanup.confirmed())
-        }).map_err(|_| ApiError::ServingCapacity("operation admission closed".into()))?);
+        }).map_err(ApiError::operation_admission)?);
         let stream = retain_owner(proxy_response_stream(rx, handle), (residency, _permit));
         let (body, completion) = proxy_body(stream, cleanup.clone());
         let mut resp = axum::response::Response::new(body);
@@ -632,7 +652,7 @@ async fn compat_forward_observed(
             // 429 means "slow down", never "this account is bad"
             // (AGENTS.md rule 3). Narrow the gate and surface the error; the
             // client's retry lands behind a smaller limit.
-            if e.contains("retryable 429") {
+            if framer_core::error::is_workspace_saturation(&e) {
                 s.gate.on_overloaded(&gate_key).await;
                 if let Some(team) = account.current_team.as_ref() {
                     s.serving_accounts.rotation().mark_saturated(&team.0, 45_000);
@@ -910,10 +930,9 @@ fn is_server_cooling(error: &str) -> bool {
         .and_then(|seconds| seconds.parse::<u64>().ok()).is_some()
 }
 
-fn should_retry_account(error: &str) -> bool {
-    is_castle_refusal(error) || AccountCooldown::from_error(error).is_some()
-        || is_server_cooling(error)
-        || pool_control::cleanup_unconfirmed(error)
+fn should_retry_account(_error: &str) -> bool {
+    // Keep one account identity for the whole request, including failures.
+    false
 }
 
 /// Pick a serving account excluding the ones already tried for this request.
@@ -960,9 +979,12 @@ async fn pick_fresh_account(
 async fn current_account(s: &AppState, id: AccountId) -> Result<ManagedAccount, ApiError> {
     let snapshot = s.serving_accounts.residents.snapshot()
         .map_err(|e| ApiError::PoolBusy(e.to_string()))?;
-    if snapshot.residents.iter().any(|slot| slot.account == id
+    if let Some(slot) = snapshot.residents.iter().find(|slot| slot.account == id
         && (slot.uncertain || slot.status == framer_core::resident_pool::ResidentStatus::Closing)) {
-        return Err(ApiError::PoolBusy("account browser cleanup is unconfirmed or closing".into()));
+        let cause = slot.cleanup_cause.as_deref().unwrap_or(if slot.uncertain {
+            "browser cleanup stopped without a retained failure cause"
+        } else { "browser closure is still running" });
+        return Err(ApiError::PoolBusy(format!("{cause}; the occupied browser slot cannot be reused")));
     }
     let account = s.state.get(id).await.map_err(ApiError::Internal)?
         .ok_or_else(|| ApiError::InvalidRequest("account not found".into()))?;
@@ -973,10 +995,8 @@ async fn current_account(s: &AppState, id: AccountId) -> Result<ManagedAccount, 
     if let Some(until) = account.cooling_until_ms.filter(|until| *until > now) {
         return Err(ApiError::AccountCooling { retry_after_secs: until.saturating_sub(now).div_ceil(1000) });
     }
-    if !account.is_eligible() {
-        return Err(ApiError::ServingCapacity(
-            "account is not ready or is missing its current team or project".into(),
-        ));
+    if let Some(cause) = account.eligibility_problem() {
+        return Err(ApiError::ServingCapacity(cause));
     }
     Ok(account)
 }
@@ -1442,7 +1462,7 @@ async fn free_complete(
                 ev.emit();
             }
             (result, cleanup_confirmed)
-        }).map_err(|_| ApiError::ServingCapacity("operation admission closed".into()))?;
+        }).map_err(ApiError::operation_admission)?;
 
         let open_frames = convert::stream_open(dialect, &client_model, &msg_id);
         let composer = convert::SseComposer::new_with_custom(dialect, &msg_id, &client_model, custom_tools.clone());
@@ -1534,8 +1554,7 @@ async fn free_complete(
     let mut tried_accounts: Vec<String> = Vec::new();
     let mut acct_attempt = 0u32;
     'account_retry: loop {
-    let mut attempt = 0u32;
-    loop {
+    {
         if let Err(error) = cfg.check_cancelled() {
             result = Err(error);
             break 'account_retry;
@@ -1583,35 +1602,12 @@ async fn free_complete(
         result = residency.observe_result(account.id, result);
         // Retain the completed call's health outcome even after disconnect.
         record_account_health(&s, &account, &result).await;
-        // ONLY 429 is retryable here. A 403 risk-refusal must NOT be retried:
-        // every attempt mints another Castle token from the same device, and
-        // repeated minting from a device that is already being refused is
-        // exactly the pattern the risk engine punishes
-        // (reference/analysis/framer-castle-token.md). Retrying trades a
-        // transient refusal for a sticky one. Castle pressure is prevented
-        // upstream by the per-account mint gate, not recovered here.
-        let overloaded = matches!(&result, Err(e)
-            if e.contains("retryable 429") || e.contains("too many concurrent"));
-        if cfg.is_cancelled() || !overloaded || attempt >= 5 {
-            break;
-        }
-        s.gate.on_overloaded(&gate_key).await;
-        if let Some(team) = account.current_team.as_ref() {
-            s.serving_accounts.rotation().mark_saturated(&team.0, 45_000);
-        }
-        attempt += 1;
-        // Jittered backoff keyed off the attempt; the gate is already narrower.
-        let backoff = 250u64 * (1 << attempt.min(4)) + u64::from(rand_u32() % 250);
-        tokio::time::sleep(std::time::Duration::from_millis(backoff)).await;
+        // The chain owns the bounded rate retry budget. Do not start it again
+        // after exhaustion or replay chunks already delivered by that chain.
     }
 
-    // CASTLE REPICK (2026-10-11): a risk-refusal is ACCOUNT-specific (the
-    // verdict follows the account+devices, not the request) — retrying the
-    // chain on the SAME account just fails again, which is how 1/8 of chains
-    // died all morning while 7 healthy accounts idled. Nothing reaches the
-    // client on the non-stream path until the chain completes, so an unbound
-    // request may retry on a fresh account. The health mark lands first
-    // (above), so the repick never selects the same account twice.
+    // Local capacity recovery retains the existing ownership checks.
+    // Security refusals are final for this request.
     if cfg.is_cancelled() { break; }
     if allow_account_repick && matches!(&result, Err(e) if should_retry_account(e)) && acct_attempt < 2 {
         tried_accounts.push(account.id.0.to_string());
@@ -1656,7 +1652,7 @@ async fn free_complete(
     // "slow down", never "this account is bad" (AGENTS.md rule 3).
     match &result {
         Ok(_) => s.gate.on_success(&gate_key).await,
-        Err(e) if e.contains("retryable 429") || e.contains("too many concurrent") => {
+        Err(e) if framer_core::error::is_workspace_saturation(e) => {
             s.gate.on_overloaded(&gate_key).await;
             if let Some(team) = account.current_team.as_ref() {
                 s.serving_accounts.rotation().mark_saturated(&team.0, 45_000);
@@ -2059,7 +2055,7 @@ async fn native_complete(
             };
             ev.emit();
             (result, cleanup_confirmed)
-        }).map_err(|_| ApiError::ServingCapacity("operation admission closed".into()))?;
+        }).map_err(ApiError::operation_admission)?;
 
         let mut composer = NativeComposerState::new(dialect, &client_model, &logical_id);
         let open_frames = composer.open(&client_model, &logical_id);
@@ -2087,8 +2083,10 @@ async fn native_complete(
                         let tail = match r {
                             Ok(Ok(assembled)) => composer.take().unwrap().finish(&assembled, include_usage),
                             Ok(Err(e)) => composer.take().unwrap().fail(&e),
-                            Err(_) if dialect == ClientDialect::OpenAiResponses =>
-                                composer.take().unwrap().fail("upstream operation task failed"),
+                            Err(error) if dialect == ClientDialect::OpenAiResponses =>
+                                composer.take().unwrap().fail(&if error.is_panic() {
+                                    framer_core::port::OutputError::ProducerPanicked
+                                } else { framer_core::port::OutputError::ProducerCancelled }.to_string()),
                             Err(je) => vec![convert::ping_frame(dialect), format!(": join error {je}")],
                         };
                         drained.into_iter().chain(tail).collect()
@@ -3237,13 +3235,15 @@ async fn import_account_observed(State(s): State<AppState>, Json(body): Json<Imp
                 .account(&id)
                 .duration_ms(framer_core::observability::elapsed_ms(t0))
                 .outcome(if r.is_ok() { "ok" } else { "error" })
+                .field("cause", r.as_ref().err().map(|error| framer_core::error::safe_failure_summary(error)))
                 .emit();
             ((), confirmed)
         });
-        if prewarm.is_err() {
+        if let Err(error) = prewarm {
             framer_core::observability::Event::new("account.prewarm")
                 .account(&id).outcome("deferred")
-                .field("reason", "ownership_admission").emit();
+                .field("reason", "ownership_admission")
+                .field("cause", operation_ownership::admission_message(error)).emit();
         }
     }
     Ok(Json(serde_json::json!({
@@ -3327,7 +3327,8 @@ async fn run(
     if let Err(framer_core::error::CoreError::Framer(error)) = &outcome {
         if pool_control::cleanup_unconfirmed(error) {
             cleanup_confirmed = false;
-            if let Err(error) = residency.mark_unconfirmed() {
+            operation_ownership::record_cleanup_failure(error);
+            if let Err(error) = residency.mark_unconfirmed_with_cause(error) {
                 return Ok(operation_ownership::completed_response(
                     ApiError::PoolBusy(error.to_string()).into_response(), false));
             }
@@ -3337,8 +3338,8 @@ async fn run(
         .map_err(|error| match error {
             framer_core::error::CoreError::AccountCooling(cooldown) =>
                 ApiError::AccountCooling { retry_after_secs: cooldown.retry_after_secs },
-            framer_core::error::CoreError::AccountNotReady =>
-                ApiError::ServingCapacity("account is not ready".into()),
+            error @ framer_core::error::CoreError::AccountNotReady(_) =>
+                ApiError::ServingCapacity(error.to_string()),
             error => ApiError::Internal(error.to_string()),
         });
     Ok(operation_ownership::completed_response(response.into_response(), cleanup_confirmed))
@@ -3352,6 +3353,22 @@ enum ApiError {
     ServingCapacity(String),
     Cooling { retry_after_secs: u64 },
     AccountCooling { retry_after_secs: u64 },
+}
+
+impl ApiError {
+    fn diagnostic(&self) -> String {
+        match self {
+            Self::Internal(value) | Self::InvalidRequest(value) | Self::PoolBusy(value)
+                | Self::ServingCapacity(value) => framer_core::error::safe_failure_summary(value),
+            Self::Cooling { retry_after_secs } => format!(
+                "security refusals triggered a global pause with {retry_after_secs} seconds remaining"),
+            Self::AccountCooling { retry_after_secs } => format!(
+                "a security refusal triggered an account cooldown with {retry_after_secs} seconds remaining"),
+        }
+    }
+    fn operation_admission(error: framer_core::operation_gate::GateError) -> Self {
+        Self::ServingCapacity(operation_ownership::admission_message(error))
+    }
 }
 
 /// Dialect-aware API error: correct HTTP status + client-shaped error JSON, so
@@ -3376,9 +3393,9 @@ impl axum::response::IntoResponse for ApiError {
                 // Their interval never shortens the underlying cooldown.
                 let recheck_after_secs = retry_after_secs.clamp(1, 30);
                 let (code, reason) = if account_cooling {
-                    ("framerize_account_cooling", "Framerize has no ready account for this request.")
+                    ("framerize_account_cooling", "An earlier security refusal started this account's cooldown; its recorded deadline has not expired.")
                 } else {
-                    ("framerize_cooling", "Framerize is temporarily unavailable.")
+                    ("framerize_cooling", "Recent security refusals across multiple accounts triggered the global admission pause.")
                 };
                 (
                     StatusCode::SERVICE_UNAVAILABLE,

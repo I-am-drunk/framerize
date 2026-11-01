@@ -27,17 +27,17 @@ fn security_refusal_requires_exact_known_cause() {
 #[test]
 fn temporary_internal_errors_are_readable_in_every_dialect() {
     for (error, expected) in [
-        ("risk-refused", "The upstream service is temporarily unavailable. Please retry shortly."),
-        ("account-cooling:584", "This account is temporarily cooling down. Retry in 584 seconds."),
-        ("server-cooling:150", "Framerize is temporarily unavailable. Retry in 150 seconds."),
-        ("castle-unavailable", "Framerize could not prepare the request. Please retry shortly."),
+        ("risk-refused", "Framer refused the request with HTTP 403 during its security checks. Its response did not disclose a more specific cause."),
+        ("account-cooling:584", "Cannot start the request because an earlier security refusal started this account's cooldown. Retry in 584 seconds."),
+        ("server-cooling:150", "Recent security refusals across multiple accounts triggered a global pause. Retry in 150 seconds."),
+        ("castle-unavailable", "The browser's Castle SDK did not supply a usable request token. The host did not report a more specific SDK failure."),
         ("retryable 0 on /ai/v3/responses/: castle-unavailable",
-            "Framerize could not prepare the request. Please retry shortly."),
-        ("device request budget unavailable", "No account is ready for this request yet. Please retry shortly."),
+            "The browser's Castle SDK did not supply a usable request token. The host did not report a more specific SDK failure."),
+        ("device request budget unavailable", "The selected browser device has exhausted its local request allowance or is still under a security cooldown."),
         ("velocity-paused: every device is cooling; retry in 19s",
-            "No account is ready for this request yet. Please retry shortly."),
+            "The selected browser device cannot send this request: every device is cooling; retry in 19s"),
         ("host-lifecycle-unconfirmed: sidecar exited",
-            "Framerize cannot safely start another request yet. Please retry later."),
+            "Browser host failure: sidecar exited. Browser cleanup remains unconfirmed."),
     ] {
         for input in [error.to_owned(), format!("chunk 500 retry died (fallback off): {error}")] {
             for dialect in dialects() {
@@ -107,8 +107,7 @@ fn wrapped_context_errors_keep_the_compaction_signal() {
 #[test]
 fn terminal_frames_hide_internal_errors_without_reporting_success() {
     for error in ["risk-refused", "server-cooling:150",
-        "chunk 0 retry died (fallback off): retryable 0 on /ai/v3/responses/: castle-unavailable",
-        "host-lifecycle-unconfirmed: private diagnostic"]
+        "chunk 0 retry died (fallback off): retryable 0 on /ai/v3/responses/: castle-unavailable"]
     {
         for dialect in dialects() {
             let frames = error_frames(dialect, error).join("\n");
@@ -135,7 +134,7 @@ fn malformed_or_embedded_cooldown_text_is_not_internal_capacity() {
         assert_eq!(error_json(ClientDialect::OpenAiResponses, error).0, 500, "{error}");
     }
     let (_, body) = error_json(ClientDialect::OpenAiResponses, "server-cooling:0");
-    assert_eq!(body["error"]["message"], "Framerize is temporarily unavailable. Retry in 1 second.");
+    assert_eq!(body["error"]["message"], "Recent security refusals across multiple accounts triggered a global pause. Retry in 1 second.");
 }
 
 #[test]
@@ -143,6 +142,7 @@ fn cleanup_diagnostics_cannot_be_mistaken_for_provider_error_json() {
     let error = "host-lifecycle-unconfirmed: internal 500: {\"error\":{\"message\":\"private detail\"}}";
     let (status, body) = error_json(ClientDialect::OpenAiResponses, error);
     assert_eq!(status, 503);
-    assert_eq!(body["error"]["message"],
-        "Framerize cannot safely start another request yet. Please retry later.");
+    let message = body["error"]["message"].as_str().unwrap();
+    assert!(message.starts_with("Browser host failure: internal 500:"));
+    assert!(message.contains("private detail"));
 }

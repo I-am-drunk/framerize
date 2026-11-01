@@ -1,9 +1,11 @@
 # Recurring error repair, 2026-11-01
 
 `fix/live-recurring-errors-20261101` starts from the deployed alpha.7 source.
-The isolated startup check and response-poll regression pass. Live service
-state remains unchanged. Memory and delivery qualification are still pending.
-Next: compare browser memory under identical repeated local HTTP requests.
+The isolated startup check and response-poll regression pass. The alpha.8
+candidate also completed 512 local requests with an active stream and three
+retained pages. Rust verification and the matched baseline comparison are
+running on the separate builder. No candidate activation has occurred.
+Next: finish those checks and package the exact source for isolated delivery.
 See [the repair record](incidents/2026-11-01-recurring-errors.md).
 
 # Adaptive thinking candidate, 2026-10-29

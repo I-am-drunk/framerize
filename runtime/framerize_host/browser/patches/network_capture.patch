@@ -1,0 +1,70 @@
+--- a/NetworkObserver.js
++++ b/NetworkObserver.js
+@@ -26,4 +26,6 @@
+ // Cap response storage with 100Mb per tracked tab.
+ const MAX_RESPONSE_STORAGE_SIZE = 100 * 1024 * 1024;
++// Framerize consumes responses inside the page, not through debugger capture.
++// Read the preference when a page is created, after Browser.enable applies it.
+ 
+ const pageNetworkSymbol = Symbol('PageNetwork');
+@@ -47,4 +49,6 @@
+     this._responseStorage = new ResponseStorage(MAX_RESPONSE_STORAGE_SIZE, MAX_RESPONSE_STORAGE_SIZE / 10);
+     this._requestInterceptionEnabled = false;
++    this._captureRequestBodies = Services.prefs.getBoolPref(
++        "framerize.captureRequestBodies", true);
+     // This is requestId => NetworkRequest map, only contains requests that are
+     // awaiting interception action (abort, resume, fulfill) over the protocol.
+@@ -156,5 +160,6 @@
+       appendExtraHTTPHeaders(httpChannel, this._pageNetwork.combinedExtraHTTPHeaders());
+ 
+-    this._responseBodyChunks = [];
++    this._captureResponseBodies = this._pageNetwork?._responseStorage._captureResponseBodies ?? true;
++    this._responseBodyChunks = this._captureResponseBodies ? [] : null;
+ 
+     httpChannel.QueryInterface(Ci.nsITraceableChannel);
+@@ -394,5 +399,7 @@
+     // Copy received data as they come.
+     const data = iStream.readBytes(aCount);
+-    this._responseBodyChunks.push(data);
++    // Keep upstream stream forwarding intact; retain no debugger copy when disabled.
++    if (this._captureResponseBodies)
++      this._responseBodyChunks.push(data);
+ 
+     oStream.writeBytes(data, aCount);
+@@ -436,8 +443,7 @@
+       // we do not get onResponse normally, but we do get nsIRequestObserver notifications.
+       this._sendOnResponse(false);
+-      const body = this._responseBodyChunks.join('');
+       const pageNetwork = this._pageNetwork;
+-      if (pageNetwork)
+-        pageNetwork._responseStorage.addResponseBody(this, body);
++      if (this._captureResponseBodies && pageNetwork)
++        pageNetwork._responseStorage.addResponseBody(this, this._responseBodyChunks.join(''));
+       this._sendOnRequestFinished();
+     } else {
+@@ -494,5 +500,10 @@
+       requestId: this.requestId,
+       redirectedFrom: this.redirectedFromId,
+-      postData: readRequestPostData(this.httpChannel),
++      // Routing still needs the original body, including redirected requests.
++      // Otherwise this is only a debugger copy, never the outgoing upload.
++      postData: (pageNetwork._captureRequestBodies || isIntercepted ||
++          pageNetwork._requestInterceptionEnabled ||
++          pageNetwork._target.browserContext().requestInterceptionEnabled)
++        ? readRequestPostData(this.httpChannel) : undefined,
+       headers: requestHeaders(this.httpChannel),
+       method: this.httpChannel.requestMethod,
+@@ -900,4 +911,6 @@
+ class ResponseStorage {
+   constructor(maxTotalSize, maxResponseSize) {
++    this._captureResponseBodies = Services.prefs.getBoolPref(
++        "framerize.captureResponseBodies", true);
+     this._totalSize = 0;
+     this._maxResponseSize = maxResponseSize;
+@@ -937,4 +950,6 @@
+ 
+   getBase64EncodedResponse(requestId) {
++    if (!this._captureResponseBodies)
++      return {base64body: '', evicted: true};
+     const response = this._responses.get(requestId);
+     if (!response)

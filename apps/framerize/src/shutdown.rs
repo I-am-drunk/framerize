@@ -16,7 +16,7 @@ pub async fn serve(state: AppState, web_dir: &str, addr: SocketAddr,
     }).await;
     // Bind failure drops the signal future. Startup work still needs draining.
     let ticket = receiver.await.unwrap_or_else(|_| ownership.seal())
-        .map_err(|error| format!("shutdown admission: {error:?}"))?;
+        .map_err(|error| format!("shutdown admission: {}", ownership.admission_message(error)))?;
     let closed = close_browser(browser, ticket).await;
     match (result, closed) {
         (Ok(()), closed) => closed,
@@ -28,7 +28,8 @@ pub async fn serve(state: AppState, web_dir: &str, addr: SocketAddr,
 pub async fn close(state: AppState) -> Result<(), String> {
     let ownership = state.operation_ownership.as_ref()
         .ok_or("application request ownership is unavailable")?;
-    let ticket = ownership.seal().map_err(|error| format!("shutdown admission: {error:?}"))?;
+    let ticket = ownership.seal().map_err(|error|
+        format!("shutdown admission: {}", ownership.admission_message(error)))?;
     close_browser(state.browser.clone(), ticket).await
 }
 
@@ -36,7 +37,7 @@ async fn close_browser(browser: std::sync::Arc<dyn framer_core::port::BrowserBri
     mut ticket: framer_core::operation_gate::DrainTicket,
 ) -> Result<(), String> {
     let _drained = ticket.wait_application().await
-        .map_err(|error| format!("shutdown drain: {error:?}"))?;
+        .map_err(|error| format!("shutdown drain: {}", ticket.error_explanation(error)))?;
     browser.shutdown().await
 }
 

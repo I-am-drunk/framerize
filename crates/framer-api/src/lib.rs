@@ -133,6 +133,8 @@ fn parse_dialect(d: &str) -> Result<proxy::Dialect, String> {
 
 #[async_trait]
 impl FramerClient for HttpFramerClient {
+    fn model_catalog(&self) -> &'static [&'static str] { models::COMPAT_MODELS }
+
     async fn request_magic_link(&self, email: &str, castle: &CastleToken) -> Result<(), String> {
         login::request_magic_link(&self.transport, email, castle).await
     }

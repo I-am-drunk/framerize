@@ -153,7 +153,7 @@ class MintPageCreationTests(unittest.IsolatedAsyncioTestCase):
             {"wait_until": "domcontentloaded", "timeout": 60000})])
         self.assertEqual(page.waits, [800])
         self.assertEqual(page.disposal.calls, 0)
-        self.assertEqual(len(acc.tasks), 1)
+        self.assertEqual(len(acc.tasks), 0)
         self.assert_idle(acc)
 
     async def test_normal_creation_and_preparation_errors_are_preserved(self):

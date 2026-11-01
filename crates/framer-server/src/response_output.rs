@@ -2,7 +2,7 @@
 use super::*;
 use framer_core::convert::{AssembledResponses, ResponseEncoder, ResponseWriter};
 use framer_core::port::{OutputError, ResponseError, ResponseResult, ResponsesSink, ValidatedChunk};
-use futures::{future::BoxFuture, Stream};
+use futures::{future::BoxFuture, FutureExt, Stream};
 use std::{io::{self, Write}, pin::Pin, sync::{Mutex, atomic::{AtomicUsize, Ordering}},
     task::{Context, Poll}, time::{Duration, Instant}};
 use tokio::sync::{mpsc, oneshot, watch, Notify, OwnedSemaphorePermit, Semaphore};
@@ -34,17 +34,22 @@ struct Metrics {
 #[derive(Clone, Copy)]
 pub(crate) enum Fault { BeforeContent, AfterFirstSegment, Panic }
 pub(crate) struct OutputBudget {
-    slots: Arc<Semaphore>, metrics: Arc<Metrics>,
+    slots: Arc<Semaphore>, metrics: Arc<Metrics>, limit: usize,
     #[cfg(test)] fault: Mutex<Option<Fault>>,
 }
 impl OutputBudget {
     pub(crate) fn new(limit: usize) -> Self {
-        Self { slots: Arc::new(Semaphore::new(limit)), metrics: Arc::new(Metrics::default()),
+        Self { slots: Arc::new(Semaphore::new(limit)), metrics: Arc::new(Metrics::default()), limit,
             #[cfg(test)] fault: Mutex::new(None) }
     }
     fn reserve(&self) -> Result<Arc<Lease>, ApiError> {
         let permit = self.slots.clone().try_acquire_owned()
-            .map_err(|_| ApiError::ServingCapacity("response output capacity unavailable".into()))?;
+            .map_err(|error| ApiError::ServingCapacity(match error {
+                tokio::sync::TryAcquireError::NoPermits => format!(
+                    "All {} response output slots are held by active responses or response buffers awaiting disposal.", self.limit),
+                tokio::sync::TryAcquireError::Closed =>
+                    "The response output allocator was closed during service shutdown.".into(),
+            }))?;
         self.metrics.leases.add(1);
         Ok(Arc::new(Lease { _permit: permit, metrics: self.metrics.clone(),
             output: Arc::new(Semaphore::new(OUTPUT_SLOTS)), live_output: AtomicUsize::new(0),
@@ -96,6 +101,7 @@ struct Queued { data: bytes::Bytes, content: bool, lease: Arc<Lease> }
 struct OutputBody {
     receiver: mpsc::Receiver<Queued>, cancel: watch::Sender<bool>,
     aborted: Arc<std::sync::atomic::AtomicBool>, failed: bool,
+    failure: Arc<Mutex<Option<OutputError>>>,
 }
 impl Stream for OutputBody {
     type Item = Result<bytes::Bytes, io::Error>;
@@ -103,7 +109,8 @@ impl Stream for OutputBody {
         let item = self.receiver.poll_recv(cx);
         if matches!(item, Poll::Ready(None)) && !self.failed && self.aborted.load(Ordering::SeqCst) {
             self.failed = true;
-            return Poll::Ready(Some(Err(io::Error::other("incomplete response event"))));
+            let cause = self.failure.lock().unwrap().clone().unwrap_or(OutputError::Closed);
+            return Poll::Ready(Some(Err(io::Error::other(format!("incomplete response event: {cause}")))));
         }
         item.map(|item| item.map(|item| {
             if item.content {
@@ -150,12 +157,12 @@ struct Publisher {
 }
 impl Publisher {
     async fn publish(&mut self, segment: Segment) -> Result<(), OutputError> {
-        if segment.sequence != self.next_sequence { return Err(OutputError::Encoding); }
+        if segment.sequence != self.next_sequence { return Err(OutputError::SequenceMismatch); }
         let start = Instant::now();
         let slot = tokio::select! {
             biased;
             _ = self.cancel.cancelled() => return Err(OutputError::Cancelled),
-            slot = self.lease.output.clone().acquire_owned() => slot.map_err(|_| OutputError::Closed)?,
+            slot = self.lease.output.clone().acquire_owned() => slot.map_err(|_| OutputError::AllocatorClosed)?,
         };
         self.lease.timings.lock().unwrap().credit_wait += start.elapsed();
         self.accept(segment, slot)
@@ -167,9 +174,12 @@ impl Publisher {
         self.lease.live_output.fetch_add(1, Ordering::SeqCst);
         let data = bytes::Bytes::from_owner(OwnedBytes {
             buffer: Some(segment.buffer), lease: self.lease.clone(), slot: Some(slot) });
-        self.sender.as_ref().ok_or(OutputError::Closed)?.try_send(Queued {
+        self.sender.as_ref().ok_or(OutputError::BodyClosed)?.try_send(Queued {
             data, content, lease: self.lease.clone(),
-        }).map_err(|_| OutputError::Closed)?;
+        }).map_err(|error| match error {
+            mpsc::error::TrySendError::Full(_) => OutputError::QueueFull,
+            mpsc::error::TrySendError::Closed(_) => OutputError::Cancelled,
+        })?;
         self.partial = !last;
         if last { self.next_sequence += 1; }
         if content {
@@ -237,23 +247,28 @@ enum Input {
 struct Command { input: Input, reply: oneshot::Sender<Result<Option<ValidatedChunk>, OutputError>> }
 struct Sink {
     sender: mpsc::Sender<Command>, serial: tokio::sync::Mutex<()>, lease: Arc<Lease>,
+    cancel: Cancel, failure: Arc<Mutex<Option<OutputError>>>,
 }
 impl Sink {
+    fn closed_reason(&self) -> OutputError {
+        self.failure.lock().unwrap().clone().unwrap_or_else(||
+            if self.cancel.is_cancelled() { OutputError::Cancelled } else { OutputError::Closed })
+    }
     async fn request(&self, input: Input) -> Result<Option<ValidatedChunk>, OutputError> {
         let _command = self.serial.lock().await;
         if matches!(input, Input::Chunk(_)) {
             self.lease.timings.lock().unwrap().validated.get_or_insert(self.lease.started.elapsed());
         }
         let (reply, receive) = oneshot::channel();
-        self.sender.send(Command { input, reply }).await.map_err(|_| OutputError::Closed)?;
-        receive.await.map_err(|_| OutputError::Closed)?
+        self.sender.send(Command { input, reply }).await.map_err(|_| self.closed_reason())?;
+        receive.await.map_err(|_| self.closed_reason())?
     }
 }
 impl ResponsesSink for Sink {
     fn emit<'s, 'a>(&'s self, chunk: ValidatedChunk)
         -> BoxFuture<'a, Result<ValidatedChunk, OutputError>> where 's: 'a, Self: 'a {
         Box::pin(async move { self.request(Input::Chunk(chunk)).await?
-            .ok_or(OutputError::Encoding) })
+            .ok_or(OutputError::ChunkMissing) })
     }
 }
 struct AttemptSink<'a> {
@@ -277,10 +292,27 @@ impl ResponsesSink for AttemptSink<'_> {
 struct Emitter {
     publisher: Publisher, encoder: Option<ResponseEncoder>, commands: mpsc::Receiver<Command>,
     heartbeat: tokio::time::Interval, pending_heartbeat: bool,
+    failure: Arc<Mutex<Option<OutputError>>>,
 }
 struct JobCount(Arc<Metrics>);
 impl Drop for JobCount { fn drop(&mut self) { self.0.jobs.sub(1); } }
 impl Emitter {
+    fn record_failure(&self, error: &OutputError) {
+        let mut failure = self.failure.lock().unwrap();
+        if failure.is_some() { return; }
+        *failure = Some(error.clone());
+        drop(failure);
+        framer_core::observability::Event::new("response.emission.failed")
+            .field("cause", error.to_string())
+            .outcome(if *error == OutputError::Cancelled { "cancelled" } else { "error" })
+            .emit();
+    }
+
+    async fn fail_output(&mut self, error: OutputError) {
+        self.record_failure(&error);
+        self.fail_fixed(&error.to_string()).await;
+    }
+
     async fn publish_segment(&mut self, segment: Segment) -> Result<(), OutputError> {
         let publish = self.publisher.publish(segment);
         tokio::pin!(publish);
@@ -293,7 +325,7 @@ impl Emitter {
     }
     async fn encode(&mut self, input: Input) -> Result<Input, OutputError> {
         if self.publisher.cancel.is_cancelled() { return Err(OutputError::Cancelled); }
-        let mut encoder = self.encoder.take().ok_or(OutputError::Encoding)?;
+        let mut encoder = self.encoder.take().ok_or(OutputError::EncoderMissing)?;
         let (sender, mut receiver) = mpsc::channel(1);
         let metrics = self.publisher.lease.metrics.clone();
         metrics.jobs.add(1);
@@ -339,17 +371,23 @@ impl Emitter {
         }
         // Drop queued/local buffers and wake a blocked writer before joining it.
         drop(receiver);
-        let joined = job.await.map_err(|_| OutputError::Encoding);
+        let joined = job.await.map_err(|error| if error.is_panic() {
+            OutputError::WorkerPanicked
+        } else { OutputError::WorkerCancelled });
         self.publisher.lease.timings.lock().unwrap().joined = Some(self.publisher.lease.started.elapsed());
         let (encoder, input, encoded) = joined?;
         self.encoder = Some(encoder);
         output?;
-        encoded.map_err(|_| OutputError::Encoding)?;
+        // This writer and encoder emit local framing/serialization errors only.
+        // Do not discard their cause or substitute request/upstream payloads.
+        encoded.map_err(|error| OutputError::Serialization(error.to_string()))?;
         Ok(input)
     }
     async fn run(mut self) {
-        if self.encode(Input::Open).await.is_ok() { self.commands().await; }
-        else { self.fail_fixed("response output encoding failed").await; }
+        match self.encode(Input::Open).await {
+            Ok(_) => self.commands().await,
+            Err(error) => self.fail_output(error).await,
+        }
         // EOF depends only on this close, never on the following disposal wait.
         self.commands.close();
         while self.commands.try_recv().is_ok() {}
@@ -370,30 +408,33 @@ impl Emitter {
         loop {
             let command = tokio::select! {
                 biased;
-                _ = self.publisher.cancel.cancelled() => return,
+                _ = self.publisher.cancel.cancelled() => {
+                    self.record_failure(&OutputError::Cancelled); return;
+                },
                 command = self.commands.recv() => match command {
                     Some(command) => command,
-                    None => { self.fail_fixed("upstream operation task failed").await; return; }
+                    None => { self.fail_output(OutputError::ProducerClosed).await; return; }
                 },
                 _ = self.heartbeat.tick() => {
-                    if self.encode(Input::Heartbeat).await.is_err() {
-                        self.fail_fixed("response output encoding failed").await; return;
+                    if let Err(error) = self.encode(Input::Heartbeat).await {
+                        self.fail_output(error).await; return;
                     }
                     continue;
                 },
             };
             let terminal = matches!(command.input, Input::Finish(_) | Input::Fail(_));
             let result = self.encode(command.input).await;
-            let failed = result.is_err();
+            let failed = result.as_ref().err().cloned();
+            if let Some(error) = &failed { self.record_failure(error); }
             let _ = command.reply.send(result.map(|input| match input {
                 Input::Chunk(chunk) => Some(chunk), _ => None,
             }));
-            if failed { self.fail_fixed("response output encoding failed").await; return; }
+            if let Some(error) = failed { self.fail_output(error).await; return; }
             if terminal { self.pending_heartbeat = false; return; }
             if self.pending_heartbeat {
                 self.pending_heartbeat = false;
-                if self.encode(Input::Heartbeat).await.is_err() {
-                    self.fail_fixed("response output encoding failed").await; return;
+                if let Err(error) = self.encode(Input::Heartbeat).await {
+                    self.fail_output(error).await; return;
                 }
             }
         }
@@ -404,15 +445,19 @@ fn output(lease: Arc<Lease>, model: &str, id: &str) -> (Emitter, Sink, OutputBod
     let (sender, receiver) = mpsc::channel(OUTPUT_SLOTS);
     let (commands, inbox) = mpsc::channel(1);
     let (cancel, cancelled) = watch::channel(false);
+    let cancelled = Cancel(cancelled);
+    let failure = Arc::new(Mutex::new(None));
     let aborted = Arc::new(std::sync::atomic::AtomicBool::new(false));
-    let publisher = Publisher { sender: Some(sender), lease: lease.clone(), cancel: Cancel(cancelled),
+    let publisher = Publisher { sender: Some(sender), lease: lease.clone(), cancel: cancelled.clone(),
         next_sequence: 0, partial: false, content_published: Arc::new(false.into()), aborted: aborted.clone() };
     let mut heartbeat = tokio::time::interval_at(tokio::time::Instant::now() + Duration::from_secs(8),
         Duration::from_secs(8));
     heartbeat.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
     (Emitter { publisher, encoder: Some(ResponseEncoder::new(model, id)), commands: inbox,
-        heartbeat, pending_heartbeat: false }, Sink { sender: commands, serial: tokio::sync::Mutex::new(()), lease },
-        OutputBody { receiver, cancel, aborted, failed: false })
+        heartbeat, pending_heartbeat: false, failure: failure.clone() },
+        Sink { sender: commands, serial: tokio::sync::Mutex::new(()), lease,
+            cancel: cancelled, failure: failure.clone() },
+        OutputBody { receiver, cancel, aborted, failed: false, failure })
 }
 
 pub(super) struct FreeRequest {
@@ -493,8 +538,9 @@ where F: FnOnce(Cancel) -> Fut + Send + 'static,
             // This owner survives a dropped request future and joins all serializers.
             let encoding = tokio::spawn(emitter.run());
             let started = Instant::now();
+            let prepared = std::panic::AssertUnwindSafe(async {
             let initialized = initialize(cancelled.clone()).await;
-            let (result, cleanup) = match initialized.result {
+            match initialized.result {
                 Ok(mut request) => {
                     let cancel = cancelled.clone();
                     request.config.cancelled = Some(Arc::new(move || cancel.is_cancelled()));
@@ -509,6 +555,17 @@ where F: FnOnce(Cancel) -> Fut + Send + 'static,
                         .duration_ms(started.elapsed().as_millis()).error(&error).emit();
                     (Err(error.into()), initialized.cleanup_confirmed)
                 }
+            }
+            }).catch_unwind().await;
+            let (result, cleanup) = match prepared {
+                Ok(outcome) => outcome,
+                Err(payload) => {
+                    // The producer knows this was a panic. Publish that fact
+                    // before dropping its command channel, then retain the
+                    // original panic for the cleanup owner's join verdict.
+                    let _ = sink.request(Input::Fail(OutputError::ProducerPanicked.to_string())).await;
+                    std::panic::resume_unwind(payload);
+                }
             };
             let result = match result {
                 Ok(result) => sink.request(Input::Finish(result)).await.map(|_| ()).map_err(|e| e.to_string()),
@@ -521,7 +578,7 @@ where F: FnOnce(Cancel) -> Fut + Send + 'static,
             drop(sink);
             let joined = encoding.await.is_ok();
             (result, cleanup && joined)
-        }).map_err(|_| ApiError::ServingCapacity("operation admission closed".into()))?;
+        }).map_err(ApiError::operation_admission)?;
     drop(handle); // The shared completion still observes the original producer.
     let mut response = axum::response::Response::new(axum::body::Body::from_stream(
         retain_owner(body, residency)));

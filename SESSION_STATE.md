@@ -1,4 +1,21 @@
-# Admission failure checkpoint
+# Current recurring-error repair, 2026-11-01
+
+Branch: `fix/live-recurring-errors-20261101`. Candidate: `0.5.1-alpha.8`.
+The live service still runs the original alpha.7 release. No activation by
+this repair has occurred. Its intervening restarts had other unknown owners.
+The first isolated build/startup passed. The new active-stream memory fixture
+completed 512 requests with three pages retained and 555-677 MB process PSS
+after startup. This is local fixture evidence, not a six-account live soak.
+The 289-case Python run passed; subsequent cause checks passed 38 tests.
+Rust verification is running on the existing separate Linux builder.
+The separate saved test account passed authentication with its expected
+identity. Its isolated preflight is healthy on 8788 and preserves the normal
+600-second history-recovery hold. The UI build passed. Clearing inactive
+compiler cache reclaimed 5.85 GB, with binaries and live state preserved.
+Next: finish the identical-load memory comparison and Rust checks, build the
+exact package, prove real isolated delivery, then activate and verify live.
+
+# Historical admission failure checkpoint
 
 Updated 2026-10-23. Branch: `fix/live-admission-503-20261023`.
 Base: `bd246222f7a3b986d05c542cf4f2d83e408198bb`.

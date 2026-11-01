@@ -314,7 +314,7 @@ async fn common_a3_status_classification_never_starts_category_fallback() {
         (402, REJECTED, "credits-exhausted".into()),
         (403, castle, "risk-refused".into()),
         (403, upstream, format!("upstream 403 on {PATH}: {upstream}")),
-        (0, "velocity-paused: fixture; retry in 8s", "account-cooling:9".into()),
+        (0, "velocity-paused: fixture; retry in 8s", "account-cooling:9; fixture".into()),
         (429, REJECTED, format!("retryable 429 on {PATH}: {REJECTED}")),
         (500, REJECTED, format!("retryable 500 on {PATH}: {REJECTED}")),
         (400, "different error", format!("retryable 400 on {PATH}: different error")),

@@ -7,6 +7,22 @@ use tokio::sync::{oneshot, Semaphore};
 #[path = "permit_lifetime_fixture.rs"]
 mod fixture;
 const WAIT: Duration = Duration::from_secs(3);
+
+#[tokio::test]
+async fn later_admission_retains_the_failed_cleanup_cause() {
+    let ownership = scope();
+    let app = Router::new().route("/openai/v1/responses", post(|| async {
+        record_cleanup_failure("browser cleanup unconfirmed: device close acknowledgement was lost");
+        completed_response("failed".into_response(), false)
+    })).layer(axum::middleware::from_fn_with_state(Some(ownership.clone()), middleware));
+    let first = app.clone().oneshot(request("/openai/v1/responses")).await.unwrap();
+    to_bytes(first.into_body(), usize::MAX).await.unwrap();
+    let second = app.oneshot(request("/openai/v1/responses")).await.unwrap();
+    assert_eq!(second.status(), StatusCode::SERVICE_UNAVAILABLE);
+    let body = to_bytes(second.into_body(), usize::MAX).await.unwrap();
+    assert!(String::from_utf8_lossy(&body).contains("device close acknowledgement was lost"));
+    assert!(ownership.gate.stats().unwrap().unconfirmed);
+}
 fn scope() -> Arc<ServingOwnership> {
     ServingOwnership::new_unmanaged(Arc::new(WaveGuard::new()), 32).unwrap()
 }
@@ -74,8 +90,9 @@ async fn health_reports_unconfirmed_admission_without_opening_it() {
         .body(Body::empty()).unwrap()).await.unwrap();
     assert_eq!(response.status(), StatusCode::SERVICE_UNAVAILABLE);
     assert_eq!(response.headers()["x-framerize-pid"], std::process::id().to_string());
-    assert_eq!(to_bytes(response.into_body(), 1024).await.unwrap().as_ref(),
-        b"operation admission closed");
+    let bytes = to_bytes(response.into_body(), 1024).await.unwrap();
+    assert!(String::from_utf8_lossy(&bytes).contains(
+        "a registered operation owner was dropped before reporting completed cleanup"));
     let after = scope.gate.stats().unwrap();
     assert_eq!(before.active, after.active);
     assert!(after.unconfirmed);
@@ -202,11 +219,15 @@ struct Frames(std::collections::VecDeque<Frame<Bytes>>);
 async fn body_error_without_a_completion_observer_stays_unconfirmed() {
     let ownership = scope();
     let owner = ownership.owner(OperationKind::Inference).unwrap();
-    let source = futures::stream::iter([Err::<Bytes, _>(std::io::Error::other("fixture"))]);
+    let source = futures::stream::iter([Err::<Bytes, _>(std::io::Error::other(
+        "fixture connection reset; Authorization: Bearer private-fixture"))]);
     let mut body = OwnedBody { body: Body::from_stream(source), owner: Some(owner), completion: None };
     let result = futures::future::poll_fn(|cx| Pin::new(&mut body).poll_frame(cx)).await;
     assert!(result.unwrap().is_err());
     assert!(matches!(ownership.seal(), Err(GateError::Unconfirmed)));
+    let reason = ownership.admission_message(GateError::Unconfirmed);
+    assert!(reason.contains("fixture connection reset"), "{reason}");
+    assert!(!reason.contains("private-fixture"));
 }
 
 #[tokio::test]
@@ -345,7 +366,7 @@ async fn actual_access_log_observes_ownership_rejection_and_handler_panic() {
         assert_eq!(response.status().as_u16(), expected);
         assert_eq!(*capture.0.lock().unwrap(), vec![expected]);
         let body = to_bytes(response.into_body(), 4096).await.unwrap();
-        assert_eq!(body.as_ref(), if reject { b"operation admission closed".as_slice() }
+        assert_eq!(body.as_ref(), if reject { b"Cannot start this request: earlier work ended without confirmed cleanup; its resources cannot be reused.".as_slice() }
             else { b"operation completion unconfirmed".as_slice() });
         if reject { assert!(f.loads.try_recv().is_err()); }
         else { assert_eq!(f.loads.try_recv().unwrap(), f.accounts[0].framer_user_id); }

@@ -4,8 +4,8 @@ use super::*;
 fn cr_named_failure_or_invalid_terminal_cannot_hide_beside_completion() {
     let valid = frame(&completed("fixture"));
     for (kind, expected) in [
-        ("error", "streamed chunk ended with error"),
-        ("response.failed", "streamed chunk ended with response.failed"),
+        ("error", "streamed chunk ended with error: the upstream supplied no further cause"),
+        ("response.failed", "streamed chunk ended with response.failed: the upstream supplied no further cause"),
         ("response.completed", "streamed chunk has invalid named terminal event"),
         ("response.incomplete", "streamed chunk has invalid named terminal event"),
     ] {
@@ -105,8 +105,11 @@ fn terminal_response_error_is_not_accepted_stream_output() {
             terminal["type"] = json!(kind);
             terminal["response"]["status"] = json!(status);
             terminal["response"]["error"] = error.clone();
+            let expected = if error.is_string() || error["message"].is_string() {
+                "streamed chunk contains an upstream error: fixture diagnostic"
+            } else { "streamed chunk has non-null response error" };
             assert_eq!(parse_streamed_chunk(&frame(&terminal)).unwrap_err(),
-                "streamed chunk has non-null response error");
+                expected);
         }
     }
 }
@@ -200,10 +203,12 @@ fn named_error_frames_are_fatal_independently_of_data() {
         format!("event: error\n{valid}"),
         "event: ping\nevent:error\ndata: {}\n\n".into(),
     ] {
+        let cause = if error.contains("private-fixture") { "private-fixture" }
+            else { "the upstream supplied no further cause" };
         for input in [format!("{}\n\n{valid}", error.trim_end()),
             format!("{valid}{error}")] {
             assert_eq!(parse_streamed_chunk(&input).unwrap_err(),
-                "streamed chunk ended with error");
+                format!("streamed chunk ended with error: {cause}"));
         }
     }
 }
@@ -226,7 +231,7 @@ fn named_failed_frames_cannot_be_hidden_by_completion() {
         let failed = format!("event: response.failed\n{data}");
         for input in [format!("{failed}\n\n{valid}"), format!("{valid}{failed}")] {
             assert_eq!(parse_streamed_chunk(&input).unwrap_err(),
-                "streamed chunk ended with response.failed");
+                "streamed chunk ended with response.failed: the upstream supplied no further cause");
         }
     }
 }
@@ -323,12 +328,18 @@ fn terminal_output_items_require_objects_and_nonempty_types() {
 
 #[test]
 fn failed_or_nonterminal_status_is_not_a_completion() {
-    for status in [json!("failed"), json!("cancelled"), json!("in_progress"),
-        json!("queued"), json!("fixture-private-status"), Value::Null, json!(1), json!({})] {
+    for (status, cause) in [
+        (json!("failed"), "upstream response failed: the provider did not supply a failure cause"),
+        (json!("cancelled"), "terminal status \"cancelled\""),
+        (json!("in_progress"), "terminal status \"in_progress\""),
+        (json!("queued"), "terminal status \"queued\""),
+        (json!("fixture-private-status"), "terminal status \"fixture-private-status\""),
+        (Value::Null, "terminal status null"), (json!(1), "terminal status a number"),
+        (json!({}), "terminal status an object")] {
         let mut event = completed("fixture");
         event["response"]["status"] = status;
-        assert_eq!(parse_streamed_chunk(&frame(&event)).unwrap_err(),
-            "streamed chunk has invalid terminal status");
+        let error = parse_streamed_chunk(&frame(&event)).unwrap_err();
+        assert!(error.contains(cause), "{error}");
     }
 }
 
@@ -440,7 +451,7 @@ fn explicit_failure_before_completion_is_not_hidden() {
     for kind in ["error", "response.failed", "response.incomplete"] {
         let failure = json!({"type":kind, "message":"fixture-private-diagnostic"});
         let body = frame(&failure) + &frame(&completed("fixture"));
-        assert_eq!(parse_streamed_chunk(&body).unwrap_err(), format!("streamed chunk ended with {kind}"));
+        assert_eq!(parse_streamed_chunk(&body).unwrap_err(), format!("streamed chunk ended with {kind}: fixture-private-diagnostic"));
     }
 }
 
@@ -449,7 +460,7 @@ fn explicit_failure_after_completion_is_not_hidden() {
     for kind in ["error", "response.failed", "response.incomplete"] {
         let failure = json!({"type":kind, "message":"fixture-private-diagnostic"});
         let body = frame(&completed("fixture")) + &frame(&failure);
-        assert_eq!(parse_streamed_chunk(&body).unwrap_err(), format!("streamed chunk ended with {kind}"));
+        assert_eq!(parse_streamed_chunk(&body).unwrap_err(), format!("streamed chunk ended with {kind}: fixture-private-diagnostic"));
     }
 }
 
@@ -521,7 +532,7 @@ fn explicit_incomplete_event_requires_matching_status() {
         for data in [frame(&event), frame(&event) + &frame(&completed("later")),
             frame(&completed("earlier")) + &frame(&event)] {
             assert_eq!(parse_streamed_chunk(&data).unwrap_err(),
-                "streamed chunk ended with response.incomplete");
+                "streamed chunk ended with response.incomplete: max_output_tokens");
         }
     }
 }
@@ -555,7 +566,7 @@ fn failures_beside_valid_incomplete_events_remain_errors() {
         let partial = incomplete_event("partial");
         for data in [frame(&failure) + &frame(&partial), frame(&partial) + &frame(&failure)] {
             assert_eq!(parse_streamed_chunk(&data).unwrap_err(),
-                format!("streamed chunk ended with {kind}"));
+                format!("streamed chunk ended with {kind}: private-fixture"));
         }
     }
 }
@@ -624,11 +635,14 @@ fn malformed_completed_body_cannot_be_hidden_by_later_terminal() {
     ] {
         let mut invalid = json!({"type":"response.completed"});
         if let Some(body) = body { invalid["response"] = body; }
+        let expected = if reason == "invalid terminal status" {
+            "upstream response failed: the provider did not supply a failure cause".to_owned()
+        } else { format!("streamed chunk has {reason}") };
         for later in [completed("later"), incomplete_event("later")] {
             for prefix in ["", "event: response.completed\n"] {
                 let input = format!("{prefix}{}{}", frame(&invalid), frame(&later));
                 assert_eq!(parse_streamed_chunk(&input).unwrap_err(),
-                    format!("streamed chunk has {reason}"));
+                    expected);
             }
         }
     }

@@ -1,10 +1,28 @@
 use super::*;
 
 #[test]
+fn fenced_slot_keeps_its_failure_until_confirmed_close() {
+    let pool = ResidentPool::new(1).unwrap();
+    let owner = lease(&pool, 1);
+    owner.mark_unconfirmed_with_cause("browser status did not reply within 5 seconds").unwrap();
+    owner.mark_unconfirmed_with_cause("later less specific error").unwrap();
+    drop(owner);
+    let state = pool.snapshot().unwrap();
+    assert_eq!(state.residents[0].cleanup_cause.as_deref(),
+        Some("browser status did not reply within 5 seconds"));
+    assert!(pool.try_acquire(id(1), None).is_err());
+    let mut close = pool.begin_park(id(1)).unwrap();
+    close.close_started().unwrap();
+    close.confirm_close().unwrap();
+    let _next = lease(&pool, 1);
+    assert!(pool.snapshot().unwrap().residents[0].cleanup_cause.is_none());
+}
+
+#[test]
 fn only_matching_busy_receipts_cancel_close_without_freeing_capacity() {
     use crate::browser_lifecycle::{BrowserAccountState as State, IdleCloseOutcome};
     let expected = BrowserAccountStatus { account_id: id(1), host_generation: Some("host".into()),
-        account_incarnation: 1, state: State::Resident, active_commands: 0 };
+        account_incarnation: 1, state: State::Resident, active_commands: 0, cleanup_cause: None };
     for case in 0..9 {
         let pool = ResidentPool::new(1).unwrap();
         drop(lease(&pool, 1));

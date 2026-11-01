@@ -117,7 +117,6 @@ pub async fn complete_long(
     let (mut ptok, mut ctok) = (0u64, 0u64);
     let mut metered_chunks = 0u32;
     let mut tool_cut_retries = 0u32;
-    let mut slow_chunks = 0u32;
     let mut rate_retries = 0u32;
 
     // Window sizing from live measurement (§8 + 2026-10-03 storm analysis):
@@ -160,18 +159,14 @@ pub async fn complete_long(
         let payload = build_payload(&messages, chunk, dialect);
         let t0 = cooldown_wait.timer();
         eprintln!("[freechat] chunk {i} start (max_tokens={chunk}, bucket {dialect:?}/{step})");
-        // 429 bucket-hop loop (2026-10-05 fix): the old nested match's inner
-        // `continue` skipped to the NEXT CHUNK on a second 429, silently
-        // dropping this chunk's content — and a successful cross-dialect retry
-        // got parsed as the ORIGINAL dialect (garbage). This loop retries THE
-        // SAME chunk, carries the effective dialect forward for parsing, and
-        // only exits on success, a non-429 error, or exhaustion.
+        // Rate-limit retries retain this request's route, payload and identity.
+        // A provider limit does not establish workspace saturation.
         let mut effective_dialect = dialect;
         let mut last_attempt_t0 = t0;
         let first = {
-            let mut cur_dialect = dialect;
-            let mut cur_step = step.clone();
-            let mut attempt_payload = payload;
+            let cur_dialect = dialect;
+            let cur_step = step.clone();
+            let attempt_payload = payload;
             let mut out = None;
             while out.is_none() {
                 cfg.check_cancelled()?;
@@ -183,38 +178,18 @@ pub async fn complete_long(
                     Ok(r) => out = Some(Ok((cur_dialect, r))),
                     Err(e) if cfg.is_cancelled() => return Err(e),
                     Err(e) if e.starts_with("retryable 429") => {
-                        // 4 in-chain hops, then surface: a saturated WORKSPACE
-                        // can't be fixed by bucket hops (the cap is per
-                        // workspace), so get to rotation::mark_saturated fast.
                         if rate_retries >= 9 {
-                            out = Some(Err(format!("chunk {i}: workspace still saturated after {rate_retries} bucket retries ({e})")));
+                            out = Some(Err(e));
                             break;
                         }
-                        // 429 = THIS BUCKET (route×step) is full. Advance to
-                        // the next bucket and retry INSTANTLY — the cap counts
-                        // per bucket, so the next one is empty. Only after ~10
-                        // hops (the whole rotation twice) a real sleep.
                         rate_retries += 1;
-                        if let Some(cb) = &cfg.on_429 {
-                            cb();
+                        if framer_core::error::is_workspace_saturation(&e) {
+                            if let Some(cb) = &cfg.on_429 { cb(); }
                         }
-                        bucket_idx += 1;
-                        let (d2, s2) = bucket(bucket_idx);
-                        if rate_retries > 2 {
-                            // Saturation is workspace-wide (measured): bucket
-                            // hops stop helping after the first couple — WAIT
-                            // for in-flight work to drain (escalating, ~2min
-                            // total patience) instead of erroring into client
-                            // retry storms (the 2026-10-06 wave analysis).
-                            let wait = std::time::Duration::from_millis(1500 * (1 << (rate_retries - 2).min(4)));
-                            eprintln!("[freechat] chunk {i} 429 — backoff {wait:?} (attempt {rate_retries}/9)");
-                            tokio::time::sleep(wait).await;
-                        } else {
-                            eprintln!("[freechat] chunk {i} 429 on {cur_dialect:?}/{cur_step} — instant retry on next bucket {d2:?}/{s2}");
-                        }
-                        attempt_payload = build_payload(&messages, chunk, d2);
-                        cur_dialect = d2;
-                        cur_step = s2;
+                        let wait = std::time::Duration::from_millis(
+                            1500 * (1 << (rate_retries - 1).min(4)));
+                        eprintln!("[freechat] chunk {i} HTTP 429, waiting {wait:?} (attempt {rate_retries}/9)");
+                        tokio::time::sleep(wait).await;
                     }
                     Err(e) => out = Some(Err(e)),
                 }
@@ -243,6 +218,7 @@ pub async fn complete_long(
                 let retry_tokens = budget.min(chunk_tokens.max(output_floor));
                 eprintln!("[freechat] chunk {i} died at {elapsed:.1}s ({e}), retrying with max_tokens={retry_tokens} on {d3:?}/{s3}");
                 let retry_payload = build_payload(&messages, retry_tokens, d3);
+                last_attempt_t0 = cooldown_wait.timer();
                 let mut retry_started = tokio::time::Instant::now();
                 match cooldown_wait.run(cfg, !blocks.is_empty(), || {
                     // Reset after a local cooldown so only the failing attempt counts.
@@ -300,7 +276,7 @@ pub async fn complete_long(
         // re-sends the whole conversation) and deepens the very queue it is
         // reacting to. Measured 2026-10-03: 85 tok/s solo -> 3-6 tok/s at 12
         // agents on an otherwise IDLE box (load average 0.29).
-        let wall = cooldown_wait.elapsed(t0).as_secs_f32();
+        let wall = cooldown_wait.elapsed(last_attempt_t0).as_secs_f32();
         let queued = resp.queue_wait_ms as f32 / 1000.0;
         let elapsed = (wall - queued).max(0.5);
         if queued > 2.0 {
@@ -323,9 +299,6 @@ pub async fn complete_long(
         if adaptive_thinking && chunk_stop == "max_tokens" && contains_tool_use {
             return Err("adaptive thinking reached the requested output limit during a tool call".into());
         }
-        let terminal_without_text = chunk_stop == "max_tokens"
-            && !contains_tool_use && !has_continuation_text(&chunk_blocks);
-
         // Adapt chunk size from measured throughput (floor 400: completes even
         // when the upstream degrades to a crawl; ceiling 3000 ≈ 75% window).
         let tps = out_t as f32 / elapsed.max(0.5);
@@ -333,18 +306,8 @@ pub async fn complete_long(
         if tps > 1.0 {
             chunk_tokens = budget_for(tps);
         }
-        // Sustained collapse detector: two consecutive chunks under ~8 tok/s
-        // means the upstream is in a degraded period. Fail FAST (the client
-        // retries later and wins) instead of grinding into the 300s wall-cap
-        // and multiplying user wait through client retries.
-        if tps > 0.0 && tps < 8.0 {
-            slow_chunks += 1;
-            if slow_chunks >= 2 && !terminal_without_text {
-                return Err(format!("upstream degraded ({tps:.0} tok/s sustained) — retry in a minute"));
-            }
-        } else if tps >= 12.0 {
-            slow_chunks = 0;
-        }
+        // Keep valid output at low throughput. The active-time budget limits
+        // later work without discarding an already successful response.
 
         // Partial tool_use at max_tokens: a half-written tool call can't be
         // continued — and enlarging the budget breaks the real invariant
@@ -449,16 +412,14 @@ fn has_continuation_text(blocks: &[Value]) -> bool {
         && block["text"].as_str().is_some_and(|text| !text.trim().is_empty()))
 }
 
-fn retryable_failure(error: &str, elapsed: f32) -> bool {
-    // Preserve the existing delayed idle-window heuristic. Explicit provider,
-    // credit, auth and other 4xx refusals cannot be repaired by another request.
-    let idle_killed = error == "risk-refused" && elapsed > 8.0;
+fn retryable_failure(error: &str, _elapsed: f32) -> bool {
+    // Elapsed time does not establish why a security check refused a request.
     let transport_died = !error.starts_with("upstream 403")
         && error != "risk-refused"
         && error != "credits-exhausted"
         && error != "unauthorized"
         && !error.starts_with("retryable 4");
-    idle_killed || transport_died
+    !framer_core::error::is_local_request_failure(error) && transport_died
 }
 
 fn remaining_tokens(cfg: &ChainConfig, output_tokens: u64) -> Option<u32> {

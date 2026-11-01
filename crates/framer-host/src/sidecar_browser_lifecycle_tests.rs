@@ -27,7 +27,7 @@ async fn other_account_close_is_rejected_without_starting_a_host() {
 async fn existing_only_call_does_not_spawn_a_missing_host() {
     let bridge = SidecarBridge::new("unused-lifecycle-state");
     let result = bridge.call_with_policy("browser_status", json!({}), STATUS_TIMEOUT, false).await;
-    assert_eq!(result.unwrap_err(), "sidecar unavailable");
+    assert_eq!(result.unwrap_err(), "sidecar unavailable: browser host has not been started");
     assert!(bridge.inner.lock().await.is_none());
 }
 
@@ -101,10 +101,12 @@ async fn an_exited_host_is_uncertain_and_is_never_respawned_by_inspection() {
     *bridge.inner.lock().await = Some(Sidecar {
         child, stdin, pending: pending.clone(), cancel, next_id: Arc::new(AtomicU64::new(0)),
         healthy: Arc::new(std::sync::atomic::AtomicBool::new(true)),
+        failure: Arc::new(StdMutex::new(None)),
         incarnation: uuid::Uuid::new_v4(),
     });
     let error = bridge.browser_status(&AccountId::new()).await.unwrap_err();
     assert!(error.starts_with("host-lifecycle-unconfirmed:"));
+    assert!(error.contains("exited with exit status: 0"), "{error}");
     let regular = bridge.call("fixture", json!({})).await.unwrap_err();
     assert!(regular.starts_with("host-lifecycle-unconfirmed:"));
     let mut locked = bridge.inner.lock().await;

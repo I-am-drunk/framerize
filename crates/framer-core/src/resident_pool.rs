@@ -36,6 +36,7 @@ pub struct ResidentSnapshot {
     pub replacement: Option<AccountId>,
     pub close_started: bool,
     pub uncertain: bool,
+    pub cleanup_cause: Option<String>,
 }
 #[derive(Debug, Clone, Serialize)]
 pub struct PoolSnapshot {
@@ -49,7 +50,8 @@ enum SlotState {
     Closing { id: u64, target: Option<AccountId>, started: bool, was_uncertain: bool },
     Uncertain,
 }
-struct Slot { account: AccountId, users: usize, idle_order: u64, state: SlotState }
+struct Slot { account: AccountId, users: usize, idle_order: u64, state: SlotState,
+    cleanup_cause: Option<String> }
 struct Inner { capacity: usize, slots: Vec<Slot>, clock: u64, next_ticket: u64 }
 #[derive(Clone)]
 pub struct ResidentPool { inner: Arc<Mutex<Inner>> }
@@ -96,7 +98,8 @@ impl ResidentPool {
             };
             let uncertain = matches!(slot.state, SlotState::Uncertain |
                 SlotState::Closing { was_uncertain: true, .. });
-            ResidentSnapshot { account: slot.account, users: slot.users, status, replacement, close_started, uncertain }
+            ResidentSnapshot { account: slot.account, users: slot.users, status, replacement,
+                close_started, uncertain, cleanup_cause: slot.cleanup_cause.clone() }
         }).collect();
         Ok(PoolSnapshot { capacity: inner.capacity, occupied: inner.slots.len(), residents })
     }
@@ -141,7 +144,8 @@ impl ResidentPool {
             return Ok(Acquire::Lease(ResidentLease { pool: self.clone(), account, release_on_drop: true }));
         }
         if inner.slots.len() < inner.capacity {
-            inner.slots.push(Slot { account, users: 1, idle_order: 0, state: SlotState::Resident });
+            inner.slots.push(Slot { account, users: 1, idle_order: 0,
+                state: SlotState::Resident, cleanup_cause: None });
             return Ok(Acquire::Lease(ResidentLease { pool: self.clone(), account, release_on_drop: true }));
         }
         let idle = |s: &&Slot| s.users == 0 && matches!(s.state, SlotState::Resident)
@@ -198,6 +202,9 @@ impl ResidentLease {
     /// Retain this occupied slot after a negative browser observation.
     /// Existing users keep their leases; only a proved close can free it.
     pub fn mark_unconfirmed(&self) -> Result<(), PoolError> {
+        self.mark_unconfirmed_with_cause("browser work ended without confirmed cleanup; its owner supplied no failure cause")
+    }
+    pub fn mark_unconfirmed_with_cause(&self, cause: &str) -> Result<(), PoolError> {
         let mut inner = self.pool.lock()?;
         let slot = inner.slots.iter_mut().find(|slot| slot.account == self.account)
             .ok_or(PoolError::NotResident)?;
@@ -205,6 +212,7 @@ impl ResidentLease {
             return Err(PoolError::StaleTicket);
         }
         slot.state = SlotState::Uncertain;
+        slot.cleanup_cause.get_or_insert_with(|| crate::error::safe_failure_summary(cause));
         Ok(())
     }
 }
@@ -222,6 +230,14 @@ impl Drop for ResidentLease {
     }
 }
 impl CloseTicket {
+    fn record_failure(&self, cause: &str) {
+        if let Ok(mut inner) = self.pool.lock() {
+            if let Ok(index) = self.position(&inner) {
+                inner.slots[index].cleanup_cause.get_or_insert_with(||
+                    crate::error::safe_failure_summary(cause));
+            }
+        }
+    }
     fn position(&self, inner: &Inner) -> Result<usize, PoolError> {
         inner.slots.iter().position(|s| s.account == self.victim && s.users == 0 &&
             matches!(s.state, SlotState::Closing { id, target, .. }
@@ -255,7 +271,8 @@ impl CloseTicket {
         }
         let lease = if let Some(account) = self.target {
             if inner.slots.iter().any(|s| s.account == account) { return Err(PoolError::AccountBusy); }
-            inner.slots[index] = Slot { account, users: 1, idle_order: 0, state: SlotState::Resident };
+            inner.slots[index] = Slot { account, users: 1, idle_order: 0,
+                state: SlotState::Resident, cleanup_cause: None };
             Some(ResidentLease { pool: self.pool.clone(), account, release_on_drop: true })
         } else {
             inner.slots.remove(index);
@@ -291,6 +308,7 @@ impl Drop for CloseTicket {
     }
 }
 impl EvictionTicket {
+    pub fn record_failure(&self, cause: &str) { self.0.record_failure(cause); }
     pub fn victim(&self) -> AccountId { self.0.victim }
     pub fn target(&self) -> AccountId { self.0.target.expect("eviction has replacement") }
     pub fn close_started(&mut self) -> Result<(), PoolError> { self.0.close_started() }
@@ -304,6 +322,7 @@ impl EvictionTicket {
     }
 }
 impl ParkTicket {
+    pub fn record_failure(&self, cause: &str) { self.0.record_failure(cause); }
     pub fn victim(&self) -> AccountId { self.0.victim }
     pub fn close_started(&mut self) -> Result<(), PoolError> { self.0.close_started() }
     pub fn cancel_before_io(self) -> Result<(), PoolError> { self.0.cancel_before_io() }

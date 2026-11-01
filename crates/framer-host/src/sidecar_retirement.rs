@@ -10,6 +10,22 @@ pub enum RetirementError {
     ProcessUnconfirmed, TasksUnconfirmed, GenerationMismatch,
 }
 
+impl RetirementError {
+    pub fn explanation(self) -> &'static str {
+        match self {
+            Self::Gate(error) => error.explanation(),
+            Self::Closed => "the browser host admission gate is closed for shutdown",
+            Self::Busy => "active browser host commands have not finished",
+            Self::Poisoned => "browser host ownership became uncertain after a state-lock failure",
+            Self::Exhausted => "the browser host command counter is exhausted",
+            Self::Unsupported => "this host has no registered shutdown owner",
+            Self::ProcessUnconfirmed => "browser host startup or process termination did not complete",
+            Self::TasksUnconfirmed => "browser host transport tasks did not finish successfully",
+            Self::GenerationMismatch => "the browser host generation changed during shutdown",
+        }
+    }
+}
+
 struct State {
     closed: bool,
     active: usize,

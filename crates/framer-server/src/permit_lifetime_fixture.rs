@@ -72,6 +72,7 @@ impl BrowserBridge for Ports {
 
 
 impl FramerClient for Ports {
+    fn model_catalog(&self) -> &'static [&'static str] { &["gpt-fixture", "claude-fixture"] }
     fn native_long_with_sink<'s, 'b, 'c, 'd, 'e, 'f, 'g, 'h, 'a>(
         &'s self, _session: &'b Session, _browser: &'c dyn BrowserBridge,
         account: &'d AccountId, _project: &'e ProjectId, _payload: Value,

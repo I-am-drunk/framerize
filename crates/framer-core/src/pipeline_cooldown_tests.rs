@@ -341,7 +341,7 @@ async fn nonready_recorded_during_first_inference_prevents_402_retry() {
     expected.current_team = operation_scope(true).current_team;
     expected.current_project = operation_scope(true).current_project;
     expected.extra_workspaces.clear();
-    assert!(matches!(fixture.run(&mut current).await, Err(CoreError::AccountNotReady)));
+    assert!(matches!(fixture.run(&mut current).await, Err(CoreError::AccountNotReady(_))));
     assert_record_eq(&current, &expected);
     assert_record_eq(&fixture.stored(current.id).unwrap(), &expected);
     assert!(!current.is_eligible());
@@ -360,7 +360,7 @@ async fn initial_inference_capacity_refusal_has_typed_cause() {
         let before = crate::rotation::now_ms();
         let result = fixture.run(&mut current).await;
         if kind == "nonready" {
-            assert!(matches!(result, Err(CoreError::AccountNotReady)));
+            assert!(matches!(result, Err(CoreError::AccountNotReady(_))));
         } else {
             assert_cooling_between(result, u64::MAX, before, crate::rotation::now_ms());
         }
@@ -400,8 +400,8 @@ async fn invalid_admission_scope_is_not_typed_capacity() {
             state: &fixture, account_updates: &fixture.updates };
         let expected = match dimension {
             "removed" => "account removed before inference",
-            "missing-team" | "missing-project" =>
-                "account is not ready or is missing its current team or project",
+            "missing-team" => "account state is Quarantined; inference requires Ready; no current workspace is configured",
+            "missing-project" => "account state is Quarantined; inference requires Ready; no current project is configured",
             _ => "account scope changed before inference",
         };
         assert!(matches!(super::check_inference_admission(&deps, &current, &session).await,

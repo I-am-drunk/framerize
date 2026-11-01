@@ -113,7 +113,8 @@ async fn responses_handler_join_failure_emits_a_fixed_sequenced_error() {
     let frames = events(&wire);
     assert_sequence(&frames);
     assert_eq!(frames.last().unwrap()["type"], "response.failed");
-    assert_eq!(frames.last().unwrap()["response"]["error"]["message"], "upstream operation task failed");
+    assert_eq!(frames.last().unwrap()["response"]["error"]["message"],
+        framer_core::port::OutputError::ProducerPanicked.to_string());
     assert!(!wire.contains("wrong fixture reply"));
     assert!(!wire.contains("response.completed"));
 }

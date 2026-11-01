@@ -17,9 +17,9 @@ use crate::forward::{AuthorizedForward, ChainLimits, ForwardReply};
 use crate::responses_sink::{OutputError, ResponseResult, ResponsesSink, ValidatedChunk};
 use serde_json::{json, Value};
 
-fn allows_transport_retry(error: &str, elapsed_secs: f32) -> bool {
-    (error == "risk-refused" && elapsed_secs > 8.0)
-        || (!error.starts_with("upstream 403")
+fn allows_transport_retry(error: &str, _elapsed_secs: f32) -> bool {
+    !crate::error::is_local_request_failure(error)
+        && (!error.starts_with("upstream 403")
             && error != "risk-refused"
             && error != "credits-exhausted"
             && error != "unauthorized"
@@ -87,7 +87,6 @@ pub async fn complete_long_with_sink(
     let (mut ptok, mut ctok) = (0u64, 0u64);
     let mut metered_chunks = 0u32;
     let mut tool_cut_retries = 0u32;
-    let mut slow_chunks = 0u32;
     let mut rate_retries = 0u32;
     let mut final_status = "completed".to_string();
     let mut final_incomplete: Option<Value> = None;
@@ -158,21 +157,19 @@ pub async fn complete_long_with_sink(
                     Err(e) if forward.is_cancelled() => return Err(e.into()),
                     Err(e) if e.starts_with("retryable 429") => {
                         if rate_retries >= 9 {
-                            out = Some(Err(format!(
-                                "chunk {i}: workspace still saturated after {rate_retries} retries ({e})"
-                            )));
+                            out = Some(Err(e));
                             break;
                         }
                         rate_retries += 1;
-                        forward.on_429();
-                        if rate_retries > 3 {
+                        if crate::error::is_workspace_saturation(&e) {
+                            forward.on_429();
+                        }
+                        {
                             let wait = std::time::Duration::from_millis(
-                                1500 * (1 << (rate_retries - 3).min(4)),
+                                1500 * (1 << (rate_retries - 1).min(4)),
                             );
                             eprintln!("[nativechain] chunk {i} 429 — backoff {wait:?} (attempt {rate_retries})");
                             tokio::time::sleep(wait).await;
-                        } else {
-                            eprintln!("[nativechain] chunk {i} 429 — instant retry ({rate_retries})");
                         }
                         attempt_payload = build_payload(&input_items, chunk);
                     }
@@ -204,6 +201,7 @@ pub async fn complete_long_with_sink(
                 eprintln!("[nativechain] chunk {i} died at {elapsed:.1}s ({e}) — retrying with max_output_tokens={retry_chunk}");
                 let retry_payload = build_payload(&input_items, retry_chunk);
                 let retry_t0 = cooldown_wait.timer();
+                last_attempt_t0 = retry_t0;
                 match cooldown_wait.run(forward, !output_items.is_empty(), || forward.forward(&chain_step, retry_payload.clone(), i))
                 .await
                 {
@@ -228,7 +226,7 @@ pub async fn complete_long_with_sink(
             }
         };
 
-        let wall = cooldown_wait.elapsed(t0).as_secs_f32();
+        let wall = cooldown_wait.elapsed(last_attempt_t0).as_secs_f32();
         let queued = resp.queue_wait_ms as f32 / 1000.0;
         let elapsed = (wall - queued).max(0.5);
         if queued > 2.0 {
@@ -247,10 +245,15 @@ pub async fn complete_long_with_sink(
             }
             body
         } else {
-            let body: Value = serde_json::from_str(&text)
-                .map_err(|e| format!("chunk {i} not json: {e}"))?;
+            if text.trim().is_empty() {
+                return Err("upstream returned HTTP 200 with an empty Responses body".into());
+            }
+            let body: Value = serde_json::from_str(&text).map_err(|e| {
+                let issue = if e.is_eof() { "JSON ended before completion" } else { "invalid JSON" };
+                format!("upstream Responses body has {issue} ({} bytes): {e}", text.len())
+            })?;
             validate_response_body(&body)
-                .map_err(|problem| format!("response chunk has {problem}"))?;
+                .map_err(|problem| response_problem(&body, problem, "response chunk"))?;
             body
         };
 
@@ -268,14 +271,8 @@ pub async fn complete_long_with_sink(
             if tps > 1.0 {
                 chunk_tokens = budget_for(tps);
             }
-            if tps > 0.0 && tps < 8.0 {
-                slow_chunks += 1;
-                if slow_chunks >= 2 {
-                    return Err(format!("upstream degraded ({tps:.0} tok/s sustained) — retry in a minute").into());
-                }
-            } else if tps >= 12.0 {
-                slow_chunks = 0;
-            }
+            // Throughput controls future chunk sizes, not whether valid output
+            // is delivered. The active-time budget already bounds later work.
         }
 
         let ends_in_call = items
@@ -453,6 +450,34 @@ pub(crate) fn validate_tool_fields(items: &[Value], previous: &[Value]) -> Resul
     Ok(())
 }
 
+fn response_problem(body: &Value, problem: &str, context: &str) -> String {
+    if problem == "non-null response error" {
+        if let Some(message) = body.pointer("/error/message").and_then(Value::as_str)
+            .or_else(|| body["error"].as_str()) {
+            return format!("{context} contains an upstream error: {}",
+                crate::error::safe_failure_summary(message));
+        }
+    }
+    if problem == "invalid terminal status" {
+        if body["status"] == "failed" {
+            let message = body.pointer("/error/message").and_then(Value::as_str)
+                .unwrap_or("the provider did not supply a failure cause");
+            return format!("upstream response failed: {}", crate::error::safe_failure_summary(message));
+        }
+        let status = match body.get("status") {
+            Some(Value::String(value)) => format!("{:?}", value.chars().take(80).collect::<String>()),
+            Some(Value::Null) => "null".into(),
+            Some(Value::Array(_)) => "an array".into(),
+            Some(Value::Object(_)) => "an object".into(),
+            Some(Value::Bool(_)) => "a boolean".into(),
+            Some(Value::Number(_)) => "a number".into(),
+            None => "no status".into(),
+        };
+        return format!("upstream returned terminal status {status}; expected completed or incomplete");
+    }
+    format!("{context} has {problem}")
+}
+
 fn validate_response_body(body: &Value) -> Result<(), &'static str> {
     if !body.is_object() {
         return Err("invalid response object");
@@ -513,6 +538,16 @@ fn validate_response_tail(body: &Value, output: &[Value]) -> Result<(), &'static
     Ok(())
 }
 
+fn stream_failure(kind: &str, value: Option<&Value>) -> String {
+    let detail = value.and_then(|v| {
+        [v.pointer("/response/error/message"), v.pointer("/error/message"),
+            v.get("message"), v.pointer("/response/incomplete_details/reason")]
+            .into_iter().flatten().find_map(Value::as_str)
+    }).unwrap_or("the upstream supplied no further cause");
+    format!("streamed chunk ended with {kind}: {}",
+        crate::error::safe_failure_summary(detail))
+}
+
 fn parse_streamed_chunk(text: &str) -> Result<AssembledResponses, String> {
     // Retain the terminal response, including a validated partial completion.
     let mut final_obj: Option<Value> = None;
@@ -539,19 +574,20 @@ fn parse_streamed_chunk(text: &str) -> Result<AssembledResponses, String> {
             continue;
         }
         let frame_name = std::mem::take(&mut event_name);
-        if matches!(frame_name, "error" | "response.failed") {
-            return Err(format!("streamed chunk ended with {frame_name}"));
-        }
+        let named_failure = matches!(frame_name, "error" | "response.failed");
         let named_terminal = matches!(frame_name, "response.completed" | "response.incomplete");
-        if data_lines.is_empty() && !named_terminal {
+        if data_lines.is_empty() && !named_terminal && !named_failure {
             continue;
         }
         let data = data_lines.join("\n");
         data_lines.clear();
-        if data == "[DONE]" && !named_terminal {
+        if data == "[DONE]" && !named_terminal && !named_failure {
             continue;
         }
         let parsed = serde_json::from_str::<Value>(&data);
+        if named_failure {
+            return Err(stream_failure(frame_name, parsed.as_ref().ok()));
+        }
         if named_terminal && parsed.as_ref().ok().and_then(|v| v["type"].as_str()) != Some(frame_name) {
             return Err("streamed chunk has invalid named terminal event".into());
         }
@@ -560,24 +596,24 @@ fn parse_streamed_chunk(text: &str) -> Result<AssembledResponses, String> {
                 Some("response.completed") => {
                     let body = &v["response"];
                     validate_response_body(body)
-                        .map_err(|problem| format!("streamed chunk has {problem}"))?;
+                        .map_err(|problem| response_problem(body, problem, "streamed chunk"))?;
                     final_obj = Some(body.clone());
                 }
                 Some("response.incomplete") if v["response"]["status"] == "incomplete" => {
                     let body = &v["response"];
                     validate_response_body(body)
-                        .map_err(|problem| format!("streamed chunk has {problem}"))?;
+                        .map_err(|problem| response_problem(body, problem, "streamed chunk"))?;
                     final_obj = Some(body.clone());
                 }
                 Some(kind @ ("error" | "response.failed" | "response.incomplete")) => {
-                    return Err(format!("streamed chunk ended with {kind}"));
+                    return Err(stream_failure(kind, Some(&v)));
                 }
                 _ => {}
             }
         }
     }
     let body = final_obj.ok_or("streamed chunk had no terminal response event")?;
-    validate_response_body(&body).map_err(|problem| format!("streamed chunk has {problem}"))?;
+    validate_response_body(&body).map_err(|problem| response_problem(&body, problem, "streamed chunk"))?;
     let output = body["output"].as_array().expect("validated response output").clone();
     let usage = body.get("usage").cloned().unwrap_or_else(|| json!({}));
     Ok(AssembledResponses {
@@ -596,6 +632,33 @@ fn parse_streamed_chunk(text: &str) -> Result<AssembledResponses, String> {
 }
 
 // Preserve the existing typed-input and namespace normalization.
+
+#[cfg(test)]
+mod failure_tests {
+    use super::*;
+
+    #[test]
+    fn streamed_failure_preserves_the_reported_cause() {
+        let frame = "data: {\"type\":\"response.failed\",\"response\":{\"error\":{\"message\":\"provider quota exhausted\"}}}\n\n";
+        for prefix in ["", "event: response.failed\n"] {
+            let error = parse_streamed_chunk(&format!("{prefix}{frame}")).err().unwrap();
+            assert!(error.contains("provider quota exhausted"), "{error}");
+        }
+    }
+
+    #[test]
+    fn unexpected_status_names_the_value_or_json_type() {
+        for (status, expected) in [(json!("in_progress"), "in_progress"),
+            (json!(123), "a number"), (Value::Null, "null")] {
+            let error = response_problem(&json!({"status":status}), "invalid terminal status", "response chunk");
+            assert!(error.contains(expected), "{error}");
+        }
+        let error = response_problem(&json!({"status":"failed", "error":{
+            "message":"quota exhausted; Authorization: Bearer fixture-secret"}}), "invalid terminal status", "response chunk");
+        assert!(error.contains("quota exhausted"));
+        assert!(!error.contains("fixture-secret"));
+    }
+}
 
 // Shared preparation only. Transport and retry policies remain separate.
 

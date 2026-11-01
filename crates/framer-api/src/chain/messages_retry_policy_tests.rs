@@ -6,8 +6,36 @@ fn config(metered_fallback: bool) -> ChainConfig {
         metered_fallback, ..ChainConfig::default() }
 }
 
+#[test]
+fn two_slow_valid_replies_keep_their_output() {
+    let first = json!({"type":"text", "text":"first"});
+    let last = json!({"type":"text", "text":"last"});
+    let observed = run_with_delays(vec![buffered(first.clone(), "max_tokens"),
+        buffered(last.clone(), "end_turn")], ChainConfig { max_chunks:2, ..config(false) },
+        vec![Duration::from_secs(20), Duration::from_secs(20)]);
+    assert_eq!(observed.result.unwrap().stop_reason, "end_turn");
+    assert_eq!(observed.emitted, vec![first, last]);
+    assert_eq!(observed.requests.len(), 2);
+}
+
 fn refused(status: u16, body: &str) -> Reply {
     Reply { streaming: false, status, result: Ok(body.into()) }
+}
+
+#[test]
+fn exhausted_provider_rate_limit_keeps_its_cause_and_request_route() {
+    let replies = (0..10).map(|_| refused(429, "upstream_provider_shared_pool")).collect();
+    let observed = run_with_config(replies, config(true));
+    assert_eq!(observed.result.unwrap_err(),
+        "retryable 429 on /ai/v3/messages/: upstream_provider_shared_pool");
+    assert_eq!(observed.requests.len(), 10);
+    for request in &observed.requests[1..] {
+        for field in ["featureCategory", "featureName", "step", "request"] {
+            assert_eq!(request[field], observed.requests[0][field], "{field}");
+        }
+    }
+    assert!(observed.emitted.is_empty());
+    assert_eq!(observed.refunds, 0);
 }
 
 #[test]
@@ -38,22 +66,18 @@ fn retry_eligibility_retains_auth_and_idle_boundaries() {
         }
         assert!(retryable_failure("fixture transport closed", elapsed));
         assert!(retryable_failure("retryable 502: bad gateway", elapsed));
-        assert_eq!(retryable_failure("risk-refused", elapsed), elapsed > 8.0);
+        assert!(!retryable_failure("risk-refused", elapsed));
     }
 }
 
 #[test]
-fn delayed_second_attempt_keeps_idle_fallback() {
-    let observed = run_with_delays(vec![failed_request(), refused(403, "Forbidden"),
-        streamed(stream(tool(), "tool_use"))], config(true),
+fn delayed_security_refusal_does_not_start_fallback() {
+    let observed = run_with_delays(vec![failed_request(), refused(403, "Forbidden")], config(true),
         vec![Duration::ZERO, Duration::from_secs(9)]);
-    let response = observed.result.unwrap();
-    assert_eq!(response.content, vec![tool()]);
-    assert_eq!(response.stop_reason, "tool_use");
-    assert_eq!(response.metered_chunks, 1);
-    assert_eq!(observed.requests.len(), 3);
-    assert_eq!(observed.emitted, vec![tool()]);
-    assert_eq!(observed.refunds, 1);
+    assert_eq!(observed.result.unwrap_err(), "risk-refused");
+    assert_eq!(observed.requests.len(), 2);
+    assert!(observed.emitted.is_empty());
+    assert_eq!(observed.refunds, 0);
 }
 
 #[test]

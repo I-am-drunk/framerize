@@ -159,6 +159,7 @@ impl Ports {
             account_incarnation: live.get(&id).copied().unwrap_or(0),
             state: if live.contains_key(&id) { BrowserAccountState::Resident } else { BrowserAccountState::Absent },
             active_commands: 0,
+            cleanup_cause: None,
         }
     }
     async fn step(&self) {

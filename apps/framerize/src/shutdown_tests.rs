@@ -98,6 +98,7 @@ async fn unconfirmed_application_work_cannot_be_reported_as_clean_shutdown() {
     assert!(task.await.is_err());
     let result = tokio::time::timeout(WAIT,
         serve(state, "/fixture-no-web", addr(), async {})).await.unwrap();
-    assert!(result.unwrap_err().contains("Unconfirmed"));
+    assert!(result.unwrap_err().contains(
+        "a registered operation owner was dropped before reporting completed cleanup"));
     assert_eq!(browser.closes.load(Ordering::SeqCst), 0);
 }

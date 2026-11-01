@@ -27,11 +27,12 @@ async def close_cancelled_device_context(
             break
     try:
         closing.result()
-    except (Exception, asyncio.CancelledError):
+    except (Exception, asyncio.CancelledError) as error:
         # An ordinary error would enter the device mint's fallback. Keep
         # cancellation and require browser cleanup before new admission.
         acc.closing = True
-        acc.lifecycle.phase = "unconfirmed"
+        cause = events.error_cause(error)
+        acc.lifecycle.unconfirmed(reason + ": " + cause)
         events.emit("browser.cleanup", level="warn", outcome="unconfirmed",
-                    error=reason)
+                    error=reason, cause=cause)
     return cancelled

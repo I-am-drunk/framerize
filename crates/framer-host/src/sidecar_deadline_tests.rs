@@ -9,7 +9,10 @@ async fn deadline_includes_waiting_for_the_lifecycle_lock() {
         Duration::from_secs(1),
         bridge.call_with_timeout("fixture", json!({}), Duration::from_millis(100)),
     ).await.expect("the request deadline did not include lifecycle lock acquisition");
-    assert!(result.unwrap_err().starts_with("sidecar timeout after "));
+    let error = result.unwrap_err();
+    assert!(error.starts_with("sidecar timeout after "));
+    assert!(error.contains("cmd fixture"));
+    assert!(error.contains("lifecycle lock"));
 }
 
 #[tokio::test]
@@ -41,6 +44,7 @@ async fn deadline_includes_blocked_input_and_releases_pending_reply() {
     let error = result.expect("a blocked write escaped the request deadline")
         .unwrap_err();
     assert!(error.starts_with("sidecar timeout after "));
+    assert!(error.contains("writing the command to the browser host pipe"));
     assert!(pending_released, "timeout retained a pending reply");
     assert_eq!(cancellation.unwrap(), 1);
     assert!(write_still_owned, "timeout abandoned a partially written command");

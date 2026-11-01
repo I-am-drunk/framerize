@@ -41,7 +41,9 @@ async fn sealed_admission_does_not_start_history_work() {
 impl BrowserBridge for History {
     async fn check_account_history(&self, accounts: &[AccountId]) -> Result<(), String> {
         *self.checked.lock().unwrap() = accounts.to_vec();
-        if self.fail { Err("private-fixture-details".into()) } else { Ok(()) }
+        if self.fail {
+            Err("rate history database is locked; Authorization: Bearer private-fixture-details".into())
+        } else { Ok(()) }
     }
     async fn castle_token(&self, _: &AccountId) -> Result<CastleToken, String> {
         panic!("readiness must not mint")
@@ -66,8 +68,11 @@ async fn live_http_does_not_mask_unavailable_account_history() {
     let response = app.oneshot(request("/api/ready")).await.unwrap();
     assert_eq!(response.status(), StatusCode::SERVICE_UNAVAILABLE);
     let body = to_bytes(response.into_body(), 1024).await.unwrap();
-    assert_eq!(serde_json::from_slice::<Value>(&body).unwrap(),
-        serde_json::json!({"ready": false, "reason": "account-history-unavailable"}));
+    let reply: Value = serde_json::from_slice(&body).unwrap();
+    assert_eq!(reply["ready"], false);
+    assert_eq!(reply["reason"], "account-history-unavailable");
+    assert!(reply["cause"].as_str().unwrap().contains("rate history database is locked"));
+    assert!(!reply.to_string().contains("private-fixture-details"));
     assert_eq!(*history.checked.lock().unwrap(),
         f.accounts.iter().map(|account| account.id).collect::<Vec<_>>());
     assert!(f.loads.try_recv().is_err());

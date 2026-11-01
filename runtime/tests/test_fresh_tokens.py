@@ -11,6 +11,18 @@ import test_page_acquisition as acquisition
 
 
 class FreshTokenTests(unittest.IsolatedAsyncioTestCase):
+    async def test_exhausted_devices_do_not_create_another_identity(self):
+        acc, _ = await self.ready()
+        acc.devices[:] = ["device-a"]
+        acc.primary_dev = "device-a"
+        self.host._cool_device(acc, "device-a", "a")
+        before = deepcopy(acc.lifecycle.rates.state)
+        self.assertIsNone(self.host._pick_device(acc, "a"))
+        after = acc.lifecycle.rates.state
+        for field in ("devices", "reserve", "reserve_used", "cooling", "requests"):
+            self.assertEqual(after[field], before[field])
+        self.assertIn("cooldowns have not expired", acc.lifecycle.rates.unavailable_reason())
+
     setUp = creation.DeviceContextCreationTests.setUp
     finish = creation.DeviceContextCreationTests.finish
     account = creation.DeviceContextCreationTests.account
@@ -127,13 +139,13 @@ class FreshTokenTests(unittest.IsolatedAsyncioTestCase):
                     return "timed-wrapper-token"
                 device.page.evaluate.side_effect = mint
                 with patch.object(self.module, "time", clock):
-                    slot, token, _ = await self.acquire()
-                if usable:
-                    self.assertEqual(token, "timed-wrapper-token")
-                    self.host._token_release(acc, slot)
-                else:
-                    self.assertIsNone(slot)
-                    self.assertIsNone(token)
+                    if usable:
+                        slot, token, _ = await self.acquire()
+                        self.assertEqual(token, "timed-wrapper-token")
+                        self.host._token_release(acc, slot)
+                    else:
+                        with self.assertRaisesRegex(RuntimeError, "120-second lifetime"):
+                            await self.acquire()
                 self.assertEqual(acc.token_pool, {})
         self.assertEqual(device.page.evaluate.await_count, 3)
 
@@ -159,7 +171,7 @@ class FreshTokenTests(unittest.IsolatedAsyncioTestCase):
             device.page.evaluate.assert_awaited_once_with(self.module.MINT_JS)
             self.host._token_release(acc, result[0])
 
-    async def test_heartbeat_capacity_failure_releases_its_fresh_token(self):
+    async def test_idle_maintenance_neither_mints_nor_consumes_capacity(self):
         acc, device = await self.ready()
         acc.devices[:] = [device.id]
         acc.devpool_ready, acc.project = True, "fixture-project"
@@ -169,15 +181,13 @@ class FreshTokenTests(unittest.IsolatedAsyncioTestCase):
         self.host._cool_device = Mock(side_effect=AssertionError("unexpected cooldown"))
         self.host._token_release = Mock(wraps=self.host._token_release)
         await self.cycle(acc)
-        self.host._note_request.assert_called_once_with(acc, device.id)
+        self.host._note_request.assert_not_called()
         self.host._run_job.assert_not_awaited()
         self.host._cool_device.assert_not_called()
-        self.host._token_release.assert_called_once()
-        self.assertIs(self.host._token_release.call_args.args[0], acc)
-        self.assertIsNotNone(self.host._token_release.call_args.args[1])
+        self.host._token_release.assert_not_called()
         self.assertEqual(acc.token_pool, {})
         self.assertEqual(acc.lifecycle.rates.state["requests"], before)
-        device.page.evaluate.assert_awaited_once_with(self.module.MINT_JS)
+        device.page.evaluate.assert_not_awaited()
 
     async def test_failed_device_mint_never_uses_an_ambient_token(self):
         acc, device = await self.ready()
@@ -186,7 +196,12 @@ class FreshTokenTests(unittest.IsolatedAsyncioTestCase):
         for error in (None, RuntimeError("fixture wrapper failure")):
             with self.subTest(error=type(error).__name__):
                 device.page.evaluate.side_effect = error
-                self.assertEqual(await self.acquire(), (None, None, None))
+                if error is None:
+                    with self.assertRaisesRegex(RuntimeError, "SDK returned no usable token"):
+                        await self.acquire()
+                else:
+                    with self.assertRaisesRegex(RuntimeError, "fixture wrapper failure"):
+                        await self.acquire()
                 self.assertEqual(acc.token_pool, {})
                 self.assertFalse(acc.mint_lock.locked())
         self.host._new_mint_page.assert_not_awaited()
@@ -196,7 +211,8 @@ class FreshTokenTests(unittest.IsolatedAsyncioTestCase):
         for other_device in (None, "device-b"):
             with self.subTest(other_device=other_device):
                 self.host._mint = AsyncMock(return_value=("token", other_device))
-                self.assertEqual(await self.acquire(), (None, None, None))
+                with self.assertRaisesRegex(RuntimeError, "browser token device mismatch"):
+                    await self.acquire()
                 self.assertEqual(acc.token_pool, {})
                 self.host._mint.assert_awaited_once_with(
                     acc, acc.page, "a", device.id)
@@ -210,11 +226,21 @@ class FreshTokenTests(unittest.IsolatedAsyncioTestCase):
         self.host._token_acquire = AsyncMock()
         self.host._note_request = Mock()
         self.host._run_job = AsyncMock()
-        response = await self.host.handle({"cmd": "ai_post", "account": "a",
-                                          "path": "/fixture", "body": {}})
-        self.assertEqual(response["status"], 0)
+        with self.assertRaisesRegex(RuntimeError, "fixture preparation failure"):
+            await self.host.handle({"cmd": "ai_post", "account": "a",
+                                    "path": "/fixture", "body": {}})
         self.assertTrue(context.closed)
         self.host._ensure_editor.assert_not_awaited()
         self.host._token_acquire.assert_not_awaited()
         self.host._note_request.assert_not_called()
         self.host._run_job.assert_not_awaited()
+
+    async def test_memory_refusal_keeps_its_cause_without_minting(self):
+        acc, device = await self.ready()
+        failure = self.module.MemoryPressureError("Low available RAM: fixture allocation")
+        self.host._dev_page = AsyncMock(side_effect=failure)
+        with self.assertRaisesRegex(self.module.MemoryPressureError, "fixture allocation"):
+            await self.acquire()
+        device.page.evaluate.assert_not_awaited()
+        self.assertEqual(acc.token_pool, {})
+        self.assertFalse(acc.mint_lock.locked())

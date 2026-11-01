@@ -1,7 +1,7 @@
 """Browser allocation admission and optional patched runtime validation."""
 import hashlib, json, os, sys
 from pathlib import Path
-from .events import emit
+from .events import emit, error_cause
 
 NATIVE_POINTER_LIBRARY_SHA256 = "25bdc30e0afcff4190925f27f154557643645daabf9577618af750363c326096"
 
@@ -106,7 +106,23 @@ BROWSER_STARTUP_RESERVE = 1024**3
 def prepared_memory_browser():
     """Validate an optional private browser before opening accounts."""
     configured = os.environ.get("FRAMERIZE_MEMORY_BROWSER")
+    automatic = not configured
+    if automatic:
+        from camoufox.multiversion import get_active_path
+        from .browser.memory_build import digest, prepare
+        from .settings import ROOT
+        source = get_active_path()
+        if source is None:
+            raise RuntimeError("No installed Camoufox browser is selected; install it before serving requests")
+        source = Path(source).resolve(strict=True)
+        fingerprint = digest(source / 'omni.ja')
+        target = Path(ROOT) / '.runtime' / ('browser-v11-' + fingerprint[:16])
+        if not target.exists():
+            prepare(source, target)
+        configured = str(target)
     selected = _validate_memory_browser(configured) if configured else None
+    if automatic and selected is None:
+        raise RuntimeError("The prepared browser failed its memory-patch integrity check; no browser was started")
     if os.environ.get("FRAMERIZE_BATCH_CONSOLE_DISPOSAL") == "1":
         try:
             supports_batch = selected is not None and json.loads(
@@ -144,14 +160,16 @@ def _validate_memory_browser(configured):
             7: "f37bec3303fc06b57469afabe7759c95d20d83545fb73d86672777797c6f98d9",
             8: "f37bec3303fc06b57469afabe7759c95d20d83545fb73d86672777797c6f98d9",
             9: "f37bec3303fc06b57469afabe7759c95d20d83545fb73d86672777797c6f98d9",
+            10: "f37bec3303fc06b57469afabe7759c95d20d83545fb73d86672777797c6f98d9",
+            11: "f37bec3303fc06b57469afabe7759c95d20d83545fb73d86672777797c6f98d9",
         }.get(version)
         if (expected_module is None
                 or manifest.get("patched_module_sha256") != expected_module
                 or manifest.get("preference") != "framerize.captureResponseBodies"):
             raise ValueError("unsupported memory browser patch")
-        if version in (4, 5, 6, 7, 8, 9) and manifest.get("request_preference") != "framerize.captureRequestBodies":
+        if version in (4, 5, 6, 7, 8, 9, 10, 11) and manifest.get("request_preference") != "framerize.captureRequestBodies":
             raise ValueError("unsupported request capture patch")
-        if version in (6, 7, 8, 9) and manifest.get("redirect_preference") != "framerize.reportActualRedirects":
+        if version in (6, 7, 8, 9, 10, 11) and manifest.get("redirect_preference") != "framerize.reportActualRedirects":
             raise ValueError("unsupported finished-request tracking patch")
         executable = directory / "camoufox"
         if not executable.is_file():
@@ -162,6 +180,16 @@ def _validate_memory_browser(configured):
             raise ValueError("memory browser archive changed")
         with zipfile.ZipFile(directory / "omni.ja") as archive:
             module = archive.read("chrome/juggler/content/NetworkObserver.js")
+            if version in (10, 11):
+                from .browser.memory_build import PROTOCOL, PROTOCOL_PATCHED
+                if (manifest.get('protocol_module_sha256') != PROTOCOL_PATCHED
+                        or hashlib.sha256(archive.read(PROTOCOL)).hexdigest() != PROTOCOL_PATCHED):
+                    raise ValueError('browser request completion protocol changed')
+            if version == 11:
+                from .browser.memory_build import CONTEXTS, CONTEXTS_PATCHED
+                if (manifest.get('context_module_sha256') != CONTEXTS_PATCHED
+                        or hashlib.sha256(archive.read(CONTEXTS)).hexdigest() != CONTEXTS_PATCHED):
+                    raise ValueError('browser context cleanup module changed')
             if version in (5, 6, 7, 8, 9):
                 batch_modules = {
                     "content/Runtime.js": "30d50f6856fd7094d8bfe6fadfe8c7ffb4dadb236692d1fdc33a9abc72e17d57",
@@ -206,9 +234,10 @@ def _validate_memory_browser(configured):
             if native_digest != NATIVE_POINTER_LIBRARY_SHA256:
                 raise ValueError("native pointer library changed")
     except Exception as exc:
+        cause = error_cause(exc)
         emit("memory.browser_patch", level="warn", outcome="unavailable",
-             error=type(exc).__name__)
-        return None
+             error=type(exc).__name__, cause=cause)
+        raise RuntimeError("Prepared browser integrity validation failed: " + cause) from exc
     emit("memory.browser_patch", outcome="verified", patch_version=version)
     return str(executable)
 

@@ -128,6 +128,20 @@ impl ManagedAccount {
             && self.current_team.is_some()
     }
 
+    pub fn eligibility_problem(&self) -> Option<String> {
+        let mut issues = Vec::new();
+        if self.state != AccountState::Ready {
+            issues.push(format!("account state is {:?}; inference requires Ready", self.state));
+        }
+        if self.current_team.is_none() {
+            issues.push("no current workspace is configured".into());
+        }
+        if self.current_project.is_none() {
+            issues.push("no current project is configured".into());
+        }
+        (!issues.is_empty()).then(|| issues.join("; "))
+    }
+
     /// Eligible AND not inside an active cooldown window.
     ///
     /// Separate from `is_eligible` because cooldown needs the clock, and

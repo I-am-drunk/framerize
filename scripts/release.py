@@ -19,10 +19,16 @@ def verify(root):
         raise ValueError('release contains a symbolic link')
     actual = {path.relative_to(root).as_posix() for path in paths
               if path.is_file() and path != root / 'manifest.json'}
-    if type(files) is not dict or set(files) != actual:
-        raise ValueError('release file inventory differs')
-    if any(sha256(root / name) != digest for name, digest in files.items()):
-        raise ValueError('release file checksum differs')
+    if type(files) is not dict:
+        raise ValueError('release manifest must be a file-to-checksum object')
+    if set(files) != actual:
+        missing = sorted(set(files) - actual)
+        unexpected = sorted(actual - set(files))
+        raise ValueError(f'release file inventory differs: missing={missing[:8]!r}; '
+                         f'unexpected={unexpected[:8]!r}')
+    changed = [name for name, digest in files.items() if sha256(root / name) != digest]
+    if changed:
+        raise ValueError(f'release file checksum differs: {sorted(changed)[:8]!r}')
     info = json.loads((root / 'build-info.json').read_text())
     app = info['application']
     if info['format'] != 1 or app not in ('framerize', 'framerize-native'):

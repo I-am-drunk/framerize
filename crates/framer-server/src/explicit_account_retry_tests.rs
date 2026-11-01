@@ -197,9 +197,9 @@ fn assert_error_output(body: &[u8], messages: bool, stream: bool, original: &str
         if messages { &failure["error"] } else { &failure["response"]["error"] }
     } else { &values[0]["error"] };
     let (message, kind) = if original == COOLING {
-        ("This account is temporarily cooling down. Retry in 60 seconds.", "overloaded_error")
+        ("Cannot start the request because an earlier security refusal started this account's cooldown. Retry in 60 seconds.", "overloaded_error")
     } else if original == RISK {
-        ("The upstream service is temporarily unavailable. Please retry shortly.", "overloaded_error")
+        ("Framer refused the request with HTTP 403 during its security checks. Its response did not disclose a more specific cause.", "overloaded_error")
     } else {
         ("Framerize cannot safely start another request yet. Please retry later.", "overloaded_error")
     };
@@ -282,7 +282,7 @@ async fn exercise_undecodable_account(wave: bool) {
                     assert_eq!(value["error"]["type"], "overloaded_error");
                     assert_eq!(value["error"]["retry_after_seconds"], 30);
                     assert_eq!(value["error"]["message"],
-                        "Framerize is temporarily unavailable. Retry in 30 seconds.");
+                        "Recent security refusals across multiple accounts triggered a global pause. Retry in 30 seconds.");
                 } else {
                     assert_eq!(value, serde_json::json!({"error": {
                         "code": "invalid_request",

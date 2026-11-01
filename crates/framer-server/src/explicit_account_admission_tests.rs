@@ -119,7 +119,8 @@ async fn api_run_non_ready_refuses_before_session_or_client_io() {
             let response = result.unwrap();
             assert_eq!(response.status(), StatusCode::SERVICE_UNAVAILABLE);
             let bytes = to_bytes(response.into_body(), 4096).await.unwrap();
-            assert_eq!(bytes.as_ref(), b"account is not ready or is missing its current team or project");
+            assert_eq!(bytes.as_ref(),
+                format!("account state is {lifecycle:?}; inference requires Ready").as_bytes());
             assert_unchanged_without_io(&ports, &before);
             assert_no_request_lease_or_peer(&state);
         }
@@ -229,7 +230,9 @@ async fn ready_explicit_selection_and_run_require_a_complete_current_scope() {
         let response = result.unwrap();
         assert_eq!(response.status(), StatusCode::SERVICE_UNAVAILABLE);
         let bytes = to_bytes(response.into_body(), 4096).await.unwrap();
-        assert_eq!(bytes.as_ref(), b"account is not ready or is missing its current team or project");
+        assert_eq!(bytes.as_ref(), if missing_team {
+            b"no current workspace is configured".as_slice()
+        } else { b"no current project is configured".as_slice() });
         assert_unchanged_without_io(&ports, &before);
         assert_no_request_lease_or_peer(&state);
     }
