@@ -6,6 +6,7 @@ from pathlib import Path
 import sqlite3
 import sys
 import tempfile
+import time
 import unittest
 from types import SimpleNamespace
 from unittest.mock import patch
@@ -48,6 +49,22 @@ class ActivationTests(unittest.TestCase):
             db.execute("INSERT INTO unchanged VALUES ('preserve')")
         self.before = self.history.read_bytes()
         self.service = Service()
+        self.receipt = self.root / 'qualification.json'
+        checks = [dict(route=route, stream=stream, http_status=200,
+            terminal=True, expected_content=True) for route in (
+                '/openai/v1/responses', '/anthropic/v1/messages')
+            for stream in (False, True)]
+        evidence = self.root / 'inference-checks.json'
+        evidence.write_text(json.dumps(checks))
+        self.qualification = dict(format=1, application='framerize', commit=None,
+            binary_sha256=release.sha256(self.new / 'bin/framerize'),
+            manifest_sha256=release.sha256(self.new / 'manifest.json'),
+            engine='camoufox', verified_at=time.time(), checks=checks,
+            isolated=dict(port=8792, account_outside_production=True,
+                workspace_outside_production=True, session_lock_owned=True,
+                shared_token_socket=False, paid_routes_enabled=False),
+            evidence_sha256={evidence.name: release.sha256(evidence)})
+        self.receipt.write_text(json.dumps(self.qualification))
 
     def package(self, name):
         root = self.installation / 'releases' / name
@@ -70,7 +87,8 @@ class ActivationTests(unittest.TestCase):
         (root / 'manifest.json').write_text(json.dumps(files))
 
     def activate(self):
-        return activation.activate(self.new, self.installation, self.profiles, self.service)
+        return activation.activate(self.new, self.installation, self.profiles,
+                                   self.service, qualification=self.receipt)
 
     def test_success_switches_only_the_package_and_preserves_history(self):
         self.assertEqual(self.activate()['status'], 'activated')
@@ -115,6 +133,65 @@ class ActivationTests(unittest.TestCase):
             self.activate()
         self.assertEqual(self.service.calls, [])
         self.assertEqual(self.current.resolve(), self.old)
+
+    def test_missing_inference_qualification_never_stops_the_service(self):
+        with self.assertRaisesRegex(ValueError, 'qualification is required'):
+            activation.activate(self.new, self.installation, self.profiles, self.service)
+        self.assertEqual(self.service.calls, [])
+        self.assertEqual(self.current.resolve(), self.old)
+
+    def test_health_or_credit_refusal_cannot_qualify_a_release(self):
+        for status in (402, 403, 500, 503):
+            with self.subTest(status=status):
+                self.qualification['checks'][0]['http_status'] = status
+                self.receipt.write_text(json.dumps(self.qualification))
+                with self.assertRaisesRegex(ValueError, 'delivery must all pass'):
+                    self.activate()
+                self.assertEqual(self.service.calls, [])
+                self.assertEqual(self.current.resolve(), self.old)
+
+    def test_truncated_success_cannot_qualify_a_release(self):
+        self.qualification['checks'][0]['terminal'] = False
+        self.receipt.write_text(json.dumps(self.qualification))
+        with self.assertRaisesRegex(ValueError, 'delivery must all pass'):
+            self.activate()
+        self.assertEqual(self.service.calls, [])
+
+    def test_stale_or_different_package_evidence_never_stops_service(self):
+        original = json.loads(self.receipt.read_text())
+        for field, value in (('binary_sha256', '0' * 64),
+                             ('manifest_sha256', '0' * 64),
+                             ('verified_at', time.time() - 86401)):
+            self.receipt.write_text(json.dumps(dict(original, **{field: value})))
+            with self.subTest(field=field), self.assertRaises(ValueError):
+                self.activate()
+            self.assertEqual(self.service.calls, [])
+
+    def test_shared_or_paid_test_configuration_never_stops_service(self):
+        original = json.loads(self.receipt.read_text())
+        for field, value in (('port', 8787), ('account_outside_production', False),
+                             ('workspace_outside_production', False),
+                             ('session_lock_owned', False),
+                             ('shared_token_socket', True), ('paid_routes_enabled', True)):
+            record = json.loads(json.dumps(original))
+            record['isolated'][field] = value
+            self.receipt.write_text(json.dumps(record))
+            with self.subTest(field=field), self.assertRaises(ValueError):
+                self.activate()
+            self.assertEqual(self.service.calls, [])
+
+    def test_changed_evidence_never_stops_service(self):
+        (self.root / 'inference-checks.json').write_text('changed')
+        with self.assertRaisesRegex(ValueError, 'evidence changed'):
+            self.activate()
+        self.assertEqual(self.service.calls, [])
+
+    def test_receipt_must_match_the_recorded_request_results(self):
+        self.qualification['checks'][0]['seconds'] = 1.0
+        self.receipt.write_text(json.dumps(self.qualification))
+        with self.assertRaisesRegex(ValueError, 'claims differ'):
+            self.activate()
+        self.assertEqual(self.service.calls, [])
 
     def test_package_or_schema_mismatch_refuses_before_service_actions(self):
         path = self.new / 'build-info.json'

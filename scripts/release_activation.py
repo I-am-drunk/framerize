@@ -93,7 +93,7 @@ def _restore(current, old, service, pending):
     _clear(pending)
 
 
-def activate(package, installation, profiles, service):
+def activate(package, installation, profiles, service, *, qualification=None):
     installation, profiles = installation.resolve(), profiles.resolve()
     current = installation / 'current'
     if not current.is_symlink():
@@ -101,10 +101,10 @@ def activate(package, installation, profiles, service):
     fd = os.open(installation / '.update.lock', os.O_CREAT | os.O_RDWR | os.O_NOFOLLOW, 0o600)
     with os.fdopen(fd, 'a') as lock:
         fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
-        return _activate_locked(package, installation, profiles, service)
+        return _activate_locked(package, installation, profiles, service, qualification)
 
 
-def _activate_locked(package, installation, profiles, service):
+def _activate_locked(package, installation, profiles, service, qualification=None):
     current, pending = installation / 'current', installation / 'update.json'
     if pending.exists():
         record = json.loads(pending.read_text())
@@ -121,6 +121,8 @@ def _activate_locked(package, installation, profiles, service):
     if old == new:
         service.start(old)
         return {'status': 'unchanged', 'release': str(old)}
+    from release_qualification import validate
+    validate(new, qualification)
     _intent(pending, old, new)
     try:
         service.stop()
@@ -203,12 +205,13 @@ class UserService:
         raise RuntimeError('service readiness timed out')
 
 
-def run(package):
+def run(package, qualification=None):
     def interrupted(*_):
         raise KeyboardInterrupt('activation interrupted')
     previous = signal.signal(signal.SIGTERM, interrupted)
     try:
         return activate(package, Path.home() / '.local/share/framerize',
-                        Path.home() / '.framerize/profiles', UserService())
+                        Path.home() / '.framerize/profiles', UserService(),
+                        qualification=qualification)
     finally:
         signal.signal(signal.SIGTERM, previous)

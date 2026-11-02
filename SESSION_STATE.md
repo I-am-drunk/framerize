@@ -1,4 +1,27 @@
-# Alpha.12 activated, 2026-11-02
+# Verification before restoring the browser repair, 2026-11-02
+
+Branch `fix/verified-browser-restore-20261102`. A later deployment replaced
+alpha.12 with `d578e93e`, which lacks its browser repairs. Current observed
+PID is 2767593, started 04:10:23 UTC, running that source with Camoufox.
+The source retries slow security refusals and contains cached-part token
+generation. Both behaviors appear in the production logs. No production
+mutation has occurred during this investigation.
+
+The existing alpha.12 binary is the restoration candidate. A recovered
+saved session has 500 credits on an existing workspace outside all twelve
+production identities and all 28 workspace assignments. Alias is
+`verification-20261102`. Its private records are in
+`/home/tjninja/.cache/framerize-outage-20261102`. The isolated iMac container
+is `framerize-verification-20261102-r1`, with its own port 8792 and state.
+
+The activation tool now requires recent real buffered and streaming delivery
+on both protocols, tied to the exact package and saved evidence. No credit
+refusal override is allowed. The previous implementation failed the new
+missing-qualification regression by changing the inert fixture service.
+Next: complete the isolated account import and real-request series before
+any production replacement. See `docs/incidents/2026-11-02-release-regression.md`.
+
+# Previous alpha.12 activation, 2026-11-02
 
 Branch `fix/claude-stalls-20261101`; live source `38f3c583473dea611f285ea455edceffd4331934`.
 Version `0.5.1-alpha.12`, PID 2658815, started 02:43:24 UTC. No rollback.

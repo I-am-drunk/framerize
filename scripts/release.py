@@ -83,6 +83,8 @@ if __name__ == '__main__':
                          default=Path.home() / '.local/share/framerize/releases')
     activation = commands.add_parser('activate', help='switch a managed service with rollback')
     activation.add_argument('release', type=Path)
+    activation.add_argument('--qualification', type=Path,
+                            help='recent isolated inference receipt for this exact package')
     verification = commands.add_parser('verify', help='check installed files without starting or changing anything')
     verification.add_argument('release', type=Path)
     args = parser.parse_args()
@@ -91,7 +93,7 @@ if __name__ == '__main__':
             print(json.dumps(verify(args.release.resolve())))
         elif args.command == 'activate':
             from release_activation import run
-            print(json.dumps(run(args.release)))
+            print(json.dumps(run(args.release, args.qualification)))
         else:
             print(stage(args.archive.resolve(), args.sha256, args.releases.resolve()))
     except Exception as error:

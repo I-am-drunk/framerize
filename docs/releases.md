@@ -131,11 +131,20 @@ After the one-time service and history migration, activate a staged production
 browser package with:
 
 ```sh
-python3 scripts/release.py activate ~/.local/share/framerize/releases/RELEASE
+python3 scripts/release.py activate ~/.local/share/framerize/releases/RELEASE \
+  --qualification /private/verification/qualification.json
 ```
 
-The command checks both packages, the installed user unit and the live history
-schema before stopping anything. It drains the service, changes `current`
+The command requires a qualification receipt from the preceding 24 hours.
+The receipt must identify the exact binary and package manifest and record
+completed buffered and streaming requests on both OpenAI Responses and Claude
+Messages. The test account and workspace must be outside production, with
+exclusive session ownership, no shared token socket and paid routes disabled.
+Health checks, an HTTP 402, or an unfinished HTTP 200 do not qualify a release.
+The receipt hashes its saved request results; changed evidence is rejected.
+
+The command checks the qualification, both packages, the installed user unit
+and the live history schema before stopping anything. It drains the service, changes `current`
 atomically, starts the selected package and verifies that the health response
 comes from its main process. Failed startup restores the previous compatible
 package. Account history is never restored from a backup or changed by this tool.
