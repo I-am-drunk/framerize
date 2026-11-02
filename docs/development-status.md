@@ -1,15 +1,17 @@
-# Verified browser restoration candidate, 2026-11-02
+# Qualified browser restoration candidate, 2026-11-02
 
 `fix/verified-browser-restore-20261102`, PR #29, is not activated.
-Production independently returned to alpha.12 at 05:18:47 UTC. The candidate
-from 3c99f1ee passed 32 real requests, its memory bounds, and normal shutdown
-in 16.339 seconds, but did not qualify. A longer request exposed Claude's
-default reasoning exhausting the 600-token stage before producing text.
-The correction preserves the full client allowance on that observed route
-without changing effort. Explicitly disabled thinking retains text stages.
-The new regression fails against the preceding source. All 127 affected
-Messages tests pass after correction. Next: rebuild and repeat exact-package
-qualification.
+Production independently returned to alpha.12 at 05:18:47 UTC. Source
+`6040e344` is built as alpha.13 and has passed exact-package qualification:
+32 complete buffered/streaming requests, a 3,037-token Claude answer,
+OpenAI continuation across two upstream requests, bounded memory, unchanged
+500 workspace credits, and clean shutdown in 15.722 seconds. The 127 affected
+Messages tests pass. Peak PSS was 1.567 GB; warm mean PSS remained 1.15 GB.
+The Claude endpoint requires reasoning and rejects an explicit disabled
+setting with HTTP 400. That restriction and failed probe remain recorded.
+The earlier 3c99f1ee package was never activated. Current production remains
+PID 2864123. Activation preflight has refused ongoing live requests without
+changing the service. Next: activate the qualified package during an idle gap.
 See [the restoration record](incidents/2026-11-02-restored-browser-service.md).
 
 # Alpha.12 live, 2026-11-02

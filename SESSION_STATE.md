@@ -1,3 +1,23 @@
+# Alpha.13 fully qualified; activation needs idle traffic, 2026-11-02
+
+Source `6040e344a5abd38d8fd104be805bd05220d5493f` is staged immutably.
+All 32 real buffered/streaming requests passed on the exclusive saved-session
+account. Long Claude output and two-stage OpenAI output passed. Credits stayed
+at 500. Peak PSS was 1,566,776,320 bytes; warm means were 1,147,205,120 and
+1,146,079,744 bytes. Shutdown passed in 15.722 seconds with no live descendants.
+The Claude endpoint explicitly forbids disabled reasoning. Its HTTP 400 is
+retained, and no Claude text-only continuation success is claimed.
+
+Production remains alpha.12, PID 2864123, started 05:18:47 UTC. No production
+restart or pointer change occurred. The activation guard found continuous
+traffic; fifteen inert activation/rollback checks pass, including the new
+bounded idle wait. A traffic-coordination question is pending. No approval
+to deploy needs repeating. The exact next step is the existing `restore.py`
+with `--wait-for-idle 60 --execute`, after new requests pause briefly.
+The qualified receipt is in the outage cache under
+`evidence/qualified-6040e344a5abd38d8fd104be805bd05220d5493f/qualification.json`.
+The isolated runtime is already stopped. Do not rerun its request series.
+
 # Default reasoning correction, 2026-11-02
 
 The alpha.13 candidate from 3c99f1ee passed 32 real buffered/streaming

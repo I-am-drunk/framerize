@@ -167,3 +167,13 @@ thinking and effort settings. A truncated thinking-only response has no text
 checkpoint from which the existing continuation mechanism can resume.
 This observation does not establish defaults for other models or extend
 the provider's buffered-request timeout.
+
+At 05:50 UTC, the same isolated endpoint rejected an explicit
+`thinking: {"type":"disabled"}` request with HTTP 400 and the provider message
+`Reasoning is mandatory for this endpoint and cannot be disabled.`
+The immediately preceding request preserved the default and completed in
+48.679 seconds with 3,037 output tokens and 671 words. These observations
+establish mandatory reasoning for this endpoint, not support for disabling it.
+Do not silently rewrite the client's setting or claim that a text-only
+continuation probe qualifies this Claude route. Verify staged continuation
+on a supported text route and retain the Claude restriction in the evidence.

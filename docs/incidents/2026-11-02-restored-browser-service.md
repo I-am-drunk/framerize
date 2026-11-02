@@ -2,16 +2,26 @@
 
 Candidate version: `0.5.1-alpha.13`.
 Branch: `fix/verified-browser-restore-20261102`.
-The package was built from `3c99f1ee85493e3cb194e0fff1eca00c0d5a5ce1`
-on the iMac Docker builder in 175.675 seconds.
-That package passed 32 inference checks and clean shutdown but did not qualify:
+The package was built from `6040e344a5abd38d8fd104be805bd05220d5493f`
+on the iMac Docker builder in 221.237 seconds.
+The earlier `3c99f1ee` candidate passed 32 inference checks and clean shutdown but did not qualify:
 the longer Claude probe exposed default reasoning truncated at 600 tokens.
-The correction requires a new build and exact-package qualification.
+The correction passed exact-package qualification. Production activation
+remains gated on the expected service generation having no active requests.
+
+The recovered verification job stopped before inference when browser page
+navigation exceeded 60 seconds. That failed prewarm is retained. The isolated
+container held 1,827,196,928 bytes of setup-file cache. Advisory release of
+clean private dependency and archive pages reduced total container usage
+from 2,707,701,760 to 1,057,550,336 bytes without changing file contents,
+account history or limits. A single preparation retry on the same account
+completed successfully in 125.035 seconds.
+An independent read of the login page returned HTTP 200 in 1.063 seconds.
 
 Binary SHA-256:
-`cb374ae2b6a0a77e46dd77fd760bd75e498331d5c36fef6ead428ef15e10d70e`.
+`a46d96c6a43664360a08dac14bacf74a1f88116d4d19c1cad03ed03d7009377c`.
 Archive SHA-256:
-`b4a02752e9409570c4d54d6e599021d091a91fb30bf5ff6191407360c4cbefc1`.
+`d9e2e81620213579a946d9b0e256092ebc0599af46599aaf6e1cfa0e920ac1b2`.
 
 The initial live process was PID 2767593, started at 04:10:23 UTC.
 Its source was `d578e93ecc096ff3470516891a5a95c12b9762a9`.
@@ -61,8 +71,10 @@ reasoning even without an explicit `thinking` field. The gateway recognized
 only explicitly requested adaptive thinking and imposed its 600-token stage.
 The correction preserves the full requested allowance on the observed Fable
 5.1 route when its default thinking applies. Explicit settings still take
-precedence; no effort setting is inserted or reduced. Text-only continuation
-is tested separately with a client that explicitly requests disabled thinking.
+precedence; no effort setting is inserted or reduced. The real text-only
+Claude probe subsequently returned HTTP 400: reasoning is mandatory on this
+endpoint and cannot be disabled. That refusal is retained. Positive staged
+continuation is verified separately on the supported OpenAI text route.
 
 The regression reproduced the old 600-token allowance instead of 2,400.
 All 127 affected Messages tests pass after the correction. Six new tests
@@ -91,9 +103,12 @@ thinking and preserve the observed upstream cause.
 | Empty or truncated output | Validate missing host bodies and terminal statuses instead of accepting empty success. |
 | Remote 400, 502 and 503 | Preserve non-JSON HTTP status and any observed provider, connection or Cloudflare cause. Do not invent an undisclosed cause. |
 | Shutdown EPIPE | Signal the main process first so it can drain its children, using mixed systemd shutdown. |
+| Shutdown hang | Cancelling the protocol reader before an outstanding close RPC left an acknowledgement wait with no reader. Stop the driver first, then join retained close calls. |
 | Relay warnings and HTTP 401 | Treat ordinary cache misses normally. Disable the failing optional relay and verify local minting. |
 | Lost log writes and malformed records | Preserve bounded I/O diagnostics and the existing safe append behavior. |
 | Local timing failures | Use the full 180-second buffered window, check budgets before retries and give completed responses a separate acknowledgement deadline. |
+| Reasoning-only truncation at 600 tokens | The gateway missed Fable 5.1's default reasoning. Preserve the full client allowance on that observed route and keep explicit thinking settings unchanged. |
+| HTTP 400 when disabling Claude reasoning | The provider requires reasoning on this endpoint. Preserve its explicit cause and the client's setting; do not silently disable reasoning or replay the rejected request. |
 | Claude upstream 504 near 60 seconds | Preserve the observed gateway timeout and prevent replay of uncertain buffered work. Local deadlines cannot extend Framer's gateway limit. |
 
 Staged continuation requires a returned checkpoint. A buffered first request
@@ -108,9 +123,24 @@ cause remain explicitly unknown; a security explanation is never invented.
 The core suite passed 156 tests and the server account checks passed 65.
 The browser and history checks passed 68 tests. The final storage-cause change
 has its own passing regression and final rate-suite run. The final build
-reuses Rust evidence only after verifying that its intervening source diff
-contains the two Python rate files. Thirteen inert activation checks passed.
+verifies hashes of the three Messages files covered by the 127 passing tests.
+Its remaining changes from the preceding candidate are documentation.
+The unchanged browser, shutdown and other Rust checks retain their earlier
+evidence. Thirteen inert activation checks passed again with the new source pin.
 GitHub's build and CodeRabbit checks were skipped, not passed.
+
+| Error families | Verification evidence |
+|---|---|
+| Node timeouts | `test_response_poll_ownership.py` reproduces overlapping polls on the baseline; the corrected reader retains one poll. Response-queue checks also pass. |
+| Cached tokens and security-refusal replay | Fresh-token, account-isolation and retry-policy regressions require the actual SDK result and preserve refusals on the same account. |
+| Browser retention and RAM admission | Device-retention and busy-device fixtures, `memory_admission_tests.rs`, and the matched 512-request measurement below. |
+| Emission, empty output and terminal failures | `response_output_tests.rs`, `responses_sink_tests.rs`, and Messages JSON/terminal regressions cover producer, serialization and incomplete-response failures. |
+| Admission, cooldown and readiness fences | Explicit-admission, refusal-publication, readiness, rate-history and error-cause regressions preserve the actual cause and cleanup ownership. |
+| Credit refusal and workspace discovery | Credit-error, credit-scan and workspace-rotation regressions; six exact-binary checks reject paid routing before any account is used. |
+| Startup, shutdown and storage | Browser-startup, shutdown and rate-history regressions; a real forced-close failure stops the driver and its descendants without clearing failed-close history. |
+| Provider limits, remote HTTP failures and relay failures | Messages retry-policy, error-cause and authentication-relay regressions retain the provider status and restrict replay. |
+| Slow output, local deadlines and default reasoning | The 127 passing Messages tests include timing, adaptive reasoning and six new default-reasoning cases. The previous implementation fails the new allowance regression. |
+| Model-list routes and log handling | Model-discovery tests and real HTTP model-list checks; retained safe-append and bounded log-write failure checks. |
 
 The retained matched memory fixture completed 512 requests in both versions
 under the same 2 GiB limit. Baseline PSS ended at 1,437,474,816 bytes; the
@@ -132,3 +162,23 @@ PSS no higher than 2 GiB, and the final eight-sample mean no more than
 128 MiB above the mean for requests 9 through 16. Separate checks require
 successful staged continuation, unchanged workspace credits and confirmed
 normal shutdown before a qualification receipt can be created.
+
+The final package passed all 32 buffered and streaming requests across both
+APIs. The first cold OpenAI request took 75.460 seconds. The long Claude
+request completed in 48.679 seconds with 3,037 output tokens and 671 words.
+OpenAI staged continuation completed 1,084 words across two successful
+upstream requests in 16.447 seconds. The unsupported disabled-reasoning
+Claude request remains a recorded HTTP 400, not a passing continuation test.
+
+Across 33 process-memory samples, peak PSS was 1,566,776,320 bytes. The mean
+for requests 9 through 16 was 1,147,205,120 bytes; the final eight-request
+mean was 1,146,079,744 bytes. The same workspace retained all 500 credits.
+Normal shutdown completed in 15.722 seconds with exit code zero, clean
+account history and no surviving descendant processes. These observations
+qualify the isolated package, not a long-term six-browser production soak.
+
+Fifteen inert activation and rollback tests pass, including a bounded idle
+wait that never operates the service while requests remain active. The final
+idle check follows package validation and rechecks the service generation.
+Production preflight encountered continuous request traffic and refused to
+stop the service. The new release is staged, but has not been activated.
