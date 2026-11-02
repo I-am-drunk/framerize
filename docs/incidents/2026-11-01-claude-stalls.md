@@ -16,8 +16,26 @@ Credit and security refusals retain their existing classification.
 All 117 affected Messages tests passed after a confirmed source rebuild.
 The initial fixture import error, cached-executable run and transfer-permission
 failure are excluded from passing evidence. The two tested source hashes match
-the worktree. Version alpha.11 is being packaged; alpha.10 remains live.
-No model, reasoning effort, account or custom-route policy changed.
+the committed source. No model, reasoning effort, account or custom-route
+policy changed.
+
+The iMac built source `352b4f264b7d3045aef9a2e778c6798a376a1b79` in
+218.705 seconds. All nine package checks and six paid-route refusals passed.
+The exact isolated custom request returned HTTP 402 in 13.162 seconds from
+the same exhausted workspace. The user-authorized activation override was
+retained; this refusal is not reported as an isolated success.
+
+Alpha.11 started at 02:03:01 UTC, replacing PID 2552520 with 2577096. Health
+and readiness passed. Live OpenAI Responses returned 200 in 26.941 seconds;
+Claude Messages also returned 200 with the expected text. All 12 account
+identities, memory limits and both immutable release inventories were preserved.
+The isolated service stopped cleanly. Public HTTPS and both model-list routes
+returned 200 through a global address obtained from external DNS, with Funnel
+enabled. These checks did not depend on private Tailscale routing.
+
+Binary SHA-256: `aab320ae6667d47dc2facb2dbc1ec8159aa880fe0f11a9d5fc0840e8c4ce1ce5`.
+Archive SHA-256: `4409163629b4c4ec94db8a255384e5aa3882f8af6da8a57511ce407ea8f235ea`.
+The upstream buffered-response time limit still applies to long adaptive work.
 
 ## Alpha.10 live activation, 2026-11-02
 

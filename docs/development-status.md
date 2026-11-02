@@ -1,10 +1,18 @@
-# Alpha.11 gateway-error correction, 2026-11-02
+# Alpha.11 live, 2026-11-02
 
 The follow-up extends adaptive no-replay handling to directly returned HTTP
 502 and 504 responses. A new regression failed on alpha.10 source; all 117
 affected Messages tests pass after the correction and a confirmed rebuild.
-Custom-only routing and requested reasoning settings are unchanged. Alpha.10
-remains live while the exact alpha.11 package is built and qualified.
+Custom-only routing and requested reasoning settings are unchanged.
+The iMac built source `352b4f264b7d3045aef9a2e778c6798a376a1b79` in
+218.705 seconds. All nine package checks and six paid-route refusals passed.
+The exact isolated request returned 402 from the same exhausted workspace;
+the user's activation override was retained without claiming an isolated 200.
+Activation completed at 02:03:01 UTC, PID 2577096. Health, readiness and live
+OpenAI Responses and Claude Messages returned 200. All 12 account identities,
+memory limits and old/new release inventories were preserved.
+Binary SHA-256: `aab320ae6667d47dc2facb2dbc1ec8159aa880fe0f11a9d5fc0840e8c4ce1ce5`.
+Long adaptive generation remains subject to Framer's upstream time limit.
 
 # Alpha.10 live, 2026-11-02
 

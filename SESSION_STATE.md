@@ -1,13 +1,20 @@
-# Alpha.11 gateway-error correction, 2026-11-02
+# Alpha.11 activated, 2026-11-02
 
-A regression on alpha.10 source reproduced missing SDK replay suppression
-for directly returned HTTP 504. The narrow correction covers 502 and 504
-alongside the existing browser failure case. It preserves the recorded cause,
-requested reasoning settings and custom-only routing. All 117 affected Messages
-tests passed after a confirmed rebuild. The initial stale executable run is
-excluded. Source hashes match the worktree. Alpha.10 remains live.
-Next: build the exact alpha.11 package, qualify it and activate with rollback.
+Source 352b4f264b7d3045aef9a2e778c6798a376a1b79 is live as 0.5.1-alpha.11.
+The correction prevents SDK replay after directly returned 502/504 failures
+in buffered adaptive Claude requests. All 117 affected tests and all nine
+package checks passed. The iMac build took 218.705 seconds.
+Activation at 02:03:01 UTC changed PID 2552520 to 2577096. Health, readiness,
+OpenAI Responses and Claude Messages returned 200. All 12 account identities,
+memory limits and both release inventories were preserved. Paid routes remain
+disabled. No requested reasoning settings changed. The isolated service stopped.
+The exact isolated custom request returned 402 from the same empty workspace.
+The user's activation override was applied honestly; no isolated 200 is claimed.
+Binary SHA-256: aab320ae6667d47dc2facb2dbc1ec8159aa880fe0f11a9d5fc0840e8c4ce1ce5.
 Evidence: /home/tjninja/.cache/framerize-claude-stalls-20261101/visible-gateway-errors-r1.
+Long custom adaptive requests remain subject to Framer's upstream time limit.
+Next: inspect the next real long-Claude failure; preserve requested effort unless
+the user chooses otherwise. Do not repeat paid probes or change accounts.
 
 # Alpha.10 activated, 2026-11-02
 
