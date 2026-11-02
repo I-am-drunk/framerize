@@ -6,7 +6,12 @@ The candidate adds request-scoped network diagnostics, adaptive upstream
 streaming when metered access is enabled, and SDK replay prevention for
 incomplete buffered responses. Alpha.9 remains the running release.
 The 51 focused Python checks and 129 real browser failure observations pass.
-Next: finish Rust qualification and verify a long isolated Claude response.
+The exact `3b3ae823` package also passed 1,162 affected Rust tests and all nine
+package checks. Its isolated health, readiness and short adaptive Claude
+request pass; the latter completed in 4.169 seconds. A first long request hit
+the deadline after an incorrect isolated soft memory limit stalled its browser.
+That limit is corrected, and a bounded long request is running. Alpha.9 remains
+live until the candidate completes its remaining real-request checks.
 See [the Claude repair record](incidents/2026-11-01-claude-stalls.md).
 
 # Recurring error repair, 2026-11-01

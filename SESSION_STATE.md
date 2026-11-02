@@ -1,5 +1,35 @@
 # Claude timeout repair, 2026-11-01
 
+Latest checkpoint: source `3b3ae8231fb76a670b0719fd464c55cde9d14bad`
+is published in PR28. All 1,162 affected Rust tests pass by composition.
+The first API run found 31 old refund expectations; the corrected API run
+passes all 441 ordinary tests and both category-specific tests. Core 155,
+protocol 90 and server 474 retain the passing first-run results.
+The exact release build and all nine package checks passed in session 51623,
+through the existing Docker SSH builder.
+Its evidence directory is `/evidence/claude-stalls-r1`.
+
+Public proxy retry-header forwarding is also fixed and its seven tests pass.
+That source is `63600d2f` on `ops/public-inference-20261101`, published in PR27.
+Neither candidate is live yet. The activation helper updates the proxy only
+after the backend has drained, and has four proxy rollback tests plus the
+eight backend activation tests. No live mutation has occurred.
+The build and all nine package checks passed on 2026-11-02. The archive is
+collected and staged in the Claude cache. Binary SHA-256:
+`969105d20af12621963865d9bc93b378e388b880a5e99313cd5850727fe13663`.
+Candidate PID 2429608 on 8792 passed health and readiness. Production still
+has PID 2340122, with unchanged start time and zero restarts.
+The first long request timed out at 840 seconds after the test's 1.5 GiB
+MemoryHigh caused sustained reclaim. Evidence is preserved. MemoryHigh is now
+2.25 GiB, matching production's 90% ratio; the 2.5 GiB hard cap is unchanged.
+A new short Claude request passed in 4.169 seconds. Session 44916 owns the
+new bounded long request, `controlled-long.json`. Do not duplicate it.
+Stream, tool, and four OpenAI checks remain pending. No activation occurred.
+Isolation explicitly unsets the broken optional JWT relay. Activation does
+the same after local-mint verification and checks all acceptance file hashes.
+Activation also handles SIGTERM through rollback; all eight rollback tests pass.
+Keep each remaining write below 20 lines, per the user's tool-size correction.
+
 Branch `fix/claude-stalls-20261101` prepares `0.5.1-alpha.10`.
 Production remains alpha.9 at source `132af226`, PID 2340122.
 No live restart or release mutation occurred during this diagnosis.
@@ -14,16 +44,14 @@ The 51 focused Python checks pass. A real browser passed 129 local HTTP
 504 observations with request ownership and listener cleanup intact.
 Evidence and local helpers are in
 `/home/tjninja/.cache/framerize-claude-stalls-20261101`.
-Rust qualification is running in the existing Docker SSH builder,
-container `framerize-repair-build-20261101`, directory
-`/home/runner/claude-stalls-source`, log `/evidence/claude-stalls-r1/rust.log`.
-Execution session 68511 owns that run. Do not restart it.
+Rust qualification and packaging completed in the existing Docker SSH builder.
+The local `evidence/package.json` binds the result to the source and hashes.
+The first Rust run's failures remain recorded; corrected results are separate.
 
-The old diagnostic instance on 8792 has stopped cleanly. The exclusive
-non-production profile remains at
+The candidate on 8792 exclusively owns the non-production profile at
 `/home/tjninja/.local/state/framerize-browserless/enrollment-20261023-r1`.
-Next: collect Rust qualification, build the exact commit, and run the
-long adaptive request against the candidate on 8792 before activation.
+Next: collect session 44916, then continue the unrun checks through
+`qualify-candidate.py`. It reuses saved results and does not repeat the long request.
 
 # Alpha.9 readiness correction, 2026-11-01
 
