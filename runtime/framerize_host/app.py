@@ -30,6 +30,8 @@ from .browser.responses import (receive as receive_response, ResponseDeadline,
 from .browser.network_failure import NetworkFailure
 
 _MINT_CALLS = ContextVar('framerize_mint_calls', default=None)
+IDLE_CLOSE_TIMEOUT_S = 10
+SHUTDOWN_CLOSE_TIMEOUT_S = 60
 
 class Host:
     def __init__(self, rate_journal=None):
@@ -260,11 +262,14 @@ class Host:
         close_receipt = acc.lifecycle.close_receipt
         async def close_browser():
             await close_receipt.close()
-        await asyncio.wait_for(self._rpc(account, close_browser), 10)
+        await asyncio.wait_for(self._rpc(account, close_browser), self._close_timeout())
         acc.dev_objs.clear()
         acc.token_pool.clear()
         acc.session_cookie = None
         acc.borrowed.clear()
+
+    def _close_timeout(self):
+        return SHUTDOWN_CLOSE_TIMEOUT_S if self._closed else IDLE_CLOSE_TIMEOUT_S
 
     def _browser_status(self, account):
         life = self.lifecycles.get(account)
@@ -366,7 +371,7 @@ class Host:
             if acc is not None:
                 await self._dispose_account(acc, account)
             else:
-                await asyncio.wait_for(self._rpc(account, life.close_receipt.close), 10)
+                await asyncio.wait_for(self._rpc(account, life.close_receipt.close), self._close_timeout())
             if (self.lifecycles.get(account) is not life or life.incarnation != incarnation
                     or self.accounts.get(account) is not acc):
                 raise RuntimeError("browser ownership changed during cleanup")
@@ -381,7 +386,14 @@ class Host:
             life.unconfirmed("browser cleanup was cancelled before completion")
             raise
         except asyncio.TimeoutError:
-            cause = "the browser did not acknowledge shutdown within 10 seconds"
+            receipt = life.close_receipt
+            if receipt and receipt.disconnected.is_set() and not receipt.acknowledged:
+                waiting = "the browser disconnected before Playwright acknowledged its close command"
+            elif receipt and receipt.acknowledged:
+                waiting = "Playwright acknowledged close but the browser did not disconnect"
+            else:
+                waiting = "Playwright did not acknowledge the browser close command"
+            cause = f"{waiting} within {self._close_timeout():g} seconds"
             life.unconfirmed(cause)
             emit("browser.cleanup", level="warn", outcome="unconfirmed",
                  error="TimeoutError", cause=cause)
@@ -560,17 +572,29 @@ class Host:
             await asyncio.gather(*(asyncio.shield(task) for task in pending),
                                  return_exceptions=True)
         unconfirmed = []
-        for account in list(self.lifecycles):
+        # Accepted work has drained. Separate browsers can close together so
+        # the shutdown window is not multiplied by the resident-account count.
+        accounts = tuple(self.lifecycles)
+        results = await asyncio.gather(*(self._close_account(account)
+            for account in accounts), return_exceptions=True)
+        for account, result in zip(accounts, results):
+            if isinstance(result, BaseException):
+                unconfirmed.append(error_cause(result))
+            elif not result:
+                unconfirmed.append(self.lifecycles[account].cleanup_error())
+        if self._playwright is not None:
+            # Stop the driver while its protocol reader is still alive, even
+            # after an unconfirmed browser close. Otherwise asyncio.run()
+            # cancels the reader and a pending RPC together; Playwright then
+            # waits forever for an abort reply that nobody can receive.
+            # Driver termination does not turn a failed close into clean history.
             try:
-                if not await self._close_account(account):
-                    unconfirmed.append(self.lifecycles[account].cleanup_error())
+                await self._playwright.stop()
+                self._playwright = None
             except Exception as error:
-                unconfirmed.append(error_cause(error))
+                unconfirmed.append("stopping the Playwright driver failed: " + error_cause(error))
         if unconfirmed:
             raise RuntimeError("browser shutdown failed: " + "; ".join(dict.fromkeys(unconfirmed)))
-        if self._playwright is not None:
-            await self._playwright.stop()
-            self._playwright = None
         self.accounts.clear()
 
     async def _acquire(self, account, proxy=None):

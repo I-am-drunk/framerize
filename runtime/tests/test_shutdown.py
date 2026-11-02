@@ -83,7 +83,65 @@ class ShutdownTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(self.journal.load('healthy')['state']['clean'])
         self.assertFalse(browser.connected)
         self.assertEqual(broken_browser.calls, 1)
-        driver_port.stop.assert_not_awaited()
+        driver_port.stop.assert_awaited_once_with()
+
+    async def test_shutdown_keeps_reader_alive_for_a_delayed_close_ack(self):
+        life, browser = self.resident('account')
+        browser.release.clear()
+        port = SimpleNamespace(stop=AsyncMock())
+        self.host._playwright = port
+        with patch.object(app, 'IDLE_CLOSE_TIMEOUT_S', 0.01), \
+             patch.object(app, 'SHUTDOWN_CLOSE_TIMEOUT_S', 1):
+            closing = asyncio.create_task(self.host.close())
+            await asyncio.wait_for(browser.called.wait(), 1)
+            await asyncio.sleep(0.03)
+            self.assertFalse(closing.done())
+            port.stop.assert_not_awaited()
+            browser.release.set()
+            await asyncio.wait_for(closing, 1)
+        self.assertEqual(browser.calls, 1)
+        self.assertEqual(life.phase, 'absent')
+        self.assertTrue(self.journal.load('account')['state']['clean'])
+        port.stop.assert_awaited_once_with()
+
+    async def test_idle_browsers_close_concurrently_before_driver_stop(self):
+        first, browser = self.resident('first')
+        second, other = self.resident('second')
+        browser.release.clear()
+        other.release.clear()
+        port = SimpleNamespace(stop=AsyncMock())
+        self.host._playwright = port
+        closing = asyncio.create_task(self.host.close())
+        try:
+            await asyncio.wait_for(asyncio.gather(
+                browser.called.wait(), other.called.wait()), 1)
+            port.stop.assert_not_awaited()
+        finally:
+            browser.release.set()
+            other.release.set()
+            await asyncio.wait_for(closing, 1)
+        self.assertEqual((first.phase, second.phase), ('absent', 'absent'))
+        port.stop.assert_awaited_once_with()
+
+    async def test_timed_out_close_stops_driver_and_releases_pending_rpc(self):
+        life, browser = self.resident('account')
+        browser.release.clear()
+        async def stop_driver():
+            browser.failure = True
+            browser.release.set()
+            await asyncio.gather(*life.activity.pending, return_exceptions=True)
+        port = SimpleNamespace(stop=AsyncMock(side_effect=stop_driver))
+        self.host._playwright = port
+        with patch.object(app, 'SHUTDOWN_CLOSE_TIMEOUT_S', 0.03):
+            closing = asyncio.create_task(self.host.close())
+            await asyncio.wait_for(browser.called.wait(), 1)
+            browser.disconnect()
+            with self.assertRaisesRegex(RuntimeError, 'disconnected before Playwright acknowledged'):
+                await asyncio.wait_for(closing, 1)
+        self.assertFalse(life.activity.pending)
+        self.assertEqual(life.phase, 'unconfirmed')
+        self.assertFalse(self.journal.load('account')['state']['clean'])
+        port.stop.assert_awaited_once_with()
 
     async def test_shutdown_preserves_unexpected_close_error_without_credentials(self):
         self.resident('account')
