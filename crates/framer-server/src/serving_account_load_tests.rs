@@ -64,6 +64,32 @@ fn busy_warm_account_does_not_hide_unused_capacity() {
 }
 
 #[test]
+fn overdue_rotation_keeps_warm_capacity_during_browser_preparation() {
+    let p = ServingAccountPolicy::default();
+    let pool: Vec<_> = (1..=12).map(account).collect();
+    for n in 1..=6 { drop(hold(&p, n)); }
+    for _ in 0..96 { p.select_at(pool.clone(), None, 1000).unwrap(); }
+    let cold = p.select_at(pool.clone(), None, 1000).unwrap();
+    assert!(cold.id.0.as_u128() > 6);
+    let preparing = match p.residents.try_acquire(cold.id, None).unwrap() {
+        Acquire::Evict(mut ticket) => {
+            ticket.close_started().unwrap();
+            ticket.confirm_close().unwrap()
+        }
+        _ => panic!("expected one idle browser replacement"),
+    };
+    for _ in 0..24 {
+        let chosen = p.select_at(pool.clone(), None, 1000).unwrap();
+        assert!(chosen.id.0.as_u128() <= 6, "keep serving loaded browsers during preparation");
+    }
+    drop(preparing);
+    let next = p.select_at(pool, None, 1000).unwrap();
+    assert!(next.id.0.as_u128() > 6);
+    assert_ne!(next.id, cold.id);
+    assert_eq!(p.residents.snapshot().unwrap().occupied, 6);
+}
+
+#[test]
 fn full_pool_spreads_work_without_a_seventh_resident() {
     let p = ServingAccountPolicy::default();
     let pool: Vec<_> = (1..=11).map(account).collect();

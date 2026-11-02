@@ -15,6 +15,13 @@ over the eligible pool, an overdue equal-load account outranks warmth. Existing
 health, availability, account ownership and confirmed-close rules still apply.
 No failed request is replayed under another account.
 
+Starting every overdue browser together could temporarily remove all warm
+capacity. While one newly selected cold account holds preparation, work or
+cleanup ownership, further overdue replacements defer to equal-load warm
+accounts. Ordinary load, health and safety checks still apply. The full
+server suite passes 484 tests with this guard; exact source hashes match
+the checked-out revision.
+
 The global refusal guard escalates clustered security refusals from 150 seconds
 to a maximum of 900 seconds. Its ten-minute quiet reset ran only when a second
 account refused within 90 seconds. By then the previous refusal could never be

@@ -47,6 +47,11 @@ switching identities after a refused request. Held leases include preparation,
 waiting and cleanup, so this
 count is request pressure rather than an exact count of live streams.
 
+While a newly selected cold browser still holds work or cleanup ownership,
+fairness does not displace another idle warm browser. This keeps loaded
+capacity serving during slow preparation. Normal load and health priorities
+still apply, and selection resumes overdue replacements after confirmed release.
+
 Selection and reservation share the existing pool operation lock. The lock is
 released before browser inspection, closure or startup. A simultaneous request
 therefore sees the preceding reservation instead of choosing from stale load.

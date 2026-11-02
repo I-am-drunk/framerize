@@ -19,6 +19,7 @@ const WARM_REUSE_PASSES: u64 = 8;
 struct SelectionHistory {
     turn: u64,
     last_picked: HashMap<AccountId, u64>,
+    preparing: HashSet<AccountId>,
 }
 
 #[derive(Debug)]
@@ -262,6 +263,11 @@ impl ServingAccountPolicy {
         history.last_picked.retain(|id, _| pool.iter().any(|account| account.id == *id));
         let turn = history.turn;
         for account in pool { history.last_picked.entry(account.id).or_insert(turn); }
+        history.preparing.retain(|id| snapshot.residents.iter().any(|slot|
+            slot.replacement == Some(*id) || (slot.account == *id &&
+                (slot.users > 0 || slot.uncertain ||
+                    !matches!(slot.status, framer_core::resident_pool::ResidentStatus::Idle)))));
+        let preparing = !history.preparing.is_empty();
         let max_skips = (pool.len().max(1) as u64).saturating_mul(WARM_REUSE_PASSES);
         let candidates: Vec<_> = pool.iter().filter(|account| !mutations.contains(&account.id)
             && Self::residency_allows(&snapshot, &account.id, &mutations))
@@ -290,11 +296,14 @@ impl ServingAccountPolicy {
             let (users, cold) = snapshot.residents.iter().find(|slot| slot.account == account.id)
                 .map(|slot| (slot.users, false)).unwrap_or((0, true));
             let last = history.last_picked[&account.id];
-            let overdue = turn.saturating_sub(last) >= max_skips;
+            let overdue = turn.saturating_sub(last) >= max_skips && !(cold && preparing);
             (users, !overdue, if overdue { last } else { 0 }, cold)
         }).cloned()
             .ok_or_else(|| self.no_eligible_account(pool))?;
         history.last_picked.insert(selected.id, turn);
+        if !snapshot.residents.iter().any(|slot| slot.account == selected.id) {
+            history.preparing.insert(selected.id);
+        }
         history.turn = turn.saturating_add(1);
         Ok(selected)
     }
