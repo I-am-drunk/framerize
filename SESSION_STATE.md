@@ -1,3 +1,14 @@
+# Alpha.11 gateway-error correction, 2026-11-02
+
+A regression on alpha.10 source reproduced missing SDK replay suppression
+for directly returned HTTP 504. The narrow correction covers 502 and 504
+alongside the existing browser failure case. It preserves the recorded cause,
+requested reasoning settings and custom-only routing. All 117 affected Messages
+tests passed after a confirmed rebuild. The initial stale executable run is
+excluded. Source hashes match the worktree. Alpha.10 remains live.
+Next: build the exact alpha.11 package, qualify it and activate with rollback.
+Evidence: /home/tjninja/.cache/framerize-claude-stalls-20261101/visible-gateway-errors-r1.
+
 # Alpha.10 activated, 2026-11-02
 
 The user explicitly said "just activate it" after the isolated custom request

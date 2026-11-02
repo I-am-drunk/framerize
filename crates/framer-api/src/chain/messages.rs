@@ -225,11 +225,12 @@ pub async fn complete_long(
             }
             Err(e) if framer_core::error::AccountCooldown::from_error(&e).is_some() => return Err(e),
             Err(e) if cfg.is_cancelled() => return Err(e),
-            Err(e) if adaptive_thinking && e.starts_with("in-page fetch failed:") => {
+            Err(e) if adaptive_thinking && (e.starts_with("in-page fetch failed:")
+                || matches!(framer_core::convert::parse_upstream_error(&e), Some((502 | 504, _)))) => {
                 let elapsed = cooldown_wait.elapsed(last_attempt_t0).as_secs_f32();
                 let cause = framer_core::error::safe_failure_summary(&e);
                 let prefix = framer_core::error::ADAPTIVE_INCOMPLETE_PREFIX;
-                return Err(format!("{prefix}Claude's buffered upstream request failed after {elapsed:.1}s before a complete response was available. The request allowed {chunk} output tokens with adaptive thinking. Browser cause: {cause}. Automatic replay is disabled because completion is unknown. This custom-route request was not switched to metered streaming."));
+                return Err(format!("{prefix}Claude's buffered upstream request failed after {elapsed:.1}s before a complete response was available. The request allowed {chunk} output tokens with adaptive thinking. Recorded cause: {cause}. Automatic replay is disabled because completion is unknown. This custom-route request was not switched to metered streaming."));
             }
             Err(e) => {
                 // The idle-kill check must time the FAILING ATTEMPT — the whole

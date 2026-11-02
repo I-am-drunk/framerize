@@ -1,3 +1,11 @@
+# Alpha.11 gateway-error correction, 2026-11-02
+
+The follow-up extends adaptive no-replay handling to directly returned HTTP
+502 and 504 responses. A new regression failed on alpha.10 source; all 117
+affected Messages tests pass after the correction and a confirmed rebuild.
+Custom-only routing and requested reasoning settings are unchanged. Alpha.10
+remains live while the exact alpha.11 package is built and qualified.
+
 # Alpha.10 live, 2026-11-02
 
 `fix/claude-stalls-20261101` is deployed as `0.5.1-alpha.10`, built from

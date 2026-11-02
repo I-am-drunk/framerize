@@ -1,4 +1,5 @@
 use super::*;
+use framer_core::convert;
 
 fn adaptive_config() -> ChainConfig {
     ChainConfig { max_total_tokens: Some(64_000), metered_fallback: true,
@@ -111,4 +112,45 @@ fn hidden_gateway_timeout_keeps_observed_status_and_prevents_replay() {
     assert_eq!(observed.requests.len(), 1);
     assert_eq!(observed.refunds, 0);
     assert!(observed.emitted.is_empty());
+}
+
+#[test]
+fn buffered_gateway_failures_preserve_cause_and_disable_replay() {
+    for status in [504, 502] {
+        let mut config = adaptive_config();
+        config.metered_fallback = false;
+        let reply = Reply { streaming: false, status,
+            result: Ok("upstream execution status unknown".into()) };
+        let observed = run_with_payload(vec![reply], config,
+            vec![std::time::Duration::from_secs(61)], adaptive_payload());
+        let error = observed.result.unwrap_err();
+        assert!(error.starts_with(framer_core::error::ADAPTIVE_INCOMPLETE_PREFIX), "{error}");
+        assert!(error.contains(&format!("{status} on /ai/v3/messages/")));
+        assert!(error.contains("upstream execution status unknown"));
+        assert!(error.contains("completion is unknown"));
+        assert!(error.contains("61.0s"));
+        let (_, body) = convert::error_json(convert::ClientDialect::AnthropicMessages, &error);
+        assert_eq!(body["error"]["retryable"], false);
+        assert_eq!(body["error"]["code"], framer_core::error::ADAPTIVE_INCOMPLETE_CODE);
+        assert_eq!(observed.requests.len(), 1);
+        assert_eq!(observed.refunds, 0);
+        assert!(observed.emitted.is_empty());
+    }
+}
+
+#[test]
+fn buffered_refusals_keep_their_original_classification() {
+    for status in [400, 402, 403] {
+        let mut config = adaptive_config();
+        config.metered_fallback = false;
+        let reply = Reply { streaming: false, status,
+            result: Ok("request refused".into()) };
+        let observed = run_with_payload(vec![reply], config, Vec::new(), adaptive_payload());
+        let error = observed.result.unwrap_err();
+        assert!(!error.starts_with(framer_core::error::ADAPTIVE_INCOMPLETE_PREFIX));
+        if status == 402 { assert_eq!(error, "credits-exhausted"); }
+        assert_eq!(observed.requests.len(), 1);
+        assert_eq!(observed.refunds, 0);
+        assert!(observed.emitted.is_empty());
+    }
 }

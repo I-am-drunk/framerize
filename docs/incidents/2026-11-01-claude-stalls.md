@@ -3,7 +3,23 @@
 Work branch: `fix/claude-stalls-20261101`.
 Baseline: `0.5.1-alpha.9`, source `132af22691dc04680f2ecadaace8e92a4d2f706e`.
 
-## Live activation, 2026-11-02
+## Direct gateway-error follow-up, 2026-11-02
+
+Alpha.10 suppressed SDK replay when the browser hid an HTTP timeout behind
+NetworkError. A directly readable HTTP 504 took the ordinary error path and
+missed that protection. The new regression reproduces this on released source.
+The correction applies the existing incomplete-response classification to
+directly reported 502 and 504 failures during buffered adaptive generation.
+The response retains the observed status and cause and disables SDK replay.
+Credit and security refusals retain their existing classification.
+
+All 117 affected Messages tests passed after a confirmed source rebuild.
+The initial fixture import error, cached-executable run and transfer-permission
+failure are excluded from passing evidence. The two tested source hashes match
+the worktree. Version alpha.11 is being packaged; alpha.10 remains live.
+No model, reasoning effort, account or custom-route policy changed.
+
+## Alpha.10 live activation, 2026-11-02
 
 The user explicitly authorized activation after the isolated custom request
 returned HTTP 402 from its exhausted workspace. That result remains a failure.
