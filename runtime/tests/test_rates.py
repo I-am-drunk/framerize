@@ -85,6 +85,8 @@ class RateTests(unittest.TestCase):
         with self.assertRaisesRegex(RuntimeError, 'No space left on device') as caught:
             self.rates.charge_request(self.devices[1])
         self.assertNotIn('private', str(caught.exception))
+        with self.assertRaisesRegex(RuntimeError, 'No space left on device'):
+            self.rates.mark_uncertain()
         self.assertEqual(self.journal.load('account')['state']['requests'], [])
 
     def test_reserve_identity_is_durable_and_clock_jumps_do_not_replenish_it(self):

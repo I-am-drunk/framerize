@@ -99,7 +99,7 @@ class AccountRates:
 
     def _commit(self, state):
         if self.failed:
-            raise RuntimeError('account rate storage is unavailable')
+            self._ready()
         encoded = deepcopy(state)
         encoded['requests'] = [[device, list(times)]
                                for device, times in state['requests'].items()]
