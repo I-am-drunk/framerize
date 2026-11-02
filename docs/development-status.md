@@ -1,5 +1,12 @@
 # Account scheduling and refusal-pause repair, 2026-11-02
 
+Alpha.14 from `2b4d0195` is live as PID 3565455 since 14:31:56 UTC.
+Health, readiness and real Kimi, Claude and Astra requests returned 200.
+The controlled stop/start took 8.818 seconds. Both release inventories,
+all twelve account identities, six browser slots and memory limits are intact.
+No rollback was needed. Full evidence and hashes are in
+[the scheduling incident](incidents/2026-11-02-account-scheduling-and-pauses.md).
+
 Isolation also exposed 1.46 GB of unused font-file cache after browser startup.
 Discarding those cached pages reduced the same test process group from
 2,686,869,504 to 1,227,100,160 bytes without changing font files or limits.
@@ -26,13 +33,14 @@ All 159 core, 95 protocol and 483 server tests pass. Four older registration
 fixtures now model a later organization-workspace scan after incomplete initial
 metadata, consistent with the recorded API contract. Production credit rules
 are unchanged. Twenty-two activation and rollback checks also pass.
-The live alpha.13 service remains unchanged. Earlier alpha.14 preparation
-failures are retained. The final package built on the iMac in 191.472 seconds
+Alpha.13 remained unchanged until qualification completed. Earlier alpha.14
+preparation failures are retained. The final package built in 191.472 seconds
 and passed nine package checks plus six paid-route rejection checks.
 Its isolated browser matches the live browser's binary and archive hashes.
 GitHub checks were skipped, not passed. No remote review was submitted.
-Next: use the guarded activation procedure at an idle live interval, then
-verify health, readiness and actual Kimi, Astra and Claude delivery.
+The first live errors are explicitly recorded client cancellations.
+Continued production traffic is the next observation of long-term memory
+and scheduling across all twelve accounts; fixtures are not a production soak.
 
 # Verified browser restoration live, 2026-11-02
 

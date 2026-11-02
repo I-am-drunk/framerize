@@ -108,7 +108,7 @@ had served requests; six handled almost all of them. Kimi had 3,883 successful
 chains and 230 failures, while Astra had 566 successes and 20 failures.
 The ten emission failures in that generation all recorded client cancellation.
 GitHub build and CodeRabbit checks were skipped, not passed. Local and iMac
-test evidence is recorded above. Activation is pending an idle live interval.
+test evidence is recorded above. Verified activation is recorded below.
 
 The earlier identical-load comparison remains valid for the unchanged
 retention repair: 512 requests, 1,437,474,816 bytes final baseline PSS and
@@ -120,3 +120,33 @@ The complete earlier error-family, root-cause and verification record is in
 It includes Node polling, browser retention, admission and emission causes,
 readiness ownership, credits, route timing, storage, relay and shutdown fixes.
 Those unchanged code paths retain their recorded regression evidence.
+
+## Verified production activation
+
+Alpha.14 started at 2026-11-02 14:31:56 UTC as PID 3565455, replacing
+alpha.13 PID 2923147. The guard observed no live request or cleanup ownership
+and no active global security pause before stopping the predecessor.
+The journal records 8.818 seconds from the controlled stop request to the
+successor starting. The old process exited; no rollback was needed.
+
+Live Kimi Responses, Claude Messages and Astra Responses all returned HTTP
+200 with expected text and successful terminal status. Health and readiness
+also returned 200. Both public model-list routes returned 200 through the
+existing Funnel. The public proxy does not expose `/api/health`, which returns
+404 there; local health and readiness remain the service checks.
+
+All twelve production identities and six browser slots are preserved.
+Both immutable release inventories pass verification. MemoryMax remains
+10,737,418,240 bytes, MemoryHigh 9,663,676,416 bytes and MemorySwapMax
+1,073,741,824 bytes. Automatic restarts remain zero. Metered routes and the
+shared token socket remain disabled.
+
+The activation captured 6,179,840,000 bytes of cgroup memory before and
+6,852,952,064 bytes after. These different production workloads do not
+measure savings. The matched fixture and isolated request measurements above
+provide the memory evidence.
+
+The first new-generation errors explicitly report client cancellations.
+The scheduling regression proves all twelve equally eligible accounts receive
+work with six residents. A live twelve-account turnover and long-term memory
+soak are not inferred from the short post-activation window.
