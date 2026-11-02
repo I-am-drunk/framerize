@@ -3,6 +3,20 @@ use futures::{FutureExt, StreamExt};
 use serde_json::json;
 
 const WAIT: Duration = Duration::from_secs(5);
+
+#[path = "permit_lifetime_fixture.rs"]
+mod route_fixture;
+
+#[test]
+fn deferred_custom_requests_never_enable_metered_fallback() {
+    for allowed in [false, true] {
+        let mut f = route_fixture::Fixture::new();
+        f.state.runtime_mut().unwrap().metered_access = allowed;
+        let config = waiting_config(&f.state, Some(64000), "fixture-team".into());
+        assert!(!config.metered_fallback);
+        assert_eq!(config.max_total_tokens, Some(64000));
+    }
+}
 struct PumpSource {
     frames: std::collections::VecDeque<bytes::Bytes>, pending: bool,
     polls: Arc<AtomicUsize>, drops: Arc<AtomicUsize>,

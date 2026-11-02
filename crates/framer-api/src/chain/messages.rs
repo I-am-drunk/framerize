@@ -229,7 +229,7 @@ pub async fn complete_long(
                 let elapsed = cooldown_wait.elapsed(last_attempt_t0).as_secs_f32();
                 let cause = framer_core::error::safe_failure_summary(&e);
                 let prefix = framer_core::error::ADAPTIVE_INCOMPLETE_PREFIX;
-                return Err(format!("{prefix}Claude's buffered upstream request failed after {elapsed:.1}s before a complete response was available. The request allowed {chunk} output tokens with adaptive thinking. Browser cause: {cause}. Automatic replay is disabled because completion is unknown. Long adaptive responses require explicitly enabled metered streaming to avoid the buffered response window."));
+                return Err(format!("{prefix}Claude's buffered upstream request failed after {elapsed:.1}s before a complete response was available. The request allowed {chunk} output tokens with adaptive thinking. Browser cause: {cause}. Automatic replay is disabled because completion is unknown. This custom-route request was not switched to metered streaming."));
             }
             Err(e) => {
                 // The idle-kill check must time the FAILING ATTEMPT — the whole
@@ -378,7 +378,7 @@ pub async fn complete_long(
         }
         if chunk_stop == "max_tokens" && contains_tool_use {
             if !cfg.metered_fallback {
-                return Err(format!("chunk {i}: tool call exceeds the free non-streaming window; set FRAMERIZE_ALLOW_METERED=1 to allow a tiny metered chunk here"));
+                return Err(format!("chunk {i}: upstream stopped at the output-token limit during a tool call, so complete tool input is unavailable. This custom-route request was not switched to metered streaming."));
             }
             eprintln!("[freechat] chunk {i} cut mid-tool_use again — streaming this chunk metered (explicit opt-in)");
             let stream_tokens = budget.min(remaining_tokens(cfg, ctok).unwrap_or(8000).max(output_floor));

@@ -26,6 +26,8 @@ impl std::ops::Deref for AppState {
 /// Public port handles preserve legacy application wiring. AppState exposes
 /// only shared access; configuring owners after sharing is rejected.
 pub struct AccountRuntime {
+    /// Only explicitly selected paid routes may use this permission.
+    pub(crate) metered_access: bool,
     pub(crate) response_output: Arc<crate::response_output::OutputBudget>,
     /// Explicit application ownership; no default activation.
     pub operation_ownership: Option<Arc<ServingOwnership>>,
@@ -42,6 +44,10 @@ pub struct AccountRuntime {
 }
 
 impl AccountRuntime {
+    pub fn with_metered_access(mut self, allowed: bool) -> Self {
+        self.metered_access = allowed;
+        self
+    }
     /// Explicit bounded admission for library callers without operation ownership.
     pub fn with_response_output_limit(mut self, limit: usize)
         -> Result<Self, crate::operation_ownership::OwnershipConfigError> {
@@ -63,6 +69,7 @@ impl AccountRuntime {
         serving_accounts: ServingAccountPolicy,
     ) -> Self {
         Self {
+            metered_access: false,
             response_output: Arc::new(crate::response_output::OutputBudget::new(
                 crate::response_output::DEFAULT_UNOWNED_OUTPUT_LIMIT)),
             operation_ownership: None,
@@ -82,6 +89,8 @@ impl AppState {
         serving_accounts: ServingAccountPolicy, gate: framer_core::gate::ConcurrencyGate,
     ) -> Self {
         Self::new(Arc::new(AccountRuntime {
+            // Existing inert fixtures exercise both explicitly selected routes.
+            metered_access: true,
             response_output: Arc::new(crate::response_output::OutputBudget::new(
                 crate::response_output::DEFAULT_UNOWNED_OUTPUT_LIMIT)),
             operation_ownership: None, client, browser, sessions, state,

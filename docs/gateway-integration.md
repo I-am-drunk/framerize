@@ -21,6 +21,10 @@ claude
   live under `/paid/`: `ANTHROPIC_BASE_URL=http://127.0.0.1:8787/paid/anthropic`.
   Claude Code cannot send custom headers, so the free path is the default at
   the normal URL; `x-framerize-mode: paid` remains as a header override.
+  Paid paths and overrides also require the operator to set
+  `FRAMERIZE_ALLOW_METERED=1`. With it unset or set to `0`, they return
+  `403 metered_access_disabled` before account access. Custom routes never
+  enable paid fallback, even when explicit paid access is permitted.
 
 ### Protocol conformance checklist (from the official spec)
 

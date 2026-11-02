@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import {
   Account,
   AccountState,
+  ChatTurn,
   beginLogin,
   completeLogin,
   listAccounts,
@@ -169,6 +170,8 @@ function AddAccount({ onDone }: { onDone: () => void }) {
 
 function TestPage({ accounts }: { accounts: Account[] }) {
   const [account, setAccount] = useState(accounts[0]?.id ?? "");
+  const [model, setModel] = useState("gpt-4.1");
+  const [history, setHistory] = useState<ChatTurn[]>([]);
   const [prompt, setPrompt] = useState("");
   const [chatSession, setChatSession] = useState<string | undefined>();
   const [out, setOut] = useState("");
@@ -177,8 +180,9 @@ function TestPage({ accounts }: { accounts: Account[] }) {
   async function go() {
     setBusy(true);
     try {
-      const r = await run(account, prompt, chatSession);
-      setChatSession(r.chat_session); // continue the same agent chat next run
+      const r = await run(account, prompt, model, chatSession, history);
+      setChatSession(r.chat_session);
+      setHistory([...history, { role: "user", content: prompt }, { role: "assistant", content: r.text }]);
       setOut(
         `${r.text}\n\n— session ${r.chat_session}` +
           (r.credits_remaining != null ? ` · ${r.credits_remaining.toFixed(1)} credits left` : ""),
@@ -193,15 +197,23 @@ function TestPage({ accounts }: { accounts: Account[] }) {
   return (
     <section className="form">
       <h1>Test</h1>
-      <select value={account} onChange={(e) => setAccount(e.target.value)}>
+      <select value={account} disabled={busy} onChange={(e) => {
+        setAccount(e.target.value); setChatSession(undefined); setHistory([]);
+      }}>
         {accounts.map((a) => (
           <option key={a.id} value={a.id}>{a.alias}</option>
         ))}
       </select>
+      <label>Model
+        <input value={model} disabled={busy} onChange={(e) => setModel(e.target.value)} />
+      </label>
+      <p className="muted">Custom route. Metered models are unavailable here.</p>
       <textarea value={prompt} onChange={(e) => setPrompt(e.target.value)} placeholder="Prompt" rows={4} />
       <button disabled={busy || !account} onClick={go}>{busy ? "Running…" : "Run"}</button>
       {chatSession && (
-        <button className="link" onClick={() => setChatSession(undefined)}>New chat session</button>
+        <button className="link" disabled={busy} onClick={() => {
+          setChatSession(undefined); setHistory([]);
+        }}>New chat session</button>
       )}
       {out && <pre className="out">{out}</pre>}
     </section>

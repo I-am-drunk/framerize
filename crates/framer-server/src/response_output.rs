@@ -504,7 +504,7 @@ fn waiting_config(state: &AppState, max_tokens: Option<u32>, team: String)
     let rotation = state.serving_accounts.rotation().clone();
     framer_core::port::ChainConfig {
         max_total_tokens: max_tokens,
-        metered_fallback: std::env::var("FRAMERIZE_ALLOW_METERED").is_ok_and(|v| v == "1"),
+        metered_fallback: false,
         on_429: Some(Arc::new(move || rotation.mark_saturated(&team, 45_000))),
         ..Default::default()
     }

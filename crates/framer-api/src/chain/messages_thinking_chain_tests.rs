@@ -13,8 +13,11 @@ fn buffered_thinking_only_limit_finishes_without_empty_continuation() {
 #[test]
 fn adaptive_transport_failure_does_not_retry_or_spend() {
     let observed = adaptive(vec![failed_request()], 2);
-    assert!(observed.result.is_err());
+    let error = observed.result.as_ref().unwrap_err();
+    assert!(error.contains("fixture transport closed"));
+    assert_eq!(observed.refunds, 0);
     assert_eq!(observed.requests.len(), 1);
+    assert_eq!(observed.requests[0]["request"]["stream"], false);
     assert!(observed.emitted.is_empty());
 }
 

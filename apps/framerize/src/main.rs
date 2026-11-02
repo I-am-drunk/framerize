@@ -151,7 +151,8 @@ async fn build_state(db: &str, chrome: &str, profiles: &str, engine: &str,
         },
         other => return Err(format!("unknown --engine {other} (full-chrome|headless-shell|attach|camoufox)")),
     };
-    let runtime = framer_server::AccountRuntime::new(client, browser, sessions, state, serving_accounts);
+    let runtime = framer_server::AccountRuntime::new(client, browser, sessions, state, serving_accounts)
+        .with_metered_access(std::env::var("FRAMERIZE_ALLOW_METERED").is_ok_and(|value| value == "1"));
     // The application owns persistence. Library users and fixtures stay in memory.
     let gate_path = std::env::var_os("FRAMERIZE_GATE_STATE").map(std::path::PathBuf::from)
         .unwrap_or_else(|| std::path::PathBuf::from(std::env::var_os("HOME").unwrap_or_default())

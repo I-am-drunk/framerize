@@ -1,4 +1,15 @@
-# Claude timeout candidate, 2026-11-01
+# Custom-route correction, 2026-11-02
+
+The user requires custom routes only. The paid long-response test below is
+excluded from release acceptance. Its isolated service is stopped; alpha.9
+remains live. The follow-up separates explicit paid access from custom chains,
+prevents paid fallback and rejects paid requests when the operator disables
+metering. API and server regressions are running on the iMac builder.
+The exclusive workspace's ledger still reports zero credits. No credit change
+or account substitution is planned. The upstream buffered timeout remains a
+constraint; the candidate preserves requested settings and reports its cause.
+
+# Earlier Claude timeout candidate, 2026-11-01
 
 `fix/claude-stalls-20261101` prepares `0.5.1-alpha.10` for the observed
 60-second upstream HTTP 504 hidden behind browser NetworkError.

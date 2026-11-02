@@ -1,4 +1,33 @@
-# Claude timeout and credit-error repair, 2026-11-02
+# Custom-route-only correction, 2026-11-02
+
+The user requires custom routes only, with no metered fallback. The earlier
+561.606-second success used paid streaming and does not qualify this release.
+Do not repeat the credit-top-up request or use refunds or other accounts as workarounds.
+The old isolated paid candidate is stopped. Production remains untouched at
+PID 2340122, alpha.9, with health and readiness returning 200.
+
+The working correction prevents custom routes from selecting paid transport,
+including deferred requests and metered-only models. Explicit paid endpoints,
+header overrides and the direct agent endpoint require operator permission.
+Isolation and activation helpers set FRAMERIZE_ALLOW_METERED=0. Old acceptance,
+qualification and paid-probe scripts are disabled pending fresh custom proof.
+The iMac builder now has three CPUs and 3.5 GiB RAM; new builds use two jobs.
+R1 finished with 440 API passes, one invalid fixture assertion and two ignored
+category-specific cases. The assertion expected browser-specific wording from
+a generic bridge failure. It is corrected without changing runtime code.
+R2 runs in session 93136 through /tmp/verify-custom-r2.py. It reuses those
+440 passes, checks the repaired case and runs the 481-case server suite.
+Evidence remains in /evidence/custom-route-r1. Do not restart either run.
+The Test page now uses the custom API with an explicit model and full local
+conversation history. Four web tests and the UI build pass. Two helper tests
+confirm stale paid proofs cannot execute or authorize activation.
+
+The prior credit-error package finished and passed its nine package checks.
+Its SHA-256 is b74e50bdf505584aedfa6a1e1a31bf73321310af0e14dce4cacbcfc9a4eb20d5.
+It is staged privately and is not approved for activation. Next: finish the
+custom-route tests, publish and package the exact source, then verify isolation.
+
+# Historical Claude timeout and credit-error repair
 
 The controlled long Claude request completed with HTTP 200 in 561.606 seconds,
 2,475 words and 49,914 thinking tokens. Its evidence is preserved. The same test
@@ -21,9 +50,14 @@ The Unicode deadline case passed alone with unchanged code.
 Server r3 passed all 476 tests with two test threads. Session 20227 is complete.
 Its six-file manifest and passing qualification are saved in
 `/evidence/claude-credits-r1`. No runtime code changed after server r2.
-Next: build this committed source with `build-credit-candidate.py`, collect
-through `collect-credit-package.py`, and start with `--run-name candidate-credit-r1`.
-Stop only the old isolated unit before starting its successor on 8792.
+Source `37ec4b1c97a485530268778d4f2c32efafb7cc31` is committed and pushed.
+Its release build is running in execution session 96476 through
+`build-credit-candidate.py`. Do not duplicate that build.
+Next: collect through `collect-credit-package.py`, then start with
+`--run-name candidate-credit-r1`. Stop only the old isolated unit before its
+successor binds 8792. Old isolated PID is 2429608; live PID is 2340122.
+`probe-credit-admission.py` verifies the new binary's credit refusal. At zero
+credits the existing guard reads the ledger and prevents upstream inference.
 
 Previously qualified source `3b3ae8231fb76a670b0719fd464c55cde9d14bad`
 is published in PR28. All 1,162 affected Rust tests pass by composition.

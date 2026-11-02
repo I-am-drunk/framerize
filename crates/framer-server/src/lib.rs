@@ -484,6 +484,9 @@ async fn compat_forward_observed(
         _ => ClientDialect::OpenAiChat,
     };
     request_body_object::validate(&payload)?;
+    if !s.metered_access {
+        return Ok(operation_ownership::completed_response(metered_policy::disabled(), true));
+    }
     // Long non-streaming generations hit idle cutoffs (observed ~21.6 s in one
     // environment; a ~60 s server cutoff is plausible). ALWAYS stream upstream
     // and aggregate for clients that asked for stream:false.
@@ -1160,26 +1163,9 @@ async fn free_complete(
     // models get a clear error — the user picks what to do, not us.
     match convert::model_route(&client_model) {
         convert::ModelRoute::DirectResponses => {
-            // Metered route BLOCKED by default (user rule 2026-10-06: "we
-            // should not be using the paid route"). gpt-6-sol/6.1-sol/luna/
-            // terra only exist on the metered direct route, so they are
-            // unavailable unless the operator explicitly opts into spend.
-            if std::env::var("FRAMERIZE_ALLOW_METERED").map(|v| v == "1").unwrap_or(false) {
-                if dialect == ClientDialect::OpenAiResponses {
-                    return compat_forward_headers(
-                        s,
-                        "openai-responses",
-                        headers,
-                        payload,
-                    )
-                    .await;
-                }
-                return Err(operation_ownership::completed_preflight(ApiError::Internal(format!(
-                    "model {client_model} is a direct-route model (OpenAI Responses API, metered) — call /openai/v1/responses for it"
-                ))));
-            }
-            return Err(operation_ownership::completed_preflight(ApiError::Internal(format!(
-                "model {client_model} is metered-only (direct route) and metered access is disabled on this gateway (set FRAMERIZE_ALLOW_METERED=1 to allow spend). Free alternatives: gpt-6-astra, gpt-4.1, kimi-k3, gemini-2.5-flash, and the Claude roster."
+            // A custom-route request must never select a paid transport.
+            return Err(operation_ownership::completed_preflight(ApiError::InvalidRequest(format!(
+                "Model {client_model} is only available on a metered upstream route and cannot be served on this custom route. No upstream request was sent."
             ))));
         }
         convert::ModelRoute::Unavailable(reason) => {
@@ -1312,7 +1298,7 @@ async fn free_complete(
     let mk_cfg = |team: &framer_core::ids::TeamId| framer_core::port::ChainConfig {
         max_total_tokens: Some(max_tokens),
         // Metered rungs are credit spend: off unless the operator opts in.
-        metered_fallback: std::env::var("FRAMERIZE_ALLOW_METERED").map(|v| v == "1").unwrap_or(false),
+        metered_fallback: false,
         on_429: {
             let team = Some(team.0.clone());
             let rotation = s.serving_accounts.rotation().clone();
@@ -1906,7 +1892,7 @@ async fn native_complete(
     let mk_cfg = |team: &framer_core::ids::TeamId| framer_core::port::ChainConfig {
         max_total_tokens: max_tokens,
         cancelled: cancelled.clone(),
-        metered_fallback: std::env::var("FRAMERIZE_ALLOW_METERED").map(|v| v == "1").unwrap_or(false),
+        metered_fallback: false,
         on_429: {
             let team = Some(team.0.clone());
             let rotation = s.serving_accounts.rotation().clone();
@@ -3304,6 +3290,9 @@ async fn run(
     Json(body): Json<RunBody>,
 ) -> Result<axum::response::Response, ApiError> {
     use axum::response::IntoResponse;
+    if !s.metered_access {
+        return Ok(operation_ownership::completed_response(metered_policy::disabled(), true));
+    }
     s.serving_accounts.require(&body.account_id)
         .map_err(operation_ownership::completed_preflight)?;
     let acquired = pool_control::lease_account_observed(&s, body.account_id).await;
@@ -3475,3 +3464,8 @@ mod adaptive_retry_tests;
 
 #[cfg(test)]
 mod credit_error_tests;
+
+mod metered_policy;
+
+#[cfg(test)]
+mod metered_policy_tests;

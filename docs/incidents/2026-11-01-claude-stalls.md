@@ -3,6 +3,33 @@
 Work branch: `fix/claude-stalls-20261101`.
 Baseline: `0.5.1-alpha.9`, source `132af22691dc04680f2ecadaace8e92a4d2f706e`.
 
+## Custom-route requirement
+
+The user requires custom routes exclusively. The earlier long-response proof
+used `FRAMERIZE_ALLOW_METERED=1` and paid upstream streaming. It consumed the
+test workspace's credits and does not qualify a custom-route repair.
+That isolated process is stopped; production still runs the same alpha.9 PID.
+
+The correction keeps ordinary routes on their custom transport even when an
+operator permits explicit paid requests. It disables paid fallback in initial
+and deferred chains and rejects metered-only models before account access.
+Paid paths, header overrides and the direct agent endpoint require an explicit
+operator opt-in. The planned deployment leaves that opt-in disabled.
+
+The application's Test page previously used the direct agent endpoint, whose
+default model was metered. It now calls the custom Chat Completions endpoint,
+shows the selected model and sends the complete conversation explicitly.
+Changing accounts or starting a new chat clears that conversation. Four
+web-client tests and the production UI build pass. Admission text and upstream
+credit refusals remain visible instead of becoming JSON parsing errors.
+
+Long adaptive requests can still exceed the upstream buffered-response timeout.
+The repair preserves the requested model and settings and reports the actual
+failure without replay or paid fallback. It does not claim to remove Framer's
+upstream time limit. Fresh custom-route delivery evidence remains required.
+
+## Earlier diagnosis and excluded paid evidence
+
 Eleven production Claude requests failed while using buffered upstream
 generation with a 64,000-token adaptive-thinking allowance. Recent failures
 took about 61 seconds and returned only `TypeError: NetworkError` to callers.
@@ -47,8 +74,9 @@ Source `3b3ae8231fb76a670b0719fd464c55cde9d14bad` passed 1,162 affected
 Rust tests by composition: 155 core, 90 protocol, 474 server, 441 ordinary
 API and two category-specific API tests. The first API run's 31 outdated
 refund assertions were corrected; its failures are not counted as passes.
-The exact release build and all nine package checks passed. Isolated
-long-request qualification remains pending.
+The exact release build and all nine package checks passed. That package
+later completed the controlled long request recorded below. The credit-error
+follow-up requires its own successor package.
 
 During 48 minutes of subsequent alpha.9 production observation, six browsers
 retained 17 to 18 pages and used 6.37 to 7.01 GB of cgroup memory across
