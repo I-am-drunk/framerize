@@ -1,5 +1,8 @@
 # Kimi stalls and account scheduling, 2026-11-02
 
+Published explanation: [account rotation and verification](https://e9i4xzeh966l.postplan.dev).
+The page includes an interactive scheduling illustration and the measured limits.
+
 The alpha.13 gateway had twelve eligible saved accounts and six browser slots.
 Seven accounts sent requests after its 06:02:01 UTC start; six handled almost
 all traffic. The other five had saved sessions but no fresh authentication
