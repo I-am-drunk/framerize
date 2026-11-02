@@ -143,6 +143,20 @@ class ShutdownTests(unittest.IsolatedAsyncioTestCase):
         self.assertFalse(self.journal.load('account')['state']['clean'])
         port.stop.assert_awaited_once_with()
 
+    async def test_driver_stop_joins_a_missing_disconnect_receipt(self):
+        life, browser = self.resident('account')
+        browser.disconnect_on_ack = False
+        port = SimpleNamespace(stop=AsyncMock())
+        self.host._playwright = port
+        with patch.object(app, 'SHUTDOWN_CLOSE_TIMEOUT_S', 0.01):
+            with self.assertRaisesRegex(RuntimeError, 'browser did not disconnect'):
+                await asyncio.wait_for(self.host.close(), 1)
+        self.assertTrue(life.close_receipt.acknowledged)
+        self.assertFalse(life.close_receipt.closed)
+        self.assertFalse(life.activity.pending)
+        self.assertFalse(self.journal.load('account')['state']['clean'])
+        port.stop.assert_awaited_once_with()
+
     async def test_shutdown_preserves_unexpected_close_error_without_credentials(self):
         self.resident('account')
         failure = RuntimeError('history write failed: disk full; Authorization: Bearer private-fixture')

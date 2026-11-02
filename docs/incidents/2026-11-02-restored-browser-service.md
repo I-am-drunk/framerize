@@ -25,7 +25,10 @@ The repair stops the driver before Python cancels its protocol reader,
 including after failed browser closure. Drained browsers close concurrently
 within a shared 60-second acknowledgement window. An unconfirmed close keeps
 its dirty history and reports whether disconnection or acknowledgement is
-missing. The regression fails against the preceding source. All 114 focused
+missing. After the driver stops, the host cancels and joins any remaining
+close receipt before exiting. A forced real-driver timeout exposed this
+additional ownership race in the first candidate. Its new regression fails
+on that candidate. All 115 focused
 shutdown, lifecycle, account-isolation, retention and rate checks pass.
 Three credential-free real-browser closes also completed before the repair;
 those do not qualify the repaired package or its real-request shutdown.

@@ -591,6 +591,15 @@ class Host:
             try:
                 await self._playwright.stop()
                 self._playwright = None
+                # The closed connection has settled its protocol callbacks.
+                # Join retained close calls now, including receipt waiters
+                # whose disconnect event can no longer arrive.
+                remaining = [task for life in self.lifecycles.values()
+                             for task in life.activity.pending]
+                for task in remaining:
+                    task.cancel()
+                if remaining:
+                    await asyncio.gather(*remaining, return_exceptions=True)
             except Exception as error:
                 unconfirmed.append("stopping the Playwright driver failed: " + error_cause(error))
         if unconfirmed:

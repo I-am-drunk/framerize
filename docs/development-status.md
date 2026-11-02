@@ -6,7 +6,7 @@ restoration retains the timing, memory and error-cause repairs and requires
 real buffered and streaming OpenAI/Claude results from the exact package.
 The exclusive saved-session account has working custom-route access.
 Its older isolated binary returned 200 but hung during shutdown; that result
-cannot qualify the successor. The shutdown repair passes 114 focused checks
+cannot qualify the successor. The shutdown repair passes 115 focused checks
 and preserves failed-close history. Next: build and qualify the repaired
 package, including real-request shutdown, without changing production.
 See [the restoration record](incidents/2026-11-02-restored-browser-service.md).
