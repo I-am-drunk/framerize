@@ -47,5 +47,8 @@ launch. The stopped test container's complete account history was transferred
 to the local isolated service. Existing cross-boot recovery preserved it and
 applied the full 600-second cooldown. No history was erased or manually cleared.
 
-Status: 68 focused Python checks pass. Alpha.13 packaging and real-request
-verification remain required. Production must not be replaced before they pass.
+The initial checkpoint passed 68 focused Python checks. Subsequent alpha.13
+qualification passed 32 real requests and clean shutdown before activation.
+Production runs that verified package since 06:02:01 UTC. Both live protocols
+returned complete HTTP 200 responses. See the [final restoration record](2026-11-02-restored-browser-service.md)
+for the additional corrections, memory evidence and artifact hashes.

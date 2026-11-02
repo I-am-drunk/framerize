@@ -1,13 +1,13 @@
 # Browser service restoration
 
-Candidate version: `0.5.1-alpha.13`.
+Activated version: `0.5.1-alpha.13`.
 Branch: `fix/verified-browser-restore-20261102`.
 The package was built from `6040e344a5abd38d8fd104be805bd05220d5493f`
 on the iMac Docker builder in 221.237 seconds.
 The earlier `3c99f1ee` candidate passed 32 inference checks and clean shutdown but did not qualify:
 the longer Claude probe exposed default reasoning truncated at 600 tokens.
-The correction passed exact-package qualification. Production activation
-remains gated on the expected service generation having no active requests.
+The correction passed exact-package qualification. The guarded activation
+observed an idle predecessor and started production at 06:02:01 UTC.
 
 The recovered verification job stopped before inference when browser page
 navigation exceeded 60 seconds. That failed prewarm is retained. The isolated
@@ -146,7 +146,7 @@ The retained matched memory fixture completed 512 requests in both versions
 under the same 2 GiB limit. Baseline PSS ended at 1,437,474,816 bytes; the
 repair ended at 640,508,928 bytes, 55.4% lower. The repaired warm range was
 638,704,640 to 665,662,464 bytes. These are one-browser local HTTP fixtures,
-not a six-browser production soak. Exact-package AI-load results are pending.
+not a six-browser production soak. Exact-package AI-load results follow below.
 
 The final isolated run uses a separate database and recovered profile on
 port 8792, inside a 3 GiB container with two CPUs. Setup-file cache initially
@@ -180,5 +180,38 @@ qualify the isolated package, not a long-term six-browser production soak.
 Fifteen inert activation and rollback tests pass, including a bounded idle
 wait that never operates the service while requests remain active. The final
 idle check follows package validation and rechecks the service generation.
-Production preflight encountered continuous request traffic and refused to
-stop the service. The new release is staged, but has not been activated.
+Earlier production preflights encountered continuous request traffic and
+refused to stop the service. The final guard found an idle interval before
+operating the service. All fifteen tests passed on the final guard revision.
+
+Production changed from alpha.12, PID 2864123, to alpha.13, PID 2923147,
+at 06:02:01 UTC. Health and readiness returned HTTP 200. Both live custom
+OpenAI Responses and Claude Messages returned HTTP 200 with the expected
+text and successful terminal status. No rollback was needed.
+
+All twelve account identities and the 10 GiB memory cap, 9 GiB soft limit
+and 1 GiB swap cap are unchanged. Metered routes and the shared token socket
+remain disabled. Both installed release inventories passed verification.
+Immediate cgroup samples were 6,662,553,600 bytes before activation and
+6,597,324,800 bytes after. These different live workloads do not establish
+a memory reduction; the matched fixture and isolated AI measurements above
+provide the memory evidence.
+
+The journal records 29.345 seconds from the controlled stop request to the
+new service starting. It reports no forced termination, and the old main
+process is absent. The first 228 structured records after activation contain
+no warnings, errors or HTTP failure statuses. This is an initial observation,
+not a long-term production soak.
+
+Public verification connected to a global Funnel address with TLS hostname
+verification and no authentication. Both model-list routes returned 200, and
+`/openai/v1/responses` returned a completed response with the expected text
+in 1.175 seconds. The shared public gateway is
+`https://iris-1.javanese-mercat.ts.net:10000`.
+OpenAI clients use `/openai/v1`; Anthropic clients use `/anthropic`.
+
+The final guard hashes, activation receipt, public request result and journal
+transition are retained in the private outage evidence directory. The source
+and documentation remain on PR #29. GitHub's skipped review is not represented
+as a passing check; the local regression and exact-package evidence above
+support this activation.

@@ -1,4 +1,4 @@
-# Alpha.13 fully qualified; activation needs idle traffic, 2026-11-02
+# Alpha.13 qualified and live, 2026-11-02
 
 Source `6040e344a5abd38d8fd104be805bd05220d5493f` is staged immutably.
 All 32 real buffered/streaming requests passed on the exclusive saved-session
@@ -8,15 +8,25 @@ at 500. Peak PSS was 1,566,776,320 bytes; warm means were 1,147,205,120 and
 The Claude endpoint explicitly forbids disabled reasoning. Its HTTP 400 is
 retained, and no Claude text-only continuation success is claimed.
 
-Production remains alpha.12, PID 2864123, started 05:18:47 UTC. No production
-restart or pointer change occurred. The activation guard found continuous
-traffic; fifteen inert activation/rollback checks pass, including the new
-bounded idle wait. A traffic-coordination question is pending. No approval
-to deploy needs repeating. The exact next step is the existing `restore.py`
-with `--wait-for-idle 60 --execute`, after new requests pause briefly.
+Production is alpha.13, PID 2923147, started 06:02:01 UTC. The final fifteen
+activation and rollback tests passed. The guarded switch found an idle
+interval, shut down alpha.12 normally and selected the immutable package.
+Live health, readiness, OpenAI Responses and Claude Messages returned 200.
+Both inference results included the expected text and successful terminal
+status. All twelve account identities, memory limits and both release
+inventories are preserved. No rollback was needed.
 The qualified receipt is in the outage cache under
 `evidence/qualified-6040e344a5abd38d8fd104be805bd05220d5493f/qualification.json`.
 The isolated runtime is already stopped. Do not rerun its request series.
+The activation receipt is beside that qualification file as
+`activation-2923147.json`. Public model lists and an actual OpenAI response
+passed through a global Funnel IP without authentication. The response took
+1.175 seconds. The controlled stop/start took 29.345 seconds. No forced
+termination appeared in the journal; the old main PID is absent. The first
+228 new log records contain no errors. No further production operation is
+needed. Future failures should be investigated from the recorded cause;
+Framer's upstream timeout still requires an actual returned checkpoint for
+safe continuation.
 
 # Default reasoning correction, 2026-11-02
 

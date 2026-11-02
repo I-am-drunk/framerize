@@ -1,17 +1,22 @@
-# Qualified browser restoration candidate, 2026-11-02
+# Verified browser restoration live, 2026-11-02
 
-`fix/verified-browser-restore-20261102`, PR #29, is not activated.
-Production independently returned to alpha.12 at 05:18:47 UTC. Source
-`6040e344` is built as alpha.13 and has passed exact-package qualification:
+`fix/verified-browser-restore-20261102`, PR #29, is activated.
+Source `6040e344` is live as alpha.13, PID 2923147, since 06:02:01 UTC.
+The package passed exact-package qualification:
 32 complete buffered/streaming requests, a 3,037-token Claude answer,
 OpenAI continuation across two upstream requests, bounded memory, unchanged
 500 workspace credits, and clean shutdown in 15.722 seconds. The 127 affected
 Messages tests pass. Peak PSS was 1.567 GB; warm mean PSS remained 1.15 GB.
 The Claude endpoint requires reasoning and rejects an explicit disabled
 setting with HTTP 400. That restriction and failed probe remain recorded.
-The earlier 3c99f1ee package was never activated. Current production remains
-PID 2864123. Activation preflight has refused ongoing live requests without
-changing the service. Next: activate the qualified package during an idle gap.
+The earlier 3c99f1ee package was never activated. Fifteen final guard and
+rollback tests passed. Activation waited for an idle alpha.12 predecessor,
+PID 2864123. Live health, readiness, OpenAI Responses and Claude Messages
+returned 200. The twelve account identities, memory limits and both release
+inventories are preserved. No rollback was needed.
+The stop/start took 29.345 seconds. Public OpenAI inference and both model
+lists also returned 200 through a global Funnel address without credentials.
+The first 228 records after activation contain no errors.
 See [the restoration record](incidents/2026-11-02-restored-browser-service.md).
 
 # Alpha.12 live, 2026-11-02
