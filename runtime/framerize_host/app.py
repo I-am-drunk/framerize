@@ -20,7 +20,7 @@ from .accounts.device_retention import trim_idle_device_contexts
 from .accounts.device_use import device_use
 from framerize_accounts.rates import (
     AccountRates, DeviceBudgetUnavailable, RatePolicy, SystemClock)
-from .browser.driver import browser_runtime, BrowserCloseReceipt
+from .browser.driver import browser_runtime, prepare_browser_options, BrowserCloseReceipt
 from .browser.proxy import proxy_options
 from .browser.session import set_account_cookie
 from .browser.scripts import (WARM_JS, MINT_JS, post_js, AI_START_JS,
@@ -1031,13 +1031,17 @@ class Host:
         # This admission estimate is not a cap on later browser growth.
         async with self._allocation(BROWSER_STARTUP_RESERVE):
             life = self.lifecycles[account]
-            life.rates.runtime_starting()
+            try:
+                options = await self._rpc(account, prepare_browser_options, **kwargs)
+            except Exception as error:
+                raise RuntimeError("browser configuration failed: " + error_cause(error)) from error
             if self._playwright is None:
                 await self._rpc(account, self._start_driver, async_playwright)
+            life.rates.runtime_starting()
             # Each launch still has its own process, profile, configuration,
             # proxy and storage. Only the Playwright transport is shared.
             async def launch_owned():
-                created = await AsyncNewBrowser(self._playwright, **kwargs)
+                created = await AsyncNewBrowser(self._playwright, from_options=options)
                 # Retain both the handle and its matching cleanup receipt before
                 # returning to a waiter that may already have been cancelled.
                 life.browser = created

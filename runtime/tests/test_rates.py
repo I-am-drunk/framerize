@@ -1,5 +1,6 @@
 """Rate decisions across restarts, using synthetic clocks and temporary state."""
 from copy import deepcopy
+import errno
 from pathlib import Path
 import sys
 import tempfile
@@ -77,12 +78,13 @@ class RateTests(unittest.TestCase):
 
     def test_failed_write_changes_no_state_and_closes_further_admission(self):
         before = deepcopy(self.rates.state)
-        with patch.object(self.journal, 'save', side_effect=OSError('fixture')):
+        with patch.object(self.journal, 'save', side_effect=OSError(errno.ENOSPC, 'session=private')):
             with self.assertRaises(OSError):
                 self.rates.charge_request(self.devices[0])
         self.assertEqual(self.rates.state, before)
-        with self.assertRaisesRegex(RuntimeError, 'recovery'):
+        with self.assertRaisesRegex(RuntimeError, 'No space left on device') as caught:
             self.rates.charge_request(self.devices[1])
+        self.assertNotIn('private', str(caught.exception))
         self.assertEqual(self.journal.load('account')['state']['requests'], [])
 
     def test_reserve_identity_is_durable_and_clock_jumps_do_not_replenish_it(self):
@@ -120,7 +122,7 @@ class RateTests(unittest.TestCase):
             self.rates.begin_mint()
         restored = AccountRates(self.journal, 'account', self.policy, self.clock)
         self.assertTrue(restored.needs_cleanup)
-        with self.assertRaisesRegex(RuntimeError, 'recovery'):
+        with self.assertRaisesRegex(RuntimeError, 'termination could not be verified'):
             restored.charge_request(self.devices[0])
         restored.confirm_runtime_stopped()
         self.assertFalse(restored.state['pending_mint'])

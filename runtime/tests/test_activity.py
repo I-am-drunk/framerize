@@ -142,7 +142,9 @@ class ActivityTests(unittest.IsolatedAsyncioTestCase):
         self.host._browser_runtime = (launch, None)
         self.host._playwright = SimpleNamespace(stop=AsyncMock())
         self.host._initialize_account = AsyncMock(side_effect=AssertionError('cancelled startup'))
-        with patch.object(app, 'memory_snapshot', return_value={}):
+        with patch.object(app, 'memory_snapshot', return_value={}), \
+             patch.object(app, 'prepare_browser_options',
+                AsyncMock(side_effect=lambda **options: options)):
             waiter = asyncio.create_task(self.host._account('late'))
             await asyncio.wait_for(self.entered.wait(), 1)
             waiter.cancel()

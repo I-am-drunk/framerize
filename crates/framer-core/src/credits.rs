@@ -57,6 +57,9 @@ pub async fn rotate_workspace(
     let me = deps.client.me(session).await.map_err(CoreError::Framer)?;
     if let Some(spaces) = me["spaces"].as_array() {
         for space in spaces {
+            if space["scope"].as_str() != Some("organization") {
+                continue;
+            }
             let Some(owner) = space["ownerId"].as_str() else { continue };
             let team = TeamId(owner.to_string());
             if Some(&team) == account.current_team.as_ref() {
@@ -164,6 +167,7 @@ async fn scan_workspace_results(deps: &Deps<'_>, session: &Session)
         .map(|spaces| {
             spaces
                 .iter()
+                .filter(|s| s["scope"].as_str() == Some("organization"))
                 .filter_map(|s| s["ownerId"].as_str())
                 .map(|id| TeamId(id.to_string()))
                 .collect()

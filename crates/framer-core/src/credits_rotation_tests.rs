@@ -228,7 +228,11 @@ impl FramerClient for Fixture {
     async fn me(&self, session: &Session) -> Result<Value, String> {
         self.check_session(session);
         self.boundary(Boundary::Profile).await;
-        Ok(json!({"spaces": [{"ownerId": TEAM_A}, {"ownerId": TEAM_B}]}))
+        Ok(json!({"spaces": [
+            {"scope": "user", "ownerId": "personal-user"},
+            {"scope": "organization", "ownerId": TEAM_A},
+            {"scope": "organization", "ownerId": TEAM_B}
+        ]}))
     }
 
     async fn usage(&self, session: &Session, team: &TeamId) -> Result<CreditSnapshot, String> {

@@ -21,6 +21,15 @@ def browser_runtime():
     return AsyncNewBrowser, async_playwright
 
 
+async def prepare_browser_options(**kwargs):
+    """Finish Camoufox configuration before a browser process can exist."""
+    from camoufox.async_api import launch_options
+    options = await asyncio.to_thread(launch_options, **kwargs)
+    if not isinstance(options, dict) or not options:
+        raise RuntimeError("Camoufox returned no browser launch options")
+    return options
+
+
 def verify_close_protocol():
     # These are the same acknowledged-close primitives used by the observer.
     # Browser.close() itself suppresses TargetClosedError in this revision.

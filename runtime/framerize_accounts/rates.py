@@ -6,6 +6,7 @@ from datetime import date
 import math
 import os
 from pathlib import Path
+import sqlite3
 import time
 import uuid
 
@@ -49,6 +50,7 @@ class AccountRates:
         self.journal, self.account = journal, account
         self.policy, self.clock = policy or RatePolicy(), clock or SystemClock()
         self.failed = False
+        self.failure_cause = None
         self.needs_cleanup = False
         self._cooldown_causes = {}
         self.state = dict(devices=[], reserve=[], requests={}, cooling={},
@@ -77,8 +79,14 @@ class AccountRates:
             raise ValueError('invalid account rate policy')
 
     def _ready(self):
-        if self.failed or self.needs_cleanup:
-            raise RuntimeError('account rate history requires recovery')
+        if self.failed:
+            raise RuntimeError('account rate history requires recovery: '
+                               'the last durable history write failed: '
+                               + (self.failure_cause or 'the storage cause was not retained'))
+        if self.needs_cleanup:
+            raise RuntimeError('account rate history requires recovery: '
+                               'the previous browser runtime did not record a confirmed shutdown '
+                               'and its termination could not be verified')
 
     def check_admission(self):
         self._ready()
@@ -101,8 +109,14 @@ class AccountRates:
         try:
             if self.journal is not None:
                 self.journal.save(self.account, record)
-        except Exception:
+        except Exception as error:
             self.failed = True
+            if isinstance(error, OSError) and isinstance(error.errno, int):
+                self.failure_cause = os.strerror(error.errno)
+            elif isinstance(error, sqlite3.Error):
+                self.failure_cause = getattr(error, 'sqlite_errorname', type(error).__name__)
+            else:
+                self.failure_cause = type(error).__name__
             raise
         for field, value in state.items():
             current = self.state[field]

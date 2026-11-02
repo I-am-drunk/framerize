@@ -35,5 +35,17 @@ one pinned account and project, with separate state, profiles and logs.
 The previous test workspace remains exhausted. No credits were purchased,
 refunded or manufactured, and no replacement workspace was created.
 
-Status: isolated real-request verification is in progress on the iMac.
-Production must not be replaced until those checks pass.
+The recovered account also exposed two setup defects. Credit scans treated
+personal spaces as teams, causing HTTP 403 and incomplete workspace discovery.
+Scans and rotation now select only organization spaces. Browser configuration
+now finishes before marking a browser launch in the durable journal. Missing
+installation metadata cannot leave an account behind a false cleanup fence.
+An actual unconfirmed launch still blocks admission and retains its owner.
+
+Docker could not establish the systemd proof needed after the initial failed
+launch. The stopped test container's complete account history was transferred
+to the local isolated service. Existing cross-boot recovery preserved it and
+applied the full 600-second cooldown. No history was erased or manually cleared.
+
+Status: 68 focused Python checks pass. Alpha.13 packaging and real-request
+verification remain required. Production must not be replaced before they pass.

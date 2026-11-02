@@ -10,7 +10,7 @@ import uuid
 from collections import deque
 from contextlib import asynccontextmanager
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import AsyncMock, patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from framerize_host import app
@@ -75,6 +75,7 @@ class ResidentLifecycleTests(unittest.IsolatedAsyncioTestCase):
             'ROOT', 'prepared_memory_browser', 'prepared_memory_addon', 'trace',
             'emit', 'BROWSER_STARTUP_RESERVE', 'MemoryPressureError', 'browser_runtime')}
         overrides['memory_snapshot'] = lambda: self.ns['memory_snapshot']()
+        overrides['prepare_browser_options'] = AsyncMock(side_effect=lambda **options: options)
         settings = patch.multiple(app, **overrides)
         settings.start()
         self.addCleanup(settings.stop)

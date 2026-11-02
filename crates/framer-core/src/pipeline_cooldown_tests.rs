@@ -187,7 +187,7 @@ impl FramerClient for Fixture {
     async fn me(&self, session: &Session) -> Result<Value, String> {
         self.record("me");
         assert_session(session);
-        Ok(json!({"spaces": [{"ownerId": "cooldown-rotated-team"}]}))
+        Ok(json!({"spaces": [{"scope": "organization", "ownerId": "cooldown-rotated-team"}]}))
     }
     async fn usage(&self, session: &Session, team: &TeamId) -> Result<CreditSnapshot, String> {
         self.record("usage");

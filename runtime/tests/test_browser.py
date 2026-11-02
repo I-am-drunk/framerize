@@ -1,4 +1,5 @@
 """Browser dependencies remain optional until the real launch boundary."""
+import asyncio
 import builtins
 from contextlib import asynccontextmanager
 import importlib
@@ -61,7 +62,8 @@ class LazyBrowserRuntime(unittest.IsolatedAsyncioTestCase):
         start = AsyncMock(return_value=driver)
         async def new_browser(actual_driver, **options):
             self.assertIs(actual_driver, driver)
-            launches.append(options)
+            self.assertEqual(set(options), {'from_options'})
+            launches.append(options['from_options'])
             browser = object()
             browsers.append(browser)
             return browser
@@ -81,6 +83,8 @@ class LazyBrowserRuntime(unittest.IsolatedAsyncioTestCase):
             receipts.append(receipt)
             return receipt
         with patch.object(self.module, 'browser_runtime', return_value=factories) as load, \
+             patch.object(self.module, 'prepare_browser_options',
+                AsyncMock(side_effect=lambda **options: options)), \
              patch.object(self.module, 'prepared_memory_browser', return_value='/fixture/browser') as memory, \
              patch.object(self.module, 'prepared_memory_addon',
                 return_value={'path': '/fixture/addon', 'excluded_default': 'original'}) as addon, \
@@ -117,6 +121,50 @@ class LazyBrowserRuntime(unittest.IsolatedAsyncioTestCase):
                 await self.host._launch('fixture')
         self.assertIsNone(self.host._browser_runtime)
         self.assertIsNone(self.host._playwright)
+
+    async def test_configuration_failure_leaves_history_clean_without_starting_driver(self):
+        launch, start = AsyncMock(), Mock()
+        self.host._browser_runtime = (launch, start)
+        with patch.object(self.module, 'prepare_browser_options', AsyncMock(
+                side_effect=RuntimeError('official/stable is not installed'))), \
+             patch.object(self.module, 'memory_snapshot', return_value={}):
+            with self.assertRaisesRegex(RuntimeError,
+                    'browser configuration failed: RuntimeError: official/stable is not installed'):
+                await self.host._account('fixture')
+        life = self.host.lifecycles['fixture']
+        self.assertEqual(life.phase, 'absent')
+        self.assertTrue(life.rates.state['clean'])
+        self.assertFalse(life.rates.state['uncertain'])
+        self.assertFalse(life.activity.pending)
+        life.rates.check_admission()
+        start.assert_not_called()
+        launch.assert_not_awaited()
+        await self.host.close()
+
+    async def test_cancelled_configuration_is_joined_without_dirtying_history(self):
+        entered, released = asyncio.Event(), asyncio.Event()
+        async def prepare(**options):
+            entered.set()
+            await released.wait()
+            return options
+        launch, start = AsyncMock(), Mock()
+        self.host._browser_runtime = (launch, start)
+        with patch.object(self.module, 'prepare_browser_options', prepare), \
+             patch.object(self.module, 'memory_snapshot', return_value={}):
+            task = asyncio.create_task(self.host._account('fixture'))
+            await asyncio.wait_for(entered.wait(), 1)
+            task.cancel()
+            with self.assertRaises(asyncio.CancelledError):
+                await task
+            life = self.host.lifecycles['fixture']
+            self.assertTrue(life.activity.pending)
+            self.assertTrue(life.rates.state['clean'])
+            self.assertEqual(life.phase, 'absent')
+            released.set()
+            await asyncio.gather(*life.activity.pending)
+        start.assert_not_called()
+        launch.assert_not_awaited()
+        await self.host.close()
 
     async def test_loader_preserves_transport_option_and_factory_identity(self):
         camoufox, playwright = ModuleType('camoufox.async_api'), ModuleType('playwright.async_api')

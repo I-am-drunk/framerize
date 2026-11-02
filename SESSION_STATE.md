@@ -1,3 +1,21 @@
+# Alpha.13 preparation, 2026-11-02
+
+Branch `fix/verified-browser-restore-20261102` retains the verified browser
+lineage. The isolated import exposed two additional defects: personal spaces
+were sent to team-credit endpoints, and browser configuration errors dirtied
+the runtime journal before any browser process could exist. Both are fixed.
+History errors now distinguish an unconfirmed prior shutdown from a failed
+durable write, including its operating-system or SQLite cause when available.
+All 68 focused Python checks pass. Rust checks and packaging are next.
+
+The exclusive `verification-20261102` account and its intact history were
+transferred after the iMac test container stopped. The local isolated unit
+`framerize-verification-20261102` uses port 8792 and a 2 GiB memory cap.
+The existing cross-boot recovery preserved the history and applied its full
+600-second cooldown. Health and readiness return 200. Production retains
+PID 2767593 and its 04:10:23 UTC start time. No inference success is claimed.
+Next: build alpha.13 on the iMac and qualify that exact package before activation.
+
 # Verification before restoring the browser repair, 2026-11-02
 
 Branch `fix/verified-browser-restore-20261102`. A later deployment replaced

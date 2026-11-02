@@ -135,8 +135,14 @@ impl FramerClient for Fixture {
     async fn me(&self, session: &Session) -> Result<Value, String> {
         self.check_session(session);
         if let Some(error) = self.profile_error { return Err(error.into()); }
-        Ok(json!({"spaces": self.probes.iter()
-            .map(|probe| json!({"ownerId": probe.team})).collect::<Vec<_>>()}))
+        let mut spaces: Vec<Value> = self.probes.iter()
+            .map(|probe| json!({"scope": "organization", "ownerId": probe.team})).collect();
+        spaces.extend([
+            json!({"scope": "user", "ownerId": "personal-user"}),
+            json!({"scope": "unknown", "ownerId": "unknown-owner"}),
+            json!({"ownerId": "untyped-owner"}),
+        ]);
+        Ok(json!({"spaces": spaces}))
     }
 
     async fn usage(&self, session: &Session, team: &TeamId) -> Result<CreditSnapshot, String> {
@@ -186,6 +192,16 @@ fn assert_probe_error<T: std::fmt::Debug>(result: Result<T, CoreError>, expected
         Err(CoreError::Framer(error)) => assert_eq!(error, expected),
         other => panic!("expected original probe error, got {other:?}"),
     }
+}
+
+#[tokio::test(flavor = "current_thread")]
+async fn personal_and_untyped_spaces_are_never_credit_probes() {
+    let fixture = Fixture::new(&[("credited-team", Ok(500.0))]);
+    let result = scan_workspaces(&fixture.deps(), &fixture.session).await.unwrap();
+    assert_eq!(result.len(), 1);
+    assert_eq!(result[0].team.0, "credited-team");
+    fixture.assert_joined();
+    fixture.assert_unchanged(&fixture.initial);
 }
 
 async fn assert_incomplete(spec: &[(&'static str, Verdict)], claimed: &[&str], error: &str) {

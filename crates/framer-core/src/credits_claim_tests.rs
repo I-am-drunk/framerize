@@ -153,7 +153,7 @@ impl FramerClient for Fixture {
         assert_eq!(session.active_user, self.session.active_user);
         assert_eq!(session.cookie_header, self.session.cookie_header);
         Ok(json!({"spaces": self.workspaces.iter()
-            .map(|(team, _)| json!({"ownerId": team})).collect::<Vec<_>>()}))
+            .map(|(team, _)| json!({"scope": "organization", "ownerId": team})).collect::<Vec<_>>()}))
     }
     async fn usage(&self, session: &Session, team: &TeamId) -> Result<CreditSnapshot, String> {
         assert_eq!(session.active_user, self.session.active_user);
