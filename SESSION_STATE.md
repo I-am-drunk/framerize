@@ -1,17 +1,19 @@
-# Local timing correction, 2026-11-02
+# Alpha.12 activated, 2026-11-02
 
-Branch `fix/claude-stalls-20261101` prepares `0.5.1-alpha.12`.
-The local response deadline no longer depends on output-token count. Both
-chains enforce the active budget before every retry. Completed browser
-responses get a separate acknowledgement window. Requested effort and
-custom-only routing remain unchanged. Upstream Claude HTTP 504 at 60.122
-seconds remains an external limit, not a repaired local deadline.
-The 63 focused Python tests, 272 affected API tests and 95 protocol tests pass.
-Both Rust return codes are zero, with fresh compilation in the iMac logs.
-Production remains alpha.11, PID 2577096, started 02:03:01 UTC.
-Next: build the exact committed alpha.12 source on the iMac, verify isolation,
-then use the already-authorized drain/activation/rollback transaction.
+Branch `fix/claude-stalls-20261101`; live source `38f3c583473dea611f285ea455edceffd4331934`.
+Version `0.5.1-alpha.12`, PID 2658815, started 02:43:24 UTC. No rollback.
+The 272 API, 95 protocol and 63 Python tests pass. All nine package checks
+and six paid-route checks pass. The iMac build took 605.936 seconds.
+Health, readiness, live OpenAI Responses and Claude Messages returned 200.
+Both custom routes logged the new 180-second deadline. Public HTTPS works.
+All 12 accounts, launch arguments and memory limits match their prior state.
+Both immutable release inventories passed verification.
+Isolation stopped cleanly. Its HTTP 402 remains recorded under the user's
+activation override. Requested effort is unchanged; paid access is disabled.
+Binary SHA-256: 04848e24816e97d88c2afb83785c546bb4ba577ceaea9615a96d637c602cf5a2.
 See `docs/incidents/2026-11-02-local-timing.md` and cache `timing-r1`.
+Next: inspect the next normal long-request failure using its new timing fields.
+The observed upstream Claude 504 at 60.122 seconds remains outside this repair.
 
 # Route timeout diagnosis, 2026-11-02
 

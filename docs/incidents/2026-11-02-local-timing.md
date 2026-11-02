@@ -1,6 +1,6 @@
 # Local deadline repair
 
-Branch: `fix/claude-stalls-20261101`. Candidate: `0.5.1-alpha.12`.
+Branch: `fix/claude-stalls-20261101`. Live release: `0.5.1-alpha.12`.
 
 The audit found three independent local timing defects. A small output-token
 allowance shortened browser response deadlines to 60 seconds. Messages
@@ -43,11 +43,50 @@ passes 63 focused tests, including response ownership and listener cleanup.
 The iMac qualification passed all 272 affected API tests and all 95 protocol
 tests. Both recorded return codes are zero, and the logs confirm compilation
 of the changed crates. The 17 transferred source hashes match this checkout.
-Exact-source packaging is the next step. No production restart occurred
-during diagnosis or qualification; alpha.11 retains PID 2577096.
+Exact-source packaging and activation results follow below. No production
+restart occurred during diagnosis or qualification. Alpha.11 retained PID
+2577096 and its 02:03:01 UTC start time until final activation.
 
 Evidence is kept in
 `/home/tjninja/.cache/framerize-claude-stalls-20261101/timing-r1`.
 The earlier memory repair and its matched-load measurements are unchanged.
 Requested effort, account ownership and the prohibition on paid routes are
 unchanged. This patch cannot extend Framer's own upstream response timeout.
+
+## Verified activation
+
+Source `38f3c583473dea611f285ea455edceffd4331934` built on the iMac in
+605.936 seconds. All nine package checks and six paid-route refusal checks
+passed. GitHub skipped its build and review checks; these are not passing CI.
+
+The exact isolated binary passed health and readiness on port 8792. Its
+custom Responses request returned HTTP 402 from the same exhausted workspace,
+with `x-should-retry: false`. No isolated delivery success is claimed. The
+user's existing "just activate it" authorization covered that limitation.
+
+Activation at 02:43:24 UTC changed the live process from PID 2577096,
+alpha.11, to PID 2658815, alpha.12. Health, readiness, OpenAI Responses and
+Claude Messages all returned 200. The OpenAI verification took 28.564 seconds.
+Both custom upstream routes logged successful requests with the new
+`response_timeout_s: 180` and `fetch_ms` fields. No rollback was needed.
+
+Public HTTPS, OpenAI model listing and Anthropic model listing returned 200
+through a global Funnel address, without authentication. All twelve account
+identities, launch arguments and the rate-history schema matched their
+pre-activation snapshots. The 10 GiB memory cap, 9 GiB soft limit and 1 GiB
+swap cap remained unchanged. Both immutable
+release inventories passed verification, and automatic restarts remained zero.
+The isolated service stopped cleanly before production activation.
+
+Binary SHA-256:
+`04848e24816e97d88c2afb83785c546bb4ba577ceaea9615a96d637c602cf5a2`.
+Archive SHA-256:
+`a1823a305c4b16964fae520f4e0f21d09998787e46520675b709610b52b3bc92`.
+
+The unchanged memory-retention code retains the earlier matched 512-request
+evidence: final process PSS was 1,437,474,816 bytes before the repair and
+640,508,928 bytes afterward, with the active stream preserved. This release
+does not add a production soak claim. The complete earlier error-family
+and memory record is in [the recurring-error incident](2026-11-01-recurring-errors.md).
+The remaining upstream timeout evidence is in
+[the route-timeout investigation](2026-11-02-route-timeouts.md).

@@ -1,5 +1,9 @@
 # Custom route timeout evidence, 2026-11-02
 
+This records the investigation before alpha.12. The token-derived local
+deadline is corrected in [the subsequent release](2026-11-02-local-timing.md).
+The observed upstream timeout and its measurement limits remain unchanged.
+
 The user recalled selecting a custom route for an unmetered 180-second or
 1,080-second window. Preserve requested reasoning effort while checking that
 hypothesis. A local deadline, observed response duration and upstream limit

@@ -1,3 +1,17 @@
+# Alpha.12 live, 2026-11-02
+
+Source `38f3c583473dea611f285ea455edceffd4331934` is live as alpha.12,
+PID 2658815, since 02:43:24 UTC. Buffered deadlines no longer shrink with
+small output allowances. Retries respect the active budget, completed
+responses get a separate acknowledgement window, and failures retain their cause.
+The 430 focused checks, nine package checks and six paid-route refusals pass.
+Live OpenAI Responses, Claude Messages, health and readiness returned 200.
+Account identities, memory limits and both release inventories are preserved.
+The isolated workspace still returned 402; the existing activation override
+was used without claiming isolated delivery. Requested effort is unchanged.
+The observed upstream Claude timeout remains outside the local repair.
+See [the release and verification record](incidents/2026-11-02-local-timing.md).
+
 # Alpha.11 live, 2026-11-02
 
 The follow-up extends adaptive no-replay handling to directly returned HTTP
