@@ -1,3 +1,19 @@
+# Route timeout diagnosis, 2026-11-02
+
+Branch `fix/claude-stalls-20261101`; alpha.11 remains live at source `352b4f26`.
+The 180-second setting is a local buffered-response ceiling on both custom
+routes. Historical code had a 900-second ceiling; native Responses requests
+then defaulted to a 180-second deadline because only max_tokens was read.
+No 1,080-second inference limit was found in the inspected route history.
+Claude has a direct upstream HTTP 504 capture at 60.122 seconds. Recent
+Responses logs also have fetch failures around 60 seconds, but no measured
+upstream ceiling. Older long operation timings include preparation.
+See `docs/incidents/2026-11-02-route-timeouts.md` and the private
+`route-timeouts-r1` evidence directory in the Claude repair cache.
+No runtime, routing or effort changes follow from this evidence. No probes
+were repeated. Next: capture the next normal Responses failure's browser
+status and elapsed time using alpha.11's existing observer.
+
 # Alpha.11 activated, 2026-11-02
 
 Source 352b4f264b7d3045aef9a2e778c6798a376a1b79 is live as 0.5.1-alpha.11.

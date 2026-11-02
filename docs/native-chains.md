@@ -15,10 +15,20 @@ completes — and the network path kills any connection idle for a window:
 | `/ai/v3/chat/` (OpenRouter chat) | ~21.5s |
 | `/ai/v3/anthropic/messages/` (direct) | ~60s |
 | `/ai/v3/messages/` (OpenRouter anthropic-format) | ~45–109s |
-| `/ai/v3/responses/` (OpenRouter responses) | ≥24s confirmed; same ~45–100s class (2026-10-06: 3311 tok in 24.3s completed) |
+| `/ai/v3/responses/` (OpenRouter responses) | ≥24s confirmed; upper limit not established by the 2026-10-06 capture of 3311 tokens in 24.3s |
+
+These are historical observations, not current service guarantees. The
+[2026-11-02 investigation](incidents/2026-11-02-route-timeouts.md) separates
+upstream failures from local deadlines. It confirms a Claude upstream 504 at
+60.122 seconds and records recent Responses fetch failures around 60 seconds,
+without claiming an exact Responses ceiling. The local buffered deadline is
+at most 180 seconds on both custom routes.
 
 So any generation that might exceed the window must be **chained**: fired as a
 sequence of window-safe non-streaming chunks, continued until the model stops.
+This applies only where continuation preserves the protocol. Adaptive Claude
+thinking cannot be resumed with a synthetic continuation; alpha.11 reports
+its incomplete-response failure without replay or paid fallback.
 
 ## The dialect-native rule
 
