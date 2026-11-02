@@ -2,7 +2,7 @@
 
 use framer_core::account::ManagedAccount;
 use framer_core::ids::AccountId;
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::sync::RwLock;
 use framer_core::resident_pool::ResidentPool;
 use super::pool_config::{EligibleAccounts, PoolConfig};
@@ -11,9 +11,20 @@ use super::ApiError;
 
 pub const SERVING_ACCOUNTS_ENV: &str = "FRAMERIZE_SERVING_ACCOUNTS";
 
+// Amortize browser startup, but stop preferring warmth after an account has
+// waited eight passes over the eligible pool. Only fresh selections count.
+const WARM_REUSE_PASSES: u64 = 8;
+
+#[derive(Debug, Default)]
+struct SelectionHistory {
+    turn: u64,
+    last_picked: HashMap<AccountId, u64>,
+}
+
 #[derive(Debug)]
 pub struct ServingAccountPolicy {
     rotation: std::sync::Arc<framer_core::rotation::RotationState>,
+    selection_history: std::sync::Mutex<SelectionHistory>,
     pub(crate) config: RwLock<PoolConfig>,
     pub(crate) residents: ResidentPool,
     pub(crate) operation: tokio::sync::Mutex<()>,
@@ -38,6 +49,7 @@ impl ServingAccountPolicy {
         let residents = ResidentPool::new(config.active_capacity).map_err(|e| e.to_string())?;
         Ok(Self { config: RwLock::new(config), residents,
             rotation: Default::default(),
+            selection_history: Default::default(),
             operation: tokio::sync::Mutex::new(()),
             configuration: tokio::sync::Mutex::new(()),
             health_update: tokio::sync::Mutex::new(()),
@@ -245,6 +257,12 @@ impl ServingAccountPolicy {
         let snapshot = self.residents.snapshot().map_err(|e| ApiError::PoolBusy(e.to_string()))?;
         let mutations = self.mutations.lock()
             .map_err(|_| ApiError::PoolBusy("account management is unavailable".into()))?.clone();
+        let mut history = self.selection_history.lock()
+            .map_err(|_| ApiError::PoolBusy("account selection history is unavailable".into()))?;
+        history.last_picked.retain(|id, _| pool.iter().any(|account| account.id == *id));
+        let turn = history.turn;
+        for account in pool { history.last_picked.entry(account.id).or_insert(turn); }
+        let max_skips = (pool.len().max(1) as u64).saturating_mul(WARM_REUSE_PASSES);
         let candidates: Vec<_> = pool.iter().filter(|account| !mutations.contains(&account.id)
             && Self::residency_allows(&snapshot, &account.id, &mutations))
             .cloned().collect();
@@ -265,13 +283,20 @@ impl ServingAccountPolicy {
                 return Err(Self::cooling(until, now, cause));
             }
         }
-        self.rotation.pick_preferred_at(pool, now, |account| {
+        let selected = self.rotation.pick_preferred_at(pool, now, |account| {
             // Reservations include preparation, queued work and cleanup.
-            // Reuse a warm browser only when its load is otherwise equal.
-            snapshot.residents.iter().find(|slot| slot.account == account.id)
-                .map(|slot| (slot.users, false)).unwrap_or((0, true))
+            // An overdue equal-load account outranks warmth, after the existing
+            // availability, workspace, health and residency checks.
+            let (users, cold) = snapshot.residents.iter().find(|slot| slot.account == account.id)
+                .map(|slot| (slot.users, false)).unwrap_or((0, true));
+            let last = history.last_picked[&account.id];
+            let overdue = turn.saturating_sub(last) >= max_skips;
+            (users, !overdue, if overdue { last } else { 0 }, cold)
         }).cloned()
-            .ok_or_else(|| self.no_eligible_account(pool))
+            .ok_or_else(|| self.no_eligible_account(pool))?;
+        history.last_picked.insert(selected.id, turn);
+        history.turn = turn.saturating_add(1);
+        Ok(selected)
     }
 }
 

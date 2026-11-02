@@ -75,6 +75,11 @@ impl WaveGuard {
         let Ok(mut inner) = self.inner.lock() else { return };
         let now = Instant::now();
         let prev_refusal = inner.last_refusal;
+        // The first refusal after quiet owns the reset. At the second refusal
+        // that triggers a cluster, the previous one is at most 90 seconds old.
+        if prev_refusal.is_some_and(|previous| now.duration_since(previous) > QUIET_RESET) {
+            inner.pause_len = PAUSE_BASE;
+        }
         inner.last_refusal = Some(now);
         while inner
             .refusals
@@ -90,12 +95,7 @@ impl WaveGuard {
         let distinct_len = distinct.len();
         drop(distinct);
         if distinct_len >= WAVE_MIN_ACCOUNTS {
-            // Escalate if waves keep happening; the ladder resets on quiet.
-            if let Some(prev) = prev_refusal {
-                if now.duration_since(prev) > QUIET_RESET {
-                    inner.pause_len = PAUSE_BASE;
-                }
-            }
+            // Escalate repeated clusters. The quiet reset already ran above.
             let len = inner.pause_len.min(PAUSE_MAX);
             inner.paused_until = Some(now + len);
             inner.pause_len = (inner.pause_len * 2).min(PAUSE_MAX);
@@ -131,6 +131,52 @@ mod tests {
         assert!(g.check().is_some()); // two accounts inside 90s: wave
         g.note_success();
         assert!(g.check().is_none());
+    }
+
+    #[test]
+    fn quiet_period_resets_escalation_before_a_new_cluster() {
+        let g = WaveGuard::new();
+        {
+            let mut inner = g.inner.lock().unwrap();
+            inner.pause_len = PAUSE_MAX;
+            inner.last_refusal = Some(Instant::now() - QUIET_RESET - Duration::from_secs(1));
+        }
+        g.note_refusal("a");
+        assert!(g.check().is_none());
+        g.note_refusal("b");
+        let remaining = g.check().expect("the new cluster still requires a pause");
+        assert!(remaining <= PAUSE_BASE, "quiet cluster escalated to {remaining:?}");
+        assert!(remaining > PAUSE_BASE - Duration::from_secs(1));
+        assert_eq!(g.inner.lock().unwrap().pause_len, PAUSE_BASE * 2);
+    }
+
+    #[test]
+    fn ongoing_clusters_keep_the_maximum_pause() {
+        let g = WaveGuard::new();
+        {
+            let mut inner = g.inner.lock().unwrap();
+            inner.pause_len = PAUSE_MAX;
+            inner.last_refusal = Some(Instant::now());
+        }
+        g.note_refusal("a");
+        g.note_refusal("b");
+        assert!(g.check().unwrap() > PAUSE_MAX - Duration::from_secs(1));
+        assert_eq!(g.inner.lock().unwrap().pause_len, PAUSE_MAX);
+    }
+
+    #[test]
+    fn quiet_reset_does_not_cancel_a_current_pause() {
+        let g = WaveGuard::new();
+        let until = Instant::now() + PAUSE_BASE;
+        {
+            let mut inner = g.inner.lock().unwrap();
+            inner.last_refusal = Some(Instant::now() - QUIET_RESET - Duration::from_secs(1));
+            inner.paused_until = Some(until);
+            inner.pause_len = PAUSE_MAX;
+        }
+        g.note_refusal("a");
+        assert_eq!(g.inner.lock().unwrap().paused_until, Some(until));
+        assert!(g.check().is_some());
     }
 }
 

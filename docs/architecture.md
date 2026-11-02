@@ -39,8 +39,12 @@ establish the cause of the reported refusals or guarantee live acceptance.
 
 Automatic selection retains the configured account allowlist, cooldowns,
 workspace saturation and health ranking. Among otherwise eligible accounts,
-it prefers fewer held request leases, then an already-loaded browser. Equal
-choices rotate. Held leases include preparation, waiting and cleanup, so this
+it prefers fewer held request leases. At equal load, an already-loaded browser
+has priority until another account has waited eight passes over the eligible
+pool. Overdue accounts then take priority, oldest first. Equal choices rotate.
+This bounds warm-browser preference without launching twelve browsers or
+switching identities after a refused request. Held leases include preparation,
+waiting and cleanup, so this
 count is request pressure rather than an exact count of live streams.
 
 Selection and reservation share the existing pool operation lock. The lock is
@@ -52,6 +56,12 @@ The six-browser capacity bounds loaded accounts, not eligible saved accounts.
 An unloaded account requires a free slot or a confirmed close of an idle
 resident. Active or unconfirmed browsers cannot be displaced. Explicit account
 selection keeps its identity. Device history and all refusal pauses remain.
+
+The global refusal-pause ladder resets after ten minutes without a refusal.
+The first refusal after that quiet interval resets the next pause to 150 seconds;
+a second account's refusal within 90 seconds still triggers the pause. Clusters
+without that quiet interval still escalate, up to 900 seconds. A quiet reset
+does not cancel any pause that is already in progress.
 
 # Waiting through temporary upstream pauses
 

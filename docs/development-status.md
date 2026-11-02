@@ -1,3 +1,22 @@
+# Account scheduling and refusal-pause repair, 2026-11-02
+
+Branch `fix/fair-account-scheduling-20261102` corrects indefinite preference for
+the six resident browsers. Fresh automatic requests retain load and health
+ranking, but an eligible account waiting eight pool passes outranks warmth.
+Busy browsers, explicit identities, cleanup ownership and security pauses
+keep their existing protections. No failed request changes accounts.
+
+The refusal ladder's quiet reset previously ran only after a second refusal
+inside 90 seconds, making a ten-minute quiet interval impossible to observe.
+The reset now runs on the first refusal after quiet. Repeated clusters still
+escalate to 900 seconds. The baseline regression reproduced a 900-second pause.
+All 159 core, 95 protocol and 483 server tests pass. Four older registration
+fixtures now model a later organization-workspace scan after incomplete initial
+metadata, consistent with the recorded API contract. Production credit rules
+are unchanged. Twenty-two activation and rollback checks also pass.
+The live alpha.13 service remains unchanged. Real-request verification is pending.
+Next: build alpha.14 and qualify Kimi, Astra and Claude on the exclusive account.
+
 # Verified browser restoration live, 2026-11-02
 
 `fix/verified-browser-restore-20261102`, PR #29, is activated.

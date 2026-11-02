@@ -28,12 +28,12 @@ impl MetadataPorts {
     }
 
     fn identity(&self) -> Value {
-        // A personal space is still scanned for credits but selects no team
-        // in the caller's organization-only metadata lookup.
+        // Initial identity metadata may omit the workspace. A later credit
+        // scan returns the full organization list; personal spaces have no ledger.
         let scope = if self.metadata_team.is_some() {
             "organization"
         } else {
-            "personal"
+            "user"
         };
         json!({"id": "user-2", "spaces": [{"scope": scope, "ownerId": self.team()}]})
     }
@@ -118,6 +118,9 @@ impl FramerClient for MetadataPorts {
         } else {
             self.assert_session(session);
             self.record("me");
+            return Ok(json!({"id": "user-2", "spaces": [{
+                "scope": "organization", "ownerId": self.team()
+            }]}));
         }
         Ok(self.identity())
     }
