@@ -60,3 +60,63 @@ requires all recorded inference and cleanup operations to finish, including
 requests waiting without a resident-browser lease. It also waits for a logged
 global refusal pause to expire. A post-activation security refusal is recorded
 as deferred verification; it cannot count as successful live delivery.
+
+## Combined alpha.14 package
+
+The iMac built clean source `2b4d01951998614d160b3d8700fcad916452d9f9`
+in 191.472 seconds. All nine package checks passed. The binary SHA-256 is
+`8963ac2b7fd151159e289a6750dff8c6ba52b7e7cb490b21ab48a81bf60e7972`.
+The archive SHA-256 is
+`d7cbfb91c0705f9539c315e0871d73818a90e50766f9f62b15e8bd44802022dc`.
+
+Isolation exposed another source of memory pressure: browser font scanning
+left unused file-cache pages charged to its cgroup. Advising release of the
+1,515 font files on the preceding package reduced the same running container
+from 2,686,869,504 to 1,227,100,160 bytes. This measured file-cache effect is
+separate from the retained browser-object leak repaired in alpha.13.
+The new package advises releasing this cache after initial SDK warmup.
+It preserves font contents and reports advisory failures. All 26 focused
+font-cache, startup, shutdown and memory-diagnostic tests pass.
+
+The preceding package completed a real Kimi request in 78.377 seconds after
+the diagnostic cache release. Its normal shutdown took 11.625 seconds with
+no surviving descendants. These are diagnostic results, not qualification
+of the new package. The same exclusive account and rate history are retained.
+
+The new package's isolated prewarm completed in 406.378 seconds. Its automatic
+font-cache advice succeeded for all 1,515 files. Its first normal Kimi request
+returned a completed HTTP 200 in 67.731 seconds. All 32 sequential requests
+passed, covering Kimi, Astra and Claude with buffered and streaming replies.
+After the cold request, the median was 2.803 seconds and the maximum was
+6.523 seconds. Every response had expected text and a successful terminal
+status. All six exact-package checks rejected paid routing before account use.
+
+Across the 33 request-boundary samples, peak process PSS was 1,206,981,632
+bytes. The mean for requests 9 through 16 was 1,168,894,976 bytes; the final
+eight-request mean was 1,145,025,024 bytes. The workspace retained all 500
+credits. The isolated browser binary and patched archive hashes match the
+browser used by the unchanged live service. Normal shutdown completed in
+16.431 seconds with exit code zero, clean account history and no surviving
+descendants. The exact-package qualification receipt passed validation.
+Its evidence includes the automatic font-cache event, browser hashes and
+215 memory samples spanning startup, requests and shutdown.
+
+The six-browser production service remained PID 2923147 throughout
+qualification, with its 06:02:01 UTC start time and intact release inventory.
+All twelve accounts were enabled and available at the latest audit. Seven
+had served requests; six handled almost all of them. Kimi had 3,883 successful
+chains and 230 failures, while Astra had 566 successes and 20 failures.
+The ten emission failures in that generation all recorded client cancellation.
+GitHub build and CodeRabbit checks were skipped, not passed. Local and iMac
+test evidence is recorded above. Activation is pending an idle live interval.
+
+The earlier identical-load comparison remains valid for the unchanged
+retention repair: 512 requests, 1,437,474,816 bytes final baseline PSS and
+640,508,928 bytes after repair. This and the new real-request run measure one
+isolated browser. Neither is a long-term six-browser production soak.
+
+The complete earlier error-family, root-cause and verification record is in
+[the browser restoration report](2026-11-02-restored-browser-service.md).
+It includes Node polling, browser retention, admission and emission causes,
+readiness ownership, credits, route timing, storage, relay and shutdown fixes.
+Those unchanged code paths retain their recorded regression evidence.

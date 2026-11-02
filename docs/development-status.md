@@ -5,7 +5,10 @@ Discarding those cached pages reduced the same test process group from
 2,686,869,504 to 1,227,100,160 bytes without changing font files or limits.
 The startup path now advises releasing that cache after SDK warmup.
 All 26 focused font-cache, startup, shutdown and memory-diagnostic tests pass.
-The combined package still requires real-request qualification before activation.
+The combined alpha.14 package from `2b4d0195` passed all 32 real Kimi, Astra and
+Claude requests, including buffered and streaming delivery. Warm mean PSS
+declined from 1.169 to 1.145 GB, and all 500 workspace credits remained.
+Normal shutdown took 16.431 seconds with no surviving descendants.
 
 Branch `fix/fair-account-scheduling-20261102` corrects indefinite preference for
 the six resident browsers. Fresh automatic requests retain load and health
@@ -23,12 +26,13 @@ All 159 core, 95 protocol and 483 server tests pass. Four older registration
 fixtures now model a later organization-workspace scan after incomplete initial
 metadata, consistent with the recorded API contract. Production credit rules
 are unchanged. Twenty-two activation and rollback checks also pass.
-The live alpha.13 service remains unchanged. The first alpha.14 package built
-on the iMac, but its isolated browser preparation hit memory admission and
-page-navigation deadlines before successful inference. These failures are
-retained. The exact package with the preparation guard must still qualify.
-Next: resolve isolated preparation, build the guarded revision, and qualify
-Kimi, Astra and Claude on the exclusive account.
+The live alpha.13 service remains unchanged. Earlier alpha.14 preparation
+failures are retained. The final package built on the iMac in 191.472 seconds
+and passed nine package checks plus six paid-route rejection checks.
+Its isolated browser matches the live browser's binary and archive hashes.
+GitHub checks were skipped, not passed. No remote review was submitted.
+Next: use the guarded activation procedure at an idle live interval, then
+verify health, readiness and actual Kimi, Astra and Claude delivery.
 
 # Verified browser restoration live, 2026-11-02
 
