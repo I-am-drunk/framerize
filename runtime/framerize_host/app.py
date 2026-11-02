@@ -21,6 +21,7 @@ from .accounts.device_use import device_use
 from framerize_accounts.rates import (
     AccountRates, DeviceBudgetUnavailable, RatePolicy, SystemClock)
 from .browser.driver import browser_runtime, prepare_browser_options, BrowserCloseReceipt
+from .browser.font_cache import release_font_cache
 from .browser.proxy import proxy_options
 from .browser.session import set_account_cookie
 from .browser.scripts import (WARM_JS, MINT_JS, post_js, AI_START_JS,
@@ -1129,6 +1130,10 @@ class Host:
         except Exception as e:
             emit("castle.warm", account=account[:8], outcome="error", cause=error_cause(e))
             trace(f"{account[:8]}: castle warm failed ({error_cause(e)})")
+        if self._memory_browser:
+            cache = await self._rpc(account, asyncio.to_thread,
+                                    release_font_cache, self._memory_browser)
+            emit("memory.font_cache", **cache)
         acc = Account(None, ctx, page, self.lifecycles[account])
         acc.browser = browser
         acc.editor_file = os.path.join(profile, "framerize-editor.json")

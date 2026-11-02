@@ -1,5 +1,12 @@
 # Account scheduling and refusal-pause repair, 2026-11-02
 
+Isolation also exposed 1.46 GB of unused font-file cache after browser startup.
+Discarding those cached pages reduced the same test process group from
+2,686,869,504 to 1,227,100,160 bytes without changing font files or limits.
+The startup path now advises releasing that cache after SDK warmup.
+All 26 focused font-cache, startup, shutdown and memory-diagnostic tests pass.
+The combined package still requires real-request qualification before activation.
+
 Branch `fix/fair-account-scheduling-20261102` corrects indefinite preference for
 the six resident browsers. Fresh automatic requests retain load and health
 ranking, but an eligible account waiting eight pool passes outranks warmth.
