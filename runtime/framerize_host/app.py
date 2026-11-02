@@ -25,7 +25,8 @@ from .browser.proxy import proxy_options
 from .browser.session import set_account_cookie
 from .browser.scripts import (WARM_JS, MINT_JS, post_js, AI_START_JS,
     AI_POLL_JS, AI_CANCEL_JS, DEVPOOL_WARM_JS, DEVPOOL_MINT_JS)
-from .browser.responses import receive as receive_response, ResponseDeadline
+from .browser.responses import (receive as receive_response, ResponseDeadline,
+    BUFFERED_TIMEOUT_S, STREAM_TIMEOUT_S, START_TIMEOUT_S, CLEANUP_TIMEOUT_S)
 from .browser.network_failure import NetworkFailure
 
 _MINT_CALLS = ContextVar('framerize_mint_calls', default=None)
@@ -1135,6 +1136,7 @@ class Host:
         status = result.pop("head_status", None)
         network_status = result.pop("network_status", None)
         network_failure = result.pop("network_failure", None)
+        network_elapsed = result.pop("network_elapsed_ms", None)
         if type(result.get("status")) is not int or result["status"] != -1:
             return {}
         facts = {}
@@ -1147,6 +1149,8 @@ class Host:
             facts['network_status'] = network_status
         if isinstance(network_failure, str) and network_failure:
             facts['network_failure'] = error_message(network_failure)
+        if type(network_elapsed) is int and network_elapsed >= 0:
+            facts['network_elapsed_ms'] = network_elapsed
         if facts:
             facts['job'] = job
         return facts
@@ -1162,18 +1166,26 @@ class Host:
         completed = False
         network = NetworkFailure(page, API + path, body.get('turnId')).watch()
         try:
-            await asyncio.wait_for(
-                self._rpc(account, page.evaluate, AI_START_JS, [path, body, token, bearer, job, dev]),
-                min(30, timeout),
-            )
-            emit("ai.post.started", job=job, path=path)
+            try:
+                await asyncio.wait_for(
+                    self._rpc(account, page.evaluate, AI_START_JS, [path, body, token, bearer, job, dev]),
+                    min(START_TIMEOUT_S, timeout),
+                )
+            except asyncio.TimeoutError:
+                return network.explain({"status": -1, "usage": None, "body":
+                    f"browser driver timed out starting inference on {path}; "
+                    f"start limit {min(START_TIMEOUT_S, timeout):g}s"})
+            emit("ai.post.started", job=job, path=path, response_timeout_s=timeout)
             async def poll(acknowledged):
                 return await self._rpc(account, page.evaluate, AI_POLL_JS,
                                        [job, acknowledged])
             try:
                 result = await receive_response(poll, deadline)
-            except ResponseDeadline:
-                return {"status": -1, "usage": None, "body": f"sidecar poll timeout ({timeout:g}s)"}
+            except ResponseDeadline as error:
+                phase = 'response acknowledgement' if error.stage == 'acknowledgement' else 'response'
+                limit = CLEANUP_TIMEOUT_S if error.stage == 'acknowledgement' else timeout
+                return network.explain({"status": -1, "usage": None, "body":
+                    f"local {phase} deadline ({limit:g}s) expired on {path}: {error}"})
             completed = True
             return network.explain(result)
         finally:
@@ -1184,7 +1196,7 @@ class Host:
             finally:
                 # Request cancellation even if recording uncertainty fails.
                 try:
-                    await asyncio.wait_for(self._rpc(account, page.evaluate, AI_CANCEL_JS, job), 2)
+                    await asyncio.wait_for(self._rpc(account, page.evaluate, AI_CANCEL_JS, job), CLEANUP_TIMEOUT_S)
                 except (Exception, asyncio.CancelledError):
                     pass
 
@@ -1360,29 +1372,22 @@ class Host:
                         job = "job-" + uuid.uuid4().hex
                         acc.project = req["body"].get("projectId") or acc.project
                         acc.bearer = req.get("bearer") or acc.bearer
-                        # Deadline scales with the chunk's expected duration:
-                        # a 4300-token chunk at collapse speed (~11 tok/s)
-                        # legitimately needs ~390s — the flat 310s raced it and
-                        # three chains died mid-generation (2026-10-05 audit).
-                        # Read max_output_tokens too: the nativechain Responses
-                        # payload never sets max_tokens, so the old default-600
-                        # math was a lie for Codex.
-                        est_s = 60.0
-                        response_cap = 180.0
+                        # Output size does not predict queueing or reasoning time.
+                        # Both custom routes receive the full buffered deadline.
+                        response_cap = BUFFERED_TIMEOUT_S
                         try:
                             rb = req["body"].get("request", {}) or {}
-                            tok_n = rb.get("max_tokens") or rb.get("max_output_tokens") or 600
-                            est_s = max(60.0, float(tok_n) / 10.0 * 3.0)
                             if rb.get("stream") is True:
                                 # Leave cleanup time inside the host's 900s RPC bound.
-                                response_cap = 840.0
+                                response_cap = STREAM_TIMEOUT_S
                         except Exception:
                             pass
                         r = await self._run_job(
                             fire_page, req["path"], req["body"], tok,
-                            req.get("bearer"), job, used_dev, min(response_cap, est_s),
+                            req.get("bearer"), job, used_dev, response_cap,
                         )
                         r["_fetch_ms"] = int((time.monotonic() - fetch_t0) * 1000)
+                        r["_response_timeout_s"] = response_cap
                     finally:
                         # Keep ownership through response cleanup, then discard.
                         self._token_release(acc, tid)
@@ -1394,6 +1399,8 @@ class Host:
             emit("ai.post", account=account[:8], path=req["path"], status=r["status"],
                  duration_ms=int((time.monotonic()-t0)*1000),
                  queue_wait_ms=int(queue_wait*1000),
+                 fetch_ms=r.get("_fetch_ms"),
+                 response_timeout_s=r.get("_response_timeout_s"),
                  outcome="ok" if 200 <= r["status"] < 300 else "error",
                  **self._take_ai_post_failure_facts(r, job))
             # queue_wait_ms lets the caller separate "we waited for a page" from

@@ -47,7 +47,7 @@ impl BrowserBridge for Fixture {
         assert_eq!(body["sessionId"], "fixture-chat");
         self.requests.lock().unwrap().push(body["request"].clone());
         let reply = self.replies.lock().unwrap().pop_front().expect("unexpected attempt");
-        // Keep the inclusive 300-second boundary independent of timer rounding.
+        // Keep boundary observations independent of timer rounding.
         tokio::time::advance(std::time::Duration::from_secs(reply.seconds)).await;
         reply.result.map(|(status, text)| (status, None, text)).map_err(str::to_string)
     }
@@ -84,8 +84,9 @@ async fn run(replies: Vec<Reply>) -> Outcome {
 }
 
 fn assert_expired(outcome: Outcome, requests: usize) {
-    assert_eq!(outcome.result.unwrap_err(),
-        "chain exceeded 300s active-time budget after 0 chunks (excluding local cooldown waits), retry the request");
+    let error = outcome.result.unwrap_err();
+    assert!(error.starts_with("chain exceeded 300s active-time budget after 0 chunks"), "{error}");
+    assert!(error.contains("last failure:"), "{error}");
     assert_eq!(outcome.requests.len(), requests);
     assert!(outcome.events.is_empty());
 }
@@ -113,8 +114,13 @@ async fn metered_fallback_does_not_dispatch_after_active_budget() {
 }
 
 #[tokio::test(start_paused = true)]
-async fn exact_budget_allows_retry_and_keeps_its_late_success() {
-    let outcome = run(vec![failure(300, "fixture connection closed"), answer(1, false)]).await;
+async fn exact_budget_does_not_start_another_attempt() {
+    assert_expired(run(vec![failure(300, "fixture connection closed")]).await, 1);
+}
+
+#[tokio::test(start_paused = true)]
+async fn request_admitted_before_budget_keeps_its_late_success() {
+    let outcome = run(vec![failure(299, "fixture connection closed"), answer(2, false)]).await;
     assert_eq!(outcome.requests.len(), 2);
     assert_eq!(outcome.events.len(), 1);
     assert_eq!(outcome.result.unwrap().status, "completed");
@@ -142,6 +148,16 @@ async fn local_cooldown_wait_does_not_consume_active_budget() {
     assert_eq!(outcome.requests.len(), 3);
     assert_eq!(outcome.events.len(), 2);
     assert_eq!(outcome.result.unwrap().status, "completed");
+}
+
+#[tokio::test(start_paused = true)]
+async fn a_late_local_refusal_cannot_start_a_hidden_retry() {
+    let result = run(vec![answer(0, true), failure(301, "account-cooling:10")]).await;
+    let error = result.result.unwrap_err();
+    assert!(error.contains("300s active-time budget"), "{error}");
+    assert!(error.contains("account-cooling:10"), "{error}");
+    assert_eq!(result.requests.len(), 2);
+    assert_eq!(result.events.len(), 1);
 }
 
 #[tokio::test(start_paused = true)]

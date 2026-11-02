@@ -50,6 +50,9 @@ mod thinking_budget_tests;
 #[path = "messages_adaptive_streaming_tests.rs"]
 mod adaptive_streaming_tests;
 
+#[path = "messages_timing_tests.rs"]
+mod timing_tests;
+
 struct Observed {
     result: Result<AssembledResponse, String>,
     emitted: Vec<Value>,

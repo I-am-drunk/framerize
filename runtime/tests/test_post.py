@@ -68,6 +68,18 @@ class PostTests(unittest.IsolatedAsyncioTestCase):
                             {'stream': False, 'max_tokens': 64000})
         self.assertEqual(self.host._run_job.call_args.args[-1], 180.0)
 
+    async def test_small_buffered_output_does_not_shorten_reasoning_deadline(self):
+        event = await self.dispatch(dict(status=200, usage=None, body='complete'),
+                            {'stream': False, 'max_output_tokens': 32})
+        self.assertEqual(self.host._run_job.call_args.args[-1], 180.0)
+        self.assertEqual(event['response_timeout_s'], 180.0)
+        self.assertGreaterEqual(event['fetch_ms'], 0)
+
+    async def test_small_streamed_output_keeps_the_stream_deadline(self):
+        await self.dispatch(dict(status=200, usage=None, body='complete'),
+                            {'stream': True, 'max_tokens': 32})
+        self.assertEqual(self.host._run_job.call_args.args[-1], 840.0)
+
     async def test_incomplete_403_body_does_not_retry_or_cool(self):
         await self.check_failure('body', 403)
 

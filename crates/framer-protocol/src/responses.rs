@@ -110,22 +110,11 @@ pub async fn complete_long_with_sink(
     let budget_for = |tps: f32| -> u32 { ((tps * window_budget_s) as u32).clamp(400, grow_cap) };
 
     let mut cooldown_wait = super::cooldown_wait::CooldownWait::default();
-    let chain_started = cooldown_wait.timer();
-    let max_active = std::time::Duration::from_secs(300);
-    let check_active_budget = |wait: &super::cooldown_wait::CooldownWait, i: u32| {
-        if wait.elapsed(chain_started) > max_active {
-            Err(format!(
-                "chain exceeded {}s active-time budget after {i} chunks (excluding local cooldown waits), retry the request",
-                max_active.as_secs()
-            ))
-        } else {
-            Ok(())
-        }
-    };
+    let active_budget = crate::active_budget::ActiveBudget::new(&cooldown_wait);
 
     for i in 0..cfg.max_chunks {
         forward.check_cancelled()?;
-        check_active_budget(&cooldown_wait, i)?;
+        active_budget.check(&cooldown_wait, i, None)?;
         let budget = cfg
             .max_total_tokens
             .map(|cap| cap.saturating_sub(ctok as u32).max(1))
@@ -134,7 +123,8 @@ pub async fn complete_long_with_sink(
         if i > 0 {
             // Human cadence between chunks (see freechat).
             let j = 700u64 + (chain_nonce.wrapping_add(i as u64).wrapping_mul(0x9e3779b1) % 1600);
-            tokio::time::sleep(std::time::Duration::from_millis(j)).await;
+            active_budget.pause(&cooldown_wait, forward,
+                std::time::Duration::from_millis(j), i, None).await?;
         }
         let payload = build_payload(&input_items, chunk);
         let t0 = cooldown_wait.timer();
@@ -148,9 +138,9 @@ pub async fn complete_long_with_sink(
             let mut out = None;
             while out.is_none() {
                 forward.check_cancelled()?;
-                check_active_budget(&cooldown_wait, i)?;
+                active_budget.check(&cooldown_wait, i, None)?;
                 last_attempt_t0 = cooldown_wait.timer();
-                match cooldown_wait.run(forward, !output_items.is_empty(), || forward.forward(&chain_step, attempt_payload.clone(), i))
+                match cooldown_wait.run_budgeted(forward, !output_items.is_empty(), &active_budget, i, || forward.forward(&chain_step, attempt_payload.clone(), i))
                 .await
                 {
                     Ok(r) => out = Some(Ok(r)),
@@ -169,7 +159,7 @@ pub async fn complete_long_with_sink(
                                 1500 * (1 << (rate_retries - 1).min(4)),
                             );
                             eprintln!("[nativechain] chunk {i} 429 — backoff {wait:?} (attempt {rate_retries})");
-                            tokio::time::sleep(wait).await;
+                            active_budget.pause(&cooldown_wait, forward, wait, i, Some(&e)).await?;
                         }
                         attempt_payload = build_payload(&input_items, chunk);
                     }
@@ -194,7 +184,7 @@ pub async fn complete_long_with_sink(
                 if !(allows_transport_retry(&e, elapsed) && chunk_tokens > 200) {
                     return Err(e.into());
                 }
-                check_active_budget(&cooldown_wait, i)?;
+                active_budget.check(&cooldown_wait, i, Some(&e))?;
                 // Died silently (idle window or transport): halve and retry once.
                 chunk_tokens /= 2;
                 let retry_chunk = budget.min(chunk_tokens).min(chunk_cap).max(16);
@@ -202,7 +192,7 @@ pub async fn complete_long_with_sink(
                 let retry_payload = build_payload(&input_items, retry_chunk);
                 let retry_t0 = cooldown_wait.timer();
                 last_attempt_t0 = retry_t0;
-                match cooldown_wait.run(forward, !output_items.is_empty(), || forward.forward(&chain_step, retry_payload.clone(), i))
+                match cooldown_wait.run_budgeted(forward, !output_items.is_empty(), &active_budget, i, || forward.forward(&chain_step, retry_payload.clone(), i))
                 .await
                 {
                     Ok(r) => (r, retry_chunk, false),
@@ -211,7 +201,7 @@ pub async fn complete_long_with_sink(
                     Err(e2) if !allows_transport_retry(&e2,
                         cooldown_wait.elapsed(retry_t0).as_secs_f32()) => return Err(e2.into()),
                     Err(e2) if cfg.metered_fallback => {
-                        check_active_budget(&cooldown_wait, i)?;
+                        active_budget.check(&cooldown_wait, i, Some(&e2))?;
                         eprintln!("[nativechain] chunk {i} retry died ({e2}) — metered stream fallback for this chunk");
                         let sp = build_payload(&input_items, retry_chunk);
                         let streamed =

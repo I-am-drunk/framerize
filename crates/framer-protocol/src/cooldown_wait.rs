@@ -139,9 +139,24 @@ impl CooldownWait {
     }
 
     pub async fn run<T, F, Fut>(&mut self, cfg: &(impl ChainControl + ?Sized),
-        has_output: bool, mut attempt: F) -> Result<T, String>
+        has_output: bool, attempt: F) -> Result<T, String>
+    where F: FnMut() -> Fut, Fut: Future<Output = Result<T, String>> {
+        self.run_inner(cfg, has_output, None, attempt).await
+    }
+
+    pub async fn run_budgeted<T, F, Fut>(&mut self, cfg: &(impl ChainControl + ?Sized),
+        has_output: bool, budget: &crate::active_budget::ActiveBudget,
+        chunks: u32, attempt: F) -> Result<T, String>
+    where F: FnMut() -> Fut, Fut: Future<Output = Result<T, String>> {
+        self.run_inner(cfg, has_output, Some((budget, chunks)), attempt).await
+    }
+
+    async fn run_inner<T, F, Fut>(&mut self, cfg: &(impl ChainControl + ?Sized),
+        has_output: bool, budget: Option<(&crate::active_budget::ActiveBudget, u32)>,
+        mut attempt: F) -> Result<T, String>
     where F: FnMut() -> Fut, Fut: Future<Output = Result<T, String>> {
         cfg.check_cancelled()?;
+        if let Some((budget, chunks)) = budget { budget.check(self, chunks, None)?; }
         let error = match attempt().await {
             Ok(value) => return Ok(value),
             Err(error) => error,
@@ -153,9 +168,11 @@ impl CooldownWait {
         if wait > Duration::from_secs(600).saturating_sub(self.spent) {
             return Err(error);
         }
+        if let Some((budget, chunks)) = budget { budget.check(self, chunks, Some(&error))?; }
         self.wait(cfg, wait).await?;
         // Only the locally refused attempt is retried, once, with the same input.
         cfg.check_cancelled()?;
+        if let Some((budget, chunks)) = budget { budget.check(self, chunks, Some(&error))?; }
         attempt().await
     }
 }

@@ -4,10 +4,16 @@ import time
 
 BODY_LIMIT = 8 * 1024**2
 QUEUE_CAPACITY = 131072
+BUFFERED_TIMEOUT_S = 180.0
+STREAM_TIMEOUT_S = 840.0
+START_TIMEOUT_S = 30.0
+CLEANUP_TIMEOUT_S = 2.0
 
 
 class ResponseDeadline(TimeoutError):
-    pass
+    def __init__(self, message, stage='response'):
+        super().__init__(message)
+        self.stage = stage
 
 
 def require(condition, message):
@@ -18,17 +24,26 @@ def require(condition, message):
 async def receive(poll, deadline):
     """Poll retains its actual RPC owner even when this waiter times out."""
     acknowledged, offset, header, final = -1, 0, None, None
+    stage = 'response'
     parts, delay = [], 0.005
     while True:
         remaining = deadline - time.monotonic()
         if remaining <= 0:
-            raise ResponseDeadline('browser response deadline exceeded')
+            phase = ('acknowledging the completed response' if final is not None
+                     else 'waiting for response body data' if header is not None
+                     else 'waiting for response headers')
+            raise ResponseDeadline(f'{phase}; received {offset} UTF-16 units', stage)
         try:
             # A slow driver still owns the previous poll. Reissuing it every
             # eight seconds accumulated RPCs while Node was unresponsive.
             value = await asyncio.wait_for(poll(acknowledged), remaining)
         except asyncio.TimeoutError:
-            continue
+            if time.monotonic() < deadline:
+                await asyncio.sleep(min(delay, max(0, deadline - time.monotonic())))
+                delay = min(delay * 2, 0.25)
+                continue
+            raise ResponseDeadline('browser driver did not return the response '
+                                   f'poll; received {offset} UTF-16 units', stage) from None
         require(type(value) is dict, 'invalid browser response envelope')
         kind = value.get('kind')
         if final is not None:
@@ -74,4 +89,7 @@ async def receive(poll, deadline):
             if value['done']:
                 final = dict(status=header[0], usage=header[1], body=''.join(parts))
                 parts.clear()
+        if final is not None:
+            stage = 'acknowledgement'
+            deadline = time.monotonic() + CLEANUP_TIMEOUT_S
         acknowledged, delay = value['sequence'], 0.005

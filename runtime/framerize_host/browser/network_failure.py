@@ -63,12 +63,13 @@ class NetworkFailure:
             details.append(f'browser observed upstream HTTP {self.status}{name}'
                            f' after {self.elapsed_ms / 1000:.1f}s')
             result['network_status'] = self.status
+            result['network_elapsed_ms'] = self.elapsed_ms
         if self.failure:
             details.append('network cause: ' + self.failure)
             result['network_failure'] = self.failure
         if details:
             original = error_message(result.get('body', 'response unavailable'))
             result['body'] = '; '.join(details) + (
-                '. The page could not complete reading the response. '
+                '. The browser did not return a complete, acknowledged response. '
                 'Browser error: ' + original)
         return result

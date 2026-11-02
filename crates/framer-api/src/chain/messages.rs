@@ -154,14 +154,10 @@ pub async fn complete_long(
     let budget_for = |tps: f32| -> u32 { ((tps * window_budget_s) as u32).clamp(400, 3000) };
 
     let mut cooldown_wait = super::cooldown_wait::CooldownWait::default();
-    let chain_started = cooldown_wait.timer();
-    // Local cooldown waits have their own cumulative bound.
-    let max_active = std::time::Duration::from_secs(300);
+    let active_budget = framer_protocol::active_budget::ActiveBudget::new(&cooldown_wait);
     for i in 0..cfg.max_chunks {
         cfg.check_cancelled()?;
-        if cooldown_wait.elapsed(chain_started) > max_active {
-            return Err(format!("chain exceeded {}s active-time budget after {i} chunks (excluding local cooldown waits), retry the request", max_active.as_secs()));
-        }
+        active_budget.check(&cooldown_wait, i, None)?;
         let budget = remaining_tokens(cfg, ctok).unwrap_or(u32::MAX);
         // Adaptive reasoning cannot resume through a synthetic user turn.
         // Preserve the caller's full allowance and return that request's result.
@@ -175,7 +171,8 @@ pub async fn complete_long(
         // external entropy needed), invisible against 10-60s generations.
         if i > 0 {
             let j = 700u64 + (chain_nonce.wrapping_add(i as u64).wrapping_mul(0x9e3779b1) % 1600);
-            tokio::time::sleep(std::time::Duration::from_millis(j)).await;
+            active_budget.pause(&cooldown_wait, cfg,
+                std::time::Duration::from_millis(j), i, None).await?;
         }
         let (dialect, step) = bucket(bucket_idx);
         let payload = build_payload(&messages, chunk, dialect);
@@ -192,8 +189,9 @@ pub async fn complete_long(
             let mut out = None;
             while out.is_none() {
                 cfg.check_cancelled()?;
+                active_budget.check(&cooldown_wait, i, None)?;
                 last_attempt_t0 = cooldown_wait.timer();
-                match cooldown_wait.run(cfg, !blocks.is_empty(), || proxy::forward_cancellable(
+                match cooldown_wait.run_budgeted(cfg, !blocks.is_empty(), &active_budget, i, || proxy::forward_cancellable(
                     t, token_cache, session, browser, account, project,
                     cur_dialect, &cur_step, attempt_payload.clone(), chat_session, i, cfg.cancelled.as_deref(),
                 )).await {
@@ -211,7 +209,7 @@ pub async fn complete_long(
                         let wait = std::time::Duration::from_millis(
                             1500 * (1 << (rate_retries - 1).min(4)));
                         eprintln!("[freechat] chunk {i} HTTP 429, waiting {wait:?} (attempt {rate_retries}/9)");
-                        tokio::time::sleep(wait).await;
+                        active_budget.pause(&cooldown_wait, cfg, wait, i, Some(&e)).await?;
                     }
                     Err(e) => out = Some(Err(e)),
                 }
@@ -241,6 +239,7 @@ pub async fn complete_long(
                 if adaptive_thinking || !(retryable_failure(&e, elapsed) && chunk_tokens > 200) {
                     return Err(e);
                 }
+                active_budget.check(&cooldown_wait, i, Some(&e))?;
                 chunk_tokens /= 2;
                 bucket_idx += 1;
                 let (d3, s3) = bucket(bucket_idx);
@@ -249,7 +248,7 @@ pub async fn complete_long(
                 let retry_payload = build_payload(&messages, retry_tokens, d3);
                 last_attempt_t0 = cooldown_wait.timer();
                 let mut retry_started = tokio::time::Instant::now();
-                match cooldown_wait.run(cfg, !blocks.is_empty(), || {
+                match cooldown_wait.run_budgeted(cfg, !blocks.is_empty(), &active_budget, i, || {
                     // Reset after a local cooldown so only the failing attempt counts.
                     retry_started = tokio::time::Instant::now();
                     proxy::forward_cancellable(
@@ -262,6 +261,7 @@ pub async fn complete_long(
                     Err(e2) if cfg.is_cancelled() => return Err(e2),
                     Err(e2) if !retryable_failure(&e2, retry_started.elapsed().as_secs_f32()) => return Err(e2),
                     Err(e2) if cfg.metered_fallback => {
+                        active_budget.check(&cooldown_wait, i, Some(&e2))?;
                         eprintln!("[freechat] chunk {i} retry died ({e2}) — metered stream fallback for this chunk");
                         let stream_payload = build_payload(&messages, budget.min(chunk_tokens.max(output_floor)), d3);
                         let streamed = stream_chunk(
@@ -381,6 +381,8 @@ pub async fn complete_long(
             if !cfg.metered_fallback {
                 return Err(format!("chunk {i}: upstream stopped at the output-token limit during a tool call, so complete tool input is unavailable. This custom-route request was not switched to metered streaming."));
             }
+            active_budget.check(&cooldown_wait, i,
+                Some("upstream stopped at the output-token limit during a tool call"))?;
             eprintln!("[freechat] chunk {i} cut mid-tool_use again — streaming this chunk metered (explicit opt-in)");
             let stream_tokens = budget.min(remaining_tokens(cfg, ctok).unwrap_or(8000).max(output_floor));
             let stream_payload = build_payload(&messages, stream_tokens, dialect);

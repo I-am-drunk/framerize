@@ -1,3 +1,18 @@
+# Local timing correction, 2026-11-02
+
+Branch `fix/claude-stalls-20261101` prepares `0.5.1-alpha.12`.
+The local response deadline no longer depends on output-token count. Both
+chains enforce the active budget before every retry. Completed browser
+responses get a separate acknowledgement window. Requested effort and
+custom-only routing remain unchanged. Upstream Claude HTTP 504 at 60.122
+seconds remains an external limit, not a repaired local deadline.
+The 63 focused Python tests, 272 affected API tests and 95 protocol tests pass.
+Both Rust return codes are zero, with fresh compilation in the iMac logs.
+Production remains alpha.11, PID 2577096, started 02:03:01 UTC.
+Next: build the exact committed alpha.12 source on the iMac, verify isolation,
+then use the already-authorized drain/activation/rollback transaction.
+See `docs/incidents/2026-11-02-local-timing.md` and cache `timing-r1`.
+
 # Route timeout diagnosis, 2026-11-02
 
 Branch `fix/claude-stalls-20261101`; alpha.11 remains live at source `352b4f26`.

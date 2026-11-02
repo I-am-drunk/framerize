@@ -5,7 +5,7 @@ import sys
 import tempfile
 from types import SimpleNamespace
 import unittest
-from unittest.mock import patch
+from unittest.mock import AsyncMock, patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from framerize_host import app
@@ -21,6 +21,21 @@ def chunk(sequence, offset, text, *, done=False, **extra):
 
 
 class ResponseQueueTests(unittest.IsolatedAsyncioTestCase):
+    async def test_local_deadline_keeps_observed_upstream_status(self):
+        self.install([])
+        observer = app.NetworkFailure(self.page, app.API + '/fixture', None)
+        observer.status, observer.elapsed_ms = 504, 60122
+        receive = AsyncMock(side_effect=app.ResponseDeadline('waiting for headers'))
+        with patch.object(app, 'NetworkFailure', return_value=observer), \
+                patch.object(app, 'receive_response', receive):
+            result = await self.run_job(timeout=180)
+        self.assertEqual(result['status'], -1)
+        self.assertIn('local response deadline (180s)', result['body'])
+        self.assertIn('HTTP 504 Gateway Timeout after 60.1s', result['body'])
+        self.assertIn('waiting for headers', result['body'])
+        self.assertEqual(result['network_elapsed_ms'], 60122)
+        self.assertFalse(self.life.activity.pending)
+
     async def test_host_preserves_hidden_http_error_and_removes_observers(self):
         listeners = {}
         self.page.on = lambda name, fn: listeners.setdefault(name, []).append(fn)
@@ -142,7 +157,8 @@ class ResponseQueueTests(unittest.IsolatedAsyncioTestCase):
         result = await asyncio.wait_for(self.run_job(0.05), 1)
         self.assertTrue(self.entered.is_set())
         self.assertEqual(result['status'], -1)
-        self.assertIn('poll timeout', result['body'])
+        self.assertIn('local response deadline', result['body'])
+        self.assertIn('browser driver did not return the response poll', result['body'])
         self.assertEqual(len(self.life.activity.pending), 1)
         self.assertFalse(await self.host._close_account('a'))
         self.assertTrue(self.browser.connected)
