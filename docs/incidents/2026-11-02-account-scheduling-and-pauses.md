@@ -151,5 +151,19 @@ provide the memory evidence.
 
 The first new-generation errors explicitly report client cancellations.
 The scheduling regression proves all twelve equally eligible accounts receive
-work with six residents. A live twelve-account turnover and long-term memory
-soak are not inferred from the short post-activation window.
+work with six residents. The later observation below confirms live turnover;
+a long-term production memory soak remains unmeasured.
+
+## Live twelve-account turnover
+
+By 14:42:08 UTC, normal production traffic had completed 116 successful chains
+across all twelve production accounts. Every account completed at least one
+chain. The same window contained 125 upstream HTTP 200 responses. The observed
+account identifiers match the complete pre-activation production inventory.
+The three logged failures in this window explicitly recorded client cancellation.
+
+The service remains PID 3565455 with its original 14:31:56 UTC start time.
+Health and readiness pass, all 57 installed file hashes match the manifest,
+and the executable hash matches the qualified binary. No service operation or
+additional inference request was needed for this observation. Existing source
+and test evidence remains valid; this update changes documentation only.
