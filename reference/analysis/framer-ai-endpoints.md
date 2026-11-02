@@ -152,3 +152,18 @@ maps are OpenRouter routing tiers ("fast"/"priority"), not plan gates.
   path-level idle kill) with no zombie billing and no session poisoning.
   Workaround: continuation chaining — see framer-api/src/freechat.rs
   (verified: 1,893 words over 4 free chunks, zero credits).
+
+## Default reasoning observed on 2026-11-02
+
+An isolated custom Messages request to `anthropic/claude-fable-5.1`
+omitted `thinking` and requested a website-design guide. The gateway sent
+its 600-token first chunk. The provider returned HTTP 200, `max_tokens`,
+600 output tokens, 600 thinking tokens and no text. This is direct evidence
+of reasoning without an explicit thinking field on that route.
+
+The gateway must preserve the client's full allowance for this observed
+default, as it does for explicit adaptive thinking. It must preserve explicit
+thinking and effort settings. A truncated thinking-only response has no text
+checkpoint from which the existing continuation mechanism can resume.
+This observation does not establish defaults for other models or extend
+the provider's buffered-request timeout.

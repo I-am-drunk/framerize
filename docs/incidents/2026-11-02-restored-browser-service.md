@@ -2,8 +2,16 @@
 
 Candidate version: `0.5.1-alpha.13`.
 Branch: `fix/verified-browser-restore-20261102`.
-The package is being rebuilt after the isolated shutdown repair.
-Activation is pending exact-package inference qualification.
+The package was built from `3c99f1ee85493e3cb194e0fff1eca00c0d5a5ce1`
+on the iMac Docker builder in 175.675 seconds.
+That package passed 32 inference checks and clean shutdown but did not qualify:
+the longer Claude probe exposed default reasoning truncated at 600 tokens.
+The correction requires a new build and exact-package qualification.
+
+Binary SHA-256:
+`cb374ae2b6a0a77e46dd77fd760bd75e498331d5c36fef6ead428ef15e10d70e`.
+Archive SHA-256:
+`b4a02752e9409570c4d54d6e599021d091a91fb30bf5ff6191407360c4cbefc1`.
 
 The initial live process was PID 2767593, started at 04:10:23 UTC.
 Its source was `d578e93ecc096ff3470516891a5a95c12b9762a9`.
@@ -14,6 +22,13 @@ That liveness result does not prove successful inference.
 At continuation, production was healthy as PID 2821815, started at
 04:47:21 UTC, with the same source and 7,920,857,088 bytes of cgroup memory.
 No production operation was performed during the shutdown investigation.
+
+At 05:18:47 UTC, a separate operation restored the earlier alpha.12 package,
+source `38f3c583473dea611f285ea455edceffd4331934`, as PID 2864123.
+Read-only verification confirmed its complete release inventory, health,
+readiness and unchanged twelve-account identity digest. The activation
+procedure now pins that observed predecessor and refuses a different runtime.
+All thirteen inert activation and rollback checks passed after this update.
 
 The earlier alpha.12 isolation returned a real custom OpenAI 200 in
 127.602 seconds. It then disconnected its browser without receiving the
@@ -37,6 +52,24 @@ The exclusive saved-session account is `verification-20261102`.
 Its identity and workspace are outside all twelve production accounts and
 all 28 workspace assignments. Its original workspace balance was 500 credits.
 Testing retains this account and workspace, with paid routes disabled.
+
+The first long numeric probe returned an unexplained provider refusal in
+2.405 seconds, with zero generated tokens. It remains a failed check.
+A website-design probe then returned 600 thinking tokens and no text,
+although the client allowed 2,400 output tokens. The provider generated
+reasoning even without an explicit `thinking` field. The gateway recognized
+only explicitly requested adaptive thinking and imposed its 600-token stage.
+The correction preserves the full requested allowance on the observed Fable
+5.1 route when its default thinking applies. Explicit settings still take
+precedence; no effort setting is inserted or reduced. Text-only continuation
+is tested separately with a client that explicitly requests disabled thinking.
+
+The regression reproduced the old 600-token allowance instead of 2,400.
+All 127 affected Messages tests pass after the correction. Six new tests
+cover provider-default reasoning, explicit text continuation, small and
+uncapped allowances, preserved truncation, and failures without replay.
+Timeout diagnostics distinguish default reasoning from explicit adaptive
+thinking and preserve the observed upstream cause.
 
 | Error family | Cause and repair |
 |---|---|
@@ -84,3 +117,18 @@ under the same 2 GiB limit. Baseline PSS ended at 1,437,474,816 bytes; the
 repair ended at 640,508,928 bytes, 55.4% lower. The repaired warm range was
 638,704,640 to 665,662,464 bytes. These are one-browser local HTTP fixtures,
 not a six-browser production soak. Exact-package AI-load results are pending.
+
+The final isolated run uses a separate database and recovered profile on
+port 8792, inside a 3 GiB container with two CPUs. Setup-file cache initially
+consumed admission headroom: cgroup memory was 2,878,324,736 bytes while
+file cache alone was 1,721,196,544 bytes. Advisory cache release on private
+setup and dependency files reduced cgroup memory to 938,283,008 bytes.
+No file contents, account history or resource limits changed. The same
+account then completed normal browser preparation in 64.819 seconds.
+
+The acceptance criteria were fixed before the request run: 32 sequential
+successful buffered and streaming requests across both APIs, peak process
+PSS no higher than 2 GiB, and the final eight-sample mean no more than
+128 MiB above the mean for requests 9 through 16. Separate checks require
+successful staged continuation, unchanged workspace credits and confirmed
+normal shutdown before a qualification receipt can be created.

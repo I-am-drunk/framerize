@@ -54,7 +54,9 @@ pub async fn complete_long(
         return Err("Messages chain max_total_tokens must be greater than zero".into());
     }
     let output_floor = framer_core::convert::anthropic_output_floor(&anthro_payload)?;
-    let adaptive_thinking = anthro_payload["thinking"]["type"] == "adaptive";
+    let default_thinking = uses_default_thinking(&anthro_payload);
+    let uninterrupted_thinking = anthro_payload["thinking"]["type"] == "adaptive" || default_thinking;
+    let thinking_mode = if default_thinking { "default reasoning" } else { "adaptive thinking" };
     if cfg.max_total_tokens.is_some_and(|total| total < output_floor) {
         return Err("Messages total output limit cannot accommodate the enabled thinking budget".into());
     }
@@ -108,9 +110,9 @@ pub async fn complete_long(
         prepare_payload(&anthro_payload, messages, chunk, dialect)
     };
 
-    // Adaptive thinking cannot resume through a synthetic continuation.
+    // Adaptive and provider-default reasoning cannot use a synthetic continuation.
     // Explicitly allowed streaming avoids buffering its whole generation.
-    if adaptive_thinking && cfg.metered_fallback {
+    if uninterrupted_thinking && cfg.metered_fallback {
         cfg.check_cancelled()?;
         let limit = cfg.max_total_tokens.unwrap_or(cfg.chunk_tokens);
         let payload = build_payload(&anthro_payload["messages"], limit,
@@ -159,9 +161,9 @@ pub async fn complete_long(
         cfg.check_cancelled()?;
         active_budget.check(&cooldown_wait, i, None)?;
         let budget = remaining_tokens(cfg, ctok).unwrap_or(u32::MAX);
-        // Adaptive reasoning cannot resume through a synthetic user turn.
+        // Keep adaptive and provider-default reasoning in one upstream request.
         // Preserve the caller's full allowance and return that request's result.
-        let chunk = if adaptive_thinking {
+        let chunk = if uninterrupted_thinking {
             cfg.max_total_tokens.unwrap_or(cfg.chunk_tokens)
         } else {
             budget.min(chunk_tokens.max(output_floor))
@@ -223,12 +225,12 @@ pub async fn complete_long(
             }
             Err(e) if framer_core::error::AccountCooldown::from_error(&e).is_some() => return Err(e),
             Err(e) if cfg.is_cancelled() => return Err(e),
-            Err(e) if adaptive_thinking && (e.starts_with("in-page fetch failed:")
+            Err(e) if uninterrupted_thinking && (e.starts_with("in-page fetch failed:")
                 || matches!(framer_core::convert::parse_upstream_error(&e), Some((502 | 504, _)))) => {
                 let elapsed = cooldown_wait.elapsed(last_attempt_t0).as_secs_f32();
                 let cause = framer_core::error::safe_failure_summary(&e);
                 let prefix = framer_core::error::ADAPTIVE_INCOMPLETE_PREFIX;
-                return Err(format!("{prefix}Claude's buffered upstream request failed after {elapsed:.1}s before a complete response was available. The request allowed {chunk} output tokens with adaptive thinking. Recorded cause: {cause}. Automatic replay is disabled because completion is unknown. This custom-route request was not switched to metered streaming."));
+                return Err(format!("{prefix}Claude's buffered upstream request failed after {elapsed:.1}s before a complete response was available. The request allowed {chunk} output tokens with {thinking_mode}. Recorded cause: {cause}. Automatic replay is disabled because completion is unknown. This custom-route request was not switched to metered streaming."));
             }
             Err(e) => {
                 // The idle-kill check must time the FAILING ATTEMPT — the whole
@@ -236,7 +238,7 @@ pub async fn complete_long(
                 // velocity 403 after >8s of waiting as an idle-window kill
                 // (audit 2026-10-11: wasted halve-retries on velocity bans).
                 let elapsed = cooldown_wait.elapsed(last_attempt_t0).as_secs_f32();
-                if adaptive_thinking || !(retryable_failure(&e, elapsed) && chunk_tokens > 200) {
+                if uninterrupted_thinking || !(retryable_failure(&e, elapsed) && chunk_tokens > 200) {
                     return Err(e);
                 }
                 active_budget.check(&cooldown_wait, i, Some(&e))?;
@@ -325,8 +327,8 @@ pub async fn complete_long(
         last_usage = usage;
         let contains_tool_use = chunk_blocks.iter().any(|block|
             matches!(block["type"].as_str(), Some("tool_use" | "server_tool_use")));
-        if adaptive_thinking && chunk_stop == "max_tokens" && contains_tool_use {
-            return Err("adaptive thinking reached the requested output limit during a tool call".into());
+        if uninterrupted_thinking && chunk_stop == "max_tokens" && contains_tool_use {
+            return Err(format!("{thinking_mode} reached the requested output limit during a tool call"));
         }
         // Adapt chunk size from measured throughput (floor 400: completes even
         // when the upstream degrades to a crawl; ceiling 3000 ≈ 75% window).
@@ -427,13 +429,25 @@ pub async fn complete_long(
         }
 
         let budget_left = remaining_tokens(cfg, ctok);
-        if adaptive_thinking || chunk_stop != "max_tokens" || budget_left.is_some_and(|left| left < output_floor)
+        if uninterrupted_thinking || chunk_stop != "max_tokens" || budget_left.is_some_and(|left| left < output_floor)
             || !has_continuation_text(&chunk_blocks) {
             return Ok(assemble(msg_id, blocks, stop_reason, stop_sequence, last_usage, ptok, ctok, i + 1, metered_chunks));
         }
         push_continuation(&mut messages, &chunk_blocks, cfg);
     }
     Ok(assemble(msg_id, blocks, stop_reason, stop_sequence, last_usage, ptok, ctok, cfg.max_chunks, metered_chunks))
+}
+
+fn uses_default_thinking(payload: &Value) -> bool {
+    if payload.get("thinking").is_some_and(|value| !value.is_null()) {
+        return false;
+    }
+    // This route returned reasoning with no thinking setting on 2026-11-02.
+    // A 600-token first chunk exhausted its allowance before any text existed.
+    // Preserve the caller's allowance and the provider's own default settings.
+    let model = payload["model"].as_str().unwrap_or_default();
+    let model = model.strip_prefix("anthropic/").unwrap_or(model);
+    matches!(model, "claude-fable-5.1" | "claude-fable-5-1")
 }
 
 fn has_continuation_text(blocks: &[Value]) -> bool {

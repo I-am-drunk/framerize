@@ -1,4 +1,21 @@
-# Alpha.13 preparation, 2026-11-02
+# Default reasoning correction, 2026-11-02
+
+The alpha.13 candidate from 3c99f1ee passed 32 real buffered/streaming
+OpenAI and Claude requests. Peak PSS was 1,245,755,392 bytes; the late warm
+mean grew by 7,026,304 bytes. Normal shutdown completed in 16.339 seconds,
+with clean history and no live descendants. It was not activated.
+
+Longer verification exposed implicit reasoning on claude-fable-5.1: its
+600-token first stage returned only thinking despite a 2,400-token client
+allowance. The new regression fails on 3c99f1ee. The correction preserves
+the full allowance for that observed default and preserves explicit settings.
+All 127 affected Messages tests pass, including six new regressions.
+Next: rebuild and qualify the exact package.
+The same exclusive account and its complete history remain in the stopped
+isolated container. Production was independently restored to alpha.12,
+PID 2864123, at 05:18:47 UTC. This continuation has not changed production.
+
+# Earlier alpha.13 preparation, 2026-11-02
 
 Branch `fix/verified-browser-restore-20261102` retains the verified browser
 lineage. The isolated import exposed two additional defects: personal spaces

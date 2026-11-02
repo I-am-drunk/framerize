@@ -47,6 +47,9 @@ mod thinking_tests;
 #[path = "messages_thinking_budget_tests.rs"]
 mod thinking_budget_tests;
 
+#[path = "messages_default_thinking_tests.rs"]
+mod default_thinking_tests;
+
 #[path = "messages_adaptive_streaming_tests.rs"]
 mod adaptive_streaming_tests;
 

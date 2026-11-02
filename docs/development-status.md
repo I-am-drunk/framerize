@@ -1,14 +1,15 @@
 # Verified browser restoration candidate, 2026-11-02
 
 `fix/verified-browser-restore-20261102`, PR #29, is not activated.
-Production currently runs the divergent `d578e93e` package. The browser
-restoration retains the timing, memory and error-cause repairs and requires
-real buffered and streaming OpenAI/Claude results from the exact package.
-The exclusive saved-session account has working custom-route access.
-Its older isolated binary returned 200 but hung during shutdown; that result
-cannot qualify the successor. The shutdown repair passes 115 focused checks
-and preserves failed-close history. Next: build and qualify the repaired
-package, including real-request shutdown, without changing production.
+Production independently returned to alpha.12 at 05:18:47 UTC. The candidate
+from 3c99f1ee passed 32 real requests, its memory bounds, and normal shutdown
+in 16.339 seconds, but did not qualify. A longer request exposed Claude's
+default reasoning exhausting the 600-token stage before producing text.
+The correction preserves the full client allowance on that observed route
+without changing effort. Explicitly disabled thinking retains text stages.
+The new regression fails against the preceding source. All 127 affected
+Messages tests pass after correction. Next: rebuild and repeat exact-package
+qualification.
 See [the restoration record](incidents/2026-11-02-restored-browser-service.md).
 
 # Alpha.12 live, 2026-11-02
