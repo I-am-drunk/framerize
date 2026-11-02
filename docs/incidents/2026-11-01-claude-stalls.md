@@ -71,5 +71,28 @@ ratio. Its 2.5 GiB hard cap, zero-swap limit and application admission guard
 were unchanged. Browser RPC traffic resumed without replaying the request.
 That attempt hit the 840-second deadline and remains a recorded failure.
 Its elapsed time includes the test-induced stall and is not a latency benchmark.
-A subsequent short adaptive request passed in 4.169 seconds. A new bounded
-long request is running under the corrected limits, without further throttling.
+A subsequent short adaptive request passed in 4.169 seconds. The controlled
+long request completed in 561.606 seconds with HTTP 200 and `end_turn`.
+It returned 2,475 words and reported 54,994 output tokens, including 49,914
+thinking tokens. Its long duration therefore included substantial generation.
+
+The next Claude stream and a free gpt-4.1 request both received upstream
+HTTP 402. The same workspace had zero credits. The OpenAI response exposed a
+separate defect: the internal `credits-exhausted` result became HTTP 500.
+No further inference was attempted after confirming that refusal.
+
+The follow-up correction keeps HTTP 402, explains the exhausted workspace
+credits and disables SDK replay. Paid-route errors use the same dialect-aware
+mapping. Paid streams emit actual terminal error events instead of comments
+that a client can ignore. Local credit-floor refusals name the measured balance
+and required minimum without suggesting another account or a free-model retry.
+The new protocol regression fails on the previous source with 500 versus 402.
+The follow-up passed all 92 protocol tests and all 476 server tests. Its first
+server run exposed a test collector retaining bounded response buffers and an
+old assertion expecting error comments. Both fixtures are corrected. A Unicode
+deadline case passed alone and in the final full suite with two test threads.
+Application code and test deadlines did not change for those fixture repairs.
+Unchanged-source evidence covers 155 core tests and 443 API tests, for 1,166
+passing Rust tests by composition. The 51 Python checks remain reusable.
+The successor package and restored test-workspace credits are still required
+before activation. The successful long result remains preserved.

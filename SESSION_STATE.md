@@ -1,6 +1,31 @@
-# Claude timeout repair, 2026-11-01
+# Claude timeout and credit-error repair, 2026-11-02
 
-Latest checkpoint: source `3b3ae8231fb76a670b0719fd464c55cde9d14bad`
+The controlled long Claude request completed with HTTP 200 in 561.606 seconds,
+2,475 words and 49,914 thinking tokens. Its evidence is preserved. The same test
+workspace subsequently returned HTTP 402 on both Claude and free gpt-4.1.
+Do not repeat inference until credits on that same workspace are restored.
+The user has been asked once. Production still has PID 2340122 and is untouched.
+
+The credit refusal exposed a separate defect: HTTP 402 became HTTP 500 and
+paid streaming failures were only comments. The working correction preserves
+payment status, gives the actual credit cause and emits typed terminal errors.
+It retains the credit floor and never switches accounts. Local credit checks
+no longer advise switching to a free model when the workspace has zero credits.
+Qualification uses a new remote source and `/evidence/claude-credits-r1`.
+All 92 protocol tests pass after recompiling the transferred source. The first
+post-transfer run reused the old executable and is excluded. Server r2 passed
+473 tests with three failures. The new credit test retained bounded output
+buffers; it now uses the existing releasing consumer. The legacy paid-error
+test now checks typed failures while preserving every cleanup assertion.
+The Unicode deadline case passed alone with unchanged code.
+Server r3 passed all 476 tests with two test threads. Session 20227 is complete.
+Its six-file manifest and passing qualification are saved in
+`/evidence/claude-credits-r1`. No runtime code changed after server r2.
+Next: build this committed source with `build-credit-candidate.py`, collect
+through `collect-credit-package.py`, and start with `--run-name candidate-credit-r1`.
+Stop only the old isolated unit before starting its successor on 8792.
+
+Previously qualified source `3b3ae8231fb76a670b0719fd464c55cde9d14bad`
 is published in PR28. All 1,162 affected Rust tests pass by composition.
 The first API run found 31 old refund expectations; the corrected API run
 passes all 441 ordinary tests and both category-specific tests. Core 155,
@@ -22,9 +47,10 @@ has PID 2340122, with unchanged start time and zero restarts.
 The first long request timed out at 840 seconds after the test's 1.5 GiB
 MemoryHigh caused sustained reclaim. Evidence is preserved. MemoryHigh is now
 2.25 GiB, matching production's 90% ratio; the 2.5 GiB hard cap is unchanged.
-A new short Claude request passed in 4.169 seconds. Session 44916 owns the
-new bounded long request, `controlled-long.json`. Do not duplicate it.
-Stream, tool, and four OpenAI checks remain pending. No activation occurred.
+A new short Claude request passed in 4.169 seconds. The bounded long request
+also completed successfully; session 44916 has finished. Do not duplicate it.
+Stream, tool, and four OpenAI successes still require restored test credits.
+Failed proofs remain separate. No activation occurred.
 Isolation explicitly unsets the broken optional JWT relay. Activation does
 the same after local-mint verification and checks all acceptance file hashes.
 Activation also handles SIGTERM through rollback; all eight rollback tests pass.
@@ -50,8 +76,9 @@ The first Rust run's failures remain recorded; corrected results are separate.
 
 The candidate on 8792 exclusively owns the non-production profile at
 `/home/tjninja/.local/state/framerize-browserless/enrollment-20261023-r1`.
-Next: collect session 44916, then continue the unrun checks through
-`qualify-candidate.py`. It reuses saved results and does not repeat the long request.
+Next: finish the credit-error regressions and successor package. After test
+credits recover, use fresh proof filenames for the remaining real checks.
+Do not run the old qualification sequence or repeat the completed long request.
 
 # Alpha.9 readiness correction, 2026-11-01
 

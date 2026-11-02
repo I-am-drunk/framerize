@@ -6,6 +6,22 @@ fn dialects() -> [ClientDialect; 3] {
 }
 
 #[test]
+fn exhausted_credits_keep_the_payment_cause_in_json_and_streams() {
+    for input in ["credits-exhausted", "chunk 2 retry died (fallback off): credits-exhausted"] {
+        for dialect in dialects() {
+            let (status, body) = error_json(dialect, input);
+            assert_eq!(status, 402);
+            assert_eq!(body["error"]["code"], "insufficient_quota");
+            assert_eq!(body["error"]["retryable"], false);
+            let message = body["error"]["message"].as_str().unwrap();
+            assert!(message.contains("HTTP 402") && message.contains("workspace"));
+            assert!(message.contains("credits"));
+            assert!(error_frames(dialect, input).join("\n").contains(message));
+        }
+    }
+}
+
+#[test]
 fn security_refusal_requires_exact_known_cause() {
     for error in ["risk-refused", "chunk 12 retry died (fallback off): risk-refused"] {
         assert!(is_security_refusal(error), "{error}");
@@ -21,6 +37,18 @@ fn security_refusal_requires_exact_known_cause() {
         "chunk 1 failed: risk-refused", "risk-refused trailing"]
     {
         assert!(!is_security_refusal(error), "{error}");
+    }
+}
+
+#[test]
+fn provider_mentions_of_credits_are_not_internal_billing_failures() {
+    for dialect in dialects() {
+        let (status, body) = error_json(dialect,
+            "retryable 503 on /ai/v3/responses/: credits-exhausted");
+        assert_eq!(status, 503);
+        assert_eq!(body["error"]["message"], "Upstream HTTP 503: credits-exhausted");
+        assert_ne!(body["error"]["code"], "insufficient_quota");
+        assert_eq!(error_json(dialect, "transport closed: credits-exhausted").0, 500);
     }
 }
 

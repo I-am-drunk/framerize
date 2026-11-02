@@ -296,14 +296,25 @@ async fn metered_preheader_errors_preserve_result_and_cleanup_verdict() {
             let response = send(&state, request(dialect, header, stream, id(1))).await;
             until(|| ports.request_drops.load(Ordering::SeqCst) == 1).await;
             if stream { until(|| gate.stats().unwrap().active == 2).await; }
-            assert_eq!(response.status(), if stream { StatusCode::OK } else { StatusCode::INTERNAL_SERVER_ERROR });
+            let expected = if stream { StatusCode::OK }
+                else if unknown { StatusCode::SERVICE_UNAVAILABLE }
+                else { StatusCode::INTERNAL_SERVER_ERROR };
+            assert_eq!(response.status(), expected);
             if consume {
                 let bytes = tokio::time::timeout(WAIT, to_bytes(response.into_body(), 65536))
                     .await.unwrap().unwrap();
-                let expected = if stream { format!(": upstream error: {error}\n\n") } else { error.into() };
-                assert_eq!(bytes.as_ref(), expected.as_bytes());
+                let wire = std::str::from_utf8(&bytes).unwrap();
+                let body: Value = if stream {
+                    let data = wire.lines().find_map(|line| line.strip_prefix("data: ")).unwrap();
+                    serde_json::from_str(data).unwrap()
+                } else { serde_json::from_slice(&bytes).unwrap() };
+                let error = body.get("error").or_else(|| body.pointer("/response/error")).unwrap();
+                assert_eq!(error["type"], if unknown { "overloaded_error" } else { "api_error" });
+                let message = error["message"].as_str().unwrap();
+                if unknown { assert!(message.contains("cleanup")); }
+                else { assert_eq!(message, "fixture proxy refused"); }
             } else { drop(response); }
-            // Discarding the raw error-comment body retains paid cancellation semantics.
+            // Discarding the terminal error body retains paid cancellation semantics.
             finished(&state, &scope, &gate, unknown || (stream && !consume), unknown).await;
             attempt(&ports, &before, dialect, 0);
         } }

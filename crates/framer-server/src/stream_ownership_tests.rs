@@ -1,4 +1,4 @@
-use super::{proxy_response_stream, AbortOnDrop};
+use super::{proxy_response_stream, AbortOnDrop, ClientDialect};
 use axum::body::{to_bytes, Body, Bytes};
 use framer_core::port::ProxyResponse;
 use futures::{stream, StreamExt};
@@ -67,7 +67,7 @@ async fn released(dropped: oneshot::Receiver<()>, payload: Weak<Vec<u8>>) {
 #[tokio::test]
 async fn dropping_an_unpolled_body_cancels_its_producer() {
     let job = producer(b"data: unused\n\n");
-    let body = Body::from_stream(proxy_response_stream(job.receiver, job.task));
+    let body = Body::from_stream(proxy_response_stream(job.receiver, job.task, ClientDialect::OpenAiChat));
     job.started.await.unwrap();
     assert!(job.payload.upgrade().is_some());
     drop(body);
@@ -80,8 +80,8 @@ async fn dropping_an_unpolled_body_cancels_its_producer() {
 async fn disconnect_while_waiting_leaves_another_stream_working() {
     let cancelled = producer(b"data: cancelled\n\n");
     let healthy = producer(b"data: healthy\n\n");
-    let mut waiting = Box::pin(proxy_response_stream(cancelled.receiver, cancelled.task));
-    let healthy_body = Body::from_stream(proxy_response_stream(healthy.receiver, healthy.task));
+    let mut waiting = Box::pin(proxy_response_stream(cancelled.receiver, cancelled.task, ClientDialect::OpenAiChat));
+    let healthy_body = Body::from_stream(proxy_response_stream(healthy.receiver, healthy.task, ClientDialect::OpenAiChat));
     cancelled.started.await.unwrap();
     healthy.started.await.unwrap();
     {
@@ -105,7 +105,7 @@ async fn disconnect_while_waiting_leaves_another_stream_working() {
 async fn completed_stream_keeps_exact_bytes_and_releases_its_producer() {
     const TEXT: &str = "data: {\"text\":\"café 日本語 😀\"}\n\ndata: [DONE]\n\n";
     let job = producer(TEXT.as_bytes());
-    let body = Body::from_stream(proxy_response_stream(job.receiver, job.task));
+    let body = Body::from_stream(proxy_response_stream(job.receiver, job.task, ClientDialect::OpenAiChat));
     job.started.await.unwrap();
     job.resume.send(()).unwrap();
     assert_eq!(to_bytes(body, 4096).await.unwrap().as_ref(), TEXT.as_bytes());
@@ -113,14 +113,16 @@ async fn completed_stream_keeps_exact_bytes_and_releases_its_producer() {
 }
 
 #[tokio::test]
-async fn producer_error_preserves_existing_wire_format() {
+async fn producer_error_is_a_terminal_event_with_the_recorded_cause() {
     let (tx, rx) = mpsc::channel(1);
     let task = AbortOnDrop(tokio::spawn(async move {
         tx.send(Err("fixture error\ncontinued".into())).await.unwrap();
     }));
-    let body = Body::from_stream(proxy_response_stream(rx, task));
-    assert_eq!(
-        to_bytes(body, 4096).await.unwrap().as_ref(),
-        b": upstream error: fixture error continued\n\n",
-    );
+    let body = Body::from_stream(proxy_response_stream(rx, task, ClientDialect::OpenAiChat));
+    let wire = String::from_utf8(to_bytes(body, 4096).await.unwrap().to_vec()).unwrap();
+    let data = wire.lines().find_map(|line| line.strip_prefix("data: ")).unwrap();
+    let event: serde_json::Value = serde_json::from_str(data).unwrap();
+    assert_eq!(event["error"]["message"], "fixture error\ncontinued");
+    assert!(wire.contains("data: [DONE]"));
+    assert!(!wire.contains(": upstream error:"));
 }

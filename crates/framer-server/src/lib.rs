@@ -104,10 +104,12 @@ mod account_registration_concurrency_tests;
 fn proxy_response_stream(
     rx: tokio::sync::mpsc::Receiver<Result<framer_core::port::ProxyResponse, String>>,
     owner: AbortOnDrop<()>,
+    dialect: ClientDialect,
 ) -> impl futures::Stream<Item = Result<axum::body::Bytes, String>> {
     futures::stream::unfold(
         (rx, None::<framer_core::port::ProxyResponse>, false, owner),
-        |(mut rx, mut up, drained, mut owner)| async move {
+        move |(mut rx, mut up, drained, mut owner)| async move {
+            if drained { let _ = (&mut owner).await; return None; }
             loop {
                 if let Some(us) = &mut up {
                     // upstream arrived: yield its body chunks until exhausted
@@ -125,9 +127,8 @@ fn proxy_response_stream(
                         match r {
                             Some(Ok(us)) => { up = Some(us); continue; }
                             Some(Err(e)) => {
-                                // upstream failed pre-headers: send an in-band SSE
-                                // comment with the cause (200 already on the wire)
-                                let msg = format!(": upstream error: {}\n\n", e.replace('\n', " "));
+                                // Headers were sent. Clients need a terminal error event.
+                                let msg = convert::error_frames(dialect, &e).join("\n\n") + "\n\n";
                                 return Some((Ok(axum::body::Bytes::from(msg)), (rx, None, true, owner)));
                             }
                             None => { let _ = (&mut owner).await; return None; },
@@ -477,6 +478,11 @@ async fn compat_forward_observed(
 ) -> pool_control::CleanupOutcome<axum::response::Response> {
     let cleanup = pool_control::CleanupEvidence::new();
     let result = async {
+    let client_dialect = match dialect {
+        "anthropic-messages" => ClientDialect::AnthropicMessages,
+        "openai-responses" => ClientDialect::OpenAiResponses,
+        _ => ClientDialect::OpenAiChat,
+    };
     request_body_object::validate(&payload)?;
     // Long non-streaming generations hit idle cutoffs (observed ~21.6 s in one
     // environment; a ~60 s server cutoff is plausible). ALWAYS stream upstream
@@ -523,10 +529,7 @@ async fn compat_forward_observed(
                         .field("floor", floor)
                         .outcome("error")
                         .emit();
-                    return Err(ApiError::Internal(format!(
-                        "credit-bond protection: workspace has {:.2} credits left (floor {:.0}) — metered models are blocked below the floor because a zero balance kills the FREE route too. Use a free model (claude-*, gpt-4.1, kimi-k3, gemini-2.5-flash, gemini-3-flash-preview) or add a credited account.",
-                        snap.available, floor
-                    )));
+                    return Err(ApiError::InsufficientCredits { available: snap.available, floor });
                 }
                 let _ = pipeline::update_account(s.state.as_ref(),
                     &s.serving_accounts.health_update, &account,
@@ -538,8 +541,11 @@ async fn compat_forward_observed(
                 // one metered call).
                 let cached = account.credit.as_ref().map(|c| c.available);
                 if cached.map(|a| a < floor).unwrap_or(true) {
-                    return Err(ApiError::Internal(format!(
-                        "credit-bond protection: cannot read the ledger ({e}) and the cached balance is unknown/low — refusing metered calls. Free models unaffected."
+                    let balance = cached.map(|value| format!("{value:.2}"))
+                        .unwrap_or_else(|| "unknown".into());
+                    return Err(ApiError::ServingCapacity(format!(
+                        "Cannot verify workspace credits because reading Framer's ledger failed: {}. The cached balance is {balance}; this metered route requires at least {floor:.2} credits. Restore ledger access before retrying.",
+                        framer_core::error::safe_failure_summary(&e),
                     )));
                 }
             }
@@ -617,7 +623,7 @@ async fn compat_forward_observed(
             let _ = tx.send(r).await;
             ((), producer_cleanup.confirmed())
         }).map_err(ApiError::operation_admission)?);
-        let stream = retain_owner(proxy_response_stream(rx, handle), (residency, _permit));
+        let stream = retain_owner(proxy_response_stream(rx, handle, client_dialect), (residency, _permit));
         let (body, completion) = proxy_body(stream, cleanup.clone());
         let mut resp = axum::response::Response::new(body);
         resp.extensions_mut().insert(completion);
@@ -661,7 +667,10 @@ async fn compat_forward_observed(
                     s.serving_accounts.rotation().mark_saturated(&team.0, 45_000);
                 }
             }
-            return Err(ApiError::Internal(e));
+            let (status, body) = convert::error_json(client_dialect, &e);
+            let response = axum::response::IntoResponse::into_response(ShapedApiError(
+                StatusCode::from_u16(status).unwrap_or(StatusCode::BAD_GATEWAY), body));
+            return Ok(operation_ownership::completed_response(response, cleanup.confirmed()));
         }
     };
 
@@ -1009,6 +1018,7 @@ async fn current_account(s: &AppState, id: AccountId) -> Result<ManagedAccount, 
 
 fn chain_admission_error(error: ApiError) -> String {
     match error {
+        error @ ApiError::InsufficientCredits { .. } => error.diagnostic(),
         ApiError::AccountCooling { retry_after_secs, cause } =>
             format!("account-cooling:{retry_after_secs}; {cause}"),
         ApiError::Cooling { retry_after_secs } => format!("server-cooling:{retry_after_secs}"),
@@ -3358,6 +3368,7 @@ async fn run(
 #[derive(Debug)]
 enum ApiError {
     Internal(String),
+    InsufficientCredits { available: f64, floor: f64 },
     InvalidRequest(String),
     PoolBusy(String),
     ServingCapacity(String),
@@ -3368,6 +3379,8 @@ enum ApiError {
 impl ApiError {
     fn diagnostic(&self) -> String {
         match self {
+            Self::InsufficientCredits { available, floor } => format!(
+                "The selected workspace has {available:.2} AI credits. This metered route requires at least {floor:.2}. Restore credits on the same workspace before retrying."),
             Self::Internal(value) | Self::InvalidRequest(value) | Self::PoolBusy(value)
                 | Self::ServingCapacity(value) => framer_core::error::safe_failure_summary(value),
             Self::Cooling { retry_after_secs } => format!(
@@ -3395,6 +3408,11 @@ impl axum::response::IntoResponse for ApiError {
             _ => None,
         };
         match self {
+            error @ Self::InsufficientCredits { .. } => ShapedApiError(
+                StatusCode::PAYMENT_REQUIRED,
+                serde_json::json!({"error":{"type":"insufficient_quota", "code":"insufficient_quota",
+                    "message":error.diagnostic(), "retryable":false}}),
+            ).into_response(),
             Self::InvalidRequest(message) => (StatusCode::BAD_REQUEST,
                 Json(serde_json::json!({"error":{"code":"invalid_request","message":message}}))).into_response(),
             Self::PoolBusy(message) => (StatusCode::SERVICE_UNAVAILABLE,
@@ -3433,7 +3451,8 @@ impl axum::response::IntoResponse for ApiError {
 
 impl axum::response::IntoResponse for ShapedApiError {
     fn into_response(self) -> axum::response::Response {
-        let unreplayable = self.1.pointer("/error/code").and_then(|value| value.as_str())
+        let unreplayable = self.0 == StatusCode::PAYMENT_REQUIRED
+            || self.1.pointer("/error/code").and_then(|value| value.as_str())
             == Some(framer_core::error::ADAPTIVE_INCOMPLETE_CODE);
         let mut response = (
             self.0,
@@ -3453,3 +3472,6 @@ mod pause_recovery_tests;
 
 #[cfg(test)]
 mod adaptive_retry_tests;
+
+#[cfg(test)]
+mod credit_error_tests;

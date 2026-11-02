@@ -10,8 +10,14 @@ The exact `3b3ae823` package also passed 1,162 affected Rust tests and all nine
 package checks. Its isolated health, readiness and short adaptive Claude
 request pass; the latter completed in 4.169 seconds. A first long request hit
 the deadline after an incorrect isolated soft memory limit stalled its browser.
-That limit is corrected, and a bounded long request is running. Alpha.9 remains
-live until the candidate completes its remaining real-request checks.
+That limit is corrected. The bounded long request completed with HTTP 200 in
+561.606 seconds, including 49,914 thinking tokens. Its test workspace then
+exhausted its credits and refused even free gpt-4.1 with upstream HTTP 402.
+The follow-up corrects 402-to-500 translation and paid streams that hid errors
+inside comments. Its 92 protocol and 476 server tests pass. Unchanged-source
+core and API evidence brings the Rust total to 1,166. Packaging is next.
+The remaining real-request checks require credits on the same test workspace.
+Alpha.9 remains live, with no production restart during this continuation.
 See [the Claude repair record](incidents/2026-11-01-claude-stalls.md).
 
 # Recurring error repair, 2026-11-01
