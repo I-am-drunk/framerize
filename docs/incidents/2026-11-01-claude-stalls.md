@@ -3,18 +3,48 @@
 Work branch: `fix/claude-stalls-20261101`.
 Baseline: `0.5.1-alpha.9`, source `132af22691dc04680f2ecadaace8e92a4d2f706e`.
 
-## Custom-route requirement
+## Live activation, 2026-11-02
+
+The user explicitly authorized activation after the isolated custom request
+returned HTTP 402 from its exhausted workspace. That result remains a failure.
+The exact `840225c8522ccc5cdd0e09aebb3bfb39d9442d3e` package passed all nine
+package checks, 481 server tests and its custom-route policy checks. Its build
+ran on the existing iMac builder. Activation reused the resulting binary.
+
+The service drained normally and started alpha.10 at 01:47:42 UTC. PID changed
+from 2340122 to 2552520. Health and readiness returned 200. Live custom OpenAI
+Responses completed in 24.648 seconds; a short Claude Messages request also
+returned 200 and the expected text. Public HTTPS and both model-list routes
+returned 200. All 12 account identities and memory limits were preserved.
+Both immutable release inventories passed verification. Rollback was not needed.
+
+Binary SHA-256: `602c5c2d6fbbf711c263989852584e62bbc0d927107a220a6659de78de0cab65`.
+Archive SHA-256: `29f3ec21280d87926faa7af968d6415812510c82ca674044f9bfc49c3abef4cf`.
+
+The live process has `FRAMERIZE_ALLOW_METERED=0`; the failing optional JWT relay
+override is removed. The public proxy now forwards retry guidance. The test
+instance is stopped. No account credit, identity or history was reset.
+Six explicit-override controls, six existing helper tests and eight rollback
+tests passed before activation. The override accepts only the recorded custom
+402 with matching source and binary identity; it does not fabricate a 200.
+
+The earlier matched browser-memory evidence remains applicable. The restarted
+service's memory is not a new matched-load measurement. Long custom adaptive
+generations still face Framer's upstream buffered-response time limit. The
+release reports the observed cause and prevents paid fallback and unsafe replay.
+
+## Custom-route requirement and qualification history
 
 The user requires custom routes exclusively. The earlier long-response proof
 used `FRAMERIZE_ALLOW_METERED=1` and paid upstream streaming. It consumed the
 test workspace's credits and does not qualify a custom-route repair.
-That isolated process is stopped; production still runs the same alpha.9 PID.
+That isolated process was stopped while production remained on alpha.9.
 
 The correction keeps ordinary routes on their custom transport even when an
 operator permits explicit paid requests. It disables paid fallback in initial
 and deferred chains and rejects metered-only models before account access.
 Paid paths, header overrides and the direct agent endpoint require an explicit
-operator opt-in. The planned deployment leaves that opt-in disabled.
+operator opt-in. The deployed release leaves that opt-in disabled.
 
 The application's Test page previously used the direct agent endpoint, whose
 default model was metered. It now calls the custom Chat Completions endpoint,
@@ -23,10 +53,19 @@ Changing accounts or starting a new chat clears that conversation. Four
 web-client tests and the production UI build pass. Admission text and upstream
 credit refusals remain visible instead of becoming JSON parsing errors.
 
+Source `840225c8522ccc5cdd0e09aebb3bfb39d9442d3e` is published in PR28.
+All 481 server tests pass. API evidence comprises 440 unchanged passes and
+the passing rerun of a corrected fixture. That fixture had expected browser
+error wording from a generic bridge error; application code did not change.
+The original failed result remains recorded. The five policy regressions also
+pass with metering enabled in their fixture process. Two activation-helper
+tests confirm that old paid evidence cannot authorize a custom-only release.
+The exact source was packaged on the iMac builder and activated as recorded above.
+
 Long adaptive requests can still exceed the upstream buffered-response timeout.
 The repair preserves the requested model and settings and reports the actual
 failure without replay or paid fallback. It does not claim to remove Framer's
-upstream time limit. Fresh custom-route delivery evidence remains required.
+upstream time limit. Fresh custom-route delivery passed after authorized activation.
 
 ## Earlier diagnosis and excluded paid evidence
 
@@ -122,5 +161,6 @@ deadline case passed alone and in the final full suite with two test threads.
 Application code and test deadlines did not change for those fixture repairs.
 Unchanged-source evidence covers 155 core tests and 443 API tests, for 1,166
 passing Rust tests by composition. The 51 Python checks remain reusable.
-The successor package and restored test-workspace credits are still required
-before activation. The successful long result remains preserved.
+The successor package was subsequently activated on the user's explicit
+instruction despite exhausted test-workspace credits. The paid long result
+remains preserved and excluded from custom-route acceptance.

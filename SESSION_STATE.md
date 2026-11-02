@@ -1,31 +1,21 @@
-# Custom-route-only correction, 2026-11-02
+# Alpha.10 activated, 2026-11-02
 
-The user requires custom routes only, with no metered fallback. The earlier
-561.606-second success used paid streaming and does not qualify this release.
-Do not repeat the credit-top-up request or use refunds or other accounts as workarounds.
-The old isolated paid candidate is stopped. Production remains untouched at
-PID 2340122, alpha.9, with health and readiness returning 200.
-
-The working correction prevents custom routes from selecting paid transport,
-including deferred requests and metered-only models. Explicit paid endpoints,
-header overrides and the direct agent endpoint require operator permission.
-Isolation and activation helpers set FRAMERIZE_ALLOW_METERED=0. Old acceptance,
-qualification and paid-probe scripts are disabled pending fresh custom proof.
-The iMac builder now has three CPUs and 3.5 GiB RAM; new builds use two jobs.
-R1 finished with 440 API passes, one invalid fixture assertion and two ignored
-category-specific cases. The assertion expected browser-specific wording from
-a generic bridge failure. It is corrected without changing runtime code.
-R2 runs in session 93136 through /tmp/verify-custom-r2.py. It reuses those
-440 passes, checks the repaired case and runs the 481-case server suite.
-Evidence remains in /evidence/custom-route-r1. Do not restart either run.
-The Test page now uses the custom API with an explicit model and full local
-conversation history. Four web tests and the UI build pass. Two helper tests
-confirm stale paid proofs cannot execute or authorize activation.
-
-The prior credit-error package finished and passed its nine package checks.
-Its SHA-256 is b74e50bdf505584aedfa6a1e1a31bf73321310af0e14dce4cacbcfc9a4eb20d5.
-It is staged privately and is not approved for activation. Next: finish the
-custom-route tests, publish and package the exact source, then verify isolation.
+The user explicitly said "just activate it" after the isolated custom request
+returned HTTP 402. The isolated failure remains recorded, not a passing check.
+Alpha.10, source 840225c8522ccc5cdd0e09aebb3bfb39d9442d3e, is now live.
+Activation at 01:47:42 UTC changed PID 2340122 to 2552520.
+Health, readiness, OpenAI Responses and Claude Messages returned HTTP 200.
+Public HTTPS and both model-list routes also returned 200.
+All 12 account identities, memory limits and both release inventories match.
+Metered access is disabled. The broken optional JWT relay is unset.
+The exclusive isolated service is stopped. No account credits were changed.
+The existing iMac-built binary was activated without rebuilding.
+Binary SHA-256: 602c5c2d6fbbf711c263989852584e62bbc0d927107a220a6659de78de0cab65.
+Evidence is in /home/tjninja/.cache/framerize-claude-stalls-20261101/evidence.
+The activation receipt is activation-2552520.json. Rollback was not needed.
+Long custom adaptive generations still face Framer's upstream time limit.
+Next: inspect the next naturally occurring long-request failure with its new
+network cause. Do not repeat paid probes or change accounts to evade credits.
 
 # Historical Claude timeout and credit-error repair
 

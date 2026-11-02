@@ -1,13 +1,20 @@
-# Custom-route correction, 2026-11-02
+# Alpha.10 live, 2026-11-02
 
-The user requires custom routes only. The paid long-response test below is
-excluded from release acceptance. Its isolated service is stopped; alpha.9
-remains live. The follow-up separates explicit paid access from custom chains,
-prevents paid fallback and rejects paid requests when the operator disables
-metering. API and server regressions are running on the iMac builder.
-The exclusive workspace's ledger still reports zero credits. No credit change
-or account substitution is planned. The upstream buffered timeout remains a
-constraint; the candidate preserves requested settings and reports its cause.
+`fix/claude-stalls-20261101` is deployed as `0.5.1-alpha.10`, built from
+`840225c8522ccc5cdd0e09aebb3bfb39d9442d3e` on the iMac builder. The user
+explicitly authorized activation after the exclusive test workspace returned
+402. That isolated result remains a failure; paid evidence is excluded.
+The package and policy checks passed, including all 481 server tests.
+
+Activation at 01:47:42 UTC changed the live PID from 2340122 to 2552520.
+Health, readiness, live custom OpenAI Responses and Claude Messages returned
+200. Public HTTPS and both model-list routes passed. All 12 account identities,
+memory limits and old/new release inventories were preserved. Metered access
+is disabled, the failing optional JWT relay is unset, and isolation is stopped.
+Binary SHA-256: `602c5c2d6fbbf711c263989852584e62bbc0d927107a220a6659de78de0cab65`.
+Long custom adaptive requests still face Framer's buffered-response time limit.
+Next: inspect a naturally occurring long-request failure with the new cause
+reporting. See [the activation record](incidents/2026-11-01-claude-stalls.md).
 
 # Earlier Claude timeout candidate, 2026-11-01
 
