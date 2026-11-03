@@ -1,5 +1,3 @@
-// Pure classifier for the framerize-server v1 `GET /ready` document.
-// No I/O: callers pass the HTTP status and the raw response body bytes.
 const API_VERSION = 1;
 const CAPABILITIES = ['responses', 'chatCompletions', 'streaming'];
 const REASONS = new Set(['configuration_unavailable', 'credentials_unavailable', 'upstream_unavailable']);
@@ -21,9 +19,6 @@ function capabilityState(capabilities) {
   return values.every(Boolean) ? 'ready' : 'incompatible';
 }
 
-// Returns a frozen { state } with state ready, unavailable, incompatible or
-// malformed; unavailable documents add their allow-listed reason. The result
-// never echoes body content, so it is safe to log.
 export function classifyReadiness(status, bytes) {
   if (!Number.isInteger(status) || status < 100 || status > 599) return MALFORMED;
   const document = parse(bytes);
