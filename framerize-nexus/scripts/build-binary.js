@@ -10,7 +10,7 @@ if (major < 22 || (major === 22 && minor < 12)) {
 }
 mkdirSync('dist', { recursive: true });
 await build({
-  entryPoints: ['bin/framer-next.js'],
+  entryPoints: ['bin/framerize-nexus.js'],
   outfile: 'dist/bundle.cjs',
   bundle: true,
   platform: 'node',
@@ -26,7 +26,7 @@ writeFileSync('dist/sea-config.json', JSON.stringify({
 }));
 copyFileSync(new URL('../LICENSE', import.meta.url), 'dist/LICENSE');
 execFileSync(process.execPath, ['--experimental-sea-config', 'dist/sea-config.json'], { stdio: 'inherit' });
-const staged = 'dist/framer-next.tmp';
+const staged = 'dist/framerize-nexus.tmp';
 copyFileSync(process.execPath, staged);
 chmodSync(staged, 0o755);
 if (process.platform === 'darwin') {
@@ -39,6 +39,6 @@ await postject.inject(staged, 'NODE_SEA_BLOB', readFileSync('dist/sea-prep.blob'
 if (process.platform === 'darwin') {
   execFileSync('codesign', ['--sign', '-', staged], { stdio: 'inherit' });
 }
-const executable = `dist/framer-next${process.platform === 'win32' ? '.exe' : ''}`;
+const executable = `dist/framerize-nexus${process.platform === 'win32' ? '.exe' : ''}`;
 renameSync(staged, executable);
 console.log(`Built ${executable}`);

@@ -15,7 +15,7 @@ const upstreamPort = upstream.address().port;
 const directory = await mkdtemp(path.join(tmpdir(), 'framer-next-smoke-'));
 const accounts = path.join(directory, 'accounts.json');
 await writeFile(accounts, JSON.stringify([{ id: 'fixture', enabled: true }]));
-const child = spawn(process.execPath, ['bin/framer-next.js', 'serve',
+const child = spawn(process.execPath, ['bin/framerize-nexus.js', 'serve', '--host', '127.0.0.1',
   '--port', '0', '--upstream', `http://127.0.0.1:${upstreamPort}`, '--accounts', accounts], {
   stdio: ['ignore', 'pipe', 'pipe'],
 });

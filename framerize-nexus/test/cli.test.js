@@ -37,7 +37,7 @@ test('unknown options fail', () => {
 });
 
 test('installed CLI rejects invalid options without listening', () => {
-  const result = spawnSync(process.execPath, ['bin/framer-next.js', 'serve', '--port', '-1'], {
+  const result = spawnSync(process.execPath, ['bin/framerize-nexus.js', 'serve', '--port', '-1'], {
     encoding: 'utf8', env: { PATH: process.env.PATH },
   });
   assert.notEqual(result.status, 0);
@@ -45,13 +45,13 @@ test('installed CLI rejects invalid options without listening', () => {
 });
 
 test('CLI help exits successfully', () => {
-  const result = spawnSync(process.execPath, ['bin/framer-next.js', '--help'], { encoding: 'utf8' });
+  const result = spawnSync(process.execPath, ['bin/framerize-nexus.js', '--help'], { encoding: 'utf8' });
   assert.equal(result.status, 0);
   assert.match(result.stdout, /Usage:/);
 });
 
 test('CLI serve shuts down once on SIGTERM', { skip: process.platform === 'win32' }, async () => {
-  const child = spawn(process.execPath, ['bin/framer-next.js', 'serve', '--port', '0'], {
+  const child = spawn(process.execPath, ['bin/framerize-nexus.js', 'serve', '--port', '0'], {
     stdio: ['ignore', 'pipe', 'pipe'],
   });
   let logs = '';
@@ -74,7 +74,7 @@ test('CLI serve shuts down once on SIGTERM', { skip: process.platform === 'win32
 });
 
 test('CLI shares shutdown across SIGINT and SIGTERM', { skip: process.platform === 'win32' }, async () => {
-  const child = spawn(process.execPath, ['bin/framer-next.js', 'serve', '--port', '0'], {
+  const child = spawn(process.execPath, ['bin/framerize-nexus.js', 'serve', '--port', '0'], {
     stdio: ['ignore', 'pipe', 'pipe'],
   });
   let logs = '';

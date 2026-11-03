@@ -1,5 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { createHash } from 'node:crypto';
 import { spawnSync } from 'node:child_process';
 import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -24,12 +25,13 @@ function publish(authenticated = true, published = false, version = '0.1.7',
   const bin = path.join(directory, 'bin');
   mkdirSync(bin);
   mkdirSync(path.join(directory, 'dist'));
-  writeFileSync(path.join(directory, 'dist', `framer-next-${version}.tgz`), 'fixture');
+  writeFileSync(path.join(directory, 'dist', `framerize-nexus-${version}.tgz`), 'fixture');
+  const tarballDigest = createHash('sha256').update('fixture').digest('hex');
   writeFileSync(path.join(directory, 'dist', 'SHA256SUMS'),
-    `${'0'.repeat(64)}  framer-next\n${'0'.repeat(64)}  framer-next-${version}.tgz\n`);
+    `${'0'.repeat(64)}  framerize-nexus\n${tarballDigest}  framerize-nexus-${version}.tgz\n`);
   writeFileSync(path.join(directory, 'dist', 'release.json'), JSON.stringify({
     version, commit,
-    artifacts: includeDigest ? { [`framer-next-${version}.tgz`]: '0'.repeat(64) } : {},
+    artifacts: includeDigest ? { [`framerize-nexus-${version}.tgz`]: tarballDigest } : {},
   }));
   const calls = path.join(directory, 'calls');
   const fixture = JSON.stringify({ authenticated, published, version,
@@ -61,6 +63,17 @@ function publishCommit(recordedCommit) {
   });
 }
 
+function republish(fixture) {
+  const directory = path.dirname(fixture.calls);
+  writeFileSync(fixture.calls, '');
+  return spawnSync(process.execPath, [
+    fileURLToPath(new URL('../scripts/publish-package.js', import.meta.url))], {
+    encoding: 'utf8', cwd: directory,
+    env: { ...process.env, PATH: `${path.join(directory, 'bin')}:${process.env.PATH}`,
+      FRAMER_NEXT_TEST_COMMAND: fixture.fixture },
+  });
+}
+
 test('a dirty checkout prevents publication', () => {
   const { result } = publish(true, false, '0.1.7', '', false, true, 'a'.repeat(40), true, true);
   assert.notEqual(result.status, 0);
@@ -73,13 +86,24 @@ test('release metadata must include the tarball digest', () => {
   assert.match(result.stderr, /does not contain the tarball SHA-256/);
 });
 
+test('SHA256SUMS must include the exact tarball digest before registry access', () => {
+  const fixture = publish();
+  assert.equal(fixture.result.status, 0, fixture.result.stderr);
+  const directory = path.dirname(fixture.calls);
+  writeFileSync(path.join(directory, 'dist/SHA256SUMS'), '');
+  const result = republish(fixture);
+  assert.notEqual(result.status, 0);
+  assert.match(result.stderr, /exactly one tarball entry/);
+  assert.equal(readFileSync(fixture.calls, 'utf8'), '');
+});
+
 test('tarball metadata must match the release filename', () => {
   const directory = mkdtempSync(path.join(tmpdir(), 'framer-next-metadata-'));
   mkdirSync(path.join(directory, 'dist'));
   mkdirSync(path.join(directory, 'package'));
   writeFileSync(path.join(directory, 'package', 'package.json'),
-    JSON.stringify({ name: 'framer-next', version: '0.1.8' }));
-  spawnSync('tar', ['-czf', 'dist/framer-next-0.1.7.tgz', 'package'], { cwd: directory });
+    JSON.stringify({ name: 'framerize-nexus', version: '0.1.8' }));
+  spawnSync('tar', ['-czf', 'dist/framerize-nexus-0.1.7.tgz', 'package'], { cwd: directory });
   writeFileSync(path.join(directory, 'dist', 'release.json'),
     JSON.stringify({ version: '0.1.7', commit: 'a'.repeat(40) }));
   const result = spawnSync(process.execPath, [
@@ -105,13 +129,13 @@ test('checksum filtering excludes only missing release files', () => {
   assert.equal(result.status, 0, result.stderr);
   const checksum = readFileSync(path.join(path.dirname(calls),
     'dist/.publish-SHA256SUMS'), 'utf8');
-  assert.doesNotMatch(checksum, /framer-next\n/);
-  assert.match(checksum, /framer-next-0.1.7.tgz/);
+  assert.doesNotMatch(checksum, /framerize-nexus\n/);
+  assert.match(checksum, /framerize-nexus-0.1.7.tgz/);
 });
 
 test('provenance is enabled only in GitHub Actions', () => {
   const local = publish();
-  assert.doesNotMatch(readFileSync(local.calls, 'utf8'), /--provenance/);
+  assert.match(readFileSync(local.calls, 'utf8'), /^publish .*--provenance=false/m);
   const ci = publish(true, false, '0.1.7', '', true);
   assert.match(readFileSync(ci.calls, 'utf8'), /^publish .*--provenance/m);
 });
@@ -127,6 +151,12 @@ test('prereleases use the next dist-tag', () => {
   const { result, calls } = publish(true, false, '0.2.0-rc.1');
   assert.equal(result.status, 0, result.stderr);
   assert.match(readFileSync(calls, 'utf8'), /--tag next$/m);
+});
+
+test('build metadata does not make a stable release a prerelease', () => {
+  const { result, calls } = publish(true, false, '0.2.0+sha-test');
+  assert.equal(result.status, 0, result.stderr);
+  assert.match(readFileSync(calls, 'utf8'), /--tag latest$/m);
 });
 
 test('registry failures prevent packaging and publication', () => {
@@ -153,14 +183,14 @@ test('ambiguous release artifacts are rejected', () => {
   const directory = mkdtempSync(path.join(tmpdir(), 'framer-next-artifacts-'));
   mkdirSync(path.join(directory, 'dist'));
   for (const version of ['0.1.7', '0.1.8']) {
-    writeFileSync(path.join(directory, 'dist', `framer-next-${version}.tgz`), 'fixture');
+    writeFileSync(path.join(directory, 'dist', `framerize-nexus-${version}.tgz`), 'fixture');
   }
   const result = spawnSync(process.execPath, [
     fileURLToPath(new URL('../scripts/publish-package.js', import.meta.url))], {
     cwd: directory, encoding: 'utf8',
   });
   assert.notEqual(result.status, 0);
-  assert.match(result.stderr, /exactly one Framer Next tarball/);
+  assert.match(result.stderr, /exactly one Framerize Nexus tarball/);
 });
 
 test('a different source commit prevents publication', () => {
@@ -180,14 +210,10 @@ test('malformed checksum entries prevent publication', () => {
   assert.equal(fixture.result.status, 0, fixture.result.stderr);
   const directory = path.dirname(fixture.calls);
   writeFileSync(path.join(directory, 'dist/SHA256SUMS'), 'not-a-checksum\n');
-  const result = spawnSync(process.execPath, [
-    fileURLToPath(new URL('../scripts/publish-package.js', import.meta.url))], {
-    encoding: 'utf8', cwd: directory,
-    env: { ...process.env, PATH: `${path.join(directory, 'bin')}:${process.env.PATH}`,
-      FRAMER_NEXT_TEST_COMMAND: fixture.fixture },
-  });
+  const result = republish(fixture);
   assert.notEqual(result.status, 0);
   assert.match(result.stderr, /invalid SHA256SUMS entry/);
+  assert.equal(readFileSync(fixture.calls, 'utf8'), '');
 });
 
 test('conflicting release metadata prevents publication', () => {
@@ -195,7 +221,7 @@ test('conflicting release metadata prevents publication', () => {
   assert.equal(fixture.result.status, 0, fixture.result.stderr);
   const directory = path.dirname(fixture.calls);
   const metadata = JSON.parse(readFileSync(path.join(directory, 'dist/release.json'), 'utf8'));
-  metadata.artifacts['framer-next-0.1.7.tgz'] = '1'.repeat(64);
+  metadata.artifacts['framerize-nexus-0.1.7.tgz'] = '1'.repeat(64);
   writeFileSync(path.join(directory, 'dist/release.json'), JSON.stringify(metadata));
   const result = spawnSync(process.execPath, [
     fileURLToPath(new URL('../scripts/publish-package.js', import.meta.url))], {
@@ -204,8 +230,20 @@ test('conflicting release metadata prevents publication', () => {
       FRAMER_NEXT_TEST_COMMAND: fixture.fixture },
   });
   assert.notEqual(result.status, 0);
-  assert.match(result.stderr, /digests differ/);
+  assert.match(result.stderr, /tarball digest does not match release metadata/);
   assert.equal((readFileSync(fixture.calls, 'utf8').match(/^publish /gm) || []).length, 1);
+});
+
+test('conflicting duplicate tarball checksums reject before registry access', () => {
+  const fixture = publish();
+  assert.equal(fixture.result.status, 0, fixture.result.stderr);
+  const directory = path.dirname(fixture.calls);
+  const file = path.join(directory, 'dist/SHA256SUMS');
+  writeFileSync(file, `${readFileSync(file, 'utf8')}${'0'.repeat(64)}  framerize-nexus-0.1.7.tgz\n`);
+  const result = republish(fixture);
+  assert.notEqual(result.status, 0);
+  assert.match(result.stderr, /exactly one tarball entry/);
+  assert.equal(readFileSync(fixture.calls, 'utf8'), '');
 });
 
 test('publishing a prior release verifies its recorded source commit', () => {

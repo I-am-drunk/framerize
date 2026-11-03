@@ -1,6 +1,42 @@
 # Status
 
-Verified on November 3, 2026:
+The package migration to Framerize Nexus is in progress on
+`t3/rename-connector-framerize-nexus`. The package now lives in
+`framerize-nexus/`. The package, CLI, executable, and new release tags
+use `framerize-nexus`. Existing Framer Next release names below are historical.
+No Nexus package has been published or activated. Next action: review and
+merge [PR90](https://github.com/I-am-drunk/framerize/pull/90) after its checks
+pass. Publication remains disabled pending owner approval and a verified
+publication path.
+
+Current Nexus evidence on Node.js 22.23.4 and 24.13.0:
+
+- Package installation and offline `npm exec` pass outside the checkout.
+- The extracted Linux x64 executable passes help, configuration, and loopback
+  server smoke tests with no Node executable on `PATH`.
+- Release fixtures cover platform artifacts, source identity, checksums,
+  missing artifacts, branch rehearsals, and publication guards.
+- [PR90 CI run 41654625616](https://github.com/I-am-drunk/framerize/actions/runs/41654625616)
+  passed all six jobs at commit `671ed7df4507b391fc6efc72bf919aebd289a1eb`, including
+  downloaded-package and extracted-binary smokes on Linux x64, macOS arm64,
+  and Windows x64.
+- [Release rehearsal 41654672886](https://github.com/I-am-drunk/framerize/actions/runs/41654672886)
+  passed all five jobs for that exact commit through an explicit branch
+  `workflow_dispatch`. All platforms ran Node.js 22.23.4. Linux and macOS
+  passed 113 tests each. Windows passed 111 tests with two pre-existing POSIX
+  signal tests skipped in `test/cli.test.js`.
+  Assembly verified the shared tarball, platform manifests, and all six
+  downloadable payload hashes. An independent download verified all six
+  payloads against the aggregate `SHA256SUMS`.
+
+The rehearsed package version is `0.1.9`. Its tarball SHA-256 is
+`12c6eb43755f16a858d12b150bfde44622298ab2fcf489d03abadba0bd4fe528`.
+The `release-evidence-41654672886` artifact retains `release.json`, which binds
+the source commit, platform executable and archive hashes, licenses, and Node
+versions. These results apply to the recorded commit; later test and
+documentation changes do not represent another release rehearsal.
+
+Historical Framer Next evidence, verified on November 3, 2026:
 
 - 91 unit and integration tests pass on Node.js 24, with 100% line coverage.
 - Pull requests 75 through 78 merged after their GitHub test and package jobs
@@ -58,34 +94,29 @@ enforces its `paid_plan_only_model` restriction. This is an upstream account
 entitlement, not a streaming or tool-transport failure. The earlier successful
 Opus short and long streams remain recorded above.
 
-## Publication dependency
+## Historical Framer Next publication dependency
 
-The `framer-next` package name remains available. First publication requires
-an authenticated npm package owner. The registry returns `ENEEDAUTH`, so no
-package has been published. After first publication, configure trusted
-publishing for this repository, workflow, and `npm-release` environment.
+The historical check found the `framer-next` package name available and npm
+authentication missing. These results do not establish availability or
+ownership of `framerize-nexus`.
 
 Publication dependency: package owner, npm authentication. Last verified:
 November 3, 2026, with a private token request timing out and `npm whoami`
-returning `ENEEDAUTH`. Do not repeat authentication checks until the owner
-provides credentials. Run `npm run publish:package` for the verified release tarball,
-then verify registry installation and configure trusted publishing.
+returning `ENEEDAUTH`. This historical handoff does not authorize registry
+checks or publication for Nexus. Its package ownership, publishing npm/OIDC
+support, and enforceable approval path remain separate owner decisions.
 
 The `framer-next-v0.1.7` GitHub release contains its verified tarball,
 executable archive, checksums, Node license, and source metadata. The release
 build passed. Its npm step failed with `ENEEDAUTH` after the GitHub release
 was published.
 
-## Active handoff
+## Historical Framer Next handoff
 
 Owner: Framer Next maintainers. Required input: authenticated npm package-owner
 credentials. Last verified evidence: November 3, 2026, `ENEEDAUTH` after a
-private credential request timed out. Next authorized action: publish the
-verified release tarball, test its registry installation, then configure
-trusted publishing. Goal blocking is disabled by user policy. No further local
-verification or authentication polling is needed before credentials arrive.
-After authentication, run `npm run publish:package`. It rechecks authentication,
-rejects an existing version, verifies the packed artifact, publishes the
-package, and chooses its dist-tag.
+private credential request timed out. This handoff does not authorize Nexus
+publication. Nexus requires explicit owner approval of the version, source
+SHA, and artifact hashes.
 The owner-authenticated GitHub token has administration access. GitHub rejects
 required reviewers under the private repository's current billing plan.

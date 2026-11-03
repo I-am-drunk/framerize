@@ -1,5 +1,6 @@
 import { execFileSync } from 'node:child_process';
-import { readFileSync, writeFileSync } from 'node:fs';
+import { createHash } from 'node:crypto';
+import { readFileSync, readdirSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 
 const workspace = path.resolve(process.env.RELEASE_WORKSPACE || '.');
@@ -9,12 +10,16 @@ if (typeof pkg.version !== 'string' || !semver.test(pkg.version)) {
   throw new Error('package version must be valid SemVer');
 }
 const tag = process.env.GITHUB_REF_NAME || '';
-if (tag && tag !== `framer-next-v${pkg.version}`) {
+if (process.env.GITHUB_REF_TYPE === 'tag' && tag !== `framerize-nexus-v${pkg.version}`) {
   throw new Error(`release tag ${tag} does not match package version ${pkg.version}`);
 }
 const sums = readFileSync(path.join(workspace, 'dist/SHA256SUMS'), 'utf8');
 if (!sums.trim()) throw new Error('SHA256SUMS must not be empty');
 const artifacts = {};
+const tarballs = readdirSync(workspace).filter((name) => /^framerize-nexus-.+\.tgz$/.test(name));
+if (tarballs.length !== 1) throw new Error('exactly one shared Nexus tarball is required');
+const packageArtifact = { name: tarballs[0],
+  sha256: createHash('sha256').update(readFileSync(path.join(workspace, tarballs[0]))).digest('hex') };
 for (const line of sums.trim().split('\n')) {
   const match = line.match(/^([a-f0-9]{64}) [ *](.+)$/);
   if (!match) throw new Error('invalid SHA256SUMS entry');
@@ -34,4 +39,7 @@ writeFileSync(path.join(workspace, 'dist/release.json'), `${JSON.stringify({
   platform: process.platform,
   architecture: process.arch,
   artifacts,
+  packageArtifact,
+  licenses: Object.fromEntries(['NODE-LICENSE', 'LICENSE'].map((name) => [name,
+    createHash('sha256').update(readFileSync(path.join(workspace, 'dist', name))).digest('hex')])),
 }, null, 2)}\n`);
