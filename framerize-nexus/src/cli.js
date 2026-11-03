@@ -15,7 +15,7 @@ export function parseArgs(argv, env = process.env) {
   for (let index = 0; index < args.length; index += 1) {
     const name = args[index];
     if (!['--upstream', '--accounts', '--host', '--port', '--log-level'].includes(name)) {
-      throw new Error(`unknown option: ${name}`);
+      throw new Error('unknown option');
     }
     const value = args[++index];
     if (!value) throw new Error(`${name} needs a value`);
@@ -34,7 +34,7 @@ export async function run(argv = process.argv.slice(2), dependencies = {}) {
   const { command, values } = parseArgs(argv);
   const config = parseConfig(values);
   const logger = createLogger({ level: values.logLevel });
-  if (!['serve', 'check'].includes(command)) throw new Error(`unknown command: ${command}`);
+  if (!['serve', 'check'].includes(command)) throw new Error('unknown command');
   const app = await makeServer(config, { logger });
   if (command === 'check') {
     logger.info('config.valid', { accounts: config.accounts || undefined });
