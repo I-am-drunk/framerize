@@ -76,6 +76,6 @@ jobs:
       - name: Publish npm package
         run: |
           if [[ "${GITHUB_REF_NAME}" == *-* ]]; then export DIST_TAG=next; else export DIST_TAG=latest; fi
-          npm publish dist/framer-next-*.tgz --ignore-scripts --provenance --access public --tag "$DIST_TAG"
+          npm publish ./dist/framer-next-*.tgz --ignore-scripts --provenance --access public --tag "$DIST_TAG"
         env:
           NODE_AUTH_TOKEN: ''

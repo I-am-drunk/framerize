@@ -20,4 +20,5 @@ test('release verifies the packaged artifacts before upload', () => {
   assert.doesNotMatch(workflow, /test -f dist\/dist\//);
   assert.match(workflow, /path: dist\/\*/);
   assert.match(workflow, /cd dist && sha256sum -c SHA256SUMS/);
+  assert.match(workflow, /npm publish \.\/dist\/framer-next-\*\.tgz/);
 });
