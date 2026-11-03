@@ -2,8 +2,8 @@
 
 Verified on November 3, 2026:
 
-- 65 unit and integration tests pass on Node.js 24.
-- GitHub CI test and package jobs pass on pull requests 47 and 48.
+- 61 unit and integration tests pass on Node.js 24.
+- GitHub CI test and package jobs pass on pull request 54.
 - The installed npm tarball runs outside the checkout.
 - The isolated executable runs without Node.js on `PATH`.
 - The Framer fixture verifies request envelopes, session identifiers, short
@@ -25,6 +25,10 @@ A live direct Framer probe through the isolated Node connector returned HTTP
 existing private account session and fresh local credential service, without
 copying secrets into JSON or logs. The model was `gpt-6-sol`. Live Opus support
 is not established by this probe.
+
+The isolated native Chat probe returned HTTP 200 with the exact text `OK`.
+It used the original Chat Completions payload and the existing private account
+credentials. The binary shut down cleanly afterward.
 
 ## Publication dependency
 
