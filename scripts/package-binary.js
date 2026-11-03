@@ -2,6 +2,7 @@ import { execFileSync } from 'node:child_process';
 import { copyFileSync, existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { createHash } from 'node:crypto';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 
 const platform = process.platform;
 const architecture = process.arch;
@@ -11,7 +12,8 @@ if (!['linux', 'darwin', 'win32'].includes(platform)) {
 const suffix = `${platform === 'darwin' ? 'macos' : platform}-${architecture}`;
 const executable = `framer-next${platform === 'win32' ? '.exe' : ''}`;
 const archive = `dist/framer-next-${suffix}.${platform === 'win32' ? 'zip' : 'tar.gz'}`;
-const license = path.join(path.dirname(process.execPath), '..', 'LICENSE');
+const license = [path.join(path.dirname(process.execPath), '..', 'LICENSE'),
+  fileURLToPath(new URL('../LICENSE', import.meta.url))].find(existsSync);
 copyFileSync(license, 'dist/NODE-LICENSE');
 if (platform === 'win32') {
   execFileSync('powershell', ['-NoLogo', '-NoProfile', '-Command',
