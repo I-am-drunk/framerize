@@ -89,3 +89,20 @@ test('credential service rejects oversized responses', async (t) => {
   }));
   await assert.rejects(mintCredential(socketPath, 'fixture'), /response too large/);
 });
+
+test('credential service rejects unsuccessful responses', async (t) => {
+  const directory = await mkdtemp(path.join(tmpdir(), 'framer-next-socket-'));
+  const socketPath = path.join(directory, 'mint.sock');
+  const sockets = new Set();
+  const server = net.createServer((socket) => {
+    sockets.add(socket);
+    socket.on('close', () => sockets.delete(socket));
+    socket.end('{"ok":false}\n');
+  });
+  await new Promise((resolve) => server.listen(socketPath, resolve));
+  t.after(() => new Promise((resolve) => {
+    for (const socket of sockets) socket.destroy();
+    server.close(resolve);
+  }));
+  await assert.rejects(mintCredential(socketPath, 'fixture'), /could not mint/);
+});
