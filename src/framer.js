@@ -18,7 +18,21 @@ async function bearer(account, fetchImpl, signal, env) {
     if (token) return token;
   }
   const cached = minted.get(account.id);
-  if (cached && cached.expiresAt > Date.now() + 30_000) return cached.token;
+  if (cached?.expiresAt > Date.now() + 30_000) return cached.token;
+  if (cached?.pending) return cached.pending;
+  const pending = mintBearer(account, fetchImpl, signal, env);
+  minted.set(account.id, { pending });
+  try {
+    const result = await pending;
+    minted.set(account.id, result);
+    return result.token;
+  } catch (error) {
+    if (minted.get(account.id)?.pending === pending) minted.delete(account.id);
+    throw error;
+  }
+}
+
+async function mintBearer(account, fetchImpl, signal, env) {
   const { session } = credentials(account, env);
   const base = (account.upstream || 'https://api.framer.com').replace(/\/+$/, '');
   const response = await fetchImpl(`${base}/auth/ai/access-token`, {
@@ -32,8 +46,7 @@ async function bearer(account, fetchImpl, signal, env) {
   const data = await response.json();
   const expiresAt = Date.parse(data.expiresAt);
   if (!data.accessToken || !Number.isFinite(expiresAt)) throw new Error('invalid Framer token response');
-  minted.set(account.id, { token: data.accessToken, expiresAt });
-  return data.accessToken;
+  return { token: data.accessToken, expiresAt };
 }
 
 function userPrompt(payload) {
