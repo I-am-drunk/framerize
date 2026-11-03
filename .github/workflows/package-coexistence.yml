@@ -1,0 +1,257 @@
+name: package-coexistence
+
+on:
+  pull_request:
+    paths:
+      - 'framerize-nexus/**'
+      - 'framerize-server/**'
+      - 'scripts/package-coexistence.mjs'
+      - 'test/package-coexistence.test.mjs'
+      - 'test/package-coexistence-workflow.test.mjs'
+      - '.github/workflows/package-coexistence.yml'
+  push:
+    branches: [main, framer-next]
+    paths:
+      - 'framerize-nexus/**'
+      - 'framerize-server/**'
+      - 'scripts/package-coexistence.mjs'
+      - 'test/package-coexistence.test.mjs'
+      - 'test/package-coexistence-workflow.test.mjs'
+      - '.github/workflows/package-coexistence.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  produce:
+    name: produce packages (ubuntu-22.04)
+    runs-on: ubuntu-22.04
+    timeout-minutes: 10
+    outputs:
+      artifact: ${{ steps.manifest.outputs.artifact }}
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: 22
+      - name: Pack each package once with private npm configuration
+        run: |
+          set -euo pipefail
+          private="$RUNNER_TEMP/npm-private"
+          out="$RUNNER_TEMP/coexistence-artifact"
+          rm -rf "$private" "$out"
+          mkdir -p "$private/cache" "$out"
+          : > "$private/user.npmrc"
+          : > "$private/global.npmrc"
+          private_npm() {
+            env -i PATH="$PATH" HOME="$private" TMPDIR="$private" \
+              npm_config_userconfig="$private/user.npmrc" \
+              npm_config_globalconfig="$private/global.npmrc" \
+              npm_config_cache="$private/cache" npm_config_offline=true \
+              npm_config_ignore_scripts=true npm_config_audit=false \
+              npm_config_fund=false npm_config_update_notifier=false \
+              npm "$@"
+          }
+          for dir in framerize-nexus framerize-server; do
+            (cd "$dir" && private_npm pack --offline --ignore-scripts --pack-destination "$out")
+          done
+          echo "PRODUCER_NPM=$(private_npm --version)" >> "$GITHUB_ENV"
+          echo "ARTIFACT_DIR=$out" >> "$GITHUB_ENV"
+      - name: Write producer manifest beside exactly two tarballs
+        id: manifest
+        run: |
+          set -euo pipefail
+          node <<'JS'
+          const assert = require('node:assert/strict');
+          const { execFileSync } = require('node:child_process');
+          const { createHash } = require('node:crypto');
+          const fs = require('node:fs');
+          const path = require('node:path');
+          const out = process.env.ARTIFACT_DIR;
+          const sha = execFileSync('git', ['rev-parse', 'HEAD'], { encoding: 'utf8' }).trim();
+          assert.equal(sha, process.env.GITHUB_SHA, 'checkout differs from triggering SHA');
+          const packages = ['framerize-nexus', 'framerize-server'].map((dir) => {
+            const { name, version } = JSON.parse(fs.readFileSync(`${dir}/package.json`, 'utf8'));
+            assert.equal(name, dir);
+            const tarball = `${name}-${version}.tgz`;
+            const bytes = fs.readFileSync(path.join(out, tarball));
+            return { name, version, tarball,
+              sha256: createHash('sha256').update(bytes).digest('hex'), bytes: bytes.length };
+          });
+          assert.deepEqual(fs.readdirSync(out).sort(), packages.map((p) => p.tarball).sort(),
+            'pack output must hold exactly the two expected tarballs');
+          const manifest = {
+            source: { repository: process.env.GITHUB_REPOSITORY, sha,
+              runId: process.env.GITHUB_RUN_ID, runAttempt: process.env.GITHUB_RUN_ATTEMPT },
+            node: process.version, npm: process.env.PRODUCER_NPM,
+            platform: process.platform, arch: process.arch, packages };
+          fs.writeFileSync(path.join(out, 'manifest.json'), `${JSON.stringify(manifest, null, 2)}\n`);
+          const lines = [`artifact=package-coexistence-${process.env.GITHUB_RUN_ID}-packages`,
+            `nexus=${packages[0].tarball}`, `server=${packages[1].tarball}`];
+          fs.appendFileSync(process.env.GITHUB_OUTPUT, `${lines.join('\n')}\n`);
+          console.log(JSON.stringify(manifest, null, 2));
+          JS
+      - name: Upload producer artifact
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: ${{ steps.manifest.outputs.artifact }}
+          path: |
+            ${{ env.ARTIFACT_DIR }}/manifest.json
+            ${{ env.ARTIFACT_DIR }}/${{ steps.manifest.outputs.nexus }}
+            ${{ env.ARTIFACT_DIR }}/${{ steps.manifest.outputs.server }}
+          if-no-files-found: error
+          overwrite: true
+
+  consume:
+    name: consume packages (${{ matrix.target }})
+    needs: produce
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { runner: ubuntu-22.04, platform: linux, arch: x64, target: linux-x64 }
+          - { runner: macos-15, platform: darwin, arch: arm64, target: macos-arm64 }
+          - { runner: windows-2022, platform: win32, arch: x64, target: windows-x64 }
+    env:
+      EXPECTED_PLATFORM: ${{ matrix.platform }}
+      EXPECTED_ARCH: ${{ matrix.arch }}
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: 22
+      - name: Isolate npm configuration
+        run: |
+          set -euo pipefail
+          private="$RUNNER_TEMP/npm-private"
+          rm -rf "$private"
+          mkdir -p "$private/cache"
+          : > "$private/user.npmrc"
+          : > "$private/global.npmrc"
+          {
+            echo "NODE_OPTIONS="
+            echo "npm_config_userconfig=$private/user.npmrc"
+            echo "npm_config_globalconfig=$private/global.npmrc"
+            echo "npm_config_cache=$private/cache"
+            echo "npm_config_offline=true"
+            echo "npm_config_ignore_scripts=true"
+            echo "npm_config_update_notifier=false"
+          } >> "$GITHUB_ENV"
+      - name: Download producer artifact
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: ${{ needs.produce.outputs.artifact }}
+          path: ${{ runner.temp }}/coexistence-input
+      - name: Verify producer manifest, source and input hashes
+        env:
+          INPUT_DIR: ${{ runner.temp }}/coexistence-input
+        run: |
+          set -euo pipefail
+          node <<'JS'
+          const assert = require('node:assert/strict');
+          const { execFileSync } = require('node:child_process');
+          const { createHash } = require('node:crypto');
+          const fs = require('node:fs');
+          const path = require('node:path');
+          const dir = process.env.INPUT_DIR;
+          const manifest = JSON.parse(fs.readFileSync(path.join(dir, 'manifest.json'), 'utf8'));
+          const sha = execFileSync('git', ['rev-parse', 'HEAD'], { encoding: 'utf8' }).trim();
+          assert.equal(sha, process.env.GITHUB_SHA, 'checkout differs from triggering SHA');
+          assert.equal(manifest.source.sha, sha, 'producer built a different source SHA');
+          assert.equal(manifest.source.repository, process.env.GITHUB_REPOSITORY);
+          assert.equal(manifest.source.runId, process.env.GITHUB_RUN_ID);
+          assert.deepEqual(manifest.packages.map((p) => p.name), ['framerize-nexus', 'framerize-server']);
+          assert.deepEqual(fs.readdirSync(dir).sort(),
+            ['manifest.json', ...manifest.packages.map((p) => p.tarball)].sort(),
+            'artifact must hold exactly the manifest and two tarballs');
+          for (const p of manifest.packages) {
+            const { name, version } = JSON.parse(fs.readFileSync(`${p.name}/package.json`, 'utf8'));
+            assert.equal(p.name, name);
+            assert.equal(p.version, version, `${name} version differs from checkout`);
+            assert.equal(p.tarball, `${name}-${version}.tgz`);
+            assert.match(p.sha256, /^[0-9a-f]{64}$/);
+            const bytes = fs.readFileSync(path.join(dir, p.tarball));
+            assert.equal(bytes.length, p.bytes, `${p.tarball} size differs from producer`);
+            assert.equal(createHash('sha256').update(bytes).digest('hex'), p.sha256,
+              `${p.tarball} hash differs from producer`);
+          }
+          const lines = manifest.packages.map((p, i) =>
+            `${i ? 'SERVER' : 'NEXUS'}_TGZ=${path.join(dir, p.tarball)}`);
+          fs.appendFileSync(process.env.GITHUB_ENV, `${lines.join('\n')}\n`);
+          JS
+      - name: Verify runner platform
+        run: |
+          node -e "const a = require('node:assert/strict');
+            a.equal(process.platform, process.env.EXPECTED_PLATFORM);
+            a.equal(process.arch, process.env.EXPECTED_ARCH);"
+      - name: Run root tests
+        run: node --test test/*.test.mjs
+      - name: Check coexistence of the downloaded tarballs
+        run: |
+          set -euo pipefail
+          report="$RUNNER_TEMP/coexistence-report"
+          rm -rf "$report"
+          mkdir -p "$report"
+          node scripts/package-coexistence.mjs "$NEXUS_TGZ" "$SERVER_TGZ" > "$report/checker.json"
+          echo "REPORT_DIR=$report" >> "$GITHUB_ENV"
+      - name: Match checker identities to producer manifest
+        env:
+          INPUT_DIR: ${{ runner.temp }}/coexistence-input
+          RUNNER_LABEL: ${{ matrix.runner }}
+          TARGET: ${{ matrix.target }}
+        run: |
+          set -euo pipefail
+          node <<'JS'
+          const assert = require('node:assert/strict');
+          const { execFileSync } = require('node:child_process');
+          const { createHash } = require('node:crypto');
+          const fs = require('node:fs');
+          const path = require('node:path');
+          const hash = (file) => createHash('sha256').update(fs.readFileSync(file)).digest('hex');
+          const manifestFile = path.join(process.env.INPUT_DIR, 'manifest.json');
+          const manifest = JSON.parse(fs.readFileSync(manifestFile, 'utf8'));
+          const checker = JSON.parse(fs.readFileSync(path.join(process.env.REPORT_DIR, 'checker.json'), 'utf8'));
+          assert.equal(checker.platform, process.env.EXPECTED_PLATFORM);
+          assert.equal(checker.arch, process.env.EXPECTED_ARCH);
+          assert.equal(checker.node, process.version);
+          assert.deepEqual(
+            checker.packages.map(({ name, version, tarball, sha256 }) => ({ name, version, tarball, sha256 })),
+            manifest.packages.map(({ name, version, tarball, sha256 }) => ({ name, version, tarball, sha256 })),
+            'checker identities differ from producer manifest');
+          for (const p of manifest.packages) {
+            assert.equal(hash(path.join(process.env.INPUT_DIR, p.tarball)), p.sha256,
+              `${p.tarball} changed after verification`);
+          }
+          const report = {
+            source: { repository: process.env.GITHUB_REPOSITORY,
+              sha: execFileSync('git', ['rev-parse', 'HEAD'], { encoding: 'utf8' }).trim(),
+              runId: process.env.GITHUB_RUN_ID, runAttempt: process.env.GITHUB_RUN_ATTEMPT },
+            runner: process.env.RUNNER_LABEL, target: process.env.TARGET,
+            node: checker.node, npm: checker.npm, platform: checker.platform, arch: checker.arch,
+            producer: { manifestSha256: hash(manifestFile), source: manifest.source,
+              node: manifest.node, npm: manifest.npm },
+            packages: checker.packages };
+          fs.writeFileSync(path.join(process.env.REPORT_DIR, 'report.json'),
+            `${JSON.stringify(report, null, 2)}\n`);
+          console.log(JSON.stringify(report, null, 2));
+          JS
+      - name: Upload consumer report
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: package-coexistence-${{ github.run_id }}-report-${{ matrix.target }}
+          path: |
+            ${{ env.REPORT_DIR }}/report.json
+            ${{ env.REPORT_DIR }}/checker.json
+          if-no-files-found: error
+          overwrite: true
