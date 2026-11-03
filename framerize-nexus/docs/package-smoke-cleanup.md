@@ -26,3 +26,27 @@ the validation environment. It passes. No existing caches or evidence were delet
 
 Next action: review this checkpoint and its actual three-platform CI before
 merging. Mocked platform branches do not qualify native Windows or macOS runs.
+
+## Offline fixture isolation
+
+The follow-up branch `fix/nexus-package-smoke-isolation-20261103` gives npm
+and installed CLI subprocesses a private home, cache, and npm configuration.
+It does not inherit account paths, upstream credentials, npm authentication,
+or Node preload settings. Packing and installation explicitly stay offline
+and skip lifecycle scripts. Supplied tarball paths and cleanup are unchanged.
+
+The previous script passed no subprocess environment and allowed npm install
+to use the host's online configuration. A memory-only command probe confirmed
+both properties without a registry request. The regression fixtures now check
+the environment and npm flags with poisoned synthetic host configuration.
+
+On November 3, 2026, all 35 focused tests pass on Linux with Node.js 22.23.4.
+The pre-fix PR100 script fails the new isolation regression. A real offline
+installation of the retained `671ed7df` tarball also passes with synthetic
+account paths and credentials in the parent environment. Its SHA-256 remains
+`12c6eb43755f16a858d12b150bfde44622298ab2fcf489d03abadba0bd4fe528`.
+Only the unrelated sentinel remains in that run's temporary parent directory.
+No pre-existing files or caches are removed.
+
+Actual Windows and macOS execution of this follow-up remains a separate CI
+gate. Earlier cleanup results do not prove this new isolation behavior.
