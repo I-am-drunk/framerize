@@ -45,10 +45,27 @@ sandbox for malicious packages; use reviewed artifacts only.
 node --test test/package-coexistence.test.mjs
 ```
 
-CI integration remains a separate parent-owned decision. This checker does not
-change either package's workflow or qualify native archives. Retain its JSON
+The parent has authorized a separate [package-pair CI workflow](package-coexistence-ci.md),
+which remains under implementation. This checker does not change either
+package's existing workflow or qualify native archives. Retain its JSON
 output with externally verified source provenance; a tarball filename alone
 does not establish a Git commit. Success is not publication or activation approval.
+
+## Changing the package contract
+
+The current checker requires dependency-free packages, the existing executable
+names, and the baseline exports listed above. It invokes each CLI with
+`check --host 127.0.0.1 --upstream http://127.0.0.1:1` in a private environment
+without credential references. It also calls Nexus `parseConfig()` and server
+`loadConfig()` without arguments and checks default ports 8788 and 8789.
+
+These are current fixture assumptions, not constraints on the parent-owned
+thin-Nexus design. If that design changes these interfaces or requires fixture
+configuration, update the checker and its tests in a separately reviewed change.
+Do not weaken credential validation or enable network access to pass this gate.
+The byte check discovers all archive members, so added bundled files are not
+limited to the 13 files in historical evidence. New package bytes still require
+fresh qualification; the retained reports do not qualify later runtime changes.
 
 ## Recorded Linux verification
 
