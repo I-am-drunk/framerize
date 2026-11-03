@@ -12,9 +12,8 @@ function installStub(bin, name) {
   const script = `#!/usr/bin/env node\nprocess.argv.splice(2, 0, ${JSON.stringify(name)});\nawait import(${JSON.stringify(dispatcher)});`;
   writeFileSync(file, script, { mode: 0o755 });
   if (process.platform === 'win32') {
-    const quoted = process.execPath.replace(/"/g, '\\"');
     for (const extension of ['bat']) writeFileSync(path.join(bin, `${name}.${extension}`),
-      `@echo off\r\nsetlocal DisableDelayedExpansion\r\n"${quoted}" "${dispatcher}" "${name}" %*\r\n`);
+      `@echo off\r\n"${process.execPath}" "${dispatcher}" "${name}" %*\r\n`);
   }
 }
 
@@ -34,14 +33,9 @@ function publish(authenticated = true, published = false, version = '0.1.7',
   }));
   const calls = path.join(directory, 'calls');
   const fixture = JSON.stringify({ authenticated, published, version,
-    registryError, checksumValid, commit: `${commit}^{commit}`, dirty, calls });
+    registryError, checksumValid, commit: `${commit}^{commit}`, dirty, calls,
+    dispatcher: fileURLToPath(new URL('fixtures/command-fixture.js', import.meta.url)) });
   for (const name of ['npm', 'sha256sum', 'git', 'tar']) installStub(bin, name);
-  if (process.platform === 'win32') {
-    for (const name of ['npm', 'sha256sum', 'git', 'tar']) {
-      writeFileSync(path.join(directory, `${name}.bat`),
-        `@echo off\r\n"${process.execPath}" "${fileURLToPath(new URL('fixtures/command-fixture.js', import.meta.url))}" "${name}" %*\r\n`);
-    }
-  }
   const result = spawnSync(process.execPath, [
     fileURLToPath(new URL('../scripts/publish-package.js', import.meta.url))], {
     encoding: 'utf8',
