@@ -1,13 +1,13 @@
 # Status
 
-The package migration to Framerize Nexus is in progress on
-`t3/rename-connector-framerize-nexus`. The package now lives in
+The package migration to Framerize Nexus merged through
+[PR90](https://github.com/I-am-drunk/framerize/pull/90). The package lives in
 `framerize-nexus/`. The package, CLI, executable, and new release tags
 use `framerize-nexus`. Existing Framer Next release names below are historical.
-No Nexus package has been published or activated. Next action: review and
-merge [PR90](https://github.com/I-am-drunk/framerize/pull/90) after its checks
-pass. Publication remains disabled pending owner approval and a verified
-publication path.
+No Nexus package has been published or activated. The next contract change
+follows server native-artifact qualification and the separately reviewed
+acceptance gates. Publication remains disabled pending owner approval and a
+verified publication path.
 
 Current Nexus evidence on Node.js 22.23.4 and 24.13.0:
 
@@ -35,6 +35,11 @@ The `release-evidence-41654672886` artifact retains `release.json`, which binds
 the source commit, platform executable and archive hashes, licenses, and Node
 versions. These results apply to the recorded commit; later test and
 documentation changes do not represent another release rehearsal.
+
+The original manifest and checksums are also retained in
+[the committed rehearsal record](release-evidence/0.1.9-671ed7df/README.md).
+The GitHub artifact expires on February 1, 2027; preserving its binary payloads
+requires a separate owner-controlled archive before expiry.
 
 Historical Framer Next evidence, verified on November 3, 2026:
 

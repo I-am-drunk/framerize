@@ -4,8 +4,12 @@
   "description": "Node-native HTTP server for operator-authorized inference endpoints",
   "private": true,
   "type": "module",
-  "engines": { "node": ">=22.12" },
-  "bin": { "framerize-server": "./bin/framerize-server.js" },
+  "engines": {
+    "node": ">=22.12"
+  },
+  "bin": {
+    "framerize-server": "./bin/framerize-server.js"
+  },
   "exports": {
     ".": "./src/server.js",
     "./config": "./src/config.js",
@@ -13,7 +17,12 @@
     "./logger": "./src/logger.js",
     "./provider": "./src/provider.js"
   },
-  "files": ["bin", "src", "README.md", "LICENSE"],
+  "files": [
+    "bin",
+    "src",
+    "README.md",
+    "LICENSE"
+  ],
   "scripts": {
     "start": "node bin/framerize-server.js serve",
     "dev": "node --watch bin/framerize-server.js serve",

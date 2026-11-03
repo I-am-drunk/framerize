@@ -1,0 +1,38 @@
+{
+  "version": "0.1.9",
+  "commit": "671ed7df4507b391fc6efc72bf919aebd289a1eb",
+  "artifacts": {
+    "framerize-nexus-linux-x64.tar.gz": "0477c41ec959b41575a6d10d2d8cfe44e032714c45d217789b0e35943b4116ec",
+    "framerize-nexus-macos-arm64.tar.gz": "73cba8bb0b245c6ca144051da6d358bb935a3c864f7d58bbd40dbfa17cfc87f2",
+    "framerize-nexus-windows-x64.zip": "7097b2fc52e40d3fb9b23d30b5f31172b77ffc9f404fb4cfdc27e5a52f434d43",
+    "framerize-nexus-0.1.9.tgz": "12c6eb43755f16a858d12b150bfde44622298ab2fcf489d03abadba0bd4fe528",
+    "NODE-LICENSE": "c738ae413cf561f174e34f6961f8ca458aae2369a73640dda6234c629b98bcc4",
+    "LICENSE": "8a001590b158cf54879e74dd91a9351c3d8763d9910452db5eb4c1285fef6783"
+  },
+  "builds": [
+    {
+      "platform": "linux-x64",
+      "node": "v22.23.4",
+      "artifacts": {
+        "framerize-nexus": "5fc320c38802db5ff12a8f7eccd8abd992261639ea8152a897cff1e95afd52a5",
+        "framerize-nexus-linux-x64.tar.gz": "0477c41ec959b41575a6d10d2d8cfe44e032714c45d217789b0e35943b4116ec"
+      }
+    },
+    {
+      "platform": "macos-arm64",
+      "node": "v22.23.4",
+      "artifacts": {
+        "framerize-nexus": "82986fcd6190d1984bf5a4633a57acc54758cc7418dd463f75c8a06419c8c4bc",
+        "framerize-nexus-macos-arm64.tar.gz": "73cba8bb0b245c6ca144051da6d358bb935a3c864f7d58bbd40dbfa17cfc87f2"
+      }
+    },
+    {
+      "platform": "windows-x64",
+      "node": "v22.23.4",
+      "artifacts": {
+        "framerize-nexus.exe": "d55f9ce541b62f832a8990b8c3b8b10e0c34d91ea2c8965df5996f1f51b2de4b",
+        "framerize-nexus-windows-x64.zip": "7097b2fc52e40d3fb9b23d30b5f31172b77ffc9f404fb4cfdc27e5a52f434d43"
+      }
+    }
+  ]
+}
