@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import http from 'node:http';
-import { mkdtemp, writeFile } from 'node:fs/promises';
+import { mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { once } from 'node:events';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { parseConfig } from '../src/config.js';
@@ -31,18 +32,22 @@ const upstream = http.createServer((request, response) => {
     setTimeout(() => response.end(events[1]), 25);
   });
 });
-await new Promise((resolve) => upstream.listen(0, '127.0.0.1', resolve));
 const directory = await mkdtemp(path.join(tmpdir(), 'framer-next-framer-smoke-'));
-const accounts = path.join(directory, 'accounts.json');
-await writeFile(accounts, JSON.stringify([{
-  id: 'fixture', provider: 'framer', projectId: 'fixture-project',
-  upstream: `http://127.0.0.1:${upstream.address().port}`,
-  authorizationEnv: 'FRAMER_SMOKE_JWT', castleEnv: 'FRAMER_SMOKE_CASTLE',
-}]));
-process.env.FRAMER_SMOKE_JWT = 'fixture-jwt';
-process.env.FRAMER_SMOKE_CASTLE = 'fixture-castle';
-const app = await createServer(parseConfig({ port: 0, accounts }));
+const environment = Object.fromEntries(['FRAMER_SMOKE_JWT', 'FRAMER_SMOKE_CASTLE']
+  .map((key) => [key, process.env[key]]));
+let app;
 try {
+  upstream.listen(0, '127.0.0.1');
+  await once(upstream, 'listening');
+  const accounts = path.join(directory, 'accounts.json');
+  await writeFile(accounts, JSON.stringify([{
+    id: 'fixture', provider: 'framer', projectId: 'fixture-project',
+    upstream: `http://127.0.0.1:${upstream.address().port}`,
+    authorizationEnv: 'FRAMER_SMOKE_JWT', castleEnv: 'FRAMER_SMOKE_CASTLE',
+  }]));
+  process.env.FRAMER_SMOKE_JWT = 'fixture-jwt';
+  process.env.FRAMER_SMOKE_CASTLE = 'fixture-castle';
+  app = await createServer(parseConfig({ port: 0, accounts }));
   const address = await app.listen();
   const base = `http://127.0.0.1:${address.port}`;
   const streamed = await fetch(`${base}/v1/chat/completions`, {
@@ -69,8 +74,18 @@ try {
   assert.equal(result.choices[0].message.content, 'hello');
   console.log('Framer envelope and chat streaming smoke passed');
 } finally {
-  await app.close();
-  await new Promise((resolve) => upstream.close(resolve));
-  delete process.env.FRAMER_SMOKE_JWT;
-  delete process.env.FRAMER_SMOKE_CASTLE;
+  try {
+    if (app) await app.close();
+  } finally {
+    try {
+      upstream.closeAllConnections();
+      await new Promise((resolve) => upstream.close(resolve));
+    } finally {
+      for (const [key, value] of Object.entries(environment)) {
+        if (value === undefined) delete process.env[key];
+        else process.env[key] = value;
+      }
+      await rm(directory, { recursive: true, force: true, maxRetries: 3, retryDelay: 100 });
+    }
+  }
 }
