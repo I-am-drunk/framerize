@@ -4,7 +4,7 @@ on:
   pull_request:
     paths: ['framerize-server/**', '.github/workflows/server-ci.yml']
   push:
-    branches: [framer-next]
+    branches: [framer-next, main]
     paths: ['framerize-server/**', '.github/workflows/server-ci.yml']
   workflow_dispatch:
 

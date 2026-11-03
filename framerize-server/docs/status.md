@@ -257,9 +257,23 @@ Its runtime, scripts, tests, lockfile and workflow retain the reviewed bytes.
 The merged tree passes syntax and offline installed-package checks on
 Node 22.23.4. The separate library remains outside server execution and qualification.
 
+Acceptance checkpoint `ce1762b755c74147b174db90f6244d872679c2da` is integrated
+unchanged as `5fc517d4`. It retains seven regression cases for installed
+dependencies, metadata, extra files and cleanup after invalid invocation.
+The restored combined tree passes syntax checks, all 117 default test entries
+and all 67 acceptance tests on Node 22.23.4, with no failures, skips or
+cancellations. Default discovery includes 114 cases and three helper entries.
+The owner also verified all 12 package smoke cases on Node 24.13.0; the real
+merged server's installed-package smoke passes on Node 22.23.4 and 24.13.0.
+
+Server CI now accepts matching pushes to both `framer-next` and `main`.
+Its existing path filters, read-only permissions, dedicated package directory
+and source/native/aggregate jobs are unchanged. YAML checks cover that policy;
+actual post-merge qualification still requires a run at the merged source.
+
 Windows graceful POSIX-signal behavior is not claimed. Live inference,
 private credentials, production activation and release publication remain
 outside this stage.
 
-Next action: integrate the remaining verifier regressions, then qualify the
-final combined source/native/aggregate tree before integration.
+Next action: qualify the final combined source/native/aggregate tree before
+integration, then retain the exact post-merge evidence.
