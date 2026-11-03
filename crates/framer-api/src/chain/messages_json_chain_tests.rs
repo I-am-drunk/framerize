@@ -63,7 +63,7 @@ fn invalid_later_chunk_keeps_the_prefix_without_a_successful_completion() {
         json_reply(valid_message(vec![prefix.clone()], "max_tokens")),
         json_reply(json!({"content":[tool()],"error":{"message":"failed"}})),
     ], 3);
-    assert!(observed.result.unwrap_err().contains("upstream error"));
+    assert!(observed.result.unwrap_err().starts_with("upstream 500 on /ai/v3/messages/:"));
     assert_eq!(observed.emitted, vec![prefix.clone()]);
     assert_eq!(observed.requests.len(), 2);
     assert_eq!(observed.requests[1]["request"]["messages"][1]["content"], json!([prefix]));
@@ -156,7 +156,7 @@ fn partial_tool_input_is_retried_before_publishing_the_complete_tool() {
     assert_eq!(response.content, vec![tool()]);
     assert_eq!(observed.emitted, vec![tool()]);
     assert_eq!(response.stop_reason, "tool_use");
-    assert_eq!(response.output_tokens, 80);
+    assert_eq!(response.output_tokens, 160);
     assert_eq!(observed.requests.len(), 2);
     assert_eq!(observed.refunds, 0);
 }

@@ -121,7 +121,7 @@ fn upstream_error_reports_its_cause_without_credentials_or_payload() {
                 "message":"provider overloaded; Bearer secret-value",
                 "request":{"private":"fixture payload"}}}));
         let error = parse(&encode(&values)).unwrap_err();
-        assert!(error.contains("upstream error"));
+        assert!(error.starts_with("upstream 529 on /ai/v3/messages/:"));
         assert!(error.contains("provider overloaded"));
         assert!(error.contains("529"));
         assert!(!error.contains("secret-value"));

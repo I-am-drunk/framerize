@@ -19,7 +19,8 @@ fn explicit_thinking_budget_survives_conversion_without_a_cap() {
 fn invalid_enabled_thinking_budgets_are_not_rewritten() {
     for budget in [Value::Null, json!(1023), json!(-1), json!(1024.5),
         json!("4096"), json!(true), json!(4294967295_u64)] {
-        let body = json!({"thinking":{"type":"enabled","budget_tokens":budget},
+        let body = json!({"model":"claude-fixture",
+            "thinking":{"type":"enabled","budget_tokens":budget},
             "messages":[{"role":"user","content":"fixture"}]});
         assert!(to_anthropic_request(ClientDialect::AnthropicMessages, &body)
             .unwrap_err().starts_with("invalid enabled thinking budget"));

@@ -1,9 +1,12 @@
 [package]
 name = "framerize"
-version = "0.5.1-alpha.27"
+version = "0.5.1-alpha.29"
 build = "../../scripts/build_identity.rs"
 edition.workspace = true
 license.workspace = true
+
+[features]
+legacy-checkpoint-writes = ["framer-api/legacy-checkpoint-writes"]
 
 [dependencies]
 framer-core = { path = "../../crates/framer-core" }

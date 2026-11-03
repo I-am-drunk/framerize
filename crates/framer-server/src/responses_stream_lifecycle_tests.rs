@@ -231,7 +231,10 @@ async fn responses_failed_producer_registration_releases_output_before_forward()
     let mut f = Fixture::new();
     f.state = crate::operation_ownership::with_owned_operations(f.state, 1).unwrap();
     let result = chain(f.state.clone(), f.headers(0), false, true).await;
-    assert!(matches!(result, Err(ApiError::ServingCapacity(_))));
+    let response = result.unwrap();
+    assert_eq!(response.status(), axum::http::StatusCode::SERVICE_UNAVAILABLE);
+    assert_ne!(response.headers().get("content-type").unwrap(), "text/event-stream");
+    drop(response);
     assert_eq!(f.state.response_output.counts(), (0, 0, 0));
     available(&f.state.gate, &f.key(0, RESPONSE_MODEL)).await;
     f.no_call();
@@ -243,7 +246,10 @@ async fn responses_without_operation_gate_still_reserve_before_headers_and_forwa
     f.state.runtime_mut().unwrap().response_output =
         std::sync::Arc::new(crate::response_output::OutputBudget::new(0));
     let result = chain(f.state.clone(), f.headers(0), false, true).await;
-    assert!(matches!(result, Err(ApiError::ServingCapacity(_))));
+    let response = result.unwrap();
+    assert_eq!(response.status(), axum::http::StatusCode::SERVICE_UNAVAILABLE);
+    assert_ne!(response.headers().get("content-type").unwrap(), "text/event-stream");
+    drop(response);
     assert_eq!(f.state.response_output.counts(), (0, 0, 0));
     available(&f.state.gate, &f.key(0, RESPONSE_MODEL)).await;
     f.no_call();

@@ -57,7 +57,7 @@ async fn capacity_wait_is_bounded_and_never_waits_for_upstream_refusal() {
 }
 
 #[tokio::test(flavor = "current_thread")]
-async fn unbound_stream_preserves_identity_when_account_cools_before_producer_starts() {
+async fn unbound_stream_distinguishes_deferred_selection_from_an_admitted_account() {
     for messages in [false, true] {
         let mut f = Fixture::new();
         f.accounts[1].cooling_until_ms = Some(framer_core::rotation::now_ms() + 600_000);
@@ -67,8 +67,18 @@ async fn unbound_stream_preserves_identity_when_account_cools_before_producer_st
         f.accounts[1].cooling_until_ms = None;
         for account in &f.accounts { f.state.state.upsert(account).await.unwrap(); }
         let first = f.state.state.get(f.accounts[0].id).await.unwrap().unwrap();
-        let body = to_bytes(response.into_body(), 65536).await.unwrap();
-        assert!(String::from_utf8_lossy(&body).contains("saved account cooldown"));
+        if messages {
+            // Messages opens before selection. No request used the first account.
+            let call = f.next().await;
+            assert_eq!(call.account, f.accounts[1].id);
+            call.reply.send(Ok(success("messages"))).ok().unwrap();
+            delivered(response).await;
+            call.dropped.await.unwrap();
+        } else {
+            let body = tokio::time::timeout(WAIT, to_bytes(response.into_body(), 65536))
+                .await.unwrap().unwrap();
+            assert!(String::from_utf8_lossy(&body).contains("saved account cooldown"));
+        }
         assert_eq!(f.state.state.get(first.id).await.unwrap().unwrap().cooling_until_ms,
             first.cooling_until_ms);
         f.no_call();

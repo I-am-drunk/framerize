@@ -13,11 +13,13 @@ allowance, replaying inference, or selecting a paid fallback. Cancellation
 still propagates separately, and pending browser calls retain their owner
 until cleanup completes. Existing navigation and warmup deadlines remain.
 
-# Adaptive thinking output limits
+# Claude Messages continuation and errors
 
-The checkpoint candidate supports Opus 4.8, Opus 5 and Opus 5.5. Opus 4.8
-and Opus 5.5 still require live qualification before activation. The first buffered request allows 600
-tokens, with subsequent limits estimated for 45 seconds and capped at 1,200.
+The candidate uses one checkpoint implementation for every Messages model.
+No model allowlist selects its retry or continuation behavior. Buffered replies
+and explicitly authorized upstream streams share validation, history and usage.
+The first buffered request allows 600 tokens. Later limits target 45 seconds
+and normally stay within 400 to 1,200 tokens.
 The complete signed and redacted blocks remain in continuation history.
 Known incomplete client tool calls retain their preceding checkpoint and
 can request smaller complete calls twice. Incomplete tool inputs are never
@@ -25,6 +27,10 @@ published, and server-tool truncation cannot enter that recovery path.
 Recovery preserves the exact prefix before the first unpublished tool;
 later thinking cannot survive removal of a tool block in its prefix.
 The caller's total output allowance and reasoning effort remain unchanged.
+An explicit thinking budget raises the per-request minimum to that budget
+plus one token. That minimum can exceed the ordinary checkpoint ceiling and
+still encounter the upstream deadline. Invalid total budgets return HTTP 400
+before account or browser work.
 
 Client follow-ups must reproduce the original upstream assistant turns.
 Combining signed blocks into one message causes a provider HTTP 400 even
@@ -40,19 +46,30 @@ with the number of chunks. Every published prefix remains available.
 Version 2 links retain the original version 1 continuation prompts and can
 refer to existing version 1 rows. Older binaries cannot read version 2;
 rollback must use a compatible reader and preserve the complete database.
+The `legacy-checkpoint-writes` build reads both formats and writes version 1.
+Its executable reports that capability to packaging, so a bridge package
+cannot accidentally advertise the default version 2 writer.
+Activate that bridge before allowing version 2 writes. Both variants contain
+the request fixes. Once version 2 rows exist, alpha.25 cannot be the rollback.
 
-Other adaptive models use the configured total output allowance in their upstream
-request. The ordinary 600-token starting chunk does not limit it. The service
-preserves the upstream response and its ending instead of synthesizing a
-continuation from incomplete reasoning. Without a configured total, the
-explicit per-request chunk allowance applies.
+Unknown transport completion and malformed or incomplete replies are terminal.
+Their errors prohibit automatic replay. A complete provider error retains its
+HTTP status and the corresponding Anthropic error type. Once client content
+has been emitted, an error also prohibits replay of the entire request.
+SSE error events do not guarantee that a particular client retries them.
 
-An uncertain transport failure returns through the existing error path.
-Adaptive requests do not enter the transport chunk-halving or paid-fallback paths.
-An incomplete tool call cannot be published or retried with a synthetic
-instruction. Classified local waits and ordinary admission rules remain.
-Model, effort, Fast mode, account history and cleanup ownership are unchanged.
-This does not guarantee that a long request fits the upstream time window.
+Known temporary Framer refusals preserve the selected account and the exact
+unfinished chunk. The server records the cooldown, sends stream pings and
+rechecks admission before another attempt. Initial admission and later local
+waits share a 960-second server budget. Permanent model, region and permission
+errors return normally. A fast or empty 403 does not establish a temporary
+Framer refusal. No refusal changes the model, account or billing route.
+Initial waits hold no account residency or model permit. After admission,
+the Messages chain retains both through a cooldown to preserve its ownership.
+Messages and Responses share output admission capacity. A Messages producer,
+its response body and any retained output buffers keep their reservation
+until disposal. Queue overflow terminates with an unreplayable error and
+cannot replace an unconfirmed-cleanup cause with a success receipt.
 
 # Fresh browser request tokens
 

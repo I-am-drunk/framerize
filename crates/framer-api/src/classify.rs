@@ -42,7 +42,7 @@ pub enum RefusalBasis {
     ProviderMarker,
     FramerSecurityEnvelope,
     FramerMarker,
-    ElapsedFallback,
+    Unattributed,
 }
 
 /// Bounded policy evidence. It never retains body text or request identifiers.
@@ -78,25 +78,33 @@ const UPSTREAM_MARKERS: &[&str] = &[
     "No allowed providers",
     "error_type",       // OpenRouter's error envelope, not Framer's
     "flagged",
+    "permission_error",
+    "authentication_error",
+    "not_found_error",
+    "model",
+    "region",
+    "country",
+    "permission",
+    "access denied",
+    "not authorized",
+    "not allowed",
 ];
 
 /// Markers of Framer's own edge refusal. Short, generic bodies.
-const CASTLE_MARKERS: &[&str] = &["Forbidden", "castle", "risk", "challenge", "captcha"];
+const CASTLE_MARKERS: &[&str] = &["castle", "challenge", "captcha"];
 
 /// Classify a 403 from its body.
 ///
-/// `elapsed_ms` is a tiebreaker only, never the primary signal: Framer's edge
-/// refuses in ~250ms (p50 281ms measured) because it never proxies, while an
-/// upstream refusal costs a round trip through OpenRouter (p50 2,219ms). Timing
-/// alone would be fragile under load, so it decides only when the body is empty
-/// or says nothing either way.
+/// The elapsed argument remains compatible with existing callers. A short
+/// response time does not prove that the provider never received a request.
+/// Unknown bodies are returned to the caller without account cooldown.
 pub fn classify_403(body: &str, elapsed_ms: u64) -> Refusal {
     observe_403(body, elapsed_ms).policy
 }
 
-/// Preserve exactly the legacy classification while exposing its basis.
-/// Callers must not treat the elapsed fallback as positive body evidence.
-pub fn observe_403(body: &str, elapsed_ms: u64) -> RefusalObservation {
+/// Only a known Framer refusal permits waiting and retrying the request.
+/// Ambiguous and permanent provider refusals retain their original status.
+pub fn observe_403(body: &str, _elapsed_ms: u64) -> RefusalObservation {
     let lower = body.to_ascii_lowercase();
 
     // Positive upstream evidence wins outright: these strings cannot appear
@@ -125,7 +133,10 @@ pub fn observe_403(body: &str, elapsed_ms: u64) -> RefusalObservation {
         }
     }
 
-    if CASTLE_MARKERS
+    let parsed = serde_json::from_str::<serde_json::Value>(body).ok();
+    let message = parsed.as_ref().and_then(|value|
+        value.pointer("/error/message").and_then(serde_json::Value::as_str)).unwrap_or(body).trim();
+    if message.eq_ignore_ascii_case("Forbidden") || CASTLE_MARKERS
         .iter()
         .any(|m| lower.contains(&m.to_ascii_lowercase()))
     {
@@ -133,14 +144,8 @@ pub fn observe_403(body: &str, elapsed_ms: u64) -> RefusalObservation {
             basis: RefusalBasis::FramerMarker };
     }
 
-    // No signal in the body. A refusal that took longer than any measured edge
-    // refusal (989ms was the slowest of 322) was almost certainly proxied.
-    let policy = if elapsed_ms >= 1_000 {
-        Refusal::Upstream
-    } else {
-        Refusal::Castle
-    };
-    RefusalObservation { policy, basis: RefusalBasis::ElapsedFallback }
+    // Speed alone cannot establish which party refused the request.
+    RefusalObservation { policy: Refusal::Upstream, basis: RefusalBasis::Unattributed }
 }
 
 #[cfg(test)]
@@ -196,12 +201,23 @@ mod tests {
     }
 
     #[test]
-    fn empty_body_falls_back_to_timing() {
-        // Slower than every measured edge refusal => it was proxied.
-        assert_eq!(classify_403("", 2_200), Refusal::Upstream);
-        // Edge-refusal latency with nothing to go on => treat as Castle, which
-        // is the conservative choice for an UNPROXIED-looking refusal.
-        assert_eq!(classify_403("", 250), Refusal::Castle);
+    fn ambiguous_body_never_authorizes_replay_based_on_timing() {
+        for elapsed in [0, 250, 2_200] {
+            assert_eq!(classify_403("", elapsed), Refusal::Upstream);
+            assert_eq!(classify_403("unrecognized refusal", elapsed), Refusal::Upstream);
+        }
+    }
+
+    #[test]
+    fn permanent_errors_are_not_held_as_security_refusals() {
+        for body in ["This model is forbidden", "Forbidden in your region",
+            "Access denied", "Permission denied", "Not authorized for this country",
+            r#"{"type":"error","error":{"type":"permission_error","message":"Forbidden"}}"#,
+            r#"{"error":{"type":"not_found_error","message":"model is unavailable"}}"#] {
+            for elapsed in [0, 250, 2_200] {
+                assert_eq!(classify_403(body, elapsed), Refusal::Upstream, "{body}");
+            }
+        }
     }
 
     #[test]

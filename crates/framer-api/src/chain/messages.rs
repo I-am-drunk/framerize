@@ -1,17 +1,15 @@
-//! Unmetered long-completion via continuation chaining on the OpenRouter
-//! Anthropic-format passthrough (/ai/v3/messages/), rebuilt BLOCK-AWARE:
-//! the client payload passes through with full fidelity (tools, system,
-//! tool_choice, …), and the assembled response preserves every content
-//! block — text merges, tool_use blocks keep ids/names/inputs, stop_reason
-//! and usage are exact.
+//! Bounded continuations on the Anthropic-format passthrough.
+//! All models share block validation, history, usage and termination logic.
+//! Native request fields and signed blocks are retained. Only complete tool
+//! calls are published; acknowledged truncations can retry unpublished input.
 //!
 //! Verified on the live account (verified-captures-2026-10-01.md):
 //!   - non-streaming on /ai/v3/messages/ is unmetered; streaming is metered.
 //!   - the messages route's idle window is ~60-109s (chat route: ~21.5s).
-//! Never-fail ladder per chunk: free call → halving retry (window-death) →
-//! metered-stream fallback for that chunk only → chain resumes free.
+//! Unknown transport completion is terminal. Metered streaming requires the
+//! caller's explicit permission and never repairs an unknown completion.
 
-use crate::protocol::messages::{merge_blocks, push_continuation, prepare_payload};
+use crate::protocol::messages::prepare_payload;
 use std::sync::Mutex;
 
 use serde_json::{json, Value};
@@ -59,84 +57,30 @@ pub async fn complete_long(
     t.messages_history.restore(&mut anthro_payload)?;
     let mut history = super::messages_history::Trace::default();
     let output_floor = framer_core::convert::anthropic_output_floor(&anthro_payload)?;
-    let default_thinking = uses_default_thinking(&anthro_payload);
-    let reasoning = anthro_payload["thinking"]["type"] == "adaptive" || default_thinking;
-    let checkpointed_thinking = reasoning && checkpoint::supported(&anthro_payload);
-    let uninterrupted_thinking = reasoning && !checkpointed_thinking;
-    let thinking_mode = if default_thinking { "default reasoning" } else { "adaptive thinking" };
+    let explicit_reasoning = matches!(anthro_payload["thinking"]["type"].as_str(),
+        Some("adaptive" | "enabled"));
+    let thinking_mode = match anthro_payload["thinking"]["type"].as_str() {
+        Some("adaptive") => "adaptive thinking",
+        Some("enabled") => "enabled thinking",
+        Some("disabled") => "disabled thinking",
+        _ => "default reasoning",
+    };
     if cfg.max_total_tokens.is_some_and(|total| total < output_floor) {
         return Err("Messages total output limit cannot accommodate the enabled thinking budget".into());
     }
-    // CONCURRENCY BUCKETS (verified 2026-10-04): the workspace's ~5-concurrent
-    // 429 cap counts per (route × step tag). Each chunk rotates to the next
-    // bucket, and a 429 advances to the next bucket INSTANTLY instead of
-    // sleeping.
-    //
-    // ROUTE PINNED to /messages (2026-10-04, measured live): Castle risk-scores
-    // the /chat passthrough far more aggressively — same account, same second:
-    // /ai/v3/messages/ -> 200, /ai/v3/chat/ -> bare 403 (650ms, no upstream
-    // markers = edge refusal).
-    //
-    // THE BARE GOLDEN GOOSE (measured 2026-10-04, in-page on a live account):
-    // the ~4-5-concurrent-per-bucket 429 cap keys on the `step` tag — and
-    // `step` accepts ARBITRARY invented strings, each its own bucket:
-    //   12x same step 'message'  -> 4 pass / 8x 429
-    //   24x same step            -> 5 pass / 19x 429
-    //   12x unique steps         -> 12/12 pass (twice, incl. post-volume)
-    //   16x unique steps         -> 16/16 (burst and staggered)
-    //   24x unique steps         -> 3 pass / 21x 429  <- the real wall: a
-    //   workspace-wide concurrency limit (~16-20), NOT per-bucket. Unique
-    //   steps eliminate every per-bucket 429; the gate holds in-flight under
-    //   the workspace wall and the client never sees a 429.
-    // So every chunk gets a FRESH step tag — organic-looking word + nonce,
-    // indistinguishable in shape from Framer's own instrumentation tags.
-    const DIALECTS: [Dialect; 1] = [Dialect::OpenRouterMessages];
-    // Step vocabulary (invisibility, 2026-10-05): real clients use CONSTANT
-    // steps — "message" for agent turns, "translate" for translation — so the
-    // invented compose-3fa2c1-style tags (thousands of unique values/day)
-    // were an inspection-visible anomaly. The per-step concurrency dodge they
-    // bought is redundant: the cap is per-device under translation (measured
-    // ~5/device), and the device pool covers concurrency. Constant REAL step.
+    // Keep the provider route and step fixed throughout the request.
+    let dialect = Dialect::OpenRouterMessages;
     let chain_nonce = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .map(|d| d.as_secs() ^ ((d.subsec_nanos() as u64) << 20))
         .unwrap_or(0x9e3779b97f4a7c15);
-    // Default "translate" to MATCH proxy.rs's default category (translation):
-    // the envelope went category=translation + step=message otherwise — real
-    // translation traffic uses step=translate (invisibility audit 2026-10-11).
+    // Match the existing envelope category and its default.
     let category = std::env::var("FRAMERIZE_FEATURE_CATEGORY")
         .unwrap_or_else(|_| "translation".to_string());
-    let chain_step: String =
+    let step: String =
         if category == "translation" { "translate".to_string() } else { "message".to_string() };
-    let bucket = |_i: usize| -> (Dialect, String) { (DIALECTS[0], chain_step.clone()) };
-    let mut bucket_idx = 0usize;
 
-    // Per-chunk payload: the client's full request, only stream/max_tokens
-    // overridden; chat-route chunks use the converted chat/completions shape.
-    let build_payload = |messages: &Value, chunk: u32, dialect: Dialect| {
-        prepare_payload(&anthro_payload, messages, chunk, dialect)
-    };
-
-    // Explicitly allowed reasoning streams avoid buffering the whole generation.
-    if reasoning && cfg.metered_fallback {
-        cfg.check_cancelled()?;
-        let limit = cfg.max_total_tokens.unwrap_or(cfg.chunk_tokens);
-        let payload = build_payload(&anthro_payload["messages"], limit,
-            Dialect::OpenRouterMessages);
-        let mut wait = super::cooldown_wait::CooldownWait::default();
-        let completed = wait.run(cfg, false, || stream_chunk(
-            t, token_cache, session, browser, account, project,
-            Dialect::OpenRouterMessages, &chain_step, payload.clone(),
-            chat_session, 0, cfg.cancelled.as_deref(),
-        )).await?;
-        cfg.check_cancelled()?;
-        if let Some(callback) = events {
-            callback(ChainEvent::Chunk(completed.content.clone()));
-        }
-        return Ok(assemble(completed.id, completed.content,
-            completed.stop_reason, completed.stop_sequence, completed.stop_details, completed.usage,
-            completed.input_tokens, completed.output_tokens, 1, 1));
-    }
+    let mut streaming = explicit_reasoning && cfg.metered_fallback;
 
     let mut messages = anthro_payload["messages"].clone();
     let mut blocks: Vec<Value> = Vec::new();
@@ -150,46 +94,38 @@ pub async fn complete_long(
     let mut tool_cut_retries = 0u32;
     let mut rate_retries = 0u32;
 
-    // Window sizing from live measurement (§8 + 2026-10-03 storm analysis):
-    // the messages route's deaths cluster at ~60-67s under load, and upstream
-    // throughput oscillates 10-67 tok/s WITHIN minutes. Budgets must track
-    // the model's LIVE speed — and crucially, START SMALL: a 2500-token first
-    // chunk at a degraded 10 tok/s takes 250s of total silence (looks hung).
-    // Ramp UP from 600 with measured speed instead of ramping down after
-    // deaths: first content lands in ~10-60s regardless of upstream mood.
+    // Start small, then use observed throughput to target 45-second chunks.
+    // Token limits cannot guarantee a deadline, especially when an explicit
+    // thinking budget requires a larger per-request output allowance.
     let window_budget_s = 45.0f32;
-    let _chunk_cap = cfg.chunk_tokens.max(2500);
     let mut chunk_tokens = cfg.chunk_tokens.min(600);
-    let chunk_ceiling = if checkpointed_thinking { 1200 } else { 3000 };
+    let chunk_ceiling = 1200;
     let budget_for = |tps: f32| -> u32 { ((tps * window_budget_s) as u32).clamp(400, chunk_ceiling) };
 
-    let mut cooldown_wait = super::cooldown_wait::CooldownWait::default();
+    let mut cooldown_wait = cfg.admission.as_ref().map_or_else(
+        super::cooldown_wait::CooldownWait::default,
+        |guard| super::cooldown_wait::CooldownWait::with_limit(guard.wait_budget()));
     let active_budget = framer_protocol::active_budget::ActiveBudget::new(&cooldown_wait);
     for i in 0..cfg.max_chunks {
         cfg.check_cancelled()?;
         active_budget.check(&cooldown_wait, i, None)?;
         let budget = remaining_tokens(cfg, ctok).unwrap_or(u32::MAX);
-        // Only supported signed checkpoints can split a reasoning response.
-        let chunk = if uninterrupted_thinking {
-            cfg.max_total_tokens.unwrap_or(cfg.chunk_tokens)
-        } else {
-            budget.min(chunk_tokens.max(output_floor))
-        };
-        // Human cadence: a metronomic chunk train is itself a bot signature.
-        // 0.7-2.3s of jitter between chunks (derived from the nonce — no
-        // external entropy needed), invisible against 10-60s generations.
+        // Every Messages model uses the same bounded, block-aware continuation.
+        let chunk = if streaming {
+            budget.min(cfg.max_total_tokens.unwrap_or(cfg.chunk_tokens).max(output_floor))
+        } else { budget.min(chunk_tokens.max(output_floor)) };
+        // Retain the existing 0.7-2.3 second pacing between requests.
         if i > 0 {
             let j = 700u64 + (chain_nonce.wrapping_add(i as u64).wrapping_mul(0x9e3779b1) % 1600);
             active_budget.pause(&cooldown_wait, cfg,
                 std::time::Duration::from_millis(j), i, None).await?;
         }
-        let (dialect, step) = bucket(bucket_idx);
-        let payload = build_payload(&messages, chunk, dialect);
+        let mut payload = prepare_payload(&anthro_payload, &messages, chunk, dialect);
+        payload["stream"] = json!(streaming);
         let t0 = cooldown_wait.timer();
-        eprintln!("[freechat] chunk {i} start (max_tokens={chunk}, bucket {dialect:?}/{step})");
+        eprintln!("[freechat] chunk {i} start (max_tokens={chunk}, {dialect:?}/{step})");
         // Rate-limit retries retain this request's route, payload and identity.
         // A provider limit does not establish workspace saturation.
-        let mut effective_dialect = dialect;
         let mut last_attempt_t0 = t0;
         let first = {
             let cur_dialect = dialect;
@@ -200,13 +136,30 @@ pub async fn complete_long(
                 cfg.check_cancelled()?;
                 active_budget.check(&cooldown_wait, i, None)?;
                 last_attempt_t0 = cooldown_wait.timer();
-                match cooldown_wait.run_budgeted(cfg, !blocks.is_empty(), &active_budget, i, || proxy::forward_cancellable(
-                    t, token_cache, session, browser, account, project,
-                    cur_dialect, &cur_step, attempt_payload.clone(), chat_session, i, cfg.cancelled.as_deref(),
-                )).await {
-                    Ok(r) => out = Some(Ok((cur_dialect, r))),
+                let attempt = || async {
+                    if let Some(guard) = &cfg.admission { guard.before_attempt().await?; }
+                    let result = proxy::forward_cancellable(
+                        t, token_cache, session, browser, account, project,
+                        cur_dialect, &cur_step, attempt_payload.clone(), chat_session, i,
+                        cfg.cancelled.as_deref(),
+                    ).await;
+                    if let (Some(guard), Err(error)) = (&cfg.admission, &result) {
+                        if framer_core::error::is_security_refusal(error)
+                            || framer_core::error::AccountCooldown::from_error(error).is_some() {
+                            guard.refused(error).await?;
+                        }
+                    }
+                    result
+                };
+                let result = if cfg.admission.is_some() {
+                    cooldown_wait.run_guarded(cfg, &active_budget, i, attempt).await
+                } else {
+                    cooldown_wait.run_budgeted(cfg, !blocks.is_empty(), &active_budget, i, attempt).await
+                };
+                match result {
+                    Ok(r) => out = Some(Ok(r)),
                     Err(e) if cfg.is_cancelled() => return Err(e),
-                    Err(e) if e.starts_with("retryable 429") => {
+                    Err(e) if !streaming && e.starts_with("retryable 429") => {
                         if rate_retries >= 9 {
                             out = Some(Err(e));
                             break;
@@ -226,86 +179,23 @@ pub async fn complete_long(
             out.unwrap()
         };
         let resp = match first {
-            Ok((used_dialect, r)) => {
-                effective_dialect = used_dialect;
-                r
-            }
+            Ok(r) => r,
             Err(e) if framer_core::error::AccountCooldown::from_error(&e).is_some() => return Err(e),
             Err(e) if cfg.is_cancelled() => return Err(e),
-            Err(e) if reasoning && (e.starts_with("in-page fetch failed:")
+            Err(e) if !streaming && (e.starts_with("in-page fetch failed:")
                 || matches!(framer_core::convert::parse_upstream_error(&e), Some((502 | 504, _)))) => {
                 let elapsed = cooldown_wait.elapsed(last_attempt_t0).as_secs_f32();
                 let cause = framer_core::error::safe_failure_summary(&e);
                 let prefix = framer_core::error::ADAPTIVE_INCOMPLETE_PREFIX;
                 return Err(format!("{prefix}Claude's buffered upstream request failed after {elapsed:.1}s before a complete response was available. The request allowed {chunk} output tokens with {thinking_mode}. Recorded cause: {cause}. Automatic replay is disabled because completion is unknown. This custom-route request was not switched to metered streaming."));
             }
-            Err(e) => {
-                // The idle-kill check must time the FAILING ATTEMPT — the whole
-                // loop includes 429 backoffs, which would misclassify a fast
-                // velocity 403 after >8s of waiting as an idle-window kill
-                // (audit 2026-10-11: wasted halve-retries on velocity bans).
-                let elapsed = cooldown_wait.elapsed(last_attempt_t0).as_secs_f32();
-                if reasoning || !(retryable_failure(&e, elapsed) && chunk_tokens > 200) {
-                    return Err(e);
-                }
-                active_budget.check(&cooldown_wait, i, Some(&e))?;
-                chunk_tokens /= 2;
-                bucket_idx += 1;
-                let (d3, s3) = bucket(bucket_idx);
-                let retry_tokens = budget.min(chunk_tokens.max(output_floor));
-                eprintln!("[freechat] chunk {i} died at {elapsed:.1}s ({e}), retrying with max_tokens={retry_tokens} on {d3:?}/{s3}");
-                let retry_payload = build_payload(&messages, retry_tokens, d3);
-                last_attempt_t0 = cooldown_wait.timer();
-                let mut retry_started = tokio::time::Instant::now();
-                match cooldown_wait.run_budgeted(cfg, !blocks.is_empty(), &active_budget, i, || {
-                    // Reset after a local cooldown so only the failing attempt counts.
-                    retry_started = tokio::time::Instant::now();
-                    proxy::forward_cancellable(
-                        t, token_cache, session, browser, account, project,
-                        d3, &s3, retry_payload.clone(), chat_session, i, cfg.cancelled.as_deref(),
-                    )
-                }).await {
-                    Ok(r) => r,
-                    Err(e2) if framer_core::error::AccountCooldown::from_error(&e2).is_some() => return Err(e2),
-                    Err(e2) if cfg.is_cancelled() => return Err(e2),
-                    Err(e2) if !retryable_failure(&e2, retry_started.elapsed().as_secs_f32()) => return Err(e2),
-                    Err(e2) if cfg.metered_fallback => {
-                        active_budget.check(&cooldown_wait, i, Some(&e2))?;
-                        eprintln!("[freechat] chunk {i} retry died ({e2}) — metered stream fallback for this chunk");
-                        let stream_payload = build_payload(&messages, budget.min(chunk_tokens.max(output_floor)), d3);
-                        let streamed = stream_chunk(
-                            t, token_cache, session, browser, account, project,
-                            d3, &s3, stream_payload, chat_session, i, cfg.cancelled.as_deref(),
-                        ).await?;
-                        metered_chunks += 1;
-                        ptok = ptok.max(streamed.input_tokens);
-                        ctok = add_output_tokens(ctok, streamed.output_tokens)?;
-                        last_usage = streamed.usage.clone();
-                        if msg_id.is_empty() && !streamed.id.is_empty() {
-                            msg_id = streamed.id.clone();
-                        }
-                        let streamed_stop = streamed.stop_reason.clone();
-                        let streamed_seq = streamed.stop_sequence.clone();
-                        stop_reason = streamed_stop.clone();
-                        stop_sequence = streamed_seq.clone();
-                        stop_details = streamed.stop_details.clone();
-                        let streamed_blocks = streamed.content.clone();
-                        merge_blocks(&mut blocks, streamed_blocks.clone());
-                        if let Some(cb) = events {
-                            cb(ChainEvent::Chunk(streamed_blocks.clone()));
-                        }
-                        let finished = streamed_stop != "max_tokens"
-                            || !has_continuation_text(&streamed_blocks)
-                            || remaining_tokens(cfg, ctok).is_some_and(|left| left < output_floor);
-                        if finished {
-                            return Ok(assemble(msg_id, blocks, streamed_stop, streamed_seq, stop_details, last_usage, ptok, ctok, i + 1, metered_chunks));
-                        }
-                        push_continuation(&mut messages, &streamed_blocks, cfg);
-                        continue;
-                    }
-                    Err(e2) => return Err(format!("chunk {i} retry died (fallback off): {e2}")),
-                }
-            }
+            Err(e) if framer_core::convert::parse_upstream_error(&e).is_none()
+                && !framer_core::error::is_local_request_failure(&e)
+                && !framer_core::error::is_security_refusal(&e)
+                && !e.starts_with("server-cooling:") && !e.starts_with("chain exceeded ")
+                && !matches!(e.as_str(), "unauthorized" | "credits-exhausted") =>
+                    return Err(unacknowledged(&e)),
+            Err(e) => return Err(e),
         };
 
         // Wall-clock includes OUR queue wait for a free browser page. Subtract
@@ -321,25 +211,21 @@ pub async fn complete_long(
         if queued > 2.0 {
             eprintln!("[freechat] chunk {i} queued {queued:.1}s of {wall:.1}s (excluded from tok/s)");
         }
-        let body: Value = serde_json::from_str(&body_text(resp).await?).map_err(|e| format!("chunk {i} not json: {e}"))?;
+        let completed = body_text(resp).await.and_then(|text| decode_chunk(&text, streaming))
+            .map_err(|error| if framer_core::convert::parse_upstream_error(&error).is_some() {
+                error
+            } else { unacknowledged(&error) })?;
+        if streaming { metered_chunks += 1; }
         if msg_id.is_empty() {
-            msg_id = body["id"].as_str().unwrap_or_default().to_string();
+            msg_id = completed.id.clone();
         }
-        let (chunk_blocks, chunk_stop, usage) = match effective_dialect {
-            Dialect::OpenRouterMessages => buffered::decode(&body)?,
-            _ => framer_core::convert::chat_response_to_blocks(&body),
-        };
-        let in_t = usage["input_tokens"].as_u64().unwrap_or(0);
-        let out_t = usage["output_tokens"].as_u64().unwrap_or(0);
+        let (chunk_blocks, chunk_stop) = (completed.content, completed.stop_reason);
+        let (in_t, out_t) = (completed.input_tokens, completed.output_tokens);
         ptok = ptok.max(in_t); // input counts the whole conversation; keep latest
-        last_usage = usage;
+        last_usage = completed.usage;
         let contains_tool_use = chunk_blocks.iter().any(|block|
             matches!(block["type"].as_str(), Some("tool_use" | "server_tool_use")));
-        if uninterrupted_thinking && chunk_stop == "max_tokens" && contains_tool_use {
-            return Err(format!("{thinking_mode} reached the requested output limit during a tool call"));
-        }
-        // Adapt chunk size from measured throughput (floor 400: completes even
-        // when the upstream degrades to a crawl; ceiling 3000 ≈ 75% window).
+        // Estimate the next allowance within the 400-1,200 token range.
         let tps = out_t as f32 / elapsed.max(0.5);
         eprintln!("[freechat] chunk {i} done in {elapsed:.1}s ({out_t} tok, {tps:.0} tok/s)");
         if tps > 1.0 {
@@ -348,8 +234,11 @@ pub async fn complete_long(
         // Keep valid output at low throughput. The active-time budget limits
         // later work without discarding an already successful response.
 
-        if checkpointed_thinking && chunk_stop == "max_tokens" && contains_tool_use {
-            if tool_cut_retries >= 2 || i + 1 >= cfg.max_chunks
+        if chunk_stop == "max_tokens" && contains_tool_use {
+            if i + 1 >= cfg.max_chunks {
+                return Err("Claude incomplete tool call has no remaining retry chunk".into());
+            }
+            if streaming || (tool_cut_retries >= 2 && !cfg.metered_fallback)
                 || chunk_blocks.iter().any(|b| b["type"] == "server_tool_use") {
                 return Err("Claude reached the checkpoint output limit during a tool call; complete tool input is unavailable".into());
             }
@@ -357,7 +246,7 @@ pub async fn complete_long(
             // the exact prefix before the first unpublished tool, not gaps.
             let completed: Vec<Value> = chunk_blocks.iter()
                 .take_while(|b| b["type"] != "tool_use").cloned().collect();
-            if !checkpoint::available(&completed)? {
+            if !completed.is_empty() && !checkpoint::available(&completed)? {
                 return Err("Claude reached the checkpoint output limit during a tool call without a signed or text checkpoint".into());
             }
             ctok = add_output_tokens(ctok, out_t)?;
@@ -365,6 +254,22 @@ pub async fn complete_long(
                 return Err("Claude exhausted the requested output allowance before completing its tool input".into());
             }
             tool_cut_retries += 1;
+            let next = remaining_tokens(cfg, ctok).unwrap_or(u32::MAX)
+                .min(chunk.saturating_mul(2)).min(chunk_ceiling.max(output_floor));
+            if completed.is_empty() || tool_cut_retries > 2 {
+                if tool_cut_retries > 2 || next <= chunk {
+                    if !cfg.metered_fallback {
+                        return Err("Claude tool input exceeds the bounded output allowance; incomplete input was not published".into());
+                    }
+                    streaming = true;
+                }
+                if completed.is_empty() {
+                    // The provider acknowledged max_tokens. No tool executed.
+                    // Retry only that unpublished output, with identical context.
+                    chunk_tokens = next;
+                    continue;
+                }
+            }
             eprintln!("[freechat] chunk {i} completed at max_tokens with incomplete tool input; continuing from preserved checkpoint");
             history.append(&t.messages_history, &mut blocks, &completed)?;
             if let Some(cb) = events { cb(ChainEvent::Chunk(completed.clone())); }
@@ -374,152 +279,38 @@ pub async fn complete_long(
             continue;
         }
 
-        // Partial tool_use at max_tokens: a half-written tool call can't be
-        // continued — and enlarging the budget breaks the real invariant
-        // (chunks must finish inside the ~100s idle window; a 5-8k-token tool
-        // call at ~20-50 tok/s CANNOT). Enlarging just dies slower (measured:
-        // 69s NetworkError deaths, then churn to a client-visible 500). So a
-        // mid-tool_use cut routes THIS chunk to metered streaming immediately:
-        // bytes flow, no window applies, the tool call completes whole. Tiny
-        // credit touch for exactly one chunk; the chain resumes free after.
-        // Match the streaming gate: a token-limited chunk cannot publish a
-        // tool merely because another block followed it or it is server-owned.
-        if chunk_stop == "max_tokens" && contains_tool_use && tool_cut_retries < 2 {
-            if i + 1 >= cfg.max_chunks {
-                return Err(format!("chunk {i}: incomplete tool call has no remaining retry chunk"));
-            }
-            // Free retry with a WINDOW-PROPORTIONAL budget: ~70s of the
-            // model's own measured throughput (the messages-route window is
-            // ~100s; the old 45s/3000-cap sat below real capacity, so
-            // 3-5k-token writes were cut twice and the chain errored out —
-            // 99 such deaths on 2026-10-04).
-            tool_cut_retries += 1;
-            let budget = ((tps * 70.0) as u32).clamp(1200, 5000).max(chunk_tokens);
-            eprintln!("[freechat] chunk {i} cut mid-tool_use — free retry #{tool_cut_retries} (max_tokens={budget}, measured {tps:.0} tok/s, instructing split)");
-            chunk_tokens = budget;
-            // ROOT FIX for repeat cuts: the model doesn't know its tool call
-            // was truncated — left alone it re-attempts the SAME giant write
-            // and gets cut again. Keep any text it produced, then instruct
-            // the split explicitly.
-            let texts: Vec<Value> = chunk_blocks
-                .iter()
-                .filter(|b| b["type"].as_str() == Some("text"))
-                .cloned()
-                .collect();
-            let arr = messages.as_array_mut().expect("messages array");
-            if !texts.is_empty() {
-                arr.push(json!({"role": "assistant", "content": texts}));
-            }
-            arr.push(json!({"role": "user", "content": "Your previous response was cut off mid-tool-call because the tool call was too large. Do NOT retry it as one call. Split the work: write at most ~40 lines per call, then append the next section with a separate call, and repeat until the whole file or edit is done."}));
-            continue;
-        }
-        if chunk_stop == "max_tokens" && contains_tool_use {
-            if !cfg.metered_fallback {
-                return Err(format!("chunk {i}: upstream stopped at the output-token limit during a tool call, so complete tool input is unavailable. This custom-route request was not switched to metered streaming."));
-            }
-            active_budget.check(&cooldown_wait, i,
-                Some("upstream stopped at the output-token limit during a tool call"))?;
-            eprintln!("[freechat] chunk {i} cut mid-tool_use again — streaming this chunk metered (explicit opt-in)");
-            let stream_tokens = budget.min(remaining_tokens(cfg, ctok).unwrap_or(8000).max(output_floor));
-            let stream_payload = build_payload(&messages, stream_tokens, dialect);
-            let streamed = stream_chunk(
-                t, token_cache, session, browser, account, project,
-                dialect, &step, stream_payload, chat_session, i, cfg.cancelled.as_deref(),
-            ).await?;
-            metered_chunks += 1;
-            ptok = ptok.max(streamed.input_tokens);
-            ctok = add_output_tokens(ctok, streamed.output_tokens)?;
-            last_usage = streamed.usage.clone();
-            if msg_id.is_empty() && !streamed.id.is_empty() {
-                msg_id = streamed.id.clone();
-            }
-            let streamed_stop = streamed.stop_reason.clone();
-            let streamed_seq = streamed.stop_sequence.clone();
-            stop_reason = streamed_stop.clone();
-            stop_sequence = streamed_seq.clone();
-            stop_details = streamed.stop_details.clone();
-            let streamed_blocks = streamed.content.clone();
-            merge_blocks(&mut blocks, streamed_blocks.clone());
-            if let Some(cb) = events {
-                cb(ChainEvent::Chunk(streamed_blocks.clone()));
-            }
-            let finished = streamed_stop != "max_tokens"
-                || !has_continuation_text(&streamed_blocks)
-                || remaining_tokens(cfg, ctok).is_some_and(|left| left < output_floor);
-            if finished {
-                return Ok(assemble(msg_id, blocks, streamed_stop, streamed_seq, stop_details, last_usage, ptok, ctok, i + 1, metered_chunks));
-            }
-            push_continuation(&mut messages, &streamed_blocks, cfg);
-            continue;
-        }
-
-        let has_checkpoint = if checkpointed_thinking && chunk_stop == "max_tokens" {
-            checkpoint::available(&chunk_blocks)?
-        } else {
-            has_continuation_text(&chunk_blocks)
-        };
+        let has_checkpoint = chunk_stop == "max_tokens"
+            && checkpoint::available(&chunk_blocks)?;
         // Count this completed response before deciding whether to continue.
         ctok = add_output_tokens(ctok, out_t)?;
         stop_reason = chunk_stop.clone();
-        stop_sequence = body["stop_sequence"].as_str().map(str::to_string);
-        stop_details = buffered::stop_details(&body)?;
-        bucket_idx += 1; // rotate the bucket every chunk, not just on 429
-        if checkpointed_thinking {
-            history.append(&t.messages_history, &mut blocks, &chunk_blocks)?;
-        } else {
-            merge_blocks(&mut blocks, chunk_blocks.clone());
-        }
+        stop_sequence = completed.stop_sequence;
+        stop_details = completed.stop_details;
+        history.append(&t.messages_history, &mut blocks, &chunk_blocks)?;
         if let Some(cb) = events {
             cb(ChainEvent::Chunk(chunk_blocks.clone()));
         }
 
         let budget_left = remaining_tokens(cfg, ctok);
-        if uninterrupted_thinking || chunk_stop != "max_tokens" || budget_left.is_some_and(|left| left < output_floor)
+        if chunk_stop != "max_tokens" || budget_left.is_some_and(|left| left < output_floor)
             || !has_checkpoint {
             return Ok(assemble(msg_id, blocks, stop_reason, stop_sequence, stop_details, last_usage, ptok, ctok, i + 1, metered_chunks));
         }
-        if checkpointed_thinking {
-            checkpoint::push(&mut messages, &chunk_blocks, checkpoint::CONTINUE);
-            history.continuing(false);
-        } else {
-            push_continuation(&mut messages, &chunk_blocks, cfg);
-        }
+        checkpoint::push(&mut messages, &chunk_blocks, checkpoint::CONTINUE);
+        history.continuing(false);
     }
     Ok(assemble(msg_id, blocks, stop_reason, stop_sequence, stop_details, last_usage, ptok, ctok, cfg.max_chunks, metered_chunks))
-}
-
-fn uses_default_thinking(payload: &Value) -> bool {
-    if payload.get("thinking").is_some_and(|value| !value.is_null()) {
-        return false;
-    }
-    // This route returned reasoning with no thinking setting on 2026-11-02.
-    // A 600-token first chunk exhausted its allowance before any text existed.
-    // Preserve the caller's allowance and the provider's own default settings.
-    let model = payload["model"].as_str().unwrap_or_default();
-    let model = model.strip_prefix("anthropic/").unwrap_or(model);
-    matches!(model, "claude-fable-5.1" | "claude-fable-5-1" | "claude-opus-5")
-}
-
-fn has_continuation_text(blocks: &[Value]) -> bool {
-    // Continuation history copies only text. Keep the real truncation result
-    // when reasoning or other non-text output would leave an empty assistant.
-    blocks.iter().any(|block| block["type"] == "text"
-        && block["text"].as_str().is_some_and(|text| !text.trim().is_empty()))
-}
-
-fn retryable_failure(error: &str, _elapsed: f32) -> bool {
-    // Elapsed time does not establish why a security check refused a request.
-    let transport_died = !error.starts_with("upstream 403")
-        && error != "risk-refused"
-        && error != "credits-exhausted"
-        && error != "unauthorized"
-        && !error.starts_with("retryable 4");
-    !framer_core::error::is_local_request_failure(error) && transport_died
 }
 
 fn remaining_tokens(cfg: &ChainConfig, output_tokens: u64) -> Option<u32> {
     // Subtract before narrowing: the remaining amount cannot exceed its u32 cap.
     cfg.max_total_tokens.map(|cap| u64::from(cap).saturating_sub(output_tokens) as u32)
+}
+
+fn unacknowledged(error: &str) -> String {
+    format!("{}Claude did not return a complete, acknowledged response. Recorded cause: {}. Automatic replay is disabled because completion is unknown.",
+        framer_core::error::ADAPTIVE_INCOMPLETE_PREFIX,
+        framer_core::error::safe_failure_summary(error))
 }
 
 fn add_output_tokens(total: u64, output_tokens: u64) -> Result<u64, String> {
@@ -569,13 +360,6 @@ fn assemble(
     }
 }
 
-/// Merge a chunk's content blocks into the accumulator: consecutive text
-/// blocks join seamlessly; tool_use and other blocks append verbatim.
-
-/// Append this chunk's blocks as the assistant turn + the continue prompt.
-/// Only ever called when the chunk is text-only (any tool_use ends the
-/// chain), so the assistant message is spec-valid.
-
 #[path = "messages_stream.rs"]
 mod stream;
 
@@ -585,10 +369,6 @@ mod buffered;
 #[cfg(test)]
 #[path = "messages_fallback_tests.rs"]
 mod fallback_tests;
-
-// ---------------------------------------------------------------------------
-// Metered streaming fallback (rung 3): consume one SSE stream, BLOCK-AWARE.
-// ---------------------------------------------------------------------------
 
 #[derive(Debug)]
 struct StreamedChunk {
@@ -602,26 +382,17 @@ struct StreamedChunk {
     output_tokens: u64,
 }
 
-#[allow(clippy::too_many_arguments)]
-async fn stream_chunk(
-    t: &Transport,
-    token_cache: &Mutex<Vec<(AccountId, AiToken)>>,
-    session: &Session,
-    browser: &dyn BrowserBridge,
-    account: &AccountId,
-    project: &ProjectId,
-    upstream: Dialect,
-    step: &str,
-    mut payload: Value,
-    chat_session: &str,
-    step_index: u32,
-    cancelled: Option<&(dyn Fn() -> bool + Send + Sync)>,
-) -> Result<StreamedChunk, String> {
-    payload["stream"] = json!(true);
-    let resp = proxy::forward_cancellable(t, token_cache, session, browser, account, project, upstream, step, payload, chat_session, step_index, cancelled).await?;
-    let text = body_text(resp).await?;
-
-    stream::parse(&text)
+fn decode_chunk(text: &str, streaming: bool) -> Result<StreamedChunk, String> {
+    if streaming { return stream::parse(text); }
+    let body: Value = serde_json::from_str(text).map_err(|e| format!("Messages response is not JSON: {e}"))?;
+    let (content, stop_reason, usage) = buffered::decode(&body)?;
+    Ok(StreamedChunk {
+        id: body["id"].as_str().unwrap_or_default().into(), content, stop_reason,
+        stop_sequence: body["stop_sequence"].as_str().map(str::to_string),
+        stop_details: buffered::stop_details(&body)?,
+        input_tokens: usage["input_tokens"].as_u64().unwrap_or(0),
+        output_tokens: usage["output_tokens"].as_u64().unwrap_or(0), usage,
+    })
 }
 
 // Shared preparation only. Transport and retry policies remain separate.

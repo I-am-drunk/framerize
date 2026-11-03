@@ -13,7 +13,7 @@ fn config() -> ChainConfig {
 fn text() -> Value { json!({"type":"text","text":"fixture output"}) }
 
 #[test]
-fn default_thinking_preserves_full_allowance_without_inventing_settings() {
+fn default_thinking_uses_checkpoints_without_inventing_settings() {
     for model in ["claude-fable-5-1", "claude-fable-5.1",
         "anthropic/claude-fable-5-1", "anthropic/claude-fable-5.1"] {
         let request = payload(model);
@@ -22,7 +22,7 @@ fn default_thinking_preserves_full_allowance_without_inventing_settings() {
         assert!(observed.result.is_ok());
         assert_eq!(observed.requests.len(), 1);
         let sent = &observed.requests[0]["request"];
-        assert_eq!(sent["max_tokens"], 2400);
+        assert_eq!(sent["max_tokens"], 600);
         assert!(sent.get("thinking").is_none());
         assert_eq!(sent["output_config"], request["output_config"]);
         assert_eq!(sent["speed"], request["speed"]);
@@ -49,25 +49,27 @@ fn default_thinking_transport_failure_never_replays_or_spends() {
         Vec::new(), payload("claude-fable-5-1"));
     assert!(observed.result.is_err());
     assert_eq!(observed.requests.len(), 1);
-    assert_eq!(observed.requests[0]["request"]["max_tokens"], 2400);
+    assert_eq!(observed.requests[0]["request"]["max_tokens"], 600);
     assert_eq!(observed.refunds, 0);
     assert!(observed.emitted.is_empty());
 }
 
 #[test]
-fn default_thinking_does_not_construct_a_turn_from_truncated_reasoning() {
+fn default_thinking_continues_from_complete_signed_reasoning() {
     let thought = json!({"type":"thinking","thinking":"fixture","signature":"fixture"});
-    let observed = run_with_payload(vec![buffered(thought.clone(), "max_tokens")],
+    let observed = run_with_payload(vec![buffered(thought.clone(), "max_tokens"),
+        buffered(text(), "end_turn")],
         config(), Vec::new(), payload("claude-fable-5-1"));
     let result = observed.result.unwrap();
-    assert_eq!(result.stop_reason, "max_tokens");
-    assert_eq!(result.content, vec![thought]);
-    assert_eq!(observed.requests.len(), 1);
+    assert_eq!(result.stop_reason, "end_turn");
+    assert_eq!(result.content, vec![thought.clone(), text()]);
+    assert_eq!(observed.requests.len(), 2);
+    assert_eq!(observed.requests[1]["request"]["messages"][1]["content"], json!([thought]));
 }
 
 #[test]
 fn default_thinking_obeys_small_and_uncapped_request_allowances() {
-    for (total, expected) in [(Some(128),128), (None,2048)] {
+    for (total, expected) in [(Some(128),128), (None,600)] {
         let mut limits = config();
         limits.chunk_tokens = 2048;
         limits.max_total_tokens = total;
@@ -86,7 +88,7 @@ fn default_thinking_gateway_timeout_reports_mode_cause_and_no_replay() {
         vec![std::time::Duration::from_secs(61)], payload("claude-fable-5-1"));
     let error = observed.result.unwrap_err();
     assert!(error.contains("default reasoning"));
-    assert!(error.contains("2400 output tokens"));
+    assert!(error.contains("600 output tokens"));
     assert!(error.contains("504 on /ai/v3/messages/"));
     assert!(error.contains("upstream execution status unknown"));
     assert!(error.starts_with(framer_core::error::ADAPTIVE_INCOMPLETE_PREFIX));

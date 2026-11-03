@@ -167,9 +167,9 @@ async fn local_and_paid_json_rejections_complete_before_ports() {
 #[tokio::test]
 async fn local_admin_refusals_complete_without_port_work() {
     let disabled = b"account is disabled by the pool configuration; its saved session is retained";
-    let invalid_user = serde_json::to_vec(&json!({"error":{"code":"invalid_request",
+    let invalid_user = serde_json::to_vec(&json!({"type":"error", "error":{"type":"invalid_request_error","code":"invalid_request",
         "message":"expected Framer user is invalid"}})).unwrap();
-    let invalid_capacity = serde_json::to_vec(&json!({"error":{"code":"invalid_request",
+    let invalid_capacity = serde_json::to_vec(&json!({"type":"error", "error":{"type":"invalid_request_error","code":"invalid_request",
         "message":"active_capacity must be between 1 and 64"}})).unwrap();
     let cases = [
         ("/api/accounts/begin", json!({"account_id":account(2).id,"email":"inert@example.invalid"}),

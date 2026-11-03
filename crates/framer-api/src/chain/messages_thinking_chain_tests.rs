@@ -1,10 +1,8 @@
 use super::*;
 
 #[test]
-fn buffered_thinking_only_limit_finishes_without_empty_continuation() {
-    for content in [vec![thought()], vec![json!({"type":"redacted_thinking","data":"opaque"})],
-        vec![thought(), json!({"type":"text","text":""})],
-        vec![], vec![json!({"type":"text","text":" \n\t"})]] {
+fn empty_checkpoint_finishes_without_empty_continuation() {
+    for content in [vec![], vec![json!({"type":"text","text":" \n\t"})]] {
         let observed = adaptive(vec![buffered_blocks(content.clone(), "max_tokens")], 2);
         assert_terminal(observed, content, 1, 0);
     }
@@ -22,11 +20,14 @@ fn adaptive_transport_failure_does_not_retry_or_spend() {
 }
 
 #[test]
-fn adaptive_truncated_tool_never_retries_or_publishes() {
-    let observed = adaptive(vec![buffered(tool(), "max_tokens")], 4);
-    assert!(observed.result.unwrap_err().contains("requested output limit"));
-    assert_eq!(observed.requests.len(), 1);
-    assert!(observed.emitted.is_empty());
+fn acknowledged_truncated_tool_publishes_only_the_complete_attempt() {
+    let observed = adaptive(vec![buffered(tool(), "max_tokens"),
+        buffered(tool(), "tool_use")], 4);
+    assert_eq!(observed.result.unwrap().stop_reason, "tool_use");
+    assert_eq!(observed.requests.len(), 2);
+    assert_eq!(observed.emitted, vec![tool()]);
+    assert_eq!(observed.requests[0]["request"]["messages"],
+        observed.requests[1]["request"]["messages"]);
 }
 
 fn thought() -> Value {
@@ -34,15 +35,17 @@ fn thought() -> Value {
 }
 
 #[test]
-fn adaptive_truncation_preserves_blocks_without_a_synthetic_turn() {
+fn adaptive_continuation_preserves_signed_blocks_and_returns_the_finished_answer() {
     let text = json!({"type":"text","text":"first"});
     let content = vec![thought(), text.clone()];
-    let observed = adaptive(vec![buffered_blocks(content.clone(), "max_tokens")], 2);
+    let observed = adaptive(vec![buffered_blocks(content.clone(), "max_tokens"),
+        buffered(json!({"type":"text","text":"last"}), "end_turn")], 2);
     let response = observed.result.as_ref().unwrap();
-    assert_eq!(response.stop_reason, "max_tokens");
-    assert_eq!(response.output_tokens, 80);
-    assert_eq!(observed.requests.len(), 1);
-    assert_eq!(observed.emitted, content);
+    assert_eq!(response.stop_reason, "end_turn");
+    assert_eq!(response.output_tokens, 160);
+    assert_eq!(observed.requests.len(), 2);
+    assert_eq!(observed.requests[1]["request"]["messages"][1]["content"], json!(content));
+    assert_eq!(response.content[1]["text"], "firstlast");
     assert_eq!(response.content[0], thought());
 }
 
@@ -63,10 +66,10 @@ fn adaptive_delayed(replies: Vec<Reply>, max_chunks: u32,
 fn slow_adaptive_terminal_preserves_the_upstream_result() {
     let text = json!({"type":"text","text":"first"});
     let observed = adaptive_delayed(vec![buffered_blocks(
-        vec![text.clone(), thought()], "max_tokens")], 3,
+        vec![text.clone(), thought()], "end_turn")], 3,
         vec![std::time::Duration::from_secs(12)]);
     let response = observed.result.as_ref().unwrap();
-    assert_eq!(response.stop_reason, "max_tokens");
+    assert_eq!(response.stop_reason, "end_turn");
     assert_eq!(response.output_tokens, 80);
     assert_eq!(response.content, vec![text, thought()]);
     assert_eq!(observed.emitted, response.content);

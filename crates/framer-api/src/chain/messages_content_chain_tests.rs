@@ -54,24 +54,24 @@ fn buffered_citations_match_client_stream_and_continuation_history() {
 #[test]
 fn metered_citations_reach_assembly_and_client_stream() {
     let expected = cited("answer", 1);
-    let observed = run(vec![failed_request(), failed_request(),
+    let observed = run_opted_stream(vec![
         streamed(cited_stream(expected["citations"][0].clone()))], 1);
     let response = observed.result.as_ref().unwrap();
     assert_eq!(response.content, vec![expected.clone()]);
     assert_eq!(observed.emitted, vec![expected.clone()]);
     assert_eq!(client_reply(&observed).content, vec![expected]);
     assert_eq!((response.chunks, response.metered_chunks), (1, 1));
-    assert_eq!(observed.requests.len(), 3);
+    assert_eq!(observed.requests.len(), 1);
     assert_eq!(observed.refunds, 0);
 }
 
 #[test]
 fn malformed_metered_citations_never_publish_content() {
-    let observed = run(vec![failed_request(), failed_request(),
+    let observed = run_opted_stream(vec![
         streamed(cited_stream(Value::Null))], 1);
     assert!(observed.result.as_ref().unwrap_err().contains("citation"));
     assert!(observed.emitted.is_empty());
     assert!(!observed.frames.iter().any(|frame| frame.contains("content_block_start")));
-    assert_eq!(observed.requests.len(), 3);
+    assert_eq!(observed.requests.len(), 1);
     assert_eq!(observed.refunds, 0);
 }

@@ -1321,12 +1321,16 @@ async fn dropping_never_polled_bodies_releases_leases_even_before_producer_first
     for route in ROUTES {
         let (state, ports) = fixture(1, 1);
         let response = streaming_response(&state, route).await;
-        assert!(slot(&state, id(1)).users > 0);
+        if !matches!(route, Route::Free) { assert!(slot(&state, id(1)).users > 0); }
         drop(response);
-        until(|| slot(&state, id(1)).users == 0).await;
+        tokio::task::yield_now().await;
+        until(|| state.serving_accounts.residents.snapshot().unwrap().residents.iter()
+            .all(|resident| resident.users == 0)).await;
         assert_eq!(ports.request_finished.load(Ordering::SeqCst), 0, "{route:?}");
         assert_eq!(ports.request_drops.load(Ordering::SeqCst), ports.request_started.load(Ordering::SeqCst));
-        parked(&state, 1).await.unwrap();
+        if state.serving_accounts.residents.snapshot().unwrap().occupied > 0 {
+            parked(&state, 1).await.unwrap();
+        } else { assert_eq!(ports.request_started.load(Ordering::SeqCst), 0); }
     }
 }
 
@@ -1379,7 +1383,8 @@ async fn unknown_account_rejection_does_not_evict_any_of_six_resident_browsers()
             assert_eq!(response.status(), axum::http::StatusCode::BAD_REQUEST);
             let body = to_bytes(response.into_body(), 4096).await.unwrap();
             assert_eq!(serde_json::from_slice::<Value>(&body).unwrap(),
-                json!({"error":{"code":"invalid_request","message":"account not found"}}));
+                json!({"type":"error", "error":{"type":"invalid_request_error",
+                    "code":"invalid_request","message":"account not found"}}));
         } else {
             assert!(matches!(lease_account(&state, id(999)).await,
                 Err(ApiError::InvalidRequest(_))));
@@ -1634,7 +1639,14 @@ async fn handlers_recheck_account_and_wave_after_waiting_for_the_model_gate() {
                 let key = format!("team-1:{model}");
                 let permit = state.gate.acquire(&key).await;
                 let mut request = Box::pin(handler_response(&state, route, stream));
-                assert!(futures::poll!(request.as_mut()).is_pending());
+                let early = if stream && matches!(route, Route::Free) {
+                    let response = request.as_mut().await;
+                    until(|| state.serving_accounts.residents.snapshot().unwrap().occupied == 1).await;
+                    Some(response)
+                } else {
+                    assert!(futures::poll!(request.as_mut()).is_pending());
+                    None
+                };
                 assert!(slot(&state, id(1)).users > 0);
                 assert_eq!(ports.request_started.load(Ordering::SeqCst), 0);
                 assert!(ports.events.lock().unwrap().iter().all(|event| event.0 == "status"));
@@ -1646,9 +1658,11 @@ async fn handlers_recheck_account_and_wave_after_waiting_for_the_model_gate() {
                     ports.records.lock().unwrap()[0].cooling_until_ms = Some(framer_core::rotation::now_ms() + 60_000);
                 }
                 drop(permit);
-                if stream && matches!(route, Route::Native) {
-                    assert_waiting_response(request.await).await;
-                } else { assert_cooling_response(request.await, wave).await; }
+                let response = match early { Some(response) => response, None => request.await };
+                if stream && !matches!(route, Route::Compat) {
+                    assert_waiting_response(response).await;
+                    until(|| slot(&state, id(1)).users == 0).await;
+                } else { assert_cooling_response(response, wave).await; }
                 assert_eq!(ports.request_started.load(Ordering::SeqCst), 0);
                 assert!(ports.events.lock().unwrap().iter().all(|event| event.0 == "status"));
                 assert_eq!(slot(&state, id(1)).users, 0);

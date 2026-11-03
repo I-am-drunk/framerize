@@ -40,6 +40,7 @@ mod pool_memory;
 mod model_discovery;
 mod responses_aggregate;
 mod response_output;
+mod messages_output;
 pub use serving_accounts::{ServingAccountPolicy, SERVING_ACCOUNTS_ENV};
 pub use pool_config::{PoolConfig, EligibleAccounts, AllAccounts, POOL_SETTING_KEY};
 pub use pool_control::prewarm_accounts;
@@ -1214,7 +1215,23 @@ async fn free_complete(
 
     // Client request → faithful Anthropic Messages payload (model normalized).
     let anthro = convert::to_anthropic_request(dialect, &payload)
-        .map_err(ApiError::Internal).map_err(operation_ownership::completed_preflight)?;
+        .map_err(ApiError::InvalidRequest).map_err(operation_ownership::completed_preflight)?;
+    let output_floor = convert::anthropic_output_floor(&anthro)
+        .map_err(ApiError::InvalidRequest).map_err(operation_ownership::completed_preflight)?;
+    if max_tokens < output_floor {
+        return Err(operation_ownership::completed_preflight(ApiError::InvalidRequest(
+            "max_tokens must exceed thinking.budget_tokens".into(),
+        )));
+    }
+    if headers.get("x-framerize-account").is_some_and(|value| value.to_str().is_err()) {
+        return Err(operation_ownership::completed_preflight(ApiError::InvalidRequest(
+            "x-framerize-account must contain valid text".into(),
+        )));
+    }
+    if wants_stream {
+        return messages_output::serve(s, anthro, client_model, max_tokens,
+            hdr(headers, "x-framerize-account"), hdr(headers, "x-framerize-session")).await;
+    }
 
     if let Some(remaining) = s.wave.check() {
         return Err(operation_ownership::completed_preflight(ApiError::Cooling {
@@ -1303,8 +1320,10 @@ async fn free_complete(
     let mut chat_session = hdr(headers, "x-framerize-session")
         .unwrap_or_else(|| stable_session(&account.id));
     let mut gate_key = format!("{}:{gate_model}", scope_team.0);
-    let mk_cfg = |team: &framer_core::ids::TeamId| framer_core::port::ChainConfig {
+    let mk_cfg = |team: &framer_core::ids::TeamId, account: &ManagedAccount| framer_core::port::ChainConfig {
         max_total_tokens: Some(max_tokens),
+        admission: Some(Arc::new(account_wait::MessagesAdmission::new(
+            s.clone(), account.clone(), account_wait::MAX_WAIT))),
         // Metered rungs are credit spend: off unless the operator opts in.
         metered_fallback: false,
         on_429: {
@@ -1318,241 +1337,8 @@ async fn free_complete(
         },
         ..Default::default()
     };
-    let mut cfg = mk_cfg(&scope_team);
+    let mut cfg = mk_cfg(&scope_team, &account);
     let mut account = account;
-    if wants_stream {
-        let body_residency = residency.clone();
-        // INCREMENTAL streaming: spawn the chain with an events callback and
-        // emit SSE frames as chunks land — message_start/role/created
-        // immediately, per-chunk deltas as they arrive, heartbeat pings every
-        // 8s of silence. The old behavior buffered the entire chain before
-        // the first byte; streaming clients (Claude Code) timed out the
-        // silent socket: "Claude gave up after repeated API errors".
-        let msg_id = format!("msg_{:08x}{:08x}", rand_u32(), rand_u32());
-        let (tx, rx) = tokio::sync::mpsc::channel::<convert::ChainEvent>(1024);
-        let cancelled = tx.clone();
-        cfg.cancelled = Some(Arc::new(move || cancelled.is_closed()));
-        let disconnected = tx.clone();
-        let s2 = s.clone();
-        let account2 = account.clone();
-        let project2 = project.clone();
-        let mut chat_session2 = chat_session.clone();
-        let explicit_chat_session = hdr(headers, "x-framerize-session");
-        let log_model = anthro_model_for_log(dialect, &payload);
-        // The task owns the first permit and reacquires for each replacement
-        // account using that attempt's actual workspace and model.
-        let (handle, completion) = operation_ownership::spawn_observed(s.operation_ownership.as_ref(),
-            framer_core::operation_gate::OperationKind::Inference, async move {
-            let t0 = std::time::Instant::now();
-            // Tracks whether any CONTENT ever reached the stream: a chain that
-            // dies before its first chunk can be silently restarted on a fresh
-            // account (the client's message_start and pings are emitted by US,
-            // so a swap mid-silence is invisible); once content has flowed, a
-            // restart would duplicate blocks and the error must surface.
-            let emitted_content = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
-            let ec2 = emitted_content.clone();
-            let cb = move |ev: convert::ChainEvent| {
-                if matches!(ev, convert::ChainEvent::Chunk(_) | convert::ChainEvent::ResponsesItems { .. }) {
-                    ec2.store(true, std::sync::atomic::Ordering::Relaxed);
-                }
-                if let Err(tokio::sync::mpsc::error::TrySendError::Full(_)) = tx.try_send(ev) {
-                    // Channel full under client backpressure: log it. A dropped
-                    // frame here is a hole in the user's stream — invisible
-                    // before (2026-10-06 "stream stopped" audit).
-                    eprintln!("[stream] event channel full — dropping a frame (client backpressure)");
-                }
-            };
-            let mut account = account2;
-            let mut session = session;
-            let mut project = project2;
-            let mut cfg2 = cfg;
-            let mut tried: Vec<String> = Vec::new();
-            let mut acct_attempt = 0u32;
-            let mut cleanup_confirmed = true;
-            let mut cooldown_wait = account_wait::MAX_WAIT;
-            let result = loop {
-                if let Err(error) = cfg2.check_cancelled() { break Err(error); }
-                let permit = match first_permit.take() {
-                    Some(permit) => permit,
-                    None => tokio::select! {
-                        _ = disconnected.closed() => break Err("client cancelled".into()),
-                        permit = s2.gate.acquire(&gate_key) => permit,
-                    },
-                };
-                if let Err(error) = cfg2.check_cancelled() { break Err(error); }
-                let admission = current_account(&s2, account.id).await;
-                let admitted = admission.is_ok();
-                let r = match admission {
-                    Err(error) => Err(chain_admission_error(error)),
-                    Ok(_) => s2
-                    .client
-                    .freechat_long(
-                        &session,
-                        s2.browser.as_ref(),
-                        &account.id,
-                        &project,
-                        anthro.clone(),
-                        &cfg2,
-                        &chat_session2,
-                        Some(&cb),
-                    )
-                    .await,
-                };
-                drop(permit);
-                cleanup_confirmed &= !matches!(&r, Err(error) if pool_control::cleanup_unconfirmed(error));
-                let r = residency.observe_result(account.id, r);
-                if admitted && !matches!(&r, Err(error) if error == "client cancelled") {
-                    record_account_health(&s2, &account, &r).await;
-                }
-                if cfg2.is_cancelled() { break r; }
-                let refusal = matches!(&r, Err(e) if should_retry_account(e));
-                if allow_account_repick && refusal && !emitted_content.load(std::sync::atomic::Ordering::Relaxed) && acct_attempt < 2 {
-                    let local = matches!(&r, Err(error) if AccountCooldown::from_error(error).is_some()
-                        || is_server_cooling(error));
-                    if !local { tried.push(account.id.0.to_string()); }
-                    drop(residency.take());
-                    let acquired = tokio::select! {
-                        _ = disconnected.closed() => break Err("client cancelled".into()),
-                        value = account_wait::pick(&s2, &tried,
-                            account_wait::WaitFor::after_attempt(local, cleanup_confirmed),
-                            &mut cooldown_wait) => value,
-                    };
-                    cleanup_confirmed &= acquired.cleanup_confirmed;
-                    match acquired.result {
-                        Ok((next, lease)) => {
-                            residency.replace(lease);
-                            {
-                                use framer_core::observability::Event;
-                                Event::new("ai.chain.repick")
-                                    .account(&account.id)
-                                    .field("to", &next.id.0.to_string()[..8])
-                                    .field("reason", r.as_ref().err().map(|e| error_excerpt(e, 120)).unwrap_or(""))
-                                    .emit();
-                            }
-                            account = next;
-                            session = match s2.sessions.load(&account.framer_user_id).await {
-                                Ok(Some(x)) => x,
-                                _ => break r,
-                            };
-                            let sc = match pick_scope(&s2, &account) { Ok(sc) => sc, Err(_) => break r };
-                            project = sc.project.clone();
-                            gate_key = format!("{}:{gate_model}", sc.team.0);
-                            chat_session2 = explicit_chat_session.clone()
-                                .unwrap_or_else(|| stable_session(&account.id));
-                            let team = Some(sc.team.0.clone());
-                            let rotation = s2.serving_accounts.rotation().clone();
-                            cfg2.on_429 = Some(std::sync::Arc::new(move || {
-                                if let Some(t) = &team {
-                                    rotation.mark_saturated(t, 45_000);
-                                }
-                            }));
-                            acct_attempt += 1;
-                            continue;
-                        }
-                        Err(_) => break r,
-                    }
-                }
-                break r;
-            };
-            {
-                use framer_core::observability::Event;
-                let mut ev = operation_ownership::correlate_chain(Event::new("ai.chain"))
-                    .account(&account.id)
-                    .field("model", log_model)
-                    .field("dialect", format!("{dialect:?}"))
-                    .duration_ms(t0.elapsed().as_millis());
-                ev = match &result {
-                    Ok(r) => ev
-                        .field("chunks", r.chunks)
-                        .field("metered_chunks", r.metered_chunks)
-                        .field("prompt_tokens", r.input_tokens)
-                        .field("completion_tokens", r.output_tokens)
-                        .field("finish_reason", r.stop_reason.clone())
-                        .outcome("ok"),
-                    Err(e) => ev.error(e),
-                };
-                ev.emit();
-            }
-            (result, cleanup_confirmed)
-        }).map_err(ApiError::operation_admission)?;
-
-        let open_frames = convert::stream_open(dialect, &client_model, &msg_id);
-        let composer = convert::SseComposer::new_with_custom(dialect, &msg_id, &client_model, custom_tools.clone());
-        struct St {
-            done: bool,
-        }
-        let stream = futures::stream::unfold(
-            (rx, open_frames, composer, St { done: false }, handle, client_model, include_usage, dialect),
-            |(mut rx, mut pending, mut composer, mut st, mut handle, client_model, include_usage, dialect)| async move {
-                if st.done {
-                    return None;
-                }
-                if !pending.is_empty() {
-                    let out = pending.join("\n\n") + "\n\n";
-                    pending.clear();
-                    return Some((Ok::<_, std::convert::Infallible>(axum::body::Bytes::from(out)), (rx, pending, composer, st, handle, client_model, include_usage, dialect)));
-                }
-                let frames: Vec<String> = tokio::select! {
-                    biased;
-                    r = &mut handle => {
-                        st.done = true;
-                        // DRAIN pending chunk events BEFORE finishing: a biased
-                        // select resolves the handle first when the last chunk
-                        // and the completion race — without this the final
-                        // chunk's frames (the tool_use block!) are dropped and
-                        // the client sees stop_reason=tool_use with no tool call.
-                        let mut drained: Vec<String> = Vec::new();
-                        while let Ok(ev) = rx.try_recv() {
-                            if let convert::ChainEvent::Chunk(blocks) = ev {
-                                drained.extend(composer.push_chunk(&blocks));
-                            }
-                        }
-                        let tail = match r {
-                            Ok(Ok(assembled)) => composer.finish(&assembled, &client_model, include_usage),
-                            Ok(Err(e)) => convert::error_frames(dialect, &e),
-                            Err(je) => vec![convert::ping_frame(dialect), format!(": join error {je}")],
-                        };
-                        drained.into_iter().chain(tail).collect()
-                    }
-                    ev = rx.recv() => match ev {
-                        Some(convert::ChainEvent::Chunk(blocks)) => composer.push_chunk(&blocks),
-                        // ResponsesItems belong to the native path's own stream
-                        // (native_complete); they never arrive on this channel.
-                        Some(convert::ChainEvent::ResponsesItems { .. }) => vec![convert::ping_frame(dialect)],
-                        // Channel closed (chain finishing) or Done: emit a ping
-                        // instead of an EMPTY frame — a zero-length chunk is
-                        // end-of-stream to strict SSE clients.
-                        Some(convert::ChainEvent::Done(_)) | None => vec![convert::ping_frame(dialect)],
-                    },
-                    _ = tokio::time::sleep(std::time::Duration::from_secs(8)) => {
-                        vec![convert::ping_frame(dialect)]
-                    }
-                };
-                if frames.is_empty() && !st.done {
-                    return Some((Ok(axum::body::Bytes::new()), (rx, pending, composer, st, handle, client_model, include_usage, dialect)));
-                }
-                let out = if frames.is_empty() { String::new() } else { frames.join("\n\n") + "\n\n" };
-                Some((Ok(axum::body::Bytes::from(out)), (rx, pending, composer, st, handle, client_model, include_usage, dialect)))
-            },
-        );
-        let stream = retain_owner(stream, body_residency);
-        let mut resp = axum::response::Response::new(axum::body::Body::from_stream(stream));
-        resp.extensions_mut().insert(completion);
-        resp.headers_mut().insert(
-            axum::http::header::CONTENT_TYPE,
-            axum::http::HeaderValue::from_static("text/event-stream"),
-        );
-        resp.headers_mut().insert(
-            "x-framerize-session",
-            chat_session.parse().unwrap_or(axum::http::HeaderValue::from_static("")),
-        );
-        resp.headers_mut().insert(
-            axum::http::header::CACHE_CONTROL,
-            axum::http::HeaderValue::from_static("no-cache"),
-        );
-        return Ok(resp);
-    }
-
     let t0 = std::time::Instant::now();
     // A 429 is pure back-pressure: the request is valid and no work was done,
     // so retry it behind the now-narrower gate instead of failing the caller.
@@ -1561,6 +1347,12 @@ async fn free_complete(
     // 37/100 with a gate that correctly walked 48->24->12->6).
     let cancelled = operation_ownership::request_cancelled();
     cfg.cancelled = cancelled.clone();
+    let completed_content = std::sync::atomic::AtomicBool::new(false);
+    let observe_content = |event| {
+        if matches!(event, convert::ChainEvent::Chunk(ref blocks) if !blocks.is_empty()) {
+            completed_content.store(true, std::sync::atomic::Ordering::SeqCst);
+        }
+    };
     let mut result;
     let mut cleanup_confirmed = true;
     let mut tried_accounts: Vec<String> = Vec::new();
@@ -1605,15 +1397,15 @@ async fn free_complete(
                 anthro.clone(),
                 &cfg,
                 &chat_session,
-                None,
+                Some(&observe_content),
             )
             .await;
         drop(permit);
         // Later success cannot confirm cleanup lost by an earlier attempt.
         cleanup_confirmed &= !matches!(&result, Err(error) if pool_control::cleanup_unconfirmed(error));
         result = residency.observe_result(account.id, result);
-        // Retain the completed call's health outcome even after disconnect.
-        record_account_health(&s, &account, &result).await;
+        // The guard retains the last admitted snapshot and records each refusal once.
+        cfg.admission.as_ref().unwrap().finished(result.as_ref().err().map(String::as_str)).await;
         // The chain owns the bounded rate retry budget. Do not start it again
         // after exhaustion or replay chunks already delivered by that chain.
     }
@@ -1647,7 +1439,7 @@ async fn free_complete(
                 project = scope.project.clone();
                 scope_team = scope.team.clone();
                 gate_key = format!("{}:{gate_model}", scope_team.0);
-                cfg = mk_cfg(&scope_team);
+                cfg = mk_cfg(&scope_team, &account);
                 cfg.cancelled = cancelled.clone();
                 chat_session = hdr(headers, "x-framerize-session")
                     .unwrap_or_else(|| stable_session(&account.id));
@@ -1696,7 +1488,10 @@ async fn free_complete(
     let result = match result {
         Ok(r) => r,
         Err(e) => {
-            let (status, body) = convert::error_json(dialect, &e);
+            let (status, mut body) = convert::error_json(dialect, &e);
+            if completed_content.load(std::sync::atomic::Ordering::SeqCst) {
+                body["error"]["retryable"] = serde_json::json!(false);
+            }
             let response = axum::response::IntoResponse::into_response(ShapedApiError(
                 StatusCode::from_u16(status).unwrap_or(StatusCode::INTERNAL_SERVER_ERROR),
                 body,
@@ -3410,8 +3205,9 @@ impl axum::response::IntoResponse for ApiError {
                 serde_json::json!({"error":{"type":"insufficient_quota", "code":"insufficient_quota",
                     "message":error.diagnostic(), "retryable":false}}),
             ).into_response(),
-            Self::InvalidRequest(message) => (StatusCode::BAD_REQUEST,
-                Json(serde_json::json!({"error":{"code":"invalid_request","message":message}}))).into_response(),
+            Self::InvalidRequest(message) => ShapedApiError(StatusCode::BAD_REQUEST,
+                serde_json::json!({"type":"error", "error":{"type":"invalid_request_error",
+                    "code":"invalid_request","message":message}})).into_response(),
             Self::PoolBusy(message) => (StatusCode::SERVICE_UNAVAILABLE,
                 [(axum::http::header::RETRY_AFTER, "1")],
                 Json(serde_json::json!({"error":{"code":"framerize_pool_busy",
@@ -3448,7 +3244,8 @@ impl axum::response::IntoResponse for ApiError {
 
 impl axum::response::IntoResponse for ShapedApiError {
     fn into_response(self) -> axum::response::Response {
-        let unreplayable = self.0 == StatusCode::PAYMENT_REQUIRED
+        let unreplayable = self.0 == StatusCode::BAD_REQUEST || self.0 == StatusCode::PAYMENT_REQUIRED
+            || self.1.pointer("/error/retryable").and_then(Value::as_bool) == Some(false)
             || self.1.pointer("/error/code").and_then(|value| value.as_str())
             == Some(framer_core::error::ADAPTIVE_INCOMPLETE_CODE);
         let mut response = (

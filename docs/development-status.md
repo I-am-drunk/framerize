@@ -1,29 +1,41 @@
-# Opus 4.8 timeout repair, 2026-11-03
+# Shared Claude request handling, 2026-11-03
 
-Branch `fix/claude-opus48-checkpoints-20261103` extends signed checkpoints
-to the canonical and client-form Opus 4.8 IDs. The reported 18:51 UTC failure
-used this model and bypassed alpha.25's Opus 5 selector. All 152 Messages
-tests pass; the original source fails the new continuation regression.
-Production remains alpha.25. Candidate alpha.26 requires live long-response,
-signed-follow-up and tool verification before activation.
+Branch `fix/claude-opus48-checkpoints-20261103`, PR #125, now uses the same
+checkpoint, validation, history and usage implementation for every Messages
+model and thinking mode. It preserves native request fields and signed blocks.
+Permanent errors retain their status and Anthropic error type. Known temporary
+Framer refusals wait on the same account and retry only the unfinished chunk.
+Stream pings continue during admission and cooldown, with a cumulative
+960-second wait budget. Unknown completion or already-delivered content
+prohibits replay of the whole request.
 The wider [Claude reliability audit](incidents/2026-11-03-claude-reliability.md)
-records findings and their verification limits.
+records findings and their verification limits. Current-source package
+qualification is pending. The last verified production release was alpha.25.
 
-The pending long-run corrections rotate event logs without restart and share
-checkpoint layout prefixes instead of storing every complete layout again.
-All nine logging tests and 163 Messages tests pass. The history format reads
-older rows without modification, but older binaries cannot read new linked
-rows. Activation must retain a compatible rollback binary and all history.
+The candidate rotates event logs without restart and shares checkpoint layout
+prefixes. Its default history writer uses version 2. The companion build with
+`legacy-checkpoint-writes` reads versions 1 and 2 while writing version 1.
+Package metadata comes from the executable. Activation rejects incompatible
+rollback readers before stopping the service, and preserves every history row.
 The approved compiler-cache cleanup reclaimed 2.96 GB without removing logs,
-account data or binaries. Next: qualify the pending candidate in the isolated
-account before production activation.
+account data or binaries. That cleanup is complete.
 
-Alpha.27 also adds the exact Opus 5.5 IDs to the checkpoint candidate. Tests
-verify that system, tools and earlier messages remain unchanged. Truncated
-tool recovery retains only the prefix before the first unpublished tool,
-so it cannot reuse later thinking after removing its preceding tool block.
-Opus 5.5 live qualification remains pending. The Framer route does not forward
-Anthropic beta headers, so strict beta enforcement cannot be claimed here.
+The previous alpha.26 live checks and alpha.27 build predate this rewrite.
+They remain historical evidence, not qualification of the current source.
+The Framer route does not forward Anthropic beta headers; strict provider-side
+beta enforcement remains unverified.
+
+Validation passes: 106 protocol tests, 495 API tests, 502 server tests,
+15 native refusal tests, 13 history tests with the legacy writer and 39 package,
+activation, release and build-identity tests. After sharing the continuation
+constructor, all 165 Messages tests pass. The normal application compiles
+without test-support features. The nine unchanged logging checks retain their
+previous evidence. Exact-package and live qualification are still pending.
+Next: publish the correction to PR #125 and qualify the candidate and bridge
+packages before reviewed activation.
+
+The entries below retain their original measurements and deployment status
+at the time they were recorded. They are not current-source qualifications.
 
 # Alpha.25 live, 2026-11-03
 

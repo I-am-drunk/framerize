@@ -1,13 +1,5 @@
-use serde_json::{json, Value};
-
-pub(super) fn supported(payload: &Value) -> bool {
-    let model = payload["model"].as_str().unwrap_or_default();
-    // Checkpoint generation is qualified independently for each model.
-    // Other models retain their existing behavior until separately verified.
-    matches!(model.strip_prefix("anthropic/").unwrap_or(model),
-        "claude-opus-5" | "claude-opus-4.8" | "claude-opus-4-8"
-        | "claude-opus-5.5" | "claude-opus-5-5")
-}
+use serde_json::Value;
+pub(super) use crate::protocol::messages::push_continuation as push;
 
 pub(super) fn available(blocks: &[Value]) -> Result<bool, String> {
     let mut content = false;
@@ -23,12 +15,6 @@ pub(super) fn available(blocks: &[Value]) -> Result<bool, String> {
         }
     }
     Ok(content)
-}
-
-pub(super) fn push(messages: &mut Value, blocks: &[Value], prompt: &str) {
-    let turns = messages.as_array_mut().expect("messages array");
-    turns.push(json!({"role":"assistant", "content":blocks}));
-    turns.push(json!({"role":"user", "content":prompt}));
 }
 
 // History layout version 1 binds these exact prompts. New wording requires a

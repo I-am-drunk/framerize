@@ -50,19 +50,19 @@ fn invalid_budget_or_insufficient_initial_total_never_dispatches() {
 }
 
 #[test]
-fn transport_retry_and_opted_in_fallback_keep_the_budget_floor() {
-    let observed = configured(vec![failed_request(), failed_request(),
-        streamed(stream(text(), "end_turn"))], json!(1024), Some(4096), true);
+fn opted_in_stream_keeps_the_total_allowance_and_thinking_budget() {
+    let observed = configured(vec![streamed(stream(text(), "end_turn"))],
+        json!(1024), Some(4096), true);
     assert!(observed.result.is_ok());
-    assert_requests(&observed, 1024, &[1025, 1025, 1025]);
+    assert_requests(&observed, 1024, &[4096]);
     assert_eq!(observed.refunds, 0);
 }
 
 #[test]
 fn exhausted_remaining_thinking_allowance_preserves_terminal_output() {
     for fallback in [false, true] {
-        let replies = if fallback { vec![failed_request(), failed_request(),
-            streamed(stream(text(), "max_tokens"))] } else { vec![buffered(text(), "max_tokens")] };
+        let replies = if fallback { vec![streamed(stream(text(), "max_tokens"))] }
+            else { vec![buffered(text(), "max_tokens")] };
         let observed = configured(replies, json!(1024), Some(1100), fallback);
         let response = observed.result.as_ref().unwrap();
         assert_eq!(response.stop_reason, "max_tokens");
@@ -71,47 +71,43 @@ fn exhausted_remaining_thinking_allowance_preserves_terminal_output() {
         assert_eq!(observed.emitted, vec![text()]);
         let client = super::super::stream::parse(&(observed.frames.join("\n\n") + "\n\n")).unwrap();
         assert_eq!(client.stop_reason, "max_tokens");
-        assert_requests(&observed, 1024, &vec![1025; if fallback { 3 } else { 1 }]);
+        assert_requests(&observed, 1024, &[if fallback { 1100 } else { 1025 }]);
     }
 }
 
 #[test]
-fn tool_retries_and_uncapped_stream_respect_large_thinking_budget() {
-    let observed = configured(vec![buffered(tool(), "max_tokens"),
-        buffered(tool(), "max_tokens"), buffered(tool(), "max_tokens"),
-        streamed(stream(text(), "end_turn"))], json!(9000), None, true);
+fn uncapped_opted_stream_respects_large_thinking_budget() {
+    let observed = configured(vec![streamed(stream(text(), "end_turn"))], json!(9000), None, true);
     assert!(observed.result.is_ok());
-    assert_requests(&observed, 9000, &[9001, 9001, 9001, 9001]);
+    assert_requests(&observed, 9000, &[9001]);
 }
 
 #[test]
 fn thinking_floor_does_not_enable_metered_fallback() {
-    let observed = configured(vec![failed_request(), failed_request()], json!(1024), Some(4096), false);
-    assert!(observed.result.as_ref().unwrap_err().contains("fallback off"));
-    assert_requests(&observed, 1024, &[1025, 1025]);
+    let observed = configured(vec![failed_request()], json!(1024), Some(4096), false);
+    assert!(observed.result.as_ref().unwrap_err().contains("fixture transport closed"));
+    assert_requests(&observed, 1024, &[1025]);
 }
 
 #[test]
-fn tool_fallback_stops_when_remaining_allowance_is_below_floor() {
-    let observed = configured(vec![buffered(tool(), "max_tokens"),
-        buffered(tool(), "max_tokens"), buffered(tool(), "max_tokens"),
-        streamed(stream(text(), "max_tokens"))], json!(1024), Some(1100), true);
+fn opted_tool_stream_preserves_the_explicit_thinking_budget() {
+    let observed = configured(vec![streamed(stream(tool(), "tool_use"))], json!(1024), Some(1100), true);
     let response = observed.result.as_ref().unwrap();
-    assert_eq!(response.stop_reason, "max_tokens");
+    assert_eq!(response.stop_reason, "tool_use");
     assert_eq!(response.output_tokens, 80);
-    assert_eq!(response.content, vec![text()]);
-    assert_requests(&observed, 1024, &[1025, 1100, 1100, 1100]);
+    assert_eq!(response.content, vec![tool()]);
+    assert_requests(&observed, 1024, &[1100]);
 }
 
 #[test]
-fn adaptive_thinking_keeps_the_requested_output_limit() {
+fn adaptive_thinking_starts_with_a_bounded_checkpoint() {
     let mut request = payload(Value::Null);
     request["thinking"] = json!({"type":"adaptive"});
     let observed = run_with_payload(vec![buffered(text(), "end_turn")],
         ChainConfig { chunk_tokens:600, max_chunks:1,
             max_total_tokens:Some(4096), ..ChainConfig::default() }, Vec::new(), request);
     assert!(observed.result.is_ok());
-    assert_eq!(observed.requests[0]["request"]["max_tokens"], 4096);
+    assert_eq!(observed.requests[0]["request"]["max_tokens"], 600);
     assert_eq!(observed.requests[0]["request"]["thinking"], json!({"type":"adaptive"}));
     assert_eq!(observed.requests[0]["request"]["output_config"]["effort"], "high");
 }
@@ -129,7 +125,7 @@ fn adaptive_small_and_large_limits_preserve_effort_and_fast_mode() {
             assert!(observed.result.is_ok());
             assert_eq!(observed.requests.len(), 1);
             let sent = &observed.requests[0]["request"];
-            assert_eq!(sent["max_tokens"], total);
+            assert_eq!(sent["max_tokens"], total.min(600));
             assert_eq!(sent["thinking"]["type"], "adaptive");
             assert_eq!(sent["output_config"]["effort"], effort);
             assert_eq!(sent["speed"], "fast");
@@ -139,14 +135,14 @@ fn adaptive_small_and_large_limits_preserve_effort_and_fast_mode() {
 }
 
 #[test]
-fn adaptive_without_a_total_uses_the_configured_request_allowance() {
+fn adaptive_without_a_total_still_uses_bounded_checkpoints() {
     let mut request = payload(Value::Null);
     request["thinking"] = json!({"type":"adaptive"});
     let observed = run_with_payload(vec![buffered(text(), "end_turn")],
         ChainConfig { chunk_tokens:2048, max_total_tokens:None,
             ..ChainConfig::default() }, Vec::new(), request);
     assert!(observed.result.is_ok());
-    assert_eq!(observed.requests[0]["request"]["max_tokens"], 2048);
+    assert_eq!(observed.requests[0]["request"]["max_tokens"], 600);
 }
 
 #[test]

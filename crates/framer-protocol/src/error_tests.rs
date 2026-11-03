@@ -6,6 +6,29 @@ fn dialects() -> [ClientDialect; 3] {
 }
 
 #[test]
+fn anthropic_http_and_stream_errors_use_standard_error_types() {
+    for (status, kind) in [(400, "invalid_request_error"), (401, "authentication_error"),
+        (403, "permission_error"), (404, "not_found_error"), (413, "request_too_large"),
+        (429, "rate_limit_error"), (500, "api_error"), (502, "api_error"),
+        (503, "overloaded_error"), (529, "overloaded_error")] {
+        for body in ["busy".to_string(),
+            serde_json::json!({"error":{"type":"provider_custom_error","message":"busy"}}).to_string()] {
+            let error = format!("retryable {status} on /ai/v3/messages/: {body}");
+            let (actual, value) = error_json(ClientDialect::AnthropicMessages, &error);
+            assert_eq!(actual, status);
+            assert_eq!(value["type"], "error");
+            assert_eq!(value["error"]["type"], kind, "{error}");
+            let frames = error_frames(ClientDialect::AnthropicMessages, &error);
+            assert_eq!(frames.len(), 1);
+            assert!(frames[0].starts_with("event: error\ndata: "));
+            let stream_value: serde_json::Value = serde_json::from_str(
+                frames[0].split_once("data: ").unwrap().1).unwrap();
+            assert_eq!(stream_value, value);
+        }
+    }
+}
+
+#[test]
 fn exhausted_credits_keep_the_payment_cause_in_json_and_streams() {
     for input in ["credits-exhausted", "chunk 2 retry died (fallback off): credits-exhausted"] {
         for dialect in dialects() {
@@ -191,5 +214,18 @@ fn uncertain_adaptive_response_retains_cause_and_disables_automatic_replay() {
         assert_eq!(body["error"]["message"], "browser NetworkError after 61 seconds");
         assert_eq!(body["error"]["code"], super::ADAPTIVE_INCOMPLETE_CODE);
         assert_eq!(body["error"]["retryable"], false);
+    }
+}
+
+#[test]
+fn stream_errors_disable_replay_after_content_or_permanent_refusals() {
+    for dialect in dialects() {
+        for (error, allowed) in [("server-cooling:10", false),
+            ("upstream 403 on /ai/v3/messages/: model forbidden", true),
+            ("retryable 400 on /ai/v3/messages/: invalid field", true)] {
+            let frames = crate::convert::error_frames_with_replay(dialect, error, allowed);
+            assert!(frames.join("\n").contains("\"retryable\":false"));
+            assert!(!frames.join("\n").contains("message_stop"));
+        }
     }
 }

@@ -16,6 +16,7 @@ use tokio::sync::{mpsc, oneshot};
 pub enum Reply {
     Proxy(ProxyResponse),
     Messages(AssembledResponse),
+    MessagesFailure { chunks: Vec<Vec<Value>>, error: String },
     Responses(AssembledResponses),
 }
 pub struct Call {
@@ -107,7 +108,14 @@ impl FramerClient for Ports {
     fn freechat_long<'s, 'b, 'c, 'd, 'e, 'f, 'g, 'h, 'a>(&'s self, _session: &'b Session, _browser: &'c dyn BrowserBridge, account: &'d AccountId, _project: &'e ProjectId, _payload: Value, _cfg: &'f ChainConfig, _chat: &'g str, events: Option<&'h (dyn Fn(ChainEvent) + Send + Sync)>) -> BoxFuture<'a, Result<AssembledResponse, String>>
     where 's: 'a, 'b: 'a, 'c: 'a, 'd: 'a, 'e: 'a, 'f: 'a, 'g: 'a, 'h: 'a, Self: 'a {
         Box::pin(async move { match self.invoke("messages", account, Some(_cfg)).await? {
-            Reply::Messages(value) => { if let Some(cb) = events { cb(ChainEvent::Chunk(value.content.clone())); } Ok(value) }, _ => panic!("wrong fixture reply"),
+            Reply::Messages(value) => { if let Some(cb) = events { cb(ChainEvent::Chunk(value.content.clone())); } Ok(value) },
+            Reply::MessagesFailure { chunks, error } => {
+                if let Some(cb) = events {
+                    for blocks in chunks { cb(ChainEvent::Chunk(blocks)); }
+                }
+                Err(error)
+            }
+            _ => panic!("wrong fixture reply"),
         } })
     }
     fn native_long<'s, 'b, 'c, 'd, 'e, 'f, 'g, 'h, 'a>(&'s self, _session: &'b Session, _browser: &'c dyn BrowserBridge, account: &'d AccountId, _project: &'e ProjectId, _payload: Value, _cfg: &'f ChainConfig, _chat: &'g str, events: Option<&'h (dyn Fn(ChainEvent) + Send + Sync)>) -> BoxFuture<'a, Result<AssembledResponses, String>>

@@ -214,6 +214,16 @@ pub enum ChainDialect {
     AnthropicMessages,
 }
 
+/// Recheck the selected account and record known refusals between attempts.
+/// Implementations must preserve the request's account identity.
+#[async_trait]
+pub trait ChainAdmission: Send + Sync {
+    async fn before_attempt(&self) -> Result<(), String>;
+    async fn refused(&self, cause: &str) -> Result<(), String>;
+    async fn finished(&self, _error: Option<&str>) {}
+    fn wait_budget(&self) -> std::time::Duration { std::time::Duration::from_secs(600) }
+}
+
 /// Config for free continuation-chained chat (unmetered stream:false chunks —
 /// see framer-api::freechat for the live evidence).
 #[derive(Clone)]
@@ -240,6 +250,8 @@ pub struct ChainConfig {
     /// Stop before another upstream attempt when the response consumer leaves.
     /// A call already sent keeps running until its own completion is observed.
     pub cancelled: Option<std::sync::Arc<dyn Fn() -> bool + Send + Sync>>,
+    /// Optional account admission checks for bounded Messages retries.
+    pub admission: Option<std::sync::Arc<dyn ChainAdmission>>,
 }
 
 impl ChainConfig {
@@ -277,6 +289,7 @@ impl std::fmt::Debug for ChainConfig {
             .field("metered_fallback", &self.metered_fallback)
             .field("on_429", &self.on_429.as_ref().map(|_| "<callback>"))
             .field("cancelled", &self.cancelled.as_ref().map(|_| "<callback>"))
+            .field("admission", &self.admission.as_ref().map(|_| "<guard>"))
             .finish()
     }
 }
@@ -291,6 +304,7 @@ impl Default for ChainConfig {
             metered_fallback: false,
             on_429: None,
             cancelled: None,
+            admission: None,
         }
     }
 }

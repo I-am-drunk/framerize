@@ -55,16 +55,15 @@ fn exhausted_provider_rate_limit_keeps_its_cause_and_request_route() {
 }
 
 #[test]
-fn second_attempt_refusals_do_not_start_metered_fallback() {
+fn refusals_after_a_rate_retry_do_not_start_metered_fallback() {
     for enabled in [true, false] {
         for (status, body, expected) in [
             (402, "no credits", "credits-exhausted"),
             (403, "Forbidden", "risk-refused"),
             (403, "provider policy", "upstream 403 on /ai/v3/messages/: provider policy"),
             (400, "bad request", "retryable 400 on /ai/v3/messages/: bad request"),
-            (429, "busy", "retryable 429 on /ai/v3/messages/: busy"),
         ] {
-            let observed = run_with_config(vec![failed_request(), refused(status, body)], config(enabled));
+            let observed = run_with_config(vec![refused(429, "busy"), refused(status, body)], config(enabled));
             assert_eq!(observed.result.unwrap_err(), expected);
             assert!(observed.emitted.is_empty());
             assert_eq!(observed.requests.len(), 2);
@@ -74,21 +73,25 @@ fn second_attempt_refusals_do_not_start_metered_fallback() {
 }
 
 #[test]
-fn retry_eligibility_retains_auth_and_idle_boundaries() {
-    for elapsed in [0.0, 8.0, 9.0] {
-        for error in ["unauthorized", "credits-exhausted", "upstream 403: policy",
-            "retryable 400: bad request", "retryable 429: busy"] {
-            assert!(!retryable_failure(error, elapsed), "{error} at {elapsed}");
+fn transport_duration_never_establishes_permission_to_replay() {
+    for elapsed in [0, 8, 61] {
+        for enabled in [false, true] {
+            for error in ["fixture transport closed", "retryable 502: bad gateway"] {
+                let reply = Reply { streaming:false, status:0, result:Err(error.into()) };
+                let observed = run_with_delays(vec![reply], config(enabled),
+                    vec![Duration::from_secs(elapsed)]);
+                assert!(observed.result.unwrap_err().contains(error));
+                assert_eq!(observed.requests.len(), 1);
+                assert!(observed.emitted.is_empty());
+                assert_eq!(observed.refunds, 0);
+            }
         }
-        assert!(retryable_failure("fixture transport closed", elapsed));
-        assert!(retryable_failure("retryable 502: bad gateway", elapsed));
-        assert!(!retryable_failure("risk-refused", elapsed));
     }
 }
 
 #[test]
 fn delayed_security_refusal_does_not_start_fallback() {
-    let observed = run_with_delays(vec![failed_request(), refused(403, "Forbidden")], config(true),
+    let observed = run_with_delays(vec![refused(429, "busy"), refused(403, "Forbidden")], config(true),
         vec![Duration::ZERO, Duration::from_secs(9)]);
     assert_eq!(observed.result.unwrap_err(), "risk-refused");
     assert_eq!(observed.requests.len(), 2);
@@ -98,7 +101,7 @@ fn delayed_security_refusal_does_not_start_fallback() {
 
 #[test]
 fn prior_attempt_time_cannot_make_a_fast_refusal_retryable() {
-    let observed = run_with_delays(vec![failed_request(), refused(403, "Forbidden")],
+    let observed = run_with_delays(vec![refused(429, "busy"), refused(403, "Forbidden")],
         config(true), vec![Duration::from_secs(9), Duration::ZERO]);
     assert_eq!(observed.result.unwrap_err(), "risk-refused");
     assert!(observed.emitted.is_empty());
@@ -110,7 +113,7 @@ fn prior_attempt_time_cannot_make_a_fast_refusal_retryable() {
 fn local_cooldown_cannot_make_a_fast_refusal_retryable() {
     let prefix = json!({"type":"text", "text":"prefix"});
     let observed = run_with_delays(vec![buffered(prefix.clone(), "max_tokens"),
-        failed_request(), refused(0, "velocity-paused:fixture; retry in 19s"),
+        refused(429, "busy"), refused(0, "velocity-paused:fixture; retry in 19s"),
         refused(403, "Forbidden")], ChainConfig { max_chunks: 2, ..config(true) },
         vec![Duration::ZERO, Duration::ZERO, Duration::from_secs(9), Duration::ZERO]);
     assert_eq!(observed.result.unwrap_err(), "risk-refused");
@@ -121,10 +124,15 @@ fn local_cooldown_cannot_make_a_fast_refusal_retryable() {
 
 #[test]
 fn disabled_metered_fallback_keeps_transport_error() {
-    let observed = run_with_config(vec![failed_request(), failed_request()], config(false));
-    assert_eq!(observed.result.unwrap_err(),
-        "chunk 0 retry died (fallback off): fixture transport closed");
+    let observed = run_with_config(vec![failed_request()], config(false));
+    let error = observed.result.unwrap_err();
+    assert!(error.starts_with(framer_core::error::ADAPTIVE_INCOMPLETE_PREFIX));
+    assert!(error.contains("fixture transport closed"));
+    let (status, body) = framer_core::convert::error_json(
+        framer_core::convert::ClientDialect::AnthropicMessages, &error);
+    assert_eq!(status, 502);
+    assert_eq!(body["error"]["retryable"], false);
     assert!(observed.emitted.is_empty());
-    assert_eq!(observed.requests.len(), 2);
+    assert_eq!(observed.requests.len(), 1);
     assert_eq!(observed.refunds, 0);
 }

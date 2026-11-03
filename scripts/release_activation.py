@@ -62,6 +62,8 @@ def _preflight(old, new, installation, profiles, service):
         schema = db.execute('PRAGMA user_version').fetchone()[0]
     if schema != after['rate_history_schema']:
         raise ValueError('account history schema requires a separate migration')
+    from release_checkpoint_history import validate as validate_checkpoints
+    validate_checkpoints(before, after, profiles)
     service.validate(old, new)
     return old, new
 

@@ -8,6 +8,9 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 #[path = "messages_checkpoint_tests.rs"]
 mod checkpoint_tests;
 
+#[path = "messages_admission_tests.rs"]
+mod admission_tests;
+
 #[path = "messages_opus48_checkpoint_tests.rs"]
 mod opus48_checkpoint_tests;
 
@@ -77,6 +80,17 @@ fn run(replies: Vec<Reply>, max_chunks: u32) -> Observed {
     run_with_config(replies, ChainConfig { chunk_tokens: 600, max_chunks,
         max_total_tokens: Some(4096), metered_fallback: true,
         ..ChainConfig::default() })
+}
+
+fn run_opted_stream(replies: Vec<Reply>, max_chunks: u32) -> Observed {
+    run_opted_config(replies, ChainConfig { chunk_tokens:600, max_chunks,
+        max_total_tokens:Some(4096), metered_fallback:true, ..ChainConfig::default() })
+}
+
+fn run_opted_config(replies: Vec<Reply>, config: ChainConfig) -> Observed {
+    run_with_payload(replies, config, Vec::new(),
+        json!({"model":"claude-sonnet-4","thinking":{"type":"adaptive"},
+            "messages":[{"role":"user","content":"fixture"}]}))
 }
 
 fn run_with_config(replies: Vec<Reply>, config: ChainConfig) -> Observed {
@@ -178,35 +192,34 @@ fn final_retry_chunk_cannot_turn_unfinished_tool_into_empty_success() {
 }
 
 #[test]
-fn transport_fallback_never_publishes_a_truncated_tool_stream() {
+fn opted_stream_never_publishes_a_truncated_tool_response() {
     let good = stream(tool(), "tool_use");
     let bad = good.replace("data: {\"type\":\"message_stop\"}\n\n", "");
     assert_ne!(bad, good);
-    let observed = run(vec![failed_request(), failed_request(), streamed(bad)], 1);
+    let observed = run_opted_stream(vec![streamed(bad)], 1);
     assert!(observed.result.unwrap_err().contains("without message_stop"));
     assert!(observed.emitted.is_empty());
-    assert_eq!(observed.requests.len(), 3);
+    assert_eq!(observed.requests.len(), 1);
     assert_eq!(observed.refunds, 0);
 }
 
 #[test]
-fn transport_fallback_never_publishes_invalid_tool_json() {
+fn opted_stream_never_publishes_invalid_tool_json() {
     let valid = stream(tool(), "tool_use");
     let mut values: Vec<Value> = valid.lines().filter_map(|line| line.strip_prefix("data: "))
         .map(|data| serde_json::from_str(data).unwrap()).collect();
     values.insert(2, json!({"type":"content_block_delta","index":0,
         "delta":{"type":"input_json_delta","partial_json":"{\"value\":"}}));
     let bad = values.iter().map(|event| format!("data: {event}\n\n")).collect();
-    let observed = run(vec![failed_request(), failed_request(), streamed(bad)], 1);
+    let observed = run_opted_stream(vec![streamed(bad)], 1);
     assert!(observed.result.unwrap_err().contains("invalid tool input JSON"));
     assert!(observed.emitted.is_empty());
-    assert_eq!(observed.requests.len(), 3);
+    assert_eq!(observed.requests.len(), 1);
 }
 
 #[test]
-fn transport_fallback_preserves_a_complete_tool_response() {
-    let observed = run(vec![failed_request(), failed_request(),
-        streamed(stream(tool(), "tool_use"))], 1);
+fn opted_stream_preserves_a_complete_tool_response() {
+    let observed = run_opted_stream(vec![streamed(stream(tool(), "tool_use"))], 1);
     let response = observed.result.unwrap();
     assert_eq!(response.id, "stream-fixture");
     assert_eq!(response.content, vec![tool()]);
@@ -214,7 +227,7 @@ fn transport_fallback_preserves_a_complete_tool_response() {
     assert_eq!((response.input_tokens, response.output_tokens), (17, 80));
     assert_eq!((response.chunks, response.metered_chunks), (1, 1));
     assert_eq!(observed.emitted, vec![tool()]);
-    assert_eq!(observed.requests.len(), 3);
+    assert_eq!(observed.requests.len(), 1);
     assert_eq!(observed.refunds, 0);
 }
 
@@ -223,54 +236,53 @@ fn repeated_tool_cut_fallback_rejects_upstream_error_before_emission() {
     let bad = stream(tool(), "tool_use")
         + "data: {\"type\":\"error\",\"error\":{\"message\":\"fixture overload\"}}\n\n";
     let observed = run(vec![buffered(tool(), "max_tokens"),
-        buffered(tool(), "max_tokens"), buffered(tool(), "max_tokens"), streamed(bad)], 3);
-    assert!(observed.result.unwrap_err().contains("upstream error"));
+        buffered(tool(), "max_tokens"), streamed(bad)], 3);
+    assert!(observed.result.unwrap_err().starts_with("upstream 500 on /ai/v3/messages/:"));
     assert!(observed.emitted.is_empty());
-    assert_eq!(observed.requests.len(), 4);
+    assert_eq!(observed.requests.len(), 3);
     assert_eq!(observed.refunds, 0);
 }
 
 #[test]
-fn completed_text_limit_fallback_continues_with_its_content_and_usage() {
+fn opted_stream_continuation_preserves_content_and_usage() {
     let first = json!({"type":"text","text":"first"});
     let second = json!({"type":"text","text":"second"});
-    let observed = run(vec![failed_request(), failed_request(),
-        streamed(stream(first.clone(), "max_tokens")), buffered(second.clone(), "end_turn")], 2);
+    let observed = run_opted_stream(vec![streamed(stream(first.clone(), "max_tokens")),
+        streamed(stream(second.clone(), "end_turn"))], 2);
     let response = observed.result.unwrap();
     assert_eq!(response.content, vec![json!({"type":"text","text":"firstsecond"})]);
     assert_eq!(response.stop_reason, "end_turn");
-    assert_eq!((response.input_tokens, response.output_tokens), (19, 160));
-    assert_eq!((response.chunks, response.metered_chunks), (2, 1));
+    assert_eq!((response.input_tokens, response.output_tokens), (17, 160));
+    assert_eq!((response.chunks, response.metered_chunks), (2, 2));
     assert_eq!(observed.emitted, vec![first.clone(), second]);
-    assert_eq!(observed.requests.len(), 4);
-    assert_eq!(observed.requests[3]["request"]["messages"][1]["content"], json!([first]));
+    assert_eq!(observed.requests.len(), 2);
+    assert_eq!(observed.requests[1]["request"]["messages"][1]["content"], json!([first]));
     assert_eq!(observed.refunds, 0);
 }
 
 #[test]
-fn final_text_fallback_preserves_its_token_limit_status() {
+fn final_opted_stream_preserves_its_token_limit_status() {
     let block = json!({"type":"text","text":"partial"});
-    let observed = run(vec![failed_request(), failed_request(),
-        streamed(stream(block.clone(), "max_tokens"))], 1);
+    let observed = run_opted_stream(vec![streamed(stream(block.clone(), "max_tokens"))], 1);
     let response = observed.result.unwrap();
     assert_eq!(response.content, vec![block.clone()]);
     assert_eq!(response.stop_reason, "max_tokens");
     assert_eq!((response.chunks, response.metered_chunks), (1, 1));
     assert_eq!(observed.emitted, vec![block]);
-    assert_eq!(observed.requests.len(), 3);
+    assert_eq!(observed.requests.len(), 1);
 }
 
 #[test]
 fn final_tool_repair_fallback_preserves_text_limit_status() {
     let block = json!({"type":"text","text":"partial"});
     let observed = run(vec![buffered(tool(), "max_tokens"),
-        buffered(tool(), "max_tokens"), buffered(tool(), "max_tokens"),
+        buffered(tool(), "max_tokens"),
         streamed(stream(block.clone(), "max_tokens"))], 3);
     let response = observed.result.unwrap();
     assert_eq!(response.stop_reason, "max_tokens");
     assert_eq!((response.chunks, response.metered_chunks), (3, 1));
     assert_eq!(observed.emitted, vec![block]);
-    assert_eq!(observed.requests.len(), 4);
+    assert_eq!(observed.requests.len(), 3);
 }
 
 fn capped_config(max_chunks: u32) -> ChainConfig {
@@ -293,24 +305,25 @@ fn rate_retry_preserves_the_remaining_client_budget() {
 }
 
 #[test]
-fn transport_retry_preserves_the_remaining_client_budget() {
+fn unknown_completion_stops_with_the_remaining_client_budget() {
     let prefix = json!({"type":"text","text":"prefix"});
-    let observed = run_with_config(vec![buffered(prefix, "max_tokens"),
-        failed_request(), buffered(tool(), "tool_use")], capped_config(2));
-    assert_eq!(observed.result.unwrap().output_tokens, 160);
-    assert_eq!(observed.requests.len(), 3);
+    let observed = run_with_config(vec![buffered(prefix.clone(), "max_tokens"),
+        failed_request()], capped_config(2));
+    assert!(observed.result.unwrap_err().contains("fixture transport closed"));
+    assert_eq!(observed.emitted, vec![prefix]);
+    assert_eq!(observed.requests.len(), 2);
     for request in &observed.requests[1..] {
         assert_eq!(request["request"]["max_tokens"], 176);
     }
 }
 
 #[test]
-fn metered_transport_fallback_preserves_the_remaining_client_budget() {
+fn unknown_completion_never_starts_an_opted_in_metered_fallback() {
     let prefix = json!({"type":"text","text":"prefix"});
-    let observed = run_with_config(vec![buffered(prefix, "max_tokens"), failed_request(),
-        failed_request(), streamed(stream(tool(), "tool_use"))], capped_config(2));
-    assert_eq!(observed.result.unwrap().output_tokens, 160);
-    assert_eq!(observed.requests.len(), 4);
+    let observed = run_with_config(vec![buffered(prefix, "max_tokens"), failed_request()], capped_config(2));
+    assert!(observed.result.is_err());
+    assert_eq!(observed.requests.len(), 2);
+    assert_eq!(observed.refunds, 0);
     for request in &observed.requests[1..] {
         assert_eq!(request["request"]["max_tokens"], 176);
     }
@@ -319,14 +332,15 @@ fn metered_transport_fallback_preserves_the_remaining_client_budget() {
 #[test]
 fn repeated_tool_cut_fallback_does_not_expand_a_small_client_cap() {
     let observed = run_with_config(vec![buffered(tool(), "max_tokens"),
-        buffered(tool(), "max_tokens"), buffered(tool(), "max_tokens"),
+        buffered(tool(), "max_tokens"),
         streamed(stream(tool(), "tool_use"))], capped_config(3));
-    assert_eq!(observed.result.unwrap().content, vec![tool()]);
-    assert_eq!(observed.requests.len(), 4);
+    let response = observed.result.unwrap();
+    assert_eq!(response.content, vec![tool()]);
+    assert_eq!(response.output_tokens, 240);
+    assert_eq!(observed.requests.len(), 3);
     assert_eq!(observed.requests[0]["request"]["max_tokens"], 80);
-    for request in &observed.requests[1..] {
-        assert_eq!(request["request"]["max_tokens"], 256);
-    }
+    assert_eq!(observed.requests[1]["request"]["max_tokens"], 160);
+    assert_eq!(observed.requests[2]["request"]["max_tokens"], 96);
 }
 
 struct Fixture {

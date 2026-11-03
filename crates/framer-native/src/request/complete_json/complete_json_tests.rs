@@ -416,7 +416,7 @@ fn json_probe_refusal_is_one_attempt_and_discards_private_body() {
         assert!(!r.accepted && r.cleanup_confirmed);
         assert_eq!(r.status, Some(403));
         assert_eq!(r.failure, Some(FailureKind::Upstream));
-        assert_eq!(r.refusal.unwrap().basis, super::RefusalBasis::ElapsedFallback);
+        assert_eq!(r.refusal.unwrap().basis, super::RefusalBasis::Unattributed);
         assert!(!format!("{r:?}").contains("private_marker"));
         assert_eq!(f.supplier.calls.load(Ordering::Acquire), 1);
         f.finish().await;

@@ -22,6 +22,8 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Cmd {
+    /// Print this executable's readable and written checkpoint formats.
+    CheckpointHistory,
     /// Run the daemon (REST + SSE + web UI + /anthropic + /openai compat).
     Daemon {
         #[arg(long, default_value = "127.0.0.1:8787")]
@@ -204,6 +206,7 @@ mod release;
 async fn main() {
     let cli = Cli::parse();
     match cli.cmd {
+        Cmd::CheckpointHistory => println!("{}", framer_api::checkpoint_history_capabilities()),
         Cmd::Daemon { listen, web_dir, db, chrome, engine, profiles, sidecar_script,
             active_pool_size, eligible_accounts,
         } => {

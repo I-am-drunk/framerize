@@ -80,9 +80,11 @@ async fn object_validation_preserves_checked_budget_rejection() {
             "model":"gpt-6-astra", "max_tokens":u64::from(u32::MAX) + 1,
         })).await;
         assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+        assert_eq!(response.headers()["x-should-retry"], "false");
         let body = to_bytes(response.into_body(), 4096).await.unwrap();
         assert_eq!(serde_json::from_slice::<Value>(&body).unwrap(), json!({
-            "error":{"code":"invalid_request","message":"output token limit exceeds 4294967295"},
+            "type":"error", "error":{"type":"invalid_request_error",
+                "code":"invalid_request","message":"output token limit exceeds 4294967295"},
         }));
         assert_eq!(state.0.load(Ordering::SeqCst), 0);
         assert!(f.loads.try_recv().is_err());
@@ -108,9 +110,11 @@ async fn rejects_before_ports(path: &str, paid: bool) {
         for body in non_objects() {
             let response = request(f.state.clone(), path, paid, body).await;
             assert_eq!(response.status(), StatusCode::BAD_REQUEST, "{path}");
+            assert_eq!(response.headers()["x-should-retry"], "false");
             let bytes = to_bytes(response.into_body(), 4096).await.unwrap();
             assert_eq!(serde_json::from_slice::<Value>(&bytes).unwrap(),
-                json!({"error":{"code":"invalid_request","message":ERROR}}));
+                json!({"type":"error", "error":{"type":"invalid_request_error",
+                    "code":"invalid_request","message":ERROR}}));
             assert_eq!(state.0.load(Ordering::SeqCst), 0, "account selection started");
             assert!(f.loads.try_recv().is_err(), "session loaded");
             f.no_call();

@@ -62,14 +62,17 @@ async fn simultaneous_requests_reserve_different_accounts_before_browser_io() {
         let (state, ports) = balanced_fixture(2, 3);
         activated(&state, 1).await;
         ports.pause_get.store(true, Ordering::SeqCst);
-        let mut first = Box::pin(handler_response(&state, route, true));
-        assert!(futures::poll!(first.as_mut()).is_pending());
+        let first_state = state.clone();
+        let first = tokio::spawn(async move { handler_response(&first_state, route, true).await });
+        until(|| ports.get_captured.load(Ordering::SeqCst) == 1).await;
         assert_eq!(ports.get_captured.load(Ordering::SeqCst), 1);
-        let mut second = Box::pin(handler_response(&state, route, true));
-        assert!(futures::poll!(second.as_mut()).is_pending());
+        let second_state = state.clone();
+        let second = tokio::spawn(async move { handler_response(&second_state, route, true).await });
+        // Let the second request enter admission while the first read is held.
+        tokio::task::yield_now().await;
         ports.get_gate.add_permits(1);
         let (first, second) = tokio::join!(first, second);
-        let (first, second) = (first.unwrap(), second.unwrap());
+        let (first, second) = (first.unwrap().unwrap(), second.unwrap().unwrap());
         assert_eq!(first.status(), 200);
         assert_eq!(second.status(), 200);
         until(|| ports.request_started.load(Ordering::SeqCst) == 2).await;

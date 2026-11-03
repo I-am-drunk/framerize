@@ -322,8 +322,8 @@ async fn non_waiting_routes_reject_all_cooling_before_external_io() {
     use axum::response::IntoResponse;
     for dialect in [ClientDialect::AnthropicMessages, ClientDialect::OpenAiResponses, ClientDialect::OpenAiChat] {
         for stream in [false, true] {
-            // The waiting Responses case is exercised in pause_recovery_tests.
-            if stream && dialect == ClientDialect::OpenAiResponses { continue; }
+            // Waiting streams have separate ping, disconnect and budget checks.
+            if stream && dialect != ClientDialect::OpenAiChat { continue; }
             let (mut state, ports) = fixture(false);
             state.runtime_mut().expect("unique fixture runtime").serving_accounts = Arc::new(policy(&[1, 2]));
             let now = framer_core::rotation::now_ms();
@@ -352,7 +352,7 @@ async fn non_waiting_routes_reject_all_cooling_before_external_io() {
 #[tokio::test]
 async fn wave_cooldown_returns_retry_after_and_json_before_external_io() {
     use axum::response::IntoResponse;
-    for (dialect, stream) in [(ClientDialect::AnthropicMessages, true),
+    for (dialect, stream) in [(ClientDialect::AnthropicMessages, false),
         (ClientDialect::OpenAiResponses, false)] {
         let (state, ports) = fixture(false);
         state.wave.note_refusal("fixture-a");
@@ -446,7 +446,7 @@ async fn local_rechecks_keep_wave_closed_until_an_actual_success() {
             state.wave.note_refusal("fixture-b");
         }
         let payload = json!({
-            "model": "gpt-6-astra", "stream": true, "input": "fixture",
+            "model": "gpt-6-astra", "stream": false, "input": "fixture",
             "messages": [{"role": "user", "content": "fixture"}]
         });
         for _ in 0..3 {

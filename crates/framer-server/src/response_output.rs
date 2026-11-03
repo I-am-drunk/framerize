@@ -37,7 +37,28 @@ pub(crate) struct OutputBudget {
     slots: Arc<Semaphore>, metrics: Arc<Metrics>, limit: usize,
     #[cfg(test)] fault: Mutex<Option<Fault>>,
 }
+
+#[derive(Clone)]
+pub(crate) struct RequestOutput(Arc<Lease>);
+
+impl RequestOutput {
+    pub(crate) fn retain_bytes(&self, bytes: bytes::Bytes) -> bytes::Bytes {
+        struct Retained {
+            bytes: bytes::Bytes,
+            _lease: Arc<Lease>,
+        }
+        impl AsRef<[u8]> for Retained {
+            fn as_ref(&self) -> &[u8] { &self.bytes }
+        }
+        bytes::Bytes::from_owner(Retained { bytes, _lease: self.0.clone() })
+    }
+}
+
 impl OutputBudget {
+    pub(crate) fn reserve_request(&self) -> Result<RequestOutput, ApiError> {
+        self.reserve().map(RequestOutput)
+    }
+
     pub(crate) fn new(limit: usize) -> Self {
         Self { slots: Arc::new(Semaphore::new(limit)), metrics: Arc::new(Metrics::default()), limit,
             #[cfg(test)] fault: Mutex::new(None) }
@@ -528,12 +549,18 @@ async fn serve_initialized<F, Fut>(state: AppState, model: String, id: String,
     -> Result<axum::response::Response, ApiError>
 where F: FnOnce(Cancel) -> Fut + Send + 'static,
     Fut: std::future::Future<Output = pool_control::CleanupOutcome<FreeRequest>> + Send {
-    let lease = state.response_output.reserve()?;
+    // Initialization has not run. A local output-capacity refusal owns no
+    // pending upstream work and must not poison application drain ownership.
+    let lease = match state.response_output.reserve() {
+        Ok(lease) => lease,
+        Err(error) => return Ok(operation_ownership::completed_response(
+            axum::response::IntoResponse::into_response(error), true)),
+    };
     let (emitter, sink, body) = output(lease, &model, &id);
     let cancelled = emitter.publisher.cancel.clone();
     let published = emitter.publisher.content_published.clone();
     let scope = state.operation_ownership.clone();
-    let (handle, completion) = operation_ownership::spawn_observed(scope.as_ref(),
+    let spawned = operation_ownership::spawn_observed(scope.as_ref(),
         framer_core::operation_gate::OperationKind::Inference, async move {
             // This owner survives a dropped request future and joins all serializers.
             let encoding = tokio::spawn(emitter.run());
@@ -578,7 +605,12 @@ where F: FnOnce(Cancel) -> Fut + Send + 'static,
             drop(sink);
             let joined = encoding.await.is_ok();
             (result, cleanup && joined)
-        }).map_err(ApiError::operation_admission)?;
+        });
+    let (handle, completion) = match spawned {
+        Ok(owned) => owned,
+        Err(error) => return Ok(operation_ownership::completed_response(
+            axum::response::IntoResponse::into_response(ApiError::operation_admission(error)), true)),
+    };
     drop(handle); // The shared completion still observes the original producer.
     let mut response = axum::response::Response::new(axum::body::Body::from_stream(
         retain_owner(body, residency)));

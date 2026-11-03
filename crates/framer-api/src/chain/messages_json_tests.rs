@@ -14,10 +14,24 @@ fn non_message_envelopes_never_become_empty_success() {
     }
     let mut body = message();
     body["error"] = json!({"message":"fixture failure"});
-    assert!(decode(&body).unwrap_err().contains("upstream error"));
+    assert!(decode(&body).unwrap_err().starts_with("upstream 500 on /ai/v3/messages/:"));
     body.as_object_mut().unwrap().remove("error");
     body["type"] = json!("error");
-    assert!(decode(&body).unwrap_err().contains("upstream error"));
+    assert!(decode(&body).unwrap_err().starts_with("upstream 500 on /ai/v3/messages/:"));
+}
+
+#[test]
+fn error_envelopes_keep_their_protocol_status_even_inside_http_200() {
+    for (kind, status) in [("invalid_request_error", 400), ("permission_error", 403),
+        ("rate_limit_error", 429), ("overloaded_error", 529)] {
+        let body = json!({"type":"error","error":{"type":kind,"message":"fixture cause"}});
+        let error = decode(&body).unwrap_err();
+        let (actual, shaped) = framer_core::convert::error_json(
+            framer_core::convert::ClientDialect::AnthropicMessages, &error);
+        assert_eq!(actual, status);
+        assert_eq!(shaped["error"]["type"], kind);
+        assert_eq!(shaped["error"]["message"], "fixture cause");
+    }
 }
 
 #[test]

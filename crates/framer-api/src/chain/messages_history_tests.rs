@@ -1,6 +1,7 @@
 use super::*;
 
 #[test]
+#[cfg(not(feature = "legacy-checkpoint-writes"))]
 fn checkpoint_storage_grows_linearly_with_completed_chunks() {
     let sizes: Vec<i64> = [32, 64].iter().map(|count| {
         let store = HistoryStore::default();
@@ -22,6 +23,26 @@ fn checkpoint_storage_grows_linearly_with_completed_chunks() {
     }).collect();
     eprintln!("checkpoint storage bytes at 32 and 64 chunks: {sizes:?}");
     assert!(sizes[1] < sizes[0] * 5 / 2, "checkpoint storage sizes: {sizes:?}");
+}
+
+#[test]
+fn both_builds_report_their_writer_and_read_linked_history() {
+    let store = HistoryStore::default();
+    let chunks = [vec![thought("capability-fixture")], vec![text("one")], vec![text("two")]];
+    let prefix = record(&store, &chunks[..2]);
+    let content = record(&store, &chunks);
+    let key = content_hash(&content);
+    let raw = layout::read(&store.0.lock().unwrap(), &key).unwrap().unwrap();
+    assert_eq!(raw["version"], WRITE_VERSION);
+    assert_eq!(crate::checkpoint_history_capabilities(),
+        json!({"read_versions":[1, 2],"write_version":WRITE_VERSION}));
+    let turns = store.load(&key).unwrap().unwrap()["turns"].clone();
+    let linked = json!({"version":2,"parent":content_hash(&prefix),"turn":turns[2]});
+    store.0.lock().unwrap().execute("UPDATE checkpoints SET layout=? WHERE fingerprint=?",
+        params![linked.to_string(), key]).unwrap();
+    let mut body = request(content);
+    store.restore(&mut body).unwrap();
+    assert_eq!(body["messages"][5]["content"], json!(chunks[2]));
 }
 
 fn thought(id: &str) -> Value {
@@ -202,6 +223,27 @@ fn empty_final_chunk_keeps_the_published_signed_history_restorable() {
     let mut body = request(content);
     store.restore(&mut body).unwrap();
     assert_eq!(body, expected);
+}
+
+#[test]
+fn empty_text_chunk_keeps_the_published_layout_and_accepts_later_content() {
+    let store = HistoryStore::default();
+    let mut trace = Trace::default();
+    let mut content = Vec::new();
+    trace.append(&store, &mut content, &[thought("empty-text")]).unwrap();
+    trace.continuing(false);
+    trace.append(&store, &mut content, &[text("complete")]).unwrap();
+    let mut expected = request(content.clone());
+    store.restore(&mut expected).unwrap();
+    trace.append(&store, &mut content, &[text(""), text("")]).unwrap();
+    let mut body = request(content.clone());
+    store.restore(&mut body).unwrap();
+    assert_eq!(body, expected);
+    trace.append(&store, &mut content, &[text(" later")]).unwrap();
+    let mut body = request(content);
+    store.restore(&mut body).unwrap();
+    assert_eq!(body["messages"].as_array().unwrap().len(), 7);
+    assert_eq!(body["messages"][5]["content"], json!([text(" later")]));
 }
 
 #[cfg(unix)]

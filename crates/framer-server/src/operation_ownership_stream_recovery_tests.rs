@@ -32,14 +32,22 @@ async fn first_permit_cooldown(stream: bool) {
         let before = serde_json::to_value(f.state.state.list().await.unwrap()).unwrap();
         drop(first_permit);
         let response = tokio::time::timeout(WAIT, task).await.unwrap().unwrap().unwrap();
-        assert_eq!(response.status(), StatusCode::SERVICE_UNAVAILABLE);
-        let retry: u64 = response.headers()[axum::http::header::RETRY_AFTER]
-            .to_str().unwrap().parse().unwrap();
-        assert!((1..=30).contains(&retry));
+        if messages && stream {
+            assert_eq!(response.status(), StatusCode::OK);
+            assert_eq!(response.headers()["content-type"], "text/event-stream");
+        } else {
+            assert_eq!(response.status(), StatusCode::SERVICE_UNAVAILABLE);
+            let retry: u64 = response.headers()[axum::http::header::RETRY_AFTER]
+                .to_str().unwrap().parse().unwrap();
+            assert!((1..=30).contains(&retry));
+        }
         assert!(!response.body().is_end_stream(), "exercise an unread refusal body");
         f.no_call();
         assert!(f.loads.try_recv().is_err());
         drop(response);
+        tokio::time::timeout(WAIT, async {
+            while ownership.gate.stats().unwrap().active > 1 { tokio::task::yield_now().await; }
+        }).await.unwrap();
         assert_eq!(ownership.gate.stats().unwrap().active, 1); // Retained host only.
         assert!(!ownership.gate.stats().unwrap().unconfirmed);
         assert_eq!(serde_json::to_value(f.state.state.list().await.unwrap()).unwrap(), before);
@@ -164,9 +172,12 @@ async fn discarded_messages_wave_refusal_keeps_cooldown_without_sealing() {
             "max_tokens":16,"stream":true}).to_string())).unwrap();
     let response = crate::router(f.state.clone(), "/nonexistent-fixture-web")
         .oneshot(request).await.unwrap();
-    assert_eq!(response.status(), StatusCode::SERVICE_UNAVAILABLE);
-    assert!(response.headers().contains_key(axum::http::header::RETRY_AFTER));
+    assert_eq!(response.status(), StatusCode::OK);
+    assert_eq!(response.headers()["content-type"], "text/event-stream");
     drop(response);
+    tokio::time::timeout(WAIT, async {
+        while ownership.gate.stats().unwrap().active > 1 { tokio::task::yield_now().await; }
+    }).await.unwrap();
     f.no_call();
     assert!(f.loads.try_recv().is_err());
     assert_eq!(f.state.serving_accounts.residents.snapshot().unwrap().occupied, 0);
@@ -283,15 +294,21 @@ async fn first_permit_disconnect(stream: bool) {
         let loaded = tokio::time::timeout(WAIT, f.loads.recv()).await.unwrap().unwrap();
         assert_eq!(loaded, f.accounts[0].framer_user_id);
         f.no_call();
-        assert_eq!(ownership.gate.stats().unwrap().active, 2);
+        assert_eq!(ownership.gate.stats().unwrap().active, if messages && stream { 3 } else { 2 });
         let snapshot = f.state.serving_accounts.residents.snapshot().unwrap();
         assert_eq!(snapshot.residents.len(), 1);
         assert_eq!(snapshot.residents[0].account, f.accounts[0].id);
         assert_eq!(snapshot.residents[0].users, 1);
         assert!(!snapshot.residents[0].uncertain);
-        task.abort();
-        let cancelled = tokio::time::timeout(WAIT, task).await.unwrap().unwrap_err();
-        assert!(cancelled.is_cancelled());
+        if messages && stream {
+            let response = tokio::time::timeout(WAIT, task).await.unwrap().unwrap().unwrap();
+            assert_eq!(response.status(), StatusCode::OK);
+            drop(response);
+        } else {
+            task.abort();
+            let cancelled = tokio::time::timeout(WAIT, task).await.unwrap().unwrap_err();
+            assert!(cancelled.is_cancelled());
+        }
         // Cancellation must drain without borrowing the test's held permit.
         tokio::time::timeout(WAIT, async {
             while ownership.gate.stats().unwrap().active > 1 { tokio::task::yield_now().await; }
@@ -383,7 +400,7 @@ async fn first_permit_lifecycle_refusal(stream: bool) {
         let loaded = tokio::time::timeout(WAIT, f.loads.recv()).await.unwrap().unwrap();
         assert_eq!(loaded, f.accounts[0].framer_user_id);
         f.no_call();
-        assert_eq!(ownership.gate.stats().unwrap().active, 2);
+        assert_eq!(ownership.gate.stats().unwrap().active, if messages && stream { 3 } else { 2 });
         assert!(f.state.gate.acquire_now(&first_key).await.is_none());
         let mut unavailable = f.accounts[0].clone();
         unavailable.state = framer_core::account::AccountState::Quarantined;
@@ -391,12 +408,20 @@ async fn first_permit_lifecycle_refusal(stream: bool) {
         let before = serde_json::to_value(f.state.state.list().await.unwrap()).unwrap();
         drop(first_permit);
         let response = tokio::time::timeout(WAIT, task).await.unwrap().unwrap().unwrap();
-        assert_eq!(response.status(), StatusCode::SERVICE_UNAVAILABLE);
-        assert_eq!(response.headers()[axum::http::header::CONTENT_TYPE], "text/plain; charset=utf-8");
+        if messages && stream {
+            assert_eq!(response.status(), StatusCode::OK);
+            assert_eq!(response.headers()["content-type"], "text/event-stream");
+        } else {
+            assert_eq!(response.status(), StatusCode::SERVICE_UNAVAILABLE);
+            assert_eq!(response.headers()[axum::http::header::CONTENT_TYPE], "text/plain; charset=utf-8");
+        }
         assert!(!response.body().is_end_stream(), "exercise an unread lifecycle refusal");
         f.no_call();
         assert!(matches!(f.loads.try_recv(), Err(tokio::sync::mpsc::error::TryRecvError::Empty)));
         drop(response);
+        tokio::time::timeout(WAIT, async {
+            while ownership.gate.stats().unwrap().active > 1 { tokio::task::yield_now().await; }
+        }).await.unwrap();
         assert_eq!(ownership.gate.stats().unwrap().active, 1); // Retained host only.
         assert!(!ownership.gate.stats().unwrap().unconfirmed);
         let snapshot = f.state.serving_accounts.residents.snapshot().unwrap();

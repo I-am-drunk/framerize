@@ -199,7 +199,7 @@ async fn undecodable_explicit_account_is_rejected_before_work() {
 }
 
 #[tokio::test]
-async fn wave_refusal_precedes_undecodable_explicit_account() {
+async fn malformed_messages_account_is_rejected_even_during_a_wave() {
     exercise_undecodable_account(true).await;
 }
 
@@ -222,11 +222,12 @@ async fn exercise_undecodable_account(wave: bool) {
             let response = tokio::time::timeout(WAIT,
                 crate::router(f.state.clone(), "/nonexistent-fixture-web").oneshot(request))
                 .await.unwrap().unwrap();
-            assert_eq!(response.status(), if wave { StatusCode::SERVICE_UNAVAILABLE }
+            let wave_response = wave && !messages;
+            assert_eq!(response.status(), if wave_response { StatusCode::SERVICE_UNAVAILABLE }
                 else { StatusCode::BAD_REQUEST });
             assert_eq!(response.headers()[axum::http::header::CONTENT_TYPE], "application/json");
             assert!(response.headers().contains_key("x-framerize-operation-id"));
-            if wave {
+            if wave_response {
                 assert_eq!(response.headers()[axum::http::header::RETRY_AFTER], "30");
             } else {
                 assert!(!response.headers().contains_key(axum::http::header::RETRY_AFTER));
@@ -237,14 +238,15 @@ async fn exercise_undecodable_account(wave: bool) {
                 let body = tokio::time::timeout(WAIT, to_bytes(response.into_body(), 4096))
                     .await.unwrap().unwrap();
                 let value: serde_json::Value = serde_json::from_slice(&body).unwrap();
-                if wave {
+                if wave_response {
                     assert_eq!(value["error"]["code"], "framerize_cooling");
                     assert_eq!(value["error"]["type"], "overloaded_error");
                     assert_eq!(value["error"]["retry_after_seconds"], 30);
                     assert_eq!(value["error"]["message"],
                         "Recent security refusals across multiple accounts triggered the global admission pause. Retry in 30 seconds.");
                 } else {
-                    assert_eq!(value, serde_json::json!({"error": {
+                    assert_eq!(value, serde_json::json!({"type":"error", "error": {
+                        "type":"invalid_request_error",
                         "code": "invalid_request",
                         "message": "x-framerize-account must contain valid text"
                     }}));

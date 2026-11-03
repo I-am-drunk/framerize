@@ -25,24 +25,22 @@ fn rate_backoff_cannot_dispatch_after_active_deadline() {
 }
 
 #[test]
-fn fallback_cannot_dispatch_after_active_deadline() {
-    let observed = run_with_delays(vec![failed_request(), failed_request()],
+fn acknowledged_tool_retry_cannot_dispatch_after_active_deadline() {
+    let observed = run_with_delays(vec![buffered(tool(), "max_tokens")],
         ChainConfig { metered_fallback: true, ..ChainConfig::default() },
-        vec![Duration::from_secs(150), Duration::from_secs(151)]);
+        vec![Duration::from_secs(301)]);
     let error = observed.result.unwrap_err();
     assert!(error.contains("300s active-time budget"), "{error}");
-    assert!(error.contains("fixture transport closed"), "{error}");
-    assert_eq!(observed.requests.len(), 2);
+    assert_eq!(observed.requests.len(), 1);
     assert!(observed.emitted.is_empty());
 }
 
 #[test]
-fn transport_retry_keeps_cause_and_stops_at_active_deadline() {
+fn transport_failure_keeps_its_cause_after_active_deadline() {
     let observed = run_with_delays(vec![failed_request()],
         ChainConfig { metered_fallback: false, ..ChainConfig::default() },
         vec![Duration::from_secs(301)]);
     let error = observed.result.unwrap_err();
-    assert!(error.contains("300s active-time budget"), "{error}");
     assert!(error.contains("fixture transport closed"), "{error}");
     assert_eq!(observed.requests.len(), 1);
     assert!(observed.emitted.is_empty());

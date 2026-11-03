@@ -143,17 +143,7 @@ pub(super) fn parse(text: &str) -> Result<StreamedChunk, String> {
             else { "streamed Messages response has malformed event JSON" }
         })?;
         if event == "error" || v["type"] == "error" {
-            let error = v.get("error").unwrap_or(&v);
-            let fields: serde_json::Map<String, Value> = ["type", "code", "message"]
-                .into_iter().filter_map(|key| error.get(key)
-                    .filter(|value| value.is_string() || value.is_number())
-                    .map(|value| (key.to_owned(), value.clone()))).collect();
-            let cause = if fields.is_empty() {
-                "error event omitted its type, code and message".into()
-            } else {
-                framer_core::error::safe_failure_summary(&Value::Object(fields).to_string())
-            };
-            return Err(format!("streamed Messages upstream error: {cause}"));
+            return Err(super::buffered::upstream_error(&v));
         }
         match v["type"].as_str() {
             Some("message_start") => {

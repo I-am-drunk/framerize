@@ -7,6 +7,7 @@ pub(crate) struct HistoryStore(Mutex<Connection>);
 
 const MAX_LAYOUT_BYTES: usize = 262144;
 const MAX_TURNS: usize = 1024;
+pub(crate) const WRITE_VERSION: u8 = if cfg!(feature = "legacy-checkpoint-writes") { 1 } else { 2 };
 
 #[path = "messages_history_layout.rs"]
 mod layout;
@@ -53,9 +54,12 @@ pub(super) struct Trace {
 impl Trace {
     pub(super) fn append(&mut self, store: &HistoryStore, combined: &mut Vec<Value>,
         incoming: &[Value]) -> Result<(), String> {
-        // A terminal response can add no blocks. The published content still
-        // has its previous layout; recording an empty turn would conflict.
-        if incoming.is_empty() { return Ok(()); }
+        // Empty text can merge into the previous block without changing it.
+        // Keep the published layout instead of linking a hash to itself.
+        if incoming.is_empty() || (combined.last().is_some_and(plain_text)
+            && incoming.iter().all(|block| plain_text(block) && block["text"] == "")) {
+            return Ok(());
+        }
         let mut parts = Vec::new();
         for block in incoming {
             let plain = plain_text(block);
@@ -77,8 +81,8 @@ impl Trace {
             // Only offsets, hashes and fixed continuation kinds are persisted.
             // Keep each published prefix, sharing its already-persisted layout.
             let saved = match &self.previous {
-                Some(parent) => json!({"version":2,"parent":parent,"turn":turn}),
-                None => json!({"version":1,"turns":self.turns}),
+                Some(parent) if WRITE_VERSION == 2 => json!({"version":2,"parent":parent,"turn":turn}),
+                _ => json!({"version":1,"turns":self.turns}),
             };
             let key = content_hash(combined);
             store.save(&key, &saved)?;

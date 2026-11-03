@@ -160,20 +160,6 @@ fn join_version(rest: &str) -> String {
 // Request conversion: client dialect → Anthropic Messages payload
 // ---------------------------------------------------------------------------
 
-/// Fields allowed upstream (Anthropic Messages API surface). Everything else
-/// the client sent is stripped here — the gateway rejects unknown top-level
-/// fields, and every supported field is mapped explicitly.
-const ANTHROPIC_FIELDS: &[&str] = &[
-    "model", "messages", "system", "max_tokens", "stream", "tools",
-    "tool_choice", "temperature", "top_p", "top_k", "stop_sequences",
-    "metadata", "thinking", "output_config",
-    // OpenRouter service tiers (2026-10-06): service_tier (default|flex|
-    // priority|fast|ultrafast) and Anthropic's native speed:"fast" pass
-    // straight through the gateway and are STILL FREE non-streaming —
-    // ultrafast served with ledger delta 0.0.
-    "service_tier", "speed",
-];
-
 /// Tiny operator note appended to the system prompt when tools are in play
 /// (free route only — the paid passthrough is untouched). Physics: a tool
 /// call larger than the upstream idle window (~100s of output) cannot complete
@@ -215,16 +201,21 @@ pub fn anthropic_output_floor(body: &Value) -> Result<u32, String> {
 pub fn to_anthropic_request(d: ClientDialect, body: &Value) -> Result<Value, String> {
     let mut out = match d {
         ClientDialect::AnthropicMessages => {
-            // Verbatim passthrough (whitelist): zero loss for native clients.
-            let mut out = json!({});
-            let obj = body.as_object().ok_or("request body must be an object")?;
-            for k in ANTHROPIC_FIELDS {
-                if let Some(v) = obj.get(*k) {
-                    out[*k] = v.clone();
-                }
-            }
+            // Native requests retain provider extensions and signed context.
+            body.as_object().ok_or("request body must be an object")?;
+            let out = body.clone();
             if !out.get("messages").map(|m| m.is_array()).unwrap_or(false) {
                 return Err("messages is required".into());
+            }
+            if !out["model"].as_str().is_some_and(|model| !model.trim().is_empty()) {
+                return Err("model must be a nonempty string".into());
+            }
+            if out.get("max_tokens").is_some_and(|value|
+                !value.as_u64().is_some_and(|tokens| tokens > 0 && tokens <= u32::MAX as u64)) {
+                return Err("max_tokens must be a positive integer no greater than 4294967295".into());
+            }
+            if out.get("stream").is_some_and(|value| !value.is_boolean()) {
+                return Err("stream must be a boolean".into());
             }
             // Signed thinking and redacted blocks belong to the client's
             // conversation. Preserve their order and contents for tool replies
@@ -235,7 +226,7 @@ pub fn to_anthropic_request(d: ClientDialect, body: &Value) -> Result<Value, Str
         ClientDialect::OpenAiResponses => responses_to_anthropic(body)?,
     };
     anthropic_output_floor(&out)?;
-    append_chunk_note(&mut out);
+    if d != ClientDialect::AnthropicMessages { append_chunk_note(&mut out); }
     Ok(out)
 }
 
@@ -927,14 +918,10 @@ mod tests {
         });
         let out = to_anthropic_request(ClientDialect::AnthropicMessages, &body).unwrap();
         assert_eq!(out["tools"], body["tools"]);
-        // system gains the tool-chunk note (appended as a final block); the
-        // client's own blocks lead, untouched.
-        let sys = out["system"].as_array().unwrap();
-        assert_eq!(sys[0], body["system"][0]);
-        assert!(sys.last().unwrap()["text"].as_str().unwrap().contains("no single tool call"));
+        assert_eq!(out["system"], body["system"]);
         assert_eq!(out["tool_choice"], body["tool_choice"]);
         assert_eq!(out["messages"], body["messages"]);
-        assert!(out.get("unknown_field").is_none());
+        assert_eq!(out["unknown_field"], body["unknown_field"]);
     }
 
     #[test]
@@ -974,6 +961,20 @@ mod tests {
             "thinking":{"type":"adaptive"},"messages":messages});
         let converted = to_anthropic_request(ClientDialect::AnthropicMessages, &body).unwrap();
         assert_eq!(converted["messages"], body["messages"]);
+    }
+
+    #[test]
+    fn native_messages_preserve_system_tools_and_provider_fields() {
+        let body = json!({"model":"claude-sonnet-5-5","max_tokens":64000,
+            "system":[{"type":"text","text":"original system",
+                "cache_control":{"type":"ephemeral"}}],
+            "tools":[{"name":"lookup","input_schema":{"type":"object"}}],
+            "messages":[{"role":"user","content":"original request"}],
+            "context_management":{"edits":[{"type":"clear_thinking_20251015"}]},
+            "container":"fixture-container", "inference_geo":"us",
+            "provider_extension":{"fixture":true}});
+        let converted = to_anthropic_request(ClientDialect::AnthropicMessages, &body).unwrap();
+        assert_eq!(converted, body);
     }
 
     #[test]
@@ -1247,6 +1248,8 @@ impl SseComposer {
             ClientDialect::OpenAiResponses => self.push_responses(blocks),
         }
     }
+
+    pub fn has_content(&self) -> bool { !self.acc.is_empty() }
 
     pub fn finish(&mut self, r: &AssembledResponse, client_model: &str, include_usage: bool) -> Vec<String> {
         match self.d {
@@ -1604,26 +1607,49 @@ pub fn error_json(d: ClientDialect, msg: &str) -> (u16, serde_json::Value) {
             (st, um, ut)
         }
         (None, None) => {
-            let st = if cause.starts_with("upstream 403 on ") || cause.starts_with("upstream 403:") { 403 } else { 500 };
+            let st = if cause == "unauthorized" { 401 }
+                else if cause.starts_with("upstream 403 on ") || cause.starts_with("upstream 403:") { 403 }
+                else { 500 };
             (st, msg.to_string(), "api_error".to_string())
         }
     };
     let code = if is_context_overflow(&umsg) { "context_length_exceeded" } else { utype.as_str() };
-    let shaped = match d {
+    let anthropic_kind = match status {
+        400 | 422 => "invalid_request_error",
+        401 => "authentication_error",
+        403 => "permission_error",
+        404 => "not_found_error",
+        413 => "request_too_large",
+        429 => "rate_limit_error",
+        503 | 529 => "overloaded_error",
+        _ => "api_error",
+    };
+    let mut shaped = match d {
         ClientDialect::AnthropicMessages => json!({
             "type": "error",
-            "error": {"type": if is_context_overflow(&umsg) { "invalid_request_error" } else { utype.as_str() }, "message": umsg},
+            "error": {"type": if is_context_overflow(&umsg) { "invalid_request_error" } else { anthropic_kind }, "message": umsg},
         }),
         ClientDialect::OpenAiResponses | ClientDialect::OpenAiChat => json!({
             "error": {"message": umsg, "type": utype, "code": code},
         }),
     };
+    if (400..500).contains(&status) && !matches!(status, 408 | 409 | 429) {
+        shaped["error"]["retryable"] = json!(false);
+    }
     (status, shaped)
 }
 
 /// Item-driven Responses streams use ResponsesComposer::fail to retain order.
 pub fn error_frames(d: ClientDialect, msg: &str) -> Vec<String> {
-    let (_, shaped) = error_json(d, msg);
+    error_frames_with_replay(d, msg, true)
+}
+
+/// Once content is published, retrying the whole request could duplicate it.
+pub fn error_frames_with_replay(d: ClientDialect, msg: &str, replay_allowed: bool) -> Vec<String> {
+    let (_, mut shaped) = error_json(d, msg);
+    if !replay_allowed {
+        shaped["error"]["retryable"] = json!(false);
+    }
     match d {
         ClientDialect::AnthropicMessages => vec![sse("error", shaped)],
         ClientDialect::OpenAiResponses => vec![sse("response.failed", json!({

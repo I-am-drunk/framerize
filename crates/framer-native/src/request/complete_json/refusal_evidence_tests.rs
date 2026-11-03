@@ -48,13 +48,13 @@ fn structured_refusal_and_provider_override_remain_distinct() {
 }
 
 #[test]
-fn empty_or_ambiguous_bodies_are_explicitly_timing_only() {
+fn empty_or_ambiguous_bodies_remain_unattributed() {
     for body in ["", "unknown private response"] {
-        for (ms, policy) in [(250, Refusal::Castle), (1500, Refusal::Upstream)] {
+        for ms in [250, 1500] {
             let mut e = error(403, body);
             e.upstream.as_mut().unwrap().metadata.elapsed = Duration::from_millis(ms);
-            assert_eq!(observe(&e), Some(RefusalObservation { policy,
-                basis: RefusalBasis::ElapsedFallback }));
+            assert_eq!(observe(&e), Some(RefusalObservation { policy: Refusal::Upstream,
+                basis: RefusalBasis::Unattributed }));
         }
     }
 }

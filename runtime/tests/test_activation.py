@@ -76,7 +76,8 @@ class ActivationTests(unittest.TestCase):
         (root / 'bin/framerize').chmod(0o755)
         (root / 'build-info.json').write_text(json.dumps(dict(format=1,
             application='framerize', development=False, source_dirty=False,
-            build_profile='release', rate_history_schema=2, activation_protocol=1, platform='fixture')))
+            build_profile='release', rate_history_schema=2, activation_protocol=1, platform='fixture',
+            checkpoint_history=dict(read_versions=[1], write_version=1))))
         self.manifest(root)
         return root
 
@@ -89,6 +90,124 @@ class ActivationTests(unittest.TestCase):
     def activate(self):
         return activation.activate(self.new, self.installation, self.profiles,
                                    self.service, qualification=self.receipt)
+
+    def checkpoint_package(self, root, readers, writer):
+        path = root / 'build-info.json'
+        info = json.loads(path.read_text())
+        info['checkpoint_history'] = dict(read_versions=readers, write_version=writer)
+        path.write_text(json.dumps(info))
+        self.manifest(root)
+        if root == self.new:
+            self.qualification['manifest_sha256'] = release.sha256(root / 'manifest.json')
+            self.receipt.write_text(json.dumps(self.qualification))
+
+    def checkpoint_database(self, version):
+        path = self.profiles / '.checkpoints/history.sqlite3'
+        path.parent.mkdir(exist_ok=True)
+        with sqlite3.connect(path) as db:
+            db.execute('CREATE TABLE checkpoints (fingerprint TEXT PRIMARY KEY, layout TEXT)')
+            db.execute('INSERT INTO checkpoints VALUES (?, ?)',
+                       ('fixture', json.dumps(dict(version=version))))
+        return path
+
+    def test_checkpoint_upgrade_requires_a_compatible_rollback_reader(self):
+        self.checkpoint_package(self.new, [1, 2], 2)
+        with self.assertRaisesRegex(ValueError, 'checkpoint.*rollback'):
+            self.activate()
+        self.assertEqual(self.service.calls, [])
+        self.assertEqual(self.current.resolve(), self.old)
+
+    def test_checkpoint_reader_upgrade_keeps_old_writer_rollback_safe(self):
+        self.checkpoint_package(self.new, [1, 2], 1)
+        history = self.checkpoint_database(1)
+        before = history.read_bytes()
+        self.assertEqual(self.activate()['status'], 'activated')
+        self.assertEqual(history.read_bytes(), before)
+
+    def test_checkpoint_metadata_is_validated_before_service_actions(self):
+        for readers, writer in (([1, 2], 3), ([True], 1), ([1], True),
+                                ([1, 1], 1), ([2], 2), ([], 1), ('1', 1)):
+            with self.subTest(readers=readers, writer=writer):
+                self.checkpoint_package(self.new, readers, writer)
+                with self.assertRaisesRegex(ValueError, 'checkpoint history package metadata'):
+                    self.activate()
+                self.assertEqual(self.service.calls, [])
+
+    def test_checkpoint_candidate_must_declare_its_format(self):
+        path = self.new / 'build-info.json'
+        info = json.loads(path.read_text())
+        del info['checkpoint_history']
+        path.write_text(json.dumps(info))
+        self.manifest(self.new)
+        with self.assertRaisesRegex(ValueError, 'checkpoint history package metadata'):
+            self.activate()
+        self.assertEqual(self.service.calls, [])
+
+    def test_legacy_checkpoint_package_can_upgrade_to_a_compatible_reader(self):
+        path = self.old / 'build-info.json'
+        info = json.loads(path.read_text())
+        del info['checkpoint_history']
+        path.write_text(json.dumps(info))
+        self.manifest(self.old)
+        self.checkpoint_package(self.new, [1, 2], 1)
+        self.assertEqual(self.activate()['status'], 'activated')
+
+    def test_checkpoint_downgrade_rejects_a_reader_missing_the_old_writer(self):
+        self.checkpoint_package(self.old, [1, 2], 2)
+        with self.assertRaisesRegex(ValueError, 'checkpoint.*rollback'):
+            self.activate()
+        self.assertEqual(self.service.calls, [])
+
+    def test_invalid_stored_checkpoint_version_never_stops_the_service(self):
+        history = self.checkpoint_database(True)
+        before = history.read_bytes()
+        with self.assertRaisesRegex(ValueError, 'stored checkpoint version'):
+            self.activate()
+        self.assertEqual(self.service.calls, [])
+        self.assertEqual(history.read_bytes(), before)
+
+    def test_malformed_checkpoint_storage_never_stops_the_service(self):
+        history = self.checkpoint_database(1)
+        with sqlite3.connect(history) as db:
+            db.execute("UPDATE checkpoints SET layout='invalid json'")
+        before = history.read_bytes()
+        with self.assertRaisesRegex(ValueError, 'checkpoint history could not be inspected'):
+            self.activate()
+        self.assertEqual(self.service.calls, [])
+        self.assertEqual(history.read_bytes(), before)
+
+    def test_checkpoint_symlink_is_not_followed_during_activation(self):
+        target = self.root / 'unrelated'
+        target.mkdir()
+        (self.profiles / '.checkpoints').symlink_to(target, target_is_directory=True)
+        with self.assertRaisesRegex(ValueError, 'checkpoint history must not use symbolic links'):
+            self.activate()
+        self.assertEqual(self.service.calls, [])
+        self.assertEqual(list(target.iterdir()), [])
+
+    def test_existing_checkpoint_versions_must_be_readable_by_both_packages(self):
+        history = self.checkpoint_database(2)
+        before = history.read_bytes()
+        with self.assertRaisesRegex(ValueError, 'checkpoint.*version'):
+            self.activate()
+        self.assertEqual(self.service.calls, [])
+        self.assertEqual(history.read_bytes(), before)
+
+    def test_failed_activation_keeps_new_history_readable_on_rollback(self):
+        self.checkpoint_package(self.old, [1, 2], 1)
+        self.checkpoint_package(self.new, [1, 2], 2)
+        self.service.fail.add('new')
+        original = self.service.start
+        def start(package):
+            if package == self.new:
+                self.checkpoint_database(2)
+            original(package)
+        with patch.object(self.service, 'start', side_effect=start):
+            with self.assertRaisesRegex(RuntimeError, 'previous release restored'):
+                self.activate()
+        self.assertEqual(self.current.resolve(), self.old)
+        with sqlite3.connect(self.profiles / '.checkpoints/history.sqlite3') as db:
+            self.assertEqual(json.loads(db.execute('SELECT layout FROM checkpoints').fetchone()[0])['version'], 2)
 
     def test_success_switches_only_the_package_and_preserves_history(self):
         self.assertEqual(self.activate()['status'], 'activated')

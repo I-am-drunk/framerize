@@ -20,6 +20,7 @@ rusqlite = { version = "0.32", features = ["bundled"] }
 
 [features]
 test-support = []
+legacy-checkpoint-writes = []
 
 [dev-dependencies]
 framer-protocol = { path = "../framer-protocol", features = ["test-support"] }

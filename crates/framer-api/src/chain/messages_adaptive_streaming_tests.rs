@@ -92,7 +92,12 @@ fn adaptive_transport_loss_does_not_replay_with_a_smaller_allowance() {
         result: Err("fixture transport closed".into()) };
     let observed = run_with_payload(vec![reply], adaptive_config(),
         Vec::new(), adaptive_payload());
-    assert_eq!(observed.result.unwrap_err(), "fixture transport closed");
+    let error = observed.result.unwrap_err();
+    assert!(error.starts_with(framer_core::error::ADAPTIVE_INCOMPLETE_PREFIX));
+    assert!(error.contains("fixture transport closed"));
+    let (_, body) = framer_core::convert::error_json(
+        framer_core::convert::ClientDialect::AnthropicMessages, &error);
+    assert_eq!(body["error"]["retryable"], false);
     assert!(observed.emitted.is_empty());
     assert_eq!(observed.requests.len(), 1);
     assert_eq!(observed.refunds, 0);
@@ -108,7 +113,7 @@ fn free_adaptive_transport_failure_explains_the_allowance_and_cause() {
         vec![std::time::Duration::from_secs(61)], adaptive_payload());
     let error = observed.result.unwrap_err();
     assert!(error.starts_with(framer_core::error::ADAPTIVE_INCOMPLETE_PREFIX));
-    assert!(error.contains("64000 output tokens"));
+    assert!(error.contains("600 output tokens"));
     assert!(error.contains("61.0s"));
     assert!(error.contains("NetworkError"));
     assert!(error.contains("completion is unknown"));

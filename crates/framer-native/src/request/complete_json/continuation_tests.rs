@@ -26,7 +26,8 @@ fn continuation_keeps_a_later_refusal_terminal_and_private() {
     let c = case(FreeRoute::Responses);
     let mut denied = Reply::json(json!({"error":{"status":403,
         "message":"This request was blocked by our security checks",
-        "data":{"reason":"request_blocked"}, "ref":"private-marker"}}));
+        "data":{"reason":"request_blocked"}, "ref":"private-marker",
+        "timestamp":"2026-11-03T00:00:00Z"}}));
     denied.status = 403;
     let server = Server::new(vec![expected(c.path, c.initial, 0, Reply::json(c.first)),
         expected(c.path, c.next, 1, denied)]);

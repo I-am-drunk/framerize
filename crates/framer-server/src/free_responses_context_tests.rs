@@ -38,9 +38,11 @@ async fn rejects_before_ports(stream: bool) {
             let response = request(f.state.clone(), RESPONSES, false,
                 payload(Some(reference), stream)).await;
             assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+            assert_eq!(response.headers()["x-should-retry"], "false");
             let bytes = to_bytes(response.into_body(), 4096).await.unwrap();
             assert_eq!(serde_json::from_slice::<Value>(&bytes).unwrap(),
-                json!({"error":{"code":"invalid_request","message":ERROR}}));
+                json!({"type":"error", "error":{"type":"invalid_request_error",
+                    "code":"invalid_request","message":ERROR}}));
             assert_eq!(state.0.load(Ordering::SeqCst), 0, "account selection started");
             assert!(f.loads.try_recv().is_err(), "session loaded");
             f.no_call();

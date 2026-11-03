@@ -225,8 +225,7 @@ async fn attempt(
     // Imported accounts have an empty browser cookie jar — seed the session.
     browser.seed_session(account, &session.cookie_header).await?;
     check_cancelled(cancelled)?;
-    // Timed because latency is the tiebreaker when a 403 body says nothing:
-    // Framer's edge refuses without proxying (~250ms), the upstream cannot.
+    // Keep elapsed metadata; refusal policy depends on the response body.
     let sent_at = std::time::Instant::now();
     let (status, usage_header, text) = browser
         .ai_post_cancellable(account, dialect.path(), &token.bearer, &body, cancelled)

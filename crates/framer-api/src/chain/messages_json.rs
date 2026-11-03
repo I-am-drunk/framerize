@@ -8,22 +8,33 @@ fn nonempty_text(value: &Value) -> bool {
     value.as_str().is_some_and(|text| !text.trim().is_empty())
 }
 
+pub(super) fn upstream_error(body: &Value) -> String {
+    let error = body.get("error").filter(|value| value.is_object()).unwrap_or(body);
+    let kind = error["type"].as_str().unwrap_or("api_error");
+    let status = error.get("status").or_else(|| error.get("code"))
+        .and_then(Value::as_u64).filter(|value| (400..600).contains(value))
+        .unwrap_or(match kind {
+            "invalid_request_error" => 400, "authentication_error" => 401,
+            "permission_error" => 403, "not_found_error" => 404,
+            "request_too_large" => 413, "rate_limit_error" => 429,
+            "overloaded_error" => 529, _ => 500,
+        });
+    let message = error["message"].as_str()
+        .unwrap_or("upstream error omitted its message");
+    let mut fields = json!({"type":kind,
+        "message":framer_core::error::safe_failure_summary(message)});
+    if let Some(code) = error.get("code").filter(|value| value.is_string() || value.is_number()) {
+        fields["code"] = code.clone();
+    }
+    format!("upstream {status} on /ai/v3/messages/: {}", json!({"error":fields}))
+}
+
 pub(super) fn decode(body: &Value) -> Result<(Vec<Value>, String, Value), String> {
     if !body.is_object() {
         return Err("Messages response is not an object".into());
     }
     if body["type"] == "error" || body.get("error").is_some_and(|error| !error.is_null()) {
-        let error = body.get("error").filter(|error| !error.is_null()).unwrap_or(body);
-        let fields: Map<String, Value> = ["type", "code", "message"].into_iter()
-            .filter_map(|key| error.get(key)
-                .filter(|value| value.is_string() || value.is_number())
-                .map(|value| (key.to_owned(), value.clone()))).collect();
-        let cause = if fields.is_empty() {
-            "error response omitted its type, code and message".into()
-        } else {
-            framer_core::error::safe_failure_summary(&Value::Object(fields).to_string())
-        };
-        return Err(format!("Messages response reported an upstream error: {cause}"));
+        return Err(upstream_error(body));
     }
     validate_message_metadata(body)?;
     let blocks = body["content"].as_array().ok_or("Messages response has no content array")?;

@@ -196,7 +196,6 @@ async fn local_preflight_refusals_keep_original_response_and_release_ownership()
         (ROUTES[0], r#"{"model":"gpt-4o","messages":[]}"#, UNAVAILABLE),
         (ROUTES[1], r#"{"model":"gpt-4o","input":"fixture"}"#, UNAVAILABLE),
         (ROUTES[2], r#"{"model":"gpt-4o","messages":[]}"#, UNAVAILABLE),
-        (ROUTES[0], r#"{"model":"claude-opus-5-5"}"#, "messages is required"),
         (ROUTES[2], r#"{"model":"gpt-6-astra","n":2,"messages":[{"role":"user","content":"fixture"}]}"#,
             "n != 1 is not supported on this gateway"),
         (ROUTES[2], r#"{"model":"gpt-6-astra"}"#, "messages is required"),
@@ -239,6 +238,34 @@ async fn local_preflight_refusals_keep_original_response_and_release_ownership()
             assert_pristine(&mut f, &before).await;
             subsequent_admission(&mut f, app, route).await;
         }
+    }
+}
+
+#[tokio::test]
+async fn invalid_native_messages_fail_before_account_work_with_http_400() {
+    let cases = [
+        (r#"{"model":"claude-sonnet-5-5"}"#, "messages is required"),
+        (r#"{"model":"claude-haiku-4-5","messages":[],"thinking":{"type":"enabled","budget_tokens":1}}"#,
+            "invalid enabled thinking budget"),
+        (r#"{"model":"claude-sonnet-4-5","messages":[],"max_tokens":1024,"thinking":{"type":"enabled","budget_tokens":1024}}"#,
+            "max_tokens must exceed thinking.budget_tokens"),
+    ];
+    for (payload, message) in cases {
+        let mut f = fixture::Fixture::new();
+        f.state = with_owned_operations(f.state, 32).unwrap();
+        let ownership = f.state.operation_ownership.clone().unwrap();
+        let before = serde_json::to_value(f.state.state.list().await.unwrap()).unwrap();
+        let app = crate::router(f.state.clone(), "/nonexistent-fixture-web");
+        let response = app.clone().oneshot(route_request(ROUTES[0], &f,
+            Body::from(payload), true)).await.unwrap();
+        assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+        let body: Value = serde_json::from_slice(&to_bytes(response.into_body(), 65536)
+            .await.unwrap()).unwrap();
+        assert_eq!(body["error"]["code"], "invalid_request");
+        assert!(body["error"]["message"].as_str().unwrap().starts_with(message));
+        finish_application_drain(&ownership, ownership.seal().unwrap()).await;
+        assert_pristine(&mut f, &before).await;
+        subsequent_admission(&mut f, app, ROUTES[0]).await;
     }
 }
 

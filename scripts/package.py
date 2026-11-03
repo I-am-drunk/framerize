@@ -75,11 +75,13 @@ def package(app, output, target_dir, allow_dirty=False, worker_bundle=None):
     if profile != 'release' and not allow_dirty:
         raise ValueError('use a release build, or --allow-dirty for a local development package')
     system = f'{platform.system().lower()}-{platform.machine()}'
-    name = f'{app}-{system}-{commit}' + ('-development' if development else '')
     binary = target_dir / app
     if not binary.is_file():
         raise ValueError(f'build the {app} target first: {binary}')
     identity = identify(ROOT, app, binary, commit, dirty) if app == "framerize" else {}
+    variant = identity.get('build_variant', 'default')
+    suffix = '' if variant == 'default' else '-' + variant
+    name = f'{app}-{system}-{commit}' + suffix + ('-development' if development else '')
     output.mkdir(parents=True, exist_ok=True)
     archive = output / f'{name}.tar.gz'
     with tempfile.TemporaryDirectory() as temporary:

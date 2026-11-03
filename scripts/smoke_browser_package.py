@@ -70,6 +70,12 @@ def main(archive):
     assert info['application'] == 'framerize'
     assert info['capability'] == 'browser-serving' and not info['source_dirty']
     assert info['rate_history_schema'] == 2 and info['activation_protocol'] == 1
+    from release_checkpoint_history import formats
+    readers, writer = formats(info)
+    assert readers == {1, 2} and writer in (1, 2)
+    actual = json.loads(subprocess.check_output(
+        [str(release / 'bin/framerize'), 'checkpoint-history'], text=True, timeout=10))
+    assert actual == info['checkpoint_history'], 'binary checkpoint capabilities differ from package'
     assert not (release / 'runtime/framerize_native').exists()
     assert (release / 'share/systemd/user/framerize.service').is_file()
     env = {'PATH': os.defpath, 'HOME': str(root), 'FRAMERIZE_PYTHON': sys.executable,

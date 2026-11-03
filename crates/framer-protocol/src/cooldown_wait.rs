@@ -98,13 +98,48 @@ mod tests {
             assert_eq!(started.elapsed(), Duration::ZERO);
         }
     }
+
+    #[tokio::test(start_paused = true)]
+    async fn guarded_waits_include_global_pauses_and_stop_at_the_total_bound() {
+        let mut wait = CooldownWait::default();
+        let active = crate::active_budget::ActiveBudget::new(&wait);
+        let calls = AtomicUsize::new(0);
+        let result: Result<(), String> = wait.run_guarded(&ChainConfig::default(), &active, 0, || async {
+            let call = calls.fetch_add(1, Ordering::SeqCst);
+            Err(match call {
+                0 => "server-cooling:300", 1 => "account-cooling:300", _ => "account-cooling:1",
+            }.into())
+        }).await;
+        assert_eq!(result.unwrap_err(), "account-cooling:1");
+        assert_eq!(calls.load(Ordering::SeqCst), 3);
+        assert_eq!(wait.spent, Duration::from_secs(600));
+        assert!(active.check(&wait, 0, None).is_ok());
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn guarded_wait_cannot_reset_an_admission_budget() {
+        let mut wait = CooldownWait::with_limit(Duration::from_secs(5));
+        let active = crate::active_budget::ActiveBudget::new(&wait);
+        let calls = AtomicUsize::new(0);
+        let result: Result<(), String> = wait.run_guarded(&ChainConfig::default(), &active, 0, || async {
+            calls.fetch_add(1, Ordering::SeqCst);
+            Err("account-cooling:3".into())
+        }).await;
+        assert_eq!(result.unwrap_err(), "account-cooling:3");
+        assert_eq!(calls.load(Ordering::SeqCst), 2);
+        assert_eq!(wait.spent, Duration::from_secs(3));
+    }
 }
 
 /// Preserve a partly delivered generation across a local capacity wait.
-/// At most ten minutes of waiting is allowed across the entire chain.
-#[derive(Default)]
+/// The default ten-minute budget can be replaced with remaining admission time.
 pub struct CooldownWait {
     spent: Duration,
+    limit: Duration,
+}
+
+impl Default for CooldownWait {
+    fn default() -> Self { Self::with_limit(Duration::from_secs(600)) }
 }
 
 #[derive(Clone, Copy)]
@@ -114,6 +149,8 @@ pub struct Timer {
 }
 
 impl CooldownWait {
+    pub fn with_limit(limit: Duration) -> Self { Self { spent: Duration::ZERO, limit } }
+
     async fn wait(&mut self, cfg: &(impl ChainControl + ?Sized), duration: Duration) -> Result<(), String> {
         let started = Instant::now();
         let deadline = started + duration;
@@ -141,38 +178,56 @@ impl CooldownWait {
     pub async fn run<T, F, Fut>(&mut self, cfg: &(impl ChainControl + ?Sized),
         has_output: bool, attempt: F) -> Result<T, String>
     where F: FnMut() -> Fut, Fut: Future<Output = Result<T, String>> {
-        self.run_inner(cfg, has_output, None, attempt).await
+        self.run_inner(cfg, has_output, false, None, attempt).await
     }
 
     pub async fn run_budgeted<T, F, Fut>(&mut self, cfg: &(impl ChainControl + ?Sized),
         has_output: bool, budget: &crate::active_budget::ActiveBudget,
         chunks: u32, attempt: F) -> Result<T, String>
     where F: FnMut() -> Fut, Fut: Future<Output = Result<T, String>> {
-        self.run_inner(cfg, has_output, Some((budget, chunks)), attempt).await
+        self.run_inner(cfg, has_output, false, Some((budget, chunks)), attempt).await
+    }
+
+    /// A guarded request can wait before its first chunk and through renewed
+    /// local cooldowns. All waits consume the configured cumulative budget.
+    pub async fn run_guarded<T, F, Fut>(&mut self, cfg: &(impl ChainControl + ?Sized),
+        budget: &crate::active_budget::ActiveBudget, chunks: u32, attempt: F)
+        -> Result<T, String>
+    where F: FnMut() -> Fut, Fut: Future<Output = Result<T, String>> {
+        self.run_inner(cfg, true, true, Some((budget, chunks)), attempt).await
     }
 
     async fn run_inner<T, F, Fut>(&mut self, cfg: &(impl ChainControl + ?Sized),
-        has_output: bool, budget: Option<(&crate::active_budget::ActiveBudget, u32)>,
+        has_output: bool, repeat: bool, budget: Option<(&crate::active_budget::ActiveBudget, u32)>,
         mut attempt: F) -> Result<T, String>
     where F: FnMut() -> Fut, Fut: Future<Output = Result<T, String>> {
-        cfg.check_cancelled()?;
-        if let Some((budget, chunks)) = budget { budget.check(self, chunks, None)?; }
-        let error = match attempt().await {
-            Ok(value) => return Ok(value),
-            Err(error) => error,
-        };
-        let Some(cooldown) = AccountCooldown::from_error(&error).filter(|_| has_output) else {
-            return Err(error);
-        };
-        let wait = Duration::from_secs(cooldown.retry_after_secs.max(1));
-        if wait > Duration::from_secs(600).saturating_sub(self.spent) {
-            return Err(error);
+        let mut retried = false;
+        loop {
+            cfg.check_cancelled()?;
+            if let Some((budget, chunks)) = budget { budget.check(self, chunks, None)?; }
+            let error = match attempt().await {
+                Ok(value) => return Ok(value),
+                Err(error) => error,
+            };
+            let seconds = AccountCooldown::from_error(&error).map(|c| c.retry_after_secs)
+                .or_else(|| if repeat {
+                    crate::error::chain_error_cause(&error).strip_prefix("server-cooling:")
+                        .filter(|s| !s.is_empty() && s.bytes().all(|b| b.is_ascii_digit()))
+                        .and_then(|s| s.parse::<u64>().ok())
+                } else { None });
+            let Some(seconds) = seconds.filter(|_| has_output && (!retried || repeat)) else {
+                return Err(error);
+            };
+            let wait = Duration::from_secs(seconds.max(1));
+            if wait > self.limit.saturating_sub(self.spent) {
+                return Err(error);
+            }
+            if let Some((budget, chunks)) = budget { budget.check(self, chunks, Some(&error))?; }
+            self.wait(cfg, wait).await?;
+            // The caller retains identical input across each acknowledged refusal.
+            cfg.check_cancelled()?;
+            if let Some((budget, chunks)) = budget { budget.check(self, chunks, Some(&error))?; }
+            retried = true;
         }
-        if let Some((budget, chunks)) = budget { budget.check(self, chunks, Some(&error))?; }
-        self.wait(cfg, wait).await?;
-        // Only the locally refused attempt is retried, once, with the same input.
-        cfg.check_cancelled()?;
-        if let Some((budget, chunks)) = budget { budget.check(self, chunks, Some(&error))?; }
-        attempt().await
     }
 }

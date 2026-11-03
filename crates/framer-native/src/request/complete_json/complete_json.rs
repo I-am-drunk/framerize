@@ -410,7 +410,7 @@ impl Plan {
             chunk_tokens: token_limit, max_chunks: max_attempts as u32,
             continue_prompt: contract.continuation.as_ref().map_or_else(String::new, |v| v.prompt.clone()),
             max_total_tokens: Some(contract.continuation.as_ref().map_or(token_limit, |v| v.max_output_tokens)),
-            metered_fallback: false, on_429: None, cancelled: None,
+            metered_fallback: false, on_429: None, cancelled: None, admission: None,
         };
         let run = super::execution::execute(super::execution::Execution {
             client: native, scope: contract.scope.clone(), identity: contract.identity.clone(),

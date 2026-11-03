@@ -223,7 +223,23 @@ fn assert_initial_refusal(body: &[u8], mode: RepickClose) {
         "message":message,"retry_after_seconds":1}}));
 }
 
+fn assert_initial_stream_refusal(body: &[u8], mode: RepickClose) {
+    let wire = std::str::from_utf8(body).unwrap();
+    let errors: Vec<Value> = wire.lines().filter_map(|line| line.strip_prefix("data: "))
+        .map(|json| serde_json::from_str::<Value>(json).unwrap())
+        .filter(|value| value["type"] == "error").collect();
+    assert_eq!(errors.len(), 1);
+    assert!(!wire.contains("event: message_stop"));
+    let cause = match mode {
+        RepickClose::Error => "fixture close failure",
+        RepickClose::Unconfirmed => "browser close returned Unconfirmed",
+        RepickClose::BeforeCloseBusy => "account browser is still busy or its identity changed",
+    };
+    assert!(errors[0]["error"]["message"].as_str().unwrap().contains(cause));
+}
+
 async fn initial_admission_case(mode: RepickClose, route: Route, stream: bool, consume: bool) {
+    let deferred = stream && matches!(route, Route::Free);
     let (mut state, ports) = fixture(1, 2);
     activated(&state, 1).await;
     let before = records(&ports);
@@ -250,7 +266,7 @@ async fn initial_admission_case(mode: RepickClose, route: Route, stream: bool, c
         let resident = slot(&state, id(1));
         assert!(resident.close_started);
         assert_eq!(resident.replacement, Some(id(2)));
-        assert!(!task.is_finished());
+        if !deferred { assert!(!task.is_finished()); }
         assert!(gate.stats().unwrap().active > 1);
         assert_no_initial_inference(&ports);
         assert_eq!(*ports.mint_routes.lock().unwrap(), initial_mints);
@@ -258,15 +274,22 @@ async fn initial_admission_case(mode: RepickClose, route: Route, stream: bool, c
     }
     let response = tokio::time::timeout(Duration::from_secs(2), task)
         .await.unwrap().unwrap().unwrap();
-    assert_eq!(response.status(), StatusCode::SERVICE_UNAVAILABLE,
-        "{mode:?} {route:?} stream={stream} consume={consume}");
-    assert_eq!(response.headers()["retry-after"], "1");
-    assert_eq!(response.headers()["content-type"], "application/json");
+    if deferred {
+        assert_eq!(response.status(), StatusCode::OK);
+        assert_eq!(response.headers()["content-type"], "text/event-stream");
+        until(|| ports.events.lock().unwrap().len() >= 3).await;
+    } else {
+        assert_eq!(response.status(), StatusCode::SERVICE_UNAVAILABLE,
+            "{mode:?} {route:?} stream={stream} consume={consume}");
+        assert_eq!(response.headers()["retry-after"], "1");
+        assert_eq!(response.headers()["content-type"], "application/json");
+    }
     assert!(!response.body().is_end_stream(), "exercise an unread refusal body");
     if consume {
         let body = tokio::time::timeout(Duration::from_secs(2),
             to_bytes(response.into_body(), 4096)).await.unwrap().unwrap();
-        assert_initial_refusal(&body, mode);
+        if deferred { assert_initial_stream_refusal(&body, mode); }
+        else { assert_initial_refusal(&body, mode); }
     } else { drop(response); }
     until(|| gate.stats().unwrap().active == 1).await;
     assert_eq!(gate.stats().unwrap().unconfirmed, uncertain,

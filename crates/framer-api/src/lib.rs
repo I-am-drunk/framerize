@@ -53,6 +53,12 @@ use transport::Transport;
 mod authorization;
 pub use authorization::SessionAuthorization;
 
+/// Executable capabilities for package and rollback compatibility checks.
+pub fn checkpoint_history_capabilities() -> serde_json::Value {
+    serde_json::json!({"read_versions":[1, 2],
+        "write_version":chain::messages_history::WRITE_VERSION})
+}
+
 #[cfg(any(test, feature = "test-support"))]
 pub mod authorization_fixture;
 

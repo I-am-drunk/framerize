@@ -38,6 +38,11 @@ fn check_chain(native: bool) {
                     json!({"model":"claude-sonnet-4","messages":[{"role":"user","content":"fixture"}]}),
                     &config, "fixture-chat", None).await.map(|_| ())
             };
+            if !native && first_transport_error {
+                assert!(result.unwrap_err().starts_with(framer_core::error::ADAPTIVE_INCOMPLETE_PREFIX));
+                assert_eq!(browser.calls.load(Ordering::SeqCst), 1);
+                continue;
+            }
             assert_eq!(result.unwrap_err(), "account-cooling:584; every device is cooling");
             assert_eq!(browser.calls.load(Ordering::SeqCst), if first_transport_error { 2 } else { 1 });
         }
@@ -76,7 +81,7 @@ impl Scenario {
         if call == refused {
             return Ok((0, None, "velocity-paused: every device is cooling; retry in 599s".into()));
         }
-        if self.terminal_risk && call == refused + 1 { return Ok((403, None, String::new())); }
+        if self.terminal_risk && call == refused + 1 { return Ok((403, None, "Forbidden".into())); }
         let chunk = if call == 0 { 0 } else { call - refused };
         let text = ["first", "second", "third"][chunk];
         let last = chunk == 2;
@@ -133,6 +138,12 @@ async fn midstream_cooldown_preserves_both_dialects_and_failure_classification()
                         json!({"model":"claude-sonnet-4","messages":[{"role":"user","content":"fixture"}]}),
                         &config, "fixture-chat", Some(&callback)).await.map(|r| (r.chunks, r.output_tokens))
                 };
+                if !responses && transport_retry {
+                    assert!(result.unwrap_err().starts_with(framer_core::error::ADAPTIVE_INCOMPLETE_PREFIX));
+                    assert_eq!(*events.lock().unwrap(), "first");
+                    assert_eq!(browser.calls.load(Ordering::SeqCst), 2);
+                    continue;
+                }
                 if terminal_risk { assert!(result.unwrap_err().contains("risk-refused")); }
                 else { assert_eq!(result.unwrap(), (3, 300)); }
                 assert_eq!(*events.lock().unwrap(), if terminal_risk { "first" } else { "firstsecondthird" });

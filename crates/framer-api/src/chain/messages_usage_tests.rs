@@ -41,15 +41,15 @@ fn buffered_usage_above_u32_exhausts_the_client_budget() {
 }
 
 #[test]
-fn transport_fallback_usage_above_u32_exhausts_the_client_budget() {
+fn opted_stream_usage_above_u32_exhausts_the_client_budget() {
     let count = u64::from(u32::MAX) + 2;
-    let observed = run_with_config(vec![failed_request(), failed_request(),
+    let observed = run_opted_config(vec![
         usage_stream(text("answer"), "max_tokens", count)], config(2, Some(256)));
     let response = observed.result.unwrap();
     assert_eq!(response.output_tokens, count);
     assert_eq!(response.stop_reason, "max_tokens");
     assert_eq!(observed.emitted, vec![text("answer")]);
-    assert_eq!(observed.requests.len(), 3);
+    assert_eq!(observed.requests.len(), 1);
     assert_eq!(observed.refunds, 0);
 }
 
@@ -57,13 +57,12 @@ fn transport_fallback_usage_above_u32_exhausts_the_client_budget() {
 fn tool_fallback_usage_above_u32_exhausts_the_client_budget() {
     let count = u64::from(u32::MAX) + 2;
     let observed = run_with_config(vec![buffered(tool(), "max_tokens"),
-        buffered(tool(), "max_tokens"), buffered(tool(), "max_tokens"),
         usage_stream(text("answer"), "max_tokens", count)], config(4, Some(256)));
     let response = observed.result.unwrap();
-    assert_eq!(response.output_tokens, count);
+    assert_eq!(response.output_tokens, count + 80);
     assert_eq!(response.stop_reason, "max_tokens");
     assert_eq!(observed.emitted, vec![text("answer")]);
-    assert_eq!(observed.requests.len(), 4);
+    assert_eq!(observed.requests.len(), 2);
     assert_eq!(observed.refunds, 0);
 }
 
@@ -78,40 +77,32 @@ fn buffered_usage_overflow_fails_before_new_content_is_published() {
 }
 
 #[test]
-fn transport_fallback_usage_overflow_keeps_only_the_published_prefix() {
-    let observed = run_with_config(vec![usage_reply(text("prefix"), "max_tokens", u64::MAX - 1),
-        failed_request(), failed_request(), usage_stream(text("suffix"), "end_turn", 2)],
+fn opted_stream_usage_overflow_keeps_only_the_published_prefix() {
+    let observed = run_opted_config(vec![usage_stream(text("prefix"), "max_tokens", u64::MAX - 1),
+        usage_stream(text("suffix"), "end_turn", 2)],
         config(2, None));
     assert!(observed.result.unwrap_err().contains("usage overflow"));
     assert_eq!(observed.emitted, vec![text("prefix")]);
-    assert_eq!(observed.requests.len(), 4);
+    assert_eq!(observed.requests.len(), 2);
     assert_eq!(observed.refunds, 0);
 }
 
 #[test]
-fn tool_fallback_usage_overflow_keeps_only_the_published_prefix() {
+fn truncated_tool_usage_overflow_keeps_only_the_published_prefix() {
     let observed = run_with_config(vec![usage_reply(text("prefix"), "max_tokens", u64::MAX - 1),
-        buffered(tool(), "max_tokens"), buffered(tool(), "max_tokens"),
-        buffered(tool(), "max_tokens"), usage_stream(tool(), "tool_use", 2)], config(4, None));
+        buffered(tool(), "max_tokens")], config(4, None));
     assert!(observed.result.unwrap_err().contains("usage overflow"));
     assert_eq!(observed.emitted, vec![text("prefix")]);
-    assert_eq!(observed.requests.len(), 5);
+    assert_eq!(observed.requests.len(), 2);
     assert_eq!(observed.refunds, 0);
 }
 
 #[test]
-fn discarded_tool_usage_cannot_overflow_delivered_output() {
+fn discarded_tool_usage_is_counted_and_cannot_overflow_the_total() {
     let observed = run_with_config(vec![usage_reply(text("prefix"), "max_tokens", u64::MAX - 3),
-        usage_reply(tool(), "max_tokens", u64::MAX),
-        usage_reply(tool(), "max_tokens", u64::MAX),
-        usage_reply(tool(), "max_tokens", u64::MAX),
-        usage_stream(tool(), "tool_use", 2)], config(4, None));
-    let response = observed.result.unwrap();
-    assert_eq!(response.output_tokens, u64::MAX - 1);
-    assert_eq!(response.content, vec![text("prefix"), tool()]);
-    assert_eq!(observed.emitted, response.content);
-    assert_eq!(response.stop_reason, "tool_use");
-    assert_eq!((response.chunks, response.metered_chunks), (4, 1));
-    assert_eq!(observed.requests.len(), 5);
+        usage_reply(tool(), "max_tokens", u64::MAX)], config(4, None));
+    assert!(observed.result.unwrap_err().contains("usage overflow"));
+    assert_eq!(observed.emitted, vec![text("prefix")]);
+    assert_eq!(observed.requests.len(), 2);
     assert_eq!(observed.refunds, 0);
 }

@@ -82,7 +82,7 @@ pub async fn complete_long_native(
             || !text_only || cfg.continue_prompt.is_empty() {
             break;
         }
-        push_continuation(&mut messages, &chunk_blocks, cfg);
+        push_continuation(&mut messages, &chunk_blocks, &cfg.continue_prompt);
     }
     last_usage["output_tokens"] = json!(ctok);
     last_usage["input_tokens"] = json!(ptok);
