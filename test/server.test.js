@@ -25,6 +25,10 @@ test('health and unknown routes do not call upstream', async (t) => {
   assert.equal((await fetch(`${base}/health`)).status, 200);
   assert.equal((await fetch(`${base}/missing`)).status, 404);
   assert.equal(calls, 0);
+  const accounts = await fixture(t, () => {}, [{ id: 'one', model: 'gpt-test', authorizationEnv: 'TEST_JWT' }]);
+  const response = await fetch(`${accounts}/v1/accounts`);
+  assert.deepEqual(await response.json(), { accounts: [{ id: 'one', model: 'gpt-test',
+    credential: 'environment' }] });
 });
 
 test('responses proxy preserves SSE and strips caller credentials', async (t) => {
