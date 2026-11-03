@@ -197,7 +197,7 @@ class DevicePreparationTests(unittest.IsolatedAsyncioTestCase):
         self.assertFalse(acc.lifecycle.rates.state["pending_mint"])
         self.assert_idle(acc)
 
-    async def test_cancelled_warm_keeps_the_device_owned_until_raw_result(self):
+    async def test_cancelled_warm_closes_context_and_retains_pending_ownership(self):
         acc = self.account()
         context = acc.browser.next_context
         warming = self.block_method(context.page.evaluate, "fixture-token")
@@ -213,11 +213,13 @@ class DevicePreparationTests(unittest.IsolatedAsyncioTestCase):
         with self.assertRaises(asyncio.CancelledError):
             await asyncio.wait_for(request, 1)
         device = await asyncio.wait_for(waiting, 1)
-        self.assertIs(device.ctx, context)
+        self.assertIsNot(device.ctx, context)
+        self.assertEqual(device.id, "device-a")
+        self.assertTrue(context.closed)
         self.assertTrue(device.warm)
-        self.assertEqual(context.page.evaluate.await_count, 2)
-        acc.browser.new_context.assert_awaited_once_with()
-        self.assertEqual(context.disposal.calls, 0)
+        self.assertEqual(context.page.evaluate.await_count, 1)
+        self.assertEqual(acc.browser.new_context.await_count, 2)
+        self.assertEqual(context.disposal.calls, 1)
         self.assert_idle(acc)
 
     async def test_closed_page_cleanup_stays_owned_through_cancellation(self):

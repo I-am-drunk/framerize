@@ -33,6 +33,7 @@ from .browser.network_failure import NetworkFailure
 _MINT_CALLS = ContextVar('framerize_mint_calls', default=None)
 IDLE_CLOSE_TIMEOUT_S = 10
 SHUTDOWN_CLOSE_TIMEOUT_S = 60
+SDK_WARMUP_TIMEOUT_S = 120
 
 class Host:
     def __init__(self, rate_journal=None):
@@ -97,6 +98,15 @@ class Host:
             task.add_done_callback(owned.discard)
         # Cancellation stops the waiter; the raw RPC keeps its account owner.
         return await asyncio.shield(task)
+
+    async def _warm_page(self, account, page):
+        try:
+            return await asyncio.wait_for(
+                self._rpc(account, page.evaluate, WARM_JS), SDK_WARMUP_TIMEOUT_S)
+        except asyncio.TimeoutError as error:
+            raise RuntimeError(
+                f"Castle SDK warmup timed out after {SDK_WARMUP_TIMEOUT_S:g}s; "
+                "the inference request was not sent") from error
 
     def _check_proxy_revision(self, req):
         account = req.get("account", "")
@@ -742,7 +752,7 @@ class Host:
             try:
                 await self._rpc(account, page.goto, LOGIN_URL, wait_until="domcontentloaded", timeout=60000)
                 await self._rpc(account, page.wait_for_timeout, 800)
-                await self._rpc(account, page.evaluate, WARM_JS)
+                await self._warm_page(account, page)
                 if acc.devices:
                     try:
                         await self._rpc(account, page.evaluate, DEVPOOL_WARM_JS.replace('%s', json.dumps(acc.devices)))
@@ -786,16 +796,19 @@ class Host:
         if d.page is not None and d.warm:
             return d
         async with self._allocation(64 * 1024**2), page_use(account):
+            async def close_prepared_context():
+                ctx = d.ctx
+                if ctx is None:
+                    return
+                await self._rpc(account, ctx.close)
+                if (not acc.browser.is_connected() or ctx in acc.browser.contexts
+                        or (d.page is not None and not d.page.is_closed())):
+                    raise RuntimeError("device context close is unconfirmed")
             if d.page is None:
                 ctx = await create_device_context(acc,
                     lambda: self._rpc(account, acc.browser.new_context),
                     lambda created: self._rpc(account, created.close))
                 d.ctx = ctx
-                async def close_prepared_context():
-                    await self._rpc(account, ctx.close)
-                    if (not acc.browser.is_connected() or ctx in acc.browser.contexts
-                            or (d.page is not None and not d.page.is_closed())):
-                        raise RuntimeError("device context close is unconfirmed")
                 try:
                     await self._rpc(account, ctx.add_init_script,
                         f"try {{ localStorage.setItem('__cuid', {json.dumps(dev)}); }} catch(e) {{}}"
@@ -831,10 +844,21 @@ class Host:
                 trace(f"{account[:8]}: device {dev[:8]} context ready (isolated, pre-seeded)")
             if not d.warm:
                 try:
-                    await self._rpc(account, d.page.evaluate, WARM_JS)
+                    await self._warm_page(account, d.page)
                     d.warm = True
-                except Exception as e:
+                except BaseException as e:
+                    cancelled = await close_cancelled_device_context(acc,
+                        close_prepared_context, reason="device-warmup-close-failed")
+                    if not acc.closing:
+                        d.ctx, d.page, d.warm = None, None, False
+                    if cancelled is not None:
+                        raise cancelled
+                    if isinstance(e, asyncio.CancelledError):
+                        raise
+                    if acc.closing:
+                        raise RuntimeError(acc.lifecycle.cleanup_error()) from e
                     trace(f"{account[:8]}: device {dev[:8]} warm failed ({error_cause(e)})")
+                    raise
         return d
 
     def _pick_device_sticky(self, acc):
@@ -1125,13 +1149,14 @@ class Host:
         trace(f"{account[:8]}: warming castle wrapper (one v3-race ~6s, latches v3-off)")
         t0 = time.monotonic()
         try:
-            warm_ok = await self._rpc(account, page.evaluate, WARM_JS)
+            warm_ok = await self._warm_page(account, page)
             emit("castle.warm", account=account[:8], token_available=bool(warm_ok),
                  duration_ms=int((time.monotonic()-t0)*1000), outcome="ok")
             trace(f"{account[:8]}: castle wrapper warmup returned usable token: {bool(warm_ok)}")
         except Exception as e:
             emit("castle.warm", account=account[:8], outcome="error", cause=error_cause(e))
             trace(f"{account[:8]}: castle warm failed ({error_cause(e)})")
+            raise
         if self._memory_browser:
             cache = await self._rpc(account, asyncio.to_thread,
                                     release_font_cache, self._memory_browser)

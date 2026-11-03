@@ -244,20 +244,23 @@ class DeviceContextCreationTests(unittest.IsolatedAsyncioTestCase):
                 context.page.evaluate.assert_not_awaited()
                 self.assert_idle(acc)
 
-    async def test_warm_failure_retries_on_the_same_published_context(self):
+    async def test_warm_failure_closes_context_without_replacing_device_identity(self):
         acc = self.account()
         context = acc.browser.next_context
         context.page.evaluate.side_effect = RuntimeError("fixture warm failure")
-        device = await asyncio.wait_for(self.command(), 1)
-        self.assertIs(device.ctx, context)
+        with self.assertRaisesRegex(RuntimeError, "fixture warm failure"):
+            await asyncio.wait_for(self.command(), 1)
+        device = acc.dev_objs["device-a"]
+        self.assertIsNone(device.ctx)
         self.assertFalse(device.warm)
-        context.page.evaluate.side_effect = None
         self.assertIs(await asyncio.wait_for(self.command(), 1), device)
+        self.assertEqual(device.id, "device-a")
+        self.assertIsNot(device.ctx, context)
+        self.assertTrue(context.closed)
         self.assertTrue(device.warm)
-        acc.browser.new_context.assert_awaited_once_with()
-        self.assertEqual(context.page.evaluate.await_args_list,
-                         [call(self.module.WARM_JS), call(self.module.WARM_JS)])
-        self.assertEqual(context.disposal.calls, 0)
+        self.assertEqual(acc.browser.new_context.await_count, 2)
+        context.page.evaluate.assert_awaited_once_with(self.module.WARM_JS)
+        self.assertEqual(context.disposal.calls, 1)
         self.assert_idle(acc)
 
     async def test_session_seed_waits_for_cancelled_context_close_then_seeds_retry(self):

@@ -1,14 +1,19 @@
 # Claude network attribution, 2026-11-03
 
-`fix/claude-network-diagnostics-20261103` prepares alpha.16. The memory
+`fix/claude-network-diagnostics-20261103` prepares alpha.17. The memory
 repair disabled request-body capture that network attribution still needed.
 Only the bounded real turn ID now crosses the private browser protocol.
 The upload remains unchanged; diagnostics skip streams they cannot clone.
 Seventeen focused checks pass. Matched 516-request real-browser fixtures
 retain HTTP 502, HTTP 504 and connection-reset causes after the repair,
 without retained payloads or listeners. Warm mean PSS remains about 560 MB.
+An additional warmup repair bounds SDK preparation to 120 seconds and closes
+failed or cancelled unused contexts without changing the device identity.
+All 84 affected tests and a real-browser cancellation fixture pass.
+The emulated verifier stalled before inference and required isolated cleanup.
+Native verification retains the same exclusive account and recovery hold.
 Alpha.14 remains live and unchanged. Upstream timeout prevention is not
-claimed. Next: build and qualify this exact package on the exclusive account.
+claimed. Next: build and qualify alpha.17 on the exclusive account.
 See [the evidence and limits](incidents/2026-11-03-claude-network-diagnostics.md).
 
 # Account scheduling and refusal-pause repair, 2026-11-02
