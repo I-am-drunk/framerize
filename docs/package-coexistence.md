@@ -69,3 +69,10 @@ and dependencies, missing public exports, and rejected socket/listener/fetch cal
 This is Linux x64 npm-install evidence only. It does not qualify this checker on
 macOS or Windows, or any later source tree. Native and aggregate release evidence
 belongs to the separate packaging checks.
+
+The regression fixture passes an archive basename to `tar` and sets its working
+directory separately. This avoids GNU tar treating a Windows drive-letter
+prefix as a remote archive address when tests run under Git Bash. All 10 focused
+tests pass with this invocation on Linux using Node 22.23.4. The checker itself
+is unchanged. This fixture correction does not establish Windows or
+macOS qualification; those platforms still need their own test evidence.
