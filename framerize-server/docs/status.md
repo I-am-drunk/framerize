@@ -200,6 +200,13 @@ remain unchanged, but the expanded npm package violates this stage's recorded
 exclusions. The prospective tree was inspected without merging or executing it.
 The parent owns resolving this package boundary before renewed combined CI.
 
+`npm run check` now validates the approved package files, exports, executable,
+runtime dependency policy and source inventory before syntax checks or test
+execution. It reads metadata and directory names only, without importing runtime
+modules. Ten isolated positive and negative cases pass on Node 22.23.4 and
+24.13.0, including rejection of the expanded base's metadata without executing
+its source. The acceptance owner maintains the durable guard regressions.
+
 Windows graceful POSIX-signal behavior is not claimed. Live inference,
 private credentials, production activation and release publication remain
 outside this stage.
