@@ -30,6 +30,18 @@ test('CI tests one package tarball on every release platform', () => {
   assert.match(ci, /windows-2022/);
 });
 
+test('CI qualifies main and integration pushes without publication', () => {
+  const ci = readFileSync(new URL('../../.github/workflows/ci.yml', import.meta.url), 'utf8');
+  const events = ci.match(/^on:\r?\n([\s\S]*?)(?=^\S)/m)?.[1];
+  assert.ok(events);
+  const branches = events.match(/^  push:\r?\n    branches: \[([^\]]+)\]/m)?.[1];
+  assert.deepEqual(branches?.split(',').map((branch) => branch.trim()), ['main', 'framer-next']);
+  assert.match(events, /^  pull_request:/m);
+  assert.match(events, /^  workflow_dispatch:/m);
+  assert.match(ci, /^permissions:\r?\n  contents: read/m);
+  assert.doesNotMatch(ci, /npm publish|action-gh-release|id-token:|contents: write/);
+});
+
 test('the macOS platform job runs fixture cleanup before building', () => {
   const ci = readFileSync(new URL('../../.github/workflows/ci.yml', import.meta.url), 'utf8');
   const platformJob = ci.match(/^  platforms:\r?\n([\s\S]*)/m)?.[1];
