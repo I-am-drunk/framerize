@@ -50,9 +50,6 @@ export async function run(argv = process.argv.slice(2)) {
       } catch (error) {
         logger.error('server.close_failed', { error });
         process.exitCode = 1;
-      } finally {
-        process.removeListener('SIGINT', shutdown);
-        process.removeListener('SIGTERM', shutdown);
       }
     })();
     return shutdownPromise;
