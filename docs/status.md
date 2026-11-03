@@ -18,7 +18,7 @@ Verified on November 3, 2026:
   installable tarball, checksums, license, and source metadata.
 
 The live connector listens on `127.0.0.1:42789` through an enabled persistent
-`systemd --user` service. Release 0.1.6 is activated with a retained rollback
+`systemd --user` service. Release 0.1.7 is activated with a retained rollback
 binary. See `docs/activation.md` for its source commit and artifact hash.
 A live direct Framer probe through the isolated Node connector returned HTTP
 200 with `response.status` set to `completed` and the text `OK`. It used the
