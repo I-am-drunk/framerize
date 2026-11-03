@@ -550,3 +550,39 @@ test('header injection through a private credential fails without reflecting its
     assert.ok(!inspect(error).includes('FAKE_SECRET')); return true;
   });
 });
+
+for (const operation of ['forward', 'ready']) {
+  test(`${operation}: close shares its promise when credential cancellation reenters shutdown`, async (context) => {
+    const started = deferred();
+    let reentrant;
+    let aborts = 0;
+    let lookups = 0;
+    const provider = createProvider({ upstream: 'http://127.0.0.1:1', credential: ({ signal }) => {
+      lookups += 1;
+      signal.addEventListener('abort', () => {
+        aborts += 1;
+        reentrant = provider.close();
+      }, { once: true });
+      started.resolve();
+      return new Promise(() => {});
+    } });
+    context.after(() => provider.close());
+    const pending = operation === 'forward'
+      ? provider.forward({ path: '/v1/responses', body: body() }) : provider.ready();
+    const rejected = assert.rejects(pending, { code: 'provider_closed' });
+    await started.promise;
+    const closing = provider.close();
+    assert.equal(provider.close(), closing);
+    const refused = Promise.all([
+      assert.rejects(provider.forward({ path: '/v1/responses', body: body() }), { code: 'provider_closed' }),
+      assert.rejects(provider.ready(), { code: 'provider_closed' }),
+    ]);
+    await closing;
+    await rejected;
+    await refused;
+    assert.equal(reentrant, closing);
+    assert.equal(provider.close(), closing);
+    assert.equal(aborts, 1);
+    assert.equal(lookups, 1);
+  });
+}
