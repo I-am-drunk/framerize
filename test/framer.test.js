@@ -18,6 +18,9 @@ test('Framer requests use the native Responses envelope', async () => {
   assert.equal(envelope.request.input, 'hello');
   assert.equal(envelope.projectId, 'project');
   assert.equal(envelope.castleToken, 'fixture-castle');
+  assert.match(envelope.sessionId, /^[A-Za-z0-9]{9}$/);
+  assert.match(envelope.turnId, /^[A-Za-z0-9]{9}$/);
+  assert.notEqual(envelope.sessionId, envelope.turnId);
   assert.equal(calls.length, 0);
 });
 

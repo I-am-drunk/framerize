@@ -1,6 +1,11 @@
 import { randomBytes } from 'node:crypto';
 
 const minted = new Map();
+const ID_ALPHABET = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
+
+function mintId() {
+  return [...randomBytes(9)].map((byte) => ID_ALPHABET[byte % 62]).join('');
+}
 
 function credentials(account, env) {
   const session = account.sessionEnv ? env[account.sessionEnv] : '';
@@ -71,8 +76,8 @@ export async function prepareFramer({ account, path, body, signal, fetchImpl, en
   const base = (account.upstream || 'https://api.framer.com').replace(/\/+$/, '');
   return { url: `${base}${destination}`, authorization: `Bearer ${token}`, body: JSON.stringify({
     projectId: account.projectId, featureCategory: 'agents', featureName: 'agents',
-    model: payload.model, step: 'message', sessionId: randomBytes(5).toString('hex'),
-    stepIndex: 0, turnId: randomBytes(5).toString('hex'), userPrompt: userPrompt(payload),
+    model: payload.model, step: 'message', sessionId: mintId(),
+    stepIndex: 0, turnId: mintId(), userPrompt: userPrompt(payload),
     castleToken: env[account.castleEnv], request: payload,
   }) };
 }

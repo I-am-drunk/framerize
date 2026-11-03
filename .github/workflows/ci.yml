@@ -23,6 +23,7 @@ jobs:
       - run: npm test
       - run: npm run pack:check
       - run: node scripts/smoke.js
+      - run: node scripts/framer-smoke.js
   package:
     runs-on: ubuntu-22.04
     needs: test
