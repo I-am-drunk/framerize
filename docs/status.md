@@ -15,7 +15,9 @@ Verified on November 3, 2026:
 - Release `framer-next-v0.1.5` contains the verified executable archive,
   installable tarball, checksums, license, and source metadata.
 
-The live connector listens on `127.0.0.1:42789` and uses 12.2 MB of RAM.
+The live connector listens on `127.0.0.1:42789` through an enabled persistent
+`systemd --user` service. Release 0.1.5 is activated with a retained rollback
+binary. See `docs/activation.md` for its source commit and artifact hash.
 A live Opus probe through the connector still receives Framer's 403 security
 refusal. The connector returns that failure as HTTP 503 instead of a successful
 completion. Successful live Framer inference is not currently verified.
