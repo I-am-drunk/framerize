@@ -7,7 +7,7 @@ fixture assets stay in place while runtime code migrates incrementally.
 | --- | --- |
 | `framerize-core/` | Shared HTTP instance, contracts, and protocol rules. No accounts or provider implementation. |
 | `framerize-server/` | Browserless Node server, account ownership, and provider requests. |
-| `framerize-castle/` | Castle Library, used by the server rather than the laptop package. |
+| `framerize-castle/` | Private Castle Library, checked out from `I-am-drunk/framerize-castle` at `framerize-castle.rev`. Used by the server, not the laptop package. |
 | `framerize-remote/` | Local Framerize instance that forwards inference to the remote server. |
 
 Remote is not merely a setup command. It exposes the local client-facing API.

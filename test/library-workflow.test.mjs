@@ -45,10 +45,13 @@ function validateWorkflow(source) {
   ]);
   const commands = [...source.matchAll(/^\s*run: (.+)$/gm)].map((match) => match[1]);
   assert.deepEqual(commands, ['node --test test/library-workflow.test.mjs',
-    'npm ci --ignore-scripts --no-audit --no-fund', 'npm --prefix framerize-castle test',
+    'npm ci --ignore-scripts --no-audit --no-fund', 'node scripts/fetch-castle.mjs',
+    'npm --prefix framerize-castle test',
     'node node_modules/typescript/bin/tsc -p tsconfig.library-tools.json',
     'node --test .tools/test/installed-castle-flow.test.js']);
-  assert.doesNotMatch(source, /pull_request_target|secrets\.|npx |cargo |publish|deploy|continue-on-error|if:|run: [|>]/);
+  assert.equal(source.split('secrets.CASTLE_READ_KEY').length - 1, 1);
+  assert.doesNotMatch(source.replaceAll('secrets.CASTLE_READ_KEY', ''),
+    /pull_request_target|secrets\.|npx |cargo |publish|deploy|continue-on-error|if:|run: [|>]/);
 }
 
 test('library workflow preserves offline matrix and read-only policy', () => validateWorkflow(workflow));

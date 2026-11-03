@@ -32,8 +32,10 @@ Use Node.js 22.12 or newer. Run source commands from this repository's root.
   and Chat Completions routes. Its default listener is `127.0.0.1:8789`.
 - [Framerize Remote](framerize-remote/README.md) forwards local client requests to
   a configured endpoint. Its default listener is `127.0.0.1:8788`.
-- [Castle Library](framerize-castle/README.md) contains the server-side minting
-  API and assets. Only the server includes it, never Remote or the shared core.
+- [Castle Library](https://github.com/I-am-drunk/framerize-castle) is the private
+  server-side minting package. `framerize-castle.rev` pins the commit, and
+  `node scripts/fetch-castle.mjs` checks it out for a build. Only the server
+  includes it, never Remote or the shared core.
 - [Shared core](docs/typescript-layout.md) supplies the HTTP listener and
   readiness contract used by both server and Remote.
 

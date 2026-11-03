@@ -45,6 +45,11 @@ jobs:
           cache-dependency-path: framerize-server/package-lock.json
       - run: node -e "require('node:assert/strict').equal(process.arch, process.env.EXPECTED_ARCH)"
       - run: npm ci --ignore-scripts --no-audit --no-fund
+      - name: Fetch the private Castle library
+        working-directory: ${{ github.workspace }}
+        env:
+          CASTLE_READ_KEY: ${{ secrets.CASTLE_READ_KEY }}
+        run: node scripts/fetch-castle.mjs
       - name: Build the shared TypeScript listener
         run: npm ci --prefix .. --ignore-scripts --no-audit --no-fund && npm run build:server --prefix ..
       - run: npm run test:native-tools --prefix ..
@@ -67,6 +72,11 @@ jobs:
           cache: npm
           cache-dependency-path: framerize-server/package-lock.json
       - run: npm ci --ignore-scripts --no-audit --no-fund
+      - name: Fetch the private Castle library
+        working-directory: ${{ github.workspace }}
+        env:
+          CASTLE_READ_KEY: ${{ secrets.CASTLE_READ_KEY }}
+        run: node scripts/fetch-castle.mjs
       - name: Build the shared TypeScript listener
         run: npm ci --prefix .. --ignore-scripts --no-audit --no-fund && npm run build:server --prefix ..
       - run: npm pack --ignore-scripts
@@ -103,6 +113,11 @@ jobs:
           cache-dependency-path: framerize-server/package-lock.json
       - run: node -e "require('node:assert/strict').equal(process.arch, process.env.EXPECTED_ARCH)"
       - run: npm ci --ignore-scripts --no-audit --no-fund
+      - name: Fetch the private Castle library
+        working-directory: ${{ github.workspace }}
+        env:
+          CASTLE_READ_KEY: ${{ secrets.CASTLE_READ_KEY }}
+        run: node scripts/fetch-castle.mjs
       - name: Build the shared TypeScript listener
         run: npm ci --prefix .. --ignore-scripts --no-audit --no-fund && npm run build:server --prefix ..
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093

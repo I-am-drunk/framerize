@@ -1,8 +1,10 @@
 # Castle Library CI
 
-The TypeScript workflow builds and tests the current private package on Ubuntu
-22.04, macOS 15, and Windows 2022. Its nine jobs use Node 22.12.0, 22.23.4, and
-24.13.0. Hosted results remain a separate gate; local Linux results do not
+The TypeScript workflow builds and tests Castle Library on Ubuntu 22.04, macOS
+15, and Windows 2022. Its nine jobs use Node 22.12.0, 22.23.4, and 24.13.0.
+The library source is the private repository `I-am-drunk/framerize-castle`.
+CI checks out the commit recorded in `framerize-castle.rev` with a read-only
+deploy key. Hosted results remain a separate gate; local Linux results do not
 qualify the other platforms or the minimum Node release.
 
 The workflow installs the root lockfile with lifecycle scripts disabled.
@@ -25,6 +27,7 @@ From a checkout with a clean Node environment:
 
 ```sh
 npm ci --ignore-scripts --no-audit --no-fund
+node scripts/fetch-castle.mjs
 node --test test/library-workflow.test.mjs
 npm --prefix framerize-castle test
 node node_modules/typescript/bin/tsc -p tsconfig.library-tools.json
