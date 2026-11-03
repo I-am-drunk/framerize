@@ -63,13 +63,17 @@ test('CLI shares shutdown across SIGINT and SIGTERM', async () => {
   let logs = '';
   child.stderr.on('data', (chunk) => { logs += chunk; });
   try {
-    while (!logs.includes('server.listening')) {
-      await Promise.race([
-        delay(10),
-        new Promise((_, reject) => child.once('exit', () => reject(new Error('server exited')))),
-        delay(5000).then(() => { throw new Error('readiness timeout'); }),
-      ]);
-    }
+    await new Promise((resolve, reject) => {
+      const timer = setTimeout(() => reject(new Error('readiness timeout')), 5000);
+      const exited = () => { clearTimeout(timer); reject(new Error('server exited')); };
+      child.once('exit', exited);
+      child.stderr.on('data', () => {
+        if (!logs.includes('server.listening')) return;
+        clearTimeout(timer);
+        child.off('exit', exited);
+        resolve();
+      });
+    });
     child.kill('SIGINT');
     child.kill('SIGTERM');
     const result = await Promise.race([

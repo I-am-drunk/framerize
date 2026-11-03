@@ -1,12 +1,14 @@
 import { execFileSync } from 'node:child_process';
 import { readFileSync, writeFileSync } from 'node:fs';
+import path from 'node:path';
 
-const pkg = JSON.parse(readFileSync('package.json', 'utf8'));
+const workspace = path.resolve(process.env.RELEASE_WORKSPACE || '.');
+const pkg = JSON.parse(readFileSync(path.join(workspace, 'package.json'), 'utf8'));
 const tag = process.env.GITHUB_REF_NAME || '';
 if (tag && tag !== `framer-next-v${pkg.version}`) {
   throw new Error(`release tag ${tag} does not match package version ${pkg.version}`);
 }
-const sums = readFileSync('dist/SHA256SUMS', 'utf8');
+const sums = readFileSync(path.join(workspace, 'dist/SHA256SUMS'), 'utf8');
 const artifacts = Object.fromEntries(sums.trim().split('\n').map((line) => {
   const match = line.match(/^([a-f0-9]{64}) [ *](.+)$/);
   if (!match) throw new Error('invalid SHA256SUMS entry');
@@ -16,7 +18,7 @@ const commit = execFileSync('git', ['rev-parse', 'HEAD'], { encoding: 'utf8' }).
 if (process.env.GITHUB_SHA && process.env.GITHUB_SHA !== commit) {
   throw new Error('release source commit does not match the triggering commit');
 }
-writeFileSync('dist/release.json', `${JSON.stringify({
+writeFileSync(path.join(workspace, 'dist/release.json'), `${JSON.stringify({
   version: pkg.version,
   commit,
   node: process.version,

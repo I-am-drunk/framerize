@@ -1,10 +1,18 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
+import { mkdtempSync, mkdirSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import path from 'node:path';
 
 function metadata(env = {}) {
+  const directory = mkdtempSync(path.join(tmpdir(), 'framer-next-release-'));
+  mkdirSync(path.join(directory, 'dist'));
+  writeFileSync(path.join(directory, 'package.json'), '{"version":"0.1.0"}\n');
+  writeFileSync(path.join(directory, 'dist', 'SHA256SUMS'), `${'0'.repeat(64)}  artifact.tgz\n`);
   return spawnSync(process.execPath, ['scripts/release-metadata.js'], {
-    encoding: 'utf8', env: { ...process.env, GITHUB_REF_NAME: '', GITHUB_SHA: '', ...env },
+    encoding: 'utf8', env: { ...process.env, RELEASE_WORKSPACE: directory,
+      GITHUB_REF_NAME: '', GITHUB_SHA: '', ...env },
   });
 }
 

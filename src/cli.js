@@ -57,7 +57,7 @@ export async function run(argv = process.argv.slice(2)) {
     })();
     return shutdownPromise;
   };
-  process.once('SIGINT', shutdown);
-  process.once('SIGTERM', shutdown);
+  process.on('SIGINT', shutdown);
+  process.on('SIGTERM', shutdown);
   return new Promise((resolve) => app.server.once('close', () => resolve(0)));
 }
