@@ -87,9 +87,10 @@ export async function createServer(config, { logger, fetchImpl = fetch } = {}) {
       }
       if (request.method === 'GET' && url.pathname === '/v1/accounts') {
         sendJson(response, 200, {
-          accounts: accounts.map(({ id, model, enabled, authorizationEnv, authorizationFile }) => ({
-            id, model, enabled, credential: authorizationEnv ? 'environment'
-              : authorizationFile ? 'file' : 'upstream',
+          accounts: accounts.map(({ id, model, enabled, sessionEnv, sessionFile,
+            authorizationEnv, authorizationFile }) => ({
+            id, model, enabled, credential: authorizationEnv || sessionEnv ? 'environment'
+              : authorizationFile || sessionFile ? 'file' : 'upstream',
           })),
         });
         return;
