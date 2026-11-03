@@ -10,8 +10,8 @@ if (!['linux', 'darwin', 'win32'].includes(platform)) {
   throw new Error(`unsupported release platform: ${platform}`);
 }
 const suffix = `${platform === 'darwin' ? 'macos' : platform}-${architecture}`;
-const executable = `framer-next${platform === 'win32' ? '.exe' : ''}`;
-const archive = `dist/framer-next-${suffix}.${platform === 'win32' ? 'zip' : 'tar.gz'}`;
+const executable = `framerize-nexus${platform === 'win32' ? '.exe' : ''}`;
+const archive = `dist/framerize-nexus-${suffix}.${platform === 'win32' ? 'zip' : 'tar.gz'}`;
 const license = [path.join(path.dirname(process.execPath), '..', 'LICENSE'),
   fileURLToPath(new URL('../LICENSE', import.meta.url))].find(existsSync);
 copyFileSync(license, 'dist/NODE-LICENSE');

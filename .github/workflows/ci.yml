@@ -9,6 +9,10 @@ on:
 permissions:
   contents: read
 
+defaults:
+  run:
+    working-directory: framerize-nexus
+
 jobs:
   test:
     strategy:
@@ -22,6 +26,7 @@ jobs:
         with:
           node-version: 22
           cache: npm
+          cache-dependency-path: framerize-nexus/package-lock.json
       - run: npm ci
       - run: npm run check
       - run: npm test
@@ -41,5 +46,6 @@ jobs:
       - run: node scripts/binary-smoke.js
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
-          name: framer-next-linux-x64
-          path: dist/*
+          name: framerize-nexus-linux-x64
+          path: framerize-nexus/dist/*
+          if-no-files-found: error

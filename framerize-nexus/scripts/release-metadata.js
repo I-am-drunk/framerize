@@ -9,7 +9,7 @@ if (typeof pkg.version !== 'string' || !semver.test(pkg.version)) {
   throw new Error('package version must be valid SemVer');
 }
 const tag = process.env.GITHUB_REF_NAME || '';
-if (tag && tag !== `framer-next-v${pkg.version}`) {
+if (tag && tag !== `framerize-nexus-v${pkg.version}`) {
   throw new Error(`release tag ${tag} does not match package version ${pkg.version}`);
 }
 const sums = readFileSync(path.join(workspace, 'dist/SHA256SUMS'), 'utf8');

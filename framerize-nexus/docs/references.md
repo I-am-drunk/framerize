@@ -1,6 +1,6 @@
 # Implementation references
 
-These projects provide concrete patterns. Framer Next does not copy their code.
+These projects provide concrete patterns. Framerize Nexus does not copy their code.
 
 - [Hono `src/helper/streaming/sse.ts`](https://github.com/honojs/hono/blob/main/src/helper/streaming/sse.ts):
   explicit SSE response construction and stream cleanup.

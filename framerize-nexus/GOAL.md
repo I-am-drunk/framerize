@@ -1,13 +1,12 @@
-# Framerize Next objective
+# Framerize Nexus objective
 
-Rebuild Framerize as a Node-native system. Keep the current connector as one
+Rebuild Framerize as a Node-native system. Keep Framerize Nexus as one
 component, not the whole repository. Preserve the browser-based implementation
 as a maintained fallback and retain the recovered `browserless` history.
 
 ## Repository layout
 
-Put the new system in `framerize-next/`. Keep the connector in
-`framerize-next/connector/` with its README, tests, packaging scripts, and
+Put the current package in `framerize-nexus/` with its README, tests, packaging scripts, and
 release documentation. Add the Node-native session and minting implementation
 as separate packages with narrow interfaces. Move code before changing its
 behavior, and update imports, package names, workflow paths, and documentation

@@ -4,5 +4,5 @@ dist/
 *.log
 .env
 accounts.json
-!examples/accounts.json
+!framerize-nexus/examples/accounts.json
 coverage/

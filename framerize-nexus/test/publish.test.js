@@ -24,12 +24,12 @@ function publish(authenticated = true, published = false, version = '0.1.7',
   const bin = path.join(directory, 'bin');
   mkdirSync(bin);
   mkdirSync(path.join(directory, 'dist'));
-  writeFileSync(path.join(directory, 'dist', `framer-next-${version}.tgz`), 'fixture');
+  writeFileSync(path.join(directory, 'dist', `framerize-nexus-${version}.tgz`), 'fixture');
   writeFileSync(path.join(directory, 'dist', 'SHA256SUMS'),
-    `${'0'.repeat(64)}  framer-next\n${'0'.repeat(64)}  framer-next-${version}.tgz\n`);
+    `${'0'.repeat(64)}  framerize-nexus\n${'0'.repeat(64)}  framerize-nexus-${version}.tgz\n`);
   writeFileSync(path.join(directory, 'dist', 'release.json'), JSON.stringify({
     version, commit,
-    artifacts: includeDigest ? { [`framer-next-${version}.tgz`]: '0'.repeat(64) } : {},
+    artifacts: includeDigest ? { [`framerize-nexus-${version}.tgz`]: '0'.repeat(64) } : {},
   }));
   const calls = path.join(directory, 'calls');
   const fixture = JSON.stringify({ authenticated, published, version,
@@ -78,8 +78,8 @@ test('tarball metadata must match the release filename', () => {
   mkdirSync(path.join(directory, 'dist'));
   mkdirSync(path.join(directory, 'package'));
   writeFileSync(path.join(directory, 'package', 'package.json'),
-    JSON.stringify({ name: 'framer-next', version: '0.1.8' }));
-  spawnSync('tar', ['-czf', 'dist/framer-next-0.1.7.tgz', 'package'], { cwd: directory });
+    JSON.stringify({ name: 'framerize-nexus', version: '0.1.8' }));
+  spawnSync('tar', ['-czf', 'dist/framerize-nexus-0.1.7.tgz', 'package'], { cwd: directory });
   writeFileSync(path.join(directory, 'dist', 'release.json'),
     JSON.stringify({ version: '0.1.7', commit: 'a'.repeat(40) }));
   const result = spawnSync(process.execPath, [
@@ -105,8 +105,8 @@ test('checksum filtering excludes only missing release files', () => {
   assert.equal(result.status, 0, result.stderr);
   const checksum = readFileSync(path.join(path.dirname(calls),
     'dist/.publish-SHA256SUMS'), 'utf8');
-  assert.doesNotMatch(checksum, /framer-next\n/);
-  assert.match(checksum, /framer-next-0.1.7.tgz/);
+  assert.doesNotMatch(checksum, /framerize-nexus\n/);
+  assert.match(checksum, /framerize-nexus-0.1.7.tgz/);
 });
 
 test('provenance is enabled only in GitHub Actions', () => {
@@ -153,14 +153,14 @@ test('ambiguous release artifacts are rejected', () => {
   const directory = mkdtempSync(path.join(tmpdir(), 'framer-next-artifacts-'));
   mkdirSync(path.join(directory, 'dist'));
   for (const version of ['0.1.7', '0.1.8']) {
-    writeFileSync(path.join(directory, 'dist', `framer-next-${version}.tgz`), 'fixture');
+    writeFileSync(path.join(directory, 'dist', `framerize-nexus-${version}.tgz`), 'fixture');
   }
   const result = spawnSync(process.execPath, [
     fileURLToPath(new URL('../scripts/publish-package.js', import.meta.url))], {
     cwd: directory, encoding: 'utf8',
   });
   assert.notEqual(result.status, 0);
-  assert.match(result.stderr, /exactly one Framer Next tarball/);
+  assert.match(result.stderr, /exactly one Framerize Nexus tarball/);
 });
 
 test('a different source commit prevents publication', () => {
@@ -195,7 +195,7 @@ test('conflicting release metadata prevents publication', () => {
   assert.equal(fixture.result.status, 0, fixture.result.stderr);
   const directory = path.dirname(fixture.calls);
   const metadata = JSON.parse(readFileSync(path.join(directory, 'dist/release.json'), 'utf8'));
-  metadata.artifacts['framer-next-0.1.7.tgz'] = '1'.repeat(64);
+  metadata.artifacts['framerize-nexus-0.1.7.tgz'] = '1'.repeat(64);
   writeFileSync(path.join(directory, 'dist/release.json'), JSON.stringify(metadata));
   const result = spawnSync(process.execPath, [
     fileURLToPath(new URL('../scripts/publish-package.js', import.meta.url))], {

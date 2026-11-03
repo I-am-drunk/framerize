@@ -1,6 +1,6 @@
-# Framer Next
+# Framerize Nexus
 
-Framer Next is a small local connector for OpenAI-compatible inference. It
+Framerize Nexus is a small local connector for OpenAI-compatible inference. It
 accepts Responses and Chat Completions requests on loopback and forwards them
 to the endpoint you configure. It uses Node.js built-ins at runtime, with no
 browser, no system CTR, and no old Framerize implementation code.
@@ -10,11 +10,12 @@ browser, no system CTR, and no old Framerize implementation code.
 Node.js 22.12 or newer is required.
 
 The first npm publication is pending package-owner authentication. Until then,
-run the command from this checkout with `npm exec -- framer-next` or use the
+run the command from `framerize-nexus/` with `npm exec --
+framerize-nexus` or use the
 standalone executable from a release available to your account.
 
 ```sh
-npx framer-next serve --upstream https://your-endpoint.example
+npx framerize-nexus serve --upstream https://your-endpoint.example
 ```
 
 Set the client base URL to `http://127.0.0.1:8788`. The connector serves:
@@ -35,7 +36,7 @@ belong in this file. See `examples/accounts.json`.
 
 ```sh
 export FRAMER_LOCAL_TOKEN='your private credential'
-npx framer-next serve \
+npx framerize-nexus serve \
   --upstream https://your-endpoint.example \
   --accounts ./accounts.json
 ```
@@ -62,7 +63,7 @@ node scripts/smoke.js
 npm run binary
 ```
 
-The executable builder writes `dist/framer-next` without modifying Node.
+The executable builder writes `dist/framerize-nexus` without modifying Node.
 See `docs/references.md` for implementation references and `docs/release.md`
 for publication requirements.
 

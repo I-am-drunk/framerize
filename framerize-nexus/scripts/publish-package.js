@@ -8,15 +8,15 @@ const fixture = process.platform === 'win32' && process.env.FRAMER_NEXT_TEST_COM
 const execute = (name, args, options = {}) => fixture
   ? execFileSync(process.execPath, [fixture.dispatcher, name, ...args], options)
   : execFileSync(name, args, options);
-const artifacts = readdirSync(dist).filter((name) => /^framer-next-.+\.tgz$/.test(name));
-if (artifacts.length !== 1) throw new Error('dist must contain exactly one Framer Next tarball');
-const version = artifacts[0].slice('framer-next-'.length, -'.tgz'.length);
+const artifacts = readdirSync(dist).filter((name) => /^framerize-nexus-.+\.tgz$/.test(name));
+if (artifacts.length !== 1) throw new Error('dist must contain exactly one Framerize Nexus tarball');
+const version = artifacts[0].slice('framerize-nexus-'.length, -'.tgz'.length);
 const sums = path.join(dist, 'SHA256SUMS');
 const tarball = path.join(dist, artifacts[0]);
 const metadata = JSON.parse(readFileSync(path.join(dist, 'release.json'), 'utf8'));
 const packageMetadata = JSON.parse(execute('tar', ['-xOf', tarball,
   'package/package.json'], { encoding: 'utf8' }));
-if (packageMetadata.name !== 'framer-next' || packageMetadata.version !== version) {
+if (packageMetadata.name !== 'framerize-nexus' || packageMetadata.version !== version) {
   throw new Error('tarball package metadata does not match its release filename');
 }
 if (!/^[a-f0-9]{64}$/.test(metadata.artifacts?.[artifacts[0]])) {
@@ -43,11 +43,11 @@ try {
   throw new Error('npm publication requires authenticated package-owner credentials');
 }
 try {
-  execute('npm', ['view', `framer-next@${version}`, 'version',
+  execute('npm', ['view', `framerize-nexus@${version}`, 'version',
     '--registry=https://registry.npmjs.org'], { stdio: ['ignore', 'ignore', 'pipe'] });
-  throw new Error(`framer-next@${version} is already published`);
+  throw new Error(`framerize-nexus@${version} is already published`);
 } catch (error) {
-  if (error.message === `framer-next@${version} is already published`) throw error;
+  if (error.message === `framerize-nexus@${version} is already published`) throw error;
   if (error.status !== 1 || !/(^|\s)E404(\s|$)/.test(error.stderr.toString())) {
     throw new Error('cannot verify whether this package version exists', { cause: error });
   }

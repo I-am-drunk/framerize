@@ -2,11 +2,15 @@ name: release
 
 on:
   push:
-    tags: ['framer-next-v*']
+    tags: ['framerize-nexus-v*']
   workflow_dispatch:
 
 permissions:
   contents: read
+
+defaults:
+  run:
+    working-directory: framerize-nexus
 
 jobs:
   build:
@@ -39,17 +43,18 @@ jobs:
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
           name: release-${{ github.ref_name }}-${{ matrix.suffix }}
+          if-no-files-found: error
           path: |
-            dist/framer-next-*.tar.gz
-            dist/framer-next-*.zip
-            dist/framer-next
-            dist/framer-next.exe
-            dist/SHA256SUMS
-            dist/release.json
-            dist/NODE-LICENSE
+            framerize-nexus/dist/framerize-nexus-*.tar.gz
+            framerize-nexus/dist/framerize-nexus-*.zip
+            framerize-nexus/dist/framerize-nexus
+            framerize-nexus/dist/framerize-nexus.exe
+            framerize-nexus/dist/SHA256SUMS
+            framerize-nexus/dist/release.json
+            framerize-nexus/dist/NODE-LICENSE
   publish:
     needs: build
-    if: startsWith(github.ref, 'refs/tags/framer-next-v')
+    if: startsWith(github.ref, 'refs/tags/framerize-nexus-v')
     runs-on: ubuntu-22.04
     environment: npm-release
     permissions:
@@ -66,32 +71,32 @@ jobs:
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
         with:
           pattern: release-${{ github.ref_name }}-*
-          path: dist
+          path: framerize-nexus/dist
           merge-multiple: true
-      - run: mv framer-next-*.tgz dist/
+      - run: mv framerize-nexus-*.tgz dist/
       - run: node scripts/merge-release-manifests.js
       - uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6
         if: github.event.repository.visibility == 'public'
         with:
           subject-path: |
-            dist/framer-next-*.tgz
-            dist/framer-next-linux-x64.tar.gz
-            dist/framer-next-macos-arm64.tar.gz
-            dist/framer-next-windows-x64.zip
+            framerize-nexus/dist/framerize-nexus-*.tgz
+            framerize-nexus/dist/framerize-nexus-linux-x64.tar.gz
+            framerize-nexus/dist/framerize-nexus-macos-arm64.tar.gz
+            framerize-nexus/dist/framerize-nexus-windows-x64.zip
       - name: Publish GitHub release
         uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65
         with:
           files: |
-            dist/framer-next-*.tgz
-            dist/framer-next-linux-x64.tar.gz
-            dist/framer-next-macos-arm64.tar.gz
-            dist/framer-next-windows-x64.zip
-            dist/SHA256SUMS
-            dist/release.json
-            dist/NODE-LICENSE
+            framerize-nexus/dist/framerize-nexus-*.tgz
+            framerize-nexus/dist/framerize-nexus-linux-x64.tar.gz
+            framerize-nexus/dist/framerize-nexus-macos-arm64.tar.gz
+            framerize-nexus/dist/framerize-nexus-windows-x64.zip
+            framerize-nexus/dist/SHA256SUMS
+            framerize-nexus/dist/release.json
+            framerize-nexus/dist/NODE-LICENSE
       - name: Publish npm package
         run: |
           if [[ "${GITHUB_REF_NAME}" == *-* ]]; then export DIST_TAG=next; else export DIST_TAG=latest; fi
-          npm publish ./dist/framer-next-*.tgz --ignore-scripts --provenance --access public --tag "$DIST_TAG"
+          npm publish ./dist/framerize-nexus-*.tgz --ignore-scripts --provenance --access public --tag "$DIST_TAG"
         env:
           NODE_AUTH_TOKEN: ''

@@ -1,5 +1,13 @@
 # Status
 
+The package migration to Framerize Nexus is in progress on
+`t3/rename-connector-framerize-nexus`. The package now lives in
+`framerize-nexus/`. The package, CLI, executable, and new release tags
+use `framerize-nexus`. Existing Framer Next release names below are historical.
+No Nexus package has been published or activated. Next action: finish local
+fixture and packaging verification, then review the migration before choosing
+its first version tag.
+
 Verified on November 3, 2026:
 
 - 91 unit and integration tests pass on Node.js 24, with 100% line coverage.
@@ -58,7 +66,7 @@ enforces its `paid_plan_only_model` restriction. This is an upstream account
 entitlement, not a streaming or tool-transport failure. The earlier successful
 Opus short and long streams remain recorded above.
 
-## Publication dependency
+## Historical Framer Next publication dependency
 
 The `framer-next` package name remains available. First publication requires
 an authenticated npm package owner. The registry returns `ENEEDAUTH`, so no

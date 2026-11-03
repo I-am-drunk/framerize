@@ -2,7 +2,7 @@ import { parseConfig } from './config.js';
 import { createLogger } from './logger.js';
 import { createServer } from './server.js';
 
-const HELP = `Framer Next\n\nUsage:\n  framer-next serve [options]\n  framer-next check [options]\n\nOptions:\n  --upstream URL          Upstream inference endpoint\n  --accounts FILE        JSON account metadata\n  --host ADDRESS         Listen address, default 127.0.0.1\n  --port NUMBER          Listen port, default 8788\n  --log-level LEVEL      debug, info, warn, or error\n`;
+const HELP = `Framerize Nexus\n\nUsage:\n  framerize-nexus serve [options]\n  framerize-nexus check [options]\n\nOptions:\n  --upstream URL          Upstream inference endpoint\n  --accounts FILE        JSON account metadata\n  --host ADDRESS         Listen address, default 127.0.0.1\n  --port NUMBER          Listen port, default 8788\n  --log-level LEVEL      debug, info, warn, or error\n`;
 
 export function parseArgs(argv, env = process.env) {
   const [command = 'serve', ...args] = argv;

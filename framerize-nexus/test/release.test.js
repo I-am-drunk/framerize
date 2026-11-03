@@ -17,7 +17,7 @@ function metadata(env = {}, sums = `${'0'.repeat(64)}  artifact.tgz\n`, version 
 }
 
 test('release metadata accepts a matching version tag', () => {
-  const result = metadata({ GITHUB_REF_NAME: 'framer-next-v0.1.5' });
+  const result = metadata({ GITHUB_REF_NAME: 'framerize-nexus-v0.1.5' });
   assert.equal(result.status, 0, result.stderr);
 });
 
@@ -29,13 +29,13 @@ test('release metadata rejects empty and duplicate checksum entries', () => {
 
 test('release metadata rejects malformed package versions', () => {
   assert.match(metadata({}, undefined, 'v0.1.5').stderr, /valid SemVer/);
-  const result = metadata({ GITHUB_REF_NAME: 'framer-next-vnot-semver' });
+  const result = metadata({ GITHUB_REF_NAME: 'framerize-nexus-vnot-semver' });
   assert.notEqual(result.status, 0);
-  assert.notEqual(metadata({ GITHUB_REF_NAME: 'framer-next-v0.1.5-01' }).status, 0);
+  assert.notEqual(metadata({ GITHUB_REF_NAME: 'framerize-nexus-v0.1.5-01' }).status, 0);
 });
 
 test('release metadata rejects a mismatched version tag', () => {
-  const result = metadata({ GITHUB_REF_NAME: 'framer-next-v9.9.9' });
+  const result = metadata({ GITHUB_REF_NAME: 'framerize-nexus-v9.9.9' });
   assert.notEqual(result.status, 0);
   assert.match(result.stderr, /does not match package version/);
 });

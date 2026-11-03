@@ -5,14 +5,14 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import http from 'node:http';
 
-const directory = mkdtempSync(path.join(tmpdir(), 'framer-next-binary-'));
-const executable = path.resolve(`dist/framer-next${process.platform === 'win32' ? '.exe' : ''}`);
+const directory = mkdtempSync(path.join(tmpdir(), 'framerize-nexus-binary-'));
+const executable = path.resolve(`dist/framerize-nexus${process.platform === 'win32' ? '.exe' : ''}`);
 const environment = { ...process.env, PATH: process.platform === 'win32'
   ? process.env.SystemRoot : '/usr/bin:/bin', HOME: directory };
 const help = execFileSync(executable, ['--help'], {
   cwd: directory, env: environment, encoding: 'utf8',
 });
-assert.match(help, /Framer Next/);
+assert.match(help, /Framerize Nexus/);
 assert.doesNotMatch(help, /Usage: node/);
 const check = execFileSync(executable, ['check'], {
   cwd: directory, env: environment, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'],
