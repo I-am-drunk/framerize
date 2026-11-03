@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { mkdtemp, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
+import net from 'node:net';
 import { parseConfig } from '../src/config.js';
 import { createServer } from '../src/server.js';
 
@@ -55,6 +56,21 @@ test('account base paths join without duplicate slashes', async (t) => {
   });
   assert.equal(response.status, 200);
   assert.equal(destination, 'http://upstream.test/openai/v1/responses');
+});
+
+test('streamed response failures close the downstream connection', async (t) => {
+  const base = await fixture(t, async () => new Response(
+    'data: {"type":"response.failed","response":{"error":{"message":"rejected"}}}\n\n',
+    { headers: { 'content-type': 'text/event-stream' } },
+  ));
+  const socket = net.connect(Number(new URL(base).port), '127.0.0.1');
+  let received = '';
+  socket.on('data', (chunk) => { received += chunk; });
+  const closed = new Promise((resolve) => socket.once('close', resolve));
+  await new Promise((resolve) => socket.once('connect', resolve));
+  socket.end('POST /v1/responses HTTP/1.1\r\nHost: local\r\nContent-Length: 2\r\nConnection: close\r\n\r\n{}');
+  await closed;
+  assert.doesNotMatch(received, /\r\n0\r\n\r\n$/);
 });
 
 test('long streams preserve every chunk', async (t) => {

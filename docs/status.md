@@ -2,12 +2,14 @@
 
 Verified on November 3, 2026:
 
-- 45 unit and integration tests pass on Node.js 24.
+- 47 unit and integration tests pass on Node.js 24.
 - GitHub CI test and package jobs pass on pull requests 32, 33, and 34.
 - The installed npm tarball runs outside the checkout.
 - The isolated executable runs without Node.js on `PATH`.
 - Live local SSE streaming passes.
 - One real Opus Responses request returned HTTP 200 and completed normally.
+- A later Opus stream returned `response.failed` inside HTTP 200. Regression
+  coverage now verifies that failed event closes the downstream connection.
 - The release rehearsal passes from a fresh clone of commit `19aed0ef`.
   It builds the executable, starts development and isolated servers, and
   verifies all published artifact checksums.

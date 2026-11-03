@@ -4,7 +4,7 @@ import { loadAccounts } from './config.js';
 import { openUpstream, createDeadline } from './upstream.js';
 import { idleTimeout } from './sse.js';
 import { sanitizeError } from './logger.js';
-import { chatToResponses, responseToChat, responsesToChatStream, readResponse } from './openai.js';
+import { chatToResponses, responseToChat, responsesToChatStream, readResponse, responseEventError } from './openai.js';
 import { encodeSse, parseSse } from './sse.js';
 
 function sendJson(response, status, value) {
@@ -20,6 +20,25 @@ async function* parseEvents(chunks) {
   for await (const event of parseSse(chunks)) {
     if (event.data === '[DONE]') continue;
     yield JSON.parse(event.data);
+  }
+}
+
+async function* validateResponses(chunks) {
+  const decoder = new TextDecoder();
+  let buffer = '';
+  for await (const chunk of chunks) {
+    buffer += typeof chunk === 'string' ? chunk : decoder.decode(chunk, { stream: true });
+    const events = buffer.split(/\r?\n\r?\n/);
+    buffer = events.pop();
+    for (const raw of events) {
+      const data = raw.split(/\r?\n/).filter((line) => line.startsWith('data:'))
+        .map((line) => line.slice(5).replace(/^ /, '')).join('\n');
+      if (data.startsWith('{') && data.includes('response.failed')) {
+        const failure = responseEventError(JSON.parse(data));
+        if (failure) throw failure;
+      }
+    }
+    yield chunk;
   }
 }
 
@@ -148,6 +167,7 @@ export async function createServer(config, { logger, fetchImpl = fetch } = {}) {
             const converted = responsesToChatStream(events, model);
             chunks = encodeChunks(converted);
           }
+          if (!convertChat && upstream.response.ok) chunks = validateResponses(chunks);
           for await (const value of chunks) {
             if (!response.write(value)) await waitForDrain(response, responseDeadline.signal);
           }
@@ -166,7 +186,7 @@ export async function createServer(config, { logger, fetchImpl = fetch } = {}) {
         sendJson(response, error.status || 502, {
           error: { message, type: error.status ? 'invalid_request' : 'upstream_error' },
         });
-      } else if (!response.writableEnded) response.end();
+      } else if (!response.writableEnded) response.destroy(error);
       logger?.error('request.failed', { requestId: id, error });
     } finally {
       logger?.info('request.completed', {
