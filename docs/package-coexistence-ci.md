@@ -48,7 +48,7 @@ that isolation and its cleanup behavior.
 ## Automation requirements
 
 The workflow runs for relevant pull requests, pushes to `main` and
-`framer-next`, and manual dispatch. Path filters include both package trees,
+`browserless-node`, and manual dispatch. Path filters include both package trees,
 the root checker, its tests, this workflow, and its focused regression tests.
 Permissions stay at `contents: read`; do not use `pull_request_target`.
 

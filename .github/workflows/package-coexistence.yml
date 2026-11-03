@@ -23,7 +23,7 @@ on:
       - 'test/package-coexistence-workflow.test.mjs'
       - '.github/workflows/package-coexistence.yml'
   push:
-    branches: [main, framer-next]
+    branches: [main, browserless-node]
     paths:
       - 'framerize-remote/**'
       - 'framerize-server/**'

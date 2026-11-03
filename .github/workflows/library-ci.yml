@@ -14,7 +14,7 @@ on:
       - 'package.json'
       - 'package-lock.json'
   push:
-    branches: [main, framer-next]
+    branches: [main, browserless-node]
     paths:
       - 'framerize-castle/**'
       - '.github/workflows/library-ci.yml'

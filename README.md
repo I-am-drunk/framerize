@@ -1,8 +1,8 @@
 # Framerize
 
-## Framer Next work in progress
+## Browserless Node work in progress
 
-The `framer-next` branch contains the TypeScript restart. It is a development
+The `browserless-node` branch contains the TypeScript restart. It is a development
 snapshot, not a release or a deployed service. Framerize Remote replaces the
 previous connector name throughout the active packages and commands.
 

@@ -296,7 +296,7 @@ function validateEvents(source) {
     for (const path of requiredPaths) assert.ok(paths.includes(path), `${event} omits ${path}`);
     if (event === 'push') {
       assert.match(body, /branches:[\s\S]*\bmain\b/);
-      assert.match(body, /branches:[\s\S]*\bframer-next\b/);
+      assert.match(body, /branches:[\s\S]*\bbrowserless-node\b/);
     }
   }
 }
@@ -439,7 +439,7 @@ test('workflow producer binding accepts a CRLF checkout', () => {
 
 const eventFixture = `on:
   push:
-    branches: [main, framer-next]
+    branches: [main, browserless-node]
     paths:
 ${requiredPaths.map((path) => `      - '${path}'`).join('\n')}
   pull_request:

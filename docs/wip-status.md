@@ -1,6 +1,6 @@
-# Framer Next development snapshot
+# Browserless Node development snapshot
 
-The `framer-next` branch contains the TypeScript restart and the rename to
+The `browserless-node` branch contains the TypeScript restart and the rename to
 Framerize Remote. This is unfinished development work, not a release.
 
 ## Checked locally

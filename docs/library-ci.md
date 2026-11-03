@@ -45,7 +45,7 @@ with Node 22.12.0 and Node 24. No package installation, native build, secrets,
 publishing, deployment or live endpoint is involved. Checkout and setup-node
 are pinned, and checkout does not persist credentials.
 
-The workflow runs on relevant pull requests, pushes to `main` and `framer-next`,
+The workflow runs on relevant pull requests, pushes to `main` and `browserless-node`,
 and manual dispatch. Its path filters include the library, workflow, policy
 test and this document. Permissions are limited to `contents: read`.
 

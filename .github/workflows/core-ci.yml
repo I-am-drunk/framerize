@@ -28,7 +28,7 @@ on:
       - 'tsconfig*.json'
       - '.github/workflows/core-ci.yml'
   push:
-    branches: [main, framer-next, 'restart/**']
+    branches: [main, browserless-node, 'restart/**']
     paths:
       - 'scripts/package-*.ts'
       - 'test/package-*'
