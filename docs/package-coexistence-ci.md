@@ -67,7 +67,7 @@ review and qualification. Passing this gate is not publication approval.
 
 ## Local regression validation
 
-All 30 workflow regression tests pass on Node 22.23.4. They exercise missing path
+All 31 workflow regression tests pass on Node 22.23.4. They exercise missing path
 filters, privileged permissions, unsafe artifact names, rerun collisions, and
 silent missing uploads. They also reject changed action pins, missing platform
 declarations, an unsupported Node selection, and package-local command paths.
@@ -85,6 +85,8 @@ and event mismatches, missing/duplicate/unexpected package evidence, version,
 filename, size and digest mismatches, altered payloads, and substituted checker
 reports. They also reject a manifest or checkout changed after verification.
 An attempt 2 consumer accepts unchanged attempt 1 producer evidence.
+The producer-binding test also covers CRLF checkouts. Its LF and CRLF cases
+both pass on Node 24.13.0. This test-only correction does not change the workflow.
 
 These are script-level tests, not native execution on three OSes.
 

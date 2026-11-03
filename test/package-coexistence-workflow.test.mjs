@@ -337,8 +337,8 @@ test('workflow declares pinned actions, all three runners, and root cwd', () => 
   validateExecution(readFileSync(workflowPath, 'utf8'));
 });
 
-test('workflow clears Node options declaratively and downloads the original producer', () => {
-  const source = readFileSync(workflowPath, 'utf8');
+function validateProducerDownload(input) {
+  const source = input.replace(/\r\n/g, '\n');
   assert.match(section(source, 'env'), /^  NODE_OPTIONS: ''$/m);
   const steps = source.split(/^      - /m);
   const upload = steps.find((step) => step.startsWith('name: Upload producer artifact\n'));
@@ -348,6 +348,14 @@ test('workflow clears Node options declaratively and downloads the original prod
   assert.ok(artifactName(download));
   const stored = new Map([[expandName(artifactName(upload), {}, 1), 'producer-attempt-one']]);
   assert.equal(stored.get(expandName(artifactName(download), {}, 2)), 'producer-attempt-one');
+}
+
+test('workflow clears Node options declaratively and downloads the original producer', () => {
+  validateProducerDownload(readFileSync(workflowPath, 'utf8'));
+});
+
+test('workflow producer binding accepts a CRLF checkout', () => {
+  validateProducerDownload(readFileSync(workflowPath, 'utf8').replace(/\r?\n/g, '\r\n'));
 });
 
 const eventFixture = `on:
