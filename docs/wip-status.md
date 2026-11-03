@@ -6,9 +6,11 @@ Framerize Remote. This is unfinished development work, not a release.
 ## Checked locally
 
 - The full workspace build and static checks pass.
-- Node 22.23.4 and 24.13.0 each pass all 287 server tests and 32 core tests
+- Node 22.23.4 and 24.13.0 each pass all 293 server tests and 32 core tests
   without skips. These include JSON account selection, session isolation,
-  private credential references and startup cancellation.
+  private credential references and startup cancellation. CLI cancellation now
+  covers asynchronous provider creation, server construction and pending listen.
+  Late-created providers close before exit; cleanup failures remain fatal.
 - Both runtimes pass the installed Remote/server flow with streaming, a tool
   round trip, cancellation, saved profiles and isolated credentials.
 - The installed packages expose their types without private workspace

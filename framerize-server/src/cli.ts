@@ -20,7 +20,8 @@ export interface CliDependencies {
   readonly process?: CliProcess;
   readonly env?: Readonly<Record<string, string | undefined>>;
   readonly logger?: Pick<Logger, 'info'>;
-  readonly createProvider?: (config: ServerConfig) => ServerProvider;
+  readonly createProvider?: (config: ServerConfig, context: { readonly signal: AbortSignal }) =>
+    ServerProvider | Promise<ServerProvider>;
   readonly createServer?: (config: ServerConfig, dependencies: ServerDependencies) =>
     CliInstance | Promise<CliInstance>;
 }
@@ -70,34 +71,49 @@ export async function run(argv: readonly string[] = process.argv.slice(2),
   const { command, values } = parseArgs(argv);
   const config = loadConfig(values, dependencies.env ?? process.env);
   const logger = dependencies.logger ?? createLogger({ stream: events.stderr, level: config.logLevel });
-  const makeProvider = dependencies.createProvider ?? (await import('./provider.js')).createProvider;
-  const provider = config.upstream ? makeProvider(config) : undefined;
-  let app: CliInstance;
-  try { app = await (dependencies.createServer ?? createServer)(config, { provider, logger }); }
-  catch (error) { await provider?.close?.(); throw error; }
-  if (command === 'check') {
-    await app.close();
-    logger.info('config.valid');
-    return 0;
-  }
+  const controller = new AbortController();
+  let provider: ServerProvider | undefined;
+  let app: CliInstance | undefined;
+  let closing: Promise<void> | undefined;
   let resolveStopped!: () => void;
-  let rejectStopped!: (reason: unknown) => void;
-  let stopping: Promise<void> | undefined;
-  const stopped = new Promise<void>((resolve, reject) => { resolveStopped = resolve; rejectStopped = reject; });
-  stopped.catch(() => {});
+  const stopped = new Promise<void>(resolve => { resolveStopped = resolve; });
+  const close = () => {
+    closing ??= Promise.resolve().then(() => app ? app.close() : provider?.close?.());
+    closing.catch(() => {});
+    return closing;
+  };
   const stop = () => {
-    stopping ??= app.close().then(resolveStopped, rejectStopped);
+    controller.abort();
+    resolveStopped();
+    if (app) void close();
   };
   events.on('SIGINT', stop);
   events.on('SIGTERM', stop);
   try {
+    const makeProvider: NonNullable<CliDependencies['createProvider']> =
+      dependencies.createProvider ?? (await import('./provider.js')).createProvider;
+    if (controller.signal.aborted) return 0;
+    provider = config.upstream ? await makeProvider(config, { signal: controller.signal }) : undefined;
+    if (controller.signal.aborted) return 0;
+    app = await (dependencies.createServer ?? createServer)(config, { provider, logger });
+    if (controller.signal.aborted) return 0;
+    if (command === 'check') {
+      await close();
+      if (!controller.signal.aborted) logger.info('config.valid');
+      return 0;
+    }
     const address = await app.listen();
-    logger.info('server.listening', { port: address.port });
+    if (!controller.signal.aborted) logger.info('server.listening', { port: address.port });
     await stopped;
     return 0;
+  } catch (error) {
+    if (!controller.signal.aborted) throw error;
+    return 0;
   } finally {
-    events.off('SIGINT', stop);
-    events.off('SIGTERM', stop);
-    await app.close();
+    try { await close(); }
+    finally {
+      events.off('SIGINT', stop);
+      events.off('SIGTERM', stop);
+    }
   }
 }

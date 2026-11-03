@@ -32,11 +32,13 @@ for (const failListen of [false, true]) {
     let closeCalls = 0;
     let closing;
     const pending = run(['serve', '--port', '0'], { env: {}, process: events,
-      logger: { info(event, fields) { records.push({ event, fields }); } },
+      logger: { info(event, fields) {
+        records.push({ event, fields });
+        if (event === 'server.listening') { events.emit('SIGINT'); events.emit('SIGTERM'); }
+      } },
       createServer: () => ({
         async listen() {
           if (failListen) throw new Error('synthetic listen failure');
-          queueMicrotask(() => { events.emit('SIGINT'); events.emit('SIGTERM'); });
           return { port: 12345 };
         },
         close() {
@@ -52,6 +54,28 @@ for (const failListen of [false, true]) {
   });
 }
 
+for (const signal of ['SIGINT', 'SIGTERM']) {
+  test(`${signal} during server construction prevents listening`, async () => {
+    const { events } = outputProcess();
+    let closes = 0;
+    const records = [];
+    const result = await run(['serve', '--port', '0'], { env: {}, process: events,
+      logger: { info(event) { records.push(event); } },
+      async createServer() {
+        events.emit(signal);
+        return {
+          async listen() { assert.fail('Cancelled startup must not listen'); },
+          async close() { closes += 1; },
+        };
+      },
+    });
+    assert.equal(result, 0);
+    assert.equal(closes, 1);
+    assert.deepEqual(records, []);
+    for (const name of ['SIGINT', 'SIGTERM']) assert.equal(events.listenerCount(name), 0);
+  });
+}
+
 test('server construction failure closes the created provider', async () => {
   let closes = 0;
   await assert.rejects(run(['check', '--upstream', 'https://synthetic.invalid'], { env: {},
@@ -59,6 +83,89 @@ test('server construction failure closes the created provider', async () => {
     createServer() { throw new Error('synthetic construction failure'); },
   }), /synthetic construction failure/);
   assert.equal(closes, 1);
+});
+
+test('startup cancellation waits for a late provider and closes it without constructing the server', async () => {
+  const { events } = outputProcess();
+  let release; let started; let signal; let settled = false; let closes = 0;
+  const entered = new Promise(resolve => { started = resolve; });
+  const pending = run(['serve', '--upstream', 'https://synthetic.invalid'], {
+    env: {}, process: events,
+    createProvider(config, context) {
+      signal = context.signal; started();
+      return new Promise(resolve => { release = () => resolve({ async close() { closes += 1; } }); });
+    },
+    createServer() { assert.fail('Cancelled provider startup must not construct the server'); },
+  });
+  pending.then(() => { settled = true; }, () => { settled = true; });
+  await entered;
+  events.emit('SIGTERM'); events.emit('SIGINT');
+  assert.equal(signal.aborted, true);
+  await Promise.resolve();
+  assert.equal(settled, false);
+  release();
+  assert.equal(await pending, 0);
+  assert.equal(closes, 1);
+  for (const name of ['SIGINT', 'SIGTERM']) assert.equal(events.listenerCount(name), 0);
+});
+
+test('async provider creation transfers one cleanup owner to the server', async () => {
+  const { events, read } = outputProcess();
+  let closes = 0;
+  const provider = { async close() { closes += 1; } };
+  assert.equal(await run(['check', '--upstream', 'https://synthetic.invalid'], {
+    env: {}, process: events,
+    async createProvider(config, { signal }) {
+      assert.equal(signal.aborted, false);
+      return provider;
+    },
+    createServer(config, dependencies) {
+      assert.equal(dependencies.provider, provider);
+      return { async listen() { assert.fail('Check must not listen'); }, close: () => provider.close() };
+    },
+  }), 0);
+  assert.equal(closes, 1);
+  assert.match(read(), /config.valid/);
+  for (const name of ['SIGINT', 'SIGTERM']) assert.equal(events.listenerCount(name), 0);
+});
+
+test('cancellation closes a pending listen and retains handlers throughout cleanup', async () => {
+  const { events, read } = outputProcess();
+  let rejectListen; let closes = 0;
+  assert.equal(await run(['serve'], { env: {}, process: events,
+    createServer: () => ({
+      listen: () => new Promise((resolveUnused, reject) => {
+        rejectListen = reject; events.emit('SIGTERM');
+      }),
+      async close() {
+        closes += 1;
+        for (const name of ['SIGINT', 'SIGTERM']) assert.equal(events.listenerCount(name), 1);
+        events.emit('SIGINT'); events.emit('SIGTERM');
+        rejectListen(new Error('Synthetic listen cancelled'));
+      },
+    }),
+  }), 0);
+  assert.equal(closes, 1);
+  assert.equal(read(), '');
+  for (const name of ['SIGINT', 'SIGTERM']) assert.equal(events.listenerCount(name), 0);
+});
+
+test('provider rejection after cancellation stops cleanly, but cleanup failure remains fatal', async () => {
+  for (const closeFailure of [false, true]) {
+    const { events } = outputProcess();
+    const pending = run(['serve', '--upstream', 'https://synthetic.invalid'], {
+      env: {}, process: events,
+      async createProvider(config, { signal }) {
+        events.emit('SIGTERM');
+        if (!closeFailure) signal.throwIfAborted();
+        return { async close() { throw new Error('Synthetic cleanup failure'); } };
+      },
+      createServer() { assert.fail('Cancelled startup must not construct the server'); },
+    });
+    if (closeFailure) await assert.rejects(pending, /Synthetic cleanup failure/);
+    else assert.equal(await pending, 0);
+    for (const name of ['SIGINT', 'SIGTERM']) assert.equal(events.listenerCount(name), 0);
+  }
 });
 
 test('actual launcher reports constant fatal output without echoing bad input', context => {

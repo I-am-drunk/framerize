@@ -57,6 +57,11 @@ the listener. A reverse proxy must provide TLS for remote clients. Run
 16 KiB. On Unix, group and other permission bits must be unset. The token is read
 once at startup. A missing server token leaves protected routes inaccessible.
 
+SIGINT or SIGTERM during startup cancels pending provider creation. The CLI
+closes any provider returned afterward and does not open the listener. During
+shutdown, signal handlers remain installed until cleanup finishes. Cleanup
+failures still exit nonzero.
+
 ## HTTP contract
 
 `GET /health` returns `{ "status": "ok", "apiVersion": 1 }` without authentication
