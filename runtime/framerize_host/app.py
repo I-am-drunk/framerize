@@ -50,6 +50,7 @@ class Host:
         self.lock = asyncio.Lock()  # brief: account-dict lifecycle ONLY
         self._playwright = None
         self._driver_start_task = None
+        self._runtime_prepare_task = None
         self._browser_runtime = None
         self._memory_browser = None
         self._memory_addon = None
@@ -570,6 +571,8 @@ class Host:
         commands = tuple(self._command_tasks.values())
         if commands:
             await asyncio.gather(*commands, return_exceptions=True)
+        if self._runtime_prepare_task is not None:
+            await asyncio.gather(self._runtime_prepare_task, return_exceptions=True)
         if self._driver_start_task is not None:
             await asyncio.gather(self._driver_start_task, return_exceptions=True)
         background = [task for acc in self.accounts.values() for task in acc.tasks]
@@ -1028,15 +1031,29 @@ class Host:
             if task.done() and self._driver_start_task is task:
                 self._driver_start_task = None
 
+    async def _prepare_runtime(self):
+        if self._browser_runtime is not None:
+            return
+        if self._runtime_prepare_task is None:
+            def prepare():
+                return browser_runtime(), prepared_memory_browser(), prepared_memory_addon()
+            async def start():
+                try:
+                    runtime, browser, addon = await asyncio.to_thread(prepare)
+                except Exception as error:
+                    raise RuntimeError("browser preparation failed: " + error_cause(error)) from error
+                self._memory_browser, self._memory_addon = browser, addon
+                self._browser_runtime = runtime
+            self._runtime_prepare_task = asyncio.create_task(start())
+        task = self._runtime_prepare_task
+        try:
+            await asyncio.shield(task)
+        finally:
+            if task.done() and self._runtime_prepare_task is task:
+                self._runtime_prepare_task = None
+
     async def _launch(self, account, proxy=None):
-        if self._browser_runtime is None:
-            try:
-                runtime = browser_runtime()
-                self._memory_browser = prepared_memory_browser()
-                self._memory_addon = prepared_memory_addon()
-            except Exception as error:
-                raise RuntimeError("browser preparation failed: " + error_cause(error)) from error
-            self._browser_runtime = runtime
+        await self._prepare_runtime()
         AsyncNewBrowser, async_playwright = self._browser_runtime
         if proxy:
             self.proxies[account] = proxy

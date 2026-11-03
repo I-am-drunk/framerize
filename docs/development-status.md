@@ -1,4 +1,16 @@
-# Claude network attribution, 2026-11-03
+# Cold runtime preparation, 2026-11-03
+
+Alpha.17 passed health but its first production inference failed. The guard
+restored alpha.14 as PID 468247 at 02:34:52 UTC. Health and readiness pass.
+Cold browser patching blocked the host command loop long enough to exceed
+the five-second browser-status deadline and close admission.
+Alpha.18 moves that preparation to one tracked worker task. Status remains
+responsive; cancellation cannot start a duplicate preparation, and shutdown
+joins the worker. The new regression fails on alpha.17; all 82 affected
+startup, lifecycle, device, warmup and shutdown tests pass after correction.
+Next: build the exact source on the iMac and verify cold startup in isolation.
+
+# Earlier Claude network attribution candidate, 2026-11-03
 
 `fix/claude-network-diagnostics-20261103` has built and staged alpha.17. The memory
 repair disabled request-body capture that network attribution still needed.
@@ -16,9 +28,8 @@ Native verification retains the same exclusive account and recovery hold.
 The exact package passed its lifecycle checks and isolated health/readiness.
 Host memory pressure deferred isolated inference before dispatch. The user
 explicitly authorized replacement without completing that qualification.
-The guarded activation is waiting for an idle interval on alpha.14 and
-will preserve the previous release for rollback. Upstream timeout prevention
-is not claimed. Next: verify the activation result and real live delivery.
+The guarded activation restored the previous release after the startup
+failure described above. Upstream timeout prevention is not claimed.
 See [the evidence and limits](incidents/2026-11-03-claude-network-diagnostics.md).
 
 # Account scheduling and refusal-pause repair, 2026-11-02

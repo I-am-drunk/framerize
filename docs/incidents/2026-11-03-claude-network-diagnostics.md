@@ -1,8 +1,9 @@
 # Claude failure attribution
 
-Branch `fix/claude-network-diagnostics-20261103` prepares alpha.17.
-Alpha.14 remains live as PID 3565455, started November 2 at 14:31:56 UTC.
-Health and readiness pass. No production restart occurred during diagnosis.
+Branch `fix/claude-network-diagnostics-20261103` now prepares alpha.18.
+Diagnosis began with alpha.14, PID 3565455, started November 2 at 14:31:56 UTC.
+The alpha.17 activation below rolled back. Alpha.14 is restored as PID 468247,
+started November 3 at 02:34:52 UTC. Health and readiness pass.
 
 The reported November 3 failures ended at 01:05:56 and 01:07:12 UTC.
 Their browser fetches failed before response headers after 65.250 and
@@ -88,6 +89,16 @@ Five new controls cover partial records, log rotation, missing or truncated
 history, and missing operation identities. All 23 prior activation and
 rollback controls still pass. An idle service is still required for the swap.
 
+The next guarded attempt reached an idle interval but stopped before any
+production change. `journalctl --grep` returned status 1 with no output or
+diagnostic text because no security-pause record matched. The guard had
+treated that documented empty result as a failed query. Its correction
+accepts only that empty result. Permission errors, unexpected output, other
+exit statuses and actual unexpired pauses still prevent activation.
+The new regression fails before the correction. All 26 activation tests
+and five operation-history tests pass afterward. This changes the private
+activation procedure, not the staged binary or its qualification claims.
+
 ## Repairs retained from the deployed baseline
 
 Alpha.17 retains the previously qualified Node polling, memory retention,
@@ -111,3 +122,23 @@ under the unchanged 10 GiB limit. At most six browsers were resident.
 This workload was not controlled, so it is not an identical-load comparison.
 The later log audit found 74 emission failures explicitly caused by client
 cancellation. No undisclosed upstream reason is inferred from those events.
+
+## Cold preparation blocked status during activation
+
+The corrected guard reached an idle interval and activated alpha.17 at
+02:34:46 UTC. Health and readiness passed. Its first inference then failed:
+preparing the new browser runtime synchronously blocked the host command
+loop, so a browser-status request exceeded its five-second deadline.
+The resulting unconfirmed-operation fence closed admission. The guard
+restored alpha.14 at 02:34:52 UTC; no failed-release child remained.
+
+The host now prepares dependencies and the patched browser in one tracked
+worker task. The command loop can answer status while that work runs.
+Concurrent accounts share the same task. Cancelling a waiter cannot start
+another preparation, and shutdown joins the retained task before exiting.
+Failure retains its preparation cause and publishes no partial runtime.
+
+A controlled blocked-preparation regression reproduces the command-loop
+stall on alpha.17. All 82 targeted startup, lifecycle, device, warmup and
+shutdown tests pass after the repair, including five new regressions.
+This repair is alpha.18 and still requires exact-package verification.
