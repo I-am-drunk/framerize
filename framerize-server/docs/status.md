@@ -183,9 +183,26 @@ packaging regressions. There are no failures, skips or cancellations. Runtime,
 launcher, package metadata, build scripts and workflow bytes remain unchanged
 from `89d1fcf6`. These local results do not replace fresh platform CI.
 
+At `9e48ec02`, both Windows jobs in server CI run `41660697824` failed the
+three tarball-mutation fixtures before their assertions. GNU tar interpreted
+the absolute drive-letter archive path as a remote host. The acceptance
+owner's correction `282005ab18398d81d3e84b5177a2f488f86b92e1` is integrated
+unchanged as `6ce572ba`. Both tar operations now use a local archive basename
+inside their temporary directory and copy the bytes in and out. All five
+package-smoke tests pass locally on Node 22.23.4, including the three mutation
+rejections. Independent review passes; actual Windows qualification remains open.
+
+A prospective merge with integration base
+`76ccf1fafde11d2ac6f23156882162a13b208a64` exposed a separate scope conflict.
+That base adds parent-owned Castle exports, shipped assets and an installed
+package smoke that constructs a minter. The authorized HTTP runtime files
+remain unchanged, but the expanded npm package violates this stage's recorded
+exclusions. The prospective tree was inspected without merging or executing it.
+The parent owns resolving this package boundary before renewed combined CI.
+
 Windows graceful POSIX-signal behavior is not claimed. Live inference,
 private credentials, production activation and release publication remain
 outside this stage.
 
-Next action: pass source, native and aggregate CI on the final combined head,
-then retain its manifests for reviewed integration.
+Next action: resolve the integration package boundary, then qualify the portable
+fixtures and final combined source/native/aggregate tree before integration.
