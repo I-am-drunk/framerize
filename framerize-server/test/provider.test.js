@@ -128,6 +128,23 @@ test('slow consumers bound response buffering and can pause past the idle interv
   assert.equal(bytes, total * chunk.length);
 });
 
+test('resuming after backpressure reads queued data before declaring an idle timeout', async (context) => {
+  let upstream;
+  const { provider } = await fixture(context, (request, response) => {
+    request.resume(); upstream = response; response.write('first');
+  }, { idleTimeoutMs: 40 });
+  const result = await provider.forward({ path: '/v1/responses', body: body() });
+  assert.equal((await result.body.next()).value.toString(), 'first');
+  await delay(120);
+  const pending = result.body.next();
+  setImmediate(() => {
+    upstream.end('second');
+    Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 100);
+  });
+  assert.equal((await pending).value.toString(), 'second');
+  assert.equal((await result.body.next()).done, true);
+});
+
 test('request bodies reach upstream incrementally with bounded backpressure', async (context) => {
   const arrived = deferred(); const release = deferred();
   let produced = 0;
