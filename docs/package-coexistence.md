@@ -47,8 +47,13 @@ does not establish a Git commit. Success is not publication or activation approv
 
 ## Recorded Linux verification
 
-On 2026-11-03, Node 22.23.4 with npm 10.9.9 passed all 10 focused tests.
-The same checker passed against these existing tarballs, without repacking:
+On 2026-11-03, all 10 focused tests passed on both Node 22.23.4 with npm 10.9.9
+and Node 24.13.0 with npm 11.6.2. Neither run skipped tests. This includes real
+offline fixture installs and the launcher-only CRLF allowance under both npm
+major versions. The runtime and checker source were unchanged between runs.
+
+On Node 22.23.4, the checker also passed against these existing tarballs,
+without repacking:
 
 - `framerize-nexus@0.1.9`, source `671ed7df4507b391fc6efc72bf919aebd289a1eb`.
   SHA-256 `12c6eb43755f16a858d12b150bfde44622298ab2fcf489d03abadba0bd4fe528`.
