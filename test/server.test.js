@@ -187,13 +187,12 @@ test('close before listen and repeated close are safe', async () => {
   await Promise.all([app.close(), app.close()]);
 });
 
-test('Framer chat streams Responses events as Chat Completions', async (t) => {
+test('Framer chat preserves native streaming events', async (t) => {
   let envelope;
   const events = [
-    { type: 'response.output_text.delta', delta: 'hello' },
-    { type: 'response.completed', response: { id: 'resp_1', output: [
-      { type: 'message', content: [{ type: 'output_text', text: 'hello' }] },
-    ] } },
+    { id: 'chatcmpl-1', object: 'chat.completion.chunk', choices: [
+      { delta: { content: 'hello' } },
+    ] },
   ].map((event) => `data: ${JSON.stringify(event)}\n\n`).join('');
   const base = await fixture(t, async (url, options) => {
     envelope = JSON.parse(options.body);
@@ -207,15 +206,16 @@ test('Framer chat streams Responses events as Chat Completions', async (t) => {
   });
   const text = await response.text();
   assert.match(text, /"content":"hello"/);
-  assert.match(text, /data: \[DONE\]/);
-  assert.equal(envelope.request.input[0].role, 'user');
+  assert.equal(text, events);
+  assert.equal(envelope.request.messages[0].role, 'user');
+  assert.equal(envelope.request.input, undefined);
 });
 
-test('Framer non-streaming chat returns a completion object', async (t) => {
+test('Framer non-streaming chat returns the native completion', async (t) => {
   const base = await fixture(t, async () => new Response(JSON.stringify({
-    id: 'resp_1', created_at: 1, status: 'completed', output: [
-      { type: 'message', content: [{ type: 'output_text', text: 'hello' }] },
-    ], usage: { input_tokens: 2, output_tokens: 1, total_tokens: 3 },
+    id: 'chatcmpl-1', created: 1, choices: [
+      { message: { role: 'assistant', content: 'hello' } },
+    ], usage: { prompt_tokens: 2, completion_tokens: 1, total_tokens: 3 },
   }), { headers: { 'content-type': 'application/json' } }), [
     { id: 'framer', provider: 'framer', projectId: 'project',
       authorizationEnv: 'TEST_JWT', castleEnv: 'TEST_CASTLE' },

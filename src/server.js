@@ -2,10 +2,9 @@ import http from 'node:http';
 import { randomUUID } from 'node:crypto';
 import { loadAccounts } from './config.js';
 import { openUpstream, createDeadline } from './upstream.js';
-import { idleTimeout } from './sse.js';
+import { idleTimeout, encodeSse, parseSse } from './sse.js';
 import { sanitizeError } from './logger.js';
-import { chatToResponses, responseToChat, responsesToChatStream, readResponse, responseEventError } from './openai.js';
-import { encodeSse, parseSse } from './sse.js';
+import { validateChat, responseEventError } from './openai.js';
 
 function sendJson(response, status, value) {
   const body = JSON.stringify(value);
@@ -16,25 +15,12 @@ function sendJson(response, status, value) {
   response.end(body);
 }
 
-async function* parseEvents(chunks) {
-  for await (const event of parseSse(chunks)) {
-    if (event.data === '[DONE]') continue;
-    yield JSON.parse(event.data);
-  }
-}
-
 async function* validateResponses(chunks) {
   yield* parseSse(chunks, (event) => {
     if (event.data === '[DONE]') return;
     const failure = responseEventError(JSON.parse(event.data));
     if (failure) throw failure;
   }, true);
-}
-
-async function* encodeChunks(chunks) {
-  for await (const chunk of chunks) {
-    yield encodeSse({ data: typeof chunk === 'string' ? chunk : JSON.stringify(chunk) });
-  }
 }
 
 function waitForDrain(response, signal) {
@@ -118,14 +104,11 @@ export async function createServer(config, { logger, fetchImpl = fetch } = {}) {
         sendJson(response, 404, { error: { message: 'unknown account', type: 'not_found' } });
         return;
       }
-      const convertChat = account?.provider === 'framer' && url.pathname === '/v1/chat/completions';
-      let model = '';
-      let streamChat = false;
+      const convertChat = account?.provider === 'framer'
+        && url.pathname === '/v1/chat/completions';
       if (convertChat) {
-        const converted = chatToResponses(JSON.parse(body.toString('utf8')));
-        model = converted.model;
-        streamChat = converted.stream;
-        body = Buffer.from(JSON.stringify(converted));
+        const payload = JSON.parse(body.toString('utf8'));
+        validateChat(payload);
       }
       const upstream = await openUpstream({
         config, request, body, account, signal: controller.signal, fetchImpl,
@@ -135,28 +118,14 @@ export async function createServer(config, { logger, fetchImpl = fetch } = {}) {
         const value = upstream.response.headers.get(name);
         if (value) responseHeaders[name] = value;
       }
-      if (convertChat && upstream.response.ok) {
-        responseHeaders['content-type'] = 'text/event-stream; charset=utf-8';
-        delete responseHeaders['content-length'];
-      }
       const responseDeadline = createDeadline(controller.signal, config.requestTimeoutMs, disconnect);
       try {
-        if (convertChat && upstream.response.ok && !streamChat) {
-          const result = await readResponse(upstream.response);
-          sendJson(response, upstream.response.status, responseToChat(result, model));
-          return;
-        }
         if (!upstream.response.ok) {
           response.writeHead(upstream.response.status, responseHeaders);
         }
         if (upstream.response.ok) response.writeHead(upstream.response.status, responseHeaders);
         if (upstream.response.body) {
           let chunks = idleTimeout(upstream.response.body, config.idleTimeoutMs, responseDeadline.signal);
-          if (convertChat && upstream.response.ok) {
-            const events = parseEvents(chunks);
-            const converted = responsesToChatStream(events, model);
-            chunks = encodeChunks(converted);
-          }
           if (!convertChat && upstream.response.ok
               && responseHeaders['content-type']?.includes('application/json')) {
             chunks = validateResponses(chunks);

@@ -29,9 +29,23 @@ test('Framer requests use the native Responses envelope', async () => {
 
 test('Framer chat uses its native Chat route', async () => {
   const result = await prepareFramer({ account, path: '/v1/chat/completions',
-    body: Buffer.from('{"model":"gpt-test","messages":[]}'), fetchImpl: async () => {},
+    body: Buffer.from('{"model":"gpt-test","stream":true,"messages":[]}'), fetchImpl: async () => {},
     env: { FIXTURE_JWT: 'fixture-jwt', FIXTURE_CASTLE: 'fixture-castle' } });
   assert.equal(result.url, 'https://api.framer.test/ai/v3/chat/');
+  const envelope = JSON.parse(result.body);
+  assert.deepEqual(envelope.request, {
+    model: 'gpt-test', stream: true, messages: [],
+  });
+  assert.equal(envelope.projectId, 'project');
+  assert.equal(envelope.featureCategory, 'agents');
+  assert.equal(envelope.featureName, 'agents');
+  assert.equal(envelope.model, 'gpt-test');
+  assert.equal(envelope.step, 'message');
+  assert.equal(envelope.stepIndex, 0);
+  assert.equal(envelope.userPrompt, '');
+  assert.equal(envelope.castleToken, 'fixture-castle');
+  assert.match(envelope.sessionId, /^[A-Za-z0-9]{9}$/);
+  assert.match(envelope.turnId, /^[A-Za-z0-9]{9}$/);
 });
 
 test('Framer reads credentials from private files', async () => {

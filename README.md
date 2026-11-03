@@ -69,9 +69,10 @@ and its authorization.
 
 ## Direct Framer accounts
 
-Set `provider` to `framer` to use `/ai/v3/openai/responses/`. Chat requests
-convert to Responses, including tool calls, tool results, JSON schemas,
-short replies, and incremental streams. Sessions and Castle credentials
+Set `provider` to `framer` to use `/ai/v3/openai/responses/`. Chat requests use
+`/ai/v3/chat/` with their native messages payload. Chat replies and streams
+pass through unchanged, including tool calls, tool results, and JSON schemas.
+Sessions and Castle credentials
 stay in environment variables named by the JSON account record. Private files
 can replace those variables with `sessionFile`, `castleFile`, or
 `authorizationFile`. Files must be regular files no larger than 16 KiB.
