@@ -9,6 +9,10 @@ browser, no system CTR, and no old Framerize implementation code.
 
 Node.js 22.12 or newer is required.
 
+The first npm publication is pending package-owner authentication. Until then,
+run the command from this checkout with `npm exec -- framer-next` or use the
+standalone executable from a release available to your account.
+
 ```sh
 npx framer-next serve --upstream https://your-endpoint.example
 ```
