@@ -2,7 +2,7 @@
 
 Verified on November 3, 2026:
 
-- 61 unit and integration tests pass on Node.js 24.
+- 64 unit and integration tests pass on Node.js 24.
 - GitHub CI test and package jobs pass on pull request 54.
 - The installed npm tarball runs outside the checkout.
 - The isolated executable runs without Node.js on `PATH`.
@@ -40,6 +40,13 @@ A live GPT-4.1 Chat request returned HTTP 200 with `finish_reason` set to
 `tool_calls` and the requested `weather` call for Paris. The equivalent Opus
 request returned Framer's explicit `paid_plan_only_model` response. This is an
 upstream workspace restriction, not a connector or Castle failure.
+A streamed GPT-4.1 Chat request also returned the complete `weather` call for
+Paris and its terminal `[DONE]` marker.
+
+Version 0.1.7 adds native Chat tool-schema and streamed tool-call regression
+tests. Routine client disconnects now produce informational logs. Its package,
+standalone executable, short and long stream fixtures, and live streamed tool
+call have passed verification.
 
 ## Publication dependency
 
