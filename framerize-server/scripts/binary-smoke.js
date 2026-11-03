@@ -23,6 +23,7 @@ let child;
 let exit;
 let logs = '';
 let resolveDisconnected;
+let upstreamClosed = false;
 const disconnected = new Promise((resolve) => { resolveDisconnected = resolve; });
 
 async function bounded(promise, message) {
@@ -46,7 +47,7 @@ const upstream = http.createServer(async (request, response) => {
     const chunks = [];
     for await (const chunk of request) chunks.push(chunk);
     if (Buffer.concat(chunks).equals(disconnectBody)) {
-      response.once('close', resolveDisconnected);
+      response.once('close', () => { upstreamClosed = true; resolveDisconnected(); });
       response.writeHead(200, { 'content-type': 'text/event-stream' });
       response.write('data: pending\n\n');
       return;
@@ -177,6 +178,9 @@ try {
   assert.deepEqual(calls, ['/v1/models', '/v1/responses', '/v1/chat/completions']);
   const active = await bounded(openStream(port), 'Cancellation stream startup timed out');
   assert.equal((await request(port, '/health')).status, 200);
+  assert.equal(upstreamClosed, false, 'Upstream closed before client disconnect');
+  assert.equal(active.destroyed, false, 'Downstream closed before client disconnect');
+  assert.equal(active.complete, false, 'Stream completed before client disconnect');
   active.destroy();
   await bounded(disconnected, 'Client disconnect did not close upstream');
   assert.ifError(upstreamFailure);

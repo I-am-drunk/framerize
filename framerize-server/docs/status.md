@@ -137,6 +137,10 @@ An expanded binary smoke passes against the recorded `0848e05a` archive without
 rebuilding it. The extracted executable remains healthy while a stream is open,
 and client disconnection closes the corresponding upstream request before
 server shutdown. This cancellation check is now part of each native CI job.
+The smoke asserts that both sides are still open immediately before the client
+disconnects. A negative control that ends upstream early fails that assertion.
+Both checks pass using private temporary memory storage when local disk space
+is insufficient for archive extraction.
 
 Windows graceful POSIX-signal behavior is not claimed. Live inference,
 private credentials, production activation and release publication remain
