@@ -1,0 +1,3 @@
+[
+  { "id": "example", "label": "Fixture account", "enabled": true, "models": ["fixture-model"] }
+]

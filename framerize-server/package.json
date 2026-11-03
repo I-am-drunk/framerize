@@ -1,0 +1,26 @@
+{
+  "name": "framerize-server",
+  "version": "0.1.0",
+  "description": "Node-native HTTP server for operator-authorized inference endpoints",
+  "private": true,
+  "type": "module",
+  "engines": { "node": ">=22.12" },
+  "bin": { "framerize-server": "./bin/framerize-server.js" },
+  "exports": {
+    ".": "./src/server.js",
+    "./config": "./src/config.js",
+    "./accounts": "./src/accounts.js",
+    "./logger": "./src/logger.js",
+    "./provider": "./src/provider.js"
+  },
+  "files": ["bin", "src", "README.md", "LICENSE"],
+  "scripts": {
+    "start": "node bin/framerize-server.js serve",
+    "dev": "node --watch bin/framerize-server.js serve",
+    "test": "node --test",
+    "check": "node scripts/check.js",
+    "acceptance": "node scripts/acceptance.js",
+    "pack:check": "node scripts/package-smoke.js"
+  },
+  "license": "MIT"
+}
