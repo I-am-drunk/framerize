@@ -14,7 +14,9 @@ assert.deepEqual(manifest.exports, {
 }, 'Unexpected server package exports');
 assert.deepEqual(manifest.bin, { 'framerize-server': './bin/framerize-server.js' },
   'Unexpected server package executable');
-assert.deepEqual(Object.keys(manifest.dependencies ?? {}), [], 'Unexpected runtime dependencies');
+for (const field of ['dependencies', 'optionalDependencies', 'peerDependencies']) {
+  assert.deepEqual(Object.keys(manifest[field] ?? {}), [], 'Unexpected runtime dependencies');
+}
 assert.deepEqual((await readdir(new URL('../src/', import.meta.url))).sort(), [
   'accounts.js', 'cli.js', 'config.js', 'errors.js', 'lifecycle.js', 'logger.js',
   'provider.js', 'server.js', 'transport.js',
