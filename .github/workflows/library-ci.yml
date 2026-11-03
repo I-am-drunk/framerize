@@ -7,6 +7,12 @@ on:
       - '.github/workflows/library-ci.yml'
       - 'test/library-workflow.test.mjs'
       - 'docs/library-ci.md'
+      - 'test/installed-castle-flow.test.ts'
+      - 'scripts/core-package-check.ts'
+      - 'tsconfig.library-tools.json'
+      - 'tsconfig.base.json'
+      - 'package.json'
+      - 'package-lock.json'
   push:
     branches: [main, framer-next]
     paths:
@@ -14,6 +20,12 @@ on:
       - '.github/workflows/library-ci.yml'
       - 'test/library-workflow.test.mjs'
       - 'docs/library-ci.md'
+      - 'test/installed-castle-flow.test.ts'
+      - 'scripts/core-package-check.ts'
+      - 'tsconfig.library-tools.json'
+      - 'tsconfig.base.json'
+      - 'package.json'
+      - 'package-lock.json'
   workflow_dispatch:
 
 permissions:
@@ -21,6 +33,7 @@ permissions:
 
 env:
   NODE_OPTIONS: ''
+  NODE_DISABLE_COMPILE_CACHE: '1'
 
 defaults:
   run:
@@ -34,7 +47,7 @@ jobs:
       fail-fast: false
       matrix:
         os: [ubuntu-22.04, macos-15, windows-2022]
-        node: ['22.12.0', '24']
+        node: ['22.12.0', '22.23.4', '24.13.0']
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
         with:
@@ -44,6 +57,11 @@ jobs:
           node-version: ${{ matrix.node }}
       - name: Check workflow and offline guard
         run: node --test test/library-workflow.test.mjs
-      - name: Run the five existing library fixtures offline
-        working-directory: framerize-castle
-        run: node test/helpers/offline-guard.mjs --fixtures
+      - name: Install locked build tools
+        run: npm ci --ignore-scripts --no-audit --no-fund
+      - name: Build and test the TypeScript library
+        run: npm --prefix framerize-castle test
+      - name: Compile the installed-package check
+        run: node node_modules/typescript/bin/tsc -p tsconfig.library-tools.json
+      - name: Verify the private installed package
+        run: node --test .tools/test/installed-castle-flow.test.js

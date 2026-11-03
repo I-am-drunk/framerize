@@ -1,49 +1,79 @@
 # Framerize
 
-Node.js tools for connecting local clients to an operator-authorized inference API.
-Use Node.js 22.12 or newer. Run the commands below from this repository's root.
+## Framer Next work in progress
+
+The `framer-next` branch contains the TypeScript restart. It is a development
+snapshot, not a release or a deployed service. Framerize Remote replaces the
+previous connector name throughout the active packages and commands.
+
+Local tests cover the shared server, installed Remote package, authentication,
+streaming and shutdown. The [Framer backend](framerize-server/docs/framer-backend.md)
+now maps provider requests through the actual listener in synthetic tests.
+Account-to-provider configuration and CLI selection still need wiring.
+Live browserless inference, current hosted release qualification and npm
+publication are not complete. Do not use old release evidence to approve this
+snapshot.
+
+TypeScript packages for a browserless Node server and a small local connector.
+The connector works offline against synthetic providers. Live browserless
+provider compatibility is not yet established.
+Use Node.js 22.12 or newer. Run source commands from this repository's root.
 
 ## Choose a package
 
 - [Framerize server](framerize-server/README.md) exposes authenticated Responses
   and Chat Completions routes. Its default listener is `127.0.0.1:8789`.
-- [Framerize Nexus](framerize-nexus/README.md) forwards local client requests to
+- [Framerize Remote](framerize-remote/README.md) forwards local client requests to
   a configured endpoint. Its default listener is `127.0.0.1:8788`.
-- [The separate experimental library](framerize-castle/README.md) is excluded
-  from the server's package and native executable.
+- [Castle Library](framerize-castle/README.md) contains the server-side minting
+  API and assets. Its provider integration is unfinished; Remote never includes it.
+- [Shared core](docs/typescript-layout.md) supplies the HTTP listener and
+  readiness contract used by both server and Remote.
 
-Nexus is not published to npm yet. Use the source commands here instead of
-assuming that `npx framerize-nexus` installs this revision.
+Remote is not published to npm yet. Use the source commands here instead of
+assuming that `npx framerize-remote` installs this revision.
 
-## Inspect the commands
+## Build and inspect
+
+Build before running either source launcher. Published packages will contain
+compiled JavaScript and declarations, not require TypeScript at runtime.
 
 ```sh
+npm ci --ignore-scripts --no-audit --no-fund
+npm run build
 node framerize-server/bin/framerize-server.js --help
-node framerize-nexus/bin/framerize-nexus.js --help
+node framerize-remote/bin/framerize-remote.js --help
 node framerize-server/bin/framerize-server.js check
-node framerize-nexus/bin/framerize-nexus.js check
+node framerize-remote/bin/framerize-remote.js check
 ```
 
-`check` validates local configuration and files. It does not contact an upstream
-or prove that inference or authentication works.
+Server `check` validates local configuration without contacting its upstream.
+Remote `check` contacts the configured server's authenticated readiness endpoint.
+Neither check proves live inference compatibility.
 
 ## Configure an endpoint
 
-### Nexus
+### Remote
 
-Nexus already reads `FRAMER_UPSTREAM`, `FRAMER_HOST`, `FRAMER_PORT`, and
-`FRAMER_ACCOUNTS` from the process environment. Explicit CLI flags override them.
-For an existing local endpoint on port 9000, a POSIX-shell example is:
+Provision two separate credentials: the token accepted by your server and
+the local token your clients will present to Remote. Pass file references,
+never token values in command arguments:
 
 ```sh
-export FRAMER_UPSTREAM=http://127.0.0.1:9000
-node framerize-nexus/bin/framerize-nexus.js check
-node framerize-nexus/bin/framerize-nexus.js serve
+node framerize-remote/bin/framerize-remote.js setup \
+  --remote https://your-server.example \
+  --server-token-file /private/framerize/server-token \
+  --local-token-file /private/framerize/local-token \
+  --start
 ```
 
-Use the endpoint base without `/v1`; Nexus appends `/v1/responses` or
-`/v1/chat/completions`. This example does not start the upstream on port 9000.
-Neither CLI automatically loads a `.env` file or named presets today.
+Use the server origin without `/v1`. Setup saves credential references in
+`~/.framerize-remote/framerize-remote.json`, checks readiness, and starts the
+local API at `http://127.0.0.1:8788/v1`. It does not provision a remote server.
+Later, use `serve` from any directory or `check --tailscale` to diagnose the
+connection. Neither CLI automatically loads `.env` files. See the
+[Remote guide](framerize-remote/README.md) for compact output, JSON mode and
+explicit non-loopback access.
 
 ### Server
 
@@ -72,10 +102,19 @@ uses a separate upstream credential reference. Follow the
 
 ## Current integration status
 
-The server has fixture-tested npm and native packaging for Linux x64, macOS
-arm64, and Windows x64. Nexus still retains its legacy account/provider options;
-its planned remote-only authentication and readiness contract is separate work.
-See the [server and Nexus contract](docs/framerize-server-plan.md).
+Both products use the same typed listener. Remote replaces the local credential
+with the server token and forwards opaque response bytes. Account selection,
+provider requests and Castle Library belong on the server, never in Remote.
+Local installed-pair tests cover streaming, tool calls, cancellation and auth.
+They use a synthetic upstream, not a live inference provider.
+
+The [package workflow](docs/package-coexistence-ci.md) and
+[release candidate checks](docs/package-release.md) require new evidence for
+changed packages. Historical JavaScript and native reports do not qualify this
+TypeScript restart. Hosted platform checks, the remaining server automation
+migration, live browserless compatibility and npm publication remain open.
+The [native server build](docs/native-server-build.md) now binds each executable
+to the verified npm archive rather than bundling loose checkout files.
 
 For development checks, use each package's README. The
 [two-package check](docs/package-coexistence.md) verifies installed package

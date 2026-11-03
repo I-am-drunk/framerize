@@ -17,7 +17,7 @@ export function fixture(t) {
   const directory = path.join(repository, 'framerize-server');
   mkdirSync(path.join(directory, 'scripts'), { recursive: true });
   mkdirSync(path.join(repository, '.github', 'workflows'), { recursive: true });
-  for (const name of ['release-artifacts.js', 'release-metadata.js', 'merge-release-manifests.js']) {
+  for (const name of ['release-artifacts.js', 'release-metadata.js', 'merge-release-manifests.js', 'package-binary.js']) {
     copyFileSync(path.join(scriptDirectory, name), path.join(directory, 'scripts', name));
   }
   writeFileSync(path.join(directory, 'package.json'), JSON.stringify({ name: 'framerize-server', version: '0.1.0', private: true }));
@@ -64,6 +64,8 @@ export function seedBuild(t, options = {}) {
   writeFileSync(path.join(dist, 'build.json'), JSON.stringify({
     name: 'framerize-server', version: '0.1.0', commit,
     target, node: process.version, executableSha256: digest(path.join(dist, executable)),
+    packageSha256: digest(path.join(directory, PACKAGE)),
+    packageBytes: readFileSync(path.join(directory, PACKAGE)).length,
   }, null, 2));
   writeSums(dist, Object.fromEntries([executable, archive].map((name) => [name, digest(path.join(dist, name))])));
   return { ...checkout, dist, target, executable, archive };
@@ -86,6 +88,7 @@ export function seedTarget(directory, target, commit, options = {}) {
   writeFileSync(path.join(dist, 'release.json'), JSON.stringify({
     name: 'framerize-server', version: '0.1.0', commit, target,
     node: options.node ?? NODE, artifacts,
+    packageSha256: artifacts[PACKAGE], packageBytes: readFileSync(path.join(dist, PACKAGE)).length,
   }, null, 2));
   writeSums(dist, artifacts);
   return { dist, executable, archive, artifacts };

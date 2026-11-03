@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import http from 'node:http';
-import { createProvider } from '../src/provider.js';
+import { createProvider } from '../dist/provider.js';
 import { apiRequest, authorizedHeaders, startFixture } from './helpers/fixtures.js';
 
 async function upstreamFixture(t, handler) {

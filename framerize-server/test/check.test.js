@@ -7,22 +7,32 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const source = fileURLToPath(new URL('../scripts/check.js', import.meta.url));
-const sources = ['accounts.js', 'cli.js', 'config.js', 'errors.js', 'lifecycle.js', 'logger.js',
-  'provider.js', 'server.js', 'transport.js'];
+const sources = ['accounts.ts', 'cli.ts', 'config.ts', 'errors.ts', 'framer-auth.ts', 'framer-backend.ts',
+  'framer-request.ts', 'logger.ts', 'provider.ts', 'server.ts'];
+const generated = ['core.js', 'core.d.ts', 'accounts.js', 'accounts.d.ts', 'config.js', 'config.d.ts',
+  'errors.js', 'errors.d.ts', 'provider.js', 'provider.d.ts',
+  'framer-auth.js', 'framer-auth.d.ts',
+  'framer-backend.js', 'framer-backend.d.ts', 'framer-request.js', 'framer-request.d.ts',
+  'cli.js', 'cli.d.ts', 'logger.js', 'logger.d.ts', 'server.js', 'server.d.ts',
+  ...['backend', 'http-policy', 'instance', 'instance-options', 'readiness'].map((name) => `core-types/${name}.d.ts`)];
 
 function fixture(t) {
   const root = mkdtempSync(path.join(tmpdir(), 'framerize-check-fixture-'));
   t.after(() => rmSync(root, { recursive: true, force: true }));
-  for (const name of ['src', 'bin', 'scripts']) mkdirSync(path.join(root, name));
+  for (const name of ['src', 'bin', 'scripts', 'dist']) mkdirSync(path.join(root, name));
+  mkdirSync(path.join(root, 'dist/core-types'));
+  for (const name of generated) writeFileSync(path.join(root, 'dist', name), 'export const fixture = true;\n');
   copyFileSync(source, path.join(root, 'scripts', 'check.js'));
   for (const name of sources) writeFileSync(path.join(root, 'src', name), 'export const fixture = true;\n');
   writeFileSync(path.join(root, 'bin', 'framerize-server.js'), '#!/usr/bin/env node\n');
   const manifest = {
     name: 'framerize-server', private: true,
-    files: ['bin', 'src', 'README.md', 'LICENSE'],
+    files: ['bin', ...generated.map((name) => `dist/${name}`), 'README.md', 'LICENSE'],
     exports: {
-      '.': './src/server.js', './config': './src/config.js', './accounts': './src/accounts.js',
-      './logger': './src/logger.js', './provider': './src/provider.js',
+      '.': './dist/server.js', './config': './dist/config.js', './accounts': './dist/accounts.js',
+      './logger': './dist/logger.js', './provider': './dist/provider.js',
+      './framer-auth': './dist/framer-auth.js',
+      './framer-backend': './dist/framer-backend.js',
     },
     bin: { 'framerize-server': './bin/framerize-server.js' },
   };
@@ -45,7 +55,8 @@ test('approved package identity and inventories pass static checking', (t) => {
 test('public packages and extra package entries are rejected', (t) => {
   for (const [change, error] of [
     [{ private: false }, 'Server package must remain private'],
-    [{ files: ['bin', 'src', 'README.md', 'LICENSE', 'castle'] }, 'Unexpected server package files'],
+    [{ files: ['bin', ...generated.map((name) => `dist/${name}`),
+      'README.md', 'LICENSE', 'castle'] }, 'Unexpected server package files'],
     [{ exports: { '.': './src/server.js' } }, 'Unexpected server package exports'],
     [{ bin: { 'framerize-server': './bin/framerize-server.js', extra: './bin/extra.js' } }, 'Unexpected server package executable'],
     [{ dependencies: { example: '1.0.0' } }, 'Unexpected runtime dependencies'],

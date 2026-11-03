@@ -1,6 +1,19 @@
 # Package coexistence CI acceptance
 
-This gate qualifies the installed Nexus and server npm packages together.
+## TypeScript restart
+
+The current workflow builds the root workspace once and packs both products once.
+It distributes compiled, hash-bound checking tools beside the original archives.
+Nine consumers cover Linux x64, macOS arm64 and Windows x64 on Node 22.12.0,
+22.23.4 and 24.13.0. Consumers install development tools but do not rebuild products.
+Each verifies the offline install and exercises the same pair through loopback.
+Reports retain source commit/tree, run/attempt, runtime, package inventories,
+tool hashes and the installed-flow log hash. Retries can reuse the original producer.
+
+The remaining sections describe the earlier JavaScript baseline. Its hosted
+evidence does not qualify the changed TypeScript tools or packages.
+
+This gate qualifies the installed Remote and server npm packages together.
 The workflow's recorded baseline pair is qualified on Linux, macOS and Windows.
 Later package changes require fresh evidence.
 
@@ -16,7 +29,7 @@ inference requests, publish packages, or activate a service.
 
 ## One producer, three consumers
 
-1. Pack Nexus and server once each on Linux with offline mode and lifecycle
+1. Pack Remote and server once each on Linux with offline mode and lifecycle
    scripts disabled. Use private npm configuration and cache directories.
 2. Retain those exact two tarballs with a producer manifest containing their
    names, versions, filenames, SHA-256 hashes, checkout SHA, and Node/npm versions.
@@ -57,7 +70,7 @@ string matching alone cannot prove these failure paths.
 
 Retain the workflow run and event, exact checkout SHA, producer manifest, all
 three successful consumer reports, and the uploaded artifact identities.
-Check all reports against the same producer hashes. A green Nexus or server
+Check all reports against the same producer hashes. A green Remote or server
 native-build workflow does not qualify this root package-pair gate.
 
 The earlier retained pair passed on Linux Node 22 and 24. That evidence remains
@@ -99,7 +112,7 @@ producer metadata. Both installed packages retained all 13 expected files.
 
 The tarball hashes matched the retained baseline pair:
 
-- Nexus: `12c6eb43755f16a858d12b150bfde44622298ab2fcf489d03abadba0bd4fe528`.
+- Remote: `12c6eb43755f16a858d12b150bfde44622298ab2fcf489d03abadba0bd4fe528`.
 - Server: `c4282b29d43ee8fa38856cd26a4778db82926548fb329d753e5306924d2c2ff3`.
 
 This local run used a synthetic `local_fixture` event. It did not execute
@@ -111,4 +124,4 @@ Its actual merge checkout was `3a4e79b409ed1911ea53da311113ace9a63b7408`.
 All three OSes passed 41 root tests and installed the same exact package pair.
 The retained manifest and reports bind each consumer to the producer hashes.
 This closes the hosted baseline gate, not an actual mixed-attempt rerun or
-qualification of later ENV/thin-Nexus runtime changes.
+qualification of later ENV/thin-Remote runtime changes.

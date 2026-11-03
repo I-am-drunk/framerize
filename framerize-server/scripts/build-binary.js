@@ -1,8 +1,7 @@
 import { execFileSync } from 'node:child_process';
-import { chmodSync, copyFileSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
-import { isBuiltin } from 'node:module';
+import { chmodSync, copyFileSync, lstatSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
-import { build } from 'esbuild';
+import { bundleServerArchive, verifyServerSource } from '../../.tools/scripts/server-native-bundle.js';
 import postject from 'postject';
 import { artifactNames, currentTarget, digest, sourceIdentity } from './release-artifacts.js';
 
@@ -12,15 +11,17 @@ const identity = sourceIdentity();
 const target = currentTarget();
 rmSync('dist/build.json', { force: true });
 mkdirSync('dist', { recursive: true });
-const bundle = await build({
-  entryPoints: ['bin/framerize-server.js'], outfile: 'dist/bundle.cjs',
-  bundle: true, platform: 'node', format: 'cjs', target: 'node22', metafile: true,
-});
-for (const output of Object.values(bundle.metafile.outputs)) {
-  if (output.imports.some((entry) => entry.external && !isBuiltin(entry.path))) {
-    throw new Error('Executable must not depend on external packages');
-  }
-}
+const archive = `${identity.name}-${identity.version}.tgz`;
+const info = lstatSync(archive);
+if (!info.isFile() || info.size > 16 * 1024 * 1024) throw new Error('Invalid server archive');
+const archiveBytes = readFileSync(archive);
+const manifest = JSON.parse(readFileSync('package.json', 'utf8'));
+const files = ['package.json', ...manifest.files.flatMap(file =>
+  file === 'bin' ? ['bin/framerize-server.js'] : [file])];
+verifyServerSource(archiveBytes, files, file => file.startsWith('dist/') ? readFileSync(file)
+  : execFileSync('git', ['show', `HEAD:framerize-server/${file}`]));
+const bundle = await bundleServerArchive(archiveBytes, identity);
+writeFileSync('dist/bundle.cjs', bundle.code);
 writeFileSync('dist/sea-config.json', JSON.stringify({
   main: path.resolve('dist/bundle.cjs'), output: path.resolve('dist/sea-prep.blob'),
   disableExperimentalSEAWarning: true, useSnapshot: false, useCodeCache: false,
@@ -40,6 +41,8 @@ try {
   renameSync(staged, executable);
   writeFileSync('dist/build.json', `${JSON.stringify({ ...identity, target,
     node: process.version, executableSha256: digest(executable),
+    packageSha256: bundle.packageSha256, packageBytes: bundle.packageBytes,
+    bundleInputs: bundle.inputs,
   }, null, 2)}\n`);
   process.stdout.write(`Built ${executable}\n`);
 } finally { rmSync(staged, { force: true }); }

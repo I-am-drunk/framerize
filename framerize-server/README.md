@@ -3,6 +3,17 @@
 A Node.js HTTP server with no runtime dependencies for an operator-authorized inference API.
 Requires Node.js 22.12 or newer. The npm package is private and has no publish script.
 
+The HTTP listener is the shared TypeScript core, bundled as `dist/core.js`.
+There is no private workspace dependency in the installed package. Existing
+configuration validation, server-token loading and JSON account metadata compile
+from TypeScript. The upstream HTTP provider also compiles from TypeScript and
+exports `ProviderOptions`, `ProviderRequest` and `Provider` through
+`framerize-server/provider`. Its declarations include the required core types
+inside the package. CLI orchestration, logging and server composition also
+compile from TypeScript. The npm archive contains generated runtime modules
+and declarations, not the source tree. A small Node launcher remains in `bin/`.
+This does not implement Castle integration or establish live browserless compatibility.
+
 ## Run
 
 Set `FRAMERIZE_SERVER_TOKEN` in the existing private environment. Keep the upstream
@@ -10,13 +21,37 @@ credential in a separate environment variable or private file. Do not pass secre
 values as command-line arguments.
 
 ```sh
-npm start -- --upstream https://inference.example.test --authorization-env INFERENCE_API_KEY
+npm ci --ignore-scripts
+npm run build
+npm --prefix framerize-server start -- --upstream https://inference.example.test --authorization-env INFERENCE_API_KEY
 ```
+
+Run these commands from the repository root. Installed packages already
+contain the listener bundle, compiled configuration and account loader. They do not need
+TypeScript or a build step. TypeScript source stays out of the npm archive.
+The main export includes `ServerProvider` and `ServerDependencies` types for
+embedding. Providers can return synchronous or asynchronous responses; the
+server normalizes them into the shared backend contract.
+
+### Verify a native server with installed Remote
+
+From the repository root, run:
+
+```sh
+npm run check:native -- /absolute/path/to/framerize-server /absolute/path/to/framerize-remote.tgz
+```
+
+The check copies the executable into a private folder with synthetic JSON account
+metadata and an empty `PATH`. It installs Remote separately with npm offline and
+tests authentication, streamed tool calls, readiness refusal and cancellation
+against a loopback fixture. It checks process shutdown and removes its temporary files.
+This verifies the supplied executable and package, not live provider compatibility.
+Release builds still require a clean committed checkout and source-bound manifests.
 
 The server binds to `127.0.0.1:8789` by default. Use `--host` and `--port` to change
 the listener. A reverse proxy must provide TLS for remote clients. Run
-`npm start -- --help` for every supported option. Run
-`node bin/framerize-server.js check` to validate configuration without contacting an upstream.
+`npm --prefix framerize-server start -- --help` for every supported option. Run
+`node framerize-server/bin/framerize-server.js check` to validate configuration without contacting an upstream.
 
 `--server-token-file` reads the server token from a private regular file, at most
 16 KiB. On Unix, group and other permission bits must be unset. The token is read
@@ -48,6 +83,11 @@ preserving status and safe headers. It never returns raw upstream error bodies.
 
 ## Inject a provider
 
+The server-only [session authentication module](docs/framer-auth.md) provides
+cookie-to-token acquisition, caching and cancellation for account runtimes.
+It does not select accounts or replace the missing Framer-specific inference
+provider. The CLI still uses the explicitly configured HTTP upstream.
+
 ```js
 import { createServer } from 'framerize-server';
 import { loadConfig } from 'framerize-server/config';
@@ -58,7 +98,8 @@ await app.close();
 ```
 
 The provider implements `forward({ path, body, headers, signal })` and returns
-`{ status, headers, body }`. Both bodies are async iterables of Buffers. Request
+`{ status, headers, body }`. Request bodies are async iterables of Buffers;
+response bodies may be synchronous or asynchronous iterables. Request
 headers contain only `accept`, `content-type`, and `openai-beta`. No caller
 credentials, cookies, account selectors, or arbitrary forwarding headers cross
 this boundary. The provider owns its private upstream credentials.
@@ -74,6 +115,9 @@ Providers must observe `signal` during all pending work, including body iteratio
 The server closes a failed stream abnormally, propagates downstream backpressure,
 and cancels on disconnect. It never appends a successful terminal event. Closing
 the app stops admission, aborts requests, releases sockets, and closes the provider.
+
+A backend that fails or exceeds its shutdown deadline rejects `close()` with
+`Backend shutdown failed`. The CLI still reports only its fixed fatal message.
 
 ## Configuration and metadata
 

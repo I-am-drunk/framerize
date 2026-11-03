@@ -25,11 +25,14 @@ function validateWorkflow(source) {
   for (const event of ['push', 'pull_request']) {
     const config = section(events, event, 2);
     for (const entry of ['framerize-castle/**', '.github/workflows/library-ci.yml',
-      'test/library-workflow.test.mjs', 'docs/library-ci.md']) assert.ok(config.includes("'" + entry + "'"));
+      'test/library-workflow.test.mjs', 'docs/library-ci.md', 'test/installed-castle-flow.test.ts',
+      'scripts/core-package-check.ts', 'tsconfig.library-tools.json', 'tsconfig.base.json',
+      'package.json', 'package-lock.json']) assert.ok(config.includes("'" + entry + "'"));
   }
   assert.match(section(events, 'push', 2), /branches: \[main, framer-next\]/);
   assert.match(source, /os: \[ubuntu-22.04, macos-15, windows-2022\]/);
-  assert.match(source, /node: \['22\.12\.0', '24'\]/);
+  assert.match(source, /node: \['22\.12\.0', '22\.23\.4', '24\.13\.0'\]/);
+  assert.match(source, /NODE_DISABLE_COMPILE_CACHE: '1'/);
   assert.match(source, /runs-on: \$\{\{ matrix.os \}\}/);
   assert.match(source, /node-version: \$\{\{ matrix.node \}\}/);
   assert.match(source, /fail-fast: false/);
@@ -41,9 +44,11 @@ function validateWorkflow(source) {
     'actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020',
   ]);
   const commands = [...source.matchAll(/^\s*run: (.+)$/gm)].map((match) => match[1]);
-  assert.deepEqual(commands, ['node --test test/library-workflow.test.mjs', 'node test/helpers/offline-guard.mjs --fixtures']);
-  assert.match(source, /working-directory: framerize-castle\n        run: node test\/helpers\/offline-guard.mjs --fixtures/);
-  assert.doesNotMatch(source, /pull_request_target|secrets\.|npm |npx |cargo |publish|deploy|continue-on-error|if:|run: [|>]/);
+  assert.deepEqual(commands, ['node --test test/library-workflow.test.mjs',
+    'npm ci --ignore-scripts --no-audit --no-fund', 'npm --prefix framerize-castle test',
+    'node node_modules/typescript/bin/tsc -p tsconfig.library-tools.json',
+    'node --test .tools/test/installed-castle-flow.test.js']);
+  assert.doesNotMatch(source, /pull_request_target|secrets\.|npx |cargo |publish|deploy|continue-on-error|if:|run: [|>]/);
 }
 
 test('library workflow preserves offline matrix and read-only policy', () => validateWorkflow(workflow));
@@ -53,10 +58,13 @@ for (const [before, after] of [
   ["      - 'framerize-castle/**'", ''], ["      - 'docs/library-ci.md'", ''],
   ["      - 'test/library-workflow.test.mjs'", ''], ["      - '.github/workflows/library-ci.yml'", ''],
   ['main, framer-next', 'main'], ['macos-15', 'ubuntu-24.04'], ['windows-2022', 'ubuntu-24.04'],
-  ["'22.12.0'", "'20'"], ["'24'", "'20'"], ['NODE_OPTIONS: \'\'', 'NODE_OPTIONS: unsafe'],
+  ["'22.12.0'", "'20'"], ["'22.23.4'", "'20'"], ["'24.13.0'", "'20'"], ['NODE_OPTIONS: \'\'', 'NODE_OPTIONS: unsafe'],
   ['11bd71901bbe5b1630ceea73d27597364c9af683', 'v4'],
-  ['working-directory: framerize-castle', 'working-directory: .'],
-  ['node test/helpers/offline-guard.mjs', 'node --test'],
+  ['npm --prefix framerize-castle test', 'npm test'],
+  ['--ignore-scripts', ''],
+  ['node --test .tools/test/installed-castle-flow.test.js', 'node --test'],
+  ["      - 'package-lock.json'", ''],
+  ["      - 'tsconfig.library-tools.json'", ''],
 ]) test('workflow rejects changed ' + before, () => {
   assert.throws(() => validateWorkflow(workflow.replace(before, after)));
 });

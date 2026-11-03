@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { readFileSync, writeFileSync } from 'node:fs';
+import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { artifactNames, currentTarget, targets, verifySums } from '../scripts/release-artifacts.js';
 import { PACKAGE, assertFailure, refreshTarget, runMerge, runScript, seedBuild, seedRelease } from './helpers/release-fixtures.js';
@@ -131,4 +131,45 @@ test('source identity rejects dirty tracked server and workflow files', (t) => {
       : 'name: dirty\n');
     assertFailure(runMerge(checkout), 'Packaging requires a clean committed server checkout');
   }
+});
+
+test('source identity rejects uncommitted shared build inputs', async (context) => {
+  const files = ['framerize-core/src/instance.ts', 'framerize-core/package.json',
+    'framerize-core/tsconfig.json', 'scripts/build-server.ts', 'package.json',
+    'scripts/server-native-bundle.ts', 'scripts/package-archive.ts',
+    'package-lock.json', 'tsconfig.base.json', 'tsconfig.tools.json', 'tsconfig.server-tools.json'];
+  for (const file of files) await context.test(file, (fixtureContext) => {
+    const checkout = seedRelease(fixtureContext);
+    const destination = path.resolve(checkout.directory, '..', file);
+    mkdirSync(path.dirname(destination), { recursive: true });
+    writeFileSync(destination, 'untracked shared build input\n');
+    assertFailure(runMerge(checkout), 'Packaging requires a clean committed server checkout');
+    checkout.git(['add', file]);
+    checkout.git(['commit', '-qm', 'shared build fixture']);
+    checkout.commit = checkout.git(['rev-parse', 'HEAD']).trim();
+    writeFileSync(destination, 'changed shared build input\n');
+    assertFailure(runMerge(checkout), 'Packaging requires a clean committed server checkout');
+    checkout.git(['add', file]);
+    assertFailure(runMerge(checkout), 'Packaging requires a clean committed server checkout');
+  });
+});
+
+test('release metadata rejects a package changed after building', context => {
+  const checkout = seedBuild(context);
+  writeFileSync(path.join(checkout.directory, PACKAGE), 'replacement archive');
+  assertFailure(runScript(checkout.directory, 'release-metadata.js'), 'Stale executable build');
+});
+
+test('native packaging rejects changed package bytes before producing an archive', context => {
+  const checkout = seedBuild(context);
+  writeFileSync(path.join(checkout.directory, PACKAGE), 'replacement archive');
+  assertFailure(runScript(checkout.directory, 'package-binary.js'), 'Stale executable build');
+});
+
+test('aggregate rejects a native build bound to a different package', context => {
+  const checkout = seedRelease(context);
+  const file = path.join(checkout.targets['linux-x64'].dist, 'release.json');
+  const metadata = JSON.parse(readFileSync(file, 'utf8'));
+  writeFileSync(file, JSON.stringify({ ...metadata, packageSha256: '0'.repeat(64) }));
+  assertFailure(runMerge(checkout), 'Native build package binding mismatch');
 });

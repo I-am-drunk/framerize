@@ -1,20 +1,20 @@
-# Framerize server and Nexus plan
+# Framerize server and Remote plan
 
 ## Decision
 
 Build the Node-native Framerize server first. Keep the existing connector and
-move it into `framerize-nexus/` as Framerize Nexus. Do not rewrite its
+move it into `framerize-remote/` as Framerize Remote. Do not rewrite its
 working transport or turn it into a server.
 
-The connector migration has separate ownership in the T3 threads `Nexus package
-migration` and `Nexus migration review`. They start from the last merged
+The connector migration and its review have separate ownership.
+They start from the last merged
 connector, not from this server branch. They may rename and relocate the
 existing package and its CI while preserving its transport behavior. They do
 not own server modules or live credentials.
 
 Framerize is the overarching program. It owns accounts, credentials, sessions,
-inference, streaming, model behavior, and the remote API. Framerize Nexus is a
-small remote connector to be built after the server contract is stable. Nexus
+inference, streaming, model behavior, and the remote API. Framerize Remote is a
+small remote connector to be built after the server contract is stable. Remote
 must not contain account, inference, session, or minting code.
 
 ## Reusable evidence
@@ -28,7 +28,7 @@ The existing Framer Next connector provides useful transport patterns: explicit
 configuration, allowlisted headers, private credential references, redacted
 logs, SSE passthrough, backpressure, cancellation, idle timeouts, shutdown,
 JSON account metadata, package smoke tests, and native executable builds.
-Keep those patterns in the server where they belong. Do not make Nexus a second
+Keep those patterns in the server where they belong. Do not make Remote a second
 server.
 
 ## Server-first architecture
@@ -48,14 +48,14 @@ Each module has a narrow interface and fixture-based tests. Asynchronous work
 accepts cancellation. Logs carry request IDs and outcomes, never credentials
 or request bodies. No system CTR calls or implicit browser fallback are used.
 
-## Future Nexus boundary
+## Future Remote boundary
 
-Nexus runs on a client computer and forwards API calls to one configured
+Remote runs on a client computer and forwards API calls to one configured
 Framerize URL. It exposes the same supported client API as the remote server.
 It does not store accounts, select models, run inference, or launch a fallback
 server. The server remains the only owner of account and credential behavior.
 
-Reserve these behaviors for Nexus when the server API is ready:
+Reserve these behaviors for Remote when the server API is ready:
 
 - `POST /v1/responses` and `POST /v1/chat/completions` forward unchanged.
 - `GET /health` reports local process health without calling the server.
@@ -71,7 +71,7 @@ Reserve these behaviors for Nexus when the server API is ready:
   servers.
 
 The server should expose a versioned readiness document with its API version
-and supported routes. That document is the only compatibility dependency Nexus
+and supported routes. That document is the only compatibility dependency Remote
 needs. It must not expose account metadata or credentials.
 
 ## Implementation order
@@ -84,13 +84,13 @@ needs. It must not expose account metadata or credentials.
 6. Verify short and long streams, tools, cancellation, cleanup, and isolation.
 7. Add npm packaging, native binaries, CI, and reviewed release artifacts.
 8. Run authorized live acceptance against the new server.
-9. Finish Nexus against the resulting remote contract.
+9. Finish Remote against the resulting remote contract.
 
 Each stage merges independently after focused tests and review. Keep the
 legacy browser-based fallback available but separate from the Node-native
 server. Do not claim live compatibility from fixture tests.
 
-## Deferred Nexus design notes
+## Deferred Remote design notes
 
 Keep these earlier connector proposals as options rather than requirements:
 
@@ -122,7 +122,7 @@ Readiness returns `{ "apiVersion": 1, "status": "ready", "capabilities":
 { "responses": true, "chatCompletions": true, "streaming": true } }`.
 An unavailable readiness response keeps `apiVersion` and sets `status` to
 `unavailable` with one stable `reason`: `configuration_unavailable`,
-`credentials_unavailable`, or `upstream_unavailable`. Nexus rejects a different
+`credentials_unavailable`, or `upstream_unavailable`. Remote rejects a different
 major API version before sending inference. Readiness performs no inference or
 account discovery and requires the same server token as inference.
 
@@ -132,7 +132,7 @@ Authentication failures return 401 with
 account details, upstream response bodies, or internal paths. `/health` is
 unauthenticated and returns only process health and API version.
 
-Remote clients use `Authorization: Bearer <server-token>`. Nexus may require
+Remote clients use `Authorization: Bearer <server-token>`. Remote may require
 its own local key, but must replace it with the server token. It never forwards
 client cookies or API keys. Server credentials stay in private files or
 environment references and never appear in readiness, logs, or errors.

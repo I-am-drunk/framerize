@@ -2,119 +2,43 @@ name: release
 
 on:
   push:
-    tags: ['framerize-nexus-v*']
-  workflow_dispatch:
+    tags: ['framerize-remote-v*']
 
 permissions:
   contents: read
 
-defaults:
-  run:
-    working-directory: framerize-nexus
+env:
+  NODE_OPTIONS: ''
 
 jobs:
-  package:
-    runs-on: ubuntu-22.04
-    steps:
-      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
-      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
-        with:
-          node-version: 22
-      - run: npm pack
-      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
-        with:
-          name: release-package-${{ github.run_id }}
-          overwrite: true
-          if-no-files-found: error
-          path: framerize-nexus/framerize-nexus-*.tgz
-  build:
-    needs: package
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - os: ubuntu-22.04
-            suffix: linux-x64
-          - os: macos-15
-            suffix: macos-arm64
-          - os: windows-2022
-            suffix: windows-x64
-    runs-on: ${{ matrix.os }}
-    steps:
-      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
-      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
-        with:
-          node-version: 22
-          registry-url: https://registry.npmjs.org
-      - run: npm ci
-      - run: npm test
-      - run: npm run check
-      - run: node scripts/smoke.js
-      - run: node scripts/framer-smoke.js
-      - run: npm run binary
-      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
-        with:
-          name: release-package-${{ github.run_id }}
-          path: framerize-nexus
-      - run: node scripts/package-smoke.js --downloaded
-      - run: node scripts/package-binary.js
-      - run: node scripts/binary-smoke.js dist/framerize-nexus-${{ matrix.suffix }}.${{ matrix.suffix == 'windows-x64' && 'zip' || 'tar.gz' }}
-      - run: node scripts/release-metadata.js
-      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
-        with:
-          name: release-${{ github.run_id }}-${{ matrix.suffix }}
-          overwrite: true
-          if-no-files-found: error
-          path: |
-            framerize-nexus/dist/framerize-nexus-*.tar.gz
-            framerize-nexus/dist/framerize-nexus-*.zip
-            framerize-nexus/dist/framerize-nexus
-            framerize-nexus/dist/framerize-nexus.exe
-            framerize-nexus/dist/SHA256SUMS
-            framerize-nexus/dist/release.json
-            framerize-nexus/dist/NODE-LICENSE
-            framerize-nexus/dist/LICENSE
+  qualify:
+    uses: ./.github/workflows/ci.yml
   assemble:
-    needs: [package, build]
+    needs: qualify
     runs-on: ubuntu-22.04
-    permissions:
-      contents: read
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
         with:
-          node-version: 22
+          node-version: '22.23.4'
+      - run: npm ci --ignore-scripts --no-audit --no-fund
+      - run: node node_modules/typescript/bin/tsc -p tsconfig.tools.json
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
         with:
-          name: release-package-${{ github.run_id }}
-          path: framerize-nexus
-      - run: node scripts/package-smoke.js --downloaded
+          name: package-coexistence-${{ github.run_id }}-packages
+          path: ${{ runner.temp }}/release-input
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
         with:
-          name: release-${{ github.run_id }}-linux-x64
-          path: framerize-nexus/dist/linux-x64
-      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
-        with:
-          name: release-${{ github.run_id }}-macos-arm64
-          path: framerize-nexus/dist/macos-arm64
-      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
-        with:
-          name: release-${{ github.run_id }}-windows-x64
-          path: framerize-nexus/dist/windows-x64
-      - run: mv framerize-nexus-*.tgz dist/
-      - run: node scripts/merge-release-manifests.js
-      - run: cd dist && sha256sum -c SHA256SUMS
+          pattern: package-coexistence-${{ github.run_id }}-report-*
+          path: ${{ runner.temp }}/release-reports
+      - name: Assemble the verified bytes without repacking
+        run: node .tools/scripts/package-release.js "$RUNNER_TEMP/release-input" "$RUNNER_TEMP/release-reports" "$RUNNER_TEMP/release-qualified"
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
-          name: release-evidence-${{ github.run_id }}
-          overwrite: true
+          name: remote-candidate-${{ github.run_id }}
+          path: ${{ runner.temp }}/release-qualified/
           if-no-files-found: error
-          path: |
-            framerize-nexus/dist/framerize-nexus-*.tgz
-            framerize-nexus/dist/framerize-nexus-linux-x64.tar.gz
-            framerize-nexus/dist/framerize-nexus-macos-arm64.tar.gz
-            framerize-nexus/dist/framerize-nexus-windows-x64.zip
-            framerize-nexus/dist/SHA256SUMS
-            framerize-nexus/dist/release.json
-            framerize-nexus/dist/NODE-LICENSE
-            framerize-nexus/dist/LICENSE
+          overwrite: true

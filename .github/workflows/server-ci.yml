@@ -2,14 +2,17 @@ name: server-ci
 
 on:
   pull_request:
-    paths: ['framerize-server/**', '.github/workflows/server-ci.yml']
+    paths: ['framerize-server/**', 'framerize-core/**', 'scripts/build-server.ts', 'scripts/server-native-bundle.ts', 'scripts/package-archive.ts', 'test/server-*', 'package*.json', 'tsconfig*.json', '.github/workflows/server-ci.yml']
   push:
     branches: [framer-next, main]
-    paths: ['framerize-server/**', '.github/workflows/server-ci.yml']
+    paths: ['framerize-server/**', 'framerize-core/**', 'scripts/build-server.ts', 'scripts/server-native-bundle.ts', 'scripts/package-archive.ts', 'test/server-*', 'package*.json', 'tsconfig*.json', '.github/workflows/server-ci.yml']
   workflow_dispatch:
 
 permissions:
   contents: read
+
+env:
+  NODE_OPTIONS: ''
 
 defaults:
   run:
@@ -23,7 +26,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        node: ['22.12.0', '24']
+        node: ['22.12.0', '22.23.4', '24.13.0']
         platform:
           - { runner: ubuntu-22.04, arch: x64 }
           - { runner: windows-2022, arch: x64 }
@@ -33,13 +36,18 @@ jobs:
       EXPECTED_ARCH: ${{ matrix.platform.arch }}
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
         with:
           node-version: ${{ matrix.node }}
           cache: npm
           cache-dependency-path: framerize-server/package-lock.json
       - run: node -e "require('node:assert/strict').equal(process.arch, process.env.EXPECTED_ARCH)"
-      - run: npm ci
+      - run: npm ci --ignore-scripts --no-audit --no-fund
+      - name: Build the shared TypeScript listener
+        run: npm ci --prefix .. --ignore-scripts --no-audit --no-fund && npm run build:server --prefix ..
+      - run: npm run test:native-tools --prefix ..
       - run: npm run check
       - run: npm test
       - run: npm run acceptance
@@ -51,12 +59,16 @@ jobs:
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
         with:
           node-version: '22.23.4'
           cache: npm
           cache-dependency-path: framerize-server/package-lock.json
-      - run: npm ci
+      - run: npm ci --ignore-scripts --no-audit --no-fund
+      - name: Build the shared TypeScript listener
+        run: npm ci --prefix .. --ignore-scripts --no-audit --no-fund && npm run build:server --prefix ..
       - run: npm pack --ignore-scripts
       - run: npm run pack:check -- --downloaded
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
@@ -64,6 +76,7 @@ jobs:
           name: framerize-server-npm
           path: framerize-server/framerize-server-*.tgz
           if-no-files-found: error
+          overwrite: true
 
   native:
     name: native (${{ matrix.target }})
@@ -81,13 +94,17 @@ jobs:
       EXPECTED_ARCH: ${{ matrix.arch }}
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
         with:
           node-version: '22.23.4'
           cache: npm
           cache-dependency-path: framerize-server/package-lock.json
       - run: node -e "require('node:assert/strict').equal(process.arch, process.env.EXPECTED_ARCH)"
-      - run: npm ci
+      - run: npm ci --ignore-scripts --no-audit --no-fund
+      - name: Build the shared TypeScript listener
+        run: npm ci --prefix .. --ignore-scripts --no-audit --no-fund && npm run build:server --prefix ..
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
         with:
           name: framerize-server-npm
@@ -101,6 +118,7 @@ jobs:
         with:
           name: framerize-server-native-${{ matrix.target }}
           if-no-files-found: error
+          overwrite: true
           path: |
             framerize-server/dist/framerize-server*
             framerize-server/dist/LICENSE
@@ -115,6 +133,8 @@ jobs:
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
         with:
           node-version: '22.23.4'
@@ -140,3 +160,4 @@ jobs:
           name: framerize-server-qualified
           path: framerize-server/dist/qualified/*
           if-no-files-found: error
+          overwrite: true

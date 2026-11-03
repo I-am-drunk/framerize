@@ -4,5 +4,7 @@ dist/
 *.log
 .env
 accounts.json
-!framerize-nexus/examples/accounts.json
+!framerize-remote/examples/accounts.json
 coverage/
+.test-dist/
+.tools/

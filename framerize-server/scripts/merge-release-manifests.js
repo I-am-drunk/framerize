@@ -26,6 +26,10 @@ for (const target of Object.keys(targets)) {
     throw new Error(`Unexpected build artifacts for ${target}`);
   }
   verifySums(source, metadata.artifacts);
+  if (metadata.packageSha256 !== metadata.artifacts[tarball] ||
+      metadata.packageBytes !== readFileSync(path.join(source, tarball)).length) {
+    throw new Error('Native build package binding mismatch');
+  }
   verifyLicenses(source);
   for (const name of common) {
     artifacts[name] ??= metadata.artifacts[name];

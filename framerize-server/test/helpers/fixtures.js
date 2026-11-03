@@ -1,8 +1,8 @@
 import assert from 'node:assert/strict';
 import { once } from 'node:events';
 import net from 'node:net';
-import { createServer } from '../../src/server.js';
-import { loadConfig } from '../../src/config.js';
+import { createServer } from '../../dist/server.js';
+import { loadConfig } from '../../dist/config.js';
 
 export const TOKEN = 'acceptance-fixture-token';
 export const JSON_BODY = Buffer.from('{"model":"fixture","input":"hello"}');

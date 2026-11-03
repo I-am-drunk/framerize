@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { loadConfig } from '../src/config.js';
+import { loadConfig } from '../dist/config.js';
 
 test('configuration freezes validated defaults and explicit values', () => {
   const config = loadConfig({ port: 0, serverToken: 'fixture', idleTimeoutMs: '250' }, {});

@@ -4,13 +4,15 @@ Run this checker against two existing, reviewed npm tarballs. It does not pack
 new tarballs, publish packages, start services, or contact inference endpoints.
 
 ```sh
-node scripts/package-coexistence.mjs /path/to/framerize-nexus-0.1.9.tgz /path/to/framerize-server-0.1.0.tgz
+node node_modules/typescript/bin/tsc -p tsconfig.tools.json
+node .tools/scripts/package-coexistence.js /path/to/framerize-remote-0.2.0.tgz /path/to/framerize-server-0.1.0.tgz
 ```
 
 Both arguments are required. Relative paths resolve from the caller's current
 directory; absolute paths and paths containing spaces also work. The order does
 not matter. Use Node 22.12 or newer, with npm installed in that Node distribution,
-and `tar` on PATH. No root package.json or npm workspace is needed.
+with the compiled tooling and its ESM package marker. The checker reads bounded
+USTAR archives directly. It rejects links, special files and unsafe paths before installation.
 
 ## What it checks
 
@@ -21,10 +23,9 @@ and `tar` on PATH. No root package.json or npm workspace is needed.
 3. Compare every installed file to its tarball bytes. The only allowed change is
    npm's removal of one CR before the first newline of a launcher CRLF shebang.
    All other source bytes, including body line endings, must remain unchanged.
-4. Verify distinct executable targets, direct CLI help, offline `npm exec` help,
-   both CLI `check` commands, and the two Nexus and five baseline server module
-   exports. The probe only imports providers. CLI checks initialize and close
-   configuration without making inference requests. Default ports remain 8788 and 8789.
+4. Verify distinct executable targets, direct help, offline `npm exec` and `npx`,
+   the Remote version and setup help, and current module exports. Remote readiness
+   and serving run in the separate bounded loopback fixture, not this no-network check.
 5. Report package name, version, input filename and SHA-256, file count, Node/npm
    versions, and host platform. Delete the temporary install after either result.
 
@@ -42,27 +43,24 @@ sandbox for malicious packages; use reviewed artifacts only.
 ## Focused regression check
 
 ```sh
-node --test test/package-coexistence.test.mjs
+npm run test:packages
 ```
 
 The separate [package-pair CI workflow](package-coexistence-ci.md) has
 [retained three-OS qualification](package-coexistence-evidence/41667971716/README.md)
 for the recorded baseline pair. This checker does not change either
-package's existing workflow or qualify native archives. Retain its JSON
+package's runtime or qualify native archives. Retain its JSON
 output with externally verified source provenance; a tarball filename alone
 does not establish a Git commit. Success is not publication or activation approval.
 
 ## Changing the package contract
 
 The current checker requires dependency-free packages, the existing executable
-names, and the baseline exports listed above. It invokes each CLI with
-`check --host 127.0.0.1 --upstream http://127.0.0.1:1` in a private environment
-without credential references. It also calls Nexus `parseConfig()` and server
-`loadConfig()` without arguments and checks default ports 8788 and 8789.
+names, and the exports listed above. Only the server runs its configuration-only
+`check` command here. Remote exposes `createRemoteBackend` and `parseRemoteEndpoint`.
+Its backend is constructed and closed without making a request.
 
-These are current fixture assumptions, not constraints on the parent-owned
-thin-Nexus design. If that design changes these interfaces or requires fixture
-configuration, update the checker and its tests in a separately reviewed change.
+Update the checker and its tests together when either public interface changes.
 Do not weaken credential validation or enable network access to pass this gate.
 The byte check discovers all archive members, so added bundled files are not
 limited to the 13 files in historical evidence. New package bytes still require
@@ -71,7 +69,7 @@ fresh qualification; the retained reports do not qualify later runtime changes.
 ## Recorded Linux verification
 
 The [final retained package-pair check](package-coexistence-evidence/2026-11-03-final-pair/README.md)
-records the later server `23d87c6c` artifact with the same Nexus artifact on
+records the later server `23d87c6c` artifact with the same Remote artifact on
 Linux Node 22 and 24. The earlier package-pair evidence below remains historical.
 
 On 2026-11-03, all 10 focused tests passed on both Node 22.23.4 with npm 10.9.9

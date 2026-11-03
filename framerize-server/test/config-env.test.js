@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { loadConfig } from '../src/config.js';
-import { run } from '../src/cli.js';
+import { loadConfig } from '../dist/config.js';
+import { run } from '../dist/cli.js';
 
 const ENV = { FRAMERIZE_SERVER_HOST: '0.0.0.0', FRAMERIZE_SERVER_PORT: '9000',
   FRAMERIZE_SERVER_UPSTREAM: 'https://inference.example.test/api' };

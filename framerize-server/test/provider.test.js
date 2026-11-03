@@ -12,8 +12,8 @@ import { dirname, join } from 'node:path';
 import { inspect, promisify } from 'node:util';
 import { execFile } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
-import { createProvider } from '../src/provider.js';
-import { ConfigurationError, ProviderError } from '../src/errors.js';
+import { createProvider } from '../dist/provider.js';
+import { ConfigurationError, ProviderError } from '../dist/errors.js';
 
 const test = (name, run) => nodeTest(name, { timeout: 5_000 }, run);
 const body = (value = '{}') => Readable.from([Buffer.from(value)]);

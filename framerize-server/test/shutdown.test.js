@@ -5,8 +5,8 @@ import {
   openSocket, rawPost, socketChunks, startFixture,
   authorizedHeaders, TOKEN,
 } from './helpers/fixtures.js';
-import { createServer } from '../src/server.js';
-import { loadConfig } from '../src/config.js';
+import { createServer } from '../dist/server.js';
+import { loadConfig } from '../dist/config.js';
 
 test('graceful shutdown cancels active work, closes provider and releases the port', async (t) => {
   const { app, port, provider } = await startFixture(t);
@@ -46,7 +46,7 @@ test('hung provider shutdown respects its deadline', async () => {
   const app = await createServer(loadConfig({
     port: 0, serverToken: 'fixture', shutdownTimeoutMs: 20,
   }, {}), { provider });
-  await assert.rejects(app.close(), /shutdown timed out/);
+  await assert.rejects(app.close(), { message: 'Backend shutdown failed' });
   assert.equal(app.server.listening, false);
 });
 

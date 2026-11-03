@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { Writable } from 'node:stream';
-import { createLogger } from '../src/logger.js';
+import { createLogger } from '../dist/logger.js';
 
 function captureLogger(level = 'info') {
   let output = '';
@@ -32,6 +32,11 @@ test('log level suppresses lower-priority records', () => {
   logger.error('visible', { requestId: 'fixture' });
   assert.equal(read().includes('hidden'), false);
   assert.equal(read().includes('visible'), true);
+});
+
+test('logging does not interrupt requests when the output stream throws', () => {
+  const logger = createLogger({ stream: { write() { throw new Error('synthetic output failure'); } } });
+  assert.doesNotThrow(() => logger.info('request.finished', { status: 200 }));
 });
 
 test('silent logging emits nothing and cyclic fields are bounded', () => {

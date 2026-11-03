@@ -51,7 +51,11 @@ export function sourceIdentity() {
   if (!/^[a-f0-9]{40}$/.test(commit) || (process.env.GITHUB_SHA && process.env.GITHUB_SHA !== commit)) {
     throw new Error('Source commit does not match the checkout');
   }
-  if (git(['status', '--porcelain', '--untracked-files=normal', '--', '.', '../.github/workflows/server-ci.yml'])) {
+  const inputs = ['.', '../.github/workflows/server-ci.yml', '../framerize-core',
+    '../scripts/build-server.ts', '../scripts/server-native-bundle.ts',
+    '../scripts/package-archive.ts', '../package.json', '../package-lock.json',
+    '../tsconfig.base.json', '../tsconfig.tools.json', '../tsconfig.server-tools.json'];
+  if (git(['status', '--porcelain', '--untracked-files=normal', '--', ...inputs])) {
     throw new Error('Packaging requires a clean committed server checkout');
   }
   return { name: pkg.name, version: pkg.version, commit };

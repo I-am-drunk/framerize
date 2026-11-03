@@ -7,6 +7,13 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { packageFixture, packageTarball, runPackageSmoke, assertPackageFailure, mutateTarball } from './helpers/package-fixtures.js';
 
+test('downloaded package smoke rejects a substituted core bundle', (t) => {
+  const checkout = packageFixture(t);
+  packageTarball(checkout.directory);
+  mutateTarball(t, checkout.directory, 'dist/core.js', 'export const replaced = true;\n');
+  assertPackageFailure(runPackageSmoke(checkout.directory, true), 'Installed source differs: dist/core.js');
+});
+
 for (const downloaded of [false, true]) {
   test(`${downloaded ? 'downloaded' : 'local'} package smoke isolates hostile operator environment`, (t) => {
     const checkout = packageFixture(t, { environmentAware: true });
@@ -58,9 +65,21 @@ test('downloaded LF tarball passes from a CRLF checkout', (t) => {
 test('downloaded package smoke rejects bytes changed after commit', (t) => {
   const checkout = packageFixture(t);
   packageTarball(checkout.directory);
-  mutateTarball(t, checkout.directory, 'src/config.js', 'export const loadConfig = (values) => ({...values, changed:true});\n');
-  assertPackageFailure(runPackageSmoke(checkout.directory, true), 'Installed source differs: src/config.js');
+  mutateTarball(t, checkout.directory, 'dist/server.js', 'export const createServer = () => ({changed:true});\n');
+  assertPackageFailure(runPackageSmoke(checkout.directory, true), 'Installed source differs: dist/server.js');
 });
+
+for (const name of ['config.js', 'config.d.ts', 'accounts.js', 'accounts.d.ts',
+  'cli.js', 'cli.d.ts', 'logger.js', 'logger.d.ts', 'server.d.ts',
+  'provider.js', 'provider.d.ts', 'core.d.ts',
+  ...['backend', 'http-policy', 'instance', 'instance-options', 'readiness'].map((name) => `core-types/${name}.d.ts`)]) {
+  test(`downloaded package smoke rejects substituted compiled ${name}`, (t) => {
+    const checkout = packageFixture(t);
+    packageTarball(checkout.directory);
+    mutateTarball(t, checkout.directory, `dist/${name}`, 'export const replaced = true;\n');
+    assertPackageFailure(runPackageSmoke(checkout.directory, true), `Installed source differs: dist/${name}`);
+  });
+}
 
 test('downloaded package smoke rejects a changed launcher body', (t) => {
   const checkout = packageFixture(t);
@@ -72,8 +91,9 @@ test('downloaded package smoke rejects a changed launcher body', (t) => {
 test('downloaded package smoke rejects CRLF conversion outside the launcher', (t) => {
   const checkout = packageFixture(t);
   packageTarball(checkout.directory);
-  mutateTarball(t, checkout.directory, 'src/config.js', 'export const loadConfig = (values) => values;\r\n');
-  assertPackageFailure(runPackageSmoke(checkout.directory, true), 'Installed source differs: src/config.js');
+  const source = readFileSync(path.join(checkout.directory, 'dist/server.js'), 'utf8');
+  mutateTarball(t, checkout.directory, 'dist/server.js', source.replaceAll('\n', '\r\n'));
+  assertPackageFailure(runPackageSmoke(checkout.directory, true), 'Installed source differs: dist/server.js');
 });
 
 test('downloaded package smoke rejects optional dependencies in the manifest', (t) => {
@@ -125,6 +145,6 @@ test('downloaded package smoke rejects an altered files declaration', (t) => {
 test('downloaded package smoke rejects an unexpected installed source file', (t) => {
   const checkout = packageFixture(t);
   packageTarball(checkout.directory);
-  mutateTarball(t, checkout.directory, 'src/unexpected.js', 'export const inert = true;\n');
+  mutateTarball(t, checkout.directory, 'dist/unexpected.js', 'export const inert = true;\n');
   assertPackageFailure(runPackageSmoke(checkout.directory, true), 'Unexpected installed package files');
 });

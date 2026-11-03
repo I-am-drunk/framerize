@@ -35,16 +35,22 @@ try {
   ) });
   assert.deepEqual(normalizeManifest(manifest), normalizeManifest(source),
     'Installed package metadata differs');
-  const files = ['README.md', 'LICENSE', ...await readdir(path.join(root, 'src')).then((names) =>
-    names.map((name) => `src/${name}`)), 'bin/framerize-server.js'];
+  const files = ['README.md', 'LICENSE',
+    'bin/framerize-server.js', ...['core.js', 'core.d.ts', 'accounts.js', 'accounts.d.ts',
+      'config.js', 'config.d.ts', 'errors.js', 'errors.d.ts', 'provider.js', 'provider.d.ts',
+      'framer-auth.js', 'framer-auth.d.ts',
+      'framer-backend.js', 'framer-backend.d.ts', 'framer-request.js', 'framer-request.d.ts',
+      'cli.js', 'cli.d.ts', 'logger.js', 'logger.d.ts', 'server.js', 'server.d.ts',
+      ...['backend', 'http-policy', 'instance', 'instance-options', 'readiness'].map((name) => `core-types/${name}.d.ts`)]
+      .map((name) => `dist/${name}`)];
   assert.deepEqual((await readdir(installed, { recursive: true }))
     .map((name) => name.split(path.sep).join('/')).sort(),
-    ['bin', 'src', 'package.json', ...files].sort(), 'Unexpected installed package files');
+    ['bin', 'dist', 'dist/core-types', 'package.json', ...files].sort(), 'Unexpected installed package files');
   for (const name of ['package.json', ...files]) {
     assert.ok((await lstat(path.join(installed, name))).isFile(), 'Unexpected installed package file type');
   }
   for (const name of files) {
-    let expected = process.argv.includes('--downloaded')
+    let expected = process.argv.includes('--downloaded') && !name.startsWith('dist/')
       ? execFileSync('git', ['show', `HEAD:framerize-server/${name}`], { cwd: root })
       : await readFile(path.join(root, name));
     const newline = expected.indexOf(10);
@@ -62,6 +68,10 @@ try {
     import assert from 'node:assert/strict';
     import { createServer } from 'framerize-server';
     import { loadConfig } from 'framerize-server/config';
+    import { loadAccounts } from 'framerize-server/accounts';
+    const accounts = await loadAccounts();
+    assert.deepEqual(accounts, []);
+    assert.equal(Object.isFrozen(accounts), true);
     const provider = { ready: async () => true, async forward() {
       return { status: 200, headers: {'content-type':'application/json'}, body: [Buffer.from('{}')] };
     } };

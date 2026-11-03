@@ -1,0 +1,43 @@
+{
+  "name": "framerize-remote",
+  "version": "0.2.0",
+  "description": "Local Framerize instance that forwards inference to a configured remote server",
+  "type": "module",
+  "engines": {
+    "node": ">=22.12"
+  },
+  "bin": {
+    "framerize-remote": "./bin/framerize-remote.js"
+  },
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": [
+    "bin",
+    "dist",
+    "README.md",
+    "LICENSE",
+    "T3-LICENSE",
+    "T3-ATTRIBUTION.md"
+  ],
+  "scripts": {
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "build": "node scripts/build.mjs",
+    "test": "node --test test/*.test.mjs"
+  },
+  "keywords": [
+    "framerize",
+    "inference",
+    "connector",
+    "openai"
+  ],
+  "license": "MIT",
+  "devDependencies": {
+    "@framerize/core": "file:../framerize-core",
+    "esbuild": "0.25.12",
+    "typescript": "5.9.3"
+  }
+}

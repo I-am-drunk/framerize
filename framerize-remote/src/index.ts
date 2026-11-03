@@ -1,0 +1,9 @@
+export { run } from './cli.js';
+export type { CliIo } from './cli.js';
+export { createRemoteBackend } from './remoteBackend.js';
+export { parseRemoteEndpoint } from './remoteUrl.js';
+export type { RemoteConfig, PersistedConfig } from './config.js';
+export { VERSION } from './present.js';
+export { commandFailure } from './diagnostics.js';
+export type { DiagnosticCode } from './diagnostics.js';
+export type { RemoteBackend, ReadinessDiagnosis } from './remoteBackend.js';

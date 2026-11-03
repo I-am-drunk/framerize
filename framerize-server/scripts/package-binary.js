@@ -8,8 +8,10 @@ const identity = sourceIdentity();
 const target = currentTarget();
 const [executable, archive] = artifactNames(target);
 const build = JSON.parse(readFileSync('dist/build.json', 'utf8'));
+const tarball = `${identity.name}-${identity.version}.tgz`;
 if (Object.entries(identity).some(([key, value]) => build[key] !== value) ||
     build.target !== target || build.node !== process.version ||
+    build.packageSha256 !== digest(tarball) || build.packageBytes !== readFileSync(tarball).length ||
     build.executableSha256 !== digest(`dist/${executable}`)) throw new Error('Stale executable build');
 const license = process.env.NODE_DISTRIBUTION_LICENSE
   ? path.resolve(process.env.NODE_DISTRIBUTION_LICENSE)

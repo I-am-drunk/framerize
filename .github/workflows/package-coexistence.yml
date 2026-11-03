@@ -1,21 +1,46 @@
 name: package-coexistence
 
 on:
+  workflow_call:
   pull_request:
     paths:
-      - 'framerize-nexus/**'
+      - 'framerize-remote/**'
       - 'framerize-server/**'
-      - 'scripts/package-coexistence.mjs'
-      - 'test/package-coexistence.test.mjs'
+      - 'framerize-core/**'
+      - 'framerize-castle/**'
+      - 'scripts/core-package-check.ts'
+      - '.github/workflows/ci.yml'
+      - '.github/workflows/release.yml'
+      - 'scripts/build-server.ts'
+      - 'package*.json'
+      - 'tsconfig*.json'
+      - 'scripts/package-coexistence.ts'
+      - 'scripts/package-archive.ts'
+      - 'scripts/fixtures/**'
+      - 'test/installed-remote-flow.test.ts'
+      - 'test/package-coexistence.test.ts'
+      - 'test/package-archive.test.ts'
       - 'test/package-coexistence-workflow.test.mjs'
       - '.github/workflows/package-coexistence.yml'
   push:
     branches: [main, framer-next]
     paths:
-      - 'framerize-nexus/**'
+      - 'framerize-remote/**'
       - 'framerize-server/**'
-      - 'scripts/package-coexistence.mjs'
-      - 'test/package-coexistence.test.mjs'
+      - 'framerize-core/**'
+      - 'framerize-castle/**'
+      - 'scripts/core-package-check.ts'
+      - '.github/workflows/ci.yml'
+      - '.github/workflows/release.yml'
+      - 'scripts/build-server.ts'
+      - 'package*.json'
+      - 'tsconfig*.json'
+      - 'scripts/package-coexistence.ts'
+      - 'scripts/package-archive.ts'
+      - 'scripts/fixtures/**'
+      - 'test/installed-remote-flow.test.ts'
+      - 'test/package-coexistence.test.ts'
+      - 'test/package-archive.test.ts'
       - 'test/package-coexistence-workflow.test.mjs'
       - '.github/workflows/package-coexistence.yml'
   workflow_dispatch:
@@ -41,7 +66,9 @@ jobs:
           persist-credentials: false
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
         with:
-          node-version: 22
+          node-version: '22.23.4'
+      - name: Build the shared TypeScript listener
+        run: npm ci --ignore-scripts --no-audit --no-fund && npm run build
       - name: Pack each package once with private npm configuration
         run: |
           set -euo pipefail
@@ -59,7 +86,7 @@ jobs:
               npm_config_fund=false npm_config_update_notifier=false \
               npm "$@"
           }
-          for dir in framerize-nexus framerize-server; do
+          for dir in framerize-remote framerize-server; do
             (cd "$dir" && private_npm pack --offline --ignore-scripts --pack-destination "$out")
           done
           echo "PRODUCER_NPM=$(private_npm --version)" >> "$GITHUB_ENV"
@@ -77,7 +104,7 @@ jobs:
           const out = process.env.ARTIFACT_DIR;
           const sha = execFileSync('git', ['rev-parse', 'HEAD'], { encoding: 'utf8' }).trim();
           assert.equal(sha, process.env.GITHUB_SHA, 'checkout differs from triggering SHA');
-          const packages = ['framerize-nexus', 'framerize-server'].map((dir) => {
+          const packages = ['framerize-remote', 'framerize-server'].map((dir) => {
             const { name, version } = JSON.parse(fs.readFileSync(`${dir}/package.json`, 'utf8'));
             assert.equal(name, dir);
             const tarball = `${name}-${version}.tgz`;
@@ -87,14 +114,29 @@ jobs:
           });
           assert.deepEqual(fs.readdirSync(out).sort(), packages.map((entry) => entry.tarball).sort(),
             'pack output must hold exactly the two expected tarballs');
+          const toolPaths = ['package.json', 'scripts/package-coexistence.js',
+            'scripts/package-archive.js', 'scripts/core-package-check.js',
+            'scripts/fixtures/core-installed.js', 'scripts/fixtures/installed-server.js',
+            'scripts/fixtures/transport-scenario.js', 'test/installed-remote-flow.test.js',
+            'test/package-coexistence.test.js', 'test/package-archive.test.js'];
+          const tooling = toolPaths.map((file) => {
+            const bytes = file === 'package.json' ? Buffer.from('{"type":"module"}\n')
+              : fs.readFileSync(path.join('.tools', file));
+            const target = path.join(out, 'tooling', file);
+            fs.mkdirSync(path.dirname(target), { recursive: true });
+            fs.writeFileSync(target, bytes);
+            return { file, bytes: bytes.length,
+              sha256: createHash('sha256').update(bytes).digest('hex') };
+          });
           const manifest = {
             source: { repository: process.env.GITHUB_REPOSITORY, sha,
+              tree: execFileSync('git', ['rev-parse', 'HEAD^{tree}'], { encoding: 'utf8' }).trim(),
               event: process.env.GITHUB_EVENT_NAME,
               runId: process.env.GITHUB_RUN_ID, runAttempt: process.env.GITHUB_RUN_ATTEMPT },
             node: process.version, npm: process.env.PRODUCER_NPM,
-            platform: process.platform, arch: process.arch, packages };
+            platform: process.platform, arch: process.arch, packages, tooling };
           fs.writeFileSync(path.join(out, 'manifest.json'), `${JSON.stringify(manifest, null, 2)}\n`);
-          const lines = [`nexus=${packages[0].tarball}`, `server=${packages[1].tarball}`];
+          const lines = [`remote=${packages[0].tarball}`, `server=${packages[1].tarball}`];
           fs.appendFileSync(process.env.GITHUB_OUTPUT, `${lines.join('\n')}\n`);
           console.log(JSON.stringify(manifest, null, 2));
           JS
@@ -104,19 +146,22 @@ jobs:
           name: package-coexistence-${{ github.run_id }}-packages
           path: |
             ${{ env.ARTIFACT_DIR }}/manifest.json
-            ${{ env.ARTIFACT_DIR }}/${{ steps.manifest.outputs.nexus }}
+            ${{ env.ARTIFACT_DIR }}/${{ steps.manifest.outputs.remote }}
             ${{ env.ARTIFACT_DIR }}/${{ steps.manifest.outputs.server }}
+            ${{ env.ARTIFACT_DIR }}/tooling/**
           if-no-files-found: error
           overwrite: true
 
   consume:
-    name: consume packages (${{ matrix.target }})
+    name: consume packages (${{ matrix.target }}, Node ${{ matrix.node }})
     needs: produce
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 15
     strategy:
       fail-fast: false
       matrix:
+        node: ['22.12.0', '22.23.4', '24.13.0']
+        target: [linux-x64, macos-arm64, windows-x64]
         include:
           - runner: ubuntu-22.04
             platform: linux
@@ -139,7 +184,9 @@ jobs:
           persist-credentials: false
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
         with:
-          node-version: 22
+          node-version: ${{ matrix.node }}
+      - name: Install the pinned type checker without product builds
+        run: npm ci --ignore-scripts --no-audit --no-fund
       - name: Isolate npm configuration
         run: |
           set -euo pipefail
@@ -176,12 +223,15 @@ jobs:
           const sha = execFileSync('git', ['rev-parse', 'HEAD'], { encoding: 'utf8' }).trim();
           assert.equal(sha, process.env.GITHUB_SHA, 'checkout differs from triggering SHA');
           assert.equal(manifest.source.sha, sha, 'producer built a different source SHA');
+          assert.equal(manifest.source.tree,
+            execFileSync('git', ['rev-parse', 'HEAD^{tree}'], { encoding: 'utf8' }).trim(),
+            'producer built a different source tree');
           assert.equal(manifest.source.repository, process.env.GITHUB_REPOSITORY);
           assert.equal(manifest.source.runId, process.env.GITHUB_RUN_ID);
           assert.equal(manifest.source.event, process.env.GITHUB_EVENT_NAME);
-          assert.deepEqual(manifest.packages.map((entry) => entry.name), ['framerize-nexus', 'framerize-server']);
+          assert.deepEqual(manifest.packages.map((entry) => entry.name), ['framerize-remote', 'framerize-server']);
           assert.deepEqual(fs.readdirSync(dir).sort(),
-            ['manifest.json', ...manifest.packages.map((entry) => entry.tarball)].sort(),
+            ['manifest.json', 'tooling', ...manifest.packages.map((entry) => entry.tarball)].sort(),
             'artifact must hold exactly the manifest and two tarballs');
           for (const entry of manifest.packages) {
             const { name, version } = JSON.parse(fs.readFileSync(`${entry.name}/package.json`, 'utf8'));
@@ -195,7 +245,24 @@ jobs:
               `${entry.tarball} hash differs from producer`);
           }
           const lines = manifest.packages.map((entry, index) =>
-            `${index ? 'SERVER' : 'NEXUS'}_TGZ=${path.join(dir, entry.tarball)}`);
+            `${index ? 'SERVER' : 'REMOTE'}_TGZ=${path.join(dir, entry.tarball)}`);
+          const tools = path.join(dir, 'tooling');
+          assert.ok(fs.lstatSync(tools).isDirectory(), 'unsafe tooling root');
+          assert.ok(Array.isArray(manifest.tooling) && manifest.tooling.length > 0);
+          const toolFiles = fs.readdirSync(tools, { recursive: true }).filter((file) => {
+            const info = fs.lstatSync(path.join(tools, file));
+            assert.ok(info.isFile() || info.isDirectory(), 'unsafe tooling entry');
+            return info.isFile();
+          }).map((file) => file.replaceAll('\\', '/')).sort();
+          assert.deepEqual(toolFiles, manifest.tooling.map((entry) => entry.file).sort());
+          for (const entry of manifest.tooling) {
+            assert.match(entry.file, /^(?:package\.json|(?:scripts|test)\/(?:fixtures\/)?[a-z-]+(?:\.test)?\.js)$/);
+            const bytes = fs.readFileSync(path.join(tools, entry.file));
+            assert.equal(bytes.length, entry.bytes, 'tooling size mismatch');
+            assert.equal(createHash('sha256').update(bytes).digest('hex'), entry.sha256,
+              'tooling hash mismatch');
+          }
+          lines.push(`TOOLING_DIR=${tools}`);
           const manifestHash = createHash('sha256')
             .update(fs.readFileSync(path.join(dir, 'manifest.json'))).digest('hex');
           lines.push(`PRODUCER_MANIFEST_SHA256=${manifestHash}`);
@@ -207,13 +274,17 @@ jobs:
             assert.equal(process.platform, process.env.EXPECTED_PLATFORM);
             assert.equal(process.arch, process.env.EXPECTED_ARCH);"
       - name: Run root tests
-        run: node --test test/*.test.mjs
+        run: node --test "$TOOLING_DIR/test/package-coexistence.test.js" "$TOOLING_DIR/test/package-archive.test.js"
       - name: Check coexistence of the downloaded tarballs
         run: |
           set -euo pipefail
           report="$(mktemp -d "$RUNNER_TEMP/coexistence-report.XXXXXX")"
-          node scripts/package-coexistence.mjs "$NEXUS_TGZ" "$SERVER_TGZ" > "$report/checker.json"
+          node "$TOOLING_DIR/scripts/package-coexistence.js" "$REMOTE_TGZ" "$SERVER_TGZ" > "$report/checker.json"
           echo "REPORT_DIR=$report" >> "$GITHUB_ENV"
+      - name: Exercise the downloaded pair without repacking
+        env:
+          FRAMERIZE_PACKAGE_REPOSITORY: ${{ github.workspace }}
+        run: node --test "$TOOLING_DIR/test/installed-remote-flow.test.js" > "$REPORT_DIR/installed.log"
       - name: Match checker identities to producer manifest
         env:
           INPUT_DIR: ${{ runner.temp }}/coexistence-input
@@ -247,16 +318,21 @@ jobs:
             assert.equal(hash(path.join(process.env.INPUT_DIR, entry.tarball)), entry.sha256,
               `${entry.tarball} changed after verification`);
           }
+          for (const entry of manifest.tooling) {
+            assert.equal(hash(path.join(process.env.INPUT_DIR, 'tooling', entry.file)), entry.sha256,
+              'tooling changed after verification');
+          }
           const report = {
             source: { repository: process.env.GITHUB_REPOSITORY,
               event: process.env.GITHUB_EVENT_NAME,
-              sha,
+              sha, tree: manifest.source.tree,
               runId: process.env.GITHUB_RUN_ID, runAttempt: process.env.GITHUB_RUN_ATTEMPT },
             runner: process.env.RUNNER_LABEL, target: process.env.TARGET,
             node: checker.node, npm: checker.npm, platform: checker.platform, arch: checker.arch,
             producer: { manifestSha256: hash(manifestFile), source: manifest.source,
               node: manifest.node, npm: manifest.npm },
-            packages: checker.packages };
+            packages: checker.packages,
+            installedLogSha256: hash(path.join(process.env.REPORT_DIR, 'installed.log')) };
           fs.writeFileSync(path.join(process.env.REPORT_DIR, 'report.json'),
             `${JSON.stringify(report, null, 2)}\n`);
           console.log(JSON.stringify(report, null, 2));
@@ -264,9 +340,10 @@ jobs:
       - name: Upload consumer report
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
-          name: package-coexistence-${{ github.run_id }}-report-${{ matrix.target }}
+          name: package-coexistence-${{ github.run_id }}-report-${{ matrix.target }}-node-${{ matrix.node }}
           path: |
             ${{ env.REPORT_DIR }}/report.json
             ${{ env.REPORT_DIR }}/checker.json
+            ${{ env.REPORT_DIR }}/installed.log
           if-no-files-found: error
           overwrite: true

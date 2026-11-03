@@ -28,17 +28,33 @@ export function packageFixture(t, { environmentAware = false } = {}) {
   t.after(() => rmSync(root, { recursive: true, force: true }));
   const repository = path.join(root, 'checkout');
   const directory = path.join(repository, 'framerize-server');
-  for (const folder of ['src', 'bin', 'scripts']) mkdirSync(path.join(directory, folder), { recursive: true });
+  for (const folder of ['src', 'bin', 'scripts', 'dist']) mkdirSync(path.join(directory, folder), { recursive: true });
+  const providerFiles = ['provider.js', 'provider.d.ts', 'core.d.ts',
+    'framer-auth.js', 'framer-auth.d.ts',
+    'framer-backend.js', 'framer-backend.d.ts', 'framer-request.js', 'framer-request.d.ts',
+    'cli.js', 'cli.d.ts', 'logger.js', 'logger.d.ts', 'server.js', 'server.d.ts',
+    ...['backend', 'http-policy', 'instance', 'instance-options', 'readiness'].map((name) => `core-types/${name}.d.ts`)];
+  mkdirSync(path.join(directory, 'dist/core-types'));
+  for (const name of providerFiles) writeFileSync(path.join(directory, 'dist', name), 'export {};\n');
+  writeFileSync(path.join(directory, 'dist/core.js'), 'export const fixture = true;\n');
+  writeFileSync(path.join(directory, 'dist/accounts.js'), 'export async function loadAccounts() { return Object.freeze([]); }\n');
+  writeFileSync(path.join(directory, 'dist/accounts.d.ts'), 'export declare function loadAccounts(): Promise<readonly unknown[]>;\n');
+  writeFileSync(path.join(directory, 'dist/errors.js'), 'export {};\n');
+  writeFileSync(path.join(directory, 'dist/errors.d.ts'), 'export {};\n');
+  writeFileSync(path.join(directory, 'dist/config.d.ts'), 'export declare function loadConfig(values: unknown): unknown;\n');
+  writeFileSync(path.join(directory, 'src/config.ts'), 'throw new Error("must not ship TypeScript source");\n');
   writeFileSync(path.join(directory, 'package.json'), JSON.stringify({
     name: 'framerize-server', version: '0.1.0', private: true, type: 'module',
     bin: { 'framerize-server': './bin/framerize-server.js' },
-    exports: { '.': './src/server.js', './config': './src/config.js' },
-    files: ['bin', 'src', 'README.md', 'LICENSE'],
+    exports: { '.': './dist/server.js', './config': './dist/config.js', './accounts': './dist/accounts.js' },
+    files: ['bin', 'dist/core.js', 'dist/config.js', 'dist/config.d.ts',
+      'dist/errors.js', 'dist/errors.d.ts', 'dist/accounts.js', 'dist/accounts.d.ts',
+      ...providerFiles.map((name) => `dist/${name}`), 'README.md', 'LICENSE'],
     scripts: { 'pack:check': 'node scripts/package-smoke.js' },
   }));
   writeFileSync(path.join(directory, 'LICENSE'), 'Fixture license\n');
   writeFileSync(path.join(directory, 'README.md'), '# Fixture package\n');
-  writeFileSync(path.join(directory, 'src', 'config.js'), environmentAware ? `
+  writeFileSync(path.join(directory, 'dist', 'config.js'), environmentAware ? `
 export const loadConfig = (values, env = process.env) => {
   const selected = (key, name, fallback) => Object.hasOwn(values, key) ? values[key] : env[name] ?? fallback;
   return { ...values,
@@ -48,7 +64,7 @@ export const loadConfig = (values, env = process.env) => {
   };
 };
 ` : 'export const loadConfig = (values) => values;\n');
-  writeFileSync(path.join(directory, 'src', 'server.js'), `
+  writeFileSync(path.join(directory, 'dist', 'server.js'), `
 import http from 'node:http';
 export async function createServer(config) {
   ${environmentAware ? "if (config.host !== '127.0.0.1' || config.port !== 0 || config.upstream !== '') throw new Error('Unsafe fixture configuration before listen');" : ''}

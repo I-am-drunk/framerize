@@ -1,0 +1,5 @@
+{
+  "extends": "./tsconfig.base.json",
+  "compilerOptions": { "rootDir": ".", "outDir": ".tools" },
+  "include": ["scripts/build-server.ts", "scripts/server-native-bundle.ts", "test/server-native-bundle.test.ts"]
+}

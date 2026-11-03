@@ -1,4 +1,43 @@
-# Offline library fixture CI
+# Castle Library CI
+
+The TypeScript workflow builds and tests the current private package on Ubuntu
+22.04, macOS 15, and Windows 2022. Its nine jobs use Node 22.12.0, 22.23.4, and
+24.13.0. Hosted results remain a separate gate; local Linux results do not
+qualify the other platforms or the minimum Node release.
+
+The workflow installs the root lockfile with lifecycle scripts disabled.
+It runs policy checks, compiles the library, exercises its 33 current checks,
+and verifies a local npm installation outside the workspace. The installed
+check compares all 60 package files, checks standalone declarations, and runs
+the real collector with a synthetic encoder. No production encoder, live
+provider request, native build, publication, or deployment occurs.
+
+Only the build-tool installation contacts the package registry. Fixture and
+installed-package operations use isolated state and offline npm configuration.
+The worker reads hash-checked snapshots and denies ambient state and network
+operations. It is not an OS sandbox for arbitrary hostile code.
+
+The workflow also triggers when its compiler configuration, installed check,
+shared package-check helper, or root dependency lock changes. Read-only GitHub
+permissions and pinned checkout/setup-node actions remain required.
+
+From a checkout with a clean Node environment:
+
+```sh
+npm ci --ignore-scripts --no-audit --no-fund
+node --test test/library-workflow.test.mjs
+npm --prefix framerize-castle test
+node node_modules/typescript/bin/tsc -p tsconfig.library-tools.json
+node --test .tools/test/installed-castle-flow.test.js
+```
+
+CI clears `NODE_OPTIONS` and disables Node's compile cache. The installed check
+uses a synthetic encoder, no dependency installation scripts, and no network.
+
+## Earlier JavaScript fixture records
+
+The remaining sections describe the previous workflow and its retained results.
+Those five legacy tests no longer qualify the exported TypeScript implementation.
 
 The private `framerize-castle` package has a separate `library-ci` workflow.
 It runs the existing five fixtures on Ubuntu 22.04, macOS 15 and Windows 2022,

@@ -74,7 +74,7 @@ PR #89 merged the core and acceptance fixtures. PR #88 merged the provider.
 The integration owner retains control over later activation and release.
 Dedicated CI runs fixtures and packed-install checks
 on Linux x64, Windows x64, and macOS arm64 using Node 22.12.0 and 24. Native binary
-qualification belongs to the server release stage, independently of Nexus binaries.
+qualification belongs to the server release stage, independently of Remote binaries.
 No live inference, deployment, or release publication has been performed.
 
 Provider commit `6a928f3b` fixes the paused-consumer idle-timeout failure found by
@@ -85,7 +85,7 @@ after a 100 ms event-loop stall with a 40 ms idle timeout, without increasing
 the timeout or adding a total-duration deadline.
 
 The provider reentrant-close follow-up merged through PR #91. The source and
-Nexus migration checkpoints are integrated at `7ddd669e`. Their existing evidence
+Remote migration checkpoints are integrated at `7ddd669e`. Their existing evidence
 does not qualify native server binaries.
 
 ## Native packaging checkpoint
