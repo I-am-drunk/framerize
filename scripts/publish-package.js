@@ -5,13 +5,17 @@ import path from 'node:path';
 const dist = path.resolve('dist');
 const command = (name) => process.platform === 'win32'
   && process.env.FRAMER_NEXT_TEST_COMMAND ? `${name}.bat` : name;
+const execute = (name, args, options = {}) => process.platform === 'win32'
+  && process.env.FRAMER_NEXT_TEST_COMMAND
+  ? execFileSync(process.env.ComSpec || 'cmd.exe', ['/d', '/s', '/c', command(name), ...args], options)
+  : execFileSync(name, args, options);
 const artifacts = readdirSync(dist).filter((name) => /^framer-next-.+\.tgz$/.test(name));
 if (artifacts.length !== 1) throw new Error('dist must contain exactly one Framer Next tarball');
 const version = artifacts[0].slice('framer-next-'.length, -'.tgz'.length);
 const sums = path.join(dist, 'SHA256SUMS');
 const tarball = path.join(dist, artifacts[0]);
 const metadata = JSON.parse(readFileSync(path.join(dist, 'release.json'), 'utf8'));
-const packageMetadata = JSON.parse(execFileSync(command('tar'), ['-xOf', tarball,
+const packageMetadata = JSON.parse(execute(command('tar'), ['-xOf', tarball,
   'package/package.json'], { encoding: 'utf8' }));
 if (packageMetadata.name !== 'framer-next' || packageMetadata.version !== version) {
   throw new Error('tarball package metadata does not match its release filename');
@@ -19,28 +23,28 @@ if (packageMetadata.name !== 'framer-next' || packageMetadata.version !== versio
 if (!/^[a-f0-9]{64}$/.test(metadata.artifacts?.[artifacts[0]])) {
   throw new Error('release metadata does not contain the tarball SHA-256');
 }
-if (execFileSync(command('git'), ['status', '--porcelain'], { encoding: 'utf8' }).trim()) {
+if (execute(command('git'), ['status', '--porcelain'], { encoding: 'utf8' }).trim()) {
   throw new Error('publication requires a clean source checkout');
 }
 if (metadata.version !== version || !/^[a-f0-9]{40}$/.test(metadata.commit)) {
   throw new Error('release artifacts have an invalid version or source commit');
 }
 try {
-  execFileSync(command('git'), ['cat-file', '-e', `${metadata.commit}^{commit}`], { stdio: 'ignore' });
+  execute(command('git'), ['cat-file', '-e', `${metadata.commit}^{commit}`], { stdio: 'ignore' });
 } catch {
   throw new Error('release source commit is not present in this repository');
 }
-const run = (command, args, options = {}) => execFileSync(command, args,
+const run = (command, args, options = {}) => execute(command, args,
   { stdio: 'inherit', ...options });
 try {
-  execFileSync(command('npm'), ['whoami', '--registry=https://registry.npmjs.org'], {
+  execute(command('npm'), ['whoami', '--registry=https://registry.npmjs.org'], {
     stdio: ['ignore', 'ignore', 'pipe'],
   });
 } catch {
   throw new Error('npm publication requires authenticated package-owner credentials');
 }
 try {
-  execFileSync(command('npm'), ['view', `framer-next@${version}`, 'version',
+  execute(command('npm'), ['view', `framer-next@${version}`, 'version',
     '--registry=https://registry.npmjs.org'], { stdio: ['ignore', 'ignore', 'pipe'] });
   throw new Error(`framer-next@${version} is already published`);
 } catch (error) {
