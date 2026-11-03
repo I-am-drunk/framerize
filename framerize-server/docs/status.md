@@ -167,9 +167,25 @@ skipped native and aggregate jobs provide no new qualification; the corrected
 combined head still requires those jobs and the acceptance-owned packaging
 regressions.
 
+The acceptance owner's packaging checkpoint
+`3021a3d089b4b010bf105ca53ad3840541b1cded` is integrated unchanged as
+`4ba898a5`. Its five files add 18 regression tests and include them in the
+acceptance entry point. They cover release identity, artifact and checksum
+validation, canonical licenses, dirty checkouts, and exact npm-installed bytes
+across launcher shebang conversion and downloaded-package line endings.
+The synthetic build fixtures use the current host target without skipping
+macOS or Windows. They do not build native binaries.
+
+At this combined checkpoint, Node 22.23.4 passes syntax checks, all 106 default
+test-discovery entries and all 56 acceptance tests. Default discovery includes
+103 test cases and three helper-module entries. Node 24.13.0 passes all 18
+packaging regressions. There are no failures, skips or cancellations. Runtime,
+launcher, package metadata, build scripts and workflow bytes remain unchanged
+from `89d1fcf6`. These local results do not replace fresh platform CI.
+
 Windows graceful POSIX-signal behavior is not claimed. Live inference,
 private credentials, production activation and release publication remain
 outside this stage.
 
-Next action: integrate the acceptance-owned packaging regressions and pass the
-three-platform native CI gate on the final combined head.
+Next action: pass source, native and aggregate CI on the final combined head,
+then retain its manifests for reviewed integration.
