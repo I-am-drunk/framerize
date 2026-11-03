@@ -1,0 +1,49 @@
+name: library-ci
+
+on:
+  pull_request:
+    paths:
+      - 'framerize-castle/**'
+      - '.github/workflows/library-ci.yml'
+      - 'test/library-workflow.test.mjs'
+      - 'docs/library-ci.md'
+  push:
+    branches: [main, framer-next]
+    paths:
+      - 'framerize-castle/**'
+      - '.github/workflows/library-ci.yml'
+      - 'test/library-workflow.test.mjs'
+      - 'docs/library-ci.md'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  NODE_OPTIONS: ''
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  fixtures:
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, macos-15, windows-2022]
+        node: ['22.12.0', '24']
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: ${{ matrix.node }}
+      - name: Check workflow and offline guard
+        run: node --test test/library-workflow.test.mjs
+      - name: Run the five existing library fixtures offline
+        working-directory: framerize-castle
+        run: node test/helpers/offline-guard.mjs
