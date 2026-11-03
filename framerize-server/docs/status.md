@@ -291,5 +291,24 @@ Windows graceful POSIX-signal behavior is not claimed. Live inference,
 private credentials, production activation and release publication remain
 outside this stage.
 
-Next action: integrate the qualified PR through the parent owner, then verify
-the actual merged source and retain its post-merge CI evidence.
+## Post-merge qualification
+
+PR #97 merged as `d3621ff36b96465ef63552752098dbc32205284a`. Its entire tree
+equals the qualified PR head. Post-merge
+[server CI run 41664738426](https://github.com/I-am-drunk/framerize/actions/runs/41664738426)
+passes all 11 jobs. Core verification also passes the new aggregate's ZIP
+digest and size, all six payload hashes, nine nested executable/license hashes,
+and all 13 npm files against the qualified Git blobs. Exact post-merge manifests
+and artifact provenance are retained in `native-evidence/41664738426/`.
+
+PR #109's separate Windows Node 24 failure remains open. In
+[run 41664532677](https://github.com/I-am-drunk/framerize/actions/runs/41664532677),
+the real-provider error-redaction test receives `ECONNRESET`; 116 of 117
+source test entries pass. A native incoming-header timeout can produce a
+408 followed by a reset, but this mechanism does not establish the CI cause.
+No deadline increase or speculative runtime correction has been applied.
+The passing post-merge run does not close this investigation.
+
+Next action: retain failure diagnostics with the acceptance owner, resolve
+the Windows finding, and complete parent-controlled documentation integration
+and `main` synchronization. Publication and activation remain excluded.

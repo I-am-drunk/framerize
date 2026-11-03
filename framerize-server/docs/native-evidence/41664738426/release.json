@@ -1,0 +1,57 @@
+{
+  "name": "framerize-server",
+  "version": "0.1.0",
+  "commit": "d3621ff36b96465ef63552752098dbc32205284a",
+  "artifacts": {
+    "framerize-server-0.1.0.tgz": "c4282b29d43ee8fa38856cd26a4778db82926548fb329d753e5306924d2c2ff3",
+    "LICENSE": "8a001590b158cf54879e74dd91a9351c3d8763d9910452db5eb4c1285fef6783",
+    "NODE-LICENSE": "c738ae413cf561f174e34f6961f8ca458aae2369a73640dda6234c629b98bcc4",
+    "framerize-server-linux-x64.tar.gz": "139a04614f6d3b22f6d3b8f2096f4b9a85328372585b0dabd74c589d0eae1b85",
+    "framerize-server-macos-arm64.tar.gz": "86aec9347867dc63f88071f0ddfec363014b0352e90d53db59425aa766f13a11",
+    "framerize-server-windows-x64.zip": "ff46ea410e2cec873a4edff6f24d6ed047db9e1bfd0bcc37dd3ace74f87b4096"
+  },
+  "builds": [
+    {
+      "name": "framerize-server",
+      "version": "0.1.0",
+      "commit": "d3621ff36b96465ef63552752098dbc32205284a",
+      "target": "linux-x64",
+      "node": "v22.23.4",
+      "artifacts": {
+        "framerize-server": "ba78ee6a868855ac6c75ac3876c1722d639cedbb3deff3ab512d35ee2eac2918",
+        "framerize-server-linux-x64.tar.gz": "139a04614f6d3b22f6d3b8f2096f4b9a85328372585b0dabd74c589d0eae1b85",
+        "framerize-server-0.1.0.tgz": "c4282b29d43ee8fa38856cd26a4778db82926548fb329d753e5306924d2c2ff3",
+        "LICENSE": "8a001590b158cf54879e74dd91a9351c3d8763d9910452db5eb4c1285fef6783",
+        "NODE-LICENSE": "c738ae413cf561f174e34f6961f8ca458aae2369a73640dda6234c629b98bcc4"
+      }
+    },
+    {
+      "name": "framerize-server",
+      "version": "0.1.0",
+      "commit": "d3621ff36b96465ef63552752098dbc32205284a",
+      "target": "macos-arm64",
+      "node": "v22.23.4",
+      "artifacts": {
+        "framerize-server": "f334eddcf01bc499818caa3914f3dde623474f50ebaf54c608eb9a24c33dc858",
+        "framerize-server-macos-arm64.tar.gz": "86aec9347867dc63f88071f0ddfec363014b0352e90d53db59425aa766f13a11",
+        "framerize-server-0.1.0.tgz": "c4282b29d43ee8fa38856cd26a4778db82926548fb329d753e5306924d2c2ff3",
+        "LICENSE": "8a001590b158cf54879e74dd91a9351c3d8763d9910452db5eb4c1285fef6783",
+        "NODE-LICENSE": "c738ae413cf561f174e34f6961f8ca458aae2369a73640dda6234c629b98bcc4"
+      }
+    },
+    {
+      "name": "framerize-server",
+      "version": "0.1.0",
+      "commit": "d3621ff36b96465ef63552752098dbc32205284a",
+      "target": "windows-x64",
+      "node": "v22.23.4",
+      "artifacts": {
+        "framerize-server.exe": "7af39d2142b3d8c290769360b048653bdaadc3abd027c71a0a1b24421cfcec43",
+        "framerize-server-windows-x64.zip": "ff46ea410e2cec873a4edff6f24d6ed047db9e1bfd0bcc37dd3ace74f87b4096",
+        "framerize-server-0.1.0.tgz": "c4282b29d43ee8fa38856cd26a4778db82926548fb329d753e5306924d2c2ff3",
+        "LICENSE": "8a001590b158cf54879e74dd91a9351c3d8763d9910452db5eb4c1285fef6783",
+        "NODE-LICENSE": "c738ae413cf561f174e34f6961f8ca458aae2369a73640dda6234c629b98bcc4"
+      }
+    }
+  ]
+}
