@@ -105,6 +105,10 @@ export async function createServer(config, { logger, fetchImpl = fetch } = {}) {
       }
       let body = await readBody(request, config.maxBodyBytes);
       const account = selectAccount(accounts, request, body);
+      if (request.headers['x-framer-account'] && !account) {
+        sendJson(response, 404, { error: { message: 'unknown account', type: 'not_found' } });
+        return;
+      }
       const convertChat = account?.provider === 'framer' && url.pathname === '/v1/chat/completions';
       let model = '';
       let streamChat = false;
@@ -113,10 +117,6 @@ export async function createServer(config, { logger, fetchImpl = fetch } = {}) {
         model = converted.model;
         streamChat = converted.stream;
         body = Buffer.from(JSON.stringify(converted));
-      }
-      if (request.headers['x-framer-account'] && !account) {
-        sendJson(response, 404, { error: { message: 'unknown account', type: 'not_found' } });
-        return;
       }
       const upstream = await openUpstream({
         config, request, body, account, signal: controller.signal, fetchImpl,
@@ -137,7 +137,10 @@ export async function createServer(config, { logger, fetchImpl = fetch } = {}) {
           sendJson(response, upstream.response.status, responseToChat(result, model));
           return;
         }
-        response.writeHead(upstream.response.status, responseHeaders);
+        if (!upstream.response.ok) {
+          response.writeHead(upstream.response.status, responseHeaders);
+        }
+        if (upstream.response.ok) response.writeHead(upstream.response.status, responseHeaders);
         if (upstream.response.body) {
           let chunks = idleTimeout(upstream.response.body, config.idleTimeoutMs, responseDeadline.signal);
           if (convertChat && upstream.response.ok) {
