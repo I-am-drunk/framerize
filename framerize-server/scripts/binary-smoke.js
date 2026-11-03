@@ -7,6 +7,7 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { gzipSync } from 'node:zlib';
 import { artifactNames, currentTarget, digest } from './release-artifacts.js';
+import { checkNativeAccount } from '../../.tools/scripts/native-account-smoke.js';
 
 const [name, archiveName] = artifactNames(currentTarget());
 const archive = path.resolve(process.argv[2] || `dist/${archiveName}`);
@@ -191,6 +192,7 @@ try {
   child.kill('SIGTERM');
   const stopped = await bounded(exit, 'Fixture shutdown timed out');
   if (process.platform !== 'win32') assert.deepEqual(stopped, { code: 0, signal: null });
+  process.stdout.write(`${JSON.stringify(await checkNativeAccount(executable))}\n`);
   process.stdout.write('Extracted binary: help, config, auth, readiness, streams, gzip, disconnect and cleanup passed\n');
   if (process.platform === 'win32') process.stdout.write('Windows termination checked; POSIX graceful signal assertion not applicable\n');
 } finally {

@@ -10,7 +10,8 @@ test('server builds use only the typed server target and safe installs', () => {
   assert.match(root.scripts['build:server'], /tsc -p tsconfig\.server-tools\.json/);
   const tools = JSON.parse(read('tsconfig.server-tools.json'));
   assert.deepEqual(tools.include, ['scripts/build-server.ts',
-    'scripts/server-native-bundle.ts', 'test/server-native-bundle.test.ts']);
+    'scripts/server-native-bundle.ts', 'scripts/native-account-smoke.ts',
+    'test/server-native-bundle.test.ts', 'test/server-native-account.test.ts']);
   assert.doesNotMatch(root.scripts['build:server'], /framerize-remote/);
   assert.match(root.scripts['build:server'], /^npm --prefix framerize-castle run build &&/);
   assert.match(read('scripts/build-server.ts'), /stageCastleRuntime\(root\)/);
@@ -23,7 +24,8 @@ test('server builds use only the typed server target and safe installs', () => {
 
 test('server workflows cover changed inputs and keep all pinned platforms', () => {
   for (const file of ['.gitattributes', 'scripts/server-native-bundle.ts', 'scripts/package-archive.ts',
-    'framerize-castle/**', 'scripts/server-castle-runtime.ts', 'test/server-*']) {
+    'framerize-castle/**', 'scripts/server-castle-runtime.ts', 'scripts/native-account-smoke.ts',
+    'scripts/core-package-check.ts', 'scripts/fixtures/**', 'test/server-*']) {
     assert.equal(workflow.split(`'${file}'`).length - 1, 2, file);
   }
   assert.match(workflow, /node: \['22\.12\.0', '22\.23\.4', '24\.13\.0'\]/);
@@ -40,6 +42,10 @@ function verifyNativeOrder(source) {
   const built = native.indexOf('npm run binary\n');
   assert.ok(checked >= 0, 'Missing downloaded-package check');
   assert.ok(built > checked, 'Native build must follow the downloaded-package check');
+  const smoke = native.indexOf('npm run binary:check');
+  const metadata = native.indexOf('node scripts/release-metadata.js');
+  assert.ok(smoke > built && metadata > smoke, 'Native smoke must pass before release metadata');
+  assert.doesNotMatch(native, /continue-on-error|\|\| true/);
 }
 
 for (const newline of ['\n', '\r\n']) {
@@ -48,6 +54,8 @@ for (const newline of ['\n', '\r\n']) {
     verifyNativeOrder(source);
     assert.throws(() => verifyNativeOrder(source.replace('npm run pack:check -- --downloaded', 'omitted')));
     assert.throws(() => verifyNativeOrder(source.replace(`npm run binary${newline}`, `omitted${newline}`)));
+    assert.throws(() => verifyNativeOrder(source.replace('npm run binary:check', 'omitted')));
+    assert.throws(() => verifyNativeOrder(source.replace('node scripts/release-metadata.js', 'omitted')));
     assert.throws(() => verifyNativeOrder(source.replace('npm run pack:check -- --downloaded',
       `npm run binary${newline}npm run pack:check -- --downloaded`)));
   });
@@ -59,4 +67,20 @@ test('native launcher consumes the verified archive rather than source files', (
   assert.ok(builder.indexOf('verifyServerSource(archiveBytes') < builder.indexOf('await bundleServerArchive'));
   assert.match(builder, /packageSha256: bundle\.packageSha256/);
   assert.doesNotMatch(builder, /entryPoints|from 'esbuild'/);
+});
+
+test('native smoke awaits account verification on the extracted executable', () => {
+  const source = read('framerize-server/scripts/binary-smoke.js');
+  const validate = input => {
+    assert.match(input, /await checkNativeAccount\(executable\)/);
+    const bound = input.indexOf('digest(path.join(directory, entry))');
+    assert.ok(bound >= 0 && input.indexOf('await checkNativeAccount(executable)') > bound);
+  };
+  validate(source);
+  assert.throws(() => validate(source.replace('await checkNativeAccount', 'checkNativeAccount')));
+  assert.throws(() => validate(source.replace('checkNativeAccount(executable)', 'checkNativeAccount(process.execPath)')));
+  assert.throws(() => validate(source.replace('digest(path.join(directory, entry))', 'unverified')));
+  assert.match(read('package.json'), /\.tools\/test\/server-native-account\.test\.js/);
+  const core = read('.github/workflows/core-ci.yml');
+  assert.equal(core.split("'scripts/native-account-smoke.ts'").length - 1, 2);
 });

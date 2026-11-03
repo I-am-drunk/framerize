@@ -53,6 +53,7 @@ export function sourceIdentity() {
   }
   const inputs = ['.', '../.github/workflows/server-ci.yml', '../framerize-core', '../framerize-castle',
     '../scripts/server-castle-runtime.ts',
+    '../scripts/native-account-smoke.ts', '../scripts/core-package-check.ts', '../scripts/fixtures',
     '../scripts/build-server.ts', '../scripts/server-native-bundle.ts',
     '../scripts/package-archive.ts', '../package.json', '../package-lock.json',
     '../tsconfig.base.json', '../tsconfig.tools.json', '../tsconfig.server-tools.json'];

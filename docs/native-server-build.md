@@ -51,3 +51,18 @@ This verifies local transport against synthetic providers, selected JSON-account
 authentication, built-in minting and runtime extraction cleanup. It does not prove
 live browserless compatibility, package publication or a different platform.
 Development binaries from an uncommitted snapshot are not release artifacts.
+
+## Native account check
+
+The native jobs run `binary:check` before writing release metadata. That check
+also runs the extracted executable against a synthetic account endpoint.
+It verifies selected JSON credentials, two built-in mints, streamed output,
+request cancellation and an empty executable search path. No Remote package,
+external encoder, source runtime or network account is used.
+
+The `check` command must exit normally and remove its extracted runtime.
+After serving requests, mint-worker directories must already be gone. POSIX
+signal shutdown must also remove the extracted runtime. On Windows, Node's
+child-process termination is forced, so the report marks signal cleanup as
+`not-tested`; the fixture removes those files after the child exits. This does
+not claim a Windows console Ctrl+C test. Hosted results are still required.
