@@ -13,12 +13,14 @@ const events = [
   ] } },
 ].map((event) => `data: ${JSON.stringify(event)}\n\n`);
 let envelope;
+let headers;
 const upstream = http.createServer((request, response) => {
   let body = '';
   request.setEncoding('utf8');
   request.on('data', (chunk) => { body += chunk; });
   request.on('end', () => {
     envelope = JSON.parse(body);
+    headers = request.headers;
     response.writeHead(200, { 'content-type': 'text/event-stream' });
     response.write(events[0]);
     setTimeout(() => response.end(events[1]), 25);
@@ -46,6 +48,8 @@ try {
   assert.match(text, /"content":"hello"/);
   assert.match(text, /data: \[DONE\]/);
   assert.equal(envelope.userPrompt, 'hello');
+  assert.equal(headers['x-requested-by'], 'Framer');
+  assert.equal(headers['content-type'], 'application/json; charset=utf-8');
   assert.match(envelope.sessionId, /^[A-Za-z0-9]{9}$/);
   assert.match(envelope.turnId, /^[A-Za-z0-9]{9}$/);
   const complete = await fetch(`${base}/v1/chat/completions`, {

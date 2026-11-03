@@ -62,6 +62,23 @@ test('account base paths join without duplicate slashes', async (t) => {
   assert.equal(destination, 'http://upstream.test/openai/v1/responses');
 });
 
+test('Framer inference uses the observed request headers', async (t) => {
+  let headers;
+  const base = await fixture(t, async (url, options) => {
+    headers = options.headers;
+    return new Response('{}', { headers: { 'content-type': 'application/json' } });
+  }, [{ id: 'framer', provider: 'framer', projectId: 'project',
+    authorizationEnv: 'TEST_JWT', castleEnv: 'TEST_CASTLE' }]);
+  process.env.TEST_JWT = 'fixture';
+  process.env.TEST_CASTLE = 'fixture';
+  const response = await fetch(`${base}/v1/responses`, {
+    method: 'POST', body: JSON.stringify({ model: 'test', input: 'hello' }),
+  });
+  assert.equal(response.status, 200);
+  assert.equal(headers['x-requested-by'], 'Framer');
+  assert.equal(headers['content-type'], 'application/json; charset=utf-8');
+});
+
 test('streamed response failures close the downstream connection', async (t) => {
   const base = await fixture(t, async () => new Response(
     'data: {"type":"response.failed","response":{"error":{"message":"rejected"}}}\n\n',
