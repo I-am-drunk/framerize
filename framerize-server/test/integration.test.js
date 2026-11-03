@@ -15,7 +15,15 @@ async function upstreamFixture(t, handler) {
 }
 
 test('real provider redacts an upstream error body through the app', async (t) => {
+  const events = [];
+  const started = process.hrtime.bigint();
+  const record = (event, detail = '') => events.push({ event, detail,
+    elapsedMs: Number(process.hrtime.bigint() - started) / 1e6 });
+  t.after(() => { if (!t.passed) console.error('safe integration events', JSON.stringify(events)); });
   const upstream = await upstreamFixture(t, (request, response) => {
+    record('upstream.request');
+    response.on('finish', () => record('upstream.finish'));
+    response.on('close', () => record('upstream.close'));
     response.writeHead(429, {
       'content-type': 'application/json', 'retry-after': '7', 'x-request-id': 'safe-request-id',
     });
@@ -24,11 +32,34 @@ test('real provider redacts an upstream error body through the app', async (t) =
   const config = {
     upstream, authorization: 'fixture-credential', headersTimeoutMs: 500, idleTimeoutMs: 500,
   };
-  const { port } = await startFixture(t, {}, class {
+  const { port, app } = await startFixture(t, {}, class {
     constructor() { this.provider = createProvider(config); }
     ready(options) { return this.provider.ready(options); }
-    forward(options) { return this.provider.forward(options); }
+    async forward(options) {
+      record('provider.enter');
+      try {
+        const result = await this.provider.forward(options);
+        record('provider.result', result.status);
+        return result;
+      } catch (error) { record('provider.error', error.code); throw error; }
+    }
     close() { return this.provider.close(); }
+  });
+  const emit = app.server.emit;
+  app.server.emit = function (event, ...args) {
+    if (event === 'request') record('app.request');
+    if (event === 'clientError') record('app.clientError', args[0]?.code);
+    return emit.call(this, event, ...args);
+  };
+  t.after(() => { app.server.emit = emit; });
+  app.server.on('connection', (socket) => {
+    record('app.connection');
+    socket.on('error', (error) => record('app.socketError', error.code));
+    socket.on('close', () => record('app.socketClose'));
+  });
+  app.server.on('request', (request, response) => {
+    response.on('finish', () => record('app.finish', response.statusCode));
+    response.on('close', () => record('app.close', response.statusCode));
   });
   const { response, body } = await apiRequest(port, '/v1/responses', {
     method: 'POST', headers: authorizedHeaders(), body: '{}',

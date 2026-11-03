@@ -271,9 +271,53 @@ Its existing path filters, read-only permissions, dedicated package directory
 and source/native/aggregate jobs are unchanged. YAML checks cover that policy;
 actual post-merge qualification still requires a run at the merged source.
 
+## Final PR qualification
+
+At frozen head `23d87c6c9a04952514eed9eebc6936e61b6f3e05`,
+[server CI run 41663296507](https://github.com/I-am-drunk/framerize/actions/runs/41663296507)
+passes all 11 jobs. Both Windows source jobs pass all 117 test entries,
+67 acceptance tests and packed-install smoke. All three native targets pass
+extracted-binary checks, including the client-disconnect preconditions.
+This closes the earlier Windows fixture and final aggregate gates.
+
+Core verification and independent review pass the downloaded aggregate's ZIP
+digest and size, all six payload hashes, nine nested executable/license hashes,
+and exact npm inventory and file bytes. The synthetic merge tree equals the
+frozen head tree. Exact provenance, manifests, hashes and qualification limits
+are retained in `native-evidence/41663296507/` without executable files.
+This docs-only retention does not change the qualified runtime or packaging.
+
 Windows graceful POSIX-signal behavior is not claimed. Live inference,
 private credentials, production activation and release publication remain
 outside this stage.
 
-Next action: qualify the final combined source/native/aggregate tree before
-integration, then retain the exact post-merge evidence.
+## Post-merge qualification
+
+PR #97 merged as `d3621ff36b96465ef63552752098dbc32205284a`. Its entire tree
+equals the qualified PR head. Post-merge
+[server CI run 41664738426](https://github.com/I-am-drunk/framerize/actions/runs/41664738426)
+passes all 11 jobs. Core verification also passes the new aggregate's ZIP
+digest and size, all six payload hashes, nine nested executable/license hashes,
+and all 13 npm files against the qualified Git blobs. Exact post-merge manifests
+and artifact provenance are retained in `native-evidence/41664738426/`.
+
+PR #109's separate Windows Node 24 failure remains open. In
+[run 41664532677](https://github.com/I-am-drunk/framerize/actions/runs/41664532677),
+the real-provider error-redaction test receives `ECONNRESET`; 116 of 117
+source test entries pass. A native incoming-header timeout can produce a
+408 followed by a reset, but this mechanism does not establish the CI cause.
+No deadline increase or speculative runtime correction has been applied.
+The passing post-merge run does not close this investigation.
+
+Acceptance checkpoint `600888610a5c2f68f8dcc632fa39a236d2e84c7d` is integrated
+unchanged as `7c7613a1`. It adds failure-only, monotonic event diagnostics to
+the affected test without changing deadlines, assertions or native event
+handling. Both integration tests pass on Node 22.23.4 and 24.13.0. A deliberate
+assertion-failure control emits the expected safe events on both versions
+without fixture credentials or upstream-secret text. The owner's exact combined
+archive passes 114 explicit tests and 67 acceptance tests on Node 22.23.4.
+These results validate the diagnostics, not a fix for the Windows reset.
+
+Next action: inspect the instrumented CI evidence, resolve the Windows finding,
+and complete parent-controlled documentation integration and `main`
+synchronization. Publication and activation remain excluded.
