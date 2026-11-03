@@ -71,6 +71,30 @@ test('release merge rejects a missing platform', () => {
   assert.notEqual(merge(directory).status, 0);
 });
 
+for (const name of ['LICENSE', 'NODE-LICENSE']) {
+  test(`release merge rejects a different ${name} despite a valid digest`, () => {
+    const directory = fixture();
+    const source = path.join(directory, 'dist/windows-x64');
+    const file = path.join(source, 'release.json');
+    const metadata = JSON.parse(readFileSync(file, 'utf8'));
+    const changed = `different ${name} notice\n`;
+    writeFileSync(path.join(source, name), changed);
+    metadata.licenses[name] = digest(changed);
+    writeFileSync(file, JSON.stringify(metadata));
+    const result = merge(directory);
+    assert.notEqual(result.status, 0);
+    assert.match(result.stderr, /release licenses differ for windows-x64/);
+  });
+
+  test(`release merge rejects altered ${name} bytes`, () => {
+    const directory = fixture();
+    writeFileSync(path.join(directory, 'dist/windows-x64', name), 'altered notice');
+    const result = merge(directory);
+    assert.notEqual(result.status, 0);
+    assert.match(result.stderr, new RegExp(`release license digest mismatch for windows-x64/${name}`));
+  });
+}
+
 test('release merge rejects a different source commit', () => {
   const directory = fixture();
   const file = path.join(directory, 'dist/windows-x64/release.json');
