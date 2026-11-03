@@ -48,6 +48,25 @@ test('Framer chat uses its native Chat route', async () => {
   assert.match(envelope.turnId, /^[A-Za-z0-9]{9}$/);
 });
 
+test('Framer chat preserves tools, tool results, and JSON schemas', async () => {
+  const request = { model: 'anthropic/claude-opus-5.5', stream: true,
+    messages: [
+      { role: 'user', content: 'What is the weather?' },
+      { role: 'assistant', content: null, tool_calls: [{ id: 'call1', type: 'function',
+        function: { name: 'weather', arguments: '{"city":"Paris"}' } }] },
+      { role: 'tool', tool_call_id: 'call1', content: 'sunny' },
+    ],
+    tools: [{ type: 'function', function: { name: 'weather',
+      parameters: { type: 'object', properties: { city: { type: 'string' } } } } }],
+    tool_choice: { type: 'function', function: { name: 'weather' } },
+    response_format: { type: 'json_schema', json_schema: { name: 'answer',
+      schema: { type: 'object' } } } };
+  const result = await prepareFramer({ account, path: '/v1/chat/completions',
+    body: Buffer.from(JSON.stringify(request)), fetchImpl: async () => {},
+    env: { FIXTURE_JWT: 'fixture-jwt', FIXTURE_CASTLE: 'fixture-castle' } });
+  assert.deepEqual(JSON.parse(result.body).request, request);
+});
+
 test('Framer reads credentials from private files', async () => {
   const directory = await mkdtemp(path.join(tmpdir(), 'framer-next-framer-'));
   const sessionFile = path.join(directory, 'session');
