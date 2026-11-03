@@ -1,0 +1,14 @@
+{
+  "name": "framerize-server",
+  "version": "0.1.0",
+  "commit": "0848e05a0daf5b55f089fda3aeb7d79b7c2259c9",
+  "target": "linux-x64",
+  "node": "v22.23.4",
+  "artifacts": {
+    "framerize-server": "be5320036ab298e89ca6d6762e2bcdb212d04402f2a03042c24bf210b6803bf1",
+    "framerize-server-linux-x64.tar.gz": "ae8e544267b0f6999e9838716d1a536165b5ae474556784af71a62a09e60f5c4",
+    "framerize-server-0.1.0.tgz": "7857503139d2f48dddfe0adb8967f1b19dd2d853d4641f9543642a160669d5da",
+    "LICENSE": "8a001590b158cf54879e74dd91a9351c3d8763d9910452db5eb4c1285fef6783",
+    "NODE-LICENSE": "c738ae413cf561f174e34f6961f8ca458aae2369a73640dda6234c629b98bcc4"
+  }
+}

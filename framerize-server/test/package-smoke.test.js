@@ -1,0 +1,112 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import { spawnSync } from 'node:child_process';
+import { mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { packageFixture, packageTarball, runPackageSmoke, assertPackageFailure, mutateTarball } from './helpers/package-fixtures.js';
+
+test('direct invocation rejects missing npm context without leaking temp directories', (t) => {
+  const root = mkdtempSync(path.join(tmpdir(), 'framerize-smoke-context-'));
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  const env = { ...process.env, TMPDIR: root, TEMP: root, TMP: root };
+  delete env.npm_execpath;
+  const script = fileURLToPath(new URL('../scripts/package-smoke.js', import.meta.url));
+  const result = spawnSync(process.execPath, [script], { env, encoding: 'utf8', timeout: 5_000 });
+  assert.equal(result.status, 1);
+  assert.match(result.stderr, /Run this check with npm run pack:check/);
+  assert.deepEqual(readdirSync(root), []);
+});
+
+test('local package smoke accepts only npm shebang CRLF normalization', (t) => {
+  const checkout = packageFixture(t);
+  const result = runPackageSmoke(checkout.directory);
+  assert.equal(result.status, 0, `${result.stdout}\n${result.stderr}`);
+});
+
+test('downloaded LF tarball passes from a CRLF checkout', (t) => {
+  const checkout = packageFixture(t);
+  const launcher = path.join(checkout.directory, 'bin', 'framerize-server.js');
+  writeFileSync(launcher, readFileSync(launcher, 'utf8').replaceAll('\r\n', '\n'));
+  checkout.git(['add', 'framerize-server/bin/framerize-server.js']);
+  checkout.git(['commit', '-qm', 'canonical LF package']);
+  packageTarball(checkout.directory);
+  writeFileSync(launcher, Buffer.from('#!/usr/bin/env node\r\nconsole.log("body");\r\n'));
+  const result = runPackageSmoke(checkout.directory, true);
+  assert.equal(result.status, 0, `${result.stdout}\n${result.stderr}`);
+});
+
+test('downloaded package smoke rejects bytes changed after commit', (t) => {
+  const checkout = packageFixture(t);
+  packageTarball(checkout.directory);
+  mutateTarball(t, checkout.directory, 'src/config.js', 'export const loadConfig = (values) => ({...values, changed:true});\n');
+  assertPackageFailure(runPackageSmoke(checkout.directory, true), 'Installed source differs: src/config.js');
+});
+
+test('downloaded package smoke rejects a changed launcher body', (t) => {
+  const checkout = packageFixture(t);
+  packageTarball(checkout.directory);
+  mutateTarball(t, checkout.directory, 'bin/framerize-server.js', Buffer.from('#!/usr/bin/env node\nconsole.log("changed");\r\n'));
+  assertPackageFailure(runPackageSmoke(checkout.directory, true), 'Installed source differs: bin/framerize-server.js');
+});
+
+test('downloaded package smoke rejects CRLF conversion outside the launcher', (t) => {
+  const checkout = packageFixture(t);
+  packageTarball(checkout.directory);
+  mutateTarball(t, checkout.directory, 'src/config.js', 'export const loadConfig = (values) => values;\r\n');
+  assertPackageFailure(runPackageSmoke(checkout.directory, true), 'Installed source differs: src/config.js');
+});
+
+test('downloaded package smoke rejects optional dependencies in the manifest', (t) => {
+  const checkout = packageFixture(t);
+  packageTarball(checkout.directory);
+  const manifest = JSON.parse(readFileSync(path.join(checkout.directory, 'package.json'), 'utf8'));
+  manifest.optionalDependencies = { 'framerize-inert-missing-fixture': '0.0.0' };
+  mutateTarball(t, checkout.directory, 'package.json', JSON.stringify(manifest));
+  assertPackageFailure(runPackageSmoke(checkout.directory, true), 'Unexpected package dependencies');
+});
+
+test('downloaded package smoke rejects optional peer dependencies in the manifest', (t) => {
+  const checkout = packageFixture(t);
+  packageTarball(checkout.directory);
+  const manifest = JSON.parse(readFileSync(path.join(checkout.directory, 'package.json'), 'utf8'));
+  manifest.peerDependencies = { 'framerize-inert-missing-fixture': '0.0.0' };
+  manifest.peerDependenciesMeta = { 'framerize-inert-missing-fixture': { optional: true } };
+  mutateTarball(t, checkout.directory, 'package.json', JSON.stringify(manifest));
+  assertPackageFailure(runPackageSmoke(checkout.directory, true), 'Unexpected package dependencies');
+});
+
+test('downloaded package smoke rejects an extra export', (t) => {
+  const checkout = packageFixture(t);
+  packageTarball(checkout.directory);
+  const manifest = JSON.parse(readFileSync(path.join(checkout.directory, 'package.json'), 'utf8'));
+  manifest.exports['./unexpected'] = './src/config.js';
+  mutateTarball(t, checkout.directory, 'package.json', JSON.stringify(manifest));
+  assertPackageFailure(runPackageSmoke(checkout.directory, true), 'Installed package metadata differs');
+});
+
+test('downloaded package smoke rejects an extra executable alias', (t) => {
+  const checkout = packageFixture(t);
+  packageTarball(checkout.directory);
+  const manifest = JSON.parse(readFileSync(path.join(checkout.directory, 'package.json'), 'utf8'));
+  manifest.bin['unexpected-cli'] = './bin/framerize-server.js';
+  mutateTarball(t, checkout.directory, 'package.json', JSON.stringify(manifest));
+  assertPackageFailure(runPackageSmoke(checkout.directory, true), 'Installed package metadata differs');
+});
+
+test('downloaded package smoke rejects an altered files declaration', (t) => {
+  const checkout = packageFixture(t);
+  packageTarball(checkout.directory);
+  const manifest = JSON.parse(readFileSync(path.join(checkout.directory, 'package.json'), 'utf8'));
+  manifest.files.push('unexpected');
+  mutateTarball(t, checkout.directory, 'package.json', JSON.stringify(manifest));
+  assertPackageFailure(runPackageSmoke(checkout.directory, true), 'Installed package metadata differs');
+});
+
+test('downloaded package smoke rejects an unexpected installed source file', (t) => {
+  const checkout = packageFixture(t);
+  packageTarball(checkout.directory);
+  mutateTarball(t, checkout.directory, 'src/unexpected.js', 'export const inert = true;\n');
+  assertPackageFailure(runPackageSmoke(checkout.directory, true), 'Unexpected installed package files');
+});

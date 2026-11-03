@@ -1,24 +1,59 @@
-import { mkdtemp, readFile, readdir, rm } from 'node:fs/promises';
+import assert from 'node:assert/strict';
+import { copyFile, lstat, mkdtemp, readFile, readdir, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { execFileSync } from 'node:child_process';
 
 const root = fileURLToPath(new URL('../', import.meta.url));
-const directory = await mkdtemp(path.join(tmpdir(), 'framerize-server-pack-'));
 const npm = process.env.npm_execpath;
 if (!npm) throw new Error('Run this check with npm run pack:check');
+const directory = await mkdtemp(path.join(tmpdir(), 'framerize-server-pack-'));
 const run = (args) => execFileSync(process.execPath, [npm, ...args], {
   cwd: directory, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'],
 });
 try {
-  run(['pack', root, '--ignore-scripts', '--pack-destination', directory]);
+  const source = JSON.parse(await readFile(path.join(root, 'package.json'), 'utf8'));
+  if (process.argv.includes('--downloaded')) {
+    const name = `${source.name}-${source.version}.tgz`;
+    await copyFile(path.join(root, name), path.join(directory, name));
+  } else {
+    run(['pack', root, '--ignore-scripts', '--pack-destination', directory]);
+  }
   const tarball = (await readdir(directory)).find((name) => name.endsWith('.tgz'));
   if (!tarball) throw new Error('Package tarball missing');
   run(['install', '--ignore-scripts', '--no-audit', '--no-fund', '--offline', path.join(directory, tarball)]);
-  const manifest = JSON.parse(await readFile(path.join(directory, 'node_modules/framerize-server/package.json')));
-  if (manifest.name !== 'framerize-server' || Object.keys(manifest.dependencies ?? {}).length) {
+  const installed = path.join(directory, 'node_modules/framerize-server');
+  const manifest = JSON.parse(await readFile(path.join(installed, 'package.json')));
+  if (manifest.name !== 'framerize-server' || manifest.version !== source.version ||
+      manifest.private !== true || ['dependencies', 'optionalDependencies', 'peerDependencies']
+        .some((field) => Object.keys(manifest[field] ?? {}).length)) {
     throw new Error('Unexpected package dependencies');
+  }
+  const normalizeManifest = (value) => ({ ...value, bin: Object.fromEntries(
+    Object.entries(value.bin ?? {}).map(([name, target]) => [name, target.replace(/^\.\//, '')]),
+  ) });
+  assert.deepEqual(normalizeManifest(manifest), normalizeManifest(source),
+    'Installed package metadata differs');
+  const files = ['README.md', 'LICENSE', ...await readdir(path.join(root, 'src')).then((names) =>
+    names.map((name) => `src/${name}`)), 'bin/framerize-server.js'];
+  assert.deepEqual((await readdir(installed, { recursive: true }))
+    .map((name) => name.split(path.sep).join('/')).sort(),
+    ['bin', 'src', 'package.json', ...files].sort(), 'Unexpected installed package files');
+  for (const name of ['package.json', ...files]) {
+    assert.ok((await lstat(path.join(installed, name))).isFile(), 'Unexpected installed package file type');
+  }
+  for (const name of files) {
+    let expected = process.argv.includes('--downloaded')
+      ? execFileSync('git', ['show', `HEAD:framerize-server/${name}`], { cwd: root })
+      : await readFile(path.join(root, name));
+    const newline = expected.indexOf(10);
+    if (name === 'bin/framerize-server.js' && expected[0] === 35 && expected[1] === 33 &&
+        expected[newline - 1] === 13) {
+      expected = Buffer.concat([expected.subarray(0, newline - 1), expected.subarray(newline)]);
+    }
+    assert.deepEqual(await readFile(path.join(installed, name)),
+      expected, `Installed source differs: ${name}`);
   }
   execFileSync(process.execPath, [path.join(directory, 'node_modules/framerize-server/bin/framerize-server.js'), '--help'], {
     cwd: directory, stdio: 'pipe',
