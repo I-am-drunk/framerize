@@ -4,6 +4,7 @@ import { parseArgs, run } from '../src/cli.js';
 import { parseConfig } from '../src/config.js';
 import { spawn, spawnSync } from 'node:child_process';
 import { setTimeout as delay } from 'node:timers/promises';
+import { EventEmitter } from 'node:events';
 
 test('default CLI config preserves loopback and default port', () => {
   const config = parseConfig(parseArgs([], {}).values);
@@ -13,6 +14,22 @@ test('default CLI config preserves loopback and default port', () => {
 
 test('check validates without listening', async () => {
   assert.equal(await run(['check']), 0);
+});
+
+test('shutdown failures set a nonzero exit code', async () => {
+  const events = new EventEmitter();
+  let close;
+  const running = run(['serve', '--port', '0'], { process: events, createServer: async () => ({
+    server: { once(event, callback) { if (event === 'close') close = callback; } },
+    listen: async () => ({ port: 1234 }),
+    close: async () => { throw new Error('fixture close failure'); },
+  }) });
+  await new Promise((resolve) => setImmediate(resolve));
+  events.emit('SIGTERM');
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(events.exitCode, 1);
+  close();
+  assert.equal(await running, 0);
 });
 
 test('unknown options fail', () => {
