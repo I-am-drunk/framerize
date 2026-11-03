@@ -7,6 +7,7 @@ const files = [
   'test/config.test.js',
   'test/accounts.test.js',
   'test/logger.test.js',
+  'test/integration.test.js',
   'test/routes.test.js',
   'test/streaming.test.js',
   'test/shutdown.test.js',

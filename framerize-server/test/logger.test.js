@@ -33,3 +33,15 @@ test('log level suppresses lower-priority records', () => {
   assert.equal(read().includes('hidden'), false);
   assert.equal(read().includes('visible'), true);
 });
+
+test('silent logging emits nothing and cyclic fields are bounded', () => {
+  const silent = captureLogger('silent');
+  silent.logger.error('hidden', { token: 'fixture-secret' });
+  assert.equal(silent.read(), '');
+  const { logger, read } = captureLogger();
+  const fields = { requestId: 'fixture' };
+  fields.circular = fields;
+  logger.info('cycle', fields);
+  const line = JSON.parse(read());
+  assert.equal(line.circular.circular, '[circular]');
+});

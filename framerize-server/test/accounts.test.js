@@ -24,5 +24,17 @@ test('account metadata is validated, frozen and credential-free', async (t) => {
   }]);
   assert.equal(Object.isFrozen(accounts), true);
   assert.equal(Object.isFrozen(accounts[0]), true);
+  assert.equal(Object.isFrozen(accounts[0].models), true);
   assert.equal('authorization' in accounts[0], false);
+});
+
+test('account metadata rejects credentials, unknown fields and duplicate IDs', async (t) => {
+  for (const accounts of [
+    [{ id: 'fixture', authorization: 'secret' }],
+    [{ id: 'fixture', cookie: 'secret' }],
+    [{ id: 'duplicate' }, { id: 'duplicate' }],
+  ]) {
+    await assert.rejects(loadAccounts(await accountFile(t, accounts)),
+      { name: 'ConfigurationError' });
+  }
 });

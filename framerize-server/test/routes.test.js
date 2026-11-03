@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
   apiRequest, authorizedHeaders, JSON_BODY, startFixture, TOKEN,
+  openSocket, rawPost, socketChunks,
 } from './helpers/fixtures.js';
 
 const readyDocument = {
@@ -117,4 +118,33 @@ test('body limit rejects the request without invoking the provider', async (t) =
     error: { type: 'invalid_request_error', code: 'body_too_large', message: 'Request body too large' },
   });
   assert.equal(provider.calls.length, 0);
+});
+
+test('missing server token denies protected routes but not health', async (t) => {
+  const { port, provider } = await startFixture(t, { serverToken: '' });
+  assert.equal((await apiRequest(port, '/health')).response.status, 200);
+  for (const path of ['/ready', '/v1/responses']) {
+    const { response, body } = await apiRequest(port, path, {
+      method: path === '/ready' ? 'GET' : 'POST',
+      headers: authorizedHeaders(), body: path === '/ready' ? undefined : '{}',
+    });
+    assert.equal(response.status, 401);
+    assert.deepEqual(JSON.parse(body), unauthorized);
+  }
+  assert.equal(provider.calls.length, 0);
+});
+
+test('Connection-nominated safe headers do not reach the provider', async (t) => {
+  const { port, provider } = await startFixture(t);
+  const socket = await openSocket(port);
+  t.after(() => socket.destroy());
+  const received = socketChunks(socket);
+  const headers = rawPost().replace('Connection: close',
+    'Connection: close, accept, content-type, openai-beta');
+  socket.write(headers + JSON_BODY);
+  await received.closed;
+  assert.match(received.text(), /^HTTP\/1\.1 200/);
+  assert.equal(provider.calls[0].headers.accept, undefined);
+  assert.equal(provider.calls[0].headers['content-type'], undefined);
+  assert.equal(provider.calls[0].headers['openai-beta'], undefined);
 });
