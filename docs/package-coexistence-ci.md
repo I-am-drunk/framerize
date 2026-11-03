@@ -86,5 +86,21 @@ filename, size and digest mismatches, altered payloads, and substituted checker
 reports. They also reject a manifest or checkout changed after verification.
 An attempt 2 consumer accepts unchanged attempt 1 producer evidence.
 
-These are script-level tests, not native execution on three OSes. The real
-Linux offline workflow steps and all three hosted consumers remain to qualify.
+These are script-level tests, not native execution on three OSes.
+
+On 2026-11-03, all eight workflow shell steps also passed locally on Linux at
+source `58e202ad385041b8d7b20febbb7420f20b37aef7`, using Node 22.23.4 and
+npm 10.9.9. The root suite passed all 40 tests with no skips. Each package was
+packed once offline, copied unchanged to the consumer input, and installed
+together by the existing checker. The consumer used attempt 2 with attempt 1
+producer metadata. Both installed packages retained all 13 expected files.
+
+The tarball hashes matched the retained baseline pair:
+
+- Nexus: `12c6eb43755f16a858d12b150bfde44622298ab2fcf489d03abadba0bd4fe528`.
+- Server: `c4282b29d43ee8fa38856cd26a4778db82926548fb329d753e5306924d2c2ff3`.
+
+This local run used a synthetic `local_fixture` event. It did not execute
+GitHub checkout/upload/download actions, native builds, or macOS/Windows.
+All three hosted consumers still require qualification. Later thin-Nexus
+runtime changes require new package evidence.
