@@ -129,3 +129,18 @@ async fn browser_loss_after_selection_does_not_start_a_replacement() {
     assert!(ports.live.lock().unwrap().is_empty());
     assert_eq!(ports.mint_routes.lock().unwrap().len(), 1);
 }
+
+#[tokio::test]
+async fn a_parked_observation_reports_residency_loss_instead_of_a_full_pool() {
+    let (state, ports) = constrained().await;
+    park(State(state.clone()), Json(AccountBody { account_id: id(2) }))
+        .await.unwrap();
+    let accounts = ports.records.lock().unwrap().clone();
+    let error = state.serving_accounts.select_loaded(accounts, &[],
+        &HashSet::from([id(2)])).unwrap_err();
+    let cause = error.diagnostic();
+    assert!(cause.contains("previously resident browser no longer has a pool slot"));
+    assert!(cause.contains("Insufficient memory"));
+    assert!(!cause.contains("all 6 resident browser slots are occupied"));
+    assert!(ports.live.lock().unwrap().is_empty());
+}

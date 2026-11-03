@@ -286,6 +286,19 @@ impl ServingAccountPolicy {
             && Self::residency_allows(&snapshot, &account.id, &mutations))
             .cloned().collect();
         if candidates.is_empty() && !pool.is_empty() {
+            if let Some(loaded) = loaded {
+                let causes: std::collections::BTreeSet<_> = pool.iter()
+                    .filter(|account| loaded.contains(&account.id))
+                    .map(|account| if snapshot.residents.iter()
+                        .any(|slot| slot.account == account.id) {
+                        Self::residency_failure(&snapshot, &account.id, &mutations)
+                    } else {
+                        "a previously resident browser no longer has a pool slot".into()
+                    }).collect();
+                return Err(ApiError::PoolBusy(format!(
+                    "Resident browser availability changed before reservation: {}. Insufficient memory prevents starting another browser.",
+                    causes.into_iter().collect::<Vec<_>>().join("; "))));
+            }
             let causes: std::collections::BTreeSet<_> = pool.iter().map(|account|
                 Self::residency_failure(&snapshot, &account.id, &mutations)).collect();
             return Err(ApiError::PoolBusy(causes.into_iter().collect::<Vec<_>>().join("; ")));

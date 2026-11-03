@@ -2,12 +2,17 @@
 
 Alpha.18 remains live. New Claude failures at 03:02:12 and 03:02:18 UTC
 were local RAM admission deferrals, before upstream inference.
+A later failure at 03:03:23 captured upstream HTTP 504 after 60.2 seconds.
+That separate adaptive-reasoning timeout remains open.
 The alpha.19 candidate checks actual browser residency when allocation
 headroom is too small for another browser. It selects from eligible loaded
 accounts, shares the request reservation count, and rechecks residency before
 admission. Cold accounts retain their selection history for later recovery.
 Explicit accounts, cooldowns and uncertain cleanup keep their existing rules.
-Next: run the focused regressions and build the candidate on the iMac.
+Admission retains authentication and ownership causes when memory is not
+the limiting factor. A browser parked after observation reports residency
+loss instead of falsely reporting that every pool slot is occupied.
+Next: finish final-source tests and real isolated verification on the iMac.
 
 # Alpha.18 live, 2026-11-03
 
