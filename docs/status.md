@@ -30,6 +30,12 @@ The isolated native Chat probe returned HTTP 200 with the exact text `OK`.
 It used the original Chat Completions payload and the existing private account
 credentials. The binary shut down cleanly afterward.
 
+The activated connector also passed two live Opus Chat streams using
+`anthropic/claude-opus-5.5`. The short stream returned `OK` and `[DONE]`. The
+long stream delivered its first chunk in 3 ms, all 240 chunks, 40 numbered
+lines, and `[DONE]` in 14.4 seconds. The service remained active at about
+20 MB afterward. No live inference errors were logged.
+
 ## Publication dependency
 
 The `framer-next` package name remains available. First publication requires
