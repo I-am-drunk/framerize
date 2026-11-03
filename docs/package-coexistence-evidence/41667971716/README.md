@@ -27,8 +27,18 @@ The seven JSON files preserve the downloaded artifact bytes without rewriting:
 
 All three reports bind producer manifest SHA-256
 `f99c7c3012bf8b655b3abfdf1eadd64d8acdf6b1e0fcca79595c18626ebcfc9b`.
-[SHA256SUMS](SHA256SUMS) records every retained JSON digest. Verify these text
-files from this directory with `sha256sum -c SHA256SUMS`.
+[SHA256SUMS](SHA256SUMS) records the committed LF bytes of every retained JSON
+file. Run `sha256sum -c SHA256SUMS` from this directory only in an LF-preserving
+checkout. Git's `core.autocrlf=true` can change working-copy JSON bytes to CRLF.
+Alternatively, hash raw committed blobs with `git show`, which bypasses checkout
+conversion. For example, from the repository root:
+
+```sh
+git show HEAD:docs/package-coexistence-evidence/41667971716/manifest.json | sha256sum
+```
+
+Compare that result with the manifest digest above. Other retained filenames
+can be substituted and checked against their entries in `SHA256SUMS`.
 
 The workflow ran at attempt 1. This does not claim an actual failed-only rerun;
 attempt 1 producer reuse by an attempt 2 consumer has separate fixture evidence.

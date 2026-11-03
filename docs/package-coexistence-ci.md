@@ -1,8 +1,8 @@
 # Package coexistence CI acceptance
 
 This gate qualifies the installed Nexus and server npm packages together.
-The workflow is implemented. Its cross-platform qualification is still pending.
-The requirements below are not a claim that macOS or Windows has passed.
+The workflow's recorded baseline pair is qualified on Linux, macOS and Windows.
+Later package changes require fresh evidence.
 
 ## Scope
 
@@ -104,5 +104,11 @@ The tarball hashes matched the retained baseline pair:
 
 This local run used a synthetic `local_fixture` event. It did not execute
 GitHub checkout/upload/download actions, native builds, or macOS/Windows.
-All three hosted consumers still require qualification. Later thin-Nexus
-runtime changes require new package evidence.
+
+The later [hosted run 41667971716](package-coexistence-evidence/41667971716/README.md)
+qualified all three consumers at PR head `1187aad19b2275738b85d2ede17f98ef096c9049`.
+Its actual merge checkout was `3a4e79b409ed1911ea53da311113ace9a63b7408`.
+All three OSes passed 41 root tests and installed the same exact package pair.
+The retained manifest and reports bind each consumer to the producer hashes.
+This closes the hosted baseline gate, not an actual mixed-attempt rerun or
+qualification of later ENV/thin-Nexus runtime changes.
