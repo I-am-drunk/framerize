@@ -11,8 +11,13 @@ A matched two-page test reduced sampled peak memory from 1.56 to 1.08 GB;
 both processes exited normally. This measures a startup spike, not a
 comparable steady-state reduction. The exclusive account retained 500 credits
 and its recovery hold. Alpha.21 remains live as PID 654353.
-Next: qualify the exact package, signed continuation and combined follow-up
-after 05:45:22 UTC. See [evidence and limits](incidents/2026-11-03-claude-checkpoints.md).
+The first alpha.24 attempt passed Astra but hit an unexplained upstream 403
+on Claude's native Responses route. It never exercised Messages checkpoints.
+The corrected verifier uses the affected Messages route and preserves the
+saved cooldown through 05:57:22 UTC. Both model fields in the production body
+captures match the Opus 5 checkpoint selector. Next: qualify actual Messages
+continuation and client follow-up, then activate only after the full package
+passes. See [evidence and limits](incidents/2026-11-03-claude-checkpoints.md).
 
 # Startup cause retention, 2026-11-03
 

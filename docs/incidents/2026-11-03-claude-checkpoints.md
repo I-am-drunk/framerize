@@ -19,6 +19,21 @@ history-restoration implementation, so their existing behavior remains.
 Real checkpoint and client-follow-up verification is still required before
 activation. Fixture success does not demonstrate provider acceptance.
 
+The first alpha.24 real test served Astra through Responses in 20.566 seconds,
+including browser startup. A subsequent Claude Responses request received an
+unexplained upstream HTTP 403. It did not enter the Messages checkpoint path.
+The saved 600-second refusal cooldown remains in force until 05:57:22 UTC.
+Normal shutdown took 11.673 seconds with no owned processes remaining, no
+memory-limit events, and all 500 workspace credits intact. Peak cgroup memory
+was 1,717,903,360 bytes.
+
+Both the outer model and nested request model in the affected production
+captures are `claude-opus-5`, which matches the checkpoint selector. OpenAI
+clients intentionally retain their native Responses route; that route's 403
+does not explain the Messages failures. The corrected qualification exercises
+buffered and streamed Messages continuation, combined client follow-up,
+complete tool inputs, repeated requests and normal shutdown on port 8792.
+
 ## Browser startup memory
 
 The isolated alpha.23 test was killed at its 2 GiB cgroup limit before a
