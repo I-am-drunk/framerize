@@ -25,10 +25,10 @@ jobs:
       - run: node scripts/binary-smoke.js
       - run: npm pack
       - run: cp framer-next-*.tgz dist/
-      - run: cd dist && sha256sum framer-next framer-next-*.tgz > SHA256SUMS
-      - run: node scripts/release-metadata.js
       - run: cp /home/runner/.nvm/versions/node/*/LICENSE dist/NODE-LICENSE
       - run: tar -czf dist/framer-next-linux-x64.tar.gz -C dist framer-next NODE-LICENSE
+      - run: cd dist && sha256sum framer-next framer-next-*.tgz framer-next-linux-x64.tar.gz > SHA256SUMS
+      - run: node scripts/release-metadata.js
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
           name: release-${{ github.ref_name }}
