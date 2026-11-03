@@ -4,7 +4,8 @@ import path from 'node:path';
 
 const workspace = path.resolve(process.env.RELEASE_WORKSPACE || '.');
 const pkg = JSON.parse(readFileSync(path.join(workspace, 'package.json'), 'utf8'));
-if (!/^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/.test(pkg.version)) {
+const semver = /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-((?:0|[1-9]\d*|\d*[A-Za-z-][0-9A-Za-z-]*)(?:\.(?:0|[1-9]\d*|\d*[A-Za-z-][0-9A-Za-z-]*))*))?(?:\+[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?$/;
+if (typeof pkg.version !== 'string' || !semver.test(pkg.version)) {
   throw new Error('package version must be valid SemVer');
 }
 const tag = process.env.GITHUB_REF_NAME || '';
