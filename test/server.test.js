@@ -79,6 +79,29 @@ test('Framer inference uses the observed request headers', async (t) => {
   assert.equal(headers['content-type'], 'application/json; charset=utf-8');
 });
 
+test('direct Framer accounts use the default API without a base URL', async (t) => {
+  let destination;
+  const directory = await mkdtemp(path.join(tmpdir(), 'framer-next-'));
+  const accounts = path.join(directory, 'accounts.json');
+  await writeFile(accounts, JSON.stringify([{ id: 'framer', provider: 'framer',
+    projectId: 'project', authorizationEnv: 'TEST_JWT', castleEnv: 'TEST_CASTLE' }]));
+  const app = await createServer(parseConfig({ port: 0, accounts }), {
+    fetchImpl: async (url) => {
+      destination = url.href;
+      return new Response('{}', { headers: { 'content-type': 'application/json' } });
+    },
+  });
+  t.after(() => app.close());
+  const address = await app.listen();
+  process.env.TEST_JWT = 'fixture';
+  process.env.TEST_CASTLE = 'fixture';
+  const response = await fetch(`http://127.0.0.1:${address.port}/v1/responses`, {
+    method: 'POST', body: '{}',
+  });
+  assert.equal(response.status, 200);
+  assert.equal(destination, 'https://api.framer.com/ai/v3/openai/responses/');
+});
+
 test('streamed response failures close the downstream connection', async (t) => {
   const base = await fixture(t, async () => new Response(
     'data: {"type":"response.failed","response":{"error":{"message":"rejected"}}}\n\n',

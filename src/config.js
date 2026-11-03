@@ -1,4 +1,4 @@
-import { readFile } from 'node:fs/promises';
+import { readFile, realpath, stat } from 'node:fs/promises';
 
 const DEFAULTS = Object.freeze({
   host: '127.0.0.1',
@@ -72,7 +72,8 @@ export async function loadAccounts(file) {
       throw new ConfigError(`accounts[${index}] must be an object`);
     }
     const allowed = new Set(['id', 'enabled', 'model', 'upstream', 'authorizationEnv',
-      'provider', 'projectId', 'sessionEnv', 'castleEnv']);
+      'provider', 'projectId', 'sessionEnv', 'castleEnv', 'authorizationFile',
+      'sessionFile', 'castleFile']);
     for (const key of Object.keys(account)) {
       if (!allowed.has(key)) throw new ConfigError(`accounts[${index}] has unknown field: ${key}`);
     }
@@ -90,12 +91,18 @@ export async function loadAccounts(file) {
         throw new ConfigError(`accounts[${index}].${key} must be an environment variable name`);
       }
     }
+    for (const key of ['authorizationFile', 'sessionFile', 'castleFile']) {
+      if (account[key] !== undefined && (typeof account[key] !== 'string' || !account[key])) {
+        throw new ConfigError(`accounts[${index}].${key} must be a file path`);
+      }
+    }
     if (account.provider === 'framer') {
       if (typeof account.projectId !== 'string' || !account.projectId) {
         throw new ConfigError(`accounts[${index}].projectId is required for Framer`);
       }
-      if (!account.sessionEnv && !account.authorizationEnv) {
-        throw new ConfigError(`accounts[${index}] needs sessionEnv or authorizationEnv`);
+      if (!account.sessionEnv && !account.authorizationEnv
+          && !account.sessionFile && !account.authorizationFile) {
+        throw new ConfigError(`accounts[${index}] needs a session or authorization reference`);
       }
     }
     if (typeof account.id !== 'string' || !/^[a-zA-Z0-9][a-zA-Z0-9._-]{0,63}$/.test(account.id)) {
@@ -115,8 +122,19 @@ export async function loadAccounts(file) {
   }
   return parsed.filter((account) => account.enabled !== false).map((account) => (
     Object.fromEntries(['id', 'enabled', 'model', 'upstream', 'authorizationEnv',
-      'provider', 'projectId', 'sessionEnv', 'castleEnv']
+      'provider', 'projectId', 'sessionEnv', 'castleEnv', 'authorizationFile',
+      'sessionFile', 'castleFile']
       .filter((key) => account[key] !== undefined).map((key) => [key, account[key]]))
   ));
+}
+
+export async function readCredential(file) {
+  if (!file) return '';
+  const resolved = await realpath(file);
+  const info = await stat(resolved);
+  if (!info.isFile() || info.size > 16 * 1024) {
+    throw new ConfigError('credential reference must be a small regular file');
+  }
+  return (await readFile(resolved, 'utf8')).trim();
 }
 

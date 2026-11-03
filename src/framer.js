@@ -1,4 +1,5 @@
 import { randomInt } from 'node:crypto';
+import { readCredential } from './config.js';
 
 const minted = new Map();
 const ID_ALPHABET = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
@@ -7,14 +8,14 @@ function mintId() {
   return Array.from({ length: 9 }, () => ID_ALPHABET[randomInt(62)]).join('');
 }
 
-function credentials(account, env) {
-  const session = account.sessionEnv ? env[account.sessionEnv] : '';
+async function credentials(account, env) {
+  const session = account.sessionEnv ? env[account.sessionEnv] : await readCredential(account.sessionFile);
   if (!session) {
     const error = new Error(`account ${account.id} has no session credential`);
     error.status = 503;
     throw error;
   }
-  return { session, castle: account.castleEnv ? env[account.castleEnv] || '' : '' };
+  return { session };
 }
 
 async function bearer(account, fetchImpl, signal, env) {
@@ -38,7 +39,7 @@ async function bearer(account, fetchImpl, signal, env) {
 }
 
 async function mintBearer(account, fetchImpl, signal, env) {
-  const { session } = credentials(account, env);
+  const { session } = await credentials(account, env);
   const base = (account.upstream || 'https://api.framer.com').replace(/\/+$/, '');
   const response = await fetchImpl(`${base}/auth/ai/access-token`, {
     headers: { accept: 'application/json', cookie: session }, signal, redirect: 'error',
@@ -65,7 +66,8 @@ function userPrompt(payload) {
 
 export async function prepareFramer({ account, path, body, signal, fetchImpl, env = process.env }) {
   if (!account || account.provider !== 'framer') return null;
-  if (!account.castleEnv || !env[account.castleEnv]) {
+  const castle = account.castleEnv ? env[account.castleEnv] : await readCredential(account.castleFile);
+  if (!castle) {
     const error = new Error(`account ${account.id} has no Castle credential`);
     error.status = 503;
     throw error;
@@ -78,7 +80,7 @@ export async function prepareFramer({ account, path, body, signal, fetchImpl, en
     projectId: account.projectId, featureCategory: 'agents', featureName: 'agents',
     model: payload.model, step: 'message', sessionId: mintId(),
     stepIndex: 0, turnId: mintId(), userPrompt: userPrompt(payload),
-    castleToken: env[account.castleEnv], request: payload,
+    castleToken: castle, request: payload,
   }) };
 }
 
