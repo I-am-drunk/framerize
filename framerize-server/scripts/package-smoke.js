@@ -25,7 +25,8 @@ try {
   run(['install', '--ignore-scripts', '--no-audit', '--no-fund', '--offline', path.join(directory, tarball)]);
   const manifest = JSON.parse(await readFile(path.join(directory, 'node_modules/framerize-server/package.json')));
   if (manifest.name !== 'framerize-server' || manifest.version !== source.version ||
-      manifest.private !== true || Object.keys(manifest.dependencies ?? {}).length) {
+      manifest.private !== true || ['dependencies', 'optionalDependencies', 'peerDependencies']
+        .some((field) => Object.keys(manifest[field] ?? {}).length)) {
     throw new Error('Unexpected package dependencies');
   }
   for (const name of ['README.md', 'LICENSE', ...await readdir(path.join(root, 'src')).then((files) =>

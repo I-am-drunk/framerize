@@ -230,6 +230,13 @@ tree passes `npm run check` and the offline installed-package loopback smoke
 on Node 22.23.4. Runtime, scripts, tests, lockfile and server workflow match
 the current core exactly. No separate-library files were extracted or run.
 
+The installed-package smoke also rejects regular, optional and peer runtime
+dependencies. An offline mutation fixture showed that the previous check
+accepted downloaded tarballs with optional or optional peer dependencies.
+The unchanged package still passes, and both altered manifests now fail with
+the expected dependency error on Node 22.23.4 and 24.13.0. These checks do not
+install the synthetic missing dependencies or call an external service.
+
 Windows graceful POSIX-signal behavior is not claimed. Live inference,
 private credentials, production activation and release publication remain
 outside this stage.
