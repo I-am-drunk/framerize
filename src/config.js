@@ -1,5 +1,4 @@
 import { readFile } from 'node:fs/promises';
-import path from 'node:path';
 
 const DEFAULTS = Object.freeze({
   host: '127.0.0.1',
@@ -17,7 +16,6 @@ export class ConfigError extends Error {
     this.name = 'ConfigError';
   }
 }
-
 function positiveInteger(value, name) {
   const number = Number(value);
   const minimum = name === 'port' ? 0 : 1;
@@ -122,6 +120,3 @@ export async function loadAccounts(file) {
   ));
 }
 
-export function accountPath(config) {
-  return config.accounts ? path.resolve(config.accounts) : '';
-}
