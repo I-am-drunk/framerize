@@ -66,6 +66,17 @@ fn unknown_completion_after_checkpoint_never_replays() {
 }
 
 #[test]
+fn truncated_tool_recovery_keeps_only_the_original_signed_prefix() {
+    let later = json!({"type":"thinking","thinking":"after tool","signature":"later-sig"});
+    let first = Reply { streaming:false, status:200, result:Ok(json!({
+        "id":"cut-prefix", "content":[thought(), tool(), later], "stop_reason":"max_tokens",
+        "usage":{"input_tokens":10,"output_tokens":600}}).to_string()) };
+    let observed = opus(vec![first, buffered(tool(), "tool_use")]);
+    assert_eq!(observed.requests[1]["request"]["messages"][1]["content"], json!([thought()]));
+    assert_eq!(observed.result.unwrap().content, vec![thought(), tool()]);
+}
+
+#[test]
 fn refusal_after_checkpoint_retains_the_provider_explanation() {
     let details = json!({"type":"refusal","category":"fixture-policy","explanation":"fixture cause"});
     let refusal = Reply { streaming:false, status:200, result:Ok(json!({

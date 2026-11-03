@@ -353,8 +353,10 @@ pub async fn complete_long(
                 || chunk_blocks.iter().any(|b| b["type"] == "server_tool_use") {
                 return Err("Claude reached the checkpoint output limit during a tool call; complete tool input is unavailable".into());
             }
+            // Later thinking can be bound to a preceding tool block. Retain
+            // the exact prefix before the first unpublished tool, not gaps.
             let completed: Vec<Value> = chunk_blocks.iter()
-                .filter(|b| b["type"] != "tool_use").cloned().collect();
+                .take_while(|b| b["type"] != "tool_use").cloned().collect();
             if !checkpoint::available(&completed)? {
                 return Err("Claude reached the checkpoint output limit during a tool call without a signed or text checkpoint".into());
             }

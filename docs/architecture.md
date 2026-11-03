@@ -15,12 +15,15 @@ until cleanup completes. Existing navigation and warmup deadlines remain.
 
 # Adaptive thinking output limits
 
-Opus 5 supports signed checkpoints. Its first buffered request allows 600
+The checkpoint candidate supports Opus 4.8, Opus 5 and Opus 5.5. Opus 4.8
+and Opus 5.5 still require live qualification before activation. The first buffered request allows 600
 tokens, with subsequent limits estimated for 45 seconds and capped at 1,200.
 The complete signed and redacted blocks remain in continuation history.
 Known incomplete client tool calls retain their preceding checkpoint and
 can request smaller complete calls twice. Incomplete tool inputs are never
 published, and server-tool truncation cannot enter that recovery path.
+Recovery preserves the exact prefix before the first unpublished tool;
+later thinking cannot survive removal of a tool block in its prefix.
 The caller's total output allowance and reasoning effort remain unchanged.
 
 Client follow-ups must reproduce the original upstream assistant turns.

@@ -11,6 +11,9 @@ mod checkpoint_tests;
 #[path = "messages_opus48_checkpoint_tests.rs"]
 mod opus48_checkpoint_tests;
 
+#[path = "messages_opus55_checkpoint_tests.rs"]
+mod opus55_checkpoint_tests;
+
 #[path = "messages_json_chain_tests.rs"]
 mod json_tests;
 

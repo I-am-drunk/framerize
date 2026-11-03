@@ -1,7 +1,7 @@
 use super::*;
 
 fn payload(budget: Value) -> Value {
-    json!({"model":"claude-opus-5-5","speed":"fast",
+    json!({"model":"claude-sonnet-5-5","speed":"fast",
         "thinking":{"type":"enabled","budget_tokens":budget},
         "output_config":{"effort":"high"},
         "messages":[{"role":"user","content":"fixture"}]})
