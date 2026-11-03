@@ -1,0 +1,46 @@
+name: server-ci
+
+on:
+  pull_request:
+    paths: ['framerize-server/**', '.github/workflows/server-ci.yml']
+  push:
+    branches: [framer-next]
+    paths: ['framerize-server/**', '.github/workflows/server-ci.yml']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+defaults:
+  run:
+    working-directory: framerize-server
+    shell: bash
+
+jobs:
+  qualify:
+    name: server (${{ matrix.platform.runner }}, node ${{ matrix.node }})
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        node: ['22.12.0', '24']
+        platform:
+          - { runner: ubuntu-22.04, arch: x64 }
+          - { runner: windows-2022, arch: x64 }
+          - { runner: macos-15, arch: arm64 }
+    runs-on: ${{ matrix.platform.runner }}
+    env:
+      EXPECTED_ARCH: ${{ matrix.platform.arch }}
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: ${{ matrix.node }}
+          cache: npm
+          cache-dependency-path: framerize-server/package-lock.json
+      - run: node -e "require('node:assert/strict').equal(process.arch, process.env.EXPECTED_ARCH)"
+      - run: npm ci
+      - run: npm run check
+      - run: npm test
+      - run: npm run acceptance
+      - run: npm run pack:check
