@@ -4,6 +4,9 @@ import path from 'node:path';
 
 const workspace = path.resolve(process.env.RELEASE_WORKSPACE || '.');
 const pkg = JSON.parse(readFileSync(path.join(workspace, 'package.json'), 'utf8'));
+if (!/^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/.test(pkg.version)) {
+  throw new Error('package version must be valid SemVer');
+}
 const tag = process.env.GITHUB_REF_NAME || '';
 if (tag && tag !== `framer-next-v${pkg.version}`) {
   throw new Error(`release tag ${tag} does not match package version ${pkg.version}`);
