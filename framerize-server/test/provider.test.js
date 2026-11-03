@@ -112,10 +112,12 @@ for (const operation of ['forward', 'ready']) {
     const { provider } = await fixture(context, async (request, response) => {
       await collect(request);
       setImmediate(() => {
-        response.write('fixture-');
-        Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 120);
-        const completion = setTimeout(() => response.end('ok'), 70);
-        response.once('close', () => clearTimeout(completion));
+        response.write('fixture-', (error) => {
+          assert.ifError(error);
+          Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 120);
+          const completion = setTimeout(() => response.end('ok'), 70);
+          response.once('close', () => clearTimeout(completion));
+        });
       });
     }, { headersTimeoutMs: 40 });
     if (operation === 'ready') assert.equal(await provider.ready(), true);
