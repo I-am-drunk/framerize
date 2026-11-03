@@ -36,6 +36,11 @@ long stream delivered its first chunk in 3 ms, all 240 chunks, 40 numbered
 lines, and `[DONE]` in 14.4 seconds. The service remained active at about
 20 MB afterward. No live inference errors were logged.
 
+A live GPT-4.1 Chat request returned HTTP 200 with `finish_reason` set to
+`tool_calls` and the requested `weather` call for Paris. The equivalent Opus
+request returned Framer's explicit `paid_plan_only_model` response. This is an
+upstream workspace restriction, not a connector or Castle failure.
+
 ## Publication dependency
 
 The `framer-next` package name remains available. First publication requires
