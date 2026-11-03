@@ -84,3 +84,19 @@ class WarmupDeadlineTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(acc.lifecycle.phase, 'unconfirmed')
         self.assertTrue(acc.closing)
         self.assertFalse(context.closed)
+
+    async def test_timeout_during_mint_releases_the_mint_owner(self):
+        acc, context, entered, release = self.held_warmup()
+        with patch.object(self.module, 'SDK_WARMUP_TIMEOUT_S', .02):
+            request = self.command(mint=True)
+            await asyncio.wait_for(entered.wait(), 1)
+            try:
+                with self.assertRaisesRegex(RuntimeError, 'SDK warmup timed out'):
+                    await asyncio.wait_for(asyncio.shield(request), .3)
+                self.assertTrue(context.closed)
+                self.assertFalse(acc.mint_lock.locked())
+                self.assertFalse(acc.lifecycle.rates.state['pending_mint'])
+                self.assert_idle(acc)
+            finally:
+                release.set()
+                await asyncio.gather(request, return_exceptions=True)

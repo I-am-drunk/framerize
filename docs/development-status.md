@@ -9,7 +9,8 @@ retain HTTP 502, HTTP 504 and connection-reset causes after the repair,
 without retained payloads or listeners. Warm mean PSS remains about 560 MB.
 An additional warmup repair bounds SDK preparation to 120 seconds and closes
 failed or cancelled unused contexts without changing the device identity.
-All 84 affected tests and a real-browser cancellation fixture pass.
+The 80 existing lifecycle checks, five warmup regressions and a real-browser
+cancellation fixture pass.
 The emulated verifier stalled before inference and required isolated cleanup.
 Native verification retains the same exclusive account and recovery hold.
 Alpha.14 remains live and unchanged. Upstream timeout prevention is not

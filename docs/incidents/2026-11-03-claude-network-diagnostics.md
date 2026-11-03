@@ -48,7 +48,9 @@ Warmup now has a 120-second deadline. Failure or cancellation closes the
 unused device context before releasing ownership. The saved device identity
 stays unchanged. Failed closure keeps the account fenced. Initial account
 warmup failures also propagate through the existing browser cleanup path.
-All 84 affected tests pass. A real-browser fixture joined a never-settling
+The 80 existing lifecycle checks and all five warmup regressions pass. The
+additional mint regression confirms that timed-out preparation also releases
+the mint lock and pending-mint record. A real-browser fixture joined a never-settling
 warmup and confirmed context cleanup in 1.614 seconds with a shortened test
 deadline. Production warmups observed that day had a 2.331-second median
 and 5.464-second maximum across 71 launches. These are preparation deadlines,
