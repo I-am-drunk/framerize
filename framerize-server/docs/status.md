@@ -117,6 +117,13 @@ build outputs, not published release artifacts. Build tooling emitted ELF
 section-name warnings; the executable and archive checks passed.
 
 Windows and macOS native qualification and aggregate CI remain pending.
+The first PR #97 run, `41658193948`, passed four source jobs but failed both
+Windows package checks. npm removes CR from the installed launcher's shebang
+while leaving its remaining CRLF bytes intact. A real local npm installation
+reproduces the exact 275-versus-276-byte failure on the old checker. The fixed
+checker accepts only that expected shebang conversion and passes the same
+CRLF fixture plus the ordinary LF packed-install check. Native and aggregate
+jobs were skipped in that run, not qualified.
 Windows graceful POSIX-signal behavior is not claimed. Live inference,
 private credentials, production activation and release publication remain
 outside this stage.

@@ -30,9 +30,14 @@ try {
   }
   for (const name of ['README.md', 'LICENSE', ...await readdir(path.join(root, 'src')).then((files) =>
     files.map((file) => `src/${file}`)), 'bin/framerize-server.js']) {
-    const expected = process.argv.includes('--downloaded')
+    let expected = process.argv.includes('--downloaded')
       ? execFileSync('git', ['show', `HEAD:framerize-server/${name}`], { cwd: root })
       : await readFile(path.join(root, name));
+    const newline = expected.indexOf(10);
+    if (name === 'bin/framerize-server.js' && expected[0] === 35 && expected[1] === 33 &&
+        expected[newline - 1] === 13) {
+      expected = Buffer.concat([expected.subarray(0, newline - 1), expected.subarray(newline)]);
+    }
     assert.deepEqual(await readFile(path.join(directory, 'node_modules/framerize-server', name)),
       expected, `Installed source differs: ${name}`);
   }

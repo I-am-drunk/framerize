@@ -161,6 +161,9 @@ tarball hash. It writes six payloads plus aggregate metadata under `dist/qualifi
 Run `node scripts/merge-release-manifests.js` with `RELEASE_DIST` pointing to the
 shared tarball and the `linux-x64`, `macos-arm64`, `windows-x64` artifact directories.
 
+Installed launcher comparison accounts for npm's removal of a CR from its
+shebang line. Every remaining launcher byte and every other file stays strict.
+
 The dedicated workflow uploads CI evidence only. No publication job, release tag,
 deployment, live inference or automatic activation is part of this package.
 Fixture results qualify only the exact tested artifacts and supported targets.
