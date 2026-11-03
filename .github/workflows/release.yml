@@ -42,6 +42,8 @@ jobs:
           path: |
             dist/framer-next-*.tar.gz
             dist/framer-next-*.zip
+            dist/framer-next
+            dist/framer-next.exe
             dist/SHA256SUMS
             dist/release.json
             dist/NODE-LICENSE
