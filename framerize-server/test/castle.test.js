@@ -28,15 +28,13 @@ process.stdin.on('end', () => {
 
 const SLOW_NODE = `setTimeout(() => {}, 30000);`;
 
+// The minter spawns `encoderPath` directly with execFile (no shell), so the
+// fixture must be a file the OS can exec. POSIX runs a shebang script. Windows
+// cannot exec .mjs (spawn EFTYPE) or .bat without a shell, so tests that need
+// a real spawn are POSIX-only; error paths stay portable.
+const POSIX = process.platform !== 'win32';
+
 function writeEncoderScript(t, nodeBody) {
-  if (process.platform === 'win32') {
-    const directory = makeDir(t, 'castle-encoder-');
-    const nodeScript = path.join(directory, 'encoder-node.mjs');
-    fs.writeFileSync(nodeScript, nodeBody);
-    const bat = path.join(directory, 'encode-token.bat');
-    fs.writeFileSync(bat, `@echo off\r\n"${process.execPath}" "${nodeScript}" %*\r\n`);
-    return bat;
-  }
   const directory = makeDir(t, 'castle-encoder-');
   const script = path.join(directory, 'encode-token.mjs');
   fs.writeFileSync(script, '#!' + process.execPath + '\n' + nodeBody, { mode: 0o755 });
@@ -47,7 +45,7 @@ test('minter requires an encoder path', () => {
   assert.throws(() => createCastleMinter(), /encoderPath is required/);
 });
 
-test('minter returns a token produced by the encoder', async (t) => {
+test('minter returns a token produced by the encoder', { skip: !POSIX }, async (t) => {
   const encoder = writeEncoderScript(t, ECHO_NODE);
   const minter = createCastleMinter({
     encoderPath: encoder,
@@ -64,7 +62,7 @@ test('minter returns a token produced by the encoder', async (t) => {
   assert.equal(result.cuid, 'fixture-cuid');
 });
 
-test('minter rejects concurrent mints while busy', async (t) => {
+test('minter rejects concurrent mints while busy', { skip: !POSIX }, async (t) => {
   const encoder = writeEncoderScript(t, SLOW_NODE);
   const minter = createCastleMinter({
     encoderPath: encoder,
@@ -78,7 +76,7 @@ test('minter rejects concurrent mints while busy', async (t) => {
   assert.equal(minter.stats().failures, 2);
 });
 
-test('encoder subprocess is killed when it exceeds timeoutMs', async (t) => {
+test('encoder subprocess is killed when it exceeds timeoutMs', { skip: !POSIX }, async (t) => {
   const encoder = writeEncoderScript(t, SLOW_NODE);
   const minter = createCastleMinter({
     encoderPath: encoder,
@@ -89,6 +87,19 @@ test('encoder subprocess is killed when it exceeds timeoutMs', async (t) => {
   const started = Date.now();
   await assert.rejects(minter.mint(), /encode-token/);
   assert.ok(Date.now() - started < 5000, 'encoder timeout should not wait for the 30s child');
+  assert.equal(minter.stats().mints, 0);
+  assert.equal(minter.stats().failures, 1);
+});
+
+test('encoder spawn failure surfaces a typed encode-token error', async (t) => {
+  const missing = path.join(makeDir(t, 'castle-missing-'), 'no-such-encoder');
+  const minter = createCastleMinter({
+    encoderPath: missing,
+    tracePath: emptyTrace(t),
+    budgetMs: 2000,
+    timeoutMs: 3000,
+  });
+  await assert.rejects(minter.mint({ cuid: 'fixture-cuid' }), /encode-token/);
   assert.equal(minter.stats().mints, 0);
   assert.equal(minter.stats().failures, 1);
 });
