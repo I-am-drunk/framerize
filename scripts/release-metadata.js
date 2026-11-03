@@ -9,11 +9,14 @@ if (tag && tag !== `framer-next-v${pkg.version}`) {
   throw new Error(`release tag ${tag} does not match package version ${pkg.version}`);
 }
 const sums = readFileSync(path.join(workspace, 'dist/SHA256SUMS'), 'utf8');
-const artifacts = Object.fromEntries(sums.trim().split('\n').map((line) => {
+if (!sums.trim()) throw new Error('SHA256SUMS must not be empty');
+const artifacts = {};
+for (const line of sums.trim().split('\n')) {
   const match = line.match(/^([a-f0-9]{64}) [ *](.+)$/);
   if (!match) throw new Error('invalid SHA256SUMS entry');
-  return [match[2], match[1]];
-}));
+  if (Object.hasOwn(artifacts, match[2])) throw new Error(`duplicate artifact: ${match[2]}`);
+  artifacts[match[2]] = match[1];
+}
 const commit = process.env.GITHUB_SHA || execFileSync('git', ['rev-parse', 'HEAD'], { encoding: 'utf8' }).trim();
 if (!/^[a-f0-9]{40}$/.test(commit)) throw new Error('release source commit must be a full SHA');
 const sourceCommit = execFileSync('git', ['rev-parse', 'HEAD'], { encoding: 'utf8' }).trim();
