@@ -12,6 +12,10 @@ commit `e08c8072`. Its SHA-256 is
 The current binary adds credential-service EOF handling from commit `c0ca0eb4`.
 Its SHA-256 is
 `18f45ccea388e2a001e7e8a165ad2a52a2eb0f2cb2afdf3210a469f59bbea465`.
+
+The current binary also bounds credential responses and cleans up socket timers
+through commit `6404cf8c`. Its SHA-256 is
+`a0a564af4e83079f5def750bd9eea258c185791fadc3682e8aab1689eac8b94f`.
 - Binary SHA-256:
   `dc0eaca01dd13eceb7e07f46793e3fd4ef0f264cfcc6007511b7f452e89c75f4`.
 - Installed binary: `/home/tjninja/.local/bin/framer-next`.
