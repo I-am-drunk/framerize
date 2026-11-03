@@ -116,7 +116,7 @@ The five artifact hashes are retained in
 build outputs, not published release artifacts. Build tooling emitted ELF
 section-name warnings; the executable and archive checks passed.
 
-Windows and macOS native qualification and aggregate CI remain pending.
+Current-head platform and aggregate qualification remains an integration gate.
 The first PR #97 run, `41658193948`, passed four source jobs but failed both
 Windows package checks. npm removes CR from the installed launcher's shebang
 while leaving its remaining CRLF bytes intact. A real local npm installation
@@ -141,6 +141,14 @@ The smoke asserts that both sides are still open immediately before the client
 disconnects. A negative control that ends upstream early fails that assertion.
 Both checks pass using private temporary memory storage when local disk space
 is insufficient for archive extraction.
+
+All 11 jobs in [server CI run 41658627614](https://github.com/I-am-drunk/framerize/actions/runs/41658627614)
+pass for PR head `3fff5b77`: six source/npm jobs, the shared package, all three
+native targets and aggregation. The tested synthetic merge has the same tree
+as that head. Exact manifests, artifact identity and qualification limits are
+retained in `native-evidence/41658627614/`. Independent review verified all
+payload and nested archive-member hashes. This checkpoint predates the added
+disconnect assertions, so it is not a substitute for current-head CI.
 
 Windows graceful POSIX-signal behavior is not claimed. Live inference,
 private credentials, production activation and release publication remain
