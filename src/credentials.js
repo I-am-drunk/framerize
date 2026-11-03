@@ -5,6 +5,12 @@ export function mintCredential(socketPath, accountId, timeoutMs = 15_000) {
     const socket = net.createConnection(socketPath);
     let buffer = '';
     const fail = (error) => { socket.destroy(); reject(error); };
+    const finish = (callback, value) => {
+      clearTimeout(timer);
+      socket.removeAllListeners();
+      socket.destroy();
+      callback(value);
+    };
     const timer = setTimeout(() => fail(new Error('credential service timeout')), timeoutMs);
     timer.unref();
     socket.setEncoding('utf8');
@@ -13,16 +19,18 @@ export function mintCredential(socketPath, accountId, timeoutMs = 15_000) {
     socket.on('connect', () => socket.write(`${JSON.stringify({ op: 'mint', account_id: accountId })}\n`));
     socket.on('data', (chunk) => {
       buffer += chunk;
+      if (buffer.length > 16 * 1024) {
+        finish(reject, new Error('credential service response too large'));
+        return;
+      }
       const newline = buffer.indexOf('\n');
       if (newline < 0) return;
-      clearTimeout(timer);
-      socket.end();
       try {
         const result = JSON.parse(buffer.slice(0, newline));
         if (!result.ok || typeof result.token !== 'string' || !result.token) {
-          reject(new Error('credential service could not mint a token'));
-        } else resolve(result.token);
-      } catch { reject(new Error('invalid credential service response')); }
+          finish(reject, new Error('credential service could not mint a token'));
+        } else finish(resolve, result.token);
+      } catch { finish(reject, new Error('invalid credential service response')); }
     });
   });
 }
