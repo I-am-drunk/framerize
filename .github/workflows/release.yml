@@ -2,7 +2,7 @@ name: release
 
 on:
   push:
-    tags: ['v*']
+    tags: ['framer-next-v*']
   workflow_dispatch:
 
 permissions:
@@ -37,7 +37,7 @@ jobs:
             framer-next-*.tgz
   publish:
     needs: build
-    if: startsWith(github.ref, 'refs/tags/v')
+    if: startsWith(github.ref, 'refs/tags/framer-next-v')
     runs-on: ubuntu-22.04
     environment: npm-release
     permissions:

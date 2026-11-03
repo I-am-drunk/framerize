@@ -5,7 +5,8 @@ unit tests, syntax checks, package dry run, development-server smoke test,
 and isolated executable smoke test before publication.
 
 1. Update the package version and commit that change.
-2. Create a tag matching `v<version>`.
+2. Create a tag matching `framer-next-v<version>`. The `v*` namespace belongs
+   to the legacy project and must not publish this package.
 3. Let the release workflow build the package and executable on Node 22.
 4. Verify artifact hashes and the source commit recorded in `release.json`.
 5. Publish through the protected `npm-release` environment.
