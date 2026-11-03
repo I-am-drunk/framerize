@@ -32,3 +32,27 @@ test('account upstream URLs are normalized and restricted', async () => {
     await assert.rejects(loadAccounts(file), ConfigError);
   }
 });
+
+test('account schema rejects invalid and duplicate records', async () => {
+  const directory = await mkdtemp(path.join(tmpdir(), 'framer-next-'));
+  const file = path.join(directory, 'accounts.json');
+  for (const account of [null, { id: 'bad id' }, { id: 'one', enabled: 'yes' },
+    { id: 'one', model: 1 }, { id: 'one', provider: 'other' },
+    { id: 'one', authorizationEnv: 'lower' }, { id: 'one', provider: 'framer' },
+    { id: 'one', sessionEnv: 'bad-name' }]) {
+    await writeFile(file, JSON.stringify([account]));
+    await assert.rejects(loadAccounts(file), ConfigError);
+  }
+  await writeFile(file, JSON.stringify([{ id: 'one' }, { id: 'one' }]));
+  await assert.rejects(loadAccounts(file), /duplicate account id/);
+});
+
+test('invalid account files and timer ranges fail clearly', async () => {
+  const directory = await mkdtemp(path.join(tmpdir(), 'framer-next-'));
+  const file = path.join(directory, 'accounts.json');
+  await writeFile(file, '{}');
+  await assert.rejects(loadAccounts(file), /must be an array/);
+  await assert.rejects(loadAccounts(path.join(directory, 'missing.json')), /cannot read/);
+  assert.throws(() => parseConfig({ upstream: 'ftp://example.test' }), /HTTP or HTTPS/);
+  assert.throws(() => parseConfig({ requestTimeoutMs: 2_147_483_648 }), /timer range/);
+});
