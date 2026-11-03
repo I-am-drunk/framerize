@@ -94,7 +94,11 @@ export function assertPackageFailure(result, message) {
 export function mutateTarball(t, directory, entry, content) {
   const root = temp('framerize-package-tar-');
   t.after(() => rmSync(root, { recursive: true, force: true }));
-  run('tar', ['-xzf', path.join(directory, 'framerize-server-0.1.0.tgz')], { cwd: root });
+  const archive = path.join(directory, 'framerize-server-0.1.0.tgz');
+  const local = path.join(root, 'package.tgz');
+  copyFileSync(archive, local);
+  run('tar', ['-xzf', 'package.tgz'], { cwd: root });
   writeFileSync(path.join(root, 'package', entry), content);
-  run('tar', ['-czf', path.join(directory, 'framerize-server-0.1.0.tgz'), 'package'], { cwd: root });
+  run('tar', ['-czf', 'package.tgz', 'package'], { cwd: root });
+  copyFileSync(local, archive);
 }
