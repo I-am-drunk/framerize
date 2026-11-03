@@ -14,7 +14,7 @@ function installStub(bin, name) {
   if (process.platform === 'win32') {
     const quoted = process.execPath.replace(/"/g, '\\"');
     for (const extension of ['bat']) writeFileSync(path.join(bin, `${name}.${extension}`),
-      `@echo off\r\n"${quoted}" "${dispatcher}" "${name}" %*\r\n`);
+      `@echo off\r\nsetlocal DisableDelayedExpansion\r\n"${quoted}" "${dispatcher}" "${name}" %*\r\n`);
   }
 }
 

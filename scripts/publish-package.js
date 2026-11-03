@@ -7,8 +7,7 @@ const command = (name) => process.platform === 'win32'
   && process.env.FRAMER_NEXT_TEST_COMMAND ? `${process.cwd()}\\${name}.bat` : name;
 const execute = (name, args, options = {}) => process.platform === 'win32'
   && process.env.FRAMER_NEXT_TEST_COMMAND
-  ? execFileSync(process.env.ComSpec || 'cmd.exe',
-    ['/d', '/s', '/c', name, ...args.map((arg) => arg.replace(/\^/g, '^^'))], options)
+  ? execFileSync(process.env.ComSpec || 'cmd.exe', ['/d', '/s', '/c', name, ...args], options)
   : execFileSync(name, args, options);
 const artifacts = readdirSync(dist).filter((name) => /^framer-next-.+\.tgz$/.test(name));
 if (artifacts.length !== 1) throw new Error('dist must contain exactly one Framer Next tarball');
