@@ -39,9 +39,10 @@ export async function run(argv = process.argv.slice(2)) {
     await app.close();
     return 0;
   }
-  const address = await app.listen();
-  logger.info('server.listening', { host: config.host, port: address.port });
   let shutdownPromise;
+  let resolveClosed;
+  const closed = new Promise((resolve) => { resolveClosed = resolve; });
+  app.server.once('close', () => resolveClosed(0));
   const shutdown = async () => {
     shutdownPromise ??= (async () => {
       try {
@@ -56,5 +57,7 @@ export async function run(argv = process.argv.slice(2)) {
   };
   process.on('SIGINT', shutdown);
   process.on('SIGTERM', shutdown);
-  return new Promise((resolve) => app.server.once('close', () => resolve(0)));
+  const address = await app.listen();
+  logger.info('server.listening', { host: config.host, port: address.port });
+  return closed;
 }
