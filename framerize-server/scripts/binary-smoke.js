@@ -14,6 +14,7 @@ const directory = await mkdtemp(path.join(tmpdir(), 'framerize server binary '))
 const serverToken = randomBytes(24).toString('hex');
 const upstreamToken = randomBytes(24).toString('hex');
 const wireBody = Buffer.from('{ "stream": true, "input": "fixture" }\r\n');
+const disconnectBody = Buffer.from('{"stream":true,"input":"disconnect-fixture"}');
 const streamBody = Buffer.from('data: {"delta":"fixture ✓"}\n\ndata: [DONE]\n\n');
 const compressedBody = gzipSync(streamBody);
 const calls = [];
@@ -21,6 +22,8 @@ let upstreamFailure;
 let child;
 let exit;
 let logs = '';
+let resolveDisconnected;
+const disconnected = new Promise((resolve) => { resolveDisconnected = resolve; });
 
 async function bounded(promise, message) {
   let timer;
@@ -42,6 +45,12 @@ const upstream = http.createServer(async (request, response) => {
     }
     const chunks = [];
     for await (const chunk of request) chunks.push(chunk);
+    if (Buffer.concat(chunks).equals(disconnectBody)) {
+      response.once('close', resolveDisconnected);
+      response.writeHead(200, { 'content-type': 'text/event-stream' });
+      response.write('data: pending\n\n');
+      return;
+    }
     assert.deepEqual(Buffer.concat(chunks), wireBody);
     const compressed = request.url === '/v1/chat/completions';
     const body = compressed ? compressedBody : streamBody;
@@ -73,6 +82,28 @@ function request(port, route, token, body) {
     pending.on('error', reject);
     pending.setTimeout(5000, () => pending.destroy(new Error('Fixture request timed out')));
     pending.end(body);
+  });
+}
+
+function openStream(port) {
+  return new Promise((resolve, reject) => {
+    const pending = http.request({ hostname: '127.0.0.1', port, path: '/v1/responses', method: 'POST',
+      headers: { authorization: `Bearer ${serverToken}`, 'content-type': 'application/json' }, agent: false,
+    }, (response) => {
+      response.once('error', reject);
+      response.once('data', () => {
+        if (response.statusCode !== 200) {
+          response.destroy();
+          reject(new Error('Unexpected cancellation fixture response'));
+          return;
+        }
+        response.pause();
+        resolve(response);
+      });
+    });
+    pending.once('error', reject);
+    pending.setTimeout(5000, () => pending.destroy(new Error('Cancellation fixture timed out')));
+    pending.end(disconnectBody);
   });
 }
 
@@ -144,12 +175,19 @@ try {
   }
   assert.ifError(upstreamFailure);
   assert.deepEqual(calls, ['/v1/models', '/v1/responses', '/v1/chat/completions']);
+  const active = await bounded(openStream(port), 'Cancellation stream startup timed out');
+  assert.equal((await request(port, '/health')).status, 200);
+  active.destroy();
+  await bounded(disconnected, 'Client disconnect did not close upstream');
+  assert.ifError(upstreamFailure);
+  assert.equal(calls.length, 4);
   assert.ok(!logs.includes(serverToken) && !logs.includes(upstreamToken));
-  assert.ok(!logs.includes(wireBody.toString()) && !logs.includes('not-forwarded'));
+  assert.ok(!logs.includes(wireBody.toString()) && !logs.includes('not-forwarded') &&
+    !logs.includes('disconnect-fixture'));
   child.kill('SIGTERM');
   const stopped = await bounded(exit, 'Fixture shutdown timed out');
   if (process.platform !== 'win32') assert.deepEqual(stopped, { code: 0, signal: null });
-  process.stdout.write('Extracted binary: help, config, auth, readiness, both streams, gzip and cleanup passed\n');
+  process.stdout.write('Extracted binary: help, config, auth, readiness, streams, gzip, disconnect and cleanup passed\n');
   if (process.platform === 'win32') process.stdout.write('Windows termination checked; POSIX graceful signal assertion not applicable\n');
 } finally {
   try {

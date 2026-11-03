@@ -140,6 +140,8 @@ clears the child environment and PATH, and runs help, configuration, health,
 authentication, readiness and both inference routes against loopback fixtures.
 It checks raw SSE and gzip bytes with separate synthetic client and upstream
 credentials. All fixture processes, sockets and temporary files are closed.
+The smoke also keeps health responsive during an active stream and verifies that
+disconnecting its client closes the upstream request before server shutdown.
 Unix checks graceful SIGTERM exit. Windows checks termination and cleanup,
 not POSIX signal behavior. No installed Node is needed to run the executable.
 

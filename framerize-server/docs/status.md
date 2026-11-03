@@ -133,6 +133,11 @@ new hashes are retained in `native-evidence/0848e05a-linux-x64.json`.
 Earlier `9a2486c9` artifacts remain historical evidence, not qualification of
 this provider update. The integration owner retains PR #96's merge decision.
 
+An expanded binary smoke passes against the recorded `0848e05a` archive without
+rebuilding it. The extracted executable remains healthy while a stream is open,
+and client disconnection closes the corresponding upstream request before
+server shutdown. This cancellation check is now part of each native CI job.
+
 Windows graceful POSIX-signal behavior is not claimed. Live inference,
 private credentials, production activation and release publication remain
 outside this stage.
