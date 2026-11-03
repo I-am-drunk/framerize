@@ -1,3 +1,12 @@
+# Browser preparation failures
+
+Navigation and SDK-warmup errors retain their sanitized original cause and
+the `browser preparation failed` classification. Both request chains treat
+that classification as local. They cannot repair it by reducing the output
+allowance, replaying inference, or selecting a paid fallback. Cancellation
+still propagates separately, and pending browser calls retain their owner
+until cleanup completes. Existing navigation and warmup deadlines remain.
+
 # Adaptive thinking output limits
 
 Adaptive thinking uses the configured total output allowance in its upstream

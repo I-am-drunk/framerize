@@ -108,8 +108,18 @@ class Host:
                 self._rpc(account, page.evaluate, WARM_JS), SDK_WARMUP_TIMEOUT_S)
         except asyncio.TimeoutError as error:
             raise RuntimeError(
-                f"Castle SDK warmup timed out after {SDK_WARMUP_TIMEOUT_S:g}s; "
+                f"browser preparation failed: Castle SDK warmup timed out after {SDK_WARMUP_TIMEOUT_S:g}s; "
                 "the inference request was not sent") from error
+        except Exception as error:
+            raise RuntimeError('browser preparation failed: Castle SDK warmup: '
+                               + error_cause(error)) from error
+
+    async def _navigate(self, account, page, url, purpose, **options):
+        try:
+            return await self._rpc(account, page.goto, url, **options)
+        except Exception as error:
+            raise RuntimeError(f'browser preparation failed: {purpose} navigation: '
+                               + error_cause(error)) from error
 
     async def _new_page(self, account, context):
         try:
@@ -669,7 +679,7 @@ class Host:
         async with self._allocation(64 * 1024**2):
             page = await self._new_page(account, acc.ctx)
             try:
-                await self._rpc(account, page.goto, LOGIN_URL, wait_until="domcontentloaded", timeout=60000)
+                await self._navigate(account, page, LOGIN_URL, "Framer login page", wait_until="domcontentloaded", timeout=60000)
                 await self._rpc(account, page.wait_for_timeout, 800)
             except BaseException:
                 await self._rpc(account, page.close)
@@ -713,7 +723,7 @@ class Host:
         if pid and pid in current:
             return
         try:
-            await self._rpc(account, page.goto, acc.editor_url, wait_until="domcontentloaded", timeout=90000)
+            await self._navigate(account, page, acc.editor_url, "Framer editor page", wait_until="domcontentloaded", timeout=90000)
             trace(f"{account[:8]}: page -> editor ({acc.editor_url.split('/')[-1][:12]}...)")
             await self._rpc(account, page.wait_for_timeout, 1500)
             await self._rpc(account, page.evaluate, WARM_JS)
@@ -765,7 +775,7 @@ class Host:
                 lambda: self._new_page(account, acc.ctx),
                 lambda created: self._rpc(account, created.close))
             try:
-                await self._rpc(account, page.goto, LOGIN_URL, wait_until="domcontentloaded", timeout=60000)
+                await self._navigate(account, page, LOGIN_URL, "Framer login page", wait_until="domcontentloaded", timeout=60000)
                 await self._rpc(account, page.wait_for_timeout, 800)
                 await self._warm_page(account, page)
                 if acc.devices:
@@ -837,7 +847,7 @@ class Host:
                     await self._rpc(account, ctx.add_cookies, cookies)
                     page = await self._new_page(account, ctx)
                     d.page = page
-                    await self._rpc(account, page.goto, LOGIN_URL, wait_until="domcontentloaded", timeout=90000)
+                    await self._navigate(account, page, LOGIN_URL, "Framer login page", wait_until="domcontentloaded", timeout=90000)
                 except asyncio.CancelledError:
                     await close_cancelled_device_context(acc,
                         close_prepared_context)
@@ -1157,7 +1167,7 @@ class Host:
         ctx = await self._rpc(account, browser.new_context)   # ambient context (login flow, heartbeats' home)
         page = await self._new_page(account, ctx)
         trace(f"{account[:8]}: goto login page")
-        await self._rpc(account, page.goto, LOGIN_URL, wait_until="domcontentloaded", timeout=90000)
+        await self._navigate(account, page, LOGIN_URL, "Framer login page", wait_until="domcontentloaded", timeout=90000)
         trace(f"{account[:8]}: dom loaded, waiting for app boot")
         # Gate on the APP being up (login form renders), NOT on
         # window.castlePublishableAPIKey — Firefox never gets that global.

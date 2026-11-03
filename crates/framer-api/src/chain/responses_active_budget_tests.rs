@@ -92,6 +92,19 @@ fn assert_expired(outcome: Outcome, requests: usize) {
 }
 
 #[tokio::test(start_paused = true)]
+async fn browser_preparation_failure_never_retries_or_falls_back() {
+    for error in [
+        "browser preparation failed: Framer login page navigation: TimeoutError: Page.goto: Timeout 90000ms exceeded.",
+        "browser preparation failed: Castle SDK warmup timed out after 120s; the inference request was not sent",
+    ] {
+        let outcome = run(vec![failure(90, error)]).await;
+        assert_eq!(outcome.result.unwrap_err(), error);
+        assert_eq!(outcome.requests.len(), 1);
+        assert!(outcome.events.is_empty());
+    }
+}
+
+#[tokio::test(start_paused = true)]
 async fn rate_retry_does_not_dispatch_after_active_budget() {
     let replies = (0..4).map(|_| Reply { seconds:80,
         result:Ok((429, "too many concurrent AI requests for this workspace".into())) }).collect();

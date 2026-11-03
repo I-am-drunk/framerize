@@ -40,6 +40,7 @@ Alpha.18 adds the cold-preparation fix to alpha.17's diagnostics and warmup fixe
 
 | Error | Cause and fix | Verification |
 |---|---|---|
+| Page-navigation failures triggered inference retries | Raw navigation errors lacked a local preparation classification. The alpha.23 candidate preserves the navigation or warmup cause and prevents smaller-token retries. | Old-source failure reproduced; 60 runtime tests and both API-chain no-retry regressions pass. Not activated. |
 | Claude refusal explanation vanished | `AssembledResponse` and stream assembly omitted `stop_details`. The alpha.22 candidate carries the provider object unchanged and emits explicit OpenAI refusal fields and events. | Old-source failure reproduced; 101 protocol and 134 Messages tests pass. Activation pending. |
 | Buffered provider error lacked a cause | JSON validation discarded the provider's error object. The alpha.22 candidate retains its sanitized type, code and message. | Dedicated no-replay and credential-redaction regression passes. Activation pending. |
 | Existing browsers deferred for low allocation RAM | Selection chose a cold account even when eligible resident browsers could serve. Select from observed residents when allocation headroom is insufficient. | Alpha.21 served four real requests under pressure without a new browser launch. |

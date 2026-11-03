@@ -256,7 +256,12 @@ class PageAcquisitionTests(unittest.IsolatedAsyncioTestCase):
                 failing.failure = error
                 with self.assertRaises(RuntimeError) as raised:
                     await asyncio.wait_for(self.acquire(stage), 1)
-                self.assertIs(raised.exception, error)
+                if stage == 'navigation':
+                    self.assertIs(raised.exception.__cause__, error)
+                    self.assertTrue(str(raised.exception).startswith('browser preparation failed:'))
+                    self.assertIn(str(error), str(raised.exception))
+                else:
+                    self.assertIs(raised.exception, error)
                 self.assertEqual(page.disposal.calls, 0 if stage == "creation" else 1)
                 self.assertEqual(acc.size, 1)
                 self.assertEqual(acc.borrowed, {ambient})

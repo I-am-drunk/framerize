@@ -7,6 +7,22 @@ fn config(metered_fallback: bool) -> ChainConfig {
 }
 
 #[test]
+fn browser_preparation_failure_never_retries_or_spends() {
+    for error in [
+        "browser preparation failed: Framer login page navigation: TimeoutError: Page.goto: Timeout 90000ms exceeded.",
+        "browser preparation failed: Castle SDK warmup timed out after 120s; the inference request was not sent",
+    ] {
+        let reply = Reply { streaming:false, status:0, result:Err(error.into()) };
+        let observed = run_with_delays(vec![reply], config(true),
+            vec![Duration::from_secs(90)]);
+        assert_eq!(observed.result.unwrap_err(), error);
+        assert_eq!(observed.requests.len(), 1);
+        assert_eq!(observed.refunds, 0);
+        assert!(observed.emitted.is_empty());
+    }
+}
+
+#[test]
 fn two_slow_valid_replies_keep_their_output() {
     let first = json!({"type":"text", "text":"first"});
     let last = json!({"type":"text", "text":"last"});

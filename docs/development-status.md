@@ -1,3 +1,19 @@
+# Browser preparation retry classification, 2026-11-03
+
+The alpha.23 candidate labels page-navigation and SDK-warmup failures as
+local browser preparation errors. Previously a raw `Page.goto` timeout
+could enter the inference transport retry path and repeat preparation with
+a smaller output allowance. The original sanitized cause now accompanies
+the local classification. Navigation deadlines and cleanup ownership are unchanged.
+The old source fails the new navigation regression. Sixty focused runtime
+tests and both API-chain no-retry regressions pass.
+
+Alpha.21 remains live as PID 654353. Alpha.22 failed qualification on the
+emulated iMac verifier before inference: page navigation timed out, and
+normal shutdown exceeded its 70-second qualification limit before eventually
+exiting cleanly. No production change followed. Long adaptive HTTP 504 failures
+remain unresolved. Next: build alpha.23 and qualify it on an adequate test host.
+
 # Claude refusal details, 2026-11-03
 
 Branch `fix/claude-network-diagnostics-20261103` has alpha.21 live from

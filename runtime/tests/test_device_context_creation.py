@@ -235,7 +235,12 @@ class DeviceContextCreationTests(unittest.IsolatedAsyncioTestCase):
                     getattr(context, stage).side_effect = error
                 with self.assertRaises(RuntimeError) as raised:
                     await asyncio.wait_for(self.command(stage), 1)
-                self.assertIs(raised.exception, error)
+                if stage == 'goto':
+                    self.assertIs(raised.exception.__cause__, error)
+                    self.assertTrue(str(raised.exception).startswith('browser preparation failed:'))
+                    self.assertIn(str(error), str(raised.exception))
+                else:
+                    self.assertIs(raised.exception, error)
                 self.assertEqual(context.disposal.calls, 0 if stage == "creation" else 1)
                 self.assertIsNone(acc.dev_objs["device-a"].ctx)
                 self.assertIsNone(acc.dev_objs["device-a"].page)

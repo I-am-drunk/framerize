@@ -170,7 +170,12 @@ class MintPageCreationTests(unittest.IsolatedAsyncioTestCase):
                     page.evaluate.side_effect = error
                 with self.assertRaises(RuntimeError) as raised:
                     await asyncio.wait_for(self.command(stage), 1)
-                self.assertIs(raised.exception, error)
+                if stage in ('navigation', 'warming'):
+                    self.assertIs(raised.exception.__cause__, error)
+                    self.assertTrue(str(raised.exception).startswith('browser preparation failed:'))
+                    self.assertIn(str(error), str(raised.exception))
+                else:
+                    self.assertIs(raised.exception, error)
                 self.assertEqual(page.disposal.calls, 0 if stage == "creation" else 1)
                 self.assertIsNone(acc.mint_page)
                 self.assertNotIn(call(self.module.MINT_JS), page.evaluate.await_args_list)
