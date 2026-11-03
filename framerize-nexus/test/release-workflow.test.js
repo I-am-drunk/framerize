@@ -29,3 +29,13 @@ test('CI tests one package tarball on every release platform', () => {
   assert.match(ci, /macos-15/);
   assert.match(ci, /windows-2022/);
 });
+
+test('the macOS platform job runs fixture cleanup before building', () => {
+  const ci = readFileSync(new URL('../../.github/workflows/ci.yml', import.meta.url), 'utf8');
+  const platformJob = ci.match(/^  platforms:\r?\n([\s\S]*)/m)?.[1];
+  assert.ok(platformJob);
+  assert.match(platformJob, /os: macos-15/);
+  assert.match(platformJob, /name: Verify fixture cleanup on macOS\r?\n        if: runner\.os == 'macOS'\r?\n        run: node --test test\/smoke-cleanup\.test\.js/);
+  assert.ok(platformJob.indexOf('node --test test/smoke-cleanup.test.js')
+    < platformJob.indexOf('npm run binary'));
+});

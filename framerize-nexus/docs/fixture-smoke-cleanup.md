@@ -23,5 +23,11 @@ Syntax checks and `git diff --check` pass. No package runtime source, other
 package, workflow, existing evidence, or pre-existing temporary directory is
 changed. There are no live inference, publication, or activation requests.
 
-Next action: review this checkpoint and verify its Windows and macOS CI.
+The regular test jobs cover Ubuntu and Windows. The original macOS platform
+job runs package and binary smokes, which do not exercise these two scripts.
+A separate automation follow-up runs `test/smoke-cleanup.test.js` in that
+existing macOS job before its binary build. No extra native build is added.
+
+Next action: verify the focused macOS step on the automation checkpoint.
+Earlier green six-job runs do not establish macOS fixture-cleanup coverage.
 The Linux subprocess results do not establish other operating-system results.
