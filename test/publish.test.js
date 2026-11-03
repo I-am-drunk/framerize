@@ -13,6 +13,8 @@ function publish(authenticated = true, published = false, version = '0.1.7',
   mkdirSync(bin);
   mkdirSync(path.join(directory, 'dist'));
   writeFileSync(path.join(directory, 'dist', `framer-next-${version}.tgz`), 'fixture');
+  writeFileSync(path.join(directory, 'dist', 'SHA256SUMS'),
+    `${'0'.repeat(64)}  framer-next\n${'0'.repeat(64)}  framer-next-${version}.tgz\n`);
   writeFileSync(path.join(directory, 'dist', 'release.json'), JSON.stringify({
     version, commit,
     artifacts: includeDigest ? { [`framer-next-${version}.tgz`]: '0'.repeat(64) } : {},

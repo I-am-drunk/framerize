@@ -12,8 +12,9 @@ and isolated executable smoke test before publication.
 5. Publish the GitHub release before attempting npm publication. A registry
    authentication failure must not suppress the verified executable archives.
 
-The workflow uses npm trusted publishing with OIDC. The `npm-release`
-environment currently has no protection rules. First publication has not
+The workflow uses npm trusted publishing with OIDC. GitHub rejects required
+reviewers for the private repository under its current billing plan. Upgrade
+the plan or make the repository public before enabling owner approval. First publication has not
 completed because npm returns `ENEEDAUTH`. Do not add npm tokens, sessions, or
 account files to the repository or workflow logs.
 

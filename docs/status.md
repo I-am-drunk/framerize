@@ -86,5 +86,5 @@ verification or authentication polling is needed before credentials arrive.
 After authentication, run `npm run publish:package`. It rechecks authentication,
 rejects an existing version, verifies the packed artifact, publishes the
 package, and chooses its dist-tag.
-The GitHub token has triage and push access, not administration access. An
-owner must add the required reviewer to the `npm-release` environment.
+The owner-authenticated GitHub token has administration access. GitHub rejects
+required reviewers under the private repository's current billing plan.
