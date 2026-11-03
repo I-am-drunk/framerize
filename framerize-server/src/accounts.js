@@ -11,9 +11,14 @@ export async function loadAccounts(path) {
     const info = await file.stat();
     if (!info.isFile() || info.size > 1024 * 1024) throw new Error();
     const buffer = Buffer.alloc(1024 * 1024 + 1);
-    const { bytesRead } = await file.read(buffer, 0, buffer.length, 0);
-    if (bytesRead > 1024 * 1024) throw new Error();
-    value = JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(buffer.subarray(0, bytesRead)));
+    let length = 0;
+    while (length < buffer.length) {
+      const { bytesRead } = await file.read(buffer, length, buffer.length - length, null);
+      if (!bytesRead) break;
+      length += bytesRead;
+    }
+    if (length > 1024 * 1024) throw new Error();
+    value = JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(buffer.subarray(0, length)));
   } catch { throw new ConfigurationError('Account metadata unavailable'); }
   finally { await file?.close(); }
   if (!Array.isArray(value)) throw new ConfigurationError('accounts JSON must be an array');

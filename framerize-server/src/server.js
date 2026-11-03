@@ -36,10 +36,12 @@ function authenticated(request, tokenHash, configured) {
 }
 
 function safeHeaders(headers = {}) {
+  headers = Object.fromEntries(Object.entries(headers).map(([name, value]) => [name.toLowerCase(), value]));
   const result = {};
+  const connection = String(headers.connection ?? '').toLowerCase().split(',').map((name) => name.trim());
   for (const [name, value] of Object.entries(headers)) {
     if (RESPONSE_HEADERS.includes(name.toLowerCase()) && typeof value === 'string'
-      && !/[\r\n\0]/.test(value)) result[name.toLowerCase()] = value;
+      && !connection.includes(name.toLowerCase()) && !/[\r\n\0]/.test(value)) result[name.toLowerCase()] = value;
   }
   return result;
 }
@@ -113,8 +115,9 @@ export async function createServer(values = {}, { provider, logger } = {}) {
       if (!provider?.forward) throw appError(503, 'provider_unavailable', 'Provider unavailable');
       const bytes = await readBody(request, controller, config);
       const headers = {};
+      const connection = String(request.headers.connection ?? '').toLowerCase().split(',').map((name) => name.trim());
       for (const name of ['accept', 'content-type', 'openai-beta']) {
-        if (typeof request.headers[name] === 'string') headers[name] = request.headers[name];
+        if (!connection.includes(name) && typeof request.headers[name] === 'string') headers[name] = request.headers[name];
       }
       const result = await bounded(() => provider.forward({ path, headers,
         body: (async function* () { yield bytes; }()), signal: controller.signal,

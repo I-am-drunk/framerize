@@ -62,9 +62,14 @@ export async function readServerToken(config) {
     const info = await file.stat();
     if (!info.isFile() || info.size > 16_384 || (process.platform !== 'win32' && (info.mode & 0o077))) invalid('server token file');
     const buffer = Buffer.alloc(16_385);
-    const { bytesRead } = await file.read(buffer, 0, buffer.length, 0);
-    if (bytesRead > 16_384) invalid('server token file');
-    const token = buffer.subarray(0, bytesRead).toString('utf8').trim();
+    let length = 0;
+    while (length < buffer.length) {
+      const { bytesRead } = await file.read(buffer, length, buffer.length - length, null);
+      if (!bytesRead) break;
+      length += bytesRead;
+    }
+    if (length > 16_384) invalid('server token file');
+    const token = buffer.subarray(0, length).toString('utf8').trim();
     if (!token || !/^[A-Za-z0-9._~+/-]+=*$/.test(token)) invalid('server token file');
     return token;
   } catch { throw new ConfigurationError('Server token file unavailable'); }
