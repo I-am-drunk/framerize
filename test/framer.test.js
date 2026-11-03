@@ -61,3 +61,23 @@ test('concurrent requests share one JWT refresh', async () => {
   assert.equal(calls, 1);
 });
 
+test('Framer authentication failures preserve their status and retry cleanly', async () => {
+  const scoped = { ...account, id: 'auth-failure-fixture', authorizationEnv: undefined, sessionEnv: 'TEST_SESSION' };
+  const env = { TEST_SESSION: 'session', FIXTURE_CASTLE: 'castle' };
+  const missing = prepareFramer({ account: scoped, path: '/v1/responses', body: Buffer.from('{}'),
+    fetchImpl: async () => { throw new Error('unexpected fetch'); }, env: {} });
+  await assert.rejects(missing, (error) => error.status === 503);
+  let calls = 0;
+  const fetchImpl = async () => {
+    calls += 1;
+    return new Response('{}', { status: calls === 1 ? 401 : 503 });
+  };
+  for (const status of [401, 502]) {
+    await assert.rejects(prepareFramer({ account: scoped, path: '/v1/responses',
+      body: Buffer.from('{}'), fetchImpl, env }), (error) => error.status === status);
+  }
+  const invalid = prepareFramer({ account: scoped, path: '/v1/responses', body: Buffer.from('{}'),
+    fetchImpl: async () => new Response('{}'), env });
+  await assert.rejects(invalid, /invalid Framer token response/);
+});
+
