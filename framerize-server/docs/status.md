@@ -223,6 +223,13 @@ the parsed manifest is identical. The server inventory excludes the separate
 library. This static check does not execute or qualify that library, merge
 the restoration, or replace final combined platform and native CI.
 
+The corrected restoration `f150471477cee48a303cd75b3b495dd3b3f6e060` and
+core `aeae6595` produce prospective tree
+`c752f419736b294dd18eed284101c1c44a97cd43`. A server-only archive of this
+tree passes `npm run check` and the offline installed-package loopback smoke
+on Node 22.23.4. Runtime, scripts, tests, lockfile and server workflow match
+the current core exactly. No separate-library files were extracted or run.
+
 Windows graceful POSIX-signal behavior is not claimed. Live inference,
 private credentials, production activation and release publication remain
 outside this stage.
