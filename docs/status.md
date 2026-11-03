@@ -2,7 +2,7 @@
 
 Verified on November 3, 2026:
 
-- 73 unit and integration tests pass on Node.js 24, with 99.40% line coverage.
+- 74 unit and integration tests pass on Node.js 24, with 99.40% line coverage.
 - GitHub CI test and package jobs pass on pull request 54.
 - The installed npm tarball runs outside the checkout.
 - The isolated executable runs without Node.js on `PATH`.
