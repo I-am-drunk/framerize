@@ -38,10 +38,45 @@ def failed():
 
 
 class NetworkFailureTests(unittest.TestCase):
+    def test_uncaptured_body_uses_browser_request_identity(self):
+        page = Page()
+        observer = self.watch(page)
+        request = Request()
+        request.post_data_json = None
+        request._impl_obj = SimpleNamespace(
+            _initializer={'framerizeTurnId': 'first'})
+        page.emit('response', SimpleNamespace(request=request, status=504))
+        result = observer.explain(failed())
+        self.assertIn('HTTP 504 Gateway Timeout', result['body'])
+
     def watch(self, page, turn='first'):
         observer = NetworkFailure(page, Request.url, turn).watch()
         self.addCleanup(observer.close)
         return observer
+
+    def test_uncaptured_concurrent_requests_remain_separate(self):
+        page = Page()
+        first, second = self.watch(page), self.watch(page, 'second')
+        request = Request()
+        request.post_data_json = None
+        request._impl_obj = SimpleNamespace(
+            _initializer={'framerizeTurnId': 'second'})
+        request.failure = 'NS_ERROR_NET_RESET'
+        page.emit('requestfailed', request)
+        self.assertEqual(first.explain(failed()), failed())
+        self.assertIn('NS_ERROR_NET_RESET', second.explain(failed())['body'])
+
+    def test_identity_does_not_bypass_origin_or_method_matching(self):
+        page = Page()
+        observer = self.watch(page)
+        for change in ({'url': 'https://other.invalid/'}, {'method': 'OPTIONS'}):
+            request = Request()
+            request.post_data_json = None
+            request._impl_obj = SimpleNamespace(
+                _initializer={'framerizeTurnId': 'first'})
+            request.__dict__.update(change)
+            page.emit('response', SimpleNamespace(request=request, status=504))
+        self.assertEqual(observer.explain(failed()), failed())
 
     def test_hidden_gateway_timeout_reports_actual_status_without_success(self):
         page = Page()
@@ -98,9 +133,13 @@ class NetworkFailureTests(unittest.TestCase):
 
     def test_repeated_requests_retain_neither_payloads_nor_listeners(self):
         page = Page()
-        for _ in range(512):
+        for index in range(512):
             observer = NetworkFailure(page, Request.url, 'first').watch()
             request = Request()
+            if index % 2:
+                request.post_data_json = None
+                request._impl_obj = SimpleNamespace(
+                    _initializer={'framerizeTurnId': 'first'})
             retained = weakref.ref(request)
             page.emit('response', SimpleNamespace(request=request, status=504))
             del request

@@ -1,3 +1,16 @@
+# Claude network attribution, 2026-11-03
+
+`fix/claude-network-diagnostics-20261103` prepares alpha.16. The memory
+repair disabled request-body capture that network attribution still needed.
+Only the bounded real turn ID now crosses the private browser protocol.
+The upload remains unchanged; diagnostics skip streams they cannot clone.
+Seventeen focused checks pass. Matched 516-request real-browser fixtures
+retain HTTP 502, HTTP 504 and connection-reset causes after the repair,
+without retained payloads or listeners. Warm mean PSS remains about 560 MB.
+Alpha.14 remains live and unchanged. Upstream timeout prevention is not
+claimed. Next: build and qualify this exact package on the exclusive account.
+See [the evidence and limits](incidents/2026-11-03-claude-network-diagnostics.md).
+
 # Account scheduling and refusal-pause repair, 2026-11-02
 
 Alpha.14 from `2b4d0195` is live as PID 3565455 since 14:31:56 UTC.

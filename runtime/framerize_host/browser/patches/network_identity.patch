@@ -1,0 +1,38 @@
+--- a/NetworkObserver.js
++++ b/NetworkObserver.js
+@@ -507,2 +507,3 @@
+         ? readRequestPostData(this.httpChannel) : undefined,
++      framerizeTurnId: readRequestTurnId(this.httpChannel),
+       headers: requestHeaders(this.httpChannel),
+@@ -759,3 +760,3 @@
+ 
+-function readRequestPostData(httpChannel) {
++function readRequestPostData(httpChannel, identityOnly = false) {
+   if (!(httpChannel instanceof Ci.nsIUploadChannel))
+@@ -771,2 +772,5 @@
+   const isCloneable = iStream instanceof Ci.nsICloneableInputStream;
++  // Optional diagnostics must never read or reposition the outgoing stream.
++  if (identityOnly && !isCloneable)
++    return undefined;
+   if (isCloneable)
+@@ -789,3 +793,3 @@
+       const buffer = NetUtil.readInputStreamToString(iStream, maxLen);
+-      result = btoa(buffer);
++      result = identityOnly ? JSON.parse(buffer).turnId : btoa(buffer);
+     }
+@@ -800,2 +804,15 @@
+   return result;
++}
++
++function readRequestTurnId(httpChannel) {
++  if (!Services.prefs.getBoolPref("framerize.captureRequestIdentity", false) ||
++      httpChannel.requestMethod !== "POST")
++    return undefined;
++  try {
++    const id = readRequestPostData(httpChannel, true);
++    return typeof id === "string" && /^[A-Za-z0-9_-]{1,64}$/.test(id)
++      ? id : undefined;
++  } catch (_) {
++    return undefined;
++  }
+ }

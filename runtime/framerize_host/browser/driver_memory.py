@@ -10,7 +10,7 @@ from .files import link_or_copy
 
 MODULE = 'package/lib/coreBundle.js'
 SOURCE = '3258d1cf334c6afc95f22aa9c292436cb976b391e0437f1359c83b84f0cb9d66'
-PATCHED = '3415917e5df9765797ef31558455750f79658e3768ea281738babf64167a5a8c'
+PATCHED = '9b755edf4bae8bfc061138733ae7a2ae805aa33eac67bf5d293a348d109a2b7b'
 
 
 def digest(path):
@@ -22,9 +22,10 @@ def patch_driver(source, target):
     if digest(source) != SOURCE:
         raise ValueError('unsupported Playwright driver; qualify its memory cleanup before use')
     shutil.copy2(source, target)
-    patch = Path(__file__).with_name('patches') / 'playwright_memory.patch'
-    subprocess.run(['patch', '--batch', '--fuzz=0', str(target), str(patch)],
-                   check=True, capture_output=True, timeout=30)
+    for name in ('playwright_memory.patch', 'driver_identity.patch'):
+        patch = Path(__file__).with_name('patches') / name
+        subprocess.run(['patch', '--batch', '--fuzz=0', str(target), str(patch)],
+                       check=True, capture_output=True, timeout=30)
     if digest(target) != PATCHED:
         raise ValueError('Playwright memory patch failed its integrity check')
 

@@ -1,0 +1,26 @@
+--- a/coreBundle.js
++++ b/coreBundle.js
+@@ -17347,6 +17347,7 @@
+       resourceType: tString,
+       method: tString,
+       postData: tOptional(tBinary),
++      framerizeTurnId: tOptional(tString),
+       headers: tArray(tType("NameValue")),
+       isNavigationRequest: tBoolean,
+       redirectedFrom: tOptional(tChannel(["Request"]))
+@@ -44835,6 +44836,7 @@
+           postDataBuffer,
+           payload.headers
+         );
++        this.request._framerizeTurnId = payload.framerizeTurnId;
+         this.request.setRawRequestHeaders(null);
+       }
+       _finalRequest() {
+@@ -54728,6 +54730,7 @@
+           resourceType: request2.resourceType(),
+           method: request2.method(),
+           postData: postData === null ? void 0 : postData,
++          framerizeTurnId: request2._framerizeTurnId,
+           headers: request2.headers(),
+           isNavigationRequest: request2.isNavigationRequest(),
+           redirectedFrom: _RequestDispatcher.fromNullable(scope, request2.redirectedFrom())

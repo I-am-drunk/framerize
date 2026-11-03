@@ -13,10 +13,11 @@ from .files import link_or_copy
 PATCHES = Path(__file__).with_name("patches")
 MODULE = 'chrome/juggler/content/NetworkObserver.js'
 SOURCE = 'cd548efd53a6aff21107a08005adda53bb6b2d48474209712c87e6cb27e9e768'
-PATCHED = 'f37bec3303fc06b57469afabe7759c95d20d83545fb73d86672777797c6f98d9'
+PATCHED = '0d873f1121c3e56f8a484828c7690cd87cfb20c7c10b2c2176d8b1884734fe23'
 PROTOCOL = 'chrome/juggler/content/protocol/Protocol.js'
 PROTOCOL_SOURCE = 'd7bad1be5746cf6e71774963bc0e9d859f8edc4a003a0705fefb4d525034c9ec'
-PROTOCOL_PATCHED = '6728608b522c6442c52e9a21cc980f43bce9daeb3e7e4fe0c63f995a9eff0aec'
+PROTOCOL_LEGACY = '6728608b522c6442c52e9a21cc980f43bce9daeb3e7e4fe0c63f995a9eff0aec'
+PROTOCOL_PATCHED = '2c93c984f60ac64711c941aef11cf188428699dca3295498fb9a4378fb43cdfe'
 CONTEXTS = 'chrome/juggler/content/TargetRegistry.js'
 CONTEXTS_SOURCE = '85c0c0711648fff198c877896c28949968c93a376293aab0af82de710b80fdbd'
 CONTEXTS_PATCHED = '033e67fd5a1064794f205682f5e384af77074c76bfe87ac6539430f86aa5eadb'
@@ -42,6 +43,8 @@ def patch_protocol(data):
     before = b"    'requestFinished': {\n      requestId: t.String,"
     after = b"    'requestFinished': {\n      isRedirected: t.Optional(t.Boolean),\n      requestId: t.String,"
     result = data.replace(before, after)
+    before = b"    'requestWillBeSent': {\n"
+    result = result.replace(before, before + b'      framerizeTurnId: t.Optional(t.String),\n')
     if hashlib.sha256(result).hexdigest() != PROTOCOL_PATCHED:
         raise ValueError('browser protocol patch failed its integrity check')
     return result
@@ -57,7 +60,7 @@ def patch_module(data, directory):
         raise ValueError('unsupported browser network module; qualify this version first')
     module = directory / 'NetworkObserver.js'
     module.write_bytes(data)
-    for name in ['network_capture.patch', 'network_lifecycle.patch']:
+    for name in ['network_capture.patch', 'network_lifecycle.patch', 'network_identity.patch']:
         subprocess.run(['patch', '--batch', '--fuzz=0', str(module),
                         str(PATCHES / name)],
                        check=True, capture_output=True, timeout=30)
@@ -93,12 +96,13 @@ def prepare(source, output):
                     target.writestr(entry, data)
         # Replace only the copied directory entry, never the linked source file.
         archive.replace(tree / 'omni.ja')
-        manifest = {'patch_version': 11, 'source_directory': str(source),
+        manifest = {'patch_version': 12, 'source_directory': str(source),
             'source_module_sha256': SOURCE, 'patched_module_sha256': PATCHED,
             'source_archive_sha256': digest(source / 'omni.ja'),
             'patched_archive_sha256': digest(tree / 'omni.ja'),
             'preference': 'framerize.captureResponseBodies',
             'request_preference': 'framerize.captureRequestBodies',
+            'identity_preference': 'framerize.captureRequestIdentity',
             'redirect_preference': 'framerize.reportActualRedirects',
             'protocol_module_sha256': PROTOCOL_PATCHED,
             'context_module_sha256': CONTEXTS_PATCHED}

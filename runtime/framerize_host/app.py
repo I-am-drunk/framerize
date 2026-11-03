@@ -1042,6 +1042,8 @@ class Host:
             kwargs["firefox_user_prefs"]["framerize.captureResponseBodies"] = False
             # v3 ignores this preference; v4 skips unused debugger upload copies.
             kwargs["firefox_user_prefs"]["framerize.captureRequestBodies"] = False
+            # Retain only the bounded turn identity for exact error correlation.
+            kwargs["firefox_user_prefs"]["framerize.captureRequestIdentity"] = True
             # v6 distinguishes completed requests from actual redirect chains.
             kwargs["firefox_user_prefs"]["framerize.reportActualRedirects"] = True
             kwargs["firefox_user_prefs"]["framerize.reclaimClosedContexts"] = True

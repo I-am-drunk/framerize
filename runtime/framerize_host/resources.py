@@ -116,7 +116,7 @@ def prepared_memory_browser():
             raise RuntimeError("No installed Camoufox browser is selected; install it before serving requests")
         source = Path(source).resolve(strict=True)
         fingerprint = digest(source / 'omni.ja')
-        target = Path(ROOT) / '.runtime' / ('browser-v11-' + fingerprint[:16])
+        target = Path(ROOT) / '.runtime' / ('browser-v12-' + fingerprint[:16])
         if not target.exists():
             prepare(source, target)
         configured = str(target)
@@ -162,15 +162,18 @@ def _validate_memory_browser(configured):
             9: "f37bec3303fc06b57469afabe7759c95d20d83545fb73d86672777797c6f98d9",
             10: "f37bec3303fc06b57469afabe7759c95d20d83545fb73d86672777797c6f98d9",
             11: "f37bec3303fc06b57469afabe7759c95d20d83545fb73d86672777797c6f98d9",
+            12: "0d873f1121c3e56f8a484828c7690cd87cfb20c7c10b2c2176d8b1884734fe23",
         }.get(version)
         if (expected_module is None
                 or manifest.get("patched_module_sha256") != expected_module
                 or manifest.get("preference") != "framerize.captureResponseBodies"):
             raise ValueError("unsupported memory browser patch")
-        if version in (4, 5, 6, 7, 8, 9, 10, 11) and manifest.get("request_preference") != "framerize.captureRequestBodies":
+        if version in (4, 5, 6, 7, 8, 9, 10, 11, 12) and manifest.get("request_preference") != "framerize.captureRequestBodies":
             raise ValueError("unsupported request capture patch")
-        if version in (6, 7, 8, 9, 10, 11) and manifest.get("redirect_preference") != "framerize.reportActualRedirects":
+        if version in (6, 7, 8, 9, 10, 11, 12) and manifest.get("redirect_preference") != "framerize.reportActualRedirects":
             raise ValueError("unsupported finished-request tracking patch")
+        if version == 12 and manifest.get("identity_preference") != "framerize.captureRequestIdentity":
+            raise ValueError("unsupported request identity patch")
         executable = directory / "camoufox"
         if not executable.is_file():
             raise ValueError("memory browser executable missing")
@@ -180,12 +183,13 @@ def _validate_memory_browser(configured):
             raise ValueError("memory browser archive changed")
         with zipfile.ZipFile(directory / "omni.ja") as archive:
             module = archive.read("chrome/juggler/content/NetworkObserver.js")
-            if version in (10, 11):
-                from .browser.memory_build import PROTOCOL, PROTOCOL_PATCHED
-                if (manifest.get('protocol_module_sha256') != PROTOCOL_PATCHED
-                        or hashlib.sha256(archive.read(PROTOCOL)).hexdigest() != PROTOCOL_PATCHED):
+            if version in (10, 11, 12):
+                from .browser.memory_build import PROTOCOL, PROTOCOL_PATCHED, PROTOCOL_LEGACY
+                expected_protocol = PROTOCOL_PATCHED if version == 12 else PROTOCOL_LEGACY
+                if (manifest.get('protocol_module_sha256') != expected_protocol
+                        or hashlib.sha256(archive.read(PROTOCOL)).hexdigest() != expected_protocol):
                     raise ValueError('browser request completion protocol changed')
-            if version == 11:
+            if version in (11, 12):
                 from .browser.memory_build import CONTEXTS, CONTEXTS_PATCHED
                 if (manifest.get('context_module_sha256') != CONTEXTS_PATCHED
                         or hashlib.sha256(archive.read(CONTEXTS)).hexdigest() != CONTEXTS_PATCHED):

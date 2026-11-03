@@ -16,6 +16,12 @@ class NetworkFailure:
         try:
             if request.url != self.url or request.method != 'POST':
                 return False
+            # The bounded identity is recorded from the actual upload by the
+            # browser, even when debugger request-body capture is disabled.
+            owner = getattr(request, '_impl_obj', None)
+            identity = getattr(owner, '_initializer', {}).get('framerizeTurnId')
+            if isinstance(identity, str) and identity:
+                return identity == self.turn_id
             data = request.post_data_json
             return isinstance(data, dict) and data.get('turnId') == self.turn_id
         except Exception:
