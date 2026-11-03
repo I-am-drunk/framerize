@@ -14,8 +14,10 @@ const artifacts = Object.fromEntries(sums.trim().split('\n').map((line) => {
   if (!match) throw new Error('invalid SHA256SUMS entry');
   return [match[2], match[1]];
 }));
-const commit = execFileSync('git', ['rev-parse', 'HEAD'], { encoding: 'utf8' }).trim();
-if (process.env.GITHUB_SHA && process.env.GITHUB_SHA !== commit) {
+const commit = process.env.GITHUB_SHA || execFileSync('git', ['rev-parse', 'HEAD'], { encoding: 'utf8' }).trim();
+if (!/^[a-f0-9]{40}$/.test(commit)) throw new Error('release source commit must be a full SHA');
+const sourceCommit = execFileSync('git', ['rev-parse', 'HEAD'], { encoding: 'utf8' }).trim();
+if (process.env.GITHUB_SHA && process.env.GITHUB_SHA !== sourceCommit) {
   throw new Error('release source commit does not match the triggering commit');
 }
 writeFileSync(path.join(workspace, 'dist/release.json'), `${JSON.stringify({
