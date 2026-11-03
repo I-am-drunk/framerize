@@ -107,6 +107,28 @@ test('active body outlives the cleared header deadline', async (context) => {
   assert.ok(performance.now() - started > 200);
 });
 
+for (const operation of ['forward', 'ready']) {
+  test(`${operation}: queued headers survive an event-loop stall past the header deadline`, async (context) => {
+    const { provider } = await fixture(context, async (request, response) => {
+      await collect(request);
+      setImmediate(() => {
+        response.write('fixture-', (error) => {
+          assert.ifError(error);
+          Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 120);
+          const completion = setTimeout(() => response.end('ok'), 70);
+          response.once('close', () => clearTimeout(completion));
+        });
+      });
+    }, { headersTimeoutMs: 40 });
+    if (operation === 'ready') assert.equal(await provider.ready(), true);
+    else {
+      const result = await provider.forward({ path: '/v1/responses', body: body() });
+      assert.equal(result.status, 200);
+      assert.equal((await collect(result.body)).toString(), 'fixture-ok');
+    }
+  });
+}
+
 test('slow consumers bound response buffering and can pause past the idle interval', async (context) => {
   const total = 512;
   const chunk = Buffer.alloc(65_536, 7);
