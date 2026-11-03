@@ -1,6 +1,6 @@
 # Claude network attribution, 2026-11-03
 
-`fix/claude-network-diagnostics-20261103` prepares alpha.17. The memory
+`fix/claude-network-diagnostics-20261103` has built and staged alpha.17. The memory
 repair disabled request-body capture that network attribution still needed.
 Only the bounded real turn ID now crosses the private browser protocol.
 The upload remains unchanged; diagnostics skip streams they cannot clone.
@@ -13,8 +13,12 @@ The 80 existing lifecycle checks, five warmup regressions and a real-browser
 cancellation fixture pass.
 The emulated verifier stalled before inference and required isolated cleanup.
 Native verification retains the same exclusive account and recovery hold.
-Alpha.14 remains live and unchanged. Upstream timeout prevention is not
-claimed. Next: build and qualify alpha.17 on the exclusive account.
+The exact package passed its lifecycle checks and isolated health/readiness.
+Host memory pressure deferred isolated inference before dispatch. The user
+explicitly authorized replacement without completing that qualification.
+The guarded activation is waiting for an idle interval on alpha.14 and
+will preserve the previous release for rollback. Upstream timeout prevention
+is not claimed. Next: verify the activation result and real live delivery.
 See [the evidence and limits](incidents/2026-11-03-claude-network-diagnostics.md).
 
 # Account scheduling and refusal-pause repair, 2026-11-02

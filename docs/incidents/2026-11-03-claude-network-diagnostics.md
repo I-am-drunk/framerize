@@ -64,3 +64,50 @@ ten owned processes and confirmed a clean exit with none remaining in 1.756
 seconds. The activation guard also includes log rotation after midnight;
 all 23 activation and rollback fixtures pass. These test-tool corrections
 do not change the application built from `8f320e2a`.
+
+## Alpha.17 package and shortened qualification
+
+The iMac completed the exact alpha.17 package in 256.159 seconds.
+All nine package lifecycle checks and six paid-route refusal checks passed.
+The staged binary returned HTTP 200 for isolated health and readiness on
+port 8792. All 38 packaged runtime files match the reviewed source.
+Binary SHA-256:
+`aafdc83aa989694565656fa62f83dba6594e95f017434c4e7363f123610d2e21`.
+
+The real-request check was refused before dispatch because host memory
+headroom was 867.86 MiB and browser startup required 1,024 MiB. The isolated
+workspace still had 500 credits. No isolated inference success is claimed.
+The user then explicitly authorized replacement without waiting for full
+qualification. That exception is recorded separately from passing evidence.
+The isolated process has exited; the production account inventory is intact.
+
+The first activation attempt found continuing request traffic and exited
+without restarting production. Its follow-up reads only new operation-log
+records, so it can check short idle intervals without rescanning old traffic.
+Five new controls cover partial records, log rotation, missing or truncated
+history, and missing operation identities. All 23 prior activation and
+rollback controls still pass. An idle service is still required for the swap.
+
+## Repairs retained from the deployed baseline
+
+Alpha.17 retains the previously qualified Node polling, memory retention,
+admission, emission, readiness and shutdown repairs. Their individual root
+causes and regression evidence are recorded in the
+[complete recurring-error record](2026-11-01-recurring-errors.md) and the
+[browser restoration record](2026-11-02-restored-browser-service.md).
+The [account scheduling record](2026-11-02-account-scheduling-and-pauses.md)
+covers bounded warm-account preference, refusal-pause reset and font cache.
+
+The identical-load memory comparison completed 512 requests in each version.
+Final process PSS fell from 1,437,474,816 to 640,508,928 bytes, with retained
+pages reduced from ten to three and an active stream preserved. This is
+the measured effect of the earlier retention repair, not a new alpha.17 saving.
+The 516-request alpha.17 diagnostic comparison above verifies that retaining
+the small request identity does not restore the old payload retention.
+
+Production observation on alpha.14 covered 1,311 memory samples over almost
+eleven hours. Cgroup memory ranged from 4,263,845,888 to 8,219,025,408 bytes
+under the unchanged 10 GiB limit. At most six browsers were resident.
+This workload was not controlled, so it is not an identical-load comparison.
+The later log audit found 74 emission failures explicitly caused by client
+cancellation. No undisclosed upstream reason is inferred from those events.
