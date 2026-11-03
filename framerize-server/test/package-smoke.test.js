@@ -7,6 +7,24 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { packageFixture, packageTarball, runPackageSmoke, assertPackageFailure, mutateTarball } from './helpers/package-fixtures.js';
 
+for (const downloaded of [false, true]) {
+  test(`${downloaded ? 'downloaded' : 'local'} package smoke isolates hostile operator environment`, (t) => {
+    const checkout = packageFixture(t, { environmentAware: true });
+    const env = { FRAMERIZE_SERVER_HOST: '0.0.0.0', FRAMERIZE_SERVER_PORT: '9999',
+      FRAMERIZE_SERVER_UPSTREAM: 'https://inference.example.test' };
+    if (downloaded) packageTarball(checkout.directory);
+    const result = runPackageSmoke(checkout.directory, downloaded, env);
+    assert.equal(result.status, 0, `${result.stdout}\n${result.stderr}`);
+    const script = path.join(checkout.directory, 'scripts', 'package-smoke.js');
+    const original = readFileSync(script, 'utf8');
+    const regressed = original.replace("host:'127.0.0.1',port:0,upstream:'',", 'port:0,');
+    assert.notEqual(regressed, original);
+    writeFileSync(script, regressed);
+    assertPackageFailure(runPackageSmoke(checkout.directory, downloaded, env),
+      'Unsafe fixture configuration before listen');
+  });
+}
+
 test('direct invocation rejects missing npm context without leaking temp directories', (t) => {
   const root = mkdtempSync(path.join(tmpdir(), 'framerize-smoke-context-'));
   t.after(() => rmSync(root, { recursive: true, force: true }));

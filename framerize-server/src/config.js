@@ -10,6 +10,9 @@ const DEFAULTS = Object.freeze({
   idleTimeoutMs: 60_000, requestHeadersTimeoutMs: 15_000,
   shutdownTimeoutMs: 5_000,
 });
+const ENVIRONMENT = Object.freeze({
+  host: 'FRAMERIZE_SERVER_HOST', port: 'FRAMERIZE_SERVER_PORT', upstream: 'FRAMERIZE_SERVER_UPSTREAM',
+});
 
 function invalid(name) {
   throw new ConfigurationError(`Invalid ${name}`);
@@ -21,17 +24,22 @@ export function loadConfig(values = {}, env = process.env) {
   for (const name of Object.keys(values)) {
     if (!Object.hasOwn(DEFAULTS, name) && name !== 'serverToken') invalid('configuration option');
   }
-  const config = { ...DEFAULTS, ...values };
+  const selected = {};
+  for (const [name, variable] of Object.entries(ENVIRONMENT)) {
+    if (!Object.hasOwn(values, name) && env[variable] !== undefined) selected[name] = env[variable];
+  }
+  const label = (name) => (Object.hasOwn(selected, name) ? ENVIRONMENT[name] : name);
+  const config = { ...DEFAULTS, ...selected, ...values };
   for (const name of ['port', 'maxBodyBytes', 'headersTimeoutMs', 'idleTimeoutMs',
     'requestHeadersTimeoutMs', 'shutdownTimeoutMs']) {
     const value = config[name];
-    if (typeof value !== 'number' && (typeof value !== 'string' || !/^\d+$/.test(value))) invalid(name);
+    if (typeof value !== 'number' && (typeof value !== 'string' || !/^\d+$/.test(value))) invalid(label(name));
     const number = Number(value);
     const maximum = name === 'port' ? 65_535 : 2_147_483_647;
-    if (!Number.isSafeInteger(number) || number < (name === 'port' ? 0 : 1) || number > maximum) invalid(name);
+    if (!Number.isSafeInteger(number) || number < (name === 'port' ? 0 : 1) || number > maximum) invalid(label(name));
     config[name] = number;
   }
-  if (typeof config.host !== 'string' || !config.host || /[\s\0/]/.test(config.host)) invalid('host');
+  if (typeof config.host !== 'string' || !config.host || /[\s\0/]/.test(config.host)) invalid(label('host'));
   if (!['debug', 'info', 'warn', 'error', 'silent'].includes(config.logLevel)) invalid('logLevel');
   for (const name of ['accountsFile', 'serverTokenFile', 'authorizationFile']) {
     if (typeof config[name] !== 'string' || config[name].includes('\0')) invalid(name);
@@ -40,11 +48,11 @@ export function loadConfig(values = {}, env = process.env) {
     if (typeof config[name] !== 'string' || (config[name] && !/^[A-Za-z_][A-Za-z0-9_]*$/.test(config[name]))) invalid(name);
   }
   if (config.authorizationEnv && config.authorizationFile) invalid('upstream credential references');
-  if (typeof config.upstream !== 'string') invalid('upstream');
+  if (typeof config.upstream !== 'string') invalid(label('upstream'));
   if (config.upstream) {
     let url;
-    try { url = new URL(config.upstream); } catch { invalid('upstream'); }
-    if (!['http:', 'https:'].includes(url.protocol) || url.username || url.password || url.search || url.hash) invalid('upstream');
+    try { url = new URL(config.upstream); } catch { invalid(label('upstream')); }
+    if (!['http:', 'https:'].includes(url.protocol) || url.username || url.password || url.search || url.hash) invalid(label('upstream'));
     config.upstream = url.href;
   }
   const token = values.serverToken ?? (config.serverTokenFile ? '' : env[config.serverTokenEnv] ?? '');

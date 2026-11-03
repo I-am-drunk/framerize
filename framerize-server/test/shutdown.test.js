@@ -34,7 +34,7 @@ test('graceful shutdown cancels active work, closes provider and releases the po
 
 test('closing before listen prevents a later bind', async () => {
   const provider = { closeCalls: 0, async close() { this.closeCalls += 1; } };
-  const app = await createServer(loadConfig({ port: 0, serverToken: 'fixture' }), { provider });
+  const app = await createServer(loadConfig({ port: 0, serverToken: 'fixture' }, {}), { provider });
   await app.close();
   await assert.rejects(app.listen(), /closing/);
   assert.equal(app.server.listening, false);
@@ -45,13 +45,13 @@ test('hung provider shutdown respects its deadline', async () => {
   const provider = { close() { return new Promise(() => {}); } };
   const app = await createServer(loadConfig({
     port: 0, serverToken: 'fixture', shutdownTimeoutMs: 20,
-  }), { provider });
+  }, {}), { provider });
   await assert.rejects(app.close(), /shutdown timed out/);
   assert.equal(app.server.listening, false);
 });
 
 test('close during listen does not leave a bound server', async () => {
-  const app = await createServer(loadConfig({ port: 0, serverToken: 'fixture' }), {
+  const app = await createServer(loadConfig({ port: 0, serverToken: 'fixture' }, {}), {
     provider: { async close() {} },
   });
   const originalListen = app.server.listen.bind(app.server);
@@ -79,7 +79,7 @@ test('reentrant close returns one promise and closes provider once', async (t) =
     },
     async close() { closeCalls += 1; },
   };
-  app = await createServer(loadConfig({ port: 0, serverToken: TOKEN }), { provider });
+  app = await createServer(loadConfig({ port: 0, serverToken: TOKEN }, {}), { provider });
   t.after(() => app.close());
   await app.listen();
   const port = app.server.address().port;
