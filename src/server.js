@@ -207,10 +207,10 @@ export async function createServer(config, { logger, fetchImpl = fetch } = {}) {
       });
       return server.address();
     },
-    async close() {
-      if (closing || !server.listening) return;
-      closing = true;
+    close() {
+      if (!server.listening) return Promise.resolve();
       closePromise ??= (async () => {
+        closing = true;
         for (const item of active) {
           if (item instanceof AbortController) item.abort(new Error('server shutting down'));
           else item.destroy();

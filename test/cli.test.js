@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { parseArgs, run } from '../src/cli.js';
 import { parseConfig } from '../src/config.js';
 import { spawn, spawnSync } from 'node:child_process';
+import { setTimeout as delay } from 'node:timers/promises';
 
 test('default CLI config preserves loopback and default port', () => {
   const config = parseConfig(parseArgs([], {}).values);
@@ -46,10 +47,36 @@ test('CLI serve shuts down once on SIGTERM', async () => {
       setTimeout(() => reject(new Error('readiness timeout')), 5000).unref();
     });
     child.kill('SIGTERM');
-    assert.equal(await new Promise((resolve) => {
-      if (child.exitCode !== null) resolve(child.exitCode);
-      else child.once('exit', resolve);
-    }), 0);
+    const result = await Promise.race([
+      new Promise((resolve) => child.once('exit', (code, signal) => resolve({ code, signal }))),
+      delay(5000).then(() => { throw new Error('shutdown timeout'); }),
+    ]);
+    assert.deepEqual(result, { code: 0, signal: null });
+    assert.equal((logs.match(/server.closed/g) || []).length, 1);
+  } finally { child.kill('SIGKILL'); }
+});
+
+test('CLI shares shutdown across SIGINT and SIGTERM', async () => {
+  const child = spawn(process.execPath, ['bin/framer-next.js', 'serve', '--port', '0'], {
+    stdio: ['ignore', 'pipe', 'pipe'],
+  });
+  let logs = '';
+  child.stderr.on('data', (chunk) => { logs += chunk; });
+  try {
+    while (!logs.includes('server.listening')) {
+      await Promise.race([
+        delay(10),
+        new Promise((_, reject) => child.once('exit', () => reject(new Error('server exited')))),
+        delay(5000).then(() => { throw new Error('readiness timeout'); }),
+      ]);
+    }
+    child.kill('SIGINT');
+    child.kill('SIGTERM');
+    const result = await Promise.race([
+      new Promise((resolve) => child.once('exit', (code, signal) => resolve({ code, signal }))),
+      delay(5000).then(() => { throw new Error('shutdown timeout'); }),
+    ]);
+    assert.deepEqual(result, { code: 0, signal: null });
     assert.equal((logs.match(/server.closed/g) || []).length, 1);
   } finally { child.kill('SIGKILL'); }
 });
