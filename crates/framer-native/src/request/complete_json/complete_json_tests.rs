@@ -54,7 +54,7 @@ fn successful_facts() -> super::Facts {
         refusal: None, completed: Some(super::CompletedJson::Messages(framer_core::convert::AssembledResponse {
             id: "fixture-completed-message".into(),
             content: vec![json!({"type":"text", "text":"fixture-completed-text"})],
-            stop_reason: "end_turn".into(), stop_sequence: None,
+            stop_reason: "end_turn".into(), stop_sequence: None, stop_details: None,
             usage: json!({"input_tokens":2, "output_tokens":1}),
             input_tokens: 2, output_tokens: 1, chunks: 1, metered_chunks: 0,
         })) }

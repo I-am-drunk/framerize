@@ -29,6 +29,7 @@ pub async fn complete_long_native(
     let mut msg_id = String::new();
     let mut stop_reason = String::new();
     let mut stop_sequence = None;
+    let mut stop_details = None;
     let mut last_usage = json!({});
     let (mut ptok, mut ctok) = (0u64, 0u64);
     let mut chunk_tokens = cfg.chunk_tokens.min(600);
@@ -54,6 +55,7 @@ pub async fn complete_long_native(
         let chunk_blocks = body["content"].as_array().expect("validated array").clone();
         stop_reason = body["stop_reason"].as_str().expect("validated stop").to_owned();
         stop_sequence = body["stop_sequence"].as_str().map(str::to_owned);
+        stop_details = body.get("stop_details").filter(|details| !details.is_null()).cloned();
         if i == 0 {
             msg_id = body["id"].as_str().expect("validated id").to_owned();
         }
@@ -86,7 +88,7 @@ pub async fn complete_long_native(
     last_usage["input_tokens"] = json!(ptok);
     Ok(NativeChain {
         response: AssembledResponse {
-            id: msg_id, content: blocks, stop_reason, stop_sequence,
+            id: msg_id, content: blocks, stop_reason, stop_sequence, stop_details,
             usage: last_usage, input_tokens: ptok, output_tokens: ctok,
             chunks: attempts.len() as u32, metered_chunks: 0,
         },

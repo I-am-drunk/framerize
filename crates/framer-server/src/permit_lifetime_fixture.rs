@@ -214,7 +214,7 @@ pub fn success(kind: &str) -> Reply {
     match kind {
         "messages" => Reply::Messages(AssembledResponse {
             id: "fixture-msg".into(), content: vec![json!({"type":"text", "text":"fixture"})],
-            stop_reason: "end_turn".into(), stop_sequence: None,
+            stop_reason: "end_turn".into(), stop_sequence: None, stop_details: None,
             usage: json!({"input_tokens":1,"output_tokens":1}),
             input_tokens: 1, output_tokens: 1, chunks: 1, metered_chunks: 0,
         }),

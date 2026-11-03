@@ -13,12 +13,23 @@ pub(super) fn decode(body: &Value) -> Result<(Vec<Value>, String, Value), String
         return Err("Messages response is not an object".into());
     }
     if body["type"] == "error" || body.get("error").is_some_and(|error| !error.is_null()) {
-        return Err("Messages response reported an upstream error".into());
+        let error = body.get("error").filter(|error| !error.is_null()).unwrap_or(body);
+        let fields: Map<String, Value> = ["type", "code", "message"].into_iter()
+            .filter_map(|key| error.get(key)
+                .filter(|value| value.is_string() || value.is_number())
+                .map(|value| (key.to_owned(), value.clone()))).collect();
+        let cause = if fields.is_empty() {
+            "error response omitted its type, code and message".into()
+        } else {
+            framer_core::error::safe_failure_summary(&Value::Object(fields).to_string())
+        };
+        return Err(format!("Messages response reported an upstream error: {cause}"));
     }
     validate_message_metadata(body)?;
     let blocks = body["content"].as_array().ok_or("Messages response has no content array")?;
     let stop = terminal_stop_reason(&body["stop_reason"])?;
     validate_stop_sequence(body)?;
+    stop_details(body)?;
     let usage = body.get("usage").cloned().unwrap_or_else(|| json!({}));
     validate_usage(&usage)?;
     validate_blocks(blocks, stop)?;
@@ -44,6 +55,14 @@ pub(super) fn validate_stop_sequence(body: &Value) -> Result<(), String> {
         return Err("Messages response has invalid stop sequence metadata".into());
     }
     Ok(())
+}
+
+pub(super) fn stop_details(body: &Value) -> Result<Option<Value>, String> {
+    match body.get("stop_details").filter(|details| !details.is_null()) {
+        Some(details) if !details.is_object() =>
+            Err("Messages response has invalid stop details metadata".into()),
+        details => Ok(details.cloned()),
+    }
 }
 
 pub(super) fn validate_usage(usage: &Value) -> Result<&Map<String, Value>, String> {

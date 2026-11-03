@@ -128,7 +128,7 @@ pub async fn complete_long(
             callback(ChainEvent::Chunk(completed.content.clone()));
         }
         return Ok(assemble(completed.id, completed.content,
-            completed.stop_reason, completed.stop_sequence, completed.usage,
+            completed.stop_reason, completed.stop_sequence, completed.stop_details, completed.usage,
             completed.input_tokens, completed.output_tokens, 1, 1));
     }
 
@@ -137,6 +137,7 @@ pub async fn complete_long(
     let mut msg_id = String::new();
     let mut stop_reason = "end_turn".to_string();
     let mut stop_sequence: Option<String> = None;
+    let mut stop_details: Option<Value> = None;
     let mut last_usage = json!({});
     let (mut ptok, mut ctok) = (0u64, 0u64);
     let mut metered_chunks = 0u32;
@@ -281,6 +282,7 @@ pub async fn complete_long(
                         let streamed_seq = streamed.stop_sequence.clone();
                         stop_reason = streamed_stop.clone();
                         stop_sequence = streamed_seq.clone();
+                        stop_details = streamed.stop_details.clone();
                         let streamed_blocks = streamed.content.clone();
                         merge_blocks(&mut blocks, streamed_blocks.clone());
                         if let Some(cb) = events {
@@ -290,7 +292,7 @@ pub async fn complete_long(
                             || !has_continuation_text(&streamed_blocks)
                             || remaining_tokens(cfg, ctok).is_some_and(|left| left < output_floor);
                         if finished {
-                            return Ok(assemble(msg_id, blocks, streamed_stop, streamed_seq, last_usage, ptok, ctok, i + 1, metered_chunks));
+                            return Ok(assemble(msg_id, blocks, streamed_stop, streamed_seq, stop_details, last_usage, ptok, ctok, i + 1, metered_chunks));
                         }
                         push_continuation(&mut messages, &streamed_blocks, cfg);
                         continue;
@@ -403,6 +405,7 @@ pub async fn complete_long(
             let streamed_seq = streamed.stop_sequence.clone();
             stop_reason = streamed_stop.clone();
             stop_sequence = streamed_seq.clone();
+            stop_details = streamed.stop_details.clone();
             let streamed_blocks = streamed.content.clone();
             merge_blocks(&mut blocks, streamed_blocks.clone());
             if let Some(cb) = events {
@@ -412,7 +415,7 @@ pub async fn complete_long(
                 || !has_continuation_text(&streamed_blocks)
                 || remaining_tokens(cfg, ctok).is_some_and(|left| left < output_floor);
             if finished {
-                return Ok(assemble(msg_id, blocks, streamed_stop, streamed_seq, last_usage, ptok, ctok, i + 1, metered_chunks));
+                return Ok(assemble(msg_id, blocks, streamed_stop, streamed_seq, stop_details, last_usage, ptok, ctok, i + 1, metered_chunks));
             }
             push_continuation(&mut messages, &streamed_blocks, cfg);
             continue;
@@ -422,6 +425,7 @@ pub async fn complete_long(
         ctok = add_output_tokens(ctok, out_t)?;
         stop_reason = chunk_stop.clone();
         stop_sequence = body["stop_sequence"].as_str().map(str::to_string);
+        stop_details = buffered::stop_details(&body)?;
         bucket_idx += 1; // rotate the bucket every chunk, not just on 429
         merge_blocks(&mut blocks, chunk_blocks.clone());
         if let Some(cb) = events {
@@ -431,11 +435,11 @@ pub async fn complete_long(
         let budget_left = remaining_tokens(cfg, ctok);
         if uninterrupted_thinking || chunk_stop != "max_tokens" || budget_left.is_some_and(|left| left < output_floor)
             || !has_continuation_text(&chunk_blocks) {
-            return Ok(assemble(msg_id, blocks, stop_reason, stop_sequence, last_usage, ptok, ctok, i + 1, metered_chunks));
+            return Ok(assemble(msg_id, blocks, stop_reason, stop_sequence, stop_details, last_usage, ptok, ctok, i + 1, metered_chunks));
         }
         push_continuation(&mut messages, &chunk_blocks, cfg);
     }
-    Ok(assemble(msg_id, blocks, stop_reason, stop_sequence, last_usage, ptok, ctok, cfg.max_chunks, metered_chunks))
+    Ok(assemble(msg_id, blocks, stop_reason, stop_sequence, stop_details, last_usage, ptok, ctok, cfg.max_chunks, metered_chunks))
 }
 
 fn uses_default_thinking(payload: &Value) -> bool {
@@ -491,6 +495,7 @@ fn assemble(
     content: Vec<Value>,
     stop_reason: String,
     stop_sequence: Option<String>,
+    stop_details: Option<Value>,
     last_usage: Value,
     ptok: u64,
     ctok: u64,
@@ -509,6 +514,7 @@ fn assemble(
         content,
         stop_reason,
         stop_sequence,
+        stop_details,
         usage,
         input_tokens: ptok,
         output_tokens: ctok,
@@ -544,6 +550,7 @@ struct StreamedChunk {
     content: Vec<Value>,
     stop_reason: String,
     stop_sequence: Option<String>,
+    stop_details: Option<Value>,
     usage: Value,
     input_tokens: u64,
     output_tokens: u64,

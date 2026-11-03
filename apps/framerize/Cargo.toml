@@ -1,6 +1,6 @@
 [package]
 name = "framerize"
-version = "0.5.1-alpha.21"
+version = "0.5.1-alpha.22"
 build = "../../scripts/build_identity.rs"
 edition.workspace = true
 license.workspace = true

@@ -90,7 +90,7 @@ async fn simultaneous_message_and_completion_drain_output_before_terminal() {
     let outcome = Outcome {
         response: Some(CompletedJson::Messages(convert::AssembledResponse {
             id: "fixture-message".into(), content: blocks, stop_reason: "end_turn".into(),
-            stop_sequence: None, usage: json!({}), input_tokens: 1, output_tokens: 2,
+            stop_sequence: None, stop_details: None, usage: json!({}), input_tokens: 1, output_tokens: 2,
             chunks: 1, metered_chunks: 0,
         })), evidence: None, failure: None, cleanup_confirmed: true,
     };

@@ -114,6 +114,7 @@ pub(super) fn parse(text: &str) -> Result<StreamedChunk, String> {
     let mut blocks: Vec<Value> = Vec::new();
     let mut stop_reason = String::new();
     let mut stop_sequence: Option<String> = None;
+    let mut stop_details: Option<Value> = None;
     let mut usage = json!({});
     let mut current_data = String::new();
     let mut current_event = String::new();
@@ -127,6 +128,7 @@ pub(super) fn parse(text: &str) -> Result<StreamedChunk, String> {
         blocks: &mut Vec<Value>,
         stop_reason: &mut String,
         stop_sequence: &mut Option<String>,
+        stop_details: &mut Option<Value>,
         usage: &mut Value,
         completion: &mut Completion,
     ) -> Result<(), String> {
@@ -161,6 +163,7 @@ pub(super) fn parse(text: &str) -> Result<StreamedChunk, String> {
                 *id = v["message"]["id"].as_str().filter(|id| !id.is_empty())
                     .ok_or("streamed Messages response has no message id")?.to_string();
                 super::buffered::validate_message_metadata(&v["message"])?;
+                *stop_details = super::buffered::stop_details(&v["message"])?;
                 completion.started = true;
                 merge_usage(&v["message"], usage, false)?;
             }
@@ -207,6 +210,9 @@ pub(super) fn parse(text: &str) -> Result<StreamedChunk, String> {
                 let delta = v["delta"].as_object()
                     .ok_or("streamed Messages response has an invalid message delta")?;
                 super::buffered::validate_stop_sequence(&v["delta"])?;
+                if delta.contains_key("stop_details") {
+                    *stop_details = super::buffered::stop_details(&v["delta"])?;
+                }
                 if let Some(reason) = delta.get("stop_reason").filter(|reason| !reason.is_null()) {
                     *stop_reason = super::buffered::terminal_stop_reason(reason)?.to_string();
                     *stop_sequence = v["delta"]["stop_sequence"].as_str().map(str::to_string);
@@ -239,14 +245,14 @@ pub(super) fn parse(text: &str) -> Result<StreamedChunk, String> {
             current_event.clear();
         } else if line.trim().is_empty() {
             handle_event(&current_data, &current_event, &mut id, &mut blocks, &mut stop_reason,
-                &mut stop_sequence, &mut usage, &mut completion)?;
+                &mut stop_sequence, &mut stop_details, &mut usage, &mut completion)?;
             current_data.clear();
             current_event.clear();
         }
     }
     if !current_data.is_empty() || !current_event.is_empty() {
         handle_event(&current_data, &current_event, &mut id, &mut blocks, &mut stop_reason,
-            &mut stop_sequence, &mut usage, &mut completion)?;
+            &mut stop_sequence, &mut stop_details, &mut usage, &mut completion)?;
     }
 
     if !completion.stopped {
@@ -284,6 +290,7 @@ pub(super) fn parse(text: &str) -> Result<StreamedChunk, String> {
         content: blocks,
         stop_reason,
         stop_sequence,
+        stop_details,
         usage,
         input_tokens: ptok,
         output_tokens: ctok,

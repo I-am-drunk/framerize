@@ -25,6 +25,21 @@ fn error_and_missing_message_envelopes_never_publish_or_retry() {
 }
 
 #[test]
+fn buffered_provider_error_retains_cause_without_credentials_or_request_body() {
+    let body = json!({"type":"error", "error":{"type":"overloaded_error",
+        "code":529, "message":"Provider overloaded; Bearer secret-fixture",
+        "request":{"private":"private request fixture"}}});
+    let observed = run(vec![json_reply(body)], 3);
+    let error = observed.result.unwrap_err();
+    assert!(error.contains("Provider overloaded"));
+    assert!(error.contains("529"));
+    assert!(!error.contains("secret-fixture"));
+    assert!(!error.contains("private request fixture"));
+    assert!(observed.emitted.is_empty());
+    assert_eq!(observed.requests.len(), 1);
+}
+
+#[test]
 fn invalid_complete_tool_and_usage_data_never_reach_the_callback() {
     let mut bad_tool = tool();
     bad_tool["input"] = json!("{\"partial\":");
@@ -92,6 +107,41 @@ fn complete_message_preserves_content_stop_sequence_and_usage() {
     assert_eq!(response.usage, body["usage"]);
     assert_eq!(observed.requests.len(), 1);
     assert_eq!(observed.refunds, 0);
+}
+
+#[test]
+fn refused_message_retains_provider_details_without_retry() {
+    let details = json!({"type":"refusal", "category":"reasoning_extraction",
+        "explanation":"Provider refusal explanation", "future_field":{"preserved":true}});
+    let mut body = valid_message(vec![], "refusal");
+    body["stop_details"] = details.clone();
+    let observed = run_with_config(vec![json_reply(body)], ChainConfig {
+        max_chunks: 3, metered_fallback: false, ..ChainConfig::default()
+    });
+    let response = observed.result.unwrap();
+    let client = framer_core::convert::render_json(
+        framer_core::convert::ClientDialect::AnthropicMessages, &response, "fixture");
+    assert_eq!(client["stop_reason"], "refusal");
+    assert_eq!(client["content"], json!([]));
+    assert_eq!(client["stop_details"], details);
+    let streamed = stream::parse(&(observed.frames.join("\n\n") + "\n\n")).unwrap();
+    assert_eq!(streamed.stop_reason, "refusal");
+    assert_eq!(streamed.stop_details, Some(details));
+    assert!(observed.emitted.is_empty());
+    assert_eq!(observed.requests.len(), 1);
+    assert_eq!(observed.refunds, 0);
+}
+
+#[test]
+fn malformed_refusal_metadata_is_not_published_or_retried() {
+    for details in [json!(7), json!("private fixture"), json!([])] {
+        let mut body = valid_message(vec![], "refusal");
+        body["stop_details"] = details;
+        let observed = run(vec![json_reply(body)], 3);
+        assert!(observed.result.unwrap_err().contains("invalid stop details metadata"));
+        assert!(observed.emitted.is_empty());
+        assert_eq!(observed.requests.len(), 1);
+    }
 }
 
 #[test]

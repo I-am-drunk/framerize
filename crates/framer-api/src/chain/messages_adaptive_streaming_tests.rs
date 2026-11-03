@@ -13,6 +13,26 @@ fn adaptive_payload() -> Value {
 }
 
 #[test]
+fn opted_in_adaptive_stream_keeps_completed_refusal_without_replay() {
+    let details = json!({"type":"refusal","category":"reasoning_extraction",
+        "explanation":"Provider explanation"});
+    let raw = [
+        json!({"type":"message_start","message":{"id":"fixture-refusal"}}),
+        json!({"type":"message_delta","delta":{"stop_reason":"refusal",
+            "stop_details":details},"usage":{"output_tokens":1}}),
+        json!({"type":"message_stop"}),
+    ].iter().map(|v| format!("data: {v}\n\n")).collect();
+    let observed = run_with_payload(vec![streamed(raw)], adaptive_config(),
+        Vec::new(), adaptive_payload());
+    let response = observed.result.unwrap();
+    assert_eq!(response.stop_reason, "refusal");
+    assert_eq!(response.stop_details, Some(details));
+    assert!(observed.emitted.is_empty());
+    assert_eq!(observed.requests.len(), 1);
+    assert_eq!(observed.refunds, 0);
+}
+
+#[test]
 fn opted_in_adaptive_generation_streams_before_any_buffered_attempt() {
     let observed = run_with_payload(vec![streamed(stream(tool(), "tool_use"))],
         adaptive_config(), Vec::new(), adaptive_payload());

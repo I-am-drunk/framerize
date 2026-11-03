@@ -430,7 +430,7 @@ impl FramerClient for Ports {
             self.request_finished.fetch_add(1, Ordering::SeqCst);
             Ok(AssembledResponse {
                 id: "fixture-message".into(), content: vec![json!({"type":"text","text":"fixture result"})],
-                stop_reason: "end_turn".into(), stop_sequence: None,
+                stop_reason: "end_turn".into(), stop_sequence: None, stop_details: None,
                 usage: json!({"input_tokens":1,"output_tokens":2}),
                 input_tokens: 1, output_tokens: 2, chunks: 2, metered_chunks: 0,
             })

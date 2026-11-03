@@ -12,7 +12,7 @@ fn response() -> AssembledResponse {
     full_usage["cache_creation"] = json!({"ephemeral_5m_input_tokens":5});
     AssembledResponse { id:"msg-fixture".into(),
         content:vec![json!({"type":"text","text":"answer"})],
-        stop_reason:"stop_sequence".into(), stop_sequence:Some("END".into()),
+        stop_reason:"stop_sequence".into(), stop_sequence:Some("END".into()), stop_details:None,
         usage:full_usage, input_tokens:37, output_tokens:81, chunks:2, metered_chunks:0 }
 }
 
@@ -30,7 +30,7 @@ fn complete_messages_sse_preserves_initial_and_final_usage() {
     assert_eq!(events[0]["message"]["usage"], expected_start);
     let delta = events.iter().find(|event| event["type"] == "message_delta").unwrap();
     assert_eq!(delta["usage"], usage());
-    assert_eq!(delta["delta"], json!({"stop_reason":"stop_sequence","stop_sequence":"END"}));
+    assert_eq!(delta["delta"], json!({"stop_reason":"stop_sequence","stop_sequence":"END","stop_details":null}));
 }
 
 #[test]
@@ -45,6 +45,6 @@ fn incremental_messages_sse_updates_input_and_optional_usage() {
     assert_eq!(events[0]["message"]["usage"], json!({"input_tokens":0,"output_tokens":0}));
     let delta = events.iter().find(|event| event["type"] == "message_delta").unwrap();
     assert_eq!(delta["usage"], usage());
-    assert_eq!(delta["delta"], json!({"stop_reason":"stop_sequence","stop_sequence":"END"}));
+    assert_eq!(delta["delta"], json!({"stop_reason":"stop_sequence","stop_sequence":"END","stop_details":null}));
     assert_eq!(events.last().unwrap()["type"], "message_stop");
 }

@@ -29,6 +29,13 @@ mod messages_content_tests;
 #[path = "messages_usage.rs"]
 mod messages_usage;
 
+#[path = "messages_refusal.rs"]
+mod messages_refusal;
+
+#[cfg(test)]
+#[path = "messages_refusal_tests.rs"]
+mod messages_refusal_tests;
+
 #[cfg(test)]
 #[path = "messages_usage_tests.rs"]
 mod messages_usage_tests;
@@ -48,6 +55,8 @@ pub struct AssembledResponse {
     pub content: Vec<Value>,
     pub stop_reason: String,
     pub stop_sequence: Option<String>,
+    /// Provider stop metadata, including the refusal category and explanation.
+    pub stop_details: Option<Value>,
     /// usage object from the LAST chunk (input side), with output_tokens
     /// replaced by the SUM across chunks.
     pub usage: Value,
@@ -636,6 +645,7 @@ pub fn render_json_with(
             "id": r.id, "type": "message", "role": "assistant",
             "content": r.content, "model": client_model,
             "stop_reason": r.stop_reason, "stop_sequence": r.stop_sequence,
+            "stop_details": r.stop_details,
             "usage": r.usage,
         }),
         ClientDialect::OpenAiChat => {
@@ -643,6 +653,9 @@ pub fn render_json_with(
             let tools = tool_use_blocks(r);
             let mut message = json!({"role": "assistant"});
             message["content"] = if text.is_empty() { Value::Null } else { json!(text) };
+            if let Some(explanation) = messages_refusal::explanation(r) {
+                message["refusal"] = json!(explanation);
+            }
             if !tools.is_empty() {
                 message["tool_calls"] = json!(tools.iter().enumerate().map(|(i, b)| json!({
                     "id": b["id"], "type": "function",
@@ -659,6 +672,7 @@ pub fn render_json_with(
                 "choices": [{
                     "index": 0, "message": message,
                     "finish_reason": chat_finish(&r.stop_reason),
+                    "stop_details": r.stop_details,
                 }],
                 "usage": {
                     "prompt_tokens": r.input_tokens,
@@ -695,6 +709,9 @@ pub fn render_json_with(
                     }));
                 }
             }
+            if let Some(item) = messages_refusal::response_item(r) {
+                output.push(item);
+            }
             json!({
                 "id": format!("resp_{}", &r.id.trim_start_matches("msg_")),
                 "object": "response",
@@ -703,6 +720,7 @@ pub fn render_json_with(
                 "model": client_model,
                 "service_tier": r.usage["service_tier"].clone(),
                 "output": output,
+                "stop_details": r.stop_details,
                 "parallel_tool_calls": true,
                 "usage": {
                     "input_tokens": r.input_tokens,
@@ -718,6 +736,7 @@ fn chat_finish(stop_reason: &str) -> String {
     match stop_reason {
         "max_tokens" => "length".into(),
         "tool_use" => "tool_calls".into(),
+        "refusal" => "content_filter".into(),
         _ => "stop".into(),
     }
 }
@@ -751,7 +770,7 @@ fn anthropic_sse(r: &AssembledResponse, client_model: &str) -> Vec<String> {
         "message": {
             "id": r.id, "type": "message", "role": "assistant",
             "content": [], "model": client_model,
-            "stop_reason": null, "stop_sequence": null,
+            "stop_reason": null, "stop_sequence": null, "stop_details": null,
             "usage": messages_usage::snapshot(r),
         },
     })));
@@ -760,7 +779,8 @@ fn anthropic_sse(r: &AssembledResponse, client_model: &str) -> Vec<String> {
     }
     frames.push(sse("message_delta", json!({
         "type": "message_delta",
-        "delta": {"stop_reason": r.stop_reason, "stop_sequence": r.stop_sequence},
+        "delta": {"stop_reason": r.stop_reason, "stop_sequence": r.stop_sequence,
+                  "stop_details": r.stop_details},
         "usage": messages_usage::delta(r),
     })));
     frames.push(sse("message_stop", json!({"type": "message_stop"})));
@@ -803,7 +823,9 @@ fn chat_sse(r: &AssembledResponse, client_model: &str, include_usage: bool) -> V
             _ => {}
         }
     }
-    frames.push(format!("data: {}", chunk(json!({}), json!(chat_finish(&r.stop_reason)))));
+    let mut terminal = chunk(messages_refusal::chat_delta(r), json!(chat_finish(&r.stop_reason)));
+    terminal["choices"][0]["stop_details"] = json!(r.stop_details);
+    frames.push(format!("data: {}", terminal));
     if include_usage {
         frames.push(format!("data: {}", json!({
             "id": id, "object": "chat.completion.chunk", "created": created,
@@ -832,6 +854,10 @@ fn responses_sse(r: &AssembledResponse, client_model: &str) -> Vec<String> {
     frames.push(base("response.in_progress", json!({"response": {"id": resp_id, "status": "in_progress"}})));
     let outputs = full["output"].as_array().cloned().unwrap_or_default();
     for (idx, item) in outputs.iter().enumerate() {
+        if item["content"][0]["type"] == "refusal" {
+            frames.extend(messages_refusal::response_frames(idx, item));
+            continue;
+        }
         frames.push(base("response.output_item.added", json!({"output_index": idx, "item": item})));
         match item["type"].as_str() {
             Some("message") => {
@@ -991,6 +1017,7 @@ mod tests {
             ],
             stop_reason: "tool_use".into(),
             stop_sequence: None,
+            stop_details: None,
             usage: json!({}),
             input_tokens: 1,
             output_tokens: 1,
@@ -1048,6 +1075,7 @@ mod tests {
             ],
             stop_reason: "tool_use".into(),
             stop_sequence: None,
+            stop_details: None,
             usage: json!({"input_tokens":10,"output_tokens":7}),
             input_tokens: 10, output_tokens: 7, chunks: 1, metered_chunks: 0,
         };
@@ -1141,7 +1169,7 @@ pub fn stream_open(d: ClientDialect, client_model: &str, msg_id: &str) -> Vec<St
             "message": {
                 "id": msg_id, "type": "message", "role": "assistant",
                 "content": [], "model": client_model,
-                "stop_reason": null, "stop_sequence": null,
+                "stop_reason": null, "stop_sequence": null, "stop_details": null,
                 "usage": {"input_tokens": 0, "output_tokens": 0},
             },
         }))],
@@ -1230,7 +1258,8 @@ impl SseComposer {
                 }
                 f.push(sse("message_delta", json!({
                     "type": "message_delta",
-                    "delta": {"stop_reason": r.stop_reason, "stop_sequence": r.stop_sequence},
+                    "delta": {"stop_reason": r.stop_reason, "stop_sequence": r.stop_sequence,
+                              "stop_details": r.stop_details},
                     "usage": messages_usage::delta(r),
                 })));
                 f.push(sse("message_stop", json!({"type": "message_stop"})));
@@ -1241,7 +1270,8 @@ impl SseComposer {
                 f.push(format!("data: {}", json!({
                     "id": chat_id(&self.msg_id), "object": "chat.completion.chunk",
                     "created": self.created, "model": client_model,
-                    "choices": [{"index": 0, "delta": {}, "finish_reason": chat_finish(&r.stop_reason)}],
+                    "choices": [{"index": 0, "delta": messages_refusal::chat_delta(r),
+                        "finish_reason": chat_finish(&r.stop_reason), "stop_details": r.stop_details}],
                 })));
                 if include_usage {
                     f.push(format!("data: {}", json!({
@@ -1291,13 +1321,15 @@ impl SseComposer {
                     content: self.acc.clone(),
                     stop_reason: r.stop_reason.clone(),
                     stop_sequence: r.stop_sequence.clone(),
+                    stop_details: r.stop_details.clone(),
                     usage: r.usage.clone(),
                     input_tokens: r.input_tokens,
                     output_tokens: r.output_tokens,
                     chunks: r.chunks,
                     metered_chunks: r.metered_chunks,
                 };
-                let mut full = render_json(ClientDialect::OpenAiResponses, &assembled, client_model);
+                let mut full = render_json_with(ClientDialect::OpenAiResponses, &assembled,
+                    client_model, &self.custom_tools);
                 // Codex correlates a stream by response/item id: the events
                 // above were emitted under the LOCAL ids, but `full` carries
                 // the upstream ids — a mismatched completed object is
@@ -1311,6 +1343,13 @@ impl SseComposer {
                         } else {
                             format!("{}_{i}", self.msg_id)
                         });
+                    }
+                }
+                if let Some(items) = full["output"].as_array() {
+                    for (idx, item) in items.iter().enumerate() {
+                        if item["content"][0]["type"] == "refusal" {
+                            f.extend(messages_refusal::response_frames(idx, item));
+                        }
                     }
                 }
                 f.push(sse("response.completed", json!({

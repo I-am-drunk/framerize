@@ -29,7 +29,7 @@ fn completion_event_omits_private_data_and_preserves_final_cleanup() {
     let mut outcome = offline_serving::Outcome {
         response: Some(CompletedJson::Messages(convert::AssembledResponse {
             id: "private-marker".into(), content: vec![serde_json::json!({"secret":"private-marker"})],
-            stop_reason: "end_turn".into(), stop_sequence: None,
+            stop_reason: "end_turn".into(), stop_sequence: None, stop_details: None,
             usage: serde_json::json!({}), input_tokens: 0, output_tokens: 0,
             chunks: 1, metered_chunks: 0,
         })),

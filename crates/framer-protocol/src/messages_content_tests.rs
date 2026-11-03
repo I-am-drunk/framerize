@@ -14,7 +14,7 @@ fn tool() -> Value {
 
 fn assembled(content: Vec<Value>) -> AssembledResponse {
     AssembledResponse { id:"msg-fixture".into(), content, stop_reason:"tool_use".into(),
-        stop_sequence:None, usage:json!({"input_tokens":2,"output_tokens":3}),
+        stop_sequence:None, stop_details:None, usage:json!({"input_tokens":2,"output_tokens":3}),
         input_tokens:2, output_tokens:3, chunks:1, metered_chunks:0 }
 }
 

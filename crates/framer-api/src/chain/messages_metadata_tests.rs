@@ -38,3 +38,30 @@ fn usage_only_updates_preserve_valid_message_and_stop_metadata() {
     assert_eq!(parsed.stop_sequence.as_deref(), Some("END"));
     assert_eq!(parsed.output_tokens, 10);
 }
+
+#[test]
+fn refusal_details_survive_separate_delta_and_later_usage() {
+    let details = json!({"type":"refusal", "category":"reasoning_extraction",
+        "explanation":"Provider explanation", "future":true});
+    let values = vec![
+        json!({"type":"message_start","message":{"id":"msg-fixture"}}),
+        json!({"type":"message_delta","delta":{"stop_details":details}}),
+        json!({"type":"message_delta","delta":{"stop_reason":"refusal"}}),
+        json!({"type":"message_delta","delta":{},"usage":{"output_tokens":1}}),
+        json!({"type":"message_stop"}),
+    ];
+    let parsed = parse(&encode(&values)).unwrap();
+    assert_eq!(parsed.stop_details, Some(details));
+    assert_eq!(parsed.stop_reason, "refusal");
+    assert!(parsed.content.is_empty());
+}
+
+#[test]
+fn malformed_streamed_stop_details_are_rejected() {
+    for details in [json!(false), json!(7), json!("private fixture"), json!([])] {
+        let mut values = text_events("refusal");
+        values[4]["delta"]["stop_details"] = details;
+        let error = parse(&encode(&values)).unwrap_err();
+        assert_eq!(error, "Messages response has invalid stop details metadata");
+    }
+}

@@ -1,3 +1,23 @@
+# Claude refusal details, 2026-11-03
+
+Branch `fix/claude-network-diagnostics-20261103` has alpha.21 live from
+source `674fd36c`, PID 654353 since 04:31:17 UTC. Health, readiness and
+live Kimi, Claude and Astra checks passed. Private Claude body capture is
+enabled for two hours under `~/.framerize/profiles/.logs/claude-bodies`.
+The exact package passed native isolated real requests and normal shutdown.
+See [the release evidence](incidents/2026-11-03-reliability-release.md).
+
+The separate continuation diagnostic ended in a `reasoning_extraction`
+refusal. It did not demonstrate successful chaining. The gateway lost the
+provider's `stop_details`, hiding the explanation. The pending correction
+preserves that object in JSON and streaming Messages replies and represents
+the refusal explicitly on both OpenAI compatibility routes. All 101 protocol
+tests and 134 Messages tests pass. The old source fails the new metadata
+regression. Buffered provider error envelopes also retain their sanitized
+type, code and message. The workspace, including every test target, compiles.
+Next: build and qualify the alpha.22 package.
+No refused continuation is replayed. Long adaptive upstream timeouts remain open.
+
 # Browser page-creation deadline, 2026-11-03
 
 The alpha.20 candidate retains the pending memory-selection and Claude

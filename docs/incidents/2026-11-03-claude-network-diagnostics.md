@@ -1,8 +1,8 @@
 # Claude failure attribution
 
-## Private body capture candidate
+## Private body capture active
 
-The alpha.21 candidate adds explicitly enabled private Claude request and
+The alpha.21 release adds explicitly enabled private Claude request and
 response capture. It records prepared payloads before dispatch and the actual
 returned body or failure, with the same job identity as the network event.
 Unreadable upstream bodies remain unavailable. HTTP status alone is never
@@ -13,11 +13,48 @@ The two-hour switch lives outside the immutable release. Files have mode
 fields. The writer has two queued records and one active write; disk failures
 and a full queue cannot block inference. Browser debugger payload retention
 stays disabled. All 55 focused capture, dispatch, network and response-ownership
-checks pass. The candidate is not yet activated and does not implement adaptive
-thinking continuation. The next step is real isolated body capture and a
-signed-thinking continuation probe before qualifying the resulting release.
+checks pass. The verified package became live at 04:31:17 UTC as PID 654353.
+The switch was enabled at 04:31 UTC and two live capture records confirmed
+request and response collection. The actual sidecar capture directory is
+`~/.framerize/profiles/.logs/claude-bodies`; the Rust host sets it relative
+to profiles, independently of the parent daemon's log directory.
 
-Branch `fix/claude-network-diagnostics-20261103` has activated alpha.18.
+Native qualification passed 32 ordinary requests, four under memory pressure,
+two adaptive requests and a signed-thinking tool round trip. Shutdown took
+3.777 seconds and left no owned processes. Workspace credits remained 500.
+
+The separate continuation probe returned `stop_reason: refusal` with category
+`reasoning_extraction`. Its original messages, system prompt, tools and
+returned thinking block were preserved. The evidence does not attribute the
+refusal to deletion or rewriting of those fields. The gateway discarded
+`stop_details`, so clients received an unexplained empty refusal. Repairing
+that loss is pending. The refused continuation will not be retried through
+another account or model. Long adaptive upstream timeouts remain unresolved.
+
+## Refusal metadata correction
+
+Alpha.22 preserves the optional provider `stop_details` object through
+buffered assembly and streaming `message_delta` events, including separate
+metadata and usage deltas. Unknown fields remain intact. OpenAI Chat replies
+include `message.refusal` and `finish_reason: content_filter`; Responses
+replies include refusal content and refusal SSE events. The original
+`stop_details` object is an extension on the Chat choice or Responses object.
+Previously published text remains separate from a later refusal. Missing
+explanations are reported as missing, rather than inferred from earlier text.
+
+The old source fails the metadata regression. All 101 protocol and 134
+Messages tests pass with the correction, including both fallback assembly
+paths and no additional attempt after a refusal. Buffered provider errors
+also retain their sanitized type, code and message instead of a generic label.
+The candidate still requires package construction and isolated qualification.
+
+Schema references: Anthropic's
+[message delta schema](https://github.com/anthropics/anthropic-sdk-python/blob/main/src/anthropic/types/raw_message_delta_event.py),
+[refusal details schema](https://github.com/anthropics/anthropic-sdk-python/blob/main/src/anthropic/types/refusal_stop_details.py),
+OpenAI's [Chat schema](https://developers.openai.com/api/reference/resources/chat/subresources/completions/methods/create)
+and [Responses schema](https://developers.openai.com/api/reference/resources/responses/methods/create).
+
+Previously, branch `fix/claude-network-diagnostics-20261103` activated alpha.18.
 Source `d857d6ee` is live as PID 507283 since November 3 at 02:56:53 UTC.
 Health, readiness, buffered Kimi, Claude and Astra, and both streaming
 dialects pass. The user approved the incomplete isolated qualification

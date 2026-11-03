@@ -1,6 +1,34 @@
 # Framerize reliability release
 
-Release: `0.5.1-alpha.18`.
+Current release: `0.5.1-alpha.21`, source
+`674fd36cb7a41a9eca09a1cbc13f61331905a290`.
+Live as PID 654353 since November 3 at 04:31:17 UTC. Activation replaced
+alpha.18 PID 507283 through normal shutdown. Health, readiness and real
+Kimi, Claude and Astra responses passed. All twelve account identities,
+the six-browser capacity and the existing memory limits were preserved.
+
+Exact-package qualification on port 8792 passed 32 ordinary requests,
+four requests under memory pressure, two adaptive Claude requests and a
+two-request signed-thinking tool round trip. The exclusive workspace kept
+500 credits. Shutdown took 3.777 seconds and left no owned processes.
+Peak PSS was 1,818,568,704 bytes; the early warm mean was 1,581,199,360 and
+the late mean was 1,410,245,248. This is a different workload from the
+controlled memory comparison below and does not establish total savings.
+
+The separate continuation diagnostic ended in a provider refusal with
+category `reasoning_extraction`. Its second HTTP 200 contained no answer.
+The diagnostic completed, but adaptive chaining did not succeed. The
+gateway dropped `stop_details`, which concealed the provider's explanation.
+That metadata loss is the next correction. No refused continuation is replayed.
+
+Alpha.21 binary SHA-256:
+`2b7c8fa41ede032b8e4d29edf545ad01c1073e6be6fc876eecbd5c1b4c1a0be3`.
+Archive SHA-256:
+`429555979cf53884c213f47c3783e83d4846f3a90c1b67144dc613a462373f78`.
+Private evidence is in `native-alpha21/evidence/qualification.json` and
+`native-alpha21/evidence/activation-654353.json` under the incident cache.
+
+Previous release: `0.5.1-alpha.18`.
 Source: `d857d6ee8d77dcaff349b7b14ec3b2e1ce065a15`.
 Live as PID 507283 since November 3 at 02:56:53 UTC.
 Health, readiness, buffered Kimi, Claude and Astra, and both streaming
@@ -12,6 +40,11 @@ Alpha.18 adds the cold-preparation fix to alpha.17's diagnostics and warmup fixe
 
 | Error | Cause and fix | Verification |
 |---|---|---|
+| Claude refusal explanation vanished | `AssembledResponse` and stream assembly omitted `stop_details`. The alpha.22 candidate carries the provider object unchanged and emits explicit OpenAI refusal fields and events. | Old-source failure reproduced; 101 protocol and 134 Messages tests pass. Activation pending. |
+| Buffered provider error lacked a cause | JSON validation discarded the provider's error object. The alpha.22 candidate retains its sanitized type, code and message. | Dedicated no-replay and credential-redaction regression passes. Activation pending. |
+| Existing browsers deferred for low allocation RAM | Selection chose a cold account even when eligible resident browsers could serve. Select from observed residents when allocation headroom is insufficient. | Alpha.21 served four real requests under pressure without a new browser launch. |
+| Browser page creation stalled | A window startup or target-registration wait held the creation queue indefinitely. Bound creation to 90 seconds and retain ownership until cleanup is confirmed. | Five driver regressions, 80 focused Python checks and alpha.21 normal shutdown pass. |
+| Signed Claude history was omitted | Native Messages conversion dropped non-text thinking blocks. Preserve signed and redacted blocks in their original order. | Protocol regression and alpha.21 real signed-thinking tool round trip pass. |
 | Node timeouts | Overlapping polls and repeated pipe-buffer copying delayed the driver. Keep one owned poll and copy frames linearly. | The baseline made three overlapping polls; the repaired regression made one. |
 | Stalled SDK warmup | Preparation had no deadline and could return an unprepared device. Apply a 120-second deadline and join context cleanup. | Five warmup regressions; real-browser cleanup in 1.614 seconds. |
 | Admission closed during cold startup | Synchronous browser preparation blocked status replies past five seconds. Use one tracked worker task and join it on shutdown. | 82 targeted checks pass. Exact-package preparation took 5.342 seconds while 259 status checks stayed below 34 ms. |
