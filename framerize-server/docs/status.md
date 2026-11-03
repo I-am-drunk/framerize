@@ -124,6 +124,15 @@ reproduces the exact 275-versus-276-byte failure on the old checker. The fixed
 checker accepts only that expected shebang conversion and passes the same
 CRLF fixture plus the ordinary LF packed-install check. Native and aggregate
 jobs were skipped in that run, not qualified.
+
+Provider commit `8969774cb150d86626678cb9e0ce21a2a362e00f` is integrated unchanged
+into this topic at `0848e05a0daf5b55f089fda3aeb7d79b7c2259c9`. The combined source
+passes 86 tests, syntax, the shared-tarball install check and the full Linux x64
+native build/package/extracted-smoke/metadata sequence on Node 22.23.4. Its five
+new hashes are retained in `native-evidence/0848e05a-linux-x64.json`.
+Earlier `9a2486c9` artifacts remain historical evidence, not qualification of
+this provider update. The integration owner retains PR #96's merge decision.
+
 Windows graceful POSIX-signal behavior is not claimed. Live inference,
 private credentials, production activation and release publication remain
 outside this stage.
