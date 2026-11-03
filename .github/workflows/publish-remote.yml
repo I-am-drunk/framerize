@@ -1,0 +1,125 @@
+name: publish-remote
+
+on:
+  workflow_dispatch:
+    inputs:
+      candidate_run_id:
+        description: Successful release workflow run with reviewed candidate bytes
+        required: true
+        type: string
+      release_sha256:
+        description: Reviewed SHA256 of the candidate release.json
+        required: true
+        type: string
+      publish:
+        description: Publish through the configured npm trusted publisher after approval
+        required: true
+        default: false
+        type: boolean
+
+permissions:
+  contents: read
+
+concurrency:
+  group: remote-npm-publication
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    if: github.ref == 'refs/heads/main'
+    environment: npm-release
+    runs-on: ubuntu-22.04
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      actions: read
+      id-token: write
+    env:
+      NODE_OPTIONS: ''
+      NPM_CONFIG_UPDATE_NOTIFIER: 'false'
+      CANDIDATE_RUN: ${{ inputs.candidate_run_id }}
+      CANDIDATE_MANIFEST_SHA256: ${{ inputs.release_sha256 }}
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: '24.13.0'
+      - run: npm ci --ignore-scripts --no-audit --no-fund
+      - run: node node_modules/typescript/bin/tsc -p tsconfig.promotion.json
+      - name: Fetch candidate and environment metadata
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          [[ "$CANDIDATE_RUN" =~ ^[1-9][0-9]*$ ]]
+          [[ "$CANDIDATE_MANIFEST_SHA256" =~ ^[a-f0-9]{64}$ ]]
+          gh api "repos/$GITHUB_REPOSITORY/actions/runs/$CANDIDATE_RUN" > "$RUNNER_TEMP/candidate-run.json"
+          gh api "repos/$GITHUB_REPOSITORY/environments/npm-release" > "$RUNNER_TEMP/publish-environment.json"
+          node -e '
+            const run = require(process.env.RUNNER_TEMP + "/candidate-run.json");
+            const assert = require("node:assert/strict");
+            assert.equal(run.path, ".github/workflows/release.yml");
+            assert.equal(run.conclusion, "success");
+            assert.equal(run.status, "completed");
+            assert.equal(run.repository.full_name, process.env.GITHUB_REPOSITORY);
+          '
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: remote-candidate-${{ inputs.candidate_run_id }}
+          run-id: ${{ inputs.candidate_run_id }}
+          github-token: ${{ github.token }}
+          path: ${{ runner.temp }}/remote-candidate
+      - name: Verify the candidate and committed live approval
+        id: verify
+        run: |
+          node .tools/scripts/package-promotion.js \
+            "$RUNNER_TEMP/remote-candidate" release-approvals/framerize-remote.json \
+            "$RUNNER_TEMP/remote-promotion" "$RUNNER_TEMP/candidate-run.json" \
+            "$RUNNER_TEMP/publish-environment.json"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: remote-promotion-${{ github.run_id }}
+          path: ${{ runner.temp }}/remote-promotion/
+          if-no-files-found: error
+      - name: Publish the exact approved tarball
+        if: inputs.publish
+        working-directory: ${{ runner.temp }}/remote-promotion
+        env:
+          TARGET_TARBALL: ${{ steps.verify.outputs.tarball }}
+          TARGET_DIST_TAG: ${{ steps.verify.outputs.dist-tag }}
+          NODE_AUTH_TOKEN: ''
+          NPM_TOKEN: ''
+          TARGET_VERSION: ${{ steps.verify.outputs.version }}
+          EXPECTED_INTEGRITY: ${{ steps.verify.outputs.integrity }}
+          NPM_CONFIG_USERCONFIG: ${{ runner.temp }}/publish-user.npmrc
+          NPM_CONFIG_GLOBALCONFIG: ${{ runner.temp }}/publish-global.npmrc
+          NPM_CONFIG_CACHE: ${{ runner.temp }}/publish-cache
+          NPM_CONFIG_REGISTRY: https://registry.npmjs.org/
+          NPM_CONFIG_IGNORE_SCRIPTS: 'true'
+        run: |
+          test "$(npm --version)" = 11.6.2
+          touch "$NPM_CONFIG_USERCONFIG" "$NPM_CONFIG_GLOBALCONFIG"
+          npm publish "$TARGET_TARBALL" --access public --tag "$TARGET_DIST_TAG" \
+            --ignore-scripts --provenance=false --registry=https://registry.npmjs.org/
+          npm view "framerize-remote@$TARGET_VERSION" dist.integrity --json > registry-integrity.json
+          node -e '
+            const fs = require("node:fs");
+            require("node:assert/strict").equal(
+              JSON.parse(fs.readFileSync("registry-integrity.json", "utf8")), process.env.EXPECTED_INTEGRITY);
+          '
+          npm exec --yes --ignore-scripts --package="framerize-remote@$TARGET_VERSION" \
+            -- framerize-remote --help > registry-help.txt
+      - name: Retain registry installation result
+        if: inputs.publish
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: remote-registry-check-${{ github.run_id }}
+          path: |
+            ${{ runner.temp }}/remote-promotion/promotion.json
+            ${{ runner.temp }}/remote-promotion/registry-integrity.json
+            ${{ runner.temp }}/remote-promotion/registry-help.txt
+          if-no-files-found: error

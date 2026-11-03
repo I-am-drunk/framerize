@@ -1,0 +1,5 @@
+{
+  "extends": "./tsconfig.base.json",
+  "compilerOptions": { "rootDir": ".", "outDir": ".tools" },
+  "files": ["scripts/package-promotion.ts"]
+}

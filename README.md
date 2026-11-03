@@ -114,8 +114,10 @@ They use a synthetic upstream, not a live inference provider.
 The [package workflow](docs/package-coexistence-ci.md) and
 [release candidate checks](docs/package-release.md) require new evidence for
 changed packages. Historical JavaScript and native reports do not qualify this
-TypeScript restart. Hosted platform checks, the remaining server automation
-migration, live browserless compatibility and npm publication remain open.
+TypeScript restart. Hosted platform checks, live browserless compatibility
+and npm publication remain open. The [publication workflow](docs/remote-publication.md)
+requires reviewed live evidence and environment approval before publishing
+the original Remote archive.
 The [native server build](docs/native-server-build.md) now binds each executable
 to the verified npm archive rather than bundling loose checkout files.
 

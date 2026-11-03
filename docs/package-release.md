@@ -1,7 +1,7 @@
 # Remote release candidates
 
-The TypeScript restart assembles candidates. It does not publish to npm or
-claim live browserless compatibility. Server native releases stay separate.
+The candidate workflow does not publish to npm or claim live browserless
+compatibility. Server native releases stay separate.
 
 1. A `framerize-remote-v<version>` tag runs the reusable `ci` workflow.
 2. Source checks complete before the package-pair workflow builds both
@@ -29,6 +29,13 @@ does not bypass that gate. No npm credential or write permission is used.
 Stale artifacts, changed bytes, incomplete matrices and version mismatches
 fail qualification. Historical package or native results cannot replace
 these checks for the changed TypeScript packages.
+
+## Approved publication
+
+The separate [Remote publication workflow](remote-publication.md) promotes the
+same bytes only after a committed live review and environment approval. It
+defaults to preparation only. No live approval record exists at this checkpoint.
+Its local tests do not establish hosted operation or registry publication.
 
 ## Local verification
 
