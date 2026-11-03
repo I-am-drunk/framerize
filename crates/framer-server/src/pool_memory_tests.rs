@@ -1,6 +1,34 @@
 use super::*;
 use crate::pool_control::select_account_observed;
 
+#[tokio::test]
+async fn memory_pressure_preserves_the_cause_when_no_account_is_eligible() {
+    for case in 0..5 {
+        let (state, ports) = constrained().await;
+        let mut accounts = ports.records.lock().unwrap().clone();
+        let mut excluded = Vec::new();
+        match case {
+            0 => accounts.iter_mut().for_each(|a| a.state = AccountState::Disconnected),
+            1 => accounts.iter_mut().for_each(|a| a.cooling_until_ms = Some(u64::MAX)),
+            2 => excluded = accounts.iter().map(|a| a.id.0.to_string()).collect(),
+            3 => state.serving_accounts.mutations.lock().unwrap()
+                .extend(accounts.iter().map(|a| a.id)),
+            _ => accounts.clear(),
+        }
+        let expected = if excluded.is_empty() {
+            state.serving_accounts.select(accounts.clone(), None)
+        } else {
+            state.serving_accounts.select_fresh(accounts.clone(), &excluded)
+        }.unwrap_err().diagnostic();
+        let calls = ports.events.lock().unwrap().len();
+        let observed = select_account_observed(&state, accounts, None, &excluded).await;
+        assert!(observed.cleanup_confirmed);
+        assert_eq!(observed.result.err().unwrap().diagnostic(), expected);
+        assert!(!expected.contains("Low available RAM"));
+        assert_eq!(ports.events.lock().unwrap().len(), calls);
+    }
+}
+
 async fn constrained() -> (AppState, Arc<Ports>) {
     let (mut state, ports) = fixture(6, 3);
     for account in ports.records.lock().unwrap().iter_mut() {

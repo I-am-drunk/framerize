@@ -28,11 +28,15 @@ async fn observe_loaded(s: &AppState, accounts: &[ManagedAccount],
         let protected = s.serving_accounts.mutations.lock()
             .map_err(|_| ApiError::PoolBusy("account management is unavailable".into()))?.clone();
         let now = framer_core::rotation::now_ms();
-        let checks = accounts.iter().filter(|account|
+        let candidates: Vec<_> = accounts.iter().filter(|account|
             account.is_available_at(now) && s.serving_accounts.allows(&account.id)
             && !excluded.contains(&account.id.0.to_string())
-            && snapshot.residents.iter().any(|slot| slot.account == account.id)
-            && ServingAccountPolicy::residency_allows(&snapshot, &account.id, &protected))
+            && ServingAccountPolicy::residency_allows(&snapshot, &account.id, &protected)).collect();
+        // Let the normal selector retain authentication, cooldown and ownership
+        // causes when no account would be eligible even with enough memory.
+        if candidates.is_empty() { return Ok(None); }
+        let checks = candidates.into_iter()
+            .filter(|account| snapshot.residents.iter().any(|slot| slot.account == account.id))
             .map(|account| async move {
                 (account.id, tokio::time::timeout(Duration::from_secs(5),
                     s.browser.browser_status(&account.id)).await)
