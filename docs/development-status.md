@@ -10,7 +10,11 @@ Stream pings continue during admission and cooldown, with a cumulative
 prohibits replay of the whole request.
 The wider [Claude reliability audit](incidents/2026-11-03-claude-reliability.md)
 records findings and their verification limits. Current-source package
-qualification is pending. The last verified production release was alpha.25.
+qualification passed for both exact alpha.29 packages from source
+`125fe257c9ef200823a560d24106fea2765b0eef`. The bridge also read the candidate's
+version 2 signed history after restart. The
+[release evidence](incidents/2026-11-03-claude-shared-qualification.md) records
+package hashes, live results and cleanup times. Production remains alpha.25.
 
 The candidate rotates event logs without restart and shares checkpoint layout
 prefixes. Its default history writer uses version 2. The companion build with
@@ -30,9 +34,15 @@ Validation passes: 106 protocol tests, 495 API tests, 502 server tests,
 activation, release and build-identity tests. After sharing the continuation
 constructor, all 165 Messages tests pass. The normal application compiles
 without test-support features. The nine unchanged logging checks retain their
-previous evidence. Exact-package and live qualification are still pending.
-Next: publish the correction to PR #125 and qualify the candidate and bridge
-packages before reviewed activation.
+previous evidence.
+Both iMac packages passed independent checks on Iris, followed by isolated
+buffered and streaming requests, signed follow-ups and complete tool calls.
+All diagnostic processes exited, saved history remained intact and all 500
+test workspace credits remained. The final bridge shutdown took 37.599 seconds.
+Both packages are staged. The read-only production preflight refused activation
+because requests were active. No production restart occurred.
+Next: approve activation of the bridge followed by the candidate. Execute each
+phase only after its live preflight confirms idle, clean ownership.
 
 The entries below retain their original measurements and deployment status
 at the time they were recorded. They are not current-source qualifications.
