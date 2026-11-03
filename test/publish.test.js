@@ -1,12 +1,21 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { chmodSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-const executable = process.platform === 'win32' ? 'npm.cmd' : 'npm';
+function installStub(bin, name, body) {
+  const file = path.join(bin, process.platform === 'win32' ? `${name}.js` : name);
+  const script = `#!/usr/bin/env node\n${body}`;
+  writeFileSync(file, script, { mode: 0o755 });
+  if (process.platform === 'win32') {
+    const quoted = process.execPath.replace(/"/g, '\\"');
+    writeFileSync(path.join(bin, `${name}.cmd`),
+      `@echo off\r\n"${quoted}" "%~dp0${name}.js" %*\r\n`);
+  }
+}
 
 function publish(authenticated = true, published = false, version = '0.1.7',
   registryError = '', githubActions = false, checksumValid = true, commit = 'a'.repeat(40),
@@ -23,20 +32,20 @@ function publish(authenticated = true, published = false, version = '0.1.7',
     artifacts: includeDigest ? { [`framer-next-${version}.tgz`]: '0'.repeat(64) } : {},
   }));
   const calls = path.join(directory, 'calls');
-  const stub = `#!/bin/sh\nprintf '%s\\n' "$*" >> '${calls}'\n${
-    authenticated ? '' : '[ "$1" = whoami ] && exit 1\n'}${
-    published ? '[ "$1" = view ] && exit 0\n'
-      : `[ "$1" = view ] && { printf '%s' '${registryError || 'E404'}' >&2; exit 1; }\n`}exit 0\n`;
-  writeFileSync(path.join(bin, executable), stub, { mode: 0o755 });
-  writeFileSync(path.join(bin, 'sha256sum'),
-    `#!/bin/sh\nprintf '%s\\n' "$*" >> '${calls}'\n${checksumValid ? '' : 'exit 1\n'}`);
-  chmodSync(path.join(bin, 'sha256sum'), 0o755);
-  writeFileSync(path.join(bin, 'git'),
-    `#!/bin/sh\nprintf '%s\\n' "$*" >> '${calls}'\n[ "$1" = rev-parse ] && printf "%s\\n" "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"\nif [ "$1" = cat-file ]; then [ "$3" = "${commit}^{commit}" ] || exit 1; fi\n${
-      dirty ? '[ "$1" = status ] && printf " M source.js\\n"\n' : ''}exit 0\n`,
-    { mode: 0o755 });
-  writeFileSync(path.join(bin, 'tar'), `#!/bin/sh\nprintf '%s\\n' '{"name":"framer-next","version":"${version}"}'\n`,
-    { mode: 0o755 });
+  const record = `appendFileSync(${JSON.stringify(calls)}, process.argv.slice(2).join(' ') + '\\n');`;
+  installStub(bin, 'npm', `import { appendFileSync } from 'node:fs';\n${record}
+    if (process.argv[2] === 'whoami' && ${!authenticated}) process.exit(1);
+    if (process.argv[2] === 'view') {
+      if (${published}) process.exit(0);
+      console.error(${JSON.stringify(registryError || 'E404')}); process.exit(1);
+    }`);
+  installStub(bin, 'sha256sum', `import { appendFileSync } from 'node:fs';\n${record}
+    if (${!checksumValid}) process.exit(1);`);
+  installStub(bin, 'git', `import { appendFileSync } from 'node:fs';\n${record}
+    if (process.argv[2] === 'rev-parse') console.log('a'.repeat(40));
+    if (process.argv[2] === 'cat-file' && process.argv[4] !== ${JSON.stringify(`${commit}^{commit}`)}) process.exit(1);
+    if (process.argv[2] === 'status' && ${dirty}) console.log(' M source.js');`);
+  installStub(bin, 'tar', `console.log(JSON.stringify({ name: 'framer-next', version: ${JSON.stringify(version)} }));`);
   const result = spawnSync(process.execPath, [
     fileURLToPath(new URL('../scripts/publish-package.js', import.meta.url))], {
     encoding: 'utf8',
