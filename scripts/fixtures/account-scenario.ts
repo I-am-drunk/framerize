@@ -59,8 +59,10 @@ export async function createAccountScenario() {
 
 export async function exerciseAccountFlow(base: string, token: string,
   scenario: Awaited<ReturnType<typeof createAccountScenario>>) {
+  const authBefore = scenario.state.auth;
+  assert.ok(authBefore === 0 || authBefore === 1);
   assert.equal((await exchange(base, '/ready', 'wrong')).status, 401);
-  assert.equal(scenario.state.auth, 0);
+  assert.equal(scenario.state.auth, authBefore);
   assert.equal((await exchange(base, '/ready', token)).status, 200);
   assert.equal(scenario.state.auth, 1); assert.equal(scenario.state.inference, 0);
   const response = await exchange(base, '/v1/chat/completions', token, { body: request, timeoutMs: 20_000 });

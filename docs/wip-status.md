@@ -5,9 +5,9 @@ Framerize Remote. This is unfinished development work, not a release.
 
 ## Checked locally
 
-- The full workspace build and static checks pass.
-- Node 22.23.4 and 24.13.0 each pass all 293 server tests and 32 core tests
-  without skips. These include JSON account selection, session isolation,
+- The server build and workspace static checks pass.
+- Node 22.23.4 and 24.13.0 each pass 357 server, workflow and installed-package
+  checks without skips. They cover JSON account selection, session isolation,
   private credential references and startup cancellation. CLI cancellation now
   covers asynchronous provider creation, server construction and pending listen.
   Late-created providers close before exit; cleanup failures remain fatal.
@@ -18,17 +18,20 @@ Framerize Remote. This is unfinished development work, not a release.
 - TLS checks include a hostile insecure-TLS environment and verify that a
   failed connection is closed before backend shutdown completes.
 
-The Framer backend tests use synthetic loopback endpoints and an injected
-minter. The installed flow checks account authentication and the generic HTTP
-provider. Neither result proves live Framer compatibility. Whole-project
-release qualification, hosted CI and new native artifacts remain open.
+The installed account flow uses synthetic loopback endpoints and the packaged
+Castle Library, not an injected minter. The Linux executable embeds the same
+runtime and Node 22.23.4. It works with installed Remote on Node 22.23.4 and
+24.13.0 with an empty server `PATH`. Checks cover streaming, cancellation
+and removal of its private extracted files. These results do not prove live
+Framer compatibility or qualify another operating system.
 
 ## Still unfinished
 
-- Expose account selection and a real Castle minter through the server CLI.
-- Finish the real encoder delivery and Castle/provider integration.
 - Validate live browserless inference with the account owner's procedure.
 - Qualify hosted packages and native artifacts before publishing a release.
+- Publish the qualified Remote package to npm.
+
+## Earlier portability fixes
 
 The first hosted snapshot exposed a Windows type-fixture path mismatch and
 release fixtures inheriting the enclosing CI commit. Both are fixed locally.
