@@ -271,9 +271,25 @@ Its existing path filters, read-only permissions, dedicated package directory
 and source/native/aggregate jobs are unchanged. YAML checks cover that policy;
 actual post-merge qualification still requires a run at the merged source.
 
+## Final PR qualification
+
+At frozen head `23d87c6c9a04952514eed9eebc6936e61b6f3e05`,
+[server CI run 41663296507](https://github.com/I-am-drunk/framerize/actions/runs/41663296507)
+passes all 11 jobs. Both Windows source jobs pass all 117 test entries,
+67 acceptance tests and packed-install smoke. All three native targets pass
+extracted-binary checks, including the client-disconnect preconditions.
+This closes the earlier Windows fixture and final aggregate gates.
+
+Core verification and independent review pass the downloaded aggregate's ZIP
+digest and size, all six payload hashes, nine nested executable/license hashes,
+and exact npm inventory and file bytes. The synthetic merge tree equals the
+frozen head tree. Exact provenance, manifests, hashes and qualification limits
+are retained in `native-evidence/41663296507/` without executable files.
+This docs-only retention does not change the qualified runtime or packaging.
+
 Windows graceful POSIX-signal behavior is not claimed. Live inference,
 private credentials, production activation and release publication remain
 outside this stage.
 
-Next action: qualify the final combined source/native/aggregate tree before
-integration, then retain the exact post-merge evidence.
+Next action: integrate the qualified PR through the parent owner, then verify
+the actual merged source and retain its post-merge CI evidence.
