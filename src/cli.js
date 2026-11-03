@@ -53,6 +53,8 @@ export async function run(argv = process.argv.slice(2), dependencies = {}) {
       } catch (error) {
         logger.error('server.close_failed', { error });
         events.exitCode = 1;
+      } finally {
+        resolveClosed(0);
       }
     })();
     return shutdownPromise;
@@ -61,5 +63,6 @@ export async function run(argv = process.argv.slice(2), dependencies = {}) {
   events.on('SIGTERM', shutdown);
   const address = await app.listen();
   logger.info('server.listening', { host: config.host, port: address.port });
+  if (shutdownPromise) await shutdownPromise;
   return closed;
 }

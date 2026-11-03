@@ -19,6 +19,6 @@ test('release verifies the packaged artifacts before upload', () => {
   assert.match(workflow, /framer-next-macos-arm64\.tar\.gz/);
   assert.match(workflow, /framer-next-windows-x64\.zip/);
   assert.match(workflow, /dist\/framer-next\.exe/);
-  assert.match(workflow, /cd dist && sha256sum -c SHA256SUMS/);
+  assert.match(workflow, /node scripts\/merge-release-manifests\.js/);
   assert.match(workflow, /npm publish \.\/dist\/framer-next-\*\.tgz/);
 });

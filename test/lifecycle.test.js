@@ -120,6 +120,26 @@ test('listen rejects an occupied port', async (t) => {
   await assert.rejects(app.listen(), (error) => error.code === 'EADDRINUSE');
 });
 
+test('close before listen prevents a later bind', async () => {
+  const app = await createServer(parseConfig({ port: 0 }));
+  await app.close();
+  await assert.rejects(app.listen(), /server is closing/);
+  assert.equal(app.server.listening, false);
+});
+
+test('close during listen aborts startup and releases the port', async () => {
+  const app = await createServer(parseConfig({ port: 0 }));
+  const listen = app.server.listen.bind(app.server);
+  app.server.listen = (...args) => {
+    const closing = app.close();
+    listen(...args);
+    return closing;
+  };
+  await app.listen();
+  await app.close();
+  assert.equal(app.server.listening, false);
+});
+
 
 
 
