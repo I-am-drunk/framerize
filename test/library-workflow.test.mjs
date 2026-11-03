@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
+import os from 'node:os';
 import test from 'node:test';
 import { pathToFileURL } from 'node:url';
 import { fixtureEnvironment, guardRead, runGuarded } from '../framerize-castle/test/helpers/offline-guard.mjs';
@@ -124,6 +125,31 @@ test('failed fixture processes also remove their private directory', () => {
   const result = runGuarded(['--eval', "console.log(process.env.HOME); process.exitCode = 7"]);
   assert.equal(result.status, 7);
   assert.equal(fs.existsSync(result.stdout.trim()), false);
+});
+
+test('symlinked temporary parents keep private state readable and clean up', () => {
+  const outer = fs.mkdtempSync(path.join(os.tmpdir(), 'library-temp-alias-'));
+  const target = path.join(outer, 'real');
+  const alias = path.join(outer, 'alias');
+  const previous = Object.fromEntries(['TMPDIR', 'TMP', 'TEMP'].map((key) => [key, process.env[key]]));
+  try {
+    fs.mkdirSync(target);
+    fs.symlinkSync(target, alias, process.platform === 'win32' ? 'junction' : 'dir');
+    Object.assign(process.env, { TMPDIR: alias, TMP: alias, TEMP: alias });
+    const directory = probe(`import fs from 'node:fs'; import assert from 'node:assert/strict';
+      fs.writeFileSync(process.env.FRAMERIZE_REALM_STATE, '{}');
+      assert.equal(fs.readFileSync(process.env.FRAMERIZE_REALM_STATE, 'utf8'), '{}');
+      assert.equal(fs.realpathSync(process.env.HOME), process.env.HOME);
+      console.log(process.env.HOME);`);
+    assert.equal(fs.existsSync(directory), false);
+    assert.deepEqual(fs.readdirSync(target), []);
+  } finally {
+    for (const [key, value] of Object.entries(previous)) {
+      if (value === undefined) delete process.env[key];
+      else process.env[key] = value;
+    }
+    fs.rmSync(outer, { recursive: true, force: true });
+  }
 });
 
 test('network guards reject attempts before connecting, resolving, or listening', () => {

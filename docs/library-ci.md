@@ -65,10 +65,15 @@ replace or remove those three skips.
 ## Evidence
 
 Local Linux validation on 2026-11-03 passed with Node 22.23.4 and 24.13.0:
-25 policy/guard tests and all five existing library fixtures per version,
+26 policy/guard tests and all five existing library fixtures per version,
 with zero skips or failures. Both fixture launches reported complete cleanup;
 no private fixture directories remained. Syntax and diff checks also passed.
 Hosted platform results are not inferred from these local runs.
+
+The first hosted macOS run found that its temporary path resolves through a
+symlink. The launcher now canonicalizes its private root before passing the
+environment to Node. A symlinked-parent regression fails on the original helper
+and passes with the fix, without broadening the filesystem allowlist.
 
 Local and hosted results are separate gates. Local commands must report the
 exact Node versions, fixture counts and skips; hosted jobs supply OS evidence.
