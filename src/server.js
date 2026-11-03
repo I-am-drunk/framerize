@@ -130,7 +130,7 @@ export async function createServer(config, { logger, fetchImpl = fetch } = {}) {
         responseHeaders['content-type'] = 'text/event-stream; charset=utf-8';
         delete responseHeaders['content-length'];
       }
-      const responseDeadline = createDeadline(controller.signal, config.requestTimeoutMs);
+      const responseDeadline = createDeadline(controller.signal, config.requestTimeoutMs, disconnect);
       try {
         if (convertChat && upstream.response.ok && !streamChat) {
           const result = await readResponse(upstream.response);
@@ -139,7 +139,7 @@ export async function createServer(config, { logger, fetchImpl = fetch } = {}) {
         }
         response.writeHead(upstream.response.status, responseHeaders);
         if (upstream.response.body) {
-          let chunks = idleTimeout(upstream.response.body, config.idleTimeoutMs, controller.signal);
+          let chunks = idleTimeout(upstream.response.body, config.idleTimeoutMs, responseDeadline.signal);
           if (convertChat && upstream.response.ok) {
             const events = parseEvents(chunks);
             const converted = responsesToChatStream(events, model);
