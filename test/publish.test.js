@@ -6,19 +6,15 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-function installStub(bin, name, body) {
-  const file = path.join(bin, process.platform === 'win32' ? `${name}.js` : name);
-  const script = `#!/usr/bin/env node\n${body}`;
+function installStub(bin, name) {
+  const file = path.join(bin, name);
+  const dispatcher = fileURLToPath(new URL('fixtures/command-fixture.js', import.meta.url));
+  const script = `#!/usr/bin/env node\nprocess.argv.splice(2, 0, ${JSON.stringify(name)});\nawait import(${JSON.stringify(dispatcher)});`;
   writeFileSync(file, script, { mode: 0o755 });
   if (process.platform === 'win32') {
     const quoted = process.execPath.replace(/"/g, '\\"');
-    writeFileSync(path.join(bin, `${name}.cmd`),
-      `@echo off\r\n"${quoted}" "%~dp0${name}.js" %*\r\n`);
-    writeFileSync(file, `#!/usr/bin/env node\n${body}`);
-    if (['tar', 'git', 'sha256sum'].includes(name)) {
-      writeFileSync(path.join(bin, `${name}.exe`),
-        `@echo off\r\n"${quoted}" "%~dp0${name}.js" %*\r\n`);
-    }
+    for (const extension of ['cmd', 'exe']) writeFileSync(path.join(bin, `${name}.${extension}`),
+      `@echo off\r\n"${quoted}" "${dispatcher}" "${name}" %*\r\n`);
   }
 }
 
@@ -37,29 +33,18 @@ function publish(authenticated = true, published = false, version = '0.1.7',
     artifacts: includeDigest ? { [`framer-next-${version}.tgz`]: '0'.repeat(64) } : {},
   }));
   const calls = path.join(directory, 'calls');
-  const record = `appendFileSync(${JSON.stringify(calls)}, process.argv.slice(2).join(' ') + '\\n');`;
-  installStub(bin, 'npm', `import { appendFileSync } from 'node:fs';\n${record}
-    if (process.argv[2] === 'whoami' && ${!authenticated}) process.exit(1);
-    if (process.argv[2] === 'view') {
-      if (${published}) process.exit(0);
-      console.error(${JSON.stringify(registryError || 'E404')}); process.exit(1);
-    }`);
-  installStub(bin, 'sha256sum', `import { appendFileSync } from 'node:fs';\n${record}
-    if (${!checksumValid}) process.exit(1);`);
-  installStub(bin, 'git', `import { appendFileSync } from 'node:fs';\n${record}
-    if (process.argv[2] === 'rev-parse') console.log('a'.repeat(40));
-    if (process.argv[2] === 'cat-file' && process.argv[4] !== ${JSON.stringify(`${commit}^{commit}`)}) process.exit(1);
-    if (process.argv[2] === 'status' && ${dirty}) console.log(' M source.js');`);
-  installStub(bin, 'tar', `console.log(JSON.stringify({ name: 'framer-next', version: ${JSON.stringify(version)} }));`);
+  const fixture = JSON.stringify({ authenticated, published, version,
+    registryError, checksumValid, commit: `${commit}^{commit}`, dirty, calls });
+  for (const name of ['npm', 'sha256sum', 'git', 'tar']) installStub(bin, name);
   const result = spawnSync(process.execPath, [
     fileURLToPath(new URL('../scripts/publish-package.js', import.meta.url))], {
     encoding: 'utf8',
     cwd: directory,
     env: { ...process.env, PATH: `${bin}:${process.env.PATH}`,
       GITHUB_ACTIONS: githubActions ? 'true' : '',
-      FRAMER_NEXT_PUBLISH_FIXTURE: '1' },
+      FRAMER_NEXT_TEST_COMMAND: fixture },
   });
-  return { result, calls };
+  return { result, calls, fixture };
 }
 
 function publishCommit(recordedCommit) {
@@ -72,7 +57,7 @@ function publishCommit(recordedCommit) {
   return spawnSync(process.execPath, [fileURLToPath(new URL('../scripts/publish-package.js', import.meta.url))], {
     encoding: 'utf8', cwd: directory,
     env: { ...process.env, PATH: `${path.join(directory, 'bin')}:${process.env.PATH}`,
-      FRAMER_NEXT_PUBLISH_FIXTURE: '1' },
+      FRAMER_NEXT_TEST_COMMAND: fixture.fixture },
   });
 }
 
@@ -199,7 +184,7 @@ test('malformed checksum entries prevent publication', () => {
     fileURLToPath(new URL('../scripts/publish-package.js', import.meta.url))], {
     encoding: 'utf8', cwd: directory,
     env: { ...process.env, PATH: `${path.join(directory, 'bin')}:${process.env.PATH}`,
-      FRAMER_NEXT_PUBLISH_FIXTURE: '1' },
+      FRAMER_NEXT_TEST_COMMAND: fixture.fixture },
   });
   assert.notEqual(result.status, 0);
   assert.match(result.stderr, /invalid SHA256SUMS entry/);
@@ -216,7 +201,7 @@ test('conflicting release metadata prevents publication', () => {
     fileURLToPath(new URL('../scripts/publish-package.js', import.meta.url))], {
     encoding: 'utf8', cwd: directory,
     env: { ...process.env, PATH: `${path.join(directory, 'bin')}:${process.env.PATH}`,
-      FRAMER_NEXT_PUBLISH_FIXTURE: '1' },
+      FRAMER_NEXT_TEST_COMMAND: fixture.fixture },
   });
   assert.notEqual(result.status, 0);
   assert.match(result.stderr, /digests differ/);
