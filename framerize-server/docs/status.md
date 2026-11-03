@@ -8,6 +8,9 @@ preserves their committed files.
 
 ## Evidence
 
+For the later actual-main ENV checkpoint, see the
+[retained run 41671328728 evidence](native-evidence/41671328728/README.md).
+
 - At `b46eae2775f1909429c5baf11164873cbc0371ed`, Node 22.23.4 and 24.13.0
   combined suites pass 82 tests: 38 acceptance tests, 43 provider tests, and
   the fixture helper import. No tests fail, skip, or cancel.
