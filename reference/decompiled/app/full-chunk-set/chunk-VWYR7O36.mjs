@@ -1,2 +1,0 @@
-import{a as t}from"https://app.framerstatic.com/chunk-GZ47C5U5.mjs";var y=["Today","Yesterday","Last 7 days","Last 30 days","Last 90 days","Month to date"];function n(e){switch(e){case"Today":return 0;case"Yesterday":return 1;case"Last 7 days":return 7;case"Last 30 days":return 30;case"Last 90 days":return 90;case"Month to date":return new Date().getDate()-1}}function d(e){let a=t(0);if(e==="Yesterday"){let s=t(-1);return[s,s]}let r=n(e);return r===0?[a,a]:[t(-r),a]}export{y as a,n as b,d as c};
-//# sourceMappingURL=https://app.framerstatic.com/chunk-VWYR7O36.mjs.map
