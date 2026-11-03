@@ -14,6 +14,7 @@ function installStub(bin, name, body) {
     const quoted = process.execPath.replace(/"/g, '\\"');
     writeFileSync(path.join(bin, `${name}.cmd`),
       `@echo off\r\n"${quoted}" "%~dp0${name}.js" %*\r\n`);
+    writeFileSync(file, `#!/usr/bin/env node\n${body}`);
   }
 }
 
@@ -51,7 +52,8 @@ function publish(authenticated = true, published = false, version = '0.1.7',
     encoding: 'utf8',
     cwd: directory,
     env: { ...process.env, PATH: `${bin}:${process.env.PATH}`,
-      GITHUB_ACTIONS: githubActions ? 'true' : '' },
+      GITHUB_ACTIONS: githubActions ? 'true' : '',
+      FRAMER_NEXT_PUBLISH_FIXTURE: '1' },
   });
   return { result, calls };
 }
@@ -65,7 +67,8 @@ function publishCommit(recordedCommit) {
   writeFileSync(path.join(directory, 'dist/release.json'), JSON.stringify(metadata));
   return spawnSync(process.execPath, [fileURLToPath(new URL('../scripts/publish-package.js', import.meta.url))], {
     encoding: 'utf8', cwd: directory,
-    env: { ...process.env, PATH: `${path.join(directory, 'bin')}:${process.env.PATH}` },
+    env: { ...process.env, PATH: `${path.join(directory, 'bin')}:${process.env.PATH}`,
+      FRAMER_NEXT_PUBLISH_FIXTURE: '1' },
   });
 }
 
@@ -191,7 +194,8 @@ test('malformed checksum entries prevent publication', () => {
   const result = spawnSync(process.execPath, [
     fileURLToPath(new URL('../scripts/publish-package.js', import.meta.url))], {
     encoding: 'utf8', cwd: directory,
-    env: { ...process.env, PATH: `${path.join(directory, 'bin')}:${process.env.PATH}` },
+    env: { ...process.env, PATH: `${path.join(directory, 'bin')}:${process.env.PATH}`,
+      FRAMER_NEXT_PUBLISH_FIXTURE: '1' },
   });
   assert.notEqual(result.status, 0);
   assert.match(result.stderr, /invalid SHA256SUMS entry/);
@@ -207,7 +211,8 @@ test('conflicting release metadata prevents publication', () => {
   const result = spawnSync(process.execPath, [
     fileURLToPath(new URL('../scripts/publish-package.js', import.meta.url))], {
     encoding: 'utf8', cwd: directory,
-    env: { ...process.env, PATH: `${path.join(directory, 'bin')}:${process.env.PATH}` },
+    env: { ...process.env, PATH: `${path.join(directory, 'bin')}:${process.env.PATH}`,
+      FRAMER_NEXT_PUBLISH_FIXTURE: '1' },
   });
   assert.notEqual(result.status, 0);
   assert.match(result.stderr, /digests differ/);
