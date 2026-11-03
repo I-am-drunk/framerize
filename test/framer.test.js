@@ -1,0 +1,49 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import { prepareFramer } from '../src/framer.js';
+
+const account = { id: 'fixture', provider: 'framer', projectId: 'project',
+  upstream: 'https://api.framer.test', authorizationEnv: 'FIXTURE_JWT', castleEnv: 'FIXTURE_CASTLE' };
+
+test('Framer requests use the native Responses envelope', async () => {
+  const calls = [];
+  const result = await prepareFramer({ account, path: '/v1/responses',
+    body: Buffer.from(JSON.stringify({ model: 'gpt-test', input: 'hello', stream: true })),
+    fetchImpl: async (...args) => { calls.push(args); }, env: {
+      FIXTURE_JWT: 'fixture-jwt', FIXTURE_CASTLE: 'fixture-castle',
+    } });
+  const envelope = JSON.parse(result.body);
+  assert.equal(result.url, 'https://api.framer.test/ai/v3/openai/responses/');
+  assert.equal(result.authorization, 'Bearer fixture-jwt');
+  assert.equal(envelope.request.input, 'hello');
+  assert.equal(envelope.projectId, 'project');
+  assert.equal(envelope.castleToken, 'fixture-castle');
+  assert.equal(calls.length, 0);
+});
+
+test('Framer chat uses its native Chat route', async () => {
+  const result = await prepareFramer({ account, path: '/v1/chat/completions',
+    body: Buffer.from('{"model":"gpt-test","messages":[]}'), fetchImpl: async () => {},
+    env: { FIXTURE_JWT: 'fixture-jwt', FIXTURE_CASTLE: 'fixture-castle' } });
+  assert.equal(result.url, 'https://api.framer.test/ai/v3/chat/');
+});
+
+test('missing credentials fail before an inference request', async () => {
+  await assert.rejects(prepareFramer({ account, path: '/v1/responses', body: Buffer.from('{}'),
+    fetchImpl: async () => { throw new Error('unexpected fetch'); }, env: {} }), /no Castle credential/);
+});
+
+test('JWT minting is cached per account', async () => {
+  let calls = 0;
+  const scoped = { ...account, id: 'mint-fixture', authorizationEnv: undefined, sessionEnv: 'TEST_SESSION' };
+  const env = { TEST_SESSION: 'session', TEST_CASTLE: 'castle', FIXTURE_CASTLE: 'castle' };
+  const fetchImpl = async () => {
+    calls += 1;
+    return new Response(JSON.stringify({ accessToken: 'minted', expiresAt: new Date(Date.now() + 600000).toISOString() }));
+  };
+  for (let index = 0; index < 2; index += 1) {
+    await prepareFramer({ account: scoped, path: '/v1/responses', body: Buffer.from('{}'), fetchImpl, env });
+  }
+  assert.equal(calls, 1);
+});
+

@@ -1,44 +1,89 @@
-# Framerize
+# Framer Next
 
-Framerize runs Framer AI for you. You give it Framer accounts you own. It keeps them signed in and sends AI requests through them, so tools like Claude Code and Codex can use Framer's models.
+Framer Next is a small local connector for OpenAI-compatible inference. It
+accepts Responses and Chat Completions requests on loopback and forwards them
+to the endpoint you configure. It uses Node.js built-ins at runtime, with no
+browser, no system CTR, and no old Framerize implementation code.
 
-One Rust binary. It runs a daemon, a REST and SSE server, and a small web UI.
+## Install and run
 
-## How it works
+Node.js 22.12 or newer is required.
 
-Framer protects its AI with Castle, a fraud-check script. Castle runs in the browser and asks hundreds of questions: screen size, installed fonts, how a canvas draws, how the mouse moves. It packs the answers into a token. Framer rejects requests when the token looks fake.
-
-We tested what Framer actually accepts. The result: a Castle token is only accepted when it is minted inside the account's own signed-in Framer session, and the request is sent from that same session. A token minted anywhere else fails, even when every answer is real.
-
-So each account runs in its own browser session with its own cookies and fingerprint. The token is minted in that session and the request goes out from it. Nothing about the token is invented.
-
-## The two branches
-
-- `main` is the current service. It is the same code as `browser-optimized`.
-- `browser-optimized` holds the technique that passed Castle in production: mint inside the signed-in session, send from that session. Verified 2026-10-31 with two live requests that returned HTTP 200.
-- `browser-based` keeps the older multi-account browser pool as a fallback. Use it if the current method breaks.
-
-## Repository layout
-
-- `crates/framer-core`: domain and orchestration. No HTTP details.
-- `crates/framer-api`: one small file per Framer endpoint. This is the fragile layer.
-- `reference/analysis/`: the reverse-engineering record. Auth, AI endpoints, Castle, credits, the desktop decompile. Read these first.
-- `reference/tools/framer-ai-console.js`: a working in-browser client. Paste it into DevTools on a framer.com project page to chat through your own session.
-- `compat/`: adapters for Anthropic `/v1/messages` (Claude Code) and OpenAI `/v1/responses` (Codex).
-
-## Quick start (Linux)
-
-```bash
-./scripts/linux/install-camoufox.sh   # browser engine
-./scripts/linux/start-daemon.sh       # start the service
-framerize login                       # sign in an account, interactive
-fcd                                   # Claude Code on the free route
+```sh
+npx framer-next serve --upstream https://your-endpoint.example
 ```
+
+Set the client base URL to `http://127.0.0.1:8788`. The connector serves:
+
+- `POST /v1/responses`
+- `POST /v1/chat/completions`
+- `GET /v1/accounts`
+- `GET /health`
+
+The upstream URL is an endpoint base. For example, `--upstream
+http://127.0.0.1:9000` forwards `/v1/responses` to
+`http://127.0.0.1:9000/v1/responses`.
+
+## Accounts
+
+Account metadata is JSON. Sessions, cookies, passwords, and tokens do not
+belong in this file. See `examples/accounts.json`.
+
+```sh
+export FRAMER_LOCAL_TOKEN='your private credential'
+npx framer-next serve \
+  --upstream https://your-endpoint.example \
+  --accounts ./accounts.json
+```
+
+Select an account with `X-Framer-Account`. Otherwise the connector uses the
+account matching the requested model, then the first enabled account.
+
+## Reliability
+
+- Request, idle-stream, and body-size limits are configurable in code.
+- Client disconnects abort upstream reads and backpressure waits.
+- NDJSON logs contain request IDs, status, and duration. Known credential
+  fields and bearer values are redacted.
+- Shutdown closes active streams and sockets without an emission-close phase.
+- Only request content and selected compatibility headers cross the boundary.
+
+## Development
+
+```sh
+npm ci
+npm test
+npm run check
+node scripts/smoke.js
+npm run binary
+```
+
+The executable builder writes `dist/framer-next` without modifying Node.
+See `docs/references.md` for implementation references and `docs/release.md`
+for publication requirements.
 
 ## Status
 
-Working: in-page auth and inference transport, the free long-form chain, account import, per-account proxies, and rotate-identity. See `reference/analysis/framer-ai-endpoints.md` for the endpoint record.
+This is a clean rebuild. Live behavior depends on the configured upstream
+and its authorization.
 
-## Legal note
+## Direct Framer accounts
 
-Framer's endpoints are private and undocumented. Automating them likely violates Framer's Terms of Service. Use this only for accounts you own, at your own risk.
+Set `provider` to `framer` to use `/ai/v3/openai/responses/`. Chat requests
+convert to Responses, including tool calls, tool results, JSON schemas,
+short replies, and incremental streams. Sessions and Castle credentials
+stay in environment variables named by the JSON account record.
+
+```json
+[{
+  "id": "framer",
+  "provider": "framer",
+  "projectId": "your-project-id",
+  "sessionEnv": "FRAMER_SESSION",
+  "castleEnv": "FRAMER_CASTLE"
+}]
+```
+
+An existing JWT can use `authorizationEnv` instead of `sessionEnv`. The
+connector caches minted JWTs until 30 seconds before expiry. It does not
+mint Castle tokens or manage browser sessions.
