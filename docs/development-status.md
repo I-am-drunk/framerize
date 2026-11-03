@@ -1,3 +1,28 @@
+# Alpha.18 live, 2026-11-03
+
+Source `d857d6ee` is running as PID 507283 since 02:56:53 UTC.
+Health, readiness and buffered Kimi, Claude and Astra requests returned 200.
+OpenAI and Claude SSE checks also delivered expected text and successful
+terminal events in 0.986 and 1.764 seconds. All twelve identities, the
+six-browser capacity, memory limits and both release inventories remain intact.
+The user explicitly authorized restart without waiting for quiet traffic.
+The normal shutdown and rollback protections remained enabled.
+
+The earlier alpha.18 activation rolled back after a second verification
+account needed a browser allocation without enough host memory. The final
+verification pins one account across routes. All 32 activation checks pass.
+An initial SSE check also hit the host RAM watermark before dispatch; the
+follow-up passed after headroom recovered. Both results remain recorded.
+Isolated inference qualification remains incomplete under the user's recorded
+exception. The separate test workspace retains all 500 credits.
+
+Adaptive Claude still sends one buffered request with the client's allowance.
+Its upstream timeout is not fixed by this release. Ordinary text continuation
+targets a 45-second window, but no checkpoint exists after a failed buffered
+reasoning request. Next: establish a supported reasoning checkpoint or an
+upstream transport that preserves requested reasoning without metered fallback.
+See [the complete release evidence](incidents/2026-11-03-reliability-release.md).
+
 # Cold runtime preparation, 2026-11-03
 
 Alpha.17 passed health but its first production inference failed. The guard
@@ -8,7 +33,7 @@ Alpha.18 moves that preparation to one tracked worker task. Status remains
 responsive; cancellation cannot start a duplicate preparation, and shutdown
 joins the worker. The new regression fails on alpha.17; all 82 affected
 startup, lifecycle, device, warmup and shutdown tests pass after correction.
-Next: build the exact source on the iMac and verify cold startup in isolation.
+The exact package subsequently passed cold startup and was activated above.
 
 # Earlier Claude network attribution candidate, 2026-11-03
 

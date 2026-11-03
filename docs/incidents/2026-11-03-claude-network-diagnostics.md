@@ -1,9 +1,16 @@
 # Claude failure attribution
 
-Branch `fix/claude-network-diagnostics-20261103` now prepares alpha.18.
+Branch `fix/claude-network-diagnostics-20261103` has activated alpha.18.
+Source `d857d6ee` is live as PID 507283 since November 3 at 02:56:53 UTC.
+Health, readiness, buffered Kimi, Claude and Astra, and both streaming
+dialects pass. The user approved the incomplete isolated qualification
+and explicitly waived waiting for quiet traffic before normal shutdown.
 Diagnosis began with alpha.14, PID 3565455, started November 2 at 14:31:56 UTC.
-The alpha.17 activation below rolled back. Alpha.14 is restored as PID 468247,
-started November 3 at 02:34:52 UTC. Health and readiness pass.
+The alpha.17 activation below rolled back to alpha.14, PID 468247,
+at November 3, 02:34:52 UTC. A later alpha.18 attempt also rolled back
+after verification selected a second account without browser memory headroom.
+Final verification pins one account across routes. Details and the complete
+error inventory are in [the release report](2026-11-03-reliability-release.md).
 
 The reported November 3 failures ended at 01:05:56 and 01:07:12 UTC.
 Their browser fetches failed before response headers after 65.250 and
@@ -35,7 +42,10 @@ Requested thinking, unmetered routing, and unknown-completion replay guards
 are unchanged. This patch repairs attribution; an upstream generation limit
 cannot be extended by increasing the gateway's local timeout. A returned
 checkpoint is required before staged continuation can safely resume work.
-Exact-package inference qualification and activation remain outstanding.
+Exact-package isolated inference qualification remains incomplete; live
+activation and short inference verification are complete. Upstream timeout
+prevention remains unresolved. A 60-second local timer cannot create a
+checkpoint from a buffered response whose connection has already failed.
 
 The alpha.16 qualification stalled during preparation in the emulated x86
 verifier before any inference dispatch. Normal shutdown did not complete
@@ -87,7 +97,8 @@ without restarting production. Its follow-up reads only new operation-log
 records, so it can check short idle intervals without rescanning old traffic.
 Five new controls cover partial records, log rotation, missing or truncated
 history, and missing operation identities. All 23 prior activation and
-rollback controls still pass. An idle service is still required for the swap.
+rollback controls still pass. At that stage the swap still required an idle
+service. The later explicit user approval waived that prerequisite.
 
 The next guarded attempt reached an idle interval but stopped before any
 production change. `journalctl --grep` returned status 1 with no output or
@@ -141,4 +152,7 @@ Failure retains its preparation cause and publishes no partial runtime.
 A controlled blocked-preparation regression reproduces the command-loop
 stall on alpha.17. All 82 targeted startup, lifecycle, device, warmup and
 shutdown tests pass after the repair, including five new regressions.
-This repair is alpha.18 and still requires exact-package verification.
+The exact alpha.18 package subsequently passed all nine package checks,
+40 isolated health/readiness checks and the live checks recorded above.
+The remaining isolated inference gap and activation approval are retained
+in the release report; these checks do not qualify long adaptive reasoning.
