@@ -105,6 +105,10 @@ uses a separate upstream credential reference. Follow the
 
 ## Current integration status
 
+The [Framer Next recovery folder](docs/framer-next.md) keeps the existing native
+server, licenses, disabled account example and integrity records in one place.
+It does not create another backend or install a background service.
+
 Both products use the same typed listener. Remote replaces the local credential
 with the server token and forwards opaque response bytes. Account selection,
 provider requests and Castle Library belong on the server, never in Remote.

@@ -1,5 +1,9 @@
 # Build the native server from its npm archive
 
+For an existing verified executable, the [Framer Next packager](framer-next.md)
+creates a compact recovery folder without rebuilding it. Native CI uploads
+that folder in a separate tar archive after the normal binary checks.
+
 Use a clean committed checkout and the pinned development dependencies.
 Run these commands from the repository root:
 

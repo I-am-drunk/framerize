@@ -1,5 +1,7 @@
 {
   "extends": "./tsconfig.base.json",
   "compilerOptions": { "rootDir": ".", "outDir": ".tools" },
-  "include": ["scripts/build-server.ts", "scripts/server-native-bundle.ts", "scripts/native-account-smoke.ts", "test/server-native-bundle.test.ts", "test/server-native-account.test.ts"]
+  "include": ["scripts/build-server.ts", "scripts/server-native-bundle.ts", "scripts/native-account-smoke.ts",
+    "scripts/package-framer-next.ts", "test/framer-next.test.ts",
+    "test/server-native-bundle.test.ts", "test/server-native-account.test.ts"]
 }

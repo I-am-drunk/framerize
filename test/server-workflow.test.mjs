@@ -11,6 +11,7 @@ test('server builds use only the typed server target and safe installs', () => {
   const tools = JSON.parse(read('tsconfig.server-tools.json'));
   assert.deepEqual(tools.include, ['scripts/build-server.ts',
     'scripts/server-native-bundle.ts', 'scripts/native-account-smoke.ts',
+    'scripts/package-framer-next.ts', 'test/framer-next.test.ts',
     'test/server-native-bundle.test.ts', 'test/server-native-account.test.ts']);
   assert.doesNotMatch(root.scripts['build:server'], /framerize-remote/);
   assert.match(root.scripts['build:server'], /^npm --prefix framerize-castle run build &&/);
@@ -25,13 +26,14 @@ test('server builds use only the typed server target and safe installs', () => {
 test('server workflows cover changed inputs and keep all pinned platforms', () => {
   for (const file of ['.gitattributes', 'scripts/server-native-bundle.ts', 'scripts/package-archive.ts',
     'framerize-castle/**', 'scripts/server-castle-runtime.ts', 'scripts/native-account-smoke.ts',
-    'scripts/core-package-check.ts', 'scripts/fixtures/**', 'test/server-*']) {
+    'scripts/core-package-check.ts', 'scripts/fixtures/**', 'scripts/*framer-next*',
+    'test/framer-next.test.ts', 'test/server-*']) {
     assert.equal(workflow.split(`'${file}'`).length - 1, 2, file);
   }
   assert.match(workflow, /node: \['22\.12\.0', '22\.23\.4', '24\.13\.0'\]/);
   for (const runner of ['ubuntu-22.04', 'macos-15', 'windows-2022']) assert.ok(workflow.includes(runner));
-  assert.equal((workflow.match(/overwrite: true/g) ?? []).length, 3);
-  assert.equal((workflow.match(/if-no-files-found: error/g) ?? []).length, 3);
+  assert.equal((workflow.match(/overwrite: true/g) ?? []).length, 4);
+  assert.equal((workflow.match(/if-no-files-found: error/g) ?? []).length, 4);
   verifyNativeOrder(workflow);
 });
 
