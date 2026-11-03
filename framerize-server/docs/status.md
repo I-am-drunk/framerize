@@ -81,6 +81,33 @@ header stalls. The real-provider integration fixture preserves queued bytes
 after a 100 ms event-loop stall with a 40 ms idle timeout, without increasing
 the timeout or adding a total-duration deadline.
 
-Next action: review the provider's reentrant-close follow-up and support the
-separate Nexus package qualification. Native server binaries and live activation
-remain outside this source and npm-package qualification.
+The provider reentrant-close follow-up merged through PR #91. The source and
+Nexus migration checkpoints are integrated at `7ddd669e`. Their existing evidence
+does not qualify native server binaries.
+
+## Native packaging checkpoint
+
+Branch `feat/framerize-server-native-20261103` starts at `7ddd669e` and changes
+only server packaging scripts, development dependencies, docs and server CI.
+Runtime, provider and acceptance-owned files remain unchanged. Castle and all
+other private runtime assets are excluded from the package and binary inputs.
+
+The scripts build Node single executables, package canonical license notices,
+and test extracted archives with isolated environment variables and loopback
+fixtures. Final per-target manifests record the full clean source commit,
+package version, Node version and hashes for five artifacts. Aggregation checks
+all three platform manifests before writing the six shared downloadable payloads.
+
+The workflow retains six source/npm jobs and adds one shared npm package job,
+three native jobs and one aggregate manifest job. Native jobs target Linux x64,
+macOS arm64 and Windows x64 on Node 22.23.4. They never publish or activate a service.
+
+Node 22.23.4 passes the 84-test combined suite, 38-test acceptance entry point,
+syntax checks and local packed-install smoke. Workflow YAML and job invariants
+also pass a local parser check. Native validation is pending at this initial
+source checkpoint. Windows graceful
+POSIX-signal behavior is not claimed. Live inference, private credentials,
+production activation and release publication remain outside this stage.
+
+Next action: validate the committed Linux executable, then hand off immutable
+source and artifact evidence for review and the three-platform CI gate.

@@ -1,4 +1,5 @@
-import { mkdtemp, readFile, readdir, rm } from 'node:fs/promises';
+import assert from 'node:assert/strict';
+import { copyFile, mkdtemp, readFile, readdir, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -12,13 +13,28 @@ const run = (args) => execFileSync(process.execPath, [npm, ...args], {
   cwd: directory, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'],
 });
 try {
-  run(['pack', root, '--ignore-scripts', '--pack-destination', directory]);
+  const source = JSON.parse(await readFile(path.join(root, 'package.json'), 'utf8'));
+  if (process.argv.includes('--downloaded')) {
+    const name = `${source.name}-${source.version}.tgz`;
+    await copyFile(path.join(root, name), path.join(directory, name));
+  } else {
+    run(['pack', root, '--ignore-scripts', '--pack-destination', directory]);
+  }
   const tarball = (await readdir(directory)).find((name) => name.endsWith('.tgz'));
   if (!tarball) throw new Error('Package tarball missing');
   run(['install', '--ignore-scripts', '--no-audit', '--no-fund', '--offline', path.join(directory, tarball)]);
   const manifest = JSON.parse(await readFile(path.join(directory, 'node_modules/framerize-server/package.json')));
-  if (manifest.name !== 'framerize-server' || Object.keys(manifest.dependencies ?? {}).length) {
+  if (manifest.name !== 'framerize-server' || manifest.version !== source.version ||
+      manifest.private !== true || Object.keys(manifest.dependencies ?? {}).length) {
     throw new Error('Unexpected package dependencies');
+  }
+  for (const name of ['README.md', 'LICENSE', ...await readdir(path.join(root, 'src')).then((files) =>
+    files.map((file) => `src/${file}`)), 'bin/framerize-server.js']) {
+    const expected = process.argv.includes('--downloaded')
+      ? execFileSync('git', ['show', `HEAD:framerize-server/${name}`], { cwd: root })
+      : await readFile(path.join(root, name));
+    assert.deepEqual(await readFile(path.join(directory, 'node_modules/framerize-server', name)),
+      expected, `Installed source differs: ${name}`);
   }
   execFileSync(process.execPath, [path.join(directory, 'node_modules/framerize-server/bin/framerize-server.js'), '--help'], {
     cwd: directory, stdio: 'pipe',

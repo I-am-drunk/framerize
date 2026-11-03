@@ -44,3 +44,99 @@ jobs:
       - run: npm test
       - run: npm run acceptance
       - run: npm run pack:check
+
+  package:
+    needs: qualify
+    runs-on: ubuntu-22.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: '22.23.4'
+          cache: npm
+          cache-dependency-path: framerize-server/package-lock.json
+      - run: npm ci
+      - run: npm pack --ignore-scripts
+      - run: npm run pack:check -- --downloaded
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: framerize-server-npm
+          path: framerize-server/framerize-server-*.tgz
+          if-no-files-found: error
+
+  native:
+    name: native (${{ matrix.target }})
+    needs: package
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { runner: ubuntu-22.04, arch: x64, target: linux-x64 }
+          - { runner: macos-15, arch: arm64, target: macos-arm64 }
+          - { runner: windows-2022, arch: x64, target: windows-x64 }
+    env:
+      EXPECTED_ARCH: ${{ matrix.arch }}
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: '22.23.4'
+          cache: npm
+          cache-dependency-path: framerize-server/package-lock.json
+      - run: node -e "require('node:assert/strict').equal(process.arch, process.env.EXPECTED_ARCH)"
+      - run: npm ci
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: framerize-server-npm
+          path: framerize-server
+      - run: npm run pack:check -- --downloaded
+      - run: npm run binary
+      - run: npm run binary:package
+      - run: npm run binary:check
+      - run: node scripts/release-metadata.js
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: framerize-server-native-${{ matrix.target }}
+          if-no-files-found: error
+          path: |
+            framerize-server/dist/framerize-server*
+            framerize-server/dist/LICENSE
+            framerize-server/dist/NODE-LICENSE
+            framerize-server/dist/SHA256SUMS
+            framerize-server/dist/build.json
+            framerize-server/dist/release.json
+
+  manifests:
+    needs: native
+    runs-on: ubuntu-22.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: '22.23.4'
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: framerize-server-npm
+          path: framerize-server/dist
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: framerize-server-native-linux-x64
+          path: framerize-server/dist/linux-x64
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: framerize-server-native-macos-arm64
+          path: framerize-server/dist/macos-arm64
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: framerize-server-native-windows-x64
+          path: framerize-server/dist/windows-x64
+      - run: node scripts/merge-release-manifests.js
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: framerize-server-qualified
+          path: framerize-server/dist/qualified/*
+          if-no-files-found: error

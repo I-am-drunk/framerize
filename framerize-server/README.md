@@ -1,6 +1,6 @@
 # Framerize server
 
-A dependency-free Node.js HTTP server for an operator-authorized inference API.
+A Node.js HTTP server with no runtime dependencies for an operator-authorized inference API.
 Requires Node.js 22.12 or newer. The npm package is private and has no publish script.
 
 ## Run
@@ -117,3 +117,50 @@ npm run pack:check
 Tests use loopback fixtures. The package check installs the exact packed tarball
 in a temporary directory and tests the installed CLI and HTTP application there.
 These checks do not establish live compatibility or cross-platform binary support.
+
+## Native packaging
+
+Build from a clean committed checkout on Linux x64, macOS arm64, or Windows x64.
+Node 22.23.4 builds each CI executable. Node 22.12 and 24 run the source checks.
+The pinned esbuild and postject development dependencies bundle the unchanged
+CLI into a Node single executable. Only Node builtins may remain external.
+
+```sh
+npm ci
+npm pack --ignore-scripts
+npm run pack:check -- --downloaded
+npm run binary
+npm run binary:package
+npm run binary:check
+node scripts/release-metadata.js
+```
+
+The smoke check extracts the archive into a temporary path containing spaces,
+clears the child environment and PATH, and runs help, configuration, health,
+authentication, readiness and both inference routes against loopback fixtures.
+It checks raw SSE and gzip bytes with separate synthetic client and upstream
+credentials. All fixture processes, sockets and temporary files are closed.
+Unix checks graceful SIGTERM exit. Windows checks termination and cleanup,
+not POSIX signal behavior. No installed Node is needed to run the executable.
+
+Archives contain only the executable, project `LICENSE`, and the Node distribution
+`NODE-LICENSE`, with license line endings normalized to LF. Packaging requires the
+Node distribution license beside the Node executable or its parent directory.
+`NODE_DISTRIBUTION_LICENSE` may explicitly point to that distribution license.
+
+The final metadata step runs after archive creation. `dist/release.json` binds the
+package name, version, full source commit, target and Node version to SHA-256 hashes
+for the executable, archive, shared npm tarball and both licenses. `dist/SHA256SUMS`
+contains those same five entries. The build record rejects stale executables.
+
+CI builds the shared npm tarball once, tests that exact artifact on every target,
+and compares installed files to committed bytes even on CRLF checkouts. It then
+builds, extracts and tests each native archive. The manifest job verifies all three
+targets, a common source/version/Node version, identical licenses and the shared
+tarball hash. It writes six payloads plus aggregate metadata under `dist/qualified/`.
+Run `node scripts/merge-release-manifests.js` with `RELEASE_DIST` pointing to the
+shared tarball and the `linux-x64`, `macos-arm64`, `windows-x64` artifact directories.
+
+The dedicated workflow uploads CI evidence only. No publication job, release tag,
+deployment, live inference or automatic activation is part of this package.
+Fixture results qualify only the exact tested artifacts and supported targets.
