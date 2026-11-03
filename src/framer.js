@@ -1,10 +1,10 @@
-import { randomBytes } from 'node:crypto';
+import { randomInt } from 'node:crypto';
 
 const minted = new Map();
 const ID_ALPHABET = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
 
 function mintId() {
-  return [...randomBytes(9)].map((byte) => ID_ALPHABET[byte % 62]).join('');
+  return Array.from({ length: 9 }, () => ID_ALPHABET[randomInt(62)]).join('');
 }
 
 function credentials(account, env) {
