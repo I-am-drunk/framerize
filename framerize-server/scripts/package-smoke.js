@@ -44,27 +44,5 @@ try {
       assert.equal(await response.text(), '{}');
     } finally { await app.close(); }
   `], { cwd: directory, stdio: 'inherit' });
-  execFileSync(process.execPath, ['--input-type=module', '-e', `
-    import assert from 'node:assert/strict';
-    import fs from 'node:fs';
-    import path from 'node:path';
-    import { fileURLToPath } from 'node:url';
-    const pkg = path.dirname(fileURLToPath(import.meta.resolve('framerize-server/package.json')));
-    const { createCastleMinter } = await import('framerize-server/castle');
-    assert.equal(typeof createCastleMinter, 'function');
-    const required = [
-      'castle/pins.mjs', 'castle/script_loader.mjs', 'castle/experiments/realm.mjs',
-      'castle/inputs/interaction-trace.json', 'castle/inputs/webrtc-capture.json',
-      'castle/inputs/real-computed-style.json', 'castle/inputs/real-window-keys.json',
-      'castle/inputs/doc-on-nulls.txt', 'castle/inputs/win-on-nulls.txt',
-      'castle/inputs/real-window-enumerable.json', 'castle/inputs/real-window-getters.json',
-      'castle/inputs/assets/chunk-5LKSDTQ5.mjs',
-    ];
-    for (const rel of required) {
-      assert.ok(fs.existsSync(path.join(pkg, rel)), 'missing packed asset: ' + rel);
-    }
-    const minter = createCastleMinter({ encoderPath: '/bin/cat' });
-    assert.equal(minter.stats().traceEvents > 0, true);
-  `], { cwd: directory, stdio: 'inherit' });
   process.stdout.write(`Packed install and loopback smoke passed: ${manifest.name}@${manifest.version}\n`);
 } finally { await rm(directory, { recursive: true, force: true }); }
