@@ -3,11 +3,14 @@
 Verified on November 3, 2026:
 
 - 45 unit and integration tests pass on Node.js 24.
-- GitHub CI test and package jobs pass on pull requests 32 and 33.
+- GitHub CI test and package jobs pass on pull requests 32, 33, and 34.
 - The installed npm tarball runs outside the checkout.
 - The isolated executable runs without Node.js on `PATH`.
 - Live local SSE streaming passes.
 - One real Opus Responses request returned HTTP 200 and completed normally.
+- The release rehearsal passes from a fresh clone of commit `19aed0ef`.
+  It builds the executable, starts development and isolated servers, and
+  verifies all published artifact checksums.
 
 The live connector listens on `127.0.0.1:42789` and uses the existing local
 Framer endpoint at `127.0.0.1:8787/openai`.
