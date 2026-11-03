@@ -18,5 +18,6 @@ test('binary packaging preserves existing checksums and adds the archive', () =>
   const sums = readFileSync(path.join(directory, 'dist/SHA256SUMS'), 'utf8');
   assert.match(sums, /package\.tgz/);
   assert.match(sums, /framer-next\n/);
-  assert.match(sums, /framer-next-linux-x64\.tar\.gz/);
+  const suffix = `${process.platform === 'darwin' ? 'macos' : process.platform}-${process.arch}`;
+  assert.match(sums, new RegExp(`framer-next-${suffix}\\.`));
 });
