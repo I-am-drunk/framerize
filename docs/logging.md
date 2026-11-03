@@ -85,7 +85,36 @@ framerize logs --stats            # count + avg duration by event
 framerize logs --credits
 ```
 
-## Rules
+## Private Claude body capture
+
+The browser host can capture the prepared `/ai/v3/messages/` request and its
+returned response for diagnosis. This is off by default. To enable it, create
+`<FRAMERIZE_LOG_DIR>/claude-bodies` with mode `0700` and an empty `enabled`
+file inside it with mode `0600`. The marker enables capture for two hours
+after its modification time. Removing it disables new captures immediately;
+already queued writes may finish. No restart is needed after this code is active.
+
+Each record has a job ID, timestamp and phase. Request bodies are observed
+before browser dispatch; a recorded request alone does not prove it was sent.
+Response records preserve status and network failure facts. A failed browser
+fetch has `complete_response: false`; its error text is not an upstream body.
+If the browser cannot read an HTTP 504 body, capture cannot recover that body.
+
+Capture retains prompt text, tool inputs and returned content in private files.
+Authentication fields, bearer values and JWTs are redacted. Native thinking
+blocks and their signatures remain available for history comparison. Captures
+must stay outside source control and must not be copied into ordinary logs.
+
+Each record is capped at 8 MiB. Larger bodies produce an explicit omission
+record. The writer retains at most 128 files and 64 MiB, with two queued
+records and one active write. A full queue drops diagnostics without waiting.
+Write failures do not interrupt inference. Existing browser debugger request
+and response body capture remains disabled, so this does not restore its
+per-page retained payloads. The 55 focused dispatch, response-ownership,
+network-diagnostic and capture checks pass. Real-service capture qualification
+is still pending.
+
+## Ordinary event rules
 
 - **Never log secrets**: no castle tokens, session cookies, JWTs, or prompt
   text. Token *kind* and *length* only. Emails masked (`j***@gmail.com`).

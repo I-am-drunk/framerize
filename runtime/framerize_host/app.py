@@ -29,6 +29,7 @@ from .browser.scripts import (WARM_JS, MINT_JS, post_js, AI_START_JS,
 from .browser.responses import (receive as receive_response, ResponseDeadline,
     BUFFERED_TIMEOUT_S, STREAM_TIMEOUT_S, START_TIMEOUT_S, CLEANUP_TIMEOUT_S)
 from .browser.network_failure import NetworkFailure
+from .body_capture import BodyCapture
 
 _MINT_CALLS = ContextVar('framerize_mint_calls', default=None)
 IDLE_CLOSE_TIMEOUT_S = 10
@@ -62,6 +63,7 @@ class Host:
         self._reply_writer = None
         self._last_heap_trim = None
         self._last_device_trim = None
+        self.body_capture = BodyCapture()
         # Closing idle browsers adds a cold start. Keep them warm by default.
         self.idle_timeout = float(os.environ.get("FRAMERIZE_IDLE_TIMEOUT_S", "0"))
         configured_gc = os.environ.get("FRAMERIZE_IDLE_GC_S")
@@ -1254,8 +1256,17 @@ class Host:
     async def _run_job(self, page, path, body, token, bearer, job, dev, timeout):
         account = self._account_for_page(page)
         async with self._activity(account):
-            return await self._run_job_active(account, page, path, body, token,
-                                               bearer, job, dev, timeout)
+            self.body_capture.record(path, job, 'request', body)
+            try:
+                result = await self._run_job_active(account, page, path, body, token,
+                                                     bearer, job, dev, timeout)
+            except BaseException as error:
+                self.body_capture.record(path, job, 'failure',
+                    dict(type=type(error).__name__, cause=error_message(error),
+                         complete_response=False))
+                raise
+            self.body_capture.response(path, job, result)
+            return result
 
     async def _run_job_active(self, account, page, path, body, token, bearer, job, dev, timeout):
         deadline = time.monotonic() + timeout

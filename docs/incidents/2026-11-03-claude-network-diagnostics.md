@@ -1,5 +1,22 @@
 # Claude failure attribution
 
+## Private body capture candidate
+
+The alpha.21 candidate adds explicitly enabled private Claude request and
+response capture. It records prepared payloads before dispatch and the actual
+returned body or failure, with the same job identity as the network event.
+Unreadable upstream bodies remain unavailable. HTTP status alone is never
+recorded as a complete response.
+
+The two-hour switch lives outside the immutable release. Files have mode
+0600 in a mode-0700 directory, retain at most 64 MiB, and exclude authentication
+fields. The writer has two queued records and one active write; disk failures
+and a full queue cannot block inference. Browser debugger payload retention
+stays disabled. All 55 focused capture, dispatch, network and response-ownership
+checks pass. The candidate is not yet activated and does not implement adaptive
+thinking continuation. The next step is real isolated body capture and a
+signed-thinking continuation probe before qualifying the resulting release.
+
 Branch `fix/claude-network-diagnostics-20261103` has activated alpha.18.
 Source `d857d6ee` is live as PID 507283 since November 3 at 02:56:53 UTC.
 Health, readiness, buffered Kimi, Claude and Astra, and both streaming
