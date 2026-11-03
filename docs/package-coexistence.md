@@ -85,3 +85,12 @@ prefix as a remote archive address when tests run under Git Bash. All 10 focused
 tests pass with this invocation on Linux using Node 22.23.4. The checker itself
 is unchanged. This fixture correction does not establish Windows or
 macOS qualification; those platforms still need their own test evidence.
+
+## Recorded hosted verification
+
+[Run 41667971716](package-coexistence-evidence/41667971716/README.md) subsequently
+qualified the same exact package pair on Linux x64, macOS arm64 and Windows x64.
+Each consumer passed all 41 root tests and the offline installed-package check
+on Node 22.23.4. The retained producer manifest and three reports bind the
+shared tarball hashes to the exact PR merge checkout. This result does not
+qualify native binaries, later ENV/thin runtime changes, publication or activation.
