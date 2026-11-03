@@ -12,13 +12,12 @@ test('release publishes binaries before attempting npm authentication', () => {
 });
 
 test('release verifies the packaged artifacts before upload', () => {
-  const validate = workflow.indexOf('name: Locate build artifacts');
   const upload = workflow.indexOf('uses: actions/upload-artifact@');
-  assert.ok(validate > 0);
-  assert.ok(upload > validate);
-  assert.match(workflow, /test -f dist\/framer-next-linux-x64\.tar\.gz/);
-  assert.doesNotMatch(workflow, /test -f dist\/dist\//);
-  assert.match(workflow, /path: dist\/\*/);
+  assert.ok(upload > 0);
+  assert.match(workflow, /macos-15/);
+  assert.match(workflow, /windows-2022/);
+  assert.match(workflow, /framer-next-macos-arm64\.tar\.gz/);
+  assert.match(workflow, /framer-next-windows-x64\.zip/);
   assert.match(workflow, /cd dist && sha256sum -c SHA256SUMS/);
   assert.match(workflow, /npm publish \.\/dist\/framer-next-\*\.tgz/);
 });

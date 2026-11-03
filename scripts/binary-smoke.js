@@ -6,8 +6,9 @@ import path from 'node:path';
 import http from 'node:http';
 
 const directory = mkdtempSync(path.join(tmpdir(), 'framer-next-binary-'));
-const executable = path.resolve('dist/framer-next');
-const environment = { PATH: '/usr/bin:/bin', HOME: directory };
+const executable = path.resolve(`dist/framer-next${process.platform === 'win32' ? '.exe' : ''}`);
+const environment = { ...process.env, PATH: process.platform === 'win32'
+  ? process.env.SystemRoot : '/usr/bin:/bin', HOME: directory };
 const help = execFileSync(executable, ['--help'], {
   cwd: directory, env: environment, encoding: 'utf8',
 });

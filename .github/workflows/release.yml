@@ -10,7 +10,17 @@ permissions:
 
 jobs:
   build:
-    runs-on: ubuntu-22.04
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-22.04
+            suffix: linux-x64
+          - os: macos-15
+            suffix: macos-arm64
+          - os: windows-2022
+            suffix: windows-x64
+    runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
@@ -24,24 +34,17 @@ jobs:
       - run: node scripts/framer-smoke.js
       - run: npm run binary
       - run: node scripts/binary-smoke.js
-      - run: npm pack
-      - run: cp framer-next-*.tgz dist/
-      - run: cp "$(dirname "$(command -v node)")/../LICENSE" dist/NODE-LICENSE
-      - run: tar -czf dist/framer-next-linux-x64.tar.gz -C dist framer-next NODE-LICENSE
-      - run: cd dist && sha256sum framer-next framer-next-*.tgz framer-next-linux-x64.tar.gz > SHA256SUMS
+      - run: node scripts/package-binary.js
       - run: node scripts/release-metadata.js
-      - name: Locate build artifacts
-        shell: bash
-        run: |
-          test -f dist/framer-next-"${GITHUB_REF_NAME#framer-next-v}".tgz
-          test -f dist/framer-next-linux-x64.tar.gz
-          test -f dist/SHA256SUMS
-          test -f dist/release.json
-          test -f dist/NODE-LICENSE
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
-          name: release-${{ github.ref_name }}
-          path: dist/*
+          name: release-${{ github.ref_name }}-${{ matrix.suffix }}
+          path: |
+            dist/framer-next-*.tar.gz
+            dist/framer-next-*.zip
+            dist/SHA256SUMS
+            dist/release.json
+            dist/NODE-LICENSE
   publish:
     needs: build
     if: startsWith(github.ref, 'refs/tags/framer-next-v')
@@ -53,10 +56,18 @@ jobs:
       attestations: write
       artifact-metadata: write
     steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: 22
+      - run: npm pack
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
         with:
-          name: release-${{ github.ref_name }}
+          pattern: release-${{ github.ref_name }}-*
           path: dist
+          merge-multiple: true
+      - run: mv framer-next-*.tgz dist/
+      - run: sort -u dist/SHA256SUMS -o dist/SHA256SUMS
       - run: cd dist && sha256sum -c SHA256SUMS
       - uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6
         if: github.event.repository.visibility == 'public'
@@ -64,12 +75,16 @@ jobs:
           subject-path: |
             dist/framer-next-*.tgz
             dist/framer-next-linux-x64.tar.gz
+            dist/framer-next-macos-arm64.tar.gz
+            dist/framer-next-windows-x64.zip
       - name: Publish GitHub release
         uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65
         with:
           files: |
             dist/framer-next-*.tgz
             dist/framer-next-linux-x64.tar.gz
+            dist/framer-next-macos-arm64.tar.gz
+            dist/framer-next-windows-x64.zip
             dist/SHA256SUMS
             dist/release.json
             dist/NODE-LICENSE

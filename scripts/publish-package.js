@@ -58,7 +58,7 @@ const checksums = readFileSync(sums, 'utf8').trim().split('\n')
   })
   .filter((line) => {
     const artifact = line.split(/ [ *]/);
-    return readdirSync(dist).includes(artifact[1]);
+    return readdirSync(dist).includes(artifact.slice(1).join(' '));
   });
 writeFileSync(path.join(dist, '.publish-SHA256SUMS'), `${checksums.join('\n')}\n`);
 run('sha256sum', ['-c', '.publish-SHA256SUMS'], { cwd: dist });

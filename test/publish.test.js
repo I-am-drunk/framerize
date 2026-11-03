@@ -96,6 +96,15 @@ test('authenticated publication verifies the package before publishing', () => {
   assert.match(commands[5], /^publish .*--tag latest$/);
 });
 
+test('checksum filtering excludes only missing release files', () => {
+  const { result, calls } = publish();
+  assert.equal(result.status, 0, result.stderr);
+  const checksum = readFileSync(path.join(path.dirname(calls),
+    'dist/.publish-SHA256SUMS'), 'utf8');
+  assert.doesNotMatch(checksum, /framer-next\n/);
+  assert.match(checksum, /framer-next-0.1.7.tgz/);
+});
+
 test('provenance is enabled only in GitHub Actions', () => {
   const local = publish();
   assert.doesNotMatch(readFileSync(local.calls, 'utf8'), /--provenance/);
