@@ -52,6 +52,34 @@ function validateUploads(source) {
   }
 }
 
+function validateExecution(source) {
+  const pins = new Map([
+    ['actions/checkout', '11bd71901bbe5b1630ceea73d27597364c9af683'],
+    ['actions/setup-node', '49933ea5288caeca8642d1e84afbd3f7d6820020'],
+    ['actions/upload-artifact', 'ea165f8d65b6e75b540449e92b4886f43607fa02'],
+    ['actions/download-artifact', 'd3f86a106a0bac45b974a628896c90dbdf5c8093'],
+  ]);
+  const actions = [...source.matchAll(/\buses:\s*(\S+)@(\S+)/g)];
+  assert.ok(actions.length >= pins.size);
+  for (const [, action, pin] of actions) {
+    assert.ok(pins.has(action), `unexpected action ${action}`);
+    assert.equal(pin, pins.get(action), `unexpected pin for ${action}`);
+  }
+  for (const action of pins.keys()) assert.ok(actions.some((match) => match[1] === action));
+  for (const runner of ['ubuntu-22.04', 'macos-15', 'windows-2022']) {
+    assert.ok(source.includes(runner), `missing runner ${runner}`);
+  }
+  for (const [, directory] of source.matchAll(/working-directory:\s*([^\r\n]+)/g)) {
+    assert.ok(['.', './'].includes(directory.trim()), 'commands must run from repository root');
+  }
+  const versions = [...source.matchAll(/node-version:\s*([^\r\n]+)/g)];
+  assert.ok(versions.length > 0, 'select a Node version');
+  for (const [, version] of versions) {
+    assert.match(version.trim(), /^['"]?22['"]?$/, 'qualify Node 22');
+  }
+  assert.doesNotMatch(source, /\bnpm (?:ci|install|publish)\b|\bnpm run (?:binary|build)\b/);
+}
+
 test('workflow covers both package trees and root verifier changes', () => {
   validateEvents(readFileSync(workflowPath, 'utf8'));
 });
@@ -62,6 +90,10 @@ test('workflow uses read-only permissions without publication', () => {
 
 test('workflow retains rerunnable evidence with mandatory uploads', () => {
   validateUploads(readFileSync(workflowPath, 'utf8'));
+});
+
+test('workflow declares pinned actions, all three runners, and root cwd', () => {
+  validateExecution(readFileSync(workflowPath, 'utf8'));
 });
 
 const eventFixture = `on:
@@ -114,5 +146,38 @@ test('policy fixture rejects unsafe upload names and silent missing artifacts', 
     ['github.run_id', 'github.run_attempt'],
   ]) {
     assert.throws(() => validateUploads(source.replace(before, after)));
+  }
+});
+
+test('policy fixture rejects changed action pins, platforms, and package cwd', () => {
+  const source = `jobs:
+  package:
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: 22
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+  consumers:
+    strategy:
+      matrix:
+        os: [ubuntu-22.04, macos-15, windows-2022]
+    steps:
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+      - run: node --test test/package-coexistence.test.mjs
+        working-directory: .
+`;
+  validateExecution(source);
+  for (const [before, after] of [
+    ['11bd71901bbe5b1630ceea73d27597364c9af683', 'v4'],
+    ['actions/checkout', 'unexpected/checkout'],
+    ['macos-15', 'ubuntu-24.04'],
+    ['working-directory: .', 'working-directory: framerize-nexus'],
+    ['node-version: 22', 'node-version: 20'],
+    ['node-version: 22', ''],
+    ['node --test test/package-coexistence.test.mjs', 'npm ci'],
+  ]) {
+    assert.throws(() => validateExecution(source.replace(before, after)));
   }
 });
