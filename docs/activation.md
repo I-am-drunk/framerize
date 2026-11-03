@@ -8,6 +8,10 @@ Verified on November 3, 2026:
 The installed binary also includes the reviewed response-validation fixes from
 commit `e08c8072`. Its SHA-256 is
 `1bb12d149aced5b558a01ab480c0b295b57ca457598a1feb8c560e7f77272dc4`.
+
+The current binary adds credential-service EOF handling from commit `c0ca0eb4`.
+Its SHA-256 is
+`18f45ccea388e2a001e7e8a165ad2a52a2eb0f2cb2afdf3210a469f59bbea465`.
 - Binary SHA-256:
   `dc0eaca01dd13eceb7e07f46793e3fd4ef0f264cfcc6007511b7f452e89c75f4`.
 - Installed binary: `/home/tjninja/.local/bin/framer-next`.
