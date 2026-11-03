@@ -150,9 +150,26 @@ retained in `native-evidence/41658627614/`. Independent review verified all
 payload and nested archive-member hashes. This checkpoint predates the added
 disconnect assertions, so it is not a substitute for current-head CI.
 
+At `d07fac36`, server CI run `41659675038` failed the macOS Node 24 readiness
+queued-header fixture. Its immediate event-loop stall could prevent the test
+response from flushing, so the test had not established queued input. The
+provider owner's test-only correction
+`40bf5c8788cdb5e06466db9f61701d21a0b4769a` is integrated unchanged as
+`48dcb87c`. It waits for successful write completion before the stall. The
+40 ms header deadline, 120 ms stall and provider implementation are unchanged.
+Both corrected cases still fail against the pre-fairness provider in the
+owner's Node 22 and 24 checks.
+
+The integrated correction passes both focused header regressions, all 86 package
+tests, all 38 acceptance tests and syntax checks on Node 22.23.4. Runtime,
+launcher and workflow bytes are unchanged from `d07fac36`. The failed CI run's
+skipped native and aggregate jobs provide no new qualification; the corrected
+combined head still requires those jobs and the acceptance-owned packaging
+regressions.
+
 Windows graceful POSIX-signal behavior is not claimed. Live inference,
 private credentials, production activation and release publication remain
 outside this stage.
 
-Next action: review this immutable checkpoint, integrate the acceptance-owned
-packaging regressions, and pass the three-platform native CI gate.
+Next action: integrate the acceptance-owned packaging regressions and pass the
+three-platform native CI gate on the final combined head.
