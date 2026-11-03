@@ -13,7 +13,7 @@ import { assetManifest } from '../framerize-castle/src/asset-manifest.js';
 const repository = fileURLToPath(new URL('../../', import.meta.url));
 const modules = ['asset-manifest', 'asset-snapshot', 'castle', 'collect', 'collect-worker',
   'collection-guard', 'encode', 'environment', 'errors', 'lifecycle', 'options',
-  'snapshot-loader', 'trace', 'types', 'worker'];
+  'snapshot-loader', 'trace', 'types', 'worker', 'encoder/serialize'];
 const expected = ['package.json', 'README.md', 'LICENSE',
   ...modules.flatMap((name) => [`dist/${name}.js`, `dist/${name}.d.ts`]),
   ...assetManifest.map((entry) => entry.path)].sort();
