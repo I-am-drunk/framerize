@@ -1,3 +1,14 @@
+# Claude history preservation, 2026-11-03
+
+Native Messages conversion now preserves signed thinking and redacted blocks,
+including thinking-only turns, in their original order. The new regression
+fails on the prior implementation. All 96 protocol unit tests pass after the
+repair. This change has not been packaged or activated.
+The alpha.19 isolated check exposed an unbounded BrowserContext.newPage wait.
+Cancelling that specific failed test operation allowed normal shutdown with
+clean rate history. No inference was dispatched and no live service changed.
+Next: repair the page-creation wait and verify the same exclusive account.
+
 # Memory-aware selection candidate, 2026-11-03
 
 Alpha.18 remains live. New Claude failures at 03:02:12 and 03:02:18 UTC
