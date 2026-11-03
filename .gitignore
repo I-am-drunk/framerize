@@ -4,4 +4,5 @@ dist/
 *.log
 .env
 accounts.json
+!examples/accounts.json
 coverage/

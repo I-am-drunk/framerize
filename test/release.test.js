@@ -30,6 +30,7 @@ test('release metadata rejects empty and duplicate checksum entries', () => {
 test('release metadata rejects malformed package versions', () => {
   const result = metadata({ GITHUB_REF_NAME: 'framer-next-vnot-semver' });
   assert.notEqual(result.status, 0);
+  assert.notEqual(metadata({ GITHUB_REF_NAME: 'framer-next-v0.1.5-01' }).status, 0);
 });
 
 test('release metadata rejects a mismatched version tag', () => {
