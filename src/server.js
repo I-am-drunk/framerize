@@ -3,6 +3,7 @@ import { randomUUID } from 'node:crypto';
 import { loadAccounts } from './config.js';
 import { openUpstream, createDeadline } from './upstream.js';
 import { idleTimeout } from './sse.js';
+import { sanitizeError } from './logger.js';
 
 function sendJson(response, status, value) {
   const body = JSON.stringify(value);
@@ -120,7 +121,7 @@ export async function createServer(config, { logger, fetchImpl = fetch } = {}) {
       }
     } catch (error) {
       if (!response.headersSent) {
-        const message = String(error.message).replace(/(bearer\s+)\S+/gi, '$1[redacted]');
+        const message = sanitizeError(error);
         sendJson(response, error.status || 502, {
           error: { message, type: error.status ? 'invalid_request' : 'upstream_error' },
         });

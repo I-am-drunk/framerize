@@ -35,3 +35,7 @@ export function createLogger({ stream = process.stderr, level = 'info' } = {}) {
     error: (event, fields) => write(event, { ...fields, level: 'error' }),
   };
 }
+
+export function sanitizeError(error) {
+  return clean(String(error?.message || 'upstream request failed'));
+}

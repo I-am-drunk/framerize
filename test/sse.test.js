@@ -38,3 +38,14 @@ test('every byte split preserves UTF-8 and CRLF events', async () => {
 test('incomplete and data-free EOF frames do not dispatch', async () => {
   assert.deepEqual(await collect(['event: ignored\n\nid: 9\n\ndata: incomplete']), []);
 });
+
+test('CR lines and split CRLF boundaries preserve events', async () => {
+  assert.deepEqual(await collect(['event: one\rdata: a\r\r', 'event: two\r\ndata: b\r', '\n\r\n']), [
+    { event: 'one', data: 'a' }, { event: 'two', data: 'b' },
+  ]);
+});
+
+test('encoder strips newlines from event names', () => {
+  assert.equal(encodeSse({ event: 'one\r\ndata: injected', data: 'safe' }),
+    'event: onedata: injected\ndata: safe\n\n');
+});

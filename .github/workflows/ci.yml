@@ -13,8 +13,8 @@ jobs:
   test:
     runs-on: ubuntu-22.04
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+      - uses: actions/setup-node@1e60f620b9541dca13c1f5b3797a63c337114c8a
         with:
           node-version: 22
           cache: npm
@@ -27,8 +27,8 @@ jobs:
     runs-on: ubuntu-22.04
     needs: test
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+      - uses: actions/setup-node@1e60f620b9541dca13c1f5b3797a63c337114c8a
         with:
           node-version: 22
       - run: npm ci

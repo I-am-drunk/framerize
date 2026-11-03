@@ -6,7 +6,7 @@ These projects provide concrete patterns. Framer Next does not copy their code.
   response construction, and streaming examples.
 - [Undici `lib/web/fetch/body.js`](https://github.com/nodejs/undici/blob/main/lib/web/fetch/body.js):
   standards-based HTTP bodies, cancellation, and Web Stream behavior.
-- [WHATWG SSE specification](https://html.spec.whatwg.org/multipage/server-sent-events.html):
+- [WHATWG event stream specification](https://html.spec.whatwg.org/multipage/server-sent-events.html):
   event framing, UTF-8 decoding, comments, and multiline data rules.
 - [Node.js single executable applications](https://nodejs.org/api/single-executable-applications.html):
   the official executable packaging process.

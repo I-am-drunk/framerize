@@ -2,15 +2,25 @@ export async function* parseSse(body) {
   if (!body) throw new Error('upstream returned an empty body');
   const decoder = new TextDecoder();
   let buffer = '';
+  let start = 0;
   for await (const chunk of body) {
     buffer += decoder.decode(chunk, { stream: true });
-    let boundary;
-    while ((boundary = buffer.search(/\r?\n\r?\n/)) !== -1) {
-      const raw = buffer.slice(0, boundary);
-      buffer = buffer.slice(boundary).replace(/^(?:\r\n|\r|\n){2}/, '');
-      const event = parseEvent(raw);
+    for (let index = start; index < buffer.length; index += 1) {
+      if (!['\r', '\n'].includes(buffer[index])) continue;
+      if (index === buffer.length - 1 && buffer[index] === '\r') break;
+      const length = buffer[index] === '\r' && buffer[index + 1] === '\n' ? 2 : 1;
+      if (!['\r', '\n'].includes(buffer[index + length])) {
+        index += length - 1;
+        continue;
+      }
+      const event = parseEvent(buffer.slice(0, index));
+      buffer = buffer.slice(index + length + (buffer[index + length] === '\r'
+        && buffer[index + length + 1] === '\n' ? 2 : 1));
+      index = -1;
+      start = 0;
       if (event) yield event;
     }
+    start = Math.max(0, buffer.length - 1);
   }
   buffer += decoder.decode();
 }
@@ -19,7 +29,7 @@ function parseEvent(raw) {
   let event = 'message';
   const data = [];
   let id;
-  for (const line of raw.split(/\r?\n/)) {
+  for (const line of raw.split(/\r\n|\r|\n/)) {
     if (!line || line.startsWith(':')) continue;
     const colon = line.indexOf(':');
     const field = colon === -1 ? line : line.slice(0, colon);
@@ -36,7 +46,7 @@ function parseEvent(raw) {
 export function encodeSse({ event = 'message', data = '', id }) {
   const lines = [];
   if (id !== undefined) lines.push(`id: ${String(id).replace(/[\r\n]/g, '')}`);
-  if (event !== 'message') lines.push(`event: ${event}`);
+  if (event !== 'message') lines.push(`event: ${String(event).replace(/[\r\n]/g, '')}`);
   for (const line of String(data).split('\n')) lines.push(`data: ${line}`);
   return `${lines.join('\n')}\n\n`;
 }
@@ -75,7 +85,8 @@ export async function* idleTimeout(iterable, timeoutMs, signal) {
       let abort;
       const expired = new Promise((_, reject) => {
         timer = setTimeout(() => {
-          iterator.return?.();
+          const closing = iterator.return?.();
+          if (closing?.catch) closing.catch(() => {});
           reject(new Error('upstream idle timeout'));
         }, timeoutMs);
       });

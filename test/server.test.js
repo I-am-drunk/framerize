@@ -44,6 +44,19 @@ test('responses proxy preserves SSE and strips caller credentials', async (t) =>
   assert.equal(seen.headers.cookie, undefined);
 });
 
+test('account base paths join without duplicate slashes', async (t) => {
+  let destination;
+  const base = await fixture(t, async (url) => {
+    destination = url.href;
+    return new Response('ok');
+  }, [{ id: 'one', upstream: 'http://upstream.test/openai/' }]);
+  const response = await fetch(`${base}/v1/responses`, {
+    method: 'POST', headers: { 'x-framer-account': 'one' }, body: '{}',
+  });
+  assert.equal(response.status, 200);
+  assert.equal(destination, 'http://upstream.test/openai/v1/responses');
+});
+
 test('long streams preserve every chunk', async (t) => {
   const chunks = Array.from({ length: 2000 }, (_, index) => `data: ${index}\n\n`);
   const base = await fixture(t, async () => new Response(ReadableStream.from(chunks)));

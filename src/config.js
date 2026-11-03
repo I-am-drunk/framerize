@@ -30,6 +30,22 @@ function positiveInteger(value, name) {
   return number;
 }
 
+function normalizeUpstream(value, name) {
+  let url;
+  try {
+    url = new URL(value);
+  } catch {
+    throw new ConfigError(`${name} must be a valid URL`);
+  }
+  if (!['http:', 'https:'].includes(url.protocol)) {
+    throw new ConfigError(`${name} must use HTTP or HTTPS`);
+  }
+  if (url.username || url.password) {
+    throw new ConfigError(`${name} must not contain credentials`);
+  }
+  return url.href.replace(/\/+$/, '');
+}
+
 export function parseConfig(values = {}) {
   const config = { ...DEFAULTS, ...values };
   config.port = positiveInteger(config.port, 'port');
@@ -38,11 +54,7 @@ export function parseConfig(values = {}) {
   config.maxBodyBytes = positiveInteger(config.maxBodyBytes, 'maxBodyBytes');
   if (config.port > 65_535) throw new ConfigError('port must be at most 65535');
   if (config.upstream) {
-    const url = new URL(config.upstream);
-    if (!['http:', 'https:'].includes(url.protocol)) {
-      throw new ConfigError('upstream must use HTTP or HTTPS');
-    }
-    config.upstream = url.href.replace(/\/$/, '');
+    config.upstream = normalizeUpstream(config.upstream, 'upstream');
   }
   return Object.freeze(config);
 }
@@ -77,11 +89,7 @@ export async function loadAccounts(file) {
     if (ids.has(account.id)) throw new ConfigError(`duplicate account id: ${account.id}`);
     ids.add(account.id);
     if (account.upstream !== undefined) {
-      const url = new URL(account.upstream);
-      if (!['http:', 'https:'].includes(url.protocol)) {
-        throw new ConfigError(`accounts[${index}].upstream must use HTTP or HTTPS`);
-      }
-      account.upstream = url.href.replace(/\/$/, '');
+      account.upstream = normalizeUpstream(account.upstream, `accounts[${index}].upstream`);
     }
     if (account.enabled !== undefined && typeof account.enabled !== 'boolean') {
       throw new ConfigError(`accounts[${index}].enabled must be boolean`);

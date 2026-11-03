@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { mkdtemp, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
-import { loadAccounts, parseConfig } from '../src/config.js';
+import { ConfigError, loadAccounts, parseConfig } from '../src/config.js';
 
 test('config defaults to loopback and validates ports', () => {
   const config = parseConfig({ port: '9000' });
@@ -20,4 +20,15 @@ test('accounts JSON validates ids and rejects embedded secrets', async () => {
   assert.deepEqual(await loadAccounts(file), [{ id: 'one', enabled: true }]);
   await writeFile(file, JSON.stringify([{ id: 'one', token: 'secret' }]));
   await assert.rejects(loadAccounts(file), /unknown field: token/);
+});
+
+test('account upstream URLs are normalized and restricted', async () => {
+  const directory = await mkdtemp(path.join(tmpdir(), 'framer-next-'));
+  const file = path.join(directory, 'accounts.json');
+  await writeFile(file, JSON.stringify([{ id: 'one', upstream: 'https://example.test/base/' }]));
+  assert.equal((await loadAccounts(file))[0].upstream, 'https://example.test/base');
+  for (const upstream of ['ftp://example.test', 'not a url', 'https://user:pass@example.test']) {
+    await writeFile(file, JSON.stringify([{ id: 'one', upstream }]));
+    await assert.rejects(loadAccounts(file), ConfigError);
+  }
 });

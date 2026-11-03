@@ -11,6 +11,7 @@ const help = execFileSync(executable, ['--help'], {
   cwd: directory, env: environment, encoding: 'utf8',
 });
 assert.match(help, /Framer Next/);
+assert.doesNotMatch(help, /Usage: node/);
 const check = execFileSync(executable, ['check'], {
   cwd: directory, env: environment, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'],
 });

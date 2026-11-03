@@ -1,5 +1,5 @@
 import { execFileSync } from 'node:child_process';
-import { copyFileSync, mkdirSync, writeFileSync } from 'node:fs';
+import { chmodSync, copyFileSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { build } from 'esbuild';
 import postject from 'postject';
@@ -24,13 +24,12 @@ writeFileSync('dist/sea-config.json', JSON.stringify({
   useSnapshot: false,
   useCodeCache: false,
 }));
+copyFileSync(new URL('../LICENSE', import.meta.url), 'dist/LICENSE');
 execFileSync(process.execPath, ['--experimental-sea-config', 'dist/sea-config.json'], { stdio: 'inherit' });
+chmodSync('dist/framer-next', 0o755);
 copyFileSync(process.execPath, 'dist/framer-next');
-await postject.inject('dist/framer-next', 'NODE_SEA_BLOB', readBlob(), {
+chmodSync('dist/framer-next', 0o755);
+await postject.inject('dist/framer-next', 'NODE_SEA_BLOB', readFileSync('dist/sea-prep.blob'), {
   sentinelFuse: 'NODE_SEA_FUSE_fce680ab2cc467b6e072b8b5df1996b2',
 });
 console.log('Built dist/framer-next');
-
-function readBlob() {
-  return execFileSync(process.execPath, ['-e', "process.stdout.write(require('fs').readFileSync('dist/sea-prep.blob'))"]);
-}
