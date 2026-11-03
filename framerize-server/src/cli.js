@@ -4,20 +4,21 @@ import { createServer } from './server.js';
 
 const HELP = `Framerize server
 Usage: framerize-server [serve|check] [options]
-  --upstream URL                  Authorized inference API base URL
+  --upstream URL                  Authorized inference API base URL, env FRAMERIZE_SERVER_UPSTREAM
   --authorization-env NAME        Upstream credential environment variable
   --authorization-file FILE       Private upstream credential file
   --server-token-env NAME         Server token variable, default FRAMERIZE_SERVER_TOKEN
   --server-token-file FILE        Private server token file
   --accounts-file FILE            JSON account metadata without credentials
-  --host ADDRESS                  Listen address, default 127.0.0.1
-  --port NUMBER                   Listen port, default 8789
+  --host ADDRESS                  Listen address, env FRAMERIZE_SERVER_HOST, default 127.0.0.1
+  --port NUMBER                   Listen port, env FRAMERIZE_SERVER_PORT, default 8789
   --headers-timeout-ms NUMBER     Provider header wait, default 15000
   --request-headers-timeout-ms N   Incoming HTTP header wait, default 15000
   --idle-timeout-ms NUMBER        Body inactivity limit, default 60000
   --shutdown-timeout-ms NUMBER    Provider shutdown limit, default 5000
   --max-body-bytes NUMBER         JSON request limit, default 16777216
   --log-level LEVEL               debug, info, warn, error, silent
+Command-line options override these environment values. Credentials use the references above.
 `;
 const FLAGS = new Set(['upstream', 'authorization-env', 'authorization-file', 'server-token-env',
   'server-token-file', 'accounts-file', 'host', 'port', 'headers-timeout-ms',
