@@ -4,6 +4,9 @@ import { spawnSync } from 'node:child_process';
 import { chmodSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+
+const executable = process.platform === 'win32' ? 'npm.cmd' : 'npm';
 
 function publish(authenticated = true, published = false, version = '0.1.7',
   registryError = '', githubActions = false, checksumValid = true, commit = 'a'.repeat(40),
@@ -24,7 +27,7 @@ function publish(authenticated = true, published = false, version = '0.1.7',
     authenticated ? '' : '[ "$1" = whoami ] && exit 1\n'}${
     published ? '[ "$1" = view ] && exit 0\n'
       : `[ "$1" = view ] && { printf '%s' '${registryError || 'E404'}' >&2; exit 1; }\n`}exit 0\n`;
-  writeFileSync(path.join(bin, 'npm'), stub, { mode: 0o755 });
+  writeFileSync(path.join(bin, executable), stub, { mode: 0o755 });
   writeFileSync(path.join(bin, 'sha256sum'),
     `#!/bin/sh\nprintf '%s\\n' "$*" >> '${calls}'\n${checksumValid ? '' : 'exit 1\n'}`);
   chmodSync(path.join(bin, 'sha256sum'), 0o755);
@@ -35,7 +38,7 @@ function publish(authenticated = true, published = false, version = '0.1.7',
   writeFileSync(path.join(bin, 'tar'), `#!/bin/sh\nprintf '%s\\n' '{"name":"framer-next","version":"${version}"}'\n`,
     { mode: 0o755 });
   const result = spawnSync(process.execPath, [
-    new URL('../scripts/publish-package.js', import.meta.url).pathname], {
+    fileURLToPath(new URL('../scripts/publish-package.js', import.meta.url))], {
     encoding: 'utf8',
     cwd: directory,
     env: { ...process.env, PATH: `${bin}:${process.env.PATH}`,
@@ -51,7 +54,7 @@ function publishCommit(recordedCommit) {
   const metadata = JSON.parse(readFileSync(path.join(directory, 'dist/release.json'), 'utf8'));
   metadata.commit = recordedCommit;
   writeFileSync(path.join(directory, 'dist/release.json'), JSON.stringify(metadata));
-  return spawnSync(process.execPath, [new URL('../scripts/publish-package.js', import.meta.url).pathname], {
+  return spawnSync(process.execPath, [fileURLToPath(new URL('../scripts/publish-package.js', import.meta.url))], {
     encoding: 'utf8', cwd: directory,
     env: { ...process.env, PATH: `${path.join(directory, 'bin')}:${process.env.PATH}` },
   });
@@ -79,7 +82,7 @@ test('tarball metadata must match the release filename', () => {
   writeFileSync(path.join(directory, 'dist', 'release.json'),
     JSON.stringify({ version: '0.1.7', commit: 'a'.repeat(40) }));
   const result = spawnSync(process.execPath, [
-    new URL('../scripts/publish-package.js', import.meta.url).pathname], {
+    fileURLToPath(new URL('../scripts/publish-package.js', import.meta.url))], {
     cwd: directory, encoding: 'utf8',
   });
   assert.notEqual(result.status, 0);
@@ -152,7 +155,7 @@ test('ambiguous release artifacts are rejected', () => {
     writeFileSync(path.join(directory, 'dist', `framer-next-${version}.tgz`), 'fixture');
   }
   const result = spawnSync(process.execPath, [
-    new URL('../scripts/publish-package.js', import.meta.url).pathname], {
+    fileURLToPath(new URL('../scripts/publish-package.js', import.meta.url))], {
     cwd: directory, encoding: 'utf8',
   });
   assert.notEqual(result.status, 0);
@@ -177,7 +180,7 @@ test('malformed checksum entries prevent publication', () => {
   const directory = path.dirname(fixture.calls);
   writeFileSync(path.join(directory, 'dist/SHA256SUMS'), 'not-a-checksum\n');
   const result = spawnSync(process.execPath, [
-    new URL('../scripts/publish-package.js', import.meta.url).pathname], {
+    fileURLToPath(new URL('../scripts/publish-package.js', import.meta.url))], {
     encoding: 'utf8', cwd: directory,
     env: { ...process.env, PATH: `${path.join(directory, 'bin')}:${process.env.PATH}` },
   });
@@ -193,7 +196,7 @@ test('conflicting release metadata prevents publication', () => {
   metadata.artifacts['framer-next-0.1.7.tgz'] = '1'.repeat(64);
   writeFileSync(path.join(directory, 'dist/release.json'), JSON.stringify(metadata));
   const result = spawnSync(process.execPath, [
-    new URL('../scripts/publish-package.js', import.meta.url).pathname], {
+    fileURLToPath(new URL('../scripts/publish-package.js', import.meta.url))], {
     encoding: 'utf8', cwd: directory,
     env: { ...process.env, PATH: `${path.join(directory, 'bin')}:${process.env.PATH}` },
   });

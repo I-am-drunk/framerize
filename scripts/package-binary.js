@@ -1,5 +1,5 @@
 import { execFileSync } from 'node:child_process';
-import { copyFileSync, readFileSync, writeFileSync } from 'node:fs';
+import { copyFileSync, existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { createHash } from 'node:crypto';
 import path from 'node:path';
 
@@ -23,8 +23,12 @@ if (platform === 'win32') {
 }
 const digest = (file) => createHash('sha256')
   .update(readFileSync(file)).digest('hex');
-const existing = readFileSync('dist/SHA256SUMS', 'utf8').trim();
+const existing = existsSync('dist/SHA256SUMS')
+  ? readFileSync('dist/SHA256SUMS', 'utf8').trim() : '';
+const names = new Set([executable, path.basename(archive)]);
+const preserved = existing.split('\n').filter((line) =>
+  !names.has(line.slice(66)));
 const entries = [`dist/${executable}`, archive].map((file) =>
   `${digest(file)}  ${file.replace(/^dist\//, '')}`);
-writeFileSync('dist/SHA256SUMS', `${[existing, ...entries].filter(Boolean).join('\n')}\n`);
+writeFileSync('dist/SHA256SUMS', `${[...preserved, ...entries].filter(Boolean).join('\n')}\n`);
 console.log(`Packaged ${archive}`);
