@@ -73,7 +73,7 @@ export async function loadAccounts(file) {
     }
     const allowed = new Set(['id', 'enabled', 'model', 'upstream', 'authorizationEnv',
       'provider', 'projectId', 'sessionEnv', 'castleEnv', 'authorizationFile',
-      'sessionFile', 'castleFile']);
+      'sessionFile', 'castleFile', 'castleSocket']);
     for (const key of Object.keys(account)) {
       if (!allowed.has(key)) throw new ConfigError(`accounts[${index}] has unknown field: ${key}`);
     }
@@ -95,6 +95,10 @@ export async function loadAccounts(file) {
       if (account[key] !== undefined && (typeof account[key] !== 'string' || !account[key])) {
         throw new ConfigError(`accounts[${index}].${key} must be a file path`);
       }
+    }
+    if (account.castleSocket !== undefined
+        && (typeof account.castleSocket !== 'string' || !account.castleSocket)) {
+      throw new ConfigError(`accounts[${index}].castleSocket must be a socket path`);
     }
     if (account.provider === 'framer') {
       if (typeof account.projectId !== 'string' || !account.projectId) {
@@ -123,7 +127,7 @@ export async function loadAccounts(file) {
   return parsed.filter((account) => account.enabled !== false).map((account) => (
     Object.fromEntries(['id', 'enabled', 'model', 'upstream', 'authorizationEnv',
       'provider', 'projectId', 'sessionEnv', 'castleEnv', 'authorizationFile',
-      'sessionFile', 'castleFile']
+      'sessionFile', 'castleFile', 'castleSocket']
       .filter((key) => account[key] !== undefined).map((key) => [key, account[key]]))
   ));
 }

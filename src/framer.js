@@ -1,5 +1,6 @@
 import { randomInt } from 'node:crypto';
 import { readCredential } from './config.js';
+import { mintCredential } from './credentials.js';
 
 const minted = new Map();
 const ID_ALPHABET = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
@@ -66,7 +67,8 @@ function userPrompt(payload) {
 
 export async function prepareFramer({ account, path, body, signal, fetchImpl, env = process.env }) {
   if (!account || account.provider !== 'framer') return null;
-  const castle = account.castleEnv ? env[account.castleEnv] : await readCredential(account.castleFile);
+  const castle = account.castleSocket ? await mintCredential(account.castleSocket, account.id)
+    : account.castleEnv ? env[account.castleEnv] : await readCredential(account.castleFile);
   if (!castle) {
     const error = new Error(`account ${account.id} has no Castle credential`);
     error.status = 503;

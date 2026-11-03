@@ -75,6 +75,8 @@ short replies, and incremental streams. Sessions and Castle credentials
 stay in environment variables named by the JSON account record. Private files
 can replace those variables with `sessionFile`, `castleFile`, or
 `authorizationFile`. Files must be regular files no larger than 16 KiB.
+Set `castleSocket` to the existing local credential service's Unix socket to
+request a fresh token for each inference call. Its response stays in memory.
 
 ```json
 [{
