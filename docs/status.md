@@ -2,8 +2,8 @@
 
 Verified on November 3, 2026:
 
-- 44 unit and integration tests pass on Node.js 24.
-- GitHub CI test and package jobs pass on pull request 32.
+- 45 unit and integration tests pass on Node.js 24.
+- GitHub CI test and package jobs pass on pull requests 32 and 33.
 - The installed npm tarball runs outside the checkout.
 - The isolated executable runs without Node.js on `PATH`.
 - Live local SSE streaming passes.
