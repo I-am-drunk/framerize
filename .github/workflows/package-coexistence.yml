@@ -23,6 +23,9 @@ on:
 permissions:
   contents: read
 
+env:
+  NODE_OPTIONS: ''
+
 defaults:
   run:
     shell: bash
@@ -32,8 +35,6 @@ jobs:
     name: produce packages (ubuntu-22.04)
     runs-on: ubuntu-22.04
     timeout-minutes: 10
-    outputs:
-      artifact: ${{ steps.manifest.outputs.artifact }}
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
         with:
@@ -44,9 +45,8 @@ jobs:
       - name: Pack each package once with private npm configuration
         run: |
           set -euo pipefail
-          private="$RUNNER_TEMP/npm-private"
-          out="$RUNNER_TEMP/coexistence-artifact"
-          rm -rf "$private" "$out"
+          private="$(mktemp -d "$RUNNER_TEMP/npm-private.XXXXXX")"
+          out="$(mktemp -d "$RUNNER_TEMP/coexistence-artifact.XXXXXX")"
           mkdir -p "$private/cache" "$out"
           : > "$private/user.npmrc"
           : > "$private/global.npmrc"
@@ -85,23 +85,23 @@ jobs:
             return { name, version, tarball,
               sha256: createHash('sha256').update(bytes).digest('hex'), bytes: bytes.length };
           });
-          assert.deepEqual(fs.readdirSync(out).sort(), packages.map((p) => p.tarball).sort(),
+          assert.deepEqual(fs.readdirSync(out).sort(), packages.map((entry) => entry.tarball).sort(),
             'pack output must hold exactly the two expected tarballs');
           const manifest = {
             source: { repository: process.env.GITHUB_REPOSITORY, sha,
+              event: process.env.GITHUB_EVENT_NAME,
               runId: process.env.GITHUB_RUN_ID, runAttempt: process.env.GITHUB_RUN_ATTEMPT },
             node: process.version, npm: process.env.PRODUCER_NPM,
             platform: process.platform, arch: process.arch, packages };
           fs.writeFileSync(path.join(out, 'manifest.json'), `${JSON.stringify(manifest, null, 2)}\n`);
-          const lines = [`artifact=package-coexistence-${process.env.GITHUB_RUN_ID}-packages`,
-            `nexus=${packages[0].tarball}`, `server=${packages[1].tarball}`];
+          const lines = [`nexus=${packages[0].tarball}`, `server=${packages[1].tarball}`];
           fs.appendFileSync(process.env.GITHUB_OUTPUT, `${lines.join('\n')}\n`);
           console.log(JSON.stringify(manifest, null, 2));
           JS
       - name: Upload producer artifact
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
-          name: ${{ steps.manifest.outputs.artifact }}
+          name: package-coexistence-${{ github.run_id }}-packages
           path: |
             ${{ env.ARTIFACT_DIR }}/manifest.json
             ${{ env.ARTIFACT_DIR }}/${{ steps.manifest.outputs.nexus }}
@@ -118,9 +118,18 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - { runner: ubuntu-22.04, platform: linux, arch: x64, target: linux-x64 }
-          - { runner: macos-15, platform: darwin, arch: arm64, target: macos-arm64 }
-          - { runner: windows-2022, platform: win32, arch: x64, target: windows-x64 }
+          - runner: ubuntu-22.04
+            platform: linux
+            arch: x64
+            target: linux-x64
+          - runner: macos-15
+            platform: darwin
+            arch: arm64
+            target: macos-arm64
+          - runner: windows-2022
+            platform: win32
+            arch: x64
+            target: windows-x64
     env:
       EXPECTED_PLATFORM: ${{ matrix.platform }}
       EXPECTED_ARCH: ${{ matrix.arch }}
@@ -134,13 +143,11 @@ jobs:
       - name: Isolate npm configuration
         run: |
           set -euo pipefail
-          private="$RUNNER_TEMP/npm-private"
-          rm -rf "$private"
+          private="$(mktemp -d "$RUNNER_TEMP/npm-private.XXXXXX")"
           mkdir -p "$private/cache"
           : > "$private/user.npmrc"
           : > "$private/global.npmrc"
           {
-            echo "NODE_OPTIONS="
             echo "npm_config_userconfig=$private/user.npmrc"
             echo "npm_config_globalconfig=$private/global.npmrc"
             echo "npm_config_cache=$private/cache"
@@ -151,7 +158,7 @@ jobs:
       - name: Download producer artifact
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
         with:
-          name: ${{ needs.produce.outputs.artifact }}
+          name: package-coexistence-${{ github.run_id }}-packages
           path: ${{ runner.temp }}/coexistence-input
       - name: Verify producer manifest, source and input hashes
         env:
@@ -171,38 +178,40 @@ jobs:
           assert.equal(manifest.source.sha, sha, 'producer built a different source SHA');
           assert.equal(manifest.source.repository, process.env.GITHUB_REPOSITORY);
           assert.equal(manifest.source.runId, process.env.GITHUB_RUN_ID);
-          assert.deepEqual(manifest.packages.map((p) => p.name), ['framerize-nexus', 'framerize-server']);
+          assert.equal(manifest.source.event, process.env.GITHUB_EVENT_NAME);
+          assert.deepEqual(manifest.packages.map((entry) => entry.name), ['framerize-nexus', 'framerize-server']);
           assert.deepEqual(fs.readdirSync(dir).sort(),
-            ['manifest.json', ...manifest.packages.map((p) => p.tarball)].sort(),
+            ['manifest.json', ...manifest.packages.map((entry) => entry.tarball)].sort(),
             'artifact must hold exactly the manifest and two tarballs');
-          for (const p of manifest.packages) {
-            const { name, version } = JSON.parse(fs.readFileSync(`${p.name}/package.json`, 'utf8'));
-            assert.equal(p.name, name);
-            assert.equal(p.version, version, `${name} version differs from checkout`);
-            assert.equal(p.tarball, `${name}-${version}.tgz`);
-            assert.match(p.sha256, /^[0-9a-f]{64}$/);
-            const bytes = fs.readFileSync(path.join(dir, p.tarball));
-            assert.equal(bytes.length, p.bytes, `${p.tarball} size differs from producer`);
-            assert.equal(createHash('sha256').update(bytes).digest('hex'), p.sha256,
-              `${p.tarball} hash differs from producer`);
+          for (const entry of manifest.packages) {
+            const { name, version } = JSON.parse(fs.readFileSync(`${entry.name}/package.json`, 'utf8'));
+            assert.equal(entry.name, name);
+            assert.equal(entry.version, version, `${name} version differs from checkout`);
+            assert.equal(entry.tarball, `${name}-${version}.tgz`);
+            assert.match(entry.sha256, /^[0-9a-f]{64}$/);
+            const bytes = fs.readFileSync(path.join(dir, entry.tarball));
+            assert.equal(bytes.length, entry.bytes, `${entry.tarball} size differs from producer`);
+            assert.equal(createHash('sha256').update(bytes).digest('hex'), entry.sha256,
+              `${entry.tarball} hash differs from producer`);
           }
-          const lines = manifest.packages.map((p, i) =>
-            `${i ? 'SERVER' : 'NEXUS'}_TGZ=${path.join(dir, p.tarball)}`);
+          const lines = manifest.packages.map((entry, index) =>
+            `${index ? 'SERVER' : 'NEXUS'}_TGZ=${path.join(dir, entry.tarball)}`);
+          const manifestHash = createHash('sha256')
+            .update(fs.readFileSync(path.join(dir, 'manifest.json'))).digest('hex');
+          lines.push(`PRODUCER_MANIFEST_SHA256=${manifestHash}`);
           fs.appendFileSync(process.env.GITHUB_ENV, `${lines.join('\n')}\n`);
           JS
       - name: Verify runner platform
         run: |
-          node -e "const a = require('node:assert/strict');
-            a.equal(process.platform, process.env.EXPECTED_PLATFORM);
-            a.equal(process.arch, process.env.EXPECTED_ARCH);"
+          node -e "const assert = require('node:assert/strict');
+            assert.equal(process.platform, process.env.EXPECTED_PLATFORM);
+            assert.equal(process.arch, process.env.EXPECTED_ARCH);"
       - name: Run root tests
         run: node --test test/*.test.mjs
       - name: Check coexistence of the downloaded tarballs
         run: |
           set -euo pipefail
-          report="$RUNNER_TEMP/coexistence-report"
-          rm -rf "$report"
-          mkdir -p "$report"
+          report="$(mktemp -d "$RUNNER_TEMP/coexistence-report.XXXXXX")"
           node scripts/package-coexistence.mjs "$NEXUS_TGZ" "$SERVER_TGZ" > "$report/checker.json"
           echo "REPORT_DIR=$report" >> "$GITHUB_ENV"
       - name: Match checker identities to producer manifest
@@ -221,6 +230,11 @@ jobs:
           const hash = (file) => createHash('sha256').update(fs.readFileSync(file)).digest('hex');
           const manifestFile = path.join(process.env.INPUT_DIR, 'manifest.json');
           const manifest = JSON.parse(fs.readFileSync(manifestFile, 'utf8'));
+          assert.equal(hash(manifestFile), process.env.PRODUCER_MANIFEST_SHA256,
+            'producer manifest changed after verification');
+          const sha = execFileSync('git', ['rev-parse', 'HEAD'], { encoding: 'utf8' }).trim();
+          assert.equal(sha, process.env.GITHUB_SHA, 'checkout changed after verification');
+          assert.equal(manifest.source.sha, sha, 'producer source differs from checkout');
           const checker = JSON.parse(fs.readFileSync(path.join(process.env.REPORT_DIR, 'checker.json'), 'utf8'));
           assert.equal(checker.platform, process.env.EXPECTED_PLATFORM);
           assert.equal(checker.arch, process.env.EXPECTED_ARCH);
@@ -229,13 +243,14 @@ jobs:
             checker.packages.map(({ name, version, tarball, sha256 }) => ({ name, version, tarball, sha256 })),
             manifest.packages.map(({ name, version, tarball, sha256 }) => ({ name, version, tarball, sha256 })),
             'checker identities differ from producer manifest');
-          for (const p of manifest.packages) {
-            assert.equal(hash(path.join(process.env.INPUT_DIR, p.tarball)), p.sha256,
-              `${p.tarball} changed after verification`);
+          for (const entry of manifest.packages) {
+            assert.equal(hash(path.join(process.env.INPUT_DIR, entry.tarball)), entry.sha256,
+              `${entry.tarball} changed after verification`);
           }
           const report = {
             source: { repository: process.env.GITHUB_REPOSITORY,
-              sha: execFileSync('git', ['rev-parse', 'HEAD'], { encoding: 'utf8' }).trim(),
+              event: process.env.GITHUB_EVENT_NAME,
+              sha,
               runId: process.env.GITHUB_RUN_ID, runAttempt: process.env.GITHUB_RUN_ATTEMPT },
             runner: process.env.RUNNER_LABEL, target: process.env.TARGET,
             node: checker.node, npm: checker.npm, platform: checker.platform, arch: checker.arch,

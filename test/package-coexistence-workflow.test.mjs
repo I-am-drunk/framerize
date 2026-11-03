@@ -1,8 +1,220 @@
 import assert from 'node:assert/strict';
+import { createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
+import { createRequire } from 'node:module';
+import path from 'node:path';
 import test from 'node:test';
 
 const workflowPath = new URL('../.github/workflows/package-coexistence.yml', import.meta.url);
+const requireBuiltin = createRequire(import.meta.url);
+const digest = (bytes) => createHash('sha256').update(bytes).digest('hex');
+
+function workflowScript(name) {
+  const source = readFileSync(workflowPath, 'utf8').replace(/\r\n/g, '\n');
+  const step = source.split(/^      - /m).find((entry) => entry.startsWith('name: ' + name + '\n'));
+  assert.ok(step, 'missing workflow step: ' + name);
+  const body = step.match(/^          node <<'JS'\n([\s\S]*?)^          JS$/m)?.[1];
+  assert.ok(body, 'missing inline Node script: ' + name);
+  return new Function('require', 'process', 'console', body.replace(/^          /gm, ''));
+}
+
+function evidenceFixture(platform = 'linux', arch = 'x64') {
+  const directory = path.resolve('virtual-coexistence');
+  const input = path.join(directory, 'input');
+  const report = path.join(directory, 'report');
+  const files = new Map();
+  const put = (file, bytes) => files.set(path.resolve(file), Buffer.from(bytes));
+  const packages = ['framerize-nexus', 'framerize-server'].map((name) => {
+    const version = name === 'framerize-nexus' ? '0.1.9' : '0.1.0';
+    const tarball = name + '-' + version + '.tgz';
+    const bytes = Buffer.from('fixture bytes for ' + name);
+    put(path.join(input, tarball), bytes);
+    put(name + '/package.json', JSON.stringify({ name, version }));
+    return { name, version, tarball, sha256: digest(bytes), bytes: bytes.length };
+  });
+  const source = { repository: 'fixture/framerize', sha: 'a'.repeat(40), event: 'pull_request',
+    runId: '1234', runAttempt: '1' };
+  const manifest = { source, node: process.version, npm: '10.9.9',
+    platform: 'linux', arch: 'x64', packages };
+  const checker = { node: process.version, npm: '10.9.9', platform, arch,
+    packages: packages.map(({ bytes, ...entry }) => ({ ...entry, files: 13 })) };
+  const manifestFile = path.join(input, 'manifest.json');
+  const checkerFile = path.join(report, 'checker.json');
+  const save = () => {
+    put(manifestFile, JSON.stringify(manifest));
+    put(checkerFile, JSON.stringify(checker));
+  };
+  save();
+  const env = {
+    INPUT_DIR: input, ARTIFACT_DIR: input, REPORT_DIR: report,
+    GITHUB_ENV: path.join(directory, 'env'),
+    GITHUB_OUTPUT: path.join(directory, 'output'),
+    GITHUB_SHA: source.sha, GITHUB_REPOSITORY: source.repository,
+    GITHUB_EVENT_NAME: source.event,
+    GITHUB_RUN_ID: source.runId, GITHUB_RUN_ATTEMPT: '2',
+    PRODUCER_NPM: '10.9.9',
+    PRODUCER_MANIFEST_SHA256: digest(files.get(manifestFile)),
+    EXPECTED_PLATFORM: platform, EXPECTED_ARCH: arch,
+    RUNNER_LABEL: platform + '-fixture', TARGET: platform + '-' + arch,
+  };
+  const writes = [];
+  const fs = {
+    readFileSync(file, encoding) {
+      const bytes = files.get(path.resolve(file));
+      assert.ok(bytes, 'missing virtual file: ' + file);
+      return encoding ? bytes.toString(encoding) : Buffer.from(bytes);
+    },
+    writeFileSync(file, bytes) {
+      writes.push(file);
+      put(file, bytes);
+    },
+    appendFileSync(file, bytes) {
+      writes.push(file);
+      put(file, Buffer.concat([files.get(path.resolve(file)) ?? Buffer.alloc(0), Buffer.from(bytes)]));
+    },
+    readdirSync(folder) {
+      return [...files.keys()].filter((file) => path.dirname(file) === path.resolve(folder))
+        .map((file) => path.basename(file));
+    },
+  };
+  let checkout = source.sha;
+  const execute = (name) => {
+    workflowScript(name)((module) => {
+      if (module === 'node:fs') return fs;
+      if (module === 'node:child_process') return {
+        execFileSync(command, args) {
+          assert.equal(command, 'git', 'fixtures must not invoke package managers or the network');
+          assert.deepEqual(args, ['rev-parse', 'HEAD']);
+          return checkout;
+        },
+      };
+      assert.ok(['node:assert/strict', 'node:crypto', 'node:path'].includes(module));
+      return requireBuiltin(module);
+    }, { env, version: process.version, platform, arch }, { log() {} });
+    for (const line of (files.get(env.GITHUB_ENV)?.toString() ?? '').split('\n')) {
+      const separator = line.indexOf('=');
+      if (separator > 0) env[line.slice(0, separator)] = line.slice(separator + 1);
+    }
+  };
+  return { files, put, packages, manifest, checker, manifestFile, checkerFile,
+    input, report, env, save, execute, writes,
+    setCheckout(value) { checkout = value; } };
+}
+
+const producerStep = 'Write producer manifest beside exactly two tarballs';
+const verifyStep = 'Verify producer manifest, source and input hashes';
+const reportStep = 'Match checker identities to producer manifest';
+
+test('actual workflow reuses attempt-one producer bytes on attempt-two consumers', () => {
+  const producer = evidenceFixture();
+  producer.files.delete(producer.manifestFile);
+  producer.env.GITHUB_RUN_ATTEMPT = '1';
+  producer.execute(producerStep);
+  const manifestBytes = producer.files.get(producer.manifestFile);
+  const metadata = JSON.parse(manifestBytes);
+  assert.equal(metadata.source.runAttempt, '1');
+  for (const [platform, arch] of [['linux', 'x64'], ['darwin', 'arm64'], ['win32', 'x64']]) {
+    const consumer = evidenceFixture(platform, arch);
+    consumer.put(consumer.manifestFile, manifestBytes);
+    consumer.execute(verifyStep);
+    consumer.execute(reportStep);
+    const report = JSON.parse(consumer.files.get(path.join(consumer.report, 'report.json')));
+    assert.equal(report.source.runAttempt, '2');
+    assert.equal(report.producer.source.runAttempt, '1');
+    assert.equal(report.producer.manifestSha256, digest(manifestBytes));
+    assert.deepEqual(report.packages.map((entry) => entry.sha256),
+      metadata.packages.map((entry) => entry.sha256));
+    assert.equal(report.source.sha, report.producer.source.sha);
+  }
+});
+
+function rejectsBeforeExport(change, expected) {
+  const fixture = evidenceFixture();
+  change(fixture);
+  fixture.save();
+  assert.throws(() => fixture.execute(verifyStep), expected);
+  assert.deepEqual(fixture.writes, [], 'invalid artifacts must not reach install-path exports');
+}
+
+const identityFailures = [
+  ['wrong source', (fixture) => { fixture.manifest.source.sha = 'b'.repeat(40); }, /different source SHA/],
+  ['wrong checkout', (fixture) => { fixture.setCheckout('b'.repeat(40)); }, /triggering SHA/],
+  ['wrong repository', (fixture) => { fixture.manifest.source.repository = 'other/repository'; }],
+  ['wrong run', (fixture) => { fixture.manifest.source.runId = '9999'; }],
+  ['wrong event', (fixture) => { fixture.manifest.source.event = 'push'; }],
+  ['absent package evidence', (fixture) => { delete fixture.manifest.packages; }],
+  ['missing package', (fixture) => { fixture.manifest.packages.pop(); }],
+  ['duplicate package', (fixture) => { fixture.manifest.packages[1] = fixture.packages[0]; }],
+  ['unexpected package', (fixture) => { fixture.packages[1].name = 'unexpected'; }],
+  ['wrong version', (fixture) => { fixture.packages[0].version = '9.9.9'; }, /version differs/],
+  ['wrong size', (fixture) => { fixture.packages[0].bytes += 1; }, /size differs/],
+  ['wrong digest', (fixture) => { fixture.packages[0].sha256 = 'b'.repeat(64); }, /hash differs/],
+];
+for (const [name, change, expected] of identityFailures) {
+  test('actual preinstall verification rejects ' + name, () => rejectsBeforeExport(change, expected));
+}
+
+test('actual preinstall verification rejects changed tarball bytes with unchanged size', () => {
+  rejectsBeforeExport((fixture) => {
+    const file = path.join(fixture.input, fixture.packages[0].tarball);
+    const bytes = Buffer.from(fixture.files.get(file));
+    bytes[0] ^= 1;
+    fixture.put(file, bytes);
+  }, /hash differs/);
+});
+
+test('actual preinstall verification rejects absent, extra, and renamed tarballs', () => {
+  rejectsBeforeExport((fixture) => {
+    fixture.files.delete(path.join(fixture.input, fixture.packages[0].tarball));
+  }, /exactly the manifest and two tarballs/);
+  rejectsBeforeExport((fixture) => {
+    fixture.put(path.join(fixture.input, 'extra.tgz'), 'extra');
+  }, /exactly the manifest and two tarballs/);
+  rejectsBeforeExport((fixture) => {
+    const entry = fixture.packages[0];
+    const old = path.join(fixture.input, entry.tarball);
+    fixture.put(path.join(fixture.input, 'renamed.tgz'), fixture.files.get(old));
+    fixture.files.delete(old);
+    entry.tarball = 'renamed.tgz';
+  }, /renamed.tgz/);
+});
+
+function rejectsBeforeReport(change, expected) {
+  const fixture = evidenceFixture();
+  fixture.execute(verifyStep);
+  fixture.writes.length = 0;
+  change(fixture);
+  fixture.save();
+  assert.throws(() => fixture.execute(reportStep), expected);
+  assert.deepEqual(fixture.writes, [], 'invalid checks must not produce a successful report');
+}
+
+for (const key of ['name', 'version', 'tarball', 'sha256']) {
+  test('actual final comparison rejects substituted checker ' + key, () => {
+    rejectsBeforeReport((fixture) => {
+      fixture.checker.packages[0][key] = 'substituted';
+    }, /checker identities differ/);
+  });
+}
+
+test('actual final comparison rejects missing or duplicate checker packages', () => {
+  rejectsBeforeReport((fixture) => { fixture.checker.packages.pop(); }, /identities differ/);
+  rejectsBeforeReport((fixture) => {
+    fixture.checker.packages[1] = fixture.checker.packages[0];
+  }, /identities differ/);
+});
+
+test('actual final comparison rejects changed checkout, manifest, or payload', () => {
+  rejectsBeforeReport((fixture) => {
+    fixture.setCheckout('b'.repeat(40));
+  }, /checkout changed/);
+  rejectsBeforeReport((fixture) => {
+    fixture.manifest.source.sha = 'b'.repeat(40);
+  }, /manifest changed/);
+  rejectsBeforeReport((fixture) => {
+    fixture.put(path.join(fixture.input, fixture.packages[0].tarball), 'changed');
+  }, /changed after verification/);
+});
 const requiredPaths = [
   'framerize-nexus/**', 'framerize-server/**',
   'scripts/package-coexistence.mjs', 'test/package-coexistence.test.mjs',
@@ -105,6 +317,8 @@ function validateExecution(source) {
     assert.match(version.trim(), /^['"]?22['"]?$/, 'qualify Node 22');
   }
   assert.doesNotMatch(source, /\bnpm (?:ci|install|publish)\b|\bnpm run (?:binary|build)\b/);
+  assert.doesNotMatch(source, /(?:echo|printf)[^\r\n]*NODE_OPTIONS/,
+    'GitHub blocks NODE_OPTIONS writes through GITHUB_ENV');
 }
 
 test('workflow covers both package trees and root verifier changes', () => {
@@ -121,6 +335,19 @@ test('workflow retains rerunnable evidence with mandatory uploads', () => {
 
 test('workflow declares pinned actions, all three runners, and root cwd', () => {
   validateExecution(readFileSync(workflowPath, 'utf8'));
+});
+
+test('workflow clears Node options declaratively and downloads the original producer', () => {
+  const source = readFileSync(workflowPath, 'utf8');
+  assert.match(section(source, 'env'), /^  NODE_OPTIONS: ''$/m);
+  const steps = source.split(/^      - /m);
+  const upload = steps.find((step) => step.startsWith('name: Upload producer artifact\n'));
+  const download = steps.find((step) => step.startsWith('name: Download producer artifact\n'));
+  const artifactName = (step) => step?.match(/^          name: (.+)$/m)?.[1];
+  assert.ok(artifactName(upload));
+  assert.ok(artifactName(download));
+  const stored = new Map([[expandName(artifactName(upload), {}, 1), 'producer-attempt-one']]);
+  assert.equal(stored.get(expandName(artifactName(download), {}, 2)), 'producer-attempt-one');
 });
 
 const eventFixture = `on:
@@ -227,6 +454,7 @@ test('policy fixture rejects changed action pins, platforms, and package cwd', (
     ['working-directory: .', 'working-directory: framerize-nexus'],
     ['node-version: 22', 'node-version: 20'],
     ['node-version: 22', ''],
+    ['node --test test/package-coexistence.test.mjs', 'echo "NODE_OPTIONS=" >> "$GITHUB_ENV"'],
     ['node --test test/package-coexistence.test.mjs', 'npm ci'],
   ]) {
     assert.throws(() => validateExecution(source.replace(before, after)));

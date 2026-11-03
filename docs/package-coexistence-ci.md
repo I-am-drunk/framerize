@@ -1,8 +1,8 @@
 # Package coexistence CI acceptance
 
 This gate qualifies the installed Nexus and server npm packages together.
-The workflow is under implementation. The requirements below are not a claim
-that macOS or Windows qualification has already passed.
+The workflow is implemented. Its cross-platform qualification is still pending.
+The requirements below are not a claim that macOS or Windows has passed.
 
 ## Scope
 
@@ -65,21 +65,26 @@ valid only for its exact inputs and does not establish this new workflow's
 cross-platform result. Source changes or future public exports need their own
 review and qualification. Passing this gate is not publication approval.
 
-## In-progress validation
+## Local regression validation
 
-The workflow policy fixtures pass on Node 22.23.4. They exercise missing path
+All 30 workflow regression tests pass on Node 22.23.4. They exercise missing path
 filters, privileged permissions, unsafe artifact names, rerun collisions, and
 silent missing uploads. They also reject changed action pins, missing platform
 declarations, an unsupported Node selection, and package-local command paths.
 Artifact-name checks expand the matrix identities and reject collisions between
 platforms or with the producer, including a removed platform suffix.
-Run only these preparatory cases with:
+Run them with:
 
 ```sh
-node --test --test-name-pattern='^policy fixture' test/package-coexistence-workflow.test.mjs
+node --test test/package-coexistence-workflow.test.mjs
 ```
 
-The workflow file is still delegated work. The full test file intentionally
-requires it and is not yet qualified. Source and tarball identity rejection
-tests will execute its actual validation code after that checkpoint arrives.
-These four preparatory fixture results are not a workflow or OS acceptance.
+Behavioral tests execute the actual inline producer, input verification and
+report scripts against a virtual filesystem. They cover source/run/repository
+and event mismatches, missing/duplicate/unexpected package evidence, version,
+filename, size and digest mismatches, altered payloads, and substituted checker
+reports. They also reject a manifest or checkout changed after verification.
+An attempt 2 consumer accepts unchanged attempt 1 producer evidence.
+
+These are script-level tests, not native execution on three OSes. The real
+Linux offline workflow steps and all three hosted consumers remain to qualify.

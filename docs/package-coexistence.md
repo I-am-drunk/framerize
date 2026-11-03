@@ -46,7 +46,7 @@ node --test test/package-coexistence.test.mjs
 ```
 
 The parent has authorized a separate [package-pair CI workflow](package-coexistence-ci.md),
-which remains under implementation. This checker does not change either
+whose three-OS qualification remains pending. This checker does not change either
 package's existing workflow or qualify native archives. Retain its JSON
 output with externally verified source provenance; a tarball filename alone
 does not establish a Git commit. Success is not publication or activation approval.
