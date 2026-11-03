@@ -13,7 +13,22 @@ defaults:
     working-directory: framerize-nexus
 
 jobs:
+  package:
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: 22
+      - run: npm pack
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: release-package-${{ github.run_id }}
+          overwrite: true
+          if-no-files-found: error
+          path: framerize-nexus/framerize-nexus-*.tgz
   build:
+    needs: package
     strategy:
       fail-fast: false
       matrix:
@@ -37,12 +52,18 @@ jobs:
       - run: node scripts/smoke.js
       - run: node scripts/framer-smoke.js
       - run: npm run binary
-      - run: node scripts/binary-smoke.js
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: release-package-${{ github.run_id }}
+          path: framerize-nexus
+      - run: node scripts/package-smoke.js --downloaded
       - run: node scripts/package-binary.js
+      - run: node scripts/binary-smoke.js dist/framerize-nexus-${{ matrix.suffix }}.${{ matrix.suffix == 'windows-x64' && 'zip' || 'tar.gz' }}
       - run: node scripts/release-metadata.js
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
-          name: release-${{ github.ref_name }}-${{ matrix.suffix }}
+          name: release-${{ github.run_id }}-${{ matrix.suffix }}
+          overwrite: true
           if-no-files-found: error
           path: |
             framerize-nexus/dist/framerize-nexus-*.tar.gz
@@ -52,41 +73,43 @@ jobs:
             framerize-nexus/dist/SHA256SUMS
             framerize-nexus/dist/release.json
             framerize-nexus/dist/NODE-LICENSE
-  publish:
-    needs: build
-    if: startsWith(github.ref, 'refs/tags/framerize-nexus-v')
+            framerize-nexus/dist/LICENSE
+  assemble:
+    needs: [package, build]
     runs-on: ubuntu-22.04
-    environment: npm-release
     permissions:
-      contents: write
-      id-token: write
-      attestations: write
-      artifact-metadata: write
+      contents: read
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
         with:
           node-version: 22
-      - run: npm pack
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
         with:
-          pattern: release-${{ github.ref_name }}-*
-          path: framerize-nexus/dist
-          merge-multiple: true
+          name: release-package-${{ github.run_id }}
+          path: framerize-nexus
+      - run: node scripts/package-smoke.js --downloaded
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: release-${{ github.run_id }}-linux-x64
+          path: framerize-nexus/dist/linux-x64
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: release-${{ github.run_id }}-macos-arm64
+          path: framerize-nexus/dist/macos-arm64
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: release-${{ github.run_id }}-windows-x64
+          path: framerize-nexus/dist/windows-x64
       - run: mv framerize-nexus-*.tgz dist/
       - run: node scripts/merge-release-manifests.js
-      - uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6
-        if: github.event.repository.visibility == 'public'
+      - run: cd dist && sha256sum -c SHA256SUMS
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
-          subject-path: |
-            framerize-nexus/dist/framerize-nexus-*.tgz
-            framerize-nexus/dist/framerize-nexus-linux-x64.tar.gz
-            framerize-nexus/dist/framerize-nexus-macos-arm64.tar.gz
-            framerize-nexus/dist/framerize-nexus-windows-x64.zip
-      - name: Publish GitHub release
-        uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65
-        with:
-          files: |
+          name: release-evidence-${{ github.run_id }}
+          overwrite: true
+          if-no-files-found: error
+          path: |
             framerize-nexus/dist/framerize-nexus-*.tgz
             framerize-nexus/dist/framerize-nexus-linux-x64.tar.gz
             framerize-nexus/dist/framerize-nexus-macos-arm64.tar.gz
@@ -94,9 +117,4 @@ jobs:
             framerize-nexus/dist/SHA256SUMS
             framerize-nexus/dist/release.json
             framerize-nexus/dist/NODE-LICENSE
-      - name: Publish npm package
-        run: |
-          if [[ "${GITHUB_REF_NAME}" == *-* ]]; then export DIST_TAG=next; else export DIST_TAG=latest; fi
-          npm publish ./dist/framerize-nexus-*.tgz --ignore-scripts --provenance --access public --tag "$DIST_TAG"
-        env:
-          NODE_AUTH_TOKEN: ''
+            framerize-nexus/dist/LICENSE

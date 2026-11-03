@@ -1,4 +1,5 @@
 import { execFileSync } from 'node:child_process';
+import { createHash } from 'node:crypto';
 import { readFileSync, readdirSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 
@@ -22,6 +23,13 @@ if (packageMetadata.name !== 'framerize-nexus' || packageMetadata.version !== ve
 if (!/^[a-f0-9]{64}$/.test(metadata.artifacts?.[artifacts[0]])) {
   throw new Error('release metadata does not contain the tarball SHA-256');
 }
+const tarballDigest = createHash('sha256').update(readFileSync(tarball)).digest('hex');
+if (tarballDigest !== metadata.artifacts[artifacts[0]]) {
+  throw new Error('tarball digest does not match release metadata');
+}
+const tarballSums = readFileSync(sums, 'utf8').trim().split('\n').filter((line) =>
+  line === `${tarballDigest}  ${artifacts[0]}` || line === `${tarballDigest} *${artifacts[0]}`);
+if (tarballSums.length !== 1) throw new Error('SHA256SUMS must contain exactly one matching tarball digest');
 if (execute('git', ['status', '--porcelain'], { encoding: 'utf8' }).trim()) {
   throw new Error('publication requires a clean source checkout');
 }
@@ -70,4 +78,4 @@ run('sha256sum', ['-c', '.publish-SHA256SUMS'], { cwd: dist });
 const provenance = process.env.GITHUB_ACTIONS === 'true' ? ['--provenance'] : [];
 run('npm', ['publish', tarball, '--ignore-scripts',
   ...provenance, '--access', 'public', '--registry=https://registry.npmjs.org',
-  '--tag', version.includes('-') ? 'next' : 'latest']);
+  '--tag', version.split('+')[0].includes('-') ? 'next' : 'latest']);

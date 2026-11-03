@@ -15,12 +15,14 @@ test('binary packaging preserves existing checksums and adds the archive', () =>
   const result = spawnSync(process.execPath, [
     fileURLToPath(new URL('../scripts/package-binary.js', import.meta.url))], {
     cwd: directory, encoding: 'utf8',
+    env: { ...process.env, NODE_DISTRIBUTION_LICENSE: fileURLToPath(new URL('../LICENSE', import.meta.url)) },
   });
   assert.equal(result.status, 0, result.stderr);
   const sums = readFileSync(path.join(directory, 'dist/SHA256SUMS'), 'utf8');
   assert.match(sums, /package\.tgz/);
   assert.match(sums, process.platform === 'win32' ? /framerize-nexus\.exe\n/ : /framerize-nexus\n/);
-  const suffix = `${process.platform === 'darwin' ? 'macos' : process.platform}-${process.arch}`;
+  const platformName = { darwin: 'macos', win32: 'windows' }[process.platform] || process.platform;
+  const suffix = `${platformName}-${process.arch}`;
   assert.match(sums, new RegExp(`framerize-nexus-${suffix}\\.`));
   const repeated = spawnSync(process.execPath, [
     fileURLToPath(new URL('../scripts/package-binary.js', import.meta.url))], {
@@ -41,6 +43,7 @@ test('binary packaging creates checksums in a clean checkout', () => {
   const result = spawnSync(process.execPath, [
     fileURLToPath(new URL('../scripts/package-binary.js', import.meta.url))], {
     cwd: directory, encoding: 'utf8',
+    env: { ...process.env, NODE_DISTRIBUTION_LICENSE: fileURLToPath(new URL('../LICENSE', import.meta.url)) },
   });
   assert.equal(result.status, 0, result.stderr);
   const sums = readFileSync(path.join(directory, 'dist/SHA256SUMS'), 'utf8');

@@ -1,5 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { createHash } from 'node:crypto';
 import { spawnSync } from 'node:child_process';
 import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -25,11 +26,12 @@ function publish(authenticated = true, published = false, version = '0.1.7',
   mkdirSync(bin);
   mkdirSync(path.join(directory, 'dist'));
   writeFileSync(path.join(directory, 'dist', `framerize-nexus-${version}.tgz`), 'fixture');
+  const tarballDigest = createHash('sha256').update('fixture').digest('hex');
   writeFileSync(path.join(directory, 'dist', 'SHA256SUMS'),
-    `${'0'.repeat(64)}  framerize-nexus\n${'0'.repeat(64)}  framerize-nexus-${version}.tgz\n`);
+    `${'0'.repeat(64)}  framerize-nexus\n${tarballDigest}  framerize-nexus-${version}.tgz\n`);
   writeFileSync(path.join(directory, 'dist', 'release.json'), JSON.stringify({
     version, commit,
-    artifacts: includeDigest ? { [`framerize-nexus-${version}.tgz`]: '0'.repeat(64) } : {},
+    artifacts: includeDigest ? { [`framerize-nexus-${version}.tgz`]: tarballDigest } : {},
   }));
   const calls = path.join(directory, 'calls');
   const fixture = JSON.stringify({ authenticated, published, version,
@@ -71,6 +73,22 @@ test('release metadata must include the tarball digest', () => {
   const { result } = publish(true, false, '0.1.7', '', false, true, 'a'.repeat(40), false);
   assert.notEqual(result.status, 0);
   assert.match(result.stderr, /does not contain the tarball SHA-256/);
+});
+
+test('SHA256SUMS must include the exact tarball digest before registry access', () => {
+  const fixture = publish();
+  assert.equal(fixture.result.status, 0, fixture.result.stderr);
+  const directory = path.dirname(fixture.calls);
+  writeFileSync(path.join(directory, 'dist/SHA256SUMS'), '');
+  writeFileSync(fixture.calls, '');
+  const result = spawnSync(process.execPath, [
+    fileURLToPath(new URL('../scripts/publish-package.js', import.meta.url))], {
+    encoding: 'utf8', cwd: directory,
+    env: { ...process.env, PATH: `${path.join(directory, 'bin')}:${process.env.PATH}`,
+      FRAMER_NEXT_TEST_COMMAND: fixture.fixture },
+  });
+  assert.notEqual(result.status, 0);
+  assert.match(result.stderr, /exactly one matching tarball digest/);
 });
 
 test('tarball metadata must match the release filename', () => {
@@ -127,6 +145,12 @@ test('prereleases use the next dist-tag', () => {
   const { result, calls } = publish(true, false, '0.2.0-rc.1');
   assert.equal(result.status, 0, result.stderr);
   assert.match(readFileSync(calls, 'utf8'), /--tag next$/m);
+});
+
+test('build metadata does not make a stable release a prerelease', () => {
+  const { result, calls } = publish(true, false, '0.2.0+sha-test');
+  assert.equal(result.status, 0, result.stderr);
+  assert.match(readFileSync(calls, 'utf8'), /--tag latest$/m);
 });
 
 test('registry failures prevent packaging and publication', () => {
@@ -187,7 +211,7 @@ test('malformed checksum entries prevent publication', () => {
       FRAMER_NEXT_TEST_COMMAND: fixture.fixture },
   });
   assert.notEqual(result.status, 0);
-  assert.match(result.stderr, /invalid SHA256SUMS entry/);
+  assert.match(result.stderr, /exactly one matching tarball digest/);
 });
 
 test('conflicting release metadata prevents publication', () => {
@@ -204,7 +228,7 @@ test('conflicting release metadata prevents publication', () => {
       FRAMER_NEXT_TEST_COMMAND: fixture.fixture },
   });
   assert.notEqual(result.status, 0);
-  assert.match(result.stderr, /digests differ/);
+  assert.match(result.stderr, /tarball digest does not match release metadata/);
   assert.equal((readFileSync(fixture.calls, 'utf8').match(/^publish /gm) || []).length, 1);
 });
 

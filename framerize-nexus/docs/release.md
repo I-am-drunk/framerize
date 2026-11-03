@@ -11,10 +11,12 @@ and isolated executable smoke test before publication.
 3. Let the release workflow build and smoke-test native Linux x64, macOS arm64,
    and Windows x64 executables on Node 22. macOS executables are ad-hoc signed.
 4. Verify artifact hashes and the source commit recorded in `release.json`.
-5. Publish the GitHub release before attempting npm publication. A registry
-   authentication failure must not suppress the verified executable archives.
+5. Keep publication disabled until an enforceable owner-approved path verifies
+   the version, source SHA, and hashes. An environment name alone is not
+   approval evidence.
 
-The workflow uses npm trusted publishing with OIDC. GitHub rejects required
+The current workflow only assembles and verifies release evidence. It does not
+publish to GitHub or npm. GitHub rejects required
 reviewers for the private repository under its current billing plan. Upgrade
 the plan or make the repository public before enabling owner approval. First publication has not
 completed because npm returns `ENEEDAUTH`. Do not add npm tokens, sessions, or

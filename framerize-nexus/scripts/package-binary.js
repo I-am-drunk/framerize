@@ -9,18 +9,23 @@ const architecture = process.arch;
 if (!['linux', 'darwin', 'win32'].includes(platform)) {
   throw new Error(`unsupported release platform: ${platform}`);
 }
-const suffix = `${platform === 'darwin' ? 'macos' : platform}-${architecture}`;
+const platformName = { darwin: 'macos', win32: 'windows' }[platform] || platform;
+const suffix = `${platformName}-${architecture}`;
 const executable = `framerize-nexus${platform === 'win32' ? '.exe' : ''}`;
 const archive = `dist/framerize-nexus-${suffix}.${platform === 'win32' ? 'zip' : 'tar.gz'}`;
-const license = [path.join(path.dirname(process.execPath), '..', 'LICENSE'),
-  fileURLToPath(new URL('../LICENSE', import.meta.url))].find(existsSync);
+const license = process.env.NODE_DISTRIBUTION_LICENSE
+  ? path.resolve(process.env.NODE_DISTRIBUTION_LICENSE)
+  : [path.join(path.dirname(process.execPath), 'LICENSE'),
+    path.join(path.dirname(process.execPath), '..', 'LICENSE')].find(existsSync);
+if (!existsSync(license)) throw new Error('Node distribution LICENSE is required');
 copyFileSync(license, 'dist/NODE-LICENSE');
+copyFileSync(fileURLToPath(new URL('../LICENSE', import.meta.url)), 'dist/LICENSE');
 if (platform === 'win32') {
   execFileSync('powershell', ['-NoLogo', '-NoProfile', '-Command',
-    `Compress-Archive -LiteralPath 'dist/${executable}', 'dist/NODE-LICENSE' -DestinationPath '${archive}' -Force`],
+    `Compress-Archive -LiteralPath 'dist/${executable}', 'dist/LICENSE', 'dist/NODE-LICENSE' -DestinationPath '${archive}' -Force`],
   { stdio: 'inherit' });
 } else {
-  execFileSync('tar', ['-czf', archive, '-C', 'dist', executable, 'NODE-LICENSE'],
+  execFileSync('tar', ['-czf', archive, '-C', 'dist', executable, 'LICENSE', 'NODE-LICENSE'],
     { stdio: 'inherit' });
 }
 const digest = (file) => createHash('sha256')

@@ -1,4 +1,5 @@
 import { execFileSync } from 'node:child_process';
+import { createHash } from 'node:crypto';
 import { readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 
@@ -9,7 +10,7 @@ if (typeof pkg.version !== 'string' || !semver.test(pkg.version)) {
   throw new Error('package version must be valid SemVer');
 }
 const tag = process.env.GITHUB_REF_NAME || '';
-if (tag && tag !== `framerize-nexus-v${pkg.version}`) {
+if (process.env.GITHUB_REF_TYPE === 'tag' && tag !== `framerize-nexus-v${pkg.version}`) {
   throw new Error(`release tag ${tag} does not match package version ${pkg.version}`);
 }
 const sums = readFileSync(path.join(workspace, 'dist/SHA256SUMS'), 'utf8');
@@ -34,4 +35,6 @@ writeFileSync(path.join(workspace, 'dist/release.json'), `${JSON.stringify({
   platform: process.platform,
   architecture: process.arch,
   artifacts,
+  licenses: Object.fromEntries(['NODE-LICENSE', 'LICENSE'].map((name) => [name,
+    createHash('sha256').update(readFileSync(path.join(workspace, 'dist', name))).digest('hex')])),
 }, null, 2)}\n`);

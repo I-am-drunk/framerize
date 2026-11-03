@@ -1,14 +1,31 @@
 import assert from 'node:assert/strict';
 import { execFileSync, spawn } from 'node:child_process';
-import { mkdtempSync } from 'node:fs';
+import { existsSync, mkdtempSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import http from 'node:http';
 
 const directory = mkdtempSync(path.join(tmpdir(), 'framerize-nexus-binary-'));
-const executable = path.resolve(`dist/framerize-nexus${process.platform === 'win32' ? '.exe' : ''}`);
-const environment = { ...process.env, PATH: process.platform === 'win32'
-  ? process.env.SystemRoot : '/usr/bin:/bin', HOME: directory };
+const name = `framerize-nexus${process.platform === 'win32' ? '.exe' : ''}`;
+let executable = path.resolve(`dist/${name}`);
+if (process.argv[2]) {
+  const archive = path.resolve(process.argv[2]);
+  if (process.platform === 'win32') {
+    execFileSync('powershell', ['-NoLogo', '-NoProfile', '-Command',
+      `Expand-Archive -LiteralPath '${archive}' -DestinationPath '${directory}' -Force`],
+    { stdio: 'inherit' });
+  } else {
+    execFileSync('tar', ['-xzf', archive, '-C', directory], { stdio: 'inherit' });
+  }
+  executable = path.join(directory, name);
+}
+for (const license of ['LICENSE', 'NODE-LICENSE']) {
+  const file = path.join(path.dirname(executable), license);
+  if (process.argv[2]) assert.ok(existsSync(file));
+  assert.ok(readFileSync(file, 'utf8').length > 0);
+}
+const environment = { PATH: process.platform === 'win32'
+  ? process.env.SystemRoot : '', HOME: directory, SystemRoot: process.env.SystemRoot };
 const help = execFileSync(executable, ['--help'], {
   cwd: directory, env: environment, encoding: 'utf8',
 });
@@ -26,7 +43,7 @@ const upstream = http.createServer((request, response) => {
 });
 await new Promise((resolve) => upstream.listen(0, '127.0.0.1', resolve));
 const child = spawn(executable, ['serve', '--port', '0',
-  '--upstream', `http://127.0.0.1:${upstream.address().port}`], {
+  '--host', '127.0.0.1', '--upstream', `http://127.0.0.1:${upstream.address().port}`], {
   cwd: directory, env: environment, stdio: ['ignore', 'pipe', 'pipe'],
 });
 try {

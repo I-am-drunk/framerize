@@ -4,11 +4,8 @@ import test from 'node:test';
 
 const workflow = readFileSync(new URL('../../.github/workflows/release.yml', import.meta.url), 'utf8');
 
-test('release publishes binaries before attempting npm authentication', () => {
-  const release = workflow.indexOf('name: Publish GitHub release');
-  const npm = workflow.indexOf('name: Publish npm package');
-  assert.ok(release > 0);
-  assert.ok(npm > release);
+test('release rehearses assembly without publication privileges', () => {
+  assert.doesNotMatch(workflow, /npm publish|action-gh-release|id-token:|contents: write/);
 });
 
 test('release verifies the packaged artifacts before upload', () => {
@@ -20,12 +17,15 @@ test('release verifies the packaged artifacts before upload', () => {
   assert.match(workflow, /framerize-nexus-windows-x64\.zip/);
   assert.match(workflow, /dist\/framerize-nexus\.exe/);
   assert.match(workflow, /node scripts\/merge-release-manifests\.js/);
-  assert.match(workflow, /npm publish \.\/dist\/framerize-nexus-\*\.tgz/);
+  assert.match(workflow, /cd dist && sha256sum -c SHA256SUMS/);
   assert.match(workflow, /working-directory: framerize-nexus/);
 });
 
-test('CI runs npm commands from the connector directory', () => {
+test('CI tests one package tarball on every release platform', () => {
   const ci = readFileSync(new URL('../../.github/workflows/ci.yml', import.meta.url), 'utf8');
   assert.match(ci, /working-directory: framerize-nexus/);
   assert.match(ci, /cache-dependency-path: framerize-nexus\/package-lock\.json/);
+  assert.match(ci, /name: framerize-nexus-package/);
+  assert.match(ci, /macos-15/);
+  assert.match(ci, /windows-2022/);
 });

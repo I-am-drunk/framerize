@@ -1,36 +1,26 @@
 # Framerize Nexus objective
 
-Rebuild Framerize as a Node-native system. Keep Framerize Nexus as one
-component, not the whole repository. Preserve the browser-based implementation
-as a maintained fallback and retain the recovered `browserless` history.
+Maintain the Framerize Nexus package without implementing the parent-owned
+Framerize server, accounts, sessions, minting, or inference.
 
-## Repository layout
+## Ownership boundary
 
-Put the current package in `framerize-nexus/` with its README, tests, packaging scripts, and
-release documentation. Add the Node-native session and minting implementation
-as separate packages with narrow interfaces. Move code before changing its
-behavior, and update imports, package names, workflow paths, and documentation
-in the same reviewed migration.
+Keep the package in `framerize-nexus/` with its source, tests, packaging
+scripts, and documentation. Do not create a server monorepo or add packages
+for server accounts, sessions, minting, or inference.
 
-## Runtime and account boundaries
+The inherited account and provider implementation is transitional. Preserve
+it during package migration until the parent defines and reviews a thin-Nexus
+contract. Do not silently remove or expand that implementation here.
 
-Use Node for the new runtime. Do not call system CTR. Keep account metadata in
-JSON and credentials in private files or the existing private session service.
-Return allowlisted account metadata and redact secrets from every log. Keep
-upstream protocol conversion inside the connector. Test cancellation,
-backpressure, stream completion, short and long streams, tool calls, and clean
-shutdown with focused fixtures before any live check.
+## Transport and verification
 
-## Verification and distribution
+Preserve existing transport behavior. Use local fixtures for cancellation,
+backpressure, streaming, tool calls, and shutdown. Do not make live inference
+requests as part of package migration or release verification.
 
-Run fast unit and integration tests on each pull request. Build and smoke-test
-Linux x64, macOS arm64, and Windows x64 artifacts for pull requests without
-publishing them. Publish immutable artifacts only from reviewed version tags.
-Every release records its version, source commit, and SHA-256 hashes. Exercise
-the npm package, `npx`, and standalone executables outside the checkout.
+Test the packed package and native Linux x64, macOS arm64, and Windows x64
+executables outside the checkout. Record package version, source commit, and
+SHA-256 hashes for downloadable release artifacts.
 
-Keep the README direct and useful. Document installation, private account
-configuration, endpoint setup, logs, release recovery, and known upstream
-entitlements. Continue patch and minor releases until the supported platforms
-and installation paths pass their full acceptance checks. Preserve old branches
-and history rather than treating the new folder as a replacement for them.
+Do not publish or activate a release without owner approval.
