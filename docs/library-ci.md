@@ -19,10 +19,12 @@ Node, since a preload can execute before any JavaScript guard.
 unset NODE_OPTIONS
 node --test test/library-workflow.test.mjs
 cd framerize-castle
-node test/helpers/offline-guard.mjs
+node test/helpers/offline-guard.mjs --fixtures
 ```
 
 The helper launches `node --test test/castle.test.js` from the package directory.
+The explicit flag prevents automatic test-file discovery from launching a
+second fixture run. Direct invocation without the flag reports a usage error.
 It creates a private temporary directory, replaces the child environment with
 an allowlist, and sets HOME, configuration and temporary paths there. It sets
 `FRAMERIZE_REALM_STATE` to a fresh file path before imports, not the repository

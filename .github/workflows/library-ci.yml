@@ -46,4 +46,4 @@ jobs:
         run: node --test test/library-workflow.test.mjs
       - name: Run the five existing library fixtures offline
         working-directory: framerize-castle
-        run: node test/helpers/offline-guard.mjs
+        run: node test/helpers/offline-guard.mjs --fixtures

@@ -41,8 +41,8 @@ function validateWorkflow(source) {
     'actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020',
   ]);
   const commands = [...source.matchAll(/^\s*run: (.+)$/gm)].map((match) => match[1]);
-  assert.deepEqual(commands, ['node --test test/library-workflow.test.mjs', 'node test/helpers/offline-guard.mjs']);
-  assert.match(source, /working-directory: framerize-castle\n        run: node test\/helpers\/offline-guard.mjs/);
+  assert.deepEqual(commands, ['node --test test/library-workflow.test.mjs', 'node test/helpers/offline-guard.mjs --fixtures']);
+  assert.match(source, /working-directory: framerize-castle\n        run: node test\/helpers\/offline-guard.mjs --fixtures/);
   assert.doesNotMatch(source, /pull_request_target|secrets\.|npm |npx |cargo |publish|deploy|continue-on-error|if:|run: [|>]/);
 }
 
@@ -197,6 +197,41 @@ test('existing library fixtures retain their five cases and three Windows skips'
   assert.equal([...source.matchAll(/^test\('/gm)].length, 5);
   assert.equal([...source.matchAll(/skip: !POSIX/g)].length, 3);
   assert.match(source, /const POSIX = process.platform !== 'win32'/);
+});
+
+test('test discovery does not launch another fixture runner', () => {
+  probe(`import assert from 'node:assert/strict'; import cp from 'node:child_process';
+    import { fileURLToPath, pathToFileURL } from 'node:url';
+    const helper = new URL('./test/helpers/offline-guard.mjs', pathToFileURL(process.cwd() + '/'));
+    process.argv = [process.execPath, fileURLToPath(helper)];
+    process.env.NODE_TEST_CONTEXT = 'child-v8';
+    let calls = 0;
+    cp.spawnSync = () => { calls += 1; return { status: 0 }; };
+    await import(helper.href + '?discovery-control');
+    assert.equal(calls, 0, 'discovering a helper must not rerun fixtures');`);
+});
+
+test('explicit fixture flag starts exactly one inert runner', () => {
+  probe(`import assert from 'node:assert/strict'; import cp from 'node:child_process';
+    import { fileURLToPath, pathToFileURL } from 'node:url';
+    const helper = new URL('./test/helpers/offline-guard.mjs', pathToFileURL(process.cwd() + '/'));
+    process.argv = [process.execPath, fileURLToPath(helper), '--fixtures'];
+    let calls = 0;
+    cp.spawnSync = () => { calls += 1; return { status: 0 }; };
+    await import(helper.href + '?explicit-control');
+    assert.equal(calls, 1);`);
+});
+
+test('direct invocation without the fixture flag fails instead of passing empty', () => {
+  probe(`import assert from 'node:assert/strict'; import cp from 'node:child_process';
+    import { fileURLToPath, pathToFileURL } from 'node:url';
+    const helper = new URL('./test/helpers/offline-guard.mjs', pathToFileURL(process.cwd() + '/'));
+    process.argv = [process.execPath, fileURLToPath(helper)];
+    delete process.env.NODE_TEST_CONTEXT;
+    let calls = 0;
+    cp.spawnSync = () => { calls += 1; return { status: 0 }; };
+    await assert.rejects(import(helper.href + '?missing-flag-control'), /Use --fixtures/);
+    assert.equal(calls, 0);`);
 });
 
 test('fixture encoder subprocess inherits filesystem and network denial', () => {
