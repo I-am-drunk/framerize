@@ -1,5 +1,5 @@
 import { execFileSync } from 'node:child_process';
-import { readFileSync, readdirSync } from 'node:fs';
+import { readFileSync, readdirSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 
 const dist = path.resolve('dist');
@@ -47,7 +47,14 @@ try {
     throw new Error('cannot verify whether this package version exists', { cause: error });
   }
 }
-run('sha256sum', ['-c', sums], { cwd: dist });
+const checksums = readFileSync(sums, 'utf8').trim().split('\n')
+  .filter((line) => {
+    const artifact = line.match(/^([a-f0-9]{64}) [ *](.+)$/);
+    if (!artifact) throw new Error('invalid SHA256SUMS entry');
+    return readdirSync(dist).includes(artifact[2]);
+  });
+writeFileSync(path.join(dist, '.publish-SHA256SUMS'), `${checksums.join('\n')}\n`);
+run('sha256sum', ['-c', '.publish-SHA256SUMS'], { cwd: dist });
 const provenance = process.env.GITHUB_ACTIONS === 'true' ? ['--provenance'] : [];
 run('npm', ['publish', tarball, '--ignore-scripts',
   ...provenance, '--access', 'public', '--registry=https://registry.npmjs.org',
