@@ -2,9 +2,13 @@
 
 ## Browserless Node work in progress
 
-The `browserless-node` branch contains the TypeScript restart. It is a development
-snapshot, not a release or a deployed service. Framerize Remote replaces the
-previous connector name throughout the active packages and commands.
+The `main` branch contains the TypeScript restart as a work-in-progress snapshot,
+not a release or a deployed service. The previous `main` is preserved as `legacy`.
+Framerize Remote replaces the previous connector name in active packages and commands.
+
+Contributor instructions are in [AGENTS.md](AGENTS.md) and
+[CONTRIBUTING.md](CONTRIBUTING.md). Project review and test skills live in
+[.agents/skills](.agents/skills).
 
 Local tests cover the shared server, installed Remote package, authentication,
 streaming and shutdown. The [Framer backend](framerize-server/docs/framer-backend.md)
