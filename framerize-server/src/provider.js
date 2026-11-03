@@ -157,9 +157,13 @@ async function sendBody(state, body, idleTimeoutMs) {
 }
 
 function startHeaderTimer(state, milliseconds) {
-  return setTimeout(() => state.dispose(failure(
-    'Upstream headers timeout', 'headers_timeout', 504,
-  )), milliseconds);
+  let expiry;
+  const timer = setTimeout(() => {
+    expiry = setImmediate(() => state.dispose(failure(
+      'Upstream headers timeout', 'headers_timeout', 504,
+    )));
+  }, milliseconds);
+  return () => { clearTimeout(timer); clearImmediate(expiry); };
 }
 
 async function open(state, url, method, headers, body, config) {
@@ -175,10 +179,10 @@ async function open(state, url, method, headers, body, config) {
   let connectTimer = startHeaderTimer(state, config.headersTimeoutMs);
   let headersTimer;
   let received = false;
-  const clear = () => { clearTimeout(connectTimer); clearTimeout(headersTimer); };
+  const clear = () => { connectTimer?.(); headersTimer?.(); };
   signal.addEventListener('abort', clear, { once: true });
   request.once('socket', (socket) => {
-    const connected = () => { clearTimeout(connectTimer); connectTimer = undefined; };
+    const connected = () => { connectTimer?.(); connectTimer = undefined; };
     if (socket.connecting) socket.once(url.protocol === 'https:' ? 'secureConnect' : 'connect', connected);
     else connected();
   });
