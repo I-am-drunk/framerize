@@ -104,10 +104,22 @@ macOS arm64 and Windows x64 on Node 22.23.4. They never publish or activate a se
 
 Node 22.23.4 passes the 84-test combined suite, 38-test acceptance entry point,
 syntax checks and local packed-install smoke. Workflow YAML and job invariants
-also pass a local parser check. Native validation is pending at this initial
-source checkpoint. Windows graceful
-POSIX-signal behavior is not claimed. Live inference, private credentials,
-production activation and release publication remain outside this stage.
+also pass a local parser check.
 
-Next action: validate the committed Linux executable, then hand off immutable
-source and artifact evidence for review and the three-platform CI gate.
+At clean commit `9a2486c9504339f8fdd180ce8013d06a7eb31e7f`, Linux x64 passes
+`npm run check`, `npm pack --ignore-scripts`, the downloaded-tarball install
+check, native build, archive packaging, extracted-binary smoke and final metadata
+generation. The smoke verifies help, configuration, auth refusal, readiness,
+both routes, exact SSE/gzip bytes, credential separation and graceful shutdown.
+The five artifact hashes are retained in
+`native-evidence/9a2486c9-linux-x64.json`. The binaries remain local ignored
+build outputs, not published release artifacts. Build tooling emitted ELF
+section-name warnings; the executable and archive checks passed.
+
+Windows and macOS native qualification and aggregate CI remain pending.
+Windows graceful POSIX-signal behavior is not claimed. Live inference,
+private credentials, production activation and release publication remain
+outside this stage.
+
+Next action: review this immutable checkpoint, integrate the acceptance-owned
+packaging regressions, and pass the three-platform native CI gate.
