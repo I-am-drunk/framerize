@@ -156,6 +156,26 @@ test('a different source commit prevents publication', () => {
   assert.match(result.stderr, /not present in this repository/);
 });
 
+test('malformed release source metadata prevents publication', () => {
+  const result = publishCommit('not-a-commit');
+  assert.notEqual(result.status, 0);
+  assert.match(result.stderr, /invalid version or source commit/);
+});
+
+test('malformed checksum entries prevent publication', () => {
+  const fixture = publish();
+  assert.equal(fixture.result.status, 0, fixture.result.stderr);
+  const directory = path.dirname(fixture.calls);
+  writeFileSync(path.join(directory, 'dist/SHA256SUMS'), 'not-a-checksum\n');
+  const result = spawnSync(process.execPath, [
+    new URL('../scripts/publish-package.js', import.meta.url).pathname], {
+    encoding: 'utf8', cwd: directory,
+    env: { ...process.env, PATH: `${path.join(directory, 'bin')}:${process.env.PATH}` },
+  });
+  assert.notEqual(result.status, 0);
+  assert.match(result.stderr, /invalid SHA256SUMS entry/);
+});
+
 test('publishing a prior release verifies its recorded source commit', () => {
   const { result, calls } = publish(true, false, '0.1.7', '', false, true, 'c'.repeat(40));
   assert.equal(result.status, 0, result.stderr);
