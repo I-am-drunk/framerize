@@ -176,6 +176,23 @@ test('malformed checksum entries prevent publication', () => {
   assert.match(result.stderr, /invalid SHA256SUMS entry/);
 });
 
+test('conflicting release metadata prevents publication', () => {
+  const fixture = publish();
+  assert.equal(fixture.result.status, 0, fixture.result.stderr);
+  const directory = path.dirname(fixture.calls);
+  const metadata = JSON.parse(readFileSync(path.join(directory, 'dist/release.json'), 'utf8'));
+  metadata.artifacts['framer-next-0.1.7.tgz'] = '1'.repeat(64);
+  writeFileSync(path.join(directory, 'dist/release.json'), JSON.stringify(metadata));
+  const result = spawnSync(process.execPath, [
+    new URL('../scripts/publish-package.js', import.meta.url).pathname], {
+    encoding: 'utf8', cwd: directory,
+    env: { ...process.env, PATH: `${path.join(directory, 'bin')}:${process.env.PATH}` },
+  });
+  assert.notEqual(result.status, 0);
+  assert.match(result.stderr, /digests differ/);
+  assert.equal((readFileSync(fixture.calls, 'utf8').match(/^publish /gm) || []).length, 1);
+});
+
 test('publishing a prior release verifies its recorded source commit', () => {
   const { result, calls } = publish(true, false, '0.1.7', '', false, true, 'c'.repeat(40));
   assert.equal(result.status, 0, result.stderr);
