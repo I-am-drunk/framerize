@@ -45,8 +45,9 @@ sandbox for malicious packages; use reviewed artifacts only.
 node --test test/package-coexistence.test.mjs
 ```
 
-The parent has authorized a separate [package-pair CI workflow](package-coexistence-ci.md),
-whose three-OS qualification remains pending. This checker does not change either
+The separate [package-pair CI workflow](package-coexistence-ci.md) has
+[retained three-OS qualification](package-coexistence-evidence/41667971716/README.md)
+for the recorded baseline pair. This checker does not change either
 package's existing workflow or qualify native archives. Retain its JSON
 output with externally verified source provenance; a tarball filename alone
 does not establish a Git commit. Success is not publication or activation approval.
@@ -100,5 +101,14 @@ The regression fixture passes an archive basename to `tar` and sets its working
 directory separately. This avoids GNU tar treating a Windows drive-letter
 prefix as a remote archive address when tests run under Git Bash. All 10 focused
 tests pass with this invocation on Linux using Node 22.23.4. The checker itself
-is unchanged. This fixture correction does not establish Windows or
-macOS qualification; those platforms still need their own test evidence.
+is unchanged. This fixture correction alone did not establish Windows or
+macOS qualification. The later hosted evidence is recorded below.
+
+## Recorded hosted verification
+
+[Run 41667971716](package-coexistence-evidence/41667971716/README.md) subsequently
+qualified the same exact package pair on Linux x64, macOS arm64 and Windows x64.
+Each consumer passed all 41 root tests and the offline installed-package check
+on Node 22.23.4. The retained producer manifest and three reports bind the
+shared tarball hashes to the exact PR merge checkout. This result does not
+qualify native binaries, later ENV/thin runtime changes, publication or activation.

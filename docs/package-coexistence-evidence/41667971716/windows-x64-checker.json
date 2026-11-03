@@ -1,0 +1,22 @@
+{
+  "node": "v22.23.4",
+  "npm": "10.9.9",
+  "platform": "win32",
+  "arch": "x64",
+  "packages": [
+    {
+      "name": "framerize-nexus",
+      "version": "0.1.9",
+      "tarball": "framerize-nexus-0.1.9.tgz",
+      "sha256": "12c6eb43755f16a858d12b150bfde44622298ab2fcf489d03abadba0bd4fe528",
+      "files": 13
+    },
+    {
+      "name": "framerize-server",
+      "version": "0.1.0",
+      "tarball": "framerize-server-0.1.0.tgz",
+      "sha256": "c4282b29d43ee8fa38856cd26a4778db82926548fb329d753e5306924d2c2ff3",
+      "files": 13
+    }
+  ]
+}

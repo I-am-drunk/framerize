@@ -1,0 +1,43 @@
+{
+  "source": {
+    "repository": "I-am-drunk/framerize",
+    "event": "pull_request",
+    "sha": "3a4e79b409ed1911ea53da311113ace9a63b7408",
+    "runId": "41667971716",
+    "runAttempt": "1"
+  },
+  "runner": "ubuntu-22.04",
+  "target": "linux-x64",
+  "node": "v22.23.4",
+  "npm": "10.9.9",
+  "platform": "linux",
+  "arch": "x64",
+  "producer": {
+    "manifestSha256": "f99c7c3012bf8b655b3abfdf1eadd64d8acdf6b1e0fcca79595c18626ebcfc9b",
+    "source": {
+      "repository": "I-am-drunk/framerize",
+      "sha": "3a4e79b409ed1911ea53da311113ace9a63b7408",
+      "event": "pull_request",
+      "runId": "41667971716",
+      "runAttempt": "1"
+    },
+    "node": "v22.23.4",
+    "npm": "10.9.9"
+  },
+  "packages": [
+    {
+      "name": "framerize-nexus",
+      "version": "0.1.9",
+      "tarball": "framerize-nexus-0.1.9.tgz",
+      "sha256": "12c6eb43755f16a858d12b150bfde44622298ab2fcf489d03abadba0bd4fe528",
+      "files": 13
+    },
+    {
+      "name": "framerize-server",
+      "version": "0.1.0",
+      "tarball": "framerize-server-0.1.0.tgz",
+      "sha256": "c4282b29d43ee8fa38856cd26a4778db82926548fb329d753e5306924d2c2ff3",
+      "files": 13
+    }
+  ]
+}
