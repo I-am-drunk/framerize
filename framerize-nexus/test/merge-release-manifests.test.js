@@ -88,3 +88,36 @@ test('release merge rejects unexpected build artifacts', () => {
   writeFileSync(file, JSON.stringify(metadata));
   assert.match(merge(directory).stderr, /unexpected build artifacts/);
 });
+
+test('release merge rejects a substituted shared tarball', () => {
+  const directory = fixture();
+  writeFileSync(path.join(directory, 'dist/framerize-nexus-0.1.9.tgz'), 'substituted');
+  assert.match(merge(directory).stderr, /shared package artifact mismatch/);
+});
+
+test('release merge requires shared tarball evidence on every platform', () => {
+  const directory = fixture();
+  const file = path.join(directory, 'dist/linux-x64/release.json');
+  const metadata = JSON.parse(readFileSync(file, 'utf8'));
+  delete metadata.packageArtifact;
+  writeFileSync(file, JSON.stringify(metadata));
+  assert.match(merge(directory).stderr, /shared package artifact mismatch/);
+});
+
+test('release merge rejects a misnamed shared tarball', () => {
+  const directory = fixture();
+  const file = path.join(directory, 'dist/macos-arm64/release.json');
+  const metadata = JSON.parse(readFileSync(file, 'utf8'));
+  metadata.packageArtifact.name = 'framerize-nexus-other.tgz';
+  writeFileSync(file, JSON.stringify(metadata));
+  assert.match(merge(directory).stderr, /shared package artifact mismatch/);
+});
+
+test('release merge rejects one platform with the wrong shared tarball SHA', () => {
+  const directory = fixture();
+  const file = path.join(directory, 'dist/windows-x64/release.json');
+  const metadata = JSON.parse(readFileSync(file, 'utf8'));
+  metadata.packageArtifact.sha256 = '0'.repeat(64);
+  writeFileSync(file, JSON.stringify(metadata));
+  assert.match(merge(directory).stderr, /shared package artifact mismatch/);
+});
