@@ -24,16 +24,18 @@ export function parseArgs(argv, env = process.env) {
   return { command, values };
 }
 
-export async function run(argv = process.argv.slice(2)) {
+export async function run(argv = process.argv.slice(2), dependencies = {}) {
+  const events = dependencies.process ?? process;
+  const makeServer = dependencies.createServer ?? createServer;
   if (argv.includes('--help') || argv.includes('-h')) {
-    process.stdout.write(HELP);
+    events.stdout.write(HELP);
     return 0;
   }
   const { command, values } = parseArgs(argv);
   const config = parseConfig(values);
   const logger = createLogger({ level: values.logLevel });
   if (!['serve', 'check'].includes(command)) throw new Error(`unknown command: ${command}`);
-  const app = await createServer(config, { logger });
+  const app = await makeServer(config, { logger });
   if (command === 'check') {
     logger.info('config.valid', { accounts: config.accounts || undefined });
     await app.close();
@@ -50,13 +52,13 @@ export async function run(argv = process.argv.slice(2)) {
         logger.info('server.closed');
       } catch (error) {
         logger.error('server.close_failed', { error });
-        process.exitCode = 1;
+        events.exitCode = 1;
       }
     })();
     return shutdownPromise;
   };
-  process.on('SIGINT', shutdown);
-  process.on('SIGTERM', shutdown);
+  events.on('SIGINT', shutdown);
+  events.on('SIGTERM', shutdown);
   const address = await app.listen();
   logger.info('server.listening', { host: config.host, port: address.port });
   return closed;
