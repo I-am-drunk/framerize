@@ -85,8 +85,10 @@ preserving status and safe headers. It never returns raw upstream error bodies.
 
 The server-only [session authentication module](docs/framer-auth.md) provides
 cookie-to-token acquisition, caching and cancellation for account runtimes.
-It does not select accounts or replace the missing Framer-specific inference
-provider. The CLI still uses the explicitly configured HTTP upstream.
+The [Framer backend](docs/framer-backend.md) uses it for Framer-specific
+inference. `createAccountBackend` connects JSON account references to a private
+auth instance and an application-supplied Castle minter. The CLI still uses the
+explicitly configured generic HTTP upstream.
 
 ```js
 import { createServer } from 'framerize-server';
@@ -141,9 +143,12 @@ stream without whole-response buffering. A paused client must resume before its
 idle limit; provider body reads pause while downstream writes are blocked.
 
 `accountsFile` optionally references a JSON array of metadata with `id`, `label`,
-`enabled`, `model`, and `models`. Unknown fields, duplicate IDs, and malformed
+`enabled`, `model`, and `models`. It also accepts a `projectId` and a `session`
+reference containing exactly one `env` or `file` field. Unknown fields, duplicate IDs, and malformed
 records fail startup. The file is limited to 1 MiB. `loadAccounts(file)` returns
-immutable records. Metadata does not select or rotate credentials or accounts.
+immutable records. The generic provider does not use these records. The
+account backend requires an explicit selection when more than one account is
+enabled. It never rotates accounts automatically.
 `examples/metadata.example.json` contains no credentials. Keep actual account records outside Git.
 
 Logs contain request IDs, canonical routes, status, outcome, and duration. They

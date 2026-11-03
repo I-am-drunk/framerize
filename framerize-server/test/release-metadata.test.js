@@ -160,6 +160,21 @@ test('release metadata rejects a package changed after building', context => {
   assertFailure(runScript(checkout.directory, 'release-metadata.js'), 'Stale executable build');
 });
 
+test('release fixture uses its own checkout identity but preserves explicit mismatch tests', context => {
+  const checkout = seedBuild(context);
+  const previous = process.env.GITHUB_SHA;
+  process.env.GITHUB_SHA = '0'.repeat(40);
+  try {
+    const result = runScript(checkout.directory, 'release-metadata.js');
+    assert.equal(result.status, 0, result.stderr);
+    assertFailure(runScript(checkout.directory, 'release-metadata.js', { GITHUB_SHA: '0'.repeat(40) }),
+      'Source commit does not match the checkout');
+  } finally {
+    if (previous === undefined) delete process.env.GITHUB_SHA;
+    else process.env.GITHUB_SHA = previous;
+  }
+});
+
 test('native packaging rejects changed package bytes before producing an archive', context => {
   const checkout = seedBuild(context);
   writeFileSync(path.join(checkout.directory, PACKAGE), 'replacement archive');

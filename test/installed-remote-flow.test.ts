@@ -163,12 +163,34 @@ function verifyStandaloneTypes(repository: string, consumer: string, env: NodeJS
 import assert from 'node:assert/strict';
 import { createFramerAuth } from 'framerize-server/framer-auth';
 import { createFramerBackend } from 'framerize-server/framer-backend';
+import { createAccountBackend } from 'framerize-server/account-backend';
+import { createServer as createAuthServer } from 'node:http';
+import { once } from 'node:events';
+import { writeFileSync } from 'node:fs';
 const auth = createFramerAuth({ sessionCookie: 'synthetic-only' });
 const framer = createFramerBackend({ projectId: 'synthetic', auth,
   castle: { async mint() { return { token: 'synthetic' }; }, async close() {} } });
 await framer.close();
 await assert.rejects(auth.accessToken(), { code: 'auth_closed' });
 await assert.rejects(framer.ready({ signal: new AbortController().signal }), { code: 'provider_closed' });
+const fixture = createAuthServer((request, response) => {
+  request.resume();
+  assert.equal(request.url, '/auth/ai/access-token');
+  assert.equal(request.headers.cookie, 'session=synthetic');
+  response.setHeader('content-type', 'application/json');
+  response.end(JSON.stringify({ accessToken: 'synthetic', expiresAt: new Date(Date.now() + 600000).toISOString() }));
+});
+fixture.listen(0, '127.0.0.1'); await once(fixture, 'listening');
+let selected;
+try {
+  writeFileSync('fixture-accounts.json', JSON.stringify([{ id: 'fixture', projectId: 'project', session: { env: 'SESSION' } }]));
+  selected = await createAccountBackend({ accountsFile: 'fixture-accounts.json', env: { SESSION: 'session=synthetic' },
+    origin: 'http://127.0.0.1:' + fixture.address().port,
+    createMinter: () => ({ async mint() { assert.fail('readiness must not mint'); }, async close() {} }) });
+  assert.equal(await selected.ready({ signal: new AbortController().signal }), true);
+} finally {
+  await selected?.close(); fixture.closeAllConnections(); await new Promise(resolve => fixture.close(resolve));
+}
 `], { cwd: consumer, env, stdio: 'pipe', timeout: 5000 });
   const packageRoot = join(consumer, 'node_modules/framerize-remote');
   const manifest = JSON.parse(readFileSync(join(packageRoot, 'package.json'), 'utf8'));
@@ -185,9 +207,12 @@ import { createRemoteBackend, parseRemoteEndpoint, type RemoteConfig } from 'fra
 import { createProvider, type ProviderOptions } from 'framerize-server/provider';
 import { createFramerAuth, type FramerAuth } from 'framerize-server/framer-auth';
 import { createFramerBackend, type FramerMinter } from 'framerize-server/framer-backend';
+import { createAccountBackend, type AccountBackendOptions } from 'framerize-server/account-backend';
 const auth: FramerAuth = createFramerAuth({ sessionCookie: 'synthetic-only' });
 const castle: FramerMinter = { async mint() { return { token: 'synthetic' }; }, async close() {} };
 const framer = createFramerBackend({ projectId: 'synthetic', auth, castle });
+const accountOptions: AccountBackendOptions = { accountsFile: 'accounts.json', createMinter: () => castle };
+const accountBackend: Promise<ServerProvider> = createAccountBackend(accountOptions);
 const framerClosed: Promise<void> | void = framer.close();
 await auth.close();
 import { createServer, type ServerProvider } from 'framerize-server';

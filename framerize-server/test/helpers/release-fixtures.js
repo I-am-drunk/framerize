@@ -35,8 +35,9 @@ export function fixture(t) {
 }
 
 export function runScript(directory, script, env = {}) {
+  const commit = run('git', ['rev-parse', 'HEAD'], { cwd: directory }).trim();
   return spawnSync(process.execPath, [path.join(directory, 'scripts', script)], {
-    cwd: directory, env: { ...process.env, ...env }, encoding: 'utf8', timeout: 5_000,
+    cwd: directory, env: { ...process.env, GITHUB_SHA: commit, ...env }, encoding: 'utf8', timeout: 5_000,
   });
 }
 

@@ -37,6 +37,7 @@ try {
     'Installed package metadata differs');
   const files = ['README.md', 'LICENSE',
     'bin/framerize-server.js', ...['core.js', 'core.d.ts', 'accounts.js', 'accounts.d.ts',
+      'account-backend.js', 'account-backend.d.ts',
       'config.js', 'config.d.ts', 'errors.js', 'errors.d.ts', 'provider.js', 'provider.d.ts',
       'framer-auth.js', 'framer-auth.d.ts',
       'framer-backend.js', 'framer-backend.d.ts', 'framer-request.js', 'framer-request.d.ts',

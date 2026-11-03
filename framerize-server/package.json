@@ -17,12 +17,15 @@
     "./logger": "./dist/logger.js",
     "./provider": "./dist/provider.js",
     "./framer-auth": "./dist/framer-auth.js",
-    "./framer-backend": "./dist/framer-backend.js"
+    "./framer-backend": "./dist/framer-backend.js",
+    "./account-backend": "./dist/account-backend.js"
   },
   "files": [
     "bin",
     "dist/accounts.js",
     "dist/accounts.d.ts",
+    "dist/account-backend.js",
+    "dist/account-backend.d.ts",
     "dist/core.js",
     "dist/core.d.ts",
     "dist/core-types/backend.d.ts",

@@ -31,6 +31,7 @@ export function packageFixture(t, { environmentAware = false } = {}) {
   for (const folder of ['src', 'bin', 'scripts', 'dist']) mkdirSync(path.join(directory, folder), { recursive: true });
   const providerFiles = ['provider.js', 'provider.d.ts', 'core.d.ts',
     'framer-auth.js', 'framer-auth.d.ts',
+    'account-backend.js', 'account-backend.d.ts',
     'framer-backend.js', 'framer-backend.d.ts', 'framer-request.js', 'framer-request.d.ts',
     'cli.js', 'cli.d.ts', 'logger.js', 'logger.d.ts', 'server.js', 'server.d.ts',
     ...['backend', 'http-policy', 'instance', 'instance-options', 'readiness'].map((name) => `core-types/${name}.d.ts`)];

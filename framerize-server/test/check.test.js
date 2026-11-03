@@ -7,9 +7,10 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const source = fileURLToPath(new URL('../scripts/check.js', import.meta.url));
-const sources = ['accounts.ts', 'cli.ts', 'config.ts', 'errors.ts', 'framer-auth.ts', 'framer-backend.ts',
+const sources = ['account-backend.ts', 'accounts.ts', 'cli.ts', 'config.ts', 'errors.ts', 'framer-auth.ts', 'framer-backend.ts',
   'framer-request.ts', 'logger.ts', 'provider.ts', 'server.ts'];
 const generated = ['core.js', 'core.d.ts', 'accounts.js', 'accounts.d.ts', 'config.js', 'config.d.ts',
+  'account-backend.js', 'account-backend.d.ts',
   'errors.js', 'errors.d.ts', 'provider.js', 'provider.d.ts',
   'framer-auth.js', 'framer-auth.d.ts',
   'framer-backend.js', 'framer-backend.d.ts', 'framer-request.js', 'framer-request.d.ts',
@@ -33,6 +34,7 @@ function fixture(t) {
       './logger': './dist/logger.js', './provider': './dist/provider.js',
       './framer-auth': './dist/framer-auth.js',
       './framer-backend': './dist/framer-backend.js',
+      './account-backend': './dist/account-backend.js',
     },
     bin: { 'framerize-server': './bin/framerize-server.js' },
   };

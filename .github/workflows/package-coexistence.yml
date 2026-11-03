@@ -284,7 +284,9 @@ jobs:
       - name: Exercise the downloaded pair without repacking
         env:
           FRAMERIZE_PACKAGE_REPOSITORY: ${{ github.workspace }}
-        run: node --test "$TOOLING_DIR/test/installed-remote-flow.test.js" > "$REPORT_DIR/installed.log"
+        run: |
+          set -euo pipefail
+          node --test "$TOOLING_DIR/test/installed-remote-flow.test.js" 2>&1 | tee "$REPORT_DIR/installed.log"
       - name: Match checker identities to producer manifest
         env:
           INPUT_DIR: ${{ runner.temp }}/coexistence-input

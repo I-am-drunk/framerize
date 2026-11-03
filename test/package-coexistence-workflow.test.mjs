@@ -393,6 +393,16 @@ test('workflow retains rerunnable evidence with mandatory uploads', () => {
   validateUploads(readFileSync(workflowPath, 'utf8'));
 });
 
+test('failed installed checks remain visible without hiding their exit status', () => {
+  const source = readFileSync(workflowPath, 'utf8');
+  const step = source.split(/^      - /m)
+    .find(value => value.startsWith('name: Exercise the downloaded pair without repacking\n'));
+  assert.ok(step);
+  assert.match(step, /set -euo pipefail/);
+  assert.match(step, /node --test .*installed-remote-flow\.test\.js" 2>&1 \| tee "\$REPORT_DIR\/installed\.log"/);
+  assert.doesNotMatch(step, /continue-on-error|\|\| true/);
+});
+
 test('workflow declares pinned actions, all three runners, and root cwd', () => {
   validateExecution(readFileSync(workflowPath, 'utf8'));
 });

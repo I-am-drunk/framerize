@@ -11,13 +11,26 @@ function checkTypes(source: string): readonly ts.Diagnostic[] {
     moduleResolution: ts.ModuleResolutionKind.NodeNext, types: ['node'],
   };
   const host = ts.createCompilerHost(options);
-  const original = host.getSourceFile.bind(host);
-  host.getSourceFile = (name, languageVersion, onError, shouldCreateNewSourceFile) =>
-    name === fileName ? ts.createSourceFile(name, source, languageVersion, true)
-      : original(name, languageVersion, onError, shouldCreateNewSourceFile);
+  installVirtualSource(host, fileName, source);
   const program = ts.createProgram([fileName], options, host);
   return ts.getPreEmitDiagnostics(program);
 }
+
+function installVirtualSource(host: ts.CompilerHost, fileName: string, source: string): void {
+  const original = host.getSourceFile.bind(host);
+  const canonical = (name: string) => host.getCanonicalFileName(name.replaceAll('\\', '/'));
+  host.getSourceFile = (name, languageVersion, onError, shouldCreateNewSourceFile) =>
+    canonical(name) === canonical(fileName) ? ts.createSourceFile(name, source, languageVersion, true)
+      : original(name, languageVersion, onError, shouldCreateNewSourceFile);
+}
+
+test('virtual type fixtures recognize Windows separators and case normalization', () => {
+  const host = ts.createCompilerHost({});
+  host.getCanonicalFileName = name => name.toLowerCase();
+  installVirtualSource(host, 'D:\\Work Space\\contract-check.ts', 'export const value = true;');
+  assert.equal(host.getSourceFile('d:/work space/contract-check.ts', ts.ScriptTarget.ES2022)?.text,
+    'export const value = true;');
+});
 
 test('both backend locations satisfy one contract and invalid uses fail type checking', () => {
   const source = [

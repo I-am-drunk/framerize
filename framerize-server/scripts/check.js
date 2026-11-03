@@ -7,6 +7,7 @@ const manifest = JSON.parse(await readFile(new URL('../package.json', import.met
 assert.equal(manifest.name, 'framerize-server', 'Unexpected server package name');
 assert.equal(manifest.private, true, 'Server package must remain private');
 const generated = ['accounts.d.ts', 'accounts.js', 'config.d.ts', 'config.js', 'core.js', 'core.d.ts',
+  'account-backend.d.ts', 'account-backend.js',
   ...['backend', 'http-policy', 'instance', 'instance-options', 'readiness'].map((name) => `core-types/${name}.d.ts`),
   'errors.d.ts', 'errors.js', 'provider.d.ts', 'provider.js',
   'framer-auth.d.ts', 'framer-auth.js',
@@ -20,6 +21,7 @@ assert.deepEqual(manifest.exports, {
   './logger': './dist/logger.js', './provider': './dist/provider.js',
   './framer-auth': './dist/framer-auth.js',
   './framer-backend': './dist/framer-backend.js',
+  './account-backend': './dist/account-backend.js',
 }, 'Unexpected server package exports');
 assert.deepEqual(manifest.bin, { 'framerize-server': './bin/framerize-server.js' },
   'Unexpected server package executable');
@@ -27,7 +29,7 @@ for (const field of ['dependencies', 'optionalDependencies', 'peerDependencies']
   assert.deepEqual(Object.keys(manifest[field] ?? {}), [], 'Unexpected runtime dependencies');
 }
 assert.deepEqual((await readdir(new URL('../src/', import.meta.url))).sort(), [
-  'accounts.ts', 'cli.ts', 'config.ts', 'errors.ts', 'framer-auth.ts', 'framer-backend.ts',
+  'account-backend.ts', 'accounts.ts', 'cli.ts', 'config.ts', 'errors.ts', 'framer-auth.ts', 'framer-backend.ts',
   'framer-request.ts', 'logger.ts', 'provider.ts', 'server.ts',
 ], 'Unexpected server source files');
 assert.deepEqual(await readdir(new URL('../bin/', import.meta.url)), ['framerize-server.js'],

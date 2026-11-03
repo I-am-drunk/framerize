@@ -13,7 +13,7 @@ test('runtime declarations work without workspace packages and reject invalid co
   const compiled = fileURLToPath(new URL('../dist/', import.meta.url));
   const dist = path.join(root, 'dist');
   mkdirSync(dist);
-  for (const name of ['provider', 'core', 'server', 'logger', 'cli', 'config', 'framer-auth', 'framer-backend']) {
+  for (const name of ['provider', 'core', 'server', 'logger', 'cli', 'config', 'framer-auth', 'framer-backend', 'account-backend', 'accounts']) {
     copyFileSync(path.join(compiled, `${name}.d.ts`), path.join(dist, `${name}.d.ts`));
   }
   cpSync(path.join(compiled, 'core-types'), path.join(dist, 'core-types'), { recursive: true });
@@ -25,10 +25,16 @@ import { createLogger, type LoggerOptions } from './dist/logger.js';
 import { parseArgs, type CliDependencies } from './dist/cli.js';
 import { createFramerAuth, type FramerAuthOptions } from './dist/framer-auth.js';
 import { createFramerBackend, type FramerMinter } from './dist/framer-backend.js';
+import { createAccountBackend, type AccountBackendOptions } from './dist/account-backend.js';
+import { readAccountSession, type AccountSessionReference } from './dist/accounts.js';
 const authOptions: FramerAuthOptions = { sessionCookie: 'synthetic' };
 const auth = createFramerAuth(authOptions);
 const castle: FramerMinter = { async mint({ signal }) { return { token: 'synthetic' }; }, async close() {} };
 const framer: InferenceBackend = createFramerBackend({ projectId: 'project', auth, castle });
+const accountOptions: AccountBackendOptions = { accountsFile: 'accounts.json', createMinter: () => castle };
+const accountBackend: Promise<InferenceBackend> = createAccountBackend(accountOptions);
+const reference: AccountSessionReference = { env: 'SYNTHETIC_SESSION' };
+const session: Promise<string> = readAccountSession(reference, {});
 const authClosed: Promise<void> = auth.close();
 const syncProvider: ServerProvider = { ready: () => true,
   forward: () => ({ status: 200, headers: {}, body: [Buffer.from('{}')] }) };
@@ -68,9 +74,11 @@ args.command = 'serve';
 authOptions.sessionCookie = 'changed';
 auth.accessToken({ signal: 'invalid' });
 createFramerBackend({ projectId: 'project', auth });
-createFramerBackend({ projectId: 'project', auth, castle: {} });`);
+createFramerBackend({ projectId: 'project', auth, castle: {} });
+createAccountBackend({ accountsFile: 'accounts.json' });
+const invalidReference: AccountSessionReference = { env: 'SESSION', file: 'session.txt' };`);
   assert.equal(negative.status, 2, `${negative.stdout}\n${negative.stderr}`);
-  assert.equal((negative.stdout.match(/error TS/g) ?? []).length, 12, negative.stdout);
+  assert.equal((negative.stdout.match(/error TS/g) ?? []).length, 14, negative.stdout);
   assert.match(negative.stdout, /TS2540/);
   assert.match(negative.stdout, /TS2322/);
   assert.match(negative.stdout, /TS2741/);
