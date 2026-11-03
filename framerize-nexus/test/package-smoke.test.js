@@ -21,11 +21,31 @@ async function fixture(context, { mode = 'relative', failure = '', platform = 'l
     : [mode === 'absolute' ? input : name];
   const calls = [];
   const removed = [];
+  const inheritedEnvironment = {
+    npm_execpath: '/fixture/npm-cli.js', HOME: '/private/home',
+    FRAMER_ACCOUNTS: '/private/accounts.json', FRAMER_HOST: '0.0.0.0',
+    FRAMER_UPSTREAM: 'https://fixture.invalid', FRAMER_PORT: '9999',
+    UPSTREAM_TOKEN: 'fixture-only', NODE_AUTH_TOKEN: 'fixture-only',
+    NODE_OPTIONS: '--require=/private/preload.js', npm_config_offline: 'false',
+    npm_config_userconfig: '/private/.npmrc', npm_config_cache: '/private/cache',
+  };
   let allocated;
   const command = (executable, argv, options) => {
     const npmArgs = executable === '/fixture/node' ? argv.slice(1) : argv;
     const action = npmArgs[0];
     calls.push(action);
+    assert.equal(options.env.HOME, allocated);
+    assert.equal(options.env.npm_config_cache, path.join(allocated, 'cache'));
+    assert.equal(options.env.npm_config_userconfig, path.join(allocated, 'user.npmrc'));
+    assert.equal(options.env.npm_config_globalconfig, path.join(allocated, 'global.npmrc'));
+    assert.equal(options.env.npm_config_offline, 'true');
+    assert.equal(options.env.npm_config_ignore_scripts, 'true');
+    for (const key of ['FRAMER_ACCOUNTS', 'FRAMER_HOST', 'FRAMER_UPSTREAM', 'FRAMER_PORT',
+      'UPSTREAM_TOKEN', 'NODE_AUTH_TOKEN', 'NODE_OPTIONS']) {
+      assert.equal(options.env[key], undefined, `${key} must not reach fixture subprocesses`);
+    }
+    if (['pack', 'install', 'exec'].includes(action)) assert.ok(npmArgs.includes('--offline'));
+    if (['pack', 'install'].includes(action)) assert.ok(npmArgs.includes('--ignore-scripts'));
     if (failure === action) throw new Error(`${action} failure`);
     if (action === 'pack') {
       assert.equal(npmArgs[2], allocated);
@@ -53,7 +73,7 @@ async function fixture(context, { mode = 'relative', failure = '', platform = 'l
       rmSync(directory, options);
     }, () => root, { ...path, resolve: (...parts) => path.resolve(root, ...parts) },
     pathToFileURL, { argv: ['node', 'package-smoke.js', ...args], platform,
-      execPath: '/fixture/node', env: { npm_execpath: '/fixture/npm-cli.js' } }, { log() {} });
+      execPath: '/fixture/node', env: { ...inheritedEnvironment } }, { log() {} });
   } catch (caught) {
     error = caught;
   }
@@ -85,4 +105,8 @@ for (const platform of ['linux', 'darwin', 'win32']) {
 test('package smoke supports a CRLF checkout', async (context) => {
   assert.equal(await fixture(context, { platform: 'win32',
     text: source.replace(/\r?\n/g, '\r\n') }), undefined);
+});
+
+test('package smoke isolates poisoned configuration and keeps npm offline', async (context) => {
+  assert.equal(await fixture(context, { mode: 'generated' }), undefined);
 });
