@@ -43,6 +43,10 @@ Missing artifact uploads fail explicitly. Artifact names must remain valid
 for branch names containing slashes and support reruns without name collisions.
 Consumer evidence must refer to the producer bytes it actually tested,
 including when only failed jobs are rerun.
+Producer and each platform's report must have distinct expanded artifact names.
+A consumer rerun on attempt 2 must accept the original attempt 1 producer when
+its source and payload hashes match. The consumer must not require the
+producer's attempt number to equal the current attempt.
 
 Focused tests must exercise the validation code, including wrong source SHA,
 missing, duplicate or unexpected package evidence, altered tarball bytes, and
@@ -67,6 +71,8 @@ The workflow policy fixtures pass on Node 22.23.4. They exercise missing path
 filters, privileged permissions, unsafe artifact names, rerun collisions, and
 silent missing uploads. They also reject changed action pins, missing platform
 declarations, an unsupported Node selection, and package-local command paths.
+Artifact-name checks expand the matrix identities and reject collisions between
+platforms or with the producer, including a removed platform suffix.
 Run only these preparatory cases with:
 
 ```sh

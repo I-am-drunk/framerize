@@ -43,13 +43,40 @@ function validatePermissions(source) {
 
 function validateUploads(source) {
   const uploads = source.split(/^      - /m).filter((step) => /uses: actions\/upload-artifact@/.test(step));
-  assert.ok(uploads.length >= 2, 'retain both producer and consumer evidence');
+  assert.equal(uploads.length, 2, 'retain producer and matrix consumer evidence');
+  const names = [];
   for (const step of uploads) {
     assert.match(step, /overwrite: true/);
     assert.match(step, /if-no-files-found: error/);
     assert.match(step, /name:.*\$\{\{\s*github\.run_id\s*\}\}/);
     assert.doesNotMatch(step, /github\.ref_name|github\.run_attempt/);
+    const name = step.match(/^          name:\s*(.+)$/m)?.[1];
+    assert.ok(name, 'artifact name is required');
+    names.push(name.replace(/^['"]|['"]$/g, ''));
   }
+  const producers = names.filter((name) => !/matrix\./.test(name));
+  const consumers = names.filter((name) => /matrix\./.test(name));
+  assert.equal(producers.length, 1, 'require one producer artifact name');
+  assert.equal(consumers.length, 1, 'require a matrix-specific consumer artifact name');
+  const matrix = section(section(source, 'matrix', 6), 'include', 8);
+  const rows = matrix.split(/^          - /m).filter((row) => row.trim()).map((row) =>
+    Object.fromEntries(row.trim().split('\n').map((line) => {
+      const match = line.trim().match(/^([\w-]+):\s*(\S+)$/);
+      assert.ok(match, 'matrix entries must be scalar identities');
+      return [match[1], match[2].replace(/^['"]|['"]$/g, '')];
+    })));
+  assert.equal(rows.length, 3, 'require three platform identities');
+  const expanded = [expandName(producers[0]), ...rows.map((row) => expandName(consumers[0], row))];
+  assert.equal(new Set(expanded).size, 4, 'producer and platform artifacts must not collide');
+}
+
+function expandName(template, matrix = {}, attempt = 1) {
+  return template.replace(/\$\{\{\s*([^}]+?)\s*\}\}/g, (match, expression) => {
+    const values = { 'github.run_id': '1234', 'github.run_attempt': String(attempt),
+      ...Object.fromEntries(Object.entries(matrix).map(([key, value]) => [`matrix.${key}`, value])) };
+    assert.ok(Object.hasOwn(values, expression), `unknown artifact identity ${expression}`);
+    return values[expression];
+  });
 }
 
 function validateExecution(source) {
@@ -130,15 +157,39 @@ test('policy fixture rejects privileged permissions and trigger changes', () => 
   assert.throws(() => validatePermissions(eventFixture.replace('pull_request:', 'pull_request_target:')));
 });
 
-test('policy fixture rejects unsafe upload names and silent missing artifacts', () => {
+test('policy fixture rejects colliding, unsafe, or silently missing artifacts', () => {
   const upload = `      - uses: actions/upload-artifact@${'a'.repeat(40)}
         with:
           name: pair-\${{ github.run_id }}
           overwrite: true
           if-no-files-found: error
 `;
-  const source = upload.repeat(2);
+  const consumer = upload.replace('pair-${{ github.run_id }}',
+    'pair-${{ github.run_id }}-${{ matrix.target }}');
+  const source = `jobs:
+  producer:
+    steps:
+${upload}
+  consumers:
+    strategy:
+      matrix:
+        include:
+          - target: linux-x64
+            arch: x64
+          - target: macos-arm64
+            arch: arm64
+          - target: windows-x64
+            arch: x64
+    steps:
+${consumer}`;
   validateUploads(source);
+  assert.throws(() => validateUploads(upload.repeat(2)), /one producer/);
+  assert.throws(() => validateUploads(source.replace('-${{ matrix.target }}', '')), /one producer/);
+  assert.throws(() => validateUploads(source.replace('matrix.target', 'matrix.arch')), /must not collide/);
+  assert.throws(() => validateUploads(source.replace('windows-x64', 'linux-x64')), /must not collide/);
+  assert.throws(() => validateUploads(source.replace('matrix.target', 'matrix.missing')), /unknown artifact/);
+  assert.throws(() => validateUploads(source.replace('name: pair-${{ github.run_id }}\n',
+    'name: pair-${{ github.run_id }}-linux-x64\n')), /must not collide/);
   for (const [before, after] of [
     ['overwrite: true', 'overwrite: false'],
     ['if-no-files-found: error', 'if-no-files-found: warn'],
