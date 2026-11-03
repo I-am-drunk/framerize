@@ -47,3 +47,17 @@ test('JWT minting is cached per account', async () => {
   assert.equal(calls, 1);
 });
 
+test('concurrent requests share one JWT refresh', async () => {
+  let calls = 0;
+  const scoped = { ...account, id: 'concurrent-fixture', authorizationEnv: undefined, sessionEnv: 'TEST_SESSION' };
+  const fetchImpl = async () => {
+    calls += 1;
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    return new Response(JSON.stringify({ accessToken: 'minted', expiresAt: new Date(Date.now() + 600000).toISOString() }));
+  };
+  await Promise.all(Array.from({ length: 4 }, () => prepareFramer({ account: scoped,
+    path: '/v1/responses', body: Buffer.from('{}'), fetchImpl,
+    env: { TEST_SESSION: 'session', FIXTURE_CASTLE: 'castle' } })));
+  assert.equal(calls, 1);
+});
+
