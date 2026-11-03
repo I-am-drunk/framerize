@@ -22,11 +22,16 @@ and `tar` on PATH. No root package.json or npm workspace is needed.
    npm's removal of one CR before the first newline of a launcher CRLF shebang.
    All other source bytes, including body line endings, must remain unchanged.
 4. Verify distinct executable targets, direct CLI help, offline `npm exec` help,
-   both CLI `check` commands, and all current public package exports. The export
-   probe only imports providers. CLI checks initialize and close configuration
-   without making inference requests. The default ports remain 8788 and 8789.
+   both CLI `check` commands, and the two Nexus and five baseline server module
+   exports. The probe only imports providers. CLI checks initialize and close
+   configuration without making inference requests. Default ports remain 8788 and 8789.
 5. Report package name, version, input filename and SHA-256, file count, Node/npm
    versions, and host platform. Delete the temporary install after either result.
+
+The server probe covers `.`, `./config`, `./accounts`, `./logger`, and `./provider`.
+It does not probe the later `./castle` or `./package.json` exports. Extending
+that list requires the parent-owned package contract decision; the existing
+results do not qualify the added library or its integration.
 
 Subprocesses receive a fresh environment and temporary home, not inherited
 account paths, credentials, proxy settings, npm configuration, or Node options.

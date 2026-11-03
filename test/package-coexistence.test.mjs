@@ -108,7 +108,7 @@ test('rejects a conflicting bin name before installation', (context) => {
   assert.throws(() => checkPackageCoexistence([nexus, server]), /unexpected executable name/);
 });
 
-test('requires every current server export to resolve', (context) => {
+test('requires all five baseline server module exports to resolve', (context) => {
   const nexus = fixture(context, 'framerize-nexus');
   const server = fixture(context, 'framerize-server', {
     exports: { '.': './src/server.js', './config': './src/config.js' },
