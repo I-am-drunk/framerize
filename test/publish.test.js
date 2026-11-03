@@ -13,7 +13,7 @@ function installStub(bin, name) {
   writeFileSync(file, script, { mode: 0o755 });
   if (process.platform === 'win32') {
     const quoted = process.execPath.replace(/"/g, '\\"');
-    for (const extension of ['cmd', 'exe']) writeFileSync(path.join(bin, `${name}.${extension}`),
+    for (const extension of ['bat']) writeFileSync(path.join(bin, `${name}.${extension}`),
       `@echo off\r\n"${quoted}" "${dispatcher}" "${name}" %*\r\n`);
   }
 }

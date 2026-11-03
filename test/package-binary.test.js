@@ -19,7 +19,7 @@ test('binary packaging preserves existing checksums and adds the archive', () =>
   assert.equal(result.status, 0, result.stderr);
   const sums = readFileSync(path.join(directory, 'dist/SHA256SUMS'), 'utf8');
   assert.match(sums, /package\.tgz/);
-  assert.match(sums, /framer-next\n/);
+  assert.match(sums, process.platform === 'win32' ? /framer-next\.exe\n/ : /framer-next\n/);
   const suffix = `${process.platform === 'darwin' ? 'macos' : process.platform}-${process.arch}`;
   assert.match(sums, new RegExp(`framer-next-${suffix}\\.`));
   const repeated = spawnSync(process.execPath, [
@@ -44,5 +44,6 @@ test('binary packaging creates checksums in a clean checkout', () => {
   });
   assert.equal(result.status, 0, result.stderr);
   const sums = readFileSync(path.join(directory, 'dist/SHA256SUMS'), 'utf8');
-  assert.match(sums, /^[a-f0-9]{64}  framer-next\n/m);
+  assert.match(sums, process.platform === 'win32'
+    ? /^[a-f0-9]{64}  framer-next\.exe\n/m : /^[a-f0-9]{64}  framer-next\n/m);
 });
