@@ -1,3 +1,22 @@
+# Browser page-creation deadline, 2026-11-03
+
+The alpha.20 candidate retains the pending memory-selection and Claude
+history fixes. Firefox page creation previously held a global creation queue
+without a deadline. A window that never finished startup or registered its
+page target blocked later pages and prevented normal shutdown.
+The browser driver now bounds creation to 90 seconds, closes only that
+unfinished window, removes its listeners, and releases the queue after
+confirmed cleanup. Unconfirmed closure fences later allocation and retains
+the original failure. No page-visible signals or request tokens change.
+
+Five driver regressions cover stalled startup, missing targets, closure during
+startup, failed cleanup, and preservation of an existing page. All pass on
+the repaired module; the old module leaves the startup regression pending.
+All 80 focused Python checks pass, including the installed browser and driver
+patches and the host's exact-cause and unused-context cleanup regression.
+Alpha.18 remains live. Next: build the exact alpha.20 package and verify it
+with the same exclusive account, including normal shutdown and real delivery.
+
 # Claude history preservation, 2026-11-03
 
 Native Messages conversion now preserves signed thinking and redacted blocks,

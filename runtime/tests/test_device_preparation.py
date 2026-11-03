@@ -26,6 +26,27 @@ class DevicePreparationTests(unittest.IsolatedAsyncioTestCase):
         method.side_effect = invoke
         return gate
 
+    async def test_page_creation_failure_keeps_cause_and_closes_unused_context(self):
+        for cause in (
+            "Firefox page creation timed out after 90 seconds waiting for page target registration",
+            "Browser window closed during browser window startup",
+        ):
+            with self.subTest(cause=cause):
+                name = str(len(self.host.accounts))
+                acc = self.account(name)
+                context = acc.browser.next_context
+                context.new_page.side_effect = RuntimeError(cause)
+                self.host._new_mint_page = AsyncMock()
+                with self.assertRaisesRegex(RuntimeError, "browser preparation failed") as failed:
+                    await asyncio.wait_for(self.command(name, mint=True), 1)
+                self.assertIn(cause, str(failed.exception))
+                self.assertTrue(context.closed)
+                context.page.evaluate.assert_not_awaited()
+                self.host._new_mint_page.assert_not_awaited()
+                self.assertIsNone(acc.dev_objs["device-a"].ctx)
+                self.assertFalse(acc.closing)
+                self.assert_idle(acc)
+
     async def test_cancel_during_error_cleanup_never_mints_fallback(self):
         acc = self.account()
         context = acc.browser.next_context

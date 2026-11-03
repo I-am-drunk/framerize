@@ -36,6 +36,11 @@ class MemoryPatchTests(unittest.TestCase):
                 capture_output=True, text=True, timeout=30)
             self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
             result = subprocess.run([shutil.which('node'),
+                str(Path(__file__).with_name('page_creation.cjs')), str(module),
+                str(Path(memory_build.__file__).with_name('page_creation_guard.js'))],
+                capture_output=True, text=True, timeout=30)
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            result = subprocess.run([shutil.which('node'),
                 str(Path(__file__).with_name('network_identity.cjs')), str(network)],
                 capture_output=True, text=True, timeout=30)
             self.assertEqual(result.returncode, 0, result.stdout + result.stderr)

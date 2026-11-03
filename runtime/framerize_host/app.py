@@ -109,6 +109,16 @@ class Host:
                 f"Castle SDK warmup timed out after {SDK_WARMUP_TIMEOUT_S:g}s; "
                 "the inference request was not sent") from error
 
+    async def _new_page(self, account, context):
+        try:
+            return await self._rpc(account, context.new_page)
+        except Exception as error:
+            cause = error_cause(error)
+            if ('Firefox page creation' in cause
+                    or 'Browser window closed during' in cause):
+                raise RuntimeError('browser preparation failed: ' + cause) from error
+            raise
+
     def _check_proxy_revision(self, req):
         account = req.get("account", "")
         revision = req.get("proxy_revision", 0)
@@ -655,7 +665,7 @@ class Host:
 
     async def _new_pool_page(self, acc, account):
         async with self._allocation(64 * 1024**2):
-            page = await self._rpc(account, acc.ctx.new_page)
+            page = await self._new_page(account, acc.ctx)
             try:
                 await self._rpc(account, page.goto, LOGIN_URL, wait_until="domcontentloaded", timeout=60000)
                 await self._rpc(account, page.wait_for_timeout, 800)
@@ -750,7 +760,7 @@ class Host:
         mints stay ~25ms forever."""
         async with self._allocation(64 * 1024**2):
             page = await create_page(
-                lambda: self._rpc(account, acc.ctx.new_page),
+                lambda: self._new_page(account, acc.ctx),
                 lambda created: self._rpc(account, created.close))
             try:
                 await self._rpc(account, page.goto, LOGIN_URL, wait_until="domcontentloaded", timeout=60000)
@@ -823,7 +833,7 @@ class Host:
                         cookies.append({"name": name, "value": value, "domain": ".framer.com",
                                         "path": "/", "secure": True, "httpOnly": True, "sameSite": "None"})
                     await self._rpc(account, ctx.add_cookies, cookies)
-                    page = await self._rpc(account, ctx.new_page)
+                    page = await self._new_page(account, ctx)
                     d.page = page
                     await self._rpc(account, page.goto, LOGIN_URL, wait_until="domcontentloaded", timeout=90000)
                 except asyncio.CancelledError:
@@ -1143,7 +1153,7 @@ class Host:
 
     async def _initialize_account(self, account, profile, browser):
         ctx = await self._rpc(account, browser.new_context)   # ambient context (login flow, heartbeats' home)
-        page = await self._rpc(account, ctx.new_page)
+        page = await self._new_page(account, ctx)
         trace(f"{account[:8]}: goto login page")
         await self._rpc(account, page.goto, LOGIN_URL, wait_until="domcontentloaded", timeout=90000)
         trace(f"{account[:8]}: dom loaded, waiting for app boot")

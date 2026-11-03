@@ -1,0 +1,62 @@
+--- a/TargetRegistry.js
++++ b/TargetRegistry.js
+@@ -417,7 +417,10 @@
+   }
+ 
+   async newPage({browserContextId}) {
+-    const result = globalNewPageChain.then(() => this._newPageInternal({browserContextId}));
++    const result = globalNewPageChain.then(() => {
++      if (this._pageCreationFailure) throw new Error(this._pageCreationFailure);
++      return this._newPageInternal({browserContextId});
++    });
+     globalNewPageChain = result.catch(error => { /* swallow errors to keep chain running */ });
+     return result;
+   }
+@@ -457,21 +460,32 @@
+     args.appendElement(Services.scriptSecurityManager.getSystemPrincipal()); // 8
+ 
+     const window = Services.ww.openWindow(null, AppConstants.BROWSER_CHROME_URL, '_blank', features, args);
+-    await waitForWindowReady(window);
+-    if (window.gBrowser.browsers.length !== 1)
+-      throw new Error(`Unexpected number of tabs in the new window: ${window.gBrowser.browsers.length}`);
+-    const browser = window.gBrowser.browsers[0];
+-    let target = this._browserToTarget.get(browser);
+-    while (!target) {
+-      await helper.awaitEvent(this, TargetRegistry.Events.TargetCreated);
+-      target = this._browserToTarget.get(browser);
+-    }
+-    browser.focus();
+-    if (browserContext.crossProcessCookie.settings.timezoneId) {
+-      if (await target.hasFailedToOverrideTimezone())
+-        throw new Error('Failed to override timezone');
+-    }
+-    return target.id();
++    const guard = new PageCreationGuard(window);
++    try {
++      await guard.ready();
++      if (window.gBrowser.browsers.length !== 1)
++        throw new Error(`Unexpected number of tabs in the new window: ${window.gBrowser.browsers.length}`);
++      const browser = window.gBrowser.browsers[0];
++      let target = this._browserToTarget.get(browser);
++      while (!target) {
++        await guard.event(this, TargetRegistry.Events.TargetCreated, 'page target registration');
++        target = this._browserToTarget.get(browser);
++      }
++      browser.focus();
++      if (browserContext.crossProcessCookie.settings.timezoneId) {
++        if (await guard.wait(target.hasFailedToOverrideTimezone(), 'page initialization'))
++          throw new Error('Failed to override timezone');
++      }
++      return target.id();
++    } catch (error) {
++      try { await guard.close(); }
++      catch (closeError) {
++        this._pageCreationFailure = 'Firefox page creation cleanup unconfirmed after ' +
++          error.message + ': ' + closeError.message;
++        throw new Error(this._pageCreationFailure);
++      }
++      throw error;
++    } finally { guard.dispose(); }
+   }
+ 
+   targets() {
