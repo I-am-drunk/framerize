@@ -173,8 +173,10 @@ async function open(state, url, method, headers, body, config) {
   signal.throwIfAborted();
   const transport = url.protocol === 'https:' ? https : http;
   const request = transport.request(url, {
-    method, agent: false, headers: { ...headers, ...(auth ? { authorization: auth } : {}) },
+    method, agent: false, maxHeaderSize: 16_384,
+    headers: { ...headers, ...(auth ? { authorization: auth } : {}) },
   });
+  request.maxHeadersCount = 0;
   state.request = request;
   let connectTimer = startHeaderTimer(state, config.headersTimeoutMs);
   let headersTimer;
