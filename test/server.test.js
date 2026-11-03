@@ -229,3 +229,41 @@ test('Framer non-streaming chat returns the native completion', async (t) => {
   assert.equal(result.choices[0].message.content, 'hello');
   assert.equal(result.usage.total_tokens, 3);
 });
+
+test('Framer chat streams native tool calls and accepts their results', async (t) => {
+  const envelopes = [];
+  const chunks = [
+    { id: 'chatcmpl-tool', object: 'chat.completion.chunk', choices: [{ delta: {
+      role: 'assistant', tool_calls: [{ index: 0, id: 'call1', type: 'function',
+        function: { name: 'weather', arguments: '' } }],
+    } }] },
+    { id: 'chatcmpl-tool', object: 'chat.completion.chunk', choices: [{ delta: {
+      tool_calls: [{ index: 0, function: { arguments: '{"city":"Paris"}' } }],
+    } }] },
+    { id: 'chatcmpl-tool', object: 'chat.completion.chunk', choices: [{ delta: {}, finish_reason: 'tool_calls' }] },
+  ];
+  const events = chunks.map((chunk) => `data: ${JSON.stringify(chunk)}\n\n`).join('') + 'data: [DONE]\n\n';
+  const base = await fixture(t, async (url, options) => {
+    envelopes.push(JSON.parse(options.body));
+    return new Response(events, { headers: { 'content-type': 'text/event-stream' } });
+  }, [{ id: 'framer', provider: 'framer', projectId: 'project',
+    authorizationEnv: 'TEST_JWT', castleEnv: 'TEST_CASTLE' }]);
+  process.env.TEST_JWT = 'fixture';
+  process.env.TEST_CASTLE = 'fixture';
+  const messages = [{ role: 'user', content: 'Check Paris weather' }];
+  const tools = [{ type: 'function', function: { name: 'weather', parameters: { type: 'object' } } }];
+  const response = await fetch(`${base}/v1/chat/completions`, {
+    method: 'POST', body: JSON.stringify({ model: 'gpt-test', stream: true, messages, tools }),
+  });
+  assert.equal(await response.text(), events);
+  messages.push({ role: 'assistant', content: null, tool_calls: [{ id: 'call1', type: 'function',
+    function: { name: 'weather', arguments: '{"city":"Paris"}' } }] });
+  messages.push({ role: 'tool', tool_call_id: 'call1', content: 'sunny' });
+  const result = await fetch(`${base}/v1/chat/completions`, {
+    method: 'POST', body: JSON.stringify({ model: 'gpt-test', stream: true, messages, tools }),
+  });
+  assert.equal(await result.text(), events);
+  assert.deepEqual(envelopes[0].request.messages, messages.slice(0, 1));
+  assert.deepEqual(envelopes[1].request.messages, messages);
+  assert.deepEqual(envelopes[1].request.tools, tools);
+});
