@@ -53,3 +53,12 @@ warmup and confirmed context cleanup in 1.614 seconds with a shortened test
 deadline. Production warmups observed that day had a 2.331-second median
 and 5.464-second maximum across 71 launches. These are preparation deadlines,
 not changes to inference timeouts or requested reasoning.
+
+Verification cleanup also missed children created by worker threads because
+it read only the main thread's Linux children file. The shared verification
+helper now inspects every thread. Its regression launches a real child from
+a worker thread and passes. The native predecessor's corrected check observed
+ten owned processes and confirmed a clean exit with none remaining in 1.756
+seconds. The activation guard also includes log rotation after midnight;
+all 23 activation and rollback fixtures pass. These test-tool corrections
+do not change the application built from `8f320e2a`.
