@@ -2,8 +2,8 @@ use serde_json::{json, Value};
 
 pub(super) fn supported(payload: &Value) -> bool {
     let model = payload["model"].as_str().unwrap_or_default();
-    // Claude 5.1 and newer bind thinking to the exact internal turn history.
-    // Joining their turns requires a separate history-restoration protocol.
+    // Checkpoint generation is qualified independently for each model.
+    // Newer prefix-bound models retain their existing behavior until verified.
     model.strip_prefix("anthropic/").unwrap_or(model) == "claude-opus-5"
 }
 
@@ -29,5 +29,7 @@ pub(super) fn push(messages: &mut Value, blocks: &[Value], prompt: &str) {
     turns.push(json!({"role":"user", "content":prompt}));
 }
 
-pub(super) const CONTINUE: &str = "Continue the response to the user's request. Return the requested result without repeating completed output.";
-pub(super) const TOOL_CONTINUE: &str = "Your previous tool call did not finish within the output limit and was not executed. Continue fulfilling the same request. Keep each tool call small enough to finish, splitting file writes and edits when needed.";
+// History layout version 1 binds these exact prompts. New wording requires a
+// new layout version while the old decoder keeps its original prompt strings.
+pub(in crate::chain) const CONTINUE: &str = "Continue the response to the user's request. Return the requested result without repeating completed output.";
+pub(in crate::chain) const TOOL_CONTINUE: &str = "Your previous tool call did not finish within the output limit and was not executed. Continue fulfilling the same request. Keep each tool call small enough to finish, splitting file writes and edits when needed.";

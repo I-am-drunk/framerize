@@ -19,6 +19,7 @@ pub struct Transport {
     // Legacy cached auth belongs to this transport. Native control_* calls
     // are uncached; shared session writers must carry this owner's handle.
     pub(crate) authorization: std::sync::Arc<crate::authorization::AuthorizationState>,
+    pub(crate) messages_history: crate::chain::messages_history::HistoryStore,
 }
 
 pub enum Auth<'a> {
@@ -72,7 +73,7 @@ impl Transport {
         };
         let http = builder.build()
             .map_err(|_| "control authorization: client initialization failed".to_owned())?;
-        Ok(Self { http, base, authorization: Default::default() })
+        Ok(Self { http, base, authorization: Default::default(), messages_history: Default::default() })
     }
 
     pub fn new() -> Self {
@@ -87,7 +88,7 @@ impl Transport {
         )
         .build()
         .expect("reqwest client");
-        Self { http, base, authorization: Default::default() }
+        Self { http, base, authorization: Default::default(), messages_history: Default::default() }
     }
 
     fn apply(&self, req: reqwest::RequestBuilder, auth: Auth) -> reqwest::RequestBuilder {

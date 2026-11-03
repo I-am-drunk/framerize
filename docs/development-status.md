@@ -1,3 +1,16 @@
+# Signed checkpoint history, 2026-11-03
+
+Alpha.24 completed a real Opus 5 answer in four bounded chunks, but its
+combined client follow-up returned HTTP 400. The provider requires the
+original assistant-turn boundaries around signed thinking blocks.
+Alpha.25 restores those boundaries from persistent hashes and offsets.
+Its store retains no client prompts, tokens or signatures. Storage has
+explicit memory and disk limits, and failure prevents unsafe publication.
+All 149 affected Messages tests pass, including restored follow-up history,
+restart persistence, cache markers, Unicode splits and storage failures.
+Production remains alpha.21, PID 654353. Next: build alpha.25 and qualify
+both the follow-up and a captured failing input with 98 client tools.
+
 # Opus 5 checkpoints and extension memory, 2026-11-03
 
 The alpha.24 candidate enables bounded signed checkpoints for Opus 5,

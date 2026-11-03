@@ -26,7 +26,7 @@ use crate::transport::Transport;
 use futures::StreamExt;
 
 #[path = "messages_checkpoint.rs"]
-mod checkpoint;
+pub(super) mod checkpoint;
 
 /// Chain a long completion. `anthro_payload` is the client's request already
 /// converted to Anthropic Messages shape (model normalized); only `stream`
@@ -40,7 +40,7 @@ pub async fn complete_long(
     browser: &dyn BrowserBridge,
     account: &AccountId,
     project: &ProjectId,
-    anthro_payload: Value,
+    mut anthro_payload: Value,
     cfg: &ChainConfig,
     chat_session: &str,
     // Incremental progress: each chunk's blocks as it completes — the server
@@ -56,6 +56,8 @@ pub async fn complete_long(
     if cfg.max_total_tokens == Some(0) {
         return Err("Messages chain max_total_tokens must be greater than zero".into());
     }
+    t.messages_history.restore(&mut anthro_payload)?;
+    let mut history = super::messages_history::Trace::default();
     let output_floor = framer_core::convert::anthropic_output_floor(&anthro_payload)?;
     let default_thinking = uses_default_thinking(&anthro_payload);
     let reasoning = anthro_payload["thinking"]["type"] == "adaptive" || default_thinking;
@@ -362,9 +364,10 @@ pub async fn complete_long(
             }
             tool_cut_retries += 1;
             eprintln!("[freechat] chunk {i} completed at max_tokens with incomplete tool input; continuing from preserved checkpoint");
-            merge_blocks(&mut blocks, completed.clone());
+            history.append(&t.messages_history, &mut blocks, &completed)?;
             if let Some(cb) = events { cb(ChainEvent::Chunk(completed.clone())); }
             checkpoint::push(&mut messages, &completed, checkpoint::TOOL_CONTINUE);
+            history.continuing(true);
             chunk_tokens = chunk_tokens.max(budget_for(tps));
             continue;
         }
@@ -459,7 +462,11 @@ pub async fn complete_long(
         stop_sequence = body["stop_sequence"].as_str().map(str::to_string);
         stop_details = buffered::stop_details(&body)?;
         bucket_idx += 1; // rotate the bucket every chunk, not just on 429
-        merge_blocks(&mut blocks, chunk_blocks.clone());
+        if checkpointed_thinking {
+            history.append(&t.messages_history, &mut blocks, &chunk_blocks)?;
+        } else {
+            merge_blocks(&mut blocks, chunk_blocks.clone());
+        }
         if let Some(cb) = events {
             cb(ChainEvent::Chunk(chunk_blocks.clone()));
         }
@@ -471,6 +478,7 @@ pub async fn complete_long(
         }
         if checkpointed_thinking {
             checkpoint::push(&mut messages, &chunk_blocks, checkpoint::CONTINUE);
+            history.continuing(false);
         } else {
             push_continuation(&mut messages, &chunk_blocks, cfg);
         }

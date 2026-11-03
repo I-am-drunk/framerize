@@ -23,6 +23,16 @@ can request smaller complete calls twice. Incomplete tool inputs are never
 published, and server-tool truncation cannot enter that recovery path.
 The caller's total output allowance and reasoning effort remain unchanged.
 
+Client follow-ups must reproduce the original upstream assistant turns.
+Combining signed blocks into one message causes a provider HTTP 400 even
+on Opus 5. The Messages adapter records the actual chunk boundaries and
+restores them when the client returns that exact content. Cache markers
+may change without changing the content match. Unknown histories pass
+through unchanged; the adapter never guesses boundaries from thinking text.
+Only hashes, offsets and versioned continuation kinds enter the private
+checkpoint database. Its cache is 1 MiB and its file limit is 128 MiB.
+The adapter persists each combined checkpoint before publishing it.
+
 Other adaptive models use the configured total output allowance in their upstream
 request. The ordinary 600-token starting chunk does not limit it. The service
 preserves the upstream response and its ending instead of synthesizing a

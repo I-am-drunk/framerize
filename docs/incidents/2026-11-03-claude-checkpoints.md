@@ -13,11 +13,24 @@ can retain its preceding checkpoint and request smaller complete calls.
 Incomplete tool inputs are never published. Unknown completion, provider
 refusals and server-tool truncation do not enter that recovery path.
 
-This applies only to Opus 5. Claude 5.1 and newer bind thinking to the
-original message prefix. Joining their internal turns requires a separate
-history-restoration implementation, so their existing behavior remains.
-Real checkpoint and client-follow-up verification is still required before
-activation. Fixture success does not demonstrate provider acceptance.
+Checkpoint generation currently applies only to Opus 5. Other adaptive
+models keep their existing behavior until separately qualified.
+
+The corrected alpha.24 test completed an eight-section answer in four
+upstream chunks, each below 22 seconds. Its client follow-up failed with
+HTTP 400: signed thinking blocks could not be modified in the latest
+assistant message. Concatenating chunks had lost their original turn
+boundaries even though the block values were unchanged.
+
+Alpha.25 restores those original turns before forwarding client history.
+A private store records content hashes, block offsets and continuation
+kinds, without client prompts, signatures or credentials. Records survive
+restart, use a 1 MiB SQLite cache and have a 128 MiB disk limit. Existing
+records are retained; storage failure stops publication of an unrestorable
+checkpoint. Real package qualification remains required before activation.
+All 149 affected Messages tests pass. The failed alpha.24 qualification
+shut down normally in 4.020 seconds, left no owned processes, retained all
+500 credits and peaked at 1,747,660,800 bytes without memory-limit events.
 
 The first alpha.24 real test served Astra through Responses in 20.566 seconds,
 including browser startup. A subsequent Claude Responses request received an

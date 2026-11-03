@@ -78,3 +78,38 @@ fn refusal_after_checkpoint_retains_the_provider_explanation() {
     assert_eq!(observed.requests.len(), 2);
     assert_eq!(observed.refunds, 0);
 }
+
+#[tokio::test(start_paused = true)]
+async fn client_followup_sends_original_upstream_turns() {
+    let account = AccountId(uuid::Uuid::from_u128(1));
+    let session = Session { active_user: FramerUserId("fixture-user".into()),
+        cookie_header: "fixture-only".into() };
+    let transport = Transport::with_base("http://127.0.0.1:9".into());
+    let cache = Mutex::new(vec![(account,
+        AiToken::for_session(&session, "fixture-only".into(), i64::MAX))]);
+    let browser = Fixture { replies: Mutex::new(vec![
+        buffered(thought(), "max_tokens"),
+        buffered(json!({"type":"text","text":"answer"}), "end_turn"),
+        buffered(json!({"type":"text","text":"followup"}), "end_turn")].into()),
+        requests: Mutex::new(Vec::new()), refunds: AtomicUsize::new(0),
+        delays: Mutex::new(VecDeque::new()) };
+    let config = ChainConfig { max_total_tokens: Some(4096), metered_fallback: false,
+        ..ChainConfig::default() };
+    let mut payload = json!({"model":"claude-opus-5","thinking":{"type":"adaptive"},
+        "messages":[{"role":"user","content":"original"}]});
+    let project = ProjectId("fixture-project".into());
+    let first = complete_long(&transport, &cache, &session, &browser, &account,
+        &project, payload.clone(), &config, "fixture-chat", None).await.unwrap();
+    payload["messages"].as_array_mut().unwrap().extend([
+        json!({"role":"assistant","content":first.content}),
+        json!({"role":"user","content":"follow up"})]);
+    complete_long(&transport, &cache, &session, &browser, &account,
+        &project, payload, &config, "fixture-chat", None).await.unwrap();
+    let requests = browser.requests.lock().unwrap();
+    assert_eq!(requests.len(), 3);
+    let history = &requests[2]["request"]["messages"];
+    assert_eq!(history.as_array().unwrap().len(), 5);
+    assert_eq!(history[1]["content"], json!([thought()]));
+    assert_eq!(history[2]["content"], checkpoint::CONTINUE);
+    assert_eq!(history[3]["content"][0]["text"], "answer");
+}

@@ -134,7 +134,8 @@ async fn build_state(db: &str, chrome: &str, profiles: &str, engine: &str,
     let sessions = Box::new(framer_store::FileSessionStore::new(
         std::path::Path::new(profiles).join(".sessions"),
     )?);
-    let client = Arc::new(framer_api::HttpFramerClient::new());
+    let client = Arc::new(framer_api::HttpFramerClient::new()
+        .with_checkpoint_history(&std::path::Path::new(profiles).join(".checkpoints"))?);
     framer_core::observability::init(profiles);
     let browser: Arc<dyn framer_core::port::BrowserBridge> = match engine {
         "full-chrome" => Arc::new(CdpBridge::with_engine(chrome, profiles, framer_host::EngineKind::FullChrome)),

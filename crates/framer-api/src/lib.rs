@@ -62,6 +62,11 @@ pub struct HttpFramerClient {
 }
 
 impl HttpFramerClient {
+    pub fn with_checkpoint_history(mut self, directory: &std::path::Path) -> Result<Self, String> {
+        self.transport.messages_history = chain::messages_history::HistoryStore::open(directory)?;
+        Ok(self)
+    }
+
     pub fn new() -> Self {
         Self {
             transport: Transport::new(),
