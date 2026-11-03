@@ -22,7 +22,9 @@ Current Nexus evidence on Node.js 22.23.4 and 24.13.0:
   and Windows x64.
 - [Release rehearsal 41654672886](https://github.com/I-am-drunk/framerize/actions/runs/41654672886)
   passed all five jobs for that exact commit through an explicit branch
-  `workflow_dispatch`. All platforms ran Node.js 22.23.4 and 113 tests.
+  `workflow_dispatch`. All platforms ran Node.js 22.23.4. Linux and macOS
+  passed 113 tests each. Windows passed 111 tests with two pre-existing POSIX
+  signal tests skipped in `test/cli.test.js`.
   Assembly verified the shared tarball, platform manifests, and all six
   downloadable payload hashes. An independent download verified all six
   payloads against the aggregate `SHA256SUMS`.
