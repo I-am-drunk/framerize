@@ -15,7 +15,8 @@ const modules = ['asset-manifest', 'asset-snapshot', 'castle', 'collect', 'colle
   'collection-guard', 'encode', 'environment', 'errors', 'lifecycle', 'options',
   'snapshot-loader', 'trace', 'types', 'worker', 'encoder/serialize',
   'encoder/compress', 'encoder/compression-huffman', 'encoder/compression-matches',
-  'encoder/envelope', 'encoder/encode-values'];
+  'encoder/envelope', 'encoder/encode-values', 'encode-worker', 'encoder/encode-frame',
+  'encoder/collection-json', 'encoder/collection-values', 'encoder/collector-replies'];
 const expected = ['package.json', 'README.md', 'LICENSE',
   ...modules.flatMap((name) => [`dist/${name}.js`, `dist/${name}.d.ts`]),
   ...assetManifest.map((entry) => entry.path)].sort();
@@ -54,7 +55,7 @@ test('private Castle package works outside the workspace without runtime depende
     assert.equal(entry, join(installed, 'dist', 'castle.js'));
     writeFileSync(join(consumer, 'consumer.ts'), [
       "import { createCastleMinter, type CastleMinter, type MintResult } from 'framerize-castle';",
-      "const minter: CastleMinter = createCastleMinter({ encoderPath: '/synthetic/encoder' });",
+      'const minter: CastleMinter = createCastleMinter();',
       'const result: Promise<MintResult> = minter.mint({ signal: new AbortController().signal });',
       'void result; void minter.close();',
     ].join('\n'));
@@ -64,7 +65,7 @@ test('private Castle package works outside the workspace without runtime depende
     run([compiler, 'consumer.ts', ...flags]);
     writeFileSync(join(consumer, 'invalid.ts'), [
       "import { createCastleMinter } from 'framerize-castle';",
-      "const invalid: number = createCastleMinter({ encoderPath: '/synthetic/encoder' });",
+      'const invalid: number = createCastleMinter();',
     ].join('\n'));
     assert.throws(() => run([compiler, 'invalid.ts', ...flags]), (error: unknown) =>
       error !== null && typeof error === 'object' && 'stdout' in error && /TS2322/.test(String(error.stdout)));

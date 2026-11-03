@@ -6,10 +6,10 @@ The TypeScript workflow builds and tests the current private package on Ubuntu
 qualify the other platforms or the minimum Node release.
 
 The workflow installs the root lockfile with lifecycle scripts disabled.
-It runs policy checks, compiles the library, exercises its 33 current checks,
+It runs policy checks, compiles the library, exercises its current checks,
 and verifies a local npm installation outside the workspace. The installed
-check compares all 60 package files, checks standalone declarations, and runs
-the real collector with a synthetic encoder. No production encoder, live
+check compares the complete package inventory, checks standalone declarations,
+and runs the real collector with the built-in TypeScript encoder. No live
 provider request, native build, publication, or deployment occurs.
 
 Only the build-tool installation contacts the package registry. Fixture and
@@ -32,7 +32,7 @@ node --test .tools/test/installed-castle-flow.test.js
 ```
 
 CI clears `NODE_OPTIONS` and disables Node's compile cache. The installed check
-uses a synthetic encoder, no dependency installation scripts, and no network.
+uses the built-in encoder, no dependency installation scripts, and no network.
 
 ## Earlier JavaScript fixture records
 

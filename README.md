@@ -9,8 +9,9 @@ previous connector name throughout the active packages and commands.
 Local tests cover the shared server, installed Remote package, authentication,
 streaming and shutdown. The [Framer backend](framerize-server/docs/framer-backend.md)
 now loads selected JSON account references and maps provider requests through
-the actual listener in synthetic tests. CLI selection and real minter delivery
-still need wiring.
+the actual listener in synthetic tests. Castle Library now collects and encodes
+without an external encoder. CLI account selection and native-server minter
+packaging still need wiring.
 Live browserless inference, current hosted release qualification and npm
 publication are not complete. Do not use old release evidence to approve this
 snapshot.
