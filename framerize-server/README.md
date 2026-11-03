@@ -116,6 +116,10 @@ npm run pack:check
 
 Tests use loopback fixtures. The package check installs the exact packed tarball
 in a temporary directory and tests the installed CLI and HTTP application there.
+Before importing the application, it rejects changed manifest metadata, runtime
+dependencies, unexpected installed files, and changed source bytes. It permits
+npm's leading `./` normalization in executable mappings and CR removal from the
+launcher's shebang, but preserves all remaining bytes.
 These checks do not establish live compatibility or cross-platform binary support.
 
 ## Native packaging
