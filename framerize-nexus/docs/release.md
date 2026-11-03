@@ -46,3 +46,16 @@ pending an enforceable owner-approved path.
 
 Each executable archive must include the Node.js license notices and a
 SHA-256 checksum. Production activation is separate from artifact publication.
+
+## Publisher archive-path verification
+
+The helper reads tarball metadata with an archive basename and `cwd: dist`.
+This keeps Windows drive letters out of GNU tar's archive argument, where a
+colon can select a remote archive. The checksum and publication guards are unchanged.
+
+On 2026-11-03, all 22 publisher tests passed on Linux Node 22.23.4. The two new
+command-boundary cases also passed on Node 24.13.0. They simulate POSIX and
+Windows paths, including spaces, and stop at a mocked archive command. Both
+cases failed against the previous absolute-path invocation. Registry and
+publication commands ran only as fixture stubs. These results do not qualify
+Windows publication or OIDC, and do not authorize publication or activation.

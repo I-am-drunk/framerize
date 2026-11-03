@@ -6,6 +6,35 @@ import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { runInNewContext } from 'node:vm';
+
+for (const [platform, directory, paths] of [
+  ['linux', '/fixture packages/nexus', path.posix],
+  ['win32', 'C:\\fixture packages\\nexus', path.win32],
+]) {
+  test(`publisher reads archive metadata using a basename on ${platform}`, () => {
+    const source = readFileSync(new URL('../scripts/publish-package.js', import.meta.url), 'utf8')
+      .replace(/^import .*;\r?\n/gm, '');
+    const tarball = 'framerize-nexus-0.1.9.tgz';
+    const stop = new Error('stop at mocked archive command');
+    const calls = [];
+    assert.throws(() => runInNewContext(source, {
+      path: { ...paths, resolve: (...parts) => paths.resolve(directory, ...parts) },
+      process: { platform, env: {} },
+      readdirSync: () => [tarball],
+      readFileSync: () => '{}',
+      execFileSync(command, args, options) {
+        calls.push({ command, args: Array.from(args), options });
+        throw stop;
+      },
+    }), (error) => error === stop);
+    assert.equal(calls.length, 1);
+    assert.equal(calls[0].command, 'tar');
+    assert.deepEqual(calls[0].args, ['-xOf', tarball, 'package/package.json']);
+    assert.equal(calls[0].options.cwd, paths.join(directory, 'dist'));
+    assert.equal(calls[0].options.encoding, 'utf8');
+  });
+}
 
 function installStub(bin, name) {
   const file = path.join(bin, name);

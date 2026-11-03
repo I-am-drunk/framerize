@@ -15,8 +15,8 @@ const version = artifacts[0].slice('framerize-nexus-'.length, -'.tgz'.length);
 const sums = path.join(dist, 'SHA256SUMS');
 const tarball = path.join(dist, artifacts[0]);
 const metadata = JSON.parse(readFileSync(path.join(dist, 'release.json'), 'utf8'));
-const packageMetadata = JSON.parse(execute('tar', ['-xOf', tarball,
-  'package/package.json'], { encoding: 'utf8' }));
+const packageMetadata = JSON.parse(execute('tar', ['-xOf', artifacts[0],
+  'package/package.json'], { cwd: dist, encoding: 'utf8' }));
 if (packageMetadata.name !== 'framerize-nexus' || packageMetadata.version !== version) {
   throw new Error('tarball package metadata does not match its release filename');
 }
