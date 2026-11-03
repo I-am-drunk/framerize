@@ -59,7 +59,7 @@ jobs:
             dist/dist/framer-next-linux-x64.tar.gz
       - run: |
           if [[ "${GITHUB_REF_NAME}" == *-* ]]; then export DIST_TAG=next; else export DIST_TAG=latest; fi
-          npm publish dist/framer-next-*.tgz --ignore-scripts --provenance --access public --tag "$DIST_TAG"
+          npm publish dist/dist/framer-next-*.tgz --ignore-scripts --provenance --access public --tag "$DIST_TAG"
         env:
           NODE_AUTH_TOKEN: ''
       - uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65
