@@ -15,14 +15,22 @@ until cleanup completes. Existing navigation and warmup deadlines remain.
 
 # Adaptive thinking output limits
 
-Adaptive thinking uses the configured total output allowance in its upstream
+Opus 5 supports signed checkpoints. Its first buffered request allows 600
+tokens, with subsequent limits estimated for 45 seconds and capped at 1,200.
+The complete signed and redacted blocks remain in continuation history.
+Known incomplete client tool calls retain their preceding checkpoint and
+can request smaller complete calls twice. Incomplete tool inputs are never
+published, and server-tool truncation cannot enter that recovery path.
+The caller's total output allowance and reasoning effort remain unchanged.
+
+Other adaptive models use the configured total output allowance in their upstream
 request. The ordinary 600-token starting chunk does not limit it. The service
 preserves the upstream response and its ending instead of synthesizing a
 continuation from incomplete reasoning. Without a configured total, the
 explicit per-request chunk allowance applies.
 
 An uncertain transport failure returns through the existing error path.
-Adaptive requests do not enter the chunk-halving or paid-fallback paths.
+Adaptive requests do not enter the transport chunk-halving or paid-fallback paths.
 An incomplete tool call cannot be published or retried with a synthetic
 instruction. Classified local waits and ordinary admission rules remain.
 Model, effort, Fast mode, account history and cleanup ownership are unchanged.

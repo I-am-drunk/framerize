@@ -1,3 +1,19 @@
+# Opus 5 checkpoints and extension memory, 2026-11-03
+
+The alpha.24 candidate enables bounded signed checkpoints for Opus 5,
+preserves their blocks across continuation and keeps unknown completions
+and refusals terminal. All 140 Messages tests and nine browser tests pass.
+Newer prefix-bound Claude models retain their existing behavior.
+
+The alpha.23 isolated verifier hit its 2 GiB limit in WebExtensions before
+returning its first response. The candidate removes Camoufox's optional default ad blocker.
+A matched two-page test reduced sampled peak memory from 1.56 to 1.08 GB;
+both processes exited normally. This measures a startup spike, not a
+comparable steady-state reduction. The exclusive account retained 500 credits
+and its recovery hold. Alpha.21 remains live as PID 654353.
+Next: qualify the exact package, signed continuation and combined follow-up
+after 05:45:22 UTC. See [evidence and limits](incidents/2026-11-03-claude-checkpoints.md).
+
 # Startup cause retention, 2026-11-03
 
 The diagnostics branch retains the original preparation failure when browser

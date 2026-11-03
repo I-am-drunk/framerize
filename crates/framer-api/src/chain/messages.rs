@@ -25,6 +25,9 @@ use crate::auth::AiToken;
 use crate::transport::Transport;
 use futures::StreamExt;
 
+#[path = "messages_checkpoint.rs"]
+mod checkpoint;
+
 /// Chain a long completion. `anthro_payload` is the client's request already
 /// converted to Anthropic Messages shape (model normalized); only `stream`
 /// and `max_tokens` are overridden per chunk — every other field passes
@@ -55,7 +58,9 @@ pub async fn complete_long(
     }
     let output_floor = framer_core::convert::anthropic_output_floor(&anthro_payload)?;
     let default_thinking = uses_default_thinking(&anthro_payload);
-    let uninterrupted_thinking = anthro_payload["thinking"]["type"] == "adaptive" || default_thinking;
+    let reasoning = anthro_payload["thinking"]["type"] == "adaptive" || default_thinking;
+    let checkpointed_thinking = reasoning && checkpoint::supported(&anthro_payload);
+    let uninterrupted_thinking = reasoning && !checkpointed_thinking;
     let thinking_mode = if default_thinking { "default reasoning" } else { "adaptive thinking" };
     if cfg.max_total_tokens.is_some_and(|total| total < output_floor) {
         return Err("Messages total output limit cannot accommodate the enabled thinking budget".into());
@@ -110,9 +115,8 @@ pub async fn complete_long(
         prepare_payload(&anthro_payload, messages, chunk, dialect)
     };
 
-    // Adaptive and provider-default reasoning cannot use a synthetic continuation.
-    // Explicitly allowed streaming avoids buffering its whole generation.
-    if uninterrupted_thinking && cfg.metered_fallback {
+    // Explicitly allowed reasoning streams avoid buffering the whole generation.
+    if reasoning && cfg.metered_fallback {
         cfg.check_cancelled()?;
         let limit = cfg.max_total_tokens.unwrap_or(cfg.chunk_tokens);
         let payload = build_payload(&anthro_payload["messages"], limit,
@@ -154,7 +158,8 @@ pub async fn complete_long(
     let window_budget_s = 45.0f32;
     let _chunk_cap = cfg.chunk_tokens.max(2500);
     let mut chunk_tokens = cfg.chunk_tokens.min(600);
-    let budget_for = |tps: f32| -> u32 { ((tps * window_budget_s) as u32).clamp(400, 3000) };
+    let chunk_ceiling = if checkpointed_thinking { 1200 } else { 3000 };
+    let budget_for = |tps: f32| -> u32 { ((tps * window_budget_s) as u32).clamp(400, chunk_ceiling) };
 
     let mut cooldown_wait = super::cooldown_wait::CooldownWait::default();
     let active_budget = framer_protocol::active_budget::ActiveBudget::new(&cooldown_wait);
@@ -162,8 +167,7 @@ pub async fn complete_long(
         cfg.check_cancelled()?;
         active_budget.check(&cooldown_wait, i, None)?;
         let budget = remaining_tokens(cfg, ctok).unwrap_or(u32::MAX);
-        // Keep adaptive and provider-default reasoning in one upstream request.
-        // Preserve the caller's full allowance and return that request's result.
+        // Only supported signed checkpoints can split a reasoning response.
         let chunk = if uninterrupted_thinking {
             cfg.max_total_tokens.unwrap_or(cfg.chunk_tokens)
         } else {
@@ -226,7 +230,7 @@ pub async fn complete_long(
             }
             Err(e) if framer_core::error::AccountCooldown::from_error(&e).is_some() => return Err(e),
             Err(e) if cfg.is_cancelled() => return Err(e),
-            Err(e) if uninterrupted_thinking && (e.starts_with("in-page fetch failed:")
+            Err(e) if reasoning && (e.starts_with("in-page fetch failed:")
                 || matches!(framer_core::convert::parse_upstream_error(&e), Some((502 | 504, _)))) => {
                 let elapsed = cooldown_wait.elapsed(last_attempt_t0).as_secs_f32();
                 let cause = framer_core::error::safe_failure_summary(&e);
@@ -239,7 +243,7 @@ pub async fn complete_long(
                 // velocity 403 after >8s of waiting as an idle-window kill
                 // (audit 2026-10-11: wasted halve-retries on velocity bans).
                 let elapsed = cooldown_wait.elapsed(last_attempt_t0).as_secs_f32();
-                if uninterrupted_thinking || !(retryable_failure(&e, elapsed) && chunk_tokens > 200) {
+                if reasoning || !(retryable_failure(&e, elapsed) && chunk_tokens > 200) {
                     return Err(e);
                 }
                 active_budget.check(&cooldown_wait, i, Some(&e))?;
@@ -342,6 +346,29 @@ pub async fn complete_long(
         // Keep valid output at low throughput. The active-time budget limits
         // later work without discarding an already successful response.
 
+        if checkpointed_thinking && chunk_stop == "max_tokens" && contains_tool_use {
+            if tool_cut_retries >= 2 || i + 1 >= cfg.max_chunks
+                || chunk_blocks.iter().any(|b| b["type"] == "server_tool_use") {
+                return Err("Claude reached the checkpoint output limit during a tool call; complete tool input is unavailable".into());
+            }
+            let completed: Vec<Value> = chunk_blocks.iter()
+                .filter(|b| b["type"] != "tool_use").cloned().collect();
+            if !checkpoint::available(&completed)? {
+                return Err("Claude reached the checkpoint output limit during a tool call without a signed or text checkpoint".into());
+            }
+            ctok = add_output_tokens(ctok, out_t)?;
+            if remaining_tokens(cfg, ctok).is_some_and(|left| left < output_floor) {
+                return Err("Claude exhausted the requested output allowance before completing its tool input".into());
+            }
+            tool_cut_retries += 1;
+            eprintln!("[freechat] chunk {i} completed at max_tokens with incomplete tool input; continuing from preserved checkpoint");
+            merge_blocks(&mut blocks, completed.clone());
+            if let Some(cb) = events { cb(ChainEvent::Chunk(completed.clone())); }
+            checkpoint::push(&mut messages, &completed, checkpoint::TOOL_CONTINUE);
+            chunk_tokens = chunk_tokens.max(budget_for(tps));
+            continue;
+        }
+
         // Partial tool_use at max_tokens: a half-written tool call can't be
         // continued — and enlarging the budget breaks the real invariant
         // (chunks must finish inside the ~100s idle window; a 5-8k-token tool
@@ -421,7 +448,12 @@ pub async fn complete_long(
             continue;
         }
 
-        // A cut tool response is discarded above; count only published output.
+        let has_checkpoint = if checkpointed_thinking && chunk_stop == "max_tokens" {
+            checkpoint::available(&chunk_blocks)?
+        } else {
+            has_continuation_text(&chunk_blocks)
+        };
+        // Count this completed response before deciding whether to continue.
         ctok = add_output_tokens(ctok, out_t)?;
         stop_reason = chunk_stop.clone();
         stop_sequence = body["stop_sequence"].as_str().map(str::to_string);
@@ -434,10 +466,14 @@ pub async fn complete_long(
 
         let budget_left = remaining_tokens(cfg, ctok);
         if uninterrupted_thinking || chunk_stop != "max_tokens" || budget_left.is_some_and(|left| left < output_floor)
-            || !has_continuation_text(&chunk_blocks) {
+            || !has_checkpoint {
             return Ok(assemble(msg_id, blocks, stop_reason, stop_sequence, stop_details, last_usage, ptok, ctok, i + 1, metered_chunks));
         }
-        push_continuation(&mut messages, &chunk_blocks, cfg);
+        if checkpointed_thinking {
+            checkpoint::push(&mut messages, &chunk_blocks, checkpoint::CONTINUE);
+        } else {
+            push_continuation(&mut messages, &chunk_blocks, cfg);
+        }
     }
     Ok(assemble(msg_id, blocks, stop_reason, stop_sequence, stop_details, last_usage, ptok, ctok, cfg.max_chunks, metered_chunks))
 }
@@ -451,7 +487,7 @@ fn uses_default_thinking(payload: &Value) -> bool {
     // Preserve the caller's allowance and the provider's own default settings.
     let model = payload["model"].as_str().unwrap_or_default();
     let model = model.strip_prefix("anthropic/").unwrap_or(model);
-    matches!(model, "claude-fable-5.1" | "claude-fable-5-1")
+    matches!(model, "claude-fable-5.1" | "claude-fable-5-1" | "claude-opus-5")
 }
 
 fn has_continuation_text(blocks: &[Value]) -> bool {

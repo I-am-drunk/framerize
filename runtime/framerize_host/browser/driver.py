@@ -24,6 +24,10 @@ def browser_runtime():
 async def prepare_browser_options(**kwargs):
     """Finish Camoufox configuration before a browser process can exist."""
     from camoufox.async_api import launch_options
+    from camoufox.addons import DefaultAddons
+    # Its default filter extension can exceed 1 GiB during startup. Framer's
+    # browser transport does not need ad blocking. Keep explicit addon choices.
+    kwargs.setdefault('exclude_addons', [DefaultAddons.UBO])
     options = await asyncio.to_thread(launch_options, **kwargs)
     if not isinstance(options, dict) or not options:
         raise RuntimeError("Camoufox returned no browser launch options")
