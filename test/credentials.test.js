@@ -55,3 +55,20 @@ test('credential service response can arrive after the request', async (t) => {
   t.after(() => new Promise((resolve) => server.close(resolve)));
   assert.equal(await mintCredential(socketPath, 'fixture'), 'delayed-fixture');
 });
+
+test('credential service EOF fails without waiting for timeout', async (t) => {
+  const directory = await mkdtemp(path.join(tmpdir(), 'framer-next-socket-'));
+  const socketPath = path.join(directory, 'mint.sock');
+  const sockets = new Set();
+  const server = net.createServer((socket) => {
+    sockets.add(socket);
+    socket.on('close', () => sockets.delete(socket));
+    socket.end();
+  });
+  await new Promise((resolve) => server.listen(socketPath, resolve));
+  t.after(() => new Promise((resolve) => {
+    for (const socket of sockets) socket.destroy();
+    server.close(resolve);
+  }));
+  await assert.rejects(mintCredential(socketPath, 'fixture'), /closed without a response/);
+});

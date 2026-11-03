@@ -9,6 +9,7 @@ export function mintCredential(socketPath, accountId, timeoutMs = 15_000) {
     timer.unref();
     socket.setEncoding('utf8');
     socket.on('error', fail);
+    socket.on('end', () => fail(new Error('credential service closed without a response')));
     socket.on('connect', () => socket.write(`${JSON.stringify({ op: 'mint', account_id: accountId })}\n`));
     socket.on('data', (chunk) => {
       buffer += chunk;

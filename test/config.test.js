@@ -13,6 +13,11 @@ test('config defaults to loopback and validates ports', () => {
   assert.throws(() => parseConfig({ port: 70000 }), /at most/);
 });
 
+test('upstream URLs reject malformed and credential-bearing values', () => {
+  assert.throws(() => parseConfig({ upstream: 'not a url' }), /valid URL/);
+  assert.throws(() => parseConfig({ upstream: 'https://user:pass@example.test' }), /credentials/);
+});
+
 test('accounts JSON validates ids and rejects embedded secrets', async () => {
   const directory = await mkdtemp(path.join(tmpdir(), 'framer-next-'));
   const file = path.join(directory, 'accounts.json');
