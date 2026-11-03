@@ -65,7 +65,7 @@ try {
     const provider = { ready: async () => true, async forward() {
       return { status: 200, headers: {'content-type':'application/json'}, body: [Buffer.from('{}')] };
     } };
-    const app = await createServer(loadConfig({port:0,serverToken:'package-fixture'}), {provider});
+    const app = await createServer(loadConfig({host:'127.0.0.1',port:0,upstream:'',serverToken:'package-fixture'}), {provider});
     try {
       const address = await app.listen();
       const base = 'http://127.0.0.1:' + address.port;
