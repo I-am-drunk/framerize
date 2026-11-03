@@ -8,15 +8,19 @@ No Nexus package has been published or activated. Next action: finish local
 fixture and packaging verification, then review the migration before choosing
 its first version tag.
 
-Current Nexus evidence on Node.js 24.13.0:
+Current Nexus evidence on Node.js 22.23.4 and 24.13.0:
 
 - Package installation and offline `npm exec` pass outside the checkout.
 - The extracted Linux x64 executable passes help, configuration, and loopback
   server smoke tests with no Node executable on `PATH`.
 - Release fixtures cover platform artifacts, source identity, checksums,
   missing artifacts, branch rehearsals, and publication guards.
-- macOS arm64 and Windows x64 qualification remains assigned to CI. No remote
-  checks have run for this migration.
+- PR90 run 41653201539 passed all six jobs at commit `9354395d`, including
+  downloaded-package and extracted-binary smokes on Linux x64, macOS arm64,
+  and Windows x64.
+- Aggregate release assembly is not yet qualified. Review of those CI artifacts
+  found a copied-license line-ending mismatch that is fixed in the next
+  checkpoint. No Nexus release has been published or activated.
 
 Historical Framer Next evidence, verified on November 3, 2026:
 

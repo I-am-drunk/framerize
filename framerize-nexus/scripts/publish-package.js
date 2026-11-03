@@ -27,9 +27,17 @@ const tarballDigest = createHash('sha256').update(readFileSync(tarball)).digest(
 if (tarballDigest !== metadata.artifacts[artifacts[0]]) {
   throw new Error('tarball digest does not match release metadata');
 }
-const tarballSums = readFileSync(sums, 'utf8').trim().split('\n').filter((line) =>
-  line === `${tarballDigest}  ${artifacts[0]}` || line === `${tarballDigest} *${artifacts[0]}`);
-if (tarballSums.length !== 1) throw new Error('SHA256SUMS must contain exactly one matching tarball digest');
+const checksumLines = readFileSync(sums, 'utf8').trim();
+const checksums = (checksumLines ? checksumLines.split('\n') : []).map((line) => {
+  const artifact = line.match(/^([a-f0-9]{64}) [ *](.+)$/);
+  if (!artifact) throw new Error('invalid SHA256SUMS entry');
+  return line;
+});
+const tarballSums = checksums.filter((line) => line.slice(66) === artifacts[0]);
+if (tarballSums.length !== 1) throw new Error('SHA256SUMS must contain exactly one tarball entry');
+if (tarballSums[0].slice(0, 64) !== tarballDigest) {
+  throw new Error('release metadata and SHA256SUMS tarball digests differ');
+}
 if (execute('git', ['status', '--porcelain'], { encoding: 'utf8' }).trim()) {
   throw new Error('publication requires a clean source checkout');
 }
@@ -60,20 +68,12 @@ try {
     throw new Error('cannot verify whether this package version exists', { cause: error });
   }
 }
-const checksums = readFileSync(sums, 'utf8').trim().split('\n')
-  .map((line) => {
-    const artifact = line.match(/^([a-f0-9]{64}) [ *](.+)$/);
-    if (!artifact) throw new Error('invalid SHA256SUMS entry');
-    if (artifact[2] === artifacts[0] && artifact[1] !== metadata.artifacts[artifacts[0]]) {
-      throw new Error('release metadata and SHA256SUMS tarball digests differ');
-    }
-    return line;
-  })
+const presentChecksums = checksums
   .filter((line) => {
     const artifact = line.split(/ [ *]/);
     return readdirSync(dist).includes(artifact.slice(1).join(' '));
   });
-writeFileSync(path.join(dist, '.publish-SHA256SUMS'), `${checksums.join('\n')}\n`);
+writeFileSync(path.join(dist, '.publish-SHA256SUMS'), `${presentChecksums.join('\n')}\n`);
 run('sha256sum', ['-c', '.publish-SHA256SUMS'], { cwd: dist });
 const provenance = [`--provenance=${process.env.GITHUB_ACTIONS === 'true'}`];
 run('npm', ['publish', tarball, '--ignore-scripts',

@@ -63,6 +63,17 @@ function publishCommit(recordedCommit) {
   });
 }
 
+function republish(fixture) {
+  const directory = path.dirname(fixture.calls);
+  writeFileSync(fixture.calls, '');
+  return spawnSync(process.execPath, [
+    fileURLToPath(new URL('../scripts/publish-package.js', import.meta.url))], {
+    encoding: 'utf8', cwd: directory,
+    env: { ...process.env, PATH: `${path.join(directory, 'bin')}:${process.env.PATH}`,
+      FRAMER_NEXT_TEST_COMMAND: fixture.fixture },
+  });
+}
+
 test('a dirty checkout prevents publication', () => {
   const { result } = publish(true, false, '0.1.7', '', false, true, 'a'.repeat(40), true, true);
   assert.notEqual(result.status, 0);
@@ -80,15 +91,10 @@ test('SHA256SUMS must include the exact tarball digest before registry access', 
   assert.equal(fixture.result.status, 0, fixture.result.stderr);
   const directory = path.dirname(fixture.calls);
   writeFileSync(path.join(directory, 'dist/SHA256SUMS'), '');
-  writeFileSync(fixture.calls, '');
-  const result = spawnSync(process.execPath, [
-    fileURLToPath(new URL('../scripts/publish-package.js', import.meta.url))], {
-    encoding: 'utf8', cwd: directory,
-    env: { ...process.env, PATH: `${path.join(directory, 'bin')}:${process.env.PATH}`,
-      FRAMER_NEXT_TEST_COMMAND: fixture.fixture },
-  });
+  const result = republish(fixture);
   assert.notEqual(result.status, 0);
-  assert.match(result.stderr, /exactly one matching tarball digest/);
+  assert.match(result.stderr, /exactly one tarball entry/);
+  assert.equal(readFileSync(fixture.calls, 'utf8'), '');
 });
 
 test('tarball metadata must match the release filename', () => {
@@ -204,14 +210,10 @@ test('malformed checksum entries prevent publication', () => {
   assert.equal(fixture.result.status, 0, fixture.result.stderr);
   const directory = path.dirname(fixture.calls);
   writeFileSync(path.join(directory, 'dist/SHA256SUMS'), 'not-a-checksum\n');
-  const result = spawnSync(process.execPath, [
-    fileURLToPath(new URL('../scripts/publish-package.js', import.meta.url))], {
-    encoding: 'utf8', cwd: directory,
-    env: { ...process.env, PATH: `${path.join(directory, 'bin')}:${process.env.PATH}`,
-      FRAMER_NEXT_TEST_COMMAND: fixture.fixture },
-  });
+  const result = republish(fixture);
   assert.notEqual(result.status, 0);
-  assert.match(result.stderr, /exactly one matching tarball digest/);
+  assert.match(result.stderr, /invalid SHA256SUMS entry/);
+  assert.equal(readFileSync(fixture.calls, 'utf8'), '');
 });
 
 test('conflicting release metadata prevents publication', () => {
@@ -230,6 +232,18 @@ test('conflicting release metadata prevents publication', () => {
   assert.notEqual(result.status, 0);
   assert.match(result.stderr, /tarball digest does not match release metadata/);
   assert.equal((readFileSync(fixture.calls, 'utf8').match(/^publish /gm) || []).length, 1);
+});
+
+test('conflicting duplicate tarball checksums reject before registry access', () => {
+  const fixture = publish();
+  assert.equal(fixture.result.status, 0, fixture.result.stderr);
+  const directory = path.dirname(fixture.calls);
+  const file = path.join(directory, 'dist/SHA256SUMS');
+  writeFileSync(file, `${readFileSync(file, 'utf8')}${'0'.repeat(64)}  framerize-nexus-0.1.7.tgz\n`);
+  const result = republish(fixture);
+  assert.notEqual(result.status, 0);
+  assert.match(result.stderr, /exactly one tarball entry/);
+  assert.equal(readFileSync(fixture.calls, 'utf8'), '');
 });
 
 test('publishing a prior release verifies its recorded source commit', () => {

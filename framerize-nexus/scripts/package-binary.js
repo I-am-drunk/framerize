@@ -1,5 +1,5 @@
 import { execFileSync } from 'node:child_process';
-import { copyFileSync, existsSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { createHash } from 'node:crypto';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -18,8 +18,9 @@ const license = process.env.NODE_DISTRIBUTION_LICENSE
   : [path.join(path.dirname(process.execPath), 'LICENSE'),
     path.join(path.dirname(process.execPath), '..', 'LICENSE')].find(existsSync);
 if (!existsSync(license)) throw new Error('Node distribution LICENSE is required');
-copyFileSync(license, 'dist/NODE-LICENSE');
-copyFileSync(fileURLToPath(new URL('../LICENSE', import.meta.url)), 'dist/LICENSE');
+const normalizeLicense = (file) => readFileSync(file, 'utf8').replace(/\r\n/g, '\n');
+writeFileSync('dist/NODE-LICENSE', normalizeLicense(license));
+writeFileSync('dist/LICENSE', normalizeLicense(fileURLToPath(new URL('../LICENSE', import.meta.url))));
 if (platform === 'win32') {
   execFileSync('powershell', ['-NoLogo', '-NoProfile', '-Command',
     `Compress-Archive -LiteralPath 'dist/${executable}', 'dist/LICENSE', 'dist/NODE-LICENSE' -DestinationPath '${archive}' -Force`],
