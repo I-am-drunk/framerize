@@ -4,16 +4,44 @@
   "description": "Node-native HTTP server for operator-authorized inference endpoints",
   "private": true,
   "type": "module",
-  "engines": { "node": ">=22.12" },
-  "bin": { "framerize-server": "./bin/framerize-server.js" },
+  "engines": {
+    "node": ">=22.12"
+  },
+  "bin": {
+    "framerize-server": "./bin/framerize-server.js"
+  },
   "exports": {
     ".": "./src/server.js",
     "./config": "./src/config.js",
     "./accounts": "./src/accounts.js",
     "./logger": "./src/logger.js",
-    "./provider": "./src/provider.js"
+    "./provider": "./src/provider.js",
+    "./castle": "./src/castle.js",
+    "./package.json": "./package.json"
   },
-  "files": ["bin", "src", "README.md", "LICENSE"],
+  "files": [
+    "bin",
+    "src",
+    "castle/collection.mjs",
+    "castle/collected_values.mjs",
+    "castle/pins.mjs",
+    "castle/script_loader.mjs",
+    "castle/experiments/graph_script.mjs",
+    "castle/experiments/realm.mjs",
+    "castle/experiments/*.json",
+    "castle/experiments/*.js",
+    "castle/inputs/assets",
+    "castle/inputs/interaction-trace.json",
+    "castle/inputs/real-window-getters.json",
+    "castle/inputs/real-window-enumerable.json",
+    "castle/inputs/win-on-nulls.txt",
+    "castle/inputs/doc-on-nulls.txt",
+    "castle/inputs/real-window-keys.json",
+    "castle/inputs/webrtc-capture.json",
+    "castle/inputs/real-computed-style.json",
+    "README.md",
+    "LICENSE"
+  ],
   "scripts": {
     "start": "node bin/framerize-server.js serve",
     "dev": "node --watch bin/framerize-server.js serve",
