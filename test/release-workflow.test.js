@@ -16,5 +16,6 @@ test('release verifies the packaged artifacts before upload', () => {
   const upload = workflow.indexOf('uses: actions/upload-artifact@');
   assert.ok(validate > 0);
   assert.ok(upload > validate);
-  assert.match(workflow, /test -f dist\/dist\/framer-next-linux-x64\.tar\.gz/);
+  assert.match(workflow, /test -f dist\/framer-next-linux-x64\.tar\.gz/);
+  assert.doesNotMatch(workflow, /dist\/dist\//);
 });
