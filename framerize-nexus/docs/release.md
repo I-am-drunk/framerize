@@ -37,11 +37,11 @@ It checks the tarball package metadata and release digest before contacting
 the registry.
 It does not print credentials or store them in this repository.
 This local path cannot provide GitHub Actions provenance. Configure trusted
-publishing immediately after first publication, then use the release workflow
-for all later versions.
+publishing immediately after first publication, then use a separately reviewed
+owner-approved release workflow for later versions.
 The local helper omits provenance outside GitHub Actions. It includes
-provenance in GitHub Actions. The release workflow publishes directly with
-OIDC provenance.
+provenance in GitHub Actions. Automatic publication remains disabled pending
+an enforceable owner-approved path.
 
 Each executable archive must include the Node.js license notices and a
 SHA-256 checksum. Production activation is separate from artifact publication.

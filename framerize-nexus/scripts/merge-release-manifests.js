@@ -23,6 +23,10 @@ for (const platform of ['linux-x64', 'macos-arm64', 'windows-x64']) {
   if (metadata.version !== identity.version || metadata.commit !== identity.commit) {
     throw new Error(`release identity mismatch for ${platform}`);
   }
+  if (metadata.packageArtifact?.name !== `framerize-nexus-${expectedVersion}.tgz` ||
+      metadata.packageArtifact.sha256 !== digest(path.join(directory, metadata.packageArtifact.name))) {
+    throw new Error(`shared package artifact mismatch for ${platform}`);
+  }
   const executable = platform === 'windows-x64' ? 'framerize-nexus.exe' : 'framerize-nexus';
   const archive = `framerize-nexus-${platform}.${platform === 'windows-x64' ? 'zip' : 'tar.gz'}`;
   const expected = new Map([[executable, metadata.artifacts?.[executable]],

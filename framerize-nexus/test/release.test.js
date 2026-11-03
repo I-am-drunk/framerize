@@ -9,6 +9,7 @@ function metadata(env = {}, sums = `${'0'.repeat(64)}  artifact.tgz\n`, version 
   const directory = mkdtempSync(path.join(tmpdir(), 'framer-next-release-'));
   mkdirSync(path.join(directory, 'dist'));
   writeFileSync(path.join(directory, 'package.json'), JSON.stringify({ version }));
+  writeFileSync(path.join(directory, `framerize-nexus-${version}.tgz`), 'package');
   writeFileSync(path.join(directory, 'dist', 'SHA256SUMS'), sums);
   writeFileSync(path.join(directory, 'dist', 'LICENSE'), 'project license');
   writeFileSync(path.join(directory, 'dist', 'NODE-LICENSE'), 'node license');

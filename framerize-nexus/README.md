@@ -39,7 +39,7 @@ belong in this file. See `examples/accounts.json`.
 
 ```sh
 export FRAMER_LOCAL_TOKEN='your private credential'
-npx framerize-nexus serve \
+node bin/framerize-nexus.js serve \
   --upstream https://your-endpoint.example \
   --accounts ./accounts.json
 ```

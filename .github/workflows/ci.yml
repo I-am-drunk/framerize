@@ -48,6 +48,7 @@ jobs:
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
           name: framerize-nexus-package
+          overwrite: true
           path: framerize-nexus/framerize-nexus-*.tgz
           if-no-files-found: error
   platforms:
@@ -80,5 +81,6 @@ jobs:
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
           name: framerize-nexus-${{ matrix.suffix }}
+          overwrite: true
           path: framerize-nexus/dist/*
           if-no-files-found: error

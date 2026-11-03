@@ -28,6 +28,7 @@ function fixture() {
     writeFileSync(path.join(source, 'release.json'), JSON.stringify({ version: '0.1.9', commit,
       node: 'v22.12.0', artifacts: Object.fromEntries([executable, archive].map((name) =>
         [name, digest(readFileSync(path.join(source, name)))])),
+      packageArtifact: { name: 'framerize-nexus-0.1.9.tgz', sha256: digest('package') },
       licenses: Object.fromEntries(['LICENSE', 'NODE-LICENSE'].map((name) =>
         [name, digest(readFileSync(path.join(source, name)))])),
     }));

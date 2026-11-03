@@ -94,16 +94,12 @@ executable archive, checksums, Node license, and source metadata. The release
 build passed. Its npm step failed with `ENEEDAUTH` after the GitHub release
 was published.
 
-## Active handoff
+## Historical Framer Next handoff
 
 Owner: Framer Next maintainers. Required input: authenticated npm package-owner
 credentials. Last verified evidence: November 3, 2026, `ENEEDAUTH` after a
-private credential request timed out. Next authorized action: publish the
-verified release tarball, test its registry installation, then configure
-trusted publishing. Goal blocking is disabled by user policy. No further local
-verification or authentication polling is needed before credentials arrive.
-After authentication, run `npm run publish:package`. It rechecks authentication,
-rejects an existing version, verifies the packed artifact, publishes the
-package, and chooses its dist-tag.
+private credential request timed out. This handoff does not authorize Nexus
+publication. Nexus requires explicit owner approval of the version, source
+SHA, and artifact hashes.
 The owner-authenticated GitHub token has administration access. GitHub rejects
 required reviewers under the private repository's current billing plan.
