@@ -17,5 +17,7 @@ test('release verifies the packaged artifacts before upload', () => {
   assert.ok(validate > 0);
   assert.ok(upload > validate);
   assert.match(workflow, /test -f dist\/framer-next-linux-x64\.tar\.gz/);
-  assert.doesNotMatch(workflow, /dist\/dist\//);
+  assert.doesNotMatch(workflow, /test -f dist\/dist\//);
+  assert.match(workflow, /path: \|\n\s+dist\/\n/);
+  assert.match(workflow, /cd dist\/dist && sha256sum -c SHA256SUMS/);
 });
