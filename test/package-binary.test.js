@@ -9,10 +9,11 @@ import { fileURLToPath } from 'node:url';
 test('binary packaging preserves existing checksums and adds the archive', () => {
   const directory = mkdtempSync(path.join(tmpdir(), 'framer-next-package-'));
   mkdirSync(path.join(directory, 'dist'));
-  writeFileSync(path.join(directory, 'dist/framer-next'), 'fixture');
+  const executable = process.platform === 'win32' ? 'framer-next.exe' : 'framer-next';
+  writeFileSync(path.join(directory, 'dist', executable), 'fixture');
   writeFileSync(path.join(directory, 'dist/SHA256SUMS'), `${'0'.repeat(64)}  package.tgz\n`);
   const result = spawnSync(process.execPath, [
-    new URL('../scripts/package-binary.js', import.meta.url).pathname], {
+    fileURLToPath(new URL('../scripts/package-binary.js', import.meta.url))], {
     cwd: directory, encoding: 'utf8',
   });
   assert.equal(result.status, 0, result.stderr);
@@ -35,7 +36,8 @@ test('binary packaging preserves existing checksums and adds the archive', () =>
 test('binary packaging creates checksums in a clean checkout', () => {
   const directory = mkdtempSync(path.join(tmpdir(), 'framer-next-package-clean-'));
   mkdirSync(path.join(directory, 'dist'));
-  writeFileSync(path.join(directory, 'dist/framer-next'), 'fixture');
+  const executable = process.platform === 'win32' ? 'framer-next.exe' : 'framer-next';
+  writeFileSync(path.join(directory, 'dist', executable), 'fixture');
   const result = spawnSync(process.execPath, [
     fileURLToPath(new URL('../scripts/package-binary.js', import.meta.url))], {
     cwd: directory, encoding: 'utf8',

@@ -7,6 +7,12 @@ import { loadAccounts, readCredential } from '../src/config.js';
 import net from 'node:net';
 import { mintCredential } from '../src/credentials.js';
 
+function socketAddress(directory) {
+  return process.platform === 'win32'
+    ? `\\\\.\\pipe\\framer-next-${path.basename(directory)}`
+    : path.join(directory, 'mint.sock');
+}
+
 test('private credential files are read without JSON secrets', async () => {
   const directory = await mkdtemp(path.join(tmpdir(), 'framer-next-credentials-'));
   const credential = path.join(directory, 'session.private');
@@ -34,7 +40,7 @@ test('invalid credential references fail safely', async () => {
 
 test('credential service returns a fresh token without logging it', async (t) => {
   const directory = await mkdtemp(path.join(tmpdir(), 'framer-next-socket-'));
-  const socketPath = path.join(directory, 'mint.sock');
+  const socketPath = socketAddress(directory);
   const server = net.createServer((socket) => {
     socket.once('data', () => socket.end(`${JSON.stringify({ ok: true, token: 'fresh-fixture' })}\n`));
   });
@@ -45,7 +51,7 @@ test('credential service returns a fresh token without logging it', async (t) =>
 
 test('credential service response can arrive after the request', async (t) => {
   const directory = await mkdtemp(path.join(tmpdir(), 'framer-next-socket-'));
-  const socketPath = path.join(directory, 'mint.sock');
+  const socketPath = socketAddress(directory);
   const server = net.createServer((socket) => {
     socket.once('data', () => setTimeout(() => {
       socket.write(`${JSON.stringify({ ok: true, token: 'delayed-fixture' })}\n`);
@@ -58,7 +64,7 @@ test('credential service response can arrive after the request', async (t) => {
 
 test('credential service EOF fails without waiting for timeout', async (t) => {
   const directory = await mkdtemp(path.join(tmpdir(), 'framer-next-socket-'));
-  const socketPath = path.join(directory, 'mint.sock');
+  const socketPath = socketAddress(directory);
   const sockets = new Set();
   const server = net.createServer((socket) => {
     sockets.add(socket);
@@ -75,7 +81,7 @@ test('credential service EOF fails without waiting for timeout', async (t) => {
 
 test('credential service rejects oversized responses', async (t) => {
   const directory = await mkdtemp(path.join(tmpdir(), 'framer-next-socket-'));
-  const socketPath = path.join(directory, 'mint.sock');
+  const socketPath = socketAddress(directory);
   const sockets = new Set();
   const server = net.createServer((socket) => {
     sockets.add(socket);
@@ -92,7 +98,7 @@ test('credential service rejects oversized responses', async (t) => {
 
 test('credential service rejects unsuccessful responses', async (t) => {
   const directory = await mkdtemp(path.join(tmpdir(), 'framer-next-socket-'));
-  const socketPath = path.join(directory, 'mint.sock');
+  const socketPath = socketAddress(directory);
   const sockets = new Set();
   const server = net.createServer((socket) => {
     sockets.add(socket);

@@ -50,7 +50,7 @@ test('CLI help exits successfully', () => {
   assert.match(result.stdout, /Usage:/);
 });
 
-test('CLI serve shuts down once on SIGTERM', async () => {
+test('CLI serve shuts down once on SIGTERM', { skip: process.platform === 'win32' }, async () => {
   const child = spawn(process.execPath, ['bin/framer-next.js', 'serve', '--port', '0'], {
     stdio: ['ignore', 'pipe', 'pipe'],
   });
@@ -73,7 +73,7 @@ test('CLI serve shuts down once on SIGTERM', async () => {
   } finally { child.kill('SIGKILL'); }
 });
 
-test('CLI shares shutdown across SIGINT and SIGTERM', async () => {
+test('CLI shares shutdown across SIGINT and SIGTERM', { skip: process.platform === 'win32' }, async () => {
   const child = spawn(process.execPath, ['bin/framer-next.js', 'serve', '--port', '0'], {
     stdio: ['ignore', 'pipe', 'pipe'],
   });
