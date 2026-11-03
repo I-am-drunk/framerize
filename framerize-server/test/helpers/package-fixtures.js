@@ -23,7 +23,7 @@ const smoke = fileURLToPath(new URL('../../scripts/package-smoke.js', import.met
 const run = (command, args, options = {}) => execFileSync(command, args, { encoding: 'utf8', ...options });
 const temp = (prefix) => mkdtempSync(path.join(tmpdir(), prefix));
 
-export function packageFixture(t) {
+export function packageFixture(t, { environmentAware = false } = {}) {
   const root = temp('framerize-package-fixture-');
   t.after(() => rmSync(root, { recursive: true, force: true }));
   const repository = path.join(root, 'checkout');
@@ -38,10 +38,20 @@ export function packageFixture(t) {
   }));
   writeFileSync(path.join(directory, 'LICENSE'), 'Fixture license\n');
   writeFileSync(path.join(directory, 'README.md'), '# Fixture package\n');
-  writeFileSync(path.join(directory, 'src', 'config.js'), 'export const loadConfig = (values) => values;\n');
+  writeFileSync(path.join(directory, 'src', 'config.js'), environmentAware ? `
+export const loadConfig = (values, env = process.env) => {
+  const selected = (key, name, fallback) => Object.hasOwn(values, key) ? values[key] : env[name] ?? fallback;
+  return { ...values,
+    host: selected('host', 'FRAMERIZE_SERVER_HOST', '127.0.0.1'),
+    port: Number(selected('port', 'FRAMERIZE_SERVER_PORT', 8789)),
+    upstream: selected('upstream', 'FRAMERIZE_SERVER_UPSTREAM', ''),
+  };
+};
+` : 'export const loadConfig = (values) => values;\n');
   writeFileSync(path.join(directory, 'src', 'server.js'), `
 import http from 'node:http';
-export async function createServer() {
+export async function createServer(config) {
+  ${environmentAware ? "if (config.host !== '127.0.0.1' || config.port !== 0 || config.upstream !== '') throw new Error('Unsafe fixture configuration before listen');" : ''}
   const server = http.createServer((request, response) => {
     response.setHeader('content-type', 'application/json');
     if (request.url === '/health') return response.end('{}');
@@ -71,10 +81,10 @@ export async function createServer() {
   return { root, repository, directory, git, commit };
 }
 
-export function runPackageSmoke(directory, downloaded = false) {
+export function runPackageSmoke(directory, downloaded = false, env = {}) {
   return spawnSync(process.execPath, [path.join(directory, 'scripts', 'package-smoke.js'), ...(downloaded ? ['--downloaded'] : [])], {
     cwd: directory, encoding: 'utf8', timeout: 30_000,
-    env: { ...process.env, npm_execpath: npm },
+    env: { ...process.env, ...env, npm_execpath: npm },
   });
 }
 

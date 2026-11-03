@@ -82,7 +82,7 @@ export async function collect(iterable) {
 export async function startFixture(t, values = {}, Provider = FixtureProvider) {
   const provider = new Provider();
   const app = await createServer(loadConfig({
-    host: '127.0.0.1', port: 0, serverToken: TOKEN,
+    host: '127.0.0.1', port: 0, upstream: '', serverToken: TOKEN,
     idleTimeoutMs: 500, headersTimeoutMs: 1_000,
     requestHeadersTimeoutMs: 1_000, shutdownTimeoutMs: 1_000,
     ...values,
