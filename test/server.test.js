@@ -61,7 +61,7 @@ test('account base paths join without duplicate slashes', async (t) => {
 test('streamed response failures close the downstream connection', async (t) => {
   const base = await fixture(t, async () => new Response(
     'data: {"type":"response.failed","response":{"error":{"message":"rejected"}}}\n\n',
-    { headers: { 'content-type': 'text/event-stream' } },
+    { headers: { 'content-type': 'application/json' } },
   ));
   const socket = net.connect(Number(new URL(base).port), '127.0.0.1');
   let received = '';
@@ -71,6 +71,17 @@ test('streamed response failures close the downstream connection', async (t) => 
   socket.end('POST /v1/responses HTTP/1.1\r\nHost: local\r\nContent-Length: 2\r\nConnection: close\r\n\r\n{}');
   await closed;
   assert.doesNotMatch(received, /\r\n0\r\n\r\n$/);
+});
+
+test('fragmented failure events abort without corrupting earlier chunks', async (t) => {
+  const events = ['data: {"type":"response.output_text.delta","delta":"ok"}\n\n',
+    'data: {"type":"response.failed","response":{}}\n\n'].join('');
+  const chunks = Array.from(events, (character) => Buffer.from(character));
+  const base = await fixture(t, async () => new Response(ReadableStream.from(chunks), {
+    headers: { 'content-type': 'application/json' },
+  }));
+  await assert.rejects(fetch(`${base}/v1/responses`, { method: 'POST', body: '{}' })
+    .then((response) => response.text()), /terminated|other side closed|fetch failed/);
 });
 
 test('long streams preserve every chunk', async (t) => {
