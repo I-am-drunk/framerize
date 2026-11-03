@@ -101,7 +101,8 @@ impl CleanupEvidence {
     }
 }
 
-async fn confirm_resident_status(browser: &dyn BrowserBridge, lease: ResidentLease)
+async fn confirm_resident_status(browser: &dyn BrowserBridge, lease: ResidentLease,
+    require_resident: Option<&str>)
     -> CleanupOutcome<ResidentLease> {
     use framer_core::browser_lifecycle::BrowserAccountState as State;
     let mut cleanup_confirmed = true;
@@ -128,6 +129,10 @@ async fn confirm_resident_status(browser: &dyn BrowserBridge, lease: ResidentLea
             // leaving request work unfinished. The resident fence owns the
             // unavailable account; a failed transport still remains unknown.
             cleanup_confirmed = status.account_id == lease.account() && identity_valid;
+            if cleanup_confirmed && require_resident.is_some()
+                && matches!(status.state, State::Absent | State::Starting) {
+                return Err(ApiError::ServingCapacity(require_resident.unwrap().to_owned()));
+            }
             failure = if status.account_id != lease.account() {
                 "browser status belongs to a different account".into()
             } else if !identity_valid {
@@ -295,6 +300,15 @@ pub(super) async fn select_account_observed(
     s: &AppState, accounts: Vec<framer_core::account::ManagedAccount>,
     requested: Option<&str>, excluded: &[String],
 ) -> AcquisitionOutcome<ResidentLease> {
+    let memory = if requested.is_none() {
+        let observed = super::pool_memory::observe(s, &accounts, excluded).await;
+        match observed.result {
+            Ok(memory) => memory,
+            Err(error) => return AcquisitionOutcome {
+                result: Err(error), cleanup_confirmed: observed.cleanup_confirmed,
+            },
+        }
+    } else { None };
     let preferred = match s.serving_accounts.preferred_idle(&accounts) {
         Ok(preferred) => preferred,
         Err(error) => return AcquisitionOutcome {
@@ -302,13 +316,15 @@ pub(super) async fn select_account_observed(
         },
     };
     s.serving_accounts.acquire_selected_observed(s.browser.as_ref(), || {
-        let selected = if requested.is_some() || excluded.is_empty() {
+        let selected = if let Some(memory) = &memory {
+            s.serving_accounts.select_loaded(accounts.clone(), excluded, &memory.loaded)
+        } else if requested.is_some() || excluded.is_empty() {
             s.serving_accounts.select(accounts.clone(), requested)
         } else {
             s.serving_accounts.select_fresh(accounts.clone(), excluded)
         };
         selected.map(|account| account.id)
-    }, preferred, Some(s.state.as_ref())).await
+    }, preferred, Some(s.state.as_ref()), memory.as_ref().map(|gate| gate.cause.as_str())).await
 }
 
 pub(super) async fn lease_account(s: &AppState, id: AccountId) -> Result<ResidentLease, ApiError> {
@@ -607,13 +623,14 @@ impl ServingAccountPolicy {
 
     async fn acquire_observed(&self, browser: &dyn BrowserBridge, id: AccountId,
         preferred_idle: Option<AccountId>, existing: Option<&dyn framer_core::StateStore>) -> AcquisitionOutcome<ResidentLease> {
-        self.acquire_selected_observed(browser, || Ok(id), preferred_idle, existing).await
+        self.acquire_selected_observed(browser, || Ok(id), preferred_idle, existing, None).await
     }
 
     pub(super) async fn acquire_selected_observed(
         &self, browser: &dyn BrowserBridge,
         mut choose: impl FnMut() -> Result<AccountId, ApiError> + Send,
         preferred_idle: Option<AccountId>, existing: Option<&dyn framer_core::StateStore>,
+        require_resident: Option<&str>,
     ) -> AcquisitionOutcome<ResidentLease> {
         // This survives timeout cancellation. Before reservation there is no
         // new cleanup to prove; a live ticket or observation changes that.
@@ -646,7 +663,7 @@ impl ServingAccountPolicy {
                     Ok(Acquire::Lease(lease)) => {
                         cleanup_confirmed = false;
                         drop(operation);
-                        let result = confirm_resident_status(browser, lease).await;
+                        let result = confirm_resident_status(browser, lease, require_resident).await;
                         cleanup_confirmed = result.cleanup_confirmed;
                         return result.result;
                     },
@@ -686,7 +703,7 @@ impl ServingAccountPolicy {
                             return Err(busy(cause));
                         }
                         let lease = ticket.confirm_close().map_err(busy)?;
-                        let result = confirm_resident_status(browser, lease).await;
+                        let result = confirm_resident_status(browser, lease, require_resident).await;
                         cleanup_confirmed = result.cleanup_confirmed;
                         return result.result;
                     }

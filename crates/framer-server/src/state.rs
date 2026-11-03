@@ -26,6 +26,7 @@ impl std::ops::Deref for AppState {
 /// Public port handles preserve legacy application wiring. AppState exposes
 /// only shared access; configuring owners after sharing is rejected.
 pub struct AccountRuntime {
+    pub(crate) memory_admission: Arc<crate::memory_admission::Admission>,
     /// Only explicitly selected paid routes may use this permission.
     pub(crate) metered_access: bool,
     pub(crate) response_output: Arc<crate::response_output::OutputBudget>,
@@ -69,6 +70,7 @@ impl AccountRuntime {
         serving_accounts: ServingAccountPolicy,
     ) -> Self {
         Self {
+            memory_admission: Arc::new(crate::memory_admission::Admission::default()),
             metered_access: false,
             response_output: Arc::new(crate::response_output::OutputBudget::new(
                 crate::response_output::DEFAULT_UNOWNED_OUTPUT_LIMIT)),
@@ -89,6 +91,7 @@ impl AppState {
         serving_accounts: ServingAccountPolicy, gate: framer_core::gate::ConcurrencyGate,
     ) -> Self {
         Self::new(Arc::new(AccountRuntime {
+            memory_admission: Arc::new(crate::memory_admission::Admission::fixed(None)),
             // Existing inert fixtures exercise both explicitly selected routes.
             metered_access: true,
             response_output: Arc::new(crate::response_output::OutputBudget::new(

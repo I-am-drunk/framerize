@@ -36,6 +36,8 @@ mod repick_cleanup;
 mod legacy_request_completion;
 #[path = "legacy_pool_completion_tests.rs"]
 mod legacy_pool_completion;
+#[path = "pool_memory_tests.rs"]
+mod memory_admission;
 
 // The existing endpoint fixture is private and intentionally denies valid I/O.
 // Match its boxed-future convention without adding an async-trait dependency.

@@ -36,6 +36,8 @@ async fn pressure_refuses_new_request_while_existing_stream_completes() {
     let mut stream = accepted.into_body().into_data_stream();
     tx.send(Ok("first".into())).await.unwrap();
     assert_eq!(stream.next().await.unwrap().unwrap(), "first");
+    free.store((BROWSER_STARTUP_RESERVE + REQUEST_RESERVE - 1) as i64, Ordering::SeqCst);
+    assert!(gate.browser_deferral().unwrap().contains("reserved 64.00 MiB"));
     free.store(-1, Ordering::SeqCst);
     let refused = app.oneshot(request()).await.unwrap();
     assert_eq!(refused.status(), StatusCode::SERVICE_UNAVAILABLE);
@@ -53,6 +55,8 @@ async fn pressure_refuses_new_request_while_existing_stream_completes() {
     assert!(stream.next().await.is_none());
     drop(stream);
     assert_eq!(gate.reserved.load(Ordering::SeqCst), 0);
+    free.store(BROWSER_STARTUP_RESERVE as i64, Ordering::SeqCst);
+    assert!(gate.browser_deferral().is_none());
 }
 
 #[test]

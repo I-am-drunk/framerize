@@ -1,3 +1,14 @@
+# Memory-aware selection candidate, 2026-11-03
+
+Alpha.18 remains live. New Claude failures at 03:02:12 and 03:02:18 UTC
+were local RAM admission deferrals, before upstream inference.
+The alpha.19 candidate checks actual browser residency when allocation
+headroom is too small for another browser. It selects from eligible loaded
+accounts, shares the request reservation count, and rechecks residency before
+admission. Cold accounts retain their selection history for later recovery.
+Explicit accounts, cooldowns and uncertain cleanup keep their existing rules.
+Next: run the focused regressions and build the candidate on the iMac.
+
 # Alpha.18 live, 2026-11-03
 
 Source `d857d6ee` is running as PID 507283 since 02:56:53 UTC.

@@ -4,6 +4,7 @@ use axum::{body::Body, extract::{Request, State}, middleware::Next,
 use std::{path::Path, sync::{Arc, atomic::{AtomicU64, Ordering}}};
 
 const REQUEST_RESERVE: u64 = 64 * 1024 * 1024;
+const BROWSER_STARTUP_RESERVE: u64 = 1024 * 1024 * 1024;
 type Sample = Arc<dyn Fn() -> Option<MemorySample> + Send + Sync>;
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -28,6 +29,26 @@ impl MemorySample {
 pub(crate) struct Admission {
     reserved: AtomicU64,
     sample: Sample,
+}
+
+impl Admission {
+    pub(crate) fn browser_deferral(&self) -> Option<String> {
+        let reserved = self.reserved.load(Ordering::SeqCst);
+        let sample = (self.sample)()?;
+        if sample.headroom >= i128::from(reserved) + i128::from(BROWSER_STARTUP_RESERVE) {
+            return None;
+        }
+        Some(format!("Low available RAM: no resident browser was available for this request, and a new browser needs 1024.00 MiB. {}: {:.2} of {:.2} GiB; admission headroom {:.2} MiB, reserved {:.2} MiB. Retry shortly.",
+            sample.scope, sample.used as f64 / 1024_f64.powi(3),
+            sample.total as f64 / 1024_f64.powi(3),
+            sample.headroom as f64 / 1024_f64.powi(2), reserved as f64 / 1024_f64.powi(2)))
+    }
+
+    #[cfg(test)]
+    pub(crate) fn fixed(headroom: Option<i128>) -> Self {
+        Self { reserved: AtomicU64::new(0), sample: Arc::new(move || headroom.map(|headroom|
+            MemorySample { headroom, scope: "fixture RAM", used: 0, total: 1024 * 1024 * 1024 })) }
+    }
 }
 
 impl Default for Admission {

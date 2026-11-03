@@ -36,6 +36,7 @@ mod request_token_budget;
 mod responses_default_budget_tests;
 mod request_body_object;
 mod memory_admission;
+mod pool_memory;
 mod model_discovery;
 mod responses_aggregate;
 mod response_output;
@@ -383,7 +384,7 @@ pub fn router_with_request_layer(state: AppState, web_dir: &str,
         .nest("/paid", paid)
         .fallback_service(files);
     layer(router.layer(axum::middleware::from_fn_with_state(
-        Arc::new(memory_admission::Admission::default()), memory_admission::middleware)))
+        state.memory_admission.clone(), memory_admission::middleware)))
         .layer(axum::middleware::from_fn_with_state(
             state.operation_ownership.clone(), operation_ownership::middleware))
         // The outer access logger observes ownership refusals as well.
@@ -964,14 +965,21 @@ async fn pick_fresh_account(
         loop {
             // Each original candidate is admitted at most once. A refused
             // local admission has made no inference attempt on that account.
+            let observation = pool_memory::observe(s, &pool, &skipped).await;
+            cleanup_confirmed &= observation.cleanup_confirmed;
+            let memory = observation.result?;
             let preferred = s.serving_accounts.preferred_idle(&pool)?;
             let mut selected_id = None;
             let acquired = s.serving_accounts.acquire_selected_observed(
                 s.browser.as_ref(), || {
-                    let account = s.serving_accounts.select_fresh(pool.clone(), &skipped)?;
+                    let account = if let Some(memory) = &memory {
+                        s.serving_accounts.select_loaded(pool.clone(), &skipped, &memory.loaded)?
+                    } else {
+                        s.serving_accounts.select_fresh(pool.clone(), &skipped)?
+                    };
                     selected_id = Some(account.id);
                     Ok(account.id)
-                }, preferred, Some(s.state.as_ref()),
+                }, preferred, Some(s.state.as_ref()), memory.as_ref().map(|gate| gate.cause.as_str()),
             ).await;
             if let Some(id) = selected_id { skipped.push(id.0.to_string()); }
             cleanup_confirmed &= acquired.cleanup_confirmed;

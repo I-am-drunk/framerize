@@ -255,6 +255,17 @@ impl ServingAccountPolicy {
     }
 
     fn pick_ready(&self, pool: &[ManagedAccount], now: u64) -> Result<ManagedAccount, ApiError> {
+        self.pick_ready_filtered(pool, now, None)
+    }
+
+    pub(super) fn select_loaded(&self, mut pool: Vec<ManagedAccount>,
+        excluded: &[String], loaded: &HashSet<AccountId>) -> Result<ManagedAccount, ApiError> {
+        pool.retain(|a| self.allows(&a.id) && !excluded.contains(&a.id.0.to_string()));
+        self.pick_ready_filtered(&pool, framer_core::rotation::now_ms(), Some(loaded))
+    }
+
+    fn pick_ready_filtered(&self, pool: &[ManagedAccount], now: u64,
+        loaded: Option<&HashSet<AccountId>>) -> Result<ManagedAccount, ApiError> {
         let snapshot = self.residents.snapshot().map_err(|e| ApiError::PoolBusy(e.to_string()))?;
         let mutations = self.mutations.lock()
             .map_err(|_| ApiError::PoolBusy("account management is unavailable".into()))?.clone();
@@ -270,6 +281,8 @@ impl ServingAccountPolicy {
         let preparing = !history.preparing.is_empty();
         let max_skips = (pool.len().max(1) as u64).saturating_mul(WARM_REUSE_PASSES);
         let candidates: Vec<_> = pool.iter().filter(|account| !mutations.contains(&account.id)
+            && loaded.is_none_or(|ids| ids.contains(&account.id)
+                && snapshot.residents.iter().any(|slot| slot.account == account.id))
             && Self::residency_allows(&snapshot, &account.id, &mutations))
             .cloned().collect();
         if candidates.is_empty() && !pool.is_empty() {
