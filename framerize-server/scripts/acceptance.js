@@ -13,6 +13,7 @@ const files = [
   'test/shutdown.test.js',
   'test/release-metadata.test.js',
   'test/package-smoke.test.js',
+  'test/check.test.js',
 ];
 const child = spawn(process.execPath, ['--test', '--test-reporter=spec', ...files], {
   cwd: root,
