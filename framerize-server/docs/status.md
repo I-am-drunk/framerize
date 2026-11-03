@@ -28,13 +28,13 @@ durable coverage for the reviewed transport and lifecycle fixes, metadata
 rejection and freezing, silent and cyclic logging, missing-token denial,
 Connection header filtering, and upstream-error redaction.
 
-[Server CI run 41652774786](https://github.com/I-am-drunk/framerize/actions/runs/41652774786)
-passed all six jobs at `665ee658947696a4f772daac1f35942fb9105a8b`: Linux x64,
-Windows x64, and macOS arm64, each on Node 22.12.0 and 24. Every job passed
-architecture verification, `npm ci`, syntax checks, tests, acceptance, and the
-installed-package smoke check. Runtime and package files are unchanged since
-that head. The later regression and documentation commits need their own
-current PR check results before merging.
+PR #89 merged into `framer-next` as
+`266a055e43b81b7e8caad68439509fb95d39fc99`. Its server files and dedicated CI
+workflow match the tested PR head `6bebaa26931edaf957bff069f79a14c0edf2c1ab`.
+[Post-merge server CI run 41653732588](https://github.com/I-am-drunk/framerize/actions/runs/41653732588)
+passed all six jobs at that merge commit: Linux x64, Windows x64, and macOS arm64,
+each on Node 22.12.0 and 24. Every job passed architecture verification,
+`npm ci`, syntax checks, tests, acceptance, and the installed-package smoke check.
 
 ## Ownership and handoff
 
@@ -67,9 +67,9 @@ The provider owner supplied `src/provider.js`, `src/errors.js`, and
 `test/integration.test.js`, and `test/helpers/fixtures.js`, all beneath
 `framerize-server/`.
 
-PR #89 carries the core and acceptance fixtures. PR #88 carries the provider.
-The integration owner reviews and merges these changes and retains control over
-later activation and release. Dedicated CI runs fixtures and packed-install checks
+PR #89 merged the core and acceptance fixtures. PR #88 merged the provider.
+The integration owner retains control over later activation and release.
+Dedicated CI runs fixtures and packed-install checks
 on Linux x64, Windows x64, and macOS arm64 using Node 22.12.0 and 24. Native binary
 qualification belongs to the server release stage, independently of Nexus binaries.
 No live inference, deployment, or release publication has been performed.
@@ -81,6 +81,6 @@ header stalls. The real-provider integration fixture preserves queued bytes
 after a 100 ms event-loop stall with a 40 ms idle timeout, without increasing
 the timeout or adding a total-duration deadline.
 
-Next action: the integration owner reviews PR #89's final diff and current CI
-results, then merges through the reviewed PR. Native server binaries and live
-activation remain outside this source and npm-package qualification.
+Next action: review the provider's reentrant-close follow-up and support the
+separate Nexus package qualification. Native server binaries and live activation
+remain outside this source and npm-package qualification.
