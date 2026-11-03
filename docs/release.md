@@ -21,5 +21,19 @@ The npm package name was available when checked, but availability does not
 establish ownership. First publication requires the package owner to configure
 trusted publishing for this repository, workflow, and environment.
 
+For owner-assisted first publication, authenticate npm locally and run `npm run
+publish:package` from the checkout after downloading reviewed artifacts into
+`dist/`. The command
+rejects existing versions and registry errors, verifies `SHA256SUMS`, then
+publishes the reviewed tarball with the appropriate dist-tag.
+It also requires `release.json` to match the checkout source commit.
+The checkout must be clean, with exactly one tarball in `dist/`.
+It checks the tarball package metadata and release digest before contacting
+the registry.
+It does not print credentials or store them in this repository.
+This local path cannot provide GitHub Actions provenance. Configure trusted
+publishing immediately after first publication, then use the release workflow
+for all later versions.
+
 Each executable archive must include the Node.js license notices and a
 SHA-256 checksum. Production activation is separate from artifact publication.
