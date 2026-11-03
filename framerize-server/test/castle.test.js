@@ -11,12 +11,6 @@ function makeDir(t, prefix) {
   return directory;
 }
 
-function writeEncoder(t, body) {
-  const directory = makeDir(t, 'castle-encoder-');
-  const script = path.join(directory, 'encode-token.mjs');
-  fs.writeFileSync(script, body, { mode: 0o755 });
-  return script;
-}
 
 function emptyTrace(t) {
   const directory = makeDir(t, 'castle-trace-');
@@ -25,23 +19,36 @@ function emptyTrace(t) {
   return file;
 }
 
-const ECHO_ENCODER = `#!${process.execPath}
-let data = '';
+const ECHO_NODE = `let data = '';
 process.stdin.on('data', (chunk) => { data += chunk; });
 process.stdin.on('end', () => {
   process.stdout.write(Buffer.from(data, 'utf8').toString('base64'));
 });
 `;
 
-const SLOW_ENCODER = `#!${process.execPath}
-setTimeout(() => {}, 30000);`;
+const SLOW_NODE = `setTimeout(() => {}, 30000);`;
+
+function writeEncoderScript(t, nodeBody) {
+  if (process.platform === 'win32') {
+    const directory = makeDir(t, 'castle-encoder-');
+    const nodeScript = path.join(directory, 'encoder-node.mjs');
+    fs.writeFileSync(nodeScript, nodeBody);
+    const bat = path.join(directory, 'encode-token.bat');
+    fs.writeFileSync(bat, `@echo off\r\n"${process.execPath}" "${nodeScript}" %*\r\n`);
+    return bat;
+  }
+  const directory = makeDir(t, 'castle-encoder-');
+  const script = path.join(directory, 'encode-token.mjs');
+  fs.writeFileSync(script, '#!' + process.execPath + '\n' + nodeBody, { mode: 0o755 });
+  return script;
+}
 
 test('minter requires an encoder path', () => {
   assert.throws(() => createCastleMinter(), /encoderPath is required/);
 });
 
 test('minter returns a token produced by the encoder', async (t) => {
-  const encoder = writeEncoder(t, ECHO_ENCODER);
+  const encoder = writeEncoderScript(t, ECHO_NODE);
   const minter = createCastleMinter({
     encoderPath: encoder,
     tracePath: emptyTrace(t),
@@ -58,7 +65,7 @@ test('minter returns a token produced by the encoder', async (t) => {
 });
 
 test('minter rejects concurrent mints while busy', async (t) => {
-  const encoder = writeEncoder(t, SLOW_ENCODER);
+  const encoder = writeEncoderScript(t, SLOW_NODE);
   const minter = createCastleMinter({
     encoderPath: encoder,
     tracePath: emptyTrace(t),
@@ -72,7 +79,7 @@ test('minter rejects concurrent mints while busy', async (t) => {
 });
 
 test('encoder subprocess is killed when it exceeds timeoutMs', async (t) => {
-  const encoder = writeEncoder(t, SLOW_ENCODER);
+  const encoder = writeEncoderScript(t, SLOW_NODE);
   const minter = createCastleMinter({
     encoderPath: encoder,
     tracePath: emptyTrace(t),
