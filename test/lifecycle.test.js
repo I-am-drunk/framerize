@@ -15,14 +15,15 @@ async function listen(t, config, fetchImpl) {
   return { app, port: app.server.address().port };
 }
 
-test('idle upstream responses abort and close the downstream stream', async (t) => {
+test('idle upstream responses return a clean 502', async (t) => {
   const { port } = await listen(t, { idleTimeoutMs: 20 }, async () => new Response(
     new ReadableStream({ pull() { return new Promise(() => {}); } }),
   ));
-  const pending = fetch(`http://127.0.0.1:${port}/v1/responses`, { method: 'POST', body: '{}' });
-  const response = await pending.catch((error) => error);
-  if (response instanceof Response) await assert.rejects(response.text());
-  else assert.match(response.message, /fetch failed/);
+  const response = await fetch(`http://127.0.0.1:${port}/v1/responses`, {
+    method: 'POST', body: '{}',
+  });
+  assert.equal(response.status, 502);
+  assert.match(await response.text(), /idle timeout/);
 });
 
 test('fetch failures return one sanitized 502 response', async (t) => {

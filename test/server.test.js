@@ -25,10 +25,15 @@ test('health and unknown routes do not call upstream', async (t) => {
   assert.equal((await fetch(`${base}/health`)).status, 200);
   assert.equal((await fetch(`${base}/missing`)).status, 404);
   assert.equal(calls, 0);
-  const accounts = await fixture(t, () => {}, [{ id: 'one', model: 'gpt-test', authorizationEnv: 'TEST_JWT' }]);
+  const accounts = await fixture(t, () => {}, [
+    { id: 'one', model: 'gpt-test', sessionEnv: 'TEST_SESSION' },
+    { id: 'two', provider: 'framer', projectId: 'project', sessionFile: '/private/session' },
+  ]);
   const response = await fetch(`${accounts}/v1/accounts`);
-  assert.deepEqual(await response.json(), { accounts: [{ id: 'one', model: 'gpt-test',
-    credential: 'environment' }] });
+  assert.deepEqual(await response.json(), { accounts: [
+    { id: 'one', model: 'gpt-test', credential: 'environment' },
+    { id: 'two', credential: 'file' },
+  ] });
 });
 
 test('responses proxy preserves SSE and strips caller credentials', async (t) => {
@@ -115,6 +120,24 @@ test('streamed response failures close the downstream connection', async (t) => 
   socket.end('POST /v1/responses HTTP/1.1\r\nHost: local\r\nContent-Length: 2\r\nConnection: close\r\n\r\n{}');
   await closed;
   assert.doesNotMatch(received, /\r\n0\r\n\r\n$/);
+});
+
+test('malformed Responses JSON returns a clean 502', async (t) => {
+  const base = await fixture(t, async () => new Response('data: {broken\n\n', {
+    headers: { 'content-type': 'application/json' },
+  }));
+  const response = await fetch(`${base}/v1/responses`, { method: 'POST', body: '{}' });
+  assert.equal(response.status, 502);
+  assert.match(await response.text(), /invalid JSON/);
+});
+
+test('invalid Responses events return a clean 502', async (t) => {
+  const base = await fixture(t, async () => new Response('data: null\n\n', {
+    headers: { 'content-type': 'application/json' },
+  }));
+  const response = await fetch(`${base}/v1/responses`, { method: 'POST', body: '{}' });
+  assert.equal(response.status, 502);
+  assert.match(await response.text(), /invalid response event/);
 });
 
 test('fragmented failure events abort without corrupting earlier chunks', async (t) => {
