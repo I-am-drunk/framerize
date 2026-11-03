@@ -27,7 +27,7 @@ publish:package` from the checkout after downloading reviewed artifacts into
 `dist/`. The command
 rejects existing versions and registry errors, verifies `SHA256SUMS`, then
 publishes the reviewed tarball with the appropriate dist-tag.
-It also requires `release.json` to match the checkout source commit.
+It also requires the commit in `release.json` to exist in this repository.
 The checkout must be clean, with exactly one tarball in `dist/`.
 It checks the tarball package metadata and release digest before contacting
 the registry.

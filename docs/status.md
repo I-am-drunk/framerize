@@ -2,12 +2,13 @@
 
 Verified on November 3, 2026:
 
-- 88 unit and integration tests pass on Node.js 24, with 100% line coverage.
-- The latest publication-helper changes are local and uncommitted. Their CI
-  result remains pending until a maintainer commits and pushes them.
+- 91 unit and integration tests pass on Node.js 24, with 100% line coverage.
+- Pull requests 75 through 78 merged after their GitHub test and package jobs
+  passed.
 - The publication helper has 100% line, branch, and function coverage. It
   verifies source, artifact, registry, and authentication preconditions.
-- GitHub CI test and package jobs pass on pull request 54.
+- The official 0.1.7 release tarball and executable archive pass their
+  published checksums and run outside the checkout.
 - The installed npm tarball runs outside the checkout.
 - The isolated executable runs without Node.js on `PATH`.
 - The Framer fixture verifies request envelopes, session identifiers, short
