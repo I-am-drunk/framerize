@@ -249,9 +249,17 @@ The five existing package smoke tests and the real server's packed-install
 check pass on Node 22.23.4. The reviewer reproduced acceptance of all four
 substitutions on the earlier verifier; no current artifact compromise is claimed.
 
+PR #102 restored the server package boundary in integration commit
+`1e13ade1d95a1212f68d72c0a640c31f3214e267`. Core merged that base without
+rewriting existing checkpoints as `1d0aca8d725409debea22a7240b4e5c5af4e4a72`.
+The server's only incoming change is semantically identical manifest formatting.
+Its runtime, scripts, tests, lockfile and workflow retain the reviewed bytes.
+The merged tree passes syntax and offline installed-package checks on
+Node 22.23.4. The separate library remains outside server execution and qualification.
+
 Windows graceful POSIX-signal behavior is not claimed. Live inference,
 private credentials, production activation and release publication remain
 outside this stage.
 
-Next action: resolve the integration package boundary, then qualify the portable
-fixtures and final combined source/native/aggregate tree before integration.
+Next action: integrate the remaining verifier regressions, then qualify the
+final combined source/native/aggregate tree before integration.
