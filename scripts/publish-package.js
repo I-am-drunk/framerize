@@ -6,9 +6,6 @@ const dist = path.resolve('dist');
 const artifacts = readdirSync(dist).filter((name) => /^framer-next-.+\.tgz$/.test(name));
 if (artifacts.length !== 1) throw new Error('dist must contain exactly one Framer Next tarball');
 const version = artifacts[0].slice('framer-next-'.length, -'.tgz'.length);
-if (process.platform === 'win32' && process.env.FRAMER_NEXT_PUBLISH_FIXTURE) {
-  process.env.PATH = `${path.dirname(process.execPath)}${path.delimiter}${process.env.PATH}`;
-}
 const sums = path.join(dist, 'SHA256SUMS');
 const tarball = path.join(dist, artifacts[0]);
 const metadata = JSON.parse(readFileSync(path.join(dist, 'release.json'), 'utf8'));

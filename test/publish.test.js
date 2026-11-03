@@ -15,6 +15,10 @@ function installStub(bin, name, body) {
     writeFileSync(path.join(bin, `${name}.cmd`),
       `@echo off\r\n"${quoted}" "%~dp0${name}.js" %*\r\n`);
     writeFileSync(file, `#!/usr/bin/env node\n${body}`);
+    if (name === 'tar') {
+      writeFileSync(path.join(bin, 'tar.exe'),
+        `@echo off\r\n"${quoted}" "%~dp0tar.js" %*\r\n`);
+    }
   }
 }
 
