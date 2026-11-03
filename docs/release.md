@@ -9,10 +9,13 @@ and isolated executable smoke test before publication.
    to the legacy project and must not publish this package.
 3. Let the release workflow build the package and executable on Node 22.
 4. Verify artifact hashes and the source commit recorded in `release.json`.
-5. Publish through the protected `npm-release` environment.
+5. Publish the GitHub release before attempting npm publication. A registry
+   authentication failure must not suppress the verified executable archives.
 
-The workflow uses npm trusted publishing with OIDC. Do not add npm tokens,
-sessions, or account files to the repository or workflow logs.
+The workflow uses npm trusted publishing with OIDC. The `npm-release`
+environment currently has no protection rules. First publication has not
+completed because npm returns `ENEEDAUTH`. Do not add npm tokens, sessions, or
+account files to the repository or workflow logs.
 
 The npm package name was available when checked, but availability does not
 establish ownership. First publication requires the package owner to configure

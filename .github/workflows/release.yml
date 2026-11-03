@@ -29,6 +29,14 @@ jobs:
       - run: tar -czf dist/framer-next-linux-x64.tar.gz -C dist framer-next NODE-LICENSE
       - run: cd dist && sha256sum framer-next framer-next-*.tgz framer-next-linux-x64.tar.gz > SHA256SUMS
       - run: node scripts/release-metadata.js
+      - name: Locate build artifacts
+        shell: bash
+        run: |
+          test -f dist/dist/framer-next-"${GITHUB_REF_NAME#framer-next-v}".tgz
+          test -f dist/dist/framer-next-linux-x64.tar.gz
+          test -f dist/SHA256SUMS
+          test -f dist/release.json
+          test -f dist/NODE-LICENSE
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
           name: release-${{ github.ref_name }}
@@ -57,12 +65,8 @@ jobs:
           subject-path: |
             dist/dist/framer-next-*.tgz
             dist/dist/framer-next-linux-x64.tar.gz
-      - run: |
-          if [[ "${GITHUB_REF_NAME}" == *-* ]]; then export DIST_TAG=next; else export DIST_TAG=latest; fi
-          npm publish dist/dist/framer-next-*.tgz --ignore-scripts --provenance --access public --tag "$DIST_TAG"
-        env:
-          NODE_AUTH_TOKEN: ''
-      - uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65
+      - name: Publish GitHub release
+        uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65
         with:
           files: |
             dist/framer-next-*.tgz
@@ -70,3 +74,9 @@ jobs:
             dist/SHA256SUMS
             dist/release.json
             dist/NODE-LICENSE
+      - name: Publish npm package
+        run: |
+          if [[ "${GITHUB_REF_NAME}" == *-* ]]; then export DIST_TAG=next; else export DIST_TAG=latest; fi
+          npm publish dist/dist/framer-next-*.tgz --ignore-scripts --provenance --access public --tag "$DIST_TAG"
+        env:
+          NODE_AUTH_TOKEN: ''
