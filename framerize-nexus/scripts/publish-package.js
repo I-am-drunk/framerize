@@ -75,7 +75,7 @@ const checksums = readFileSync(sums, 'utf8').trim().split('\n')
   });
 writeFileSync(path.join(dist, '.publish-SHA256SUMS'), `${checksums.join('\n')}\n`);
 run('sha256sum', ['-c', '.publish-SHA256SUMS'], { cwd: dist });
-const provenance = process.env.GITHUB_ACTIONS === 'true' ? ['--provenance'] : [];
+const provenance = [`--provenance=${process.env.GITHUB_ACTIONS === 'true'}`];
 run('npm', ['publish', tarball, '--ignore-scripts',
   ...provenance, '--access', 'public', '--registry=https://registry.npmjs.org',
   '--tag', version.split('+')[0].includes('-') ? 'next' : 'latest']);

@@ -129,7 +129,7 @@ test('checksum filtering excludes only missing release files', () => {
 
 test('provenance is enabled only in GitHub Actions', () => {
   const local = publish();
-  assert.doesNotMatch(readFileSync(local.calls, 'utf8'), /--provenance/);
+  assert.match(readFileSync(local.calls, 'utf8'), /^publish .*--provenance=false/m);
   const ci = publish(true, false, '0.1.7', '', true);
   assert.match(readFileSync(ci.calls, 'utf8'), /^publish .*--provenance/m);
 });
