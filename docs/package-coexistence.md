@@ -22,8 +22,9 @@ and `tar` on PATH. No root package.json or npm workspace is needed.
    npm's removal of one CR before the first newline of a launcher CRLF shebang.
    All other source bytes, including body line endings, must remain unchanged.
 4. Verify distinct executable targets, direct CLI help, offline `npm exec` help,
-   both CLI `check` commands, and all current public package exports. No provider
-   function is invoked. The default ports remain 8788 and 8789.
+   both CLI `check` commands, and all current public package exports. The export
+   probe only imports providers. CLI checks initialize and close configuration
+   without making inference requests. The default ports remain 8788 and 8789.
 5. Report package name, version, input filename and SHA-256, file count, Node/npm
    versions, and host platform. Delete the temporary install after either result.
 
