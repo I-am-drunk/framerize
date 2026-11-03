@@ -35,6 +35,8 @@ It does not print credentials or store them in this repository.
 This local path cannot provide GitHub Actions provenance. Configure trusted
 publishing immediately after first publication, then use the release workflow
 for all later versions.
+The local helper omits provenance even in GitHub Actions. The release workflow
+continues to publish directly with OIDC provenance.
 
 Each executable archive must include the Node.js license notices and a
 SHA-256 checksum. Production activation is separate from artifact publication.
