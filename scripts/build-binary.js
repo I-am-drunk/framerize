@@ -29,8 +29,16 @@ execFileSync(process.execPath, ['--experimental-sea-config', 'dist/sea-config.js
 const staged = 'dist/framer-next.tmp';
 copyFileSync(process.execPath, staged);
 chmodSync(staged, 0o755);
+if (process.platform === 'darwin') {
+  execFileSync('codesign', ['--remove-signature', staged], { stdio: 'inherit' });
+}
 await postject.inject(staged, 'NODE_SEA_BLOB', readFileSync('dist/sea-prep.blob'), {
   sentinelFuse: 'NODE_SEA_FUSE_fce680ab2cc467b6e072b8b5df1996b2',
+  machoSegmentName: process.platform === 'darwin' ? 'NODE_SEA' : undefined,
 });
-renameSync(staged, 'dist/framer-next');
-console.log('Built dist/framer-next');
+if (process.platform === 'darwin') {
+  execFileSync('codesign', ['--sign', '-', staged], { stdio: 'inherit' });
+}
+const executable = `dist/framer-next${process.platform === 'win32' ? '.exe' : ''}`;
+renameSync(staged, executable);
+console.log(`Built ${executable}`);

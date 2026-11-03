@@ -7,7 +7,8 @@ and isolated executable smoke test before publication.
 1. Update the package version and commit that change.
 2. Create a tag matching `framer-next-v<version>`. The `v*` namespace belongs
    to the legacy project and must not publish this package.
-3. Let the release workflow build the package and executable on Node 22.
+3. Let the release workflow build and smoke-test native Linux x64, macOS arm64,
+   and Windows x64 executables on Node 22. macOS executables are ad-hoc signed.
 4. Verify artifact hashes and the source commit recorded in `release.json`.
 5. Publish the GitHub release before attempting npm publication. A registry
    authentication failure must not suppress the verified executable archives.
