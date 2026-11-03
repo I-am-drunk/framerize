@@ -86,6 +86,28 @@ test('oversized request returns 413 without upstream call', async (t) => {
   assert.equal(calls, 0);
 });
 
+test('body at the configured limit is accepted', async (t) => {
+  const directory = await mkdtemp(path.join(tmpdir(), 'framer-next-'));
+  const app = await createServer(parseConfig({ port: 0, upstream: 'http://upstream.test', maxBodyBytes: 2 }), {
+    fetchImpl: async () => new Response('ok'),
+  });
+  t.after(() => app.close());
+  await app.listen();
+  const base = `http://127.0.0.1:${app.server.address().port}`;
+  assert.equal((await fetch(`${base}/v1/responses`, { method: 'POST', body: '{}' })).status, 200);
+  assert.equal((await fetch(`${base}/v1/responses`, { method: 'POST', body: 'xxx' })).status, 413);
+});
+
+test('unknown account returns 404 without upstream call', async (t) => {
+  let calls = 0;
+  const base = await fixture(t, () => { calls += 1; }, [{ id: 'known' }]);
+  const response = await fetch(`${base}/v1/responses`, {
+    method: 'POST', headers: { 'x-framer-account': 'unknown' }, body: '{}',
+  });
+  assert.equal(response.status, 404);
+  assert.equal(calls, 0);
+});
+
 test('close before listen and repeated close are safe', async () => {
   const app = await createServer(parseConfig({ port: 0 }));
   await app.close();
