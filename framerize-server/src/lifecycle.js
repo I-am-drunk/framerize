@@ -27,9 +27,9 @@ export function lifecycle(server, config, provider, active) {
   function close() {
     if (closed) return closed;
     closing = true;
-    for (const controller of active) controller.abort(appError(503, 'server_closing', 'Server is closing'));
-    for (const socket of sockets) socket.destroy();
-    closed = (async () => {
+    closed = Promise.resolve().then(async () => {
+      for (const controller of active) controller.abort(appError(503, 'server_closing', 'Server is closing'));
+      for (const socket of sockets) socket.destroy();
       await listening?.catch(() => {});
       await new Promise((resolve) => server.close(resolve));
       let timer;
@@ -38,7 +38,7 @@ export function lifecycle(server, config, provider, active) {
           timer = setTimeout(() => reject(new Error('Provider shutdown timed out')), config.shutdownTimeoutMs);
         })]);
       } finally { clearTimeout(timer); }
-    })();
+    });
     return closed;
   }
   return { server, listen, close, get closing() { return closing; } };

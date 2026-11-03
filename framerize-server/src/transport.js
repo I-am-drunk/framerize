@@ -6,9 +6,14 @@ export function bounded(work, controller, milliseconds, error) {
   const { signal } = controller;
   if (signal.aborted) return Promise.reject(signal.reason);
   return new Promise((resolve, reject) => {
+    let expiry;
     const aborted = () => { cleanup(); reject(signal.reason); };
-    const timer = setTimeout(() => controller.abort(error), milliseconds);
-    const cleanup = () => { clearTimeout(timer); signal.removeEventListener('abort', aborted); };
+    const timer = setTimeout(() => { expiry = setImmediate(() => controller.abort(error)); }, milliseconds);
+    const cleanup = () => {
+      clearTimeout(timer);
+      clearImmediate(expiry);
+      signal.removeEventListener('abort', aborted);
+    };
     signal.addEventListener('abort', aborted, { once: true });
     Promise.resolve().then(() => {
       signal.throwIfAborted();
@@ -47,8 +52,10 @@ export async function readBody(request, controller, config) {
 
 export function drain(response, controller, timeout) {
   return new Promise((resolve, reject) => {
+    let expiry;
     const cleanup = () => {
       clearTimeout(timer);
+      clearImmediate(expiry);
       response.off('drain', done);
       response.off('close', closed);
       controller.signal.removeEventListener('abort', aborted);
@@ -56,7 +63,9 @@ export function drain(response, controller, timeout) {
     const done = () => { cleanup(); resolve(); };
     const aborted = () => { cleanup(); reject(controller.signal.reason); };
     const closed = () => { cleanup(); reject(appError(499, 'client_disconnected', 'Client disconnected')); };
-    const timer = setTimeout(() => controller.abort(appError(504, 'idle_timeout', 'Client idle timeout')), timeout);
+    const timer = setTimeout(() => {
+      expiry = setImmediate(() => controller.abort(appError(504, 'idle_timeout', 'Client idle timeout')));
+    }, timeout);
     response.once('drain', done);
     response.once('close', closed);
     controller.signal.addEventListener('abort', aborted, { once: true });
