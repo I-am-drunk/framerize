@@ -39,7 +39,7 @@ test('account schema rejects invalid and duplicate records', async () => {
   for (const account of [null, { id: 'bad id' }, { id: 'one', enabled: 'yes' },
     { id: 'one', model: 1 }, { id: 'one', provider: 'other' },
     { id: 'one', authorizationEnv: 'lower' }, { id: 'one', provider: 'framer' },
-    { id: 'one', sessionEnv: 'bad-name' }]) {
+    { id: 'one', sessionEnv: 'bad-name' }, { id: 'one', sessionFile: '' }]) {
     await writeFile(file, JSON.stringify([account]));
     await assert.rejects(loadAccounts(file), ConfigError);
   }

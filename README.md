@@ -72,7 +72,9 @@ and its authorization.
 Set `provider` to `framer` to use `/ai/v3/openai/responses/`. Chat requests
 convert to Responses, including tool calls, tool results, JSON schemas,
 short replies, and incremental streams. Sessions and Castle credentials
-stay in environment variables named by the JSON account record.
+stay in environment variables named by the JSON account record. Private files
+can replace those variables with `sessionFile`, `castleFile`, or
+`authorizationFile`. Files must be regular files no larger than 16 KiB.
 
 ```json
 [{

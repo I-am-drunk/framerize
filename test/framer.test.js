@@ -1,6 +1,9 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { prepareFramer } from '../src/framer.js';
+import { mkdtemp, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import path from 'node:path';
 
 const account = { id: 'fixture', provider: 'framer', projectId: 'project',
   upstream: 'https://api.framer.test', authorizationEnv: 'FIXTURE_JWT', castleEnv: 'FIXTURE_CASTLE' };
@@ -29,6 +32,20 @@ test('Framer chat uses its native Chat route', async () => {
     body: Buffer.from('{"model":"gpt-test","messages":[]}'), fetchImpl: async () => {},
     env: { FIXTURE_JWT: 'fixture-jwt', FIXTURE_CASTLE: 'fixture-castle' } });
   assert.equal(result.url, 'https://api.framer.test/ai/v3/chat/');
+});
+
+test('Framer reads credentials from private files', async () => {
+  const directory = await mkdtemp(path.join(tmpdir(), 'framer-next-framer-'));
+  const sessionFile = path.join(directory, 'session');
+  const castleFile = path.join(directory, 'castle');
+  await writeFile(sessionFile, 'session=file-secret');
+  await writeFile(castleFile, 'file-castle');
+  const scoped = { ...account, sessionFile, castleFile, authorizationEnv: undefined, castleEnv: undefined };
+  const result = await prepareFramer({ account: scoped, path: '/v1/responses',
+    body: Buffer.from('{}'), fetchImpl: async () => new Response(JSON.stringify({
+      accessToken: 'minted', expiresAt: new Date(Date.now() + 600000).toISOString(),
+    })) });
+  assert.equal(JSON.parse(result.body).castleToken, 'file-castle');
 });
 
 test('missing credentials fail before an inference request', async () => {
