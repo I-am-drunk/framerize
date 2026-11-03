@@ -207,6 +207,22 @@ modules. Twelve isolated positive and negative cases pass on Node 22.23.4 and
 24.13.0, including rejection of the expanded base's metadata without executing
 its source. The acceptance owner maintains the durable guard regressions.
 
+The acceptance owner's guard checkpoint
+`8cd14bd807ebc7afa68c5f860aaaf879f8c47a7a` is integrated unchanged as
+`3e910368`. Its four tests cover the approved inventory, all three runtime
+dependency categories, extra source and executable files, and inert expanded
+package metadata. The integrated guard tests and syntax checks pass on
+Node 22.23.4. The owner's exact combined archive passes all 107 explicit tests
+on Node 22.23.4 and the four guard tests on Node 24.13.0.
+
+Parent restoration checkpoint `648d7299a664166b2d924b40cf1edab92357d7ba`
+merges cleanly with core `afb3f373` in a read-only prospective merge.
+The resulting tree `5a02a481b6641b78382d9c2161048fb168671170` changes only
+package manifest formatting within the server and its dedicated workflow;
+the parsed manifest is identical. The server inventory excludes the separate
+library. This static check does not execute or qualify that library, merge
+the restoration, or replace final combined platform and native CI.
+
 Windows graceful POSIX-signal behavior is not claimed. Live inference,
 private credentials, production activation and release publication remain
 outside this stage.
