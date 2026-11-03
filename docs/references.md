@@ -2,8 +2,8 @@
 
 These projects provide concrete patterns. Framer Next does not copy their code.
 
-- [Hono](https://github.com/honojs/hono): small request handlers, explicit
-  response construction, and streaming examples.
+- [Hono `src/helper/streaming/sse.ts`](https://github.com/honojs/hono/blob/main/src/helper/streaming/sse.ts):
+  explicit SSE response construction and stream cleanup.
 - [Undici `lib/web/fetch/body.js`](https://github.com/nodejs/undici/blob/main/lib/web/fetch/body.js):
   standards-based HTTP bodies, cancellation, and Web Stream behavior.
 - [WHATWG event stream specification](https://html.spec.whatwg.org/multipage/server-sent-events.html):

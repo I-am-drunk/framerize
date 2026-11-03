@@ -76,13 +76,15 @@ export async function prepareFramer({ account, path, body, signal, fetchImpl, en
   }
   const payload = JSON.parse(body.toString('utf8'));
   const token = await bearer(account, fetchImpl, signal, env);
-  const destination = path === '/v1/responses' ? '/ai/v3/openai/responses/' : '/ai/v3/chat/';
+  const isChat = path === '/v1/chat/completions';
+  const destination = isChat ? '/ai/v3/chat/' : '/ai/v3/openai/responses/';
   const base = (account.upstream || 'https://api.framer.com').replace(/\/+$/, '');
   return { url: `${base}${destination}`, authorization: `Bearer ${token}`, body: JSON.stringify({
     projectId: account.projectId, featureCategory: 'agents', featureName: 'agents',
     model: payload.model, step: 'message', sessionId: mintId(),
     stepIndex: 0, turnId: mintId(), userPrompt: userPrompt(payload),
-    castleToken: castle, request: payload,
+    castleToken: castle,
+    request: payload,
   }) };
 }
 
