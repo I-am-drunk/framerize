@@ -8,8 +8,10 @@ import { setTimeout as delay } from 'node:timers/promises';
 import { gzipSync } from 'node:zlib';
 import { mkdtemp, writeFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
-import { inspect } from 'node:util';
+import { dirname, join } from 'node:path';
+import { inspect, promisify } from 'node:util';
+import { execFile } from 'node:child_process';
+import { fileURLToPath } from 'node:url';
 import { createProvider } from '../src/provider.js';
 import { ConfigurationError, ProviderError } from '../src/errors.js';
 
@@ -41,6 +43,33 @@ async function fixture(context, handler, config = {}) {
   return { provider, server, upstream };
 }
 
+async function rawFixture(context, response) {
+  const sockets = new Set(); const closed = deferred(); const logs = [];
+  const controller = new AbortController();
+  let calls = 0;
+  const server = net.createServer((socket) => {
+    sockets.add(socket);
+    socket.on('error', () => {});
+    socket.once('close', () => { sockets.delete(socket); closed.resolve(); });
+    socket.once('data', () => { calls += 1; socket.write(response); });
+  });
+  server.listen(0, '127.0.0.1'); await once(server, 'listening');
+  const provider = createProvider({ upstream: `http://127.0.0.1:${server.address().port}`,
+    logger: { info: (...args) => logs.push(args), error: (...args) => logs.push(args) } });
+  context.after(async () => {
+    await provider.close();
+    for (const socket of sockets) socket.destroy();
+    await new Promise((done) => server.close(done));
+  });
+  return { provider, signal: controller.signal, async checkClosed() {
+    await closed.promise;
+    assert.equal(calls, 1);
+    assert.equal(sockets.size, 0);
+    assert.equal(getEventListeners(controller.signal, 'abort').length, 0);
+    assert.deepEqual(logs, []);
+  } };
+}
+
 for (const path of ['/v1/responses', '/v1/chat/completions']) {
   test(`${path} preserves short streaming bytes and safe headers`, async (context) => {
     const expected = Buffer.from('data: {"delta":"hello 😀"}\n\ndata: [DONE]\n\n');
@@ -58,6 +87,73 @@ for (const path of ['/v1/responses', '/v1/chat/completions']) {
     assert.deepEqual(await collect(result.body), expected);
   });
 }
+
+for (const status of [200, 429]) for (const fillerCount of [0, 2100]) {
+  test(`response headers honor late Connection with ${fillerCount} fields at status ${status}`, async (context) => {
+    const payload = status === 200 ? 'data: {"delta":"fixture"}\n\n' : '{"error":"FAKE_BODY_SECRET"}';
+    const headers = `HTTP/1.1 ${status} Fixture\r\nX-Request-Id: nominated-canary\r\n`
+      + 'Retry-After: 17\r\nContent-Type: text/event-stream\r\nX-Private: FAKE_HEADER_SECRET\r\n'
+      + 'X:a\r\n'.repeat(fillerCount) + 'Connection: X-Request-Id, close\r\n'
+      + `Content-Length: ${Buffer.byteLength(payload)}\r\n\r\n`;
+    assert.ok(Buffer.byteLength(headers) < 16_384);
+    const { provider, signal, checkClosed } = await rawFixture(context, headers + payload);
+    const result = await provider.forward({ path: '/v1/responses', body: body(), signal });
+    assert.equal(result.status, status);
+    assert.equal(result.headers['x-request-id'], undefined);
+    assert.equal(result.headers['retry-after'], '17');
+    assert.equal(result.headers['x-private'], undefined);
+    const received = await collect(result.body);
+    if (status === 200) assert.deepEqual(received, Buffer.from(payload));
+    else {
+      assert.equal(result.headers['content-type'], 'application/json');
+      assert.deepEqual(JSON.parse(received), { error: { type: 'upstream_error',
+        code: 'upstream_http_error', message: 'Upstream request failed' } });
+    }
+    assert.doesNotMatch(inspect(result.headers) + received, /FAKE_.*_SECRET|nominated-canary/);
+    await checkClosed();
+  });
+}
+
+for (const status of [200, 429]) for (const kind of ['single', 'repeated']) {
+  test(`response header byte cap rejects ${kind} fields at status ${status}`, async (context) => {
+    context.diagnostic(`global header limit ${http.maxHeaderSize}`);
+    const field = 'X-Secret: FAKE_HEADER_SECRET';
+    const fields = kind === 'single' ? field + 'a'.repeat(17_000) + '\r\n'
+      : field + '\r\n' + 'X:a\r\n'.repeat(9000);
+    const payload = 'FAKE_BODY_SECRET';
+    const headers = `HTTP/1.1 ${status} Fixture\r\n${fields}Connection: keep-alive\r\n`
+      + `Content-Length: ${payload.length}\r\n\r\n`;
+    assert.ok(Buffer.byteLength(headers) > 16_384 && Buffer.byteLength(headers) < 65_536);
+    const { provider, signal, checkClosed } = await rawFixture(context, headers + payload);
+    await assert.rejects(provider.forward({ path: '/v1/responses', body: body(), signal }), (error) => {
+      assert.ok(error instanceof ProviderError);
+      assert.equal(error.code, 'upstream_error');
+      assert.equal(error.status, 502);
+      assert.equal(error.message, 'Upstream request failed');
+      assert.equal(error.cause, undefined);
+      assert.doesNotMatch(inspect(error) + JSON.stringify(error), /FAKE_.*_SECRET|X-Secret/);
+      return true;
+    });
+    await checkClosed();
+  });
+}
+
+test('response header global cap override does not weaken the byte limit', async (context) => {
+  const directory = await mkdtemp(join(tmpdir(), 'provider-header-cap-'));
+  context.after(() => rm(directory, { recursive: true, force: true }));
+  const env = { PATH: dirname(process.execPath), HOME: directory, USERPROFILE: directory,
+    XDG_CONFIG_HOME: directory, APPDATA: directory, LOCALAPPDATA: directory,
+    TMPDIR: directory, TMP: directory, TEMP: directory, NODE_OPTIONS: process.env.NODE_OPTIONS ?? '' };
+  if (process.platform === 'win32') env.SystemRoot = process.env.SystemRoot;
+  const { stdout } = await promisify(execFile)(process.execPath, [
+    '--max-http-header-size=65536', '--test', '--test-reporter=tap',
+    '--test-name-pattern=^response header byte cap', fileURLToPath(import.meta.url),
+  ], { env, timeout: 4_000, maxBuffer: 1024 * 1024 });
+  assert.match(stdout, /global header limit 65536/);
+  for (const status of [200, 429]) for (const kind of ['single', 'repeated']) {
+    assert.match(stdout, new RegExp(`ok \\d+ - response header byte cap rejects ${kind} fields at status ${status}\\r?\\n`));
+  }
+});
 
 test('delayed iteration retains every byte without starting flowing mode', async (context) => {
   const expected = Buffer.from('firstsecond');
