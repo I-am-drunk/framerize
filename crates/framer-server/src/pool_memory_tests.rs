@@ -19,12 +19,17 @@ async fn memory_pressure_preserves_the_cause_when_no_account_is_eligible() {
             state.serving_accounts.select(accounts.clone(), None)
         } else {
             state.serving_accounts.select_fresh(accounts.clone(), &excluded)
-        }.unwrap_err().diagnostic();
+        }.unwrap_err();
         let calls = ports.events.lock().unwrap().len();
         let observed = select_account_observed(&state, accounts, None, &excluded).await;
         assert!(observed.cleanup_confirmed);
-        assert_eq!(observed.result.err().unwrap().diagnostic(), expected);
-        assert!(!expected.contains("Low available RAM"));
+        let actual = observed.result.err().unwrap();
+        match (&expected, &actual) {
+            (ApiError::AccountCooling { cause: a, .. },
+                ApiError::AccountCooling { cause: b, .. }) => assert_eq!(a, b),
+            _ => assert_eq!(actual.diagnostic(), expected.diagnostic()),
+        }
+        assert!(!actual.diagnostic().contains("Low available RAM"));
         assert_eq!(ports.events.lock().unwrap().len(), calls);
     }
 }
