@@ -30,6 +30,7 @@ from .browser.responses import (receive as receive_response, ResponseDeadline,
     BUFFERED_TIMEOUT_S, STREAM_TIMEOUT_S, START_TIMEOUT_S, CLEANUP_TIMEOUT_S)
 from .browser.network_failure import NetworkFailure
 from .body_capture import BodyCapture
+from . import startup_failure
 
 _MINT_CALLS = ContextVar('framerize_mint_calls', default=None)
 IDLE_CLOSE_TIMEOUT_S = 10
@@ -415,6 +416,7 @@ class Host:
             life.close_receipt = None
             life.phase = "absent"
             life.cleanup_cause = None
+            life.preparation_cause = None
             return True
         except asyncio.CancelledError:
             life.unconfirmed("browser cleanup was cancelled before completion")
@@ -1137,6 +1139,7 @@ class Host:
             if self._playwright is None:
                 await self._rpc(account, self._start_driver, async_playwright)
             life.rates.runtime_starting()
+            startup_resources = startup_failure.snapshot()
             # Each launch still has its own process, profile, configuration,
             # proxy and storage. Only the Playwright transport is shared.
             async def launch_owned():
@@ -1151,16 +1154,26 @@ class Host:
             except BaseException as error:
                 # A cancelled handshake may have launched a process without
                 # returning its handle. Never turn that uncertainty into room.
-                life.unconfirmed("browser launch failed before process ownership was confirmed: "
-                                 + error_cause(error))
+                cause = startup_failure.explain(error, startup_resources, startup_failure.snapshot())
+                life.unconfirmed(cause + '; browser launch ownership was not confirmed')
+                if isinstance(error, Exception):
+                    raise RuntimeError(cause) from error
                 raise
             emit("camoufox.launch", account=account[:8], duration_ms=int((time.monotonic()-t0)*1000), outcome="ok")
             try:
                 acc = await self._initialize_account(account, profile, browser)
                 return acc
-            except BaseException:
+            except BaseException as error:
+                cause = None
+                if isinstance(error, Exception):
+                    cause = startup_failure.explain(error, startup_resources,
+                        startup_failure.snapshot())
+                    life.preparation_cause = cause
+                    emit('browser.prepare', outcome='error', cause=cause)
                 acc = self.accounts.get(account)
                 await asyncio.shield(self._start_close(account, life, acc))
+                if cause:
+                    raise RuntimeError(cause) from error
                 raise
 
     async def _initialize_account(self, account, profile, browser):

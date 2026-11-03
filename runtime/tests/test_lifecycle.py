@@ -434,6 +434,10 @@ class ResidentLifecycleTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(life.phase, "unconfirmed")
         self.assertIs(life.browser, browser)
         self.assertEqual(life.active_commands, 0)
+        self.assertIn('fixture initialization failed', life.cleanup_error())
+        self.assertIn('fixture close acknowledgement lost', life.cleanup_error())
+        with self.assertRaisesRegex(RuntimeError, 'fixture initialization failed'):
+            await self.opened()
 
     async def test_unsupported_close_protocol_does_not_release_capacity(self):
         acc = await self.opened()

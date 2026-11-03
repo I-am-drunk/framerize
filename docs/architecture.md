@@ -1,5 +1,11 @@
 # Browser preparation failures
 
+If preparation and cleanup both fail, admission retains both causes. Startup
+diagnostics compare cgroup event counters before and after the failed operation.
+Only observed increases identify task-limit denials or out-of-memory kills;
+missing counters or old events cannot establish those causes. Diagnostics do
+not change resource limits, browser signals, account history or cleanup rules.
+
 Navigation and SDK-warmup errors retain their sanitized original cause and
 the `browser preparation failed` classification. Both request chains treat
 that classification as local. They cannot repair it by reducing the output

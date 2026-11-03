@@ -32,6 +32,7 @@ class AccountLifecycle:
         self.incarnation = 0
         self.phase = "absent"
         self.cleanup_cause = None
+        self.preparation_cause = None
         self.browser = None
         self.close_receipt = None
         self.close_task = None
@@ -43,7 +44,8 @@ class AccountLifecycle:
         from ..events import error_message
         self.phase = "unconfirmed"
         if self.cleanup_cause is None:
-            self.cleanup_cause = error_message(cause)
+            self.cleanup_cause = error_message(
+                (self.preparation_cause + '; ' if self.preparation_cause else '') + cause)
 
     def cleanup_error(self):
         cause = self.cleanup_cause

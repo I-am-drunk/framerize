@@ -1,3 +1,20 @@
+# Startup cause retention, 2026-11-03
+
+The diagnostics branch retains the original preparation failure when browser
+cleanup also fails. Cgroup event deltas now identify task-limit denials and
+out-of-memory kills observed during startup. Counters from earlier failures
+cannot explain a new failure. Successful cleanup clears the saved context.
+All 53 focused runtime tests pass. The prior launch path fails the new
+initialization-cause regression.
+
+An isolated native verifier hit its 128-task cap before inference. A separate
+browser fixture reproduced that crash and reported the measured task-limit
+increase. With 512 tasks it opened a page and exited normally, peaking at
+139 tasks. These are verifier results, not production crashes. The exclusive
+test account retains its history and the normal 600-second recovery hold.
+Alpha.21 remains live. The alpha.23 preparation-only build is in progress on
+the iMac. Next: verify the custom Claude Responses path after the test hold.
+
 # Browser preparation retry classification, 2026-11-03
 
 The alpha.23 candidate labels page-navigation and SDK-warmup failures as
