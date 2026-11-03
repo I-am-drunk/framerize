@@ -36,6 +36,12 @@ function publish(authenticated = true, published = false, version = '0.1.7',
   const fixture = JSON.stringify({ authenticated, published, version,
     registryError, checksumValid, commit: `${commit}^{commit}`, dirty, calls });
   for (const name of ['npm', 'sha256sum', 'git', 'tar']) installStub(bin, name);
+  if (process.platform === 'win32') {
+    for (const name of ['npm', 'sha256sum', 'git', 'tar']) {
+      writeFileSync(path.join(directory, `${name}.bat`),
+        `@echo off\r\n"${process.execPath}" "${fileURLToPath(new URL('fixtures/command-fixture.js', import.meta.url))}" "${name}" %*\r\n`);
+    }
+  }
   const result = spawnSync(process.execPath, [
     fileURLToPath(new URL('../scripts/publish-package.js', import.meta.url))], {
     encoding: 'utf8',

@@ -4,7 +4,7 @@ import path from 'node:path';
 
 const dist = path.resolve('dist');
 const command = (name) => process.platform === 'win32'
-  && process.env.FRAMER_NEXT_TEST_COMMAND ? `${name}.bat` : name;
+  && process.env.FRAMER_NEXT_TEST_COMMAND ? `${process.cwd()}\\${name}.bat` : name;
 const execute = (name, args, options = {}) => process.platform === 'win32'
   && process.env.FRAMER_NEXT_TEST_COMMAND
   ? execFileSync(process.env.ComSpec || 'cmd.exe', ['/d', '/s', '/c', name, ...args], options)
