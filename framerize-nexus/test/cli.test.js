@@ -5,6 +5,22 @@ import { parseConfig } from '../src/config.js';
 import { spawn, spawnSync } from 'node:child_process';
 import { setTimeout as delay } from 'node:timers/promises';
 import { EventEmitter } from 'node:events';
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import path from 'node:path';
+
+function fixtureOptions(context) {
+  const directory = mkdtempSync(path.join(tmpdir(), 'nexus-cli-test-'));
+  context.after(() => rmSync(directory, { recursive: true, force: true }));
+  const accounts = path.join(directory, 'accounts.json');
+  writeFileSync(accounts, '[]');
+  return ['--host', '127.0.0.1', '--port', '0', '--accounts', accounts,
+    '--upstream', 'http://127.0.0.1:1'];
+}
+
+function fixtureEnvironment(environment = process.env) {
+  return { PATH: environment.PATH, SystemRoot: environment.SystemRoot };
+}
 
 test('default CLI config preserves loopback and default port', () => {
   const config = parseConfig(parseArgs([], {}).values);
@@ -12,14 +28,31 @@ test('default CLI config preserves loopback and default port', () => {
   assert.equal(config.port, 8788);
 });
 
-test('check validates without listening', async () => {
-  assert.equal(await run(['check']), 0);
+test('CLI fixtures exclude poisoned host configuration', (context) => {
+  const poisoned = {
+    PATH: '/fixture/bin', SystemRoot: '/fixture/system',
+    FRAMER_ACCOUNTS: '/fixture/private.json', FRAMER_HOST: '0.0.0.0',
+    FRAMER_PORT: '-1', FRAMER_UPSTREAM: 'invalid',
+    UPSTREAM_TOKEN: 'fixture-only', NODE_OPTIONS: '--require=/fixture/private.js',
+  };
+  assert.deepEqual(fixtureEnvironment(poisoned), {
+    PATH: poisoned.PATH, SystemRoot: poisoned.SystemRoot,
+  });
+  const config = parseConfig(parseArgs(['check', ...fixtureOptions(context)], poisoned).values);
+  assert.equal(config.host, '127.0.0.1');
+  assert.equal(config.port, 0);
+  assert.equal(config.upstream, 'http://127.0.0.1:1');
+  assert.equal(readFileSync(config.accounts, 'utf8'), '[]');
 });
 
-test('shutdown failures set a nonzero exit code', async () => {
+test('check validates without listening', async (context) => {
+  assert.equal(await run(['check', ...fixtureOptions(context)]), 0);
+});
+
+test('shutdown failures set a nonzero exit code', async (context) => {
   const events = new EventEmitter();
   let close;
-  const running = run(['serve', '--port', '0'], { process: events, createServer: async () => ({
+  const running = run(['serve', ...fixtureOptions(context)], { process: events, createServer: async () => ({
     server: { once(event, callback) { if (event === 'close') close = callback; } },
     listen: async () => ({ port: 1234 }),
     close: async () => { throw new Error('fixture close failure'); },
@@ -38,21 +71,23 @@ test('unknown options fail', () => {
 
 test('installed CLI rejects invalid options without listening', () => {
   const result = spawnSync(process.execPath, ['bin/framerize-nexus.js', 'serve', '--port', '-1'], {
-    encoding: 'utf8', env: { PATH: process.env.PATH },
+    encoding: 'utf8', env: fixtureEnvironment(),
   });
   assert.notEqual(result.status, 0);
   assert.match(result.stderr, /positive integer/);
 });
 
 test('CLI help exits successfully', () => {
-  const result = spawnSync(process.execPath, ['bin/framerize-nexus.js', '--help'], { encoding: 'utf8' });
+  const result = spawnSync(process.execPath, ['bin/framerize-nexus.js', '--help'], {
+    encoding: 'utf8', env: fixtureEnvironment(),
+  });
   assert.equal(result.status, 0);
   assert.match(result.stdout, /Usage:/);
 });
 
 test('CLI serve shuts down once on SIGTERM', { skip: process.platform === 'win32' }, async () => {
   const child = spawn(process.execPath, ['bin/framerize-nexus.js', 'serve', '--port', '0'], {
-    stdio: ['ignore', 'pipe', 'pipe'],
+    stdio: ['ignore', 'pipe', 'pipe'], env: fixtureEnvironment(),
   });
   let logs = '';
   child.stderr.on('data', (chunk) => { logs += chunk; });
@@ -75,7 +110,7 @@ test('CLI serve shuts down once on SIGTERM', { skip: process.platform === 'win32
 
 test('CLI shares shutdown across SIGINT and SIGTERM', { skip: process.platform === 'win32' }, async () => {
   const child = spawn(process.execPath, ['bin/framerize-nexus.js', 'serve', '--port', '0'], {
-    stdio: ['ignore', 'pipe', 'pipe'],
+    stdio: ['ignore', 'pipe', 'pipe'], env: fixtureEnvironment(),
   });
   let logs = '';
   child.stderr.on('data', (chunk) => { logs += chunk; });
