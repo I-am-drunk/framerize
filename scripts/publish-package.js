@@ -48,10 +48,17 @@ try {
   }
 }
 const checksums = readFileSync(sums, 'utf8').trim().split('\n')
-  .filter((line) => {
+  .map((line) => {
     const artifact = line.match(/^([a-f0-9]{64}) [ *](.+)$/);
     if (!artifact) throw new Error('invalid SHA256SUMS entry');
-    return readdirSync(dist).includes(artifact[2]);
+    if (artifact[2] === artifacts[0] && artifact[1] !== metadata.artifacts[artifacts[0]]) {
+      throw new Error('release metadata and SHA256SUMS tarball digests differ');
+    }
+    return line;
+  })
+  .filter((line) => {
+    const artifact = line.split(/ [ *]/);
+    return readdirSync(dist).includes(artifact[1]);
   });
 writeFileSync(path.join(dist, '.publish-SHA256SUMS'), `${checksums.join('\n')}\n`);
 run('sha256sum', ['-c', '.publish-SHA256SUMS'], { cwd: dist });
