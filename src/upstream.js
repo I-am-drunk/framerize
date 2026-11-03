@@ -1,12 +1,16 @@
 import { createDeadline } from './sse.js';
 import { prepareFramer } from './framer.js';
 
-export function upstreamHeaders(headers, authorization) {
+export function upstreamHeaders(headers, authorization, isFramer = false) {
   const result = {};
   for (const name of ['accept', 'content-type', 'openai-beta', 'anthropic-version', 'anthropic-beta']) {
     if (headers[name]) result[name] = headers[name];
   }
   if (authorization) result.authorization = authorization;
+  if (isFramer) {
+    result['content-type'] = 'application/json; charset=utf-8';
+    result['x-requested-by'] = 'Framer';
+  }
   result.accept = headers.accept || 'text/event-stream, application/json';
   return result;
 }
@@ -23,7 +27,7 @@ export async function openUpstream({ config, request, body, account, signal, fet
     const response = await fetchImpl(destination, {
       method: request.method,
       headers: upstreamHeaders(request.headers, framer?.authorization || (account?.authorizationEnv
-        ? process.env[account.authorizationEnv] : undefined)),
+        ? process.env[account.authorizationEnv] : undefined), Boolean(framer)),
       body: ['GET', 'HEAD'].includes(request.method) ? undefined : framer?.body || body,
       signal: deadline.signal,
       redirect: 'error',
