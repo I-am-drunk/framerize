@@ -4,7 +4,7 @@ import { loadAccounts } from './config.js';
 import { openUpstream, createDeadline } from './upstream.js';
 import { idleTimeout, encodeSse, parseSse } from './sse.js';
 import { sanitizeError } from './logger.js';
-import { validateChat, responseEventError } from './openai.js';
+import { validateChat, validateResponseEvent } from './openai.js';
 
 function sendJson(response, status, value) {
   const body = JSON.stringify(value);
@@ -18,8 +18,13 @@ function sendJson(response, status, value) {
 async function* validateResponses(chunks) {
   yield* parseSse(chunks, (event) => {
     if (event.data === '[DONE]') return;
-    const failure = responseEventError(JSON.parse(event.data));
-    if (failure) throw failure;
+    let eventData;
+    try { eventData = JSON.parse(event.data); } catch {
+      const error = new Error('upstream returned invalid JSON');
+      error.status = 502;
+      throw error;
+    }
+    validateResponseEvent(eventData);
   }, true);
 }
 
@@ -121,10 +126,7 @@ export async function createServer(config, { logger, fetchImpl = fetch } = {}) {
       }
       const responseDeadline = createDeadline(controller.signal, config.requestTimeoutMs, disconnect);
       try {
-        if (!upstream.response.ok) {
-          response.writeHead(upstream.response.status, responseHeaders);
-        }
-        if (upstream.response.ok) response.writeHead(upstream.response.status, responseHeaders);
+        if (!upstream.response.ok) response.writeHead(upstream.response.status, responseHeaders);
         if (upstream.response.body) {
           let chunks = idleTimeout(upstream.response.body, config.idleTimeoutMs, responseDeadline.signal);
           if (!convertChat && upstream.response.ok
@@ -132,9 +134,11 @@ export async function createServer(config, { logger, fetchImpl = fetch } = {}) {
             chunks = validateResponses(chunks);
           }
           for await (const value of chunks) {
+            if (!response.headersSent) response.writeHead(upstream.response.status, responseHeaders);
             if (!response.write(value)) await waitForDrain(response, responseDeadline.signal);
           }
         }
+        if (!response.headersSent) response.writeHead(upstream.response.status, responseHeaders);
         response.end();
       } catch (error) {
         if (response.headersSent) response.destroy(error);

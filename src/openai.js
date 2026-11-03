@@ -5,6 +5,17 @@ export function responseEventError(event) {
   return error;
 }
 
+export function validateResponseEvent(event) {
+  if (!event || typeof event !== 'object' || Array.isArray(event)
+      || typeof event.type !== 'string') {
+    const error = new Error('upstream returned an invalid response event');
+    error.status = 502;
+    throw error;
+  }
+  const failure = responseEventError(event);
+  if (failure) throw failure;
+}
+
 function invalid(message) {
   const error = new Error(message);
   error.status = 400;

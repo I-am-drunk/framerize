@@ -122,6 +122,24 @@ test('streamed response failures close the downstream connection', async (t) => 
   assert.doesNotMatch(received, /\r\n0\r\n\r\n$/);
 });
 
+test('malformed Responses JSON returns a clean 502', async (t) => {
+  const base = await fixture(t, async () => new Response('data: {broken\n\n', {
+    headers: { 'content-type': 'application/json' },
+  }));
+  const response = await fetch(`${base}/v1/responses`, { method: 'POST', body: '{}' });
+  assert.equal(response.status, 502);
+  assert.match(await response.text(), /invalid JSON/);
+});
+
+test('invalid Responses events return a clean 502', async (t) => {
+  const base = await fixture(t, async () => new Response('data: null\n\n', {
+    headers: { 'content-type': 'application/json' },
+  }));
+  const response = await fetch(`${base}/v1/responses`, { method: 'POST', body: '{}' });
+  assert.equal(response.status, 502);
+  assert.match(await response.text(), /invalid response event/);
+});
+
 test('fragmented failure events abort without corrupting earlier chunks', async (t) => {
   const events = ['data: {"type":"response.output_text.delta","delta":"ok"}\n\n',
     'data: {"type":"response.failed","response":{}}\n\n'].join('');
