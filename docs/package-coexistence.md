@@ -47,6 +47,10 @@ does not establish a Git commit. Success is not publication or activation approv
 
 ## Recorded Linux verification
 
+The [final retained package-pair check](package-coexistence-evidence/2026-11-03-final-pair/README.md)
+records the later server `23d87c6c` artifact with the same Nexus artifact on
+Linux Node 22 and 24. The earlier package-pair evidence below remains historical.
+
 On 2026-11-03, all 10 focused tests passed on both Node 22.23.4 with npm 10.9.9
 and Node 24.13.0 with npm 11.6.2. Neither run skipped tests. This includes real
 offline fixture installs and the launcher-only CRLF allowance under both npm
