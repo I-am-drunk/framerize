@@ -2,18 +2,20 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { execFileSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
+import { once } from 'node:events';
+import { createServer } from 'node:http';
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { setImmediate } from 'node:timers/promises';
 import { fileURLToPath } from 'node:url';
 import { npmCli, privateEnvironment } from '../scripts/core-package-check.js';
 import { startInstalledServer, serverToken } from '../scripts/fixtures/installed-server.js';
-import { createScenario, exchange, exerciseFlow } from '../scripts/fixtures/transport-scenario.js';
+import { assertTransportClosed, createScenario, exchange, exerciseFlow,
+  transportResources } from '../scripts/fixtures/transport-scenario.js';
 
 test('installed server CLI preserves a tool round trip and cancels the real upstream',
   { timeout: 90_000 }, async (context) => {
-    const initialResources = process.getActiveResourcesInfo().filter((name) => /TCP|Timeout/.test(name)).sort();
+    const initialResources = transportResources();
     const root = mkdtempSync(join(tmpdir(), 'framerize-installed-flow-'));
     const consumer = join(root, 'consumer');
     let scenario: Awaited<ReturnType<typeof createScenario>> | undefined;
@@ -45,10 +47,27 @@ test('installed server CLI preserves a tool round trip and cancels the real upst
       rmSync(root, { recursive: true, force: true });
       for (const result of cleanup) if (result.status === 'rejected') throw result.reason;
     }
-    await setImmediate();
-    await setImmediate();
-    assert.deepEqual(process.getActiveResourcesInfo().filter((name) => /TCP|Timeout/.test(name)).sort(), initialResources);
+    await assertTransportClosed(initialResources);
   });
+
+for (const delayed of [false, true]) {
+  test(`transport cleanup ${delayed ? 'waits for a closing listener' : 'rejects a live listener'}`, async () => {
+    const baseline = transportResources();
+    const server = createServer();
+    server.listen(0, '127.0.0.1');
+    await once(server, 'listening');
+    const timer = delayed ? setTimeout(() => server.close(), 30) : undefined;
+    try {
+      if (delayed) await assertTransportClosed(baseline);
+      else await assert.rejects(assertTransportClosed(baseline, 40), { code: 'ERR_ASSERTION' });
+    } finally {
+      clearTimeout(timer);
+      server.closeAllConnections();
+      await new Promise<void>(resolve => server.close(() => resolve()));
+      await assertTransportClosed(baseline);
+    }
+  });
+}
 
 test('installed transport runs in the six-job core CI matrix', () => {
   const workflow = readFileSync(new URL('../../.github/workflows/core-ci.yml', import.meta.url), 'utf8');

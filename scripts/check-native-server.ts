@@ -5,16 +5,15 @@ import { chmodSync, copyFileSync, lstatSync, mkdirSync, mkdtempSync, readFileSyn
   readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
-import { setImmediate } from 'node:timers/promises';
 import { fileURLToPath } from 'node:url';
 import { npmCli, privateEnvironment } from './core-package-check.js';
 import { localToken, startInstalledRemote, startInstalledServer } from './fixtures/installed-server.js';
-import { createScenario, exchange, exerciseFlow, toolRequest } from './fixtures/transport-scenario.js';
+import { assertTransportClosed, createScenario, exchange, exerciseFlow,
+  toolRequest, transportResources } from './fixtures/transport-scenario.js';
 
 export async function checkNativeServer(executable: string, remoteArchive: string) {
   for (const file of [executable, remoteArchive]) assert.ok(lstatSync(file).isFile(), 'Input must be a regular file');
-  const resources = () => process.getActiveResourcesInfo().filter(name => /TCP|Timeout/.test(name)).sort();
-  const initialResources = resources();
+  const initialResources = transportResources();
   const root = mkdtempSync(join(tmpdir(), 'framerize native pair '));
   const consumer = join(root, 'remote');
   const native = join(root, 'server');
@@ -65,9 +64,7 @@ export async function checkNativeServer(executable: string, remoteArchive: strin
     rmSync(root, { recursive: true, force: true });
     for (const entry of cleanup) if (entry.status === 'rejected') throw entry.reason;
   }
-  await setImmediate();
-  await setImmediate();
-  assert.deepEqual(resources(), initialResources, 'Native pair left TCP or timer resources');
+  await assertTransportClosed(initialResources);
   return result;
 }
 

@@ -20,16 +20,35 @@ test('server builds use only the typed server target and safe installs', () => {
 });
 
 test('server workflows cover changed inputs and keep all pinned platforms', () => {
-  for (const file of ['scripts/server-native-bundle.ts', 'scripts/package-archive.ts', 'test/server-*']) {
+  for (const file of ['.gitattributes', 'scripts/server-native-bundle.ts', 'scripts/package-archive.ts', 'test/server-*']) {
     assert.equal(workflow.split(`'${file}'`).length - 1, 2, file);
   }
   assert.match(workflow, /node: \['22\.12\.0', '22\.23\.4', '24\.13\.0'\]/);
   for (const runner of ['ubuntu-22.04', 'macos-15', 'windows-2022']) assert.ok(workflow.includes(runner));
   assert.equal((workflow.match(/overwrite: true/g) ?? []).length, 3);
   assert.equal((workflow.match(/if-no-files-found: error/g) ?? []).length, 3);
-  assert.ok(workflow.indexOf('npm run pack:check -- --downloaded', workflow.indexOf('  native:'))
-    < workflow.indexOf('npm run binary\n'));
+  verifyNativeOrder(workflow);
 });
+
+function verifyNativeOrder(source) {
+  const native = source.replace(/\r\n/g, '\n').split('\n  native:\n')[1];
+  assert.ok(native, 'Missing native job');
+  const checked = native.indexOf('npm run pack:check -- --downloaded');
+  const built = native.indexOf('npm run binary\n');
+  assert.ok(checked >= 0, 'Missing downloaded-package check');
+  assert.ok(built > checked, 'Native build must follow the downloaded-package check');
+}
+
+for (const newline of ['\n', '\r\n']) {
+  test(`native build ordering accepts ${newline === '\n' ? 'LF' : 'CRLF'} only with its check`, () => {
+    const source = workflow.slice(workflow.indexOf('\n  native:')).replace(/\r?\n/g, newline);
+    verifyNativeOrder(source);
+    assert.throws(() => verifyNativeOrder(source.replace('npm run pack:check -- --downloaded', 'omitted')));
+    assert.throws(() => verifyNativeOrder(source.replace(`npm run binary${newline}`, `omitted${newline}`)));
+    assert.throws(() => verifyNativeOrder(source.replace('npm run pack:check -- --downloaded',
+      `npm run binary${newline}npm run pack:check -- --downloaded`)));
+  });
+}
 
 test('native launcher consumes the verified archive rather than source files', () => {
   const builder = read('framerize-server/scripts/build-binary.js');

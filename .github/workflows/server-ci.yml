@@ -2,10 +2,10 @@ name: server-ci
 
 on:
   pull_request:
-    paths: ['framerize-server/**', 'framerize-core/**', 'scripts/build-server.ts', 'scripts/server-native-bundle.ts', 'scripts/package-archive.ts', 'test/server-*', 'package*.json', 'tsconfig*.json', '.github/workflows/server-ci.yml']
+    paths: ['.gitattributes', 'framerize-server/**', 'framerize-core/**', 'scripts/build-server.ts', 'scripts/server-native-bundle.ts', 'scripts/package-archive.ts', 'test/server-*', 'package*.json', 'tsconfig*.json', '.github/workflows/server-ci.yml']
   push:
     branches: [browserless-node, main]
-    paths: ['framerize-server/**', 'framerize-core/**', 'scripts/build-server.ts', 'scripts/server-native-bundle.ts', 'scripts/package-archive.ts', 'test/server-*', 'package*.json', 'tsconfig*.json', '.github/workflows/server-ci.yml']
+    paths: ['.gitattributes', 'framerize-server/**', 'framerize-core/**', 'scripts/build-server.ts', 'scripts/server-native-bundle.ts', 'scripts/package-archive.ts', 'test/server-*', 'package*.json', 'tsconfig*.json', '.github/workflows/server-ci.yml']
   workflow_dispatch:
 
 permissions:

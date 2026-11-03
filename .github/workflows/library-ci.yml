@@ -3,6 +3,7 @@ name: library-ci
 on:
   pull_request:
     paths:
+      - '.gitattributes'
       - 'framerize-castle/**'
       - '.github/workflows/library-ci.yml'
       - 'test/library-workflow.test.mjs'
@@ -16,6 +17,7 @@ on:
   push:
     branches: [main, browserless-node]
     paths:
+      - '.gitattributes'
       - 'framerize-castle/**'
       - '.github/workflows/library-ci.yml'
       - 'test/library-workflow.test.mjs'

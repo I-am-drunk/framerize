@@ -30,6 +30,13 @@ release qualification, hosted CI and new native artifacts remain open.
 
 The first hosted snapshot exposed a Windows type-fixture path mismatch and
 release fixtures inheriting the enclosing CI commit. Both are fixed locally.
-The Windows installed-pair failure lost its redirected output. That check now
-copies output into the job log while preserving a failed exit status; its
-cause remains unverified until the next hosted run.
+Retained follow-up logs identified CRLF-sensitive license and workflow checks,
+a Windows preload path that needed a file URL, a macOS symlink-path expectation,
+and a Windows resource assertion that ran before the closed handle retired.
+The corrected checks keep exact license bytes and require all resources to
+close within one second. A live-listener negative control still fails.
+
+Node 22.23.4 and 24.13.0 each pass 76 workflow-policy checks, 12 first-run checks,
+and six installed-package and cleanup checks. The installed flow also covers
+paths containing spaces, `#` and `%`. Product runtime source is unchanged.
+Hosted confirmation of these portability corrections remains pending.

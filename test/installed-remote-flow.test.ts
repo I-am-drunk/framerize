@@ -8,18 +8,18 @@ import type { AddressInfo } from 'node:net';
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { setImmediate } from 'node:timers/promises';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import { promisify } from 'node:util';
 import { npmCli, privateEnvironment } from '../scripts/core-package-check.js';
 import { startInstalledServer, startInstalledRemote, localToken } from '../scripts/fixtures/installed-server.js';
-import { createScenario, exchange, exerciseFlow, toolRequest } from '../scripts/fixtures/transport-scenario.js';
+import { assertTransportClosed, createScenario, exchange, exerciseFlow,
+  toolRequest, transportResources } from '../scripts/fixtures/transport-scenario.js';
 
 test('installed Remote forwards through the installed server with isolated credentials and no environment proxy',
   { timeout: 90_000 }, async (context) => {
-    const initialResources = process.getActiveResourcesInfo().filter((name) => /TCP|Timeout/.test(name)).sort();
+    const initialResources = transportResources();
     const root = mkdtempSync(join(tmpdir(), 'framerize-installed-pair-'));
-    const consumer = join(root, 'consumer with spaces');
+    const consumer = join(root, 'consumer with spaces # %');
     let scenario: Awaited<ReturnType<typeof createScenario>> | undefined;
     let server: Awaited<ReturnType<typeof startInstalledServer>> | undefined;
     let remote: Awaited<ReturnType<typeof startInstalledRemote>> | undefined;
@@ -111,9 +111,7 @@ test('installed Remote forwards through the installed server with isolated crede
       rmSync(root, { recursive: true, force: true });
       for (const result of cleanup) if (result.status === 'rejected') throw result.reason;
     }
-    await setImmediate();
-    await setImmediate();
-    assert.deepEqual(process.getActiveResourcesInfo().filter((name) => /TCP|Timeout/.test(name)).sort(), initialResources);
+    await assertTransportClosed(initialResources);
   });
 
 async function verifyInstalledDiagnosis(consumer: string, env: NodeJS.ProcessEnv) {
@@ -137,7 +135,7 @@ childProcess.spawn = (command, args, options) => {
 syncBuiltinESMExports();`);
   const launcher = join(consumer, 'node_modules/framerize-remote/bin/framerize-remote.js');
   const checked = await promisify(execFile)(process.execPath,
-    ['--import', hook, launcher, 'check', '--tailscale', '--json'], {
+    ['--import', pathToFileURL(hook).href, launcher, 'check', '--tailscale', '--json'], {
       cwd: consumer, timeout: 5000,
       env: { ...env, FRAMERIZE_REMOTE_HOME: join(consumer, 'remote-home'),
         FIXTURE_SERVER_TOKEN: 'synthetic-server-credential', FIXTURE_LOCAL_TOKEN: localToken },
@@ -191,6 +189,7 @@ try {
 } finally {
   await selected?.close(); fixture.closeAllConnections(); await new Promise(resolve => fixture.close(resolve));
 }
+
 `], { cwd: consumer, env, stdio: 'pipe', timeout: 5000 });
   const packageRoot = join(consumer, 'node_modules/framerize-remote');
   const manifest = JSON.parse(readFileSync(join(packageRoot, 'package.json'), 'utf8'));
@@ -240,3 +239,26 @@ provider.close();
     '--target', 'ES2022', '--typeRoots', join(repository, 'node_modules/@types')],
   { cwd: consumer, env, stdio: 'pipe', timeout: 30_000 });
 }
+
+test('Git checkout preserves exact T3 license bytes with automatic CRLF enabled', () => {
+  const root = mkdtempSync(join(tmpdir(), 'framerize-license-checkout-'));
+  const repository = process.env.FRAMERIZE_PACKAGE_REPOSITORY ?? fileURLToPath(new URL('../../', import.meta.url));
+  const env = { ...privateEnvironment(root), GIT_CONFIG_NOSYSTEM: '1' };
+  const git = (args: string[]) => execFileSync('git', args, { cwd: root, env, timeout: 5000, stdio: 'pipe' });
+  try {
+    const relative = 'framerize-remote/T3-LICENSE';
+    const original = execFileSync('git', ['show', `HEAD:${relative}`], { cwd: repository, env, timeout: 5000 });
+    const crlf = Buffer.from(original.toString().replace(/\n/g, '\r\n'));
+    assert.equal(original.includes(13), false);
+    git(['init', '--quiet']);
+    mkdirSync(join(root, 'framerize-remote'));
+    writeFileSync(join(root, relative), original);
+    git(['-c', 'core.autocrlf=false', 'add', relative]);
+    for (const configured of [false, true]) {
+      writeFileSync(join(root, '.gitattributes'), configured ? readFileSync(join(repository, '.gitattributes')) : '');
+      rmSync(join(root, relative));
+      git(['-c', 'core.autocrlf=true', 'checkout-index', '--force', '--', relative]);
+      assert.deepEqual(readFileSync(join(root, relative)), configured ? original : crlf);
+    }
+  } finally { rmSync(root, { recursive: true, force: true }); }
+});

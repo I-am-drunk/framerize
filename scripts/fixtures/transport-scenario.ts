@@ -2,6 +2,22 @@ import assert from 'node:assert/strict';
 import { createServer, request, type IncomingMessage } from 'node:http';
 import { once } from 'node:events';
 import type { AddressInfo } from 'node:net';
+import { setTimeout as delay } from 'node:timers/promises';
+import { isDeepStrictEqual } from 'node:util';
+
+export function transportResources(): string[] {
+  return process.getActiveResourcesInfo().filter(name => /TCP|Timeout/.test(name)).sort();
+}
+
+export async function assertTransportClosed(expected: readonly string[], timeoutMs = 1000): Promise<void> {
+  const deadline = performance.now() + timeoutMs;
+  let actual = transportResources();
+  while (!isDeepStrictEqual(actual, expected) && performance.now() < deadline) {
+    await delay(10);
+    actual = transportResources();
+  }
+  assert.deepEqual(actual, expected, 'Transport left TCP or timer resources');
+}
 
 export const upstreamToken = 'synthetic-upstream-credential';
 export const toolRequest = { model: 'fixture', stream: true, messages: [

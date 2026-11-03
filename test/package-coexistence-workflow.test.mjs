@@ -269,7 +269,7 @@ test('actual final comparison rejects changed checkout, manifest, or payload', (
   }, /changed after verification/);
 });
 const requiredPaths = [
-  'framerize-remote/**', 'framerize-server/**',
+  '.gitattributes', 'framerize-remote/**', 'framerize-server/**',
   'framerize-core/**', 'scripts/build-server.ts', 'package*.json', 'tsconfig*.json',
   'scripts/package-coexistence.ts', 'test/package-coexistence.test.ts',
   'scripts/package-archive.ts', 'test/package-archive.test.ts',

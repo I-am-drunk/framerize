@@ -4,6 +4,7 @@ on:
   workflow_call:
   pull_request:
     paths:
+      - '.gitattributes'
       - 'framerize-remote/**'
       - 'framerize-server/**'
       - 'framerize-core/**'
@@ -25,6 +26,7 @@ on:
   push:
     branches: [main, browserless-node]
     paths:
+      - '.gitattributes'
       - 'framerize-remote/**'
       - 'framerize-server/**'
       - 'framerize-core/**'

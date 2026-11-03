@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { once, getEventListeners } from 'node:events';
 import { createServer } from 'node:http';
 import { createConnection } from 'node:net';
-import { mkdtemp, mkdir, readFile, writeFile, stat, readdir, rm, link } from 'node:fs/promises';
+import { mkdtemp, mkdir, readFile, writeFile, stat, readdir, rm, link, symlink } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { spawnSync } from 'node:child_process';
@@ -161,21 +161,27 @@ test('explicit profiles override the environment and the home default is stable'
   assert.equal(JSON.parse(await readFile(join(root, '.framerize-remote', 'framerize-remote.json'), 'utf8')).port, 0);
 });
 
-test('saved file references and profile discovery survive a directory change', async context => {
-  const { root, profile } = await fixture(context);
+for (const linked of [false, true]) {
+  test(`saved file references survive a directory change with linked=${linked}`,
+    context => verifySavedReferences(context, linked));
+}
+
+async function verifySavedReferences(context, linked) {
+  const { root, profile } = await fixture(context, linked);
+  const working = process.cwd();
   const remote = await peer(context);
   await writeFile('server.token', 'synthetic-server'); await writeFile('local.token', 'synthetic-local');
   await run(['setup', '--remote', remote.origin, '--server-token-file', 'server.token',
     '--local-token-file', 'local.token'], quiet);
   const saved = JSON.parse(await readFile(profile, 'utf8'));
-  assert.equal(saved.serverToken.path, join(root, 'working', 'server.token'));
-  assert.equal(saved.localToken.path, join(root, 'working', 'local.token'));
+  assert.equal(saved.serverToken.path, join(working, 'server.token'));
+  assert.equal(saved.localToken.path, join(working, 'local.token'));
   assert.doesNotMatch(JSON.stringify(saved), /synthetic-(?:local|server)/);
   if (process.platform !== 'win32') assert.equal((await stat(profile)).mode & 0o777, 0o600);
   process.chdir(join(root, 'other'));
   assert.equal(await run(['check'], quiet), 0);
   assert.equal(remote.calls(), 1);
-});
+}
 
 async function peer(context, status = 200) {
   let calls = 0;
@@ -195,8 +201,13 @@ async function peer(context, status = 200) {
   return { origin: `http://127.0.0.1:${server.address().port}`, calls: () => calls };
 }
 
-async function fixture(context) {
-  const root = await mkdtemp(join(tmpdir(), 'remote-first-run-'));
+async function fixture(context, linked = false) {
+  const temporary = await mkdtemp(join(tmpdir(), 'remote-first-run-'));
+  const root = linked ? join(temporary, 'linked') : temporary;
+  if (linked) {
+    await mkdir(join(temporary, 'actual'));
+    await symlink(join(temporary, 'actual'), root, 'junction');
+  }
   const previous = process.cwd();
   const keys = ['FRAMERIZE_REMOTE_HOME', 'FIRST_SERVER', 'FIRST_LOCAL', 'HOME', 'USERPROFILE'];
   const saved = keys.map(key => [key, process.env[key]]);
@@ -209,7 +220,7 @@ async function fixture(context) {
     for (const [key, value] of saved) {
       if (value === undefined) delete process.env[key]; else process.env[key] = value;
     }
-    await rm(root, { recursive: true, force: true });
+    await rm(temporary, { recursive: true, force: true });
   });
   return { root, profile: join(root, 'profile', 'framerize-remote.json') };
 }

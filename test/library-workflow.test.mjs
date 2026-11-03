@@ -24,7 +24,7 @@ function validateWorkflow(source) {
   const events = section(source, 'on');
   for (const event of ['push', 'pull_request']) {
     const config = section(events, event, 2);
-    for (const entry of ['framerize-castle/**', '.github/workflows/library-ci.yml',
+    for (const entry of ['.gitattributes', 'framerize-castle/**', '.github/workflows/library-ci.yml',
       'test/library-workflow.test.mjs', 'docs/library-ci.md', 'test/installed-castle-flow.test.ts',
       'scripts/core-package-check.ts', 'tsconfig.library-tools.json', 'tsconfig.base.json',
       'package.json', 'package-lock.json']) assert.ok(config.includes("'" + entry + "'"));
@@ -56,6 +56,7 @@ test('library workflow preserves offline matrix and read-only policy', () => val
 for (const [before, after] of [
   ['contents: read', 'contents: write'], ['persist-credentials: false', 'persist-credentials: true'],
   ["      - 'framerize-castle/**'", ''], ["      - 'docs/library-ci.md'", ''],
+  ["      - '.gitattributes'", ''],
   ["      - 'test/library-workflow.test.mjs'", ''], ["      - '.github/workflows/library-ci.yml'", ''],
   ['main, browserless-node', 'main'], ['macos-15', 'ubuntu-24.04'], ['windows-2022', 'ubuntu-24.04'],
   ["'22.12.0'", "'20'"], ["'22.23.4'", "'20'"], ["'24.13.0'", "'20'"], ['NODE_OPTIONS: \'\'', 'NODE_OPTIONS: unsafe'],
