@@ -177,20 +177,26 @@ export async function createServer(config, { logger, fetchImpl = fetch } = {}) {
   return {
     server,
     async listen() {
+      if (closing) throw new Error('server is closing');
       await new Promise((resolve, reject) => {
+        const listening = () => {
+          server.off('error', reject);
+          if (closing) server.close(resolve);
+          else resolve();
+        };
         server.once('error', reject);
-        server.listen(config.port, config.host, resolve);
+        server.listen(config.port, config.host, listening);
       });
       return server.address();
     },
     close() {
-      if (!server.listening) return Promise.resolve();
       closePromise ??= (async () => {
         closing = true;
         for (const item of active) {
           if (item instanceof AbortController) item.abort(new Error('server shutting down'));
           else item.destroy();
         }
+        if (!server.listening) return;
         await new Promise((resolve, reject) => {
           server.close((error) => error ? reject(error) : resolve());
         });

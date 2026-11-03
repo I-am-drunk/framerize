@@ -69,8 +69,7 @@ jobs:
           path: dist
           merge-multiple: true
       - run: mv framer-next-*.tgz dist/
-      - run: sort -u dist/SHA256SUMS -o dist/SHA256SUMS
-      - run: cd dist && sha256sum -c SHA256SUMS
+      - run: node scripts/merge-release-manifests.js
       - uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6
         if: github.event.repository.visibility == 'public'
         with:
