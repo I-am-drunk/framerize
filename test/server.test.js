@@ -206,8 +206,8 @@ test('close before listen and repeated close are safe', async () => {
   const app = await createServer(parseConfig({ port: 0 }));
   await app.close();
   await app.close();
-  await app.listen();
-  await Promise.all([app.close(), app.close()]);
+  await assert.rejects(Promise.all([app.listen(), app.close()]), /server is closing/);
+  assert.equal(app.server.listening, false);
 });
 
 test('Framer chat preserves native streaming events', async (t) => {
