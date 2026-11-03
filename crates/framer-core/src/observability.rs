@@ -23,11 +23,12 @@ use std::sync::{Mutex, OnceLock};
 #[path = "observability_append.rs"]
 mod append;
 
+#[path = "observability_daily.rs"]
+mod daily;
+
 static LOG_DIR: OnceLock<PathBuf> = OnceLock::new();
-static WRITER: OnceLock<Mutex<std::fs::File>> = OnceLock::new();
-static LOG_OPEN_WARNING: OnceLock<()> = OnceLock::new();
+static WRITER: OnceLock<Mutex<daily::DailyWriter>> = OnceLock::new();
 static LOG_WRITE_WARNING: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
-static RETENTION_DAYS: u64 = 7;
 
 fn warn_write_failure(error: &std::io::Error) {
     use std::io::Write;
@@ -50,52 +51,16 @@ pub fn init_path(profiles: &Path) {
     let dir = profiles.join(".logs");
     let _ = std::fs::create_dir_all(&dir);
     let _ = LOG_DIR.set(dir);
-    // Retention: drop daily files older than RETENTION_DAYS.
     if let Some(dir) = LOG_DIR.get() {
-        let cutoff = std::time::SystemTime::now()
-            - std::time::Duration::from_secs(RETENTION_DAYS * 86400);
-        if let Ok(rd) = std::fs::read_dir(dir) {
-            for e in rd.flatten() {
-                let p = e.path();
-                if p.extension().and_then(|s| s.to_str()) == Some("ndjson") {
-                    if let Ok(meta) = p.metadata() {
-                        if meta.modified().map(|m| m < cutoff).unwrap_or(false) {
-                            let _ = std::fs::remove_file(&p);
-                        }
-                    }
-                }
-            }
-        }
+        daily::prune(dir, &chrono_today());
     }
 }
 
-fn file_for_today() -> Option<&'static Mutex<std::fs::File>> {
-    // Note: one file handle per process lifetime; the date suffix means a
-    // multi-day run opens a new file only after restart. Acceptable for a
-    // local daemon (and stated in docs/logging.md).
+fn file_for_today() -> Option<&'static Mutex<daily::DailyWriter>> {
     // Never panic for logging: uninitialized → no writer → emit() is a no-op.
     // (Library callers like convert::to_openrouter_id run in tests without init.)
-    let dir = LOG_DIR.get()?;
-    if let Some(writer) = WRITER.get() {
-        return Some(writer);
-    }
-    let day = chrono_today();
-    let file = match std::fs::OpenOptions::new()
-        .create(true)
-        .append(true)
-        .open(dir.join(format!("events-{day}.ndjson")))
-    {
-        Ok(file) => file,
-        Err(error) => {
-            LOG_OPEN_WARNING.get_or_init(|| {
-                use std::io::Write;
-                let _ = writeln!(std::io::stderr().lock(),
-                    "Framerize: cannot open event log: {error}; structured diagnostics are being lost.");
-            });
-            return None;
-        }
-    };
-    Some(WRITER.get_or_init(|| Mutex::new(file)))
+    LOG_DIR.get()?;
+    Some(WRITER.get_or_init(|| Mutex::new(daily::DailyWriter::default())))
 }
 
 fn chrono_today() -> String {
@@ -184,9 +149,9 @@ impl Event {
         self.level("error").field("error", msg.to_string()).outcome("error")
     }
     pub fn emit(self) {
-        if let Some(f) = file_for_today() {
+        if let (Some(f), Some(directory)) = (file_for_today(), LOG_DIR.get()) {
             if let Ok(mut f) = f.lock() {
-                if let Err(error) = append::event(&mut *f, &self.v) {
+                if let Err(error) = f.event(directory, &chrono_today(), &self.v) {
                     warn_write_failure(&error);
                 }
             }

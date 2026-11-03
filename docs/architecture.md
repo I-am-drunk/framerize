@@ -32,6 +32,11 @@ through unchanged; the adapter never guesses boundaries from thinking text.
 Only hashes, offsets and versioned continuation kinds enter the private
 checkpoint database. Its cache is 1 MiB and its file limit is 128 MiB.
 The adapter persists each combined checkpoint before publishing it.
+New checkpoints share their stored parent layout, so metadata grows linearly
+with the number of chunks. Every published prefix remains available.
+Version 2 links retain the original version 1 continuation prompts and can
+refer to existing version 1 rows. Older binaries cannot read version 2;
+rollback must use a compatible reader and preserve the complete database.
 
 Other adaptive models use the configured total output allowance in their upstream
 request. The ordinary 600-token starting chunk does not limit it. The service

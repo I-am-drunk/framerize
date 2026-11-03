@@ -1,7 +1,49 @@
 use super::*;
 
+#[test]
+fn checkpoint_storage_grows_linearly_with_completed_chunks() {
+    let sizes: Vec<i64> = [32, 64].iter().map(|count| {
+        let store = HistoryStore::default();
+        let mut trace = Trace::default();
+        let mut content = Vec::new();
+        trace.append(&store, &mut content, &[thought("growth-checkpoint")]).unwrap();
+        for index in 1..*count {
+            trace.continuing(false);
+            trace.append(&store, &mut content, &[text(&format!(" chunk {index}"))]).unwrap();
+        }
+        let mut body = request(content);
+        store.restore(&mut body).unwrap();
+        assert_eq!(body["messages"].as_array().unwrap().len(), 2 * count + 1);
+        assert_eq!(body["messages"][2 * count - 1]["content"][0]["text"],
+            format!(" chunk {}", count - 1));
+        let bytes = store.0.lock().unwrap().query_row(
+            "SELECT sum(length(fingerprint)+length(layout)) FROM checkpoints", [], |r| r.get(0)).unwrap();
+        bytes
+    }).collect();
+    eprintln!("checkpoint storage bytes at 32 and 64 chunks: {sizes:?}");
+    assert!(sizes[1] < sizes[0] * 5 / 2, "checkpoint storage sizes: {sizes:?}");
+}
+
 fn thought(id: &str) -> Value {
     json!({"type":"thinking","thinking":"fixture thought","signature":id})
+}
+
+#[test]
+fn linked_history_accepts_an_equivalent_legacy_layout_without_replacing_it() {
+    let store = HistoryStore::default();
+    let chunks = [vec![thought("legacy")], vec![text("one")], vec![text("two")]];
+    let content = record(&store, &chunks);
+    let key = content_hash(&content);
+    let legacy = store.load(&key).unwrap().unwrap();
+    store.0.lock().unwrap().execute("UPDATE checkpoints SET layout=? WHERE fingerprint=?",
+        params![legacy.to_string(), key]).unwrap();
+    assert_eq!(record(&store, &chunks), content);
+    let mut body = request(content);
+    store.restore(&mut body).unwrap();
+    assert_eq!(body["messages"][5]["content"], json!(chunks[2]));
+    let raw: String = store.0.lock().unwrap().query_row(
+        "SELECT layout FROM checkpoints WHERE fingerprint=?", [key], |r| r.get(0)).unwrap();
+    assert_eq!(serde_json::from_str::<Value>(&raw).unwrap()["version"], 1);
 }
 fn text(value: &str) -> Value { json!({"type":"text","text":value}) }
 fn request(blocks: Vec<Value>) -> Value {
@@ -38,14 +80,15 @@ fn restart_preserves_layout_without_storing_messages_or_signatures() {
     let path = std::env::temp_dir().join(format!("framerize-history-{}", uuid::Uuid::new_v4()));
     let store = HistoryStore::open(&path).unwrap();
     let mut body = request(record(&store, &[vec![thought("private-signature")],
-        vec![text("private-response")]]));
+        vec![text("private-response")], vec![text(" private-continuation")]]));
     let data: String = store.0.lock().unwrap().query_row(
         "SELECT group_concat(fingerprint || layout) FROM checkpoints", [], |r| r.get(0)).unwrap();
     assert!(!data.contains("private-signature") && !data.contains("private-response"));
     assert!(!data.contains("fixture thought") && !data.contains("original request"));
+    assert!(!data.contains("private-continuation"));
     drop(store);
     HistoryStore::open(&path).unwrap().restore(&mut body).unwrap();
-    assert_eq!(body["messages"].as_array().unwrap().len(), 5);
+    assert_eq!(body["messages"].as_array().unwrap().len(), 7);
     std::fs::remove_dir_all(path).unwrap();
 }
 
@@ -82,6 +125,26 @@ fn client_cache_markers_do_not_invalidate_checkpoint_history() {
     let once = body.clone();
     store.restore(&mut body).unwrap();
     assert_eq!(body, once);
+}
+
+#[test]
+fn corrupt_linked_history_fails_without_modifying_the_request() {
+    for cycle in [false, true] {
+        let store = HistoryStore::default();
+        let content = record(&store, &[vec![thought("linked")],
+            vec![text("one")], vec![text("two")]]);
+        let key = content_hash(&content);
+        let parent = if cycle { key.clone() } else { "a".repeat(64) };
+        let corrupt = json!({"version":2,"parent":parent,
+            "turn":{"prompt":1,"parts":[[1,3,6]]}});
+        store.0.lock().unwrap().execute("UPDATE checkpoints SET layout=? WHERE fingerprint=?",
+            params![corrupt.to_string(),key]).unwrap();
+        let mut body = request(content);
+        let unchanged = body.clone();
+        let error = store.restore(&mut body).unwrap_err();
+        assert!(error.contains(if cycle { "cycle" } else { "missing" }), "{error}");
+        assert_eq!(body, unchanged);
+    }
 }
 
 #[test]
@@ -123,6 +186,22 @@ fn preserves_the_recorded_tool_recovery_turn() {
     store.restore(&mut body).unwrap();
     assert_eq!(body["messages"][2]["content"], super::super::messages::checkpoint::TOOL_CONTINUE);
     assert_eq!(body["messages"][3]["content"], json!([tool]));
+}
+
+#[test]
+fn empty_final_chunk_keeps_the_published_signed_history_restorable() {
+    let store = HistoryStore::default();
+    let mut trace = Trace::default();
+    let mut content = Vec::new();
+    trace.append(&store, &mut content, &[thought("empty-final")]).unwrap();
+    trace.continuing(false);
+    trace.append(&store, &mut content, &[text("complete")]).unwrap();
+    let mut expected = request(content.clone());
+    store.restore(&mut expected).unwrap();
+    trace.append(&store, &mut content, &[]).unwrap();
+    let mut body = request(content);
+    store.restore(&mut body).unwrap();
+    assert_eq!(body, expected);
 }
 
 #[cfg(unix)]

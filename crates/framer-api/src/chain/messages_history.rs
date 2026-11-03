@@ -5,6 +5,12 @@ use std::{path::Path, sync::Mutex};
 
 pub(crate) struct HistoryStore(Mutex<Connection>);
 
+const MAX_LAYOUT_BYTES: usize = 262144;
+const MAX_TURNS: usize = 1024;
+
+#[path = "messages_history_layout.rs"]
+mod layout;
+
 #[cfg(test)]
 #[path = "messages_history_tests.rs"]
 mod tests;
@@ -40,11 +46,16 @@ fn content_hash(blocks: &[Value]) -> String {
 pub(super) struct Trace {
     turns: Vec<Value>,
     prompt: u8,
+    previous: Option<String>,
+    layout_bytes: usize,
 }
 
 impl Trace {
     pub(super) fn append(&mut self, store: &HistoryStore, combined: &mut Vec<Value>,
         incoming: &[Value]) -> Result<(), String> {
+        // A terminal response can add no blocks. The published content still
+        // has its previous layout; recording an empty turn would conflict.
+        if incoming.is_empty() { return Ok(()); }
         let mut parts = Vec::new();
         for block in incoming {
             let plain = plain_text(block);
@@ -56,10 +67,22 @@ impl Trace {
             } else { json!([index]) });
             crate::protocol::messages::merge_blocks(combined, vec![block.clone()]);
         }
-        self.turns.push(json!({"parts":parts,"prompt":self.prompt}));
+        let turn = json!({"parts":parts,"prompt":self.prompt});
+        self.layout_bytes += serde_json::to_vec(&turn).expect("JSON value").len() + 1;
+        if self.turns.len() >= MAX_TURNS || self.layout_bytes + 32 > MAX_LAYOUT_BYTES {
+            return Err(failure("checkpoint layout exceeds its size limit"));
+        }
+        self.turns.push(turn.clone());
         if (self.turns.len() > 1 || incoming != combined.as_slice()) && anchor(combined).is_some() {
             // Only offsets, hashes and fixed continuation kinds are persisted.
-            store.save(&content_hash(combined), &json!({"version":1,"turns":self.turns}))?;
+            // Keep each published prefix, sharing its already-persisted layout.
+            let saved = match &self.previous {
+                Some(parent) => json!({"version":2,"parent":parent,"turn":turn}),
+                None => json!({"version":1,"turns":self.turns}),
+            };
+            let key = content_hash(combined);
+            store.save(&key, &saved)?;
+            self.previous = Some(key);
         }
         Ok(())
     }
@@ -79,7 +102,7 @@ fn expand(message: &Value, blocks: &[Value], layout: &Value) -> Result<Vec<Value
     if layout["version"] != 1 { return Err(invalid()); }
     let turns = layout["turns"].as_array().ok_or_else(invalid)?;
     let count = turns.len();
-    if count == 0 || count > 1024 { return Err(invalid()); }
+    if count == 0 || count > MAX_TURNS { return Err(invalid()); }
     let mut output = Vec::new();
     let mut merged = Vec::new();
     for (index, turn) in turns[..count].iter().enumerate() {
@@ -181,24 +204,28 @@ impl HistoryStore {
 
     fn load(&self, key: &str) -> Result<Option<Value>, String> {
         let db = self.0.lock().map_err(|_| failure("history lock was poisoned"))?;
-        let raw: Option<String> = db.query_row(
-            "SELECT substr(layout,1,262145) FROM checkpoints WHERE fingerprint=?", [key], |r| r.get(0))
-            .optional().map_err(failure)?;
-        raw.map(|s| {
-            if s.len() > 262144 { return Err(failure("stored layout exceeds 256 KiB")); }
-            serde_json::from_str(&s).map_err(failure)
-        }).transpose()
+        layout::read(&db, key)?.map(|value| layout::resolve(&db, value)).transpose()
     }
 
     fn save(&self, key: &str, layout: &Value) -> Result<(), String> {
         let raw = serde_json::to_string(layout).map_err(failure)?;
-        if raw.len() > 262144 { return Err(failure("layout exceeds 256 KiB")); }
+        if raw.len() > MAX_LAYOUT_BYTES { return Err(failure("layout exceeds 256 KiB")); }
+        if layout["version"] == 2 && layout["parent"] == key {
+            return Err(failure("checkpoint made no content progress"));
+        }
         let db = self.0.lock().map_err(|_| failure("history lock was poisoned"))?;
         db.execute("INSERT INTO checkpoints VALUES (?,?) ON CONFLICT DO NOTHING",
             params![key, raw]).map_err(failure)?;
         let identical: bool = db.query_row("SELECT layout=? FROM checkpoints WHERE fingerprint=?",
             params![raw, key], |r| r.get(0)).map_err(failure)?;
-        if !identical { return Err(failure("conflicting layout for the same signed content")); }
+        if !identical {
+            // An older release may have saved the same turns without links.
+            // Keep that row and compare the actual layout, not its encoding.
+            let existing = layout::read(&db, key)?.ok_or_else(|| failure("missing saved layout"))?;
+            if layout::resolve(&db, existing)? != layout::resolve(&db, layout.clone())? {
+                return Err(failure("conflicting layout for the same signed content"));
+            }
+        }
         Ok(())
     }
 }

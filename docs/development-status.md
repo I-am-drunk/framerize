@@ -9,6 +9,15 @@ signed-follow-up and tool verification before activation.
 The wider [Claude reliability audit](incidents/2026-11-03-claude-reliability.md)
 records findings and their verification limits.
 
+The pending long-run corrections rotate event logs without restart and share
+checkpoint layout prefixes instead of storing every complete layout again.
+All nine logging tests and 160 Messages tests pass. The history format reads
+older rows without modification, but older binaries cannot read new linked
+rows. Activation must retain a compatible rollback binary and all history.
+The approved compiler-cache cleanup reclaimed 2.96 GB without removing logs,
+account data or binaries. Next: qualify the pending candidate in the isolated
+account, then finish the Opus 5.5 investigation before production activation.
+
 # Alpha.25 live, 2026-11-03
 
 Branch `fix/claude-network-diagnostics-20261103` has deployed source

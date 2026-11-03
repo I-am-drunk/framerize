@@ -9,12 +9,13 @@ standard field names, no secrets, retention, and a query interface.
 `<profiles>/.logs/events-YYYY-MM-DD.ndjson` (daemon default:
 `~/.framerize/profiles/.logs/`). The daemon and the Camoufox sidecar write the
 **same schema into the same directory** (the sidecar gets the dir via
-`FRAMERIZE_LOG_DIR`). Daily files; files older than 7 days are deleted at
-daemon start.
+`FRAMERIZE_LOG_DIR`). The daemon rotates files at UTC midnight without a
+restart. At startup and each rotation, it removes dated event files older than
+seven days. It preserves the current file, symlinks and unrelated files.
 
 Native serving initializes the same sink after selected-account validation.
 It preserves the profile's filesystem path, including non-UTF-8 names. If the
-daily log cannot open, a fixed warning goes to stderr once and requests keep
+daily log cannot open, a warning goes to stderr at most once per minute and requests keep
 running. Later events retry opening it; an obstructing file is never replaced.
 Events dropped before the destination becomes available remain lost evidence.
 
@@ -24,8 +25,8 @@ write with a suffix that could follow a sidecar record. A short write or error i
 lost evidence and is ignored by serving; consumers must still reject missing or
 malformed records. This is not a cross-process lock, a durability guarantee, or
 an atomicity promise for every filesystem. Existing sidecar writing is unchanged.
-The core and focused fixture compilations pass. All five fixtures pass, including
-independent append handles and short-write/error paths. The running service
+All nine focused fixtures pass, including independent append handles,
+short-write/error paths, daily rotation, retention and failed-rotation recovery. The running service
 keeps its existing writer until a separately validated package is activated.
 
 ## Schema
