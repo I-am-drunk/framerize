@@ -309,6 +309,15 @@ source test entries pass. A native incoming-header timeout can produce a
 No deadline increase or speculative runtime correction has been applied.
 The passing post-merge run does not close this investigation.
 
-Next action: retain failure diagnostics with the acceptance owner, resolve
-the Windows finding, and complete parent-controlled documentation integration
-and `main` synchronization. Publication and activation remain excluded.
+Acceptance checkpoint `600888610a5c2f68f8dcc632fa39a236d2e84c7d` is integrated
+unchanged as `7c7613a1`. It adds failure-only, monotonic event diagnostics to
+the affected test without changing deadlines, assertions or native event
+handling. Both integration tests pass on Node 22.23.4 and 24.13.0. A deliberate
+assertion-failure control emits the expected safe events on both versions
+without fixture credentials or upstream-secret text. The owner's exact combined
+archive passes 114 explicit tests and 67 acceptance tests on Node 22.23.4.
+These results validate the diagnostics, not a fix for the Windows reset.
+
+Next action: inspect the instrumented CI evidence, resolve the Windows finding,
+and complete parent-controlled documentation integration and `main`
+synchronization. Publication and activation remain excluded.
