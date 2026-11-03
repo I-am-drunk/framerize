@@ -48,9 +48,19 @@ tests. Routine client disconnects now produce informational logs. Its package,
 standalone executable, short and long stream fixtures, and live streamed tool
 call have passed verification.
 
+After activation, a short Opus stream returned HTTP 403. The workspace still
+enforces its `paid_plan_only_model` restriction. This is an upstream account
+entitlement, not a streaming or tool-transport failure. The earlier successful
+Opus short and long streams remain recorded above.
+
 ## Publication dependency
 
 The `framer-next` package name remains available. First publication requires
 an authenticated npm package owner. The registry returns `ENEEDAUTH`, so no
 package has been published. After first publication, configure trusted
 publishing for this repository, workflow, and `npm-release` environment.
+
+The `framer-next-v0.1.7` GitHub release contains its verified tarball,
+executable archive, checksums, Node license, and source metadata. The release
+build passed. Its npm step failed with `ENEEDAUTH` after the GitHub release
+was published.
