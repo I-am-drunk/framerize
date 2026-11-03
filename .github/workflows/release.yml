@@ -50,7 +50,7 @@ jobs:
         with:
           name: release-${{ github.ref_name }}
           path: dist
-      - run: cd dist && sha256sum -c SHA256SUMS
+      - run: cd dist/dist && sha256sum -c SHA256SUMS
       - uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6
         with:
           subject-path: |
