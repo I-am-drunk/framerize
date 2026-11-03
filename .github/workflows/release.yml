@@ -52,10 +52,11 @@ jobs:
           path: dist
       - run: cd dist/dist && sha256sum -c SHA256SUMS
       - uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6
+        if: github.event.repository.visibility == 'public'
         with:
           subject-path: |
-            dist/framer-next-*.tgz
-            dist/framer-next-linux-x64.tar.gz
+            dist/dist/framer-next-*.tgz
+            dist/dist/framer-next-linux-x64.tar.gz
       - run: |
           if [[ "${GITHUB_REF_NAME}" == *-* ]]; then export DIST_TAG=next; else export DIST_TAG=latest; fi
           npm publish dist/framer-next-*.tgz --ignore-scripts --provenance --access public --tag "$DIST_TAG"
