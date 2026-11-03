@@ -4,6 +4,8 @@ import { loadAccounts } from './config.js';
 import { openUpstream, createDeadline } from './upstream.js';
 import { idleTimeout } from './sse.js';
 import { sanitizeError } from './logger.js';
+import { chatToResponses, responseToChat, responsesToChatStream, readResponse } from './openai.js';
+import { encodeSse, parseSse } from './sse.js';
 
 function sendJson(response, status, value) {
   const body = JSON.stringify(value);
@@ -12,6 +14,19 @@ function sendJson(response, status, value) {
     'content-length': Buffer.byteLength(body),
   });
   response.end(body);
+}
+
+async function* parseEvents(chunks) {
+  for await (const event of parseSse(chunks)) {
+    if (event.data === '[DONE]') continue;
+    yield JSON.parse(event.data);
+  }
+}
+
+async function* encodeChunks(chunks) {
+  for await (const chunk of chunks) {
+    yield encodeSse({ data: typeof chunk === 'string' ? chunk : JSON.stringify(chunk) });
+  }
 }
 
 function waitForDrain(response, signal) {
@@ -88,8 +103,17 @@ export async function createServer(config, { logger, fetchImpl = fetch } = {}) {
         sendJson(response, 404, { error: { message: 'not found', type: 'not_found' } });
         return;
       }
-      const body = await readBody(request, config.maxBodyBytes);
+      let body = await readBody(request, config.maxBodyBytes);
       const account = selectAccount(accounts, request, body);
+      const convertChat = account?.provider === 'framer' && url.pathname === '/v1/chat/completions';
+      let model = '';
+      let streamChat = false;
+      if (convertChat) {
+        const converted = chatToResponses(JSON.parse(body.toString('utf8')));
+        model = converted.model;
+        streamChat = converted.stream;
+        body = Buffer.from(JSON.stringify(converted));
+      }
       if (request.headers['x-framer-account'] && !account) {
         sendJson(response, 404, { error: { message: 'unknown account', type: 'not_found' } });
         return;
@@ -102,11 +126,25 @@ export async function createServer(config, { logger, fetchImpl = fetch } = {}) {
         const value = upstream.response.headers.get(name);
         if (value) responseHeaders[name] = value;
       }
-      response.writeHead(upstream.response.status, responseHeaders);
+      if (convertChat && upstream.response.ok) {
+        responseHeaders['content-type'] = 'text/event-stream; charset=utf-8';
+        delete responseHeaders['content-length'];
+      }
       const responseDeadline = createDeadline(controller.signal, config.requestTimeoutMs);
       try {
+        if (convertChat && upstream.response.ok && !streamChat) {
+          const result = await readResponse(upstream.response);
+          sendJson(response, upstream.response.status, responseToChat(result, model));
+          return;
+        }
+        response.writeHead(upstream.response.status, responseHeaders);
         if (upstream.response.body) {
-          const chunks = idleTimeout(upstream.response.body, config.idleTimeoutMs, controller.signal);
+          let chunks = idleTimeout(upstream.response.body, config.idleTimeoutMs, controller.signal);
+          if (convertChat && upstream.response.ok) {
+            const events = parseEvents(chunks);
+            const converted = responsesToChatStream(events, model);
+            chunks = encodeChunks(converted);
+          }
           for await (const value of chunks) {
             if (!response.write(value)) await waitForDrain(response, responseDeadline.signal);
           }

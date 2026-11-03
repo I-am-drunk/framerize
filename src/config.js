@@ -73,7 +73,8 @@ export async function loadAccounts(file) {
     if (!account || typeof account !== 'object' || Array.isArray(account)) {
       throw new ConfigError(`accounts[${index}] must be an object`);
     }
-    const allowed = new Set(['id', 'enabled', 'model', 'upstream', 'authorizationEnv']);
+    const allowed = new Set(['id', 'enabled', 'model', 'upstream', 'authorizationEnv',
+      'provider', 'projectId', 'sessionEnv', 'castleEnv']);
     for (const key of Object.keys(account)) {
       if (!allowed.has(key)) throw new ConfigError(`accounts[${index}] has unknown field: ${key}`);
     }
@@ -82,6 +83,22 @@ export async function loadAccounts(file) {
     }
     if (account.model !== undefined && typeof account.model !== 'string') {
       throw new ConfigError(`accounts[${index}].model must be a string`);
+    }
+    if (account.provider !== undefined && account.provider !== 'framer') {
+      throw new ConfigError(`accounts[${index}].provider must be framer`);
+    }
+    for (const key of ['sessionEnv', 'castleEnv']) {
+      if (account[key] !== undefined && !/^[A-Z_][A-Z0-9_]*$/.test(account[key])) {
+        throw new ConfigError(`accounts[${index}].${key} must be an environment variable name`);
+      }
+    }
+    if (account.provider === 'framer') {
+      if (typeof account.projectId !== 'string' || !account.projectId) {
+        throw new ConfigError(`accounts[${index}].projectId is required for Framer`);
+      }
+      if (!account.sessionEnv && !account.authorizationEnv) {
+        throw new ConfigError(`accounts[${index}] needs sessionEnv or authorizationEnv`);
+      }
     }
     if (typeof account.id !== 'string' || !/^[a-zA-Z0-9][a-zA-Z0-9._-]{0,63}$/.test(account.id)) {
       throw new ConfigError(`accounts[${index}].id must be a short safe string`);
@@ -99,7 +116,8 @@ export async function loadAccounts(file) {
     }
   }
   return parsed.filter((account) => account.enabled !== false).map((account) => (
-    Object.fromEntries(['id', 'enabled', 'model', 'upstream', 'authorizationEnv']
+    Object.fromEntries(['id', 'enabled', 'model', 'upstream', 'authorizationEnv',
+      'provider', 'projectId', 'sessionEnv', 'castleEnv']
       .filter((key) => account[key] !== undefined).map((key) => [key, account[key]]))
   ));
 }

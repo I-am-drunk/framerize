@@ -6,13 +6,13 @@ import path from 'node:path';
 import { parseConfig } from '../src/config.js';
 import { createServer } from '../src/server.js';
 
-async function fixture(t, fetchImpl, accounts = []) {
+async function fixture(t, fetchImpl, accounts = [], options = {}) {
   const directory = await mkdtemp(path.join(tmpdir(), 'framer-next-'));
   const file = path.join(directory, 'accounts.json');
   await writeFile(file, JSON.stringify(accounts));
   const app = await createServer(parseConfig({
     port: 0, accounts: file, upstream: 'http://upstream.test',
-  }), { fetchImpl });
+  }), { fetchImpl, ...options });
   t.after(() => app.close());
   const address = await app.listen();
   return `http://127.0.0.1:${address.port}`;
@@ -92,4 +92,47 @@ test('close before listen and repeated close are safe', async () => {
   await app.close();
   await app.listen();
   await Promise.all([app.close(), app.close()]);
+});
+
+test('Framer chat streams Responses events as Chat Completions', async (t) => {
+  let envelope;
+  const events = [
+    { type: 'response.output_text.delta', delta: 'hello' },
+    { type: 'response.completed', response: { id: 'resp_1', output: [
+      { type: 'message', content: [{ type: 'output_text', text: 'hello' }] },
+    ] } },
+  ].map((event) => `data: ${JSON.stringify(event)}\n\n`).join('');
+  const base = await fixture(t, async (url, options) => {
+    envelope = JSON.parse(options.body);
+    return new Response(events, { headers: { 'content-type': 'text/event-stream' } });
+  }, [{ id: 'framer', provider: 'framer', projectId: 'project',
+    authorizationEnv: 'TEST_JWT', castleEnv: 'TEST_CASTLE' }]);
+  process.env.TEST_JWT = 'fixture';
+  process.env.TEST_CASTLE = 'fixture';
+  const response = await fetch(`${base}/v1/chat/completions`, {
+    method: 'POST', body: JSON.stringify({ model: 'gpt-test', messages: [{ role: 'user', content: 'hi' }], stream: true }),
+  });
+  const text = await response.text();
+  assert.match(text, /"content":"hello"/);
+  assert.match(text, /data: \[DONE\]/);
+  assert.equal(envelope.request.input[0].role, 'user');
+});
+
+test('Framer non-streaming chat returns a completion object', async (t) => {
+  const base = await fixture(t, async () => new Response(JSON.stringify({
+    id: 'resp_1', created_at: 1, status: 'completed', output: [
+      { type: 'message', content: [{ type: 'output_text', text: 'hello' }] },
+    ], usage: { input_tokens: 2, output_tokens: 1, total_tokens: 3 },
+  }), { headers: { 'content-type': 'application/json' } }), [
+    { id: 'framer', provider: 'framer', projectId: 'project',
+      authorizationEnv: 'TEST_JWT', castleEnv: 'TEST_CASTLE' },
+  ]);
+  process.env.TEST_JWT = 'fixture';
+  process.env.TEST_CASTLE = 'fixture';
+  const response = await fetch(`${base}/v1/chat/completions`, {
+    method: 'POST', body: JSON.stringify({ model: 'gpt-test', messages: [{ role: 'user', content: 'hi' }] }),
+  });
+  const result = await response.json();
+  assert.equal(result.choices[0].message.content, 'hello');
+  assert.equal(result.usage.total_tokens, 3);
 });

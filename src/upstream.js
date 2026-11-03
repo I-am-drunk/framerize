@@ -1,4 +1,5 @@
 import { createDeadline } from './sse.js';
+import { prepareFramer } from './framer.js';
 
 export function upstreamHeaders(headers, authorization) {
   const result = {};
@@ -14,14 +15,16 @@ export async function openUpstream({ config, request, body, account, signal, fet
   if (!config.upstream && !account?.upstream) throw new Error('no upstream endpoint configured');
   const base = account?.upstream || config.upstream;
   const url = new URL(request.url, 'http://local');
-  const destination = new URL(`${base}${url.pathname}${url.search}`);
   const deadline = createDeadline(signal, config.requestTimeoutMs);
   try {
+    const framer = await prepareFramer({ account, path: url.pathname, body,
+      signal: deadline.signal, fetchImpl });
+    const destination = new URL(framer?.url || `${base}${url.pathname}${url.search}`);
     const response = await fetchImpl(destination, {
       method: request.method,
-      headers: upstreamHeaders(request.headers, account?.authorizationEnv
-        ? process.env[account.authorizationEnv] : undefined),
-      body: ['GET', 'HEAD'].includes(request.method) ? undefined : body,
+      headers: upstreamHeaders(request.headers, framer?.authorization || (account?.authorizationEnv
+        ? process.env[account.authorizationEnv] : undefined)),
+      body: ['GET', 'HEAD'].includes(request.method) ? undefined : framer?.body || body,
       signal: deadline.signal,
       redirect: 'error',
     });
