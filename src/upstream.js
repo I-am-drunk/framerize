@@ -17,7 +17,9 @@ export function upstreamHeaders(headers, authorization, isFramer = false) {
 }
 
 export async function openUpstream({ config, request, body, account, signal, fetchImpl = fetch }) {
-  if (!config.upstream && !account?.upstream) throw new Error('no upstream endpoint configured');
+  if (!config.upstream && !account?.upstream && account?.provider !== 'framer') {
+    throw new Error('no upstream endpoint configured');
+  }
   const base = account?.upstream || config.upstream;
   const url = new URL(request.url, 'http://local');
   const deadline = createDeadline(signal, config.requestTimeoutMs);
