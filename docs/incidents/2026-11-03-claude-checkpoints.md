@@ -1,4 +1,33 @@
-# Claude checkpoint candidate
+# Claude checkpoint release
+
+Alpha.25 is live as PID 862608 since 06:32:06 UTC on November 3. Health,
+readiness and real Kimi, Claude and Astra requests passed after activation.
+
+The exact alpha.25 binary now completes the captured request that previously
+received HTTP 504 after 60.313 seconds. It returned the requested read-only
+test plan in 155.338 seconds through eight buffered checkpoints. The longest
+checkpoint took 21.234 seconds. All twenty input turns, 98 tools, xhigh effort
+and the 64,000-token total allowance were preserved. No returned tool ran.
+
+A separate three-checkpoint answer and its client follow-up passed. Returning
+an earlier four-checkpoint answer after restarting the isolated daemon also
+passed, demonstrating persistent reconstruction of the signed turn boundaries.
+Streaming, complete tool-call and 32 repeated-request checks passed. The final
+run stayed below its 2 GiB memory cap and shut down normally in 3.012 seconds.
+
+Verifier assumptions were corrected without changing the binary. The
+article checker had concatenated separate content blocks without a separator,
+hiding one heading. It still rejects missing or repeated sections. The captured
+task requested a read-only test plan, so requiring a tool call was incorrect.
+Its complete answer now passes checks for the requested test files and seventeen
+acceptance topics. Earlier failed qualification runs remain recorded. Passing
+checks reused across runs are bound to the exact binary and evidence hashes.
+
+The simple multiplication probe did not emit optional adaptive thinking, so
+it could not prove signed history preservation. The successful 300-number
+tool test supplied that evidence instead: two real signed blocks survived
+the client follow-up, with complete tool arguments and the expected final
+answer. The failed probe remains recorded in the qualification notes.
 
 The private body capture found eleven adaptive `claude-opus-5` requests
 ending with an observed upstream HTTP 504 after 60 to 62 seconds. Each
@@ -27,7 +56,7 @@ A private store records content hashes, block offsets and continuation
 kinds, without client prompts, signatures or credentials. Records survive
 restart, use a 1 MiB SQLite cache and have a 128 MiB disk limit. Existing
 records are retained; storage failure stops publication of an unrestorable
-checkpoint. Real package qualification remains required before activation.
+checkpoint. The exact package passed qualification before activation.
 All 149 affected Messages tests pass. The failed alpha.24 qualification
 shut down normally in 4.020 seconds, left no owned processes, retained all
 500 credits and peaked at 1,747,660,800 bytes without memory-limit events.
@@ -35,7 +64,7 @@ shut down normally in 4.020 seconds, left no owned processes, retained all
 The first alpha.24 real test served Astra through Responses in 20.566 seconds,
 including browser startup. A subsequent Claude Responses request received an
 unexplained upstream HTTP 403. It did not enter the Messages checkpoint path.
-The saved 600-second refusal cooldown remains in force until 05:57:22 UTC.
+The saved 600-second refusal cooldown was preserved through 05:57:22 UTC.
 Normal shutdown took 11.673 seconds with no owned processes remaining, no
 memory-limit events, and all 500 workspace credits intact. Peak cgroup memory
 was 1,717,903,360 bytes.
@@ -66,4 +95,5 @@ Both tests closed normally. Neither used an account or sent inference.
 The failed account test kept all 500 credits. Its processes were confirmed
 absent and normal recovery preserved every device and request-history
 entry. The resulting 600-second hold ends at 05:45:22 UTC on November 3.
-Production remains alpha.21, PID 654353, with no restart during this work.
+Production stayed on alpha.21, PID 654353, throughout diagnosis and testing.
+Only the qualified alpha.25 package was activated, at 06:32:06 UTC.

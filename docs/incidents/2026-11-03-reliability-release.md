@@ -1,6 +1,49 @@
 # Framerize reliability release
 
-Current release: `0.5.1-alpha.21`, source
+Current release: `0.5.1-alpha.25`, source
+`36db08e2fb5e9c93966dad4d33741788c2c56144`.
+Live as PID 862608 since November 3 at 06:32:06 UTC. Normal shutdown
+replaced alpha.21 PID 654353. Health, readiness and live Kimi, Claude and
+Astra requests returned HTTP 200 with expected content and terminal status.
+All twelve accounts remain eligible, with the six-browser capacity and
+the original service memory limits intact. No rollback was needed.
+
+The exact package passed 32 real buffered and streaming requests on port
+8792. Signed checkpoint follow-ups passed, including after daemon restart.
+A truncated tool call recovered into one complete 300-number call, with two
+signed thinking blocks preserved through its successful client follow-up.
+The captured 60.313-second HTTP 504 request completed in 155.338 seconds
+through eight checkpoints, none longer than 21.234 seconds. Its twenty turns,
+98 tools, xhigh effort and 64,000-token total allowance stayed unchanged.
+
+The repeated-request run peaked at 1,356,983,296 bytes of PSS. Its early warm
+mean was 1,318,408,576 bytes and its late mean was 1,304,232,448 bytes.
+The cgroup peaked at 1,768,431,616 bytes with no limit or OOM events.
+Normal shutdown took 3.012 seconds with no owned processes left. The exclusive
+workspace retained all 500 credits. Six paid-route rejection checks passed.
+
+Alpha.25 binary SHA-256:
+`5a0562ca296c93d8ca529c1f8aca6cc314e01440214cffa801c942c2b09b27b9`.
+Archive SHA-256:
+`91b73618ade7849b2bb3aae5060e1dc1ba437afea5b5dd3eb9618f506c88912f`.
+Private qualification and activation receipts are in
+`native-checkpoint25-r3/evidence/` under the dated incident cache.
+The iMac built this source in 400.161 seconds after a checksummed dependency
+was transferred to its offline Cargo cache. All nine package checks passed.
+GitHub build and CodeRabbit checks were skipped, not passing checks.
+
+Immediate service memory samples were 5,196,029,952 bytes before activation
+and 2,829,983,744 bytes after verification. These have different browser
+lifetimes and workloads and do not measure memory savings. The controlled
+comparison below remains the evidence for the retention repair.
+
+Private Claude body capture remains bounded to 128 files and 64 MiB and
+expires at 08:32:45 UTC. The live checkpoint directory is mode 0700 and its
+database is mode 0600. Both immutable release inventories passed verification.
+See [the checkpoint investigation](2026-11-03-claude-checkpoints.md) for the
+verifier corrections and exact limits of the continuation change.
+
+Previous release: `0.5.1-alpha.21`, source
 `674fd36cb7a41a9eca09a1cbc13f61331905a290`.
 Live as PID 654353 since November 3 at 04:31:17 UTC. Activation replaced
 alpha.18 PID 507283 through normal shutdown. Health, readiness and real
@@ -40,9 +83,13 @@ Alpha.18 adds the cold-preparation fix to alpha.17's diagnostics and warmup fixe
 
 | Error | Cause and fix | Verification |
 |---|---|---|
-| Page-navigation failures triggered inference retries | Raw navigation errors lacked a local preparation classification. The alpha.23 candidate preserves the navigation or warmup cause and prevents smaller-token retries. | Old-source failure reproduced; 60 runtime tests and both API-chain no-retry regressions pass. Not activated. |
-| Claude refusal explanation vanished | `AssembledResponse` and stream assembly omitted `stop_details`. The alpha.22 candidate carries the provider object unchanged and emits explicit OpenAI refusal fields and events. | Old-source failure reproduced; 101 protocol and 134 Messages tests pass. Activation pending. |
-| Buffered provider error lacked a cause | JSON validation discarded the provider's error object. The alpha.22 candidate retains its sanitized type, code and message. | Dedicated no-replay and credential-redaction regression passes. Activation pending. |
+| Claude adaptive requests exceeded the upstream window | Adaptive reasoning bypassed chunk sizing. Alpha.25 uses completed signed Opus 5 checkpoints, starting at 600 tokens and capped at 1,200. | Captured HTTP 504 request completed through eight HTTP 200 checkpoints, longest 21.234 seconds. |
+| Signed follow-up returned HTTP 400 | Combining chunks lost their original assistant-turn boundaries. Alpha.25 restores them from persistent hashes and offsets. | Buffered and streamed combined follow-ups, a restart follow-up, and a signed tool round trip pass. |
+| Optional browser extension exhausted startup memory | The default ad blocker allocated about 1 GiB of anonymous memory during startup. Exclude that optional extension through the supported browser option. | Matched startup peaks fell from 1.56 to 1.08 GB; alpha.25 completed real requests under a 2 GiB limit. |
+| Browser startup cause disappeared during cleanup | Cleanup errors replaced initialization errors. Preserve both causes and report observed cgroup event increases for task-limit denials or OOM kills. | Original-source reproduction and 53 focused runtime tests; isolated task-limit failure reported its actual cause. |
+| Page-navigation failures triggered inference retries | Raw navigation errors lacked a local preparation classification. Preserve navigation and warmup causes and prevent smaller-token retries. | Old-source failure reproduced; 60 runtime tests and both API-chain no-retry regressions pass. Included in alpha.25. |
+| Claude refusal explanation vanished | `AssembledResponse` and stream assembly omitted `stop_details`. Carry the provider object unchanged and emit explicit OpenAI refusal fields and events. | Old-source failure reproduced; 101 protocol tests and the expanded 149 Messages tests pass. Included in alpha.25. |
+| Buffered provider error lacked a cause | JSON validation discarded the provider's error object. Retain its sanitized type, code and message. | Dedicated no-replay and credential-redaction regression passes. Included in alpha.25. |
 | Existing browsers deferred for low allocation RAM | Selection chose a cold account even when eligible resident browsers could serve. Select from observed residents when allocation headroom is insufficient. | Alpha.21 served four real requests under pressure without a new browser launch. |
 | Browser page creation stalled | A window startup or target-registration wait held the creation queue indefinitely. Bound creation to 90 seconds and retain ownership until cleanup is confirmed. | Five driver regressions, 80 focused Python checks and alpha.21 normal shutdown pass. |
 | Signed Claude history was omitted | Native Messages conversion dropped non-text thinking blocks. Preserve signed and redacted blocks in their original order. | Protocol regression and alpha.21 real signed-thinking tool round trip pass. |
@@ -62,9 +109,9 @@ Alpha.18 adds the cold-preparation fix to alpha.17's diagnostics and warmup fixe
 | Empty or truncated success | Missing bodies and terminal failures were accepted or misreported. Validate the envelope and retain the actual terminal status. | Responses and Messages body, output-limit and terminal regressions. |
 | Remote HTTP failures lost their cause | Non-JSON errors lost status and provider details. Preserve the observed HTTP status and sanitized message. | Error-envelope regressions. |
 | Claude `NetworkError` hid HTTP status | Disabling debugger body copies also removed request matching. Carry only the existing bounded turn ID in private browser metadata. | 17 focused tests and 516-request browser fixtures retain HTTP 502, HTTP 504 and connection-reset causes without changing payloads. |
-| Long Claude upstream timeouts | Some upstream buffered requests exceed Framer's time window. Preserve observed causes and forbid replay when completion is unknown. | Timeout and no-replay regressions. This cannot extend Framer's own deadline. |
+| Unknown-completion transport failures | A failed buffered connection does not establish whether generation completed. Preserve the observed network or HTTP cause and forbid automatic replay. | Timeout and no-replay regressions. Completed Opus 5 checkpoints provide the separate continuation path described above. |
 | Local timing errors | Small allowances shortened deadlines; retries and final acknowledgements used incorrect budgets. Retain the 180-second buffered window and separate completed-response acknowledgement time. | Previously qualified timing regressions. |
-| Reasoning truncated at 600 tokens | Provider-default reasoning was treated as text-only staging. Preserve the requested allowance on the observed reasoning route. | The old source fails the allowance regression; 127 affected Messages tests passed. |
+| Reasoning truncated at 600 tokens | Text-only staging could not retain completed reasoning. Opus 5 now preserves signed checkpoints; other adaptive models keep the caller's upstream allowance. | The expanded 149 Messages tests, real combined follow-ups and signed tool round trip pass. |
 | Accounts excluded from rotation | Warm-browser preference could starve eligible cold accounts. Bound that preference and retain load, ownership and cooldown rules. | Scheduling regressions and observed use of all twelve production accounts. |
 | Excessive global refusal pauses | The quiet-reset condition could not run at the right point. Reset the pause ladder after the required quiet period. | Baseline reproduction and core/server pause regressions. |
 | Security-refusal replay and cached tokens | A divergent build reintroduced unsafe behavior. Restore the browser lineage that uses actual SDK results and preserves refusals. | Fresh-token and account-isolation regressions. No forged tokens or invented browser activity. |
@@ -142,9 +189,17 @@ A subsequent process snapshot also found 34 REA MCP helper processes using
 is therefore not attributable solely to the Framerize cgroup. Those other
 sessions' processes were not terminated or reconfigured.
 
-## Remaining Claude continuation limitation
+## Continuation limits
 
-The current text-continuation path targets 45-second chunks, below the
+Alpha.25 enables qualified signed checkpoints for Opus 5. It preserves the
+client's effort and total output allowance. Other adaptive models keep their
+existing behavior until separately qualified. An individual upstream request
+can still fail; no local setting extends Framer's deadline, and unknown
+completion remains terminal. Paid routes remain disabled.
+
+## Earlier limitation in alpha.18 and alpha.21
+
+The earlier text-continuation path targeted 45-second chunks, below the
 observed upstream failures near 60 seconds. Adaptive and provider-default
 reasoning explicitly bypass that token sizing and use the client's full
 output allowance. A 64,000-token adaptive request can still time out.

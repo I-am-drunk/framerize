@@ -1,3 +1,24 @@
+# Alpha.25 live, 2026-11-03
+
+Branch `fix/claude-network-diagnostics-20261103` has deployed source
+`36db08e2fb5e9c93966dad4d33741788c2c56144` as PID 862608 since 06:32:06 UTC.
+Live health, readiness, Kimi, Claude and Astra requests pass. All twelve
+accounts remain eligible; the six-browser capacity and resource limits remain.
+
+The exact binary passed 32 real requests, streaming and buffered checkpoint
+follow-ups, persistent history after restart, and a complete signed tool round
+trip. The captured HTTP 504 request completed through eight checkpoints in
+155.338 seconds, with a longest checkpoint of 21.234 seconds. Requested xhigh
+effort, the 64,000-token allowance and all 98 tools were preserved.
+Repeated-request PSS stayed bounded, and normal shutdown took 3.012 seconds.
+All 500 test-workspace credits remained. See the
+[complete release evidence](incidents/2026-11-03-reliability-release.md).
+
+Checkpoint generation is qualified for Opus 5. Unknown completions remain
+terminal; no paid fallback is enabled. Next: normal Claude client requests
+use the activated gateway. No client reconfiguration or further activation
+is required.
+
 # Signed checkpoint history, 2026-11-03
 
 Alpha.24 completed a real Opus 5 answer in four bounded chunks, but its
