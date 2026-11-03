@@ -111,6 +111,15 @@ test('request deadline releases downstream backpressure', async (t) => {
   assert.equal(app.server.listening, true);
 });
 
+test('listen rejects an occupied port', async (t) => {
+  const occupied = net.createServer();
+  await new Promise((resolve) => occupied.listen(0, '127.0.0.1', resolve));
+  t.after(() => new Promise((resolve) => occupied.close(resolve)));
+  const app = await createServer(parseConfig({ port: occupied.address().port }));
+  t.after(() => app.close());
+  await assert.rejects(app.listen(), (error) => error.code === 'EADDRINUSE');
+});
+
 
 
 

@@ -94,6 +94,15 @@ test('JWT minting is cached per account', async () => {
     calls += 1;
     return new Response(JSON.stringify({ accessToken: 'minted', expiresAt: new Date(Date.now() + 600000).toISOString() }));
   };
+
+test('missing Framer sessions fail before an inference request', async () => {
+  const scoped = { ...account, id: 'missing-session', authorizationEnv: undefined,
+    sessionEnv: 'MISSING_SESSION' };
+  await assert.rejects(prepareFramer({ account: scoped, path: '/v1/responses',
+    body: Buffer.from('{}'), fetchImpl: async () => {}, env: {
+      FIXTURE_CASTLE: 'castle',
+    } }), (error) => error.status === 503);
+});
   for (let index = 0; index < 2; index += 1) {
     await prepareFramer({ account: scoped, path: '/v1/responses', body: Buffer.from('{}'), fetchImpl, env });
   }
