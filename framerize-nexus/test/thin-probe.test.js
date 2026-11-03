@@ -368,3 +368,33 @@ test('startup environment proxies cannot intercept the owned probe agent', async
   await closed(fixture);
   await closed(proxy);
 });
+
+test('oversized response headers reject safely and release resources', async (context) => {
+  for (const fields of [`X-Test: ${CANARY}${'a'.repeat(16384)}\r\n`, 'x:a\r\n'.repeat(10000)]) {
+    const body = bytes(READY);
+    const headers = `HTTP/1.1 200 OK\r\n${fields}Connection: close\r\nContent-Length: ${body.length}\r\n\r\n`;
+    assert.ok(Buffer.byteLength(headers) > 16384 && Buffer.byteLength(headers) < 65536);
+    const fixture = await peer(context, (socket) => socket.once('data', () => {
+      socket.end(Buffer.concat([Buffer.from(headers), body]));
+    }), true);
+    await assert.rejects(tracked(context, { upstream: fixture.upstream, remoteToken: TOKEN }), safeError('NETWORK'));
+    await closed(fixture);
+  }
+});
+
+test('late Connection nominations survive more than 1000 header pairs', async (context) => {
+  const body = bytes(READY);
+  for (const count of [0, 2100]) {
+    const headers = `HTTP/1.1 200 OK\r\nX-Request-Id: ${CANARY}\r\n${'x:a\r\n'.repeat(count)}`
+      + `Connection: X-Request-ID, close\r\nContent-Length: ${body.length}\r\n\r\n`;
+    assert.ok(Buffer.byteLength(headers) < 16384);
+    const fixture = await peer(context, (socket) => socket.once('data', () => {
+      socket.end(Buffer.concat([Buffer.from(headers), body]));
+    }), true);
+    const result = await tracked(context, { upstream: fixture.upstream, remoteToken: TOKEN });
+    assert.equal(result.headers['x-request-id'], undefined);
+    assert.deepEqual(result.body, body);
+    assert.equal(result.readiness.state, 'ready');
+    await closed(fixture);
+  }
+});

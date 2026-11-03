@@ -125,10 +125,11 @@ export async function probeReadiness(options) {
       const transport = config.url.protocol === 'https:' ? https : http;
       agent = new transport.Agent({ keepAlive: false, proxyEnv: {} });
       request = transport.request(config.url, {
-        agent, method: 'GET', path: '/ready',
+        agent, method: 'GET', path: '/ready', maxHeaderSize: 16384,
         headers: { authorization: `Bearer ${config.remoteToken}`,
           accept: 'application/json', 'accept-encoding': 'identity' },
       });
+      request.maxHeadersCount = 0;
       request.on('error', onNetworkError);
       request.once('close', onRequestClose);
       request.once('response', onResponse);
