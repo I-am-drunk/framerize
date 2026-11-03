@@ -4,7 +4,8 @@ pub(super) fn supported(payload: &Value) -> bool {
     let model = payload["model"].as_str().unwrap_or_default();
     // Checkpoint generation is qualified independently for each model.
     // Newer prefix-bound models retain their existing behavior until verified.
-    model.strip_prefix("anthropic/").unwrap_or(model) == "claude-opus-5"
+    matches!(model.strip_prefix("anthropic/").unwrap_or(model),
+        "claude-opus-5" | "claude-opus-4.8" | "claude-opus-4-8")
 }
 
 pub(super) fn available(blocks: &[Value]) -> Result<bool, String> {

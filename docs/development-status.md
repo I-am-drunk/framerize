@@ -1,3 +1,14 @@
+# Opus 4.8 timeout repair, 2026-11-03
+
+Branch `fix/claude-opus48-checkpoints-20261103` extends signed checkpoints
+to the canonical and client-form Opus 4.8 IDs. The reported 18:51 UTC failure
+used this model and bypassed alpha.25's Opus 5 selector. All 152 Messages
+tests pass; the original source fails the new continuation regression.
+Production remains alpha.25. Candidate alpha.26 requires live long-response,
+signed-follow-up and tool verification before activation.
+The wider [Claude reliability audit](incidents/2026-11-03-claude-reliability.md)
+records findings and their verification limits.
+
 # Alpha.25 live, 2026-11-03
 
 Branch `fix/claude-network-diagnostics-20261103` has deployed source
