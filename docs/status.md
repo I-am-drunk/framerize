@@ -2,7 +2,7 @@
 
 Verified on November 3, 2026:
 
-- 62 unit and integration tests pass on Node.js 24.
+- 65 unit and integration tests pass on Node.js 24.
 - GitHub CI test and package jobs pass on pull requests 47 and 48.
 - The installed npm tarball runs outside the checkout.
 - The isolated executable runs without Node.js on `PATH`.
@@ -20,9 +20,11 @@ Verified on November 3, 2026:
 The live connector listens on `127.0.0.1:42789` through an enabled persistent
 `systemd --user` service. Release 0.1.5 is activated with a retained rollback
 binary. See `docs/activation.md` for its source commit and artifact hash.
-A live Opus probe through the connector still receives Framer's 403 security
-refusal. The connector returns that failure as HTTP 503 instead of a successful
-completion. Successful live Framer inference is not currently verified.
+A live direct Framer probe through the isolated Node connector returned HTTP
+200 with `response.status` set to `completed` and the text `OK`. It used the
+existing private account session and fresh local credential service, without
+copying secrets into JSON or logs. The model was `gpt-6-sol`. Live Opus support
+is not established by this probe.
 
 ## Publication dependency
 
