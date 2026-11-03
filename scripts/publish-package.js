@@ -17,12 +17,16 @@ if (packageMetadata.name !== 'framer-next' || packageMetadata.version !== versio
 if (!/^[a-f0-9]{64}$/.test(metadata.artifacts?.[artifacts[0]])) {
   throw new Error('release metadata does not contain the tarball SHA-256');
 }
-const sourceCommit = execFileSync('git', ['rev-parse', 'HEAD'], { encoding: 'utf8' }).trim();
 if (execFileSync('git', ['status', '--porcelain'], { encoding: 'utf8' }).trim()) {
   throw new Error('publication requires a clean source checkout');
 }
-if (metadata.version !== version || metadata.commit !== sourceCommit) {
-  throw new Error('release artifacts do not match the checkout version and source commit');
+if (metadata.version !== version || !/^[a-f0-9]{40}$/.test(metadata.commit)) {
+  throw new Error('release artifacts have an invalid version or source commit');
+}
+try {
+  execFileSync('git', ['cat-file', '-e', `${metadata.commit}^{commit}`], { stdio: 'ignore' });
+} catch {
+  throw new Error('release source commit is not present in this repository');
 }
 const run = (command, args, options = {}) => execFileSync(command, args,
   { stdio: 'inherit', ...options });

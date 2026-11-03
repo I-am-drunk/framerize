@@ -27,7 +27,7 @@ function publish(authenticated = true, published = false, version = '0.1.7',
     `#!/bin/sh\nprintf '%s\\n' "$*" >> '${calls}'\n${checksumValid ? '' : 'exit 1\n'}`);
   chmodSync(path.join(bin, 'sha256sum'), 0o755);
   writeFileSync(path.join(bin, 'git'),
-    `#!/bin/sh\n[ "$1" = rev-parse ] && printf "%s\\n" "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"\n${
+    `#!/bin/sh\nprintf '%s\\n' "$*" >> '${calls}'\n[ "$1" = rev-parse ] && printf "%s\\n" "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"\nif [ "$1" = cat-file ]; then [ "$3" = "${commit}^{commit}" ] || exit 1; fi\n${
       dirty ? '[ "$1" = status ] && printf " M source.js\\n"\n' : ''}exit 0\n`,
     { mode: 0o755 });
   writeFileSync(path.join(bin, 'tar'), `#!/bin/sh\nprintf '%s\\n' '{"name":"framer-next","version":"${version}"}'\n`,
@@ -40,6 +40,19 @@ function publish(authenticated = true, published = false, version = '0.1.7',
       GITHUB_ACTIONS: githubActions ? 'true' : '' },
   });
   return { result, calls };
+}
+
+function publishCommit(recordedCommit) {
+  const fixture = publish();
+  assert.equal(fixture.result.status, 0, fixture.result.stderr);
+  const directory = path.dirname(fixture.calls);
+  const metadata = JSON.parse(readFileSync(path.join(directory, 'dist/release.json'), 'utf8'));
+  metadata.commit = recordedCommit;
+  writeFileSync(path.join(directory, 'dist/release.json'), JSON.stringify(metadata));
+  return spawnSync(process.execPath, [new URL('../scripts/publish-package.js', import.meta.url).pathname], {
+    encoding: 'utf8', cwd: directory,
+    env: { ...process.env, PATH: `${path.join(directory, 'bin')}:${process.env.PATH}` },
+  });
 }
 
 test('a dirty checkout prevents publication', () => {
@@ -75,10 +88,10 @@ test('authenticated publication verifies the package before publishing', () => {
   const { result, calls } = publish();
   assert.equal(result.status, 0, result.stderr);
   const commands = readFileSync(calls, 'utf8').trim().split('\n');
-  assert.match(commands[0], /^whoami /);
-  assert.match(commands[1], /^view /);
-  assert.match(commands[2], /^-c .*SHA256SUMS$/);
-  assert.match(commands[3], /^publish .*--tag latest$/);
+  assert.match(commands[2], /^whoami /);
+  assert.match(commands[3], /^view /);
+  assert.match(commands[4], /^-c .*SHA256SUMS$/);
+  assert.match(commands[5], /^publish .*--tag latest$/);
 });
 
 test('provenance is enabled only in GitHub Actions', () => {
@@ -105,7 +118,7 @@ test('registry failures prevent packaging and publication', () => {
   const { result, calls } = publish(true, false, '0.1.7', 'E503 unavailable');
   assert.notEqual(result.status, 0);
   assert.match(result.stderr, /cannot verify/);
-  assert.equal(readFileSync(calls, 'utf8').trim().split('\n').length, 2);
+  assert.equal(readFileSync(calls, 'utf8').trim().split('\n').length, 4);
 });
 
 test('checksum failures prevent publication', () => {
@@ -118,7 +131,7 @@ test('unauthenticated publication makes no package changes', () => {
   const { result, calls } = publish(false);
   assert.notEqual(result.status, 0);
   assert.match(result.stderr, /requires authenticated package-owner credentials/);
-  assert.equal(readFileSync(calls, 'utf8').trim().split('\n').length, 1);
+  assert.equal(readFileSync(calls, 'utf8').trim().split('\n').length, 3);
 });
 
 test('ambiguous release artifacts are rejected', () => {
@@ -136,7 +149,14 @@ test('ambiguous release artifacts are rejected', () => {
 });
 
 test('a different source commit prevents publication', () => {
-  const { result } = publish(true, false, '0.1.7', '', false, true, 'b'.repeat(40));
+  const result = publishCommit('b'.repeat(40));
   assert.notEqual(result.status, 0);
-  assert.match(result.stderr, /do not match the checkout/);
+  assert.match(result.stderr, /not present in this repository/);
+});
+
+test('publishing a prior release verifies its recorded source commit', () => {
+  const { result, calls } = publish(true, false, '0.1.7', '', false, true, 'c'.repeat(40));
+  assert.equal(result.status, 0, result.stderr);
+  assert.match(readFileSync(calls, 'utf8'), /^cat-file -e c{40}\^\{commit\}$/m);
+  assert.match(readFileSync(calls, 'utf8'), /^publish .*--tag latest$/m);
 });
