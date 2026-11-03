@@ -21,6 +21,7 @@ jobs:
       - run: npm test
       - run: npm run check
       - run: node scripts/smoke.js
+      - run: node scripts/framer-smoke.js
       - run: npm run binary
       - run: node scripts/binary-smoke.js
       - run: npm pack

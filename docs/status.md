@@ -2,10 +2,12 @@
 
 Verified on November 3, 2026:
 
-- 56 unit and integration tests pass on Node.js 24.
+- 58 unit and integration tests pass on Node.js 24.
 - GitHub CI test and package jobs pass on pull requests 47 and 48.
 - The installed npm tarball runs outside the checkout.
 - The isolated executable runs without Node.js on `PATH`.
+- The Framer fixture verifies request envelopes, session identifiers, short
+  responses, and incremental Chat Completions streaming.
 - Local SSE streaming passes, including cancellation, backpressure, and
   fragmented UTF-8 and line endings.
 - Graceful SIGINT and SIGTERM shutdown exit with code zero and close once.
