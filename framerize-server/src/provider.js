@@ -318,14 +318,16 @@ export function createProvider(values = {}) {
     close() {
       if (closePromise) return closePromise;
       closed = true;
-      const sockets = [...active].map((state) => {
-        const request = state.request;
-        const pending = request && !request.closed
-          ? new Promise((resolve) => request.once('close', resolve)) : Promise.resolve();
-        state.dispose(failure('Provider closed', 'provider_closed', 503));
-        return pending;
+      closePromise = Promise.resolve().then(async () => {
+        const sockets = [...active].map((state) => {
+          const request = state.request;
+          const pending = request && !request.closed
+            ? new Promise((resolve) => request.once('close', resolve)) : Promise.resolve();
+          state.dispose(failure('Provider closed', 'provider_closed', 503));
+          return pending;
+        });
+        await Promise.all(sockets);
       });
-      closePromise = Promise.all(sockets).then(() => {});
       return closePromise;
     },
   };
