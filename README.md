@@ -64,6 +64,26 @@ for publication requirements.
 
 ## Status
 
-This is a clean rebuild. It is an endpoint connector, not an account login
-system or a Castle implementation. Live behavior depends on the configured
-upstream and its authorization.
+This is a clean rebuild. Live behavior depends on the configured upstream
+and its authorization.
+
+## Direct Framer accounts
+
+Set `provider` to `framer` to use `/ai/v3/openai/responses/`. Chat requests
+convert to Responses, including tool calls, tool results, JSON schemas,
+short replies, and incremental streams. Sessions and Castle credentials
+stay in environment variables named by the JSON account record.
+
+```json
+[{
+  "id": "framer",
+  "provider": "framer",
+  "projectId": "your-project-id",
+  "sessionEnv": "FRAMER_SESSION",
+  "castleEnv": "FRAMER_CASTLE"
+}]
+```
+
+An existing JWT can use `authorizationEnv` instead of `sessionEnv`. The
+connector caches minted JWTs until 30 seconds before expiry. It does not
+mint Castle tokens or manage browser sessions.

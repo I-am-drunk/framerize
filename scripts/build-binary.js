@@ -26,7 +26,6 @@ writeFileSync('dist/sea-config.json', JSON.stringify({
 }));
 copyFileSync(new URL('../LICENSE', import.meta.url), 'dist/LICENSE');
 execFileSync(process.execPath, ['--experimental-sea-config', 'dist/sea-config.json'], { stdio: 'inherit' });
-chmodSync('dist/framer-next', 0o755);
 copyFileSync(process.execPath, 'dist/framer-next');
 chmodSync('dist/framer-next', 0o755);
 await postject.inject('dist/framer-next', 'NODE_SEA_BLOB', readFileSync('dist/sea-prep.blob'), {
