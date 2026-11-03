@@ -41,18 +41,22 @@ function selectedHeaders(headers, names) {
 
 async function wait(pending, signal, milliseconds, code = 'idle_timeout') {
   let timer;
+  let expiry;
   let abort;
   const stopped = new Promise((resolve, reject) => {
     abort = () => reject(signal.reason);
     if (signal.aborted) abort();
     else signal.addEventListener('abort', abort, { once: true });
-    if (milliseconds) timer = setTimeout(() => reject(failure(
-      code === 'headers_timeout' ? 'Upstream headers timeout' : 'Upstream idle timeout',
-      code, 504,
-    )), milliseconds);
+    if (milliseconds) timer = setTimeout(() => {
+      expiry = setImmediate(() => reject(failure(
+        code === 'headers_timeout' ? 'Upstream headers timeout' : 'Upstream idle timeout',
+        code, 504,
+      )));
+    }, milliseconds);
   });
   try { return await Promise.race([stopped, pending]); } finally {
     clearTimeout(timer);
+    clearImmediate(expiry);
     signal.removeEventListener('abort', abort);
   }
 }
