@@ -1,6 +1,13 @@
 import { randomBytes } from 'node:crypto';
 import { parseSse } from './sse.js';
 
+export function responseEventError(event) {
+  if (event.type !== 'response.failed') return null;
+  const error = new Error(event.response?.error?.message || 'upstream response failed');
+  error.status = 502;
+  return error;
+}
+
 const textOf = (content) => typeof content === 'string' ? content
   : Array.isArray(content) ? content.map((part) => part?.text || '').join('') : '';
 
@@ -105,6 +112,8 @@ export async function* responsesToChatStream(body, model) {
   const toolCalls = new Map();
   let finalResponse;
   for await (const event of body) {
+      const failure = responseEventError(event);
+      if (failure) throw failure;
       if (event.type === 'response.output_text.delta' && event.delta) {
         yield { ...chatChunk(model, { content: event.delta }), id, created };
       } else if (event.type === 'response.output_item.added'
@@ -135,6 +144,8 @@ export async function readResponse(body) {
   for await (const event of parseSse(body.body)) {
     if (event.data === '[DONE]') continue;
     const value = JSON.parse(event.data);
+    const failure = responseEventError(value);
+    if (failure) throw failure;
     if (['response.completed', 'response.incomplete'].includes(value.type)) finalResponse = value.response;
   }
   if (!finalResponse) throw new Error('upstream response did not complete');

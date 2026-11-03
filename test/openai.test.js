@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { chatToResponses, responseToChat, responsesToChatStream } from '../src/openai.js';
+import { chatToResponses, responseToChat, responsesToChatStream, responseEventError } from '../src/openai.js';
 import { readResponse } from '../src/openai.js';
 
 test('chat requests preserve messages, tools, results and schemas', () => {
@@ -61,7 +61,18 @@ test('upstream SSE errors are not treated as completions', async () => {
   const body = 'event: response.failed\ndata: {"type":"response.failed","response":{"error":{"message":"bad"}}}\n\n';
   await assert.rejects(readResponse(new Response(body, {
     headers: { 'content-type': 'text/event-stream' },
-  })), /did not complete/);
+  })), /bad/);
+});
+
+test('streamed failures preserve their error and stop chat completion', async () => {
+  const failure = responseEventError({ type: 'response.failed',
+    response: { error: { message: 'upstream rejected request' } } });
+  assert.equal(failure.status, 502);
+  assert.match(failure.message, /rejected/);
+  async function* events() { yield { type: 'response.failed', response: {} }; }
+  await assert.rejects(async () => {
+    for await (const chunk of responsesToChatStream(events(), 'gpt-test')) void chunk;
+  }, /upstream response failed/);
 });
 
 
