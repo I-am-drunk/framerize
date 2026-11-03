@@ -33,8 +33,8 @@ jobs:
       - name: Locate build artifacts
         shell: bash
         run: |
-          test -f dist/dist/framer-next-"${GITHUB_REF_NAME#framer-next-v}".tgz
-          test -f dist/dist/framer-next-linux-x64.tar.gz
+          test -f dist/framer-next-"${GITHUB_REF_NAME#framer-next-v}".tgz
+          test -f dist/framer-next-linux-x64.tar.gz
           test -f dist/SHA256SUMS
           test -f dist/release.json
           test -f dist/NODE-LICENSE
@@ -59,13 +59,13 @@ jobs:
         with:
           name: release-${{ github.ref_name }}
           path: dist
-      - run: cd dist/dist && sha256sum -c SHA256SUMS
+      - run: cd dist && sha256sum -c SHA256SUMS
       - uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6
         if: github.event.repository.visibility == 'public'
         with:
           subject-path: |
-            dist/dist/framer-next-*.tgz
-            dist/dist/framer-next-linux-x64.tar.gz
+            dist/framer-next-*.tgz
+            dist/framer-next-linux-x64.tar.gz
       - name: Publish GitHub release
         uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65
         with:
@@ -78,6 +78,6 @@ jobs:
       - name: Publish npm package
         run: |
           if [[ "${GITHUB_REF_NAME}" == *-* ]]; then export DIST_TAG=next; else export DIST_TAG=latest; fi
-          npm publish dist/dist/framer-next-*.tgz --ignore-scripts --provenance --access public --tag "$DIST_TAG"
+          npm publish dist/framer-next-*.tgz --ignore-scripts --provenance --access public --tag "$DIST_TAG"
         env:
           NODE_AUTH_TOKEN: ''
