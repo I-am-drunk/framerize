@@ -29,6 +29,8 @@ or prove that inference or authentication works.
 
 ## Configure an endpoint
 
+### Nexus
+
 Nexus already reads `FRAMER_UPSTREAM`, `FRAMER_HOST`, `FRAMER_PORT`, and
 `FRAMER_ACCOUNTS` from the process environment. Explicit CLI flags override them.
 For an existing local endpoint on port 9000, a POSIX-shell example is:
@@ -43,7 +45,27 @@ Use the endpoint base without `/v1`; Nexus appends `/v1/responses` or
 `/v1/chat/completions`. This example does not start the upstream on port 9000.
 Neither CLI automatically loads a `.env` file or named presets today.
 
-The server currently takes its upstream and listener settings through flags.
+### Server
+
+The server reads `FRAMERIZE_SERVER_HOST`, `FRAMERIZE_SERVER_PORT`, and
+`FRAMERIZE_SERVER_UPSTREAM`. Explicit CLI flags override environment values;
+unset variables use the defaults. An empty upstream selects no provider.
+
+A POSIX-shell example validates these settings without starting a listener or
+contacting the upstream:
+
+```sh
+FRAMERIZE_SERVER_HOST=127.0.0.1 \
+FRAMERIZE_SERVER_PORT=8789 \
+FRAMERIZE_SERVER_UPSTREAM=http://127.0.0.1:9000 \
+  node framerize-server/bin/framerize-server.js check
+```
+
+This does not start the example upstream or establish readiness. Keep secrets
+out of `FRAMERIZE_SERVER_UPSTREAM`; use the credential-reference options below.
+See [server environment configuration](framerize-server/docs/environment.md)
+for validation and programmatic precedence.
+
 It reads its client-facing token from `FRAMERIZE_SERVER_TOKEN` by default and
 uses a separate upstream credential reference. Follow the
 [server setup instructions](framerize-server/README.md#run) for those options.
