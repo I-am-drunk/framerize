@@ -393,15 +393,34 @@ test('workflow retains rerunnable evidence with mandatory uploads', () => {
   validateUploads(readFileSync(workflowPath, 'utf8'));
 });
 
-test('failed installed checks remain visible without hiding their exit status', () => {
-  const source = readFileSync(workflowPath, 'utf8');
+function validateInstalledCheck(input) {
+  const source = input.replace(/\r\n/g, '\n');
   const step = source.split(/^      - /m)
     .find(value => value.startsWith('name: Exercise the downloaded pair without repacking\n'));
   assert.ok(step);
   assert.match(step, /set -euo pipefail/);
   assert.match(step, /node --test .*installed-remote-flow\.test\.js" 2>&1 \| tee "\$REPORT_DIR\/installed\.log"/);
   assert.doesNotMatch(step, /continue-on-error|\|\| true/);
-});
+}
+
+for (const newline of ['\n', '\r\n']) {
+  test(`failed installed checks retain logs and exit status with ${JSON.stringify(newline)}`, () => {
+    const source = readFileSync(workflowPath, 'utf8').replace(/\r\n/g, '\n').replace(/\n/g, newline);
+    validateInstalledCheck(source);
+  });
+  test(`installed-check policy rejects weaker failure handling with ${JSON.stringify(newline)}`, () => {
+    const source = readFileSync(workflowPath, 'utf8').replace(/\r\n/g, '\n');
+    const heading = 'name: Exercise the downloaded pair without repacking';
+    const output = '2>&1 | tee "$REPORT_DIR/installed.log"';
+    for (const weakened of [source.replace(heading, 'name: Disabled check'),
+      source.replaceAll('set -euo pipefail', 'set -eu'), source.replace(output, ''),
+      source.replace(output, `${output} || true`),
+      source.replace(heading, `${heading}\n        continue-on-error: true`)]) {
+      assert.notEqual(weakened, source);
+      assert.throws(() => validateInstalledCheck(weakened.replace(/\n/g, newline)));
+    }
+  });
+}
 
 test('workflow declares pinned actions, all three runners, and root cwd', () => {
   validateExecution(readFileSync(workflowPath, 'utf8'));
