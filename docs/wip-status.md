@@ -31,6 +31,10 @@ Framer compatibility or qualify another operating system.
 - Qualify hosted packages and native artifacts before publishing a release.
 - Publish the qualified Remote package to npm.
 
+The [single-request validator](inference-validation.md) is ready for an approved
+endpoint and account. Its 23 offline checks pass on Node 22.23.4 and 24.13.0.
+No live inference was performed for that validation checkpoint.
+
 ## Earlier portability fixes
 
 The first hosted snapshot exposed a Windows type-fixture path mismatch and

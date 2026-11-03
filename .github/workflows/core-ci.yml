@@ -23,6 +23,9 @@ on:
       - '.github/workflows/server-ci.yml'
       - 'scripts/check-native-server.ts'
       - 'scripts/native-account-smoke.ts'
+      - 'scripts/check-inference.ts'
+      - 'scripts/validation/**'
+      - 'test/inference-check.test.ts'
       - 'scripts/fixtures/**'
       - 'test/core-package-check.test.ts'
       - 'test/installed-server-flow.test.ts'
@@ -52,6 +55,9 @@ on:
       - '.github/workflows/server-ci.yml'
       - 'scripts/check-native-server.ts'
       - 'scripts/native-account-smoke.ts'
+      - 'scripts/check-inference.ts'
+      - 'scripts/validation/**'
+      - 'test/inference-check.test.ts'
       - 'scripts/fixtures/**'
       - 'test/core-package-check.test.ts'
       - 'test/installed-server-flow.test.ts'
@@ -100,6 +106,8 @@ jobs:
         run: npm test
       - name: Test package validation and workflow bindings
         run: npm run test:packages && npm run test:release && npm run test:native-tools
+      - name: Test single-request validation offline
+        run: npm run test:inference
       - name: Verify the installed artifact offline
         run: node .tools/scripts/core-package-check.js > "$RUNNER_TEMP/core-package-report.json"
       - name: Retain source-bound package result
