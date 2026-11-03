@@ -4,6 +4,9 @@ import { createServer } from '../src/server.js';
 import { parseConfig } from '../src/config.js';
 import net from 'node:net';
 import { once } from 'node:events';
+import { mkdtemp } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import path from 'node:path';
 
 async function listen(t, config, fetchImpl) {
   const app = await createServer(parseConfig({ port: 0, upstream: 'http://fixture', ...config }), { fetchImpl });
@@ -47,6 +50,34 @@ test('client disconnect aborts upstream once', async (t) => {
   await assert.rejects(pending);
   await aborted;
   assert.equal(aborts, 1);
+});
+
+test('client disconnect logs are informational', async (t) => {
+  const logs = [];
+  const logger = {
+    info: (event, fields) => logs.push({ level: 'info', event, fields }),
+    error: (event, fields) => logs.push({ level: 'error', event, fields }),
+  };
+  const directory = await mkdtemp(path.join(tmpdir(), 'framer-next-lifecycle-'));
+  const app = await createServer(parseConfig({ port: 0, upstream: 'http://upstream.test' }), {
+    logger, fetchImpl: async () => new Response(new ReadableStream({
+      pull() { return new Promise(() => {}); },
+    })),
+  });
+  t.after(() => app.close());
+  await app.listen();
+  const controller = new AbortController();
+  const pending = fetch(`http://127.0.0.1:${app.server.address().port}/v1/responses`, {
+    method: 'POST', body: '{}', signal: controller.signal,
+  });
+  await new Promise((resolve) => setTimeout(resolve, 30));
+  controller.abort();
+  await assert.rejects(pending);
+  await new Promise((resolve) => setTimeout(resolve, 30));
+  const failures = logs.filter(({ event }) => event === 'request.failed');
+  assert.equal(failures.length, 1);
+  assert.equal(failures[0].level, 'info');
+  assert.equal(failures[0].fields.error.message, 'client disconnected');
 });
 
 test('shutdown aborts active upstream work and releases the port', async (t) => {

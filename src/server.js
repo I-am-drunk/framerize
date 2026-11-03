@@ -149,7 +149,8 @@ export async function createServer(config, { logger, fetchImpl = fetch } = {}) {
           error: { message, type: error.status ? 'invalid_request' : 'upstream_error' },
         });
       } else if (!response.writableEnded) response.destroy(error);
-      logger?.error('request.failed', { requestId: id, error });
+      const log = error.message === 'client disconnected' ? logger?.info : logger?.error;
+      log?.call(logger, 'request.failed', { requestId: id, error });
     } finally {
       logger?.info('request.completed', {
         requestId: id,
