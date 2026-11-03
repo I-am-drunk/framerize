@@ -1,10 +1,10 @@
-export async function* parseSse(body) {
+export async function* parseSse(body, inspect, passThrough = false) {
   if (!body) throw new Error('upstream returned an empty body');
   const decoder = new TextDecoder();
   let buffer = '';
   let start = 0;
   for await (const chunk of body) {
-    buffer += decoder.decode(chunk, { stream: true });
+    buffer += typeof chunk === 'string' ? chunk : decoder.decode(chunk, { stream: true });
     for (let index = start; index < buffer.length; index += 1) {
       if (!['\r', '\n'].includes(buffer[index])) continue;
       if (index === buffer.length - 1 && buffer[index] === '\r') break;
@@ -18,9 +18,13 @@ export async function* parseSse(body) {
         && buffer[index + length + 1] === '\n' ? 2 : 1));
       index = -1;
       start = 0;
-      if (event) yield event;
+      if (event) {
+        inspect?.(event);
+        if (!passThrough) yield event;
+      }
     }
     start = Math.max(0, buffer.length - 1);
+    if (passThrough) yield chunk;
   }
   buffer += decoder.decode();
 }

@@ -24,22 +24,11 @@ async function* parseEvents(chunks) {
 }
 
 async function* validateResponses(chunks) {
-  const decoder = new TextDecoder();
-  let buffer = '';
-  for await (const chunk of chunks) {
-    buffer += typeof chunk === 'string' ? chunk : decoder.decode(chunk, { stream: true });
-    const events = buffer.split(/\r?\n\r?\n/);
-    buffer = events.pop();
-    for (const raw of events) {
-      const data = raw.split(/\r?\n/).filter((line) => line.startsWith('data:'))
-        .map((line) => line.slice(5).replace(/^ /, '')).join('\n');
-      if (data.startsWith('{') && data.includes('response.failed')) {
-        const failure = responseEventError(JSON.parse(data));
-        if (failure) throw failure;
-      }
-    }
-    yield chunk;
-  }
+  yield* parseSse(chunks, (event) => {
+    if (event.data === '[DONE]') return;
+    const failure = responseEventError(JSON.parse(event.data));
+    if (failure) throw failure;
+  }, true);
 }
 
 async function* encodeChunks(chunks) {
@@ -167,7 +156,10 @@ export async function createServer(config, { logger, fetchImpl = fetch } = {}) {
             const converted = responsesToChatStream(events, model);
             chunks = encodeChunks(converted);
           }
-          if (!convertChat && upstream.response.ok) chunks = validateResponses(chunks);
+          if (!convertChat && upstream.response.ok
+              && responseHeaders['content-type']?.includes('application/json')) {
+            chunks = validateResponses(chunks);
+          }
           for await (const value of chunks) {
             if (!response.write(value)) await waitForDrain(response, responseDeadline.signal);
           }
