@@ -60,3 +60,18 @@ The earlier retained pair passed on Linux Node 22 and 24. That evidence remains
 valid only for its exact inputs and does not establish this new workflow's
 cross-platform result. Source changes or future public exports need their own
 review and qualification. Passing this gate is not publication approval.
+
+## In-progress validation
+
+The workflow policy fixtures pass on Node 22.23.4. They exercise missing path
+filters, privileged permissions, unsafe artifact names, rerun collisions, and
+silent missing uploads. Run only these preparatory cases with:
+
+```sh
+node --test --test-name-pattern='^policy fixture' test/package-coexistence-workflow.test.mjs
+```
+
+The workflow file is still delegated work. The full test file intentionally
+requires it and is not yet qualified. Source and tarball identity rejection
+tests will execute its actual validation code after that checkpoint arrives.
+These three preparatory fixture results are not a workflow or OS acceptance.
