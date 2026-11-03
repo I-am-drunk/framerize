@@ -25,7 +25,7 @@ jobs:
       - run: node scripts/binary-smoke.js
       - run: npm pack
       - run: cp framer-next-*.tgz dist/
-      - run: cp /home/runner/.nvm/versions/node/*/LICENSE dist/NODE-LICENSE
+      - run: cp "$(dirname "$(command -v node)")/../LICENSE" dist/NODE-LICENSE
       - run: tar -czf dist/framer-next-linux-x64.tar.gz -C dist framer-next NODE-LICENSE
       - run: cd dist && sha256sum framer-next framer-next-*.tgz framer-next-linux-x64.tar.gz > SHA256SUMS
       - run: node scripts/release-metadata.js
