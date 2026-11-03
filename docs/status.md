@@ -2,7 +2,11 @@
 
 Verified on November 3, 2026:
 
-- 74 unit and integration tests pass on Node.js 24, with 99.40% line coverage.
+- 88 unit and integration tests pass on Node.js 24, with 100% line coverage.
+- The latest publication-helper changes are local and uncommitted. Their CI
+  result remains pending until a maintainer commits and pushes them.
+- The publication helper has 100% line, branch, and function coverage. It
+  verifies source, artifact, registry, and authentication preconditions.
 - GitHub CI test and package jobs pass on pull request 54.
 - The installed npm tarball runs outside the checkout.
 - The isolated executable runs without Node.js on `PATH`.
@@ -60,7 +64,27 @@ an authenticated npm package owner. The registry returns `ENEEDAUTH`, so no
 package has been published. After first publication, configure trusted
 publishing for this repository, workflow, and `npm-release` environment.
 
+Publication dependency: package owner, npm authentication. Last verified:
+November 3, 2026, with a private token request timing out and `npm whoami`
+returning `ENEEDAUTH`. Do not repeat authentication checks until the owner
+provides credentials. Run `npm run publish:package` for the verified release tarball,
+then verify registry installation and configure trusted publishing.
+
 The `framer-next-v0.1.7` GitHub release contains its verified tarball,
 executable archive, checksums, Node license, and source metadata. The release
 build passed. Its npm step failed with `ENEEDAUTH` after the GitHub release
 was published.
+
+## Active handoff
+
+Owner: Framer Next maintainers. Required input: authenticated npm package-owner
+credentials. Last verified evidence: November 3, 2026, `ENEEDAUTH` after a
+private credential request timed out. Next authorized action: publish the
+verified release tarball, test its registry installation, then configure
+trusted publishing. Goal blocking is disabled by user policy. No further local
+verification or authentication polling is needed before credentials arrive.
+After authentication, run `npm run publish:package`. It rechecks authentication,
+rejects an existing version, verifies the packed artifact, publishes the
+package, and chooses its dist-tag.
+The GitHub token has triage and push access, not administration access. An
+owner must add the required reviewer to the `npm-release` environment.
