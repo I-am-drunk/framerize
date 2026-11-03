@@ -3,6 +3,7 @@ import { execFileSync } from 'node:child_process';
 import { mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
+import { pathToFileURL } from 'node:url';
 
 const directory = mkdtempSync(path.join(tmpdir(), 'framer-next-package-'));
 const npm = process.platform === 'win32' ? 'npm.cmd' : 'npm';
@@ -19,5 +20,5 @@ const bin = path.join(directory, 'node_modules', '.bin',
   `framer-next${process.platform === 'win32' ? '.cmd' : ''}`);
 const help = execFileSync(bin, ['--help'], { cwd: directory, encoding: 'utf8', shell: process.platform === 'win32' });
 assert.match(help, /Framer Next/);
-await import(path.join(directory, 'node_modules', 'framer-next', 'src', 'config.js'));
+await import(pathToFileURL(path.join(directory, 'node_modules', 'framer-next', 'src', 'config.js')));
 console.log('installed npm package smoke passed');
