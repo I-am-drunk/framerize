@@ -71,7 +71,7 @@ test('private Castle package works outside the workspace without runtime depende
       error !== null && typeof error === 'object' && 'stdout' in error && /TS2322/.test(String(error.stdout)));
     const output = run(['--test', join(source, '.test-dist/checks/integration.js')], consumer,
       { ...env, CASTLE_ENTRY: entry });
-    assert.match(output, /(?:#|ℹ) pass 3/);
+    assert.match(output, /(?:#|ℹ) pass 4/);
     context.diagnostic(output.trim());
     const destination = process.env.CASTLE_PACKAGE_OUTPUT;
     if (destination) {
@@ -81,7 +81,7 @@ test('private Castle package works outside the workspace without runtime depende
       writeFileSync(join(destination, 'integration.log'), output);
     }
     context.diagnostic(JSON.stringify({ node: process.version, sha256: digest, bytes: info.size,
-      files: expected.length, installedIntegration: 3 }));
+      files: expected.length, installedIntegration: 4 }));
   } finally { rmSync(directory, { recursive: true, force: true }); }
 });
 

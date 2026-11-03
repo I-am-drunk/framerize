@@ -1,8 +1,8 @@
 # Framer backend
 
 `framerize-server/framer-backend` connects the shared server listener to
-Framer's Responses and Chat Completions routes. It is an opt-in embedding API.
-The CLI still selects the generic HTTP provider, not this backend.
+Framer's Responses and Chat Completions routes. Use it as an embedding API or
+select it in the CLI with `--backend framer`.
 
 ```ts
 import { createServer } from 'framerize-server';
@@ -60,9 +60,22 @@ selected account's session is read, once at startup. Reload credentials by
 closing the backend and creating a new one. `model`
 and `models` remain descriptive metadata, not routing rules.
 
-This API does not yet choose the server CLI backend or package a real encoder.
+The CLI creates its own minter from the packaged Castle Library. Provision the
+server token and account session through private environment or file references:
 
-The caller supplies the session cookie, project ID, server token and a Castle
+```sh
+framerize-server serve --backend framer \
+  --accounts-file /srv/framerize/accounts.json --account-id personal \
+  --server-token-file /srv/framerize/private/server-token
+```
+
+`FRAMERIZE_SERVER_BACKEND`, `FRAMERIZE_SERVER_ACCOUNTS` and
+`FRAMERIZE_SERVER_ACCOUNT` provide the same selection through the environment.
+The Framer backend rejects generic upstream URLs and authorization references.
+The native executable embeds the minter and its assets. It extracts them to a
+private temporary directory and removes that directory after minter shutdown.
+
+Embedding callers supply the session cookie, project ID, server token and a Castle
 minter. These variables are not loaded automatically. Never put credential
 values in command arguments or logs. The backend owns the supplied auth and
 minter lifetimes. Do not share them between backend instances. Their methods
@@ -88,6 +101,6 @@ Local authorization, cookies and arbitrary incoming headers are not forwarded.
 
 The envelope follows the pinned Framer request contract in
 [`proxy.rs`](https://github.com/I-am-drunk/framerize/blob/16b8117950621fccb648108796ca2a7a8c720543/crates/framer-api/src/proxy.rs).
-Only synthetic loopback behavior is tested here. The account loader, CLI
-selection, real encoder delivery and live browserless compatibility remain
-unfinished. No claim about the cause of the previous live 403 is made.
+Synthetic loopback tests cover account selection and the packaged encoder.
+They do not prove live browserless compatibility. No claim about the cause of
+the previous live 403 is made.

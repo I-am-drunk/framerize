@@ -30,12 +30,15 @@ export function packageFixture(t, { environmentAware = false } = {}) {
   const directory = path.join(repository, 'framerize-server');
   for (const folder of ['src', 'bin', 'scripts', 'dist']) mkdirSync(path.join(directory, folder), { recursive: true });
   const providerFiles = ['provider.js', 'provider.d.ts', 'core.d.ts',
+    'backend.js', 'backend.d.ts', 'castle-loader.js', 'castle-loader.d.ts',
+    'castle-assets.js', 'castle-assets.d.ts',
     'framer-auth.js', 'framer-auth.d.ts',
     'account-backend.js', 'account-backend.d.ts',
     'framer-backend.js', 'framer-backend.d.ts', 'framer-request.js', 'framer-request.d.ts',
     'cli.js', 'cli.d.ts', 'logger.js', 'logger.d.ts', 'server.js', 'server.d.ts',
     ...['backend', 'http-policy', 'instance', 'instance-options', 'readiness'].map((name) => `core-types/${name}.d.ts`)];
   mkdirSync(path.join(directory, 'dist/core-types'));
+  writeFileSync(path.join(directory, 'dist/castle-manifest.json'), '{"version":1,"files":[]}');
   for (const name of providerFiles) writeFileSync(path.join(directory, 'dist', name), 'export {};\n');
   writeFileSync(path.join(directory, 'dist/core.js'), 'export const fixture = true;\n');
   writeFileSync(path.join(directory, 'dist/accounts.js'), 'export async function loadAccounts() { return Object.freeze([]); }\n');
@@ -48,7 +51,7 @@ export function packageFixture(t, { environmentAware = false } = {}) {
     name: 'framerize-server', version: '0.1.0', private: true, type: 'module',
     bin: { 'framerize-server': './bin/framerize-server.js' },
     exports: { '.': './dist/server.js', './config': './dist/config.js', './accounts': './dist/accounts.js' },
-    files: ['bin', 'dist/core.js', 'dist/config.js', 'dist/config.d.ts',
+    files: ['bin', 'dist/core.js', 'dist/config.js', 'dist/config.d.ts', 'dist/castle-manifest.json',
       'dist/errors.js', 'dist/errors.d.ts', 'dist/accounts.js', 'dist/accounts.d.ts',
       ...providerFiles.map((name) => `dist/${name}`), 'README.md', 'LICENSE'],
     scripts: { 'pack:check': 'node scripts/package-smoke.js' },

@@ -12,7 +12,8 @@ exports `ProviderOptions`, `ProviderRequest` and `Provider` through
 inside the package. CLI orchestration, logging and server composition also
 compile from TypeScript. The npm archive contains generated runtime modules
 and declarations, not the source tree. A small Node launcher remains in `bin/`.
-This does not implement Castle integration or establish live browserless compatibility.
+The account backend uses the packaged Castle Library and its TypeScript encoder.
+This wiring does not establish live browserless compatibility.
 
 ## Run
 
@@ -28,7 +29,8 @@ npm --prefix framerize-server start -- --upstream https://inference.example.test
 
 Run these commands from the repository root. Installed packages already
 contain the listener bundle, compiled configuration and account loader. They do not need
-TypeScript or a build step. TypeScript source stays out of the npm archive.
+TypeScript or a build step. The package also contains Castle Library and its
+hash-pinned assets. TypeScript source stays out of the npm archive.
 The main export includes `ServerProvider` and `ServerDependencies` types for
 embedding. Providers can return synchronous or asynchronous responses; the
 server normalizes them into the shared backend contract.
@@ -92,8 +94,9 @@ The server-only [session authentication module](docs/framer-auth.md) provides
 cookie-to-token acquisition, caching and cancellation for account runtimes.
 The [Framer backend](docs/framer-backend.md) uses it for Framer-specific
 inference. `createAccountBackend` connects JSON account references to a private
-auth instance and an application-supplied Castle minter. The CLI still uses the
-explicitly configured generic HTTP upstream.
+auth instance and an application-supplied Castle minter. The CLI defaults to the
+generic HTTP provider. `--backend framer` selects the account backend with the
+packaged minter. See [account configuration](docs/framer-backend.md).
 
 ```js
 import { createServer } from 'framerize-server';
@@ -115,7 +118,8 @@ this boundary. The provider owns its private upstream credentials.
 provider probes authenticated `GET /v1/models` and disposes the response without
 reading its body. `close()` is idempotent and cancels outstanding operations.
 The server accepts an injected provider, and the CLI constructs the built-in
-provider only when `--upstream` is configured. Missing providers yield unavailable
+provider when `--upstream` is configured or `--backend framer` is selected.
+Missing providers yield unavailable
 readiness and 503 inference responses.
 
 Providers must observe `signal` during all pending work, including body iteration.

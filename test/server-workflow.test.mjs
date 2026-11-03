@@ -11,7 +11,9 @@ test('server builds use only the typed server target and safe installs', () => {
   const tools = JSON.parse(read('tsconfig.server-tools.json'));
   assert.deepEqual(tools.include, ['scripts/build-server.ts',
     'scripts/server-native-bundle.ts', 'test/server-native-bundle.test.ts']);
-  assert.doesNotMatch(root.scripts['build:server'], /framerize-(?:remote|castle)/);
+  assert.doesNotMatch(root.scripts['build:server'], /framerize-remote/);
+  assert.match(root.scripts['build:server'], /^npm --prefix framerize-castle run build &&/);
+  assert.match(read('scripts/build-server.ts'), /stageCastleRuntime\(root\)/);
   assert.equal((workflow.match(/npm run build:server --prefix \.\./g) ?? []).length, 3);
   assert.doesNotMatch(workflow, /npm ci\s*\n|npm run build --prefix/);
   assert.match(workflow, /NODE_OPTIONS: ''/);
@@ -20,7 +22,8 @@ test('server builds use only the typed server target and safe installs', () => {
 });
 
 test('server workflows cover changed inputs and keep all pinned platforms', () => {
-  for (const file of ['.gitattributes', 'scripts/server-native-bundle.ts', 'scripts/package-archive.ts', 'test/server-*']) {
+  for (const file of ['.gitattributes', 'scripts/server-native-bundle.ts', 'scripts/package-archive.ts',
+    'framerize-castle/**', 'scripts/server-castle-runtime.ts', 'test/server-*']) {
     assert.equal(workflow.split(`'${file}'`).length - 1, 2, file);
   }
   assert.match(workflow, /node: \['22\.12\.0', '22\.23\.4', '24\.13\.0'\]/);

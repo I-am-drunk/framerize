@@ -8,8 +8,10 @@ import { fileURLToPath } from 'node:url';
 
 const source = fileURLToPath(new URL('../scripts/check.js', import.meta.url));
 const sources = ['account-backend.ts', 'accounts.ts', 'cli.ts', 'config.ts', 'errors.ts', 'framer-auth.ts', 'framer-backend.ts',
-  'framer-request.ts', 'logger.ts', 'provider.ts', 'server.ts'];
+  'framer-request.ts', 'logger.ts', 'provider.ts', 'server.ts', 'backend.ts', 'castle-assets.ts', 'castle-loader.ts'];
 const generated = ['core.js', 'core.d.ts', 'accounts.js', 'accounts.d.ts', 'config.js', 'config.d.ts',
+  'backend.js', 'backend.d.ts', 'castle-assets.js', 'castle-assets.d.ts',
+  'castle-loader.js', 'castle-loader.d.ts', 'castle-manifest.json',
   'account-backend.js', 'account-backend.d.ts',
   'errors.js', 'errors.d.ts', 'provider.js', 'provider.d.ts',
   'framer-auth.js', 'framer-auth.d.ts',
@@ -28,7 +30,7 @@ function fixture(t) {
   writeFileSync(path.join(root, 'bin', 'framerize-server.js'), '#!/usr/bin/env node\n');
   const manifest = {
     name: 'framerize-server', private: true,
-    files: ['bin', ...generated.map((name) => `dist/${name}`), 'README.md', 'LICENSE'],
+    files: ['bin', 'dist/castle', ...generated.map((name) => `dist/${name}`), 'README.md', 'LICENSE'],
     exports: {
       '.': './dist/server.js', './config': './dist/config.js', './accounts': './dist/accounts.js',
       './logger': './dist/logger.js', './provider': './dist/provider.js',

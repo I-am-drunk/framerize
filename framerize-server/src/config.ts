@@ -3,6 +3,9 @@ import { constants } from 'node:fs';
 import { ConfigurationError } from './errors.js';
 
 export interface ServerConfig {
+  readonly backend: 'http' | 'framer';
+  readonly accountId: string;
+  readonly framerOrigin: string;
   readonly host: string;
   readonly port: number;
   readonly accountsFile: string;
@@ -21,6 +24,7 @@ export interface ServerConfig {
 }
 
 const DEFAULTS = Object.freeze({
+  backend: 'http', accountId: '', framerOrigin: 'https://api.framer.com',
   host: '127.0.0.1', port: 8789, accountsFile: '', upstream: '',
   serverTokenEnv: 'FRAMERIZE_SERVER_TOKEN', serverTokenFile: '',
   authorizationEnv: '', authorizationFile: '', logLevel: 'info',
@@ -28,6 +32,8 @@ const DEFAULTS = Object.freeze({
   idleTimeoutMs: 60_000, requestHeadersTimeoutMs: 15_000, shutdownTimeoutMs: 5_000,
 } satisfies Omit<ServerConfig, 'serverToken'>);
 const ENVIRONMENT = Object.freeze({
+  backend: 'FRAMERIZE_SERVER_BACKEND', accountsFile: 'FRAMERIZE_SERVER_ACCOUNTS',
+  accountId: 'FRAMERIZE_SERVER_ACCOUNT', framerOrigin: 'FRAMERIZE_SERVER_FRAMER_ORIGIN',
   host: 'FRAMERIZE_SERVER_HOST', port: 'FRAMERIZE_SERVER_PORT', upstream: 'FRAMERIZE_SERVER_UPSTREAM',
 });
 
@@ -68,6 +74,20 @@ export function loadConfig(values: unknown = {}, env: Readonly<Record<string, st
     if (typeof value !== 'string' || (value && !/^[A-Za-z_][A-Za-z0-9_]*$/.test(value))) invalid(name);
   }
   if (config.authorizationEnv && config.authorizationFile) invalid('upstream credential references');
+  if (config.backend !== 'http' && config.backend !== 'framer') invalid(label('backend'));
+  if (typeof config.accountId !== 'string'
+    || config.accountId && !/^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/.test(config.accountId)) invalid(label('accountId'));
+  if (config.backend === 'framer' && (!config.accountsFile || config.upstream
+    || config.authorizationEnv || config.authorizationFile)) invalid('Framer backend configuration');
+  if (config.backend === 'http' && config.accountId) invalid('account selector');
+  if (typeof config.framerOrigin !== 'string') invalid(label('framerOrigin'));
+  try {
+    const origin = new URL(config.framerOrigin);
+    if (origin.username || origin.password || origin.search || origin.hash || origin.pathname !== '/'
+      || origin.protocol !== 'https:' && !(origin.protocol === 'http:'
+        && ['127.0.0.1', '[::1]'].includes(origin.hostname))) throw new Error();
+    config.framerOrigin = origin.origin;
+  } catch { invalid(label('framerOrigin')); }
   if (typeof config.upstream !== 'string') invalid(label('upstream'));
   if (config.upstream) {
     let url: URL;

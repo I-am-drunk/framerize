@@ -16,15 +16,20 @@ const info = lstatSync(archive);
 if (!info.isFile() || info.size > 16 * 1024 * 1024) throw new Error('Invalid server archive');
 const archiveBytes = readFileSync(archive);
 const manifest = JSON.parse(readFileSync('package.json', 'utf8'));
+const runtime = JSON.parse(readFileSync('dist/castle-manifest.json', 'utf8'));
 const files = ['package.json', ...manifest.files.flatMap(file =>
-  file === 'bin' ? ['bin/framerize-server.js'] : [file])];
+  file === 'bin' ? ['bin/framerize-server.js'] : file === 'dist/castle'
+    ? runtime.files.map(entry => `dist/castle/${entry.path}`) : [file])];
 verifyServerSource(archiveBytes, files, file => file.startsWith('dist/') ? readFileSync(file)
   : execFileSync('git', ['show', `HEAD:framerize-server/${file}`]));
 const bundle = await bundleServerArchive(archiveBytes, identity);
+if (!bundle.runtime) throw new Error('Castle runtime missing from the verified archive');
 writeFileSync('dist/bundle.cjs', bundle.code);
+writeFileSync('dist/castle-runtime.json', bundle.runtime);
 writeFileSync('dist/sea-config.json', JSON.stringify({
   main: path.resolve('dist/bundle.cjs'), output: path.resolve('dist/sea-prep.blob'),
   disableExperimentalSEAWarning: true, useSnapshot: false, useCodeCache: false,
+  assets: { 'castle-runtime': path.resolve('dist/castle-runtime.json') },
 }));
 execFileSync(process.execPath, ['--experimental-sea-config', 'dist/sea-config.json'], { stdio: 'inherit' });
 const staged = 'dist/framerize-server.tmp';
@@ -42,6 +47,7 @@ try {
   writeFileSync('dist/build.json', `${JSON.stringify({ ...identity, target,
     node: process.version, executableSha256: digest(executable),
     packageSha256: bundle.packageSha256, packageBytes: bundle.packageBytes,
+    castleRuntimeSha256: digest('dist/castle-runtime.json'), castleRuntimeBytes: bundle.runtime.length,
     bundleInputs: bundle.inputs,
   }, null, 2)}\n`);
   process.stdout.write(`Built ${executable}\n`);

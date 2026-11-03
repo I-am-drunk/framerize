@@ -35,7 +35,7 @@ export interface Reply { status: number; body: Buffer; }
 export interface Observation { path: string; body: Buffer; authorization: string | undefined; }
 
 export function exchange(base: string, path: string, token: string, options: {
-  body?: object; onChunk?: () => void; abort?: boolean;
+  body?: object; onChunk?: () => void; abort?: boolean; timeoutMs?: number;
 } = {}): Promise<Reply> {
   return new Promise((resolve, reject) => {
     const client = request(new URL(path, base), { agent: false,
@@ -51,7 +51,7 @@ export function exchange(base: string, path: string, token: string, options: {
       response.on('error', reject);
       response.on('end', () => resolve({ status: response.statusCode!, body: Buffer.concat(chunks) }));
     });
-    const deadline = setTimeout(() => client.destroy(new Error('Fixture request timed out')), 5000);
+    const deadline = setTimeout(() => client.destroy(new Error('Fixture request timed out')), options.timeoutMs ?? 5000);
     client.once('close', () => clearTimeout(deadline));
     client.on('error', reject);
     client.end(options.body ? JSON.stringify(options.body) : undefined);

@@ -20,7 +20,8 @@ export interface CliDependencies {
   readonly process?: CliProcess;
   readonly env?: Readonly<Record<string, string | undefined>>;
   readonly logger?: Pick<Logger, 'info'>;
-  readonly createProvider?: (config: ServerConfig, context: { readonly signal: AbortSignal }) =>
+  readonly createProvider?: (config: ServerConfig, context: { readonly signal: AbortSignal;
+    readonly env: Readonly<Record<string, string | undefined>> }) =>
     ServerProvider | Promise<ServerProvider>;
   readonly createServer?: (config: ServerConfig, dependencies: ServerDependencies) =>
     CliInstance | Promise<CliInstance>;
@@ -28,6 +29,9 @@ export interface CliDependencies {
 
 const HELP = `Framerize server
 Usage: framerize-server [serve|check] [options]
+  --backend http|framer          Provider backend, default http
+  --account-id NAME              Enabled JSON account to use with the framer backend
+  --framer-origin URL            Framer API origin, default https://api.framer.com
   --upstream URL                  Authorized inference API base URL, env FRAMERIZE_SERVER_UPSTREAM
   --authorization-env NAME        Upstream credential environment variable
   --authorization-file FILE       Private upstream credential file
@@ -44,7 +48,7 @@ Usage: framerize-server [serve|check] [options]
   --log-level LEVEL               debug, info, warn, error, silent
 Command-line options override these environment values. Credentials use the references above.
 `;
-const FLAGS = new Set(['upstream', 'authorization-env', 'authorization-file', 'server-token-env',
+const FLAGS = new Set(['backend', 'account-id', 'framer-origin', 'upstream', 'authorization-env', 'authorization-file', 'server-token-env',
   'server-token-file', 'accounts-file', 'host', 'port', 'headers-timeout-ms',
   'request-headers-timeout-ms', 'idle-timeout-ms', 'shutdown-timeout-ms', 'max-body-bytes', 'log-level']);
 
@@ -69,7 +73,8 @@ export async function run(argv: readonly string[] = process.argv.slice(2),
   const events = dependencies.process ?? process;
   if (argv.includes('--help') || argv.includes('-h')) { events.stdout.write(HELP); return 0; }
   const { command, values } = parseArgs(argv);
-  const config = loadConfig(values, dependencies.env ?? process.env);
+  const env = dependencies.env ?? process.env;
+  const config = loadConfig(values, env);
   const logger = dependencies.logger ?? createLogger({ stream: events.stderr, level: config.logLevel });
   const controller = new AbortController();
   let provider: ServerProvider | undefined;
@@ -91,9 +96,10 @@ export async function run(argv: readonly string[] = process.argv.slice(2),
   events.on('SIGTERM', stop);
   try {
     const makeProvider: NonNullable<CliDependencies['createProvider']> =
-      dependencies.createProvider ?? (await import('./provider.js')).createProvider;
+      dependencies.createProvider ?? (await import('./backend.js')).createConfiguredProvider;
     if (controller.signal.aborted) return 0;
-    provider = config.upstream ? await makeProvider(config, { signal: controller.signal }) : undefined;
+    provider = config.upstream || config.backend === 'framer'
+      ? await makeProvider(config, { signal: controller.signal, env }) : undefined;
     if (controller.signal.aborted) return 0;
     app = await (dependencies.createServer ?? createServer)(config, { provider, logger });
     if (controller.signal.aborted) return 0;

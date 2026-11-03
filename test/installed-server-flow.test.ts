@@ -9,10 +9,38 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { npmCli, privateEnvironment } from '../scripts/core-package-check.js';
-import { startInstalledServer, serverToken } from '../scripts/fixtures/installed-server.js';
+import { startInstalledServer, startInstalledAccountServer, serverToken } from '../scripts/fixtures/installed-server.js';
+import { createAccountScenario, exerciseAccountFlow } from '../scripts/fixtures/account-scenario.js';
 import { assertTransportClosed, createScenario, exchange, exerciseFlow,
   transportResources } from '../scripts/fixtures/transport-scenario.js';
 
+test('installed account CLI uses the built-in minter with a loopback provider', { timeout: 90_000 }, async context => {
+  const baseline = transportResources();
+  const root = mkdtempSync(join(tmpdir(), 'framerize-installed-account-'));
+  const env = privateEnvironment(root);
+  let scenario: Awaited<ReturnType<typeof createAccountScenario>> | undefined;
+  let server: Awaited<ReturnType<typeof startInstalledAccountServer>> | undefined;
+  try {
+    writeFileSync(join(root, 'user.npmrc'), ''); writeFileSync(join(root, 'global.npmrc'), '');
+    writeFileSync(join(root, 'package.json'), '{"private":true,"type":"module"}');
+    const source = fileURLToPath(new URL('../../framerize-server', import.meta.url));
+    const npm = (args: string[]) => execFileSync(process.execPath, [npmCli(), ...args],
+      { cwd: root, env, encoding: 'utf8', timeout: 30000 });
+    const packed = JSON.parse(npm(['pack', source, '--offline', '--ignore-scripts', '--json'])) as { filename: string }[];
+    npm(['install', '--offline', '--ignore-scripts', '--no-audit', '--no-fund', join(root, packed[0]!.filename)]);
+    scenario = await createAccountScenario();
+    server = await startInstalledAccountServer(root, env, scenario.url);
+    const result = await exerciseAccountFlow(server.url, serverToken, scenario);
+    await server.close();
+    assert.doesNotMatch(server.output(), /session=synthetic-account|synthetic-access/);
+    context.diagnostic(JSON.stringify({ node: process.version, ...result }));
+  } finally {
+    const cleanup = await Promise.allSettled([server?.close(), scenario?.close()]);
+    rmSync(root, { recursive: true, force: true });
+    for (const result of cleanup) if (result.status === 'rejected') throw result.reason;
+  }
+  await assertTransportClosed(baseline);
+});
 test('installed server CLI preserves a tool round trip and cancels the real upstream',
   { timeout: 90_000 }, async (context) => {
     const initialResources = transportResources();

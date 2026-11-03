@@ -2,6 +2,22 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { loadConfig } from '../dist/config.js';
 
+test('Framer selection requires account metadata and rejects mixed credential paths', () => {
+  const base = { backend: 'framer', accountsFile: '/synthetic/accounts.json' };
+  assert.equal(loadConfig(base, {}).framerOrigin, 'https://api.framer.com');
+  for (const extra of [{ accountsFile: '' }, { backend: 'unknown' }, { accountId: '../account' },
+    { upstream: 'https://synthetic.invalid' }, { authorizationEnv: 'TOKEN' },
+    { framerOrigin: 'http://example.com' }, { framerOrigin: 'https://example.com/path' }]) {
+    assert.throws(() => loadConfig({ ...base, ...extra }, {}), { name: 'ConfigurationError' });
+  }
+  assert.throws(() => loadConfig({ accountId: 'selected' }, {}), { name: 'ConfigurationError' });
+  const selected = loadConfig({}, { FRAMERIZE_SERVER_BACKEND: 'framer',
+    FRAMERIZE_SERVER_ACCOUNTS: base.accountsFile, FRAMERIZE_SERVER_ACCOUNT: 'selected',
+    FRAMERIZE_SERVER_FRAMER_ORIGIN: 'http://127.0.0.1:1234' });
+  assert.equal(selected.accountId, 'selected');
+  assert.equal(selected.framerOrigin, 'http://127.0.0.1:1234');
+});
+
 test('configuration freezes validated defaults and explicit values', () => {
   const config = loadConfig({ port: 0, serverToken: 'fixture', idleTimeoutMs: '250' }, {});
   assert.equal(config.host, '127.0.0.1');

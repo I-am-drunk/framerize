@@ -7,7 +7,8 @@ import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { npmCli, privateEnvironment } from './core-package-check.js';
-import { localToken, startInstalledRemote, startInstalledServer } from './fixtures/installed-server.js';
+import { localToken, startInstalledRemote, startInstalledServer, startInstalledAccountServer } from './fixtures/installed-server.js';
+import { createAccountScenario, exerciseAccountFlow } from './fixtures/account-scenario.js';
 import { assertTransportClosed, createScenario, exchange, exerciseFlow,
   toolRequest, transportResources } from './fixtures/transport-scenario.js';
 
@@ -55,8 +56,9 @@ export async function checkNativeServer(executable: string, remoteArchive: strin
     await remote.close();
     await server.close();
     await assert.rejects(exchange(server.url, '/health', localToken), { code: 'ECONNREFUSED' });
+    const accountFlow = await checkAccount(consumer, native, env, binary);
     const digest = (file: string) => createHash('sha256').update(readFileSync(file)).digest('hex');
-    result = { node: process.version, platform: process.platform, ...flow,
+    result = { node: process.version, platform: process.platform, ...flow, accountFlow,
       executableSha256: digest(binary), remoteArchiveSha256: digest(remoteArchive),
       nativePathEmpty: true, closedCli: true };
   } finally {
@@ -66,6 +68,28 @@ export async function checkNativeServer(executable: string, remoteArchive: strin
   }
   await assertTransportClosed(initialResources);
   return result;
+}
+
+async function checkAccount(consumer: string, native: string, env: NodeJS.ProcessEnv, binary: string) {
+  const scenario = await createAccountScenario();
+  let server: Awaited<ReturnType<typeof startInstalledAccountServer>> | undefined;
+  let remote: Awaited<ReturnType<typeof startInstalledRemote>> | undefined;
+  try {
+    server = await startInstalledAccountServer(native, { ...env, PATH: '' }, scenario.url, binary);
+    assert.equal(typeof env.TMPDIR, 'string');
+    const runtimeDirectories = () => readdirSync(env.TMPDIR!).filter(name =>
+      /^(framerize-castle-runtime-|castle-library-)/.test(name));
+    assert.equal(runtimeDirectories().length, 1, 'Native runtime was not extracted privately');
+    remote = await startInstalledRemote(consumer, env, server.url);
+    const result = await exerciseAccountFlow(remote.url, localToken, scenario);
+    await remote.close(); await server.close();
+    assert.deepEqual(runtimeDirectories(), [], 'Native runtime files survived shutdown');
+    assert.doesNotMatch(server.output(), /session=synthetic-account|synthetic-access/);
+    return result;
+  } finally {
+    const cleanup = await Promise.allSettled([remote?.close(), server?.close(), scenario.close()]);
+    for (const entry of cleanup) if (entry.status === 'rejected') throw entry.reason;
+  }
 }
 
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {

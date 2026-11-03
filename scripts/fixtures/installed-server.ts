@@ -24,6 +24,21 @@ export async function startInstalledServer(consumer: string, env: NodeJS.Process
     '--accounts-file', accounts], 'server', nativeExecutable);
 }
 
+export async function startInstalledAccountServer(consumer: string, env: NodeJS.ProcessEnv, origin: string,
+  nativeExecutable?: string) {
+  const accounts = join(consumer, 'accounts.json');
+  writeFileSync(accounts, JSON.stringify([
+    { id: 'unused', projectId: 'unused-project', session: { env: 'UNSET_ACCOUNT_SESSION' } },
+    { id: 'selected', projectId: 'selected-project', session: { env: 'FIXTURE_ACCOUNT_SESSION' } },
+  ]));
+  return startInstalledCli(consumer, { ...env, FIXTURE_ACCOUNT_SESSION: 'session=synthetic-account',
+    FIXTURE_SERVER_TOKEN: serverToken }, [
+    ...(nativeExecutable ? [] : [join(consumer, 'node_modules/framerize-server/bin/framerize-server.js')]),
+    'serve', '--backend', 'framer', '--account-id', 'selected', '--accounts-file', accounts,
+    '--framer-origin', origin, '--port', '0', '--server-token-env', 'FIXTURE_SERVER_TOKEN',
+  ], 'server', nativeExecutable);
+}
+
 async function startInstalledCli(consumer: string, env: NodeJS.ProcessEnv, args: string[], kind: 'server' | 'remote',
   executable = process.execPath) {
   const child = spawn(executable, args, { cwd: consumer, stdio: ['ignore', 'pipe', 'pipe'], env });

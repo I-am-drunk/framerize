@@ -10,8 +10,9 @@ Local tests cover the shared server, installed Remote package, authentication,
 streaming and shutdown. The [Framer backend](framerize-server/docs/framer-backend.md)
 now loads selected JSON account references and maps provider requests through
 the actual listener in synthetic tests. Castle Library now collects and encodes
-without an external encoder. CLI account selection and native-server minter
-packaging still need wiring.
+without an external encoder. The server CLI selects a JSON account with
+`--backend framer --accounts-file FILE --account-id NAME`. Its package includes
+Castle Library, and the native build embeds that runtime in the executable.
 Live browserless inference, current hosted release qualification and npm
 publication are not complete. Do not use old release evidence to approve this
 snapshot.
@@ -28,7 +29,7 @@ Use Node.js 22.12 or newer. Run source commands from this repository's root.
 - [Framerize Remote](framerize-remote/README.md) forwards local client requests to
   a configured endpoint. Its default listener is `127.0.0.1:8788`.
 - [Castle Library](framerize-castle/README.md) contains the server-side minting
-  API and assets. Its provider integration is unfinished; Remote never includes it.
+  API and assets. Only the server includes it, never Remote or the shared core.
 - [Shared core](docs/typescript-layout.md) supplies the HTTP listener and
   readiness contract used by both server and Remote.
 

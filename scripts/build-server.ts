@@ -3,8 +3,10 @@ import { createHash } from 'node:crypto';
 import { copyFileSync, mkdirSync, writeFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { build } from 'esbuild';
+import { stageCastleRuntime } from './server-castle-runtime.js';
 
 const root = fileURLToPath(new URL('../../', import.meta.url));
+stageCastleRuntime(root);
 const result = await build({ absWorkingDir: root, bundle: true, write: false,
   platform: 'node', format: 'esm', target: 'node22', minify: true, legalComments: 'none', metafile: true,
   stdin: { contents: "export { createInstance } from './framerize-core/src/instance.ts';",

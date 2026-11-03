@@ -7,6 +7,8 @@ const manifest = JSON.parse(await readFile(new URL('../package.json', import.met
 assert.equal(manifest.name, 'framerize-server', 'Unexpected server package name');
 assert.equal(manifest.private, true, 'Server package must remain private');
 const generated = ['accounts.d.ts', 'accounts.js', 'config.d.ts', 'config.js', 'core.js', 'core.d.ts',
+  'backend.d.ts', 'backend.js', 'castle-loader.d.ts', 'castle-loader.js',
+  'castle-assets.d.ts', 'castle-assets.js', 'castle-manifest.json',
   'account-backend.d.ts', 'account-backend.js',
   ...['backend', 'http-policy', 'instance', 'instance-options', 'readiness'].map((name) => `core-types/${name}.d.ts`),
   'errors.d.ts', 'errors.js', 'provider.d.ts', 'provider.js',
@@ -14,7 +16,7 @@ const generated = ['accounts.d.ts', 'accounts.js', 'config.d.ts', 'config.js', '
   'framer-backend.d.ts', 'framer-backend.js', 'framer-request.d.ts', 'framer-request.js',
   'cli.d.ts', 'cli.js', 'logger.d.ts', 'logger.js', 'server.d.ts', 'server.js'];
 assert.deepEqual([...(manifest.files ?? [])].sort(),
-  ['LICENSE', 'README.md', 'bin', ...generated.map((name) => `dist/${name}`)].sort(),
+  ['LICENSE', 'README.md', 'bin', 'dist/castle', ...generated.map((name) => `dist/${name}`)].sort(),
   'Unexpected server package files');
 assert.deepEqual(manifest.exports, {
   '.': './dist/server.js', './config': './dist/config.js', './accounts': './dist/accounts.js',
@@ -29,7 +31,8 @@ for (const field of ['dependencies', 'optionalDependencies', 'peerDependencies']
   assert.deepEqual(Object.keys(manifest[field] ?? {}), [], 'Unexpected runtime dependencies');
 }
 assert.deepEqual((await readdir(new URL('../src/', import.meta.url))).sort(), [
-  'account-backend.ts', 'accounts.ts', 'cli.ts', 'config.ts', 'errors.ts', 'framer-auth.ts', 'framer-backend.ts',
+  'account-backend.ts', 'accounts.ts', 'backend.ts', 'castle-assets.ts', 'castle-loader.ts',
+  'cli.ts', 'config.ts', 'errors.ts', 'framer-auth.ts', 'framer-backend.ts',
   'framer-request.ts', 'logger.ts', 'provider.ts', 'server.ts',
 ], 'Unexpected server source files');
 assert.deepEqual(await readdir(new URL('../bin/', import.meta.url)), ['framerize-server.js'],

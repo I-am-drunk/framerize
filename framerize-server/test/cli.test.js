@@ -8,6 +8,22 @@ import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { parseArgs, run } from '../dist/cli.js';
 
+test('CLI selects the account provider without a generic upstream', async () => {
+  let made = 0; let closed = 0;
+  const env = { SESSION: 'synthetic-session' };
+  const result = await run(['check', '--backend', 'framer', '--accounts-file', '/synthetic/accounts.json',
+    '--account-id', 'selected'], { env, logger: { info() {} },
+    createProvider(config, context) {
+      assert.equal(config.backend, 'framer');
+      assert.equal(config.accountId, 'selected');
+      assert.equal(context.env, env); made += 1;
+      return { async close() { closed += 1; } };
+    },
+    createServer(_config, { provider }) { return { close: () => provider.close() }; },
+  });
+  assert.equal(result, 0); assert.equal(made, 1); assert.equal(closed, 1);
+});
+
 function outputProcess() {
   const events = new EventEmitter();
   let output = '';
