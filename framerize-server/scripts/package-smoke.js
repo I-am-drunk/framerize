@@ -6,9 +6,9 @@ import { fileURLToPath } from 'node:url';
 import { execFileSync } from 'node:child_process';
 
 const root = fileURLToPath(new URL('../', import.meta.url));
-const directory = await mkdtemp(path.join(tmpdir(), 'framerize-server-pack-'));
 const npm = process.env.npm_execpath;
 if (!npm) throw new Error('Run this check with npm run pack:check');
+const directory = await mkdtemp(path.join(tmpdir(), 'framerize-server-pack-'));
 const run = (args) => execFileSync(process.execPath, [npm, ...args], {
   cwd: directory, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'],
 });

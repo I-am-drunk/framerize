@@ -236,6 +236,9 @@ accepted downloaded tarballs with optional or optional peer dependencies.
 The unchanged package still passes, and both altered manifests now fail with
 the expected dependency error on Node 22.23.4 and 24.13.0. These checks do not
 install the synthetic missing dependencies or call an external service.
+The smoke validates npm invocation before creating its temporary directory.
+Direct invocation without npm now fails without leaving files behind, verified
+on Node 22.23.4 and 24.13.0 against the old leaking behavior.
 
 Windows graceful POSIX-signal behavior is not claimed. Live inference,
 private credentials, production activation and release publication remain
