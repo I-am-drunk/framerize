@@ -67,6 +67,32 @@ test('check explains saved exposure consent with a supported recovery command', 
   assert.deepEqual(await readdir(root), ['profile.json']);
 });
 
+test('serve host overrides explain their separate exposure consent', async t => {
+  const root = await mkdtemp(join(tmpdir(), 'remote-serve-consent-'));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const profile = join(root, 'profile.json');
+  const saved = JSON.stringify({ remote: 'https://server.invalid', host: '0.0.0.0',
+    allowNonLoopback: true, serverToken: { kind: 'env', name: 'UNSET_SERVER' },
+    localToken: { kind: 'env', name: 'UNSET_LOCAL' } });
+  await writeFile(profile, saved, { mode: 0o600 });
+  for (const json of [false, true]) {
+    const result = spawnSync(process.execPath, [launcher, 'serve', '--config', profile,
+      '--host', '0.0.0.0', ...(json ? ['--json'] : [])], {
+      cwd: root, encoding: 'utf8', timeout: 5000,
+      env: { HOME: root, USERPROFILE: root, TMPDIR: root,
+        ...(process.env.SystemRoot ? { SystemRoot: process.env.SystemRoot } : {}) },
+    });
+    assert.equal(result.error, undefined);
+    assert.equal(result.status, 1);
+    assert.equal(result.stdout, '');
+    if (json) assert.equal(JSON.parse(result.stderr).error, 'exposure_consent');
+    assert.match(result.stderr, /--allow-non-loopback to serve/);
+    assert.doesNotMatch(result.stderr, /UNSET_SERVER|UNSET_LOCAL/);
+    assert.equal(await readFile(profile, 'utf8'), saved);
+    assert.deepEqual(await readdir(root), ['profile.json']);
+  }
+});
+
 test('setup explains an unwritable profile target without exposing its path', async () => {
   const root = await mkdtemp(join(tmpdir(), `${canary}-`));
   try {

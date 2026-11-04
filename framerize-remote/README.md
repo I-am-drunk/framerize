@@ -72,6 +72,8 @@ do not include the supplied address, file paths or credential values.
 
 `check` reports `exposure_consent` if a saved non-loopback host lacks consent.
 Use `setup --help` to update the saved host or exposure consent.
+For a non-loopback `serve --host` override, add `--allow-non-loopback` to that
+serve command. The override requires consent even when the saved profile has it.
 
 - `--server-token-env NAME` / `--server-token-file FILE`: the remote server
   token. Choose one.
