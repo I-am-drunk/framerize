@@ -59,8 +59,8 @@ export async function run(argv: readonly string[], io: CliIo): Promise<number> {
     const { options } = parseArgs(passthrough, { tailscale: 'boolean' });
     const controller = new AbortController();
     const stop = (): void => controller.abort();
-    process.once('SIGINT', stop);
-    process.once('SIGTERM', stop);
+    process.on('SIGINT', stop);
+    process.on('SIGTERM', stop);
     try {
       const result = await runCheck(configPath, json, process.env, options.tailscale === true, controller.signal);
       io.stdout(`${result.text}\n`);
@@ -85,8 +85,8 @@ async function serve(configPath: string, io: CliIo, json: boolean, overrides: Li
   let resolveStopped!: () => void;
   const stopped = new Promise<void>(resolve => { resolveStopped = resolve; });
   const stop = (): void => { controller.abort(); resolveStopped(); };
-  process.once('SIGINT', stop);
-  process.once('SIGTERM', stop);
+  process.on('SIGINT', stop);
+  process.on('SIGTERM', stop);
   try {
     handle = await startServe(configPath, process.env, controller.signal, overrides);
     const { host, port } = handle.address;
@@ -106,9 +106,11 @@ async function serve(configPath: string, io: CliIo, json: boolean, overrides: Li
     io.stdout(`${json ? JSON.stringify(result) : diagnosticText(error.code)}\n`);
     return 1;
   } finally {
-    process.off('SIGINT', stop);
-    process.off('SIGTERM', stop);
-    await handle?.close();
+    try { await handle?.close(); }
+    finally {
+      process.off('SIGINT', stop);
+      process.off('SIGTERM', stop);
+    }
     if (controller.signal.aborted) io.stdout(json ? '{"stopped":true}\n' : 'Stopped.\n');
   }
 }
