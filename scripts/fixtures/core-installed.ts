@@ -66,7 +66,7 @@ async function lateResponse(): Promise<number> {
   let release!: (value: InferenceResponse) => void;
   const pending = new Promise<InferenceResponse>((resolve) => { release = resolve; });
   let returned = 0;
-  const late = createInstance({ token: 'synthetic-installed-token', headersTimeoutMs: 25,
+  const late = createInstance({ token: 'synthetic-installed-token', inferenceTimeoutMs: 25,
     backend: { async ready() { return true; }, forward: () => pending, close() {} } });
   try {
     const address = await late.listen();

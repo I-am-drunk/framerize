@@ -250,7 +250,7 @@ for (const operation of ['forward', 'ready']) {
           response.once('close', () => clearTimeout(completion));
         });
       });
-    }, { headersTimeoutMs: 40 });
+    }, { headersTimeoutMs: 40, inferenceTimeoutMs: 40 });
     if (operation === 'ready') assert.equal(await provider.ready(), true);
     else {
       const result = await provider.forward({ path: '/v1/responses', body: body() });
@@ -635,7 +635,7 @@ test('early upstream response stops a pending upload and returns its source', as
 test('active uploads outlive header timeouts', async (context) => {
   const { provider } = await fixture(context, async (request, response) => {
     await collect(request); response.end('ok');
-  }, { headersTimeoutMs: 50, idleTimeoutMs: 80 });
+  }, { headersTimeoutMs: 50, inferenceTimeoutMs: 50, idleTimeoutMs: 80 });
   async function* source() {
     for (let index = 0; index < 8; index += 1) { yield Buffer.from('chunk'); await delay(20); }
   }
