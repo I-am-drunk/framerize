@@ -9,6 +9,7 @@ const SETUP_SPEC = {
   'local-token-env': 'string', 'local-token-file': 'string', host: 'string',
   port: 'string', 'allow-insecure-remote': 'boolean', 'allow-non-loopback': 'boolean',
   start: 'boolean',
+  'inference-timeout-ms': 'string',
 } as const;
 
 function reference(env: unknown, file: unknown, role: string): CredentialReference {
@@ -21,6 +22,10 @@ function reference(env: unknown, file: unknown, role: string): CredentialReferen
 export async function runSetup(argv: readonly string[], configPath: string): Promise<string> {
   const { options } = parseArgs(argv, SETUP_SPEC);
   if (typeof options.port === 'string' && !/^\d+$/.test(options.port)) throw new Error('invalid listen port');
+  const inferenceTimeout = options['inference-timeout-ms'];
+  if (typeof inferenceTimeout === 'string' && !/^\d+$/.test(inferenceTimeout)) {
+    throw new Error('invalid inference timeout');
+  }
   if (typeof options.remote !== 'string') throw new Error('--remote is required');
   const insecure = options['allow-insecure-remote'] === true;
   parseRemoteEndpoint(options.remote, insecure);
@@ -30,6 +35,7 @@ export async function runSetup(argv: readonly string[], configPath: string): Pro
     localToken: reference(options['local-token-env'], options['local-token-file'], 'local'),
     ...(typeof options.host === 'string' ? { host: options.host } : {}),
     ...(typeof options.port === 'string' ? { port: Number(options.port) } : {}),
+    ...(typeof inferenceTimeout === 'string' ? { inferenceTimeoutMs: Number(inferenceTimeout) } : {}),
     allowInsecureRemote: insecure,
     allowNonLoopback: options['allow-non-loopback'] === true,
   };

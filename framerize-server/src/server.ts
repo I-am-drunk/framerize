@@ -32,10 +32,10 @@ export async function createServer(values: unknown = {},
     },
     close() { return provider?.close?.(); },
   };
-  const { host, port, maxBodyBytes, headersTimeoutMs, idleTimeoutMs,
+  const { host, port, maxBodyBytes, headersTimeoutMs, inferenceTimeoutMs, idleTimeoutMs,
     requestHeadersTimeoutMs, shutdownTimeoutMs } = config;
   return createInstance({ backend, token: token || null, host, port, maxBodyBytes,
-    headersTimeoutMs, idleTimeoutMs, requestHeadersTimeoutMs, shutdownTimeoutMs,
+    headersTimeoutMs, inferenceTimeoutMs, idleTimeoutMs, requestHeadersTimeoutMs, shutdownTimeoutMs,
     onRequest(event) { return logger?.info?.('request.finished', event); },
   });
 }
