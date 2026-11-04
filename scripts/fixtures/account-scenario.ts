@@ -69,9 +69,12 @@ export async function exerciseAccountFlow(base: string, token: string,
   const response = await exchange(base, '/v1/chat/completions', token, { body: request, timeoutMs: 20_000 });
   assert.equal(response.status, 200, response.body.toString());
   assert.equal(response.body.toString(), output);
-  await assert.rejects(exchange(base, '/v1/chat/completions', token, { timeoutMs: 20_000, abort: true,
+  const controller = new AbortController();
+  await assert.rejects(exchange(base, '/v1/chat/completions', token, {
+    timeoutMs: 20_000, signal: controller.signal, onChunk: () => controller.abort(),
     body: { model: 'fixture', stream: true, messages: [{ role: 'user', content: 'cancel' }] },
-  }));
+  }), { name: 'AbortError', code: 'ABORT_ERR' });
+  assert.equal(controller.signal.aborted, true, 'Cancellation requires a response chunk');
   await waitForCancellation(scenario.cancellation);
   assert.deepEqual(scenario.state.failures, []);
   assert.equal(scenario.state.inference, 2); assert.equal(scenario.state.cancelled, 1);

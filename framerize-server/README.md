@@ -116,7 +116,7 @@ disconnects and expired deadlines close the stream without a success terminator.
 interpreting events. Neither keepalives nor slow clients extend the total deadline.
 Responses events retain supplied item IDs and add a consistent ID where absent.
 A missing token total is calculated from the supplied input and output counts.
-Missing Messages usage cannot be converted into a valid stream and produces an error.
+Messages streams use zero for unavailable token counts when the provider omits usage.
 
 An incomplete Responses result can contain an incomplete function call with
 unfinished JSON in its `arguments` string. The server preserves that string,

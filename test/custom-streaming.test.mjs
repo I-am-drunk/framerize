@@ -14,6 +14,23 @@ function events(bytes) {
 
 for (const protocol of protocols) for (const viaRemote of [false, true]) {
   const name = `${protocol.name}, remote=${viaRemote}`;
+  if (protocol.name === 'messages') {
+    test(`missing usage retains Messages token-count fields: ${name}`, async context => {
+      const setup = await fixture(context, protocol, viaRemote, {
+        value: reply(protocol, { usage: undefined }),
+      });
+      const result = await setup.post({ ...protocol.body, stream: true });
+      assert.equal(result.status, 200);
+      const received = events(result.body);
+      assert.deepEqual(received[0].message.usage, { input_tokens: 0, output_tokens: 0 });
+      assert.deepEqual(received.at(-2).usage, { input_tokens: 0, output_tokens: 0 });
+      assert.equal(received.at(-1).type, 'message_stop');
+      assert.equal(received.find(item => item.delta?.type === 'text_delta').delta.text,
+        'Synthetic reply.');
+      assert.equal(setup.observed.length, 1);
+      assert.equal(setup.observed[0].body.request.stream, false);
+    });
+  }
   test(`streamed tool call and result round trip: ${name}`, async context => {
     const tool = protocol.name === 'responses'
       ? { type: 'function_call', id: 'tool', call_id: 'call', name: 'lookup', arguments: '{"query":"snow"}' }
