@@ -38,6 +38,54 @@ const cases = [
   ['duplicate profile path', [...valid, '--config', canary], 'setup_arguments'],
 ];
 
+const globalCases = [
+  ['missing global profile path', ['setup', '--config', ...valid], 'setup_arguments'],
+  ['duplicate global profile path', ['setup', '--config', 'first.json', '--config', 'second.json', ...valid],
+    'setup_arguments'],
+  ['duplicate global json flag', ['setup', '--json', '--json', '--config', 'profile.json', ...valid],
+    'setup_arguments', { jsonOnly: true }],
+];
+
+for (const [name, argv, code, options] of globalCases) {
+  test(`setup explains ${name} without reading a profile`, async () => {
+    const root = await mkdtemp(join(tmpdir(), 'remote-setup-globals-'));
+    const profile = join(root, 'profile.json');
+    try {
+      await writeFile(profile, 'existing-profile', { mode: 0o600 });
+      for (const json of options?.jsonOnly ? [true] : [false, true]) {
+        const result = spawnSync(process.execPath, [launcher, ...argv, ...(json && !options?.jsonOnly ? ['--json'] : [])], {
+          cwd: root, encoding: 'utf8', timeout: 5000,
+          env: { HOME: root, USERPROFILE: root, TMPDIR: root,
+            ...(process.env.SystemRoot ? { SystemRoot: process.env.SystemRoot } : {}) },
+        });
+        assert.equal(result.error, undefined);
+        assert.equal(result.status, 1);
+        assert.equal(result.stdout, '');
+        assert.doesNotMatch(result.stderr, /private-setup-canary|existing-profile|first\.json|second\.json/);
+        if (json) assert.equal(JSON.parse(result.stderr).error, code);
+        else assert.match(result.stderr, /^Not ready: .+\nNext: .+\n$/);
+        assert.equal(await readFile(profile, 'utf8'), 'existing-profile');
+      }
+    } finally { await rm(root, { recursive: true, force: true }); }
+  });
+}
+
+test('serve keeps a generic failure for malformed global options', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'remote-setup-globals-'));
+  try {
+    const result = spawnSync(process.execPath, [launcher, 'serve', '--config', '--json'], {
+      cwd: root, encoding: 'utf8', timeout: 5000,
+      env: { HOME: root, USERPROFILE: root, TMPDIR: root,
+        ...(process.env.SystemRoot ? { SystemRoot: process.env.SystemRoot } : {}) },
+    });
+    assert.equal(result.error, undefined);
+    assert.equal(result.status, 1);
+    assert.equal(result.stdout, '');
+    assert.equal(JSON.parse(result.stderr).error, 'command_failed');
+    assert.doesNotMatch(result.stderr, /setup_arguments/);
+  } finally { await rm(root, { recursive: true, force: true }); }
+});
+
 test('setup explains an unwritable profile target without exposing its path', async () => {
   const root = await mkdtemp(join(tmpdir(), `${canary}-`));
   try {
