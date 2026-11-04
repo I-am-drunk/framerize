@@ -4,10 +4,12 @@ import type { IncomingMessage } from 'node:http';
 export const routes = {
   '/health': 'GET', '/ready': 'GET',
   '/v1/responses': 'POST', '/v1/chat/completions': 'POST',
+  '/openai/v1/responses': 'POST', '/anthropic/v1/messages': 'POST',
 } as const;
 export type Route = keyof typeof routes;
 export const capabilities = { responses: true, chatCompletions: true, streaming: true };
 export const requestHeaders = ['accept', 'content-type', 'openai-beta'];
+export const completedRequestHeaders = [...requestHeaders, 'anthropic-version', 'anthropic-beta'];
 export const responseHeaders = ['content-type', 'content-encoding', 'cache-control',
   'retry-after', 'x-request-id', 'x-should-retry'];
 export const hashToken = (token: string): Buffer => createHash('sha256').update(token).digest();

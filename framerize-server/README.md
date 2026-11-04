@@ -94,6 +94,25 @@ body bytes and allowlisted headers, including `content-encoding`. The provider
 converts non-2xx upstream bodies to a generic `upstream_http_error` response while
 preserving status and safe headers. It never returns raw upstream error bodies.
 
+## Experimental completed-response routes
+
+The Framer backend also accepts `POST /openai/v1/responses` and
+`POST /anthropic/v1/messages`. Both require the server bearer token.
+Use `stream: false` or omit `stream`. Streaming and background Responses jobs
+are rejected before provider credentials or Castle are used.
+
+The server collects the complete provider reply, up to 16 MiB, and checks its
+JSON envelope before sending success. Valid tool calls, refusals and output-limit
+results retain their original bytes. Broken, oversized or invalid replies return
+a safe error with `x-should-retry: false`. Messages errors include `type: "error"`.
+The inference deadline covers collection and client delivery, not just headers.
+Parsing and buffering can use more memory than the reply's byte size.
+
+These routes have synthetic local coverage only. Current provider models,
+options, version headers and live browserless acceptance remain unverified.
+Readiness does not advertise custom-route support. The generic HTTP backend
+does not implement these routes. Existing bare routes retain streaming behavior.
+
 ## Inject a provider
 
 The server-only [session authentication module](docs/framer-auth.md) provides
@@ -156,10 +175,12 @@ Set `--inference-timeout-ms` on the CLI, or `inferenceTimeoutMs` in the API.
 This is separate from `headersTimeoutMs`, which no longer limits inference.
 The five-minute default permits silent non-streaming computation without
 extending readiness checks. It does not change an upstream service's limits.
-There is no total stream deadline after headers. `requestTimeoutMs` is rejected.
+Existing streaming routes have no total deadline after headers.
+Custom completed-response routes retain the inference deadline through delivery.
+`requestTimeoutMs` is rejected.
 `maxBodyBytes` defaults to 16777216. The server buffers at most one bounded request
-body per request to validate JSON before invoking the provider. Response bodies
-stream without whole-response buffering. A paused client must resume before its
+body per request to validate JSON before invoking the provider. Existing bare-route
+responses stream without whole-response buffering. A paused client must resume before its
 idle limit; provider body reads pause while downstream writes are blocked.
 
 `accountsFile` optionally references a JSON array of metadata with `id`, `label`,

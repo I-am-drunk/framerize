@@ -1,7 +1,8 @@
 import type { Buffer } from 'node:buffer';
 import type { ReadinessReason } from './readiness.js';
 
-export type InferencePath = '/v1/responses' | '/v1/chat/completions';
+export type InferencePath = '/v1/responses' | '/v1/chat/completions'
+  | '/openai/v1/responses' | '/anthropic/v1/messages';
 
 export interface RequestContext {
   readonly signal: AbortSignal;
