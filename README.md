@@ -13,10 +13,10 @@ Contributor instructions are in [AGENTS.md](AGENTS.md) and
 Local tests cover the shared server, installed Remote package, authentication,
 streaming and shutdown. The [Framer backend](framerize-server/docs/framer-backend.md)
 now loads selected JSON account references and maps provider requests through
-the actual listener in synthetic tests. Castle Library now collects and encodes
+the actual listener in synthetic tests. Castle minting now collects and encodes
 without an external encoder. The server CLI selects a JSON account with
 `--backend framer --accounts-file FILE --account-id NAME`. Its package includes
-Castle Library, and the native build embeds that runtime in the executable.
+the Castle runtime, and the native build embeds it in the executable.
 Live browserless inference, current hosted release qualification and npm
 publication are not complete. Do not use old release evidence to approve this
 snapshot.
@@ -116,7 +116,7 @@ It does not create another backend or install a background service.
 
 Both products use the same typed listener. Remote replaces the local credential
 with the server token and forwards opaque response bytes. Account selection,
-provider requests and Castle Library belong on the server, never in Remote.
+provider requests and the Castle runtime belong on the server, never in Remote.
 Local installed-pair tests cover streaming, tool calls, cancellation and auth.
 They use a synthetic upstream, not a live inference provider.
 

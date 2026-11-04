@@ -19,10 +19,27 @@ They must not grow separate definitions of the same public behavior.
 The private root npm workspace includes `framerize-core` and `framerize-remote`.
 The server retains its package and lockfile, but its HTTP factory now uses
 the bundled TypeScript core. Root `build`, `check`, and `test` cover core,
-server, Remote, Castle Library and packaging tools. They do not prove live provider compatibility.
+server, Remote, the Castle runtime and packaging tools. They do not prove live provider compatibility.
 
 TypeScript, Node type declarations, and esbuild are development-only
 dependencies. The shared package emits ESM and `.d.ts` files under `dist/`.
+
+Castle Library is included in `framerize-server/src/castle.ts`, including its
+collection and encoding workers. Regenerate it from the pinned commit in an
+existing local Castle checkout:
+
+```sh
+node scripts/vendor-castle-library.mjs /path/to/castle
+node scripts/vendor-castle-library.mjs /path/to/castle --check
+```
+
+The generator bundles source and assets from `typescript-castle/`, records their
+hashes in `castle-library-source.json`, and ports the original behavior tests.
+Normal builds do not fetch or read another repository. Tests check fixed encoder
+outputs, validation, cancellation, worker retirement, metadata and standalone
+use. Hashes detect byte changes, not complete behavioral equivalence or live
+provider acceptance. Embedded asset hashes detect corruption, not tampering by
+someone who can also edit the bundled manifest.
 Tests compile to an ignored directory excluded from package contents.
 Root packaging tools also compile to the ignored `.tools/` directory.
 

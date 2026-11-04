@@ -1,9 +1,9 @@
 # Browserless Node development snapshot
 
-The `browserless-node` branch contains the TypeScript restart and the rename to
+The `main` branch contains the TypeScript restart and the rename to
 Framerize Remote. This is unfinished development work, not a release.
 
-## Checked locally
+## Earlier local checks
 
 - The server build and workspace static checks pass.
 - Node 22.23.4 and 24.13.0 each pass 357 server, workflow and installed-package
@@ -18,12 +18,10 @@ Framerize Remote. This is unfinished development work, not a release.
 - TLS checks include a hostile insecure-TLS environment and verify that a
   failed connection is closed before backend shutdown completes.
 
-The installed account flow uses synthetic loopback endpoints and the packaged
-Castle Library, not an injected minter. The Linux executable embeds the same
-runtime and Node 22.23.4. It works with installed Remote on Node 22.23.4 and
-24.13.0 with an empty server `PATH`. Checks cover streaming, cancellation
-and removal of its private extracted files. These results do not prove live
-Framer compatibility or qualify another operating system.
+The installed account flow uses synthetic loopback endpoints and the built-in
+Castle runtime. Castle is now compiled directly into the server. Earlier native
+results covered a separately extracted runtime and do not qualify this changed
+implementation. Validate each new native artifact before release.
 
 ## Still unfinished
 
