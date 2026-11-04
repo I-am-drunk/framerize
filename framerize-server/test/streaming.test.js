@@ -93,7 +93,7 @@ test('incomplete HTTP headers time out before provider invocation', async (t) =>
 });
 
 test('provider header stalls abort and return an exact error', async (t) => {
-  const { port, provider } = await startFixture(t, { headersTimeoutMs: 40 });
+  const { port, provider } = await startFixture(t, { inferenceTimeoutMs: 40 });
   let aborts = 0;
   provider.forwardImpl = ({ signal }) => {
     signal.addEventListener('abort', () => { aborts += 1; }, { once: true });
@@ -134,7 +134,7 @@ test('idle body stalls truncate the response and cancel iteration', async (t) =>
 
 test('active streams have no total request deadline', async (t) => {
   const { port, provider } = await startFixture(t, {
-    headersTimeoutMs: 30, idleTimeoutMs: 500,
+    inferenceTimeoutMs: 30, idleTimeoutMs: 500,
   });
   const stream = controlledStream();
   provider.forwardImpl = () => ({

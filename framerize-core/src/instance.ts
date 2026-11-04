@@ -121,7 +121,7 @@ export function createInstance(options: InstanceOptions): FramerizeInstance {
       const result = await bounded(() => config.backend.forward({ path: route,
         headers: selectedHeaders(request.headers, requestHeaders),
         body: (async function* () { yield bytes; }()), signal: controller.signal,
-      }), controller, config.headersTimeoutMs, new HttpError('headers_timeout'), discardResponse);
+      }), controller, config.inferenceTimeoutMs, new HttpError('headers_timeout'), discardResponse);
       try {
         controller.signal.throwIfAborted();
         if (!Number.isInteger(result.status) || result.status < 200 || result.status > 599) {
@@ -143,6 +143,9 @@ export function createInstance(options: InstanceOptions): FramerizeInstance {
       else {
         response.shouldKeepAlive = false;
         if (failure.code === 'unauthorized') response.setHeader('www-authenticate', 'Bearer');
+        if (failure.code === 'headers_timeout' || failure.code === 'idle_timeout') {
+          response.setHeader('x-should-retry', 'false');
+        }
         json(response, failure.status, { error: {
           type: failure.code === 'unauthorized' ? 'authentication_error' : 'invalid_request_error',
           code: failure.code === 'request_timeout' ? 'idle_timeout' : failure.code,

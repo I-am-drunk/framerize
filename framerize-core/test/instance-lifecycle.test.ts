@@ -128,7 +128,7 @@ test('a stalled or throwing backend cannot hold shutdown open', async () => {
 });
 
 test('healthy inference has no total deadline and preserves streamed bytes', async () => {
-  const instance = createInstance({ token, headersTimeoutMs: 30, idleTimeoutMs: 200,
+  const instance = createInstance({ token, inferenceTimeoutMs: 30, idleTimeoutMs: 200,
     backend: backend({ async forward() {
       return { status: 200, headers: { 'content-type': 'text/event-stream' },
         body: (async function* () {

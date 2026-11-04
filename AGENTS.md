@@ -4,7 +4,7 @@ Framerize is a browserless Node server written in TypeScript. Framerize Remote
 is a small local instance that forwards inference to that server. Castle
 Library belongs on the server. This branch is work in progress, not a release.
 
-## Keep the design simple
+## Keep the design simple SIMPLENESS IS THE BIGGEST THING. CHANNEL YAGNI
 
 - Understand the user's problem before choosing a mechanism. Reuse working
   code when it fits; explain why a new layer or dependency is necessary.
@@ -15,6 +15,33 @@ Library belongs on the server. This branch is work in progress, not a release.
 - Prefer explicit TypeScript types at boundaries and inferred types internally.
   Narrow untrusted values from `unknown`; do not hide uncertainty with `any`.
 - Planning and review do not authorize implementation. Preserve unrelated work.
+
+## Do not idle while work is available
+
+This rule applies to every agent session and subagent.
+
+- Waiting on another thread, subagent, review or CI is prohibited while
+  independent, authorized work remains. Take the next unblocked task instead.
+- Use completion notifications for delegated work and the owning session's
+  existing PR watcher for review and CI results. Do not create duplicate watchers.
+- Do not use blocking thread-wait tools, sleep loops or repeated status polls
+  to wait for those results. Check status when a notification arrives or when
+  the next action needs a fresh result.
+- Before yielding for a dependency, check the plan for useful independent work.
+  If none remains, record the exact blocker, keep the appropriate notifications
+  active and end the turn. Resume when the result arrives.
+- Do not invent busywork, repeat unchanged tests or reviews, bypass merge gates,
+  or modify another owner's work to avoid waiting. Keep ownership boundaries.
+
+## Learn from legacy without recreating it
+
+- Legacy code is a reference, not the product requirements or a completion checklist.
+- The old web app, relay and systemcmd are excluded. This is not the full exclusion list.
+- Classify proposed behavior as keep, rework, remove, add or undecided. Do not
+  turn an inventory difference into a feature requirement without a user need.
+- New requirements can replace old behavior. Preserve the wanted result, not
+  a mechanism that caused bugs. Add a regression for a reproduced failure.
+- Do not publish overall completion percentages from an unsettled feature list.
 
 ## Cover the affected paths
 

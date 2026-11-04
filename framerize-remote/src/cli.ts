@@ -41,7 +41,13 @@ export async function run(argv: readonly string[], io: CliIo): Promise<number> {
     io.stdout(`${VERSION}\n`);
     return 0;
   }
-  const { configPath: explicit, json, passthrough } = splitGlobals(rest);
+  let globals: ReturnType<typeof splitGlobals>;
+  try { globals = splitGlobals(rest); }
+  catch (error) {
+    if (command === 'setup') throw new RemoteDiagnosticError('setup_arguments');
+    throw error;
+  }
+  const { configPath: explicit, json, passthrough } = globals;
   if ((command === 'setup' || command === 'serve') && passthrough.length === 1
     && ['--help', '-h'].includes(passthrough[0]!)) {
     io.stdout(command === 'setup' ? SETUP_HELP : SERVE_HELP);

@@ -40,7 +40,8 @@ Usage: framerize-server [serve|check] [options]
   --accounts-file FILE            JSON account metadata without credentials
   --host ADDRESS                  Listen address, env FRAMERIZE_SERVER_HOST, default 127.0.0.1
   --port NUMBER                   Listen port, env FRAMERIZE_SERVER_PORT, default 8789
-  --headers-timeout-ms NUMBER     Provider header wait, default 15000
+  --headers-timeout-ms NUMBER     Readiness, preparation and connection wait, default 15000
+  --inference-timeout-ms NUMBER   Inference response wait, default 300000
   --request-headers-timeout-ms N   Incoming HTTP header wait, default 15000
   --idle-timeout-ms NUMBER        Body inactivity limit, default 60000
   --shutdown-timeout-ms NUMBER    Provider shutdown limit, default 5000
@@ -49,7 +50,7 @@ Usage: framerize-server [serve|check] [options]
 Command-line options override these environment values. Credentials use the references above.
 `;
 const FLAGS = new Set(['backend', 'account-id', 'framer-origin', 'upstream', 'authorization-env', 'authorization-file', 'server-token-env',
-  'server-token-file', 'accounts-file', 'host', 'port', 'headers-timeout-ms',
+  'server-token-file', 'accounts-file', 'host', 'port', 'headers-timeout-ms', 'inference-timeout-ms',
   'request-headers-timeout-ms', 'idle-timeout-ms', 'shutdown-timeout-ms', 'max-body-bytes', 'log-level']);
 
 export function parseArgs(argv: readonly string[]): ParsedArgs {

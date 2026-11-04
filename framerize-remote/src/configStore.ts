@@ -5,7 +5,7 @@ import type { CredentialReference } from './credentials.js';
 import { isLoopbackHost, normalizeHostname } from './hostPolicy.js';
 import { parseRemoteEndpoint, type RemoteEndpoint } from './remoteUrl.js';
 import {
-  CONFIG_DEFAULTS, parsePersisted, type RemoteConfig, type PersistedConfig,
+  CONFIG_DEFAULTS, ConfigValidationError, parsePersisted, type RemoteConfig, type PersistedConfig,
 } from './config.js';
 
 function absoluteReference(reference: CredentialReference, base: string): CredentialReference {
@@ -33,13 +33,19 @@ function normalizeConfig(persisted: PersistedConfig, base: string): RemoteConfig
     localToken: absoluteReference(persisted.localToken, base),
     host: normalizeHostname(persisted.host ?? CONFIG_DEFAULTS.host),
     port: persisted.port ?? CONFIG_DEFAULTS.port,
+    inferenceTimeoutMs: persisted.inferenceTimeoutMs ?? CONFIG_DEFAULTS.inferenceTimeoutMs,
     allowInsecureRemote: persisted.allowInsecureRemote ?? false,
     allowNonLoopback: persisted.allowNonLoopback ?? false,
   };
 }
 
 export async function saveConfigFile(path: string, config: PersistedConfig): Promise<void> {
-  const valid = normalizeConfig(parsePersisted(config), process.cwd());
+  let valid: RemoteConfig;
+  try { valid = normalizeConfig(parsePersisted(config), process.cwd()); }
+  catch (error) {
+    if (error instanceof ConfigValidationError) throw new RemoteDiagnosticError(error.code, error.message);
+    throw error;
+  }
   resolveConfig(valid);
   let staging: string | undefined;
   try {
@@ -50,14 +56,14 @@ export async function saveConfigFile(path: string, config: PersistedConfig): Pro
     try { await handle.writeFile(`${JSON.stringify(valid, null, 2)}\n`); await handle.sync(); }
     finally { await handle.close(); }
     await rename(temporary, path);
-  } catch { throw new Error('could not write the configuration file'); }
+  } catch { throw new RemoteDiagnosticError('profile_write', 'could not write the configuration file'); }
   finally { if (staging) await rm(staging, { recursive: true, force: true }); }
 }
 
 export function resolveConfig(config: RemoteConfig): RemoteEndpoint {
   parsePersisted(config);
   if (!isLoopbackHost(config.host) && !config.allowNonLoopback) {
-    throw new Error('non-loopback listen host requires explicit exposure consent');
+    throw new RemoteDiagnosticError('exposure_consent', 'non-loopback listen host requires explicit exposure consent');
   }
   if (!Number.isInteger(config.port) || config.port < 0 || config.port > 65535) {
     throw new Error('listen port must be between 0 and 65535');

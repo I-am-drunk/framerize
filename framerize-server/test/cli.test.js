@@ -12,10 +12,11 @@ test('CLI selects the account provider without a generic upstream', async () => 
   let made = 0; let closed = 0;
   const env = { SESSION: 'synthetic-session' };
   const result = await run(['check', '--backend', 'framer', '--accounts-file', '/synthetic/accounts.json',
-    '--account-id', 'selected'], { env, logger: { info() {} },
+    '--account-id', 'selected', '--inference-timeout-ms', '75000'], { env, logger: { info() {} },
     createProvider(config, context) {
       assert.equal(config.backend, 'framer');
       assert.equal(config.accountId, 'selected');
+      assert.equal(config.inferenceTimeoutMs, 75000);
       assert.equal(context.env, env); made += 1;
       return { async close() { closed += 1; } };
     },

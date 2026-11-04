@@ -64,6 +64,17 @@ Saves are atomic and owner-only on POSIX. New file references become absolute
 paths; relative references in existing profiles resolve beside the profile.
 Omit `--start` to save without loading credentials or contacting the server.
 
+Setup errors identify a missing server address, invalid token reference,
+invalid listen setting or time limit, or a profile that could not be saved.
+Each includes a repair step. With `--json`, failures include an error code.
+Invalid setup values leave an existing profile unchanged. Error messages
+do not include the supplied address, file paths or credential values.
+
+`check` reports `exposure_consent` if a saved non-loopback host lacks consent.
+Use `setup --help` to update the saved host or exposure consent.
+For a non-loopback `serve --host` override, add `--allow-non-loopback` to that
+serve command. The override requires consent even when the saved profile has it.
+
 - `--server-token-env NAME` / `--server-token-file FILE`: the remote server
   token. Choose one.
 - `--local-token-env NAME` / `--local-token-file FILE`: the local client token
@@ -118,7 +129,21 @@ oversized, incompatible or unfinished readiness blocks inference. Readiness
 has a 64 KiB body cap and a 20-second whole-exchange limit. Response headers
 have a 16 KiB cap without silently discarding later header pairs.
 
-Inference streams have header and idle timeouts, not a total lifetime limit.
+Inference waits up to five minutes for response headers. Set
+`--inference-timeout-ms` during `setup`, or `inferenceTimeoutMs` in the saved
+profile, to change this limit. Values must be integer milliseconds between
+1 and 2147463647. Existing profiles use 300000. Configure the server's limit
+separately; Remote cannot extend an upstream service's deadline.
+
+Readiness still has a 15-second header wait and a 20-second overall limit.
+Connection setup stays bounded at 15 seconds. Upload and response-body
+inactivity stay bounded at 60 seconds. The response-header timer starts after
+the request upload finishes. The local listener also limits the whole forwarding
+step to 20 seconds plus the configured inference limit. That overall limit
+includes readiness, connection setup and upload, so slow preparation can shorten
+the remaining response wait.
+An expired inference wait returns 504 without retrying the request.
+Inference streams have no total lifetime limit after headers arrive.
 Client cancellation closes the remote connection. Each exchange owns its
 HTTP agent, ignores environment proxies and requires valid HTTPS certificates.
 
@@ -137,5 +162,5 @@ Its status is advisory and does not change the readiness exit code, except
 that cancellation exits nonzero. Local daemon status does not prove remote
 reachability. Remote still needs an accessible server origin and valid token.
 
-Browserless provider and Castle Library integration, native delivery and
+Browserless provider and Castle runtime integration, native delivery and
 release CI migration remain separate unfinished work.
