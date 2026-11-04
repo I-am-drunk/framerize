@@ -25,3 +25,7 @@ export class ServerTokenFileError extends ConfigurationError {
     super('Server token file unavailable');
   }
 }
+
+export class AccountFileError extends ConfigurationError {}
+
+export class AccountSelectionError extends ConfigurationError {}

@@ -2,7 +2,7 @@ import { open } from 'node:fs/promises';
 import type { FileHandle } from 'node:fs/promises';
 import { constants } from 'node:fs';
 import { dirname, isAbsolute, resolve } from 'node:path';
-import { ConfigurationError } from './errors.js';
+import { AccountFileError, AccountSelectionError, ConfigurationError } from './errors.js';
 
 export interface AccountMetadata {
   readonly id: string;
@@ -25,6 +25,14 @@ export interface FramerAccount extends AccountMetadata {
 }
 
 export async function loadAccounts(path?: string): Promise<readonly AccountMetadata[]> {
+  try { return await readAccounts(path); }
+  catch (error) {
+    if (error instanceof ConfigurationError) throw new AccountFileError(error.message);
+    throw error;
+  }
+}
+
+async function readAccounts(path?: string): Promise<readonly AccountMetadata[]> {
   if (!path) return Object.freeze([]);
   let file: FileHandle | undefined;
   let value: unknown;
@@ -109,7 +117,7 @@ export async function loadFramerAccount(path: string, accountId?: string): Promi
     && (accountId === undefined || account.id === accountId));
   const selected = accounts[0];
   if (accounts.length !== 1 || !selected?.projectId || !selected.session) {
-    throw new ConfigurationError('Select one configured Framer account');
+    throw new AccountSelectionError('Select one configured Framer account');
   }
   return selected as FramerAccount;
 }

@@ -21,6 +21,15 @@ Set `FRAMERIZE_SERVER_TOKEN` in the existing private environment. Keep the upstr
 credential in a separate environment variable or private file. Do not pass secret
 values as command-line arguments.
 
+If startup reports "Account metadata file is unavailable or invalid", check
+`--accounts-file`, read permissions, and the
+[JSON account format](docs/framer-backend.md#select-a-json-account).
+The diagnostic does not print the path, file contents, or credentials.
+
+If startup reports "Select one configured Framer account", check `--account-id`
+and `--accounts-file`. Select one enabled account with a `projectId` and a
+session reference. Omit `--account-id` only when exactly one account is enabled.
+
 ```sh
 npm ci --ignore-scripts
 npm run build
