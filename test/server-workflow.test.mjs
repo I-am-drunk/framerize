@@ -37,6 +37,10 @@ test('recovery archive supports drive paths and spaces', context => {
 
 test('server builds use only the typed server target and safe installs', () => {
   const root = JSON.parse(read('package.json'));
+  const nativeTools = root.scripts['test:native-tools'];
+  assert.match(nativeTools, /tsc -p tsconfig\.server-tools\.json/);
+  assert.match(nativeTools, /test\/server-source-newlines\.test\.mjs/);
+  assert.match(nativeTools, /test\/server-workflow\.test\.mjs/);
   assert.match(root.scripts['build:server'], /tsc -p framerize-server\/tsconfig.json/);
   assert.match(root.scripts['build:server'], /tsc -p tsconfig\.server-tools\.json/);
   const tools = JSON.parse(read('tsconfig.server-tools.json'));
