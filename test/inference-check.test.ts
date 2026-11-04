@@ -9,7 +9,7 @@ import { fileURLToPath } from 'node:url';
 import { promisify } from 'node:util';
 import test from 'node:test';
 import { runInferenceCheck } from '../scripts/check-inference.js';
-import { inspectCompletion } from '../scripts/validation/completion.js';
+import { inspectCompletion, inspectJsonCompletion } from '../scripts/validation/completion.js';
 import { checkInference } from '../scripts/validation/inference.js';
 import { privateEnvironment } from '../scripts/core-package-check.js';
 import { assertTransportClosed, transportResources } from '../scripts/fixtures/transport-scenario.js';
@@ -21,6 +21,147 @@ const event = (delta: object, finish: string | null = null) => `data: ${JSON.str
 const stream = event({ content: marker }) + event({}, 'stop') + 'data: [DONE]\n\n';
 const baseArgs = ['--endpoint', 'http://127.0.0.1:1', '--model', 'fixture', '--token-env', 'TOKEN'];
 const entrypoint = fileURLToPath(new URL('../scripts/check-inference.js', import.meta.url));
+
+const customProtocols = ['responses', 'messages'] as const;
+for (const protocol of customProtocols) {
+  test(`custom ${protocol} check sends one completed-JSON request`, async () => {
+    let body = '';
+    await fixture((request, response) => {
+      assert.equal(request.headers.authorization, `Bearer ${marker}`);
+      assert.equal(request.headers.accept, 'application/json');
+      request.on('data', chunk => { body += String(chunk); });
+      request.on('end', () => {
+        response.writeHead(200, { 'content-type': 'application/json; charset=utf-8' });
+        response.end(JSON.stringify(jsonReply(protocol)));
+      });
+    }, async (endpoint, calls) => {
+      const result = await runInferenceCheck(['--endpoint', endpoint, '--model', 'fixture',
+        '--token-env', 'TOKEN', '--send-one-request', '--protocol', protocol], { TOKEN: marker });
+      assert.equal(result.ok, true);
+      assert.equal(result.requestAttempts, 1);
+      if (result.ok) assert.equal(result.contentBytes, Buffer.byteLength(marker));
+      assert.deepEqual(calls, [`POST ${protocol === 'responses'
+        ? '/openai/v1/responses' : '/anthropic/v1/messages'}`]);
+      assert.deepEqual(JSON.parse(body), { model: 'fixture', stream: false,
+        ...(protocol === 'responses' ? { input: 'Reply with exactly OK.', max_output_tokens: 64 }
+          : { messages: [{ role: 'user', content: 'Reply with exactly OK.' }], max_tokens: 64 }) });
+      assert.doesNotMatch(JSON.stringify(result), new RegExp(marker));
+    });
+  });
+}
+for (const protocol of customProtocols) {
+  test(`custom ${protocol} text validation rejects non-success without exposing content`, () => {
+    const invalid = protocol === 'responses' ? [
+      { status: 'incomplete', incomplete_details: { reason: 'max_output_tokens' } },
+      { status: 'queued' }, { output: [] },
+      { output: [{ type: 'function_call', call_id: 'call', name: 'tool', arguments: '{}' }] },
+      { output: [{ id: 'message', type: 'message', role: 'assistant',
+        content: [{ type: 'refusal', refusal: marker }] }] },
+      { output: [{ id: 'message', type: 'message', role: 'assistant', status: 'failed',
+        content: [{ type: 'output_text', text: marker }] }] },
+    ] : [
+      { stop_reason: 'max_tokens' }, { stop_reason: 'refusal' }, { content: [] },
+      { stop_reason: 'tool_use', content: [{ type: 'tool_use', id: 'call', name: 'tool', input: {} }] },
+      { stop_reason: 'pause_turn' }, { content: [{ type: 'text', text: '   ' }] },
+    ];
+    for (const changes of invalid) {
+      assert.throws(() => inspectJsonCompletion(protocol, Buffer.from(JSON.stringify(jsonReply(protocol, changes)))));
+    }
+    for (const bytes of [Buffer.from(marker), Buffer.from([0xff]), Buffer.from('{}')]) {
+      assert.throws(() => inspectJsonCompletion(protocol, bytes));
+    }
+    assert.deepEqual(inspectJsonCompletion(protocol, Buffer.from(JSON.stringify(jsonReply(protocol)))),
+      { contentBytes: Buffer.byteLength(marker), textBlocks: 1 });
+  });
+}
+for (const protocol of customProtocols) for (const mode of ['malformed', 'limited', 'compressed',
+  'oversized', 'wrong-type', 'truncated', 'redirect', 'refused'] as const) {
+  test(`custom ${protocol} check rejects ${mode} with one request`, async () => {
+    await fixture((_request, response) => {
+      response.writeHead(mode === 'refused' ? 429 : mode === 'redirect' ? 302 : 200, {
+        'content-type': mode === 'wrong-type' ? 'text/event-stream' : 'application/json',
+        ...(mode === 'compressed' ? { 'content-encoding': 'gzip' } : {}),
+        ...(mode === 'redirect' ? { location: '/must-not-follow' } : {}),
+        ...(mode === 'truncated' ? { 'content-length': 9999 } : {}),
+      });
+      if (mode === 'truncated') {
+        response.write('{'); setImmediate(() => response.destroy()); return;
+      }
+      response.end(mode === 'oversized' ? Buffer.alloc(65537, 97)
+        : mode === 'malformed' || mode === 'refused' ? marker
+          : JSON.stringify(jsonReply(protocol, mode !== 'limited' ? {}
+            : protocol === 'responses' ? { status: 'incomplete', incomplete_details: { reason: 'max_output_tokens' } }
+              : { stop_reason: 'max_tokens' })));
+    }, async (endpoint, calls) => {
+      const result = await checkInference({ endpoint, token: marker, model: 'fixture', protocol });
+      assert.equal(result.ok, false);
+      if (!result.ok) assert.equal(result.code, mode === 'refused' || mode === 'redirect' ? 'http_refused'
+        : mode === 'truncated' ? 'transport' : mode === 'oversized' ? 'response_too_large'
+          : mode === 'compressed' ? 'unsupported_encoding' : 'invalid_response');
+      assert.equal(calls.length, 1);
+      assert.doesNotMatch(JSON.stringify(result), new RegExp(marker));
+    });
+  });
+}
+for (const protocol of customProtocols) {
+  test(`custom ${protocol} CLI accepts a private credential reference`, async () => {
+    const root = mkdtempSync(join(tmpdir(), 'custom inference cli '));
+    try {
+      await fixture((_request, response) => {
+        response.writeHead(200, { 'content-type': 'application/json' });
+        response.end(JSON.stringify(jsonReply(protocol)));
+      }, async (endpoint, calls) => {
+        const { stdout, stderr } = await promisify(execFile)(process.execPath, [entrypoint,
+          '--endpoint', endpoint, '--model', 'fixture', '--protocol', protocol,
+          '--token-env', 'TOKEN', '--send-one-request'], { cwd: root,
+          env: { ...privateEnvironment(root), TOKEN: marker }, timeout: 5000, maxBuffer: 65536 });
+        assert.equal(JSON.parse(stdout).ok, true);
+        assert.equal(JSON.parse(stdout).protocol, protocol);
+        assert.equal(JSON.parse(stdout).requestAttempts, 1);
+        assert.equal(stderr, '');
+        assert.equal(calls.length, 1);
+        assert.doesNotMatch(stdout, new RegExp(marker));
+      });
+    } finally { rmSync(root, { recursive: true, force: true }); }
+  });
+}
+for (const protocol of customProtocols) for (const mode of ['abort', 'timeout'] as const) {
+  test(`custom ${protocol} ${mode} closes transport before fixture shutdown`, async () => {
+    const controller = new AbortController();
+    await fixture((_request, response) => {
+      response.writeHead(200, { 'content-type': 'application/json' }); response.write('{');
+      if (mode === 'abort') setImmediate(() => controller.abort(new Error(marker)));
+    }, async (endpoint, calls) => {
+      const result = await checkInference({ endpoint, token: marker, model: 'fixture', protocol,
+        timeoutMs: mode === 'timeout' ? 75 : 3000, signal: controller.signal });
+      assert.equal(result.ok, false);
+      if (!result.ok) assert.equal(result.code, mode === 'abort' ? 'aborted' : 'timeout');
+      assert.equal(calls.length, 1);
+      assert.equal(getEventListeners(controller.signal, 'abort').length, 0);
+      assert.doesNotMatch(JSON.stringify(result), new RegExp(marker));
+    });
+  });
+}
+function jsonReply(protocol: typeof customProtocols[number], changes: object = {}) {
+  return protocol === 'responses' ? { id: 'reply-fixture', object: 'response', model: 'fixture',
+    created_at: 1, status: 'completed', output: [{ id: 'message-fixture', type: 'message',
+      role: 'assistant', content: [{ type: 'output_text', text: marker }] }], ...changes }
+    : { id: 'reply-fixture', type: 'message', model: 'fixture', role: 'assistant',
+      stop_reason: 'end_turn', content: [{ type: 'text', text: marker }], ...changes };
+}
+
+test('custom check rejects unknown protocols before reading credentials', async () => {
+  let reads = 0;
+  const env = new Proxy({}, { get() { reads += 1; throw new Error(marker); } });
+  for (const protocol of [marker, '/openai/v1/responses', 'Responses', '']) {
+    const result = await runInferenceCheck([...baseArgs, '--send-one-request', '--protocol', protocol], env);
+    assert.equal(result.ok, false);
+    if (!result.ok) assert.equal(result.code, 'configuration');
+    assert.equal(result.requestAttempts, 0);
+    assert.doesNotMatch(JSON.stringify(result), new RegExp(marker));
+  }
+  assert.equal(reads, 0);
+});
 
 test('configuration failures do not access credentials or disclose input', async () => {
   let reads = 0;
