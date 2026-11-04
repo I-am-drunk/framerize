@@ -191,6 +191,13 @@ async function accessToken(config: ReturnType<typeof options>, signal: AbortSign
   } catch { throw failed('credentials_unavailable'); }
 }
 
+function mintFailure(error: unknown): ProviderError {
+  try {
+    if ((error as { code?: unknown } | null)?.code === 'busy') return failed('provider_busy');
+  } catch {}
+  return failed('credentials_unavailable');
+}
+
 export function createFramerBackend(input: FramerBackendOptions): InferenceBackend {
   const config = options(input);
   const active = new Set<Operation>();
@@ -230,7 +237,7 @@ export function createFramerBackend(input: FramerBackendOptions): InferenceBacke
         const authorization = await accessToken(config, signal);
         signal.throwIfAborted();
         const castleToken = await Promise.resolve().then(async () => (await config.mint({ signal })).token)
-          .catch(() => { throw failed('credentials_unavailable'); });
+          .catch((error: unknown) => { throw mintFailure(error); });
         signal.throwIfAborted();
         const encoded = encodeFramerRequest(decoded, config.projectId, castleToken);
         operation.prepared(config.inferenceTimeoutMs);

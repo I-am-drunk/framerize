@@ -197,6 +197,20 @@ test('an unavailable credential provider reports unavailable without exposing it
   assert.equal(setup.mints(), 0);
 });
 
+for (const error of [new Error('synthetic-private-mint'), null,
+  { get code() { throw new Error('synthetic-private-code'); } }]) {
+  test('unrecognized mint failures keep a fixed credential diagnostic', async context => {
+    const setup = await fixture(context, undefined, { castle: {
+      async mint() { throw error; }, async close() {},
+    } });
+    const controller = new AbortController();
+    await assert.rejects(setup.backend.forward(call(body, controller.signal)),
+      { code: 'credentials_unavailable', message: 'Framer provider unavailable', status: 503 });
+    assert.deepEqual(setup.requests.map(request => request.path), ['/auth/ai/access-token']);
+    assert.equal(getEventListeners(controller.signal, 'abort').length, 0);
+  });
+}
+
 for (const action of ['abort', 'close', 'deadline']) {
   test(`${action} cancels an active mint before returning`, { timeout: 5000 }, async context => {
     const entered = deferred();

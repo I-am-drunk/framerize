@@ -1,0 +1,10 @@
+import { parentPort, workerData } from "node:worker_threads";
+const state = new Int32Array(workerData.buffer);
+Atomics.store(state, 0, 1);
+const mode = Atomics.load(state, 2);
+if (mode === 0) parentPort?.postMessage({ result: "cNz8rPYH|QUJD" });
+if (mode === 1) parentPort?.postMessage({ result: "synthetic-secret" });
+if (mode === 2) throw new Error("synthetic-secret");
+if (mode === 3) process.stdout.write("x".repeat(128 * 1024));
+if (mode === 4) process.stderr.write("x".repeat(128 * 1024));
+setInterval(() => Atomics.add(state, 1, 1), 10);

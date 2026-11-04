@@ -39,6 +39,14 @@ npm --prefix framerize-server start -- --upstream https://inference.example.test
 Run these commands from the repository root. Installed packages already
 contain the listener bundle, compiled configuration and account loader. They do not need
 TypeScript or a build step. The package includes Castle as `dist/castle.js`.
+Its collection and encoding workers, pinned inputs, and default interaction
+trace are embedded in that file. Each mint has isolated temporary storage.
+Cancellation and `close()` wait for active work to stop and storage to be removed.
+Normal builds do not access the separate Castle repository. Maintainers can
+regenerate the bundle from an existing local checkout with
+`node scripts/vendor-castle-library.mjs /path/to/castle`, run from the workspace
+root. Add `--check` to verify it without rewriting files. The source commit and
+hashes are recorded in `test/helpers/castle-library-source.json`.
 TypeScript source stays out of the npm archive.
 The main export includes `ServerProvider` and `ServerDependencies` types for
 embedding. Providers can return synchronous or asynchronous responses; the
@@ -88,6 +96,12 @@ inference or account discovery. No endpoint exposes account metadata.
 Authentication failures return 401 and
 `{"error":{"type":"authentication_error","code":"unauthorized","message":"Authentication required"}}`.
 Other application errors have the same shape with `type: "invalid_request_error"`.
+
+If the account's Castle minter is already handling a request, another request
+returns 503 `provider_busy` with the message `Provider is busy`. It does not
+start inference or interrupt the active request. The server and Remote do not
+queue or automatically retry it. Once the active mint finishes, a new request
+can proceed. A busy minter does not mean the account credentials are invalid.
 
 Unknown routes return 404 `not_found`, wrong methods return 405
 `method_not_allowed`, invalid JSON objects return 400 `invalid_json`, and bodies
