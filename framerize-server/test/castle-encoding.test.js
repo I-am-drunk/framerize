@@ -22,6 +22,16 @@ test('bundled encoder matches its source receipt', () => {
   assert.equal(Object.keys(receipt.sources).length, 11);
 });
 
+test('compiled castle.js encoder matches source encoder output', () => {
+  const context = vm.createContext({ types, Buffer, TextDecoder });
+  const fromSource = vm.runInContext(encoderSource('../src/castle.ts') + '\nCastleEncoder;', context);
+  const fromDist = vm.runInContext(encoderSource('../dist/castle.js') + '\nCastleEncoder;', context);
+  for (const { text, timestamp } of collectionInputs()) {
+    const input = frame(text);
+    assert.equal(fromSource.encodeFrame(input, timestamp), fromDist.encodeFrame(input, timestamp));
+  }
+});
+
 test('shipped encoder preserves all 128 immutable reference frames', () => {
   const context = vm.createContext({ types, Buffer, TextDecoder });
   const encoder = vm.runInContext(encoderSource('../dist/castle.js') + '\nCastleEncoder;', context);
@@ -55,4 +65,18 @@ test('minter produces encoded tokens instead of array text', async context => {
     const payload = token.slice('cNz8rPYH|'.length);
     assert.ok(Buffer.from(payload, 'base64').toString('base64') === payload, 'Expected canonical base64');
   }
+});
+
+test('minter rejects overlapping mint calls', async context => {
+  const minter = createCastleMinter();
+  context.after(async () => minter.close());
+  const inFlight = minter.mint({ signal: AbortSignal.timeout(9000) });
+  await assert.rejects(() => minter.mint({ signal: AbortSignal.timeout(1000) }), /busy/);
+  await inFlight;
+});
+
+test('minter rejects mint after close', async () => {
+  const minter = createCastleMinter();
+  await minter.close();
+  await assert.rejects(() => minter.mint({ signal: AbortSignal.timeout(1000) }), /closed/);
 });
