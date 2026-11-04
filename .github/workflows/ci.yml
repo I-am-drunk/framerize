@@ -10,6 +10,8 @@ permissions:
 jobs:
   source:
     uses: ./.github/workflows/core-ci.yml
+    secrets: inherit
   packages:
     needs: source
     uses: ./.github/workflows/package-coexistence.yml
+    secrets: inherit

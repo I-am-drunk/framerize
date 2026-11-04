@@ -33,7 +33,8 @@ function validateWorkflow(source: string): void {
 }
 
 test('publication workflow requires approval and an explicit publish choice', () => {
-  const source = readFileSync(new URL('../../.github/workflows/publish-remote.yml', import.meta.url), 'utf8');
+  const source = readFileSync(new URL('../../.github/workflows/publish-remote.yml', import.meta.url), 'utf8')
+    .replace(/\r\n/g, '\n');
   validateWorkflow(source);
   assert.throws(() => validateWorkflow(source.replace('on:\n', 'on:\n  schedule:\n')));
   for (const token of ['environment: npm-release', 'default: false', '        if: inputs.publish',
