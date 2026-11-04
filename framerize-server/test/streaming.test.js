@@ -1,5 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import http from 'node:http';
+import { createProvider } from '../dist/provider.js';
 import {
   apiRequest, authorizedHeaders, controlledStream, deferred,
   delay, JSON_BODY, openSocket, rawPost, socketChunks, startFixture, waitFor,
@@ -94,11 +96,11 @@ test('incomplete HTTP headers time out before provider invocation', async (t) =>
 
 test('provider header stalls abort and return an exact error', async (t) => {
   const { port, provider } = await startFixture(t, { headersTimeoutMs: 40 });
-  let aborts = 0;
-  provider.forwardImpl = ({ signal }) => {
-    signal.addEventListener('abort', () => { aborts += 1; }, { once: true });
-    return new Promise(() => {});
-  };
+  provider.forwardImpl = () => new Promise((_, reject) => {
+    setTimeout(() => reject(Object.assign(new Error('Upstream headers timeout'), {
+      code: 'headers_timeout', status: 504,
+    })), 40);
+  });
   const { response, body } = await apiRequest(port, '/v1/responses', {
     method: 'POST', headers: authorizedHeaders(), body: JSON_BODY,
   });
@@ -106,7 +108,44 @@ test('provider header stalls abort and return an exact error', async (t) => {
   assert.deepEqual(JSON.parse(body), {
     error: { type: 'invalid_request_error', code: 'headers_timeout', message: 'Upstream headers timed out' },
   });
-  assert.equal(aborts, 1);
+});
+
+test('real provider keeps the full header budget after a slow connect', async (t) => {
+  const upstream = http.createServer((request, response) => {
+    request.resume();
+    request.on('end', () => {
+      setTimeout(() => {
+        response.writeHead(200, { 'content-type': 'application/json' });
+        response.end('{"id":"slow-connect"}');
+      }, 500);
+    });
+  });
+  await new Promise((resolve) => upstream.listen(0, '127.0.0.1', resolve));
+  upstream.on('connection', (socket) => {
+    socket.pause();
+    setTimeout(() => socket.resume(), 700);
+  });
+  t.after(() => new Promise((resolve) => {
+    upstream.closeAllConnections();
+    upstream.close(resolve);
+  }));
+  const upstreamUrl = `http://127.0.0.1:${upstream.address().port}`;
+  const { port } = await startFixture(t, { headersTimeoutMs: 1_000, idleTimeoutMs: 2_000 }, class {
+    constructor() {
+      this.provider = createProvider({
+        upstream: upstreamUrl, authorization: 'fixture-credential',
+        headersTimeoutMs: 1_000, idleTimeoutMs: 2_000,
+      });
+    }
+    ready(options) { return this.provider.ready(options); }
+    forward(options) { return this.provider.forward(options); }
+    close() { return this.provider.close(); }
+  });
+  const { response, body } = await apiRequest(port, '/v1/responses', {
+    method: 'POST', headers: authorizedHeaders(), body: JSON.stringify({ model: 'fixture', input: 'hello' }),
+  });
+  assert.equal(response.status, 200);
+  assert.deepEqual(JSON.parse(body.toString()), { id: 'slow-connect' });
 });
 
 test('idle body stalls truncate the response and cancel iteration', async (t) => {

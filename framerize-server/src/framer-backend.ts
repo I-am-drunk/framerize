@@ -26,6 +26,7 @@ interface Operation {
   preparing: boolean;
   finish(): Promise<void>;
   received(): void;
+  endPreparePhase(): void;
 }
 
 const failed = (code: string, status = 503) =>
@@ -42,6 +43,7 @@ function begin(active: Set<Operation>, signal: AbortSignal, timeout: number): Op
   };
   const timer = setTimeout(() => controller.abort(failed('headers_timeout', 504)), timeout);
   const operation: Operation = { controller, done, preparing: true,
+    endPreparePhase() { clearTimeout(timer); },
     received() { clearTimeout(timer); operation.preparing = false; },
     finish() {
       closing ??= Promise.resolve().then(async () => {
@@ -175,6 +177,7 @@ export function createFramerBackend(input: FramerBackendOptions): InferenceBacke
           .catch(() => { throw failed('credentials_unavailable'); });
         signal.throwIfAborted();
         const encoded = encodeFramerRequest(decoded, config.projectId, castleToken);
+        operation.endPreparePhase();
         operation.transport = createHttpProvider({ upstream: config.origin, authorization,
           headersTimeoutMs: config.headersTimeoutMs, idleTimeoutMs: config.idleTimeoutMs }, FRAMER_ROUTES);
         const response = await operation.transport.forward({ path: request.path, signal,

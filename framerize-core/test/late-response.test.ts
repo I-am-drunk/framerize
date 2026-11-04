@@ -6,6 +6,8 @@ import { setImmediate } from 'node:timers/promises';
 import test from 'node:test';
 import { createInstance } from '../src/instance.js';
 import type { InferenceBackend, InferenceResponse } from '../src/backend.js';
+import { bodyIterator, finish } from '../src/http-io.js';
+import { HttpError } from '../src/http-errors.js';
 import { authorization, backend, deferred, exchange, token } from './http-fixtures.js';
 
 const providerURL = new URL('../../../framerize-server/dist/provider.js', import.meta.url);
@@ -40,7 +42,7 @@ test('disposes a late provider socket before backend shutdown', { timeout: 4000 
   const instance = createInstance({ token, headersTimeoutMs: 2000,
     onRequest() { handled.resolve(); }, backend: backend({
       async forward(input) {
-        const result = await provider.forward({ ...input, signal: new AbortController().signal });
+        const result = await provider.forward(input);
         offered.resolve();
         await release.promise;
         return result;
@@ -57,9 +59,9 @@ test('disposes a late provider socket before backend shutdown', { timeout: 4000 
   await offered.promise;
   assert.equal(sockets.size, 1);
   client.destroy();
+  release.resolve();
   await handled.promise;
   const disconnected = once([...sockets][0]!, 'close', { signal: context.signal });
-  release.resolve();
   await disconnected;
   assert.equal(sockets.size, 0);
   assert.equal(closes, 0);
@@ -100,7 +102,26 @@ for (const mode of ['timeout', 'disconnect']) {
     let returns = 0;
     const instance = createInstance({ token, headersTimeoutMs: 30,
       onRequest() { finished.resolve(); }, backend: backend({
-        async forward() { entered.resolve(); return pending.promise; },
+        async forward({ signal }) {
+          entered.resolve();
+          const late = pending.promise;
+          try {
+            await new Promise((resolve, reject) => {
+              const timer = mode === 'timeout'
+                ? setTimeout(() => reject(new HttpError('headers_timeout')), 30) : undefined;
+              const onAbort = () => {
+                clearTimeout(timer);
+                reject(signal.reason ?? new HttpError('client_disconnected'));
+              };
+              signal.addEventListener('abort', onAbort, { once: true });
+              if (signal.aborted) onAbort();
+            });
+            return await late;
+          } catch (error) {
+            void late.then((result) => { try { finish(bodyIterator(result.body)); } catch {} });
+            throw error;
+          }
+        },
       }) });
     try {
       const { port } = await instance.listen();
