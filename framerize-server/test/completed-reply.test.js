@@ -67,6 +67,28 @@ test('output-limited Responses preserve explicitly incomplete tool calls', () =>
   }
 });
 
+test('incomplete function calls preserve unfinished argument strings', () => {
+  for (const argumentText of ['', '{', '{"query":']) {
+    const tool = { type: 'function_call', call_id: 'call_limit', name: 'lookup',
+      status: 'incomplete', arguments: argumentText };
+    const limited = response({ status: 'incomplete',
+      incomplete_details: { reason: 'max_output_tokens' }, output: [tool] });
+    accepts('responses', limited);
+    rejects('responses', bytes({ ...limited, status: 'completed', incomplete_details: null }));
+    rejects('responses', bytes({ ...limited, output: [{ ...tool, status: 'completed' }] }));
+  }
+});
+
+test('incomplete function calls still require string arguments', () => {
+  for (const argumentText of [undefined, null, 17, {}, []]) {
+    rejects('responses', bytes(response({ status: 'incomplete',
+      incomplete_details: { reason: 'max_output_tokens' }, output: [
+        { type: 'function_call', call_id: 'call_limit', name: 'lookup',
+          status: 'incomplete', arguments: argumentText },
+      ] })));
+  }
+});
+
 test('extension fields and absent usage are not discarded or fabricated', () => {
   for (const usage of [null, undefined]) {
     accepts('responses', response({ usage, vendor_field: { nested: ['preserve'] },

@@ -80,7 +80,7 @@ function responsesReply(reply: Record<string, unknown>): void {
       if (item.namespace !== undefined && !nonempty(item.namespace)) invalid();
       if (item.type === 'function_call') {
         if (typeof item.arguments !== 'string') invalid();
-        JSON.parse(item.arguments);
+        if (item.status !== 'incomplete') JSON.parse(item.arguments);
       } else if (typeof item.input !== 'string') invalid();
     }
   }

@@ -53,6 +53,9 @@ for (const protocol of customProtocols) {
   test(`custom ${protocol} text validation rejects non-success without exposing content`, () => {
     const invalid = protocol === 'responses' ? [
       { status: 'incomplete', incomplete_details: { reason: 'max_output_tokens' } },
+      { status: 'incomplete', incomplete_details: { reason: 'max_output_tokens' }, output: [
+        { type: 'function_call', call_id: 'call', name: 'tool', status: 'incomplete', arguments: '{"query":' },
+      ] },
       { status: 'queued' }, { output: [] },
       { output: [{ type: 'function_call', call_id: 'call', name: 'tool', arguments: '{}' }] },
       { output: [{ id: 'message', type: 'message', role: 'assistant',
