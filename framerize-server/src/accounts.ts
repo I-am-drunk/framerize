@@ -2,7 +2,7 @@ import { open } from 'node:fs/promises';
 import type { FileHandle } from 'node:fs/promises';
 import { constants } from 'node:fs';
 import { dirname, isAbsolute, resolve } from 'node:path';
-import { ConfigurationError } from './errors.js';
+import { AccountFileError, ConfigurationError } from './errors.js';
 
 export interface AccountMetadata {
   readonly id: string;
@@ -24,6 +24,14 @@ export interface FramerAccount extends AccountMetadata {
 }
 
 export async function loadAccounts(path?: string): Promise<readonly AccountMetadata[]> {
+  try { return await readAccounts(path); }
+  catch (error) {
+    if (error instanceof ConfigurationError) throw new AccountFileError(error.message);
+    throw error;
+  }
+}
+
+async function readAccounts(path?: string): Promise<readonly AccountMetadata[]> {
   if (!path) return Object.freeze([]);
   let file: FileHandle | undefined;
   let value: unknown;
