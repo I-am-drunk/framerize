@@ -5789,6 +5789,613 @@ function buildRealm(opts) {
     const context = vm.createContext(globals);
     return { context, win: globals };
 }
+var CastleEncoder = (() => {
+  var __defProp = Object.defineProperty;
+  var __getOwnPropDesc = Object.getOwnPropertyDescriptor;
+  var __getOwnPropNames = Object.getOwnPropertyNames;
+  var __hasOwnProp = Object.prototype.hasOwnProperty;
+  var __export = (target, all) => {
+    for (var name in all)
+      __defProp(target, name, { get: all[name], enumerable: true });
+  };
+  var __copyProps = (to, from, except, desc) => {
+    if (from && typeof from === "object" || typeof from === "function") {
+      for (let key of __getOwnPropNames(from))
+        if (!__hasOwnProp.call(to, key) && key !== except)
+          __defProp(to, key, { get: () => from[key], enumerable: !(desc = __getOwnPropDesc(from, key)) || desc.enumerable });
+    }
+    return to;
+  };
+  var __toCommonJS = (mod) => __copyProps(__defProp({}, "__esModule", { value: true }), mod);
+  var encode_frame_exports = {};
+  __export(encode_frame_exports, {
+    encodeFrame: () => encodeFrame
+  });
+  var isUint8Array = types.isUint8Array;
+  var messages = {
+    configuration: "Invalid Castle Library configuration",
+    busy: "Castle Library minter is busy",
+    closed: "Castle Library minter is closed",
+    aborted: "Castle Library mint cancelled",
+    timeout: "Castle Library mint timed out",
+    collection: "Castle Library collection failed",
+    encoder: "Castle Library encode-token failed"
+  };
+  var CastleError = class extends Error {
+    constructor(code) {
+      super(messages[code]);
+      this.code = code;
+      this.name = "CastleError";
+    }
+  };
+  function parseCollectionJson(text2) {
+    const stack = [];
+    for (let index = 0; index < text2.length; index += 1) {
+      const character = text2[index];
+      if (character === "{" || character === "[") {
+        if (stack.length >= 256) throw new Error();
+        stack.push(character === "{" ? { keys: /* @__PURE__ */ new Set(), key: true } : { key: false });
+      } else if (character === "}" || character === "]") stack.pop();
+      else if (character === ",") {
+        const level = stack.at(-1);
+        if (level?.keys) level.key = true;
+      } else if (character === '"') {
+        let end = index + 1;
+        for (; end < text2.length; end += 1) {
+          if (text2[end] === "\\") end += 1;
+          else if (text2[end] === '"') break;
+        }
+        const level = stack.at(-1);
+        if (level?.key && level.keys) {
+          const key = JSON.parse(text2.slice(index, end + 1));
+          if (level.keys.has(key)) throw new Error();
+          level.keys.add(key);
+          level.key = false;
+        }
+        index = end;
+      }
+    }
+    return JSON.parse(text2);
+  }
+  var MAX_ENVELOPE_BYTES = 512 * 1024;
+  var FNV = 16777619;
+  var byteLength = Object.getOwnPropertyDescriptor(Object.getPrototypeOf(Uint8Array.prototype), "byteLength").get;
+  function encodeText(text2) {
+    try {
+      if (typeof text2 !== "string" || text2.length > 65536) throw new Error();
+      const output = Buffer.alloc(text2.length * 2);
+      for (let index = 0; index < text2.length; index += 1) {
+        const unit = text2.charCodeAt(index);
+        const rotated = (unit << 1 | unit >>> 15) & 65535;
+        const added = rotated + 50305 & 65535;
+        output.writeUInt16BE((added << 2 | added >>> 14) & 65535, index * 2);
+      }
+      return output.toString("base64");
+    } catch {
+      throw new CastleError("encoder");
+    }
+  }
+  function timestampSeed(timestamp) {
+    let state = 1964878969;
+    for (let index = 0; index < timestamp.length; index += 1) {
+      state = Math.imul(state ^ timestamp.charCodeAt(index), FNV) >>> 0;
+    }
+    return state || 2654435769;
+  }
+  function absorb(state, byte, index, offset, salt) {
+    const mixed = state ^ byte + (index + offset & 255) ^ salt;
+    return (mixed ^ mixed >>> 13) >>> 0;
+  }
+  function finishHash(value, salt, multiplier, rotationSalt) {
+    let mixed = value ^ salt;
+    mixed = Math.imul(mixed ^ mixed >>> 16, multiplier);
+    mixed = (mixed << 13 | mixed >>> 19) ^ rotationSalt;
+    return Math.imul(mixed ^ mixed >>> 15, FNV) >>> 0;
+  }
+  function mask(seed, index) {
+    const mixed = Math.imul(seed ^ index, FNV);
+    return Math.imul(mixed ^ mixed >>> 16, 4102116337) >>> 0;
+  }
+  function transform(payload, seed) {
+    const half = Math.floor(payload.length / 2);
+    const output = Buffer.alloc(payload.length + 24);
+    let all = seed ^ 1900289331;
+    let first = seed ^ 1190068048 ^ 4241523720;
+    let second = seed ^ 3837228419 ^ 4241523720;
+    let stream = seed ^ 2537391945;
+    for (let index = 0; index < payload.length; index += 1) {
+      const byte = payload[index];
+      all = absorb(all, byte, index, 1809245767, 1900289331);
+      if (index < half) first = absorb(first, byte, index, 498370768, 3638134497);
+      else second = absorb(second, byte, index - half, 498370768, 3638134497);
+      if ((index & 3) === 0) {
+        stream = stream + index + 2130943450 + 2537391945 >>> 0;
+        stream ^= stream << 13;
+        stream ^= stream >>> 17;
+        stream ^= stream << 5;
+        stream = stream + 2479819197 >>> 0;
+      }
+      output[24 + index] = byte ^ stream >>> (index & 3) * 8 & 255;
+    }
+    return finishTransform(output, half, seed, all, first, second);
+  }
+  function finishTransform(output, half, seed, all, first, second) {
+    output.writeUInt32BE(output.length - 24 - half, 0);
+    output.writeUInt32BE(half, 4);
+    const hashes = [
+      finishHash(all, 1790689784, 681267947, 657868388),
+      finishHash(all, 31652116, 1987083477, 2689985210),
+      finishHash(first, 4241523723, 498370769, 3638134497),
+      finishHash(second, 4241523725, 498370769, 3638134497)
+    ];
+    hashes.forEach((hash2, index) => output.writeUInt32BE((hash2 ^ mask(seed, index)) >>> 0, 8 + index * 4));
+    return output;
+  }
+  function envelope(payload, timestampMs) {
+    try {
+      if (!isUint8Array(payload) || !Number.isSafeInteger(timestampMs) || Math.abs(timestampMs) > 864e13) throw new Error();
+      const length = Reflect.apply(byteLength, payload, []);
+      if (length > MAX_ENVELOPE_BYTES) throw new Error();
+      const snapshot = new Uint8Array(length);
+      snapshot.set(payload);
+      const timestamp = String(timestampMs);
+      const encodedTime = Buffer.from(encodeText(timestamp), "ascii");
+      const header = Buffer.alloc(2);
+      header.writeUInt16LE(encodedTime.length);
+      return `cNz8rPYH|${Buffer.concat([
+        header,
+        encodedTime,
+        transform(snapshot, timestampSeed(timestamp))
+      ]).toString("base64")}`;
+    } catch {
+      throw new CastleError("encoder");
+    }
+  }
+  var MARKERS = /* @__PURE__ */ new Map([
+    ["83au4jz", "7e93ex445j"],
+    ["3mxkmwkle0", "zye88asu"],
+    ["9q5p9p15pn", "w9qwrnt533"],
+    ["99j32wg9x", "dixwrk"],
+    ["gp9vlcc", "92ss6wlksf"],
+    ["2v315vt89", "6c3rdk8n3"],
+    ["vrbhklehy", "3jpaly3xq3"],
+    ["ydlkmari0n", "phfj4lf8"]
+  ]);
+  function sharedWorker(value) {
+    if (typeof value === "string") return MARKERS.get(value) ?? value;
+    if (!Array.isArray(value)) return "a9opjk";
+    if (value[0] !== 2) return "2nrh3qm";
+    return value[10] || "r0yv7z6cx";
+  }
+  function networkField(value, index) {
+    if (!Array.isArray(value)) return "a9opjk";
+    const record = value[0];
+    if (record === null || record === void 0) throw new Error();
+    const field = Array.isArray(record) || typeof record === "string" ? record[index] : void 0;
+    return field || "2nrh3qm";
+  }
+  function applyReplies(values, worker, network) {
+    values[242] = sharedWorker(worker);
+    const positions = [[80, 40], [469, 47], [473, 38], [659, 18]];
+    for (const [position, index] of positions) {
+      const value = networkField(network, index);
+      if (index === 38) values[position] = value;
+      else {
+        if (typeof value !== "string") throw new Error();
+        values[position] = encodeText(value);
+      }
+    }
+  }
+  function fields(input, keys) {
+    if (!input || typeof input !== "object" || Array.isArray(input) || Object.keys(input).length !== keys.length || keys.some((key) => !Object.hasOwn(input, key))) throw new Error();
+    return input;
+  }
+  function number(text2) {
+    if (typeof text2 !== "string") throw new Error();
+    if (text2 === "-0") return -0;
+    if (text2 === "NaN") return NaN;
+    if (text2 === "Infinity") return Infinity;
+    if (text2 === "-Infinity") return -Infinity;
+    const value = Number(text2);
+    if (!Number.isFinite(value) || String(value) !== text2) throw new Error();
+    return value;
+  }
+  function text(input, budget) {
+    if (!Array.isArray(input) || input.length + budget.units > 65536) throw new Error();
+    budget.units += input.length;
+    let result = "";
+    for (const unit of input) {
+      if (!Number.isInteger(unit) || unit < 0 || unit > 65535) throw new Error();
+      result += String.fromCharCode(unit);
+    }
+    return result;
+  }
+  function convert(input, depth, budget) {
+    budget.count += 1;
+    if (budget.count > 4096 || depth > 64) throw new Error();
+    if (!input || typeof input !== "object" || !("kind" in input)) throw new Error();
+    const kind = input.kind;
+    const key = kind === "string" ? "units" : kind === "array" ? "values" : "value";
+    const data = fields(input, kind === "undefined" || kind === "null" ? ["kind"] : ["kind", key]);
+    if (kind === "undefined") return void 0;
+    if (kind === "null") return null;
+    if (kind === "boolean" && typeof data.value === "boolean") return data.value;
+    if (kind === "number") return number(data.value);
+    if (kind === "string") return text(data.units, budget);
+    if (kind !== "array" || !Array.isArray(data.values) || data.values.length > 2048) throw new Error();
+    return data.values.map((value) => convert(value, depth + 1, budget));
+  }
+  function decodeCollection(text2) {
+    try {
+      if (typeof text2 !== "string" || !text2 || Buffer.byteLength(text2) > 1024 * 1024) throw new Error();
+      const input = fields(parseCollectionJson(text2), ["version", "values", "shared_worker_reply", "network_reply"]);
+      if (input.version !== 3) throw new Error();
+      const captured = fields(input.values, ["kind", "values"]);
+      if (captured.kind !== "array" || !Array.isArray(captured.values) || captured.values.length !== 765) throw new Error();
+      const budget = { count: 1, units: 0 };
+      const values = captured.values.map((value) => convert(value, 1, budget));
+      const worker = convert(input.shared_worker_reply, 0, budget);
+      const network = convert(input.network_reply, 0, budget);
+      applyReplies(values, worker, network);
+      return values;
+    } catch {
+      throw new CastleError("encoder");
+    }
+  }
+  function merge(leaves, packages) {
+    const result = [];
+    let leaf = 0;
+    let packaged = 0;
+    while (leaf < leaves.length || packaged < packages.length) {
+      if (packaged === packages.length || leaf < leaves.length && leaves[leaf].weight <= packages[packaged].weight) {
+        result.push(leaves[leaf++]);
+      } else result.push(packages[packaged++]);
+    }
+    return result;
+  }
+  function huffmanLengths(frequencies, maximum) {
+    const result = Array(frequencies.length).fill(0);
+    const leaves = frequencies.map((weight, symbol) => ({ weight, symbols: [symbol] })).filter((entry) => entry.weight > 0).sort((left, right) => left.weight - right.weight);
+    if (leaves.length <= 1) {
+      if (leaves.length) result[leaves[0].symbols[0]] = 1;
+      return result;
+    }
+    let level = leaves;
+    for (let width = 2; width <= maximum; width += 1) {
+      const packages = [];
+      for (let index = 0; index + 1 < level.length; index += 2) {
+        const left = level[index];
+        const right = level[index + 1];
+        packages.push({ weight: left.weight + right.weight, symbols: [...left.symbols, ...right.symbols] });
+      }
+      level = merge(leaves, packages);
+    }
+    for (const entry of level.slice(0, 2 * leaves.length - 2)) {
+      for (const symbol of entry.symbols) result[symbol] = result[symbol] + 1;
+    }
+    return result;
+  }
+  function huffmanCodes(lengths, maximum) {
+    const counts = Array(maximum + 1).fill(0);
+    const next = Array(maximum + 1).fill(0);
+    for (const length of lengths) if (length > 0) counts[length] = counts[length] + 1;
+    for (let width = 1; width <= maximum; width += 1) next[width] = next[width - 1] + counts[width - 1] << 1;
+    return lengths.map((length) => {
+      if (!length) return 0;
+      const code = next[length];
+      next[length] = code + 1;
+      return code;
+    });
+  }
+  function tokenize(input) {
+    const heads = new Uint32Array(32768);
+    const previous = new Uint32Array(input.length);
+    const tokens = [];
+    let position = 0;
+    while (position < input.length) {
+      const match = findMatch(input, position, heads, previous);
+      const consumed = match.length >= 3 ? match.length : 1;
+      tokens.push(match.length >= 3 ? match : input[position]);
+      for (let offset = 0; offset < consumed; offset += 1) {
+        const current = position + offset;
+        if (current + 2 >= input.length) continue;
+        const key = hash(input, current);
+        previous[current] = heads[key];
+        heads[key] = current + 1;
+      }
+      position += consumed;
+    }
+    return tokens;
+  }
+  function hash(input, position) {
+    return 251 * input[position] + 11 * input[position + 1] + input[position + 2] & 32767;
+  }
+  function findMatch(input, position, heads, previous) {
+    const best = { length: 0, distance: 0 };
+    if (position + 2 >= input.length) return best;
+    const oldest = Math.max(0, position - 1024);
+    const limit = Math.min(input.length - position, 258);
+    let link = heads[hash(input, position)];
+    for (let checked = 0; checked < 64 && link > 0; checked += 1) {
+      const candidate = link - 1;
+      if (candidate < oldest) break;
+      if (input[candidate] === input[position] && input[candidate + 1] === input[position + 1] && input[candidate + 2] === input[position + 2]) {
+        let length = 3;
+        while (length < limit && input[candidate + length] === input[position + length]) length += 1;
+        if (length > best.length) {
+          best.length = length;
+          best.distance = position - candidate;
+          if (length === 258) break;
+        }
+      }
+      link = previous[candidate];
+    }
+    return best;
+  }
+  var MAX_COMPRESSION_BYTES = 256 * 1024;
+  var byteLength2 = Object.getOwnPropertyDescriptor(Object.getPrototypeOf(Uint8Array.prototype), "byteLength").get;
+  function compress(input) {
+    try {
+      if (!isUint8Array(input)) throw new Error();
+      const length = Reflect.apply(byteLength2, input, []);
+      if (length > MAX_COMPRESSION_BYTES) throw new Error();
+      const snapshot = new Uint8Array(length);
+      snapshot.set(input);
+      return compressBytes(snapshot);
+    } catch {
+      throw new CastleError("encoder");
+    }
+  }
+  var LENGTHS = [3, 4, 5, 6, 7, 8, 9, 10, 11, 13, 15, 17, 19, 23, 27, 31, 35, 43, 51, 59, 67, 83, 99, 115, 131, 163, 195, 227, 258];
+  var LENGTH_BITS = [0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 1, 1, 2, 2, 2, 2, 3, 3, 3, 3, 4, 4, 4, 4, 5, 5, 5, 5, 0];
+  var DISTANCES = [1, 2, 3, 4, 5, 7, 9, 13, 17, 25, 33, 49, 65, 97, 129, 193, 257, 385, 513, 769, 1025, 1537, 2049, 3073, 4097, 6145, 8193, 12289, 16385, 24577];
+  var DISTANCE_BITS = [0, 0, 0, 0, 1, 1, 2, 2, 3, 3, 4, 4, 5, 5, 6, 6, 7, 7, 8, 8, 9, 9, 10, 10, 11, 11, 12, 12, 13, 13];
+  var ORDER = [16, 17, 18, 0, 8, 7, 9, 6, 10, 5, 11, 4, 12, 3, 13, 2, 14, 1, 15];
+  function encodeLengths(lengths) {
+    const output = [];
+    let position = 0;
+    while (position < lengths.length) {
+      const value = lengths[position];
+      let end = position + 1;
+      while (end < lengths.length && lengths[end] === value) end += 1;
+      let count = end - position;
+      if (value !== 0) {
+        output.push({ symbol: value, extra: 0, width: 0 });
+        count -= 1;
+        while (count >= 3) {
+          const take = Math.min(count, 6);
+          output.push({ symbol: 16, extra: take - 3, width: 2 });
+          count -= take;
+        }
+      } else {
+        while (count >= 11) {
+          const take = Math.min(count, 138);
+          output.push({ symbol: 18, extra: take - 11, width: 7 });
+          count -= take;
+        }
+        while (count >= 3) {
+          const take = Math.min(count, 10);
+          output.push({ symbol: 17, extra: take - 3, width: 3 });
+          count -= take;
+        }
+      }
+      while (count-- > 0) output.push({ symbol: value, extra: 0, width: 0 });
+      position = end;
+    }
+    return output;
+  }
+  var BitWriter = class {
+    bytes = [];
+    accumulator = 0;
+    used = 0;
+    write(value, width) {
+      if (!width) return;
+      this.accumulator |= (value & (1 << width) - 1) << this.used;
+      this.used += width;
+      while (this.used >= 8) {
+        this.bytes.push(this.accumulator & 255);
+        this.accumulator >>>= 8;
+        this.used -= 8;
+      }
+    }
+    finish() {
+      if (this.used > 0) this.bytes.push(this.accumulator & 255);
+      return Buffer.from(this.bytes);
+    }
+    code(value, width) {
+      let reversed = 0;
+      for (let index = 0; index < width; index += 1) reversed = reversed << 1 | value >>> index & 1;
+      this.write(reversed, width);
+    }
+  };
+  function range(value, bases, widths) {
+    const symbol = bases.findIndex((base, index) => value >= base && value <= base + (1 << widths[index]) - 1);
+    if (symbol < 0) throw new Error();
+    return { symbol, width: widths[symbol], extra: value - bases[symbol] };
+  }
+  function writeTokens(bits, tokens, literals, distances) {
+    const literalCodes = huffmanCodes(literals, 15);
+    const distanceCodes = huffmanCodes(distances, 15);
+    for (const token of tokens) {
+      if (typeof token === "number") bits.code(literalCodes[token], literals[token]);
+      else {
+        const length = range(token.length, LENGTHS, LENGTH_BITS);
+        bits.code(literalCodes[257 + length.symbol], literals[257 + length.symbol]);
+        bits.write(length.extra, length.width);
+        const distance = range(token.distance, DISTANCES, DISTANCE_BITS);
+        bits.code(distanceCodes[distance.symbol], distances[distance.symbol]);
+        bits.write(distance.extra, distance.width);
+      }
+    }
+    bits.code(literalCodes[256], literals[256]);
+  }
+  function finishBlock(tokens, literals, distances) {
+    const runs = encodeLengths([...literals, ...distances]);
+    const frequencies = Array(19).fill(0);
+    for (const run of runs) frequencies[run.symbol] = frequencies[run.symbol] + 1;
+    const lengths = huffmanLengths(frequencies, 7);
+    let count = ORDER.length;
+    while (count > 4 && lengths[ORDER[count - 1]] === 0) count -= 1;
+    const codes = huffmanCodes(lengths, 7);
+    const bits = new BitWriter();
+    bits.write(1, 1);
+    bits.write(2, 2);
+    bits.write(literals.length - 257, 5);
+    bits.write(distances.length - 1, 5);
+    bits.write(count - 4, 4);
+    for (const symbol of ORDER.slice(0, count)) bits.write(lengths[symbol], 3);
+    for (const run of runs) {
+      bits.code(codes[run.symbol], lengths[run.symbol]);
+      bits.write(run.extra, run.width);
+    }
+    writeTokens(bits, tokens, literals, distances);
+    return bits.finish();
+  }
+  function trimLengths(lengths, minimum) {
+    let count = lengths.length;
+    while (count > minimum && lengths[count - 1] === 0) count -= 1;
+    return lengths.slice(0, count);
+  }
+  function compressBytes(input) {
+    const tokens = tokenize(input);
+    const literalFrequency = Array(286).fill(0);
+    const distanceFrequency = Array(30).fill(0);
+    for (const token of tokens) {
+      if (typeof token === "number") literalFrequency[token] = literalFrequency[token] + 1;
+      else {
+        const literal = 257 + range(token.length, LENGTHS, LENGTH_BITS).symbol;
+        const distance = range(token.distance, DISTANCES, DISTANCE_BITS).symbol;
+        literalFrequency[literal] = literalFrequency[literal] + 1;
+        distanceFrequency[distance] = distanceFrequency[distance] + 1;
+      }
+    }
+    literalFrequency[256] = literalFrequency[256] + 1;
+    const literals = huffmanLengths(literalFrequency, 15);
+    const distances = huffmanLengths(distanceFrequency, 15);
+    if (distanceFrequency.every((count) => count === 0)) {
+      distances[0] = 1;
+      distances[1] = 1;
+    }
+    return finishBlock(tokens, trimLengths(literals, 257), trimLengths(distances, 1));
+  }
+  function stringValue(value, output) {
+    if (value.length % 4 === 0 && /^[A-Za-z0-9+/]*={0,2}$/.test(value)) {
+      const bytes = Buffer.from(value, "base64");
+      if (bytes.toString("base64") === value) {
+        output.push(2);
+        unsigned(bytes.length, output);
+        for (const byte of bytes) output.push(byte);
+        return;
+      }
+    }
+    let latin = true;
+    for (let index = 0; index < value.length; index += 1) {
+      if (value.charCodeAt(index) > 255) {
+        latin = false;
+        break;
+      }
+    }
+    output.push(latin ? 9 : 1);
+    unsigned(value.length, output);
+    for (let index = 0; index < value.length; index += 1) {
+      const unit = value.charCodeAt(index);
+      output.push(unit & 255);
+      if (!latin) output.push(unit >>> 8);
+    }
+  }
+  function unsigned(value, output) {
+    while (value >= 128) {
+      output.push(value & 127 | 128);
+      value >>>= 7;
+    }
+    output.push(value);
+  }
+  function appendArray(values, depth, pending, output, count) {
+    const length = values.length;
+    if (!Number.isSafeInteger(length) || length < 0 || length + count + pending.length > 4096) throw new Error();
+    unsigned(length, output);
+    for (let index = length - 1; index >= 0; index -= 1) {
+      pending.push({ value: values[index], depth });
+    }
+  }
+  function serializeValues(values) {
+    try {
+      if (!Array.isArray(values)) throw new Error();
+      const output = [];
+      const pending = [];
+      let count = 1;
+      let units = 0;
+      appendArray(values, 1, pending, output, count);
+      while (pending.length) {
+        const { value, depth } = pending.pop();
+        count += 1;
+        if (count > 4096 || depth > 64) throw new Error();
+        if (value === void 0 || value === null) output.push(0);
+        else if (typeof value === "boolean") output.push(value ? 6 : 5);
+        else if (typeof value === "number") numberValue(value, output);
+        else if (typeof value === "string") {
+          units += value.length;
+          if (units > 65536) throw new Error();
+          stringValue(value, output);
+        } else if (Array.isArray(value)) {
+          output.push(7);
+          appendArray(value, depth + 1, pending, output, count);
+        } else throw new Error();
+      }
+      return Buffer.from(output);
+    } catch {
+      throw new CastleError("encoder");
+    }
+  }
+  function numberValue(value, output) {
+    if (!Number.isFinite(value)) {
+      output.push(0);
+      return;
+    }
+    if (Number.isInteger(value) && value >= -2147483648 && value <= 2147483647) {
+      output.push(10);
+      unsigned((value << 1 ^ value >> 31) >>> 0, output);
+      return;
+    }
+    const bytes = Buffer.alloc(8);
+    if (Number.isInteger(value) && value >= 0 && value <= 4294967295) {
+      bytes.writeUInt32LE(value);
+      output.push(3, ...bytes.subarray(0, 4));
+    } else {
+      bytes.writeDoubleBE(value);
+      output.push(4, ...bytes);
+    }
+  }
+  function encodeValues(values, timestampMs) {
+    try {
+      const payload = compress(serializeValues(values));
+      return envelope(payload, timestampMs === void 0 ? Date.now() : timestampMs);
+    } catch {
+      throw new CastleError("encoder");
+    }
+  }
+  var byteLength3 = Object.getOwnPropertyDescriptor(Object.getPrototypeOf(Uint8Array.prototype), "byteLength").get;
+  function encodeFrame(input, timestampMs) {
+    let frame;
+    try {
+      if (!isUint8Array(input)) throw new Error();
+      const length = Reflect.apply(byteLength3, input, []);
+      if (length <= 12 || length > 1024 * 1024 + 12) throw new Error();
+      frame = Buffer.alloc(length);
+      frame.set(input);
+      if (!frame.subarray(0, 8).equals(Buffer.from([70, 67, 76, 84, 1, 0, 0, 0])) || frame.readUInt32BE(8) !== length - 12) throw new Error();
+      const text2 = new TextDecoder("utf-8", { fatal: true, ignoreBOM: true }).decode(frame.subarray(12));
+      const token = encodeValues(decodeCollection(text2), timestampMs);
+      if (token.length > 16384) throw new Error();
+      return token;
+    } catch {
+      throw new CastleError("encoder");
+    } finally {
+      frame?.fill(0);
+    }
+  }
+  return __toCommonJS(encode_frame_exports);
+})();
 function createCastleMinter(input = {}) {
     const budgetMs = input.budgetMs ?? 8000;
     const timeoutMs = input.timeoutMs ?? 9000;
@@ -5810,18 +6417,27 @@ function createCastleMinter(input = {}) {
                 .replace(/import\.meta\.network\(/g, 'globalThis.__network(');
             const collector = createCollector();
             let collected = null;
-            globals.__collect = v => { collected = collector.collect(v); return v; };
+            globals.__collect = value => {
+                collected = collector.collect(value);
+                return collected;
+            };
             globals.__sharedWorker = v => collector.sharedWorker(v);
             globals.__network = v => collector.network(v);
             vm.runInContext(script, context, { filename: 'graph.bundle.js' });
             const wrapper = vm.runInContext('globalThis.__modules.wrapper', context);
             let watchdog;
             try {
-                const token = await Promise.race([
+                await Promise.race([
                     wrapper.a({ budget_ms: budgetMs }),
                     new Promise((_, rej) => { watchdog = setTimeout(() => rej(new Error('timeout')), timeoutMs); watchdog.unref?.(); }),
                 ]);
-                return { token: String(token) };
+                if (typeof collected !== 'string') throw new Error('collection');
+                const body = Buffer.from(collected, 'utf8');
+                const header = Buffer.alloc(12);
+                header.write('FCLT');
+                header[4] = 1;
+                header.writeUInt32BE(body.length, 8);
+                return { token: CastleEncoder.encodeFrame(Buffer.concat([header, body])) };
             }
             finally {
                 clearTimeout(watchdog);

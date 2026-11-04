@@ -34,8 +34,8 @@ export async function createAccountScenario() {
       const payload = JSON.parse(bytes.toString());
       assert.equal(payload.projectId, 'selected-project');
       assert.equal(payload.featureCategory, 'agents');
-      assert.equal(typeof payload.castleToken, 'string');
-      assert.ok(payload.castleToken.length >= 64 && payload.castleToken.length <= 16384);
+      assert.ok(typeof payload.castleToken === 'string'
+        && /^cNz8rPYH\|[A-Za-z0-9+/]+={0,2}$/.test(payload.castleToken), 'Expected an encoded Castle token');
       response.writeHead(200, { 'content-type': 'text/event-stream' });
       if (payload.request.messages[0]?.content === 'cancel') {
         response.once('close', () => { state.cancelled += 1; cancelled(); });

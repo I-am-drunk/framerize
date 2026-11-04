@@ -99,6 +99,8 @@ fixed messages and never echo raw arguments, remote URLs, bodies, or credentials
 
 Use `framerize-remote serve --port 8789` to change the local port for one run.
 Serve options never rewrite the profile. `SIGINT` and `SIGTERM` shut it down.
+Repeated stop signals wait for the same cleanup. Remote prints `Stopped.` only
+after cleanup succeeds. A cleanup failure remains an error.
 To accept connections outside loopback for one run:
 
 ```sh
@@ -159,5 +161,5 @@ Its status is advisory and does not change the readiness exit code, except
 that cancellation exits nonzero. Local daemon status does not prove remote
 reachability. Remote still needs an accessible server origin and valid token.
 
-Browserless provider and Castle Library integration, native delivery and
+Browserless provider and Castle runtime integration, native delivery and
 release CI migration remain separate unfinished work.
