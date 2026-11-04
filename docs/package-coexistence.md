@@ -66,47 +66,14 @@ The byte check discovers all archive members, so added bundled files are not
 limited to the 13 files in historical evidence. New package bytes still require
 fresh qualification; the retained reports do not qualify later runtime changes.
 
-## Recorded Linux verification
+## Historical reports
 
-The [final retained package-pair check](package-coexistence-evidence/2026-11-03-final-pair/README.md)
-records the later server `23d87c6c` artifact with the same Remote artifact on
-Linux Node 22 and 24. The earlier package-pair evidence below remains historical.
+The [three-platform report](package-coexistence-evidence/41667971716/README.md)
+and [later Linux report](package-coexistence-evidence/2026-11-03-final-pair/README.md)
+retain source identities, artifact hashes and results for their recorded
+package pairs. They do not qualify the current packages, native executables
+or a release.
 
-On 2026-11-03, all 10 focused tests passed on both Node 22.23.4 with npm 10.9.9
-and Node 24.13.0 with npm 11.6.2. Neither run skipped tests. This includes real
-offline fixture installs and the launcher-only CRLF allowance under both npm
-major versions. The runtime and checker source were unchanged between runs.
-
-On Node 22.23.4, the checker also passed against these existing tarballs,
-without repacking:
-
-- `framerize-nexus@0.1.9`, source `671ed7df4507b391fc6efc72bf919aebd289a1eb`.
-  SHA-256 `12c6eb43755f16a858d12b150bfde44622298ab2fcf489d03abadba0bd4fe528`.
-- `framerize-server@0.1.0`, source `0848e05a0daf5b55f089fda3aeb7d79b7c2259c9`.
-  SHA-256 `7857503139d2f48dddfe0adb8967f1b19dd2d853d4641f9543642a160669d5da`.
-
-A separate raw Git-blob comparison matched all 13 archived files per package
-to those exact commits. Both installed packages passed with deliberately poisoned
-parent account, endpoint, host, port and credential environment variables.
-The fixtures also cover LF/CRLF bytes, disabled lifecycle scripts, invalid names
-and dependencies, missing public exports, and rejected socket/listener/fetch calls.
-
-This is Linux x64 npm-install evidence only. It does not qualify this checker on
-macOS or Windows, or any later source tree. Native and aggregate release evidence
-belongs to the separate packaging checks.
-
-The regression fixture passes an archive basename to `tar` and sets its working
-directory separately. This avoids GNU tar treating a Windows drive-letter
-prefix as a remote archive address when tests run under Git Bash. All 10 focused
-tests pass with this invocation on Linux using Node 22.23.4. The checker itself
-is unchanged. This fixture correction alone did not establish Windows or
-macOS qualification. The later hosted evidence is recorded below.
-
-## Recorded hosted verification
-
-[Run 41667971716](package-coexistence-evidence/41667971716/README.md) subsequently
-qualified the same exact package pair on Linux x64, macOS arm64 and Windows x64.
-Each consumer passed all 41 root tests and the offline installed-package check
-on Node 22.23.4. The retained producer manifest and three reports bind the
-shared tarball hashes to the exact PR merge checkout. This result does not
-qualify native binaries, later ENV/thin runtime changes, publication or activation.
+The earlier development timeline remains in Git history. Use the current
+[development status](wip-status.md) for release prerequisites rather than old
+package names or historical test counts.
