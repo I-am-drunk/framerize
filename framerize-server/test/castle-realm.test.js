@@ -31,3 +31,23 @@ test('mint rejects when closed without starting referenced timers', async () => 
   await assert.rejects(() => minter.mint({ signal: AbortSignal.timeout(120_000) }), /closed/);
   assert.equal(activeTimers(), before);
 });
+
+test('sequential mints do not accumulate referenced realm timers', async (t) => {
+  const minter = createCastleMinter({ timeoutMs: 120_000, budgetMs: 8000 });
+  t.after(() => minter.close());
+  const before = activeTimers();
+  await minter.mint({ signal: AbortSignal.timeout(120_000) });
+  assert.equal(activeTimers(), before);
+  await minter.mint({ signal: AbortSignal.timeout(120_000) });
+  assert.equal(activeTimers(), before);
+});
+
+test('concurrent mint rejects as busy without leaving referenced timers', async (t) => {
+  const minter = createCastleMinter({ timeoutMs: 120_000, budgetMs: 8000 });
+  t.after(() => minter.close());
+  const before = activeTimers();
+  const first = minter.mint({ signal: AbortSignal.timeout(120_000) });
+  await assert.rejects(() => minter.mint({ signal: AbortSignal.timeout(120_000) }), /busy/);
+  await first;
+  assert.equal(activeTimers(), before);
+});
