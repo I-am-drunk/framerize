@@ -11,6 +11,7 @@ const errors = {
   upstream_error: [502, 'Upstream request failed'],
   upstream_http_error: [502, 'Upstream request failed'],
   provider_unavailable: [503, 'Provider unavailable'],
+  provider_busy: [503, 'Provider is busy'],
   provider_closed: [503, 'Provider unavailable'],
   credentials_unavailable: [503, 'Provider unavailable'],
   configuration_error: [500, 'Provider unavailable'],
