@@ -16,8 +16,11 @@ test('recovery archive supports drive paths and spaces', context => {
   const directory = resolve(root, runner, 'framer-next');
   mkdirSync(directory, { recursive: true });
   writeFileSync(join(directory, 'fixture.txt'), 'synthetic-native-bytes');
+  assert.match(workflow,
+    /tar --format=ustar -czf - -C "\$RUNNER_TEMP" framer-next > "\$RECOVERY_ARCHIVE"/);
   const command = workflow.match(/^\s*(tar --format=ustar[^\n]+)/m)?.[1];
   assert.ok(command, 'Missing recovery archive command');
+  assert.match(command, /-czf - -C "\$RUNNER_TEMP" framer-next > "\$RECOVERY_ARCHIVE"/);
   const env = { PATH: process.env.PATH, SystemRoot: process.env.SystemRoot,
     HOME: root, USERPROFILE: root, RUNNER_TEMP: runner, RECOVERY_ARCHIVE: archive };
   const shell = ['--noprofile', '--norc', '-euo', 'pipefail', '-c'];
