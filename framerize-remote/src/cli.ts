@@ -3,7 +3,7 @@ import { runSetup } from './cmdSetup.js';
 import { runCheck, startServe, StartupReadinessError, type ServeHandle } from './cmdRun.js';
 import { HELP, SETUP_HELP, SERVE_HELP, VERSION } from './present.js';
 import { profilePath } from './profilePaths.js';
-import { diagnostic, diagnosticText } from './diagnostics.js';
+import { diagnostic, diagnosticText, RemoteDiagnosticError } from './diagnostics.js';
 import { LISTEN_SPEC, parseListenOptions, type ListenOverrides } from './listenOptions.js';
 import { isLoopbackHost } from './hostPolicy.js';
 
@@ -41,7 +41,13 @@ export async function run(argv: readonly string[], io: CliIo): Promise<number> {
     io.stdout(`${VERSION}\n`);
     return 0;
   }
-  const { configPath: explicit, json, passthrough } = splitGlobals(rest);
+  let globals: ReturnType<typeof splitGlobals>;
+  try { globals = splitGlobals(rest); }
+  catch (error) {
+    if (command === 'setup') throw new RemoteDiagnosticError('setup_arguments');
+    throw error;
+  }
+  const { configPath: explicit, json, passthrough } = globals;
   if ((command === 'setup' || command === 'serve') && passthrough.length === 1
     && ['--help', '-h'].includes(passthrough[0]!)) {
     io.stdout(command === 'setup' ? SETUP_HELP : SERVE_HELP);

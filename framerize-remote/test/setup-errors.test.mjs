@@ -34,6 +34,8 @@ const cases = [
   ['unknown option', [...valid, `--${canary}`], 'setup_arguments'],
   ['duplicate option', [...valid, ...origin], 'setup_arguments'],
   ['missing option value', [...valid, '--port'], 'setup_arguments'],
+  ['missing profile path', [...valid, '--config'], 'setup_arguments'],
+  ['duplicate profile path', [...valid, '--config', canary], 'setup_arguments'],
 ];
 
 test('setup explains an unwritable profile target without exposing its path', async () => {
