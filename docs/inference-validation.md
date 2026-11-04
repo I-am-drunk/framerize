@@ -30,7 +30,25 @@ HTTPS. `--help` makes no request and reads no credentials.
 
 ## Request limits
 
-The command sends one `POST /v1/chat/completions`, with `stream: true` and the
+The default `--protocol chat` keeps the streaming Chat check. Select
+`--protocol responses` for `POST /openai/v1/responses`, or
+`--protocol messages` for `POST /anthropic/v1/messages`. These two checks
+send `stream: false` and request completed JSON. They use the same private
+credential references and require `--send-one-request`.
+
+Both custom checks use the fixed prompt `Reply with exactly OK.` and an
+output limit of 64 tokens. That limit may be too small for some models and
+is not a billing guarantee. An output-limit response fails the check; the
+command does not continue generation or retry automatically.
+
+Custom success requires a valid completed reply with nonempty text.
+Responses must report `completed`; Messages must report `end_turn`.
+Refusals, tool calls, unfinished generation and empty replies fail. This is
+a narrow text check, not a test of every supported response type. Private
+reasoning fields and generated text are never printed. Success reports
+the selected protocol, text-block count and text-byte count.
+
+The default Chat check sends one `POST /v1/chat/completions`, with `stream: true` and the
 fixed user prompt `Reply with exactly OK.` It does not probe readiness, follow
 redirects or retry. The selected server or Remote may perform its own readiness
 checks. The command cannot establish how many requests a downstream service makes.
@@ -39,7 +57,8 @@ The total request deadline defaults to 30 seconds. `--timeout-ms N` accepts an
 integer from 1 to 60000 milliseconds. The transport has a five-second idle limit,
 a 16 KiB response-header limit and a 64 KiB response-body limit. It retains all
 parsed header pairs within that byte limit. It rejects compressed responses and
-requires HTTP 200 with `text/event-stream`. SIGINT and SIGTERM cancel the request.
+requires HTTP 200 with `text/event-stream` for Chat or `application/json` for
+Responses and Messages. SIGINT and SIGTERM cancel the request.
 These are local limits, not a provider billing cap.
 
 ## Read the result
@@ -50,7 +69,7 @@ A connection failure can count as one attempt without reaching the server.
 Success also reports event, text-byte and response-byte counts. Output never
 includes the endpoint, model, credential, remote error body or generated text.
 
-Success requires nonempty text, a `stop` finish reason and a final `[DONE]` event.
+Chat success requires nonempty text, a `stop` finish reason and a final `[DONE]` event.
 It rejects truncated or malformed streams, refusals and tool-call responses.
 It does not require the returned text to equal `OK`. This is a text-inference
 check, not a quality test, provider-identity check or tool-call qualification.
@@ -62,7 +81,7 @@ Example redacted refusal, with illustrative timing:
 ```
 
 Fixed failure codes distinguish `configuration`, `credential`, `aborted`,
-`timeout`, `transport`, `http_refused`, `invalid_stream`, `response_too_large`
+`timeout`, `transport`, `http_refused`, `invalid_stream`, `invalid_response`, `response_too_large`
 and `unsupported_encoding`. Configuration and credential failures make no
 request. Investigate a failure before deciding whether to authorize another run.
 
