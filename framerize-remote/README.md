@@ -88,6 +88,8 @@ fixed messages and never echo raw arguments, remote URLs, bodies, or credentials
 
 Use `framerize-remote serve --port 8789` to change the local port for one run.
 Serve options never rewrite the profile. `SIGINT` and `SIGTERM` shut it down.
+Repeated stop signals wait for the same cleanup. Remote prints `Stopped.` only
+after cleanup succeeds. A cleanup failure remains an error.
 To accept connections outside loopback for one run:
 
 ```sh
@@ -110,7 +112,7 @@ JSON startup adds `exposure: "non-loopback-http"` only for exposed listeners.
 `POST /v1/chat/completions`, all served by the shared core listener. Response
 bytes, stream events, and terminal markers pass through unchanged.
 
-Every inference first checks the remote's authenticated readiness. Failed,
+Each bare-route inference first checks the remote's authenticated readiness. Failed,
 oversized, incompatible or unfinished readiness blocks inference. Readiness
 has a 64 KiB body cap and a 20-second whole-exchange limit. Response headers
 have a 16 KiB cap without silently discarding later header pairs.
@@ -129,9 +131,23 @@ step to 20 seconds plus the configured inference limit. That overall limit
 includes readiness, connection setup and upload, so slow preparation can shorten
 the remaining response wait.
 An expired inference wait returns 504 without retrying the request.
-Inference streams have no total lifetime limit after headers arrive.
+Existing inference streams have no total lifetime limit after headers arrive.
 Client cancellation closes the remote connection. Each exchange owns its
 HTTP agent, ignores environment proxies and requires valid HTTPS certificates.
+
+The experimental `/openai/v1/responses` and `/anthropic/v1/messages` routes
+forward requests to the same exact server path. Remote sends
+no preliminary readiness request for these POSTs. The server validates the body
+before accessing its provider credentials. A 404 never triggers a fallback route.
+Remote buffers completed JSON replies up to 16 MiB without parsing their JSON.
+It forwards `text/event-stream` replies as bytes arrive, including the server's
+keepalives. Protocol conversion belongs to the server, not Remote.
+The inference deadline covers the body in both modes. Broken or oversized JSON
+exchanges fail before success. A broken stream closes without a success terminator.
+These routes have local synthetic coverage, not live provider qualification.
+Streaming clients use `stream: true`; completed-JSON clients use `stream: false`.
+The server still makes a single non-streaming request to its custom provider
+endpoint. T3-specific adapters and live provider acceptance need separate checks.
 
 Startup output is compact by default. JSON mode covers setup, readiness,
 listening, shutdown and command failures. Failed checks identify missing

@@ -12,6 +12,33 @@ const cookie = 'session=synthetic-private-cookie';
 const body = { model: 'example/model', messages: [{ role: 'user', content: 'hello' }], stream: true };
 const signal = () => new AbortController().signal;
 
+for (const path of ['/openai/v1/responses', '/anthropic/v1/messages']) {
+  for (const action of ['return', 'abort', 'close']) {
+    test(`${action} cleans an unread converted stream: ${path}`, { timeout: 4000 }, async context => {
+      const entered = deferred();
+      const closed = deferred();
+      const setup = await fixture(context, (request, response) => {
+        response.once('close', closed.resolve);
+        entered.resolve();
+      });
+      const controller = new AbortController();
+      const value = path === '/openai/v1/responses'
+        ? { model: 'example', input: 'hello', stream: true }
+        : { ...body, max_tokens: 32 };
+      const result = await setup.backend.forward({ ...call(value, controller.signal), path });
+      await entered.promise;
+      if (action === 'return') await result.body.return();
+      else if (action === 'close') await setup.backend.close();
+      else controller.abort();
+      await closed.promise;
+      await setup.backend.close();
+      assert.equal(getEventListeners(controller.signal, 'abort').length, 0);
+      assert.equal(setup.closed(), 1);
+      assert.equal(setup.mints(), 1);
+    });
+  }
+}
+
 test('Framer inference gets a longer wait after bounded preparation', { timeout: 3000 }, async context => {
   const setup = await fixture(context, (request, response) => {
     const timer = setTimeout(() => response.end('{"done":true}'), 240);
