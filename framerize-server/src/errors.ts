@@ -19,3 +19,9 @@ export class ConfigurationError extends ProviderError {
     this.name = 'ConfigurationError';
   }
 }
+
+export class ServerTokenFileError extends ConfigurationError {
+  constructor() {
+    super('Server token file unavailable');
+  }
+}

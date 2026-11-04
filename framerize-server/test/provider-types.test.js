@@ -55,11 +55,14 @@ provider.ready({ signal: new AbortController().signal });
 const closed: Promise<void> = provider.close();`;
   const check = (extra = '') => {
     writeFileSync(path.join(root, 'consumer.mts'), `${valid}\n${extra}\n`);
-    return spawnSync(process.execPath, [path.join(repository, 'node_modules/typescript/bin/tsc'),
+    const result = spawnSync(process.execPath, [path.join(repository, 'node_modules/typescript/bin/tsc'),
       '--noEmit', '--strict', '--noUncheckedIndexedAccess', '--exactOptionalPropertyTypes',
       '--target', 'ES2022', '--module', 'NodeNext', '--types', 'node',
       '--typeRoots', path.join(repository, 'node_modules/@types'), 'consumer.mts'],
     { cwd: root, encoding: 'utf8', timeout: 10000 });
+    assert.ifError(result.error);
+    assert.equal(result.signal, null, `TypeScript terminated with ${result.signal}`);
+    return result;
   };
   const positive = check();
   assert.equal(positive.status, 0, `${positive.stdout}\n${positive.stderr}`);
