@@ -7,8 +7,10 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const source = fileURLToPath(new URL('../scripts/check.js', import.meta.url));
+const compatibility = ['completed-reply', 'completed-stream', 'events', 'messages-stream', 'responses-stream'];
 const sources = ['account-backend.ts', 'accounts.ts', 'cli.ts', 'config.ts', 'errors.ts', 'framer-auth.ts', 'framer-backend.ts',
-  'framer-request.ts', 'logger.ts', 'provider.ts', 'server.ts', 'backend.ts', 'castle-loader.ts', 'castle.ts'];
+  'framer-request.ts', 'logger.ts', 'provider.ts', 'server.ts', 'backend.ts', 'castle-loader.ts', 'castle.ts',
+  ...compatibility.map(name => `compat/${name}.ts`)];
 const generated = ['core.js', 'core.d.ts', 'accounts.js', 'accounts.d.ts', 'config.js', 'config.d.ts',
   'backend.js', 'backend.d.ts', 'castle.js',
   'castle-loader.js', 'castle-loader.d.ts',
@@ -16,6 +18,7 @@ const generated = ['core.js', 'core.d.ts', 'accounts.js', 'accounts.d.ts', 'conf
   'errors.js', 'errors.d.ts', 'provider.js', 'provider.d.ts',
   'framer-auth.js', 'framer-auth.d.ts',
   'framer-backend.js', 'framer-backend.d.ts', 'framer-request.js', 'framer-request.d.ts',
+  ...compatibility.flatMap(name => [`compat/${name}.js`, `compat/${name}.d.ts`]),
   'cli.js', 'cli.d.ts', 'logger.js', 'logger.d.ts', 'server.js', 'server.d.ts',
   ...['backend', 'http-policy', 'instance', 'instance-options', 'readiness'].map((name) => `core-types/${name}.d.ts`)];
 
@@ -24,6 +27,8 @@ function fixture(t) {
   t.after(() => rmSync(root, { recursive: true, force: true }));
   for (const name of ['src', 'bin', 'scripts', 'dist']) mkdirSync(path.join(root, name));
   mkdirSync(path.join(root, 'dist/core-types'));
+  mkdirSync(path.join(root, 'src/compat'));
+  mkdirSync(path.join(root, 'dist/compat'));
   for (const name of generated) writeFileSync(path.join(root, 'dist', name), 'export const fixture = true;\n');
   copyFileSync(source, path.join(root, 'scripts', 'check.js'));
   for (const name of sources) writeFileSync(path.join(root, 'src', name), 'export const fixture = true;\n');

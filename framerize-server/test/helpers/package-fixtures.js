@@ -34,7 +34,8 @@ export function packageFixture(t, { environmentAware = false } = {}) {
     'framer-auth.js', 'framer-auth.d.ts',
     'account-backend.js', 'account-backend.d.ts',
     'framer-backend.js', 'framer-backend.d.ts', 'framer-request.js', 'framer-request.d.ts',
-    'compat/completed-reply.js', 'compat/completed-reply.d.ts',
+    ...['completed-reply', 'completed-stream', 'events', 'messages-stream', 'responses-stream']
+      .flatMap(name => [`compat/${name}.js`, `compat/${name}.d.ts`]),
     'cli.js', 'cli.d.ts', 'logger.js', 'logger.d.ts', 'server.js', 'server.d.ts',
     ...['backend', 'http-policy', 'instance', 'instance-options', 'readiness'].map((name) => `core-types/${name}.d.ts`)];
   mkdirSync(path.join(directory, 'dist/core-types'));
