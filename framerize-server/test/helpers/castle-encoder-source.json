@@ -12,6 +12,5 @@
     "src/encoder/envelope.ts": "493efbe93f7258e9c761f10d9f7d7687fea2ca1964cba2fa3008a528345ddb7d",
     "src/encoder/serialize.ts": "8cff2041121f59b5038da9835165b42da802d93ff94bf435e8d8d962bc8d67e2",
     "src/errors.ts": "c130b381f1daa16befc280998d599ce3c8bb282681141d29348fb52a7dcfa006"
-  },
-  "encoderSha256": "9ddd1c09b8f4818217c91a8824ce4c78cd82a7b72d282f8753105e553cdded23"
+  }
 }
