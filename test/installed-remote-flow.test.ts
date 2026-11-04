@@ -15,6 +15,36 @@ import { startInstalledServer, startInstalledRemote, localToken, serverToken } f
 import { assertTransportClosed, createScenario, exchange, exerciseDelayedJson, exerciseFlow,
   toolRequest, transportResources } from '../scripts/fixtures/transport-scenario.js';
 
+for (const collapsed of [false, true]) {
+  test(`delayed JSON validation checks upstream routes: collapsed=${collapsed}`, { timeout: 3000 }, async () => {
+    const initialResources = transportResources();
+    const state: Awaited<ReturnType<typeof createScenario>>['state'] = {
+      ready: true, cancelled: 0, release() {}, requests: [], failures: [],
+    };
+    const upstream = createServer(async (incoming, response) => {
+      const chunks: Buffer[] = [];
+      for await (const chunk of incoming) chunks.push(Buffer.from(chunk));
+      state.requests.push({ path: collapsed ? '/v1/responses' : incoming.url!,
+        body: Buffer.concat(chunks), authorization: incoming.headers.authorization });
+      response.end('{"done":true}');
+    });
+    const close = async () => {
+      upstream.closeAllConnections();
+      await new Promise<void>(resolve => upstream.close(() => resolve()));
+    };
+    try {
+      upstream.listen(0, '127.0.0.1');
+      await once(upstream, 'listening');
+      const url = `http://127.0.0.1:${(upstream.address() as AddressInfo).port}`;
+      const targets = [{ url, token: 'synthetic' }, { url, token: 'synthetic' }];
+      const pending = exerciseDelayedJson(targets, { state, upstream, url, close });
+      if (collapsed) await assert.rejects(pending, { code: 'ERR_ASSERTION' });
+      else assert.equal(await pending, 4);
+    } finally { await close(); }
+    await assertTransportClosed(initialResources);
+  });
+}
+
 test('installed Remote forwards through the installed server with isolated credentials and no environment proxy',
   { timeout: 90_000 }, async (context) => {
     const initialResources = transportResources();

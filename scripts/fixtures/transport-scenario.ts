@@ -125,6 +125,8 @@ export async function exerciseDelayedJson(targets: readonly { url: string; token
     })));
   const requests = state.requests.slice(before).filter(entry => entry.path !== '/v1/models');
   assert.equal(requests.length, targets.length * 2);
+  assert.deepEqual(requests.map(entry => entry.path).sort(),
+    targets.flatMap(() => ['/v1/responses', '/v1/chat/completions']).sort());
   assert.ok(requests.every(entry => entry.body.equals(Buffer.from(JSON.stringify(delayedRequest)))));
   assert.equal(state.cancelled, cancelled);
   assert.deepEqual(state.failures, []);
