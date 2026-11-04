@@ -30,9 +30,9 @@ USTAR archives directly. It rejects links, special files and unsafe paths before
    versions, and host platform. Delete the temporary install after either result.
 
 The server probe covers `.`, `./config`, `./accounts`, `./logger`, and `./provider`.
-It does not probe the later `./castle` or `./package.json` exports. Extending
-that list requires the parent-owned package contract decision; the existing
-results do not qualify the added library or its integration.
+Castle is internal to the server package and has no public package export.
+The package checker and transport tests do not exercise Castle minting.
+Passing them does not qualify the Castle runtime or live-provider compatibility.
 
 Subprocesses receive a fresh environment and temporary home, not inherited
 account paths, credentials, proxy settings, npm configuration, or Node options.
