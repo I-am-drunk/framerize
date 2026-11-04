@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { createHash } from 'node:crypto';
 import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
 import { tmpdir } from 'node:os';
@@ -36,6 +37,17 @@ test('recovery archive supports drive paths and spaces', context => {
   const contents = gunzipSync(readFileSync(resolve(root, archive)));
   assert.equal(contents.subarray(257, 262).toString(), 'ustar');
   assert.ok(contents.includes(Buffer.from('synthetic-native-bytes')));
+  const hashCommand = workflow.split('\n').find(line => line.includes('file+".sha256"')
+    && line.includes('path.basename(file)'))?.trim();
+  assert.ok(hashCommand, 'Missing recovery archive checksum command');
+  const hashResult = spawnSync('bash', [...shell, hashCommand], {
+    cwd: root, encoding: 'utf8', timeout: 5000, env,
+  });
+  assert.equal(hashResult.error, undefined, hashResult.error?.message);
+  assert.equal(hashResult.status, 0, hashResult.stderr);
+  const sidecar = readFileSync(resolve(root, `${archive}.sha256`), 'utf8');
+  const digest = createHash('sha256').update(readFileSync(resolve(root, archive))).digest('hex');
+  assert.equal(sidecar, `${digest}  framer-next-windows-x64.tar.gz\n`);
 });
 
 test('server builds use only the typed server target and safe installs', () => {
