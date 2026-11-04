@@ -33,7 +33,8 @@ export function diagnostic(code: DiagnosticCode) {
 
 export function diagnosticText(code: DiagnosticCode): string {
   const detail = diagnostic(code);
-  return `Not ready: ${detail.message}\nNext: ${detail.next}`;
+  const message = code === 'cleanup_failed' ? detail.message : `Not ready: ${detail.message}`;
+  return `${message}\nNext: ${detail.next}`;
 }
 
 export function commandFailure(error: unknown, json: boolean): string | undefined {

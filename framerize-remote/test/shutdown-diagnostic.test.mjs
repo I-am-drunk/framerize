@@ -87,7 +87,7 @@ for (const phase of ['startup', 'serving']) for (const json of [false, true]) {
       assert.equal(result.message, 'Remote cleanup failed.');
       assert.match(result.next, /same profile/);
     } else {
-      assert.match(stderr, /Remote cleanup failed\./);
+      assert.match(stderr, /^Remote cleanup failed\.\nNext: /);
       assert.match(stderr, /same profile/);
     }
   });
