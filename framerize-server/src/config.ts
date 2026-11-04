@@ -1,6 +1,6 @@
 import { open, type FileHandle } from 'node:fs/promises';
 import { constants } from 'node:fs';
-import { ConfigurationError } from './errors.js';
+import { ConfigurationError, ServerTokenFileError } from './errors.js';
 
 export interface ServerConfig {
   readonly backend: 'http' | 'framer';
@@ -122,6 +122,6 @@ export async function readServerToken(config: ServerConfig): Promise<string> {
     const token = buffer.subarray(0, length).toString('utf8').trim();
     if (!token || !/^[A-Za-z0-9._~+/-]+=*$/.test(token)) invalid('server token file');
     return token;
-  } catch { throw new ConfigurationError('Server token file unavailable'); }
+  } catch { throw new ServerTokenFileError(); }
   finally { await file?.close(); }
 }
