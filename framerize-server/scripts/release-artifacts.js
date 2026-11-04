@@ -51,8 +51,7 @@ export function sourceIdentity() {
   if (!/^[a-f0-9]{40}$/.test(commit) || (process.env.GITHUB_SHA && process.env.GITHUB_SHA !== commit)) {
     throw new Error('Source commit does not match the checkout');
   }
-  const inputs = ['.', '../.github/workflows/server-ci.yml', '../framerize-core', '../framerize-castle',
-    '../scripts/server-castle-runtime.ts',
+  const inputs = ['.', '../.github/workflows/server-ci.yml', '../framerize-core',
     '../scripts/native-account-smoke.ts', '../scripts/core-package-check.ts', '../scripts/fixtures',
     '../scripts/build-server.ts', '../scripts/server-native-bundle.ts',
     '../scripts/package-archive.ts', '../package.json', '../package-lock.json',

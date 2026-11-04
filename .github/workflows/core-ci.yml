@@ -12,13 +12,10 @@ on:
       - '.github/workflows/publish-remote.yml'
       - 'framerize-core/**'
       - 'framerize-server/**'
-      - 'framerize-castle/**'
-      - 'test/installed-castle-flow.test.ts'
       - '.github/workflows/package-coexistence.yml'
       - 'framerize-remote/**'
       - 'scripts/core-package-check.ts'
       - 'scripts/build-server.ts'
-      - 'scripts/server-castle-runtime.ts'
       - 'scripts/server-native-bundle.ts'
       - 'test/server-*'
       - '.github/workflows/server-ci.yml'
@@ -47,13 +44,10 @@ on:
       - '.github/workflows/publish-remote.yml'
       - 'framerize-core/**'
       - 'framerize-server/**'
-      - 'framerize-castle/**'
-      - 'test/installed-castle-flow.test.ts'
       - '.github/workflows/package-coexistence.yml'
       - 'framerize-remote/**'
       - 'scripts/core-package-check.ts'
       - 'scripts/build-server.ts'
-      - 'scripts/server-castle-runtime.ts'
       - 'scripts/server-native-bundle.ts'
       - 'test/server-*'
       - '.github/workflows/server-ci.yml'
@@ -106,10 +100,6 @@ jobs:
           npm --version
       - name: Install development tools without lifecycle scripts
         run: npm ci --ignore-scripts --no-audit --no-fund
-      - name: Fetch the private Castle library
-        env:
-          CASTLE_READ_KEY: ${{ secrets.CASTLE_READ_KEY }}
-        run: node scripts/fetch-castle.mjs
       - name: Build and type-check
         run: npm run build && npm run check
       - name: Test core, server and installed transport

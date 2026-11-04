@@ -8,10 +8,10 @@ import { fileURLToPath } from 'node:url';
 
 const source = fileURLToPath(new URL('../scripts/check.js', import.meta.url));
 const sources = ['account-backend.ts', 'accounts.ts', 'cli.ts', 'config.ts', 'errors.ts', 'framer-auth.ts', 'framer-backend.ts',
-  'framer-request.ts', 'logger.ts', 'provider.ts', 'server.ts', 'backend.ts', 'castle-assets.ts', 'castle-loader.ts'];
+  'framer-request.ts', 'logger.ts', 'provider.ts', 'server.ts', 'backend.ts', 'castle-loader.ts', 'castle.ts'];
 const generated = ['core.js', 'core.d.ts', 'accounts.js', 'accounts.d.ts', 'config.js', 'config.d.ts',
-  'backend.js', 'backend.d.ts', 'castle-assets.js', 'castle-assets.d.ts',
-  'castle-loader.js', 'castle-loader.d.ts', 'castle-manifest.json',
+  'backend.js', 'backend.d.ts', 'castle.js',
+  'castle-loader.js', 'castle-loader.d.ts',
   'account-backend.js', 'account-backend.d.ts',
   'errors.js', 'errors.d.ts', 'provider.js', 'provider.d.ts',
   'framer-auth.js', 'framer-auth.d.ts',
@@ -30,7 +30,7 @@ function fixture(t) {
   writeFileSync(path.join(root, 'bin', 'framerize-server.js'), '#!/usr/bin/env node\n');
   const manifest = {
     name: 'framerize-server', private: true,
-    files: ['bin', 'dist/castle', ...generated.map((name) => `dist/${name}`), 'README.md', 'LICENSE'],
+    files: ['bin', ...generated.map((name) => `dist/${name}`), 'README.md', 'LICENSE'],
     exports: {
       '.': './dist/server.js', './config': './dist/config.js', './accounts': './dist/accounts.js',
       './logger': './dist/logger.js', './provider': './dist/provider.js',
@@ -60,7 +60,7 @@ test('public packages and extra package entries are rejected', (t) => {
   for (const [change, error] of [
     [{ private: false }, 'Server package must remain private'],
     [{ files: ['bin', ...generated.map((name) => `dist/${name}`),
-      'README.md', 'LICENSE', 'castle'] }, 'Unexpected server package files'],
+      'README.md', 'LICENSE', 'dist/extra'] }, 'Unexpected server package files'],
     [{ exports: { '.': './src/server.js' } }, 'Unexpected server package exports'],
     [{ bin: { 'framerize-server': './bin/framerize-server.js', extra: './bin/extra.js' } }, 'Unexpected server package executable'],
     [{ dependencies: { example: '1.0.0' } }, 'Unexpected runtime dependencies'],
@@ -78,7 +78,7 @@ test('public packages and extra package entries are rejected', (t) => {
 
 test('extra source and executable files are rejected without importing them', (t) => {
   for (const [directory, name, error] of [
-    ['src', 'castle.js', 'Unexpected server source files'],
+    ['src', 'extra.ts', 'Unexpected server source files'],
     ['bin', 'extra.js', 'Unexpected server executable files'],
   ]) {
     const checkout = fixture(t);

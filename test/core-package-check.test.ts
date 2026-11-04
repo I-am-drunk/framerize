@@ -65,8 +65,7 @@ test('CI covers both pinned runtimes on all platforms without native builds', ()
   assert.match(workflow, /run: npm test/);
   assert.match(workflow, /core-package-check\.js > "\$RUNNER_TEMP\//);
   assert.match(workflow, /if-no-files-found: error/);
-  assert.equal(workflow.split('secrets.CASTLE_READ_KEY').length - 1, 1);
-  assert.doesNotMatch(workflow.replaceAll('secrets.CASTLE_READ_KEY', ''),
+  assert.doesNotMatch(workflow,
     /workflow_dispatch|build:native|npm publish|secrets\./);
 });
 
