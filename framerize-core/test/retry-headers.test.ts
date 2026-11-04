@@ -27,6 +27,32 @@ test('Connection nomination removes an otherwise valid no-retry header', () => {
   }, responseHeaders), {});
 });
 
+test('duplicate Connection field values are all honored when nominating retry', () => {
+  assert.deepEqual(selectedHeaders({
+    'x-should-retry': 'false',
+    connection: ['keep-alive', 'x-should-retry'],
+  }, responseHeaders), {});
+});
+
+test('the listener drops retry guidance when Connection lists nominate it in pieces', async () => {
+  const headers: Record<string, string | string[]> = {
+    'x-should-retry': 'false', connection: ['keep-alive', 'x-should-retry'],
+  };
+  const instance = createInstance({ token, backend: backend({
+    async forward() {
+      return { status: 502, headers: headers as Record<string, string>, body: [Buffer.from('{}')] };
+    },
+  }) });
+  try {
+    const { port } = await instance.listen();
+    const result = await exchange(port, '/v1/responses', {
+      method: 'POST', headers: authorization,
+    }, Buffer.from('{}'));
+    assert.equal(result.status, 502);
+    assert.equal(result.headers['x-should-retry'], undefined);
+  } finally { await instance.close(); }
+});
+
 for (const values of [['false', 'false'], ['true', 'false'], ['false', 'true']]) {
   test(`case-insensitive retry duplicates are rejected: ${values.join(', ')}`, () => {
     assert.deepEqual(selectedHeaders({
