@@ -34,9 +34,11 @@ export function packageFixture(t, { environmentAware = false } = {}) {
     'framer-auth.js', 'framer-auth.d.ts',
     'account-backend.js', 'account-backend.d.ts',
     'framer-backend.js', 'framer-backend.d.ts', 'framer-request.js', 'framer-request.d.ts',
+    'compat/completed-reply.js', 'compat/completed-reply.d.ts',
     'cli.js', 'cli.d.ts', 'logger.js', 'logger.d.ts', 'server.js', 'server.d.ts',
     ...['backend', 'http-policy', 'instance', 'instance-options', 'readiness'].map((name) => `core-types/${name}.d.ts`)];
   mkdirSync(path.join(directory, 'dist/core-types'));
+  mkdirSync(path.join(directory, 'dist/compat'));
   for (const name of providerFiles) writeFileSync(path.join(directory, 'dist', name), 'export {};\n');
   writeFileSync(path.join(directory, 'dist/core.js'), 'export const fixture = true;\n');
   writeFileSync(path.join(directory, 'dist/accounts.js'), 'export async function loadAccounts() { return Object.freeze([]); }\n');

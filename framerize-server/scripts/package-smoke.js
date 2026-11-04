@@ -42,6 +42,7 @@ try {
       'config.js', 'config.d.ts', 'errors.js', 'errors.d.ts', 'provider.js', 'provider.d.ts',
       'framer-auth.js', 'framer-auth.d.ts',
       'framer-backend.js', 'framer-backend.d.ts', 'framer-request.js', 'framer-request.d.ts',
+      'compat/completed-reply.js', 'compat/completed-reply.d.ts',
       'cli.js', 'cli.d.ts', 'logger.js', 'logger.d.ts', 'server.js', 'server.d.ts',
       ...['backend', 'http-policy', 'instance', 'instance-options', 'readiness'].map((name) => `core-types/${name}.d.ts`)]
       .map((name) => `dist/${name}`)];
