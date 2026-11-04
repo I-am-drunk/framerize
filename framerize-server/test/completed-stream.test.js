@@ -44,24 +44,26 @@ for (const [protocol, body, terminal] of [
   });
 }
 
-test('streamCompletedReply yields keepalives until the upstream reply is ready', async () => {
+test('streamCompletedReply yields keepalives until the upstream reply is ready', { timeout: 1000 }, async context => {
   const gate = deferred();
   const reply = parseCompletedReply('messages', Buffer.from(JSON.stringify(messagesBody)));
   const pending = gate.promise.then(() => ({ status: 200, reply }));
-  const generator = streamCompletedReply(pending, 'messages', new AbortController().signal, 15);
+  const generator = streamCompletedReply(pending, 'messages', context.signal, 15);
   const first = await generator.next();
   assert.equal(first.value.toString(), ': keepalive\n\n');
+  const second = await generator.next();
+  assert.equal(second.value.toString(), ': keepalive\n\n');
   gate.resolve();
   const tail = [];
   for await (const chunk of generator) tail.push(chunk);
-  const events = parseEvents([first.value, ...tail]);
+  const events = parseEvents([first.value, second.value, ...tail]);
   assert.equal(events.at(-1).value.type, 'message_stop');
 });
 
 for (const protocol of ['messages', 'responses']) {
   test(`missing completed reply becomes a single ${protocol} stream error`, async () => {
     const pending = Promise.resolve({ status: 502, headers: {}, body: Buffer.alloc(0) });
-  const events = eventsOnly(await collect(streamCompletedReply(pending, protocol,
+    const events = eventsOnly(await collect(streamCompletedReply(pending, protocol,
       new AbortController().signal, 5000)));
     assert.equal(events.length, 1);
     assert.equal(events[0].type, 'error');
@@ -93,11 +95,18 @@ test('unknown failures use upstream_error on the responses stream', async () => 
   assert.equal(JSON.stringify(events[0]).includes('synthetic-private'), false);
 });
 
-test('abort while waiting stops without replaying a terminal event', async () => {
+test('abort while waiting stops without replaying a terminal event', { timeout: 1000 }, async () => {
   const controller = new AbortController();
   const pending = new Promise(() => {});
-  const collecting = collect(streamCompletedReply(pending, 'messages', controller.signal, 5000));
-  await new Promise(resolve => setTimeout(resolve, 5));
-  controller.abort();
-  await assert.rejects(collecting, { name: 'AbortError' });
+  const generator = streamCompletedReply(pending, 'messages', controller.signal, 5000);
+  try {
+    assert.equal((await generator.next()).value.toString(), ': keepalive\n\n');
+    const waiting = generator.next();
+    controller.abort();
+    await assert.rejects(waiting, { name: 'AbortError' });
+    assert.deepEqual(await generator.next(), { value: undefined, done: true });
+  } finally {
+    controller.abort();
+    await generator.return();
+  }
 });
