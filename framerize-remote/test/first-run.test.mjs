@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { once, getEventListeners } from 'node:events';
-import { createServer } from 'node:http';
+import { createServer, Server } from 'node:http';
 import { createConnection } from 'node:net';
 import { mkdtemp, mkdir, readFile, writeFile, stat, readdir, rm, link, symlink } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -93,6 +93,130 @@ for (const json of [false, true]) {
       `Local API: http://127.0.0.1:${port}/v1`, 'Stop: Ctrl+C', 'Stopped.']);
     assert.doesNotMatch(output, /synthetic-(?:local|server)/);
     assert.deepEqual(['SIGINT', 'SIGTERM'].map(name => getEventListeners(process, name).length), listeners);
+  });
+}
+
+for (const signal of ['SIGINT', 'SIGTERM']) {
+  test(`${signal} retains stop handlers until Remote cleanup finishes`, { timeout: 5000 }, async context => {
+    await fixture(context); const remote = await peer(context);
+    await run(setup(remote.origin), quiet);
+    const signals = ['SIGINT', 'SIGTERM'];
+    const baseline = signals.map(name => process.listenerCount(name));
+    const entered = Promise.withResolvers();
+    const originalClose = Server.prototype.close;
+    let releaseClose; let closes = 0; let port;
+    context.mock.method(Server.prototype, 'close', function(callback) {
+      if (this === remote.server) return originalClose.call(this, callback);
+      closes += 1;
+      return originalClose.call(this, (...args) => {
+        releaseClose = () => callback(...args);
+        entered.resolve();
+      });
+    });
+    const output = [];
+    const serving = run(['serve', '--json'], { ...quiet, stdout(text) {
+      const event = JSON.parse(text); output.push(event);
+      if (event.listening) { port = event.listening.port; process.emit(signal); }
+    } });
+    await entered.promise;
+    const during = signals.map(name => process.listenerCount(name));
+    const handled = [...signals, signal].map(name => process.emit(name));
+    releaseClose();
+    assert.equal(await serving, 0);
+    await refused(port);
+    assert.equal(closes, 1);
+    assert.equal(remote.calls(), 1);
+    assert.deepEqual(during, baseline.map(count => count + 1));
+    assert.deepEqual(handled, [true, true, true]);
+    assert.deepEqual(signals.map(name => process.listenerCount(name)), baseline);
+    assert.deepEqual(output, [
+      { ready: true, listening: { host: '127.0.0.1', port } }, { stopped: true },
+    ]);
+  });
+}
+
+for (const signal of ['SIGINT', 'SIGTERM']) {
+  test(`${signal} removes stop handlers when Remote cleanup fails`, { timeout: 5000 }, async context => {
+    await fixture(context); const remote = await peer(context);
+    await run(setup(remote.origin), quiet);
+    const signals = ['SIGINT', 'SIGTERM'];
+    const baseline = signals.map(name => process.listenerCount(name));
+    const closed = Promise.withResolvers();
+    const originalClose = Server.prototype.close;
+    let closes = 0; let port; const output = [];
+    context.mock.method(Server.prototype, 'close', function(callback) {
+      if (this === remote.server) return originalClose.call(this, callback);
+      closes += 1;
+      originalClose.call(this, () => closed.resolve());
+      throw new Error('synthetic cleanup failure');
+    });
+    await assert.rejects(run(['serve', '--json'], { ...quiet, stdout(text) {
+      const event = JSON.parse(text); output.push(event);
+      if (event.listening) { port = event.listening.port; process.emit(signal); }
+    } }), /synthetic cleanup failure/);
+    await closed.promise;
+    await refused(port);
+    assert.equal(closes, 1);
+    assert.deepEqual(signals.map(name => process.listenerCount(name)), baseline);
+    assert.equal(output.length, 1);
+  });
+}
+
+for (const signal of ['SIGINT', 'SIGTERM']) {
+  test(`${signal} handles repeated stops during a Remote check`, { timeout: 5000 }, async context => {
+    await fixture(context);
+    const signals = ['SIGINT', 'SIGTERM'];
+    const baseline = signals.map(name => process.listenerCount(name));
+    let handled; let calls = 0;
+    const remote = createServer(request => {
+      request.resume(); calls += 1;
+      handled = [signal, signal, ...signals].map(name => process.emit(name));
+    });
+    remote.listen(0, '127.0.0.1'); await once(remote, 'listening');
+    context.after(async () => {
+      remote.closeAllConnections(); await new Promise(resolve => remote.close(resolve));
+    });
+    await run(setup(`http://127.0.0.1:${remote.address().port}`), quiet);
+    assert.equal(await run(['check', '--json'], quiet), 1);
+    assert.equal(calls, 1);
+    assert.deepEqual(handled, [true, true, true, true]);
+    assert.deepEqual(signals.map(name => process.listenerCount(name)), baseline);
+  });
+}
+
+for (const signal of ['SIGINT', 'SIGTERM']) {
+  test(`${signal} preserves failed cleanup during cancelled startup`, { timeout: 5000 }, async context => {
+    await fixture(context); const remote = await peer(context);
+    await run(setup(remote.origin), quiet);
+    const signals = ['SIGINT', 'SIGTERM'];
+    const baseline = signals.map(name => process.listenerCount(name));
+    const closed = Promise.withResolvers();
+    const originalListen = Server.prototype.listen;
+    const originalClose = Server.prototype.close;
+    let closes = 0; let port; const output = [];
+    context.mock.method(Server.prototype, 'listen', function(...args) {
+      this.once('listening', () => {
+        port = this.address().port; process.emit(signal);
+      });
+      return originalListen.apply(this, args);
+    });
+    context.mock.method(Server.prototype, 'close', function(callback) {
+      if (this === remote.server) return originalClose.call(this, callback);
+      closes += 1;
+      originalClose.call(this, () => closed.resolve());
+      throw new Error('private-close-canary');
+    });
+    const result = await run(['serve', '--json'], {
+      ...quiet, stdout(text) { output.push(JSON.parse(text)); },
+    }).then(code => ({ code }), error => ({ error }));
+    await closed.promise;
+    await refused(port);
+    assert.equal(closes, 1);
+    assert.equal(remote.calls(), 1);
+    assert.deepEqual(signals.map(name => process.listenerCount(name)), baseline);
+    assert.equal(result.error?.message, 'Remote cleanup failed');
+    assert.equal(result.code, undefined);
+    assert.deepEqual(output, []);
   });
 }
 
@@ -198,7 +322,7 @@ async function peer(context, status = 200) {
   context.after(async () => {
     server.closeAllConnections(); await new Promise(resolve => server.close(resolve));
   });
-  return { origin: `http://127.0.0.1:${server.address().port}`, calls: () => calls };
+  return { server, origin: `http://127.0.0.1:${server.address().port}`, calls: () => calls };
 }
 
 async function fixture(context, linked = false) {

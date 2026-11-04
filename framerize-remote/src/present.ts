@@ -24,6 +24,7 @@ export const SETUP_HELP = `Usage: framerize-remote setup --remote ORIGIN [option
   --start                    Save, check the remote, and start the local API
   --host ADDRESS             Listen host, default 127.0.0.1
   --port NUMBER              Listen port, default 8788, or 0 for an assigned port
+  --inference-timeout-ms N    Inference response wait, default 300000
   --allow-non-loopback        Allow listening outside loopback
   --allow-insecure-remote     Allow HTTP outside numeric loopback
 

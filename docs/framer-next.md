@@ -1,7 +1,7 @@
 # Framer Next recovery folder
 
 Framer Next keeps a standalone copy of the browserless Node server. It uses the
-same executable, not a second backend. Node and Castle Library are already
+same executable, not a second backend. Node and the Castle runtime are already
 embedded. The destination needs no compiler, global Node installation or
 service manager.
 

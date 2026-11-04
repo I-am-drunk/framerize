@@ -22,6 +22,9 @@ test('configuration freezes validated defaults and explicit values', () => {
   const config = loadConfig({ port: 0, serverToken: 'fixture', idleTimeoutMs: '250' }, {});
   assert.equal(config.host, '127.0.0.1');
   assert.equal(config.idleTimeoutMs, 250);
+  assert.equal(config.inferenceTimeoutMs, 300_000);
+  assert.equal(config.headersTimeoutMs, 15_000);
+  assert.equal(loadConfig({ inferenceTimeoutMs: '75000' }, {}).inferenceTimeoutMs, 75000);
   assert.equal(Object.isFrozen(config), true);
   assert.throws(() => { config.port = 1; }, TypeError);
 });
@@ -43,6 +46,7 @@ test('configuration validates integer ranges for ports, bodies and timers', () =
   for (const [key, value] of [
     ['port', -1], ['port', 65_536], ['maxBodyBytes', 0],
     ['idleTimeoutMs', 0], ['headersTimeoutMs', 2_147_483_648],
+    ['inferenceTimeoutMs', 0], ['inferenceTimeoutMs', 1.5], ['inferenceTimeoutMs', 2_147_483_648],
     ['requestHeadersTimeoutMs', 1.5], ['shutdownTimeoutMs', Infinity],
   ]) {
     assert.throws(() => loadConfig({ serverToken: 'fixture', [key]: value }, {}),

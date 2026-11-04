@@ -13,6 +13,7 @@ export interface ProviderOptions {
   readonly authorizationFile?: string;
   readonly credential?: (context: { readonly signal: AbortSignal }) => unknown | Promise<unknown>;
   readonly headersTimeoutMs?: number;
+  readonly inferenceTimeoutMs?: number;
   readonly idleTimeoutMs?: number;
 }
 
@@ -27,7 +28,7 @@ export interface Provider extends InferenceBackend {
   close(): Promise<void>;
 }
 
-type ProviderConfig = ProviderOptions & { headersTimeoutMs: number; idleTimeoutMs: number };
+type ProviderConfig = ProviderOptions & { headersTimeoutMs: number; inferenceTimeoutMs: number; idleTimeoutMs: number };
 interface Exchange {
   readonly controller: AbortController;
   readonly upload: AbortController;
@@ -40,7 +41,7 @@ type HttpResponse = IncomingMessage & { statusCode: number };
 const ROUTES = new Set(['/v1/responses', '/v1/chat/completions']);
 const REQUEST_HEADERS = ['accept', 'content-type', 'openai-beta'];
 const RESPONSE_HEADERS = ['content-type', 'content-encoding', 'cache-control',
-  'x-request-id', 'retry-after'];
+  'x-request-id', 'retry-after', 'x-should-retry'];
 const ERROR_BODY = Buffer.from(JSON.stringify({ error: {
   type: 'upstream_error', code: 'upstream_http_error', message: 'Upstream request failed',
 } }));
@@ -70,6 +71,7 @@ function selectedHeaders(headers: Readonly<Record<string, unknown>> | undefined,
   const normalized: Record<string, unknown> = Object.fromEntries(entries);
   const connection = String(normalized.connection ?? '').toLowerCase().split(',').map((name) => name.trim());
   return Object.fromEntries(names.filter((name) => typeof normalized[name] === 'string'
+    && (name !== 'x-should-retry' || normalized[name] === 'false')
     && !connection.includes(name)).map((name) => [name, normalized[name] as string]));
 }
 
@@ -230,7 +232,8 @@ async function open(state: Exchange, url: URL, method: string, headers: Record<s
     else connected();
   });
   request.once('finish', () => {
-    if (!received && !signal.aborted) headersTimer = startHeaderTimer(state, config.headersTimeoutMs);
+    if (!received && !signal.aborted) headersTimer = startHeaderTimer(state,
+      method === 'POST' ? config.inferenceTimeoutMs : config.headersTimeoutMs);
   });
   request.on('error', () => {
     if (!received) state.dispose(failure('Upstream request failed'));
@@ -325,6 +328,7 @@ export function createHttpProvider(values: ProviderOptions,
   }
   const config = { ...values,
     headersTimeoutMs: duration(values.headersTimeoutMs, 15_000),
+    inferenceTimeoutMs: duration(values.inferenceTimeoutMs, 300_000),
     idleTimeoutMs: duration(values.idleTimeoutMs, 60_000),
   };
   const active = new Set<Exchange>();
@@ -353,7 +357,7 @@ export function createHttpProvider(values: ProviderOptions,
           status, headers: selectedHeaders(response.headers, RESPONSE_HEADERS),
           body: responseBody(state, config.idleTimeoutMs),
         };
-        const safeHeaders = selectedHeaders(response.headers, ['retry-after', 'x-request-id']);
+        const safeHeaders = selectedHeaders(response.headers, ['retry-after', 'x-request-id', 'x-should-retry']);
         discardError(state);
         return {
           status, headers: { ...safeHeaders, 'content-type': 'application/json',
