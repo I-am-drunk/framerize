@@ -60,6 +60,7 @@ for (const mode of ['client-cancel', 'upstream-close', 'empty-body-close'] as co
       const flow = exerciseAccountFlow(`http://127.0.0.1:${address.port}`, 'synthetic-client', scenario);
       if (mode === 'client-cancel') assert.equal((await flow).cancelled, true);
       else await assert.rejects(flow);
+      await scenario.cancellation;
       assert.equal(scenario.state.inference, 2);
       assert.equal(scenario.state.cancelled, 1);
     } finally {
