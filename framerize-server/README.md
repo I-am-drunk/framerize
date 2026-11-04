@@ -172,11 +172,14 @@ exclude request bodies, account records, credentials, and arbitrary error messag
 
 ## Verify locally
 
+With the root development dependencies installed, run from the repository root:
+
 ```sh
-npm run check
-npm test
-npm run acceptance
-npm run pack:check
+npm run build:server
+npm --prefix framerize-server run check
+npm --prefix framerize-server test
+npm --prefix framerize-server run acceptance
+npm --prefix framerize-server run pack:check
 ```
 
 Tests use loopback fixtures. The package check installs the exact packed tarball
@@ -194,15 +197,22 @@ Node 22.23.4 builds each CI executable. Node 22.12 and 24 run the source checks.
 The pinned esbuild and postject development dependencies bundle the unchanged
 CLI into a Node single executable. Only Node builtins may remain external.
 
+Run from the repository root:
+
 ```sh
-npm ci
-npm pack --ignore-scripts
-npm run pack:check -- --downloaded
-npm run binary
-npm run binary:package
-npm run binary:check
-node scripts/release-metadata.js
+npm ci --ignore-scripts --no-audit --no-fund
+npm ci --prefix framerize-server --ignore-scripts --no-audit --no-fund
+npm run build:server
+(cd framerize-server && npm pack --ignore-scripts)
+npm --prefix framerize-server run pack:check -- --downloaded
+npm --prefix framerize-server run binary
+npm --prefix framerize-server run binary:package
+npm --prefix framerize-server run binary:check
+(cd framerize-server && node scripts/release-metadata.js)
 ```
+
+See the [native build guide](../docs/native-server-build.md) for archive inputs
+and the distinction between local builds and hosted qualification.
 
 The smoke check extracts the archive into a temporary path containing spaces,
 clears the child environment and PATH, and runs help, configuration, health,
@@ -229,8 +239,9 @@ and compares installed files to committed bytes even on CRLF checkouts. It then
 builds, extracts and tests each native archive. The manifest job verifies all three
 targets, a common source/version/Node version, identical licenses and the shared
 tarball hash. It writes six payloads plus aggregate metadata under `dist/qualified/`.
-Run `node scripts/merge-release-manifests.js` with `RELEASE_DIST` pointing to the
-shared tarball and the `linux-x64`, `macos-arm64`, `windows-x64` artifact directories.
+Run `(cd framerize-server && node scripts/merge-release-manifests.js)` from the
+repository root. Set `RELEASE_DIST` to the absolute path containing the shared
+tarball and the `linux-x64`, `macos-arm64`, `windows-x64` artifact directories.
 
 Installed launcher comparison accounts for npm's removal of a CR from its
 shebang line. Every remaining launcher byte and every other file stays strict.
