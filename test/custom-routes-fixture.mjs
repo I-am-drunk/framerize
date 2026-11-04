@@ -50,6 +50,7 @@ function deferred() {
 export async function fixture(context, protocol, viaRemote, options = {}) {
   const observed = [];
   const signals = [];
+  const deviceIds = [];
   const sockets = new Set();
   const closures = [];
   const entered = deferred();
@@ -109,7 +110,8 @@ export async function fixture(context, protocol, viaRemote, options = {}) {
     ...options.backend,
     auth: { async accessToken() { counts.auth += 1; return 'synthetic-upstream'; },
       async close() { counts.authClose += 1; } },
-    castle: { async mint({ signal }) { signals.push(signal); counts.mints += 1;
+    castle: { async mint({ signal, cuid }) {
+      signals.push(signal); deviceIds.push(cuid); counts.mints += 1;
       return { token: 'synthetic-castle' }; },
     async close() { counts.castleClose += 1; } },
   });
@@ -129,7 +131,7 @@ export async function fixture(context, protocol, viaRemote, options = {}) {
     origin = `http://127.0.0.1:${(await remote.listen()).port}`;
   }
   return { origin, payload, observed, counts, serverCalls, entered: entered.promise,
-    disconnected: disconnected.promise, signals,
+    disconnected: disconnected.promise, signals, deviceIds,
     post: (body = protocol.body, headers, signal) =>
       post(origin, protocol.path, body, agent, headers, signal, options.onChunk),
   };

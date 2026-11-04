@@ -60,7 +60,9 @@ export async function createAccountBackend(input: AccountBackendOptions): Promis
       timeoutMs: config.provider.headersTimeoutMs });
     castle = await config.createMinter({ accountId: account.id, signal: config.signal });
     checkSignal(config.signal);
-    return createFramerBackend({ ...config.provider, projectId: account.projectId, auth, castle });
+    return createFramerBackend({ ...config.provider, projectId: account.projectId, auth, castle,
+      ...(account.castleDeviceId === undefined ? {} : { castleDeviceId: account.castleDeviceId }),
+    });
   } catch {
     await Promise.allSettled([
       Promise.resolve().then(() => auth?.close()), Promise.resolve().then(() => castle?.close()),
