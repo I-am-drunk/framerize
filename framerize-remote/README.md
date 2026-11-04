@@ -115,7 +115,19 @@ oversized, incompatible or unfinished readiness blocks inference. Readiness
 has a 64 KiB body cap and a 20-second whole-exchange limit. Response headers
 have a 16 KiB cap without silently discarding later header pairs.
 
-Inference streams have header and idle timeouts, not a total lifetime limit.
+Inference waits up to five minutes for response headers. Set
+`--inference-timeout-ms` during `setup`, or `inferenceTimeoutMs` in the saved
+profile, to change this limit. Values must be integer milliseconds between
+1 and 2147463647. Existing profiles use 300000. Configure the server's limit
+separately; Remote cannot extend an upstream service's deadline.
+
+Readiness still has a 15-second header wait and a 20-second overall limit.
+Connection setup stays bounded at 15 seconds. Upload and response-body
+inactivity stay bounded at 60 seconds, but silent computation between upload
+completion and response headers uses the inference limit instead.
+The local listener allows the readiness check plus the inference wait.
+An expired inference wait returns 504 without retrying the request.
+Inference streams have no total lifetime limit after headers arrive.
 Client cancellation closes the remote connection. Each exchange owns its
 HTTP agent, ignores environment proxies and requires valid HTTPS certificates.
 

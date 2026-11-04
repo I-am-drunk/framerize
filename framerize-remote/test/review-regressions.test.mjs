@@ -46,6 +46,79 @@ async function collect(body) {
   return Buffer.concat(chunks);
 }
 
+test('silent non-streaming inference outlives readiness and socket idle limits', { timeout: 3000 }, async () => {
+  const remote = await peer((incoming, outgoing) => {
+    if (incoming.url === '/ready') return outgoing.end(JSON.stringify(ready));
+    const timer = setTimeout(() => outgoing.end('{"done":true}'), 200);
+    outgoing.once('close', () => clearTimeout(timer));
+  });
+  const backend = backendFor(remote, { headersTimeoutMs: 50, idleTimeoutMs: 50, inferenceTimeoutMs: 1000 });
+  const controller = new AbortController();
+  try {
+    const response = await backend.forward(request(controller.signal));
+    assert.equal(response.status, 200);
+    assert.equal((await collect(response.body)).toString(), '{"done":true}');
+    assert.deepEqual(remote.paths, ['/ready', '/v1/responses']);
+    assert.equal(getEventListeners(controller.signal, 'abort').length, 0);
+  } finally { backend.close(); await remote.close(); }
+});
+
+for (const action of ['deadline', 'cancel']) {
+  test(`silent inference ${action} closes the remote connection without retry`, { timeout: 3000 }, async () => {
+    const controller = new AbortController();
+    let resolveClosed;
+    const closed = new Promise(resolve => { resolveClosed = resolve; });
+    const remote = await peer((incoming, outgoing) => {
+      if (incoming.url === '/ready') return outgoing.end(JSON.stringify(ready));
+      outgoing.once('close', resolveClosed);
+      if (action === 'cancel') controller.abort();
+    });
+    const backend = backendFor(remote, { inferenceTimeoutMs: 80 });
+    try {
+      await assert.rejects(backend.forward(request(controller.signal)), action === 'deadline'
+        ? { code: 'headers_timeout' } : { message: 'remote request failed' });
+      await closed;
+      assert.equal(getEventListeners(controller.signal, 'abort').length, 0);
+      assert.deepEqual(remote.paths, ['/ready', '/v1/responses']);
+    } finally { backend.close(); await remote.close(); }
+  });
+}
+
+test('response-body silence still hits the short idle limit', { timeout: 3000 }, async () => {
+  let resolveClosed;
+  const closed = new Promise(resolve => { resolveClosed = resolve; });
+  const remote = await peer((incoming, outgoing) => {
+    if (incoming.url === '/ready') return outgoing.end(JSON.stringify(ready));
+    outgoing.once('close', resolveClosed);
+    outgoing.flushHeaders();
+  });
+  const backend = backendFor(remote, { idleTimeoutMs: 60, inferenceTimeoutMs: 2000 });
+  const controller = new AbortController();
+  try {
+    const response = await backend.forward(request(controller.signal));
+    await assert.rejects(collect(response.body));
+    await closed;
+    assert.equal(getEventListeners(controller.signal, 'abort').length, 0);
+  } finally { backend.close(); await remote.close(); }
+});
+
+test('stalled upload keeps its idle bound and returns its iterator', { timeout: 3000 }, async () => {
+  const remote = await peer((incoming, outgoing) => {
+    if (incoming.url === '/ready') outgoing.end(JSON.stringify(ready));
+  });
+  const backend = backendFor(remote, { idleTimeoutMs: 60, inferenceTimeoutMs: 2000 });
+  const controller = new AbortController();
+  let returned = false;
+  const stalled = { [Symbol.asyncIterator]() { return this; },
+    next() { return new Promise(() => {}); },
+    return() { returned = true; return Promise.resolve({ done: true }); } };
+  try {
+    await assert.rejects(backend.forward({ ...request(controller.signal), body: stalled }), { code: 'idle_timeout' });
+    assert.equal(returned, true);
+    assert.equal(getEventListeners(controller.signal, 'abort').length, 0);
+  } finally { backend.close(); await remote.close(); }
+});
+
 for (const kind of ['unavailable', 'unauthorized', 'oversized']) {
   test(`forward refuses ${kind} readiness without an inference attempt`, async () => {
     const remote = await peer((incoming, outgoing) => {
@@ -110,6 +183,28 @@ test('whole readiness deadline includes delayed headers and a trickled body', as
     assert.ok(performance.now() - started < 700, 'deadline starts before headers');
     assert.equal(getEventListeners(controller.signal, 'abort').length, 0);
   } finally { backend.close(); await remote.close(); }
+});
+
+test('setup saves and validates inference limits before writing a profile', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'remote-inference-limit-'));
+  const path = join(root, 'profile.json');
+  const setup = ['setup', '--config', path, '--remote', 'http://127.0.0.1:1',
+    '--server-token-env', 'TEST_SERVER', '--local-token-env', 'TEST_LOCAL'];
+  try {
+    for (const value of ['0', '-1', '1.5', 'NaN', 'Infinity', '2147463648']) {
+      await assert.rejects(run([...setup, '--inference-timeout-ms', value], io), /inference timeout/);
+      await assert.rejects(readFile(path), { code: 'ENOENT' });
+    }
+    assert.equal(await run(setup, io), 0);
+    assert.equal(JSON.parse(await readFile(path, 'utf8')).inferenceTimeoutMs, 300_000);
+    assert.equal(await run([...setup, '--inference-timeout-ms', '75000'], io), 0);
+    const config = JSON.parse(await readFile(path, 'utf8'));
+    assert.equal(config.inferenceTimeoutMs, 75000);
+    for (const inferenceTimeoutMs of [0, null, '75000', 1.5, 2147463648]) {
+      await writeFile(path, JSON.stringify({ ...config, inferenceTimeoutMs }));
+      await assert.rejects(run(['check', '--config', path], io), /inference timeout/);
+    }
+  } finally { await rm(root, { recursive: true, force: true }); }
 });
 
 test('setup rejects invalid ports before writing a profile', async () => {

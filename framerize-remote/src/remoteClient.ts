@@ -13,6 +13,7 @@ export interface RawRequest {
   readonly body?: AsyncIterable<Buffer> | undefined;
   readonly signal: AbortSignal;
   readonly headersTimeoutMs: number;
+  readonly connectTimeoutMs?: number;
   readonly idleTimeoutMs: number;
 }
 
@@ -29,11 +30,13 @@ export function sendRequest(request: RawRequest): Promise<RawResponse> {
     let outgoing: http.ClientRequest;
     let message: IncomingMessage | undefined;
     let timer: NodeJS.Timeout;
+    let connectTimer: NodeJS.Timeout;
     let disposed = false;
     const dispose = (): void => {
       if (disposed) return;
       disposed = true;
       clearTimeout(timer);
+      clearTimeout(connectTimer);
       request.signal.removeEventListener('abort', onAbort);
       controller.abort();
       message?.destroy();
@@ -58,11 +61,20 @@ export function sendRequest(request: RawRequest): Promise<RawResponse> {
       outgoing.on('error', onError);
       outgoing.setTimeout(request.idleTimeoutMs, () => fail('idle_timeout'));
       timer = setTimeout(() => fail('headers_timeout'), request.headersTimeoutMs);
+      connectTimer = setTimeout(() => fail('headers_timeout'), request.connectTimeoutMs ?? request.headersTimeoutMs);
+      outgoing.once('socket', (socket) => {
+        const connected = (): void => { clearTimeout(connectTimer); };
+        if (socket.connecting) socket.once(url.protocol === 'https:' ? 'secureConnect' : 'connect', connected);
+        else connected();
+      });
+      outgoing.once('finish', () => { if (!message && !disposed) outgoing.setTimeout(0); });
       request.signal.addEventListener('abort', onAbort, { once: true });
       outgoing.once('response', (response) => {
         if (disposed) { response.destroy(); return; }
         message = response;
         clearTimeout(timer);
+        clearTimeout(connectTimer);
+        response.setTimeout(request.idleTimeoutMs, () => fail('idle_timeout'));
         response.once('error', onError);
         resolve({ message: response, dispose });
       });

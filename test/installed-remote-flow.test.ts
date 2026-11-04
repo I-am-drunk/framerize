@@ -11,8 +11,8 @@ import { join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { promisify } from 'node:util';
 import { npmCli, privateEnvironment } from '../scripts/core-package-check.js';
-import { startInstalledServer, startInstalledRemote, localToken } from '../scripts/fixtures/installed-server.js';
-import { assertTransportClosed, createScenario, exchange, exerciseFlow,
+import { startInstalledServer, startInstalledRemote, localToken, serverToken } from '../scripts/fixtures/installed-server.js';
+import { assertTransportClosed, createScenario, exchange, exerciseDelayedJson, exerciseFlow,
   toolRequest, transportResources } from '../scripts/fixtures/transport-scenario.js';
 
 test('installed Remote forwards through the installed server with isolated credentials and no environment proxy',
@@ -79,6 +79,9 @@ test('installed Remote forwards through the installed server with isolated crede
       }
       remote = await startInstalledRemote(consumer, hostile, server.url);
       const result = await exerciseFlow(remote.url, localToken, scenario);
+      const delayedJsonRequests = await exerciseDelayedJson([
+        { url: server.url, token: serverToken }, { url: remote.url, token: localToken },
+      ], scenario);
       scenario.state.ready = false;
       const count = scenario.state.requests.filter((entry) => entry.path !== '/v1/models').length;
       const unavailable = await exchange(remote.url, '/v1/chat/completions', localToken, { body: toolRequest });
@@ -104,7 +107,8 @@ test('installed Remote forwards through the installed server with isolated crede
       await server.close();
       await assert.rejects(exchange(remote.url, '/health', localToken), { code: 'ECONNREFUSED' });
       context.diagnostic(JSON.stringify({ node: process.version, identities, ...result,
-        proxyCalls, savedProfileRestart: true, temporaryListenOverride: true, closedCli: true }));
+        delayedJsonRequests, proxyCalls, savedProfileRestart: true,
+        temporaryListenOverride: true, closedCli: true }));
     } finally {
       const cleanup = await Promise.allSettled([remote?.close(), server?.close(), scenario?.close()]);
       proxy.closeAllConnections();

@@ -121,7 +121,7 @@ export function createInstance(options: InstanceOptions): FramerizeInstance {
       const result = await bounded(() => config.backend.forward({ path: route,
         headers: selectedHeaders(request.headers, requestHeaders),
         body: (async function* () { yield bytes; }()), signal: controller.signal,
-      }), controller, config.headersTimeoutMs, new HttpError('headers_timeout'), discardResponse);
+      }), controller, config.inferenceTimeoutMs, new HttpError('headers_timeout'), discardResponse);
       try {
         controller.signal.throwIfAborted();
         if (!Number.isInteger(result.status) || result.status < 200 || result.status > 599) {

@@ -38,6 +38,7 @@ export async function resolveInstance(
   ]);
   const backend = createRemoteBackend({
     endpoint, serverToken, ...DEFAULT_BACKEND_TIMINGS,
+    inferenceTimeoutMs: config.inferenceTimeoutMs,
   });
   return { config, localToken, backend };
 }

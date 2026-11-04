@@ -27,6 +27,17 @@ const deferred = () => {
   const promise = new Promise((done) => { resolve = done; });
   return { promise, resolve };
 };
+
+test('non-streaming inference outlives connection and idle limits', async context => {
+  const { provider } = await fixture(context, (request, response) => {
+    request.resume();
+    const timer = setTimeout(() => response.end('{"done":true}'), 160);
+    response.once('close', () => clearTimeout(timer));
+  }, { headersTimeoutMs: 40, idleTimeoutMs: 40, inferenceTimeoutMs: 1000 });
+  const result = await provider.forward({ path: '/v1/responses', body: body('{"stream":false}') });
+  assert.equal(result.status, 200);
+  assert.equal((await collect(result.body)).toString(), '{"done":true}');
+});
 async function fixture(context, handler, config = {}) {
   const errors = [];
   const server = http.createServer((request, response) => {
@@ -41,6 +52,30 @@ async function fixture(context, handler, config = {}) {
     assert.deepEqual(errors, []);
   });
   return { provider, server, upstream };
+}
+
+for (const status of [200, 502]) {
+  for (const scenario of [
+    { name: 'false', value: 'false', expected: 'false' },
+    { name: 'true', value: 'true' },
+    { name: 'unknown', value: 'unknown' },
+    { name: 'duplicates', value: ['false', 'false'] },
+    { name: 'nominated', value: 'false', connection: 'X-Should-Retry' },
+  ]) {
+    test(`retry header ${status}: ${scenario.name}`, async context => {
+      const { provider } = await fixture(context, (request, response) => {
+        request.resume();
+        response.writeHead(status, { 'x-should-retry': scenario.value,
+          ...(scenario.connection ? { connection: scenario.connection } : {}) });
+        response.end('synthetic-private-upstream');
+      });
+      const result = await provider.forward({ path: '/v1/responses', body: body() });
+      assert.equal(result.status, status);
+      assert.equal(result.headers['x-should-retry'], scenario.expected);
+      const bytes = await collect(result.body);
+      if (status === 502) assert.doesNotMatch(bytes.toString(), /synthetic-private-upstream/);
+    });
+  }
 }
 
 async function rawFixture(context, response) {
@@ -196,7 +231,7 @@ test('active body outlives the cleared header deadline', async (context) => {
     request.resume(); response.flushHeaders();
     for (let index = 0; index < 12; index += 1) { response.write('chunk'); await delay(25); }
     response.end('[DONE]');
-  }, { headersTimeoutMs: 70, idleTimeoutMs: 100 });
+  }, { inferenceTimeoutMs: 70, idleTimeoutMs: 100 });
   const result = await provider.forward({ path: '/v1/responses', body: body() });
   const started = performance.now();
   assert.equal((await collect(result.body)).toString(), 'chunk'.repeat(12) + '[DONE]');
@@ -311,7 +346,7 @@ test('abort interrupts a stuck request iterator and invokes return without await
 test('header silence times out without retrying', async (context) => {
   let calls = 0;
   const { provider } = await fixture(context, (request) => { calls += 1; request.resume(); },
-    { headersTimeoutMs: 50, idleTimeoutMs: 500 });
+    { inferenceTimeoutMs: 50, idleTimeoutMs: 500 });
   await assert.rejects(provider.forward({ path: '/v1/responses', body: body() }),
     { code: 'headers_timeout', status: 504 });
   assert.equal(calls, 1);

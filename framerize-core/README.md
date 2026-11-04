@@ -44,10 +44,20 @@ This is best-effort cleanup. It does not wait for a stalled iterator to close.
 Backends must release resources even when `return()` precedes the first `next()`.
 
 Request headers have a 16 KiB parser cap without header-pair truncation.
-JSON request bodies have a byte cap. Readiness and upstream headers have finite
-deadlines. Stream reads and client writes have idle deadlines, with no total
+JSON request bodies have a byte cap. `headersTimeoutMs` bounds readiness at
+15000 ms by default. `inferenceTimeoutMs` separately bounds `backend.forward()`
+at 300000 ms, including backend preparation but excluding the response body.
+Set the latter explicitly if an older caller used `headersTimeoutMs` to limit
+inference. Both accept positive integers up to 2147483647 ms.
+Stream reads and client writes have idle deadlines, with no total
 deadline on healthy inference streams. `onRequest` receives only generated
 request IDs, known routes, status, outcome, and elapsed time, never request data.
+
+Responses preserve the literal header `x-should-retry: false`, unless
+`Connection` names it as hop-by-hop. Other values and duplicates are omitted.
+This preserves an upstream instruction not to retry. It does not suppress
+client retries after local timeouts or connection loss, or guarantee that
+an inference request runs exactly once.
 
 The readiness parser does not impose a network byte cap or timeout. Its caller
 must bound the complete response before passing bytes to the parser, inspect

@@ -4,6 +4,7 @@ export interface RemoteBackendConfig {
   readonly endpoint: RemoteEndpoint;
   readonly serverToken: string;
   readonly headersTimeoutMs: number;
+  readonly inferenceTimeoutMs?: number;
   readonly idleTimeoutMs: number;
   readonly readinessBodyMaxBytes: number;
   readonly readinessWholeMs: number;
@@ -11,6 +12,7 @@ export interface RemoteBackendConfig {
 
 export const DEFAULT_BACKEND_TIMINGS = {
   headersTimeoutMs: 15_000,
+  inferenceTimeoutMs: 300_000,
   idleTimeoutMs: 60_000,
   readinessBodyMaxBytes: 64 * 1024,
   readinessWholeMs: 20_000,
