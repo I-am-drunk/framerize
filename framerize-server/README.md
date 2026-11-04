@@ -97,6 +97,47 @@ body bytes and allowlisted headers, including `content-encoding`. The provider
 converts non-2xx upstream bodies to a generic `upstream_http_error` response while
 preserving status and safe headers. It never returns raw upstream error bodies.
 
+## Experimental custom routes
+
+The Framer backend also accepts `POST /openai/v1/responses` and
+`POST /anthropic/v1/messages`. Both require the server bearer token.
+Use `stream: false` or omit `stream` for completed JSON. Use `stream: true`
+for client events. Background Responses jobs remain unsupported.
+
+Both modes make one non-streaming provider request, to `/ai/v3/responses/`
+or `/ai/v3/messages/` respectively. Client streaming never changes those paths
+or enables provider streaming. There is no retry or route fallback.
+
+The server collects the complete provider reply, up to 16 MiB, and checks its
+JSON envelope before sending generated content. Valid tool calls, refusals and output-limit
+results retain their original bytes. Broken, oversized or invalid replies return
+a safe error with `x-should-retry: false`. Messages errors include `type: "error"`.
+The inference deadline covers collection and client delivery, not just headers.
+Parsing and buffering can use more memory than the reply's byte size.
+
+For streaming clients, the server sends SSE headers after credential preparation
+and comment keepalives during the provider wait. It sends protocol events once
+the complete reply is validated, including tool arguments, usage and stop reasons.
+This is not token-by-token generation. Incomplete results stay incomplete.
+Provider failures after headers become sanitized stream errors, not HTTP errors;
+disconnects and expired deadlines close the stream without a success terminator.
+`x-should-retry: false` applies from the start. Remote forwards these bytes without
+interpreting events. Neither keepalives nor slow clients extend the total deadline.
+Responses events retain supplied item IDs and add a consistent ID where absent.
+A missing token total is calculated from the supplied input and output counts.
+Messages streams use zero for unavailable token counts when the provider omits usage.
+
+An incomplete Responses result can contain an incomplete function call with
+unfinished JSON in its `arguments` string. The server preserves that string,
+the incomplete status and the limit reason. Clients must check the status
+before parsing or executing a tool call. This does not permit truncated HTTP
+replies or malformed outer JSON.
+
+These routes have synthetic local coverage only. Current provider models,
+options, version headers and live browserless acceptance remain unverified.
+Readiness does not advertise custom-route support. The generic HTTP backend
+does not implement these routes. Existing bare routes retain streaming behavior.
+
 ## Inject a provider
 
 The server-only [session authentication module](docs/framer-auth.md) provides
@@ -161,10 +202,12 @@ connection setup and Framer request preparation. It does not bound the
 inference response-header wait.
 The five-minute default permits silent non-streaming computation without
 extending readiness checks. It does not change an upstream service's limits.
-There is no total stream deadline after headers. `requestTimeoutMs` is rejected.
+Existing streaming routes have no total deadline after headers.
+Custom completed-response routes retain the inference deadline through delivery.
+`requestTimeoutMs` is rejected.
 `maxBodyBytes` defaults to 16777216. The server buffers at most one bounded request
-body per request to validate JSON before invoking the provider. Response bodies
-stream without whole-response buffering. A paused client must resume before its
+body per request to validate JSON before invoking the provider. Existing bare-route
+responses stream without whole-response buffering. A paused client must resume before its
 idle limit; provider body reads pause while downstream writes are blocked.
 
 `accountsFile` optionally references a JSON array of metadata with `id`, `label`,

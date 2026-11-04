@@ -1,3 +1,33 @@
+import { validateCompletedReply, type CompletedReplyProtocol }
+  from '../../framerize-server/src/compat/completed-reply.js';
+
+export function inspectJsonCompletion(protocol: CompletedReplyProtocol, bytes: Buffer) {
+  validateCompletedReply(protocol, bytes);
+  const reply = JSON.parse(bytes.toString('utf8')) as Record<string, unknown>;
+  const blocks: Record<string, unknown>[] = [];
+  if (protocol === 'responses') {
+    if (reply.status !== 'completed') throw new Error('Incomplete text response');
+    for (const item of reply.output as Record<string, unknown>[]) {
+      if (item.status !== undefined && item.status !== 'completed') throw new Error('Incomplete item');
+      if (item.type === 'reasoning') continue;
+      if (item.type !== 'message') throw new Error('Not a text response');
+      blocks.push(...item.content as Record<string, unknown>[]);
+    }
+  } else {
+    if (reply.stop_reason !== 'end_turn') throw new Error('Incomplete text response');
+    blocks.push(...reply.content as Record<string, unknown>[]);
+  }
+  const text: string[] = [];
+  for (const block of blocks) {
+    if (protocol === 'messages' && ['thinking', 'redacted_thinking'].includes(String(block.type))) continue;
+    if (block.type !== (protocol === 'responses' ? 'output_text' : 'text')
+      || typeof block.text !== 'string') throw new Error('Not a text response');
+    text.push(block.text);
+  }
+  if (!text.some(value => value.trim())) throw new Error('Empty text response');
+  return { contentBytes: Buffer.byteLength(text.join('')), textBlocks: text.length };
+}
+
 export function inspectCompletion(bytes: Buffer) {
   const text = new TextDecoder('utf-8', { fatal: true }).decode(bytes).replace(/\r\n|\r/g, '\n');
   const frames = text.split('\n\n');

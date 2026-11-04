@@ -13,6 +13,8 @@ const generated = ['accounts.d.ts', 'accounts.js', 'config.d.ts', 'config.js', '
   'errors.d.ts', 'errors.js', 'provider.d.ts', 'provider.js',
   'framer-auth.d.ts', 'framer-auth.js',
   'framer-backend.d.ts', 'framer-backend.js', 'framer-request.d.ts', 'framer-request.js',
+  ...['completed-reply', 'completed-stream', 'events', 'messages-stream', 'responses-stream']
+    .flatMap(name => [`compat/${name}.js`, `compat/${name}.d.ts`]),
   'cli.d.ts', 'cli.js', 'logger.d.ts', 'logger.js', 'server.d.ts', 'server.js'];
 assert.deepEqual([...(manifest.files ?? [])].sort(),
   ['LICENSE', 'README.md', 'bin', ...generated.map((name) => `dist/${name}`)].sort(),
@@ -31,15 +33,18 @@ for (const field of ['dependencies', 'optionalDependencies', 'peerDependencies']
 }
 assert.deepEqual((await readdir(new URL('../src/', import.meta.url))).sort(), [
   'account-backend.ts', 'accounts.ts', 'backend.ts', 'castle-loader.ts', 'castle.ts',
-  'cli.ts', 'config.ts', 'errors.ts', 'framer-auth.ts', 'framer-backend.ts',
+  'cli.ts', 'compat', 'config.ts', 'errors.ts', 'framer-auth.ts', 'framer-backend.ts',
   'framer-request.ts', 'logger.ts', 'provider.ts', 'server.ts',
 ], 'Unexpected server source files');
+assert.deepEqual((await readdir(new URL('../src/compat/', import.meta.url))).sort(),
+  ['completed-reply.ts', 'completed-stream.ts', 'events.ts', 'messages-stream.ts', 'responses-stream.ts'],
+  'Unexpected compatibility source files');
 assert.deepEqual(await readdir(new URL('../bin/', import.meta.url)), ['framerize-server.js'],
   'Unexpected server executable files');
 for (const name of generated) assert.ok((await lstat(new URL(`../dist/${name}`, import.meta.url))).isFile(),
   'Missing compiled server module');
 
-for (const directory of ['src', 'bin', 'scripts', 'dist']) {
+for (const directory of ['src', 'bin', 'scripts', 'dist', 'dist/compat']) {
   for (const name of await readdir(new URL(`../${directory}/`, import.meta.url))) {
     if (!name.endsWith('.js')) continue;
     const file = new URL(`../${directory}/${name}`, import.meta.url);
