@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 import { run } from '../dist/cli.js';
-import { AccountFileError, ServerTokenFileError } from '../dist/errors.js';
+import { AccountFileError, AccountSelectionError, ServerTokenFileError } from '../dist/errors.js';
 
 run().then((code) => { process.exitCode = code; }).catch(error => {
   const detail = error instanceof ServerTokenFileError ? {
@@ -9,6 +9,9 @@ run().then((code) => { process.exitCode = code; }).catch(error => {
   } : error instanceof AccountFileError ? {
     message: 'Account metadata file is unavailable or invalid.',
     next: 'Check --accounts-file, read permissions and the documented JSON account format.',
+  } : error instanceof AccountSelectionError ? {
+    message: 'Select one configured Framer account.',
+    next: 'Check --account-id and --accounts-file. Select one enabled account with projectId and a session reference.',
   } : { message: 'Server failed to start or stop' };
   process.stderr.write(`${JSON.stringify({ event: 'server.failed', ...detail })}\n`);
   process.exitCode = 1;
