@@ -5,7 +5,6 @@ import { posix } from 'node:path';
 import { build } from 'esbuild';
 import ts from 'typescript';
 import { readPackageArchive } from './package-archive.js';
-import { bundleCastleRuntime } from './server-castle-runtime.js';
 
 export function verifyServerSource(bytes: Buffer, files: string[], readSource: (file: string) => Buffer): void {
   const archive = readPackageArchive(bytes);
@@ -19,7 +18,6 @@ export function verifyServerSource(bytes: Buffer, files: string[], readSource: (
 export async function bundleServerArchive(bytes: Buffer, expected: { name: string; version: string }) {
   const archive = readPackageArchive(bytes);
   const manifest = JSON.parse(archive.get('package/package.json')!.toString('utf8'));
-  const runtime = bundleCastleRuntime(archive);
   assert.equal(manifest.name, 'framerize-server');
   assert.equal(manifest.name, expected.name);
   assert.equal(manifest.version, expected.version);
@@ -54,7 +52,7 @@ export async function bundleServerArchive(bytes: Buffer, expected: { name: strin
     assert.ok(output.imports.every(entry => entry.external && isBuiltin(entry.path)),
       'Native bundle depends on an external package');
   }
-  return { code: result.outputFiles[0]!.contents, runtime, inputs: [...inputs].sort(),
+  return { code: result.outputFiles[0]!.contents, inputs: [...inputs].sort(),
     packageSha256: createHash('sha256').update(bytes).digest('hex'), packageBytes: bytes.length };
 }
 
@@ -64,11 +62,7 @@ function verifyImports(path: string, text: string): void {
     if (ts.isCallExpression(node) && (node.expression.kind === ts.SyntaxKind.ImportKeyword ||
         ts.isIdentifier(node.expression) && node.expression.text === 'require')) {
       const argument = node.arguments[0];
-      const castleRuntime = path === 'package/dist/castle-loader.js'
-        && node.expression.kind === ts.SyntaxKind.ImportKeyword && argument
-        && ts.isPropertyAccessExpression(argument) && ts.isIdentifier(argument.expression)
-        && argument.expression.text === 'url' && argument.name.text === 'href';
-      assert.ok(node.arguments.length === 1 && (ts.isStringLiteral(argument!) || castleRuntime),
+      assert.ok(node.arguments.length === 1 && ts.isStringLiteral(argument!),
         'Computed module import');
     }
     ts.forEachChild(node, visit);

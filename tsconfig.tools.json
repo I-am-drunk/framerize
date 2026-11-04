@@ -1,7 +1,32 @@
 {
   "extends": "./tsconfig.base.json",
-  "compilerOptions": { "rootDir": ".", "outDir": ".tools" },
-  "files": ["scripts/package-release.ts", "test/package-release.test.ts", "test/package-promotion.test.ts", "scripts/server-native-bundle.ts", "test/server-native-bundle.test.ts", "scripts/native-account-smoke.ts", "test/server-native-account.test.ts", "scripts/check-inference.ts", "test/inference-check.test.ts",
-    "test/framer-next.test.ts"],
-  "include": ["scripts/core-package-check.ts", "scripts/build-server.ts", "scripts/check-native-server.ts", "scripts/package-archive.ts", "scripts/package-coexistence.ts", "test/package-archive.test.ts", "test/package-coexistence.test.ts", "test/core-package-check.test.ts", "test/installed-server-flow.test.ts", "test/installed-remote-flow.test.ts", "test/installed-castle-flow.test.ts", "scripts/fixtures/*.ts"]
+  "compilerOptions": {
+    "rootDir": ".",
+    "outDir": ".tools"
+  },
+  "files": [
+    "scripts/package-release.ts",
+    "test/package-release.test.ts",
+    "test/package-promotion.test.ts",
+    "scripts/server-native-bundle.ts",
+    "test/server-native-bundle.test.ts",
+    "scripts/native-account-smoke.ts",
+    "test/server-native-account.test.ts",
+    "scripts/check-inference.ts",
+    "test/inference-check.test.ts",
+    "test/framer-next.test.ts"
+  ],
+  "include": [
+    "scripts/core-package-check.ts",
+    "scripts/build-server.ts",
+    "scripts/check-native-server.ts",
+    "scripts/package-archive.ts",
+    "scripts/package-coexistence.ts",
+    "test/package-archive.test.ts",
+    "test/package-coexistence.test.ts",
+    "test/core-package-check.test.ts",
+    "test/installed-server-flow.test.ts",
+    "test/installed-remote-flow.test.ts",
+    "scripts/fixtures/*.ts"
+  ]
 }

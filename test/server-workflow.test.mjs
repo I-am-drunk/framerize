@@ -14,8 +14,6 @@ test('server builds use only the typed server target and safe installs', () => {
     'scripts/package-framer-next.ts', 'test/framer-next.test.ts',
     'test/server-native-bundle.test.ts', 'test/server-native-account.test.ts']);
   assert.doesNotMatch(root.scripts['build:server'], /framerize-remote/);
-  assert.match(root.scripts['build:server'], /^npm --prefix framerize-castle run build &&/);
-  assert.match(read('scripts/build-server.ts'), /stageCastleRuntime\(root\)/);
   assert.equal((workflow.match(/npm run build:server --prefix \.\./g) ?? []).length, 3);
   assert.doesNotMatch(workflow, /npm ci\s*\n|npm run build --prefix/);
   assert.match(workflow, /NODE_OPTIONS: ''/);
@@ -25,7 +23,7 @@ test('server builds use only the typed server target and safe installs', () => {
 
 test('server workflows cover changed inputs and keep all pinned platforms', () => {
   for (const file of ['.gitattributes', 'scripts/server-native-bundle.ts', 'scripts/package-archive.ts',
-    'framerize-castle/**', 'scripts/server-castle-runtime.ts', 'scripts/native-account-smoke.ts',
+    'scripts/native-account-smoke.ts',
     'scripts/core-package-check.ts', 'scripts/fixtures/**', 'scripts/*framer-next*',
     'test/framer-next.test.ts', 'test/server-*']) {
     assert.equal(workflow.split(`'${file}'`).length - 1, 2, file);

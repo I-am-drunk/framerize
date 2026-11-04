@@ -36,10 +36,8 @@ try {
   assert.deepEqual(normalizeManifest(manifest), normalizeManifest(source),
     'Installed package metadata differs');
   const files = ['README.md', 'LICENSE',
-    'dist/castle-manifest.json',
     'bin/framerize-server.js', ...['core.js', 'core.d.ts', 'accounts.js', 'accounts.d.ts',
-      'backend.js', 'backend.d.ts', 'castle-loader.js', 'castle-loader.d.ts',
-      'castle-assets.js', 'castle-assets.d.ts',
+      'backend.js', 'backend.d.ts', 'castle.js', 'castle-loader.js', 'castle-loader.d.ts',
       'account-backend.js', 'account-backend.d.ts',
       'config.js', 'config.d.ts', 'errors.js', 'errors.d.ts', 'provider.js', 'provider.d.ts',
       'framer-auth.js', 'framer-auth.d.ts',
@@ -47,8 +45,6 @@ try {
       'cli.js', 'cli.d.ts', 'logger.js', 'logger.d.ts', 'server.js', 'server.d.ts',
       ...['backend', 'http-policy', 'instance', 'instance-options', 'readiness'].map((name) => `core-types/${name}.d.ts`)]
       .map((name) => `dist/${name}`)];
-  const runtime = JSON.parse(await readFile(path.join(root, 'dist/castle-manifest.json'), 'utf8'));
-  files.push(...runtime.files.map(file => `dist/castle/${file.path}`));
   const directories = new Set(files.flatMap(file => {
     const parts = file.split('/');
     return parts.slice(0, -1).map((_part, index) => parts.slice(0, index + 1).join('/'));

@@ -77,13 +77,9 @@ async function checkAccount(consumer: string, native: string, env: NodeJS.Proces
   try {
     server = await startInstalledAccountServer(native, { ...env, PATH: '' }, scenario.url, binary);
     assert.equal(typeof env.TMPDIR, 'string');
-    const runtimeDirectories = () => readdirSync(env.TMPDIR!).filter(name =>
-      /^(framerize-castle-runtime-|castle-library-)/.test(name));
-    assert.equal(runtimeDirectories().length, 1, 'Native runtime was not extracted privately');
     remote = await startInstalledRemote(consumer, env, server.url);
     const result = await exerciseAccountFlow(remote.url, localToken, scenario);
     await remote.close(); await server.close();
-    assert.deepEqual(runtimeDirectories(), [], 'Native runtime files survived shutdown');
     assert.doesNotMatch(server.output(), /session=synthetic-account|synthetic-access/);
     return result;
   } finally {

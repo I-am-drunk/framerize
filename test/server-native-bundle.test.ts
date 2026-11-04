@@ -5,19 +5,6 @@ import { runInNewContext } from 'node:vm';
 import { gzipSync } from 'node:zlib';
 import { bundleServerArchive, verifyServerSource } from '../scripts/server-native-bundle.js';
 import { readPackageArchive } from '../scripts/package-archive.js';
-import { bundleCastleRuntime } from '../scripts/server-castle-runtime.js';
-
-test('embedded Castle runtime is bound to its complete archived inventory', () => {
-  const files = ['package.json', 'dist/castle.js'].map(path => ({ path, bytes: 2,
-    sha256: createHash('sha256').update('{}').digest('hex') }));
-  const archive = new Map(files.map(file => [`package/dist/castle/${file.path}`, Buffer.from('{}')]));
-  archive.set('package/dist/castle-manifest.json', Buffer.from(JSON.stringify({ version: 1, files })));
-  assert.equal(JSON.parse(bundleCastleRuntime(archive)!.toString()).files.length, 2);
-  archive.set('package/dist/castle/dist/castle.js', Buffer.from('xx'));
-  assert.throws(() => bundleCastleRuntime(archive), /hash differs/);
-  archive.set('package/dist/castle/extra.js', Buffer.from('{}'));
-  assert.throws(() => bundleCastleRuntime(archive), /inventory differs/);
-});
 
 const identity = { name: 'framerize-server', version: '0.1.0' };
 test('source binding rejects substituted bytes and checks inventory before reading', () => {
