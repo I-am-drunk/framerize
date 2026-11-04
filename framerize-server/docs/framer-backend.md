@@ -60,7 +60,7 @@ selected account's session is read, once at startup. Reload credentials by
 closing the backend and creating a new one. `model`
 and `models` remain descriptive metadata, not routing rules.
 
-The CLI creates its own minter from the packaged Castle Library. Provision the
+The CLI creates its own minter from the packaged Castle runtime. Provision the
 server token and account session through private environment or file references:
 
 ```sh
