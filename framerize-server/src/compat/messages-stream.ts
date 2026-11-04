@@ -1,8 +1,12 @@
 import { event } from './events.js';
 import { replyBlocks, replyObject } from './completed-reply.js';
 
+function optionalUsage(reply: Record<string, unknown>): Record<string, unknown> {
+  return reply.usage === undefined || reply.usage === null ? {} : replyObject(reply.usage);
+}
+
 export function* messagesStream(reply: Record<string, unknown>): Generator<Buffer> {
-  const usage = replyObject(reply.usage);
+  const usage = optionalUsage(reply);
   yield event('message_start', { message: { ...reply, content: [], stop_reason: null,
     stop_sequence: null, usage: { ...usage, output_tokens: 0 } } });
   for (const [index, block] of replyBlocks(reply.content).entries()) {
