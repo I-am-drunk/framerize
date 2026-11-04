@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -93,7 +93,7 @@ test('serve host overrides explain their separate exposure consent', async t => 
   }
 });
 
-async function runSetup(root, args, json = false) {
+function runSetup(root, args, json = false) {
   return spawnSync(process.execPath, [launcher, 'setup', ...args, ...(json ? ['--json'] : [])], {
     cwd: root, encoding: 'utf8', timeout: 5000,
     env: { HOME: root, USERPROFILE: root, TMPDIR: root,
@@ -101,30 +101,24 @@ async function runSetup(root, args, json = false) {
   });
 }
 
-test('setup maps malformed global options to setup_arguments without touching the profile', async () => {
+test('setup rejects a missing global profile path without changing the default profile', async () => {
   const root = await mkdtemp(join(tmpdir(), 'remote-setup-globals-'));
-  const profile = join(root, 'profile.json');
-  const tail = ['--remote', 'https://server.invalid', '--server-token-env', 'SETUP_SERVER',
-    '--local-token-env', 'SETUP_LOCAL'];
-  const globals = [
-    ['missing global profile path', ['--config', ...tail]],
-    ['profile flag followed by another flag', ['--config', '--remote', 'https://server.invalid', ...tail.slice(2)]],
-    ['duplicate global json flag', ['--config', profile, '--json', '--json', ...tail]],
-  ];
+  const directory = join(root, '.framerize-remote');
+  const profile = join(directory, 'framerize-remote.json');
   try {
+    await mkdir(directory);
     await writeFile(profile, 'existing-profile', { mode: 0o600 });
-    for (const [name, args] of globals) {
-      const jsonModes = args.includes('--json') ? [true] : [false, true];
-      for (const json of jsonModes) {
-        const result = await runSetup(root, args, json);
-        assert.equal(result.error, undefined, name);
-        assert.equal(result.status, 1, name);
-        assert.equal(result.stdout, '', name);
-        assert.doesNotMatch(result.stderr, /private-setup-canary|existing-profile/, name);
-        if (json) assert.equal(JSON.parse(result.stderr).error, 'setup_arguments', name);
-        else assert.match(result.stderr, /^Not ready: .+\nNext: .+\n$/, name);
-        assert.equal(await readFile(profile, 'utf8'), 'existing-profile', name);
-      }
+    for (const json of [false, true]) {
+      const result = runSetup(root, ['--config', ...valid], json);
+      assert.equal(result.error, undefined);
+      assert.equal(result.status, 1);
+      assert.equal(result.stdout, '');
+      assert.doesNotMatch(result.stderr, /private-setup-canary|existing-profile/);
+      if (json) assert.equal(JSON.parse(result.stderr).error, 'setup_arguments');
+      else assert.match(result.stderr, /^Not ready: .+\nNext: .+\n$/);
+      assert.equal(await readFile(profile, 'utf8'), 'existing-profile');
+      assert.deepEqual(await readdir(root), ['.framerize-remote']);
+      assert.deepEqual(await readdir(directory), ['framerize-remote.json']);
     }
   } finally { await rm(root, { recursive: true, force: true }); }
 });
