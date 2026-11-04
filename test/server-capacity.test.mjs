@@ -5,7 +5,7 @@ import { once, getEventListeners } from 'node:events';
 import { access } from 'node:fs/promises';
 import { createServer } from '../framerize-server/dist/server.js';
 import { createFramerBackend } from '../framerize-server/dist/framer-backend.js';
-import { createMinter } from '../framerize-server/dist/castle/dist/lifecycle.js';
+import { createMinter, resolveOptions } from '../framerize-server/dist/castle.js';
 import { createRemoteBackend } from '../framerize-remote/dist/index.js';
 
 function deferred() {
@@ -40,7 +40,7 @@ for (const path of ['/v1/responses', '/v1/chat/completions']) for (const viaRemo
     let collections = 0;
     let inferences = 0;
     let authClosed = 0;
-    const minter = createMinter({ timeoutMs: 3000, budgetMs: 2000 }, {
+    const minter = createMinter(resolveOptions({ timeoutMs: 3000, budgetMs: 2000 }), {
       async collect({ directory }) {
         directories.push(directory);
         if (++collections === 1) { entered.resolve(); await release.promise; }
