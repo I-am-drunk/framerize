@@ -20,10 +20,11 @@ for (const protocol of protocols) for (const viaRemote of [false, true]) {
         assert.equal(setup.counts.mints, 1);
       });
   }
-  test(`Castle device identity remains server-owned: ${name}`, async context => {
+  for (const stream of [false, true]) test(`Castle device identity remains server-owned: ${name}, stream=${stream}`, async context => {
     const castleDeviceId = 'synthetic-server-device';
     const setup = await fixture(context, protocol, viaRemote, { backend: { castleDeviceId } });
-    const result = await setup.post(protocol.body, { 'x-castle-device-id': 'untrusted-client-device' });
+    const result = await setup.post({ ...protocol.body, stream },
+      { 'x-castle-device-id': 'untrusted-client-device' });
     assert.equal(result.status, 200);
     assert.deepEqual(setup.deviceIds, [castleDeviceId]);
     assert.equal(setup.observed.length, 1);
