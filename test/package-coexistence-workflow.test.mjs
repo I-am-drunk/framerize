@@ -22,7 +22,7 @@ test('source triggers cover build inputs and package workflow changes', () => {
   const core = readFileSync(new URL('../.github/workflows/core-ci.yml', import.meta.url), 'utf8');
   const pair = readFileSync(workflowPath, 'utf8');
   for (const source of [core, pair]) {
-    for (const file of ['framerize-server/**', 'framerize-castle/**',
+    for (const file of ['framerize-server/**',
       'scripts/core-package-check.ts', '.github/workflows/ci.yml',
       '.github/workflows/release.yml', '.github/workflows/package-coexistence.yml']) {
       assert.equal(source.split(`      - '${file}'`).length - 1, 2, file);

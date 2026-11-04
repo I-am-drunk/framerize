@@ -10,12 +10,6 @@ import { createAccountScenario, exerciseAccountFlow } from './fixtures/account-s
 import { accountServerFixture, serverToken, startInstalledAccountServer } from './fixtures/installed-server.js';
 import { assertTransportClosed, transportResources } from './fixtures/transport-scenario.js';
 
-export function verifyRuntimeFiles(names: readonly string[], expected: number): void {
-  assert.equal(names.length, expected, 'Unexpected native runtime file count');
-  assert.ok(names.every(name => /^framerize-castle-runtime-[A-Za-z0-9]+$/.test(name)),
-    'Unexpected runtime files or unfinished mint cleanup');
-}
-
 export async function checkNativeAccount(executable: string) {
   assert.ok(lstatSync(executable).isFile(), 'Native executable must be a regular file');
   const baseline = transportResources();
@@ -36,17 +30,13 @@ export async function checkNativeAccount(executable: string) {
     });
     assert.doesNotMatch(output, /synthetic-account|synthetic-access/);
     assert.equal(scenario.state.auth, 0, 'Configuration check contacted the provider');
-    verifyRuntimeFiles(readdirSync(state), 0);
     server = await startInstalledAccountServer(root, env, scenario.url, binary);
-    verifyRuntimeFiles(readdirSync(state), 1);
     const flow = await exerciseAccountFlow(server.url, serverToken, scenario);
-    verifyRuntimeFiles(readdirSync(state), 1);
     await server.close();
-    verifyRuntimeFiles(readdirSync(state), process.platform === 'win32' ? 1 : 0);
     assert.doesNotMatch(server.output(), /synthetic-account|synthetic-access/);
     return { ...flow, platform: process.platform, node: process.version,
       executableSha256: createHash('sha256').update(readFileSync(binary)).digest('hex'),
-      nativePathEmpty: true, normalExitCleanup: true, mintCleanup: true,
+      nativePathEmpty: true, normalExitCleanup: true,
       signalCleanup: process.platform === 'win32' ? 'not-tested' : 'passed' };
   } finally {
     const cleanup = await Promise.allSettled([server?.close(), scenario?.close()]);

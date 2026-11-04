@@ -8,12 +8,10 @@ on:
       - 'framerize-remote/**'
       - 'framerize-server/**'
       - 'framerize-core/**'
-      - 'framerize-castle/**'
       - 'scripts/core-package-check.ts'
       - '.github/workflows/ci.yml'
       - '.github/workflows/release.yml'
       - 'scripts/build-server.ts'
-      - 'scripts/server-castle-runtime.ts'
       - 'package*.json'
       - 'tsconfig*.json'
       - 'scripts/package-coexistence.ts'
@@ -31,12 +29,10 @@ on:
       - 'framerize-remote/**'
       - 'framerize-server/**'
       - 'framerize-core/**'
-      - 'framerize-castle/**'
       - 'scripts/core-package-check.ts'
       - '.github/workflows/ci.yml'
       - '.github/workflows/release.yml'
       - 'scripts/build-server.ts'
-      - 'scripts/server-castle-runtime.ts'
       - 'package*.json'
       - 'tsconfig*.json'
       - 'scripts/package-coexistence.ts'
@@ -71,10 +67,6 @@ jobs:
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
         with:
           node-version: '22.23.4'
-      - name: Fetch the private Castle library
-        env:
-          CASTLE_READ_KEY: ${{ secrets.CASTLE_READ_KEY }}
-        run: node scripts/fetch-castle.mjs
       - name: Build the shared TypeScript listener
         run: npm ci --ignore-scripts --no-audit --no-fund && npm run build
       - name: Pack each package once with private npm configuration
