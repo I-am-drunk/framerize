@@ -4321,7 +4321,7 @@ function makeMimeTypes() {
     arr.namedItem = n => arr.find(t => t.type === n);
     return arr;
 }
-function buildRealmGlobals({ publicKey, seedCuid: reqCuid }) {
+function buildRealmGlobals({ publicKey, seedCuid: reqCuid, realmTimers }) {
     const permissionNames = new WeakMap();
     class PermissionStatus extends EventTarget {
         constructor(name) {
@@ -5316,9 +5316,9 @@ function buildRealmGlobals({ publicKey, seedCuid: reqCuid }) {
             offsetLeft: 0, offsetTop: 0, pageLeft: 0, pageTop: 0, scale: 1,
             addEventListener() { }, removeEventListener() { } },
         crypto: cryptoObj, performance: performanceObj,
-        requestAnimationFrame(cb) { return setTimeout(() => cb(performance.now()), 16); },
+        requestAnimationFrame(cb) { const id = setTimeout(() => cb(performance.now()), 16); realmTimers?.add(id); return id; },
         cancelAnimationFrame(id) { clearTimeout(id); },
-        setTimeout: (cb, ms, ...args) => setTimeout(() => { try {
+        setTimeout: (cb, ms, ...args) => { const id = setTimeout(() => { try {
             let f = () => typeof cb === 'function' ? cb(...args) : (0, eval)(String(cb));
             for (let k = 0; k < 2; k++) {
                 const g = f;
@@ -5328,14 +5328,14 @@ function buildRealmGlobals({ publicKey, seedCuid: reqCuid }) {
         }
         catch (e) {
             dispatchWinError(e);
-        } }, ms),
+        } }, ms); realmTimers?.add(id); return id; },
         clearTimeout, clearInterval, queueMicrotask,
-        setInterval: (cb, ms, ...args) => setInterval(() => { try {
+        setInterval: (cb, ms, ...args) => { const id = setInterval(() => { try {
             typeof cb === 'function' ? cb(...args) : (0, eval)(String(cb));
         }
         catch (e) {
             dispatchWinError(e);
-        } }, ms),
+        } }, ms); realmTimers?.add(id); return id; },
         TextEncoder, TextDecoder, Uint8ClampedArray, Uint8Array,
         Int8Array, Uint16Array, Int16Array, Uint32Array, Int32Array,
         Float32Array, Float64Array, BigInt64Array, BigUint64Array, DataView,
@@ -5801,7 +5801,8 @@ function createCastleMinter(input = {}) {
             throw new Error('busy');
         busy = true;
         try {
-            const globals = buildRealmGlobals({ publicKey: PUBLIC_KEY });
+            const realmTimers = new Set();
+            const globals = buildRealmGlobals({ publicKey: PUBLIC_KEY, realmTimers });
             const context = vm.createContext(globals);
             let script = buildGraphScript({ modules: MODULES, cdn: CDN, collectionTransform: collectionSource });
             script = script.replace(/import\.meta\.collect\(/g, 'globalThis.__collect(')
@@ -5814,11 +5815,19 @@ function createCastleMinter(input = {}) {
             globals.__network = v => collector.network(v);
             vm.runInContext(script, context, { filename: 'graph.bundle.js' });
             const wrapper = vm.runInContext('globalThis.__modules.wrapper', context);
-            const token = await Promise.race([
-                wrapper.a({ budget_ms: budgetMs }),
-                new Promise((_, rej) => setTimeout(() => rej(new Error('timeout')), timeoutMs)),
-            ]);
-            return { token: String(token) };
+            let watchdog;
+            try {
+                const token = await Promise.race([
+                    wrapper.a({ budget_ms: budgetMs }),
+                    new Promise((_, rej) => { watchdog = setTimeout(() => rej(new Error('timeout')), timeoutMs); watchdog.unref?.(); }),
+                ]);
+                return { token: String(token) };
+            }
+            finally {
+                clearTimeout(watchdog);
+                for (const id of realmTimers) { clearTimeout(id); clearInterval(id); }
+                realmTimers.clear();
+            }
         }
         finally {
             busy = false;

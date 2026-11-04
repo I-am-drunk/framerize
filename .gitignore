@@ -3,6 +3,8 @@ dist/
 *.tgz
 *.log
 .env
+/scripts/offline_worker/realm_globals.mjs
+/scripts/offline_worker/realm_window.mjs
 accounts.json
 !framerize-remote/examples/accounts.json
 coverage/
