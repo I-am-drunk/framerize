@@ -13,6 +13,10 @@ The [change record](incidents/2026-11-04-host-memory-floor.md) records that limi
 Alpha.29 remains live as PID 3231960; no drain or inference test was started.
 All twelve account identities, settings and 404 baseline checkpoint rows remain.
 The installed recovery guard is unchanged; its aligned candidate is retained.
+The private alpha.30 executor now couples the guard update to the existing
+locked release transaction. Eight new isolated tests pass for guarded startup,
+rollback, changed guard state, retained recovery intent and missing qualification.
+Previously completed package, runtime and inference checks were not repeated.
 Temporary compilation and smoke output is removed; the archive and receipts remain.
 Next: obtain exact alpha.30 qualification before the guarded graceful activation.
 
