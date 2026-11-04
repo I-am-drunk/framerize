@@ -88,7 +88,7 @@ test('real CLI checks token before selection and serves after repairing the acco
     const selectionFailure = startupFailure();
     assert.equal(selectionFailure.message, 'Select one configured Framer account.');
     assert.equal(selectionFailure.next,
-      'Check --account-id and --accounts-file. Select one enabled account with projectId and a session reference.');
+      'Check --account-id or FRAMERIZE_SERVER_ACCOUNT and --accounts-file or FRAMERIZE_SERVER_ACCOUNTS. Select one enabled account with projectId and a session reference.');
     writeFileSync(accountsFile, JSON.stringify([account]), { mode: 0o600 });
     child = spawn(process.execPath, args, { ...options, stdio: ['ignore', 'pipe', 'pipe'] });
     closed = new Promise(resolve => child.once('close', (code, signal) => resolve({ code, signal })));
