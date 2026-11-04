@@ -1,4 +1,11 @@
 const messages = {
+  setup_arguments: ['The setup options are invalid, incomplete or repeated.', 'Run framerize-remote setup --help for supported options.'],
+  remote_required: ['The remote server address is missing.', 'Add --remote with your server origin, such as https://server.example.'],
+  remote_invalid: ['The remote server address is invalid or uses unapproved HTTP.', 'Use an HTTPS origin without a path, query or credentials. Local HTTP requires numeric loopback.'],
+  server_reference: ['The server token reference is missing or invalid.', 'Use exactly one valid --server-token-file path or --server-token-env variable name.'],
+  local_reference: ['The local token reference is missing or invalid.', 'Use exactly one valid --local-token-file path or --local-token-env variable name.'],
+  inference_invalid: ['The inference timeout is invalid.', 'Use integer milliseconds between 1 and 2147463647 with --inference-timeout-ms.'],
+  profile_write: ['The profile could not be saved.', 'Check the profile directory permissions and that the profile path is not a directory.'],
   listen_invalid: ['The listen address or port is invalid.', 'Use a valid host and a port between 0 and 65535.'],
   listen_failed: ['The local API could not listen on the requested address.', 'Choose a free local port and a host assigned to this machine.'],
   exposure_consent: ['Listening outside loopback requires explicit consent.', 'Add --allow-non-loopback or use --host 127.0.0.1.'],
