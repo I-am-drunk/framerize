@@ -8,7 +8,7 @@ Framerize server.
 
 Keep the package in `framerize-remote/` with its TypeScript source, tests,
 build script, and documentation. Do not implement accounts, sessions,
-minting, inference, Castle Library, or provider integration here. Those belong
+minting, inference, Castle runtime, or provider integration here. Those belong
 in the server. Core owns only the shared HTTP contract and listener.
 Remote adds a forwarding backend and a thin CLI.
 
