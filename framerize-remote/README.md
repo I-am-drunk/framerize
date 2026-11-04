@@ -148,5 +148,5 @@ Its status is advisory and does not change the readiness exit code, except
 that cancellation exits nonzero. Local daemon status does not prove remote
 reachability. Remote still needs an accessible server origin and valid token.
 
-Browserless provider and Castle Library integration, native delivery and
+Browserless provider and Castle runtime integration, native delivery and
 release CI migration remain separate unfinished work.
