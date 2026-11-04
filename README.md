@@ -30,8 +30,9 @@ npm run build
 
 Prepare an authorized account and its private session reference using the
 [account configuration guide](framerize-server/docs/framer-backend.md#select-a-json-account).
-Keep the server token in a separate private file. Pass file paths or environment
-variable names to the CLI, never credential values.
+Keep the server token in a separate private file. On Unix, restrict it to the
+owner with `chmod 600 /private/framerize/server-token`. Pass file paths or
+environment variable names to the CLI, never credential values.
 
 ```sh
 node framerize-server/bin/framerize-server.js serve \
@@ -48,11 +49,14 @@ Use Ctrl+C to stop the server.
 The default listener is local to the server machine. For clients on another
 machine, use your TLS reverse proxy's HTTPS origin in the Remote command below.
 The [server guide](framerize-server/README.md#run) covers the generic HTTP
-backend, listener options and embedding. Neither CLI automatically loads `.env`.
+backend, listener options and embedding. The
+[environment guide](framerize-server/docs/environment.md) explains overrides
+and precedence. Neither CLI automatically loads `.env`.
 
 ## 3. Connect Remote on the client machine
 
-Use the server's token file and a different private token file for local clients.
+Put a copy of the server token in a private file on the client machine.
+Use a different private token file for local clients.
 The server URL is its origin, without `/v1`:
 
 ```sh
