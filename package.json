@@ -19,7 +19,8 @@
     "test:packages": "node --test .tools/test/package-coexistence.test.js .tools/test/package-archive.test.js && node --test test/package-coexistence-workflow.test.mjs",
     "build": "npm run build:server && tsc -p tsconfig.tools.json && npm run build --workspace=framerize-remote",
     "check": "npm run check --workspace=@framerize/core && tsc -p framerize-server/tsconfig.json --noEmit && tsc -p tsconfig.tools.json --noEmit && npm --prefix framerize-server run check && npm run typecheck --workspace=framerize-remote",
-    "test": "npm run test --workspace=@framerize/core && node --test .tools/test/core-package-check.test.js .tools/test/installed-server-flow.test.js .tools/test/installed-remote-flow.test.js && npm --prefix framerize-server test && npm run test --workspace=framerize-remote",
+    "test": "npm run test --workspace=@framerize/core && node --test .tools/test/core-package-check.test.js .tools/test/installed-server-flow.test.js .tools/test/installed-remote-flow.test.js && npm --prefix framerize-server test && npm run test --workspace=framerize-remote && npm run test:capacity",
+    "test:capacity": "node --test test/server-capacity.test.mjs",
     "check:package": "tsc -p tsconfig.tools.json && node .tools/scripts/core-package-check.js",
     "check:native": "tsc -p tsconfig.tools.json && node .tools/scripts/check-native-server.js"
   },
