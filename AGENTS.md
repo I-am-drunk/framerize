@@ -53,6 +53,15 @@ explain any required transition and retain the exact next action.
 
 ## Branches and commits
 
+For authorized legacy-service upgrades, default to graceful draining rather
+than waiting for a naturally idle service. Signal the verified serving process
+to close admission and finish its existing requests and cleanup. Wait for a
+clean exit and an empty service cgroup before switching the release. Never
+force termination to meet a deployment deadline. Keep package qualification,
+account isolation, configuration, cooldown and compatible rollback guards.
+Use `scripts/release_drain.py` for the process-exit checks. Preserve the
+installed service settings and all current databases throughout the upgrade.
+
 `main` remains browser-based until an explicitly reviewed switch. Keep the
 `browser-based` branch as the maintained browser fallback. Develop the native
 path on `browserless`; never enable it on `main` just because fixtures pass.
