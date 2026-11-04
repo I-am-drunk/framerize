@@ -29,6 +29,18 @@ test('account metadata is validated, frozen and credential-free', async (t) => {
   assert.equal('authorization' in accounts[0], false);
 });
 
+test('account metadata preserves a bounded Castle device ID', async context => {
+  for (const castleDeviceId of ['synthetic-device_1.~', 'a'.repeat(256)]) {
+    const records = [{ id: 'fixture', castleDeviceId }];
+    assert.deepEqual(await loadAccounts(await accountFile(context, records)), records);
+  }
+  for (const castleDeviceId of [null, 7, '', 'a'.repeat(257), 'bad id', 'bad\r\nvalue']) {
+    const records = [{ id: 'fixture', castleDeviceId }];
+    await assert.rejects(loadAccounts(await accountFile(context, records)),
+      { message: 'Invalid account Castle device ID' });
+  }
+});
+
 test('account metadata rejects credentials, unknown fields and duplicate IDs', async (t) => {
   for (const accounts of [
     [{ id: 'fixture', authorization: 'secret' }],

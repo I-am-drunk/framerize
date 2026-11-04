@@ -37,6 +37,7 @@ for (const path of ['/v1/responses', '/v1/chat/completions']) for (const viaRemo
     const release = deferred();
     const directories = [];
     const signals = [];
+    const deviceIds = [];
     let collections = 0;
     let inferences = 0;
     let authClosed = 0;
@@ -64,10 +65,11 @@ for (const path of ['/v1/responses', '/v1/chat/completions']) for (const viaRemo
     upstream.listen(0, '127.0.0.1');
     await once(upstream, 'listening');
     const backend = createFramerBackend({ projectId: 'synthetic-project',
+      castleDeviceId: 'synthetic-capacity-device',
       origin: `http://127.0.0.1:${upstream.address().port}`,
       auth: { async accessToken() { return 'synthetic-upstream-token'; },
         async close() { authClosed += 1; } },
-      castle: { mint(input) { signals.push(input.signal); return minter.mint(input); },
+      castle: { mint(input) { signals.push(input.signal); deviceIds.push(input.cuid); return minter.mint(input); },
         close: () => minter.close() },
     });
     server = await createServer({ host: '127.0.0.1', port: 0, serverToken: 'server-token' },
@@ -97,6 +99,7 @@ for (const path of ['/v1/responses', '/v1/chat/completions']) for (const viaRemo
     assert.equal(collections, 2);
     assert.equal(minter.stats().failures, 1);
     assert.equal(minter.stats().busy, false);
+    assert.deepEqual(deviceIds, Array(3).fill('synthetic-capacity-device'));
     for (const signal of signals) assert.equal(getEventListeners(signal, 'abort').length, 0);
     for (const directory of directories) await assert.rejects(access(directory), { code: 'ENOENT' });
     await remote?.close();

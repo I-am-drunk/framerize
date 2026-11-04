@@ -2,7 +2,7 @@ import { open } from 'node:fs/promises';
 import type { FileHandle } from 'node:fs/promises';
 import { constants } from 'node:fs';
 import { dirname, isAbsolute, resolve } from 'node:path';
-import { ConfigurationError } from './errors.js';
+import { AccountFileError, AccountSelectionError, ConfigurationError } from './errors.js';
 
 export interface AccountMetadata {
   readonly id: string;
@@ -11,6 +11,7 @@ export interface AccountMetadata {
   readonly model?: string;
   readonly models?: readonly string[];
   readonly projectId?: string;
+  readonly castleDeviceId?: string;
   readonly session?: AccountSessionReference;
 }
 
@@ -24,6 +25,14 @@ export interface FramerAccount extends AccountMetadata {
 }
 
 export async function loadAccounts(path?: string): Promise<readonly AccountMetadata[]> {
+  try { return await readAccounts(path); }
+  catch (error) {
+    if (error instanceof ConfigurationError) throw new AccountFileError(error.message);
+    throw error;
+  }
+}
+
+async function readAccounts(path?: string): Promise<readonly AccountMetadata[]> {
   if (!path) return Object.freeze([]);
   let file: FileHandle | undefined;
   let value: unknown;
@@ -49,7 +58,7 @@ export async function loadAccounts(path?: string): Promise<readonly AccountMetad
       throw new ConfigurationError(`accounts[${index}] must be an object`);
     }
     const account = entry as Record<string, unknown>;
-    const allowed = ['id', 'enabled', 'label', 'model', 'models', 'projectId', 'session'];
+    const allowed = ['id', 'enabled', 'label', 'model', 'models', 'projectId', 'castleDeviceId', 'session'];
     if (Object.keys(account).some((key) => !allowed.includes(key))) {
       throw new ConfigurationError(`accounts[${index}] has an unknown field`);
     }
@@ -74,6 +83,10 @@ export async function loadAccounts(path?: string): Promise<readonly AccountMetad
     if (account.projectId !== undefined && (typeof account.projectId !== 'string'
       || !/^[A-Za-z0-9_-]{1,128}$/.test(account.projectId))) {
       throw new ConfigurationError('Invalid account project');
+    }
+    if (account.castleDeviceId !== undefined && (typeof account.castleDeviceId !== 'string'
+      || !/^[A-Za-z0-9._~-]{1,256}$/.test(account.castleDeviceId))) {
+      throw new ConfigurationError('Invalid account Castle device ID');
     }
     return Object.freeze({ ...account, id: account.id,
       ...(Array.isArray(account.models) ? { models: Object.freeze([...account.models]) } : {}),
@@ -104,7 +117,7 @@ export async function loadFramerAccount(path: string, accountId?: string): Promi
     && (accountId === undefined || account.id === accountId));
   const selected = accounts[0];
   if (accounts.length !== 1 || !selected?.projectId || !selected.session) {
-    throw new ConfigurationError('Select one configured Framer account');
+    throw new AccountSelectionError('Select one configured Framer account');
   }
   return selected as FramerAccount;
 }

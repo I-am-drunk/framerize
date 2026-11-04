@@ -17,8 +17,16 @@ test('native account fixture uses selected references without secrets in argumen
     assert.equal(config.env.FIXTURE_ACCOUNT_SESSION, 'session=synthetic-account');
     assert.equal(config.args[config.args.indexOf('--account-id') + 1], 'selected');
     const accounts = readFileSync(join(root, 'accounts.json'), 'utf8');
-    assert.doesNotMatch(accounts, /session=|synthetic-/);
-    assert.deepEqual(JSON.parse(accounts).map((account: { id: string }) => account.id), ['unused', 'selected']);
+    for (const secret of [config.env.FIXTURE_ACCOUNT_SESSION, config.env.FIXTURE_SERVER_TOKEN]) {
+      assert.equal(accounts.includes(secret), false);
+      assert.equal(config.args.join(' ').includes(secret), false);
+    }
+    assert.deepEqual(JSON.parse(accounts), [
+      { id: 'unused', projectId: 'unused-project', castleDeviceId: 'synthetic-unused-device',
+        session: { env: 'UNSET_ACCOUNT_SESSION' } },
+      { id: 'selected', projectId: 'selected-project', castleDeviceId: 'synthetic-selected-device',
+        session: { env: 'FIXTURE_ACCOUNT_SESSION' } },
+    ]);
     await assert.rejects(checkNativeAccount(root), /regular file/);
   } finally { rmSync(root, { recursive: true, force: true }); }
 });

@@ -21,6 +21,15 @@ Set `FRAMERIZE_SERVER_TOKEN` in the existing private environment. Keep the upstr
 credential in a separate environment variable or private file. Do not pass secret
 values as command-line arguments.
 
+If startup reports "Account metadata file is unavailable or invalid", check
+`--accounts-file`, read permissions, and the
+[JSON account format](docs/framer-backend.md#select-a-json-account).
+The diagnostic does not print the path, file contents, or credentials.
+
+If startup reports "Select one configured Framer account", check `--account-id`
+and `--accounts-file`. Select one enabled account with a `projectId` and a
+session reference. Omit `--account-id` only when exactly one account is enabled.
+
 ```sh
 npm ci --ignore-scripts
 npm run build
@@ -223,6 +232,13 @@ immutable records. The generic provider does not use these records. The
 account backend requires an explicit selection when more than one account is
 enabled. It never rotates accounts automatically.
 `examples/metadata.example.json` contains no credentials. Keep actual account records outside Git.
+
+An account may include `castleDeviceId` to preserve its existing Castle device
+identity. The server passes it to every mint for that selected account. It must
+be 1 to 256 characters using letters, digits, `.`, `_`, `~`, or `-`. Omitting it
+keeps the library default. Do not invent a replacement ID during account import.
+The value stays on the server, not in Remote configuration or client headers.
+Preserving the ID does not establish live provider acceptance.
 
 Logs contain request IDs, canonical routes, status, outcome, and duration. They
 exclude request bodies, account records, credentials, and arbitrary error messages.
