@@ -25,3 +25,5 @@ export class ServerTokenFileError extends ConfigurationError {
 }
 
 export class AccountFileError extends ConfigurationError {}
+
+export class AccountSelectionError extends ConfigurationError {}

@@ -7,7 +7,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createAccountBackend } from '../dist/account-backend.js';
 import { createServer } from '../dist/server.js';
-import { AccountFileError, ConfigurationError } from '../dist/errors.js';
+import { AccountFileError, AccountSelectionError, ConfigurationError } from '../dist/errors.js';
 import { collect, deferred } from './helpers/fixtures.js';
 
 const records = ['personal', 'work'].map(id => ({ id, projectId: `project-${id}`, session: { env: id.toUpperCase() } }));
@@ -163,10 +163,19 @@ test('ambiguous, disabled and missing accounts fail before credential access or 
   const setup = await fixture(context);
   let reads = 0;
   const env = new Proxy({}, { get() { reads += 1; return environment.PERSONAL; } });
-  await assert.rejects(setup.backend({ env }), { message: 'Framer account setup failed' });
-  await assert.rejects(setup.backend({ env, accountId: 'absent' }), { message: 'Framer account setup failed' });
+  const selectionError = error => {
+    assert.ok(error instanceof AccountSelectionError);
+    assert.ok(error instanceof ConfigurationError);
+    assert.equal(error.name, 'ConfigurationError');
+    assert.equal(error.code, 'configuration_error');
+    assert.equal(error.status, 500);
+    assert.equal(error.message, 'Framer account setup failed');
+    return true;
+  };
+  await assert.rejects(setup.backend({ env }), selectionError);
+  await assert.rejects(setup.backend({ env, accountId: 'absent' }), selectionError);
   await writeFile(setup.options.accountsFile, JSON.stringify([{ ...records[0], enabled: false }]));
-  await assert.rejects(setup.backend({ env, accountId: 'personal' }), { message: 'Framer account setup failed' });
+  await assert.rejects(setup.backend({ env, accountId: 'personal' }), selectionError);
   assert.equal(setup.made.length, 0);
   assert.equal(setup.requests.length, 0);
   assert.equal(reads, 0);
