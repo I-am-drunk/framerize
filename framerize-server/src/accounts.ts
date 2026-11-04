@@ -2,7 +2,7 @@ import { open } from 'node:fs/promises';
 import type { FileHandle } from 'node:fs/promises';
 import { constants } from 'node:fs';
 import { dirname, isAbsolute, resolve } from 'node:path';
-import { ConfigurationError } from './errors.js';
+import { AccountFileError, ConfigurationError } from './errors.js';
 
 export interface AccountMetadata {
   readonly id: string;
@@ -40,40 +40,40 @@ export async function loadAccounts(path?: string): Promise<readonly AccountMetad
     }
     if (length > 1024 * 1024) throw new Error();
     value = JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(buffer.subarray(0, length)));
-  } catch { throw new ConfigurationError('Account metadata unavailable'); }
+  } catch { throw new AccountFileError('Account metadata unavailable'); }
   finally { await file?.close(); }
-  if (!Array.isArray(value)) throw new ConfigurationError('accounts JSON must be an array');
+  if (!Array.isArray(value)) throw new AccountFileError('accounts JSON must be an array');
   const ids = new Set<string>();
   return Object.freeze(value.map((entry: unknown, index): AccountMetadata => {
     if (!entry || Array.isArray(entry) || typeof entry !== 'object') {
-      throw new ConfigurationError(`accounts[${index}] must be an object`);
+      throw new AccountFileError(`accounts[${index}] must be an object`);
     }
     const account = entry as Record<string, unknown>;
     const allowed = ['id', 'enabled', 'label', 'model', 'models', 'projectId', 'session'];
     if (Object.keys(account).some((key) => !allowed.includes(key))) {
-      throw new ConfigurationError(`accounts[${index}] has an unknown field`);
+      throw new AccountFileError(`accounts[${index}] has an unknown field`);
     }
     if (typeof account.id !== 'string' || !/^[a-zA-Z0-9][a-zA-Z0-9._-]{0,63}$/.test(account.id)) {
-      throw new ConfigurationError(`accounts[${index}].id must be a short safe string`);
+      throw new AccountFileError(`accounts[${index}].id must be a short safe string`);
     }
-    if (ids.has(account.id)) throw new ConfigurationError('duplicate account id');
+    if (ids.has(account.id)) throw new AccountFileError('duplicate account id');
     ids.add(account.id);
     if (account.enabled !== undefined && typeof account.enabled !== 'boolean') {
-      throw new ConfigurationError(`accounts[${index}].enabled must be boolean`);
+      throw new AccountFileError(`accounts[${index}].enabled must be boolean`);
     }
     for (const key of ['label', 'model']) {
       const field = account[key];
       if (field !== undefined && (typeof field !== 'string' || field.length > 256)) {
-        throw new ConfigurationError('Invalid account metadata');
+        throw new AccountFileError('Invalid account metadata');
       }
     }
     if (account.models !== undefined && (!Array.isArray(account.models) || account.models.length > 100
       || account.models.some((model) => typeof model !== 'string' || !model || model.length > 256))) {
-      throw new ConfigurationError('Invalid account models');
+      throw new AccountFileError('Invalid account models');
     }
     if (account.projectId !== undefined && (typeof account.projectId !== 'string'
       || !/^[A-Za-z0-9_-]{1,128}$/.test(account.projectId))) {
-      throw new ConfigurationError('Invalid account project');
+      throw new AccountFileError('Invalid account project');
     }
     return Object.freeze({ ...account, id: account.id,
       ...(Array.isArray(account.models) ? { models: Object.freeze([...account.models]) } : {}),
@@ -92,7 +92,7 @@ function sessionReference(value: unknown, source: string): AccountSessionReferen
       return Object.freeze({ file: resolve(dirname(resolve(source)), value.file) });
     }
   }
-  throw new ConfigurationError('Invalid account session reference');
+  throw new AccountFileError('Invalid account session reference');
 }
 
 export async function loadFramerAccount(path: string, accountId?: string): Promise<FramerAccount> {
