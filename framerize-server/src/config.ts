@@ -1,6 +1,6 @@
 import { open, type FileHandle } from 'node:fs/promises';
 import { constants } from 'node:fs';
-import { ConfigurationError, ServerTokenFileError } from './errors.js';
+import { AccountSelectionError, ConfigurationError, ServerTokenFileError } from './errors.js';
 
 export interface ServerConfig {
   readonly backend: 'http' | 'framer';
@@ -78,7 +78,10 @@ export function loadConfig(values: unknown = {}, env: Readonly<Record<string, st
   if (config.authorizationEnv && config.authorizationFile) invalid('upstream credential references');
   if (config.backend !== 'http' && config.backend !== 'framer') invalid(label('backend'));
   if (typeof config.accountId !== 'string'
-    || config.accountId && !/^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/.test(config.accountId)) invalid(label('accountId'));
+    || config.accountId && !/^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/.test(config.accountId)) {
+    if (config.backend === 'framer') throw new AccountSelectionError(`Invalid ${label('accountId')}`);
+    invalid(label('accountId'));
+  }
   if (config.backend === 'framer' && (!config.accountsFile || config.upstream
     || config.authorizationEnv || config.authorizationFile)) invalid('Framer backend configuration');
   if (config.backend === 'http' && config.accountId) invalid('account selector');

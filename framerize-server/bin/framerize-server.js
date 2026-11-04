@@ -11,7 +11,7 @@ run().then((code) => { process.exitCode = code; }).catch(error => {
     next: 'Check --accounts-file, read permissions and the documented JSON account format.',
   } : error instanceof AccountSelectionError ? {
     message: 'Select one configured Framer account.',
-    next: 'Check --account-id and --accounts-file. Select one enabled account with projectId and a session reference.',
+    next: 'Check --account-id or FRAMERIZE_SERVER_ACCOUNT and --accounts-file or FRAMERIZE_SERVER_ACCOUNTS. Select one enabled account with projectId and a session reference.',
   } : { message: 'Server failed to start or stop' };
   process.stderr.write(`${JSON.stringify({ event: 'server.failed', ...detail })}\n`);
   process.exitCode = 1;
