@@ -60,8 +60,9 @@ const closed: Promise<void> = provider.close();`;
       '--target', 'ES2022', '--module', 'NodeNext', '--types', 'node',
       '--typeRoots', path.join(repository, 'node_modules/@types'), 'consumer.mts'],
     { cwd: root, encoding: 'utf8', timeout: 10000 });
-    assert.ifError(result.error);
-    assert.equal(result.signal, null, `TypeScript terminated with ${result.signal}`);
+    assert.ok(!result.error && result.signal === null,
+      `TypeScript did not exit normally: signal=${result.signal}, error code=${result.error?.code ?? 'none'}, error message=${result.error?.message ?? 'none'}\n` +
+      `stdout:\n${result.stdout ?? ''}\nstderr:\n${result.stderr ?? ''}`);
     return result;
   };
   const positive = check();
