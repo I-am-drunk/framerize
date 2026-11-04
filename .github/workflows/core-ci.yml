@@ -34,7 +34,7 @@ on:
       - 'tsconfig*.json'
       - '.github/workflows/core-ci.yml'
   push:
-    branches: [main, browserless-node, 'restart/**']
+    branches: [main, 'restart/**']
     paths:
       - '.gitattributes'
       - 'scripts/package-*.ts'
