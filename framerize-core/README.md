@@ -55,9 +55,12 @@ request IDs, known routes, status, outcome, and elapsed time, never request data
 
 Responses preserve the literal header `x-should-retry: false`, unless
 `Connection` names it as hop-by-hop. Other values and duplicates are omitted.
-This preserves an upstream instruction not to retry. It does not suppress
-client retries after local timeouts or connection loss, or guarantee that
-an inference request runs exactly once.
+This preserves an upstream instruction not to retry. Locally generated
+inference timeout responses also include this header because cancellation
+does not prove that the upstream performed no work. Upstream responses
+without this instruction retain their existing retry behavior. Clients may
+ignore the header or retry after connection loss, so this does not guarantee
+that an inference request runs exactly once.
 
 The readiness parser does not impose a network byte cap or timeout. Its caller
 must bound the complete response before passing bytes to the parser, inspect

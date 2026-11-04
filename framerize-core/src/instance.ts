@@ -143,6 +143,9 @@ export function createInstance(options: InstanceOptions): FramerizeInstance {
       else {
         response.shouldKeepAlive = false;
         if (failure.code === 'unauthorized') response.setHeader('www-authenticate', 'Bearer');
+        if (failure.code === 'headers_timeout' || failure.code === 'idle_timeout') {
+          response.setHeader('x-should-retry', 'false');
+        }
         json(response, failure.status, { error: {
           type: failure.code === 'unauthorized' ? 'authentication_error' : 'invalid_request_error',
           code: failure.code === 'request_timeout' ? 'idle_timeout' : failure.code,
