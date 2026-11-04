@@ -14,7 +14,7 @@ const read = file => readFileSync(new URL('../' + file, import.meta.url));
 test('gitattributes keep LF text and byte-identical Castle or license inputs', () => {
   const attrs = read('.gitattributes').toString('utf8');
   assert.match(attrs, /^\* text=auto eol=lf/m);
-  assert.match(attrs, /framerize-castle\/castle\/\*\* -text/);
+  assert.match(attrs, /framerize-server\/src\/castle\.ts -text/);
   assert.match(attrs, /framerize-remote\/T3-LICENSE -text/);
 });
 
@@ -65,20 +65,19 @@ test('Windows-style Git checkout preserves source and pinned bytes', () => {
     git(['config', 'core.safecrlf', 'false']);
     mkdirSync(join(root, 'framerize-server/src'), { recursive: true });
     mkdirSync(join(root, 'framerize-remote'));
-    mkdirSync(join(root, 'framerize-castle/castle'), { recursive: true });
     writeFileSync(join(root, '.gitattributes'), read('.gitattributes'));
     writeFileSync(join(root, 'framerize-server/src/cli.ts'), source);
     writeFileSync(join(root, 'framerize-remote/T3-LICENSE'), pinned);
-    writeFileSync(join(root, 'framerize-castle/castle/pinned.bin'), castle);
+    writeFileSync(join(root, 'framerize-server/src/castle.ts'), castle);
     git(['add', '.']);
     rmSync(join(root, 'framerize-server/src/cli.ts'));
     rmSync(join(root, 'framerize-remote/T3-LICENSE'));
-    rmSync(join(root, 'framerize-castle/castle/pinned.bin'));
+    rmSync(join(root, 'framerize-server/src/castle.ts'));
     git(['checkout-index', '--force', '--all']);
     const checkedOut = readFileSync(join(root, 'framerize-server/src/cli.ts'));
     assert.deepEqual(checkedOut, source);
     assert.deepEqual(readFileSync(join(root, 'framerize-remote/T3-LICENSE')), pinned);
-    assert.deepEqual(readFileSync(join(root, 'framerize-castle/castle/pinned.bin')), castle);
+    assert.deepEqual(readFileSync(join(root, 'framerize-server/src/castle.ts')), castle);
     assert.equal(git(['-c', 'core.autocrlf=false', 'diff', '--name-only']), '');
   } finally { rmSync(root, { recursive: true, force: true }); }
 });

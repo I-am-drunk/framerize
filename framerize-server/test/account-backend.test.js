@@ -12,7 +12,7 @@ import { collect, deferred } from './helpers/fixtures.js';
 const records = ['personal', 'work'].map(id => ({ id, projectId: `project-${id}`, session: { env: id.toUpperCase() } }));
 const environment = { PERSONAL: 'session=synthetic-personal', WORK: 'session=synthetic-work' };
 
-async function fixture(context) {
+async function fixture(context, responseDelayMs = 0) {
   const directory = await mkdtemp(join(tmpdir(), 'framerize-account-backend-'));
   const accountsFile = join(directory, 'accounts.json');
   await writeFile(accountsFile, JSON.stringify(records));
@@ -24,6 +24,9 @@ async function fixture(context) {
     if (request.url === '/auth/ai/access-token') {
       const account = request.headers.cookie === environment.PERSONAL ? 'personal' : 'work';
       response.end(JSON.stringify({ accessToken: `token-${account}`, expiresAt: new Date(Date.now() + 600_000).toISOString() }));
+    } else if (responseDelayMs) {
+      const timer = setTimeout(() => response.end('{"ok":true}'), responseDelayMs);
+      response.once('close', () => clearTimeout(timer));
     } else response.end('{"ok":true}');
   });
   gateway.listen(0, '127.0.0.1'); await once(gateway, 'listening');
@@ -54,6 +57,12 @@ async function fixture(context) {
 }
 
 const contextSignal = () => ({ signal: new AbortController().signal });
+
+test('account backend propagates the inference deadline', { timeout: 3000 }, async context => {
+  const setup = await fixture(context, 300);
+  const backend = await setup.backend({ accountId: 'personal', inferenceTimeoutMs: 60 });
+  await assert.rejects(backend.forward(request()), { code: 'headers_timeout', status: 504 });
+});
 const request = () => ({ ...contextSignal(), path: '/v1/responses', headers: {},
   body: (async function* () { yield Buffer.from('{"model":"example","input":"hello"}'); })(),
 });

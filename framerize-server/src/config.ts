@@ -1,6 +1,6 @@
 import { open, type FileHandle } from 'node:fs/promises';
 import { constants } from 'node:fs';
-import { ConfigurationError } from './errors.js';
+import { ConfigurationError, ServerTokenFileError } from './errors.js';
 
 export interface ServerConfig {
   readonly backend: 'http' | 'framer';
@@ -18,6 +18,7 @@ export interface ServerConfig {
   readonly logLevel: 'debug' | 'info' | 'warn' | 'error' | 'silent';
   readonly maxBodyBytes: number;
   readonly headersTimeoutMs: number;
+  readonly inferenceTimeoutMs: number;
   readonly idleTimeoutMs: number;
   readonly requestHeadersTimeoutMs: number;
   readonly shutdownTimeoutMs: number;
@@ -29,6 +30,7 @@ const DEFAULTS = Object.freeze({
   serverTokenEnv: 'FRAMERIZE_SERVER_TOKEN', serverTokenFile: '',
   authorizationEnv: '', authorizationFile: '', logLevel: 'info',
   maxBodyBytes: 16 * 1024 * 1024, headersTimeoutMs: 15_000,
+  inferenceTimeoutMs: 300_000,
   idleTimeoutMs: 60_000, requestHeadersTimeoutMs: 15_000, shutdownTimeoutMs: 5_000,
 } satisfies Omit<ServerConfig, 'serverToken'>);
 const ENVIRONMENT = Object.freeze({
@@ -54,7 +56,7 @@ export function loadConfig(values: unknown = {}, env: Readonly<Record<string, st
   }
   const label = (name: string) => Object.hasOwn(selected, name) ? ENVIRONMENT[name as keyof typeof ENVIRONMENT] : name;
   const config: Record<string, unknown> = { ...DEFAULTS, ...selected, ...input };
-  for (const name of ['port', 'maxBodyBytes', 'headersTimeoutMs', 'idleTimeoutMs',
+  for (const name of ['port', 'maxBodyBytes', 'headersTimeoutMs', 'inferenceTimeoutMs', 'idleTimeoutMs',
     'requestHeadersTimeoutMs', 'shutdownTimeoutMs']) {
     const value = config[name];
     if (typeof value !== 'number' && (typeof value !== 'string' || !/^\d+$/.test(value))) invalid(label(name));
@@ -120,6 +122,6 @@ export async function readServerToken(config: ServerConfig): Promise<string> {
     const token = buffer.subarray(0, length).toString('utf8').trim();
     if (!token || !/^[A-Za-z0-9._~+/-]+=*$/.test(token)) invalid('server token file');
     return token;
-  } catch { throw new ConfigurationError('Server token file unavailable'); }
+  } catch { throw new ServerTokenFileError(); }
   finally { await file?.close(); }
 }

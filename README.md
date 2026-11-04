@@ -1,71 +1,63 @@
 # Framerize
 
-## Browserless Node work in progress
+Framerize is a Node.js inference API server. Framerize Remote gives a client
+machine a local endpoint that forwards requests to that server.
 
-The `main` branch contains the TypeScript restart as a work-in-progress snapshot,
-not a release or a deployed service. The previous `main` is preserved as `legacy`.
-Framerize Remote replaces the previous connector name in active packages and commands.
+The server owns provider accounts, provider credentials and Castle. Remote
+keeps its local client token separate from the token it uses to reach the server.
 
-Contributor instructions are in [AGENTS.md](AGENTS.md) and
-[CONTRIBUTING.md](CONTRIBUTING.md). Project review and test skills live in
-[.agents/skills](.agents/skills).
+| Run this | Where | Default address |
+| --- | --- | --- |
+| [Framerize server](framerize-server/README.md) | Machine with provider access | `127.0.0.1:8789` |
+| [Framerize Remote](framerize-remote/README.md) | Client machine | `127.0.0.1:8788` |
 
-Local tests cover the shared server, installed Remote package, authentication,
-streaming and shutdown. The [Framer backend](framerize-server/docs/framer-backend.md)
-now loads selected JSON account references and maps provider requests through
-the actual listener in synthetic tests. Castle minting now collects and encodes
-without an external encoder. The server CLI selects a JSON account with
-`--backend framer --accounts-file FILE --account-id NAME`. Its package includes
-the Castle runtime, and the native build embeds it in the executable.
-Live browserless inference, current hosted release qualification and npm
-publication are not complete. Do not use old release evidence to approve this
-snapshot.
+`main` is the current development branch. This source revision is not a
+published release. Live provider compatibility and release qualification remain
+unfinished. Use the source commands below; `npx framerize-remote` does not install
+this revision.
 
-TypeScript packages for a browserless Node server and a small local connector.
-The connector works offline against synthetic providers. Live browserless
-provider compatibility is not yet established.
-Use Node.js 22.12 or newer. Run source commands from this repository's root.
+## 1. Build the source
 
-## Choose a package
-
-- [Framerize server](framerize-server/README.md) exposes authenticated Responses
-  and Chat Completions routes. Its default listener is `127.0.0.1:8789`.
-- [Framerize Remote](framerize-remote/README.md) forwards local client requests to
-  a configured endpoint. Its default listener is `127.0.0.1:8788`.
-- Castle minting is built into the server package
-  ([`framerize-server/src/castle.ts`](framerize-server/src/castle.ts)). Only the
-  server includes it, never Remote or the shared core.
-- [Shared core](docs/typescript-layout.md) supplies the HTTP listener and
-  readiness contract used by both server and Remote.
-
-Remote is not published to npm yet. Use the source commands here instead of
-assuming that `npx framerize-remote` installs this revision.
-
-## Build and inspect
-
-Build before running either source launcher. Published packages will contain
-compiled JavaScript and declarations, not require TypeScript at runtime.
+Use Node.js 22.12 or newer. Run these commands from the repository root on each
+machine where you use a source launcher:
 
 ```sh
 npm ci --ignore-scripts --no-audit --no-fund
 npm run build
-node framerize-server/bin/framerize-server.js --help
-node framerize-remote/bin/framerize-remote.js --help
-node framerize-server/bin/framerize-server.js check
-node framerize-remote/bin/framerize-remote.js check
 ```
 
-Server `check` validates local configuration without contacting its upstream.
-Remote `check` contacts the configured server's authenticated readiness endpoint.
-Neither check proves live inference compatibility.
+## 2. Configure and start the server
 
-## Configure an endpoint
+Prepare an authorized account and its private session reference using the
+[account configuration guide](framerize-server/docs/framer-backend.md#select-a-json-account).
+Keep the server token in a separate private file. On Unix, restrict it to the
+owner with `chmod 600 /private/framerize/server-token`. Pass file paths or
+environment variable names to the CLI, never credential values.
 
-### Remote
+```sh
+node framerize-server/bin/framerize-server.js serve \
+  --backend framer \
+  --accounts-file /private/framerize/accounts.json \
+  --account-id personal \
+  --server-token-file /private/framerize/server-token
+```
 
-Provision two separate credentials: the token accepted by your server and
-the local token your clients will present to Remote. Pass file references,
-never token values in command arguments:
+Replace `serve` with `check` to validate local configuration without contacting
+the provider. This does not establish that an account can perform inference.
+Use Ctrl+C to stop the server.
+
+The default listener is local to the server machine. For clients on another
+machine, use your TLS reverse proxy's HTTPS origin in the Remote command below.
+The [server guide](framerize-server/README.md#run) covers the generic HTTP
+backend, listener options and embedding. The
+[environment guide](framerize-server/docs/environment.md) explains overrides
+and precedence. Neither CLI automatically loads `.env`.
+
+## 3. Connect Remote on the client machine
+
+Put a copy of the server token in a private file on the client machine.
+Use a different private token file for local clients.
+The server URL is its origin, without `/v1`:
 
 ```sh
 node framerize-remote/bin/framerize-remote.js setup \
@@ -75,62 +67,24 @@ node framerize-remote/bin/framerize-remote.js setup \
   --start
 ```
 
-Use the server origin without `/v1`. Setup saves credential references in
-`~/.framerize-remote/framerize-remote.json`, checks readiness, and starts the
-local API at `http://127.0.0.1:8788/v1`. It does not provision a remote server.
-Later, use `serve` from any directory or `check --tailscale` to diagnose the
-connection. Neither CLI automatically loads `.env` files. See the
-[Remote guide](framerize-remote/README.md) for compact output, JSON mode and
-explicit non-loopback access.
+Setup saves credential references in
+`~/.framerize-remote/framerize-remote.json`, checks the server's readiness and
+starts the local API. Configure your client with `http://127.0.0.1:8788/v1`
+and the local token. Setup does not provision a server or import an account.
 
-### Server
+Use `serve` for later starts and `check --tailscale` for connection diagnostics.
+The [Remote guide](framerize-remote/README.md) covers saved profiles, JSON output
+and explicit non-loopback access. Both launchers support `--help`.
 
-The server reads `FRAMERIZE_SERVER_HOST`, `FRAMERIZE_SERVER_PORT`, and
-`FRAMERIZE_SERVER_UPSTREAM`. Explicit CLI flags override environment values;
-unset variables use the defaults. An empty upstream selects no provider.
+## Verification and development
 
-A POSIX-shell example validates these settings without starting a listener or
-contacting the upstream:
+Readiness and synthetic tests do not prove live provider compatibility.
+[Current status](docs/wip-status.md) separates those checks from release gates.
+The [single-request validator](docs/inference-validation.md) documents the
+separate procedure for an authorized live check.
 
-```sh
-FRAMERIZE_SERVER_HOST=127.0.0.1 \
-FRAMERIZE_SERVER_PORT=8789 \
-FRAMERIZE_SERVER_UPSTREAM=http://127.0.0.1:9000 \
-  node framerize-server/bin/framerize-server.js check
-```
-
-This does not start the example upstream or establish readiness. Keep secrets
-out of `FRAMERIZE_SERVER_UPSTREAM`; use the credential-reference options below.
-See [server environment configuration](framerize-server/docs/environment.md)
-for validation and programmatic precedence.
-
-It reads its client-facing token from `FRAMERIZE_SERVER_TOKEN` by default and
-uses a separate upstream credential reference. Follow the
-[server setup instructions](framerize-server/README.md#run) for those options.
-
-## Current integration status
-
-The [Framer Next recovery folder](docs/framer-next.md) keeps the existing native
-server, licenses, disabled account example and integrity records in one place.
-It does not create another backend or install a background service.
-
-Both products use the same typed listener. Remote replaces the local credential
-with the server token and forwards opaque response bytes. Account selection,
-provider requests and the Castle runtime belong on the server, never in Remote.
-Local installed-pair tests cover streaming, tool calls, cancellation and auth.
-They use a synthetic upstream, not a live inference provider.
-
-The [package workflow](docs/package-coexistence-ci.md) and
-[release candidate checks](docs/package-release.md) require new evidence for
-changed packages. Historical JavaScript and native reports do not qualify this
-TypeScript restart. Hosted platform checks, live browserless compatibility
-and npm publication remain open. The [publication workflow](docs/remote-publication.md)
-requires reviewed live evidence and environment approval before publishing
-the original Remote archive.
-The [native server build](docs/native-server-build.md) now binds each executable
-to the verified npm archive rather than bundling loose checkout files.
-
-For development checks, use each package's README. The
-[two-package check](docs/package-coexistence.md) verifies installed package
-coexistence. Fixture and installation results do not establish live inference
-compatibility or publication of a release.
+Contributor rules are in [AGENTS.md](AGENTS.md) and
+[CONTRIBUTING.md](CONTRIBUTING.md). See the
+[TypeScript layout](docs/typescript-layout.md) for package boundaries,
+[package checks](docs/package-coexistence.md) for installed use and
+[native build guide](docs/native-server-build.md) for executable qualification.

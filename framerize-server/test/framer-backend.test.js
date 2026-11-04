@@ -11,6 +11,18 @@ const token = 'synthetic-framer-token';
 const cookie = 'session=synthetic-private-cookie';
 const body = { model: 'example/model', messages: [{ role: 'user', content: 'hello' }], stream: true };
 const signal = () => new AbortController().signal;
+
+test('Framer inference gets a longer wait after bounded preparation', { timeout: 3000 }, async context => {
+  const setup = await fixture(context, (request, response) => {
+    const timer = setTimeout(() => response.end('{"done":true}'), 240);
+    response.once('close', () => clearTimeout(timer));
+  }, { headersTimeoutMs: 80, idleTimeoutMs: 80, inferenceTimeoutMs: 1000 });
+  const controller = new AbortController();
+  const result = await setup.backend.forward(call({ ...body, stream: false }, controller.signal));
+  assert.equal(result.status, 200);
+  assert.equal((await collect(result.body)).toString(), '{"done":true}');
+  assert.equal(getEventListeners(controller.signal, 'abort').length, 0);
+});
 const call = (value = body, parent = signal()) => ({ path: '/v1/chat/completions', signal: parent,
   headers: { authorization: 'Bearer synthetic-local-key', cookie: 'must-not-forward' },
   body: (async function* () { yield Buffer.from(JSON.stringify(value)); })(),

@@ -148,12 +148,19 @@ use `authorizationEnv` or `authorizationFile`, never both.
 
 Timeouts must be positive integers no greater than 2147483647 milliseconds:
 
-- `headersTimeoutMs`, default 15000, bounds provider response-header wait.
+- `headersTimeoutMs`, default 15000, bounds readiness, credential preparation and connection setup.
+- `inferenceTimeoutMs`, default 300000, bounds inference until response headers arrive, including provider preparation.
 - `requestHeadersTimeoutMs`, default 15000, bounds incoming HTTP headers.
 - `idleTimeoutMs`, default 60000, bounds body inactivity and stalled client writes.
 - `shutdownTimeoutMs`, default 5000, bounds provider cleanup.
 
-There is no total request or stream deadline. `requestTimeoutMs` is rejected.
+Set `--inference-timeout-ms` on the CLI, or `inferenceTimeoutMs` in the API.
+This is separate from `headersTimeoutMs`, which still bounds credential and
+connection setup and Framer request preparation. It does not bound the
+inference response-header wait.
+The five-minute default permits silent non-streaming computation without
+extending readiness checks. It does not change an upstream service's limits.
+There is no total stream deadline after headers. `requestTimeoutMs` is rejected.
 `maxBodyBytes` defaults to 16777216. The server buffers at most one bounded request
 body per request to validate JSON before invoking the provider. Response bodies
 stream without whole-response buffering. A paused client must resume before its

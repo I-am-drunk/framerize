@@ -1,4 +1,5 @@
 import type { CredentialReference } from './credentials.js';
+import { DEFAULT_BACKEND_TIMINGS } from './backendConfig.js';
 import { isIP } from 'node:net';
 import { domainToASCII } from 'node:url';
 
@@ -17,6 +18,7 @@ export interface RemoteConfig {
   readonly localToken: CredentialReference;
   readonly host: string;
   readonly port: number;
+  readonly inferenceTimeoutMs: number;
   readonly allowInsecureRemote: boolean;
   readonly allowNonLoopback: boolean;
 }
@@ -27,11 +29,13 @@ export interface PersistedConfig {
   readonly localToken: CredentialReference;
   readonly host?: string;
   readonly port?: number;
+  readonly inferenceTimeoutMs?: number;
   readonly allowInsecureRemote?: boolean;
   readonly allowNonLoopback?: boolean;
 }
 
-export const CONFIG_DEFAULTS = { host: '127.0.0.1', port: 8788 } as const;
+export const CONFIG_DEFAULTS = { host: '127.0.0.1', port: 8788,
+  inferenceTimeoutMs: DEFAULT_BACKEND_TIMINGS.inferenceTimeoutMs } as const;
 
 function isReference(value: unknown): value is CredentialReference {
   if (value === null || typeof value !== 'object') return false;
@@ -46,6 +50,11 @@ export function parsePersisted(value: unknown): PersistedConfig {
     throw new Error('configuration must be a JSON object');
   }
   const raw = value as Record<string, unknown>;
+  if (raw.inferenceTimeoutMs !== undefined && (typeof raw.inferenceTimeoutMs !== 'number'
+    || !Number.isSafeInteger(raw.inferenceTimeoutMs) || raw.inferenceTimeoutMs < 1
+    || raw.inferenceTimeoutMs > 2_147_483_647 - DEFAULT_BACKEND_TIMINGS.readinessWholeMs)) {
+    throw new Error('configuration inference timeout is invalid');
+  }
   for (const flag of ['allowInsecureRemote', 'allowNonLoopback']) {
     if (raw[flag] !== undefined && typeof raw[flag] !== 'boolean') {
       throw new Error('configuration consent must be boolean');

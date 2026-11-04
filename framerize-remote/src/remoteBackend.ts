@@ -5,8 +5,8 @@ import { classifyReadiness } from '@framerize/core';
 import { sendRequest, type RawResponse } from './remoteClient.js';
 import { readBounded } from './readBounded.js';
 import { responseStream } from './responseStream.js';
-import { FORWARDED_REQUEST_HEADERS, type RemoteBackendConfig } from './backendConfig.js';
-import { networkDiagnostic, type DiagnosticCode } from './diagnostics.js';
+import { DEFAULT_BACKEND_TIMINGS, FORWARDED_REQUEST_HEADERS, type RemoteBackendConfig } from './backendConfig.js';
+import { RemoteDiagnosticError, networkDiagnostic, type DiagnosticCode } from './diagnostics.js';
 
 export interface ReadinessDiagnosis {
   readonly readiness: BackendReadiness;
@@ -31,7 +31,8 @@ function pick(headers: Readonly<Record<string, string>>): Record<string, string>
 }
 
 export function createRemoteBackend(config: RemoteBackendConfig): RemoteBackend {
-  for (const value of [config.headersTimeoutMs, config.idleTimeoutMs,
+  const inferenceTimeoutMs = config.inferenceTimeoutMs ?? DEFAULT_BACKEND_TIMINGS.inferenceTimeoutMs;
+  for (const value of [config.headersTimeoutMs, inferenceTimeoutMs, config.idleTimeoutMs,
     config.readinessBodyMaxBytes, config.readinessWholeMs]) {
     if (!Number.isSafeInteger(value) || value <= 0 || value > 2_147_483_647) {
       throw new Error('invalid remote limit');
@@ -109,7 +110,8 @@ export function createRemoteBackend(config: RemoteBackendConfig): RemoteBackend 
         raw = await sendRequest({
           origin: config.endpoint.origin, path: request.path, method: 'POST',
           token: config.serverToken, headers: pick(request.headers), body: request.body,
-          signal: operation.signal, headersTimeoutMs: config.headersTimeoutMs,
+          signal: operation.signal, headersTimeoutMs: inferenceTimeoutMs,
+          connectTimeoutMs: config.headersTimeoutMs,
           idleTimeoutMs: config.idleTimeoutMs,
         });
         const headers: Record<string, string> = {};
@@ -119,8 +121,10 @@ export function createRemoteBackend(config: RemoteBackendConfig): RemoteBackend 
         }
         return { status: raw.message.statusCode ?? 502, headers,
           body: responseStream(raw.message, release, operation.signal) };
-      } catch {
+      } catch (error) {
         release();
+        if (error instanceof RemoteDiagnosticError
+          && (error.code === 'headers_timeout' || error.code === 'idle_timeout')) throw error;
         throw new Error('remote request failed');
       }
     },

@@ -98,7 +98,7 @@ for (const mode of ['timeout', 'disconnect']) {
     const finished = deferred<void>();
     let reads = 0;
     let returns = 0;
-    const instance = createInstance({ token, headersTimeoutMs: 30,
+    const instance = createInstance({ token, inferenceTimeoutMs: 30,
       onRequest() { finished.resolve(); }, backend: backend({
         async forward() { entered.resolve(); return pending.promise; },
       }) });
