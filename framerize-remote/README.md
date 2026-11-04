@@ -134,16 +134,18 @@ Client cancellation closes the remote connection. Each exchange owns its
 HTTP agent, ignores environment proxies and requires valid HTTPS certificates.
 
 The experimental `/openai/v1/responses` and `/anthropic/v1/messages` routes
-forward completed-response requests to the same exact server path. Remote sends
+forward requests to the same exact server path. Remote sends
 no preliminary readiness request for these POSTs. The server validates the body
 before accessing its provider credentials. A 404 never triggers a fallback route.
-Remote buffers each complete reply up to 16 MiB without parsing its JSON.
-The inference deadline also covers the body. Broken or oversized exchanges fail
-without sending success and carry `x-should-retry: false`.
+Remote buffers completed JSON replies up to 16 MiB without parsing their JSON.
+It forwards `text/event-stream` replies as bytes arrive, including the server's
+keepalives. Protocol conversion belongs to the server, not Remote.
+The inference deadline covers the body in both modes. Broken or oversized JSON
+exchanges fail before success. A broken stream closes without a success terminator.
 These routes have local synthetic coverage, not live provider qualification.
-They require a client that requests completed JSON. Ordinary Codex CLI 0.163.0
-requests streaming and receives HTTP 400 on `/openai/v1/responses`; changing
-its base URL alone is insufficient. T3-specific adapters need separate checks.
+Streaming clients use `stream: true`; completed-JSON clients use `stream: false`.
+The server still makes a single non-streaming request to its custom provider
+endpoint. T3-specific adapters and live provider acceptance need separate checks.
 
 Startup output is compact by default. JSON mode covers setup, readiness,
 listening, shutdown and command failures. Failed checks identify missing

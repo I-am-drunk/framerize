@@ -5,13 +5,13 @@ import { createServer } from '../framerize-server/dist/server.js';
 import { createFramerBackend } from '../framerize-server/dist/framer-backend.js';
 import { createRemoteBackend } from '../framerize-remote/dist/index.js';
 
-export function post(origin, path, body, agent, headers = {}, signal) {
+export function post(origin, path, body, agent, headers = {}, signal, onChunk) {
   return new Promise((resolve, reject) => {
     const outgoing = request(new URL(path, origin), { agent, method: 'POST', signal,
       headers: { authorization: 'Bearer synthetic-client', 'content-type': 'application/json', ...headers },
     }, response => {
       const chunks = [];
-      response.on('data', chunk => chunks.push(chunk));
+      response.on('data', chunk => { chunks.push(chunk); onChunk?.(chunk); });
       response.once('error', reject);
       response.once('end', () => resolve({ status: response.statusCode,
         headers: response.headers, body: Buffer.concat(chunks) }));
@@ -128,8 +128,9 @@ export async function fixture(context, protocol, viaRemote, options = {}) {
       serverToken: 'synthetic-client' }, { provider: forwarding });
     origin = `http://127.0.0.1:${(await remote.listen()).port}`;
   }
-  return { payload, observed, counts, serverCalls, entered: entered.promise,
+  return { origin, payload, observed, counts, serverCalls, entered: entered.promise,
     disconnected: disconnected.promise, signals,
-    post: (body = protocol.body, headers, signal) => post(origin, protocol.path, body, agent, headers, signal),
+    post: (body = protocol.body, headers, signal) =>
+      post(origin, protocol.path, body, agent, headers, signal, options.onChunk),
   };
 }

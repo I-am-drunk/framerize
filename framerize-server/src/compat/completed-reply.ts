@@ -101,7 +101,7 @@ function messagesReply(reply: Record<string, unknown>): void {
   for (const block of items) content(block);
 }
 
-export function validateCompletedReply(protocol: CompletedReplyProtocol, bytes: Uint8Array): void {
+export function parseCompletedReply(protocol: CompletedReplyProtocol, bytes: Uint8Array): Record<string, unknown> {
   try {
     if (!(bytes instanceof Uint8Array) || bytes.byteLength === 0
       || bytes.byteLength > MAX_COMPLETED_REPLY_BYTES) invalid();
@@ -112,5 +112,12 @@ export function validateCompletedReply(protocol: CompletedReplyProtocol, bytes: 
     else if (protocol === 'messages') messagesReply(reply);
     else invalid();
     usage(reply.usage);
+    return reply;
   } catch { throw new CompletedReplyError(); }
+}
+
+export { object as replyObject, blocks as replyBlocks };
+
+export function validateCompletedReply(protocol: CompletedReplyProtocol, bytes: Uint8Array): void {
+  parseCompletedReply(protocol, bytes);
 }

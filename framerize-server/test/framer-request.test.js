@@ -2,6 +2,20 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { decodeFramerRequest, encodeFramerRequest, FRAMER_ROUTES } from '../dist/framer-request.js';
 
+for (const path of ['/openai/v1/responses', '/anthropic/v1/messages']) {
+  for (const stream of [undefined, false, true]) {
+    test(`${path} separates client stream=${stream} from provider mode`, () => {
+      const request = { model: 'fixture', input: 'hello', messages: [], max_tokens: 10,
+        stream, temperature: 0.2, tools: [{ type: 'custom', name: 'fixture' }] };
+      const decoded = decodeFramerRequest(path, Buffer.from(JSON.stringify(request)));
+      assert.equal(decoded.clientStream, stream === true);
+      assert.deepEqual(decoded.request, { ...request, stream: false });
+      const encoded = JSON.parse(encodeFramerRequest(decoded, 'project', 'synthetic'));
+      assert.deepEqual(encoded.request, decoded.request);
+    });
+  }
+}
+
 for (const [path, request] of [
   ['/v1/responses', { model: 'example', input: 'hello', stream: false, previous_response_id: 'response-1' }],
   ['/v1/chat/completions', { model: 'example/model', messages: [], stream: false }],

@@ -127,7 +127,9 @@ export function createRemoteBackend(config: RemoteBackendConfig): RemoteBackend 
           if (typeof value === 'string') headers[name] = value;
           else if (Array.isArray(value)) headers[name] = value.join(', ');
         }
-        if (completed) {
+        const streaming = raw.message.headers['content-type']?.split(';', 1)[0]?.trim().toLowerCase()
+          === 'text/event-stream';
+        if (completed && !streaming) {
           const result = await readBounded(raw.message, 16 * 1024 * 1024,
             config.idleTimeoutMs, operation.signal);
           if (performance.now() >= deadline) expired = true;
