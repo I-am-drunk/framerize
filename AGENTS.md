@@ -16,6 +16,16 @@ Library belongs on the server. This branch is work in progress, not a release.
   Narrow untrusted values from `unknown`; do not hide uncertainty with `any`.
 - Planning and review do not authorize implementation. Preserve unrelated work.
 
+## Learn from legacy without recreating it
+
+- Legacy code is a reference, not the product requirements or a completion checklist.
+- The old web app, relay and systemcmd are excluded. This is not the full exclusion list.
+- Classify proposed behavior as keep, rework, remove, add or undecided. Do not
+  turn an inventory difference into a feature requirement without a user need.
+- New requirements can replace old behavior. Preserve the wanted result, not
+  a mechanism that caused bugs. Add a regression for a reproduced failure.
+- Do not publish overall completion percentages from an unsettled feature list.
+
 ## Cover the affected paths
 
 Check direct server use and Remote use when shared behavior changes. Check the
