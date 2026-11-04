@@ -37,10 +37,10 @@ export interface Reply { status: number; body: Buffer; }
 export interface Observation { path: string; body: Buffer; authorization: string | undefined; }
 
 export function exchange(base: string, path: string, token: string, options: {
-  body?: object; onChunk?: () => void; abort?: boolean; timeoutMs?: number;
+  body?: object; onChunk?: () => void; abort?: boolean; timeoutMs?: number; signal?: AbortSignal;
 } = {}): Promise<Reply> {
   return new Promise((resolve, reject) => {
-    const client = request(new URL(path, base), { agent: false,
+    const client = request(new URL(path, base), { agent: false, signal: options.signal,
       method: options.body ? 'POST' : 'GET',
       headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json' },
     }, (response: IncomingMessage) => {
