@@ -1,5 +1,4 @@
 * text=auto eol=lf
-# Pinned Castle inputs must check out byte-identical on every platform.
-# The minter verifies sha256 pins; CRLF conversion on Windows breaks input-identity.
-framerize-castle/castle/** -text
+# Preserve byte identity for hashed Castle source and the distributed license.
+framerize-server/src/castle.ts -text
 framerize-remote/T3-LICENSE -text
