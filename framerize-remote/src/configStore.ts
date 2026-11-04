@@ -33,6 +33,7 @@ function normalizeConfig(persisted: PersistedConfig, base: string): RemoteConfig
     localToken: absoluteReference(persisted.localToken, base),
     host: normalizeHostname(persisted.host ?? CONFIG_DEFAULTS.host),
     port: persisted.port ?? CONFIG_DEFAULTS.port,
+    inferenceTimeoutMs: persisted.inferenceTimeoutMs ?? CONFIG_DEFAULTS.inferenceTimeoutMs,
     allowInsecureRemote: persisted.allowInsecureRemote ?? false,
     allowNonLoopback: persisted.allowNonLoopback ?? false,
   };

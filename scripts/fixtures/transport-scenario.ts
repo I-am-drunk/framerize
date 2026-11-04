@@ -30,6 +30,8 @@ export const toolResult = { model: 'fixture', stream: true, messages: [
 const first = Buffer.from('data: {"choices":[{"delta":{"tool_calls":[{"id":"call_fixture","type":"function","function":{"name":"fixture_tool","arguments":"{}"}}]}}]}\n\n');
 const last = Buffer.from('data: [DONE]\n\n');
 const result = Buffer.from('data: {"choices":[{"delta":{"content":"résultat"}}]}\n\ndata: [DONE]\n\n');
+const delayedPaths = ['/v1/responses', '/v1/chat/completions'] as const;
+const delayedRequest = (path: string) => ({ fixture: 'delayed-json', stream: false, route: path });
 
 export interface Reply { status: number; body: Buffer; }
 export interface Observation { path: string; body: Buffer; authorization: string | undefined; }
@@ -74,9 +76,19 @@ export async function createScenario() {
         response.end('{"data":[]}');
         return;
       }
+      const payload: unknown = JSON.parse(body.toString());
+      if (payload && typeof payload === 'object' && 'fixture' in payload && payload.fixture === 'delayed-json') {
+        assert.ok(delayedPaths.some(path => path === incoming.url));
+        assert.deepEqual(payload, delayedRequest(incoming.url!));
+        const timer = setTimeout(() => {
+          response.writeHead(200, { 'content-type': 'application/json' });
+          response.end('{"done":true}');
+        }, 16_000);
+        response.once('close', () => clearTimeout(timer));
+        return;
+      }
       assert.equal(incoming.url, '/v1/chat/completions');
       response.writeHead(200, { 'content-type': 'text/event-stream' });
-      const payload: unknown = JSON.parse(body.toString());
       if (JSON.stringify(payload) === JSON.stringify(toolRequest)) {
         const released = new Promise<void>((resolve) => { state.release = resolve; });
         response.write(first);
@@ -99,6 +111,28 @@ export async function createScenario() {
     upstream.closeAllConnections();
     await new Promise<void>((resolve) => upstream.close(() => resolve()));
   } };
+}
+
+export async function exerciseDelayedJson(targets: readonly { url: string; token: string }[],
+  scenario: Awaited<ReturnType<typeof createScenario>>) {
+  const { state } = scenario;
+  const before = state.requests.length;
+  const cancelled = state.cancelled;
+  const completed = await Promise.all(targets.flatMap(({ url, token }) =>
+    delayedPaths.map(async path => {
+      const response = await exchange(url, path, token, { body: delayedRequest(path), timeoutMs: 25_000 });
+      assert.equal(response.status, 200);
+      assert.equal(response.body.toString(), '{"done":true}');
+      return response;
+    })));
+  const requests = state.requests.slice(before).filter(entry => entry.path !== '/v1/models');
+  assert.equal(requests.length, targets.length * 2);
+  assert.deepEqual(requests.map(entry => entry.path).sort(),
+    targets.flatMap(() => delayedPaths).sort());
+  assert.ok(requests.every(entry => entry.body.equals(Buffer.from(JSON.stringify(delayedRequest(entry.path))))));
+  assert.equal(state.cancelled, cancelled);
+  assert.deepEqual(state.failures, []);
+  return completed.length;
 }
 
 export async function exerciseFlow(base: string, token: string,

@@ -11,9 +11,44 @@ import { join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { promisify } from 'node:util';
 import { npmCli, privateEnvironment } from '../scripts/core-package-check.js';
-import { startInstalledServer, startInstalledRemote, localToken } from '../scripts/fixtures/installed-server.js';
-import { assertTransportClosed, createScenario, exchange, exerciseFlow,
+import { startInstalledServer, startInstalledRemote, localToken, serverToken } from '../scripts/fixtures/installed-server.js';
+import { assertTransportClosed, createScenario, exchange, exerciseDelayedJson, exerciseFlow,
   toolRequest, transportResources } from '../scripts/fixtures/transport-scenario.js';
+
+for (const routing of ['passthrough', 'collapsed', 'swapped'] as const) {
+  test(`delayed JSON validation checks upstream routes: ${routing}`, { timeout: 3000 }, async () => {
+    const initialResources = transportResources();
+    const state: Awaited<ReturnType<typeof createScenario>>['state'] = {
+      ready: true, cancelled: 0, release() {}, requests: [], failures: [],
+    };
+    const upstream = createServer(async (incoming, response) => {
+      const chunks: Buffer[] = [];
+      for await (const chunk of incoming) chunks.push(Buffer.from(chunk));
+      let path = incoming.url!;
+      if (routing === 'collapsed') path = '/v1/responses';
+      if (routing === 'swapped') {
+        path = path === '/v1/responses' ? '/v1/chat/completions' : '/v1/responses';
+      }
+      state.requests.push({ path,
+        body: Buffer.concat(chunks), authorization: incoming.headers.authorization });
+      response.end('{"done":true}');
+    });
+    const close = async () => {
+      upstream.closeAllConnections();
+      await new Promise<void>(resolve => upstream.close(() => resolve()));
+    };
+    try {
+      upstream.listen(0, '127.0.0.1');
+      await once(upstream, 'listening');
+      const url = `http://127.0.0.1:${(upstream.address() as AddressInfo).port}`;
+      const targets = [{ url, token: 'synthetic' }, { url, token: 'synthetic' }];
+      const pending = exerciseDelayedJson(targets, { state, upstream, url, close });
+      if (routing !== 'passthrough') await assert.rejects(pending, { code: 'ERR_ASSERTION' });
+      else assert.equal(await pending, 4);
+    } finally { await close(); }
+    await assertTransportClosed(initialResources);
+  });
+}
 
 test('installed Remote forwards through the installed server with isolated credentials and no environment proxy',
   { timeout: 90_000 }, async (context) => {
@@ -79,6 +114,9 @@ test('installed Remote forwards through the installed server with isolated crede
       }
       remote = await startInstalledRemote(consumer, hostile, server.url);
       const result = await exerciseFlow(remote.url, localToken, scenario);
+      const delayedJsonRequests = await exerciseDelayedJson([
+        { url: server.url, token: serverToken }, { url: remote.url, token: localToken },
+      ], scenario);
       scenario.state.ready = false;
       const count = scenario.state.requests.filter((entry) => entry.path !== '/v1/models').length;
       const unavailable = await exchange(remote.url, '/v1/chat/completions', localToken, { body: toolRequest });
@@ -104,7 +142,8 @@ test('installed Remote forwards through the installed server with isolated crede
       await server.close();
       await assert.rejects(exchange(remote.url, '/health', localToken), { code: 'ECONNREFUSED' });
       context.diagnostic(JSON.stringify({ node: process.version, identities, ...result,
-        proxyCalls, savedProfileRestart: true, temporaryListenOverride: true, closedCli: true }));
+        delayedJsonRequests, proxyCalls, savedProfileRestart: true,
+        temporaryListenOverride: true, closedCli: true }));
     } finally {
       const cleanup = await Promise.allSettled([remote?.close(), server?.close(), scenario?.close()]);
       proxy.closeAllConnections();
