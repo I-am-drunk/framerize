@@ -108,6 +108,12 @@ a safe error with `x-should-retry: false`. Messages errors include `type: "error
 The inference deadline covers collection and client delivery, not just headers.
 Parsing and buffering can use more memory than the reply's byte size.
 
+An incomplete Responses result can contain an incomplete function call with
+unfinished JSON in its `arguments` string. The server preserves that string,
+the incomplete status and the limit reason. Clients must check the status
+before parsing or executing a tool call. This does not permit truncated HTTP
+replies or malformed outer JSON.
+
 These routes have synthetic local coverage only. Current provider models,
 options, version headers and live browserless acceptance remain unverified.
 Readiness does not advertise custom-route support. The generic HTTP backend

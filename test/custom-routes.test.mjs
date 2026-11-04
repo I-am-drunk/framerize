@@ -4,6 +4,22 @@ import { fixture, protocols, reply } from './custom-routes-fixture.mjs';
 
 for (const protocol of protocols) for (const viaRemote of [false, true]) {
   const name = `${protocol.name}, remote=${viaRemote}`;
+  if (protocol.name === 'responses') for (const argumentText of ['', '{', '{"query":']) {
+    test(`unfinished function arguments survive a limit: ${JSON.stringify(argumentText)}, ${name}`,
+      async context => {
+        const value = reply(protocol, { status: 'incomplete',
+          incomplete_details: { reason: 'max_output_tokens' }, output: [
+            { type: 'function_call', call_id: 'call_limit', name: 'lookup',
+              status: 'incomplete', arguments: argumentText },
+          ] });
+        const setup = await fixture(context, protocol, viaRemote, { value });
+        const result = await setup.post();
+        assert.equal(result.status, 200);
+        assert.deepEqual(result.body, setup.payload);
+        assert.equal(setup.observed.length, 1);
+        assert.equal(setup.counts.mints, 1);
+      });
+  }
   test(`Castle device identity remains server-owned: ${name}`, async context => {
     const castleDeviceId = 'synthetic-server-device';
     const setup = await fixture(context, protocol, viaRemote, { backend: { castleDeviceId } });
