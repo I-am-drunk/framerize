@@ -45,13 +45,9 @@ assuming that `npx framerize-remote` installs this revision.
 
 Build before running either source launcher. Published packages will contain
 compiled JavaScript and declarations, not require TypeScript at runtime.
-Building from source requires SSH read access to the private Castle Library
-repository. The checkout command below fetches the revision pinned in
-`framerize-castle.rev`.
 
 ```sh
 npm ci --ignore-scripts --no-audit --no-fund
-node scripts/fetch-castle.mjs
 npm run build
 node framerize-server/bin/framerize-server.js --help
 node framerize-remote/bin/framerize-remote.js --help
