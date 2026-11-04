@@ -10,19 +10,22 @@ import test, { type TestContext } from 'node:test';
 import { createFramerNext } from '../scripts/package-framer-next.js';
 
 const digest = (bytes: Buffer | string) => createHash('sha256').update(bytes).digest('hex');
+const recoveryArchiveStep =
+  'tar --format=ustar -czf - -C "$RUNNER_TEMP" framer-next > "$RECOVERY_ARCHIVE"';
 test('native CI assembles recovery only after verification and preserves executable permissions in tar', () => {
   const source = readFileSync(new URL('../../.github/workflows/server-ci.yml', import.meta.url), 'utf8');
   const validate = (workflow: string) => {
     const metadata = workflow.indexOf('node scripts/release-metadata.js');
     const recovery = workflow.indexOf('node ../.tools/scripts/package-framer-next.js');
-    const archive = workflow.indexOf('tar --format=ustar -czf "$RECOVERY_ARCHIVE"');
+    const archive = workflow.indexOf(recoveryArchiveStep);
     assert.ok(metadata >= 0 && recovery > metadata && archive > recovery);
+    assert.doesNotMatch(workflow, /tar --format=ustar -czf "\$RECOVERY_ARCHIVE"/);
     assert.match(workflow, /name: framer-next-\$\{\{ matrix.target \}\}/);
     assert.match(workflow, /framer-next-\$\{\{ matrix.target \}\}.tar.gz.sha256/);
   };
   validate(source);
   for (const token of ['node scripts/release-metadata.js', 'node ../.tools/scripts/package-framer-next.js',
-    'tar --format=ustar -czf "$RECOVERY_ARCHIVE"']) assert.throws(() => validate(source.replace(token, 'removed')));
+    recoveryArchiveStep]) assert.throws(() => validate(source.replace(token, 'removed')));
 });
 const mutations: [string, (state: ReturnType<typeof fixture>) => void][] = [
   ['name', state => { state.manifest.name = 'other'; }],
