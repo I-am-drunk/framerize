@@ -27,8 +27,10 @@ If startup reports "Account metadata file is unavailable or invalid", check
 The diagnostic does not print the path, file contents, or credentials.
 
 If startup reports "Select one configured Framer account", check `--account-id`
-and `--accounts-file`. Select one enabled account with a `projectId` and a
-session reference. Omit `--account-id` only when exactly one account is enabled.
+or `FRAMERIZE_SERVER_ACCOUNT`, and `--accounts-file` or
+`FRAMERIZE_SERVER_ACCOUNTS`. Use the exact `id` of one enabled account with a
+`projectId` and a session reference. Malformed IDs also use this diagnostic for
+the Framer backend. Omit the selector only when exactly one account is enabled.
 
 ```sh
 npm ci --ignore-scripts
