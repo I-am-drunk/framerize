@@ -6,6 +6,15 @@ import { upstreamToken } from './transport-scenario.js';
 
 export const serverToken = 'synthetic-server-credential';
 
+export function assertAccountFixtureDoesNotLeakSecrets(accountsJson: string, env: NodeJS.ProcessEnv,
+  args: readonly string[]): void {
+  for (const secret of [env.FIXTURE_ACCOUNT_SESSION, env.FIXTURE_SERVER_TOKEN]) {
+    if (typeof secret !== 'string' || secret.length === 0) continue;
+    assert.equal(accountsJson.includes(secret), false, 'accounts.json must not embed fixture session or server secrets');
+    assert.equal(args.join(' ').includes(secret), false, 'fixture CLI args must not embed fixture session or server secrets');
+  }
+}
+
 async function bounded<Value>(promise: Promise<Value>, milliseconds = 5000): Promise<Value> {
   let timer: ReturnType<typeof setTimeout> | undefined;
   try { return await Promise.race([promise, new Promise<never>((resolveUnused, reject) => {
@@ -35,17 +44,22 @@ export async function startInstalledAccountServer(consumer: string, env: NodeJS.
 
 export function accountServerFixture(consumer: string, env: NodeJS.ProcessEnv, origin: string) {
   const accounts = join(consumer, 'accounts.json');
-  writeFileSync(accounts, JSON.stringify([
+  const records = [
     { id: 'unused', projectId: 'unused-project', castleDeviceId: 'synthetic-unused-device',
       session: { env: 'UNSET_ACCOUNT_SESSION' } },
     { id: 'selected', projectId: 'selected-project', castleDeviceId: 'synthetic-selected-device',
       session: { env: 'FIXTURE_ACCOUNT_SESSION' } },
-  ]));
-  return { env: { ...env, FIXTURE_ACCOUNT_SESSION: 'session=synthetic-account',
-    FIXTURE_SERVER_TOKEN: serverToken }, args: [
+  ];
+  const fixtureEnv = { ...env, FIXTURE_ACCOUNT_SESSION: 'session=synthetic-account',
+    FIXTURE_SERVER_TOKEN: serverToken };
+  const args = [
     '--backend', 'framer', '--account-id', 'selected', '--accounts-file', accounts,
     '--framer-origin', origin, '--port', '0', '--server-token-env', 'FIXTURE_SERVER_TOKEN',
-  ] };
+  ];
+  const accountsJson = JSON.stringify(records);
+  assertAccountFixtureDoesNotLeakSecrets(accountsJson, fixtureEnv, args);
+  writeFileSync(accounts, accountsJson);
+  return { env: fixtureEnv, args };
 }
 
 async function startInstalledCli(consumer: string, env: NodeJS.ProcessEnv, args: string[], kind: 'server' | 'remote',

@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
 import { checkNativeAccount, verifyRuntimeFiles } from '../scripts/native-account-smoke.js';
-import { accountServerFixture } from '../scripts/fixtures/installed-server.js';
+import { accountServerFixture, assertAccountFixtureDoesNotLeakSecrets } from '../scripts/fixtures/installed-server.js';
 
 test('native runtime checks distinguish active extraction from completed cleanup', () => {
   verifyRuntimeFiles([], 0);
@@ -25,10 +25,7 @@ test('native account fixture uses selected references without secrets in argumen
     assert.equal(config.env.FIXTURE_ACCOUNT_SESSION, 'session=synthetic-account');
     assert.equal(config.args[config.args.indexOf('--account-id') + 1], 'selected');
     const accounts = readFileSync(join(root, 'accounts.json'), 'utf8');
-    for (const secret of [config.env.FIXTURE_ACCOUNT_SESSION, config.env.FIXTURE_SERVER_TOKEN]) {
-      assert.equal(accounts.includes(secret), false);
-      assert.equal(config.args.join(' ').includes(secret), false);
-    }
+    assertAccountFixtureDoesNotLeakSecrets(accounts, config.env, config.args);
     assert.deepEqual(JSON.parse(accounts), [
       { id: 'unused', projectId: 'unused-project', castleDeviceId: 'synthetic-unused-device',
         session: { env: 'UNSET_ACCOUNT_SESSION' } },
@@ -37,4 +34,16 @@ test('native account fixture uses selected references without secrets in argumen
     ]);
     await assert.rejects(checkNativeAccount(root), /regular file/);
   } finally { rmSync(root, { recursive: true, force: true }); }
+});
+
+test('account fixture secret policy rejects embedded values but permits synthetic device identifiers', () => {
+  const env = { FIXTURE_ACCOUNT_SESSION: 'session=fixture-secret', FIXTURE_SERVER_TOKEN: 'fixture-server-secret' };
+  const accounts = JSON.stringify([
+    { id: 'selected', castleDeviceId: 'synthetic-selected-device', session: { env: 'FIXTURE_ACCOUNT_SESSION' } },
+  ]);
+  assert.doesNotThrow(() => assertAccountFixtureDoesNotLeakSecrets(accounts, env, []));
+  assert.throws(() => assertAccountFixtureDoesNotLeakSecrets(`${accounts}session=fixture-secret`, env, []),
+    /accounts\.json must not embed/);
+  assert.throws(() => assertAccountFixtureDoesNotLeakSecrets(accounts, env, ['--token', 'fixture-server-secret']),
+    /fixture CLI args must not embed/);
 });
