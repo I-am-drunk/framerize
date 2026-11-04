@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { createHash } from 'node:crypto';
 import { execFileSync } from 'node:child_process';
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -25,12 +26,24 @@ test('compiler output uses LF regardless of the host platform', () => {
 });
 
 test('shared TypeScript configs inherit LF emission from tsconfig.base.json', () => {
-  for (const file of ['framerize-server/tsconfig.json', 'framerize-core/tsconfig.build.json',
-    'tsconfig.server-tools.json', 'tsconfig.tools.json']) {
+  for (const file of ['framerize-server/tsconfig.json', 'framerize-core/tsconfig.json',
+    'framerize-core/tsconfig.build.json', 'framerize-remote/tsconfig.json',
+    'tsconfig.server-tools.json', 'tsconfig.tools.json', 'tsconfig.promotion.json']) {
     const json = JSON.parse(read(file).toString());
     assert.match(String(json.extends), /tsconfig\.base/);
     assert.equal(json.compilerOptions?.newLine, undefined, file);
   }
+});
+
+test('embedded Castle SDK bytes match the runtime sha256 pin', () => {
+  const source = read('framerize-server/src/castle.ts').toString('utf8');
+  const hex = source.match(/"castleSDKV3-LNGA36I3\.mjs": Buffer\.from\("([0-9a-f]+)"/)?.[1];
+  assert.ok(hex, 'missing embedded Castle SDK bytes');
+  const pin = source.match(/const SDK = '([0-9a-f]{64})';/)?.[1];
+  assert.ok(pin, 'missing Castle SDK pin');
+  assert.equal(createHash('sha256').update(Buffer.from(hex, 'hex')).digest('hex'), pin);
+  assert.match(source,
+    /v3: \['castleSDKV3-LNGA36I3\.mjs', \['bundler'\],\s*\n\s*'3337eba7ffe614c2ebd9b2b8a55794f2e2445a9b3658d1af5eb7530152b72c71'\]/);
 });
 
 test('Windows-style Git checkout preserves source and pinned bytes', () => {
