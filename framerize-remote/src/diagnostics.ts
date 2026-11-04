@@ -8,7 +8,7 @@ const messages = {
   profile_write: ['The profile could not be saved.', 'Check the profile directory permissions and that the profile path is not a directory.'],
   listen_invalid: ['The listen address or port is invalid.', 'Use a valid host and a port between 0 and 65535.'],
   listen_failed: ['The local API could not listen on the requested address.', 'Choose a free local port and a host assigned to this machine.'],
-  exposure_consent: ['Listening outside loopback requires explicit consent.', 'Add --allow-non-loopback or use --host 127.0.0.1.'],
+  exposure_consent: ['Listening outside loopback requires explicit consent.', 'Run framerize-remote setup --help to update the saved host or exposure consent.'],
   profile_missing: ['No saved profile was found.', 'Run framerize-remote setup --help.'],
   profile_invalid: ['The saved profile is invalid or unreadable.', 'Repair the profile or run framerize-remote setup --help.'],
   server_credential: ['The server token is missing or invalid.', 'Check the server-token file or environment reference.'],

@@ -70,6 +70,9 @@ Each includes a repair step. With `--json`, failures include an error code.
 Invalid setup values leave an existing profile unchanged. Error messages
 do not include the supplied address, file paths or credential values.
 
+`check` reports `exposure_consent` if a saved non-loopback host lacks consent.
+Use `setup --help` to update the saved host or exposure consent.
+
 - `--server-token-env NAME` / `--server-token-file FILE`: the remote server
   token. Choose one.
 - `--local-token-env NAME` / `--local-token-file FILE`: the local client token

@@ -34,9 +34,38 @@ const cases = [
   ['unknown option', [...valid, `--${canary}`], 'setup_arguments'],
   ['duplicate option', [...valid, ...origin], 'setup_arguments'],
   ['missing option value', [...valid, '--port'], 'setup_arguments'],
-  ['missing profile path', [...valid, '--config'], 'setup_arguments'],
+  ['repeated profile option without a value', [...valid, '--config'], 'setup_arguments'],
   ['duplicate profile path', [...valid, '--config', canary], 'setup_arguments'],
 ];
+
+test('check explains saved exposure consent with a supported recovery command', async t => {
+  const root = await mkdtemp(join(tmpdir(), 'remote-saved-consent-'));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const profile = join(root, 'profile.json');
+  const saved = JSON.stringify({ remote: 'https://server.invalid', host: '0.0.0.0',
+    serverToken: { kind: 'env', name: 'UNSET_SERVER' },
+    localToken: { kind: 'env', name: 'UNSET_LOCAL' } });
+  await writeFile(profile, saved, { mode: 0o600 });
+  const options = { cwd: root, encoding: 'utf8', timeout: 5000,
+    env: { HOME: root, USERPROFILE: root, TMPDIR: root,
+      ...(process.env.SystemRoot ? { SystemRoot: process.env.SystemRoot } : {}) } };
+  for (const json of [false, true]) {
+    const result = spawnSync(process.execPath,
+      [launcher, 'check', '--config', profile, ...(json ? ['--json'] : [])], options);
+    assert.equal(result.error, undefined);
+    assert.equal(result.status, 1);
+    assert.equal(result.stdout, '');
+    if (json) assert.equal(JSON.parse(result.stderr).error, 'exposure_consent');
+    assert.match(result.stderr, /framerize-remote setup --help/);
+    assert.doesNotMatch(result.stderr, /UNSET_SERVER|UNSET_LOCAL/);
+  }
+  const help = spawnSync(process.execPath, [launcher, 'setup', '--help'], options);
+  assert.equal(help.error, undefined);
+  assert.equal(help.status, 0);
+  assert.match(help.stdout, /--allow-non-loopback/);
+  assert.equal(await readFile(profile, 'utf8'), saved);
+  assert.deepEqual(await readdir(root), ['profile.json']);
+});
 
 test('setup explains an unwritable profile target without exposing its path', async () => {
   const root = await mkdtemp(join(tmpdir(), `${canary}-`));
