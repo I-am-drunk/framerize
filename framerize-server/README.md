@@ -12,7 +12,7 @@ exports `ProviderOptions`, `ProviderRequest` and `Provider` through
 inside the package. CLI orchestration, logging and server composition also
 compile from TypeScript. The npm archive contains generated runtime modules
 and declarations, not the source tree. A small Node launcher remains in `bin/`.
-The account backend uses the packaged Castle Library and its TypeScript encoder.
+The account backend uses the packaged Castle runtime and its TypeScript encoder.
 This wiring does not establish live browserless compatibility.
 
 ## Run
@@ -29,8 +29,16 @@ npm --prefix framerize-server start -- --upstream https://inference.example.test
 
 Run these commands from the repository root. Installed packages already
 contain the listener bundle, compiled configuration and account loader. They do not need
-TypeScript or a build step. The package also contains Castle Library and its
-hash-pinned assets. TypeScript source stays out of the npm archive.
+TypeScript or a build step. The package includes Castle as `dist/castle.js`.
+Its collection and encoding workers, pinned inputs, and default interaction
+trace are embedded in that file. Each mint has isolated temporary storage.
+Cancellation and `close()` wait for active work to stop and storage to be removed.
+Normal builds do not access the separate Castle repository. Maintainers can
+regenerate the bundle from an existing local checkout with
+`node scripts/vendor-castle-library.mjs /path/to/castle`, run from the workspace
+root. Add `--check` to verify it without rewriting files. The source commit and
+hashes are recorded in `test/helpers/castle-library-source.json`.
+TypeScript source stays out of the npm archive.
 The main export includes `ServerProvider` and `ServerDependencies` types for
 embedding. Providers can return synchronous or asynchronous responses; the
 server normalizes them into the shared backend contract.
