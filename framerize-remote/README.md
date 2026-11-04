@@ -141,6 +141,9 @@ Remote buffers each complete reply up to 16 MiB without parsing its JSON.
 The inference deadline also covers the body. Broken or oversized exchanges fail
 without sending success and carry `x-should-retry: false`.
 These routes have local synthetic coverage, not live provider qualification.
+They require a client that requests completed JSON. Ordinary Codex CLI 0.163.0
+requests streaming and receives HTTP 400 on `/openai/v1/responses`; changing
+its base URL alone is insufficient. T3-specific adapters need separate checks.
 
 Startup output is compact by default. JSON mode covers setup, readiness,
 listening, shutdown and command failures. Failed checks identify missing
