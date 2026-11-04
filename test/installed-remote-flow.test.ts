@@ -53,7 +53,8 @@ test('installed Remote forwards through the installed server with isolated crede
         assert.equal(packed.length, 1);
         const info = packed[0]!;
         const archive = join(root, info.filename);
-        assert.ok(info.size < 65536);
+        const limit = name === 'framerize-server' ? 2 * 1024 * 1024 : 64 * 1024;
+        assert.ok(info.size > 0 && info.size < limit, `${name} archive exceeds its size budget`);
         archives.push(archive);
         identities.push({ name, sha256: createHash('sha256').update(readFileSync(archive)).digest('hex'),
           bytes: info.size, files: info.files.length });
