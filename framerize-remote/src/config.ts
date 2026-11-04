@@ -3,6 +3,11 @@ import { DEFAULT_BACKEND_TIMINGS } from './backendConfig.js';
 import { isIP } from 'node:net';
 import { domainToASCII } from 'node:url';
 
+export class ConfigValidationError extends Error {
+  constructor(readonly code: 'inference_invalid' | 'listen_invalid' | 'server_reference' | 'local_reference',
+    message: string) { super(message); }
+}
+
 function isListenHost(host: string): boolean {
   const bare = host.replace(/^\[([^\]]+)\]$/, '$1');
   if (isIP(bare)) return true;
@@ -53,7 +58,7 @@ export function parsePersisted(value: unknown): PersistedConfig {
   if (raw.inferenceTimeoutMs !== undefined && (typeof raw.inferenceTimeoutMs !== 'number'
     || !Number.isSafeInteger(raw.inferenceTimeoutMs) || raw.inferenceTimeoutMs < 1
     || raw.inferenceTimeoutMs > 2_147_483_647 - DEFAULT_BACKEND_TIMINGS.readinessWholeMs)) {
-    throw new Error('configuration inference timeout is invalid');
+    throw new ConfigValidationError('inference_invalid', 'configuration inference timeout is invalid');
   }
   for (const flag of ['allowInsecureRemote', 'allowNonLoopback']) {
     if (raw[flag] !== undefined && typeof raw[flag] !== 'boolean') {
@@ -61,13 +66,13 @@ export function parsePersisted(value: unknown): PersistedConfig {
     }
   }
   if (raw.host !== undefined && (typeof raw.host !== 'string' || !raw.host || /[\s\x00-\x1f\x7f]/.test(raw.host) || !isListenHost(raw.host))) {
-    throw new Error('configuration host is invalid');
+    throw new ConfigValidationError('listen_invalid', 'configuration host is invalid');
   }
   if (raw.port !== undefined && (typeof raw.port !== 'number' || !Number.isInteger(raw.port) || raw.port < 0 || raw.port > 65535)) {
-    throw new Error('configuration port must be between 0 and 65535');
+    throw new ConfigValidationError('listen_invalid', 'configuration port must be between 0 and 65535');
   }
   if (typeof raw.remote !== 'string') throw new Error('configuration remote must be a string');
-  if (!isReference(raw.serverToken)) throw new Error('configuration serverToken reference is invalid');
-  if (!isReference(raw.localToken)) throw new Error('configuration localToken reference is invalid');
+  if (!isReference(raw.serverToken)) throw new ConfigValidationError('server_reference', 'configuration serverToken reference is invalid');
+  if (!isReference(raw.localToken)) throw new ConfigValidationError('local_reference', 'configuration localToken reference is invalid');
   return raw as unknown as PersistedConfig;
 }

@@ -64,6 +64,12 @@ Saves are atomic and owner-only on POSIX. New file references become absolute
 paths; relative references in existing profiles resolve beside the profile.
 Omit `--start` to save without loading credentials or contacting the server.
 
+Setup errors identify a missing server address, invalid token reference,
+invalid listen setting or time limit, or a profile that could not be saved.
+Each includes a repair step. With `--json`, failures include an error code.
+Invalid setup values leave an existing profile unchanged. Error messages
+do not include the supplied address, file paths or credential values.
+
 - `--server-token-env NAME` / `--server-token-file FILE`: the remote server
   token. Choose one.
 - `--local-token-env NAME` / `--local-token-file FILE`: the local client token
