@@ -11,6 +11,7 @@ const invalid = {
   malformed: '{"private-content-canary":',
   shape: '{}',
   metadata: '[{"id":"demo","private-content-canary":true}]',
+  'device-id': '[{"id":"demo","castleDeviceId":"private-content-canary invalid"}]',
   reference: '[{"id":"demo","session":{"private-content-canary":true}}]',
 };
 
