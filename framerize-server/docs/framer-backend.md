@@ -72,8 +72,9 @@ framerize-server serve --backend framer \
 `FRAMERIZE_SERVER_BACKEND`, `FRAMERIZE_SERVER_ACCOUNTS` and
 `FRAMERIZE_SERVER_ACCOUNT` provide the same selection through the environment.
 The Framer backend rejects generic upstream URLs and authorization references.
-The native executable embeds the minter and its assets. It extracts them to a
-private temporary directory and removes that directory after minter shutdown.
+The native executable bundles Castle directly. It does not fetch the separate
+Castle repository or require an external encoder. See the
+[native build contract](../../docs/native-server-build.md).
 
 Embedding callers supply the session cookie, project ID, server token and a Castle
 minter. These variables are not loaded automatically. Never put credential
@@ -93,8 +94,20 @@ It does not prove the next inference will succeed. Each inference acquires a
 token and mints once. There are no retries, account rotations or alternate
 feature categories. An inference refusal never marks the session signed out.
 
-The default body limit is 16 MiB. Preparation and response headers share a
-15-second deadline. Streaming has a 60-second idle timeout, not a total limit.
+The default body limit is 16 MiB. `headersTimeoutMs` gives request-body
+collection, authentication and Castle minting a shared 15-second preparation
+deadline. Once the request is prepared, a separate `inferenceTimeoutMs`
+deadline allows up to 300000 ms for connection, upload and response headers.
+Connection setup also retains its own 15-second limit. These defaults can be
+changed with `--headers-timeout-ms` and `--inference-timeout-ms` in the CLI,
+or the corresponding options in either backend factory.
+
+After response headers arrive, the inference deadline stops. Streaming uses
+`idleTimeoutMs`, a 60-second body-inactivity limit, without a total lifetime
+limit. The CLI option is `--idle-timeout-ms`. A deadline failure does not retry
+the request. Configure Remote's independent forwarding limits separately;
+see [Remote timeouts](../../framerize-remote/README.md#endpoints).
+
 Headers retain every pair under a 16 KiB parser limit. TLS verification cannot
 be disabled by the environment, and requests do not use environment proxies.
 Local authorization, cookies and arbitrary incoming headers are not forwarded.
