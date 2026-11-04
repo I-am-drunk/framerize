@@ -13,6 +13,7 @@ export const FRAMER_ROUTES = Object.freeze({
 export interface FramerRequest {
   readonly request: Readonly<Record<string, unknown>>;
   readonly completedProtocol?: CompletedReplyProtocol;
+  readonly clientStream?: boolean;
 }
 
 function invalid(): never {
@@ -28,14 +29,13 @@ export function decodeFramerRequest(path: InferenceRequest['path'], bytes: Buffe
   if (typeof request.model !== 'string' || !request.model.trim() || request.model.length > 256) invalid();
   if (request.stream !== undefined && typeof request.stream !== 'boolean') invalid();
   if (path === '/openai/v1/responses' || path === '/anthropic/v1/messages') {
-    if (request.stream === true) invalid();
     const completedProtocol = path === '/openai/v1/responses' ? 'responses' : 'messages';
     if (completedProtocol === 'responses') {
       if (typeof request.input !== 'string' && !Array.isArray(request.input)) invalid();
       if (request.background !== undefined && request.background !== false) invalid();
     } else if (!Array.isArray(request.messages) || typeof request.max_tokens !== 'number'
       || !Number.isSafeInteger(request.max_tokens) || request.max_tokens <= 0) invalid();
-    return { request: { ...request, stream: false }, completedProtocol };
+    return { request: { ...request, stream: false }, completedProtocol, clientStream: request.stream === true };
   }
   if (path === '/v1/responses') return { request };
   if (path !== '/v1/chat/completions' || !Array.isArray(request.messages)) invalid();

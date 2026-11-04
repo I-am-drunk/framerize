@@ -68,7 +68,7 @@ test('installed custom routes use the account server and Remote without a worksp
       await exerciseCustomFlow(remote.url, localToken, scenario);
       assert.deepEqual(scenario.state.failures, []);
       assert.equal(scenario.state.auth, 1);
-      assert.equal(scenario.state.inference, 16);
+      assert.equal(scenario.state.inference, 24);
       assert.equal(scenario.state.cancelled, 4);
       await remote.close();
       await server.close();
@@ -76,7 +76,7 @@ test('installed custom routes use the account server and Remote without a worksp
       await assert.rejects(exchange(server.url, '/health', serverToken), { code: 'ECONNREFUSED' });
       await assert.rejects(exchange(remote.url, '/health', localToken), { code: 'ECONNREFUSED' });
       context.diagnostic(JSON.stringify({ node: process.version, packages,
-        completedToolRoundTrips: 4, invalidReplies: 4, cancelled: scenario.state.cancelled,
+        completedToolRoundTrips: 4, streamedToolRoundTrips: 4, invalidReplies: 4, cancelled: scenario.state.cancelled,
         providerPosts: scenario.state.inference, builtInMinter: true }));
     } finally {
       const cleanup = await Promise.allSettled([remote?.close(), server?.close(), scenario?.close()]);
@@ -95,4 +95,5 @@ test('custom-route checks are selected by the core CI matrix', () => {
   assert.ok(config.include.includes('test/installed-custom-routes.test.ts'));
   assert.match(manifest.scripts.test, /npm run test:custom-routes && npm run test:custom-installed/);
   assert.match(manifest.scripts['test:custom-installed'], /\.tools\/test\/installed-custom-routes\.test\.js/);
+  assert.match(manifest.scripts['test:custom-routes'], /test\/custom-streaming\.test\.mjs/);
 });

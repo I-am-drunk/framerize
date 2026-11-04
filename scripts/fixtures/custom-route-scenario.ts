@@ -20,9 +20,11 @@ function scenarioCase(name: 'responses' | 'messages') {
       { type: 'tool_result', tool_use_id: 'call_fixture', content: 'synthetic-result' }] }]);
   const reply = (tool: boolean) => responses
     ? { id: 'resp_fixture', object: 'response', created_at: 1, model: 'fixture', status: 'completed',
+      usage: { input_tokens: 1, output_tokens: 2 },
       output: tool ? [call] : [{ type: 'message', id: 'msg_fixture', role: 'assistant',
         content: [{ type: 'output_text', text: 'Synthetic result.', annotations: [] }] }] }
     : { id: 'msg_fixture', type: 'message', role: 'assistant', model: 'fixture',
+      usage: { input_tokens: 1, output_tokens: 2 },
       content: tool ? [call] : [{ type: 'text', text: 'Synthetic result.' }],
       stop_reason: tool ? 'tool_use' : 'end_turn', stop_sequence: null };
   return { name, path: responses ? '/openai/v1/responses' : '/anthropic/v1/messages',
@@ -83,17 +85,26 @@ export async function exerciseCustomFlow(base: string, token: string,
     const before = scenario.state.inference;
     assert.equal((await exchange(base, entry.path, 'wrong', { body: entry.initial })).status, 401);
     assert.equal((await exchange(base, entry.path, token,
-      { body: { ...entry.initial, stream: true } })).status, 400);
+      { body: { ...entry.initial, stream: null } })).status, 400);
     assert.equal(scenario.state.inference, before);
     for (const [body, expected] of [[entry.initial, entry.first], [entry.followup, entry.final]] as const) {
       const result = await exchange(base, entry.path, token, { body, timeoutMs: 20_000 });
       assert.equal(result.status, 200);
       assert.deepEqual(result.body, expected);
     }
+    for (const body of [entry.initial, entry.followup]) {
+      const result = await exchange(base, entry.path, token, { body: { ...body, stream: true }, timeoutMs: 20_000 });
+      assert.equal(result.status, 200);
+      const terminal = entry.name === 'responses' ? 'response.completed' : 'message_stop';
+      assert.ok(result.body.includes(`event: ${terminal}\n`));
+      assert.equal(result.body.includes('event: error\n'), false);
+      if (body === entry.initial) assert.ok(result.body.includes(entry.name === 'responses'
+        ? 'response.function_call_arguments.delta' : 'input_json_delta'));
+    }
     const invalid = await exchange(base, entry.path, token, { body: entry.invalid, timeoutMs: 20_000 });
     assert.equal(invalid.status, 502);
     assert.equal(JSON.parse(invalid.body.toString()).error.code, 'upstream_response_invalid');
-    assert.equal(scenario.state.inference, before + 3);
+    assert.equal(scenario.state.inference, before + 5);
     const controller = new AbortController();
     const arrived = once(scenario.gateway, 'inference-waiting', { signal: AbortSignal.timeout(20_000) });
     const closed = once(scenario.gateway, 'inference-closed', { signal: AbortSignal.timeout(20_000) });
@@ -103,7 +114,7 @@ export async function exerciseCustomFlow(base: string, token: string,
     controller.abort();
     await pending;
     await closed;
-    assert.equal(scenario.state.inference, before + 4);
+    assert.equal(scenario.state.inference, before + 6);
   }
   assert.deepEqual(scenario.state.failures, []);
 }

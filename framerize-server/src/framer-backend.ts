@@ -3,8 +3,9 @@ import { createHttpProvider, type Provider } from './provider.js';
 import { decodeFramerRequest, encodeFramerRequest, FRAMER_ROUTES } from './framer-request.js';
 import type { FramerAuth } from './framer-auth.js';
 import type { InferenceBackend, InferenceResponse, RequestContext } from '../dist/core.js';
-import { CompletedReplyError, MAX_COMPLETED_REPLY_BYTES, validateCompletedReply,
+import { CompletedReplyError, MAX_COMPLETED_REPLY_BYTES, parseCompletedReply,
   type CompletedReplyProtocol } from './compat/completed-reply.js';
+import { streamCompletedReply, type CompletedResponse } from './compat/completed-stream.js';
 
 export interface FramerMinter {
   mint(request: { readonly signal: AbortSignal; readonly cuid?: string }): Promise<{ readonly token: string }>;
@@ -31,7 +32,7 @@ interface Operation {
   deadline: number;
   finish(): Promise<void>;
   prepared(timeout: number): void;
-  received(): void;
+  received(keepDeadline?: boolean): void;
 }
 
 const failed = (code: string, status = 503) =>
@@ -53,7 +54,10 @@ function begin(active: Set<Operation>, signal: AbortSignal, timeout: number): Op
       clearTimeout(timer); timer = setTimeout(expire, timeout);
       operation.deadline = performance.now() + timeout;
     },
-    received() { clearTimeout(timer); operation.preparing = false; },
+    received(keepDeadline = false) {
+      if (!keepDeadline) clearTimeout(timer);
+      operation.preparing = false;
+    },
     finish() {
       closing ??= Promise.resolve().then(async () => {
         clearTimeout(timer);
@@ -128,7 +132,7 @@ async function collect(body: InferenceResponse['body'], signal: AbortSignal, lim
 }
 
 async function completedResponse(response: InferenceResponse, protocol: CompletedReplyProtocol,
-  signal: AbortSignal): Promise<InferenceResponse> {
+  signal: AbortSignal): Promise<CompletedResponse> {
   const successful = response.status >= 200 && response.status < 300;
   if (successful) {
     const type = response.headers['content-type']?.split(';', 1)[0]?.trim().toLowerCase();
@@ -137,7 +141,8 @@ async function completedResponse(response: InferenceResponse, protocol: Complete
       || encoding !== undefined && encoding !== 'identity') throw new CompletedReplyError();
   }
   let bytes = await collect(response.body, signal, MAX_COMPLETED_REPLY_BYTES, 'reply');
-  if (successful) validateCompletedReply(protocol, bytes);
+  let reply: Record<string, unknown> | undefined;
+  if (successful) reply = parseCompletedReply(protocol, bytes);
   else {
     const types: Readonly<Record<number, string>> = {
       400: 'invalid_request_error', 401: 'authentication_error', 403: 'permission_error',
@@ -152,17 +157,24 @@ async function completedResponse(response: InferenceResponse, protocol: Complete
   if (!successful) headers['x-should-retry'] = 'false';
   delete headers['content-encoding'];
   delete headers['content-length'];
-  return { status: response.status, headers, body: [bytes] };
+  return { status: response.status, headers, body: [bytes], ...(reply ? { reply } : {}) };
 }
 
-function responseBody(body: InferenceResponse['body'], operation: Operation): AsyncIterableIterator<Buffer> {
+function responseBody(body: InferenceResponse['body'], operation: Operation,
+  enforceDeadline = false): AsyncIterableIterator<Buffer> {
+  const check = () => {
+    if (enforceDeadline && performance.now() >= operation.deadline) {
+      operation.controller.abort(failed('headers_timeout', 504));
+    }
+    operation.controller.signal.throwIfAborted();
+  };
   const iterator = (async function* () {
     try {
       for await (const chunk of body) {
-        operation.controller.signal.throwIfAborted();
+        check();
         yield chunk;
       }
-      operation.controller.signal.throwIfAborted();
+      check();
     } finally { await operation.finish(); }
   })();
   return {
@@ -239,19 +251,29 @@ export function createFramerBackend(input: FramerBackendOptions): InferenceBacke
           headersTimeoutMs: config.headersTimeoutMs, inferenceTimeoutMs: config.inferenceTimeoutMs,
           idleTimeoutMs: config.idleTimeoutMs }, FRAMER_ROUTES);
         submitted = true;
-        const response = await operation.transport.forward({ path: request.path, signal,
+        const pending = operation.transport.forward({ path: request.path, signal,
           headers: { ...(completed ? request.headers : {}),
             accept: completed ? 'application/json' : 'text/event-stream, application/json',
             ...(completed ? { 'accept-encoding': 'identity' } : {}), 'content-type': 'application/json' },
           body: (async function* () { yield encoded; })(),
         });
+        if (decoded.clientStream && decoded.completedProtocol) {
+          const protocol = decoded.completedProtocol;
+          const result = pending.then(response => completedResponse(response, protocol, signal));
+          operation.received(true);
+          return { status: 200, headers: { 'content-type': 'text/event-stream; charset=utf-8',
+            'cache-control': 'no-store', 'x-should-retry': 'false' },
+          body: responseBody(streamCompletedReply(result, protocol, signal,
+            Math.max(1, Math.min(5000, Math.floor(config.idleTimeoutMs / 2)))), operation, true) };
+        }
+        const response = await pending;
         signal.throwIfAborted();
         if (decoded.completedProtocol) {
           const result = await completedResponse(response, decoded.completedProtocol, signal);
           if (performance.now() >= operation.deadline) operation.controller.abort(failed('headers_timeout', 504));
           signal.throwIfAborted();
           await operation.finish();
-          return result;
+          return { status: result.status, headers: result.headers, body: result.body };
         }
         operation.received();
         return { ...response, body: responseBody(response.body, operation) };

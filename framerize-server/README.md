@@ -94,24 +94,35 @@ body bytes and allowlisted headers, including `content-encoding`. The provider
 converts non-2xx upstream bodies to a generic `upstream_http_error` response while
 preserving status and safe headers. It never returns raw upstream error bodies.
 
-## Experimental completed-response routes
+## Experimental custom routes
 
 The Framer backend also accepts `POST /openai/v1/responses` and
 `POST /anthropic/v1/messages`. Both require the server bearer token.
-Use `stream: false` or omit `stream`. Streaming and background Responses jobs
-are rejected before provider credentials or Castle are used.
+Use `stream: false` or omit `stream` for completed JSON. Use `stream: true`
+for client events. Background Responses jobs remain unsupported.
 
-These custom routes are not yet a drop-in endpoint for ordinary Codex CLI.
-Codex CLI 0.163.0 sends `stream: true`, so pointing it at `/openai/v1` returns
-HTTP 400, both directly and through Remote. A separate client's ability to
-request completed JSON does not establish compatibility with Codex or T3.
+Both modes make one non-streaming provider request, to `/ai/v3/responses/`
+or `/ai/v3/messages/` respectively. Client streaming never changes those paths
+or enables provider streaming. There is no retry or route fallback.
 
 The server collects the complete provider reply, up to 16 MiB, and checks its
-JSON envelope before sending success. Valid tool calls, refusals and output-limit
+JSON envelope before sending generated content. Valid tool calls, refusals and output-limit
 results retain their original bytes. Broken, oversized or invalid replies return
 a safe error with `x-should-retry: false`. Messages errors include `type: "error"`.
 The inference deadline covers collection and client delivery, not just headers.
 Parsing and buffering can use more memory than the reply's byte size.
+
+For streaming clients, the server sends SSE headers after credential preparation
+and comment keepalives during the provider wait. It sends protocol events once
+the complete reply is validated, including tool arguments, usage and stop reasons.
+This is not token-by-token generation. Incomplete results stay incomplete.
+Provider failures after headers become sanitized stream errors, not HTTP errors;
+disconnects and expired deadlines close the stream without a success terminator.
+`x-should-retry: false` applies from the start. Remote forwards these bytes without
+interpreting events. Neither keepalives nor slow clients extend the total deadline.
+Responses events retain supplied item IDs and add a consistent ID where absent.
+A missing token total is calculated from the supplied input and output counts.
+Missing Messages usage cannot be converted into a valid stream and produces an error.
 
 An incomplete Responses result can contain an incomplete function call with
 unfinished JSON in its `arguments` string. The server preserves that string,

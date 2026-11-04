@@ -164,7 +164,7 @@ for (const protocol of protocols) for (const viaRemote of [false, true]) {
     const setup = await fixture(context, protocol, viaRemote);
     const unauthorized = await setup.post(protocol.body, { authorization: 'Bearer wrong' });
     assert.equal(unauthorized.status, 401);
-    for (const body of ['{"invalid":', { ...protocol.body, stream: true },
+    for (const body of ['{"invalid":',
       { ...protocol.body, stream: null },
       ...(protocol.name === 'responses' ? [{ ...protocol.body, background: true }] : []),
       { ...protocol.body, model: '' }, protocol.name === 'responses'
