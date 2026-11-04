@@ -8,6 +8,7 @@ from unittest.mock import Mock, patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / 'scripts'))
 import release_drain as drain
+from release_activation import UserService
 
 
 class DrainTests(unittest.TestCase):
@@ -21,7 +22,7 @@ class DrainTests(unittest.TestCase):
         self.service = Mock()
         self.service.executable.return_value = self.executable
 
-    def run_stop(self, states):
+    def run_stop(self, states, stop=None):
         with patch.object(drain, 'state', side_effect=states), \
              patch.object(drain, 'require_readiness'), \
              patch.object(drain, 'descendants', return_value=set()), \
@@ -29,8 +30,52 @@ class DrainTests(unittest.TestCase):
              patch.object(drain.os, 'close') as close, \
              patch.object(drain.signal, 'pidfd_send_signal') as send, \
              patch.object(drain.select, 'select') as wait:
-            result = drain.stop(self.service, self.executable)
+            result = stop() if stop else drain.stop(self.service, self.executable)
         return result, send, wait, close
+
+    def default_service(self):
+        self.service = UserService()
+        self.service.command = Mock()
+        self.service.executable = Mock(return_value=self.executable)
+        self.service._release_executables = {self.executable}
+        return self.service
+
+    def test_default_upgrade_signals_and_drains_without_systemd_stop(self):
+        service = self.default_service()
+        result, send, wait, _ = self.run_stop(
+            [self.before, self.before, self.before, self.after], service.stop)
+        send.assert_called_once_with(91, signal.SIGTERM)
+        wait.assert_called_once_with([91], [], [])
+        service.command.assert_not_called()
+        self.assertTrue(result['clean_exit'])
+
+    def test_default_upgrade_never_retries_an_unconfirmed_drain(self):
+        service = self.default_service()
+        with patch.object(drain, 'state', return_value=self.before), \
+             patch.object(drain, 'stop', side_effect=RuntimeError('unconfirmed')) as stop:
+            with self.assertRaisesRegex(RuntimeError, 'unconfirmed'): service.stop()
+            with self.assertRaisesRegex(RuntimeError, 'preserve current release'): service.stop()
+        stop.assert_called_once()
+        service.command.assert_not_called()
+
+    def test_default_rollback_requires_no_remaining_descendants(self):
+        service = self.default_service()
+        service._drain_group = '/fixture'
+        stopped = dict(self.after, ActiveState='failed', ControlGroup='')
+        with patch.object(drain, 'state', return_value=stopped), \
+             patch.object(drain, 'descendants', return_value={42}) as descendants:
+            with self.assertRaisesRegex(RuntimeError, 'descendants'): service.stop()
+            descendants.return_value = set()
+            service.stop()
+        service.command.assert_not_called()
+
+    def test_default_upgrade_refuses_an_unvalidated_executable(self):
+        service = self.default_service()
+        service._release_executables = set()
+        with patch.object(drain, 'state', return_value=self.before), \
+             patch.object(drain, 'stop') as stop:
+            with self.assertRaisesRegex(RuntimeError, 'does not belong'): service.stop()
+        stop.assert_not_called()
 
     def test_waits_for_exact_process_without_a_forced_stop_timer(self):
         result, send, wait, close = self.run_stop([self.before, self.before, self.after])

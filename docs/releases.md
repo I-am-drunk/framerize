@@ -144,7 +144,12 @@ Health checks, an HTTP 402, or an unfinished HTTP 200 do not qualify a release.
 The receipt hashes its saved request results; changed evidence is rejected.
 
 The command checks the qualification, both packages, the installed user unit
-and the live history schema before stopping anything. It drains the service, changes `current`
+and the live history schema before stopping anything. Upgrades always close
+admission and drain accepted work; they do not wait for a naturally idle window.
+The updater signals the verified daemon directly without starting systemd's
+forced-stop timer. Normal exit and an empty service cgroup are required.
+An unconfirmed drain preserves the current release and recovery intent.
+After a confirmed drain, it changes `current`
 atomically, starts the selected package and verifies that the health response
 comes from its main process. Failed startup restores the previous compatible
 package. Account history is never restored from a backup or changed by this tool.

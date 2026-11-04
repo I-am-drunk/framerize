@@ -179,12 +179,27 @@ class UserService:
             raise ValueError('active service has no main process')
         if pid and self.executable(pid) not in (old / 'bin/framerize', new / 'bin/framerize'):
             raise ValueError('running executable does not belong to this update')
+        self._release_executables = {old / 'bin/framerize', new / 'bin/framerize'}
 
     def stop(self):
-        self.command('stop', '--', self.unit)
-        info = self.show()
-        if info.get('MainPID') != '0' or info.get('ActiveState') not in ('inactive', 'failed'):
-            raise RuntimeError('service stop did not complete')
+        import release_drain as drain
+        if getattr(self, '_drain_failed', False):
+            raise RuntimeError('drain failed; preserve current release and recovery intent')
+        info = drain.state(self)
+        group = info['ControlGroup'] or getattr(self, '_drain_group', '')
+        if info['MainPID'] == '0' and info['ActiveState'] in ('inactive', 'failed'):
+            if group and drain.descendants(group):
+                raise RuntimeError('service descendants remain before release switch')
+            return
+        executable = self.executable(int(info['MainPID']))
+        if executable not in getattr(self, '_release_executables', set()):
+            raise RuntimeError('running executable does not belong to this update')
+        self._drain_group = group
+        try:
+            return drain.stop(self, executable)
+        except BaseException:
+            self._drain_failed = True
+            raise
 
     def start(self, package):
         self.command('start', '--', self.unit)

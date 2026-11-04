@@ -52,3 +52,26 @@ PID 3231960, zero automatic restarts, with matching healthy and ready ownership.
 No new activation preflight or drain was attempted. The exact-binary inference
 qualification requirement and prohibition on live inference remain unchanged.
 The alpha.30 package, alpha.29 release and compatible rollback remain retained.
+
+## Guarded deployment
+
+The later deployment instruction authorized isolated qualification, followed by
+an explicit override of its 4 GiB host precheck. The 2 GiB cgroup, zero swap,
+512-task limit, separate account, disabled paid routes and release guards stayed.
+The exact alpha.31 binary passed streaming and buffered OpenAI/Claude checks,
+signed history, longer replies, streamed checkpoints and a 900-integer tool call.
+The tool retry reached 2,400 tokens and published one complete call.
+All 500 test-workspace credits remained, with no cgroup limit events.
+
+Earlier fixture attempts remain recorded. The 500-integer call fit at 1,200
+tokens. A 900-integer request's exactly-once wording caused the model to decline
+retrying, and a forced-call variant disabled reasoning required by this endpoint.
+Corrected wording distinguished unpublished attempts from one completed call.
+Passing protocol and history results were reused without repeating inference.
+
+Alpha.31 activated at 06:17:19 UTC on 4 November 2026 as PID 3527250.
+The previous process drained in 12.209 seconds and exited normally, leaving no
+descendants. All twelve identities, 485 baseline checkpoints, installed settings
+and service limits remain. The recovery guard shares the 1,200,000,000-byte floor.
+The alpha.29 rollback and compatible bridge remain; no database was restored.
+Health and readiness identify the new PID. Multi-day reliability is unproven.

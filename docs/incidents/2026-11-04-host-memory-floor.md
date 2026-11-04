@@ -41,3 +41,14 @@ Normal traffic increased the checkpoint total to 464 during the build.
 The installed configuration and recovery guard remain unchanged.
 The build archive, staged release, guard candidate, test logs, refusal and
 preservation receipts remain private. Temporary build and smoke files are removed.
+
+## Deployed with alpha.31
+
+The later qualified alpha.31 package includes this unchanged implementation.
+It is live as PID 3527250 from 06:17:19 UTC on 4 November 2026. The coupled
+transaction installed the aligned recovery guard after alpha.29 drained cleanly.
+All twelve accounts, 485 baseline checkpoints and installed settings remain.
+The 06:16:50 memory snapshot reports 2,139,452,212 bytes of admission headroom;
+the 06:17:49 snapshot reports 3,278,251,008 bytes with the 1,200,000,000-byte floor.
+Workload also changed; the floor alone adds 467,398,860 bytes on this host.
+The alpha.29 rollback, alpha.30 archive and all earlier receipts remain retained.

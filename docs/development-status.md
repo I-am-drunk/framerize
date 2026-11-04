@@ -10,16 +10,26 @@ tests pass afterward, including eight new chain regressions.
 Alpha.31 source `ef8e43ac7065135239b925186aeb8d8a93834d30` is built and staged,
 including the alpha.30 host-memory floor. All nine package checks pass.
 The unchanged memory-floor test evidence and web assets were verified and reused.
-Alpha.29 remains live as PID 3231960 with healthy, ready ownership. No production
-setting, recovery guard or account/history state was changed by this task.
-The renewed deployment instruction initiated an isolated qualification preflight.
-Its memory gate refused 4,260,851,712 available bytes against a 4,294,967,296-byte
-minimum. The gate was not polled; no inference, daemon launch or drain occurred.
-A private copy of the existing transaction is now pinned to alpha.31. Only version
-labels and package identities changed; its eight prior transaction tests are reused.
-It still requires exact-binary qualification before the guarded graceful drain.
-Temporary compiler and smoke output was removed; archives and receipts remain.
-Next: qualify alpha.31 when the isolated memory gate passes, then use the pinned transaction.
+Alpha.31 is live as PID 3527250 since 06:17:19 UTC, with healthy, ready ownership.
+Exact-binary qualification passed all four protocol checks, signed history and
+streaming, a complete 900-integer tool call, and clean shutdown. Its tool retry
+reached 2,400 tokens. Passing checks were reused across corrected test fixtures;
+the original unsuccessful fixture attempts remain recorded.
+The user explicitly authorized overriding the earlier 4 GiB qualification precheck.
+The isolated 2 GiB cgroup, zero swap, account separation and activation guards stayed.
+The verified old process drained in 12.209 seconds and left no descendants.
+All twelve account identities, 485 checkpoint rows and installed settings remain.
+The recovery guard now shares the 1,200,000,000-byte floor. Alpha.29 and its bridge
+remain available for compatible rollback; no database snapshot was restored.
+Observed admission headroom changed from 2,139,452,212 to 3,278,251,008 bytes.
+This includes changing workload; the floor alone adds 467,398,860 bytes here.
+Archives, qualification, drain and preservation receipts remain private.
+The source updater now uses the verified drain helper by default. The old
+prepared entrypoint delegates to the same drain path; its natural-idle check
+is removed. These operator-script changes require no binary rebuild or restart.
+The change passes 12 drain tests, 27 activation tests and 19 private entrypoint
+and guard-transaction tests. No new inference or deployment was needed for it.
+Next: normal clients use alpha.31. Multi-day reliability remains unverified.
 
 # Alpha.30 fixed host memory floor, 2026-11-04
 
