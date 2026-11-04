@@ -64,7 +64,8 @@ export async function startServe(
     if (ready !== true) throw new StartupReadinessError(ready.reason, code);
     const instance = createInstance({
       backend, token: localToken, host: config.host, port: config.port,
-      headersTimeoutMs: DEFAULT_BACKEND_TIMINGS.readinessWholeMs + DEFAULT_BACKEND_TIMINGS.headersTimeoutMs,
+      headersTimeoutMs: DEFAULT_BACKEND_TIMINGS.readinessWholeMs,
+      inferenceTimeoutMs: DEFAULT_BACKEND_TIMINGS.readinessWholeMs + config.inferenceTimeoutMs,
       idleTimeoutMs: DEFAULT_BACKEND_TIMINGS.idleTimeoutMs,
     });
     close = () => instance.close();

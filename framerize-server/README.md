@@ -12,7 +12,7 @@ exports `ProviderOptions`, `ProviderRequest` and `Provider` through
 inside the package. CLI orchestration, logging and server composition also
 compile from TypeScript. The npm archive contains generated runtime modules
 and declarations, not the source tree. A small Node launcher remains in `bin/`.
-The account backend uses the packaged Castle Library and its TypeScript encoder.
+The account backend uses the packaged Castle runtime and its TypeScript encoder.
 This wiring does not establish live browserless compatibility.
 
 ## Run
@@ -29,8 +29,8 @@ npm --prefix framerize-server start -- --upstream https://inference.example.test
 
 Run these commands from the repository root. Installed packages already
 contain the listener bundle, compiled configuration and account loader. They do not need
-TypeScript or a build step. The package also contains Castle Library and its
-hash-pinned assets. TypeScript source stays out of the npm archive.
+TypeScript or a build step. The package includes Castle as `dist/castle.js`.
+TypeScript source stays out of the npm archive.
 The main export includes `ServerProvider` and `ServerDependencies` types for
 embedding. Providers can return synchronous or asynchronous responses; the
 server normalizes them into the shared backend contract.
@@ -140,12 +140,19 @@ use `authorizationEnv` or `authorizationFile`, never both.
 
 Timeouts must be positive integers no greater than 2147483647 milliseconds:
 
-- `headersTimeoutMs`, default 15000, bounds provider response-header wait.
+- `headersTimeoutMs`, default 15000, bounds readiness, credential preparation and connection setup.
+- `inferenceTimeoutMs`, default 300000, bounds inference until response headers arrive, including provider preparation.
 - `requestHeadersTimeoutMs`, default 15000, bounds incoming HTTP headers.
 - `idleTimeoutMs`, default 60000, bounds body inactivity and stalled client writes.
 - `shutdownTimeoutMs`, default 5000, bounds provider cleanup.
 
-There is no total request or stream deadline. `requestTimeoutMs` is rejected.
+Set `--inference-timeout-ms` on the CLI, or `inferenceTimeoutMs` in the API.
+This is separate from `headersTimeoutMs`, which still bounds credential and
+connection setup and Framer request preparation. It does not bound the
+inference response-header wait.
+The five-minute default permits silent non-streaming computation without
+extending readiness checks. It does not change an upstream service's limits.
+There is no total stream deadline after headers. `requestTimeoutMs` is rejected.
 `maxBodyBytes` defaults to 16777216. The server buffers at most one bounded request
 body per request to validate JSON before invoking the provider. Response bodies
 stream without whole-response buffering. A paused client must resume before its

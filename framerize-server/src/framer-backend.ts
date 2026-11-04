@@ -16,6 +16,7 @@ export interface FramerBackendOptions {
   readonly origin?: string;
   readonly maxBodyBytes?: number;
   readonly headersTimeoutMs?: number;
+  readonly inferenceTimeoutMs?: number;
   readonly idleTimeoutMs?: number;
 }
 
@@ -25,6 +26,7 @@ interface Operation {
   transport?: Provider;
   preparing: boolean;
   finish(): Promise<void>;
+  prepared(timeout: number): void;
   received(): void;
 }
 
@@ -40,8 +42,10 @@ function begin(active: Set<Operation>, signal: AbortSignal, timeout: number): Op
     controller.abort(failed('request_cancelled', 499));
     if (!operation.preparing) void operation.finish();
   };
-  const timer = setTimeout(() => controller.abort(failed('headers_timeout', 504)), timeout);
+  const expire = () => controller.abort(failed('headers_timeout', 504));
+  let timer = setTimeout(expire, timeout);
   const operation: Operation = { controller, done, preparing: true,
+    prepared(timeout) { clearTimeout(timer); timer = setTimeout(expire, timeout); },
     received() { clearTimeout(timer); operation.preparing = false; },
     finish() {
       closing ??= Promise.resolve().then(async () => {
@@ -66,15 +70,16 @@ function options(input: FramerBackendOptions) {
     const origin = new URL(input.origin ?? 'https://api.framer.com');
     const maxBodyBytes = input.maxBodyBytes ?? 16 * 1024 * 1024;
     const headersTimeoutMs = input.headersTimeoutMs ?? 15_000;
+    const inferenceTimeoutMs = input.inferenceTimeoutMs ?? 300_000;
     const idleTimeoutMs = input.idleTimeoutMs ?? 60_000;
     if (typeof projectId !== 'string' || !/^[A-Za-z0-9_-]{1,128}$/.test(projectId) ||
         origin.username || origin.password || origin.search || origin.hash || origin.pathname !== '/' ||
         origin.protocol !== 'https:' && !(origin.protocol === 'http:' &&
           ['127.0.0.1', '[::1]'].includes(origin.hostname))) throw new Error();
-    for (const value of [maxBodyBytes, headersTimeoutMs, idleTimeoutMs]) {
+    for (const value of [maxBodyBytes, headersTimeoutMs, inferenceTimeoutMs, idleTimeoutMs]) {
       if (!Number.isSafeInteger(value) || value < 1 || value > 2_147_483_647) throw new Error();
     }
-    return { projectId, origin: origin.href, maxBodyBytes, headersTimeoutMs, idleTimeoutMs,
+    return { projectId, origin: origin.href, maxBodyBytes, headersTimeoutMs, inferenceTimeoutMs, idleTimeoutMs,
       accessToken: auth.accessToken.bind(auth), closeAuth: auth.close.bind(auth),
       mint: castle.mint.bind(castle), closeCastle: castle.close.bind(castle) };
   } catch { throw new ConfigurationError('Invalid Framer provider configuration'); }
@@ -175,8 +180,10 @@ export function createFramerBackend(input: FramerBackendOptions): InferenceBacke
           .catch(() => { throw failed('credentials_unavailable'); });
         signal.throwIfAborted();
         const encoded = encodeFramerRequest(decoded, config.projectId, castleToken);
+        operation.prepared(config.inferenceTimeoutMs);
         operation.transport = createHttpProvider({ upstream: config.origin, authorization,
-          headersTimeoutMs: config.headersTimeoutMs, idleTimeoutMs: config.idleTimeoutMs }, FRAMER_ROUTES);
+          headersTimeoutMs: config.headersTimeoutMs, inferenceTimeoutMs: config.inferenceTimeoutMs,
+          idleTimeoutMs: config.idleTimeoutMs }, FRAMER_ROUTES);
         const response = await operation.transport.forward({ path: request.path, signal,
           headers: { accept: 'text/event-stream, application/json', 'content-type': 'application/json' },
           body: (async function* () { yield encoded; })(),

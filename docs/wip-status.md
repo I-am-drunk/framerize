@@ -1,51 +1,34 @@
-# Browserless Node development snapshot
+# Development status
 
-The `browserless-node` branch contains the TypeScript restart and the rename to
-Framerize Remote. This is unfinished development work, not a release.
+`main` is the current development branch. The server, Remote and shared HTTP
+core are work in progress. Use the [source setup instructions](../README.md).
+Open pull requests contain changes that are not yet part of `main`.
 
-## Checked locally
+## What verification covers
 
-- The server build and workspace static checks pass.
-- Node 22.23.4 and 24.13.0 each pass 357 server, workflow and installed-package
-  checks without skips. They cover JSON account selection, session isolation,
-  private credential references and startup cancellation. CLI cancellation now
-  covers asynchronous provider creation, server construction and pending listen.
-  Late-created providers close before exit; cleanup failures remain fatal.
-- Both runtimes pass the installed Remote/server flow with streaming, a tool
-  round trip, cancellation, saved profiles and isolated credentials.
-- The installed packages expose their types without private workspace
-  dependencies. Remote is 23,122 bytes packed and has no runtime dependencies.
-- TLS checks include a hostile insecure-TLS environment and verify that a
-  failed connection is closed before backend shutdown completes.
+Source tests exercise configuration, provider mapping, authentication,
+streaming, cancellation and cleanup with synthetic state. Installed-package
+checks exercise the built server and Remote outside the development checkout.
+Native checks exercise a particular executable and record its source and hashes.
 
-The installed account flow uses synthetic loopback endpoints and the packaged
-Castle Library, not an injected minter. The Linux executable embeds the same
-runtime and Node 22.23.4. It works with installed Remote on Node 22.23.4 and
-24.13.0 with an empty server `PATH`. Checks cover streaming, cancellation
-and removal of its private extracted files. These results do not prove live
-Framer compatibility or qualify another operating system.
+These results apply to the revision, artifacts, runtime and platform actually
+tested. A previous passing run does not qualify changed code or a different
+executable. A queued CI job is neither a pass nor a failure.
 
-## Still unfinished
+The [package workflow](package-coexistence-ci.md) records producer and consumer
+artifacts. The [native build guide](native-server-build.md) describes executable
+verification. Historical reports remain evidence for their named revisions.
 
-- Validate live browserless inference with the account owner's procedure.
-- Qualify hosted packages and native artifacts before publishing a release.
-- Publish the qualified Remote package to npm.
+## Before a release
 
-The [single-request validator](inference-validation.md) is ready for an approved
-endpoint and account. Its 23 offline checks pass on Node 22.23.4 and 24.13.0.
-No live inference was performed for that validation checkpoint.
+1. Pass the applicable hosted checks and qualify the exact package and native
+   artifacts on their target platforms using the [release gates](package-release.md).
+2. Verify live provider behavior using the account owner's
+   [authorized single-request procedure](inference-validation.md).
+3. Publish the reviewed Remote archive through the
+   [publication workflow](remote-publication.md).
 
-## Earlier portability fixes
-
-The first hosted snapshot exposed a Windows type-fixture path mismatch and
-release fixtures inheriting the enclosing CI commit. Both are fixed locally.
-Retained follow-up logs identified CRLF-sensitive license and workflow checks,
-a Windows preload path that needed a file URL, a macOS symlink-path expectation,
-and a Windows resource assertion that ran before the closed handle retired.
-The corrected checks keep exact license bytes and require all resources to
-close within one second. A live-listener negative control still fails.
-
-Node 22.23.4 and 24.13.0 each pass 76 workflow-policy checks, 12 first-run checks,
-and six installed-package and cleanup checks. The installed flow also covers
-paths containing spaces, `#` and `%`. Product runtime source is unchanged.
-Hosted confirmation of these portability corrections remains pending.
+Live provider compatibility and publication of this source revision remain
+unfinished. Readiness, synthetic provider tests and local native checks do not
+complete those steps. Keep credentials in private configuration; ordinary tests
+must not import live accounts or make live provider calls.

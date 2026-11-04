@@ -13,6 +13,7 @@ export async function createConfiguredProvider(config: ServerConfig,
     ...(context.env ? { env: context.env } : {}), signal: context.signal,
     origin: config.framerOrigin, maxBodyBytes: config.maxBodyBytes,
     headersTimeoutMs: config.headersTimeoutMs, idleTimeoutMs: config.idleTimeoutMs,
+    inferenceTimeoutMs: config.inferenceTimeoutMs,
     createMinter: ({ signal }) => createServerMinter(signal),
   });
 }

@@ -7,7 +7,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { build } from 'esbuild';
-import { run } from '../dist/index.js';
+const { run } = await import(process.env.REMOTE_SERVE_ENTRY ?? '../dist/index.js');
 
 const compiled = await build({ entryPoints: [fileURLToPath(new URL('../src/listenOptions.ts', import.meta.url))],
   bundle: true, platform: 'node', format: 'esm', write: false });
@@ -16,7 +16,7 @@ const { applyListenOverrides, parseListenOptions } = await import(
 const quiet = { stdout() {}, stderr() {} };
 const ready = { apiVersion: 1, status: 'ready',
   capabilities: { responses: true, chatCompletions: true, streaming: true } };
-async function remotePeer(context, available = true) {
+async function remotePeer(context, available = true, delays = {}) {
   const calls = [];
   const server = createServer((incoming, outgoing) => {
     calls.push({ path: incoming.url, authorization: incoming.headers.authorization });
@@ -26,7 +26,10 @@ async function remotePeer(context, available = true) {
       outgoing.end(JSON.stringify({ ...ready, status: 'unavailable', reason: 'upstream_unavailable' }));
       return;
     }
-    outgoing.end(incoming.url === '/ready' ? JSON.stringify(ready) : 'opaque inference');
+    const isReady = incoming.url === '/ready';
+    const timer = setTimeout(() => outgoing.end(isReady ? JSON.stringify(ready) : 'opaque inference'),
+      (isReady ? delays.readiness : delays.inference) ?? 0);
+    outgoing.once('close', () => clearTimeout(timer));
   });
   server.listen(0, '127.0.0.1'); await once(server, 'listening');
   context.after(async () => {
@@ -51,6 +54,39 @@ function exchange(port, token) {
       response.on('end', () => resolve({ status: response.statusCode, body: Buffer.concat(chunks).toString() }));
     });
     outgoing.on('error', reject); outgoing.end('{"model":"fixture"}');
+  });
+}
+
+for (const [label, delays, expected] of [
+  ['reserves time for readiness', { readiness: 600, inference: 40 }, 200],
+  ['returns the inference deadline without retrying', { inference: 800 }, 504],
+]) {
+  test(`serve ${label}`, { timeout: 5000 }, async context => {
+    const remote = await remotePeer(context, true, delays);
+    const { root, path } = await profile(context, config);
+    await writeFile(path, JSON.stringify({ ...config, remote: remote.origin,
+      inferenceTimeoutMs: 250, ...await credentials(root) }));
+    let started;
+    const listening = new Promise(resolve => { started = resolve; });
+    const serving = run(['serve', '--config', path, '--port', '0', '--json'], {
+      ...quiet, stdout(text) { const event = JSON.parse(text); if (event.listening) started(event.listening.port); },
+    });
+    try {
+      const port = await Promise.race([listening, serving.then(() => { throw new Error('Serve exited'); })]);
+      const response = await fetch(`http://127.0.0.1:${port}/v1/responses`, {
+        method: 'POST', signal: AbortSignal.timeout(3000),
+        headers: { authorization: 'Bearer synthetic-local', 'content-type': 'application/json' },
+        body: '{"model":"fixture","stream":false}',
+      });
+      const body = await response.text();
+      assert.equal(response.status, expected, body);
+      if (expected === 200) assert.equal(body, 'opaque inference');
+      else {
+        assert.equal(response.headers.get('x-should-retry'), 'false');
+        assert.match(body, /headers_timeout/);
+      }
+      assert.deepEqual(remote.calls.map(call => call.path), ['/ready', '/ready', '/v1/responses']);
+    } finally { process.emit('SIGTERM'); assert.equal(await serving, 0); }
   });
 }
 
