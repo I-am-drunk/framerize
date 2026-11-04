@@ -74,7 +74,8 @@ function responsesReply(reply: Record<string, unknown>): void {
       for (const block of blocks(item.content)) content(block);
     } else if (item.type === 'function_call' || item.type === 'custom_tool_call') {
       if (!nonempty(item.call_id) || !nonempty(item.name)) invalid();
-      if (item.status !== undefined && item.status !== 'completed') invalid();
+      if (item.status !== undefined && item.status !== 'completed'
+        && !(reply.status === 'incomplete' && item.status === 'incomplete')) invalid();
       if (item.id !== undefined && !nonempty(item.id)) invalid();
       if (item.namespace !== undefined && !nonempty(item.namespace)) invalid();
       if (item.type === 'function_call') {
