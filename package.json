@@ -13,7 +13,7 @@
     "package:next": "tsc -p tsconfig.server-tools.json && node .tools/scripts/package-framer-next.js",
     "check:inference": "tsc -p tsconfig.tools.json && node .tools/scripts/check-inference.js",
     "test:inference": "node --test .tools/test/inference-check.test.js",
-    "test:native-tools": "node --test .tools/test/server-native-bundle.test.js .tools/test/server-native-account.test.js .tools/test/framer-next.test.js test/server-workflow.test.mjs",
+    "test:native-tools": "node --test .tools/test/server-native-bundle.test.js .tools/test/server-native-account.test.js .tools/test/framer-next.test.js test/server-workflow.test.mjs test/server-source-newlines.test.mjs",
     "build:server": "npm run build --workspace=@framerize/core && tsc -p tsconfig.server-tools.json && node .tools/scripts/build-server.js && tsc -p framerize-server/tsconfig.json",
     "test:release": "node --test .tools/test/package-release.test.js .tools/test/package-promotion.test.js",
     "test:packages": "node --test .tools/test/package-coexistence.test.js .tools/test/package-archive.test.js && node --test test/package-coexistence-workflow.test.mjs",
