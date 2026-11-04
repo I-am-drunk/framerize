@@ -8,6 +8,17 @@ import test from 'node:test';
 
 const read = file => readFileSync(new URL('../' + file, import.meta.url), 'utf8');
 const workflow = read('.github/workflows/server-ci.yml');
+const recoveryArchiveStep =
+  'tar --format=ustar -czf - -C "$RUNNER_TEMP" framer-next > "$RECOVERY_ARCHIVE"';
+
+test('native CI assembles recovery through stdout tar redirect after verification', () => {
+  const metadata = workflow.indexOf('node scripts/release-metadata.js');
+  const recovery = workflow.indexOf('node ../.tools/scripts/package-framer-next.js');
+  const archive = workflow.indexOf(recoveryArchiveStep);
+  assert.ok(metadata >= 0 && recovery > metadata && archive > recovery);
+  assert.doesNotMatch(workflow, /tar --format=ustar -czf "\$RECOVERY_ARCHIVE"/);
+});
+
 test('recovery archive supports drive paths and spaces', context => {
   const root = mkdtempSync(join(tmpdir(), 'framer-recovery-'));
   context.after(() => rmSync(root, { recursive: true, force: true }));
@@ -18,6 +29,7 @@ test('recovery archive supports drive paths and spaces', context => {
   writeFileSync(join(directory, 'fixture.txt'), 'synthetic-native-bytes');
   const command = workflow.match(/^\s*(tar --format=ustar[^\n]+)/m)?.[1];
   assert.ok(command, 'Missing recovery archive command');
+  assert.equal(command, recoveryArchiveStep);
   const env = { PATH: process.env.PATH, SystemRoot: process.env.SystemRoot,
     HOME: root, USERPROFILE: root, RUNNER_TEMP: runner, RECOVERY_ARCHIVE: archive };
   const shell = ['--noprofile', '--norc', '-euo', 'pipefail', '-c'];
@@ -33,6 +45,16 @@ test('recovery archive supports drive paths and spaces', context => {
   const contents = gunzipSync(readFileSync(resolve(root, archive)));
   assert.equal(contents.subarray(257, 262).toString(), 'ustar');
   assert.ok(contents.includes(Buffer.from('synthetic-native-bytes')));
+  const hashCommand = workflow.split('\n').find(line => line.includes('file+".sha256"')
+    && line.includes('path.basename(file)'))?.trim();
+  assert.ok(hashCommand, 'Missing recovery archive checksum command');
+  const hashResult = spawnSync('bash', [...shell, hashCommand], {
+    cwd: root, encoding: 'utf8', timeout: 5000, env,
+  });
+  assert.equal(hashResult.error, undefined, hashResult.error?.message);
+  assert.equal(hashResult.status, 0, hashResult.stderr);
+  const sidecar = readFileSync(resolve(root, `${archive}.sha256`), 'utf8');
+  assert.match(sidecar, /^[a-f0-9]{64}  framer-next-windows-x64\.tar\.gz\n$/);
 });
 
 test('server builds use only the typed server target and safe installs', () => {
