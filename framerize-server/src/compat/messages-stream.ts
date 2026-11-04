@@ -2,7 +2,8 @@ import { event } from './events.js';
 import { replyBlocks, replyObject } from './completed-reply.js';
 
 function optionalUsage(reply: Record<string, unknown>): Record<string, unknown> {
-  return reply.usage === undefined || reply.usage === null ? {} : replyObject(reply.usage);
+  return reply.usage === undefined || reply.usage === null
+    ? { input_tokens: 0, output_tokens: 0 } : replyObject(reply.usage);
 }
 
 export function* messagesStream(reply: Record<string, unknown>): Generator<Buffer> {

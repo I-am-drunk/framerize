@@ -81,14 +81,18 @@ for (const reason of ['end_turn', 'max_tokens', 'tool_use', 'refusal', 'pause_tu
   });
 }
 
-test('Messages streaming accepts absent usage allowed by completed reply parsing', () => {
-  const value = { id: 'reply', model: 'model', type: 'message', role: 'assistant',
-    stop_reason: 'end_turn', stop_sequence: null, content: [{ type: 'text', text: 'hi' }] };
-  const result = render('messages', value);
-  assert.equal(result[0].type, 'message_start');
-  assert.deepEqual(result[0].message.usage, { output_tokens: 0 });
-  assert.equal(result.at(-1).type, 'message_stop');
-});
+for (const usage of [undefined, null]) {
+  test(`Messages streaming includes required token counts when usage is ${usage}`, () => {
+    const value = { id: 'reply', model: 'model', type: 'message', role: 'assistant',
+      stop_reason: 'end_turn', stop_sequence: null, content: [{ type: 'text', text: 'hi' }], usage };
+    const result = render('messages', value);
+    assert.equal(result[0].type, 'message_start');
+    assert.deepEqual(result[0].message.usage, { input_tokens: 0, output_tokens: 0 });
+    assert.equal(result.at(-2).type, 'message_delta');
+    assert.deepEqual(result.at(-2).usage, { input_tokens: 0, output_tokens: 0 });
+    assert.equal(result.at(-1).type, 'message_stop');
+  });
+}
 
 test('Responses preserves text, annotations, refusals, usage and response metadata', () => {
   const value = responses([{ type: 'message', role: 'assistant', id: 'message', status: 'completed',
