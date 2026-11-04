@@ -1,13 +1,20 @@
-# Default graceful upgrade draining, 2026-11-04
+# Alpha.29 live with graceful upgrade draining, 2026-11-04
 
 Branch `ops/legacy-claude-alpha29-upgrade-20261104` makes graceful draining the
 default for authorized legacy upgrades. Existing requests finish after admission
-closes. The pidfd-based helper requires a clean exit and no remaining descendants;
-it never arms a forced-stop timer. Six helper and eleven prepared-guard tests pass.
-The alpha.29 packages and qualification evidence remain unchanged. The activation
-attempt stopped before signaling because its operation history contained malformed
-JSON. Alpha.25 remains live. Next: recover verifiable operation history, then use
-the prepared draining entrypoint for bridge-first activation.
+closes. The pidfd-based helper requires healthy ownership and history readiness,
+a clean exit and no remaining descendants. It never arms a forced-stop timer.
+Eight helper and eleven prepared-guard tests pass.
+The original log-counting guard encountered four disk-damaged records. They remain
+intact. The corrected check uses the qualified daemon's in-memory ownership gate
+and confirmed process/browser exit rather than inferring completion from logs.
+Both graceful activations succeeded. Alpha.29 source
+`125fe257c9ef200823a560d24106fea2765b0eef` is live as PID 3231960. Health and readiness
+pass; all twelve account identities, installed configuration and 213 existing
+checkpoint rows remain intact. The compatible bridge remains available for rollback.
+The packages and prior isolated qualification evidence were reused. No inference
+test or build was repeated. Multi-day reliability remains unverified.
+Next: normal client requests use the fixed release with the existing configuration.
 
 # Shared Claude request handling, 2026-11-03
 

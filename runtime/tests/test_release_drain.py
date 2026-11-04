@@ -1,5 +1,6 @@
 """Graceful activation must never time out or terminate admitted work."""
 from pathlib import Path
+import io
 import signal
 import sys
 import unittest
@@ -22,6 +23,7 @@ class DrainTests(unittest.TestCase):
 
     def run_stop(self, states):
         with patch.object(drain, 'state', side_effect=states), \
+             patch.object(drain, 'require_readiness'), \
              patch.object(drain, 'descendants', return_value=set()), \
              patch.object(drain.os, 'pidfd_open', return_value=91), \
              patch.object(drain.os, 'close') as close, \
@@ -81,6 +83,31 @@ class DrainTests(unittest.TestCase):
         with patch.object(drain.os, 'walk', side_effect=denied):
             with self.assertRaises(PermissionError):
                 drain.descendants('/fixture')
+
+    def test_unconfirmed_ownership_prevents_signaling(self):
+        with patch.object(drain, 'state', return_value=self.before), \
+             patch.object(drain.os, 'pidfd_open', return_value=91), \
+             patch.object(drain.os, 'close'), \
+             patch.object(drain, 'require_readiness', side_effect=RuntimeError('unconfirmed')), \
+             patch.object(drain.signal, 'pidfd_send_signal') as send:
+            with self.assertRaisesRegex(RuntimeError, 'unconfirmed'):
+                drain.stop(self.service, self.executable)
+            send.assert_not_called()
+
+    def test_readiness_requires_healthy_ownership_history_and_exact_pid(self):
+        for status, pid, body in ((200, '41', b'{"ready":true}'),
+                                  (503, '41', b'{"ready":false}'),
+                                  (200, '42', b'{"ready":true}'),
+                                  (200, '41', b'{"ready":false}')):
+            replies = [io.BytesIO(b'ok'), io.BytesIO(body)]
+            for reply in replies:
+                reply.status, reply.headers = status, {'x-framerize-pid': pid}
+            self.service.http.open.side_effect = replies
+            if status == 200 and pid == '41' and body == b'{"ready":true}':
+                drain.require_readiness(self.service, 41)
+            else:
+                with self.assertRaises(RuntimeError):
+                    drain.require_readiness(self.service, 41)
 
 
 if __name__ == '__main__':

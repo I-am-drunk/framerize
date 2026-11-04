@@ -1,5 +1,6 @@
 """Drain a verified browser service without arming systemd's forced-stop timer."""
 import os
+import json
 from pathlib import Path
 import select
 import signal
@@ -35,6 +36,16 @@ def require(condition, message):
         raise RuntimeError(message)
 
 
+def require_readiness(service, pid):
+    for endpoint in ('health', 'ready'):
+        with service.http.open('http://127.0.0.1:8787/api/' + endpoint, timeout=10) as reply:
+            require(reply.status == 200 and reply.headers.get('x-framerize-pid') == str(pid),
+                    'ownership readiness does not belong to the expected healthy process')
+            if endpoint == 'ready':
+                require(json.load(reply).get('ready') is True,
+                        'the serving ownership or account-history gate is unavailable')
+
+
 def clean_exit(info, before):
     require(info['MainPID'] == '0' and info['ActiveState'] == 'inactive',
             'draining service has not reached inactive state')
@@ -60,6 +71,7 @@ def stop(service, executable):
     try:
         require(state(service) == before and service.executable(pid) == executable,
                 'service identity changed before graceful drain')
+        require_readiness(service, pid)
         signal.pidfd_send_signal(descriptor, signal.SIGTERM)
         # SIGTERM seals the application's admission gate. The pidfd wait does
         # not cancel requests or impose a deadline on their existing ownership.

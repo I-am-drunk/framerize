@@ -61,6 +61,10 @@ force termination to meet a deployment deadline. Keep package qualification,
 account isolation, configuration, cooldown and compatible rollback guards.
 Use `scripts/release_drain.py` for the process-exit checks. Preserve the
 installed service settings and all current databases throughout the upgrade.
+For qualified binaries whose shutdown joins application ownership and browser
+cleanup, bind readiness to the expected PID before signaling and require normal
+exit afterward. Preserve damaged diagnostic logs. Never infer completed cleanup
+by skipping their malformed records; use the verified in-process ownership proof.
 
 `main` remains browser-based until an explicitly reviewed switch. Keep the
 `browser-based` branch as the maintained browser fallback. Develop the native
