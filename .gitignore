@@ -8,3 +8,8 @@ accounts.json
 coverage/
 .test-dist/
 .tools/
+/target/
+__pycache__/
+*.pyc
+/server.pid
+/scripts/offline_worker/experiments/
