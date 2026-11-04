@@ -46,6 +46,9 @@ only when review is authorized and the repository integration is enabled.
 A request or bot reaction is not a completed review. Reassess affected behavior
 after another push, retaining valid evidence for unchanged code.
 
-Do not merge or close the PR without an explicit instruction. Do not copy
-T3-specific moderation labels, exemption lists or automatic closure policies.
+End the report with one verdict: merge, fix first, or close. The PR author acts
+on it under "Review your own PR" in AGENTS.md: fix and re-review, merge when
+nothing confirmed remains, or close. As the reviewer, do not merge or close the
+PR yourself. Do not copy T3-specific moderation labels, exemption lists or
+automatic closure policies.
 See [attribution](../../ATTRIBUTION.md) for the upstream source.

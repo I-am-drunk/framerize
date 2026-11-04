@@ -29,7 +29,9 @@ things. Do not replace missing evidence with a broad completion claim.
 
 Use the PR template and a plain-language conventional title. Name the model and
 harness if an agent did the work. Review the contribution, not its author's style.
-Only maintainers decide whether to merge or close a PR.
+Keep one PR open at a time. The author has it reviewed by an independent
+subagent, fixes confirmed findings, then merges or closes it before opening the
+next PR. See "Review your own PR" in [AGENTS.md](AGENTS.md).
 
 ## Codex code review
 

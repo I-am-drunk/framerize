@@ -63,9 +63,29 @@ runner is not a test failure or a pass. Retain useful unchanged evidence.
   reviewed commit, concrete findings and limits. Bot silence is not approval.
 - Keep one coherent problem per change. Explain a simpler alternative when it
   removes a concrete cost; do not judge complexity by file or line counts.
-- Create, merge or close PRs only when asked. Follow [CONTRIBUTING.md](CONTRIBUTING.md).
+- One open PR at a time. Before opening the next PR, the current one must be
+  reviewed and then merged or closed. See "Review your own PR" below.
+- Follow [CONTRIBUTING.md](CONTRIBUTING.md).
 - Keep user instructions current. Document durable decisions, not code tours,
   agent transcripts or a second progress ledger. Keep scratch work outside Git.
 - Report meaningful results together. Do not send repeated unchanged status.
+
+## Review your own PR
+
+No outside reviewer or bot will review your PR. The agent that opens a PR owns
+its review and must finish it before starting the next PR. Follow
+[ship-framerize-pr](.agents/skills/ship-framerize-pr/SKILL.md).
+
+1. Open the PR, then start at least one independent review subagent. Give it
+   the PR URL, exact head SHA and the
+   [review-framerize](.agents/skills/review-framerize/SKILL.md) skill. The
+   reviewer must not have written the change.
+2. Fix every confirmed finding on the same branch. Re-review the new head
+   whenever a fix changes behavior.
+3. When review finds nothing left and required checks pass, merge the PR.
+   Close it instead if review shows it is wrong, superseded or not worth fixing.
+4. Only then open the next PR. Do not stack an unreviewed PR on another one.
+
+Record the reviewer, reviewed SHA and outcome in a PR comment before merging.
 
 These instructions adapt T3 Code's approach. See [.agents/ATTRIBUTION.md](.agents/ATTRIBUTION.md).

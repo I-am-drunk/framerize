@@ -12,6 +12,8 @@ The full [MIT notice](../framerize-remote/T3-LICENSE) is retained in this reposi
   review and does not implement T3's automated contribution moderation.
 - `skills/test-framerize/SKILL.md` adapts isolated state, meaningful fixtures,
   owned processes and integrated verification from `.agents/skills/test-t3-app/SKILL.md`.
+- `skills/ship-framerize-pr/SKILL.md` is Framerize's own. Agents review their own
+  PR with an independent subagent, then merge or close it before the next PR.
 
 T3-specific WebSocket/Effect architecture, browser-panel commands, desktop/mobile
 tooling, account-data copying, vouch/exemption lists, Macroscope labels, model bans
