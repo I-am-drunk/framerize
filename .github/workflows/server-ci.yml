@@ -120,7 +120,7 @@ jobs:
         run: |
           MANIFEST_HASH=$(node -e 'process.stdout.write(require("node:crypto").createHash("sha256").update(require("node:fs").readFileSync("dist/release.json")).digest("hex"))')
           node ../.tools/scripts/package-framer-next.js dist "$MANIFEST_HASH" "$RUNNER_TEMP/framer-next"
-          tar --format=ustar -czf "$RECOVERY_ARCHIVE" -C "$RUNNER_TEMP" framer-next
+          tar --format=ustar -czf - -C "$RUNNER_TEMP" framer-next > "$RECOVERY_ARCHIVE"
           node -e 'const fs=require("node:fs"),path=require("node:path"),crypto=require("node:crypto");const file=process.env.RECOVERY_ARCHIVE;fs.writeFileSync(file+".sha256",crypto.createHash("sha256").update(fs.readFileSync(file)).digest("hex")+"  "+path.basename(file)+"\n")'
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:

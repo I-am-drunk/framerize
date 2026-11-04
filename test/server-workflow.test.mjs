@@ -1,11 +1,46 @@
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { spawnSync } from 'node:child_process';
+import { tmpdir } from 'node:os';
+import { join, resolve } from 'node:path';
+import { gunzipSync } from 'node:zlib';
 import test from 'node:test';
 
 const read = file => readFileSync(new URL('../' + file, import.meta.url), 'utf8');
 const workflow = read('.github/workflows/server-ci.yml');
+test('recovery archive supports drive paths and spaces', context => {
+  const root = mkdtempSync(join(tmpdir(), 'framer-recovery-'));
+  context.after(() => rmSync(root, { recursive: true, force: true }));
+  const runner = process.platform === 'win32' ? join(root, 'runner with spaces') : 'D:/runner with spaces';
+  const archive = `${runner}/framer-next-windows-x64.tar.gz`;
+  const directory = resolve(root, runner, 'framer-next');
+  mkdirSync(directory, { recursive: true });
+  writeFileSync(join(directory, 'fixture.txt'), 'synthetic-native-bytes');
+  const command = workflow.match(/^\s*(tar --format=ustar[^\n]+)/m)?.[1];
+  assert.ok(command, 'Missing recovery archive command');
+  const env = { PATH: process.env.PATH, SystemRoot: process.env.SystemRoot,
+    HOME: root, USERPROFILE: root, RUNNER_TEMP: runner, RECOVERY_ARCHIVE: archive };
+  const shell = ['--noprofile', '--norc', '-euo', 'pipefail', '-c'];
+  const version = spawnSync('bash', [...shell, 'tar --version'], { env, encoding: 'utf8' });
+  assert.equal(version.status, 0, version.stderr);
+  if (version.stdout.includes('GNU tar')) env.TAR_OPTIONS = '--rsh-command=false';
+  const result = spawnSync('bash', [...shell, command], {
+    cwd: root, encoding: 'utf8', timeout: 5000,
+    env,
+  });
+  assert.equal(result.error, undefined, result.error?.message);
+  assert.equal(result.status, 0, result.stderr);
+  const contents = gunzipSync(readFileSync(resolve(root, archive)));
+  assert.equal(contents.subarray(257, 262).toString(), 'ustar');
+  assert.ok(contents.includes(Buffer.from('synthetic-native-bytes')));
+});
+
 test('server builds use only the typed server target and safe installs', () => {
   const root = JSON.parse(read('package.json'));
+  const nativeTools = root.scripts['test:native-tools'];
+  assert.match(nativeTools, /tsc -p tsconfig\.server-tools\.json/);
+  assert.match(nativeTools, /test\/server-source-newlines\.test\.mjs/);
+  assert.match(nativeTools, /test\/server-workflow\.test\.mjs/);
   assert.match(root.scripts['build:server'], /tsc -p framerize-server\/tsconfig.json/);
   assert.match(root.scripts['build:server'], /tsc -p tsconfig\.server-tools\.json/);
   const tools = JSON.parse(read('tsconfig.server-tools.json'));
