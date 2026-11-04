@@ -110,7 +110,7 @@ JSON startup adds `exposure: "non-loopback-http"` only for exposed listeners.
 `POST /v1/chat/completions`, all served by the shared core listener. Response
 bytes, stream events, and terminal markers pass through unchanged.
 
-Every inference first checks the remote's authenticated readiness. Failed,
+Each bare-route inference first checks the remote's authenticated readiness. Failed,
 oversized, incompatible or unfinished readiness blocks inference. Readiness
 has a 64 KiB body cap and a 20-second whole-exchange limit. Response headers
 have a 16 KiB cap without silently discarding later header pairs.
@@ -129,9 +129,18 @@ step to 20 seconds plus the configured inference limit. That overall limit
 includes readiness, connection setup and upload, so slow preparation can shorten
 the remaining response wait.
 An expired inference wait returns 504 without retrying the request.
-Inference streams have no total lifetime limit after headers arrive.
+Existing inference streams have no total lifetime limit after headers arrive.
 Client cancellation closes the remote connection. Each exchange owns its
 HTTP agent, ignores environment proxies and requires valid HTTPS certificates.
+
+The experimental `/openai/v1/responses` and `/anthropic/v1/messages` routes
+forward completed-response requests to the same exact server path. Remote sends
+no preliminary readiness request for these POSTs. The server validates the body
+before accessing its provider credentials. A 404 never triggers a fallback route.
+Remote buffers each complete reply up to 16 MiB without parsing its JSON.
+The inference deadline also covers the body. Broken or oversized exchanges fail
+without sending success and carry `x-should-retry: false`.
+These routes have local synthetic coverage, not live provider qualification.
 
 Startup output is compact by default. JSON mode covers setup, readiness,
 listening, shutdown and command failures. Failed checks identify missing

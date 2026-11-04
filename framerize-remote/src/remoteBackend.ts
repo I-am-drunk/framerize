@@ -21,9 +21,10 @@ function unavailable(code: DiagnosticCode): ReadinessDiagnosis {
   return { readiness: { ready: false, reason: 'upstream_unavailable' }, code };
 }
 
-function pick(headers: Readonly<Record<string, string>>): Record<string, string> {
+function pick(headers: Readonly<Record<string, string>>, completed: boolean): Record<string, string> {
   const result: Record<string, string> = {};
-  for (const name of FORWARDED_REQUEST_HEADERS) {
+  for (const name of [...FORWARDED_REQUEST_HEADERS,
+    ...(completed ? ['anthropic-version', 'anthropic-beta'] : [])]) {
     const value = headers[name];
     if (typeof value === 'string') result[name] = value;
   }
@@ -92,24 +93,31 @@ export function createRemoteBackend(config: RemoteBackendConfig): RemoteBackend 
     ready, diagnose,
     async forward(request: InferenceRequest): Promise<InferenceResponse> {
       if (closed) throw new Error('backend closed');
-      if (request.path !== '/v1/responses' && request.path !== '/v1/chat/completions') {
+      const completed = request.path === '/openai/v1/responses' || request.path === '/anthropic/v1/messages';
+      if (!completed && request.path !== '/v1/responses' && request.path !== '/v1/chat/completions') {
         throw new Error('invalid inference path');
       }
       const operation = track(request.signal);
       let raw: RawResponse | undefined;
-      const release = (): void => { raw?.dispose(); operation.release(); };
+      let timer: NodeJS.Timeout | undefined;
+      let expired = false;
+      const deadline = performance.now() + inferenceTimeoutMs;
+      const release = (): void => { clearTimeout(timer); raw?.dispose(); operation.release(); };
       try {
-        const readiness = await ready({ signal: operation.signal });
-        if (operation.signal.aborted || closed) throw new Error('request aborted');
-        if (readiness !== true) {
-          release();
-          return { status: 503, headers: { 'content-type': 'application/json' },
-            body: [Buffer.from(JSON.stringify({ error: { code: readiness.reason,
-              message: 'Remote server is not ready' } }))] };
+        if (completed) timer = setTimeout(() => { expired = true; operation.abort(); }, inferenceTimeoutMs);
+        if (!completed) {
+          const readiness = await ready({ signal: operation.signal });
+          if (operation.signal.aborted || closed) throw new Error('request aborted');
+          if (readiness !== true) {
+            release();
+            return { status: 503, headers: { 'content-type': 'application/json' },
+              body: [Buffer.from(JSON.stringify({ error: { code: readiness.reason,
+                message: 'Remote server is not ready' } }))] };
+          }
         }
         raw = await sendRequest({
           origin: config.endpoint.origin, path: request.path, method: 'POST',
-          token: config.serverToken, headers: pick(request.headers), body: request.body,
+          token: config.serverToken, headers: pick(request.headers, completed), body: request.body,
           signal: operation.signal, headersTimeoutMs: inferenceTimeoutMs,
           connectTimeoutMs: config.headersTimeoutMs,
           idleTimeoutMs: config.idleTimeoutMs,
@@ -119,10 +127,31 @@ export function createRemoteBackend(config: RemoteBackendConfig): RemoteBackend 
           if (typeof value === 'string') headers[name] = value;
           else if (Array.isArray(value)) headers[name] = value.join(', ');
         }
+        if (completed) {
+          const result = await readBounded(raw.message, 16 * 1024 * 1024,
+            config.idleTimeoutMs, operation.signal);
+          if (performance.now() >= deadline) expired = true;
+          if (expired) throw new RemoteDiagnosticError('headers_timeout');
+          operation.signal.throwIfAborted();
+          if (!raw.message.complete) throw new RemoteDiagnosticError('connection_failed');
+          const status = raw.message.statusCode ?? 502;
+          release();
+          return { status, headers, body: [result.bytes] };
+        }
         return { status: raw.message.statusCode ?? 502, headers,
           body: responseStream(raw.message, release, operation.signal) };
       } catch (error) {
         release();
+        if (completed) {
+          const code = expired ? 'headers_timeout' : error instanceof RemoteDiagnosticError
+            && (error.code === 'headers_timeout' || error.code === 'idle_timeout') ? error.code
+            : error instanceof RemoteDiagnosticError && error.code === 'response_too_large'
+              ? 'upstream_response_invalid' : 'upstream_error';
+          throw Object.assign(new Error('Remote completed request failed'), {
+            code, status: code === 'headers_timeout' || code === 'idle_timeout' ? 504 : 502,
+            retryable: false,
+          });
+        }
         if (error instanceof RemoteDiagnosticError
           && (error.code === 'headers_timeout' || error.code === 'idle_timeout')) throw error;
         throw new Error('remote request failed');

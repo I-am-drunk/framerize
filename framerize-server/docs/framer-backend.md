@@ -88,13 +88,31 @@ Native requests are wrapped in the `agents` envelope. Responses use
 streaming choice and tool-call fields remain unchanged. Successful response
 bytes pass through without parsing SSE or appending a terminator.
 
+The experimental completed-response routes use separate paths:
+`/openai/v1/responses` maps to `/ai/v3/responses/`, and
+`/anthropic/v1/messages` maps to `/ai/v3/messages/`. They accept only
+non-streaming requests and preserve native request fields inside the envelope.
+Responses background jobs are rejected. Messages requests require a positive
+integer `max_tokens`. Each accepted request makes at most one provider POST.
+This is an implementation of the recorded mappings, not proof that the current
+provider accepts every model, field or version header.
+
+Successful custom replies must contain complete native JSON. The server checks
+the response or message envelope, known content fields and terminal state,
+then returns the original bytes. It does not rebuild the entire provider schema,
+resume partial output or generate an additional tool response. A valid refusal
+or output-limit result stays unchanged. Malformed, unfinished and over-16-MiB
+replies fail with a safe error and `x-should-retry: false`.
+
 Readiness checks session authentication, not a paid inference or Castle mint.
 It does not prove the next inference will succeed. Each inference acquires a
 token and mints once. There are no retries, account rotations or alternate
 feature categories. An inference refusal never marks the session signed out.
 
-The default body limit is 16 MiB. Preparation and response headers share a
-15-second deadline. Streaming has a 60-second idle timeout, not a total limit.
+The default body limit is 16 MiB. Preparation has a 15-second deadline.
+Inference then has a five-minute deadline. For custom completed-response routes,
+it covers the full reply, including validation. For the existing streaming
+routes it ends at response headers. Streaming has a 60-second idle timeout.
 Headers retain every pair under a 16 KiB parser limit. TLS verification cannot
 be disabled by the environment, and requests do not use environment proxies.
 Local authorization, cookies and arbitrary incoming headers are not forwarded.

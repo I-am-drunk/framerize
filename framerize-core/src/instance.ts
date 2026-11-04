@@ -3,9 +3,10 @@ import { randomUUID } from 'node:crypto';
 import type { AddressInfo, Socket } from 'node:net';
 import type { ReadinessReason } from './readiness.js';
 import type { InferenceResponse } from './backend.js';
+import { finished } from 'node:stream/promises';
 import { HttpError, publicError } from './http-errors.js';
 import { bodyIterator, bounded, finish, readBody, streamBody } from './http-io.js';
-import { authenticated, capabilities, hashToken, requestHeaders, responseHeaders,
+import { authenticated, capabilities, completedRequestHeaders, hashToken, requestHeaders, responseHeaders,
   routes, selectedHeaders, type Route } from './http-policy.js';
 import { instanceOptions, type InstanceOptions, type RequestEvent } from './instance-options.js';
 
@@ -15,6 +16,11 @@ export interface FramerizeInstance {
   close(): Promise<void>;
   readonly closing: boolean;
 }
+
+const messageErrorTypes: Readonly<Record<number, string>> = {
+  400: 'invalid_request_error', 401: 'authentication_error', 403: 'permission_error',
+  404: 'not_found_error', 413: 'request_too_large', 429: 'rate_limit_error',
+};
 
 function json(response: ServerResponse, status: number, value: unknown): void {
   const body = JSON.stringify(value);
@@ -85,6 +91,8 @@ export function createInstance(options: InstanceOptions): FramerizeInstance {
     const controller = new AbortController();
     const path = request.url?.split('?')[0] ?? '';
     const route = Object.hasOwn(routes, path) ? path as Route : 'unknown';
+    const completed = route === '/openai/v1/responses' || route === '/anthropic/v1/messages';
+    let completionTimer: NodeJS.Timeout | undefined;
     let outcome: RequestEvent['outcome'] = 'completed';
     const disconnect = () => {
       if (!response.writableFinished) controller.abort(new HttpError('client_disconnected'));
@@ -118,8 +126,10 @@ export function createInstance(options: InstanceOptions): FramerizeInstance {
         return;
       }
       const bytes = await readBody(request, controller, config.maxBodyBytes, config.idleTimeoutMs);
+      if (completed) completionTimer = setTimeout(() =>
+        controller.abort(new HttpError('headers_timeout')), config.inferenceTimeoutMs);
       const result = await bounded(() => config.backend.forward({ path: route,
-        headers: selectedHeaders(request.headers, requestHeaders),
+        headers: selectedHeaders(request.headers, completed ? completedRequestHeaders : requestHeaders),
         body: (async function* () { yield bytes; }()), signal: controller.signal,
       }), controller, config.inferenceTimeoutMs, new HttpError('headers_timeout'), discardResponse);
       try {
@@ -135,6 +145,7 @@ export function createInstance(options: InstanceOptions): FramerizeInstance {
       }
       await streamBody(response, result.body, controller, config.idleTimeoutMs);
       response.end();
+      if (completed) await finished(response, { cleanup: true, signal: controller.signal });
     } catch (error) {
       outcome = controller.signal.aborted
         && (controller.signal.reason as HttpError).code === 'client_disconnected' ? 'cancelled' : 'failed';
@@ -143,17 +154,21 @@ export function createInstance(options: InstanceOptions): FramerizeInstance {
       else {
         response.shouldKeepAlive = false;
         if (failure.code === 'unauthorized') response.setHeader('www-authenticate', 'Bearer');
-        if (failure.code === 'headers_timeout' || failure.code === 'idle_timeout') {
+        if (failure.retryable === false || failure.code === 'headers_timeout' || failure.code === 'idle_timeout') {
           response.setHeader('x-should-retry', 'false');
         }
-        json(response, failure.status, { error: {
-          type: failure.code === 'unauthorized' ? 'authentication_error' : 'invalid_request_error',
+        const error = {
+          type: route === '/anthropic/v1/messages' ? messageErrorTypes[failure.status] ?? 'api_error'
+            : failure.code === 'unauthorized' ? 'authentication_error' : 'invalid_request_error',
           code: failure.code === 'request_timeout' ? 'idle_timeout' : failure.code,
           message: failure.message,
-        } });
+        };
+        json(response, failure.status, route === '/anthropic/v1/messages'
+          ? { type: 'error', error } : { error });
       }
       controller.abort(new HttpError('client_disconnected'));
     } finally {
+      clearTimeout(completionTimer);
       active.delete(controller);
       request.off('aborted', disconnect);
       response.off('close', disconnect);
