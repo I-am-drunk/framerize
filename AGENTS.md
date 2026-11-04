@@ -4,7 +4,7 @@ Framerize is a browserless Node server written in TypeScript. Framerize Remote
 is a small local instance that forwards inference to that server. Castle
 Library belongs on the server. This branch is work in progress, not a release.
 
-## Keep the design simple SIMPLENESS IS THE BIGGEST THING. CHANNEL YAGNI
+## Keep the design simple
 
 - Understand the user's problem before choosing a mechanism. Reuse working
   code when it fits; explain why a new layer or dependency is necessary.

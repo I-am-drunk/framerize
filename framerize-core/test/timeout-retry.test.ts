@@ -33,6 +33,19 @@ test('an upstream 504 without a retry instruction remains unchanged', async () =
   } finally { await instance.close(); }
 });
 
+test('an upstream no-retry instruction is preserved on forwarded responses', async () => {
+  const instance = createInstance({ token, backend: backend({ async forward() {
+    return { status: 503, headers: { 'x-should-retry': 'false' }, body: [Buffer.from('{}')] };
+  } }) });
+  try {
+    const { port } = await instance.listen();
+    const result = await exchange(port, '/v1/responses',
+      { method: 'POST', headers: authorization }, Buffer.from('{}'));
+    assert.equal(result.status, 503);
+    assert.equal(result.headers['x-should-retry'], 'false');
+  } finally { await instance.close(); }
+});
+
 for (const path of ['/v1/responses', '/v1/chat/completions']) {
   test(`${path} deadline discourages retries and aborts inference`, async () => {
     let calls = 0;
