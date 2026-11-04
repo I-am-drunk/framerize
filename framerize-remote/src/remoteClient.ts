@@ -60,14 +60,17 @@ export function sendRequest(request: RawRequest): Promise<RawResponse> {
       outgoing.maxHeadersCount = 0;
       outgoing.on('error', onError);
       outgoing.setTimeout(request.idleTimeoutMs, () => fail('idle_timeout'));
-      timer = setTimeout(() => fail('headers_timeout'), request.headersTimeoutMs);
       connectTimer = setTimeout(() => fail('headers_timeout'), request.connectTimeoutMs ?? request.headersTimeoutMs);
       outgoing.once('socket', (socket) => {
         const connected = (): void => { clearTimeout(connectTimer); };
         if (socket.connecting) socket.once(url.protocol === 'https:' ? 'secureConnect' : 'connect', connected);
         else connected();
       });
-      outgoing.once('finish', () => { if (!message && !disposed) outgoing.setTimeout(0); });
+      outgoing.once('finish', () => {
+        if (disposed || message) return;
+        outgoing.setTimeout(0);
+        timer = setTimeout(() => fail('headers_timeout'), request.headersTimeoutMs);
+      });
       request.signal.addEventListener('abort', onAbort, { once: true });
       outgoing.once('response', (response) => {
         if (disposed) { response.destroy(); return; }

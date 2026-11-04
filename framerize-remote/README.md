@@ -123,10 +123,11 @@ separately; Remote cannot extend an upstream service's deadline.
 
 Readiness still has a 15-second header wait and a 20-second overall limit.
 Connection setup stays bounded at 15 seconds. Upload and response-body
-inactivity stay bounded at 60 seconds. The inference limit includes connection
-setup and request upload, so an active upload can also exhaust that limit.
-After upload, silent computation uses the remaining inference time.
-The local listener allows the readiness check plus the full inference limit.
+inactivity stay bounded at 60 seconds. The response-header timer starts after
+the request upload finishes. The local listener also limits the whole forwarding
+step to 20 seconds plus the configured inference limit. That overall limit
+includes readiness, connection setup and upload, so slow preparation can shorten
+the remaining response wait.
 An expired inference wait returns 504 without retrying the request.
 Inference streams have no total lifetime limit after headers arrive.
 Client cancellation closes the remote connection. Each exchange owns its

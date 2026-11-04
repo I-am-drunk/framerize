@@ -119,6 +119,29 @@ test('stalled upload keeps its idle bound and returns its iterator', { timeout: 
   } finally { backend.close(); await remote.close(); }
 });
 
+test('active upload does not consume the inference header deadline', { timeout: 5000 }, async () => {
+  const remote = await peer((incoming, outgoing) => {
+    if (incoming.url === '/ready') return outgoing.end(JSON.stringify(ready));
+    incoming.on('end', () => {
+      const timer = setTimeout(() => outgoing.end('{"done":true}'), 40);
+      outgoing.once('close', () => clearTimeout(timer));
+    });
+  });
+  const backend = backendFor(remote, { idleTimeoutMs: 2000, inferenceTimeoutMs: 400 });
+  const body = (async function* () {
+    for (const chunk of ['{"model":', '"fixture"', '}']) {
+      await new Promise(resolve => setTimeout(resolve, 200));
+      yield Buffer.from(chunk);
+    }
+  })();
+  try {
+    const response = await backend.forward({ ...request(), body });
+    assert.equal(response.status, 200);
+    assert.equal((await collect(response.body)).toString(), '{"done":true}');
+    assert.deepEqual(remote.paths, ['/ready', '/v1/responses']);
+  } finally { backend.close(); await remote.close(); }
+});
+
 for (const kind of ['unavailable', 'unauthorized', 'oversized']) {
   test(`forward refuses ${kind} readiness without an inference attempt`, async () => {
     const remote = await peer((incoming, outgoing) => {
