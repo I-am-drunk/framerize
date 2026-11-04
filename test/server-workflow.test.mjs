@@ -35,7 +35,8 @@ test('recovery archive supports drive paths and spaces', context => {
   assert.equal(result.error, undefined, result.error?.message);
   assert.equal(result.status, 0, result.stderr);
   const contents = gunzipSync(readFileSync(resolve(root, archive)));
-  assert.equal(contents.subarray(257, 262).toString(), 'ustar');
+  assert.equal(contents.subarray(257, 263).toString(), 'ustar\0');
+  assert.equal(contents.subarray(263, 265).toString(), '00');
   assert.ok(contents.includes(Buffer.from('synthetic-native-bytes')));
   const hashCommand = workflow.split('\n').find(line => line.includes('file+".sha256"')
     && line.includes('path.basename(file)'))?.trim();
