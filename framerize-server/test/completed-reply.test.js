@@ -53,6 +53,20 @@ test('tool-only Responses preserve arguments, custom text and optional item IDs'
   ] }));
 });
 
+test('output-limited Responses preserve explicitly incomplete tool calls', () => {
+  for (const type of ['function_call', 'custom_tool_call']) {
+    const tool = { type, call_id: 'call_limit', name: 'lookup', status: 'incomplete',
+      ...(type === 'function_call' ? { arguments: '{}' } : { input: 'partial text' }) };
+    accepts('responses', response({ status: 'incomplete',
+      incomplete_details: { reason: 'max_output_tokens' }, output: [tool] }));
+    rejects('responses', bytes(response({ output: [tool] })));
+    for (const status of ['in_progress', 'failed', 'cancelled']) {
+      rejects('responses', bytes(response({ status: 'incomplete',
+        incomplete_details: { reason: 'max_output_tokens' }, output: [{ ...tool, status }] })));
+    }
+  }
+});
+
 test('extension fields and absent usage are not discarded or fabricated', () => {
   for (const usage of [null, undefined]) {
     accepts('responses', response({ usage, vendor_field: { nested: ['preserve'] },

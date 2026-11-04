@@ -4,6 +4,20 @@ import { fixture, protocols, reply } from './custom-routes-fixture.mjs';
 
 for (const protocol of protocols) for (const viaRemote of [false, true]) {
   const name = `${protocol.name}, remote=${viaRemote}`;
+  if (protocol.name === 'responses') for (const type of ['function_call', 'custom_tool_call']) {
+    test(`output-limited ${type} is preserved: ${name}`, async context => {
+      const output = [{ type, call_id: 'call_limit', name: 'lookup', status: 'incomplete',
+        ...(type === 'function_call' ? { arguments: '{}' } : { input: 'partial text' }) }];
+      const value = reply(protocol, { status: 'incomplete', output,
+        incomplete_details: { reason: 'max_output_tokens' } });
+      const setup = await fixture(context, protocol, viaRemote, { value });
+      const result = await setup.post();
+      assert.equal(result.status, 200);
+      assert.deepEqual(result.body, setup.payload);
+      assert.equal(setup.observed.length, 1);
+      assert.equal(setup.counts.mints, 1);
+    });
+  }
   if (protocol.name === 'responses') {
     test(`background jobs cannot start on a completed-response route: ${name}`, async context => {
       const setup = await fixture(context, protocol, viaRemote);
