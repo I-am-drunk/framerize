@@ -3,24 +3,26 @@ import { once } from 'node:events';
 import { createServer } from 'node:http';
 import { isDeepStrictEqual } from 'node:util';
 import { exchange } from './transport-scenario.js';
+import { readCustomStream } from './custom-stream-reply.js';
 
 function scenarioCase(name: 'responses' | 'messages') {
   const responses = name === 'responses';
   const firstInput = { role: 'user', content: 'Use the fixture tool' };
   const call = responses
-    ? { type: 'function_call', call_id: 'call_fixture', name: 'lookup', arguments: '{}' }
-    : { type: 'tool_use', id: 'call_fixture', name: 'lookup', input: {} };
+    ? { type: 'function_call', id: 'fc_fixture', call_id: 'call_fixture', name: 'lookup', arguments: '{"query":"snow"}' }
+    : { type: 'tool_use', id: 'call_fixture', name: 'lookup', input: { query: 'snow' } };
   const request = (input: unknown) => responses
     ? { model: 'fixture', stream: false, input }
     : { model: 'fixture', stream: false, max_tokens: 64, messages: input };
   const initial = request([firstInput]);
-  const followup = request(responses ? [firstInput, call,
+  const followupFor = (tool: unknown) => request(responses ? [firstInput, tool,
     { type: 'function_call_output', call_id: 'call_fixture', output: 'synthetic-result' }]
-    : [firstInput, { role: 'assistant', content: [call] }, { role: 'user', content: [
+    : [firstInput, { role: 'assistant', content: [tool] }, { role: 'user', content: [
       { type: 'tool_result', tool_use_id: 'call_fixture', content: 'synthetic-result' }] }]);
+  const followup = followupFor(call);
   const reply = (tool: boolean) => responses
     ? { id: 'resp_fixture', object: 'response', created_at: 1, model: 'fixture', status: 'completed',
-      usage: { input_tokens: 1, output_tokens: 2 },
+      usage: { input_tokens: 1, output_tokens: 2, total_tokens: 3 },
       output: tool ? [call] : [{ type: 'message', id: 'msg_fixture', role: 'assistant',
         content: [{ type: 'output_text', text: 'Synthetic result.', annotations: [] }] }] }
     : { id: 'msg_fixture', type: 'message', role: 'assistant', model: 'fixture',
@@ -28,7 +30,7 @@ function scenarioCase(name: 'responses' | 'messages') {
       content: tool ? [call] : [{ type: 'text', text: 'Synthetic result.' }],
       stop_reason: tool ? 'tool_use' : 'end_turn', stop_sequence: null };
   return { name, path: responses ? '/openai/v1/responses' : '/anthropic/v1/messages',
-    upstream: responses ? '/ai/v3/responses/' : '/ai/v3/messages/', initial, followup,
+    upstream: responses ? '/ai/v3/responses/' : '/ai/v3/messages/', initial, followup, followupFor,
     first: Buffer.from(JSON.stringify(reply(true))), final: Buffer.from(JSON.stringify(reply(false))),
     invalid: request([{ role: 'user', content: 'bad-reply' }]),
     cancel: request([{ role: 'user', content: 'cancel' }]) };
@@ -92,14 +94,18 @@ export async function exerciseCustomFlow(base: string, token: string,
       assert.equal(result.status, 200);
       assert.deepEqual(result.body, expected);
     }
-    for (const body of [entry.initial, entry.followup]) {
+    const streamingRequests = [entry.initial];
+    for (const [index, body] of streamingRequests.entries()) {
       const result = await exchange(base, entry.path, token, { body: { ...body, stream: true }, timeoutMs: 20_000 });
       assert.equal(result.status, 200);
-      const terminal = entry.name === 'responses' ? 'response.completed' : 'message_stop';
-      assert.ok(result.body.includes(`event: ${terminal}\n`));
-      assert.equal(result.body.includes('event: error\n'), false);
-      if (body === entry.initial) assert.ok(result.body.includes(entry.name === 'responses'
-        ? 'response.function_call_arguments.delta' : 'input_json_delta'));
+      const received = readCustomStream(entry.name, result.body);
+      assert.deepEqual(received, JSON.parse((index === 0 ? entry.first : entry.final).toString()));
+      if (index === 0) {
+        const content = received[entry.name === 'responses' ? 'output' : 'content'];
+        assert.ok(Array.isArray(content));
+        assert.equal(content.length, 1);
+        streamingRequests.push(entry.followupFor(content[0]));
+      }
     }
     const invalid = await exchange(base, entry.path, token, { body: entry.invalid, timeoutMs: 20_000 });
     assert.equal(invalid.status, 502);
