@@ -12,11 +12,14 @@ including the alpha.30 host-memory floor. All nine package checks pass.
 The unchanged memory-floor test evidence and web assets were verified and reused.
 Alpha.29 remains live as PID 3231960 with healthy, ready ownership. No production
 setting, recovery guard or account/history state was changed by this task.
-Activation still requires exact-binary qualification and the guarded drain.
-The existing alpha.30 executor cannot activate this different candidate.
-No new live inference, activation preflight or drain was attempted.
+The renewed deployment instruction initiated an isolated qualification preflight.
+Its memory gate refused 4,260,851,712 available bytes against a 4,294,967,296-byte
+minimum. The gate was not polled; no inference, daemon launch or drain occurred.
+A private copy of the existing transaction is now pinned to alpha.31. Only version
+labels and package identities changed; its eight prior transaction tests are reused.
+It still requires exact-binary qualification before the guarded graceful drain.
 Temporary compiler and smoke output was removed; archives and receipts remain.
-Next: obtain exact alpha.31 qualification before a freshly pinned graceful activation.
+Next: qualify alpha.31 when the isolated memory gate passes, then use the pinned transaction.
 
 # Alpha.30 fixed host memory floor, 2026-11-04
 
