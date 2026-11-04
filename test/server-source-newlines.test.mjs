@@ -3,9 +3,12 @@ import { createHash } from 'node:crypto';
 import { execFileSync } from 'node:child_process';
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import test from 'node:test';
 import ts from 'typescript';
+
+const repoRoot = fileURLToPath(new URL('..', import.meta.url));
 
 const read = file => readFileSync(new URL('../' + file, import.meta.url));
 
@@ -32,6 +35,19 @@ test('shared TypeScript configs inherit LF emission from tsconfig.base.json', ()
     const json = JSON.parse(read(file).toString());
     assert.match(String(json.extends), /tsconfig\.base/);
     assert.equal(json.compilerOptions?.newLine, undefined, file);
+  }
+});
+
+test('package TypeScript projects resolve LF emission after extending tsconfig.base.json', () => {
+  for (const rel of ['framerize-remote/tsconfig.json', 'framerize-server/tsconfig.json',
+    'framerize-core/tsconfig.build.json']) {
+    const configFile = join(repoRoot, rel);
+    const folder = dirname(configFile);
+    const readResult = ts.readConfigFile(configFile, ts.sys.readFile);
+    assert.equal(readResult.error, undefined, rel);
+    const parsed = ts.parseJsonConfigFileContent(readResult.config, ts.sys, folder);
+    assert.deepEqual(parsed.errors, [], rel);
+    assert.equal(parsed.options.newLine, ts.NewLineKind.LineFeed, rel);
   }
 });
 
