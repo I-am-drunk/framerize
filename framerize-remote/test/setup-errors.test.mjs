@@ -93,6 +93,61 @@ test('serve host overrides explain their separate exposure consent', async t => 
   }
 });
 
+async function runSetup(root, args, json = false) {
+  return spawnSync(process.execPath, [launcher, 'setup', ...args, ...(json ? ['--json'] : [])], {
+    cwd: root, encoding: 'utf8', timeout: 5000,
+    env: { HOME: root, USERPROFILE: root, TMPDIR: root,
+      ...(process.env.SystemRoot ? { SystemRoot: process.env.SystemRoot } : {}) },
+  });
+}
+
+test('setup maps malformed global options to setup_arguments without touching the profile', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'remote-setup-globals-'));
+  const profile = join(root, 'profile.json');
+  const tail = ['--remote', 'https://server.invalid', '--server-token-env', 'SETUP_SERVER',
+    '--local-token-env', 'SETUP_LOCAL'];
+  const globals = [
+    ['missing global profile path', ['--config', ...tail]],
+    ['profile flag followed by another flag', ['--config', '--remote', 'https://server.invalid', ...tail.slice(2)]],
+    ['duplicate global json flag', ['--config', profile, '--json', '--json', ...tail]],
+  ];
+  try {
+    await writeFile(profile, 'existing-profile', { mode: 0o600 });
+    for (const [name, args] of globals) {
+      const jsonModes = args.includes('--json') ? [true] : [false, true];
+      for (const json of jsonModes) {
+        const result = await runSetup(root, args, json);
+        assert.equal(result.error, undefined, name);
+        assert.equal(result.status, 1, name);
+        assert.equal(result.stdout, '', name);
+        assert.doesNotMatch(result.stderr, /private-setup-canary|existing-profile/, name);
+        if (json) assert.equal(JSON.parse(result.stderr).error, 'setup_arguments', name);
+        else assert.match(result.stderr, /^Not ready: .+\nNext: .+\n$/, name);
+        assert.equal(await readFile(profile, 'utf8'), 'existing-profile', name);
+      }
+    }
+  } finally { await rm(root, { recursive: true, force: true }); }
+});
+
+for (const [command, args] of [['check', ['--config', '--json']], ['serve', ['--config']]]) {
+  test(`${command} keeps malformed global options as command_failed`, async () => {
+    const root = await mkdtemp(join(tmpdir(), 'remote-global-failure-'));
+    try {
+      const result = spawnSync(process.execPath, [launcher, command, ...args], {
+        cwd: root, encoding: 'utf8', timeout: 5000,
+        env: { HOME: root, USERPROFILE: root, TMPDIR: root,
+          ...(process.env.SystemRoot ? { SystemRoot: process.env.SystemRoot } : {}) },
+      });
+      assert.equal(result.error, undefined);
+      assert.equal(result.status, 1);
+      assert.equal(result.stdout, '');
+      assert.doesNotMatch(result.stderr, /setup_arguments/);
+      if (args.includes('--json')) assert.equal(JSON.parse(result.stderr).error, 'command_failed');
+      else assert.match(result.stderr, /^framerize-remote failed to run the requested command\n/);
+    } finally { await rm(root, { recursive: true, force: true }); }
+  });
+}
+
 test('setup explains an unwritable profile target without exposing its path', async () => {
   const root = await mkdtemp(join(tmpdir(), `${canary}-`));
   try {
