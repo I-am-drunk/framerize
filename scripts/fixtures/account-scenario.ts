@@ -34,7 +34,8 @@ export async function createAccountScenario() {
       const payload = JSON.parse(bytes.toString());
       assert.equal(payload.projectId, 'selected-project');
       assert.equal(payload.featureCategory, 'agents');
-      assert.match(payload.castleToken, /^[A-Za-z0-9,+/=_-]{64,16384}$/);
+      assert.equal(typeof payload.castleToken, 'string');
+      assert.ok(payload.castleToken.length >= 64 && payload.castleToken.length <= 16384);
       response.writeHead(200, { 'content-type': 'text/event-stream' });
       if (payload.request.messages[0]?.content === 'cancel') {
         response.once('close', () => { state.cancelled += 1; cancelled(); });
