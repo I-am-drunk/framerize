@@ -1,0 +1,17 @@
+{
+  "esbuild": "0.25.12",
+  "sources": {
+    "src/encoder/collection-json.ts": "5472ce0dbfa13c0b6859c4e442cc7f6dfde6a6ba43e6602f6266b4f3d1948b20",
+    "src/encoder/collection-values.ts": "23328fc62d5c3f67337e2da4fb558937be00fdb4da2411266195e717a3441a1b",
+    "src/encoder/collector-replies.ts": "cbabdd1ec878975c964b40f1c71f4e746e81dab917ddfafed35490a7a13fd217",
+    "src/encoder/compress.ts": "2258998ee6b4a72bc2cf6f734867a399c36faadcc0e3330ac55879d2357d840c",
+    "src/encoder/compression-huffman.ts": "12fe6917b9154b41446850c246b3957ee0ba6d480ffa107d24f9ccb7fe2c6ddc",
+    "src/encoder/compression-matches.ts": "9a13a740fa7496683df51cf040f5f30686bb20e09ee98aae9d85cc6188f1ac84",
+    "src/encoder/encode-frame.ts": "8e2da4c92965d72bfd21e805276f8413ab069c9aca0c158bb1ea0b8bc6d890e6",
+    "src/encoder/encode-values.ts": "25fa128b117b0086c5e15eabd9b9ee1ae933c34ff8b89a25e1d5e2db256141f4",
+    "src/encoder/envelope.ts": "493efbe93f7258e9c761f10d9f7d7687fea2ca1964cba2fa3008a528345ddb7d",
+    "src/encoder/serialize.ts": "8cff2041121f59b5038da9835165b42da802d93ff94bf435e8d8d962bc8d67e2",
+    "src/errors.ts": "c130b381f1daa16befc280998d599ce3c8bb282681141d29348fb52a7dcfa006"
+  },
+  "encoderSha256": "9ddd1c09b8f4818217c91a8824ce4c78cd82a7b72d282f8753105e553cdded23"
+}

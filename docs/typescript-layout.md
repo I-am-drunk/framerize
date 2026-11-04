@@ -19,10 +19,22 @@ They must not grow separate definitions of the same public behavior.
 The private root npm workspace includes `framerize-core` and `framerize-remote`.
 The server retains its package and lockfile, but its HTTP factory now uses
 the bundled TypeScript core. Root `build`, `check`, and `test` cover core,
-server, Remote, Castle Library and packaging tools. They do not prove live provider compatibility.
+server, Remote, the Castle runtime and packaging tools. They do not prove live provider compatibility.
 
 TypeScript, Node type declarations, and esbuild are development-only
 dependencies. The shared package emits ESM and `.d.ts` files under `dist/`.
+
+Castle's encoder is included in `framerize-server/src/castle.ts`. To update it
+from an existing local source checkout, run:
+
+```sh
+node scripts/vendor-castle-encoder.mjs /path/to/typescript-castle
+```
+
+This command records source hashes in the encoder test fixture. Normal builds
+do not fetch or read another repository. Encoder tests check 128 fixed frames
+against their reference output hash. These checks establish encoder fidelity,
+not live provider acceptance or equivalence of the entire collection runtime.
 Tests compile to an ignored directory excluded from package contents.
 Root packaging tools also compile to the ignored `.tools/` directory.
 
