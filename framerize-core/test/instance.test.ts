@@ -127,7 +127,7 @@ test('bind failure is constant and closes the backend exactly once', async () =>
 });
 
 test('known backend failures preserve accepted status and constant diagnostics', async () => {
-  for (const code of ['credentials_unavailable', 'provider_closed', 'upstream_error', 'unrecognized']) {
+  for (const code of ['credentials_unavailable', 'provider_busy', 'provider_closed', 'upstream_error', 'unrecognized']) {
     const provider = backend({ async forward() {
       throw Object.assign(new Error('hidden-message'), { code, status: 503 });
     }, async ready() { throw { code: 'credentials_unavailable' }; } });
