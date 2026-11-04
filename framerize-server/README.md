@@ -88,6 +88,12 @@ Authentication failures return 401 and
 `{"error":{"type":"authentication_error","code":"unauthorized","message":"Authentication required"}}`.
 Other application errors have the same shape with `type: "invalid_request_error"`.
 
+If the account's Castle minter is already handling a request, another request
+returns 503 `provider_busy` with the message `Provider is busy`. It does not
+start inference or interrupt the active request. The server and Remote do not
+queue or automatically retry it. Once the active mint finishes, a new request
+can proceed. A busy minter does not mean the account credentials are invalid.
+
 Unknown routes return 404 `not_found`, wrong methods return 405
 `method_not_allowed`, invalid JSON objects return 400 `invalid_json`, and bodies
 over `maxBodyBytes` return 413 `body_too_large`. Requests retain their original
