@@ -5,6 +5,9 @@ use framer_core::port::CastleToken;
 use std::collections::VecDeque;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
+#[path = "messages_tool_budget_tests.rs"]
+mod tool_budget_tests;
+
 #[path = "messages_checkpoint_tests.rs"]
 mod checkpoint_tests;
 
@@ -131,7 +134,7 @@ fn run_with_payload(replies: Vec<Reply>, config: ChainConfig,
         let result = complete_long(&transport, &cache, &session, &browser, &account,
             &ProjectId("fixture-project".into()), payload,
             &config, "fixture-chat", Some(&callback)).await;
-        assert!(browser.replies.lock().unwrap().is_empty(), "missing expected request");
+        assert!(browser.replies.lock().unwrap().is_empty(), "missing expected request: {result:?}");
         assert!(browser.delays.lock().unwrap().is_empty(), "unused request delay");
         if let Ok(response) = &result {
             frames.lock().unwrap().extend(composer.lock().unwrap()

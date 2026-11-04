@@ -21,9 +21,13 @@ and explicitly authorized upstream streams share validation, history and usage.
 The first buffered request allows 600 tokens. Later limits target 45 seconds
 and normally stay within 400 to 1,200 tokens.
 The complete signed and redacted blocks remain in continuation history.
-Known incomplete client tool calls retain their preceding checkpoint and
-can request smaller complete calls twice. Incomplete tool inputs are never
-published, and server-tool truncation cannot enter that recovery path.
+Known incomplete client tool calls can retry unpublished input twice. Each
+buffered retry can double the previous allowance within the remaining client
+total, including after a preserved checkpoint. The ordinary 1,200-token ceiling
+controls prose pacing, not indivisible tool inputs. Discarded input still counts
+against the total. Preserved prefixes request smaller complete calls where
+possible. Incomplete inputs are never published, and server-tool truncation
+cannot enter that recovery path. Opted-in metered fallback keeps its trigger.
 Recovery preserves the exact prefix before the first unpublished tool;
 later thinking cannot survive removal of a tool block in its prefix.
 The caller's total output allowance and reasoning effort remain unchanged.

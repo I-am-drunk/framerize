@@ -1,3 +1,18 @@
+# Alpha.31 Claude tool-input budget repair, 2026-11-04
+
+Branch `ops/legacy-claude-alpha29-upgrade-20261104` now separates acknowledged
+tool-input retries from ordinary checkpoint pacing. Retries can double their
+allowance within the remaining client budget, at most twice. Recovery from a
+signed prefix now uses that computed allowance. Partial input remains withheld.
+The [change record](incidents/2026-11-04-claude-tool-input.md) explains the limits.
+The exact reported error reproduces before the fix; all 177 focused Messages
+tests pass afterward, including eight new chain regressions.
+Alpha.31 includes the alpha.30 host-memory floor. Package verification is next.
+Alpha.29 remains live as PID 3231960. No production setting or state was changed.
+Activation still requires exact-binary qualification and the guarded drain.
+The existing alpha.30 executor cannot activate this different candidate.
+Next: package and smoke-test alpha.31, retaining the deployment dependency.
+
 # Alpha.30 fixed host memory floor, 2026-11-04
 
 Branch `ops/legacy-claude-alpha29-upgrade-20261104` now uses a fixed

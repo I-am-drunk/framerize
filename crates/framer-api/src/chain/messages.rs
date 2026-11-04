@@ -254,12 +254,18 @@ pub async fn complete_long(
                 return Err("Claude exhausted the requested output allowance before completing its tool input".into());
             }
             tool_cut_retries += 1;
+            // An indivisible tool input may outgrow the prose checkpoint.
+            // Grow only acknowledged retries, charging their discarded output
+            // to the same total. The retry count still bounds uncapped clients.
             let next = remaining_tokens(cfg, ctok).unwrap_or(u32::MAX)
-                .min(chunk.saturating_mul(2)).min(chunk_ceiling.max(output_floor));
+                .min(chunk.saturating_mul(2));
             if completed.is_empty() || tool_cut_retries > 2 {
-                if tool_cut_retries > 2 || next <= chunk {
+                // Preserve the existing fallback trigger for callers that
+                // explicitly permit metered streaming.
+                if tool_cut_retries > 2 || next <= chunk
+                    || (cfg.metered_fallback && chunk >= chunk_ceiling.max(output_floor)) {
                     if !cfg.metered_fallback {
-                        return Err("Claude tool input exceeds the bounded output allowance; incomplete input was not published".into());
+                        return Err("Claude has insufficient remaining output allowance to retry its incomplete tool input; no partial input was published".into());
                     }
                     streaming = true;
                 }
@@ -275,7 +281,7 @@ pub async fn complete_long(
             if let Some(cb) = events { cb(ChainEvent::Chunk(completed.clone())); }
             checkpoint::push(&mut messages, &completed, checkpoint::TOOL_CONTINUE);
             history.continuing(true);
-            chunk_tokens = chunk_tokens.max(budget_for(tps));
+            chunk_tokens = next;
             continue;
         }
 
