@@ -7,11 +7,16 @@ signed prefix now uses that computed allowance. Partial input remains withheld.
 The [change record](incidents/2026-11-04-claude-tool-input.md) explains the limits.
 The exact reported error reproduces before the fix; all 177 focused Messages
 tests pass afterward, including eight new chain regressions.
-Alpha.31 includes the alpha.30 host-memory floor. Package verification is next.
-Alpha.29 remains live as PID 3231960. No production setting or state was changed.
+Alpha.31 source `ef8e43ac7065135239b925186aeb8d8a93834d30` is built and staged,
+including the alpha.30 host-memory floor. All nine package checks pass.
+The unchanged memory-floor test evidence and web assets were verified and reused.
+Alpha.29 remains live as PID 3231960 with healthy, ready ownership. No production
+setting, recovery guard or account/history state was changed by this task.
 Activation still requires exact-binary qualification and the guarded drain.
 The existing alpha.30 executor cannot activate this different candidate.
-Next: package and smoke-test alpha.31, retaining the deployment dependency.
+No new live inference, activation preflight or drain was attempted.
+Temporary compiler and smoke output was removed; archives and receipts remain.
+Next: obtain exact alpha.31 qualification before a freshly pinned graceful activation.
 
 # Alpha.30 fixed host memory floor, 2026-11-04
 
