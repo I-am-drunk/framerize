@@ -60,11 +60,18 @@ async fn pressure_refuses_new_request_while_existing_stream_completes() {
 }
 
 #[test]
-fn host_headroom_uses_available_memory_and_ten_percent_reserve() {
-    let positive = host_headroom("MemTotal: 1000 kB\nMemAvailable: 300 kB\n").unwrap();
-    assert_eq!((positive.headroom, positive.used, positive.total), (200 * 1024, 700 * 1024, 1000 * 1024));
-    assert_eq!(positive.scope, "host RAM used/unavailable");
-    assert_eq!(host_headroom("MemTotal: 1000 kB\nMemAvailable: 90 kB\n").unwrap().headroom, -10 * 1024);
+fn host_headroom_uses_available_memory_and_fixed_reserve() {
+    for total_kib in [8_388_608, 33_554_432] {
+        for (available_kib, expected) in [(1_171_874, -1024), (1_171_875, 0),
+            (1_171_876, 1024), (1_300_000, 131_200_000)] {
+            let sample = host_headroom(&format!(
+                "MemTotal: {total_kib} kB\nMemAvailable: {available_kib} kB\n")).unwrap();
+            assert_eq!(sample.headroom, expected);
+            assert_eq!(sample.used, (total_kib - available_kib) * 1024);
+            assert_eq!(sample.total, total_kib * 1024);
+            assert_eq!(sample.scope, "host RAM used/unavailable");
+        }
+    }
     assert_eq!(host_headroom("MemFree: 2 kB\n"), None);
     assert_eq!(host_headroom("MemTotal: broken\nMemAvailable: 100 kB\n"), None);
 }
@@ -76,7 +83,7 @@ fn tighter_cgroup_ancestor_limits_new_requests() {
     let cg = root.join("cgroup");
     std::fs::create_dir_all(proc.join("self")).unwrap();
     std::fs::create_dir_all(cg.join("parent/child")).unwrap();
-    std::fs::write(proc.join("meminfo"), "MemTotal: 1000 kB\nMemAvailable: 500 kB\n").unwrap();
+    std::fs::write(proc.join("meminfo"), "MemTotal: 16777216 kB\nMemAvailable: 4194304 kB\n").unwrap();
     std::fs::write(proc.join("self/cgroup"), "0::/parent/child\n").unwrap();
     for (path, value) in [("parent/child/memory.current", "10"),
         ("parent/child/memory.max", "500"), ("parent/memory.current", "899"),

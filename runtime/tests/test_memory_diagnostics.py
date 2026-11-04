@@ -28,7 +28,18 @@ class MemoryDiagnosticTests(unittest.TestCase):
         snapshot = self.snapshot()
         message = memory_pressure_message(snapshot, 64 * 1024**2, 1024**3)
         self.assertIn("host RAM used/unavailable: 15.00 of 16.00 GiB", message)
-        self.assertIn("headroom -614.40 MiB, reserved 64.00 MiB, new allocation needs 1024.00 MiB", message)
+        self.assertIn("headroom -120.41 MiB, reserved 64.00 MiB, new allocation needs 1024.00 MiB", message)
+
+    def test_fixed_host_reserve_boundary_does_not_scale_with_ram(self):
+        for total_kib in (8_388_608, 33_554_432):
+            for available_kib, expected in ((1_171_874, -1024), (1_171_875, 0),
+                                            (1_171_876, 1024), (1_300_000, 131_200_000)):
+                with self.subTest(total=total_kib, available=available_kib):
+                    self.write(self.proc / "meminfo",
+                               f"MemTotal: {total_kib} kB\nMemAvailable: {available_kib} kB\n")
+                    snapshot = self.snapshot()
+                    self.assertEqual(snapshot["host_reserve_bytes"], 1_200_000_000)
+                    self.assertEqual(snapshot["allocation_headroom_bytes"], expected)
 
     def test_tightest_ancestor_pairs_its_own_usage_and_limit(self):
         self.write(self.proc / "self/cgroup", "0::/parent/child\n")

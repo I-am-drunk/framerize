@@ -19,6 +19,9 @@ pub mod rotation;
 pub mod wave;
 pub mod workspace;
 
+/// Host RAM kept free by request admission and allocator pressure reclamation.
+pub const HOST_RESERVE_BYTES: u64 = 1_200_000_000;
+
 pub use account::{AccountState, ManagedAccount, SessionHealth};
 pub use error::CoreError;
 pub use ids::{AccountId, FramerUserId, ProjectId, TeamId};

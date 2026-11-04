@@ -1,5 +1,6 @@
 //! Return free glibc pages under host pressure without changing allocation policy.
 use std::time::{Duration, Instant};
+use framer_core::HOST_RESERVE_BYTES;
 
 pub const FLAG: &str = "FRAMERIZE_RUST_PRESSURE_RECLAIM";
 pub const SUPPORTED: bool = cfg!(all(target_os = "linux", target_env = "gnu"));
@@ -52,7 +53,7 @@ impl Reclaimer {
     }
 
     pub fn eligible(&self, s: Snapshot, now: Instant) -> bool {
-        if s.total == 0 || s.available >= s.total / 10
+        if s.total == 0 || s.available >= HOST_RESERVE_BYTES
             || s.rss < MIN_FREE || s.free < MIN_FREE {
             return false;
         }
@@ -130,13 +131,13 @@ pub fn trim_heap() -> Option<bool> {
 mod tests {
     use super::*;
     fn pressure() -> Snapshot {
-        Snapshot { total: 1024 * MIB, available: 32 * MIB,
+        Snapshot { total: 16 * 1024 * MIB, available: 32 * MIB,
             rss: 256 * MIB, free: 160 * MIB }
     }
     #[test]
     fn no_operation_with_host_reserve_intact() {
         let mut r = Reclaimer::default();
-        let s = Snapshot { available: 256 * MIB, ..pressure() };
+        let s = Snapshot { available: HOST_RESERVE_BYTES, ..pressure() };
         assert!(r.run_with(s, Instant::now(), || panic!("must not trim")).is_none());
     }
     #[test]
@@ -172,12 +173,14 @@ mod tests {
         assert!(!r.eligible(Snapshot { rss: MIN_FREE - 1, ..pressure() }, now));
     }
     #[test]
-    fn pressure_boundary_preserves_ten_percent() {
+    fn pressure_boundary_preserves_fixed_host_reserve() {
         let r = Reclaimer::default();
         let s = pressure();
         let now = Instant::now();
-        assert!(!r.eligible(Snapshot { available: s.total / 10, ..s }, now));
-        assert!(r.eligible(Snapshot { available: s.total / 10 - 1, ..s }, now));
+        for total in [8 * 1024 * MIB, 32 * 1024 * MIB] {
+            assert!(!r.eligible(Snapshot { total, available: HOST_RESERVE_BYTES, ..s }, now));
+            assert!(r.eligible(Snapshot { total, available: HOST_RESERVE_BYTES - 1, ..s }, now));
+        }
     }
     #[test]
     fn kernel_counters_require_named_valid_kib_values() {

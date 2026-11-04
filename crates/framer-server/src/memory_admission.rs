@@ -2,6 +2,7 @@
 use axum::{body::Body, extract::{Request, State}, middleware::Next,
     response::{IntoResponse, Response}, http::StatusCode, Json};
 use std::{path::Path, sync::{Arc, atomic::{AtomicU64, Ordering}}};
+use framer_core::HOST_RESERVE_BYTES;
 
 const REQUEST_RESERVE: u64 = 64 * 1024 * 1024;
 const BROWSER_STARTUP_RESERVE: u64 = 1024 * 1024 * 1024;
@@ -19,7 +20,7 @@ impl MemorySample {
     fn refusal(self, reserved: u64) -> String {
         let gib = 1024_f64.powi(3);
         let mib = 1024_f64.powi(2);
-        format!("Low available RAM: insufficient memory below the 90% admission watermark for a new request. {}: {:.2} of {:.2} GiB; \
+        format!("Low available RAM: insufficient memory headroom for a new request. {}: {:.2} of {:.2} GiB; \
             admission headroom {:.2} MiB, reserved {:.2} MiB, new request needs {:.2} MiB. Retry shortly.",
             self.scope, self.used as f64 / gib, self.total as f64 / gib,
             self.headroom as f64 / mib, reserved as f64 / mib, REQUEST_RESERVE as f64 / mib)
@@ -115,7 +116,7 @@ fn host_headroom(text: &str) -> Option<MemorySample> {
         (fields.next()? == key).then(|| fields.next()?.parse::<u64>().ok()).flatten()
     }).map(|kb| i128::from(kb) * 1024);
     let (available, total) = (value("MemAvailable:")?, value("MemTotal:")?);
-    Some(MemorySample { headroom: available - total / 10,
+    Some(MemorySample { headroom: available - i128::from(HOST_RESERVE_BYTES),
         scope: "host RAM used/unavailable", used: total - available, total })
 }
 

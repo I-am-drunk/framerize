@@ -3,6 +3,8 @@ import hashlib, json, os, sys
 from pathlib import Path
 from .events import emit, error_cause
 
+HOST_RESERVE_BYTES = 1_200_000_000
+
 NATIVE_POINTER_LIBRARY_SHA256 = "25bdc30e0afcff4190925f27f154557643645daabf9577618af750363c326096"
 
 
@@ -15,8 +17,9 @@ MEMORY_ADDON_PATCHED_SHA256 = "0ca79ae890b922506e4689cadfa704ab827ee803f8b1fa8e0
 def memory_snapshot(proc_root=Path("/proc"), cgroup_root=Path("/sys/fs/cgroup")):
     """Read allocation headroom, including tighter ancestor cgroup limits.
 
-    The 90% mark stops new allocations. It never throttles the shared slice
-    containing the editor or pauses work already running in a warm browser.
+    New allocations require the fixed host reserve and 90% cgroup headroom.
+    These checks never throttle the shared slice containing the editor or
+    pause work already running in a warm browser.
     """
     result = {}
     headroom = []
@@ -28,7 +31,7 @@ def memory_snapshot(proc_root=Path("/proc"), cgroup_root=Path("/sys/fs/cgroup"))
                 mem[key] = int(value.split()[0]) * 1024
         result["host_available_bytes"] = mem["MemAvailable"]
         result["host_total_bytes"] = mem["MemTotal"]
-        result["host_reserve_bytes"] = mem["MemTotal"] // 10
+        result["host_reserve_bytes"] = HOST_RESERVE_BYTES
         headroom.append(mem["MemAvailable"] - result["host_reserve_bytes"])
         result.update(admission_scope="host RAM used/unavailable",
                       admission_used_bytes=mem["MemTotal"] - mem["MemAvailable"],

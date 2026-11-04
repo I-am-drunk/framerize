@@ -1,3 +1,14 @@
+# Alpha.30 fixed host memory floor, 2026-11-04
+
+Branch `ops/legacy-claude-alpha29-upgrade-20261104` now uses a fixed
+1,200,000,000-byte host reserve for browser admission, HTTP admission and
+allocator reclamation. Browser/request reservations, cgroup watermarks and
+installed service limits remain unchanged. All 24 focused runtime tests pass.
+Two private recovery-guard fixtures verify the corresponding prepared change.
+The [change record](incidents/2026-11-04-host-memory-floor.md) describes the
+qualification constraint. Alpha.29 remains live; no inference was repeated.
+Next: build and smoke-test alpha.30, then check the guarded activation preflight.
+
 # Alpha.29 live with graceful upgrade draining, 2026-11-04
 
 Branch `ops/legacy-claude-alpha29-upgrade-20261104` makes graceful draining the

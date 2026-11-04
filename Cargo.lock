@@ -546,7 +546,7 @@ dependencies = [
 
 [[package]]
 name = "framerize"
-version = "0.5.1-alpha.29"
+version = "0.5.1-alpha.30"
 dependencies = [
  "async-trait",
  "clap",
