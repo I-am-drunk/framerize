@@ -5,9 +5,16 @@ Branch `ops/legacy-claude-alpha29-upgrade-20261104` now uses a fixed
 allocator reclamation. Browser/request reservations, cgroup watermarks and
 installed service limits remain unchanged. All 24 focused runtime tests pass.
 Two private recovery-guard fixtures verify the corresponding prepared change.
-The [change record](incidents/2026-11-04-host-memory-floor.md) describes the
-qualification constraint. Alpha.29 remains live; no inference was repeated.
-Next: build and smoke-test alpha.30, then check the guarded activation preflight.
+Alpha.30 source `c46ef7ac801c2b10cfba9628d33e59eb753a38ac` is built and staged.
+Its package passes startup, runtime, profile-exclusion and clean-shutdown checks.
+The preflight passed package, history, configuration, identity, readiness and
+security checks, then refused missing inference qualification for the new binary.
+The [change record](incidents/2026-11-04-host-memory-floor.md) records that limit.
+Alpha.29 remains live as PID 3231960; no drain or inference test was started.
+All twelve account identities, settings and 404 baseline checkpoint rows remain.
+The installed recovery guard is unchanged; its aligned candidate is retained.
+Temporary compilation and smoke output is removed; the archive and receipts remain.
+Next: obtain exact alpha.30 qualification before the guarded graceful activation.
 
 # Alpha.29 live with graceful upgrade draining, 2026-11-04
 

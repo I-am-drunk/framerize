@@ -26,3 +26,18 @@ binary. Prior alpha.29 receipts cannot qualify a newly built alpha.30 binary.
 The task forbids new inference and bypassing guards. Package build and smoke
 checks can proceed, but activation must remain fenced without that evidence.
 Retain alpha.29, every current database and the compatible rollback packages.
+
+## Build and preflight result
+
+Source `c46ef7ac801c2b10cfba9628d33e59eb753a38ac` produced the staged alpha.30.
+Binary SHA-256: `54e8abc7e51da407aa5e7e6dda35e82c99bdf1668121a4c88a376371456850b9`.
+Archive SHA-256: `ca54016423326d77f72d3ea68d1c1c7a85d4fa833e78dbfddc883941c8f4e306`.
+All nine package smoke checks passed without inference. The package reads
+checkpoint versions 1 and 2 and writes version 2, matching the alpha.29 rollback.
+The preflight passed every preceding check and refused missing exact-binary
+inference qualification before sending any signal. The service remains alpha.29,
+PID 3231960, with all twelve identities and 404 baseline checkpoint rows intact.
+Normal traffic increased the checkpoint total to 464 during the build.
+The installed configuration and recovery guard remain unchanged.
+The build archive, staged release, guard candidate, test logs, refusal and
+preservation receipts remain private. Temporary build and smoke files are removed.
