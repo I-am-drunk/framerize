@@ -36,8 +36,10 @@ export async function startInstalledAccountServer(consumer: string, env: NodeJS.
 export function accountServerFixture(consumer: string, env: NodeJS.ProcessEnv, origin: string) {
   const accounts = join(consumer, 'accounts.json');
   writeFileSync(accounts, JSON.stringify([
-    { id: 'unused', projectId: 'unused-project', session: { env: 'UNSET_ACCOUNT_SESSION' } },
-    { id: 'selected', projectId: 'selected-project', session: { env: 'FIXTURE_ACCOUNT_SESSION' } },
+    { id: 'unused', projectId: 'unused-project', castleDeviceId: 'synthetic-unused-device',
+      session: { env: 'UNSET_ACCOUNT_SESSION' } },
+    { id: 'selected', projectId: 'selected-project', castleDeviceId: 'synthetic-selected-device',
+      session: { env: 'FIXTURE_ACCOUNT_SESSION' } },
   ]));
   return { env: { ...env, FIXTURE_ACCOUNT_SESSION: 'session=synthetic-account',
     FIXTURE_SERVER_TOKEN: serverToken }, args: [
