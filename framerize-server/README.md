@@ -101,6 +101,11 @@ The Framer backend also accepts `POST /openai/v1/responses` and
 Use `stream: false` or omit `stream`. Streaming and background Responses jobs
 are rejected before provider credentials or Castle are used.
 
+These custom routes are not yet a drop-in endpoint for ordinary Codex CLI.
+Codex CLI 0.163.0 sends `stream: true`, so pointing it at `/openai/v1` returns
+HTTP 400, both directly and through Remote. A separate client's ability to
+request completed JSON does not establish compatibility with Codex or T3.
+
 The server collects the complete provider reply, up to 16 MiB, and checks its
 JSON envelope before sending success. Valid tool calls, refusals and output-limit
 results retain their original bytes. Broken, oversized or invalid replies return
