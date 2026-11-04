@@ -147,7 +147,9 @@ Timeouts must be positive integers no greater than 2147483647 milliseconds:
 - `shutdownTimeoutMs`, default 5000, bounds provider cleanup.
 
 Set `--inference-timeout-ms` on the CLI, or `inferenceTimeoutMs` in the API.
-This is separate from `headersTimeoutMs`, which no longer limits inference.
+This is separate from `headersTimeoutMs`, which still bounds credential and
+connection setup and Framer request preparation. It does not bound the
+inference response-header wait.
 The five-minute default permits silent non-streaming computation without
 extending readiness checks. It does not change an upstream service's limits.
 There is no total stream deadline after headers. `requestTimeoutMs` is rejected.
