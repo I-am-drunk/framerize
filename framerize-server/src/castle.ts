@@ -5365,7 +5365,8 @@ function buildRealmGlobals({ publicKey, seedCuid: reqCuid, realmTimers }) {
             A.fromAsync = async function* () { }; return A; })(),
         ArrayBuffer: (() => { const AB = ArrayBuffer; if (!('transfer' in AB.prototype))
             AB.prototype.transfer = function transfer() { return this; }; return AB; })(),
-        requestIdleCallback: cb => setTimeout(() => cb({ didTimeout: false, timeRemaining: () => 50 }), 0),
+        requestIdleCallback: cb => { const id = setTimeout(() => cb({ didTimeout: false, timeRemaining: () => 50 }), 0);
+            realmTimers?.add(id); return id; },
         cancelIdleCallback: id => clearTimeout(id),
         fetch: undefined, XMLHttpRequest: undefined,
         castlePublishableAPIKey: publicKey,
@@ -5816,15 +5817,24 @@ function createCastleMinter(input = {}) {
             vm.runInContext(script, context, { filename: 'graph.bundle.js' });
             const wrapper = vm.runInContext('globalThis.__modules.wrapper', context);
             let watchdog;
+            let abortMint;
+            const signal = request?.signal;
             try {
                 const token = await Promise.race([
                     wrapper.a({ budget_ms: budgetMs }),
                     new Promise((_, rej) => { watchdog = setTimeout(() => rej(new Error('timeout')), timeoutMs); watchdog.unref?.(); }),
+                    ...(signal instanceof AbortSignal ? [new Promise((_, rej) => {
+                        abortMint = () => rej(signal.reason ?? new Error('aborted'));
+                        if (signal.aborted) { abortMint(); return; }
+                        signal.addEventListener('abort', abortMint, { once: true });
+                    })] : []),
                 ]);
                 return { token: String(token) };
             }
             finally {
                 clearTimeout(watchdog);
+                if (signal instanceof AbortSignal && abortMint)
+                    signal.removeEventListener('abort', abortMint);
                 for (const id of realmTimers) { clearTimeout(id); clearInterval(id); }
                 realmTimers.clear();
             }
