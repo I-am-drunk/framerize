@@ -21,6 +21,7 @@ const messages = {
   configuration_unavailable: ['The remote configuration is unavailable.', 'Check the server configuration.'],
   credentials_unavailable: ['The remote provider credentials are unavailable.', 'Check credentials on the server.'],
   upstream_unavailable: ['The remote upstream is unavailable.', 'Check the provider connection on the server.'],
+  cleanup_failed: ['Remote cleanup failed.', 'Confirm the Remote process has exited, then restart it with the same profile.'],
 } as const;
 
 export type DiagnosticCode = keyof typeof messages;

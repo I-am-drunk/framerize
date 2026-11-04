@@ -89,7 +89,8 @@ fixed messages and never echo raw arguments, remote URLs, bodies, or credentials
 Use `framerize-remote serve --port 8789` to change the local port for one run.
 Serve options never rewrite the profile. `SIGINT` and `SIGTERM` shut it down.
 Repeated stop signals wait for the same cleanup. Remote prints `Stopped.` only
-after cleanup succeeds. A cleanup failure remains an error.
+after cleanup succeeds. A cleanup failure exits with code 1 and explains how
+to restart with the same profile. JSON output identifies it as `cleanup_failed`.
 To accept connections outside loopback for one run:
 
 ```sh

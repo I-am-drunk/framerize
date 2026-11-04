@@ -3,7 +3,7 @@ import { runSetup } from './cmdSetup.js';
 import { runCheck, startServe, StartupCleanupError, StartupReadinessError, type ServeHandle } from './cmdRun.js';
 import { HELP, SETUP_HELP, SERVE_HELP, VERSION } from './present.js';
 import { profilePath } from './profilePaths.js';
-import { diagnostic, diagnosticText } from './diagnostics.js';
+import { diagnostic, diagnosticText, RemoteDiagnosticError } from './diagnostics.js';
 import { LISTEN_SPEC, parseListenOptions, type ListenOverrides } from './listenOptions.js';
 import { isLoopbackHost } from './hostPolicy.js';
 
@@ -112,6 +112,7 @@ async function serve(configPath: string, io: CliIo, json: boolean, overrides: Li
     return 1;
   } finally {
     try { await handle?.close(); }
+    catch { throw new RemoteDiagnosticError('cleanup_failed'); }
     finally {
       process.off('SIGINT', stop);
       process.off('SIGTERM', stop);

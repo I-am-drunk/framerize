@@ -161,7 +161,7 @@ for (const json of [false, true]) {
           const match = chunk.match(/Local API: http:\/\/127\.0\.0\.1:(\d+)\/v1/);
           if (match) { port = Number(match[1]); process.emit(signal); }
         }
-      } }), /synthetic cleanup failure/);
+      } }), { code: 'cleanup_failed', message: 'Remote cleanup failed.' });
       await closed.promise;
       await refused(port);
       assert.equal(closes, 1);
@@ -236,7 +236,8 @@ for (const json of [false, true]) {
       assert.equal(closes, 1);
       assert.equal(remote.calls(), 1);
       assert.deepEqual(signals.map(name => process.listenerCount(name)), baseline);
-      assert.equal(result.error?.message, 'Remote cleanup failed');
+      assert.equal(result.error?.code, 'cleanup_failed');
+      assert.equal(result.error?.message, 'Remote cleanup failed.');
       assert.equal(result.code, undefined);
       assert.equal(text, '');
     });
