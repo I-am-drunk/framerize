@@ -74,22 +74,39 @@ for (const path of ['/openai/v1/responses', '/anthropic/v1/messages']) {
   });
 }
 
-test('completed routes forward Anthropic protocol headers but streaming routes do not', async () => {
+test('custom routes forward Anthropic protocol headers but /v1 routes do not', async () => {
   const remote = await peer((incoming, outgoing) => {
+    if (incoming.url === '/ready') {
+      outgoing.writeHead(200, { 'content-type': 'application/json' });
+      return outgoing.end(JSON.stringify(ready));
+    }
     outgoing.writeHead(200, { 'content-type': 'text/event-stream' });
     outgoing.end('data: [DONE]\n\n');
   });
   const backend = backendFor(remote);
   const anthropic = { 'anthropic-version': '2026-10-21', 'anthropic-beta': 'messages-2024-01-01' };
+  const headers = { ...anthropic, cookie: 'synthetic-private-cookie',
+    'x-api-key': 'synthetic-private-key', authorization: 'Bearer synthetic-local-token' };
   try {
-    await forward(backend, '/v1/responses', anthropic);
+    const streaming = await forward(backend, '/v1/responses', headers);
+    assert.equal(streaming.status, 200);
+    assert.equal((await collect(streaming.body)).toString(), 'data: [DONE]\n\n');
+    assert.deepEqual(remote.paths, ['/ready', '/v1/responses']);
     assert.equal(remote.headers.at(-1)['anthropic-version'], undefined);
     assert.equal(remote.headers.at(-1)['anthropic-beta'], undefined);
+    assert.equal(remote.headers.at(-1).cookie, undefined);
+    assert.equal(remote.headers.at(-1)['x-api-key'], undefined);
+    assert.equal(remote.headers.at(-1).authorization, 'Bearer synthetic-remote-token');
     remote.paths.length = 0;
     remote.headers.length = 0;
-    await forward(backend, '/anthropic/v1/messages', anthropic);
+    const custom = await forward(backend, '/anthropic/v1/messages', headers);
+    assert.equal(custom.status, 200);
+    assert.equal((await collect(custom.body)).toString(), 'data: [DONE]\n\n');
     assert.equal(remote.headers.at(-1)['anthropic-version'], '2026-10-21');
     assert.equal(remote.headers.at(-1)['anthropic-beta'], 'messages-2024-01-01');
+    assert.equal(remote.headers.at(-1).cookie, undefined);
+    assert.equal(remote.headers.at(-1)['x-api-key'], undefined);
+    assert.equal(remote.headers.at(-1).authorization, 'Bearer synthetic-remote-token');
     assert.deepEqual(remote.paths, ['/anthropic/v1/messages']);
   } finally { backend.close(); await remote.close(); }
 });

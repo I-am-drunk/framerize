@@ -36,9 +36,11 @@ for (const path of ['/openai/v1/responses', '/anthropic/v1/messages'] as const) 
         method: 'POST', headers: {
           ...authorization, accept: 'application/json', 'content-type': 'application/json',
           'anthropic-version': '2026-10-21', 'anthropic-beta': 'messages-2024-01-01',
+          cookie: 'synthetic-private-cookie', 'x-api-key': 'synthetic-private-key',
         },
       }, Buffer.from('{}'));
       assert.equal(result.status, 200);
+      assert.deepEqual(result.body, Buffer.from('{"ok":true}'));
       assert.deepEqual(forwarded.at(-1), {
         accept: 'application/json', 'content-type': 'application/json',
         'anthropic-version': '2026-10-21', 'anthropic-beta': 'messages-2024-01-01',
@@ -46,6 +48,25 @@ for (const path of ['/openai/v1/responses', '/anthropic/v1/messages'] as const) 
     } finally { await instance.close(); }
   });
 }
+
+test('auth failures use each custom route error envelope without forwarding', async () => {
+  let forwards = 0;
+  const instance = createInstance({ token, backend: backend({ async forward() {
+    forwards += 1;
+    throw new Error('unauthorized forwarding');
+  } }) });
+  try {
+    const { port } = await instance.listen();
+    for (const path of ['/openai/v1/responses', '/anthropic/v1/messages']) {
+      const response = await exchange(port, path, { method: 'POST' });
+      const body = JSON.parse(response.body.toString());
+      assert.equal(response.status, 401);
+      assert.equal(body.error.type, 'authentication_error');
+      assert.equal(body.type, path === '/anthropic/v1/messages' ? 'error' : undefined);
+    }
+    assert.equal(forwards, 0);
+  } finally { await instance.close(); }
+});
 
 test('Anthropic completed routes return Anthropic-shaped upstream failures', async () => {
   const instance = createInstance({ token, backend: backend({
