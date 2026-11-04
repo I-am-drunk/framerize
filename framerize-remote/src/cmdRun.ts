@@ -45,6 +45,10 @@ export class StartupReadinessError extends Error {
   }
 }
 
+export class StartupCleanupError extends Error {
+  constructor() { super('Remote cleanup failed'); }
+}
+
 export async function startServe(
   configPath: string,
   env?: NodeJS.ProcessEnv,
@@ -67,5 +71,9 @@ export async function startServe(
     const info = await instance.listen().catch(() => { throw new RemoteDiagnosticError('listen_failed'); });
     signal.throwIfAborted();
     return { address: { host: config.host, port: info.port }, close };
-  } catch (error) { await close(); throw error; }
+  } catch (error) {
+    try { await close(); }
+    catch { throw new StartupCleanupError(); }
+    throw error;
+  }
 }

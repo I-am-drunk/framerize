@@ -1,6 +1,6 @@
 import { parseArgs } from './cliArgs.js';
 import { runSetup } from './cmdSetup.js';
-import { runCheck, startServe, StartupReadinessError, type ServeHandle } from './cmdRun.js';
+import { runCheck, startServe, StartupCleanupError, StartupReadinessError, type ServeHandle } from './cmdRun.js';
 import { HELP, SETUP_HELP, SERVE_HELP, VERSION } from './present.js';
 import { profilePath } from './profilePaths.js';
 import { diagnostic, diagnosticText } from './diagnostics.js';
@@ -82,6 +82,7 @@ export async function run(argv: readonly string[], io: CliIo): Promise<number> {
 async function serve(configPath: string, io: CliIo, json: boolean, overrides: ListenOverrides = {}): Promise<number> {
   const controller = new AbortController();
   let handle: ServeHandle | undefined;
+  let stoppedCleanly = false;
   let resolveStopped!: () => void;
   const stopped = new Promise<void>(resolve => { resolveStopped = resolve; });
   const stop = (): void => { controller.abort(); resolveStopped(); };
@@ -98,9 +99,13 @@ async function serve(configPath: string, io: CliIo, json: boolean, overrides: Li
       ...(exposed ? { exposure: 'non-loopback-http' } : {}) })}\n`
       : `Remote readiness passed.\n${warning}Local API: http://${address}:${port}/v1\nStop: Ctrl+C\n`);
     await stopped;
+    stoppedCleanly = true;
     return 0;
   } catch (error) {
-    if (controller.signal.aborted) return 0;
+    if (controller.signal.aborted && !(error instanceof StartupCleanupError)) {
+      stoppedCleanly = true;
+      return 0;
+    }
     if (!(error instanceof StartupReadinessError)) throw error;
     const result = { ready: false, reason: error.reason, diagnostic: diagnostic(error.code) } as const;
     io.stdout(`${json ? JSON.stringify(result) : diagnosticText(error.code)}\n`);
@@ -111,6 +116,6 @@ async function serve(configPath: string, io: CliIo, json: boolean, overrides: Li
       process.off('SIGINT', stop);
       process.off('SIGTERM', stop);
     }
-    if (controller.signal.aborted) io.stdout(json ? '{"stopped":true}\n' : 'Stopped.\n');
+    if (stoppedCleanly) io.stdout(json ? '{"stopped":true}\n' : 'Stopped.\n');
   }
 }
