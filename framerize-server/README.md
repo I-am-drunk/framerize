@@ -21,6 +21,15 @@ Set `FRAMERIZE_SERVER_TOKEN` in the existing private environment. Keep the upstr
 credential in a separate environment variable or private file. Do not pass secret
 values as command-line arguments.
 
+If startup reports "Account metadata file is unavailable or invalid", check
+`--accounts-file`, read permissions, and the
+[JSON account format](docs/framer-backend.md#select-a-json-account).
+The diagnostic does not print the path, file contents, or credentials.
+
+If startup reports "Select one configured Framer account", check `--account-id`
+and `--accounts-file`. Select one enabled account with a `projectId` and a
+session reference. Omit `--account-id` only when exactly one account is enabled.
+
 ```sh
 npm ci --ignore-scripts
 npm run build
@@ -88,6 +97,47 @@ body bytes and allowlisted headers, including `content-encoding`. The provider
 converts non-2xx upstream bodies to a generic `upstream_http_error` response while
 preserving status and safe headers. It never returns raw upstream error bodies.
 
+## Experimental custom routes
+
+The Framer backend also accepts `POST /openai/v1/responses` and
+`POST /anthropic/v1/messages`. Both require the server bearer token.
+Use `stream: false` or omit `stream` for completed JSON. Use `stream: true`
+for client events. Background Responses jobs remain unsupported.
+
+Both modes make one non-streaming provider request, to `/ai/v3/responses/`
+or `/ai/v3/messages/` respectively. Client streaming never changes those paths
+or enables provider streaming. There is no retry or route fallback.
+
+The server collects the complete provider reply, up to 16 MiB, and checks its
+JSON envelope before sending generated content. Valid tool calls, refusals and output-limit
+results retain their original bytes. Broken, oversized or invalid replies return
+a safe error with `x-should-retry: false`. Messages errors include `type: "error"`.
+The inference deadline covers collection and client delivery, not just headers.
+Parsing and buffering can use more memory than the reply's byte size.
+
+For streaming clients, the server sends SSE headers after credential preparation
+and comment keepalives during the provider wait. It sends protocol events once
+the complete reply is validated, including tool arguments, usage and stop reasons.
+This is not token-by-token generation. Incomplete results stay incomplete.
+Provider failures after headers become sanitized stream errors, not HTTP errors;
+disconnects and expired deadlines close the stream without a success terminator.
+`x-should-retry: false` applies from the start. Remote forwards these bytes without
+interpreting events. Neither keepalives nor slow clients extend the total deadline.
+Responses events retain supplied item IDs and add a consistent ID where absent.
+A missing token total is calculated from the supplied input and output counts.
+Messages streams use zero for unavailable token counts when the provider omits usage.
+
+An incomplete Responses result can contain an incomplete function call with
+unfinished JSON in its `arguments` string. The server preserves that string,
+the incomplete status and the limit reason. Clients must check the status
+before parsing or executing a tool call. This does not permit truncated HTTP
+replies or malformed outer JSON.
+
+These routes have synthetic local coverage only. Current provider models,
+options, version headers and live browserless acceptance remain unverified.
+Readiness does not advertise custom-route support. The generic HTTP backend
+does not implement these routes. Existing bare routes retain streaming behavior.
+
 ## Inject a provider
 
 The server-only [session authentication module](docs/framer-auth.md) provides
@@ -152,10 +202,12 @@ connection setup and Framer request preparation. It does not bound the
 inference response-header wait.
 The five-minute default permits silent non-streaming computation without
 extending readiness checks. It does not change an upstream service's limits.
-There is no total stream deadline after headers. `requestTimeoutMs` is rejected.
+Existing streaming routes have no total deadline after headers.
+Custom completed-response routes retain the inference deadline through delivery.
+`requestTimeoutMs` is rejected.
 `maxBodyBytes` defaults to 16777216. The server buffers at most one bounded request
-body per request to validate JSON before invoking the provider. Response bodies
-stream without whole-response buffering. A paused client must resume before its
+body per request to validate JSON before invoking the provider. Existing bare-route
+responses stream without whole-response buffering. A paused client must resume before its
 idle limit; provider body reads pause while downstream writes are blocked.
 
 `accountsFile` optionally references a JSON array of metadata with `id`, `label`,
@@ -172,11 +224,14 @@ exclude request bodies, account records, credentials, and arbitrary error messag
 
 ## Verify locally
 
+With the root development dependencies installed, run from the repository root:
+
 ```sh
-npm run check
-npm test
-npm run acceptance
-npm run pack:check
+npm run build:server
+npm --prefix framerize-server run check
+npm --prefix framerize-server test
+npm --prefix framerize-server run acceptance
+npm --prefix framerize-server run pack:check
 ```
 
 Tests use loopback fixtures. The package check installs the exact packed tarball
@@ -194,15 +249,22 @@ Node 22.23.4 builds each CI executable. Node 22.12 and 24 run the source checks.
 The pinned esbuild and postject development dependencies bundle the unchanged
 CLI into a Node single executable. Only Node builtins may remain external.
 
+Run from the repository root:
+
 ```sh
-npm ci
-npm pack --ignore-scripts
-npm run pack:check -- --downloaded
-npm run binary
-npm run binary:package
-npm run binary:check
-node scripts/release-metadata.js
+npm ci --ignore-scripts --no-audit --no-fund
+npm ci --prefix framerize-server --ignore-scripts --no-audit --no-fund
+npm run build:server
+(cd framerize-server && npm pack --ignore-scripts)
+npm --prefix framerize-server run pack:check -- --downloaded
+npm --prefix framerize-server run binary
+npm --prefix framerize-server run binary:package
+npm --prefix framerize-server run binary:check
+(cd framerize-server && node scripts/release-metadata.js)
 ```
+
+See the [native build guide](../docs/native-server-build.md) for archive inputs
+and the distinction between local builds and hosted qualification.
 
 The smoke check extracts the archive into a temporary path containing spaces,
 clears the child environment and PATH, and runs help, configuration, health,
@@ -229,8 +291,9 @@ and compares installed files to committed bytes even on CRLF checkouts. It then
 builds, extracts and tests each native archive. The manifest job verifies all three
 targets, a common source/version/Node version, identical licenses and the shared
 tarball hash. It writes six payloads plus aggregate metadata under `dist/qualified/`.
-Run `node scripts/merge-release-manifests.js` with `RELEASE_DIST` pointing to the
-shared tarball and the `linux-x64`, `macos-arm64`, `windows-x64` artifact directories.
+Run `(cd framerize-server && node scripts/merge-release-manifests.js)` from the
+repository root. Set `RELEASE_DIST` to the absolute path containing the shared
+tarball and the `linux-x64`, `macos-arm64`, `windows-x64` artifact directories.
 
 Installed launcher comparison accounts for npm's removal of a CR from its
 shebang line. Every remaining launcher byte and every other file stays strict.

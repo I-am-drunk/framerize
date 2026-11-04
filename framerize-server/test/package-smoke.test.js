@@ -72,6 +72,7 @@ test('downloaded package smoke rejects bytes changed after commit', (t) => {
 for (const name of ['config.js', 'config.d.ts', 'accounts.js', 'accounts.d.ts',
   'cli.js', 'cli.d.ts', 'logger.js', 'logger.d.ts', 'server.d.ts',
   'provider.js', 'provider.d.ts', 'core.d.ts',
+  'compat/completed-reply.js', 'compat/completed-reply.d.ts',
   ...['backend', 'http-policy', 'instance', 'instance-options', 'readiness'].map((name) => `core-types/${name}.d.ts`)]) {
   test(`downloaded package smoke rejects substituted compiled ${name}`, (t) => {
     const checkout = packageFixture(t);

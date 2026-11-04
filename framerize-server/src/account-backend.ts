@@ -1,7 +1,7 @@
 import { loadFramerAccount, readAccountSession } from './accounts.js';
 import { createFramerAuth, type FramerAuth } from './framer-auth.js';
 import { createFramerBackend, type FramerBackendOptions, type FramerMinter } from './framer-backend.js';
-import { ConfigurationError, ProviderError } from './errors.js';
+import { AccountFileError, AccountSelectionError, ConfigurationError, ProviderError } from './errors.js';
 import type { InferenceBackend } from '../dist/core.js';
 
 export interface AccountMinterContext {
@@ -61,11 +61,13 @@ export async function createAccountBackend(input: AccountBackendOptions): Promis
     castle = await config.createMinter({ accountId: account.id, signal: config.signal });
     checkSignal(config.signal);
     return createFramerBackend({ ...config.provider, projectId: account.projectId, auth, castle });
-  } catch {
+  } catch (error) {
     await Promise.allSettled([
       Promise.resolve().then(() => auth?.close()), Promise.resolve().then(() => castle?.close()),
     ]);
     checkSignal(config.signal);
+    if (error instanceof AccountFileError) throw new AccountFileError('Framer account setup failed');
+    if (error instanceof AccountSelectionError) throw new AccountSelectionError('Framer account setup failed');
     throw new ConfigurationError('Framer account setup failed');
   }
 }

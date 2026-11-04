@@ -2,7 +2,7 @@ import { resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { parseArgs } from '../framerize-remote/src/cliArgs.js';
 import { loadCredential, type CredentialReference } from '../framerize-remote/src/credentials.js';
-import { checkInference, validateInferenceOptions } from './validation/inference.js';
+import { checkInference, validateInferenceOptions, type InferenceCheckOptions } from './validation/inference.js';
 
 const failure = (code: 'configuration' | 'credential') => ({ ok: false as const, code,
   scope: 'single-endpoint-text-inference', requestAttempts: 0, status: null, durationMs: 0 });
@@ -13,13 +13,16 @@ export async function runInferenceCheck(argv: readonly string[], env: NodeJS.Pro
   let reference: CredentialReference;
   try {
     const { options } = parseArgs(argv, { endpoint: 'string', model: 'string',
-      'token-env': 'string', 'token-file': 'string', 'timeout-ms': 'string', 'send-one-request': 'boolean' });
+      'token-env': 'string', 'token-file': 'string', 'timeout-ms': 'string',
+      protocol: 'string', 'send-one-request': 'boolean' });
     if (options['send-one-request'] !== true || Boolean(options['token-env']) === Boolean(options['token-file'])) {
       throw new Error();
     }
     if (options['timeout-ms'] !== undefined && !/^\d+$/.test(String(options['timeout-ms']))) throw new Error();
     request = { endpoint: options.endpoint as string, model: options.model as string,
-      timeoutMs: Number(options['timeout-ms'] ?? 30000), ...(signal ? { signal } : {}) };
+      timeoutMs: Number(options['timeout-ms'] ?? 30000),
+      protocol: (options.protocol ?? 'chat') as NonNullable<InferenceCheckOptions['protocol']>,
+      ...(signal ? { signal } : {}) };
     validateInferenceOptions({ ...request, token: 'preflight' });
     if (options['token-env'] && !/^[A-Za-z_][A-Za-z0-9_]*$/.test(String(options['token-env']))) throw new Error();
     reference = options['token-env'] ? { kind: 'env', name: String(options['token-env']) }
@@ -34,6 +37,8 @@ export async function runInferenceCheck(argv: readonly string[], env: NodeJS.Pro
 
 const help = `Usage: check-inference --endpoint ORIGIN --model MODEL
   (--token-env NAME | --token-file FILE) --send-one-request [--timeout-ms N]
+  [--protocol chat|responses|messages]
+The default chat check streams. Responses and Messages request completed JSON.
 Sends one text inference request. Provider usage may be charged. No retries.
 Reports counts and fixed errors only, never credentials or response text.
 This checks the selected endpoint, not provider identity or release readiness.

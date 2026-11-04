@@ -38,8 +38,10 @@ interface Exchange {
 }
 type HttpResponse = IncomingMessage & { statusCode: number };
 
-const ROUTES = new Set(['/v1/responses', '/v1/chat/completions']);
-const REQUEST_HEADERS = ['accept', 'content-type', 'openai-beta'];
+const ROUTES = ['/v1/responses', '/v1/chat/completions',
+  '/openai/v1/responses', '/anthropic/v1/messages'] as const;
+const REQUEST_HEADERS = ['accept', 'content-type', 'openai-beta', 'accept-encoding',
+  'anthropic-version', 'anthropic-beta'];
 const RESPONSE_HEADERS = ['content-type', 'content-encoding', 'cache-control',
   'x-request-id', 'retry-after', 'x-should-retry'];
 const ERROR_BODY = Buffer.from(JSON.stringify({ error: {
@@ -317,14 +319,16 @@ export function createProvider(values: ProviderOptions = { upstream: '' }): Prov
 }
 
 export function createHttpProvider(values: ProviderOptions,
-  routes: Readonly<Record<InferenceRequest['path'], string>>): Provider {
+  routes: Readonly<Partial<Record<InferenceRequest['path'], string>>>): Provider {
   const base = endpoint(values.upstream);
-  const destinations = { '/v1/responses': routes['/v1/responses'],
-    '/v1/chat/completions': routes['/v1/chat/completions'] };
-  for (const path of Object.values(destinations)) {
+  const destinations: Partial<Record<InferenceRequest['path'], string>> = {};
+  for (const route of ROUTES) {
+    if (!Object.hasOwn(routes, route)) continue;
+    const path = routes[route];
     if (typeof path !== 'string' || !/^\/(?!\/)/.test(path) || /[\\?#\s\x00-\x1f]/.test(path)) {
       throw new ConfigurationError('Invalid provider route');
     }
+    destinations[route] = path;
   }
   const config = { ...values,
     headersTimeoutMs: duration(values.headersTimeoutMs, 15_000),
@@ -342,7 +346,8 @@ export function createHttpProvider(values: ProviderOptions,
   const destination = (path: string) => new URL(`${base.href.replace(/\/+$/, '')}${path}`);
   return {
     async forward({ path, body, headers, signal }) {
-      if (!ROUTES.has(path)) throw failure('Unsupported provider route', 'not_found', 404);
+      const target = Object.hasOwn(destinations, path) ? destinations[path] : undefined;
+      if (!target) throw failure('Unsupported provider route', 'not_found', 404);
       if (!body || typeof body[Symbol.asyncIterator] !== 'function') {
         throw failure('Request body must be an async iterable of Buffers', 'invalid_request_body', 400);
       }
@@ -351,7 +356,7 @@ export function createHttpProvider(values: ProviderOptions,
         const selected = selectedHeaders(headers, REQUEST_HEADERS);
         selected.accept ??= 'text/event-stream, application/json';
         selected['content-type'] ??= 'application/json';
-        const response = await open(state, destination(destinations[path]), 'POST', selected, body, config);
+        const response = await open(state, destination(target), 'POST', selected, body, config);
         const status = response.statusCode;
         if (status >= 200 && status < 300) return {
           status, headers: selectedHeaders(response.headers, RESPONSE_HEADERS),

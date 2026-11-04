@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -92,6 +92,55 @@ test('serve host overrides explain their separate exposure consent', async t => 
     assert.deepEqual(await readdir(root), ['profile.json']);
   }
 });
+
+function runSetup(root, args, json = false) {
+  return spawnSync(process.execPath, [launcher, 'setup', ...args, ...(json ? ['--json'] : [])], {
+    cwd: root, encoding: 'utf8', timeout: 5000,
+    env: { HOME: root, USERPROFILE: root, TMPDIR: root,
+      ...(process.env.SystemRoot ? { SystemRoot: process.env.SystemRoot } : {}) },
+  });
+}
+
+test('setup rejects a missing global profile path without changing the default profile', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'remote-setup-globals-'));
+  const directory = join(root, '.framerize-remote');
+  const profile = join(directory, 'framerize-remote.json');
+  try {
+    await mkdir(directory);
+    await writeFile(profile, 'existing-profile', { mode: 0o600 });
+    for (const json of [false, true]) {
+      const result = runSetup(root, ['--config', ...valid], json);
+      assert.equal(result.error, undefined);
+      assert.equal(result.status, 1);
+      assert.equal(result.stdout, '');
+      assert.doesNotMatch(result.stderr, /private-setup-canary|existing-profile/);
+      if (json) assert.equal(JSON.parse(result.stderr).error, 'setup_arguments');
+      else assert.match(result.stderr, /^Not ready: .+\nNext: .+\n$/);
+      assert.equal(await readFile(profile, 'utf8'), 'existing-profile');
+      assert.deepEqual(await readdir(root), ['.framerize-remote']);
+      assert.deepEqual(await readdir(directory), ['framerize-remote.json']);
+    }
+  } finally { await rm(root, { recursive: true, force: true }); }
+});
+
+for (const [command, args] of [['check', ['--config', '--json']], ['serve', ['--config']]]) {
+  test(`${command} keeps malformed global options as command_failed`, async () => {
+    const root = await mkdtemp(join(tmpdir(), 'remote-global-failure-'));
+    try {
+      const result = spawnSync(process.execPath, [launcher, command, ...args], {
+        cwd: root, encoding: 'utf8', timeout: 5000,
+        env: { HOME: root, USERPROFILE: root, TMPDIR: root,
+          ...(process.env.SystemRoot ? { SystemRoot: process.env.SystemRoot } : {}) },
+      });
+      assert.equal(result.error, undefined);
+      assert.equal(result.status, 1);
+      assert.equal(result.stdout, '');
+      assert.doesNotMatch(result.stderr, /setup_arguments/);
+      if (args.includes('--json')) assert.equal(JSON.parse(result.stderr).error, 'command_failed');
+      else assert.match(result.stderr, /^framerize-remote failed to run the requested command\n/);
+    } finally { await rm(root, { recursive: true, force: true }); }
+  });
+}
 
 test('setup explains an unwritable profile target without exposing its path', async () => {
   const root = await mkdtemp(join(tmpdir(), `${canary}-`));

@@ -45,8 +45,8 @@ export class StartupReadinessError extends Error {
   }
 }
 
-export class StartupCleanupError extends Error {
-  constructor() { super('Remote cleanup failed'); }
+export class StartupCleanupError extends RemoteDiagnosticError {
+  constructor() { super('cleanup_failed'); }
 }
 
 export async function startServe(

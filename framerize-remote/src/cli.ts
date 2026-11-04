@@ -118,6 +118,7 @@ async function serve(configPath: string, io: CliIo, json: boolean, overrides: Li
     return 1;
   } finally {
     try { await handle?.close(); }
+    catch { throw new RemoteDiagnosticError('cleanup_failed'); }
     finally {
       process.off('SIGINT', stop);
       process.off('SIGTERM', stop);

@@ -89,6 +89,24 @@ Native requests are wrapped in the `agents` envelope. Responses use
 streaming choice and tool-call fields remain unchanged. Successful response
 bytes pass through without parsing SSE or appending a terminator.
 
+The experimental completed-response routes use separate paths:
+`/openai/v1/responses` maps to `/ai/v3/responses/`, and
+`/anthropic/v1/messages` maps to `/ai/v3/messages/`. Clients can request JSON
+or streaming replies. The provider request stays non-streaming and preserves
+the other native request fields inside the envelope.
+Responses background jobs are rejected. Messages requests require a positive
+integer `max_tokens`. Each accepted request makes at most one provider POST.
+This is an implementation of the recorded mappings, not proof that the current
+provider accepts every model, field or version header.
+
+Successful custom replies must contain complete native JSON. The server checks
+the response or message envelope, known content fields and terminal state,
+then returns the original bytes to non-streaming clients or converts the reply
+to protocol events for streaming clients. It preserves refusals and output-limit
+results without resuming partial output or generating another tool response.
+Messages streams use zero for unavailable token counts. Malformed, unfinished and over-16-MiB
+replies fail with a safe error and `x-should-retry: false`.
+
 Readiness checks session authentication, not a paid inference or Castle mint.
 It does not prove the next inference will succeed. Each inference acquires a
 token and mints once. There are no retries, account rotations or alternate
@@ -102,9 +120,12 @@ Connection setup also retains its own 15-second limit. These defaults can be
 changed with `--headers-timeout-ms` and `--inference-timeout-ms` in the CLI,
 or the corresponding options in either backend factory.
 
-After response headers arrive, the inference deadline stops. Streaming uses
-`idleTimeoutMs`, a 60-second body-inactivity limit, without a total lifetime
-limit. The CLI option is `--idle-timeout-ms`. A deadline failure does not retry
+For the existing streaming routes, the inference deadline stops after response
+headers. Custom completed-response routes keep a deadline through reply
+collection, validation and delivery, including when the client requests a
+streaming reply. Streaming also uses `idleTimeoutMs`, a 60-second body-inactivity
+limit. The existing streaming routes have no total lifetime limit after
+headers. The CLI option is `--idle-timeout-ms`. A deadline failure does not retry
 the request. Configure Remote's independent forwarding limits separately;
 see [Remote timeouts](../../framerize-remote/README.md#endpoints).
 
