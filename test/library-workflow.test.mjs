@@ -44,8 +44,9 @@ function validateWorkflow(source) {
     'actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020',
   ]);
   const commands = [...source.matchAll(/^\s*run: (.+)$/gm)].map((match) => match[1]);
-  assert.deepEqual(commands, ['node --test test/library-workflow.test.mjs',
-    'npm ci --ignore-scripts --no-audit --no-fund', 'node scripts/fetch-castle.mjs',
+  assert.deepEqual(commands, ['node scripts/fetch-castle.mjs',
+    'node --test test/library-workflow.test.mjs',
+    'npm ci --ignore-scripts --no-audit --no-fund',
     'npm --prefix framerize-castle test',
     'node node_modules/typescript/bin/tsc -p tsconfig.library-tools.json',
     'node --test .tools/test/installed-castle-flow.test.js']);
