@@ -1,8 +1,9 @@
 # Session authentication
 
-`framerize-server/framer-auth` supplies server-side authentication for the
-browserless provider. It is not an inference provider and the CLI does not
-select it automatically. Remote and shared core do not import it.
+`framerize-server/framer-auth` supplies session authentication for the Framer
+account backend. The CLI creates it for the selected JSON account when run
+with `--backend framer`. The generic HTTP backend, Remote and shared core do
+not use it.
 
 The account owner supplies a session cookie in memory. This module neither
 reads a browser profile nor stores cookies or tokens on disk.
@@ -47,7 +48,7 @@ Only a 401 from this endpoint reports `session_unavailable`. A 403 reports
 Other failed responses report `auth_unavailable`. Cancellation, shutdown and
 deadlines have separate codes. This module does not change account state.
 
-## Evidence and remaining work
+## Integration and verification
 
 The protocol and cache rules follow the existing
 [account authentication implementation](https://github.com/I-am-drunk/framerize/blob/16b8117950621fccb648108796ca2a7a8c720543/crates/framer-api/src/auth.rs).
@@ -57,6 +58,9 @@ Synthetic loopback tests cover acquisition, cache isolation, invalidation,
 cancellation, cleanup, error handling, limits, proxy isolation and TLS refusal.
 An integration test supplies this helper to the real provider's credential
 callback and exercises the server listener. It does not prove Framer inference.
-The [Framer backend](framer-backend.md) now connects this helper and an injected
-Castle minter to the inference routes. Account configuration and CLI selection
-still need wiring. Live browserless compatibility remains unverified.
+The [Framer backend](framer-backend.md) connects this helper and a Castle minter
+to the inference routes. The CLI loads the configured account and packaged
+minter; embedding callers can supply their own minter. See
+[account configuration](framer-backend.md#select-a-json-account) for session
+references and CLI selection. This wiring and the synthetic tests do not
+establish live provider compatibility.
