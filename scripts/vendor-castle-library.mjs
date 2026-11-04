@@ -29,8 +29,8 @@ function write(path, text) {
   const temporary = `${path}.tmp`;
   writeFileSync(temporary, '');
   const lines = text.match(/[^\n]*\n|[^\n]+$/g) ?? [];
-  for (let offset = 0; offset < lines.length; offset += 40) {
-    appendFileSync(temporary, lines.slice(offset, offset + 40).join(''));
+  for (let offset = 0; offset < lines.length; offset += 39) {
+    appendFileSync(temporary, lines.slice(offset, offset + 39).join(''));
   }
   renameSync(temporary, path);
 }
@@ -74,6 +74,9 @@ changes.set('src/collect-worker.ts', [
   ["import vm from 'node:vm';", "import vm from 'node:vm';\nimport { root, rootURL } from 'castle:location';"],
   ["fileURLToPath(new URL('../', import.meta.url))", 'root'],
   ["new URL('../castle/', import.meta.url)", "new URL('castle/', rootURL)"],
+  ['\ntry {', '\nvoid (async () => {\ntry {'],
+  ['parentPort?.postMessage({ failed: true });\n}',
+    'parentPort?.postMessage({ failed: true });\n}\n})();'],
 ]);
 const collector = dataURL(await bundle("import 'castle:src/collect-worker.ts';"));
 const encoder = dataURL(await bundle("import 'castle:src/encode-worker.ts';"));

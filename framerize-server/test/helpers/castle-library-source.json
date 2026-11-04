@@ -72,10 +72,10 @@
     "src/types.ts": "3c6179cd54f092b4123882d75fe399adbf7480fa552bb9563bcaa7595753bbb6",
     "src/worker.ts": "b641801bdf6bdd25c0a85fbf0ec2d1b2903341fad3b89b3482b97d06870157cc"
   },
-  "sha256": "83dafd4b1aeff7b7f50c93f651218b88ee6632b0f3c5bb7f56c0d14dedca98fc",
-  "generatorSha256": "cd0abd47f3d5d0bae01defa6e0067410cf8d179c72afb977c4f486d353e10fe7",
+  "sha256": "58046dfc0df0b82361cda23d72d3b5a71d6c9fad40509e43e12c5ad7143d692e",
+  "generatorSha256": "99a4560f46cdaf723408374563bfa1bbc25c575ebbae5ab511fb425738b4bfa5",
   "workers": {
-    "collector": "6fcfb27f8b9e1b9382f0226440af935d3cd0155efef28602d51602f56f23f575",
+    "collector": "6198060a0ceb13d64bc4137f6105df09ad73ec8b294cae086145cdc122830670",
     "encoder": "bf6180e6d8e5c4aa5dab908e832f19eb24bf7d285d42c2e33e9264b9faeddcca",
     "loader": "fd6303e1eedd89a3ec956ccc67278fd6b90d537c14d57883c00846d03611ab8a"
   }
