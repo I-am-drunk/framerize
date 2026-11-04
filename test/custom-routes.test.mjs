@@ -4,6 +4,18 @@ import { fixture, protocols, reply } from './custom-routes-fixture.mjs';
 
 for (const protocol of protocols) for (const viaRemote of [false, true]) {
   const name = `${protocol.name}, remote=${viaRemote}`;
+  test(`Castle device identity remains server-owned: ${name}`, async context => {
+    const castleDeviceId = 'synthetic-server-device';
+    const setup = await fixture(context, protocol, viaRemote, { backend: { castleDeviceId } });
+    const result = await setup.post(protocol.body, { 'x-castle-device-id': 'untrusted-client-device' });
+    assert.equal(result.status, 200);
+    assert.deepEqual(setup.deviceIds, [castleDeviceId]);
+    assert.equal(setup.observed.length, 1);
+    assert.equal(setup.observed[0].headers['x-castle-device-id'], undefined);
+    assert.equal(result.headers['x-castle-device-id'], undefined);
+    assert.equal(result.body.includes(castleDeviceId), false);
+    assert.deepEqual(setup.observed[0].body.request, protocol.body);
+  });
   if (protocol.name === 'responses') for (const type of ['function_call', 'custom_tool_call']) {
     test(`output-limited ${type} is preserved: ${name}`, async context => {
       const output = [{ type, call_id: 'call_limit', name: 'lookup', status: 'incomplete',

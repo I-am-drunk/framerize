@@ -11,6 +11,7 @@ export interface AccountMetadata {
   readonly model?: string;
   readonly models?: readonly string[];
   readonly projectId?: string;
+  readonly castleDeviceId?: string;
   readonly session?: AccountSessionReference;
 }
 
@@ -49,7 +50,7 @@ export async function loadAccounts(path?: string): Promise<readonly AccountMetad
       throw new ConfigurationError(`accounts[${index}] must be an object`);
     }
     const account = entry as Record<string, unknown>;
-    const allowed = ['id', 'enabled', 'label', 'model', 'models', 'projectId', 'session'];
+    const allowed = ['id', 'enabled', 'label', 'model', 'models', 'projectId', 'castleDeviceId', 'session'];
     if (Object.keys(account).some((key) => !allowed.includes(key))) {
       throw new ConfigurationError(`accounts[${index}] has an unknown field`);
     }
@@ -74,6 +75,10 @@ export async function loadAccounts(path?: string): Promise<readonly AccountMetad
     if (account.projectId !== undefined && (typeof account.projectId !== 'string'
       || !/^[A-Za-z0-9_-]{1,128}$/.test(account.projectId))) {
       throw new ConfigurationError('Invalid account project');
+    }
+    if (account.castleDeviceId !== undefined && (typeof account.castleDeviceId !== 'string'
+      || !/^[A-Za-z0-9._~-]{1,256}$/.test(account.castleDeviceId))) {
+      throw new ConfigurationError('Invalid account Castle device ID');
     }
     return Object.freeze({ ...account, id: account.id,
       ...(Array.isArray(account.models) ? { models: Object.freeze([...account.models]) } : {}),

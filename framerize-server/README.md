@@ -192,6 +192,13 @@ account backend requires an explicit selection when more than one account is
 enabled. It never rotates accounts automatically.
 `examples/metadata.example.json` contains no credentials. Keep actual account records outside Git.
 
+An account may include `castleDeviceId` to preserve its existing Castle device
+identity. The server passes it to every mint for that selected account. It must
+be 1 to 256 characters using letters, digits, `.`, `_`, `~`, or `-`. Omitting it
+keeps the library default. Do not invent a replacement ID during account import.
+The value stays on the server, not in Remote configuration or client headers.
+Preserving the ID does not establish live provider acceptance.
+
 Logs contain request IDs, canonical routes, status, outcome, and duration. They
 exclude request bodies, account records, credentials, and arbitrary error messages.
 

@@ -7,12 +7,13 @@ import { CompletedReplyError, MAX_COMPLETED_REPLY_BYTES, validateCompletedReply,
   type CompletedReplyProtocol } from './compat/completed-reply.js';
 
 export interface FramerMinter {
-  mint(request: { readonly signal: AbortSignal }): Promise<{ readonly token: string }>;
+  mint(request: { readonly signal: AbortSignal; readonly cuid?: string }): Promise<{ readonly token: string }>;
   close(): Promise<void>;
 }
 
 export interface FramerBackendOptions {
   readonly projectId: string;
+  readonly castleDeviceId?: string;
   readonly auth: FramerAuth;
   readonly castle: FramerMinter;
   readonly origin?: string;
@@ -72,7 +73,9 @@ function begin(active: Set<Operation>, signal: AbortSignal, timeout: number): Op
 
 function options(input: FramerBackendOptions) {
   try {
-    const { projectId, auth, castle } = input;
+    const { projectId, castleDeviceId, auth, castle } = input;
+    if (castleDeviceId !== undefined && (typeof castleDeviceId !== 'string'
+      || !/^[A-Za-z0-9._~-]{1,256}$/.test(castleDeviceId))) throw new Error();
     const origin = new URL(input.origin ?? 'https://api.framer.com');
     const maxBodyBytes = input.maxBodyBytes ?? 16 * 1024 * 1024;
     const headersTimeoutMs = input.headersTimeoutMs ?? 15_000;
@@ -85,7 +88,8 @@ function options(input: FramerBackendOptions) {
     for (const value of [maxBodyBytes, headersTimeoutMs, inferenceTimeoutMs, idleTimeoutMs]) {
       if (!Number.isSafeInteger(value) || value < 1 || value > 2_147_483_647) throw new Error();
     }
-    return { projectId, origin: origin.href, maxBodyBytes, headersTimeoutMs, inferenceTimeoutMs, idleTimeoutMs,
+    return { projectId, castleDeviceId, origin: origin.href,
+      maxBodyBytes, headersTimeoutMs, inferenceTimeoutMs, idleTimeoutMs,
       accessToken: auth.accessToken.bind(auth), closeAuth: auth.close.bind(auth),
       mint: castle.mint.bind(castle), closeCastle: castle.close.bind(castle) };
   } catch { throw new ConfigurationError('Invalid Framer provider configuration'); }
@@ -224,7 +228,9 @@ export function createFramerBackend(input: FramerBackendOptions): InferenceBacke
         completed = decoded.completedProtocol !== undefined;
         const authorization = await accessToken(config, signal);
         signal.throwIfAborted();
-        const castleToken = await Promise.resolve().then(async () => (await config.mint({ signal })).token)
+        const castleToken = await Promise.resolve().then(async () => (await config.mint({ signal,
+          ...(config.castleDeviceId === undefined ? {} : { cuid: config.castleDeviceId }),
+        })).token)
           .catch((error: unknown) => { throw mintFailure(error); });
         signal.throwIfAborted();
         const encoded = encodeFramerRequest(decoded, config.projectId, castleToken);

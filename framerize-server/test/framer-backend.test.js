@@ -57,6 +57,27 @@ async function fixture(context, handler = (request, response) => response.end('{
   return { backend, requests, config, gateway, mints: () => mints, closed: () => closed };
 }
 
+test('omitted Castle device identity preserves the default mint contract', async context => {
+  const requests = [];
+  const setup = await fixture(context, undefined, { castle: {
+    async mint(request) { requests.push(request); return { token: 'synthetic-castle' }; },
+    async close() {},
+  } });
+  await collect((await setup.backend.forward(call())).body);
+  assert.equal(requests.length, 1);
+  assert.equal(Object.hasOwn(requests[0], 'cuid'), false);
+});
+
+test('invalid Castle device identity fails before calling dependencies', () => {
+  let accessed = 0;
+  const dependency = new Proxy({}, { get() { accessed += 1; throw new Error('private'); } });
+  for (const castleDeviceId of [null, 0, '', 'bad id', 'x'.repeat(257), 'private\nvalue']) {
+    assert.throws(() => createFramerBackend({ projectId: 'project', castleDeviceId,
+      auth: dependency, castle: dependency }), { message: 'Invalid Framer provider configuration' });
+  }
+  assert.equal(accessed, 0);
+});
+
 test('Framer readiness uses session auth without minting or /v1/models', async context => {
   const setup = await fixture(context);
   assert.equal(await setup.backend.ready({ signal: signal() }), true);
