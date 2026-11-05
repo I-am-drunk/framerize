@@ -16,22 +16,21 @@ export interface LoggerOptions {
   readonly level?: LogLevel;
 }
 
-const SECRET = /authorization|cookie|password|secret|token|credential|session|api.?key|body|prompt|input|messages/i;
-
-function redact(value: unknown, depth = 0, seen = new WeakSet<object>()): unknown {
+function boundedValue(value: unknown, depth = 0, seen = new WeakSet<object>()): unknown {
   if (depth > 5) return '[truncated]';
-  if (value instanceof Error) return { name: 'Error', message: '[redacted]' };
   if (value && typeof value === 'object') {
     if (seen.has(value)) return '[circular]';
     seen.add(value);
-    if (Array.isArray(value)) return value.slice(0, 100).map((item) => redact(item, depth + 1, seen));
-    return Object.fromEntries(Object.entries(value).slice(0, 100).map(([key, item]) => (
-      [key, SECRET.test(key) ? '[redacted]' : redact(item, depth + 1, seen)]
+    if (Array.isArray(value)) return value.slice(0, 100).map((item) => boundedValue(item, depth + 1, seen));
+    const entries: [string, unknown][] = value instanceof Error
+      ? [['name', value.name], ['message', value.message], ...Object.entries(value)]
+      : Object.entries(value);
+    return Object.fromEntries(entries.slice(0, 100).map(([key, item]) => (
+      [key, boundedValue(item, depth + 1, seen)]
     )));
   }
   if (typeof value === 'string') {
-    return value.replace(/\b(Bearer|Basic)\s+[^\s,;"']+/gi, '$1 [redacted]')
-      .replace(/(https?:\/\/)[^\s/@]+:[^\s/@]+@/gi, '$1[redacted]@').slice(0, 2000);
+    return value.slice(0, 2000);
   }
   if (typeof value === 'bigint') return String(value);
   return value;
@@ -42,7 +41,7 @@ export function createLogger({ stream = process.stderr, level = 'info' }: Logger
   const threshold = priorities[level] ?? priorities.info;
   function write(event: string, fields: object & { level: LogLevel }) {
     if ((priorities[fields.level] ?? priorities.info) < threshold) return;
-    try { stream.write(`${JSON.stringify({ ...redact(fields) as object, time: new Date().toISOString(), event: redact(event) })}\n`); }
+    try { stream.write(`${JSON.stringify({ ...boundedValue(fields) as object, time: new Date().toISOString(), event: boundedValue(event) })}\n`); }
     catch {}
   }
   return Object.freeze<Logger>({

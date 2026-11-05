@@ -12,6 +12,8 @@ export interface RequestEvent {
 export interface InstanceOptions {
   readonly backend: InferenceBackend;
   readonly token: string | null;
+  /** `none` serves protected routes without a bearer token and requires `token: null`. */
+  readonly authentication?: 'required' | 'none';
   readonly host?: string;
   readonly port?: number;
   readonly maxBodyBytes?: number;
@@ -25,13 +27,15 @@ export interface InstanceOptions {
 
 export function instanceOptions(options: InstanceOptions) {
   try {
-    const allowed = ['backend', 'token', 'host', 'port', 'maxBodyBytes', 'headersTimeoutMs',
+    const allowed = ['backend', 'token', 'authentication', 'host', 'port', 'maxBodyBytes', 'headersTimeoutMs',
       'inferenceTimeoutMs', 'idleTimeoutMs', 'requestHeadersTimeoutMs', 'shutdownTimeoutMs', 'onRequest'];
     if (Object.keys(options).some((name) => !allowed.includes(name))) throw new Error();
     const config = { host: '127.0.0.1', port: 0, maxBodyBytes: 16 * 1024 * 1024,
       headersTimeoutMs: 15_000, idleTimeoutMs: 60_000, requestHeadersTimeoutMs: 15_000,
-      inferenceTimeoutMs: 300_000,
+      inferenceTimeoutMs: 300_000, authentication: 'required' as 'required' | 'none',
       shutdownTimeoutMs: 5_000, ...options };
+    if (config.authentication !== 'required' && config.authentication !== 'none') throw new Error();
+    if (config.authentication === 'none' && config.token !== null) throw new Error();
     if (!config.backend || typeof config.backend.forward !== 'function'
       || typeof config.backend.ready !== 'function' || typeof config.backend.close !== 'function'
       || (config.token !== null && (typeof config.token !== 'string'

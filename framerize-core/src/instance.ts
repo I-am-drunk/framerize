@@ -109,7 +109,9 @@ export function createInstance(options: InstanceOptions): FramerizeInstance {
         throw new HttpError('method_not_allowed');
       }
       if (route === '/health') { json(response, 200, { status: 'ok', apiVersion: 1 }); return; }
-      if (!authenticated(request, tokenHash)) throw new HttpError('unauthorized');
+      if (config.authentication === 'required' && !authenticated(request, tokenHash)) {
+        throw new HttpError('unauthorized');
+      }
       if (route === '/ready') {
         let reason: ReadinessReason | undefined;
         try {

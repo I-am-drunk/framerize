@@ -23,19 +23,35 @@ test('missing provider returns stable unavailable responses', async context => {
   assert.equal(JSON.parse(response.body).error.code, 'provider_unavailable');
 });
 
-test('missing server token never admits readiness or inference', async context => {
+test('an unset server token permits trusted readiness and inference', async context => {
   let calls = 0;
   const { port } = await instance(context, {
     ready() { calls += 1; return true; },
-    forward() { calls += 1; throw new Error('must not run'); },
+    forward(request) {
+      calls += 1;
+      assert.equal(request.headers.authorization, undefined);
+      return { status: 200, headers: {}, body: [Buffer.from('synthetic')] };
+    },
   }, '');
   for (const path of ['/ready', '/v1/responses']) {
-    const result = await apiRequest(port, path, { headers: authorizedHeaders(),
+    const result = await apiRequest(port, path, { headers: { 'content-type': 'application/json' },
       method: path === '/ready' ? 'GET' : 'POST', body: path === '/ready' ? undefined : '{}',
     });
-    assert.equal(result.response.status, 401);
+    assert.equal(result.response.status, 200);
   }
+  assert.equal(calls, 2);
+});
+
+test('a configured server token still requires matching authorization', async context => {
+  let calls = 0;
+  const { port } = await instance(context, {
+    ready() { calls += 1; return true; },
+    forward() { throw new Error('unused'); },
+  });
+  assert.equal((await apiRequest(port, '/ready')).response.status, 401);
   assert.equal(calls, 0);
+  assert.equal((await apiRequest(port, '/ready', { headers: authorizedHeaders() })).response.status, 200);
+  assert.equal(calls, 1);
 });
 
 test('composition accepts synchronous readiness, responses and close', async context => {

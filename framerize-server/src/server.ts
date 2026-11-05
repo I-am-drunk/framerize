@@ -35,6 +35,7 @@ export async function createServer(values: unknown = {},
   const { host, port, maxBodyBytes, headersTimeoutMs, inferenceTimeoutMs, idleTimeoutMs,
     requestHeadersTimeoutMs, shutdownTimeoutMs } = config;
   return createInstance({ backend, token: token || null, host, port, maxBodyBytes,
+    authentication: token ? 'required' : 'none',
     headersTimeoutMs, inferenceTimeoutMs, idleTimeoutMs, requestHeadersTimeoutMs, shutdownTimeoutMs,
     onRequest(event) { return logger?.info?.('request.finished', event); },
   });

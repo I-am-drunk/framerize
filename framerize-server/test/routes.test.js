@@ -120,18 +120,19 @@ test('body limit rejects the request without invoking the provider', async (t) =
   assert.equal(provider.calls.length, 0);
 });
 
-test('missing server token denies protected routes but not health', async (t) => {
+test('an unset server token permits trusted routes and health', async (t) => {
   const { port, provider } = await startFixture(t, { serverToken: '' });
   assert.equal((await apiRequest(port, '/health')).response.status, 200);
   for (const path of ['/ready', '/v1/responses']) {
     const { response, body } = await apiRequest(port, path, {
       method: path === '/ready' ? 'GET' : 'POST',
-      headers: authorizedHeaders(), body: path === '/ready' ? undefined : '{}',
+      headers: { 'content-type': 'application/json' }, body: path === '/ready' ? undefined : '{}',
     });
-    assert.equal(response.status, 401);
-    assert.deepEqual(JSON.parse(body), unauthorized);
+    assert.equal(response.status, 200);
+    assert.deepEqual(JSON.parse(body), path === '/ready' ? readyDocument : { id: 'fixture-response' });
   }
-  assert.equal(provider.calls.length, 0);
+  assert.equal(provider.calls.length, 1);
+  assert.equal(provider.calls[0].headers.authorization, undefined);
 });
 
 test('Connection-nominated safe headers do not reach the provider', async (t) => {

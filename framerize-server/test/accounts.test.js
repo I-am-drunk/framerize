@@ -89,7 +89,7 @@ test('JSON stores only frozen credential references and resolves files beside th
 
 for (const session of [null, [], {}, { env: '' }, { env: 4 }, { file: '' }, { file: '../bad\0path' },
   { env: 'VALID', file: 'private-session' }, { cookie: 'synthetic-private' }, { env: 'VALID', token: 'synthetic-private' }]) {
-  test('invalid session references never turn JSON into a credential store', async context => {
+  test('invalid session references are rejected', async context => {
     const file = await accountFile(context, [{ id: 'fixture', projectId: 'project', session }]);
     await assert.rejects(loadAccounts(file), { message: 'Invalid account session reference' });
   });
