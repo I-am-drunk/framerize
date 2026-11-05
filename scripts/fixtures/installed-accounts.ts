@@ -1,8 +1,9 @@
 import assert from 'node:assert/strict';
-import { execFileSync } from 'node:child_process';
+import { execFile, execFileSync } from 'node:child_process';
 import { mkdtempSync, readFileSync, rmSync, statSync } from 'node:fs';
 import { join } from 'node:path';
-import { startInstalledSavedServer } from './installed-server.js';
+import { promisify } from 'node:util';
+import { startInstalledSavedRemote, startInstalledSavedServer } from './installed-server.js';
 import { createScenario, exchange } from './transport-scenario.js';
 
 export async function verifyAccountManagement(consumer: string, env: NodeJS.ProcessEnv): Promise<void> {
@@ -13,6 +14,7 @@ export async function verifyAccountManagement(consumer: string, env: NodeJS.Proc
   const runtimeEnv = { ...env, HOME: state, USERPROFILE: state, FRAMERIZE_SERVER_HOME: serverHome };
   let scenario: Awaited<ReturnType<typeof createScenario>> | undefined;
   let server: Awaited<ReturnType<typeof startInstalledSavedServer>> | undefined;
+  let remote: Awaited<ReturnType<typeof startInstalledSavedRemote>> | undefined;
   const run = (args: string[], input = '', extra: NodeJS.ProcessEnv = {}) => {
     const text = execFileSync(process.execPath, [cli, ...args], { cwd: consumer,
       env: { ...runtimeEnv, ...extra },
@@ -55,16 +57,25 @@ export async function verifyAccountManagement(consumer: string, env: NodeJS.Proc
     assert.ok(configuration.includes(scenario.url));
     run(['check']);
     server = await startInstalledSavedServer(consumer, runtimeEnv);
-    const reply = await exchange(server.url, '/v1/chat/completions', null,
-      { body: { fixture: 'completed-json', stream: false, route: '/v1/chat/completions' } });
-    assert.equal(reply.status, 200);
-    assert.deepEqual(JSON.parse(reply.body.toString()), { done: true });
+    const remoteEnv = { ...runtimeEnv, FRM_HOME: join(state, 'remote') };
+    const saved = await promisify(execFile)(process.execPath,
+      [join(consumer, 'node_modules/framerize-remote/bin/frm.js'), 'setup',
+        '--remote', server.url, '--port', '0', '--json'],
+      { cwd: consumer, env: remoteEnv, timeout: 5000 });
+    output.push(saved.stdout, saved.stderr);
+    remote = await startInstalledSavedRemote(consumer, remoteEnv);
+    for (const target of [server.url, remote.url]) {
+      const reply = await exchange(target, '/v1/chat/completions', null,
+        { body: { fixture: 'completed-json', stream: false, route: '/v1/chat/completions' } });
+      assert.equal(reply.status, 200);
+      assert.deepEqual(JSON.parse(reply.body.toString()), { done: true });
+    }
     assert.deepEqual(scenario.state.failures, []);
     assert.ok(scenario.state.requests.some(request => request.authorization === 'Bearer synthetic-saved-authorization'));
-    output.push(server.output());
+    output.push(server.output(), remote.output());
     assert.doesNotMatch(output.join('\n'), /synthetic-(?:(?:first|second|rejected)-account|saved-authorization)/);
   } finally {
-    const cleanup = await Promise.allSettled([server?.close(), scenario?.close()]);
+    const cleanup = await Promise.allSettled([remote?.close(), server?.close(), scenario?.close()]);
     rmSync(state, { recursive: true, force: true });
     for (const result of cleanup) if (result.status === 'rejected') throw result.reason;
   }
