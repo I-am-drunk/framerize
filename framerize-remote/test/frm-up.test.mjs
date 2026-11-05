@@ -10,10 +10,12 @@ import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { build } from 'esbuild';
 
-const compiled = await build({ entryPoints: [fileURLToPath(new URL('../src/cmdUp.ts', import.meta.url))],
+const source = name => fileURLToPath(new URL(`../src/${name}.ts`, import.meta.url));
+const compiled = await build({ stdin: { contents: `export * from ${JSON.stringify(source('cmdUp'))};
+  export * from ${JSON.stringify(source('diagnostics'))};`, resolveDir: fileURLToPath(new URL('.', import.meta.url)) },
   alias: { '@framerize/core': fileURLToPath(new URL('../../framerize-core/src/index.ts', import.meta.url)) },
   bundle: true, platform: 'node', format: 'esm', write: false });
-const { setUp, formatUp } = await import(`data:text/javascript;base64,${Buffer.from(compiled.outputFiles[0].contents).toString('base64')}`);
+const { setUp, formatUp, ServiceCommandCleanupError } = await import(`data:text/javascript;base64,${Buffer.from(compiled.outputFiles[0].contents).toString('base64')}`);
 const quiet = { stdout() {}, stderr() {} };
 
 async function availablePort() {
@@ -420,4 +422,19 @@ test('an occupied local port fails before activation and leaves the other listen
   assert.equal(commands.some(command => / (re)?start frm\.service$/.test(command)), false);
   await assert.rejects(readFile(options.configPath), { code: 'ENOENT' });
   assert.equal(other.listening, true);
+});
+
+test('up preserves command cleanup failure while rolling back a cancelled install', async context => {
+  const { origin, options, control } = await fixture(context, { requireToken: null });
+  const controller = new AbortController();
+  const failure = new ServiceCommandCleanupError(new Error('synthetic cleanup failure'));
+  const original = options.service.run;
+  options.signal = controller.signal;
+  options.service.run = async (command, args, signal) => {
+    if (args.includes('restart')) { controller.abort(); throw failure; }
+    return original(command, args, signal);
+  };
+  await assert.rejects(setUp(origin, quiet, options), error => error === failure);
+  await assert.rejects(readFile(options.configPath), { code: 'ENOENT' });
+  assert.equal(control.active, false);
 });

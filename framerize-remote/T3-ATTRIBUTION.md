@@ -60,6 +60,10 @@ under the same MIT License.
   `test/frm-up-arguments.test.mjs` and `test/frm-service-ready.test.mjs`.
   Waiting for a cancelled service command to close before rollback, and force
   stopping that command after a one-second grace period, are Framerize additions.
+  `src/serviceCommand.ts` extends this to owned POSIX process groups and checks
+  their exit with `/bin/ps`, following Framerize Server's command runner.
+  Waiting for concurrent probes, reporting cleanup failures, and forwarding
+  cancellation from `frm service` are also Framerize additions.
 - `src/hostClassification.ts` copies `packages/shared/src/hostClassification.ts`
   (`29648b45`) through `isPrivateNetworkHost`. The favicon classification
   after it is omitted. `src/remoteUrl.ts` uses it to allow plain HTTP to

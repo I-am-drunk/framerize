@@ -8,12 +8,13 @@ import { CONFIG_DEFAULTS, parsePersisted, type PersistedConfig } from './config.
 import { saveConfigFile } from './configStore.js';
 import { validate, type CredentialReference } from './credentials.js';
 import { FRM_LOCAL_TOKEN, FRM_SERVER_TOKEN, frmSettings } from './frmEnv.js';
-import { RemoteDiagnosticError, SetupRollbackError, type DiagnosticCode } from './diagnostics.js';
+import { RemoteDiagnosticError, ServiceCommandCleanupError, SetupRollbackError, type DiagnosticCode } from './diagnostics.js';
 import { isPairingLink, parsePairingLink } from './pairingLink.js';
 import { parseRemoteEndpoint } from './remoteUrl.js';
 import { controlService, installService, requireServicePrerequisites, restoreService, serviceMainPid, serviceStatus,
   snapshotService, type ServiceContext, type ServiceSnapshot, type ServiceStatus } from './serviceControl.js';
 import { checkLocalPort, waitForServiceListener } from './serviceReadiness.js';
+import { waitForServiceCommands } from './serviceCommand.js';
 
 export interface UpOptions {
   readonly configPath: string;
@@ -149,7 +150,8 @@ export async function setUp(input: string | undefined, io: CliIo, options: UpOpt
     active();
     return { ...base, ready: true, service };
   } catch (error) {
-    const failure = signal?.aborted ? new RemoteDiagnosticError('aborted') : error;
+    const failure = signal?.aborted && !(error instanceof ServiceCommandCleanupError)
+      ? new RemoteDiagnosticError('aborted') : error;
     const failures: unknown[] = [];
     let profileRestored = true;
     await restore(options.configPath, before.text).catch((restoreError: unknown) => {
@@ -187,7 +189,7 @@ async function listener(profile: PersistedConfig, options: UpOptions): Promise<v
   const host = urlHost(profile.host ?? CONFIG_DEFAULTS.host).replace(/^\[|\]$/g, '');
   await waitForServiceListener({ host, port: profile.port ?? CONFIG_DEFAULTS.port,
     service: async () => {
-      const [status, pid] = await Promise.all([serviceStatus(options.service), serviceMainPid(options.service)]);
+      const [status, pid] = await waitForServiceCommands([serviceStatus(options.service), serviceMainPid(options.service)]);
       return { running: status.running, pid };
     }, ...(options.readyTimeoutMs ? { timeoutMs: options.readyTimeoutMs } : {}),
     ...(options.signal ? { signal: options.signal } : {}) });

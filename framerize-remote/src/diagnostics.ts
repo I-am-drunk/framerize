@@ -18,6 +18,8 @@ const messages = {
   service_linger: ['Lingering is disabled, so the frm service would stop when your last login session ends.', 'Run `sudo loginctl enable-linger "$(id -un)"`, then run frm up again as your normal user.'],
   service_linger_unavailable: ['Cannot check whether this user can run services after logout.', 'Run `loginctl show-user "$(id -un)" --property=Linger` and check that systemd-logind is available.'],
   service_failed: ['The background service command failed.', 'Run frm service status and check the service log.'],
+  service_cleanup_failed: ['Could not stop background service command processes. Some may still be running.',
+    'Inspect the service manager and its command processes before retrying frm up or frm service.'],
   service_port_busy: ['Another program already listens on the local API port.', 'Stop that program, or run frm up again with FRM_PORT set to a free port.'],
   service_not_ready: ['The frm service did not start its local API.', 'Run frm service status and check frm-service.log in FRM_HOME.'],
   service_rollback_failed: ['Setup failed and the previous profile or service state could not be fully restored.', 'Check the profile in FRM_HOME and run frm service status before retrying frm up.'],
@@ -70,6 +72,13 @@ export function commandFailure(error: unknown, json: boolean): string | undefine
 export class RemoteDiagnosticError extends Error {
   constructor(readonly code: DiagnosticCode, message: string = messages[code][0]) {
     super(message);
+  }
+}
+
+export class ServiceCommandCleanupError extends RemoteDiagnosticError {
+  constructor(cause: unknown) {
+    super('service_cleanup_failed');
+    this.cause = cause;
   }
 }
 

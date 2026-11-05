@@ -9,7 +9,8 @@ import { build } from 'esbuild';
 
 const source = name => fileURLToPath(new URL(`../src/${name}.ts`, import.meta.url));
 const compiled = await build({ stdin: { contents: `export * from ${JSON.stringify(source('serviceControl'))};
-  export * from ${JSON.stringify(source('serviceUnits'))};`, resolveDir: fileURLToPath(new URL('.', import.meta.url)) },
+  export * from ${JSON.stringify(source('serviceUnits'))};
+  export * from ${JSON.stringify(source('diagnostics'))};`, resolveDir: fileURLToPath(new URL('.', import.meta.url)) },
 bundle: true, platform: 'node', format: 'esm', write: false });
 const service = await import(`data:text/javascript;base64,${Buffer.from(compiled.outputFiles[0].contents).toString('base64')}`);
 
@@ -185,4 +186,45 @@ test('restoreService removes a new unit, and restores a stopped one without star
   assert.equal(control.active, false);
   assert.deepEqual(commands, ['systemctl --user stop frm.service', 'systemctl --user daemon-reload',
     'systemctl --user enable frm.service']);
+});
+
+for (const operation of ['prerequisites', 'status']) test(`${operation} drains peer probes before reporting cleanup failure`, async t => {
+  const { context: target } = await harness(t);
+  if (operation === 'status') await service.installService(target);
+  const controller = new AbortController(), started = Promise.withResolvers(), release = Promise.withResolvers();
+  const failure = new service.ServiceCommandCleanupError(new Error('synthetic cleanup failure'));
+  let calls = 0, settled = false;
+  target.signal = controller.signal;
+  target.run = async () => {
+    if (++calls === 1) {
+      await started.promise;
+      controller.abort();
+      throw new service.RemoteDiagnosticError('aborted');
+    }
+    started.resolve();
+    await release.promise;
+    throw failure;
+  };
+  t.after(() => release.resolve());
+  const pending = (operation === 'status' ? service.serviceStatus(target)
+    : service.requireServicePrerequisites(target)).finally(() => { settled = true; });
+  pending.catch(() => {});
+  await started.promise;
+  await new Promise(setImmediate);
+  assert.equal(settled, false, 'a peer probe still owns cleanup work');
+  release.resolve();
+  await assert.rejects(pending, error => error === failure);
+});
+
+for (const operation of ['repair', 'pid']) test(`${operation} preserves cleanup failure during cancellation`, async t => {
+  const { context: target } = await harness(t);
+  const controller = new AbortController();
+  const failure = new service.ServiceCommandCleanupError(new Error('synthetic cleanup failure'));
+  target.signal = controller.signal;
+  target.run = async (_program, args) => {
+    if (operation === 'pid' || args.includes('enable-linger')) { controller.abort(); throw failure; }
+    return { code: 0, stdout: args.includes('show-user') ? 'no\n' : '' };
+  };
+  await assert.rejects(operation === 'pid' ? service.serviceMainPid(target)
+    : service.requireServicePrerequisites(target), error => error === failure);
 });
