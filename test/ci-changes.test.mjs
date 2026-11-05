@@ -22,7 +22,7 @@ test('root guides and agent skills are inert, package guides are not', () => {
 
 test('a core change runs both packages that bundle it', () => {
   assert.deepEqual(decide(['framerize-core/src/instance.ts'], packages, false).affected,
-    ['@framerize/core', 'framerize-remote', 'framerize-server']);
+    ['@framerize/core', 'framerize', 'framerize-remote']);
   assert.deepEqual(gates(['framerize-core/src/instance.ts']), all);
 });
 

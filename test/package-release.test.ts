@@ -38,7 +38,7 @@ test('promotes original bytes only after all nine offline reports, without claim
   assert.equal(release.pendingGate, 'live_browserless_qualification');
   assert.equal(release.evidence.length, 29);
   assert.deepEqual(readFileSync(join(state.output, 'framerize-remote-0.2.0.tgz')), original);
-  assert.equal(existsSync(join(state.output, 'framerize-server-0.1.0.tgz')), false);
+  assert.equal(existsSync(join(state.output, 'framerize-0.1.0.tgz')), false);
 });
 function fixture(context: TestContext) {
   const root = mkdtempSync(join(tmpdir(), 'package release '));
@@ -48,7 +48,7 @@ function fixture(context: TestContext) {
   mkdirSync(input); mkdirSync(reports); mkdirSync(join(input, 'tooling'));
   const expected = { repository: 'fixture/repository', sha: 'a'.repeat(40), tree: 'b'.repeat(40),
     event: 'push', runId: '1234', runAttempt: '2', tag: 'framerize-remote-v0.2.0',
-    versions: { 'framerize-remote': '0.2.0', 'framerize-server': '0.1.0' } };
+    versions: { 'framerize-remote': '0.2.0', framerize: '0.1.0' } };
   const packages = Object.entries(expected.versions).map(([name, version]) => {
     const directory = join(root, name); mkdirSync(join(directory, 'package'), { recursive: true });
     writeFileSync(join(directory, 'package/package.json'), JSON.stringify({ name, version }));

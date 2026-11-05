@@ -127,7 +127,7 @@ test('source identity rejects dirty tracked server and workflow files', (t) => {
   for (const file of ['package.json', '../.github/workflows/server-ci.yml']) {
     const checkout = seedRelease(t);
     writeFileSync(path.join(checkout.directory, file), file.endsWith('.json')
-      ? '{"name":"framerize-server","version":"0.1.0","private":true,"dirty":true}'
+      ? '{"name":"framerize","version":"0.1.0","dirty":true}'
       : 'name: dirty\n');
     assertFailure(runMerge(checkout), 'Packaging requires a clean committed server checkout');
   }

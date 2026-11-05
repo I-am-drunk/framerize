@@ -8,8 +8,8 @@ const root = path.resolve(__dirname, "../..");
 // Root and docs Markdown ship in no package. Package READMEs stay owned.
 const INERT = [/^docs\//, /^\.agents\//, /^[^/]+\.md$/, /^LICENSE$/];
 // The server bundles core during its build without declaring it.
-const BUILD_ONLY_DEPS = { "framerize-server": ["@framerize/core"] };
-const GATES = { source: null, packages: ["framerize-remote", "framerize-server"], server: ["framerize-server"] };
+const BUILD_ONLY_DEPS = { framerize: ["@framerize/core"] };
+const GATES = { source: null, packages: ["framerize-remote", "framerize"], server: ["framerize"] };
 
 function readWorkspace() {
   const { workspaces } = JSON.parse(fs.readFileSync(path.join(root, "package.json"), "utf8"));

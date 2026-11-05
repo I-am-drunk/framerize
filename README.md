@@ -1,13 +1,14 @@
 # Framerize
 
-Framerize serves an inference API backed by Framer accounts. Server, the
-`framerize` command, runs on the machine that holds the accounts. Remote,
-the `frm` command, runs on each client machine and forwards requests to Server.
+Framerize serves an inference API backed by Framer accounts. Install the
+`framerize` package on the machine that holds the accounts, or the smaller
+`framerize-remote` package on a client machine. Both provide the same command
+names: `frm` and `framerize`.
 
-| Run this | Where | Default address |
+| Package | Where | Default address |
 | --- | --- | --- |
 | [`framerize`](framerize-server/README.md) | Machine with the account | `127.0.0.1:8789` |
-| [`frm`](framerize-remote/README.md) | Client machine | `127.0.0.1:8788` |
+| [`framerize-remote`](framerize-remote/README.md) | Client machine | `127.0.0.1:8788` |
 
 Server holds the accounts and Castle. Remote holds neither. Both use the
 HTTP listener in [Core](framerize-core/README.md).
@@ -31,7 +32,7 @@ npm pack --workspace=framerize-remote --ignore-scripts
 On the Server machine:
 
 ```sh
-npm install --global --ignore-scripts ./framerize-server-0.1.0.tgz
+npm install --global --ignore-scripts ./framerize-0.1.0.tgz
 ```
 
 On each client machine:
@@ -40,8 +41,9 @@ On each client machine:
 npm install --global --ignore-scripts ./framerize-remote-0.2.0.tgz
 ```
 
-The packages install `framerize` for Server and `frm` for Remote. npm creates
-the command links in its global prefix. On Linux and macOS, that prefix's
+Either package installs both `frm` and `framerize`. Choose one package per
+global npm prefix. Uninstall it before switching roles; do not use `--force`.
+npm creates the command links in its global prefix. On Linux and macOS, that prefix's
 `bin` directory must be on `PATH`; on Windows, the prefix itself must be on
 `PATH`. Run `npm prefix -g` to find it. Both commands work outside the checkout.
 

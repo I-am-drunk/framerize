@@ -51,7 +51,7 @@ export function assemblePackageRelease(input: string, reports: string, output: s
   assert.equal(expected.tag, `framerize-remote-v${expected.versions['framerize-remote']}`, 'Release tag differs');
   assert.equal(producer.node, 'v22.23.4');
   assert.match(producer.npm, /^\d+\.\d+\.\d+$/);
-  assert.deepEqual(producer.packages.map(entry => entry.name), ['framerize-remote', 'framerize-server']);
+  assert.deepEqual(producer.packages.map(entry => entry.name), ['framerize-remote', 'framerize']);
   assert.deepEqual(readdirSync(input).sort(), ['manifest.json', 'tooling',
     ...producer.packages.map(entry => entry.tarball)].sort());
   const snapshots = new Map<string, Buffer>();
@@ -130,7 +130,7 @@ if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.ur
       'GITHUB_RUN_ATTEMPT', 'GITHUB_REF', 'GITHUB_EVENT_NAME']) assert.ok(env[key]);
     const git = (argument: string) => execFileSync('git', ['rev-parse', argument], { encoding: 'utf8' }).trim();
     assert.equal(git('HEAD'), env.GITHUB_SHA);
-    const versions = Object.fromEntries(['framerize-remote', 'framerize-server'].map(name =>
+    const versions = Object.fromEntries(['framerize-remote', 'framerize'].map(name =>
       [name, (JSON.parse(bytes(join(name, 'package.json')).toString()) as { version: string }).version]));
     const result = assemblePackageRelease(process.argv[2]!, process.argv[3]!, process.argv[4]!, {
       repository: env.GITHUB_REPOSITORY!, sha: env.GITHUB_SHA!, tree: git('HEAD^{tree}'),

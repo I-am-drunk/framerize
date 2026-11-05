@@ -1,13 +1,13 @@
 {
-  "name": "framerize-server",
+  "name": "framerize",
   "version": "0.1.0",
   "description": "Node-native HTTP server for operator-authorized inference endpoints",
-  "private": true,
   "type": "module",
   "engines": {
     "node": ">=22.12"
   },
   "bin": {
+    "frm": "./bin/framerize-server.js",
     "framerize": "./bin/framerize-server.js",
     "framerize-server": "./bin/framerize-server.js"
   },

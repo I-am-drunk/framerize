@@ -95,7 +95,7 @@ test('installed Remote forwards through the installed server with isolated crede
         identities.push({ name, sha256: createHash('sha256').update(readFileSync(archive)).digest('hex'),
           bytes: info.size, files: info.files.length });
       }
-      npm(['install', '--offline', '--ignore-scripts', '--omit=dev', '--package-lock=false',
+      npm(['install', '--bin-links=false', '--offline', '--ignore-scripts', '--omit=dev', '--package-lock=false',
         '--no-audit', '--no-fund', ...archives], consumer);
       verifyStandaloneTypes(repository, consumer, env);
       context.diagnostic(verifyServerNodeApi(consumer, env).trim());
@@ -183,7 +183,7 @@ test('installed frm and Server forward trusted traffic without token or profile 
         assert.equal(packed.length, 1);
         archives.push(join(root, packed[0]!.filename));
       }
-      npm(['install', '--offline', '--ignore-scripts', '--omit=dev', '--package-lock=false',
+      npm(['install', '--bin-links=false', '--offline', '--ignore-scripts', '--omit=dev', '--package-lock=false',
         '--no-audit', '--no-fund', ...archives], consumer);
       const env = privateEnvironment(runtime);
       scenario = await createScenario(null);
@@ -261,8 +261,8 @@ function verifyServerNodeApi(consumer: string, env: NodeJS.ProcessEnv): string {
 import assert from 'node:assert/strict';
 import { request } from 'node:http';
 import { setImmediate } from 'node:timers/promises';
-import { createServer } from 'framerize-server';
-import { loadConfig } from 'framerize-server/config';
+import { createServer } from 'framerize';
+import { loadConfig } from 'framerize/config';
 const signals = ['SIGINT', 'SIGTERM'].map(name => process.listenerCount(name));
 const resources = process.getActiveResourcesInfo().filter(name => /TCP|Timeout/.test(name)).sort();
 const complete = Buffer.from('{"output":[{"content":[{"text":"synthetic"}]}]}');
@@ -494,12 +494,12 @@ function verifyStandaloneTypes(repository: string, consumer: string, env: NodeJS
   assert.match(serveHelp, /FRM_REMOTE/);
   assert.match(serveHelp, /--port/);
   assert.equal(existsSync(join(consumer, 'node_modules/@framerize/core')), false);
-  assert.equal(existsSync(join(consumer, 'node_modules/framerize-server/src')), false);
+  assert.equal(existsSync(join(consumer, 'node_modules/framerize/src')), false);
   execFileSync(process.execPath, ['--input-type=module', '-e', `
 import assert from 'node:assert/strict';
-import { createFramerAuth } from 'framerize-server/framer-auth';
-import { createFramerBackend } from 'framerize-server/framer-backend';
-import { createAccountBackend } from 'framerize-server/account-backend';
+import { createFramerAuth } from 'framerize/framer-auth';
+import { createFramerBackend } from 'framerize/framer-backend';
+import { createAccountBackend } from 'framerize/account-backend';
 import { createServer as createAuthServer } from 'node:http';
 import { once } from 'node:events';
 import { writeFileSync } from 'node:fs';
@@ -543,10 +543,10 @@ try {
   writeFileSync(join(consumer, 'consumer.ts'), `
 import { createRemoteBackend, parseRemoteEndpoint, type RemoteConfig,
   type RemoteBackendConfig, type RemoteEndpoint } from 'framerize-remote';
-import { createProvider, type ProviderOptions } from 'framerize-server/provider';
-import { createFramerAuth, type FramerAuth } from 'framerize-server/framer-auth';
-import { createFramerBackend, type FramerMinter } from 'framerize-server/framer-backend';
-import { createAccountBackend, type AccountBackendOptions } from 'framerize-server/account-backend';
+import { createProvider, type ProviderOptions } from 'framerize/provider';
+import { createFramerAuth, type FramerAuth } from 'framerize/framer-auth';
+import { createFramerBackend, type FramerMinter } from 'framerize/framer-backend';
+import { createAccountBackend, type AccountBackendOptions } from 'framerize/account-backend';
 const auth: FramerAuth = createFramerAuth({ sessionCookie: 'synthetic-only' });
 const castle: FramerMinter = { async mint() { return { token: 'synthetic' }; }, async close() {} };
 const framer = createFramerBackend({ projectId: 'synthetic', auth, castle });
@@ -554,8 +554,8 @@ const accountOptions: AccountBackendOptions = { accountsFile: 'accounts.json', c
 const accountBackend: Promise<ServerProvider> = createAccountBackend(accountOptions);
 const framerClosed: Promise<void> | void = framer.close();
 await auth.close();
-import { createServer, type ServerProvider } from 'framerize-server';
-import { createLogger } from 'framerize-server/logger';
+import { createServer, type ServerProvider } from 'framerize';
+import { createLogger } from 'framerize/logger';
 const logger = createLogger({ level: 'silent' });
 const syncProvider: ServerProvider = { ready: () => true,
   forward: () => ({ status: 200, headers: {}, body: [Buffer.from('{}')] }) };

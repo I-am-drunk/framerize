@@ -8,7 +8,7 @@ import { startInstalledServer } from '../.tools/scripts/fixtures/installed-serve
 async function fixture(context, script) {
   const root = await mkdtemp(join(tmpdir(), 'installed-diagnostics-'));
   context.after(() => rm(root, { recursive: true, force: true }));
-  const bin = join(root, 'node_modules/framerize-server/bin');
+  const bin = join(root, 'node_modules/framerize/bin');
   await mkdir(bin, { recursive: true });
   await writeFile(join(bin, 'framerize-server.js'), script);
   return { root, env: { HOME: root, USERPROFILE: root, PATH: '', NODE_DISABLE_COMPILE_CACHE: '1' } };

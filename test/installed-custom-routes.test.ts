@@ -27,17 +27,17 @@ function installPackages(repository: string, root: string, consumer: string, env
     const bytes = readFileSync(archive);
     assert.ok(bytes.length < (name === 'framerize-server' ? 2 * 1024 * 1024 : 64 * 1024));
     const members = readPackageArchive(archive);
-    return { name, archive, members, bytes: bytes.length,
+    return { name, packageName: name === 'framerize-server' ? 'framerize' : name, archive, members, bytes: bytes.length,
       sha256: createHash('sha256').update(bytes).digest('hex') };
   });
 
-  npm(['install', '--offline', '--ignore-scripts', '--omit=dev', '--package-lock=false',
+  npm(['install', '--bin-links=false', '--offline', '--ignore-scripts', '--omit=dev', '--package-lock=false',
     '--no-audit', '--no-fund', ...packages.map(value => value.archive)], consumer);
   for (const entry of packages) {
     for (const [path, bytes] of entry.members) {
       const relative = path.slice('package/'.length);
       assert.deepEqual(bytes, readFileSync(join(repository, entry.name, relative)));
-      assert.deepEqual(bytes, readFileSync(join(consumer, 'node_modules', entry.name, relative)));
+      assert.deepEqual(bytes, readFileSync(join(consumer, 'node_modules', entry.packageName, relative)));
     }
   }
   assert.equal(existsSync(join(consumer, 'node_modules/typescript')), false);

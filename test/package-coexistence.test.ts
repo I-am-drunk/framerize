@@ -15,10 +15,10 @@ function fixture(context: TestContext, name: string,
   const root = path.join(directory, 'package');
   mkdirSync(path.join(root, 'bin'), { recursive: true });
   mkdirSync(path.join(root, 'src'));
-  const server = name === 'framerize-server';
+  const server = name === 'framerize';
   const files: Record<string, string> = {
     'package.json': JSON.stringify({ name, version: '0.0.1', type: 'module',
-      bin: { [server ? 'framerize' : 'frm']: `./${executable}` },
+      bin: { frm: `./${executable}`, framerize: `./${executable}` },
       exports: { '.': './src/server.js',
         ...(server ? { './config': './src/config.js', './accounts': './src/accounts.js', './logger': './src/logger.js',
           './provider': './src/provider.js' } : {}) }, ...overrides }),
@@ -60,7 +60,7 @@ for (const crlf of [false, true]) {
   test(`installs the exact pair offline with ${crlf ? 'CRLF' : 'LF'} source bytes`, (context) => {
     const remote = fixture(context, 'framerize-remote', { crlf,
       scripts: { postinstall: 'node -e "process.exit(99)"' } });
-    const server = fixture(context, 'framerize-server', { crlf });
+    const server = fixture(context, 'framerize', { crlf });
     const before = [remote, server].map((file) => readFileSync(file));
     const poisoned = {
       FRAMER_ACCOUNTS: '/private/never-read.json', FRAMER_UPSTREAM: 'https://never.invalid',
@@ -81,7 +81,7 @@ for (const crlf of [false, true]) {
       }
     }
     assert.equal(evidence.node, process.version);
-    assert.deepEqual(evidence.packages.map(({ name }) => name), ['framerize-remote', 'framerize-server']);
+    assert.deepEqual(evidence.packages.map(({ name }) => name), ['framerize-remote', 'framerize']);
     assert.deepEqual(evidence.packages.map(({ sha256 }) => sha256), before.map((bytes) =>
       createHash('sha256').update(bytes).digest('hex')));
     assert.deepEqual([remote, server].map((file) => readFileSync(file)), before);
@@ -99,23 +99,24 @@ test('only a launcher shebang may lose CR during installation', () => {
 test('installs frm with a legacy alias and a canonical launcher filename', context => {
   const remote = fixture(context, 'framerize-remote', {
     crlf: true, executable: 'bin/frm.js',
-    bin: { frm: './bin/frm.js', 'framerize-remote': './bin/frm.js' },
+    bin: { frm: './bin/frm.js', framerize: './bin/frm.js', 'framerize-remote': './bin/frm.js' },
   });
-  const server = fixture(context, 'framerize-server');
+  const server = fixture(context, 'framerize');
   assert.equal(checkPackageCoexistence([remote, server]).packages.length, 2);
 });
 
-test('installs canonical framerize alongside its Server alias and frm', context => {
+test('installs both shared commands with the legacy Server alias', context => {
   const remote = fixture(context, 'framerize-remote');
-  const server = fixture(context, 'framerize-server', {
-    bin: { framerize: './bin/framerize-server.js', 'framerize-server': './bin/framerize-server.js' },
+  const server = fixture(context, 'framerize', {
+    executable: 'bin/framerize-server.js',
+    bin: { frm: './bin/framerize-server.js', framerize: './bin/framerize-server.js', 'framerize-server': './bin/framerize-server.js' },
   });
   assert.equal(checkPackageCoexistence([remote, server]).packages.length, 2);
 });
 
 test('requires canonical framerize even when the Server alias exists', context => {
   const remote = fixture(context, 'framerize-remote');
-  const server = fixture(context, 'framerize-server', {
+  const server = fixture(context, 'framerize', {
     bin: { 'framerize-server': './bin/framerize-server.js' },
   });
   assert.throws(() => checkPackageCoexistence([remote, server]), /unexpected executable name/);
@@ -125,24 +126,24 @@ test('requires the canonical frm command even when the legacy alias exists', con
   const remote = fixture(context, 'framerize-remote', {
     bin: { 'framerize-remote': './bin/framerize-remote.js' },
   });
-  const server = fixture(context, 'framerize-server');
+  const server = fixture(context, 'framerize');
   assert.throws(() => checkPackageCoexistence([remote, server]), /unexpected executable name/);
 });
 
 test('checks distinct CRLF launchers for frm and its legacy alias', context => {
   const remote = fixture(context, 'framerize-remote', {
     crlf: true, executable: 'bin/frm.js', legacyExecutable: 'bin/framerize-remote.js',
-    bin: { frm: './bin/frm.js', 'framerize-remote': './bin/framerize-remote.js' },
+    bin: { frm: './bin/frm.js', framerize: './bin/frm.js', 'framerize-remote': './bin/framerize-remote.js' },
   });
-  const server = fixture(context, 'framerize-server');
+  const server = fixture(context, 'framerize');
   assert.equal(checkPackageCoexistence([remote, server]).packages.length, 2);
 });
 
 test('rejects an alias that points outside the package bin directory', context => {
   const remote = fixture(context, 'framerize-remote', {
-    bin: { frm: './bin/framerize-remote.js', 'framerize-remote': '../outside.js' },
+    bin: { frm: './bin/framerize-remote.js', framerize: './bin/framerize-remote.js', 'framerize-remote': '../outside.js' },
   });
-  const server = fixture(context, 'framerize-server');
+  const server = fixture(context, 'framerize');
   assert.throws(() => checkPackageCoexistence([remote, server]), /unexpected executable path/);
 });
 
@@ -156,19 +157,19 @@ test('requires two distinct tarballs with the expected names', (context) => {
 
 test('rejects unexpected package dependencies before installation', (context) => {
   const remote = fixture(context, 'framerize-remote', { dependencies: { unexpected: '1.0.0' } });
-  const server = fixture(context, 'framerize-server');
+  const server = fixture(context, 'framerize');
   assert.throws(() => checkPackageCoexistence([remote, server]), /has dependencies/);
 });
 
 test('rejects a conflicting bin name before installation', (context) => {
   const remote = fixture(context, 'framerize-remote', { bin: { 'framerize-server': 'bin/framerize-remote.js' } });
-  const server = fixture(context, 'framerize-server');
+  const server = fixture(context, 'framerize');
   assert.throws(() => checkPackageCoexistence([remote, server]), /unexpected executable name/);
 });
 
 test('requires all five baseline server module exports to resolve', (context) => {
   const remote = fixture(context, 'framerize-remote');
-  const server = fixture(context, 'framerize-server', {
+  const server = fixture(context, 'framerize', {
     exports: { '.': './src/server.js', './config': './src/config.js' },
   });
   assert.throws(() => checkPackageCoexistence([server, remote]), /ERR_PACKAGE_PATH_NOT_EXPORTED/);
@@ -181,7 +182,7 @@ for (const probe of [
 ]) {
   test(`blocks fixture network calls: ${probe}`, (context) => {
     const remote = fixture(context, 'framerize-remote', { probe });
-    const server = fixture(context, 'framerize-server');
+    const server = fixture(context, 'framerize');
     assert.throws(() => checkPackageCoexistence([remote, server]), /Network disabled/);
   });
 }

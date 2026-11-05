@@ -18,7 +18,7 @@ export async function startInstalledServer(consumer: string, env: NodeJS.Process
   const accounts = join(consumer, 'accounts.json');
   writeFileSync(accounts, JSON.stringify([{ id: 'synthetic', enabled: true }]));
   return startInstalledCli(consumer, { ...env, FIXTURE_UPSTREAM_TOKEN: upstreamToken, FIXTURE_SERVER_TOKEN: serverToken }, [
-    ...(nativeExecutable ? [] : [join(consumer, 'node_modules/framerize-server/bin/framerize-server.js')]),
+    ...(nativeExecutable ? [] : [join(consumer, 'node_modules/framerize/bin/framerize-server.js')]),
     'serve', '--port', '0', '--host', '127.0.0.1', '--upstream', upstream,
     '--authorization-env', 'FIXTURE_UPSTREAM_TOKEN', '--server-token-env', 'FIXTURE_SERVER_TOKEN',
     '--accounts-file', accounts], 'server', nativeExecutable);
@@ -28,7 +28,7 @@ export async function startInstalledAccountServer(consumer: string, env: NodeJS.
   nativeExecutable?: string) {
   const config = accountServerFixture(consumer, env, origin);
   return startInstalledCli(consumer, config.env, [
-    ...(nativeExecutable ? [] : [join(consumer, 'node_modules/framerize-server/bin/framerize-server.js')]),
+    ...(nativeExecutable ? [] : [join(consumer, 'node_modules/framerize/bin/framerize-server.js')]),
     'serve', ...config.args,
   ], 'server', nativeExecutable);
 }
@@ -116,7 +116,7 @@ export const localToken = 'synthetic-local-credential';
 export async function startInstalledTrustedServer(consumer: string, env: NodeJS.ProcessEnv, upstream: string) {
   return startInstalledCli(consumer, { ...env, FRAMERIZE_SERVER_BACKEND: 'http',
     FRAMERIZE_SERVER_HOST: '127.0.0.1', FRAMERIZE_SERVER_PORT: '0', FRAMERIZE_SERVER_UPSTREAM: upstream,
-  }, [join(consumer, 'node_modules/framerize-server/bin/framerize-server.js'), 'serve'], 'server');
+  }, [join(consumer, 'node_modules/framerize/bin/framerize-server.js'), 'serve'], 'server');
 }
 
 export async function startInstalledTrustedRemote(consumer: string, env: NodeJS.ProcessEnv, remote: string) {

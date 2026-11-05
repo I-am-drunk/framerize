@@ -4,8 +4,8 @@ import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 
 const manifest = JSON.parse(await readFile(new URL('../package.json', import.meta.url), 'utf8'));
-assert.equal(manifest.name, 'framerize-server', 'Unexpected server package name');
-assert.equal(manifest.private, true, 'Server package must remain private');
+assert.equal(manifest.name, 'framerize', 'Unexpected server package name');
+assert.notEqual(manifest.private, true, 'Server package must permit npm publication');
 const generated = ['accounts.d.ts', 'accounts.js', 'config.d.ts', 'config.js', 'core.js', 'core.d.ts',
   ...['startup-access', 'private-network', 'qr-code', 'settings', 'setup', 'service-units',
     'service-control', 'tailscale'].flatMap(name => [`${name}.js`, `${name}.d.ts`]),
@@ -31,6 +31,7 @@ assert.deepEqual(manifest.exports, {
   './startup-access': './dist/startup-access.js',
 }, 'Unexpected server package exports');
 assert.deepEqual(manifest.bin, {
+  frm: './bin/framerize-server.js',
   framerize: './bin/framerize-server.js', 'framerize-server': './bin/framerize-server.js',
 },
   'Unexpected server package executable');

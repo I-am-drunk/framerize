@@ -65,7 +65,7 @@ jobs:
           assert.equal(sha, process.env.GITHUB_SHA, 'checkout differs from triggering SHA');
           const packages = ['framerize-remote', 'framerize-server'].map((dir) => {
             const { name, version } = JSON.parse(fs.readFileSync(`${dir}/package.json`, 'utf8'));
-            assert.equal(name, dir);
+            assert.equal(name, dir === 'framerize-server' ? 'framerize' : dir);
             const tarball = `${name}-${version}.tgz`;
             const bytes = fs.readFileSync(path.join(out, tarball));
             return { name, version, tarball,
@@ -188,12 +188,13 @@ jobs:
           assert.equal(manifest.source.repository, process.env.GITHUB_REPOSITORY);
           assert.equal(manifest.source.runId, process.env.GITHUB_RUN_ID);
           assert.equal(manifest.source.event, process.env.GITHUB_EVENT_NAME);
-          assert.deepEqual(manifest.packages.map((entry) => entry.name), ['framerize-remote', 'framerize-server']);
+          assert.deepEqual(manifest.packages.map((entry) => entry.name), ['framerize-remote', 'framerize']);
           assert.deepEqual(fs.readdirSync(dir).sort(),
             ['manifest.json', 'tooling', ...manifest.packages.map((entry) => entry.tarball)].sort(),
             'artifact must hold exactly the manifest and two tarballs');
           for (const entry of manifest.packages) {
-            const { name, version } = JSON.parse(fs.readFileSync(`${entry.name}/package.json`, 'utf8'));
+            const packageDir = entry.name === 'framerize' ? 'framerize-server' : entry.name;
+            const { name, version } = JSON.parse(fs.readFileSync(`${packageDir}/package.json`, 'utf8'));
             assert.equal(entry.name, name);
             assert.equal(entry.version, version, `${name} version differs from checkout`);
             assert.equal(entry.tarball, `${name}-${version}.tgz`);

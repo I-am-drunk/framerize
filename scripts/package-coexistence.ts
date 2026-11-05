@@ -2,13 +2,13 @@ import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
 import type { ExecFileSyncOptionsWithStringEncoding } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { existsSync, lstatSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, lstatSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { readPackageArchive } from './package-archive.js';
 
-const names = ['framerize-remote', 'framerize-server'];
+const names = ['framerize', 'framerize-remote'];
 function record(value: unknown): asserts value is Record<string, unknown> {
   assert.ok(value && typeof value === 'object' && !Array.isArray(value), 'Invalid package manifest');
 }
@@ -109,7 +109,9 @@ export function checkPackageCoexistence(tarballs: readonly string[]) {
     for (const entry of packages) {
       const { manifest, archive, command } = entry;
       const commands = Object.keys(manifest.bin);
-      assert.ok(commands.includes(command) && commands.every(name => name === command || name === manifest.name),
+      const legacy = manifest.name === 'framerize-remote' ? 'framerize-remote' : 'framerize-server';
+      assert.ok(['frm', 'framerize'].every(name => commands.includes(name))
+        && commands.every(name => name === 'frm' || name === 'framerize' || name === legacy),
         'unexpected executable name');
       entry.files = [...archive.keys()];
       for (const name of commands) {
@@ -123,12 +125,23 @@ export function checkPackageCoexistence(tarballs: readonly string[]) {
       entry.launcher = entry.executables[command]!;
     }
     writeFileSync(path.join(directory, 'package.json'), '{"private":true}');
-    runNpm(['install', '--offline', '--ignore-scripts', '--no-audit', '--no-fund',
+    runNpm(['install', '--bin-links=false', '--offline', '--ignore-scripts', '--no-audit', '--no-fund',
       ...packages.map(({ snapshot }) => snapshot)]);
     const results = [];
     const launchers = [];
-    for (const { file, archive, manifest, command, sha256, launcher, executables, files } of packages) {
-      const installed = path.join(directory, 'node_modules', manifest.name);
+    for (const { file, snapshot, archive, manifest, command, sha256, launcher, executables, files } of packages) {
+      const prefix = path.join(directory, `${manifest.name}-prefix`);
+      mkdirSync(prefix);
+      runNpm(['install', '--global', '--prefix', prefix, '--offline', '--ignore-scripts',
+        '--no-audit', '--no-fund', snapshot]);
+      const installed = path.join(prefix, process.platform === 'win32' ? 'node_modules' : 'lib/node_modules', manifest.name);
+      const binDirectory = process.platform === 'win32' ? prefix : path.join(prefix, 'bin');
+      const cliOptions = { ...options, env: { ...options.env, npm_config_prefix: prefix,
+        PATH: [binDirectory, options.env?.PATH ?? ''].join(path.delimiter) } };
+      const exec = (args: string[]): string => execFileSync(process.execPath,
+        [npmCli, 'exec', '--offline', '--no', '--', ...args], cliOptions);
+      const npx = (args: string[]): string => execFileSync(process.execPath,
+        [path.join(path.dirname(npmCli), 'npx-cli.js'), '--offline', '--no-install', ...args], cliOptions);
       const executable = path.join(installed, launcher);
       launchers.push(realpathSync(executable));
       const installedFiles = readdirSync(installed, { recursive: true, encoding: 'utf8' }).filter(relative => {
@@ -143,20 +156,21 @@ export function checkPackageCoexistence(tarballs: readonly string[]) {
         const actual = readFileSync(path.join(installed, relative));
         assert.deepEqual(actual, installedBytes(expected, Object.values(executables).includes(relative)),
           `${manifest.name}/${relative} differs from the tarball`);
+        assert.deepEqual(readFileSync(path.join(directory, 'node_modules', manifest.name, relative)), expected,
+          `${manifest.name}/${relative} differs in the shared library installation`);
       }
-      const link = path.join(directory, 'node_modules/.bin',
+      const link = path.join(binDirectory,
         `${command}${process.platform === 'win32' ? '.cmd' : ''}`);
       assert.ok(existsSync(link), 'installed executable missing');
       if (process.platform !== 'win32') assert.equal(realpathSync(link), realpathSync(executable));
       const title = manifest.name === 'framerize-remote' ? /^frm\b/m : /^Server\b/m;
       const help = runNode([executable, '--help']);
       assert.match(help, title);
-      assert.match(runNpm(['exec', '--offline', '--no', '--', command, '--help']), title);
-      assert.match(runNode([path.join(path.dirname(npmCli), 'npx-cli.js'), '--offline', '--no-install',
-        command, '--help']), title);
+      assert.match(exec([command, '--help']), title);
+      assert.match(npx([command, '--help']), title);
       for (const [alias, relative] of Object.entries(executables)) {
         if (alias === command) continue;
-        const aliasLink = path.join(directory, 'node_modules/.bin',
+        const aliasLink = path.join(binDirectory,
           `${alias}${process.platform === 'win32' ? '.cmd' : ''}`);
         const aliasExecutable = path.join(installed, relative);
         assert.ok(existsSync(aliasLink), 'installed alias missing');
@@ -164,9 +178,8 @@ export function checkPackageCoexistence(tarballs: readonly string[]) {
         const argument = manifest.name === 'framerize-remote' ? 'version' : '--help';
         const expected = manifest.name === 'framerize-remote' ? manifest.version : help.trim();
         assert.equal(runNode([aliasExecutable, argument]).trim(), expected);
-        assert.equal(runNpm(['exec', '--offline', '--no', '--', alias, argument]).trim(), expected);
-        assert.equal(runNode([path.join(path.dirname(npmCli), 'npx-cli.js'), '--offline', '--no-install',
-          alias, argument]).trim(), expected);
+        assert.equal(exec([alias, argument]).trim(), expected);
+        assert.equal(npx([alias, argument]).trim(), expected);
       }
       if (manifest.name === 'framerize-remote') {
         assert.equal(runNode([executable, 'version']).trim(), manifest.version);
@@ -181,12 +194,12 @@ export function checkPackageCoexistence(tarballs: readonly string[]) {
     assert.equal(new Set(launchers).size, 2, 'executables must remain distinct');
     runNode(['--input-type=module', '-e', `
       import assert from 'node:assert/strict';
-      import { createServer as server } from 'framerize-server';
+      import { createServer as server } from 'framerize';
       import { createRemoteBackend, parseRemoteEndpoint } from 'framerize-remote';
-      import { loadConfig } from 'framerize-server/config';
-      import 'framerize-server/accounts';
-      import 'framerize-server/logger';
-      import 'framerize-server/provider';
+      import { loadConfig } from 'framerize/config';
+      import 'framerize/accounts';
+      import 'framerize/logger';
+      import 'framerize/provider';
       assert.equal(typeof server, 'function');
       assert.equal(typeof createRemoteBackend, 'function');
       assert.notEqual(server, createRemoteBackend);

@@ -1,14 +1,18 @@
 # Server
 
-Server is the `framerize-server` package and its `framerize` command: a Node.js
+Server is the `framerize` package with both `frm` and `framerize` commands: a Node.js
 HTTP inference API with no runtime dependencies. It holds the provider accounts
 and the Castle runtime. The `framerize-server` command remains an alias.
-Requires Node.js 22.12 or newer. The npm package is private and has no publish script.
+Requires Node.js 22.12 or newer. This development revision is not published yet.
+
+Install either `framerize` or `framerize-remote` in a global npm prefix.
+Both own `frm` and `framerize`, so uninstall the other package before switching.
+Both Node libraries can share an application with `npm install --bin-links=false`.
 
 The HTTP listener is the shared TypeScript Core, bundled as `dist/core.js`.
 The installed package has no private workspace dependency. The upstream HTTP
 provider exports `ProviderOptions`, `ProviderRequest` and `Provider` through
-`framerize-server/provider`, with the required Core types included. The npm
+`framerize/provider`, with the required Core types included. The npm
 archive contains generated runtime modules and declarations, not the source
 tree. A small Node launcher remains in `bin/`. The account backend uses the
 packaged Castle runtime and its TypeScript encoder.
@@ -23,7 +27,7 @@ From the repository root, with an accounts file as described in
 npm ci --ignore-scripts
 npm run build
 npm pack ./framerize-server --ignore-scripts
-npm install --global --ignore-scripts ./framerize-server-0.1.0.tgz
+npm install --global --ignore-scripts ./framerize-0.1.0.tgz
 FRAMERIZE_SERVER_BACKEND=framer \
 FRAMERIZE_SERVER_ACCOUNTS=/srv/framerize/accounts.json \
 framerize serve
@@ -286,8 +290,8 @@ generic HTTP provider. `--backend framer` selects the account backend with the
 packaged minter. See [account configuration](docs/framer-backend.md).
 
 ```js
-import { createServer } from 'framerize-server';
-import { loadConfig } from 'framerize-server/config';
+import { createServer } from 'framerize';
+import { loadConfig } from 'framerize/config';
 
 const app = await createServer(loadConfig({ port: 8789 }), { provider, logger });
 await app.listen();

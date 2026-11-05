@@ -6,7 +6,7 @@ import { fileURLToPath } from 'node:url';
 import { artifactNames, currentTarget, digest, writeSums } from '../../scripts/release-artifacts.js';
 
 export const NODE = 'v22.23.4';
-export const PACKAGE = 'framerize-server-0.1.0.tgz';
+export const PACKAGE = 'framerize-0.1.0.tgz';
 const scriptDirectory = fileURLToPath(new URL('../../scripts/', import.meta.url));
 const run = (command, args, options = {}) => execFileSync(command, args, { encoding: 'utf8', ...options });
 
@@ -20,7 +20,7 @@ export function fixture(t) {
   for (const name of ['release-artifacts.js', 'release-metadata.js', 'merge-release-manifests.js', 'package-binary.js']) {
     copyFileSync(path.join(scriptDirectory, name), path.join(directory, 'scripts', name));
   }
-  writeFileSync(path.join(directory, 'package.json'), JSON.stringify({ name: 'framerize-server', version: '0.1.0', private: true }));
+  writeFileSync(path.join(directory, 'package.json'), JSON.stringify({ name: 'framerize', version: '0.1.0' }));
   writeFileSync(path.join(directory, 'LICENSE'), 'Project license\n');
   writeFileSync(path.join(directory, '.gitignore'), 'dist/\n*.tgz\n');
   writeFileSync(path.join(repository, '.github', 'workflows', 'server-ci.yml'), 'name: fixture\n');
@@ -63,7 +63,7 @@ export function seedBuild(t, options = {}) {
   writeFileSync(path.join(dist, 'NODE-LICENSE'), options.nodeLicense ?? 'Node license\n');
   seedPackage(directory, options.packageBytes);
   writeFileSync(path.join(dist, 'build.json'), JSON.stringify({
-    name: 'framerize-server', version: '0.1.0', commit,
+    name: 'framerize', version: '0.1.0', commit,
     target, node: process.version, executableSha256: digest(path.join(dist, executable)),
     packageSha256: digest(path.join(directory, PACKAGE)),
     packageBytes: readFileSync(path.join(directory, PACKAGE)).length,
@@ -87,7 +87,7 @@ export function seedTarget(directory, target, commit, options = {}) {
   const artifacts = Object.fromEntries([executable, archive, PACKAGE, 'LICENSE', 'NODE-LICENSE']
     .map((name) => [name, digest(path.join(dist, name))]));
   writeFileSync(path.join(dist, 'release.json'), JSON.stringify({
-    name: 'framerize-server', version: '0.1.0', commit, target,
+    name: 'framerize', version: '0.1.0', commit, target,
     node: options.node ?? NODE, artifacts,
     packageSha256: artifacts[PACKAGE], packageBytes: readFileSync(path.join(dist, PACKAGE)).length,
   }, null, 2));

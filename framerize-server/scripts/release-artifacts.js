@@ -43,8 +43,8 @@ export function writeSums(directory, artifacts) {
 export function sourceIdentity() {
   const pkg = JSON.parse(readFileSync('package.json', 'utf8'));
   const semver = /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-((?:0|[1-9]\d*|\d*[A-Za-z-][0-9A-Za-z-]*)(?:\.(?:0|[1-9]\d*|\d*[A-Za-z-][0-9A-Za-z-]*))*))?(?:\+[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?$/;
-  if (pkg.name !== 'framerize-server' || pkg.private !== true || !semver.test(pkg.version)) {
-    throw new Error('Invalid private server package identity');
+  if (pkg.name !== 'framerize' || pkg.private === true || !semver.test(pkg.version)) {
+    throw new Error('Invalid server package identity');
   }
   const git = (args) => execFileSync('git', args, { encoding: 'utf8' }).trim();
   const commit = git(['rev-parse', 'HEAD']);

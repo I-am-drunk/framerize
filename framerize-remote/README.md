@@ -1,6 +1,6 @@
 # Remote
 
-Remote is the `framerize-remote` package and its `frm` command. It serves the
+Remote is the `framerize-remote` package with both `frm` and `framerize` commands. It serves the
 Framerize client API on loopback and forwards every inference request to one
 Server. It runs no inference and holds no accounts, Castle or browser state.
 
@@ -19,11 +19,15 @@ npm pack --workspace=framerize-remote --ignore-scripts
 npm install -g ./framerize-remote-0.2.0.tgz --ignore-scripts
 ```
 
-This installs the `frm` command. npm places its command links in the global
+This installs both commands. npm places its command links in the global
 prefix. If `frm` is not found, use `npm prefix -g` to locate it and add its
 `bin` directory to `PATH` on Linux or macOS, or the prefix itself on Windows.
 The npm package named `frm` belongs to another project. This command comes
 from `framerize-remote`.
+
+Install either `framerize` or `framerize-remote` in a global npm prefix.
+Both own `frm` and `framerize`, so uninstall the other package before switching.
+Both Node libraries can share an application with `npm install --bin-links=false`.
 
 The package bundles the Core listener. It has no runtime dependencies and
 needs no compiler or development checkout.
