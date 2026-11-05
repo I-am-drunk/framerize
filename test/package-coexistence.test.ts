@@ -18,7 +18,7 @@ function fixture(context: TestContext, name: string,
   const server = name === 'framerize-server';
   const files: Record<string, string> = {
     'package.json': JSON.stringify({ name, version: '0.0.1', type: 'module',
-      bin: { [server ? name : 'frm']: `./${executable}` },
+      bin: { [server ? 'framerize' : 'frm']: `./${executable}` },
       exports: { '.': './src/server.js',
         ...(server ? { './config': './src/config.js', './accounts': './src/accounts.js', './logger': './src/logger.js',
           './provider': './src/provider.js' } : {}) }, ...overrides }),

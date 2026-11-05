@@ -100,7 +100,7 @@ export function checkPackageCoexistence(tarballs: readonly string[]) {
       writeFileSync(snapshot, bytes);
       const archive = readPackageArchive(snapshot);
       const manifest = manifestOf(archive.get('package/package.json')!);
-      const command = manifest.name === 'framerize-remote' ? 'frm' : manifest.name;
+      const command = manifest.name === 'framerize-remote' ? 'frm' : 'framerize';
       return { file, snapshot, manifest, archive, command, sha256: hash(snapshot), launcher: '',
         executables: {} as Record<string, string>, files: [] as string[] };
     });
@@ -149,7 +149,8 @@ export function checkPackageCoexistence(tarballs: readonly string[]) {
       assert.ok(existsSync(link), 'installed executable missing');
       if (process.platform !== 'win32') assert.equal(realpathSync(link), realpathSync(executable));
       const title = manifest.name === 'framerize-remote' ? /^frm\b/m : /^Server\b/m;
-      assert.match(runNode([executable, '--help']), title);
+      const help = runNode([executable, '--help']);
+      assert.match(help, title);
       assert.match(runNpm(['exec', '--offline', '--no', '--', command, '--help']), title);
       assert.match(runNode([path.join(path.dirname(npmCli), 'npx-cli.js'), '--offline', '--no-install',
         command, '--help']), title);
@@ -160,10 +161,12 @@ export function checkPackageCoexistence(tarballs: readonly string[]) {
         const aliasExecutable = path.join(installed, relative);
         assert.ok(existsSync(aliasLink), 'installed alias missing');
         if (process.platform !== 'win32') assert.equal(realpathSync(aliasLink), realpathSync(aliasExecutable));
-        assert.equal(runNode([aliasExecutable, 'version']).trim(), manifest.version);
-        assert.equal(runNpm(['exec', '--offline', '--no', '--', alias, 'version']).trim(), manifest.version);
+        const argument = manifest.name === 'framerize-remote' ? 'version' : '--help';
+        const expected = manifest.name === 'framerize-remote' ? manifest.version : help.trim();
+        assert.equal(runNode([aliasExecutable, argument]).trim(), expected);
+        assert.equal(runNpm(['exec', '--offline', '--no', '--', alias, argument]).trim(), expected);
         assert.equal(runNode([path.join(path.dirname(npmCli), 'npx-cli.js'), '--offline', '--no-install',
-          alias, 'version']).trim(), manifest.version);
+          alias, argument]).trim(), expected);
       }
       if (manifest.name === 'framerize-remote') {
         assert.equal(runNode([executable, 'version']).trim(), manifest.version);
