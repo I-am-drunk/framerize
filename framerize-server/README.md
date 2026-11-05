@@ -21,6 +21,10 @@ Set `FRAMERIZE_SERVER_TOKEN` in the existing private environment. Keep the upstr
 credential in a separate environment variable or private file. Do not pass secret
 values as command-line arguments.
 
+If the command reports "Invalid command or option", run `framerize-server --help`.
+This covers unknown commands, unsupported options and missing option values.
+The diagnostic does not print the supplied arguments.
+
 If startup reports "Account metadata file is unavailable or invalid", check
 `--accounts-file`, read permissions, and the
 [JSON account format](docs/framer-backend.md#select-a-json-account).

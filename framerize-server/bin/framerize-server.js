@@ -1,9 +1,13 @@
 #!/usr/bin/env node
 import { run } from '../dist/cli.js';
-import { AccountFileError, AccountSelectionError, ServerListenError, ServerTokenFileError } from '../dist/errors.js';
+import { AccountFileError, AccountSelectionError, CliUsageError,
+  ServerListenError, ServerTokenFileError } from '../dist/errors.js';
 
 run().then((code) => { process.exitCode = code; }).catch(error => {
-  const detail = error instanceof ServerTokenFileError ? {
+  const detail = error instanceof CliUsageError ? {
+    message: 'Invalid command or option.',
+    next: 'Run framerize-server --help for supported commands and options.',
+  } : error instanceof ServerTokenFileError ? {
     message: 'Server token file is unavailable or invalid.',
     next: 'Check --server-token-file, its contents and permissions. On Unix, use chmod 600.',
   } : error instanceof AccountFileError ? {
