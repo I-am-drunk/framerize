@@ -124,7 +124,7 @@ test('setup rejects a missing global profile path without changing the default p
 });
 
 for (const [command, args] of [['check', ['--config', '--json']], ['serve', ['--config']]]) {
-  test(`${command} keeps malformed global options as command_failed`, async () => {
+  test(`${command} reports malformed global options as command_arguments`, async () => {
     const root = await mkdtemp(join(tmpdir(), 'remote-global-failure-'));
     try {
       const result = spawnSync(process.execPath, [launcher, command, ...args], {
@@ -136,8 +136,9 @@ for (const [command, args] of [['check', ['--config', '--json']], ['serve', ['--
       assert.equal(result.status, 1);
       assert.equal(result.stdout, '');
       assert.doesNotMatch(result.stderr, /setup_arguments/);
-      if (args.includes('--json')) assert.equal(JSON.parse(result.stderr).error, 'command_failed');
-      else assert.match(result.stderr, /^framerize-remote failed to run the requested command\n/);
+      if (args.includes('--json')) assert.equal(JSON.parse(result.stderr).error, 'command_arguments');
+      else assert.match(result.stderr, /^The command options are invalid, incomplete or repeated\.\n/);
+      assert.match(result.stderr, /Run framerize-remote help for supported commands and options\./);
     } finally { await rm(root, { recursive: true, force: true }); }
   });
 }
