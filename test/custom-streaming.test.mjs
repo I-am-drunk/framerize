@@ -2,6 +2,71 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { fixture, protocols, reply } from './custom-routes-fixture.mjs';
 
+for (const viaRemote of [false, true]) {
+  test(`Messages citation events preserve order and block identity, remote=${viaRemote}`, async context => {
+    const protocol = protocols.find(value => value.name === 'messages');
+    const citations = [
+      { type: 'char_location', cited_text: 'Snow', document_index: 0,
+        document_title: 'Weather', file_id: null, start_char_index: 0, end_char_index: 4 },
+      { type: 'web_search_result_location', cited_text: 'Snow',
+        title: 'Forecast', url: 'https://example.com/forecast', encrypted_index: 'synthetic-index' },
+      { type: 'page_location', cited_text: 'Rain', document_index: 1,
+        document_title: 'Rainfall', file_id: null, start_page_number: 1, end_page_number: 2 },
+    ];
+    const value = reply(protocol, { content: [
+      { type: 'text', text: 'Snow!', citations: citations.slice(0, 2) },
+      { type: 'text', text: ' Empty.', citations: [] },
+      { type: 'text', text: ' Null.', citations: null },
+      { type: 'text', text: ' Omitted.' },
+      { type: 'text', text: ' Rain.', citations: [citations[2]] },
+    ] });
+    const setup = await fixture(context, protocol, viaRemote, { value });
+    const input = { ...protocol.body, temperature: 0.25 };
+    for (const stream of [false, true]) {
+      const result = await setup.post({ ...input, stream });
+      assert.equal(result.status, 200);
+      if (!stream) {
+        assert.equal(result.body.toString(), JSON.stringify(value));
+        continue;
+      }
+      const received = events(result.body);
+      const citationEvents = received.filter(item => item.delta?.type === 'citations_delta');
+      assert.deepEqual(citationEvents.map(({ index, delta }) => ({ index, citation: delta.citation })), [
+        { index: 0, citation: citations[0] },
+        { index: 0, citation: citations[1] },
+        { index: 4, citation: citations[2] },
+      ]);
+      const starts = received.filter(item => item.type === 'content_block_start');
+      assert.deepEqual(starts.map(item => item.content_block), [
+        { type: 'text', text: '', citations: [] },
+        { type: 'text', text: '', citations: [] },
+        { type: 'text', text: '', citations: null },
+        { type: 'text', text: '' },
+        { type: 'text', text: '', citations: [] },
+      ]);
+      assert.deepEqual(starts.map(item => item.index), [0, 1, 2, 3, 4]);
+      assert.deepEqual(received.filter(item => item.delta?.type === 'text_delta')
+        .map(item => item.delta.text), value.content.map(item => item.text));
+      for (const citation of citationEvents) {
+        const text = received.findIndex(item => item.index === citation.index && item.delta?.type === 'text_delta');
+        const stop = received.findIndex(item => item.index === citation.index && item.type === 'content_block_stop');
+        assert.ok(text < received.indexOf(citation) && received.indexOf(citation) < stop);
+      }
+      assert.equal(received[0].type, 'message_start');
+      assert.deepEqual(received[0].message.content, []);
+      assert.deepEqual(received.at(-2), { type: 'message_delta',
+        delta: { stop_reason: value.stop_reason, stop_sequence: value.stop_sequence }, usage: value.usage });
+      assert.equal(received.at(-1).type, 'message_stop');
+    }
+    assert.equal(setup.observed.length, 2);
+    for (const observed of setup.observed) {
+      assert.equal(observed.path, protocol.upstream);
+      assert.deepEqual(observed.body.request, { ...input, stream: false });
+      assert.equal(observed.headers.authorization, 'Bearer synthetic-upstream');
+    }
+  });
+}
+
 function events(bytes) {
   return bytes.toString().split('\n\n').flatMap(frame => {
     const data = frame.split('\n').find(line => line.startsWith('data: '));
