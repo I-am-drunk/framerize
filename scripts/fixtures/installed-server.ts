@@ -85,16 +85,26 @@ async function startInstalledCli(consumer: string, env: NodeJS.ProcessEnv, args:
   });
   let port: number;
   try { port = await bounded(listening); }
-  catch (error) { child.kill('SIGKILL'); await exited.catch(() => {}); throw error; }
+  catch (error) {
+    child.kill('SIGKILL');
+    const result = await exited.catch(() => undefined);
+    throw new Error(`Installed ${kind} failed before listening: ${JSON.stringify(result)}\n${output}`,
+      { cause: error });
+  }
   let stopped: Promise<void> | undefined;
   return { url: `http://127.0.0.1:${port}`, output: () => output, close() {
     stopped ??= (async () => {
       child.kill('SIGTERM');
       let result;
       try { result = await bounded(exited); }
-      catch (error) { child.kill('SIGKILL'); await exited; throw error; }
-      if (process.platform !== 'win32') assert.deepEqual(result, { code: 0, signal: null });
-      else assert.ok(result.code === 0 || result.signal === 'SIGTERM');
+      catch (error) {
+        child.kill('SIGKILL');
+        await exited.catch(() => {});
+        throw new Error(`Installed ${kind} did not stop normally.\n${output}`, { cause: error });
+      }
+      const detail = `Installed ${kind} exit: ${JSON.stringify(result)}\n${output}`;
+      if (process.platform !== 'win32') assert.deepEqual(result, { code: 0, signal: null }, detail);
+      else assert.ok(result.code === 0 || result.signal === 'SIGTERM', detail);
       assert.doesNotMatch(output, /synthetic-(?:local|server|upstream)-credential|server\.failed/);
     })();
     return stopped;
