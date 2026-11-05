@@ -195,7 +195,7 @@ require('node:module').syncBuiltinESMExports();
     const observed = { exit, listenerStillOpen, errorOutput: stderr,
       stopped: /Stopped\./.test(stdout), offeredInstall: /Install (Claude|Codex)/.test(stdout) };
     context.diagnostic(JSON.stringify({ mode, signal, ...observed }));
-    assert.deepEqual(requests, ['/ready']);
+    assert.deepEqual(requests, signal === 'decline' ? ['/ready', '/ready'] : ['/ready']);
     assert.deepEqual(observed, { exit: { code: 0, signal: null }, listenerStillOpen: false,
       errorOutput: '', stopped: mode === 'setup --start' || signal === 'decline', offeredInstall: false });
   });
