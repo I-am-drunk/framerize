@@ -286,9 +286,10 @@ const server = createServer((request, response) => {
   })().catch(error => { failures.push(error); response.destroy(); });
 });
 server.listen(0, '127.0.0.1'); await once(server, 'listening');
+// Keep the idle deadline above the 2.5-second cleanup bound.
 const backend = createRemoteBackend({
   endpoint: parseRemoteEndpoint('http://127.0.0.1:' + server.address().port, false),
-  serverToken: 'synthetic-node-server', headersTimeoutMs: 2000, idleTimeoutMs: 2000,
+  serverToken: 'synthetic-node-server', headersTimeoutMs: 2000, idleTimeoutMs: 10_000,
   readinessBodyMaxBytes: 65536, readinessWholeMs: 3000, inferenceTimeoutMs: 5000,
 });
 const requestBody = Buffer.from('{"model":"synthetic","temperature":0.25}');
