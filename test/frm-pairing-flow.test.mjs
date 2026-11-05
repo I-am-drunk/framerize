@@ -143,7 +143,17 @@ for (const token of [undefined, 'synthetic-pair+/=']) {
       const link = buildPairingUrl(origin, token);
       const io = { stdout() {}, stderr(text) { assert.fail(text); } };
       const options = { program: [process.execPath, join(remoteRoot, 'bin/frm.js')] };
-      const up = () => runFrm(['up', link, '--json'], io, options);
+      const up = async () => {
+        let summary = '';
+        const code = await runFrm(['up', link, '--json'],
+          { ...io, stdout(text) { summary += text; } }, options);
+        assert.equal(code, 0);
+        assert.equal(JSON.parse(summary).ready, true);
+        assert.ok(running(), 'up must return with its managed child running');
+        assert.equal((await exchange(port, '/ready', localToken)).status, 200,
+          'up must wait for the local API before reporting success');
+        return code;
+      };
       assert.equal(await up(), 0);
       await bounded(ready, 'saved frm service did not become ready');
       assert.equal((await exchange(port, '/ready', localToken)).status, 200);
