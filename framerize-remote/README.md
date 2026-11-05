@@ -104,6 +104,17 @@ Other platforms report the service as unavailable; use `frm serve` there.
 `frm service status` reports whether the unit is installed, running and matches
 the current profile. It does not report lingering. Run `frm up` or
 `frm service install` again to repair it.
+
+`frm up` and `frm service` stop pending service commands on Ctrl+C or
+SIGTERM. On Linux and macOS, failed or cancelled commands get one second
+to stop before their process group receives SIGKILL. Remote then checks
+that the group stopped, using `/bin/ps`. Processes that leave the group
+can escape this cleanup. A cleanup failure reports that processes may
+still be running; inspect them before retrying. If cleanup fails during
+rollback, the output includes this warning alongside the original failure
+and the rollback failure. Commands have a two-minute
+deadline, and status probes have five seconds.
+
 Remote never configures Tailscale Serve or Funnel. Server's `up --tailscale`
 publishes the route, and its pairing link then carries the HTTPS origin.
 
