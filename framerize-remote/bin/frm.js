@@ -1,5 +1,7 @@
 #!/usr/bin/env node
 import { createInterface } from 'node:readline/promises';
+import { realpathSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
 import { runFrm, commandFailure } from '../dist/index.js';
 
 const json = process.argv.includes('--json');
@@ -17,7 +19,7 @@ runFrm(process.argv.slice(2), {
   stdout: (text) => process.stdout.write(text),
   stderr: (text) => process.stderr.write(text),
   ...(ask ? { ask } : {}),
-}, { program: [process.execPath, process.argv[1]] }).then((code) => {
+}, { program: [process.execPath, realpathSync(fileURLToPath(import.meta.url))] }).then((code) => {
   process.exitCode = code;
 }).catch((error) => {
   const diagnostic = commandFailure(error, json);

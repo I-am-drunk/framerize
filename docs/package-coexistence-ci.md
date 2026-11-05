@@ -7,6 +7,10 @@ It distributes compiled, hash-bound checking tools beside the original archives.
 Nine consumers cover Linux x64, macOS arm64 and Windows x64 on Node 22.12.0,
 22.23.4 and 24.13.0. Consumers install development tools but do not rebuild products.
 Each verifies the offline install and exercises the same pair through loopback.
+The current package names are `framerize` and `framerize-remote`. The checker
+installs their Node libraries together with command links disabled, then checks
+each CLI in its own global npm prefix. Both provide `frm` and `framerize`.
+The two CLI packages are alternatives within one global prefix.
 Reports retain source commit/tree, run/attempt, runtime, package inventories,
 tool hashes and the installed-flow log hash. Retries can reuse the original producer.
 

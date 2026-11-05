@@ -73,9 +73,10 @@ export function readinessLine(result: BackendReadiness): { ok: boolean; text: st
 export const FRM_HELP = `frm ${VERSION}
 
 Usage:
-  frm                 Start the saved profile or FRM_REMOTE; on first run, same as frm up
-  frm up [LINK]       Pair with a server link or address, then install and start the service
-  frm LINK            Same as frm up LINK
+  frm                 Start the saved profile or FRM_REMOTE; on first run, connect interactively
+  frm connect [LINK]  Pair with a server link or address, then install and start the service
+  frm up [LINK]       Same as frm connect LINK
+  frm LINK            Same as frm connect LINK
   frm setup           Save a profile; asks for missing values in a terminal
   frm serve           Start in the foreground
   frm check           Check the remote server

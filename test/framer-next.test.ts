@@ -93,12 +93,12 @@ function fixture(context: TestContext, target = 'linux-x64') {
   const executable = 'framerize-server' + (target === 'windows-x64' ? '.exe' : '');
   const archive = `framerize-server-${target}.${target === 'windows-x64' ? 'zip' : 'tar.gz'}`;
   const artifacts: Record<string, string> = { [archive]: 'b'.repeat(64),
-    'framerize-server-0.1.0.tgz': 'c'.repeat(64) };
+    'framerize-0.1.0.tgz': 'c'.repeat(64) };
   for (const name of [executable, 'LICENSE', 'NODE-LICENSE']) {
     const content = 'synthetic ' + name;
     writeFileSync(join(input, name), content); artifacts[name] = digest(content);
   }
-  const manifest = { name: 'framerize-server', version: '0.1.0', commit: 'a'.repeat(40),
+  const manifest = { name: 'framerize', version: '0.1.0', commit: 'a'.repeat(40),
     target, node: 'v22.23.4', packageBytes: 100, packageSha256: 'c'.repeat(64), artifacts };
   let pin = '';
   const save = () => {

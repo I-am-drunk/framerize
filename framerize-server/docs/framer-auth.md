@@ -9,7 +9,7 @@ The account owner supplies a session cookie in memory. This module neither
 reads a browser profile nor stores cookies or tokens on disk.
 
 ```ts
-import { createFramerAuth } from 'framerize-server/framer-auth';
+import { createFramerAuth } from 'framerize/framer-auth';
 
 const auth = createFramerAuth({ sessionCookie });
 try {

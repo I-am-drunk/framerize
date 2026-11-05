@@ -18,12 +18,13 @@ export function verifyServerSource(bytes: Buffer, files: string[], readSource: (
 export async function bundleServerArchive(bytes: Buffer, expected: { name: string; version: string }) {
   const archive = readPackageArchive(bytes);
   const manifest = JSON.parse(archive.get('package/package.json')!.toString('utf8'));
-  assert.equal(manifest.name, 'framerize-server');
+  assert.equal(manifest.name, 'framerize');
   assert.equal(manifest.name, expected.name);
   assert.equal(manifest.version, expected.version);
-  assert.equal(manifest.private, true);
+  assert.notEqual(manifest.private, true);
   assert.deepEqual(manifest.bin, {
-    framerize: './bin/framerize-server.js', 'framerize-server': './bin/framerize-server.js',
+    frm: './bin/framerize-server.js', framerize: './bin/framerize-server.js',
+    'framerize-server': './bin/framerize-server.js',
   });
   for (const field of ['dependencies', 'optionalDependencies', 'peerDependencies']) {
     assert.equal(Object.keys(manifest[field] ?? {}).length, 0, 'Unexpected runtime dependencies');

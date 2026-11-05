@@ -62,8 +62,13 @@ export async function runFrm(argv: readonly string[], io: CliIo, options: FrmOpt
   if (command === 'help' || command === '--help' || command === '-h') { io.stdout(FRM_HELP); return 0; }
   if (command === 'client') return runClientCommand(rest, io, env);
   if (command === 'service') return runService(rest, io, { program: [...options.program, 'serve'], env });
-  if (command === 'up' || (isPairingLink(command) && rest.length === 0)) {
-    const target = command === 'up' ? rest : [command];
+  // T3 Code's connect alias delegates to its up flow (cli/up.ts at 5a906583).
+  const connect = command === 'up' || command === 'connect';
+  if (connect && rest.length === 1 && ['--help', '-h'].includes(rest[0]!)) {
+    io.stdout(FRM_HELP); return 0;
+  }
+  if (connect || (isPairingLink(command) && rest.length === 0)) {
+    const target = connect ? rest : [command];
     const { options: flags } = parseArgs(target.filter((value) => value.startsWith('--')), UP_SPEC);
     const links = target.filter((value) => !value.startsWith('--'));
     if (links.length > 1 || links[0]?.startsWith('-')) {

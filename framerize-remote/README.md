@@ -1,6 +1,6 @@
 # Remote
 
-Remote is the `framerize-remote` package and its `frm` command. It serves the
+Remote is the `framerize-remote` package with both `frm` and `framerize` commands. It serves the
 Framerize client API on loopback and forwards every inference request to one
 Server. It runs no inference and holds no accounts, Castle or browser state.
 
@@ -19,11 +19,16 @@ npm pack --workspace=framerize-remote --ignore-scripts
 npm install -g ./framerize-remote-0.2.0.tgz --ignore-scripts
 ```
 
-This installs the `frm` command. npm places its command links in the global
+This installs both commands. npm places its command links in the global
 prefix. If `frm` is not found, use `npm prefix -g` to locate it and add its
 `bin` directory to `PATH` on Linux or macOS, or the prefix itself on Windows.
 The npm package named `frm` belongs to another project. This command comes
 from `framerize-remote`.
+
+Install either `framerize` or `framerize-remote` in a global npm prefix.
+Both own `frm` and `framerize`. Before switching, run `frm service uninstall`
+if you installed its service, then uninstall the other npm package.
+Both Node libraries can share an application with `npm install --bin-links=false`.
 
 The package bundles the Core listener. It has no runtime dependencies and
 needs no compiler or development checkout.
@@ -34,18 +39,19 @@ TypeScript consumers need Node type declarations in their own development tools.
 Copy the link that `framerize up` or `framerize pair` printed:
 
 ```sh
-frm 'http://192.168.1.20:8789/pair#token=...'
+frm connect 'http://192.168.1.20:8789/pair#token=...'
 ```
 
-`frm LINK` is the same as `frm up LINK`. It saves the Server origin and any
+`frm connect LINK`, `frm LINK` and `frm up LINK` use the same setup code.
+It saves the Server origin and any
 token from the link in `FRM_HOME/framerize-remote.json`, mode 0600. It checks
 Server readiness, then installs and starts the background service. Clients use
 `http://127.0.0.1:8788/v1`. A link without `#token=` is for a Server with no
 API token. `frm up ORIGIN` saves a plain origin and keeps any saved token.
 
 Running `frm` with no command and no saved profile does the same in a terminal:
-it asks for a link or address. In a terminal, `up` then offers to set up
-Claude Code or Codex. `frm up --json` prints the result and asks nothing.
+it asks for a link or address. In a terminal, `connect` then offers to set up
+Claude Code or Codex. `frm connect --json` prints the result and asks nothing.
 
 `up` checks that the managed service has started its local API before reporting
 success. Before startup completes, Ctrl+C cancels the pending check or service

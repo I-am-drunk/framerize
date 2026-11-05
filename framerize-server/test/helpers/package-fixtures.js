@@ -51,8 +51,8 @@ export function packageFixture(t, { environmentAware = false } = {}) {
   writeFileSync(path.join(directory, 'dist/config.d.ts'), 'export declare function loadConfig(values: unknown): unknown;\n');
   writeFileSync(path.join(directory, 'src/config.ts'), 'throw new Error("must not ship TypeScript source");\n');
   writeFileSync(path.join(directory, 'package.json'), JSON.stringify({
-    name: 'framerize-server', version: '0.1.0', private: true, type: 'module',
-    bin: { 'framerize-server': './bin/framerize-server.js' },
+    name: 'framerize', version: '0.1.0', type: 'module',
+    bin: { frm: './bin/framerize-server.js', framerize: './bin/framerize-server.js', 'framerize-server': './bin/framerize-server.js' },
     exports: { '.': './dist/server.js', './config': './dist/config.js', './accounts': './dist/accounts.js' },
     files: ['bin', 'dist/core.js', 'dist/config.js', 'dist/config.d.ts',
       'dist/errors.js', 'dist/errors.d.ts', 'dist/accounts.js', 'dist/accounts.d.ts',
@@ -131,7 +131,7 @@ export function assertPackageFailure(result, message) {
 export function mutateTarball(t, directory, entry, content) {
   const root = temp('framerize-package-tar-');
   t.after(() => rmSync(root, { recursive: true, force: true }));
-  const archive = path.join(directory, 'framerize-server-0.1.0.tgz');
+  const archive = path.join(directory, 'framerize-0.1.0.tgz');
   const local = path.join(root, 'package.tgz');
   copyFileSync(archive, local);
   run('tar', ['-xzf', 'package.tgz'], { cwd: root });

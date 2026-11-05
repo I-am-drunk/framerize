@@ -1,15 +1,36 @@
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
-import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
 import { tmpdir } from 'node:os';
-import { join, resolve } from 'node:path';
+import { join, posix, resolve } from 'node:path';
 import { gunzipSync } from 'node:zlib';
 import { createRequire } from 'node:module';
 import test from 'node:test';
+import { runMerge, seedRelease } from '../framerize-server/test/helpers/release-fixtures.js';
 
 const read = file => readFileSync(new URL('../' + file, import.meta.url), 'utf8');
 const workflow = read('.github/workflows/server-ci.yml');
+test('native uploads retain every file needed to assemble release manifests', context => {
+  const upload = workflow.replace(/\r\n/g, '\n')
+    .split('name: framerize-server-native-${{ matrix.target }}\n')[1];
+  assert.ok(upload, 'Missing native artifact upload');
+  const paths = upload.match(/^          path: \|\n((?:            .+\n)+)/m)?.[1]
+    .trim().split('\n').map(line => line.trim());
+  assert.ok(paths?.length, 'Missing native upload paths');
+  const checkout = seedRelease(context);
+  for (const target of Object.values(checkout.targets)) {
+    for (const name of readdirSync(target.dist)) {
+      const source = `framerize-server/dist/${name}`;
+      if (!paths.some(pattern => posix.matchesGlob(source, pattern))) {
+        rmSync(join(target.dist, name));
+      }
+    }
+  }
+  const result = runMerge(checkout);
+  assert.equal(result.error, undefined, result.error?.message);
+  assert.equal(result.status, 0, result.stderr);
+});
 test('recovery archive supports drive paths and spaces', context => {
   const root = mkdtempSync(join(tmpdir(), 'framer-recovery-'));
   context.after(() => rmSync(root, { recursive: true, force: true }));

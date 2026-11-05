@@ -13,7 +13,24 @@ const compiled = await build({
 const { runFrm } = await import(
   `data:text/javascript;base64,${Buffer.from(compiled.outputFiles[0].contents).toString('base64')}`);
 
-for (const args of [[], ['up']]) for (const event of ['SIGINT', 'SIGTERM']) {
+for (const command of ['connect', 'up']) for (const flag of ['--help', '-h']) {
+  test(`frm ${command} ${flag} needs no profile or setup prompt`, async t => {
+    const previous = process.env.FRM_HOME;
+    process.env.FRM_HOME = 'invalid-relative-home';
+    t.after(() => {
+      if (previous === undefined) delete process.env.FRM_HOME;
+      else process.env.FRM_HOME = previous;
+    });
+    let output = '';
+    const io = { stdout(text) { output += text; },
+      stderr() { assert.fail('Help must not report an error'); },
+      async ask() { assert.fail('Help must not start setup'); } };
+    assert.equal(await runFrm([command, flag], io, { program: ['/synthetic/frm'] }), 0);
+    assert.match(output, /frm connect \[LINK\]/);
+  });
+}
+
+for (const args of [[], ['up'], ['connect']]) for (const event of ['SIGINT', 'SIGTERM']) {
   test(`frm ${args.join(' ')} cancels its first-run question on ${event}`, { timeout: 2000 }, async t => {
     const home = await mkdtemp(join(tmpdir(), 'frm-up-question-'));
     const names = ['FRM_HOME', 'FRM_REMOTE'];
@@ -45,6 +62,8 @@ for (const args of [[], ['up']]) for (const event of ['SIGINT', 'SIGTERM']) {
 for (const args of [
   ['up', 'http://127.0.0.1:1', 'unexpected'],
   ['up', '--json', 'http://127.0.0.1:1', 'unexpected'],
+  ['connect', 'http://127.0.0.1:1', 'unexpected'],
+  ['connect', '--json', 'http://127.0.0.1:1', 'unexpected'],
 ]) test(`frm ${args.join(' ')} rejects extra arguments before reading a profile`, async t => {
   const previous = process.env.FRM_HOME;
   process.env.FRM_HOME = 'invalid-relative-home';

@@ -40,14 +40,14 @@ export function createFramerNext(input: string, manifestSha256: string, output: 
   const manifestBytes = readFileSync(manifestPath);
   assert.equal(digest(manifestBytes), manifestSha256);
   const native = JSON.parse(manifestBytes.toString('utf8')) as NativeRelease;
-  assert.equal(native.name, 'framerize-server');
+  assert.equal(native.name, 'framerize');
   assert.match(native.version, /^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?$/);
   assert.match(native.commit, /^[a-f0-9]{40}$/);
   assert.match(native.node, /^v\d+\.\d+\.\d+$/);
   assert.ok(targets.includes(native.target), 'Unsupported recovery target');
   const executable = 'framerize-server' + (native.target === 'windows-x64' ? '.exe' : '');
   const archive = `framerize-server-${native.target}.${native.target === 'windows-x64' ? 'zip' : 'tar.gz'}`;
-  const packageName = `framerize-server-${native.version}.tgz`;
+  const packageName = `framerize-${native.version}.tgz`;
   const copied = [executable, 'LICENSE', 'NODE-LICENSE'];
   assert.deepEqual(Object.keys(native.artifacts).sort(), [...copied, archive, packageName].sort());
   for (const hash of Object.values(native.artifacts)) assert.match(hash, hashPattern);

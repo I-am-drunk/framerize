@@ -39,7 +39,7 @@ function fixture(t) {
   for (const name of sources) writeFileSync(path.join(root, 'src', name), 'export const fixture = true;\n');
   writeFileSync(path.join(root, 'bin', 'framerize-server.js'), '#!/usr/bin/env node\n');
   const manifest = {
-    name: 'framerize-server', private: true, type: 'module',
+    name: 'framerize', type: 'module',
     files: ['bin', ...generated.map((name) => `dist/${name}`), ...notices],
     exports: {
       '.': './dist/server.js', './config': './dist/config.js', './accounts': './dist/accounts.js',
@@ -49,7 +49,7 @@ function fixture(t) {
       './account-backend': './dist/account-backend.js',
       './startup-access': './dist/startup-access.js',
     },
-    bin: { framerize: './bin/framerize-server.js', 'framerize-server': './bin/framerize-server.js' },
+    bin: { frm: './bin/framerize-server.js', framerize: './bin/framerize-server.js', 'framerize-server': './bin/framerize-server.js' },
   };
   writeFileSync(path.join(root, 'package.json'), JSON.stringify(manifest));
   return { root, manifest, save: () => writeFileSync(path.join(root, 'package.json'), JSON.stringify(manifest)) };
@@ -67,13 +67,13 @@ test('approved package identity and inventories pass static checking', (t) => {
   assert.equal(result.status, 0, `${result.stdout}\n${result.stderr}`);
 });
 
-test('public packages and extra package entries are rejected', (t) => {
+test('private packages and extra package entries are rejected', (t) => {
   for (const [change, error] of [
-    [{ private: false }, 'Server package must remain private'],
+    [{ private: true }, 'Server package must permit npm publication'],
     [{ files: ['bin', ...generated.map((name) => `dist/${name}`),
       ...notices, 'dist/extra'] }, 'Unexpected server package files'],
     [{ exports: { '.': './src/server.js' } }, 'Unexpected server package exports'],
-    [{ bin: { framerize: './bin/framerize-server.js', 'framerize-server': './bin/framerize-server.js', extra: './bin/extra.js' } }, 'Unexpected server package executable'],
+    [{ bin: { frm: './bin/framerize-server.js', framerize: './bin/framerize-server.js', 'framerize-server': './bin/framerize-server.js', extra: './bin/extra.js' } }, 'Unexpected server package executable'],
     [{ dependencies: { example: '1.0.0' } }, 'Unexpected runtime dependencies'],
     [{ optionalDependencies: { example: '1.0.0' } }, 'Unexpected runtime dependencies'],
     [{ peerDependencies: { example: '1.0.0' } }, 'Unexpected runtime dependencies'],
