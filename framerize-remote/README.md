@@ -165,6 +165,8 @@ known. For Homebrew and Chocolatey installs it checks `brew info` or
 Each step needs its typed word, and it never starts a client.
 Cancelling a question after `frm up` succeeds skips the optional offer and
 keeps the successful setup result. The saved connection and service stay in place.
+On first-run bare `frm`, cancelling that offer exits successfully without
+starting the foreground listener. The saved connection remains available.
 `setup --start` runs the same offer after Remote starts. Ctrl+C, `SIGINT` or
 `SIGTERM` cancels a pending question and closes the foreground listener. The
 offer asks no new questions and starts no further installs or updates.

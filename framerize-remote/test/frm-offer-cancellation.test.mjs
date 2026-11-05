@@ -76,8 +76,20 @@ async function health(port) {
   });
 }
 
-for (const mode of ['up', 'setup --start']) for (const signal of ['SIGINT', 'SIGTERM', 'Ctrl+C']) {
-  test(`${mode} cancels its optional prompt with ${signal}`, {
+async function unusedPort() {
+  const server = createServer();
+  await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
+  const port = server.address().port;
+  await new Promise(resolve => server.close(resolve));
+  return port;
+}
+
+const cancellations = ['SIGINT', 'SIGTERM', 'Ctrl+C'];
+for (const mode of ['up', 'setup --start', 'bare frm'])
+for (const signal of mode === 'bare frm' ? [...cancellations, 'decline'] : cancellations) {
+  const name = signal === 'decline' ? 'bare frm starts its listener after declining the offer'
+    : `${mode} cancels its optional prompt with ${signal}`;
+  test(name, {
     timeout: 10000, skip: process.platform === 'win32'
       ? 'POSIX signals and terminal input are exercised only on POSIX' : false,
   }, async context => {
@@ -86,7 +98,7 @@ for (const mode of ['up', 'setup --start']) for (const signal of ['SIGINT', 'SIG
     const guard = join(root, 'terminal.cjs');
     const commands = join(root, 'commands.jsonl');
     const sockets = new Set(), requests = [];
-    let child, closed, stdout = '', stderr = '';
+    let child, closed, stdout = '', stderr = '', answered = false;
     const remote = createServer((request, response) => {
       requests.push(request.url);
       request.resume();
@@ -126,11 +138,13 @@ require('node:module').syncBuiltinESMExports();
     await new Promise(resolve => remote.listen(0, '127.0.0.1', resolve));
     const remotePort = remote.address().port;
     const origin = `http://127.0.0.1:${remotePort}`;
-    const args = mode === 'up' ? ['up', origin] : ['setup', '--remote', origin, '--start'];
-    const reached = Promise.withResolvers();
+    const localPort = mode === 'bare frm' ? await unusedPort() : 0;
+    const args = mode === 'bare frm' ? [] : mode === 'up'
+      ? ['up', origin] : ['setup', '--remote', origin, '--start'];
+    const reached = Promise.withResolvers(), started = Promise.withResolvers();
     child = spawn(process.execPath, ['--require', guard, join(packageRoot, 'bin/frm.js'), ...args], {
       cwd: root, stdio: ['pipe', 'pipe', 'pipe'],
-      env: { HOME: root, USERPROFILE: root, FRM_HOME: root, FRM_PORT: '0', PATH: '',
+      env: { HOME: root, USERPROFILE: root, FRM_HOME: root, FRM_PORT: String(localPort), PATH: '',
         TMPDIR: root, TMP: root, TEMP: root, NODE_DISABLE_COMPILE_CACHE: '1' },
     });
     closed = new Promise((resolve, reject) => {
@@ -139,24 +153,40 @@ require('node:module').syncBuiltinESMExports();
     });
     child.stdout.setEncoding('utf8').on('data', chunk => {
       stdout += chunk;
+      if (mode === 'bare frm' && !answered && stdout.includes('Pairing link or server address: ')) {
+        answered = true;
+        child.stdin.write(`${origin}\n`);
+      }
       if (stdout.includes('Set up Claude Code or Codex')) reached.resolve();
+      if (stdout.includes('Local API:')) started.resolve();
     });
     child.stderr.setEncoding('utf8').on('data', chunk => { stderr += chunk; });
     await bounded(Promise.race([reached.promise, closed.then(exit => {
       throw new Error(`Launcher exited before the offer: ${JSON.stringify(exit)} ${stderr}`);
     })]), 'Launcher did not reach the offer');
     const saved = await readFile(profile);
-    const port = Number(/Local API: http:\/\/127\.0\.0\.1:(\d+)\/v1/.exec(stdout)?.[1]);
+    const port = Number(/Local API:?\s+http:\/\/127\.0\.0\.1:(\d+)\/v1/.exec(stdout)?.[1]);
+    if (mode === 'bare frm') {
+      assert.equal(answered, true, 'Bare frm must first ask for its remote');
+      assert.equal(port, localPort);
+    }
     if (mode === 'setup --start') assert.equal(await health(port), 200);
-    if (signal === 'Ctrl+C') child.stdin.write('\x03');
+    if (signal === 'decline') {
+      child.stdin.write('no\n');
+      await bounded(Promise.race([started.promise, closed.then(exit => {
+        throw new Error(`Launcher exited before serving: ${JSON.stringify(exit)} ${stderr}`);
+      })]), 'Bare frm did not start after declining the offer');
+      assert.equal(await health(port), 200);
+      assert.equal(child.kill('SIGTERM'), true);
+    } else if (signal === 'Ctrl+C') child.stdin.write('\x03');
     else assert.equal(child.kill(signal), true);
     const exit = await bounded(closed, 'Offer ignored cancellation', 1500).catch(() => null);
-    const listenerStillOpen = mode === 'setup --start'
+    const listenerStillOpen = mode !== 'up'
       ? await health(port).then(() => true, () => false) : false;
     if (!exit) child.kill('SIGKILL');
     await bounded(closed, 'Launcher cleanup timed out');
     const after = await readFile(profile);
-    if (mode === 'setup --start') await assert.rejects(health(port), { code: 'ECONNREFUSED' });
+    if (mode !== 'up') await assert.rejects(health(port), { code: 'ECONNREFUSED' });
     assert.deepEqual(after, saved, 'Cancelling an optional offer must preserve the saved profile');
     assert.deepEqual((await readdir(root)).sort(), ['framerize-remote.json', 'terminal.cjs']);
     for (const socket of sockets) socket.destroy();
@@ -165,8 +195,8 @@ require('node:module').syncBuiltinESMExports();
     const observed = { exit, listenerStillOpen, errorOutput: stderr,
       stopped: /Stopped\./.test(stdout), offeredInstall: /Install (Claude|Codex)/.test(stdout) };
     context.diagnostic(JSON.stringify({ mode, signal, ...observed }));
-    assert.deepEqual(requests, ['/ready']);
+    assert.deepEqual(requests, signal === 'decline' ? ['/ready', '/ready'] : ['/ready']);
     assert.deepEqual(observed, { exit: { code: 0, signal: null }, listenerStillOpen: false,
-      errorOutput: '', stopped: mode === 'setup --start', offeredInstall: false });
+      errorOutput: '', stopped: mode === 'setup --start' || signal === 'decline', offeredInstall: false });
   });
 }
