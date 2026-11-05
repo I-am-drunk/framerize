@@ -133,7 +133,11 @@ for (const token of [undefined, 'synthetic-pair+/=']) {
       const requests = [];
       server = await createServer({ host: '127.0.0.1', port: 0,
         ...(token ? { serverToken: token } : {}) }, { provider: {
-        ready: () => true,
+        async ready() {
+          // Reserve through the initial readiness connection's port allocation.
+          if (reservation.listening) await new Promise(resolve => reservation.close(resolve));
+          return true;
+        },
         async forward(request) {
           const chunks = [];
           for await (const chunk of request.body) chunks.push(chunk);
@@ -160,7 +164,6 @@ for (const token of [undefined, 'synthetic-pair+/=']) {
           'up must wait for the local API before reporting success');
         return code;
       };
-      await new Promise(resolve => reservation.close(resolve));
       assert.equal(await up(), 0);
       await bounded(ready, 'saved frm service did not become ready');
       assert.equal((await exchange(port, '/ready', localToken)).status, 200);
