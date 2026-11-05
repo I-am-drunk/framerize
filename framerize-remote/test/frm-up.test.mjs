@@ -52,6 +52,18 @@ async function fixture(context, { requireToken = 'synthetic-pair+/=', ready = tr
 const pairLink = (origin, token) => `${origin}/pair#${new URLSearchParams([['token', token]])}`;
 const serviceChanges = commands => commands.filter(command => !/ (is-|show-)/.test(command));
 
+test('setup rejects a service that is inactive after its start command succeeds', async context => {
+  const { origin, options, control } = await fixture(context, { requireToken: null });
+  const original = options.service.run;
+  options.service.run = async (command, args) => {
+    const result = await original(command, args);
+    if (command === 'systemctl' && args.includes('restart')) control.active = false;
+    return result;
+  };
+  await assert.rejects(setUp(origin, quiet, options), { code: 'service_failed' });
+  await assert.rejects(readFile(options.configPath), { code: 'ENOENT' });
+});
+
 test('an unchanged running service repairs disabled lingering without a restart', async context => {
   const { origin, commands, options } = await fixture(context, { requireToken: null });
   await setUp(origin, quiet, options);
