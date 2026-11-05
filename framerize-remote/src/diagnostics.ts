@@ -65,8 +65,12 @@ export function commandFailure(error: unknown, json: boolean): string | undefine
   if (error instanceof Error && error.name === 'AbortError') error = new RemoteDiagnosticError('aborted');
   if (!(error instanceof RemoteDiagnosticError)) return undefined;
   const setup = error instanceof SetupRollbackError ? diagnostic(error.setupCode) : undefined;
-  return json ? JSON.stringify({ error: error.code, ...diagnostic(error.code), ...(setup ? { setup } : {}) })
-    : `${setup ? `Original failure: ${setup.message}\n` : ''}${diagnosticText(error.code)}`;
+  const cleanup = error instanceof SetupRollbackError && error.cleanupCode
+    ? diagnostic(error.cleanupCode) : undefined;
+  return json ? JSON.stringify({ error: error.code, ...diagnostic(error.code),
+    ...(setup ? { setup } : {}), ...(cleanup ? { cleanup } : {}) })
+    : `${setup ? `Original failure: ${setup.message}\n` : ''}${diagnosticText(error.code)}`
+      + (cleanup ? `\n${diagnosticText(cleanup.code)}` : '');
 }
 
 export class RemoteDiagnosticError extends Error {
@@ -84,10 +88,13 @@ export class ServiceCommandCleanupError extends RemoteDiagnosticError {
 
 export class SetupRollbackError extends RemoteDiagnosticError {
   readonly setupCode: DiagnosticCode;
+  readonly cleanupCode: DiagnosticCode | undefined;
 
   constructor(error: unknown, failures: readonly unknown[]) {
     super('service_rollback_failed');
     this.setupCode = error instanceof RemoteDiagnosticError ? error.code : 'service_failed';
+    this.cleanupCode = failures.some(failure => failure instanceof ServiceCommandCleanupError)
+      ? 'service_cleanup_failed' : undefined;
     this.cause = new AggregateError([error, ...failures], this.message);
   }
 }
