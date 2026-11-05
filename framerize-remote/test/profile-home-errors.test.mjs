@@ -9,6 +9,7 @@ import { fileURLToPath } from 'node:url';
 const packageRoot = process.env.FRAMERIZE_REMOTE_PACKAGE_ROOT
   ?? fileURLToPath(new URL('../', import.meta.url));
 const launcher = join(packageRoot, 'bin/framerize-remote.js');
+const frmLauncher = join(packageRoot, 'bin/frm.js');
 const canary = 'private-profile-home-canary';
 const serverReference = 'PROFILE_HOME_UNSET_SERVER';
 const localReference = 'PROFILE_HOME_UNSET_LOCAL';
@@ -40,8 +41,8 @@ async function privateState(context) {
   return root;
 }
 
-function launch(root, args, overrides = {}) {
-  return spawnSync(process.execPath, [launcher, ...args], {
+function launch(root, args, overrides = {}, program = launcher) {
+  return spawnSync(process.execPath, [program, ...args], {
     cwd: root, encoding: 'utf8', timeout: 5000, killSignal: 'SIGKILL', maxBuffer: 64 * 1024,
     env: { HOME: root, USERPROFILE: root, TMPDIR: root, TEMP: root, TMP: root,
       ...(process.env.SystemRoot ? { SystemRoot: process.env.SystemRoot } : {}),
@@ -147,3 +148,39 @@ for (const command of ['setup', 'check', 'serve']) {
     }
   }
 }
+
+for (const [name, configured] of invalidHomes) for (const json of [false, true]) {
+  test(`frm setup diagnoses ${name} primary home in ${json ? 'JSON' : 'human'} output`,
+    { timeout: 10000 }, async context => {
+      const root = await privateState(context), invalid = configured(root);
+      const before = await snapshot(root);
+      const result = launch(root, [...setupArgs, ...(json ? ['--json'] : [])], {
+        FRM_HOME: invalid, FRAMERIZE_REMOTE_HOME: join(root, 'valid-fallback'),
+      }, frmLauncher);
+      assertFinished(result, 1);
+      assert.equal(result.stdout, '');
+      assertRedacted(result, root, invalid);
+      assert.deepEqual(await snapshot(root), before);
+      if (json) assert.deepEqual(JSON.parse(result.stderr), expectedDiagnostic);
+      else assert.equal(result.stderr,
+        `Not ready: ${expectedDiagnostic.message}\nNext: ${expectedDiagnostic.next}\n`);
+    });
+}
+
+test('frm setup uses a valid primary home despite an invalid fallback',
+  { timeout: 10000 }, async context => {
+    const root = await privateState(context);
+    const directory = 'primary';
+    const profile = join(root, directory, 'framerize-remote.json');
+    const result = launch(root, [...setupArgs, '--json'], {
+      FRM_HOME: join(root, directory), FRAMERIZE_REMOTE_HOME: canary,
+    }, frmLauncher);
+    assertFinished(result, 0);
+    assert.equal(result.stdout, '{"saved":true}\n');
+    assert.equal(result.stderr, '');
+    assertRedacted(result, root, canary);
+    assert.deepEqual(JSON.parse(await readFile(profile, 'utf8')), expectedProfile);
+    assert.deepEqual((await snapshot(root)).map(([path]) => path).sort(),
+      [directory, relative(root, profile), 'unchanged.txt'].sort());
+    assert.equal(await readFile(join(root, 'unchanged.txt'), 'utf8'), canary);
+  });
