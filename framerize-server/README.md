@@ -58,8 +58,8 @@ The link is `<origin>/pair`, plus `#token=...` when Server has an API token.
 `pair` never creates a Tailscale route. With saved Tailscale access, it
 advertises the route only if it still points at this Server. Otherwise it
 asks you to run `up --tailscale` first.
-The link is meant for `frm` on the client machine. Remote does not accept it
-yet; until it does, give Remote the origin and token separately.
+On the client machine, `frm LINK` pairs Remote with it. See the
+[Remote guide](../framerize-remote/README.md#first-run).
 
 Rerun `up` after changing settings. It restarts the service only when they
 change. It stops its own previous service, then checks that the port is free

@@ -103,6 +103,21 @@ async function startInstalledCli(consumer: string, env: NodeJS.ProcessEnv, args:
 
 export const localToken = 'synthetic-local-credential';
 
+export async function startInstalledTrustedServer(consumer: string, env: NodeJS.ProcessEnv, upstream: string) {
+  return startInstalledCli(consumer, { ...env, FRAMERIZE_SERVER_BACKEND: 'http',
+    FRAMERIZE_SERVER_HOST: '127.0.0.1', FRAMERIZE_SERVER_PORT: '0', FRAMERIZE_SERVER_UPSTREAM: upstream,
+  }, [join(consumer, 'node_modules/framerize-server/bin/framerize-server.js'), 'serve'], 'server');
+}
+
+export async function startInstalledTrustedRemote(consumer: string, env: NodeJS.ProcessEnv, remote: string) {
+  const root = join(consumer, 'node_modules/framerize-remote');
+  const manifest = JSON.parse(readFileSync(join(root, 'package.json'), 'utf8'));
+  assert.equal(typeof manifest.bin?.frm, 'string', 'The installed package must expose frm');
+  return startInstalledCli(consumer, { ...env, FRM_HOME: join(env.HOME!, 'frm'),
+    FRM_REMOTE: remote, FRM_HOST: '127.0.0.1', FRM_PORT: '0',
+  }, [join(root, manifest.bin.frm), 'serve', '--json'], 'remote');
+}
+
 export async function startInstalledRemote(consumer: string, env: NodeJS.ProcessEnv, remote: string,
   options: { saved?: boolean; cwd?: string; serveArgs?: string[] } = {}) {
   const home = join(consumer, 'remote-home');

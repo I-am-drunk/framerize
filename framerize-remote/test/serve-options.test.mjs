@@ -179,14 +179,14 @@ async function profile(context, value) {
   return { root, path };
 }
 
-for (const args of [['--host', '0.0.0.0'], ['--host', '::'], ['--host', 'bad/path'],
+for (const args of [['--host', 'bad/path'],
   ['--port', '-1'], ['--port', '65536'], ['--port', '1e3'], ['--port', '0x50'], ['--port', ' 80'],
   ['--port', '80', '--port', '81'], ['--remote', 'http://127.0.0.1'], ['--server-token-env', 'SYNTHETIC']]) {
   test(`serve rejects ${args.join(' ')} before credentials or profile changes`, async context => {
     const { path } = await profile(context, config);
     const before = await readFile(path);
     await assert.rejects(run(['serve', '--config', path, ...args], quiet), error => {
-      if (args[0] === '--host') assert.equal(error.code, args[1] === 'bad/path' ? 'listen_invalid' : 'exposure_consent');
+      if (args[0] === '--host') assert.equal(error.code, 'listen_invalid');
       else if (args[0] === '--port' && args.length === 2) assert.equal(error.code, 'listen_invalid');
       else assert.match(error.message, /^(unknown|duplicate) option$/);
       return true;
@@ -209,12 +209,8 @@ test('serve overrides are temporary, normalized and keep all remote fields', () 
     { port: 0, host: '::', allowNonLoopback: true });
 });
 
-test('new non-loopback hosts cannot inherit saved exposure consent', () => {
-  const saved = { ...config, host: '0.0.0.0', allowNonLoopback: true };
-  assert.deepEqual(applyListenOverrides(saved, { port: 0 }), { ...saved, port: 0 });
-  assert.deepEqual(applyListenOverrides(saved, { host: '127.0.0.1' }), config);
-  for (const host of ['0.0.0.0', '::', '192.0.2.1', 'server.example']) {
-    assert.throws(() => applyListenOverrides(saved, { host }), { code: 'exposure_consent' });
-    assert.equal(applyListenOverrides(saved, { host, allowNonLoopback: true }).host, host);
+test('non-loopback hosts need no separate exposure consent', () => {
+  for (const host of ['0.0.0.0', '::', '100.64.0.10', 'server.example']) {
+    assert.equal(applyListenOverrides(config, { host }).host, host);
   }
 });

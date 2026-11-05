@@ -1,4 +1,7 @@
 export { run } from './cli.js';
+export { runFrm } from './frmCli.js';
+export { parsePairingLink } from './pairingLink.js';
+export type { PairingLink } from './pairingLink.js';
 export type { CliIo } from './cli.js';
 export { createRemoteBackend } from './remoteBackend.js';
 export { parseRemoteEndpoint } from './remoteUrl.js';

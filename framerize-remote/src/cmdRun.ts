@@ -63,7 +63,8 @@ export async function startServe(
     signal.throwIfAborted();
     if (ready !== true) throw new StartupReadinessError(ready.reason, code);
     const instance = createInstance({
-      backend, token: localToken, host: config.host, port: config.port,
+      backend, token: localToken, ...(localToken === null ? { authentication: 'none' as const } : {}),
+      host: config.host, port: config.port,
       headersTimeoutMs: DEFAULT_BACKEND_TIMINGS.readinessWholeMs,
       inferenceTimeoutMs: DEFAULT_BACKEND_TIMINGS.readinessWholeMs + config.inferenceTimeoutMs,
       idleTimeoutMs: DEFAULT_BACKEND_TIMINGS.idleTimeoutMs,

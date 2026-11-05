@@ -1,4 +1,4 @@
-import { loadConfigFile, resolveConfig } from './configStore.js';
+import { loadRunConfig, resolveConfig } from './configStore.js';
 import { loadCredential } from './credentials.js';
 import { createRemoteBackend } from './remoteBackend.js';
 import { DEFAULT_BACKEND_TIMINGS } from './backendConfig.js';
@@ -8,7 +8,7 @@ import { applyListenOverrides, type ListenOverrides } from './listenOptions.js';
 
 export interface Resolved {
   readonly config: RemoteConfig;
-  readonly localToken: string;
+  readonly localToken: string | null;
   readonly backend: ReturnType<typeof createRemoteBackend>;
 }
 
@@ -20,7 +20,7 @@ export async function resolveInstance(
   let config: RemoteConfig;
   let endpoint: ReturnType<typeof resolveConfig>;
   try {
-    config = await loadConfigFile(configPath);
+    config = await loadRunConfig(configPath, env);
     if (overrides) config = applyListenOverrides(config, overrides);
     endpoint = resolveConfig(config);
   }
@@ -28,13 +28,12 @@ export async function resolveInstance(
     if (error instanceof RemoteDiagnosticError) throw error;
     throw new RemoteDiagnosticError('profile_invalid', error instanceof Error ? error.message : undefined);
   }
+  const optional = (reference: RemoteConfig['serverToken'], code: 'server_credential' | 'local_credential') =>
+    reference === undefined ? Promise.resolve(null) : loadCredential(reference, env).catch(() => {
+      throw new RemoteDiagnosticError(code, 'credential is unavailable or invalid');
+    });
   const [serverToken, localToken] = await Promise.all([
-    loadCredential(config.serverToken, env).catch(() => {
-      throw new RemoteDiagnosticError('server_credential', 'credential is unavailable or invalid');
-    }),
-    loadCredential(config.localToken, env).catch(() => {
-      throw new RemoteDiagnosticError('local_credential', 'credential is unavailable or invalid');
-    }),
+    optional(config.serverToken, 'server_credential'), optional(config.localToken, 'local_credential'),
   ]);
   const backend = createRemoteBackend({
     endpoint, serverToken, ...DEFAULT_BACKEND_TIMINGS,

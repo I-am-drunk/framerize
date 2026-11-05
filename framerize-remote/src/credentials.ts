@@ -6,9 +6,11 @@ const BEARER = /^[A-Za-z0-9._~+/-]+=*$/;
 
 export type CredentialReference =
   | { readonly kind: 'env'; readonly name: string }
-  | { readonly kind: 'file'; readonly path: string };
+  | { readonly kind: 'file'; readonly path: string }
+  /** Saved by `frm up <pair-link>` in the private profile, so no token file or retyping is needed. */
+  | { readonly kind: 'value'; readonly value: string };
 
-function validate(token: string): string {
+export function validate(token: string): string {
   if (typeof token !== 'string' || token.length > MAX_TOKEN_BYTES || !BEARER.test(token)) {
     throw new Error('credential is not a valid bearer token');
   }
@@ -47,6 +49,7 @@ export async function loadCredential(
       if (value === undefined) throw new Error('credential environment variable is not set');
       return validate(value);
     }
+    if (reference.kind === 'value') return validate(reference.value);
     return await readTokenFile(reference.path);
   } catch {
     throw new Error('credential is unavailable or invalid');

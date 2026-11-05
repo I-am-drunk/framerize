@@ -3,6 +3,10 @@
 Framerize is a browserless Node server written in TypeScript. Framerize Remote
 is a small local instance that forwards inference to that server. Castle
 Library belongs on the server. This branch is work in progress, not a release.
+Castle's encoder is vendored in `framerize-server/src/castle.ts`. Normal builds
+use that local copy and never fetch the Castle repository. Update it only with
+`scripts/vendor-castle-encoder.mjs` from a local checkout, and keep frozen
+Castle work frozen unless its owner authorizes a change.
 
 ## Keep the design simple SIMPLENESS IS THE BIGGEST THING. CHANNEL YAGNI
 
@@ -52,12 +56,16 @@ Do not claim an unimplemented workflow works because a lower-level test passes.
 
 ## Protect the running system
 
-- Use private temporary state and synthetic credentials for ordinary tests.
-  Do not point a test server at live accounts or copy sessions into fixtures.
+- Framerize is a small project for trusted friends. Keep it open at the core:
+  plain account JSON, environment variables and optional tokens. Do not add
+  auth layers, secret stores or blanket log redaction without a user need.
+- Never commit real account sessions, tokens or captured provider payloads.
+  Examples and fixtures use synthetic values.
+- Use private temporary state for ordinary tests. Do not point a test server
+  at live accounts or copy real sessions into fixtures.
 - Stop only processes this task started, using their captured PID or handle.
   Never kill processes by a name or path pattern.
-- Keep tokens out of command arguments, logs, screenshots and repository files.
-  Live inference, account import, exposure and deployment need explicit scope.
+- Live inference, account import, exposure and deployment need explicit scope.
 
 ## Verify the claim
 
@@ -67,6 +75,11 @@ produce a green count. Backend changes need focused behavior tests. Use
 [test-framerize](.agents/skills/test-framerize/SKILL.md) for installed flows.
 Keep source, installed-package, native and live results separate. An unavailable
 runner is not a test failure or a pass. Retain useful unchanged evidence.
+Before running a probe against a retained package or dist, name its exact path
+and source revision. Compare the affected code and existing regressions with
+current `main` and the active change that owns those files. If that source
+already has the fix, do not rerun the stale probe or start a duplicate
+implementation. Send only the relevant evidence to the fix's owner.
 The `Check` job in `.github/workflows/ci.yml` is the single CI result to
 require. `main` has no branch rule yet, so reviewers must confirm `Check`
 passed on the reviewed head before approving.
@@ -79,9 +92,9 @@ passed on the reviewed head before approving.
    breaks an existing caller. Trace the caller and provider mapping, not just
    the new function. Do not count a URL alias as complete provider compatibility.
 2. Preserve credential and resource boundaries. Local client credentials must
-   not reach the remote provider. Flag leaked secrets, incomplete hop-by-hop
-   header filtering, unbounded exchanges, or cancellation that leaves upstream
-   work, sockets, timers or child processes running. Test the failure path.
+   not reach the remote provider. Flag a committed real credential, incomplete
+   hop-by-hop header filtering, unbounded exchanges, or cancellation that leaves
+   upstream work, sockets, timers or child processes running. Test the failure path.
 3. Preserve truthful delivery and readiness. Remote must not acquire server
    accounts or Castle assets. Readiness must not report success for an unusable
    configuration. Package claims must match the exact source and artifacts

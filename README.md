@@ -1,24 +1,24 @@
 # Framerize
 
-Framerize is a Node.js inference API server. Framerize Remote gives a client
-machine a local endpoint that forwards requests to that server.
-
-The server owns provider accounts and Castle. Remote holds neither.
+Framerize serves an inference API backed by Framer accounts. Server runs on
+the machine that holds the accounts. Remote, the `frm` command, runs on each
+client machine and forwards requests to Server.
 
 | Run this | Where | Default address |
 | --- | --- | --- |
-| [Framerize server](framerize-server/README.md) | Machine with provider access | `127.0.0.1:8789` |
-| [Framerize Remote](framerize-remote/README.md) | Client machine | `127.0.0.1:8788` |
+| [Server](framerize-server/README.md) | Machine with the account | `127.0.0.1:8789` |
+| [Remote](framerize-remote/README.md) | Client machine | `127.0.0.1:8788` |
 
-`main` is the current development branch. This source revision is not a
-published release. Live provider compatibility and release qualification remain
-unfinished. Use the source commands below; `npx framerize-remote` does not install
-this revision.
+Server holds the accounts and Castle. Remote holds neither. Both use the
+HTTP listener in [Core](framerize-core/README.md).
+
+`main` is the development branch. No revision is published to npm, and
+`npx framerize-remote` does not install this source. Live provider
+compatibility is unverified. Use the source commands below.
 
 ## 1. Build the source
 
-Use Node.js 22.12 or newer. Run these commands from the repository root on each
-machine where you use a source launcher:
+Use Node.js 22.12 or newer. On each machine, from the repository root:
 
 ```sh
 npm ci --ignore-scripts --no-audit --no-fund
@@ -41,39 +41,40 @@ also covers sessions read from an environment variable or file.
 ```sh
 FRAMERIZE_SERVER_BACKEND=framer \
 FRAMERIZE_SERVER_ACCOUNTS=/srv/framerize/accounts.json \
-FRAMERIZE_SERVER_HOST=0.0.0.0 \
-node framerize-server/bin/framerize-server.js serve
+node framerize-server/bin/framerize-server.js up --lan
 ```
 
-Without `FRAMERIZE_SERVER_HOST`, Server listens on loopback only. With no API
-token, any client that reaches the port can run inference on the account.
-Expose it only on a network your friends alone can reach, such as a tailnet.
-Set `FRAMERIZE_SERVER_TOKEN` to require a bearer token. Replace `serve` with
-`check` to validate configuration without contacting the provider. Every option
-has a variable; see the [environment guide](framerize-server/docs/environment.md).
+`up` saves the settings, starts Server as a background service on Linux or
+macOS, and prints a pairing link and QR code. `--lan` accepts only private
+addresses; `--tailscale` adds a Tailscale Serve HTTPS route instead. Use
+`serve` in place of `up` to run in the foreground on any platform.
 
-## 3. Connect Remote on the client machine
+With no API token, any client that reaches the port can run inference on the
+account. Set `FRAMERIZE_SERVER_TOKEN` to require a bearer token; the pairing
+link then carries it. The [Server guide](framerize-server/README.md#set-up-a-background-service)
+covers service limits, and the [environment guide](framerize-server/docs/environment.md)
+lists every variable.
 
-Remote setup still needs a server token file and a separate local token file.
-If Server runs without a token, any valid token value works in the first file.
-The server URL is its origin, without `/v1`:
+## 3. Pair Remote on the client machine
+
+Pass the link that `up` printed to `frm`. Run `framerize-server pair` on the
+Server machine to print it again.
 
 ```sh
-node framerize-remote/bin/framerize-remote.js setup \
-  --remote https://your-server.example \
-  --server-token-file /private/framerize/server-token \
-  --local-token-file /private/framerize/local-token \
-  --start
+node framerize-remote/bin/frm.js 'http://192.168.1.20:8789/pair#token=...'
 ```
 
-Setup saves credential references in
-`~/.framerize-remote/framerize-remote.json`, checks the server's readiness and
-starts the local API. Configure your client with `http://127.0.0.1:8788/v1`
-and the local token. Setup does not provision a server or import an account.
+`frm` saves the Server origin and any token from the link in
+`~/.framerize-remote/framerize-remote.json`. It checks Server readiness, then
+starts Remote as a background service. Clients use `http://127.0.0.1:8788/v1`.
+In a terminal, `frm` then offers to install or update Claude Code and Codex.
+Start one with `frm client claude` or `frm client codex`.
 
-Use `serve` for later starts and `check --tailscale` for connection diagnostics.
-The [Remote guide](framerize-remote/README.md) covers saved profiles, JSON output
-and explicit non-loopback access. Both launchers support `--help`.
+Without a link, `frm up http://SERVER:8789` uses an origin, with
+`FRM_SERVER_TOKEN` if Server needs a token. Running `frm` with no arguments on
+a new machine asks for the link. `frm serve` runs in the foreground instead,
+for platforms without a service manager. See the
+[Remote guide](framerize-remote/README.md) for variables, clients and service limits.
 
 ## Verification and development
 

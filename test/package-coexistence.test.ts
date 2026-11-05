@@ -8,7 +8,8 @@ import path from 'node:path';
 import { checkPackageCoexistence, installedBytes } from '../scripts/package-coexistence.js';
 
 function fixture(context: TestContext, name: string,
-  { crlf = false, probe = '', ...overrides }: { crlf?: boolean; probe?: string; [key: string]: unknown } = {}) {
+  { crlf = false, probe = '', executable = `bin/${name}.js`, legacyExecutable, ...overrides }:
+    { crlf?: boolean; probe?: string; executable?: string; legacyExecutable?: string; [key: string]: unknown } = {}) {
   const directory = mkdtempSync(path.join(tmpdir(), 'coexistence fixture '));
   context.after(() => rmSync(directory, { recursive: true, force: true }));
   const root = path.join(directory, 'package');
@@ -17,7 +18,7 @@ function fixture(context: TestContext, name: string,
   const server = name === 'framerize-server';
   const files: Record<string, string> = {
     'package.json': JSON.stringify({ name, version: '0.0.1', type: 'module',
-      bin: { [name]: `./bin/${name}.js` },
+      bin: { [server ? name : 'frm']: `./${executable}` },
       exports: { '.': './src/server.js',
         ...(server ? { './config': './src/config.js', './accounts': './src/accounts.js', './logger': './src/logger.js',
           './provider': './src/provider.js' } : {}) }, ...overrides }),
@@ -28,7 +29,7 @@ function fixture(context: TestContext, name: string,
     'src/config.js': `export function ${server ? 'loadConfig' : 'parseConfig'}() {
       return { port: ${server ? 8789 : 8788} };
     }\n`,
-    [`bin/${name}.js`]: `#!/usr/bin/env node
+    [executable]: `#!/usr/bin/env node
 import assert from 'node:assert/strict';
 assert.equal(process.env.FRAMER_ACCOUNTS, undefined);
 assert.equal(process.env.FRAMER_UPSTREAM, undefined);
@@ -39,9 +40,10 @@ assert.equal(process.env.UPSTREAM_TOKEN, undefined);
 assert.equal(process.env.HTTP_PROXY, undefined);
 ${probe}
 console.log(process.argv.includes('version') ? '0.0.1'
-  : ${JSON.stringify(server ? 'Server' : 'framerize-remote --server-token-env')});
+  : ${JSON.stringify(server ? 'Server' : 'frm --server-token-env')});
 `,
   };
+  if (legacyExecutable) files[legacyExecutable] = files[executable]!;
   if (server) {
     for (const name of ['accounts', 'logger', 'provider']) files[`src/${name}.js`] = 'export {};\n';
   }
@@ -92,6 +94,40 @@ test('only a launcher shebang may lose CR during installation', () => {
   assert.deepEqual(installedBytes(original, false), original);
   const plain = Buffer.from('body\r\n');
   assert.deepEqual(installedBytes(plain, true), plain);
+});
+
+test('installs frm with a legacy alias and a canonical launcher filename', context => {
+  const remote = fixture(context, 'framerize-remote', {
+    crlf: true, executable: 'bin/frm.js',
+    bin: { frm: './bin/frm.js', 'framerize-remote': './bin/frm.js' },
+  });
+  const server = fixture(context, 'framerize-server');
+  assert.equal(checkPackageCoexistence([remote, server]).packages.length, 2);
+});
+
+test('requires the canonical frm command even when the legacy alias exists', context => {
+  const remote = fixture(context, 'framerize-remote', {
+    bin: { 'framerize-remote': './bin/framerize-remote.js' },
+  });
+  const server = fixture(context, 'framerize-server');
+  assert.throws(() => checkPackageCoexistence([remote, server]), /unexpected executable name/);
+});
+
+test('checks distinct CRLF launchers for frm and its legacy alias', context => {
+  const remote = fixture(context, 'framerize-remote', {
+    crlf: true, executable: 'bin/frm.js', legacyExecutable: 'bin/framerize-remote.js',
+    bin: { frm: './bin/frm.js', 'framerize-remote': './bin/framerize-remote.js' },
+  });
+  const server = fixture(context, 'framerize-server');
+  assert.equal(checkPackageCoexistence([remote, server]).packages.length, 2);
+});
+
+test('rejects an alias that points outside the package bin directory', context => {
+  const remote = fixture(context, 'framerize-remote', {
+    bin: { frm: './bin/framerize-remote.js', 'framerize-remote': '../outside.js' },
+  });
+  const server = fixture(context, 'framerize-server');
+  assert.throws(() => checkPackageCoexistence([remote, server]), /unexpected executable path/);
 });
 
 test('requires two distinct tarballs with the expected names', (context) => {

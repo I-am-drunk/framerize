@@ -1,0 +1,153 @@
+// `frm up` adapts T3 Code apps/server/src/cli/up.ts setUp at 5a906583 (MIT, T3 Tools Inc.):
+// one command saves the connection, reconciles the background service, restarts it only when
+// its settings changed, rolls the profile back when the service step fails, and prints the state.
+import { readFile, rm, writeFile } from 'node:fs/promises';
+import type { CliIo } from './cli.js';
+import { runCheck } from './cmdRun.js';
+import { CONFIG_DEFAULTS, parsePersisted, type PersistedConfig } from './config.js';
+import { saveConfigFile } from './configStore.js';
+import { validate, type CredentialReference } from './credentials.js';
+import { FRM_LOCAL_TOKEN, FRM_SERVER_TOKEN, frmSettings } from './frmEnv.js';
+import { RemoteDiagnosticError, type DiagnosticCode } from './diagnostics.js';
+import { isPairingLink, parsePairingLink } from './pairingLink.js';
+import { parseRemoteEndpoint } from './remoteUrl.js';
+import { controlService, installService, requireServicePrerequisites, serviceStatus, type ServiceContext } from './serviceControl.js';
+
+export interface UpOptions {
+  readonly configPath: string;
+  readonly service: ServiceContext;
+  readonly env: NodeJS.ProcessEnv;
+}
+
+type Connection = { remote: string; token?: string | undefined; paired: boolean };
+
+/** A pairing link, a server origin, FRM_REMOTE, the saved remote, or one terminal question. */
+async function connection(input: string | undefined, saved: PersistedConfig | undefined,
+  io: CliIo, env: NodeJS.ProcessEnv): Promise<Connection> {
+  let value = input ?? (env.FRM_REMOTE || undefined) ?? saved?.remote;
+  if (value === undefined && io.ask) value = (await io.ask('Pairing link or server address: ')).trim();
+  if (!value) throw new RemoteDiagnosticError('remote_required');
+  if (!isPairingLink(value)) {
+    try { parseRemoteEndpoint(value, saved?.allowInsecureRemote === true); }
+    catch { throw new RemoteDiagnosticError('remote_invalid'); }
+    return { remote: value.replace(/\/$/, ''), paired: false };
+  }
+  const link = parsePairingLink(value);
+  try { if (link.token !== undefined) validate(link.token); }
+  catch { throw new RemoteDiagnosticError('pairing_link_invalid'); }
+  return { remote: link.remote, token: link.token, paired: true };
+}
+
+async function readSaved(path: string): Promise<{ text: string | undefined; config: PersistedConfig | undefined }> {
+  let text: string;
+  try { text = await readFile(path, 'utf8'); }
+  catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return { text: undefined, config: undefined };
+    throw new RemoteDiagnosticError('profile_invalid');
+  }
+  try { return { text, config: parsePersisted(JSON.parse(text)) }; }
+  catch { throw new RemoteDiagnosticError('profile_invalid'); }
+}
+
+/** An FRM_* token saved by value, so the service needs no shell variable. Empty or malformed values fail. */
+function envToken(env: NodeJS.ProcessEnv, name: string,
+  code: 'server_credential' | 'local_credential'): CredentialReference | undefined {
+  const value = env[name];
+  if (value === undefined) return undefined;
+  try { return { kind: 'value', value: validate(value) }; }
+  catch { throw new RemoteDiagnosticError(code); }
+}
+
+/**
+ * The profile `frm up` saves. Server token: pairing-link token, then FRM_SERVER_TOKEN, then the saved
+ * token unless a tokenless link replaced it. Local token: FRM_LOCAL_TOKEN, then the saved token.
+ */
+function nextProfile(saved: PersistedConfig | undefined, link: Connection, env: NodeJS.ProcessEnv): PersistedConfig {
+  const { serverToken: savedServer, localToken: savedLocal, ...rest } = saved ?? { remote: link.remote };
+  const frm = frmSettings(env);
+  const port = frm.port ?? saved?.port ?? CONFIG_DEFAULTS.port;
+  const serverToken = link.token !== undefined ? { kind: 'value' as const, value: link.token }
+    : envToken(env, FRM_SERVER_TOKEN, 'server_credential') ?? (link.paired ? undefined : savedServer);
+  const localToken = envToken(env, FRM_LOCAL_TOKEN, 'local_credential') ?? savedLocal;
+  return { ...rest, remote: link.remote, port: port === 0 ? CONFIG_DEFAULTS.port : port,
+    ...(frm.host ? { host: frm.host } : {}), ...(serverToken ? { serverToken } : {}),
+    ...(localToken ? { localToken } : {}) };
+}
+
+/** The host a local client dials, as `frm serve` prints it: wildcards become loopback, IPv6 gets brackets. */
+function urlHost(host: string): string {
+  const bare = host.replace(/^\[|\]$/g, '');
+  if (bare === '0.0.0.0') return '127.0.0.1';
+  if (bare === '::') return '[::1]';
+  return bare.includes(':') ? `[${bare}]` : bare;
+}
+
+/** Restores the profile as it was before `frm up`, as T3's restoreServiceEnv restores service.env. */
+async function restore(path: string, text: string | undefined): Promise<void> {
+  if (text === undefined) await rm(path, { force: true });
+  else await writeFile(path, text, { mode: 0o600 });
+}
+
+export interface UpResult {
+  readonly remote: string;
+  readonly paired: boolean;
+  readonly ready: boolean;
+  readonly service: 'installed' | 'updated' | 'restarted' | 'unchanged' | 'unavailable';
+  readonly localApi: string;
+}
+
+/** Readiness through the saved profile, before any service change, as T3 checks before reconciling. */
+async function readiness(configPath: string, env: NodeJS.ProcessEnv): Promise<DiagnosticCode | undefined> {
+  // Only the saved profile counts: FRM_* values were already resolved into it.
+  const clean = Object.fromEntries(Object.entries(env)
+    .filter(([name]) => !/^FRM_(REMOTE|HOST|PORT|SERVER_TOKEN|LOCAL_TOKEN)$/.test(name)));
+  const result = await runCheck(configPath, true, clean);
+  if (result.exitCode === 0) return undefined;
+  const code: unknown = (JSON.parse(result.text) as { diagnostic?: { code?: unknown } }).diagnostic?.code;
+  return typeof code === 'string' ? code as DiagnosticCode : 'upstream_unavailable';
+}
+
+export async function setUp(input: string | undefined, io: CliIo, options: UpOptions): Promise<UpResult> {
+  const before = await readSaved(options.configPath);
+  const link = await connection(input, before.config, io, options.env);
+  const profile = nextProfile(before.config, link, options.env);
+  await saveConfigFile(options.configPath, profile);
+  const after = await readFile(options.configPath, 'utf8');
+  const localApi = `http://${urlHost(profile.host ?? CONFIG_DEFAULTS.host)}:${profile.port}/v1`;
+  const base = { remote: link.remote, paired: link.paired, localApi };
+  let wasRunning = false;
+  try {
+    const notReady = await readiness(options.configPath, options.env);
+    if (notReady) throw new RemoteDiagnosticError(notReady);
+    const status = await serviceStatus(options.service);
+    if (!status.supported) return { ...base, ready: true, service: 'unavailable' };
+    if (status.otherHome) throw new RemoteDiagnosticError('service_other_home');
+    if (status.current && status.running) await requireServicePrerequisites(options.service);
+    wasRunning = status.installed && status.running;
+    if (!status.current || !status.running) {
+      return { ...base, ready: true, service: await installService(options.service) };
+    }
+    // A running service reads the profile only when it starts.
+    if (after === before.text) return { ...base, ready: true, service: 'unchanged' };
+    await controlService(options.service, 'restart');
+    return { ...base, ready: true, service: 'restarted' };
+  } catch (error) {
+    await restore(options.configPath, before.text).catch(() => {});
+    // A failed restart may still have started the service on the new profile, so restart it on the old one.
+    if (wasRunning && before.text !== undefined) {
+      await controlService(options.service, 'restart').catch(() => {});
+    }
+    throw error;
+  }
+}
+
+/** Adapted from T3 `formatSetup` and `formatNextSteps`: what took effect, then one next step. */
+export function formatUp(result: UpResult): string {
+  const service = { installed: 'installed and started', updated: 'repaired and started',
+    restarted: 'restarted with the new settings', unchanged: 'running', unavailable: 'unavailable on this machine' };
+  const rows = [['Server', `${result.remote}${result.paired ? ' · paired' : ''}`], ['Readiness', 'passed'],
+    ['Service', service[result.service]], ['Local API', result.localApi]];
+  const next = result.service === 'unavailable'
+    ? 'Keep this command running:\n  frm serve' : 'Point your client at the local API, or run `frm client`.';
+  return `This machine\n${rows.map(([label, value]) => `  ${label!.padEnd(12)}${value}`).join('\n')}\n\n${next}\n`;
+}

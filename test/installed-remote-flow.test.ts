@@ -5,13 +5,14 @@ import { createHash } from 'node:crypto';
 import { createServer } from 'node:http';
 import { once } from 'node:events';
 import type { AddressInfo } from 'node:net';
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { promisify } from 'node:util';
 import { npmCli, privateEnvironment } from '../scripts/core-package-check.js';
-import { startInstalledServer, startInstalledRemote, localToken, serverToken } from '../scripts/fixtures/installed-server.js';
+import { startInstalledServer, startInstalledRemote, startInstalledTrustedServer,
+  startInstalledTrustedRemote, localToken, serverToken } from '../scripts/fixtures/installed-server.js';
 import { assertTransportClosed, createScenario, exchange, exerciseDelayedJson, exerciseFlow,
   toolRequest, transportResources } from '../scripts/fixtures/transport-scenario.js';
 
@@ -154,6 +155,67 @@ test('installed Remote forwards through the installed server with isolated crede
     await assertTransportClosed(initialResources);
   });
 
+test('installed frm and Server forward trusted traffic without token or profile files',
+  { timeout: 90_000 }, async context => {
+    const baseline = transportResources();
+    const root = mkdtempSync(join(tmpdir(), 'framerize-installed-trusted-'));
+    const consumer = join(root, 'consumer with spaces');
+    const runtime = join(root, 'runtime');
+    let scenario: Awaited<ReturnType<typeof createScenario>> | undefined;
+    let server: Awaited<ReturnType<typeof startInstalledTrustedServer>> | undefined;
+    let remote: Awaited<ReturnType<typeof startInstalledTrustedRemote>> | undefined;
+    try {
+      mkdirSync(consumer); mkdirSync(runtime);
+      writeFileSync(join(root, 'user.npmrc'), ''); writeFileSync(join(root, 'global.npmrc'), '');
+      writeFileSync(join(consumer, 'package.json'), '{"private":true,"type":"module"}');
+      const repository = process.env.FRAMERIZE_PACKAGE_REPOSITORY ?? fileURLToPath(new URL('../../', import.meta.url));
+      const npm = (args: string[], cwd: string) => execFileSync(process.execPath, [npmCli(), ...args],
+        { cwd, env: privateEnvironment(root), encoding: 'utf8', timeout: 30_000 });
+      const archives: string[] = [];
+      for (const name of ['framerize-server', 'framerize-remote']) {
+        const supplied = process.env[name === 'framerize-server' ? 'SERVER_TGZ' : 'REMOTE_TGZ'];
+        if (supplied) { archives.push(supplied); continue; }
+        assert.equal(Boolean(process.env.SERVER_TGZ || process.env.REMOTE_TGZ), false);
+        const packed = JSON.parse(npm(['pack', '--offline', '--ignore-scripts', '--json',
+          '--pack-destination', root], join(repository, name))) as { filename: string }[];
+        assert.equal(packed.length, 1);
+        archives.push(join(root, packed[0]!.filename));
+      }
+      npm(['install', '--offline', '--ignore-scripts', '--omit=dev', '--package-lock=false',
+        '--no-audit', '--no-fund', ...archives], consumer);
+      const env = privateEnvironment(runtime);
+      scenario = await createScenario(null);
+      server = await startInstalledTrustedServer(consumer, env, scenario.url);
+      remote = await startInstalledTrustedRemote(consumer, env, server.url);
+      const result = await exerciseFlow(remote.url, null, scenario);
+      assert.equal((await exchange(remote.url, '/ready', 'synthetic-client-only')).status, 200);
+      for (const path of ['/v1/responses', '/v1/chat/completions']) {
+        const reply = await exchange(remote.url, path, null,
+          { body: { fixture: 'completed-json', stream: false, route: path } });
+        assert.equal(reply.status, 200);
+        assert.equal(reply.body.toString(), '{"done":true}');
+      }
+      assert.ok(scenario.state.requests.every(entry => entry.authorization === undefined));
+      assert.deepEqual(scenario.state.failures, []);
+      assert.ok(readdirSync(runtime, { recursive: true, withFileTypes: true }).every(entry => entry.isDirectory()));
+      await remote.close(); await server.close();
+      await assert.rejects(exchange(remote.url, '/health', null), { code: 'ECONNREFUSED' });
+      await assert.rejects(exchange(server.url, '/health', null), { code: 'ECONNREFUSED' });
+      assert.ok(readdirSync(runtime, { recursive: true, withFileTypes: true }).every(entry => entry.isDirectory()));
+      const identities = archives.map(archive => ({
+        sha256: createHash('sha256').update(readFileSync(archive)).digest('hex'),
+        bytes: readFileSync(archive).length,
+      }));
+      context.diagnostic(JSON.stringify({ node: process.version, ...result, completedJsonRequests: 2,
+        identities, savedFiles: 0, authentication: 'none', closedCli: true }));
+    } finally {
+      const cleanup = await Promise.allSettled([remote?.close(), server?.close(), scenario?.close()]);
+      rmSync(root, { recursive: true, force: true });
+      for (const result of cleanup) if (result.status === 'rejected') throw result.reason;
+    }
+    await assertTransportClosed(baseline);
+  });
+
 async function verifyInstalledDiagnosis(consumer: string, env: NodeJS.ProcessEnv) {
   const hook = join(consumer, 'synthetic-tailscale.mjs');
   const marker = join(consumer, 'tailscale-invoked');
@@ -173,7 +235,10 @@ childProcess.spawn = (command, args, options) => {
   return original(process.execPath, ['-e', ${JSON.stringify(script)}], options);
 };
 syncBuiltinESMExports();`);
-  const launcher = join(consumer, 'node_modules/framerize-remote/bin/framerize-remote.js');
+  const packageRoot = join(consumer, 'node_modules/framerize-remote');
+  const manifest = JSON.parse(readFileSync(join(packageRoot, 'package.json'), 'utf8'));
+  assert.equal(typeof manifest.bin?.frm, 'string');
+  const launcher = join(packageRoot, manifest.bin.frm);
   const checked = await promisify(execFile)(process.execPath,
     ['--import', pathToFileURL(hook).href, launcher, 'check', '--tailscale', '--json'], {
       cwd: consumer, timeout: 5000,
@@ -190,11 +255,13 @@ syncBuiltinESMExports();`);
 
 function verifyStandaloneTypes(repository: string, consumer: string, env: NodeJS.ProcessEnv) {
   const cli = (args: string[]) => execFileSync(process.execPath,
-    [npmCli(), 'exec', '--offline', '--no', '--', 'framerize-remote', ...args],
+    [npmCli(), 'exec', '--offline', '--no', '--', 'frm', ...args],
     { cwd: consumer, env, encoding: 'utf8', timeout: 10000 });
   assert.equal(cli(['version']).trim(), '0.2.0');
   assert.match(cli(['setup', '--help']), /--server-token-env/);
-  assert.match(cli(['serve', '--help']), /Overrides never change the saved profile/);
+  const serveHelp = cli(['serve', '--help']);
+  assert.match(serveHelp, /FRM_REMOTE/);
+  assert.match(serveHelp, /--port/);
   assert.equal(existsSync(join(consumer, 'node_modules/@framerize/core')), false);
   assert.equal(existsSync(join(consumer, 'node_modules/framerize-server/src')), false);
   execFileSync(process.execPath, ['--input-type=module', '-e', `
@@ -234,8 +301,9 @@ try {
   const packageRoot = join(consumer, 'node_modules/framerize-remote');
   const manifest = JSON.parse(readFileSync(join(packageRoot, 'package.json'), 'utf8'));
   assert.equal(manifest.name, 'framerize-remote');
-  assert.deepEqual(manifest.bin, { 'framerize-remote': './bin/framerize-remote.js' });
-  assert.match(cli(['--help']), /^framerize-remote 0\.2\.0\n/);
+  assert.equal(typeof manifest.bin?.frm, 'string');
+  assert.ok(existsSync(join(packageRoot, manifest.bin.frm)));
+  assert.match(cli(['--help']), /^frm 0\.2\.0\n/);
   for (const key of ['dependencies', 'optionalDependencies', 'peerDependencies']) {
     assert.deepEqual(Object.keys(manifest[key] ?? {}), []);
   }

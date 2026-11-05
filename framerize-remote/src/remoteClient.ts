@@ -8,7 +8,7 @@ export interface RawRequest {
   readonly origin: string;
   readonly path: string;
   readonly method: 'GET' | 'POST';
-  readonly token: string;
+  readonly token: string | null;
   readonly headers: Readonly<Record<string, string>>;
   readonly body?: AsyncIterable<Buffer> | undefined;
   readonly signal: AbortSignal;
@@ -55,7 +55,7 @@ export function sendRequest(request: RawRequest): Promise<RawResponse> {
       outgoing = transport.request(url, {
         agent, method: request.method, maxHeaderSize: 16384,
         ...(url.protocol === 'https:' ? { rejectUnauthorized: true } : {}),
-        headers: { ...request.headers, authorization: `Bearer ${request.token}` },
+        headers: { ...request.headers, ...(request.token === null ? {} : { authorization: `Bearer ${request.token}` }) },
       });
       outgoing.maxHeadersCount = 0;
       outgoing.on('error', onError);

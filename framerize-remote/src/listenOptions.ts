@@ -1,6 +1,6 @@
 import type { ParsedArgs } from './cliArgs.js';
 import { parsePersisted, type RemoteConfig } from './config.js';
-import { isLoopbackHost, normalizeHostname } from './hostPolicy.js';
+import { normalizeHostname } from './hostPolicy.js';
 import { RemoteDiagnosticError } from './diagnostics.js';
 
 export const LISTEN_SPEC = { host: 'string', port: 'string', 'allow-non-loopback': 'boolean' } as const;
@@ -27,8 +27,5 @@ export function applyListenOverrides(config: RemoteConfig, overrides: ListenOver
       || (overrides.host === undefined && config.allowNonLoopback) };
   try { parsePersisted(candidate); }
   catch { throw new RemoteDiagnosticError('listen_invalid'); }
-  if (!isLoopbackHost(candidate.host) && !candidate.allowNonLoopback) {
-    throw new RemoteDiagnosticError('exposure_consent');
-  }
   return { ...candidate, host: normalizeHostname(candidate.host) };
 }
