@@ -58,24 +58,25 @@ export async function run(argv: readonly string[], io: CliIo): Promise<number> {
   }
   const configPath = profilePath(explicit);
   if (command === 'setup') {
-    const overrides = await runSetup(passthrough, configPath, process.env, io.ask);
-    io.stdout(json ? `${JSON.stringify({ saved: true })}\n` : 'Profile saved.\n');
-    if (passthrough.includes('--start')) return serve(configPath, io, json, overrides, true);
-    if (!json) {
-      const controller = new AbortController();
-      const stop = (): void => controller.abort();
-      process.on('SIGINT', stop);
-      process.on('SIGTERM', stop);
-      try {
+    const controller = new AbortController();
+    const stop = (): void => controller.abort();
+    process.on('SIGINT', stop);
+    process.on('SIGTERM', stop);
+    try {
+      const overrides = await runSetup(passthrough, configPath, process.env, io.ask, controller.signal);
+      controller.signal.throwIfAborted();
+      io.stdout(json ? `${JSON.stringify({ saved: true })}\n` : 'Profile saved.\n');
+      if (passthrough.includes('--start')) return serve(configPath, io, json, overrides, true);
+      if (!json) {
         const offer = await offerClientSetup(configPath, io, process.env, undefined, controller.signal);
         if (offer === 'cancelled' || controller.signal.aborted) throw new RemoteDiagnosticError('aborted');
         io.stdout('Next: frm serve\n');
-      } finally {
-        process.off('SIGINT', stop);
-        process.off('SIGTERM', stop);
       }
+      return 0;
+    } finally {
+      process.off('SIGINT', stop);
+      process.off('SIGTERM', stop);
     }
-    return 0;
   }
   if (command === 'check') {
     const { options } = parseArgs(passthrough, { tailscale: 'boolean' });

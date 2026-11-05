@@ -33,7 +33,8 @@ function optionalReference(key: 'serverToken' | 'localToken', env: unknown, file
 export type Ask = (question: string, signal?: AbortSignal) => Promise<string>;
 
 export async function runSetup(argv: readonly string[], configPath: string,
-  env: NodeJS.ProcessEnv = process.env, ask?: Ask): Promise<ListenOverrides> {
+  env: NodeJS.ProcessEnv = process.env, ask?: Ask, signal?: AbortSignal): Promise<ListenOverrides> {
+  signal?.throwIfAborted();
   let parsed: ReturnType<typeof parseArgs>;
   try { parsed = parseArgs(argv, SETUP_SPEC); }
   catch { throw new RemoteDiagnosticError('setup_arguments'); }
@@ -47,7 +48,8 @@ export async function runSetup(argv: readonly string[], configPath: string,
     throw new RemoteDiagnosticError('inference_invalid', 'invalid inference timeout');
   }
   let remote = typeof options.remote === 'string' ? options.remote : frm.remote;
-  if (remote === undefined && ask) remote = (await ask('Server address, such as http://100.64.0.1:8789: ')).trim();
+  if (remote === undefined && ask) remote = (await ask('Server address, such as http://100.64.0.1:8789: ', signal)).trim();
+  signal?.throwIfAborted();
   if (!remote) throw new RemoteDiagnosticError('remote_required');
   const insecure = options['allow-insecure-remote'] === true;
   try { parseRemoteEndpoint(remote, insecure); }
