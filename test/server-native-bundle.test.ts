@@ -28,6 +28,19 @@ test('native bundler uses only archived files and binds their compressed bytes',
   assert.deepEqual(result.inputs, ['package/bin/framerize-server.js', 'package/dist/cli.js']);
 });
 
+test('native bundle embeds the version from its verified archive manifest', async () => {
+  const version = '3.4.6-alpha.17+abc1234';
+  const archive = fixture({ version },
+    "import pkg from '../package.json' with { type: 'json' }; console.log(pkg.version);");
+  const result = await bundleServerArchive(archive, { ...identity, version });
+  const printed: string[] = [];
+  runInNewContext(Buffer.from(result.code).toString(), {
+    console: { log: (text: string) => printed.push(text) },
+  });
+  assert.deepEqual(printed, [version]);
+  assert.ok(result.inputs.includes('package/package.json'));
+});
+
 for (const statement of ["import 'esbuild';", "import '../missing.js';",
   "import '../../../package.json';", "const file = process.argv[2]; import(file);",
   "const file = process.argv[2]; require(file);"]) {
