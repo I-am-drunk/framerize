@@ -76,6 +76,7 @@ jobs:
           const toolPaths = ['package.json', 'scripts/package-coexistence.js',
             'scripts/package-archive.js', 'scripts/core-package-check.js',
             'scripts/fixtures/core-installed.js', 'scripts/fixtures/installed-server.js',
+            'scripts/fixtures/installed-accounts.js',
             'scripts/fixtures/transport-scenario.js', 'test/installed-remote-flow.test.js',
             'test/package-coexistence.test.js', 'test/package-archive.test.js'];
           const tooling = toolPaths.map((file) => {
