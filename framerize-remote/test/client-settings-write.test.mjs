@@ -14,7 +14,7 @@ const { writeClaudeSettings, undoClaudeSettings, SettingsError } = await import(
 const target = { origin: 'http://127.0.0.1:8788', localToken: 'synthetic-original' };
 
 async function fixture(t) {
-  const root = await fs.mkdtemp(join(tmpdir(), 'frm-settings-write-'));
+  const root = await fs.realpath(await fs.mkdtemp(join(tmpdir(), 'frm-settings-write-')));
   t.after(() => fs.rm(root, { recursive: true, force: true }));
   return { root, file: join(root, 'settings.json'), state: join(root, 'state'),
     record: join(root, 'state', 'claude-settings.json') };
