@@ -31,7 +31,8 @@ Token references are optional. Use at most one per role. Never pass token values
 as arguments. In a terminal, setup asks for a missing server address. Otherwise
 it reads FRM_REMOTE. HTTP needs no consent for loopback, LAN or Tailscale servers.
 Profiles default to ~/.framerize-remote/framerize-remote.json.
-FRAMERIZE_REMOTE_HOME overrides that directory. Use an absolute path.
+FRM_HOME overrides that directory. FRAMERIZE_REMOTE_HOME is the fallback
+when FRM_HOME is unset. Use an absolute path without control characters.
 Use --start for first run, or frm serve to start a saved profile.
 `;
 

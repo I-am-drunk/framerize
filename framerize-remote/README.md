@@ -186,15 +186,17 @@ then skips its remaining output and client operations.
 `up` and `setup` write `~/.framerize-remote/framerize-remote.json`. Set
 `FRM_HOME` to an absolute directory to choose another location. The older
 `FRAMERIZE_REMOTE_HOME` still works when `FRM_HOME` is unset; `FRM_HOME` wins
-when both are set. An explicit `--config FILE` overrides both. Old working-directory profiles
+when both are set. For commands that accept it, an explicit `--config FILE`
+overrides both. `frm up`, bare `frm` and `frm service` use the home variables.
+Old working-directory profiles
 remain usable with `--config /absolute/path/to/profile.json`. Existing profiles
 are not moved automatically. The profile stores the remote URL, listen host
 and port, the two explicit exposure flags and the token settings. A token from
 a pairing link is saved as its value; `setup` saves only file or variable names.
 
-An invalid `FRM_HOME` or `FRAMERIZE_REMOTE_HOME` reports `profile_home_invalid`.
-Set it to an absolute directory without control characters, unset it to use
-the default, or pass `--config FILE`. `frm help` and `frm --version` work even
+An invalid active home variable reports `profile_home_invalid`.
+Set `FRM_HOME` to an absolute directory without control characters, or unset
+both home variables to use the default. `frm help` and `frm --version` work even
 when the directory setting is invalid.
 
 Saves are atomic and owner-only on POSIX. New file references become absolute
