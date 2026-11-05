@@ -4,6 +4,7 @@ import { loadConfig, readServerToken } from './config.js';
 import { loadAccounts } from './accounts.js';
 import { ProviderError } from './errors.js';
 import type { Logger } from './logger.js';
+import { acceptsPrivateNetworkConnection } from './private-network.js';
 
 export interface ServerProvider {
   forward?(request: InferenceRequest): InferenceResponse | Promise<InferenceResponse>;
@@ -34,9 +35,18 @@ export async function createServer(values: unknown = {},
   };
   const { host, port, maxBodyBytes, headersTimeoutMs, inferenceTimeoutMs, idleTimeoutMs,
     requestHeadersTimeoutMs, shutdownTimeoutMs } = config;
-  return createInstance({ backend, token: token || null, host, port, maxBodyBytes,
+  const app = createInstance({ backend, token: token || null, host, port, maxBodyBytes,
     authentication: token ? 'required' : 'none',
     headersTimeoutMs, inferenceTimeoutMs, idleTimeoutMs, requestHeadersTimeoutMs, shutdownTimeoutMs,
     onRequest(event) { return logger?.info?.('request.finished', event); },
   });
+  app.server.prependListener('request', (request, response) => {
+    if (request.url === '/ready') response.setHeader('x-framerize-server-pid', String(process.pid));
+  });
+  if (config.privateNetworkOnly) {
+    app.server.prependListener('connection', socket => {
+      if (!acceptsPrivateNetworkConnection(socket)) socket.destroy();
+    });
+  }
+  return app;
 }

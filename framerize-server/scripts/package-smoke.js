@@ -35,8 +35,10 @@ try {
   ) });
   assert.deepEqual(normalizeManifest(manifest), normalizeManifest(source),
     'Installed package metadata differs');
-  const files = ['README.md', 'LICENSE',
+  const files = ['README.md', 'LICENSE', 'T3-LICENSE', 'NAYUKI-LICENSE', 'T3-ATTRIBUTION.md',
     'bin/framerize-server.js', ...['core.js', 'core.d.ts', 'accounts.js', 'accounts.d.ts',
+      ...['startup-access', 'private-network', 'qr-code', 'settings', 'setup', 'service-units',
+        'service-control', 'tailscale'].flatMap(name => [`${name}.js`, `${name}.d.ts`]),
       'backend.js', 'backend.d.ts', 'castle.js', 'castle-loader.js', 'castle-loader.d.ts',
       'account-backend.js', 'account-backend.d.ts',
       'config.js', 'config.d.ts', 'errors.js', 'errors.d.ts', 'provider.js', 'provider.d.ts',

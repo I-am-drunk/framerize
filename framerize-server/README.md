@@ -33,6 +33,72 @@ override them. See the [environment guide](docs/environment.md).
 Replace `serve` with `check` to validate configuration without contacting the provider.
 Neither command loads `.env` files.
 
+## Set up a background service
+
+`up` saves the settings, installs a user service, waits for `/ready` and
+prints a pairing link with a terminal QR code:
+
+```sh
+FRAMERIZE_SERVER_BACKEND=framer \
+FRAMERIZE_SERVER_ACCOUNTS=/srv/framerize/accounts.json \
+node framerize-server/bin/framerize-server.js up --lan
+```
+
+On first setup, choose one access mode. In a terminal, `up` asks.
+
+- `--lan` listens on `0.0.0.0` and accepts only private addresses, as listed
+  in the [environment guide](docs/environment.md#validation).
+- `--tailscale` adds a Tailscale Serve HTTPS route to the local port.
+  `--tailscale-serve-port` picks a port other than 443.
+- `--no-lan` keeps the listener on this machine only.
+- `--yes` accepts LAN access without asking.
+
+The link is `<origin>/pair`, plus `#token=...` when Server has an API token.
+`pair` prints it again. Pass `--json` to either command for a machine result.
+`pair` never creates a Tailscale route. With saved Tailscale access, it
+advertises the route only if it still points at this Server. Otherwise it
+asks you to run `up --tailscale` first.
+The link is meant for `frm` on the client machine. Remote does not accept it
+yet; until it does, give Remote the origin and token separately.
+
+Rerun `up` after changing settings. It restarts the service only when they
+change. It stops its own previous service, then checks that the port is free
+before starting the new one. Setup succeeds only when `/ready` answers from
+the process the service manager reports as running, on both the local address
+and the Tailscale route. A saved route follows a new local port or
+`--tailscale-serve-port`. `--no-tailscale` removes the route `up` added.
+
+If setup fails, `up` tries to restore the previous service, settings and
+Tailscale route. When a restore step also fails, the error reports both
+failures, and the earlier state may be only partly restored.
+
+### Service limits
+
+- Linux uses the systemd user unit `framerize-server.service`; macOS uses the
+  launch agent `dev.framerize.server`. Other platforms must use `serve`.
+- On Linux, `up` runs `loginctl enable-linger` for the current user if
+  lingering is off, so the service survives logout. It stops if that fails.
+- The service restarts 5 seconds after an exit. Output goes to
+  `FRAMERIZE_SERVER_HOME/server.log`.
+- One service per user. `up` refuses a unit that serves another
+  `FRAMERIZE_SERVER_HOME`.
+- Tailscale must already be connected, with MagicDNS and HTTPS certificates
+  on. `up` refuses a port that another route already serves, and never runs
+  `tailscale up` or changes Funnel.
+- The http backend needs `--upstream` or `FRAMERIZE_SERVER_UPSTREAM`; in a
+  terminal, `up` asks for it. Port `0` is rejected.
+
+`status` reports whether the service is installed and running; add `--json`
+for unit path, log path, process ID and match details. `service start`,
+`stop`, `restart` and `uninstall` manage it. Uninstall first removes the
+Tailscale route that `up` added and clears the saved Tailscale access. It
+keeps the rest of `server.json`. If another application has replaced that
+route, uninstall leaves the route and the service in place and reports failure.
+Removing a saved route needs Tailscale, because Server first checks that the
+route is still its own. If Tailscale cannot report its status or routes,
+uninstall and `up --no-tailscale` refuse and change nothing. Reconnect
+Tailscale, then retry.
+
 If the command reports "Invalid command or option", run `framerize-server --help`.
 This covers unknown commands, unsupported options and missing option values.
 The diagnostic does not print the supplied arguments.
@@ -117,6 +183,9 @@ Readiness returns API version 1, `status: "ready"`, and capabilities
 503 with `status: "unavailable"` and one reason: `configuration_unavailable`,
 `credentials_unavailable`, or `upstream_unavailable`. Readiness performs no
 inference or account discovery. No endpoint exposes account metadata.
+Every `/ready` response from `createServer` carries `x-framerize-server-pid`
+with the server's process ID, including 401 replies to unauthenticated
+requests. `up` uses it to confirm which process answered.
 
 With a token configured, authentication failures return 401 and
 `{"error":{"type":"authentication_error","code":"unauthorized","message":"Authentication required"}}`.
@@ -125,10 +194,14 @@ Other application errors have the same shape with `type: "invalid_request_error"
 Unknown routes return 404 `not_found`, wrong methods return 405
 `method_not_allowed`, invalid JSON objects return 400 `invalid_json`, and bodies
 over `maxBodyBytes` return 413 `body_too_large`. Requests retain their original
-UTF-8 JSON bytes after validation. Provider success responses retain their status,
-body bytes and allowlisted headers, including `content-encoding`. The provider
-converts non-2xx upstream bodies to a generic `upstream_http_error` response while
-preserving status and safe headers. It never returns raw upstream error bodies.
+UTF-8 JSON bytes after validation. The generic HTTP provider returns every
+upstream response with its original status and body bytes. It keeps only the
+`content-type`, `content-encoding`, `cache-control`, `x-request-id`,
+`retry-after` and `x-should-retry` headers. A non-2xx body may use at most
+65536 bytes on the wire, counted before any decompression. A chunk past that
+limit ends the body with an error and closes the upstream exchange. A stalled
+or truncated error body fails the same way, after the idle limit or when the
+connection drops. The server never substitutes a generic body.
 
 ## Experimental custom routes
 

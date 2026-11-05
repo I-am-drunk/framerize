@@ -8,10 +8,15 @@ import { fileURLToPath } from 'node:url';
 
 const source = fileURLToPath(new URL('../scripts/check.js', import.meta.url));
 const compatibility = ['completed-reply', 'completed-stream', 'events', 'messages-stream', 'responses-stream'];
+const setupModules = ['startup-access', 'private-network', 'qr-code', 'settings', 'setup',
+  'service-units', 'service-control', 'tailscale'];
+const notices = ['README.md', 'LICENSE', 'T3-LICENSE', 'NAYUKI-LICENSE', 'T3-ATTRIBUTION.md'];
 const sources = ['account-backend.ts', 'accounts.ts', 'cli.ts', 'config.ts', 'errors.ts', 'framer-auth.ts', 'framer-backend.ts',
   'framer-request.ts', 'logger.ts', 'provider.ts', 'server.ts', 'backend.ts', 'castle-loader.ts', 'castle.ts',
+  ...setupModules.map(name => `${name}.ts`),
   ...compatibility.map(name => `compat/${name}.ts`)];
 const generated = ['core.js', 'core.d.ts', 'accounts.js', 'accounts.d.ts', 'config.js', 'config.d.ts',
+  ...setupModules.flatMap(name => [`${name}.js`, `${name}.d.ts`]),
   'backend.js', 'backend.d.ts', 'castle.js',
   'castle-loader.js', 'castle-loader.d.ts',
   'account-backend.js', 'account-backend.d.ts',
@@ -34,14 +39,15 @@ function fixture(t) {
   for (const name of sources) writeFileSync(path.join(root, 'src', name), 'export const fixture = true;\n');
   writeFileSync(path.join(root, 'bin', 'framerize-server.js'), '#!/usr/bin/env node\n');
   const manifest = {
-    name: 'framerize-server', private: true,
-    files: ['bin', ...generated.map((name) => `dist/${name}`), 'README.md', 'LICENSE'],
+    name: 'framerize-server', private: true, type: 'module',
+    files: ['bin', ...generated.map((name) => `dist/${name}`), ...notices],
     exports: {
       '.': './dist/server.js', './config': './dist/config.js', './accounts': './dist/accounts.js',
       './logger': './dist/logger.js', './provider': './dist/provider.js',
       './framer-auth': './dist/framer-auth.js',
       './framer-backend': './dist/framer-backend.js',
       './account-backend': './dist/account-backend.js',
+      './startup-access': './dist/startup-access.js',
     },
     bin: { 'framerize-server': './bin/framerize-server.js' },
   };
@@ -65,7 +71,7 @@ test('public packages and extra package entries are rejected', (t) => {
   for (const [change, error] of [
     [{ private: false }, 'Server package must remain private'],
     [{ files: ['bin', ...generated.map((name) => `dist/${name}`),
-      'README.md', 'LICENSE', 'dist/extra'] }, 'Unexpected server package files'],
+      ...notices, 'dist/extra'] }, 'Unexpected server package files'],
     [{ exports: { '.': './src/server.js' } }, 'Unexpected server package exports'],
     [{ bin: { 'framerize-server': './bin/framerize-server.js', extra: './bin/extra.js' } }, 'Unexpected server package executable'],
     [{ dependencies: { example: '1.0.0' } }, 'Unexpected runtime dependencies'],

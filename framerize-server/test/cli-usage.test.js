@@ -49,7 +49,7 @@ for (const [name, args] of invalid) {
 
 test('real CLI provides help without startup', context => {
   const result = launch(context, ['--help'], 0);
-  assert.match(result.stdout, /Usage: framerize-server \[serve\|check\]/);
+  assert.match(result.stdout, /Usage: framerize-server \[serve\|check\|up\|pair\|status\|service\]/);
   assert.equal(result.stderr, '');
 });
 

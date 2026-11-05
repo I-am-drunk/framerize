@@ -95,6 +95,9 @@ test('launcher keeps the generic fallback for an unrelated run error', context =
   copyFileSync(launcher, copied);
   const errors = pathToFileURL(join(dirname(launcher), '..', 'dist', 'errors.js')).href;
   writeFileSync(join(state, 'dist', 'errors.js'), `export * from ${JSON.stringify(errors)};\n`);
+  const control = pathToFileURL(join(dirname(launcher), '..', 'dist', 'service-control.js')).href;
+  writeFileSync(join(state, 'dist', 'service-control.js'),
+    `export { ServerSetupError } from ${JSON.stringify(control)};\n`);
   writeFileSync(join(state, 'dist', 'cli.js'),
     "export async function run() { throw new Error('internal-canary'); }\n");
   const result = launch(state, ['check'], {}, copied);

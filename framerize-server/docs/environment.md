@@ -9,7 +9,8 @@ the CLI and library callers. Explicit options take precedence.
 | `FRAMERIZE_SERVER_ACCOUNTS` | `accountsFile`, `--accounts-file` | empty |
 | `FRAMERIZE_SERVER_ACCOUNT` | `accountId`, `--account-id` | empty, select the sole enabled account |
 | `FRAMERIZE_SERVER_FRAMER_ORIGIN` | `framerOrigin`, `--framer-origin` | `https://api.framer.com` |
-| `FRAMERIZE_SERVER_HOST` | `host`, `--host` | `127.0.0.1` |
+| `FRAMERIZE_SERVER_HOST` | `host`, `--host` | `127.0.0.1`, or `0.0.0.0` with LAN access |
+| `FRAMERIZE_SERVER_LAN` | `privateNetworkOnly`, `up --lan` | `false` |
 | `FRAMERIZE_SERVER_PORT` | `port`, `--port` | `8789` |
 | `FRAMERIZE_SERVER_UPSTREAM` | `upstream`, `--upstream` | empty, no HTTP provider |
 | `FRAMERIZE_SERVER_TOKEN_ENV` | `serverTokenEnv`, `--server-token-env` | `FRAMERIZE_SERVER_TOKEN` |
@@ -25,6 +26,23 @@ the CLI and library callers. Explicit options take precedence.
 | `FRAMERIZE_SERVER_SHUTDOWN_TIMEOUT_MS` | `shutdownTimeoutMs`, `--shutdown-timeout-ms` | `5000` |
 
 `FRAMERIZE_SERVER_TOKEN` itself holds the API token value, as described below.
+`FRAMERIZE_SERVER_HOME` is the setup directory, default `~/.framerize-server`.
+It must be an absolute path. `up` writes `server.json` and `server.log` there.
+
+## Saved settings
+
+`framerize-server up` saves the resolved configuration to
+`FRAMERIZE_SERVER_HOME/server.json`, mode 0600. The background service starts
+`serve --config` with that file. It also records the current values of the
+token variable, the upstream credential variable and any account session
+variables, because the service does not inherit the shell environment. Those
+values sit in the file as plain text. Token and session files stay as paths.
+
+`--config FILE` reads saved settings for `serve` or `check`. Environment
+variables and options override saved values for that run.
+Rerun `up` after changing a variable the service needs.
+With `--tailscale`, `server.json` also records the Tailscale Serve port.
+`service uninstall` removes that entry and keeps the rest of the file.
 
 ## Precedence
 
@@ -45,6 +63,11 @@ to use defaults only.
 Environment values go through the same checks as explicit values:
 
 - `host` must be a non-empty string without whitespace, NUL or `/`.
+- `FRAMERIZE_SERVER_LAN` accepts `true`, `false`, `1` or `0`. When true, the
+  server accepts a connection only if both its local and remote addresses are
+  private: loopback, `10/8`, `172.16/12`, `192.168/16`, `100.64/10`,
+  `198.18/15`, IPv6 `::1` or `fc00::/7`. It drops other sockets before reading
+  a request. Without an explicit host it listens on `0.0.0.0`.
 - `port` must be decimal digits in the range 0 to 65535. `0` asks the
   operating system for a free port.
 - `maxBodyBytes` and each timeout must be decimal digits from 1 to 2147483647.

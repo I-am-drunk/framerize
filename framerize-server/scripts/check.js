@@ -7,6 +7,8 @@ const manifest = JSON.parse(await readFile(new URL('../package.json', import.met
 assert.equal(manifest.name, 'framerize-server', 'Unexpected server package name');
 assert.equal(manifest.private, true, 'Server package must remain private');
 const generated = ['accounts.d.ts', 'accounts.js', 'config.d.ts', 'config.js', 'core.js', 'core.d.ts',
+  ...['startup-access', 'private-network', 'qr-code', 'settings', 'setup', 'service-units',
+    'service-control', 'tailscale'].flatMap(name => [`${name}.js`, `${name}.d.ts`]),
   'backend.d.ts', 'backend.js', 'castle.js', 'castle-loader.d.ts', 'castle-loader.js',
   'account-backend.d.ts', 'account-backend.js',
   ...['backend', 'http-policy', 'instance', 'instance-options', 'readiness'].map((name) => `core-types/${name}.d.ts`),
@@ -17,7 +19,8 @@ const generated = ['accounts.d.ts', 'accounts.js', 'config.d.ts', 'config.js', '
     .flatMap(name => [`compat/${name}.js`, `compat/${name}.d.ts`]),
   'cli.d.ts', 'cli.js', 'logger.d.ts', 'logger.js', 'server.d.ts', 'server.js'];
 assert.deepEqual([...(manifest.files ?? [])].sort(),
-  ['LICENSE', 'README.md', 'bin', ...generated.map((name) => `dist/${name}`)].sort(),
+  ['LICENSE', 'README.md', 'T3-LICENSE', 'NAYUKI-LICENSE', 'T3-ATTRIBUTION.md', 'bin',
+    ...generated.map((name) => `dist/${name}`)].sort(),
   'Unexpected server package files');
 assert.deepEqual(manifest.exports, {
   '.': './dist/server.js', './config': './dist/config.js', './accounts': './dist/accounts.js',
@@ -25,6 +28,7 @@ assert.deepEqual(manifest.exports, {
   './framer-auth': './dist/framer-auth.js',
   './framer-backend': './dist/framer-backend.js',
   './account-backend': './dist/account-backend.js',
+  './startup-access': './dist/startup-access.js',
 }, 'Unexpected server package exports');
 assert.deepEqual(manifest.bin, { 'framerize-server': './bin/framerize-server.js' },
   'Unexpected server package executable');
@@ -35,7 +39,9 @@ assert.deepEqual((await readdir(new URL('../src/', import.meta.url))).sort(), [
   'account-backend.ts', 'accounts.ts', 'backend.ts', 'castle-loader.ts', 'castle.ts',
   'cli.ts', 'compat', 'config.ts', 'errors.ts', 'framer-auth.ts', 'framer-backend.ts',
   'framer-request.ts', 'logger.ts', 'provider.ts', 'server.ts',
-], 'Unexpected server source files');
+  'startup-access.ts', 'private-network.ts', 'qr-code.ts', 'settings.ts', 'setup.ts',
+  'service-units.ts', 'service-control.ts', 'tailscale.ts',
+].sort(), 'Unexpected server source files');
 assert.deepEqual((await readdir(new URL('../src/compat/', import.meta.url))).sort(),
   ['completed-reply.ts', 'completed-stream.ts', 'events.ts', 'messages-stream.ts', 'responses-stream.ts'],
   'Unexpected compatibility source files');
