@@ -117,7 +117,7 @@ uninstall and `up --no-tailscale` refuse and change nothing. Reconnect
 Tailscale, then retry.
 
 If Tailscale was deliberately removed and cannot be restored, use the same
-`FRAMERIZE_SERVER_HOME` and run these commands from the repository root:
+`FRAMERIZE_SERVER_HOME` for these steps:
 
 1. Run `framerize service stop`.
 2. Back up `server.json` in `FRAMERIZE_SERVER_HOME`, which defaults to
@@ -190,7 +190,7 @@ Release builds still require a clean committed checkout and source-bound manifes
 
 The server binds to `127.0.0.1:8789` by default. Use `--host` and `--port` to change
 the listener. A reverse proxy must provide TLS for remote clients. Run
-`npm --prefix framerize-server start -- --help` for every supported option. Run
+`framerize --help` for every supported option. Run
 `framerize check` to validate configuration without contacting an upstream.
 
 `--server-token-file` reads the API token from a regular file of at most
