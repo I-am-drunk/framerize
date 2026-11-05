@@ -17,7 +17,7 @@ export interface FrmOptions {
 }
 
 async function runUp(input: string | undefined, io: CliIo, env: NodeJS.ProcessEnv,
-  program: readonly string[], json = false): Promise<UpResult> {
+  program: readonly string[], json = false): Promise<{ result: UpResult; offerCancelled: boolean }> {
   const configPath = profilePath(undefined, env);
   const controller = new AbortController();
   const stop = (): void => controller.abort();
@@ -28,8 +28,9 @@ async function runUp(input: string | undefined, io: CliIo, env: NodeJS.ProcessEn
       service: serviceContext([...program, 'serve'], env) });
     if (controller.signal.aborted) throw new RemoteDiagnosticError('aborted');
     io.stdout(json ? `${JSON.stringify(result)}\n` : formatUp(result));
-    if (!json) await offerClientSetup(configPath, io, env, undefined, controller.signal);
-    return result;
+    const offerCancelled = !json
+      && (await offerClientSetup(configPath, io, env, undefined, controller.signal)) === 'cancelled';
+    return { result, offerCancelled };
   } catch (error) {
     if (!(error instanceof SetupRollbackError) && (controller.signal.aborted
       || (error instanceof Error && error.name === 'AbortError'))) throw new RemoteDiagnosticError('aborted');
@@ -49,8 +50,8 @@ async function start(io: CliIo, env: NodeJS.ProcessEnv, program: readonly string
   const saved = await access(configPath).then(() => true, () => false);
   if (saved || env.FRM_REMOTE) return serve(configPath, io, false);
   if (!io.ask) throw new RemoteDiagnosticError('remote_required');
-  const result = await runUp(undefined, io, env, program);
-  return result.service === 'unavailable' ? serve(configPath, io, false) : 0;
+  const { result, offerCancelled } = await runUp(undefined, io, env, program);
+  return result.service === 'unavailable' && !offerCancelled ? serve(configPath, io, false) : 0;
 }
 
 export async function runFrm(argv: readonly string[], io: CliIo, options: FrmOptions): Promise<number> {
