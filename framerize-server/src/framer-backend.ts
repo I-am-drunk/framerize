@@ -136,21 +136,12 @@ async function completedResponse(response: InferenceResponse, protocol: Complete
     if (!type || !/^application\/(?:[a-z0-9!#$&^_.+-]+\+)?json$/.test(type)
       || encoding !== undefined && encoding !== 'identity') throw new CompletedReplyError();
   }
-  let bytes = await collect(response.body, signal, MAX_COMPLETED_REPLY_BYTES, 'reply');
-  let reply: Record<string, unknown> | undefined;
-  if (successful) reply = parseCompletedReply(protocol, bytes);
-  else {
-    const types: Readonly<Record<number, string>> = {
-      400: 'invalid_request_error', 401: 'authentication_error', 403: 'permission_error',
-      404: 'not_found_error', 413: 'request_too_large', 429: 'rate_limit_error',
-    };
-    const error = { type: protocol === 'messages' ? types[response.status] ?? 'api_error' : 'upstream_error',
-      code: 'upstream_http_error', message: 'Upstream request failed' };
-    bytes = Buffer.from(JSON.stringify(protocol === 'messages' ? { type: 'error', error } : { error }));
-  }
+  const bytes = await collect(response.body, signal, MAX_COMPLETED_REPLY_BYTES, 'reply');
+  if (!successful) return { status: response.status,
+    headers: { ...response.headers, 'x-should-retry': 'false' }, body: [bytes] };
+  const reply = parseCompletedReply(protocol, bytes);
   signal.throwIfAborted();
   const headers: Record<string, string> = { ...response.headers, 'content-type': 'application/json' };
-  if (!successful) headers['x-should-retry'] = 'false';
   delete headers['content-encoding'];
   delete headers['content-length'];
   return { status: response.status, headers, body: [bytes], ...(reply ? { reply } : {}) };

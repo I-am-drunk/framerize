@@ -13,6 +13,7 @@ const { createFramerBackend } = await import(new URL('dist/framer-backend.js', s
 const { createFramerAuth } = await import(new URL('dist/framer-auth.js', serverRoot));
 const { createServer } = await import(new URL('dist/server.js', serverRoot));
 const { createInstance } = await import(new URL('dist/core.js', serverRoot));
+const { streamCompletedReply } = await import(new URL('dist/compat/completed-stream.js', serverRoot));
 const { createRemoteBackend } = await import(new URL('dist/index.js', remoteRoot));
 
 async function collect(body) {
@@ -24,6 +25,28 @@ async function collect(body) {
 function call(protocol, stream, signal) {
   return { path: route(protocol), signal, headers: {},
     body: (async function* () { yield Buffer.from(JSON.stringify(input(protocol, stream))); })() };
+}
+
+for (const protocol of ['responses', 'messages']) {
+  test(`${protocol} preserves alternate JSON error shapes and framing`, async context => {
+    const samples = [{ code: 'top_level', message: 'Top-level detail', details: { count: 1 } },
+      { error: 'String error detail', message: 'Explicit message', type: 'not-an-event', sequence_number: 99 },
+      { error: 'String error detail' }, ['array detail'], null, 'JSON string detail'];
+    for (const value of samples) {
+      const pending = Promise.resolve({ status: 401, headers: {}, body: [Buffer.from(JSON.stringify(value))] });
+      const received = events(await collect(streamCompletedReply(pending, protocol, context.signal, 1000)));
+      assert.equal(received.length, 1);
+      assert.equal(received[0].type, 'error');
+      assert.deepEqual(received[0].upstream, value);
+      const error = protocol === 'responses' ? received[0] : received[0].error;
+      if (value && !Array.isArray(value)) {
+        assert.equal(error.message, typeof value === 'string' ? value : value.message ?? value.error);
+        if (value.code) assert.equal(error.code, value.code);
+        if (value.details) assert.deepEqual(error.details, value.details);
+      }
+      if (protocol === 'responses') assert.equal(received[0].sequence_number, 0);
+    }
+  });
 }
 
 for (const protocol of ['responses', 'messages']) for (const stream of [false, true]) {
