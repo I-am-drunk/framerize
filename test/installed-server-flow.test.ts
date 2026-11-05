@@ -106,5 +106,5 @@ test('installed transport runs in the six-job core CI matrix', () => {
   assert.match(coordinator, /source:\s+needs: changes\s+if: needs\.changes\.outputs\.source != 'false'\s+uses: \.\/\.github\/workflows\/core-ci\.yml/);
   assert.match(workflow, /\n  workflow_call:/);
   assert.match(workflow, /node: \['22\.23\.4', '24\.13\.0'\]/);
-  assert.match(workflow, /os: \[ubuntu-22\.04, macos-14, windows-2022\]/);
+  assert.match(workflow, /os: \[ubuntu-22\.04, macos-15, windows-2022\]/);
 });
