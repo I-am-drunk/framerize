@@ -118,9 +118,12 @@ deadline in the Framer backend. The backend starts its `inferenceTimeoutMs`
 deadline after preparation. Core starts its own inference deadline when it calls
 the backend. Both default to 300000 ms, so core's budget includes preparation
 as well as connection, upload and response headers.
-Connection setup also retains its own 15-second limit. These defaults can be
-changed with `--headers-timeout-ms` and `--inference-timeout-ms` in the CLI,
-or the corresponding options in either backend factory.
+Connection setup also retains its own 15-second limit. The CLI's
+`--headers-timeout-ms` and `--inference-timeout-ms` options configure both core
+and the backend. When embedding, set the corresponding options on the backend
+factory and on `createInstance`, or on `createServer` when using the server
+wrapper. Raising only the backend's `inferenceTimeoutMs` leaves core's
+300000 ms default in effect.
 
 For `/v1/responses` and `/v1/chat/completions`, the inference deadline stops after
 response headers. These routes have no total lifetime limit after headers.
