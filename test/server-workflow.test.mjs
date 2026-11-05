@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { createHash } from 'node:crypto';
 import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
 import { tmpdir } from 'node:os';
@@ -16,8 +17,11 @@ test('recovery archive supports drive paths and spaces', context => {
   const directory = resolve(root, runner, 'framer-next');
   mkdirSync(directory, { recursive: true });
   writeFileSync(join(directory, 'fixture.txt'), 'synthetic-native-bytes');
+  assert.match(workflow,
+    /tar --format=ustar -czf - -C "\$RUNNER_TEMP" framer-next > "\$RECOVERY_ARCHIVE"/);
   const command = workflow.match(/^\s*(tar --format=ustar[^\n]+)/m)?.[1];
   assert.ok(command, 'Missing recovery archive command');
+  assert.match(command, /-czf - -C "\$RUNNER_TEMP" framer-next > "\$RECOVERY_ARCHIVE"/);
   const env = { PATH: process.env.PATH, SystemRoot: process.env.SystemRoot,
     HOME: root, USERPROFILE: root, RUNNER_TEMP: runner, RECOVERY_ARCHIVE: archive };
   const shell = ['--noprofile', '--norc', '-euo', 'pipefail', '-c'];
@@ -31,8 +35,20 @@ test('recovery archive supports drive paths and spaces', context => {
   assert.equal(result.error, undefined, result.error?.message);
   assert.equal(result.status, 0, result.stderr);
   const contents = gunzipSync(readFileSync(resolve(root, archive)));
-  assert.equal(contents.subarray(257, 262).toString(), 'ustar');
+  assert.equal(contents.subarray(257, 263).toString(), 'ustar\0');
+  assert.equal(contents.subarray(263, 265).toString(), '00');
   assert.ok(contents.includes(Buffer.from('synthetic-native-bytes')));
+  const hashCommand = workflow.split('\n').find(line => line.includes('file+".sha256"')
+    && line.includes('path.basename(file)'))?.trim();
+  assert.ok(hashCommand, 'Missing recovery archive checksum command');
+  const hashResult = spawnSync('bash', [...shell, hashCommand], {
+    cwd: root, encoding: 'utf8', timeout: 5000, env,
+  });
+  assert.equal(hashResult.error, undefined, hashResult.error?.message);
+  assert.equal(hashResult.status, 0, hashResult.stderr);
+  const sidecar = readFileSync(resolve(root, `${archive}.sha256`), 'utf8');
+  const digest = createHash('sha256').update(readFileSync(resolve(root, archive))).digest('hex');
+  assert.equal(sidecar, `${digest}  framer-next-windows-x64.tar.gz\n`);
 });
 
 test('server builds use only the typed server target and safe installs', () => {
