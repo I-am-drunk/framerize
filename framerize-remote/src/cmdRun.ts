@@ -34,6 +34,8 @@ export async function runCheck(
   }
 }
 
+export const SERVE_PID_HEADER = 'x-framerize-remote-pid';
+
 export interface ServeHandle {
   readonly address: { host: string; port: number };
   close(): Promise<void>;
@@ -63,12 +65,18 @@ export async function startServe(
     signal.throwIfAborted();
     if (ready !== true) throw new StartupReadinessError(ready.reason, code);
     const instance = createInstance({
-      backend, token: localToken, host: config.host, port: config.port,
+      backend, token: localToken, ...(localToken === null ? { authentication: 'none' as const } : {}),
+      host: config.host, port: config.port,
       headersTimeoutMs: DEFAULT_BACKEND_TIMINGS.readinessWholeMs,
       inferenceTimeoutMs: DEFAULT_BACKEND_TIMINGS.readinessWholeMs + config.inferenceTimeoutMs,
       idleTimeoutMs: DEFAULT_BACKEND_TIMINGS.idleTimeoutMs,
     });
     close = () => instance.close();
+    // Lets `frm up` tell this process from another listener on the port, as the Server's
+    // x-framerize-server-pid header does. /health needs no local token.
+    instance.server.prependListener('request', (request, response) => {
+      if (request.url === '/health') response.setHeader(SERVE_PID_HEADER, String(process.pid));
+    });
     const info = await instance.listen().catch(() => { throw new RemoteDiagnosticError('listen_failed'); });
     signal.throwIfAborted();
     return { address: { host: config.host, port: info.port }, close };

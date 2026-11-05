@@ -1,0 +1,85 @@
+import { readFile } from 'node:fs/promises';
+import type { ReadText } from './conflicts.js';
+import { claudeManagedSettingsPath, parseSettingsObject } from './conflicts.js';
+
+/** Fetches a small text body, or null on any failure. Tests inject it; no test reaches a network. */
+export type FetchText = (url: string, timeoutMs: number) => Promise<string | null>;
+
+export const fetchText: FetchText = async (url, timeoutMs) => {
+  try {
+    const response = await fetch(url, { signal: AbortSignal.timeout(timeoutMs), redirect: 'follow' });
+    if (!response.ok) return null;
+    const text = await response.text();
+    return text.length <= 4096 ? text : null;
+  } catch { return null; }
+};
+
+export const readText: ReadText = async path => {
+  try { const text = await readFile(path, 'utf8'); return text.length <= 1024 * 1024 ? text : null; }
+  catch { return null; }
+};
+
+/** Native release channel lookup adapted from T3 ClaudeMaintenance.readUpdateChannel at 5a906583 (MIT). */
+export async function claudeUpdateChannel(read: ReadText, platform: NodeJS.Platform,
+  env: NodeJS.ProcessEnv, userPath: string): Promise<'latest' | 'stable'> {
+  let channel: 'latest' | 'stable' = 'latest';
+  for (const path of [userPath, claudeManagedSettingsPath(platform, env)]) {
+    const value = parseSettingsObject(await read(path))?.autoUpdatesChannel;
+    if (value === 'latest' || value === 'stable') channel = value;
+  }
+  return channel;
+}
+
+export const claudeReleaseUrl = (channel: string): string =>
+  `https://downloads.claude.ai/claude-code-releases/${channel}`;
+
+const NATIVE_VERSION = /^\d+\.\d+\.\d+$/;
+
+/** npm view output, from T3 maintenanceResolver decodeNpmViewVersion: a string or a one-item array. */
+export function parseNpmViewVersion(stdout: string | null): string | null {
+  if (!stdout) return null;
+  try {
+    const value: unknown = JSON.parse(stdout.trim());
+    const version = Array.isArray(value) ? value[0] : value;
+    return typeof version === 'string' && version.trim() ? version.trim() : null;
+  } catch { return null; }
+}
+
+/** From T3 parseHomebrewLatestVersion: a cask version before its comma; `latest` is unknown. */
+export function parseHomebrewCaskVersion(stdout: string | null): string | null {
+  if (!stdout) return null;
+  try {
+    const raw: unknown = (JSON.parse(stdout) as { casks?: { version?: unknown }[] }).casks?.[0]?.version;
+    const version = typeof raw === 'string' ? raw.split(',', 1)[0]!.trim() : '';
+    return version && version !== 'latest' ? version : null;
+  } catch { return null; }
+}
+
+/** First x.y.z in `--version` output, such as `2.1.300 (Claude Code)` or `codex-cli 0.170.0`. */
+export function parseInstalledVersion(stdout: string | null): string | null {
+  return /\b(\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?)\b/.exec(stdout ?? '')?.[1] ?? null;
+}
+
+export const isNativeVersion = (text: string | null): text is string => NATIVE_VERSION.test(text?.trim() ?? '');
+
+export type VersionStatus = 'behind' | 'current' | 'unknown';
+export interface VersionCheck {
+  readonly status: VersionStatus;
+  readonly current: string | null;
+  readonly latest: string | null;
+}
+
+/** From T3 deriveVersionAdvisory: a missing current or latest version is unknown, never current. */
+export function versionStatus(current: string | null, latest: string | null,
+  compare: (left: string, right: string) => number): VersionCheck {
+  if (!current || !latest) return { status: 'unknown', current, latest };
+  return { status: compare(current, latest) < 0 ? 'behind' : 'current', current, latest };
+}
+
+/** One line for humans. Unknown says why it is not reported as current. */
+export function versionLine(check: VersionCheck): string {
+  if (check.status === 'behind') return `Version ${check.current}; ${check.latest} is available.`;
+  if (check.status === 'current') return `Version ${check.current} is the latest.`;
+  return check.current ? `Version ${check.current}; the latest version could not be checked.`
+    : 'The installed version could not be read.';
+}

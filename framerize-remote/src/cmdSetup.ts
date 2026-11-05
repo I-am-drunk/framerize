@@ -5,6 +5,7 @@ import type { CredentialReference } from './credentials.js';
 import type { PersistedConfig } from './config.js';
 import { RemoteDiagnosticError } from './diagnostics.js';
 import { parseListenOptions } from './listenOptions.js';
+import { frmSettings } from './frmEnv.js';
 
 const SETUP_SPEC = {
   remote: 'string', 'server-token-env': 'string', 'server-token-file': 'string',
@@ -14,32 +15,47 @@ const SETUP_SPEC = {
   'inference-timeout-ms': 'string',
 } as const;
 
-function reference(env: unknown, file: unknown, role: 'server' | 'local'): CredentialReference {
+function reference(env: unknown, file: unknown, role: 'server' | 'local'): CredentialReference | undefined {
   const code = role === 'server' ? 'server_reference' : 'local_reference';
   if (typeof env === 'string' && typeof file === 'string') throw new RemoteDiagnosticError(code);
   if (typeof env === 'string') return { kind: 'env', name: env };
   if (typeof file === 'string') return { kind: 'file', path: file };
-  throw new RemoteDiagnosticError(code);
+  return undefined;
 }
 
-export async function runSetup(argv: readonly string[], configPath: string): Promise<string> {
+function optionalReference(key: 'serverToken' | 'localToken', env: unknown, file: unknown,
+  role: 'server' | 'local'): Partial<Record<typeof key, CredentialReference>> {
+  const value = reference(env, file, role);
+  return value ? { [key]: value } : {};
+}
+
+/** Asks one question in a terminal. Absent when stdin or stdout is not a terminal. */
+export type Ask = (question: string, signal?: AbortSignal) => Promise<string>;
+
+export async function runSetup(argv: readonly string[], configPath: string,
+  env: NodeJS.ProcessEnv = process.env, ask?: Ask): Promise<string> {
   let parsed: ReturnType<typeof parseArgs>;
   try { parsed = parseArgs(argv, SETUP_SPEC); }
   catch { throw new RemoteDiagnosticError('setup_arguments'); }
   const { options } = parsed;
-  const listen = parseListenOptions(options);
+  const flags = parseListenOptions(options);
+  const frm = frmSettings(flags.port === undefined ? env : { ...env, FRM_PORT: undefined });
+  const listen = { ...(frm.host ? { host: frm.host } : {}), ...(frm.port !== undefined ? { port: frm.port } : {}),
+    ...flags };
   const inferenceTimeout = options['inference-timeout-ms'];
   if (typeof inferenceTimeout === 'string' && !/^\d+$/.test(inferenceTimeout)) {
     throw new RemoteDiagnosticError('inference_invalid', 'invalid inference timeout');
   }
-  if (typeof options.remote !== 'string') throw new RemoteDiagnosticError('remote_required');
+  let remote = typeof options.remote === 'string' ? options.remote : frm.remote;
+  if (remote === undefined && ask) remote = (await ask('Server address, such as http://100.64.0.1:8789: ')).trim();
+  if (!remote) throw new RemoteDiagnosticError('remote_required');
   const insecure = options['allow-insecure-remote'] === true;
-  try { parseRemoteEndpoint(options.remote, insecure); }
+  try { parseRemoteEndpoint(remote, insecure); }
   catch { throw new RemoteDiagnosticError('remote_invalid'); }
   const config: PersistedConfig = {
-    remote: options.remote,
-    serverToken: reference(options['server-token-env'], options['server-token-file'], 'server'),
-    localToken: reference(options['local-token-env'], options['local-token-file'], 'local'),
+    remote,
+    ...optionalReference('serverToken', options['server-token-env'], options['server-token-file'], 'server'),
+    ...optionalReference('localToken', options['local-token-env'], options['local-token-file'], 'local'),
     ...listen,
     ...(typeof inferenceTimeout === 'string' ? { inferenceTimeoutMs: Number(inferenceTimeout) } : {}),
     allowInsecureRemote: insecure,

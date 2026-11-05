@@ -1,17 +1,20 @@
 import { parseArgs } from './cliArgs.js';
-import { runSetup } from './cmdSetup.js';
+import { runSetup, type Ask } from './cmdSetup.js';
 import { runCheck, startServe, StartupCleanupError, StartupReadinessError, type ServeHandle } from './cmdRun.js';
 import { HELP, SETUP_HELP, SERVE_HELP, VERSION } from './present.js';
 import { profilePath } from './profilePaths.js';
 import { diagnostic, diagnosticText, RemoteDiagnosticError } from './diagnostics.js';
 import { LISTEN_SPEC, parseListenOptions, type ListenOverrides } from './listenOptions.js';
 import { isLoopbackHost } from './hostPolicy.js';
+import { offerClientSetup } from './clientCli.js';
 
 const GLOBAL_SPEC = { config: 'string', json: 'boolean' } as const;
 
 export interface CliIo {
   readonly stdout: (text: string) => void;
   readonly stderr: (text: string) => void;
+  /** Asks one question when stdin and stdout are a terminal. */
+  readonly ask?: Ask;
 }
 
 function splitGlobals(rest: readonly string[]): { configPath: string | undefined; json: boolean; passthrough: string[] } {
@@ -55,10 +58,11 @@ export async function run(argv: readonly string[], io: CliIo): Promise<number> {
   }
   const configPath = profilePath(explicit);
   if (command === 'setup') {
-    const message = await runSetup(passthrough, configPath);
+    const message = await runSetup(passthrough, configPath, process.env, io.ask);
     io.stdout(json ? `${JSON.stringify({ saved: true })}\n` : `${message}\n`);
-    if (passthrough.includes('--start')) return serve(configPath, io, json);
-    if (!json) io.stdout('Next: framerize-remote serve\n');
+    if (passthrough.includes('--start')) return serve(configPath, io, json, {}, true);
+    if (!json) await offerClientSetup(configPath, io, process.env);
+    if (!json) io.stdout('Next: frm serve\n');
     return 0;
   }
   if (command === 'check') {
@@ -80,12 +84,13 @@ export async function run(argv: readonly string[], io: CliIo): Promise<number> {
     const { options } = parseArgs(passthrough, LISTEN_SPEC);
     return serve(configPath, io, json, parseListenOptions(options));
   }
-  io.stderr(json ? '{"error":"unknown_command","next":"Run framerize-remote help."}\n'
-    : 'unknown command; run `framerize-remote help`\n');
+  io.stderr(json ? '{"error":"unknown_command","next":"Run frm help."}\n'
+    : 'unknown command; run `frm help`\n');
   return 2;
 }
 
-async function serve(configPath: string, io: CliIo, json: boolean, overrides: ListenOverrides = {}): Promise<number> {
+export async function serve(configPath: string, io: CliIo, json: boolean,
+  overrides: ListenOverrides = {}, setupClients = false): Promise<number> {
   const controller = new AbortController();
   let handle: ServeHandle | undefined;
   let stoppedCleanly = false;
@@ -104,6 +109,11 @@ async function serve(configPath: string, io: CliIo, json: boolean, overrides: Li
     io.stdout(json ? `${JSON.stringify({ ready: true, listening: { host, port },
       ...(exposed ? { exposure: 'non-loopback-http' } : {}) })}\n`
       : `Remote readiness passed.\n${warning}Local API: http://${address}:${port}/v1\nStop: Ctrl+C\n`);
+    if (setupClients && !json) {
+      const offer = await offerClientSetup(configPath, io, { ...process.env, FRM_HOST: host, FRM_PORT: String(port) },
+        undefined, controller.signal);
+      if (offer === 'cancelled') stop();
+    }
     await stopped;
     stoppedCleanly = true;
     return 0;

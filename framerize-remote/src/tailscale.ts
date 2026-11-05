@@ -1,5 +1,4 @@
 import { spawn } from 'node:child_process';
-import { isIPv4 } from 'node:net';
 
 const labels = {
   running: 'The local Tailscale daemon is running with a tailnet IPv4 address.',
@@ -46,11 +45,7 @@ function parseStatus(text: string): TailscaleState {
     if (status.BackendState === 'NeedsLogin' || status.BackendState === 'NeedsMachineAuth') return 'needs_login';
     if (['Stopped', 'Starting', 'NoState', 'InUseOtherUser'].includes(String(status.BackendState))) return 'not_running';
     if (status.BackendState !== 'Running' || !Array.isArray(status.Self?.TailscaleIPs)) return 'invalid_response';
-    return status.Self.TailscaleIPs.some((address: unknown) => {
-      if (typeof address !== 'string' || !isIPv4(address)) return false;
-      const [first, second] = address.split('.').map(Number);
-      return first === 100 && second! >= 64 && second! <= 127;
-    }) ? 'running' : 'no_address';
+    return parseTailscaleStatus(text).tailnetIpv4Addresses.length > 0 ? 'running' : 'no_address';
   } catch { return 'invalid_response'; }
 }
 
@@ -100,4 +95,53 @@ export async function readTailscaleStatus(options: TailscaleOptions = {}) {
     options.signal?.addEventListener('abort', abort, { once: true });
     if (options.signal?.aborted) abort();
   });
+}
+
+// parseTailscaleStatus, normalizeMagicDnsName, isTailscaleIpv4Address and buildTailscaleHttpsBaseUrl adapted
+// from T3 Code packages/tailscale/src/tailscale.ts at 5a906583 (MIT, T3 Tools Inc.). Effect Schema is dropped.
+export const DEFAULT_TAILSCALE_SERVE_PORT = 443;
+
+export interface TailscaleStatus {
+  readonly magicDnsName: string | null;
+  readonly tailnetIpv4Addresses: readonly string[];
+  /** `null` when the CLI reports no capability map (older CLI), so callers still attempt serve. */
+  readonly httpsServeEnabled: boolean | null;
+}
+
+export function isTailscaleIpv4Address(address: string): boolean {
+  const parts = address.split('.');
+  if (parts.length !== 4) return false;
+  const [first, second, third, fourth] = parts.map((part) => Number.parseInt(part, 10));
+  if (first === undefined || second === undefined || third === undefined || fourth === undefined
+    || [first, second, third, fourth].some((part) => !Number.isInteger(part) || part < 0 || part > 255)) return false;
+  return first === 100 && second >= 64 && second <= 127;
+}
+
+function normalizeMagicDnsName(dnsName: unknown): string | null {
+  if (typeof dnsName !== 'string') return null;
+  const normalized = dnsName.trim().replace(/\.$/u, '');
+  return normalized.length > 0 ? normalized : null;
+}
+
+/** Throws on JSON that is not a status object, as T3's TailscaleStatusParseError does. */
+export function parseTailscaleStatus(rawStatusJson: string): TailscaleStatus {
+  const parsed: unknown = JSON.parse(rawStatusJson);
+  if (parsed === null || typeof parsed !== 'object' || Array.isArray(parsed)) throw new Error('invalid status');
+  const self = (parsed as { Self?: unknown }).Self;
+  const fields = self !== null && typeof self === 'object' ? self as Record<string, unknown> : {};
+  const rawIps = fields.TailscaleIPs;
+  const tailnetIpv4Addresses = Array.isArray(rawIps)
+    ? rawIps.filter((address): address is string => typeof address === 'string' && isTailscaleIpv4Address(address)) : [];
+  const capMap = fields.CapMap;
+  return { magicDnsName: normalizeMagicDnsName(fields.DNSName), tailnetIpv4Addresses,
+    httpsServeEnabled: typeof capMap === 'object' && capMap !== null && !Array.isArray(capMap)
+      ? Object.hasOwn(capMap, 'https') : null };
+}
+
+export function buildTailscaleHttpsBaseUrl(input: { magicDnsName: string; servePort?: number }): string {
+  const url = new URL(`https://${input.magicDnsName}`);
+  const servePort = input.servePort ?? DEFAULT_TAILSCALE_SERVE_PORT;
+  if (servePort !== DEFAULT_TAILSCALE_SERVE_PORT) url.port = String(servePort);
+  url.pathname = '/';
+  return url.toString();
 }

@@ -149,6 +149,20 @@ const compiled = await build({ entryPoints: [fileURLToPath(new URL('../src/diagn
   bundle: true, platform: 'node', format: 'esm', write: false });
 const diagnostics = await import(`data:text/javascript;base64,${Buffer.from(compiled.outputFiles[0].contents).toString('base64')}`);
 
+test('setup rollback diagnostics retain the original failure in text and JSON', () => {
+  const initial = new diagnostics.RemoteDiagnosticError('aborted');
+  const restore = new diagnostics.RemoteDiagnosticError('service_failed');
+  const error = new diagnostics.SetupRollbackError(initial, [restore]);
+  assert.deepEqual(error.cause.errors, [initial, restore]);
+  const json = JSON.parse(diagnostics.commandFailure(error, true));
+  assert.equal(json.error, 'service_rollback_failed');
+  assert.equal(json.setup.code, 'aborted');
+  assert.match(json.message, /could not be fully restored/);
+  const text = diagnostics.commandFailure(error, false);
+  assert.match(text, /Original failure: The command was cancelled/);
+  assert.match(text, /could not be fully restored/);
+});
+
 test('network labels discard raw errors, certificates and throwing properties', () => {
   for (const [raw, code] of [['ENOTFOUND', 'dns_failed'], ['EAI_AGAIN', 'dns_failed'],
     ['ECONNREFUSED', 'connection_failed'], ['DEPTH_ZERO_SELF_SIGNED_CERT', 'tls_failed'],

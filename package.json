@@ -20,7 +20,7 @@
     "build": "npm run build:server && tsc -p tsconfig.tools.json && npm run build --workspace=framerize-remote",
     "check": "npm run check --workspace=@framerize/core && tsc -p framerize-server/tsconfig.json --noEmit && tsc -p tsconfig.tools.json --noEmit && npm --prefix framerize-server run check && npm run typecheck --workspace=framerize-remote",
     "test": "npm run test --workspace=@framerize/core && node --test .tools/test/core-package-check.test.js .tools/test/installed-server-flow.test.js .tools/test/installed-remote-flow.test.js && npm --prefix framerize-server test && npm run test --workspace=framerize-remote && npm run test:custom-routes && npm run test:custom-installed",
-    "test:custom-routes": "node --test --test-timeout=10000 test/custom-routes.test.mjs test/custom-remote.test.mjs test/custom-streaming.test.mjs test/custom-stream-reply.test.mjs test/framer-error-details.test.mjs",
+    "test:custom-routes": "node --test --test-timeout=10000 test/custom-routes.test.mjs test/custom-remote.test.mjs test/custom-streaming.test.mjs test/custom-stream-reply.test.mjs test/framer-error-details.test.mjs test/pairing-link-roundtrip.test.mjs test/frm-pairing-flow.test.mjs test/frm-up-cancellation.test.mjs",
     "test:custom-installed": "node --test .tools/test/installed-custom-routes.test.js",
     "check:package": "tsc -p tsconfig.tools.json && node .tools/scripts/core-package-check.js",
     "check:native": "tsc -p tsconfig.tools.json && node .tools/scripts/check-native-server.js"

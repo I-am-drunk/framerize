@@ -2,7 +2,7 @@ import type { BackendReadiness } from '@framerize/core';
 
 export const VERSION = '0.2.0';
 
-export const SERVE_HELP = `Usage: framerize-remote serve [options]
+export const SERVE_HELP = `Usage: frm serve [options]
 
   --config FILE              Use a saved profile
   --host ADDRESS             Override the listen host for this run
@@ -10,13 +10,12 @@ export const SERVE_HELP = `Usage: framerize-remote serve [options]
   --allow-non-loopback        Allow listening outside loopback for this run
   --json                     Emit machine-readable JSON
 
-Overrides never change the saved profile. A non-loopback --host requires
---allow-non-loopback on the same command. Without --host, saved consent applies.
-Local bearer authentication remains required. Network routing and TLS are
-operator-managed. Binding an address does not prove internet reachability.
+Overrides never change the saved profile. FRM_REMOTE, FRM_HOST and FRM_PORT
+also apply for one run. Without a local token, clients connect without a bearer
+token. Binding an address does not prove reachability from other devices.
 `;
 
-export const SETUP_HELP = `Usage: framerize-remote setup --remote ORIGIN [options]
+export const SETUP_HELP = `Usage: frm setup [--remote ORIGIN] [options]
 
   --server-token-env NAME | --server-token-file FILE
   --local-token-env NAME  | --local-token-file FILE
@@ -25,22 +24,24 @@ export const SETUP_HELP = `Usage: framerize-remote setup --remote ORIGIN [option
   --host ADDRESS             Listen host, default 127.0.0.1
   --port NUMBER              Listen port, default 8788, or 0 for an assigned port
   --inference-timeout-ms N    Inference response wait, default 300000
-  --allow-non-loopback        Allow listening outside loopback
-  --allow-insecure-remote     Allow HTTP outside numeric loopback
+  --allow-non-loopback        Accepted for older profiles; no longer required
+  --allow-insecure-remote     Allow HTTP to a public address
 
-Use one credential reference per role. Never pass token values as arguments.
+Token references are optional. Use at most one per role. Never pass token values
+as arguments. In a terminal, setup asks for a missing server address. Otherwise
+it reads FRM_REMOTE. HTTP needs no consent for loopback, LAN or Tailscale servers.
 Profiles default to ~/.framerize-remote/framerize-remote.json.
 FRAMERIZE_REMOTE_HOME overrides that directory. Use an absolute path.
-Use --start for first run, or framerize-remote serve to start a saved profile.
+Use --start for first run, or frm serve to start a saved profile.
 `;
 
-export const HELP = `framerize-remote ${VERSION}
+export const HELP = `frm ${VERSION}
 
 A local Framerize instance. It exposes the Framerize client API on loopback and
 forwards inference to one configured remote server.
 
 Usage:
-  framerize-remote <command> [options]
+  frm <command> [options]
 
 Commands:
   setup     Write a remote profile (remote URL and credential references)
@@ -67,3 +68,26 @@ export function readinessLine(result: BackendReadiness): { ok: boolean; text: st
     credentials_unavailable: 'remote credentials unavailable', configuration_unavailable: 'remote configuration unavailable' };
   return { ok: false, text: `Not ready: ${reasons[result.reason]}.\nNext: check the server, then run framerize-remote check.` };
 }
+
+export const FRM_HELP = `frm ${VERSION}
+
+Usage:
+  frm                 Start the saved profile or FRM_REMOTE; on first run, same as frm up
+  frm up [LINK]       Pair with a server link or address, then install and start the service
+  frm LINK            Same as frm up LINK
+  frm setup           Save a profile; asks for missing values in a terminal
+  frm serve           Start in the foreground
+  frm check           Check the remote server
+  frm client          Set up or launch Claude Code or Codex
+  frm service install|status|start|stop|restart|uninstall
+
+Environment:
+  FRM_REMOTE          Server origin, such as http://100.64.0.1:8789
+  FRM_HOME            Profile directory, default ~/.framerize-remote
+  FRM_HOST, FRM_PORT  Local listen address, default 127.0.0.1:8788
+  FRM_SERVER_TOKEN    Optional token sent to the server
+  FRM_LOCAL_TOKEN     Optional token local clients must send
+
+Environment values are used for one run and are not saved. The service runs the
+saved profile in FRM_HOME. A pairing link saves its server token in that profile.
+`;

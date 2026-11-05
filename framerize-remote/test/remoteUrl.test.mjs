@@ -18,6 +18,16 @@ test('rejects plain http to a non-loopback host without consent', () => {
   assert.throws(() => parseRemoteEndpoint('http://api.example.com', false));
 });
 
+test('allows plain http to LAN and Tailscale servers without consent', () => {
+  for (const origin of ['http://100.64.0.10:8787', 'http://192.168.1.20:8787', 'http://10.0.0.2',
+    'http://desktop.tail1234.ts.net:8787', 'http://desktop:8787', 'http://[fd7a:115c:a1e0::1]:8787']) {
+    assert.equal(parseRemoteEndpoint(origin, false).origin, origin);
+  }
+  for (const origin of ['http://100.128.0.1', 'http://8.8.8.8', 'http://api.example.com']) {
+    assert.throws(() => parseRemoteEndpoint(origin, false));
+  }
+});
+
 test('allows plain http to a non-loopback host with explicit consent', () => {
   const result = parseRemoteEndpoint('http://api.example.com', true);
   assert.equal(result.origin, 'http://api.example.com');

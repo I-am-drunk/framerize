@@ -91,7 +91,7 @@ for (const [name, configured] of invalidHomes) {
         assert.equal(result.stderr, '');
         assertRedacted(result, root, invalid);
         if (args[0] === '--version') assert.match(result.stdout, /^\d+\.\d+\.\d+(?:[+-][^\s]+)?\n$/);
-        else assert.match(result.stdout, /framerize-remote/);
+        else assert.match(result.stdout, /\bfrm\b/);
         assert.deepEqual(await snapshot(root), before);
       }
     });
