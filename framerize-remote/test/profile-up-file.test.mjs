@@ -12,7 +12,7 @@ import { fileURLToPath } from 'node:url';
 const packageRoot = process.env.FRAMERIZE_REMOTE_PACKAGE_ROOT
   ?? fileURLToPath(new URL('../', import.meta.url));
 const launcher = join(packageRoot, 'bin/frm.js');
-const preload = fileURLToPath(new URL('./helpers/profile-up-preload.mjs', import.meta.url));
+const preload = new URL('./helpers/profile-up-preload.mjs', import.meta.url).href;
 const args = ['--import', preload, launcher, 'up', '--json'];
 const environment = root => ({ HOME: root, USERPROFILE: root, FRM_HOME: root,
   TMPDIR: root, TMP: root, TEMP: root,
@@ -58,7 +58,10 @@ function diagnostic(result, code) {
   assert.equal(result.signal, null);
   assert.equal(result.status, 1);
   assert.equal(result.stdout, '');
-  assert.equal(JSON.parse(result.stderr).code, code);
+  let diagnostic;
+  assert.doesNotThrow(() => { diagnostic = JSON.parse(result.stderr); },
+    `Expected a JSON diagnostic, received:\n${result.stderr}`);
+  assert.equal(diagnostic.code, code);
 }
 
 for (const kind of ['fifo', 'missing', 'malformed', 'directory']) {
