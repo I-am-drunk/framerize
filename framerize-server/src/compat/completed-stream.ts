@@ -43,17 +43,38 @@ function errorValue(bytes: Buffer, encoding: string): unknown {
   }
 }
 
-async function httpError(response: CompletedResponse, protocol: CompletedReplyProtocol,
-  signal: AbortSignal): Promise<Buffer> {
+async function errorBytes(body: InferenceResponse['body'], signal: AbortSignal): Promise<Buffer> {
+  signal.throwIfAborted();
+  const asynchronous = body as AsyncIterable<Buffer>;
+  const iterator = typeof asynchronous[Symbol.asyncIterator] === 'function'
+    ? asynchronous[Symbol.asyncIterator]() : (body as Iterable<Buffer>)[Symbol.iterator]();
   const chunks: Buffer[] = [];
   let size = 0;
-  for await (const chunk of response.body) {
-    signal.throwIfAborted();
-    if (!Buffer.isBuffer(chunk) || chunk.length > 65_536 - size) throw new CompletedReplyError();
-    size += chunk.length;
-    chunks.push(chunk);
+  let complete = false;
+  let abort!: () => void;
+  const stopped = new Promise<never>((resolve, reject) => {
+    abort = () => reject(signal.reason);
+    signal.addEventListener('abort', abort, { once: true });
+    if (signal.aborted) abort();
+  });
+  try {
+    while (true) {
+      const next = await Promise.race([Promise.resolve().then(() => iterator.next()), stopped]);
+      signal.throwIfAborted();
+      if (next.done) { complete = true; return Buffer.concat(chunks, size); }
+      if (!Buffer.isBuffer(next.value) || next.value.length > 65_536 - size) throw new CompletedReplyError();
+      size += next.value.length;
+      chunks.push(next.value);
+    }
+  } finally {
+    signal.removeEventListener('abort', abort);
+    if (!complete) void Promise.resolve().then(() => iterator.return?.()).catch(() => {});
   }
-  const value = errorValue(Buffer.concat(chunks, size),
+}
+
+async function httpError(response: CompletedResponse, protocol: CompletedReplyProtocol,
+  signal: AbortSignal): Promise<Buffer> {
+  const value = errorValue(await errorBytes(response.body, signal),
     response.headers['content-encoding']?.trim().toLowerCase() ?? 'identity');
   signal.throwIfAborted();
   const envelope = record(value);
