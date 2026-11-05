@@ -8,6 +8,7 @@ const ask = terminal ? async (question, signal) => {
   const prompt = createInterface({ input: process.stdin, output: process.stdout });
   const controller = new AbortController();
   prompt.once('SIGINT', () => controller.abort());
+  prompt.once('close', () => controller.abort());
   const cancellation = signal ? AbortSignal.any([signal, controller.signal]) : controller.signal;
   try { return await prompt.question(question, { signal: cancellation }); } finally { prompt.close(); }
 } : undefined;
