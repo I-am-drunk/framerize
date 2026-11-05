@@ -28,10 +28,13 @@ for (const signal of ['SIGINT', 'SIGTERM']) test(`setup removes only its own ${s
   await assert.rejects(readdir(join(root, 'state')), { code: 'ENOENT' });
 });
 
-test('already cancelled setup performs no work', async () => {
+test('already cancelled setup performs no work', async t => {
+  const root = await mkdtemp(join(tmpdir(), 'server-pre-cancel-'));
+  t.after(() => rm(root, { recursive: true, force: true }));
   const reason = new Error('cancelled before setup');
   await assert.rejects(runSetupCommand(['up'], {
-    env: {}, signal: AbortSignal.abort(reason),
+    env: { HOME: root, FRAMERIZE_SERVER_HOME: join(root, 'state') },
+    signal: AbortSignal.abort(reason),
     stdout: { write: () => assert.fail('No output expected') },
     run: async () => assert.fail('No command expected'),
   }), error => error === reason);

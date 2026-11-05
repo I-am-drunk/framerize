@@ -4,6 +4,7 @@ import { createServer, type ServerDependencies, type ServerProvider } from './se
 import { CliUsageError, ServerListenError } from './errors.js';
 import type { FramerizeInstance } from '../dist/core.js';
 import { configuredSettings } from './settings.js';
+import { ServerSetupError } from './service-control.js';
 import type { SetupDependencies } from './setup.js';
 
 export interface ParsedArgs {
@@ -69,10 +70,12 @@ const FLAGS = new Set(['config', 'backend', 'account-id', 'framer-origin', 'upst
   'server-token-file', 'accounts-file', 'host', 'port', 'headers-timeout-ms', 'inference-timeout-ms',
   'request-headers-timeout-ms', 'idle-timeout-ms', 'shutdown-timeout-ms', 'max-body-bytes', 'log-level']);
 
-async function terminalAsk(question: string): Promise<string> {
+async function terminalAsk(question: string, signal?: AbortSignal): Promise<string> {
   const { createInterface } = await import('node:readline/promises');
+  signal?.throwIfAborted();
   const input = createInterface({ input: process.stdin, output: process.stderr });
-  try { return await input.question(question); }
+  try { return await input.question(question, { signal }); }
+  catch (error) { signal?.throwIfAborted(); throw error; }
   finally { input.close(); }
 }
 
@@ -97,9 +100,20 @@ export async function run(argv: readonly string[] = process.argv.slice(2),
   const events = dependencies.process ?? process;
   if (argv.includes('--help') || argv.includes('-h')) { events.stdout.write(HELP); return 0; }
   if (['up', 'pair', 'status', 'service'].includes(argv[0] ?? '')) {
-    const ask = dependencies.ask ?? (!dependencies.process && process.stdin.isTTY ? terminalAsk : undefined);
-    return (await import('./setup.js')).runSetupCommand(argv, { stdout: events.stdout,
-      env: { ...(dependencies.env ?? process.env) }, ...dependencies.setup, ...(ask ? { ask } : {}) });
+    const controller = new AbortController();
+    const stop = () => controller.abort(new ServerSetupError('Server setup was cancelled.'));
+    events.on('SIGINT', stop);
+    events.on('SIGTERM', stop);
+    const ask = dependencies.ask ?? (!dependencies.process && process.stdin.isTTY
+      ? (question: string) => terminalAsk(question, controller.signal) : undefined);
+    try {
+      return await (await import('./setup.js')).runSetupCommand(argv, { stdout: events.stdout,
+        env: { ...(dependencies.env ?? process.env) }, ...dependencies.setup,
+        signal: controller.signal, ...(ask ? { ask } : {}) });
+    } finally {
+      events.off('SIGINT', stop);
+      events.off('SIGTERM', stop);
+    }
   }
   const { command, values } = parseArgs(argv);
   const { config: path, ...settings } = values;
