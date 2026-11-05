@@ -97,9 +97,11 @@ under the same MIT License.
   `packages/provider-core/src/server/maintenanceResolver.test.ts` (`9447742c`).
 - Installers, Claude settings writes, conflict checks and launch overrides
   are Framerize code. So is the version-probe cleanup in `process.ts`. At
-  its deadline or size limit, it closes stdout and stops the probe's process
+  its deadline, size limit or setup cancellation, it closes stdout and stops the probe's process
   group on POSIX, or runs `taskkill /T /F` on Windows. Only a fake runner
   tests the Windows branch.
+  Passing setup cancellation through version lookups and release-body reads
+  is also Framerize code.
 
 `test/tailscale.test.mjs` predates these adaptations. Its spawn-failure,
 deadline and stderr-diagnostic cases cover the same behaviors as

@@ -171,6 +171,9 @@ starting the foreground listener. The saved connection remains available.
 cancelling the pending question with Ctrl+C, `SIGINT` or `SIGTERM` closes
 the foreground listener. The offer asks no new questions and starts no
 further installs or updates.
+During these optional version checks, `SIGINT` or `SIGTERM` also cancels a
+pending release request or stops the captured version command. The offer
+then skips its remaining output and client operations.
 
 ## Configuration
 

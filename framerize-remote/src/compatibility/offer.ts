@@ -29,9 +29,10 @@ async function offerUpdate(client: ClientName, deps: ClientSetupDeps, executable
   const plan = planUpdate(client, { resolvedPath: executable,
     realPath: (deps.realPath ?? defaultRealPath)(executable), platform: deps.platform, env: deps.env });
   const version = await checkVersion(client, executable, plan, lookupDeps(deps));
-  deps.io.stdout(`${label}: ${executable}\n${versionLine(version)}\n`);
   const present = { client, state: 'present', version: version.status } as const;
-  if (deps.signal?.aborted || version.status !== 'behind') return present;
+  if (deps.signal?.aborted) return present;
+  deps.io.stdout(`${label}: ${executable}\n${versionLine(version)}\n`);
+  if (version.status !== 'behind') return present;
   if (plan.kind === 'manual') { deps.io.stdout(`To update ${label}: ${plan.reason}\n`); return present; }
   if (!await confirm(deps.prompt, `Update ${label} with ${plan.command.display}?`, 'update', deps.signal)
     || deps.signal?.aborted) return present;
