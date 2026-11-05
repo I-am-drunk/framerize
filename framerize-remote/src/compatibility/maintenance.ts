@@ -79,6 +79,9 @@ export function planUpdate(client: ClientName, origin: InstallOrigin): UpdatePla
   }
   const cask = homebrewCaskFromCommandPath(origin.realPath);
   if (cask) return manual({ kind: 'homebrew', cask }, `brew upgrade --cask ${cask}`);
+  if (normalizeCommandPath(origin.realPath).includes(`/.bun/install/global/node_modules/${npmPackage}/`)) {
+    return run({ kind: 'bun' }, 'bun', ['i', '-g', `${npmPackage}@latest`]);
+  }
   const npmPrefix = npmGlobalPrefixFromCommandPath(origin.realPath, npmPackage);
   if (client === 'claude' && paths.some(isNativeClaude) && !npmPrefix && !isMise(paths)) {
     return run({ kind: 'native' }, origin.resolvedPath, ['update']);
@@ -86,10 +89,10 @@ export function planUpdate(client: ClientName, origin: InstallOrigin): UpdatePla
   const codexHome = client === 'codex'
     ? codexStandaloneHome(origin.realPath) ?? codexStandaloneHome(origin.resolvedPath) : null;
   if (codexHome && !npmPrefix && !isMise(paths)) return run({ kind: 'native' }, origin.resolvedPath, ['update'], { CODEX_HOME: codexHome });
-  if (normalized.some(path => path.includes('/.bun/bin/'))) return run({ kind: 'bun' }, 'bun', ['i', '-g', `${npmPackage}@latest`]);
   if (npmPrefix) {
     return run({ kind: 'npm', prefix: npmPrefix }, 'npm', ['install', '-g', '--prefix', npmPrefix, `--allow-scripts=${npmPackage}`, `${npmPackage}@latest`]);
   }
   if (isMise(paths)) return manual({ kind: 'mise' }, 'Update the version pinned in your mise configuration.');
+  if (normalized.some(path => path.includes('/.bun/bin/'))) return run({ kind: 'bun' }, 'bun', ['i', '-g', `${npmPackage}@latest`]);
   return manual({ kind: 'unknown' }, `Follow ${CLIENTS[client].docs} for the method that installed ${origin.resolvedPath}.`);
 }
