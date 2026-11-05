@@ -30,6 +30,8 @@ test('root tooling, fixtures, manifests and workflows run every job', () => {
   for (const file of ['package.json', 'package-lock.json', 'tsconfig.tools.json', '.gitattributes',
     'scripts/fixtures/installed-server.ts', 'scripts/fixtures/transport-scenario.ts',
     'test/installed-remote-flow.test.ts', 'test/installed-server-flow.test.ts',
+    'test/installed-custom-routes.test.ts', 'test/custom-routes.test.mjs',
+    'scripts/check-inference.ts', 'scripts/validation/inference.ts', 'test/inference-check.test.ts',
     'scripts/check-native-server.ts', 'scripts/native-account-smoke.ts',
     '.github/workflows/server-ci.yml', '.github/scripts/ci-changes.cjs', 'framerize-remote/package.json']) {
     assert.deepEqual(gates([file]), all, file);

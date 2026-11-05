@@ -88,10 +88,11 @@ test('installed custom routes use the account server and Remote without a worksp
 
 test('custom-route checks are selected by the core CI matrix', () => {
   const workflow = readFileSync(new URL('../../.github/workflows/core-ci.yml', import.meta.url), 'utf8');
+  const coordinator = readFileSync(new URL('../../.github/workflows/ci.yml', import.meta.url), 'utf8');
   const manifest = JSON.parse(readFileSync(new URL('../../package.json', import.meta.url), 'utf8'));
   const config = JSON.parse(readFileSync(new URL('../../tsconfig.tools.json', import.meta.url), 'utf8'));
-  assert.equal(workflow.split("- 'test/installed-custom-routes.test.ts'").length - 1, 2);
-  assert.equal(workflow.split("- 'test/custom-*.mjs'").length - 1, 2);
+  assert.match(workflow, /\n  workflow_call:/);
+  assert.match(coordinator, /uses: \.\/\.github\/workflows\/core-ci\.yml/);
   assert.ok(config.include.includes('test/installed-custom-routes.test.ts'));
   assert.match(manifest.scripts.test, /npm run test:custom-routes && npm run test:custom-installed/);
   assert.match(manifest.scripts['test:custom-installed'], /\.tools\/test\/installed-custom-routes\.test\.js/);
