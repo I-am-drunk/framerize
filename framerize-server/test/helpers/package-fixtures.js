@@ -30,6 +30,8 @@ export function packageFixture(t, { environmentAware = false } = {}) {
   const directory = path.join(repository, 'framerize-server');
   for (const folder of ['src', 'bin', 'scripts', 'dist']) mkdirSync(path.join(directory, folder), { recursive: true });
   const providerFiles = ['provider.js', 'provider.d.ts', 'core.d.ts',
+    ...['startup-access', 'private-network', 'qr-code', 'settings', 'setup', 'service-units',
+      'service-control', 'tailscale'].flatMap(name => [`${name}.js`, `${name}.d.ts`]),
     'backend.js', 'backend.d.ts', 'castle-loader.js', 'castle-loader.d.ts', 'castle.js',
     'framer-auth.js', 'framer-auth.d.ts',
     'account-backend.js', 'account-backend.d.ts',
@@ -54,10 +56,14 @@ export function packageFixture(t, { environmentAware = false } = {}) {
     exports: { '.': './dist/server.js', './config': './dist/config.js', './accounts': './dist/accounts.js' },
     files: ['bin', 'dist/core.js', 'dist/config.js', 'dist/config.d.ts',
       'dist/errors.js', 'dist/errors.d.ts', 'dist/accounts.js', 'dist/accounts.d.ts',
-      ...providerFiles.map((name) => `dist/${name}`), 'README.md', 'LICENSE'],
+      ...providerFiles.map((name) => `dist/${name}`), 'README.md', 'LICENSE',
+      'T3-LICENSE', 'NAYUKI-LICENSE', 'T3-ATTRIBUTION.md'],
     scripts: { 'pack:check': 'node scripts/package-smoke.js' },
   }));
   writeFileSync(path.join(directory, 'LICENSE'), 'Fixture license\n');
+  for (const name of ['T3-LICENSE', 'NAYUKI-LICENSE', 'T3-ATTRIBUTION.md']) {
+    writeFileSync(path.join(directory, name), 'Fixture attribution\n');
+  }
   writeFileSync(path.join(directory, 'README.md'), '# Fixture package\n');
   writeFileSync(path.join(directory, 'dist', 'config.js'), environmentAware ? `
 export const loadConfig = (values, env = process.env) => {

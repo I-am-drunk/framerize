@@ -1,10 +1,14 @@
 #!/usr/bin/env node
 import { run } from '../dist/cli.js';
+import { ServerSetupError } from '../dist/service-control.js';
 import { AccountFileError, AccountSelectionError, CliUsageError, ConfigurationError,
   ServerListenError, ServerTokenFileError } from '../dist/errors.js';
 
 run().then((code) => { process.exitCode = code; }).catch(error => {
-  const detail = error instanceof CliUsageError ? {
+  const detail = error instanceof ServerSetupError ? {
+    message: error.message,
+    next: 'Run framerize-server status --json or inspect server.log in FRAMERIZE_SERVER_HOME.',
+  } : error instanceof CliUsageError ? {
     message: 'Invalid command or option.',
     next: 'Run framerize-server --help for supported commands and options.',
   } : error instanceof ServerTokenFileError ? {

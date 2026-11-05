@@ -7,7 +7,8 @@ import { build } from 'esbuild';
 const root = fileURLToPath(new URL('../../', import.meta.url));
 const result = await build({ absWorkingDir: root, bundle: true, write: false,
   platform: 'node', format: 'esm', target: 'node22', minify: true, legalComments: 'none', metafile: true,
-  stdin: { contents: "export { createInstance } from './framerize-core/src/instance.ts';",
+  stdin: { contents: "export { createInstance } from './framerize-core/src/instance.ts';\n" +
+    "export { classifyReadiness } from './framerize-core/src/readiness.ts';",
     resolveDir: root, sourcefile: 'server-core-entry.ts', loader: 'ts' },
 });
 const inputs = Object.keys(result.metafile!.inputs);
@@ -27,6 +28,7 @@ for (const name of ['backend', 'readiness', 'instance', 'instance-options', 'htt
 }
 writeFileSync(new URL('../../framerize-server/dist/core.d.ts', import.meta.url),
   "export { createInstance } from './core-types/instance.js';\n" +
+  "export { classifyReadiness } from './core-types/readiness.js';\n" +
   "export type { FramerizeInstance } from './core-types/instance.js';\n" +
   "export type { InstanceOptions, RequestEvent } from './core-types/instance-options.js';\n" +
   "export type { BackendReadiness, InferenceBackend, InferenceRequest, InferenceResponse, RequestContext } from './core-types/backend.js';\n");

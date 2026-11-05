@@ -3,6 +3,8 @@ import { createLogger, type Logger, type LogOutput } from './logger.js';
 import { createServer, type ServerDependencies, type ServerProvider } from './server.js';
 import { CliUsageError, ServerListenError } from './errors.js';
 import type { FramerizeInstance } from '../dist/core.js';
+import { configuredSettings } from './settings.js';
+import type { SetupDependencies } from './setup.js';
 
 export interface ParsedArgs {
   readonly command: 'serve' | 'check';
@@ -18,6 +20,8 @@ export interface CliProcess {
 
 type CliInstance = Pick<FramerizeInstance, 'listen' | 'close'>;
 export interface CliDependencies {
+  readonly ask?: SetupDependencies['ask'];
+  readonly setup?: Pick<SetupDependencies, 'program' | 'platform' | 'uid' | 'run' | 'ready'>;
   readonly process?: CliProcess;
   readonly env?: Readonly<Record<string, string | undefined>>;
   readonly logger?: Pick<Logger, 'info'>;
@@ -29,7 +33,17 @@ export interface CliDependencies {
 }
 
 const HELP = `Server
-Usage: framerize-server [serve|check] [options]
+Usage: framerize-server [serve|check|up|pair|status|service] [options]
+  up                            Save settings, start the service, and print a pairing link
+  pair                          Print a link for frm to use on another machine
+  status --json                 Show service state for agents
+  service start|stop|restart|uninstall
+  --lan | --no-lan               Choose LAN or local access during up
+  --tailscale | --no-tailscale   Configure or remove Tailscale Serve during up
+  --tailscale-serve-port NUMBER   Tailscale HTTPS port, default 443
+  --yes                          Accept the default LAN choice for first setup
+  --json                         Print setup and pairing results as JSON
+  --config FILE                  Read saved Server settings
   --backend http|framer          Provider backend, default http
   --account-id NAME              Enabled JSON account to use with the framer backend
   --framer-origin URL            Framer API origin, default https://api.framer.com
@@ -49,10 +63,18 @@ Usage: framerize-server [serve|check] [options]
   --max-body-bytes NUMBER         JSON request limit, default 16777216
   --log-level LEVEL               debug, info, warn, error, silent
 Command-line options override environment values. Without an API token, access is open.
+serve stays in the foreground. up installs a background service on Linux or macOS.
 `;
-const FLAGS = new Set(['backend', 'account-id', 'framer-origin', 'upstream', 'authorization-env', 'authorization-file', 'server-token-env',
+const FLAGS = new Set(['config', 'backend', 'account-id', 'framer-origin', 'upstream', 'authorization-env', 'authorization-file', 'server-token-env',
   'server-token-file', 'accounts-file', 'host', 'port', 'headers-timeout-ms', 'inference-timeout-ms',
   'request-headers-timeout-ms', 'idle-timeout-ms', 'shutdown-timeout-ms', 'max-body-bytes', 'log-level']);
+
+async function terminalAsk(question: string): Promise<string> {
+  const { createInterface } = await import('node:readline/promises');
+  const input = createInterface({ input: process.stdin, output: process.stderr });
+  try { return await input.question(question); }
+  finally { input.close(); }
+}
 
 export function parseArgs(argv: readonly string[]): ParsedArgs {
   const args = [...argv];
@@ -74,9 +96,15 @@ export async function run(argv: readonly string[] = process.argv.slice(2),
   dependencies: CliDependencies = {}): Promise<number> {
   const events = dependencies.process ?? process;
   if (argv.includes('--help') || argv.includes('-h')) { events.stdout.write(HELP); return 0; }
+  if (['up', 'pair', 'status', 'service'].includes(argv[0] ?? '')) {
+    const ask = dependencies.ask ?? (!dependencies.process && process.stdin.isTTY ? terminalAsk : undefined);
+    return (await import('./setup.js')).runSetupCommand(argv, { stdout: events.stdout,
+      env: { ...(dependencies.env ?? process.env) }, ...dependencies.setup, ...(ask ? { ask } : {}) });
+  }
   const { command, values } = parseArgs(argv);
-  const env = dependencies.env ?? process.env;
-  const config = loadConfig(values, env);
+  const { config: path, ...settings } = values;
+  const loaded = await configuredSettings(path, settings, dependencies.env ?? process.env);
+  const { config, env } = loaded;
   const logger = dependencies.logger ?? createLogger({ stream: events.stderr, level: config.logLevel });
   const controller = new AbortController();
   let provider: ServerProvider | undefined;

@@ -7,6 +7,7 @@ export interface ServerConfig {
   readonly accountId: string;
   readonly framerOrigin: string;
   readonly host: string;
+  readonly privateNetworkOnly: boolean;
   readonly port: number;
   readonly accountsFile: string;
   readonly upstream: string;
@@ -26,17 +27,18 @@ export interface ServerConfig {
 
 const DEFAULTS = Object.freeze({
   backend: 'http', accountId: '', framerOrigin: 'https://api.framer.com',
-  host: '127.0.0.1', port: 8789, accountsFile: '', upstream: '',
+  host: '127.0.0.1', privateNetworkOnly: false, port: 8789, accountsFile: '', upstream: '',
   serverTokenEnv: 'FRAMERIZE_SERVER_TOKEN', serverTokenFile: '',
   authorizationEnv: '', authorizationFile: '', logLevel: 'info',
   maxBodyBytes: 16 * 1024 * 1024, headersTimeoutMs: 15_000,
   inferenceTimeoutMs: 300_000,
   idleTimeoutMs: 60_000, requestHeadersTimeoutMs: 15_000, shutdownTimeoutMs: 5_000,
 } satisfies Omit<ServerConfig, 'serverToken'>);
-const ENVIRONMENT = Object.freeze({
+export const ENVIRONMENT = Object.freeze({
   backend: 'FRAMERIZE_SERVER_BACKEND', accountsFile: 'FRAMERIZE_SERVER_ACCOUNTS',
   accountId: 'FRAMERIZE_SERVER_ACCOUNT', framerOrigin: 'FRAMERIZE_SERVER_FRAMER_ORIGIN',
   host: 'FRAMERIZE_SERVER_HOST', port: 'FRAMERIZE_SERVER_PORT', upstream: 'FRAMERIZE_SERVER_UPSTREAM',
+  privateNetworkOnly: 'FRAMERIZE_SERVER_LAN',
   serverTokenEnv: 'FRAMERIZE_SERVER_TOKEN_ENV', serverTokenFile: 'FRAMERIZE_SERVER_TOKEN_FILE',
   authorizationEnv: 'FRAMERIZE_SERVER_AUTHORIZATION_ENV',
   authorizationFile: 'FRAMERIZE_SERVER_AUTHORIZATION_FILE',
@@ -70,6 +72,12 @@ export function loadConfig(values: unknown = {}, env: Readonly<Record<string, st
   }
   const label = (name: string) => Object.hasOwn(selected, name) ? ENVIRONMENT[name as keyof typeof ENVIRONMENT] : name;
   const config: Record<string, unknown> = { ...DEFAULTS, ...selected, ...input };
+  const lan = config.privateNetworkOnly;
+  if (![true, false, 'true', 'false', '1', '0'].includes(lan as string | boolean)) invalid(label('privateNetworkOnly'));
+  config.privateNetworkOnly = lan === true || lan === 'true' || lan === '1';
+  if (config.privateNetworkOnly && !Object.hasOwn(input, 'host') && !Object.hasOwn(selected, 'host')) {
+    config.host = '0.0.0.0';
+  }
   for (const name of ['port', 'maxBodyBytes', 'headersTimeoutMs', 'inferenceTimeoutMs', 'idleTimeoutMs',
     'requestHeadersTimeoutMs', 'shutdownTimeoutMs']) {
     const value = config[name];

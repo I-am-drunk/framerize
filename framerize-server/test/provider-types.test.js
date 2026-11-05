@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { copyFileSync, cpSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { copyFileSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -13,10 +13,12 @@ test('runtime declarations work without workspace packages and reject invalid co
   const compiled = fileURLToPath(new URL('../dist/', import.meta.url));
   const dist = path.join(root, 'dist');
   mkdirSync(dist);
-  for (const name of ['provider', 'core', 'server', 'logger', 'cli', 'config', 'framer-auth', 'framer-backend', 'account-backend', 'accounts']) {
-    copyFileSync(path.join(compiled, `${name}.d.ts`), path.join(dist, `${name}.d.ts`));
+  const manifest = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8'));
+  for (const file of manifest.files.filter(name => name.endsWith('.d.ts'))) {
+    const target = path.join(root, file);
+    mkdirSync(path.dirname(target), { recursive: true });
+    copyFileSync(path.join(compiled, '..', file), target);
   }
-  cpSync(path.join(compiled, 'core-types'), path.join(dist, 'core-types'), { recursive: true });
   writeFileSync(path.join(root, 'package.json'), '{"type":"module"}');
   const valid = `import { createProvider, type ProviderOptions, type ProviderRequest } from './dist/provider.js';
 import { createInstance, type InferenceBackend } from './dist/core.js';

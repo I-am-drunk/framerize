@@ -13,7 +13,7 @@ test('CLI selects the account provider without a generic upstream', async () => 
       assert.equal(config.backend, 'framer');
       assert.equal(config.accountId, 'selected');
       assert.equal(config.inferenceTimeoutMs, 75000);
-      assert.equal(context.env, env); made += 1;
+      assert.deepEqual(context.env, env); made += 1;
       return { async close() { closed += 1; } };
     },
     createServer(_config, { provider }) { return { close: () => provider.close() }; },

@@ -33,6 +33,55 @@ override them. See the [environment guide](docs/environment.md).
 Replace `serve` with `check` to validate configuration without contacting the provider.
 Neither command loads `.env` files.
 
+## Set up a background service
+
+`up` saves the settings, installs a user service, waits for `/ready` and
+prints a pairing link with a terminal QR code:
+
+```sh
+FRAMERIZE_SERVER_BACKEND=framer \
+FRAMERIZE_SERVER_ACCOUNTS=/srv/framerize/accounts.json \
+node framerize-server/bin/framerize-server.js up --lan
+```
+
+On first setup, choose one access mode. In a terminal, `up` asks.
+
+- `--lan` listens on `0.0.0.0` and accepts only private addresses, as listed
+  in the [environment guide](docs/environment.md#validation).
+- `--tailscale` adds a Tailscale Serve HTTPS route to the local port.
+  `--tailscale-serve-port` picks a port other than 443.
+- `--no-lan` keeps the listener on this machine only.
+- `--yes` accepts LAN access without asking.
+
+The link is `<origin>/pair`, plus `#token=...` when Server has an API token.
+`pair` prints it again. Pass `--json` to either command for a machine result.
+The link is meant for `frm` on the client machine. Remote does not accept it
+yet; until it does, give Remote the origin and token separately.
+Rerun `up` after changing settings; it restarts the service only when they
+change, and restores the previous service if the new one fails `/ready`.
+`--no-tailscale` removes the route `up` added.
+
+### Service limits
+
+- Linux uses the systemd user unit `framerize-server.service`; macOS uses the
+  launch agent `dev.framerize.server`. Other platforms must use `serve`.
+- On Linux, `up` runs `loginctl enable-linger` for the current user if
+  lingering is off, so the service survives logout. It stops if that fails.
+- The service restarts 5 seconds after an exit. Output goes to
+  `FRAMERIZE_SERVER_HOME/server.log`.
+- One service per user. `up` refuses a unit that serves another
+  `FRAMERIZE_SERVER_HOME`.
+- Tailscale must already be connected, with MagicDNS and HTTPS certificates
+  on. `up` refuses a port that another route already serves, and never runs
+  `tailscale up` or changes Funnel.
+- The http backend needs `--upstream` or `FRAMERIZE_SERVER_UPSTREAM`; in a
+  terminal, `up` asks for it. Port `0` is rejected.
+
+`status` reports whether the service is installed and running; add `--json`
+for unit path, log path and match details. `service start`, `stop`,
+`restart` and `uninstall` manage it. Uninstall leaves `server.json` and any
+Tailscale route in place.
+
 If the command reports "Invalid command or option", run `framerize-server --help`.
 This covers unknown commands, unsupported options and missing option values.
 The diagnostic does not print the supplied arguments.

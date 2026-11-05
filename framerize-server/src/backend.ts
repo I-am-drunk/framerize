@@ -7,7 +7,12 @@ import type { ServerProvider } from './server.js';
 export async function createConfiguredProvider(config: ServerConfig,
   context: { readonly signal: AbortSignal; readonly env?: Readonly<Record<string, string | undefined>> }):
   Promise<ServerProvider> {
-  if (config.backend === 'http') return createProvider(config);
+  if (config.backend === 'http') {
+    const env = context.env ?? process.env;
+    return createProvider({ ...config,
+      ...(config.authorizationEnv ? { credential: () => env[config.authorizationEnv] } : {}),
+    });
+  }
   return createAccountBackend({ accountsFile: config.accountsFile,
     ...(config.accountId ? { accountId: config.accountId } : {}),
     ...(context.env ? { env: context.env } : {}), signal: context.signal,

@@ -18,7 +18,8 @@
     "./provider": "./dist/provider.js",
     "./framer-auth": "./dist/framer-auth.js",
     "./framer-backend": "./dist/framer-backend.js",
-    "./account-backend": "./dist/account-backend.js"
+    "./account-backend": "./dist/account-backend.js",
+    "./startup-access": "./dist/startup-access.js"
   },
   "files": [
     "bin",
@@ -62,12 +63,31 @@
     "dist/compat/events.d.ts",
     "dist/cli.js",
     "dist/cli.d.ts",
+    "dist/startup-access.js",
+    "dist/startup-access.d.ts",
+    "dist/private-network.js",
+    "dist/private-network.d.ts",
+    "dist/qr-code.js",
+    "dist/qr-code.d.ts",
+    "dist/settings.js",
+    "dist/settings.d.ts",
+    "dist/setup.js",
+    "dist/setup.d.ts",
+    "dist/service-units.js",
+    "dist/service-units.d.ts",
+    "dist/service-control.js",
+    "dist/service-control.d.ts",
+    "dist/tailscale.js",
+    "dist/tailscale.d.ts",
     "dist/logger.js",
     "dist/logger.d.ts",
     "dist/server.js",
     "dist/server.d.ts",
     "README.md",
-    "LICENSE"
+    "LICENSE",
+    "T3-LICENSE",
+    "NAYUKI-LICENSE",
+    "T3-ATTRIBUTION.md"
   ],
   "scripts": {
     "start": "node bin/framerize-server.js serve",
