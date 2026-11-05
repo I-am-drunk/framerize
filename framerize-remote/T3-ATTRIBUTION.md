@@ -81,12 +81,18 @@ under the same MIT License.
   `conflicts.ts` takes the managed settings paths from `readUpdateChannel`.
 - `src/compatibility/semver.ts` adapts `normalizeSemverVersion`, `parseSemver`
   and `compareSemverVersions` from `packages/shared/src/semver.ts` (`720ea68a`).
-- `src/compatibility/process.ts` adapts `escapeWindowsShellArg` from
+- `src/compatibility/process.ts` adapts `escapeWindowsShellArg` and the
+  `.cmd`/`.bat` dispatch through `cmd.exe` in `resolveSpawnCommand` from
   `packages/shared/src/shell.ts` (`28b666ce`).
+- `src/compatibility/platform.ts` adapts `resolveWindowsPathExtensions`,
+  `resolveCommandCandidates` and `stripWrappingQuotes` from the same file.
 - `test/client-setup-paths.test.mjs` adapts cases from
   `packages/provider-core/src/server/maintenanceResolver.test.ts` (`9447742c`).
 - Installers, Claude settings writes, conflict checks and launch overrides
-  are Framerize code.
+  are Framerize code. So is the version-probe cleanup in `process.ts`. At
+  its deadline or size limit, it closes stdout and stops the probe's process
+  group on POSIX, or runs `taskkill /T /F` on Windows. Only a fake runner
+  tests the Windows branch.
 
 `test/tailscale.test.mjs` predates these adaptations. Its spawn-failure,
 deadline and stderr-diagnostic cases cover the same behaviors as

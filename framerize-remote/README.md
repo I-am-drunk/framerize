@@ -119,6 +119,10 @@ running Remote. Arguments after `--` pass through unchanged, such as
   `<Remote>/openai/v1`. The local token stays in `FRM_LOCAL_TOKEN`.
 - `--persist` writes the Claude values to Claude's user settings.
   `--undo` removes them only if they are unchanged since then.
+  If `settings.json` is a symlink, both edit its target and keep the link.
+  A link with no target fails before anything is written. If the settings
+  file is gone, `--undo` reports that Framerize has not written Claude
+  settings and forgets its record.
 - `--check` prints the OS, client path, version and Remote address.
 - `--config FILE` uses that profile for a launch, `--check`, `--persist` and
   `--undo`. `--persist` keeps its undo record beside FILE, so pass the same
