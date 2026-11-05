@@ -7,6 +7,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { parseArgs, run } from '../dist/cli.js';
+import { ServerListenError } from '../dist/errors.js';
 
 test('CLI selects the account provider without a generic upstream', async () => {
   let made = 0; let closed = 0;
@@ -64,7 +65,7 @@ for (const failListen of [false, true]) {
         },
       }),
     });
-    if (failListen) await assert.rejects(pending, /synthetic listen failure/);
+    if (failListen) await assert.rejects(pending, ServerListenError);
     else { assert.equal(await pending, 0); assert.equal(records[0].fields.port, 12345); }
     assert.equal(closeCalls, 1);
     for (const signal of ['SIGINT', 'SIGTERM']) assert.equal(events.listenerCount(signal), 0);
@@ -90,6 +91,33 @@ for (const signal of ['SIGINT', 'SIGTERM']) {
     assert.equal(closes, 1);
     assert.deepEqual(records, []);
     for (const name of ['SIGINT', 'SIGTERM']) assert.equal(events.listenerCount(name), 0);
+  });
+}
+
+for (const closeFailure of [false, true]) {
+  test(`synchronous listen failure with ${closeFailure ? 'failed' : 'successful'} cleanup`, async () => {
+    const { events, read } = outputProcess();
+    const cleanupError = new Error('synthetic cleanup failure');
+    let closes = 0;
+    const pending = run(['serve'], { env: {}, process: events,
+      createServer: () => ({
+        listen() { throw new Error('raw-listen-canary'); },
+        async close() { closes += 1; if (closeFailure) throw cleanupError; },
+      }),
+    });
+    await assert.rejects(pending, error => {
+      if (closeFailure) assert.equal(error, cleanupError);
+      else {
+        assert.ok(error instanceof ServerListenError);
+        assert.equal(error.message, 'Server listen failed');
+        assert.equal(error.cause, undefined);
+        assert.doesNotMatch(error.stack, /raw-listen-canary/);
+      }
+      return true;
+    });
+    assert.equal(closes, 1);
+    assert.equal(read(), '');
+    for (const signal of ['SIGINT', 'SIGTERM']) assert.equal(events.listenerCount(signal), 0);
   });
 }
 

@@ -32,6 +32,12 @@ or `FRAMERIZE_SERVER_ACCOUNT`, and `--accounts-file` or
 `projectId` and a session reference. Malformed IDs also use this diagnostic for
 the Framer backend. Omit the selector only when exactly one account is enabled.
 
+If startup reports "Server could not listen on the configured host and port",
+check `--host` or `FRAMERIZE_SERVER_HOST` and `--port` or
+`FRAMERIZE_SERVER_PORT`. Use an available local address and port, then retry.
+This diagnostic covers listener startup failures without exposing the address
+or underlying error. It does not identify a specific operating-system error.
+
 ```sh
 npm ci --ignore-scripts
 npm run build

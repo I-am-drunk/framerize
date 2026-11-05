@@ -29,3 +29,10 @@ export class ServerTokenFileError extends ConfigurationError {
 export class AccountFileError extends ConfigurationError {}
 
 export class AccountSelectionError extends ConfigurationError {}
+
+export class ServerListenError extends Error {
+  constructor() {
+    super('Server listen failed');
+    this.name = 'ServerListenError';
+  }
+}

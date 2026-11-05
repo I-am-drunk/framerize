@@ -1,6 +1,7 @@
 import { loadConfig, readServerToken, type ServerConfig } from './config.js';
 import { createLogger, type Logger, type LogOutput } from './logger.js';
 import { createServer, type ServerDependencies, type ServerProvider } from './server.js';
+import { ServerListenError } from './errors.js';
 import type { FramerizeInstance } from '../dist/core.js';
 
 export interface ParsedArgs {
@@ -112,7 +113,9 @@ export async function run(argv: readonly string[] = process.argv.slice(2),
       if (!controller.signal.aborted) logger.info('config.valid');
       return 0;
     }
-    const address = await app.listen();
+    let address: Awaited<ReturnType<CliInstance['listen']>>;
+    try { address = await app.listen(); }
+    catch { throw new ServerListenError(); }
     if (!controller.signal.aborted) logger.info('server.listening', { port: address.port });
     await stopped;
     return 0;
