@@ -272,5 +272,6 @@ function printPairing(origin: string, token: string, json: boolean,
   }
   let qr = '';
   try { qr = `${renderTerminalQrCode(pairingUrl)}\n\n`; } catch {}
-  stdout.write(`This machine\n  Server: ${service ?? 'ready'}\n  URL: ${origin}\n\n${qr}Next: frm '${pairingUrl}'\n`);
+  stdout.write(`This machine\n  Server: ${service ?? 'ready'}\n  URL: ${origin}\n\n${qr}`
+    + `On the other machine, with framerize-remote installed:\n  frm connect '${pairingUrl}'\n`);
 }
