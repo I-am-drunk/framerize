@@ -121,8 +121,8 @@ as well as connection, upload and response headers.
 Connection setup also retains its own 15-second limit. The CLI's
 `--headers-timeout-ms` and `--inference-timeout-ms` options configure both core
 and the backend. When embedding, set the corresponding options on the backend
-factory and on `createInstance`, or on `createServer` when using the server
-wrapper. Raising only the backend's `inferenceTimeoutMs` leaves core's
+factory. Also set them on `createInstance`, or on `createServer` when using the
+server wrapper. Raising only the backend's `inferenceTimeoutMs` leaves core's
 300000 ms default in effect.
 
 For `/v1/responses` and `/v1/chat/completions`, the inference deadline stops after
