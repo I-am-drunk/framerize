@@ -176,9 +176,9 @@ running Remote. Arguments after `--` pass through unchanged, such as
 
 ### Install and update
 
-If the client is not on `PATH`, a launch shows the official installer
-command: `curl ... | sh` on Linux and macOS, PowerShell on Windows. It runs
-only after you type `install`, or with `--install` or `FRM_CLIENT_INSTALL=1`.
+If the client is not on `PATH`, a launch describes its official installer.
+Linux and macOS download the whole script before running it. Windows uses
+PowerShell. Type `install` to consent, or use `--install` or `FRM_CLIENT_INSTALL=1`.
 Without consent, or with `--no-input` or `FRM_NO_INPUT=1`, it exits with code 3.
 Other platforms get the client's download page instead.
 
