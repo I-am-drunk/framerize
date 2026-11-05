@@ -2,10 +2,13 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
 import { EventEmitter, getEventListeners } from 'node:events';
+import fs from 'node:fs';
 import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { syncBuiltinESMExports } from 'node:module';
 import { createConnection } from 'node:net';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { PassThrough } from 'node:stream';
 import { setTimeout as delay } from 'node:timers/promises';
 import { fileURLToPath } from 'node:url';
 import { build } from 'esbuild';
@@ -279,3 +282,156 @@ test('cancelling an offered installer suppresses failure output and the next cli
   assert.deepEqual(errors, []);
   assert.doesNotMatch(output.join(''), /Codex|exited with code/);
 });
+
+test('terminal cancellation closes a reparented descendant before the terminal owner exits', {
+  timeout: 10000, skip: !['linux', 'darwin'].includes(process.platform) && 'POSIX terminal fixture',
+}, async context => {
+  const root = await mkdtemp(join(tmpdir(), 'client-terminal-tree-'));
+  const pids = join(root, 'pids'), statePath = join(root, 'state.json');
+  let terminal, closed, state, terminalClosed = false;
+  context.after(async () => {
+    for (const pid of (await readFile(pids, 'utf8').catch(() => '')).trim().split('\n').map(Number)) {
+      if (pid > 1) try { process.kill(pid, 'SIGKILL'); }
+      catch (error) { if (error.code !== 'ESRCH') throw error; }
+    }
+    terminal?.kill('SIGKILL');
+    if (closed) await bounded(closed.catch(() => {}), 'Terminal cleanup timed out');
+    if (state) await portCloses(state.port);
+    await rm(root, { recursive: true, force: true });
+  });
+  await writeFile(join(root, 'runner.mjs'), compiled.outputFiles[0].contents);
+  await writeFile(join(root, 'worker.cjs'), `
+    const fs = require('node:fs'), root = process.env.FRM_TERMINAL_ROOT;
+    fs.appendFileSync(root + '/pids', process.pid + '\\n');
+    for (const signal of ['SIGINT', 'SIGTERM']) process.on(signal, () => {});
+    const listener = require('node:net').createServer(socket => socket.end());
+    listener.listen(0, '127.0.0.1', () => {
+      fs.closeSync(fs.openSync('/dev/tty', 'r+'));
+      fs.writeFileSync(root + '/state.tmp', JSON.stringify({ pid: process.pid,
+        port: listener.address().port, tty: process.stdin.isTTY && process.stdout.isTTY }));
+      fs.renameSync(root + '/state.tmp', root + '/state.json');
+    });
+  `);
+  await writeFile(join(root, 'installer.cjs'), `
+    const fs = require('node:fs'), root = process.env.FRM_TERMINAL_ROOT;
+    fs.appendFileSync(root + '/pids', process.pid + '\\n');
+    process.on('SIGINT', () => { fs.writeFileSync(root + '/parent-signal', 'SIGINT'); process.exit(0); });
+    process.on('SIGTERM', () => process.exit(0));
+    require('node:child_process').spawn(process.execPath, [root + '/worker.cjs'], { stdio: 'inherit' });
+  `);
+  await writeFile(join(root, 'launcher.mjs'), `
+    import cp from 'node:child_process';
+    import fs from 'node:fs';
+    import { syncBuiltinESMExports } from 'node:module';
+    const root = process.env.FRM_TERMINAL_ROOT, inspect = cp.execFile;
+    let direct;
+    cp.execFile = (...args) => {
+      if (args[0] !== '/bin/ps') throw new Error('Unexpected fixture command');
+      if (direct?.exitCode === null && direct.signalCode === null) {
+        direct.once('close', () => inspect(...args));
+      } else return inspect(...args);
+    };
+    syncBuiltinESMExports();
+    const { nodeRunner } = await import('./runner.mjs');
+    const controller = new AbortController();
+    for (const signal of ['SIGINT', 'SIGTERM']) process.on(signal, () => controller.abort());
+    const runner = nodeRunner(process.platform, (...args) => {
+      const child = cp.spawn(...args);
+      fs.appendFileSync(root + '/pids', child.pid + '\\n');
+      if (args[0] === process.execPath) direct = child;
+      let group = '';
+      child.stdio[3]?.on('data', chunk => {
+        group += chunk;
+        if (/^[1-9]\\d*\\n$/.test(group)) fs.appendFileSync(root + '/pids', group);
+      });
+      return child;
+    });
+    const code = await runner.run({ command: process.execPath,
+      args: [root + '/installer.cjs'], display: 'synthetic installer' }, process.env, controller.signal);
+    fs.writeFileSync(root + '/result.tmp', JSON.stringify({ code, aborted: controller.signal.aborted }));
+    fs.renameSync(root + '/result.tmp', root + '/result.json');
+    process.exitCode = code;
+  `);
+  await writeFile(join(root, 'owner.mjs'), `
+    import { spawn } from 'node:child_process';
+    import fs from 'node:fs';
+    const root = process.env.FRM_TERMINAL_ROOT;
+    for (const signal of ['SIGINT', 'SIGTERM']) process.on(signal, () => {});
+    fs.appendFileSync(root + '/pids', process.pid + '\\n');
+    const child = spawn(process.execPath, [root + '/launcher.mjs'], { stdio: 'inherit' });
+    fs.appendFileSync(root + '/pids', child.pid + '\\n');
+    child.once('close', (code, signal) => {
+      fs.writeFileSync(root + '/exit.tmp', JSON.stringify({ code, signal }));
+      fs.renameSync(root + '/exit.tmp', root + '/exit.json');
+      process.stdin.once('data', chunk => {
+        fs.writeFileSync(root + '/input.json', JSON.stringify(chunk.toString().trim()));
+        process.stdin.pause();
+      });
+    });
+    const timer = setInterval(() => { if (fs.existsSync(root + '/release')) clearInterval(timer); }, 10);
+  `);
+  const owner = join(root, 'owner.mjs');
+  const quote = value => `'${value.replaceAll("'", "'\\''")}'`;
+  const args = process.platform === 'darwin' ? ['-q', '/dev/null', process.execPath, owner]
+    : ['-q', '-e', '-c', `${quote(process.execPath)} ${quote(owner)}`, '/dev/null'];
+  terminal = spawn('/usr/bin/script', args, {
+    cwd: root, env: { ...childEnv, TERM: 'xterm', FRM_TERMINAL_ROOT: root },
+  });
+  let output = '';
+  for (const stream of [terminal.stdout, terminal.stderr]) {
+    stream.on('data', chunk => { output = (output + chunk).slice(-65536); });
+  }
+  closed = new Promise((resolve, reject) => {
+    terminal.once('error', reject);
+    terminal.once('close', code => { terminalClosed = true; resolve(code); });
+  });
+  state = await readState(statePath);
+  assert.equal(state.tty, true);
+  assert.equal(await portState(state.port), 'open');
+  terminal.stdin.write('\x03');
+  assert.deepEqual(await readState(join(root, 'result.json')), { code: 1, aborted: true });
+  assert.deepEqual(await readState(join(root, 'exit.json')), { code: 1, signal: null });
+  assert.equal(await readFile(join(root, 'parent-signal'), 'utf8'), 'SIGINT');
+  assert.equal(terminalClosed, false, 'The persistent terminal owner must still be alive');
+  assert.equal(await portState(state.port), 'ECONNREFUSED', 'Reparented installer descendant survived');
+  terminal.stdin.write('restored\n');
+  assert.equal(await readState(join(root, 'input.json')), 'restored');
+  await writeFile(join(root, 'release'), 'release');
+  assert.equal(await bounded(closed, 'Terminal owner did not close'), 0, output);
+});
+
+function terminalStartupFixture(context) {
+  context.mock.method(fs, 'openSync', () => 123);
+  context.mock.method(fs, 'closeSync', () => {});
+  syncBuiltinESMExports();
+  context.after(() => { context.mock.restoreAll(); syncBuiltinESMExports(); });
+  context.mock.timers.enable({ apis: ['setTimeout'] });
+  const group = new PassThrough(), control = new PassThrough(), kills = [];
+  const child = Object.assign(new EventEmitter(), { pid: 123456,
+    stdio: [null, null, null, group, control],
+    kill(signal) { kills.push(signal); child.emit('close', null, signal); return true; },
+  });
+  let decision = '';
+  control.on('data', chunk => { decision += chunk; });
+  const runner = nodeRunner('linux', () => child);
+  return { runner, group, control, kills, decision: () => decision };
+}
+
+for (const mode of ['cancelled', 'silent', 'invalid']) {
+  test(`a ${mode} terminal startup closes without running the installer`, async context => {
+    const fixture = terminalStartupFixture(context), controller = new AbortController();
+    const pending = fixture.runner.run(command(''), {}, controller.signal);
+    if (mode === 'cancelled') controller.abort();
+    else if (mode === 'invalid') fixture.group.write(process.pid + '\n');
+    else context.mock.timers.tick(5000);
+    context.mock.timers.tick(500);
+    if (mode === 'cancelled') assert.equal(await pending, 1);
+    else await assert.rejects(pending, mode === 'invalid'
+      ? /Could not identify the client process group/ : /did not start in time/);
+    assert.equal(fixture.decision(), 'stop\n');
+    assert.deepEqual(fixture.kills, ['SIGKILL']);
+    assert.equal(fixture.group.destroyed, true);
+    assert.equal(fixture.control.destroyed, true);
+    assert.deepEqual(getEventListeners(controller.signal, 'abort'), []);
+  });
+}
