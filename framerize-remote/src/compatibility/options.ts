@@ -2,10 +2,11 @@ import { parseArgs } from '../cliArgs.js';
 import { isClientName, type ClientName } from './clients.js';
 
 export const CLIENT_SPEC = { install: 'boolean', update: 'boolean', persist: 'boolean', undo: 'boolean',
-  check: 'boolean', 'no-input': 'boolean' } as const;
+  check: 'boolean', 'no-input': 'boolean', config: 'string' } as const;
 
 export interface ClientOptions {
   readonly client: ClientName;
+  readonly config?: string;
   /** Consent to install a missing client. Never consent to update. */
   readonly install: boolean;
   /** Request to update an installed client. Separate from install consent. */
@@ -29,6 +30,7 @@ export function parseClientOptions(argv: readonly string[], env: NodeJS.ProcessE
   const own = split < 0 ? rest : rest.slice(0, split);
   const { options } = parseArgs(own, CLIENT_SPEC);
   const parsed = {
+    ...(typeof options.config === 'string' ? { config: options.config } : {}),
     client, install: options.install === true || truthy(env.FRM_CLIENT_INSTALL),
     // Update is never ambient: only the flag requests it, and a terminal still confirms it.
     update: options.update === true,

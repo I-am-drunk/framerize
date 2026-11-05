@@ -12,6 +12,7 @@ import { claudeSettingsPath, SettingsError, undoClaudeSettings, writeClaudeSetti
 
 export const CLIENT_HELP = `Usage: frm client <claude|codex> [options] [-- client arguments]
 
+  --config FILE Use this Remote profile instead of the default
   --check      Report the OS, client path, version and Remote address without changes
   --install    Consent to install a missing client with its official installer
   --update     Update an installed client after a separate confirmation
@@ -72,7 +73,7 @@ async function updateInstalled(options: ClientOptions, deps: ClientSetupDeps, ex
   if (version.status === 'current') return EXIT.ok;
   deps.io.stdout(`Update command: ${plan.command.display}\n`);
   if (!await consented(options, deps, options.update, `Update ${label}?`, 'update')) {
-    deps.io.stderr(`${label} was not updated.\n`);
+    deps.io.stderr(`${label} was not updated. Run this command again and type update to confirm.\n`);
     return EXIT.needsConsent;
   }
   const code = await deps.runner.run(plan.command, deps.env);
@@ -121,7 +122,9 @@ export async function runClient(argv: readonly string[], deps: ClientSetupDeps):
     if (options.persist) {
       const path = claudeSettingsPath(deps.env, deps.home);
       await writeClaudeSettings(path, deps.stateDir, deps.target);
-      deps.io.stdout(`Claude settings now use ${claudeBaseUrl(deps.target.origin)}: ${path}\nUndo: frm client claude --undo\n`);
+      const undo = options.config === undefined ? 'frm client claude --undo'
+        : 'use --undo instead of --persist, keeping the same --config';
+      deps.io.stdout(`Claude settings now use ${claudeBaseUrl(deps.target.origin)}: ${path}\nUndo: ${undo}\n`);
       return EXIT.ok;
     }
   } catch (error) {

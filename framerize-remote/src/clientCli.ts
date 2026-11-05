@@ -39,16 +39,24 @@ export async function runClientCommand(argv: readonly string[], io: CliIo,
     io.stderr('Invalid client options. Run frm client --help.\n');
     return 2;
   }
-  const path = profilePath(undefined, env);
+  const path = profilePath(options.config, env);
   const target = options.undo ? { origin: 'http://127.0.0.1:8788' } : undefined;
   return runClient(argv, await clientDependencies(path, io, env, target));
 }
 
 export async function offerClientSetup(configPath: string, io: CliIo, env: NodeJS.ProcessEnv,
-  dependencies?: ClientSetupDeps): Promise<void> {
-  if (!io.ask) return;
+  dependencies?: ClientSetupDeps, signal?: AbortSignal): Promise<void> {
+  const cancellation = signal ?? dependencies?.signal;
+  if (!io.ask || cancellation?.aborted) return;
   const answer = await io.ask('Set up Claude Code or Codex for this connection? [y/N] ');
-  if (!['y', 'yes'].includes(answer?.trim().toLowerCase() ?? '')) return;
-  await offerClients(dependencies ?? await clientDependencies(configPath, io, env));
-  io.stdout('Start a client with frm client claude or frm client codex.\n');
+  if (cancellation?.aborted || !['y', 'yes'].includes(answer?.trim().toLowerCase() ?? '')) return;
+  const deps = dependencies ?? await clientDependencies(configPath, io, env);
+  await offerClients(cancellation ? { ...deps, signal: cancellation } : deps);
+  if (cancellation?.aborted) return;
+  let defaultPath: string | undefined;
+  try { defaultPath = profilePath(undefined, env); } catch { /* An explicit profile can bypass an invalid home. */ }
+  const custom = configPath !== defaultPath;
+  io.stdout(`Start a client with frm client claude or frm client codex${custom
+    ? ', adding --config FILE for this profile.' : '.'}\n`);
+  if (custom) io.stdout(`Profile file: ${configPath}\n`);
 }

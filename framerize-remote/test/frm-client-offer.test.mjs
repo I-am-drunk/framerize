@@ -41,4 +41,29 @@ test('accepting client setup still asks separately before each installation', as
   assert.match(questions[1], /Install Claude Code/);
   assert.match(questions[2], /Install Codex/);
   assert.match(output, /frm client claude or frm client codex/);
+  assert.match(output, /--config FILE/);
+  assert.match(output, /Profile file: \/missing\/profile\.json/);
+});
+
+test('cancelling during an installer skips further client offers and the start message', async () => {
+  const controller = new AbortController();
+  const questions = [], runs = [];
+  let output = '';
+  const io = { stdout(text) { output += text; }, stderr() {},
+    async ask(question) {
+      questions.push(question);
+      return questions.length === 1 ? 'yes' : 'install';
+    } };
+  const deps = {
+    platform: 'linux', env: { PATH: '/synthetic/bin' }, home: '/synthetic/home',
+    stateDir: '/synthetic/state', target: { origin: 'http://127.0.0.1:8788' },
+    io, prompt: io.ask, probe: () => false,
+    runner: { async run(command) { runs.push(command); controller.abort(); return 1; },
+      async capture() { assert.fail('No installed client to probe'); } },
+  };
+  await offerClientSetup('/missing/profile.json', io, {}, deps, controller.signal);
+  assert.equal(questions.length, 2);
+  assert.match(questions[1], /Install Claude Code/);
+  assert.equal(runs.length, 1);
+  assert.doesNotMatch(output, /Codex|Start a client/);
 });

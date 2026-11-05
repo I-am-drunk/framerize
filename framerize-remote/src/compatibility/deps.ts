@@ -25,6 +25,8 @@ export interface ClientSetupDeps {
   readonly runner: ProcessRunner;
   readonly io: ClientIo;
   readonly prompt?: Prompt;
+  /** Stops the setup flow from starting another prompt or client operation. */
+  readonly signal?: AbortSignal;
   readonly probe?: ExecutableProbe;
   readonly realPath?: (path: string) => string;
   /** Release lookups. Defaults to a 4 s bounded fetch; any failure is unknown. Tests inject it. */

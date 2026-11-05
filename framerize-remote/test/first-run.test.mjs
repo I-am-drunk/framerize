@@ -100,8 +100,9 @@ for (const json of [false, true]) {
   test(`setup starts and stops with ${json ? 'JSON' : 'compact'} output`, { timeout: 5000 }, async context => {
     await fixture(context); const remote = await peer(context);
     const listeners = ['SIGINT', 'SIGTERM'].map(name => getEventListeners(process, name).length);
-    let output = ''; let port;
+    let output = ''; let port; let prompts = 0;
     const code = await run([...setup(remote.origin), '--start', ...(json ? ['--json'] : [])], {
+      async ask() { prompts += 1; return 'no'; },
       ...quiet, stdout(text) {
         output += text;
         const event = json ? JSON.parse(text) : undefined;
@@ -112,6 +113,7 @@ for (const json of [false, true]) {
       },
     });
     assert.equal(code, 0); assert.equal(remote.calls(), 1); await refused(port);
+    assert.equal(prompts, 0, 'stopped setup must not offer client installation');
     const lines = output.trim().split('\n');
     if (json) assert.deepEqual(lines.map(JSON.parse), [
       { saved: true }, { ready: true, listening: { host: '127.0.0.1', port } }, { stopped: true },
