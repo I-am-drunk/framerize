@@ -15,8 +15,10 @@ export interface SettingsConflict { readonly path: string; readonly keys: readon
 
 /** Managed settings paths from T3 ClaudeMaintenance.readUpdateChannel at 5a906583 (MIT). */
 export function claudeManagedSettingsPath(platform: NodeJS.Platform, env: NodeJS.ProcessEnv): string {
+  const programFiles = env.PROGRAMFILES
+    ?? Object.entries(env).find(([name]) => name.toUpperCase() === 'PROGRAMFILES')?.[1];
   const directory = platform === 'darwin' ? '/Library/Application Support/ClaudeCode'
-    : platform === 'win32' ? join(env.PROGRAMFILES || 'C:\\Program Files', 'ClaudeCode') : '/etc/claude-code';
+    : platform === 'win32' ? join(programFiles || 'C:\\Program Files', 'ClaudeCode') : '/etc/claude-code';
   return join(directory, 'managed-settings.json');
 }
 
@@ -30,13 +32,16 @@ export function parseSettingsObject(text: string | null): Record<string, unknown
 
 /** Lists keys in one settings file that would route Claude away from the launch values. */
 function conflictKeys(settings: Record<string, unknown> | null, managed: boolean,
-  expected: Readonly<Record<string, string>>): string[] {
+  expected: Readonly<Record<string, string>>, platform: NodeJS.Platform): string[] {
   const raw = settings?.env;
   const env = raw !== null && typeof raw === 'object' && !Array.isArray(raw) ? raw as Record<string, unknown> : {};
-  const differs = (key: string): boolean => env[key] !== undefined && env[key] !== expected[key];
+  const names = Object.keys(env);
+  const matching = (key: string): string[] => names.filter(name =>
+    (platform === 'win32' ? name.toUpperCase() : name) === key && env[name] !== undefined);
+  const differing = (key: string): string[] => matching(key).filter(name => env[name] !== expected[key]);
   return [
-    ...['ANTHROPIC_BASE_URL', 'ANTHROPIC_AUTH_TOKEN'].filter(differs).map(key => `env.${key}`),
-    ...['ANTHROPIC_API_KEY', ...PROVIDER_ENV].filter(key => env[key] !== undefined).map(key => `env.${key}`),
+    ...['ANTHROPIC_BASE_URL', 'ANTHROPIC_AUTH_TOKEN'].flatMap(differing).map(key => `env.${key}`),
+    ...['ANTHROPIC_API_KEY', ...PROVIDER_ENV].flatMap(matching).map(key => `env.${key}`),
     ...(settings?.apiKeyHelper !== undefined ? ['apiKeyHelper'] : []),
     ...(managed ? ['forceLoginMethod', 'forceLoginOrgUUID'].filter(key => settings?.[key] !== undefined) : []),
   ];
@@ -61,8 +66,8 @@ export async function inspectClaudeSettings(read: ReadText, input: { readonly pl
   const blocking: SettingsConflict[] = [];
   for (const path of files) {
     const managed = path === managedPath;
-    const keys = conflictKeys(parseSettingsObject(await read(path)), managed, input.expected);
-    const blocked = keys.filter(key => managed || key !== 'env.ANTHROPIC_BASE_URL');
+    const keys = conflictKeys(parseSettingsObject(await read(path)), managed, input.expected, input.platform);
+    const blocked = keys.filter(key => managed || key.toUpperCase() !== 'ENV.ANTHROPIC_BASE_URL');
     if (keys.length > blocked.length) overrideBaseUrl = true;
     if (blocked.length > 0) blocking.push({ path, keys: blocked });
   }
