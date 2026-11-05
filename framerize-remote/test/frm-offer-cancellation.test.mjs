@@ -160,7 +160,7 @@ require('node:module').syncBuiltinESMExports();
       throw new Error(`Launcher exited before the offer: ${JSON.stringify(exit)} ${stderr}`);
     })]), 'Launcher did not reach the offer');
     const saved = await readFile(profile);
-    const port = Number(/Local API: http:\/\/127\.0\.0\.1:(\d+)\/v1/.exec(stdout)?.[1]);
+    const port = Number(/Local API:?\s+http:\/\/127\.0\.0\.1:(\d+)\/v1/.exec(stdout)?.[1]);
     if (mode === 'bare frm') {
       assert.equal(answered, true, 'Bare frm must first ask for its remote');
       assert.equal(port, localPort);
