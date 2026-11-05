@@ -54,6 +54,11 @@ export const claudeReleaseUrl = (channel: string): string =>
   `https://downloads.claude.ai/claude-code-releases/${channel}`;
 
 const NATIVE_VERSION = /^\d+\.\d+\.\d+$/;
+const NPM_NUMBER = '(?:0|[1-9][0-9]*)';
+const NPM_PRERELEASE = `(?:${NPM_NUMBER}|[0-9]*[A-Za-z-][0-9A-Za-z-]*)`;
+const NPM_VERSION = new RegExp(`^${NPM_NUMBER}\\.${NPM_NUMBER}\\.${NPM_NUMBER}`
+  + `(?:-${NPM_PRERELEASE}(?:\\.${NPM_PRERELEASE})*)?`
+  + '(?:\\+[0-9A-Za-z-]+(?:\\.[0-9A-Za-z-]+)*)?$');
 
 /** npm view output, from T3 maintenanceResolver decodeNpmViewVersion: a string or a one-item array. */
 export function parseNpmViewVersion(stdout: string | null): string | null {
@@ -61,7 +66,9 @@ export function parseNpmViewVersion(stdout: string | null): string | null {
   try {
     const value: unknown = JSON.parse(stdout.trim());
     const version = Array.isArray(value) ? value[0] : value;
-    return typeof version === 'string' && version.trim() ? version.trim() : null;
+    if (typeof version !== 'string') return null;
+    const normalized = version.trim();
+    return NPM_VERSION.test(normalized) ? normalized : null;
   } catch { return null; }
 }
 
