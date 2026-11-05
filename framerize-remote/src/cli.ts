@@ -67,7 +67,10 @@ export async function run(argv: readonly string[], io: CliIo): Promise<number> {
       process.on('SIGINT', stop);
       process.on('SIGTERM', stop);
       try {
-        const offer = await offerClientSetup(configPath, io, process.env, undefined, controller.signal);
+        const clientEnv = { ...process.env };
+        if (overrides.host !== undefined) delete clientEnv.FRM_HOST;
+        if (overrides.port !== undefined) delete clientEnv.FRM_PORT;
+        const offer = await offerClientSetup(configPath, io, clientEnv, undefined, controller.signal);
         if (offer === 'cancelled' || controller.signal.aborted) throw new RemoteDiagnosticError('aborted');
         io.stdout('Next: frm serve\n');
       } finally {
