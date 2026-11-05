@@ -12,8 +12,9 @@ the `frm` command, runs on each client machine and forwards requests to Server.
 Server holds the accounts and Castle. Remote holds neither. Both use the
 HTTP listener in [Core](framerize-core/README.md).
 
-`main` is the development branch. Build and install its local npm archives
-as described below. Live provider compatibility remains unverified.
+`main` is the development branch. Its npm packages are not published yet.
+Build and install local npm archives as described below. Live provider
+compatibility remains unverified.
 
 ## 1. Install the commands
 

@@ -9,8 +9,8 @@ integration and Castle. The older `framerize-remote` command remains available.
 
 ## Install the development package
 
-For the current development version, build and install a local npm archive
-from the repository root:
+The `framerize-remote` package is not published to npm yet. Build and install
+a local npm archive from the repository root:
 
 ```sh
 npm ci --ignore-scripts
@@ -22,6 +22,8 @@ npm install -g ./framerize-remote-0.2.0.tgz --ignore-scripts
 This installs the `frm` command. npm places its command links in the global
 prefix. If `frm` is not found, use `npm prefix -g` to locate it and add its
 `bin` directory to `PATH` on Linux or macOS, or the prefix itself on Windows.
+The npm package named `frm` belongs to another project. This command comes
+from `framerize-remote`.
 
 The package bundles the Core listener. It has no runtime dependencies and
 needs no compiler or development checkout.
