@@ -24,8 +24,9 @@ The upstream license text is in `T3-LICENSE`.
   Stopping the installed service before repair follows `bootService.ts`.
   The port probe, process-ID readiness match and combined rollback errors
   are Framerize additions.
-  Signal cancellation, waiting for command closure with a one-second grace
-  period, and continuing rollback after cancellation are Framerize additions.
+  Signal cancellation, stopping owned POSIX process groups with a one-second
+  grace period, waiting for command closure, reporting cleanup failures, and
+  continuing rollback after cancellation are Framerize additions.
 - `src/tailscale.ts` adapts `packages/tailscale/src/tailscale.ts` and
   `apps/server/src/cli/pair.ts`: status parsing, Serve route inspection,
   `serve --bg`, removal and rollback. Unlike upstream `pair`, Framerize

@@ -15,21 +15,58 @@ export function rollbackError(original: unknown, failures: readonly unknown[]): 
 }
 export type StepRunner = (command: string, args: readonly string[], signal?: AbortSignal) =>
   Promise<{ code: number; stdout: string }>;
-export const runStep: StepRunner = (command, args, signal) => new Promise(resolve => {
+export const runStep: StepRunner = (command, args, signal) => new Promise((resolve, reject) => {
   if (signal?.aborted) { resolve({ code: 1, stdout: '' }); return; }
   let result = { code: 1, stdout: '' };
+  let stopping: Promise<void> | undefined;
+  let forced = false;
   const child = execFile(command, [...args], {
-    timeout: 120_000, maxBuffer: 256 * 1024, windowsHide: true, ...(signal ? { signal } : {}),
-  }, (error, stdout) => { result = { code: error ? 1 : 0, stdout: String(stdout) }; });
-  const kill = () => { child.kill('SIGKILL'); };
-  let timer = setTimeout(kill, 121_000).unref();
-  const abort = () => { clearTimeout(timer); timer = setTimeout(kill, 1000).unref(); };
+    timeout: 120_000, maxBuffer: 256 * 1024, windowsHide: true,
+    detached: process.platform !== 'win32', ...(signal ? { signal } : {}),
+  }, (error, stdout) => {
+    result = { code: error ? 1 : 0, stdout: String(stdout) };
+    if (error) stop();
+  });
+  const stop = (): void => {
+    forced = true;
+    if (stopping) return;
+    stopping = new Promise<void>((done, fail) => {
+      const send = (kind: NodeJS.Signals): boolean => {
+        try {
+          if (process.platform !== 'win32' && child.pid) return process.kill(-child.pid, kind);
+          return child.kill(kind);
+        } catch (error) {
+          if ((error as NodeJS.ErrnoException).code !== 'ESRCH') {
+            fail(new ServerSetupError('Could not stop service command processes. Some may still be running.', { cause: error }));
+          }
+          return false;
+        }
+      };
+      if (!send('SIGTERM')) { done(); return; }
+      setTimeout(() => { send('SIGKILL'); done(); }, 1000);
+    });
+    void stopping.catch(error => {
+      clearTimeout(timer);
+      signal?.removeEventListener('abort', abort);
+      child.stdout?.destroy();
+      child.stderr?.destroy();
+      child.unref();
+      reject(error);
+    });
+  };
+  const timer = setTimeout(stop, 120_000).unref();
+  const abort = stop;
   signal?.addEventListener('abort', abort, { once: true });
   if (signal?.aborted) abort();
+  child.once('exit', (code, exitSignal) => {
+    if (code !== 0 || exitSignal) stop();
+  });
   child.once('close', () => {
     clearTimeout(timer);
     signal?.removeEventListener('abort', abort);
-    resolve(result);
+    void (stopping ?? Promise.resolve()).then(() => {
+      resolve(forced ? { ...result, code: 1 } : result);
+    }, reject);
   });
 });
 
