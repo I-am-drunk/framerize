@@ -19,17 +19,19 @@ function* itemEvents(item: Record<string, unknown>, fields: Record<string, unkno
     for (const [content_index, part] of replyBlocks(item.content).entries()) {
       const location = { ...fields, content_index };
       const field = part.type === 'output_text' ? 'text' : part.type === 'refusal' ? 'refusal' : undefined;
+      const logprobs = field === 'text' ? { logprobs: part.logprobs ?? [] } : {};
       yield emit('response.content_part.added', { ...location,
-        part: field ? { ...part, [field]: '', ...(field === 'text' ? { annotations: [] } : {}) } : part });
+        part: field ? { ...part, [field]: '', ...(field === 'text' ? { annotations: [],
+          ...(part.logprobs === undefined ? {} : { logprobs: [] }) } : {}) } : part });
       if (field) {
         const name = `response.${part.type}`;
-        yield emit(`${name}.delta`, { ...location, delta: part[field], ...(field === 'text' ? { logprobs: [] } : {}) });
+        yield emit(`${name}.delta`, { ...location, delta: part[field], ...logprobs });
         if (field === 'text' && Array.isArray(part.annotations)) {
           for (const [annotation_index, annotation] of part.annotations.entries()) {
             yield emit('response.output_text.annotation.added', { ...location, annotation_index, annotation });
           }
         }
-        yield emit(`${name}.done`, { ...location, [field]: part[field], ...(field === 'text' ? { logprobs: [] } : {}) });
+        yield emit(`${name}.done`, { ...location, [field]: part[field], ...logprobs });
       }
       yield emit('response.content_part.done', { ...location, part });
     }

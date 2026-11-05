@@ -12,6 +12,38 @@ function events(bytes) {
   });
 }
 
+for (const viaRemote of [false, true]) {
+  test(`Responses text events preserve log probabilities, remote=${viaRemote}`, async context => {
+    const protocol = protocols.find(value => value.name === 'responses');
+    const logprobs = [
+      { token: 'Snow', logprob: -0.125, top_logprobs: [{ token: 'Rain', logprob: -2.5 }] },
+      { token: '!', logprob: -0.25, top_logprobs: [{ token: '.', logprob: -1.5 }] },
+    ];
+    const value = reply(protocol, { usage: { input_tokens: 1, output_tokens: 2, total_tokens: 3 },
+      output: [{ type: 'message', id: 'synthetic-message', role: 'assistant', status: 'completed',
+        content: [{ type: 'output_text', text: 'Snow!', annotations: [], logprobs }] }] });
+    const setup = await fixture(context, protocol, viaRemote, { value });
+    const input = { ...protocol.body, include: ['message.output_text.logprobs'], top_logprobs: 2 };
+    for (const stream of [false, true]) {
+      const result = await setup.post({ ...input, stream });
+      assert.equal(result.status, 200);
+      if (!stream) {
+        assert.equal(result.body.toString(), JSON.stringify(value));
+        continue;
+      }
+      const received = events(result.body);
+      assert.deepEqual(received.find(item => item.type === 'response.output_text.delta').logprobs, logprobs);
+      assert.deepEqual(received.find(item => item.type === 'response.output_text.done').logprobs, logprobs);
+      assert.deepEqual(received.find(item => item.type === 'response.content_part.added').part.logprobs, []);
+      assert.deepEqual(received.at(-1).response, value);
+    }
+    assert.equal(setup.observed.length, 2);
+    for (const observed of setup.observed) {
+      assert.deepEqual(observed.body.request, { ...input, stream: false });
+    }
+  });
+}
+
 for (const protocol of protocols) for (const viaRemote of [false, true]) {
   const name = `${protocol.name}, remote=${viaRemote}`;
   if (protocol.name === 'messages') {
