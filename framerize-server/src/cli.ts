@@ -101,7 +101,11 @@ export async function run(argv: readonly string[] = process.argv.slice(2),
   if (argv.includes('--help') || argv.includes('-h')) { events.stdout.write(HELP); return 0; }
   if (['up', 'pair', 'status', 'service'].includes(argv[0] ?? '')) {
     const controller = new AbortController();
-    const stop = () => controller.abort(new ServerSetupError('Server setup was cancelled.'));
+    const stop = () => {
+      events.off('SIGINT', stop);
+      events.off('SIGTERM', stop);
+      controller.abort(new ServerSetupError('Server setup was cancelled.'));
+    };
     events.on('SIGINT', stop);
     events.on('SIGTERM', stop);
     const ask = dependencies.ask ?? (!dependencies.process && process.stdin.isTTY
