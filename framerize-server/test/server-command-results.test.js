@@ -37,10 +37,11 @@ test('an already cancelled command does not spawn', async t => {
   assert.deepEqual(await runStep(process.execPath, [], AbortSignal.abort()), { code: 1, stdout: '' });
 });
 
-test('a group stop failure survives cancellation mapping', {
+for (const failure of ['signal', 'inspection']) test(`a group ${failure} failure survives cancellation mapping`, {
   timeout: 5000, skip: process.platform === 'win32' && 'Requires POSIX process groups',
 }, async t => {
   const originalSpawn = childProcess.spawn;
+  const originalExec = childProcess.execFile;
   const originalKill = process.kill;
   const controller = new AbortController();
   let child, closed;
@@ -52,13 +53,23 @@ test('a group stop failure survives cancellation mapping', {
     child.once('error', () => {});
     return child;
   };
+  childProcess.execFile = (command, ...args) => {
+    if (command === '/bin/ps' && failure === 'inspection') {
+      args.at(-1)(Object.assign(new Error('synthetic inspection failure'), { code: 'EIO' }), '');
+      return;
+    }
+    return originalExec(command, ...args);
+  };
   syncBuiltinESMExports();
   process.kill = (pid, signal) => {
-    if (pid === -child?.pid) throw Object.assign(new Error('synthetic denial'), { code: 'EPERM' });
+    if (failure === 'signal' && pid === -child?.pid) {
+      throw Object.assign(new Error('synthetic denial'), { code: 'EPERM' });
+    }
     return originalKill(pid, signal);
   };
   t.after(async () => {
     childProcess.spawn = originalSpawn;
+    childProcess.execFile = originalExec;
     process.kill = originalKill;
     syncBuiltinESMExports();
     child?.ref();
@@ -66,10 +77,10 @@ test('a group stop failure survives cancellation mapping', {
     await closed;
   });
   const pending = cancellableRunner(runStep, controller.signal)(process.execPath,
-    ['-e', 'console.log("ready"); setInterval(() => {}, 1000)']);
+    ['-e', 'process.on("SIGTERM", () => {}); console.log("ready"); setInterval(() => {}, 1000)']);
   await ready.promise;
   const rejected = assert.rejects(pending, error => {
-    assert.equal(error.cause?.code, 'EPERM');
+    assert.equal(error.cause?.code, failure === 'signal' ? 'EPERM' : 'EIO');
     assert.match(error.message, /Some may still be running/);
     return true;
   });
@@ -108,6 +119,7 @@ test('the command deadline force-stops a child that ignores termination', {
   assert.equal(settled, false, 'the command may run until its deadline');
   t.mock.timers.tick(1);
   t.mock.timers.tick(1000);
+  t.mock.timers.reset();
   const result = await pending;
   assert.equal(result.code, 1);
   assert.equal(result.stdout, 'ready\n');

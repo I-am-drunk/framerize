@@ -73,9 +73,10 @@ previous service, settings and Tailscale route. Cancellation stops pending
 readiness checks and waits for the active service command to close before
 rollback. On Linux and macOS, cancellation also stops descendants in the
 command's process group, even if the command exits first. The group receives
-SIGTERM, then SIGKILL after one second. Descendants that start a separate
-process group can escape this cleanup. A cleanup error reports that command
-processes may still be running.
+SIGTERM, then SIGKILL after one second. A bounded `/bin/ps` check then verifies
+that no live members remain. Descendants that start a separate process group
+can escape this cleanup. If signaling or verification fails, a cleanup error
+reports that command processes may still be running.
 A pending hostname lookup does not delay rollback.
 A second signal can interrupt rollback before restoration is complete.
 When a restore step also fails, the error reports both failures, and the

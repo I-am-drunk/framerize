@@ -1,6 +1,6 @@
 // Service activation and rollback adapted from T3 Code cli/up.ts and
 // cloud/bootService.ts at 5a906583fed3fa41dc806f2a19bd9d095537ed3e. MIT, T3 Tools Inc.
-import { spawn } from 'node:child_process';
+import { execFile, spawn } from 'node:child_process';
 import { mkdir, readFile, rename, rm, writeFile } from 'node:fs/promises';
 import { dirname, join, resolve } from 'node:path';
 import { randomUUID } from 'node:crypto';
@@ -15,6 +15,26 @@ export function rollbackError(original: unknown, failures: readonly unknown[]): 
 }
 export type StepRunner = (command: string, args: readonly string[], signal?: AbortSignal) =>
   Promise<{ code: number; stdout: string }>;
+
+async function waitForCommandGroup(group: number): Promise<void> {
+  const deadline = Date.now() + 1000;
+  for (;;) {
+    const remaining = deadline - Date.now();
+    if (remaining <= 0) throw new Error('The command process group did not stop.');
+    const states = await new Promise<string>((resolve, reject) => {
+      execFile('/bin/ps', ['-A', '-o', 'pgid=,stat='], {
+        timeout: Math.min(500, remaining), maxBuffer: 1024 * 1024, encoding: 'utf8',
+      }, (error, stdout) => error ? reject(error) : resolve(stdout));
+    });
+    const running = states.split('\n').some(line => {
+      const entry = /^\s*(\d+)\s+(\S+)/.exec(line);
+      return entry && Number(entry[1]) === group && !/^[ZX]/.test(entry[2]!);
+    });
+    if (!running) return;
+    await new Promise(resolve => setTimeout(resolve, 20));
+  }
+}
+
 export const runStep: StepRunner = (command, args, signal) => new Promise((resolve, reject) => {
   if (signal?.aborted) { resolve({ code: 1, stdout: '' }); return; }
   const output: Buffer[] = [];
@@ -29,20 +49,28 @@ export const runStep: StepRunner = (command, args, signal) => new Promise((resol
   const stop = (): void => {
     forced = true;
     if (stopping) return;
-    stopping = new Promise<void>((done, fail) => {
+    stopping = new Promise<void>((done, rejectStop) => {
+      const fail = (cause: unknown): void => rejectStop(new ServerSetupError(
+        'Could not stop service command processes. Some may still be running.', { cause }));
       const send = (kind: NodeJS.Signals): boolean => {
         try {
           if (process.platform !== 'win32' && child.pid) return process.kill(-child.pid, kind);
           return child.kill(kind);
         } catch (error) {
           if ((error as NodeJS.ErrnoException).code !== 'ESRCH') {
-            fail(new ServerSetupError('Could not stop service command processes. Some may still be running.', { cause: error }));
+            fail(error);
           }
           return false;
         }
       };
       if (!send('SIGTERM')) { done(); return; }
-      setTimeout(() => { send('SIGKILL'); done(); }, 1000);
+      setTimeout(async () => {
+        if (send('SIGKILL') && process.platform !== 'win32' && child.pid) {
+          try { await waitForCommandGroup(child.pid); }
+          catch (error) { fail(error); return; }
+        }
+        done();
+      }, 1000);
     });
     void stopping.catch(error => {
       clearTimeout(timer);
