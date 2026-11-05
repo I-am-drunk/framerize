@@ -25,6 +25,11 @@ npm ci --ignore-scripts --no-audit --no-fund
 npm run build
 ```
 
+For this source build, run commands from the repository root:
+
+- Use `node framerize-server/bin/framerize-server.js` wherever a guide says `framerize-server`.
+- Use `node framerize-remote/bin/frm.js` wherever a guide says `frm`.
+
 ## 2. Start Server
 
 Write an accounts file, for example `/srv/framerize/accounts.json`, with a
@@ -46,8 +51,10 @@ node framerize-server/bin/framerize-server.js up --lan
 
 `up` saves the settings, starts Server as a background service on Linux or
 macOS, and prints a pairing link and QR code. `--lan` accepts only private
-addresses; `--tailscale` adds a Tailscale Serve HTTPS route instead. Use
-`serve` in place of `up` to run in the foreground on any platform.
+addresses; `--tailscale` adds a Tailscale Serve HTTPS route instead.
+To run in the foreground, replace `up --lan` in that command with
+`serve --host 192.168.1.20`, using the Server machine's private address.
+`serve` works on every platform. `--lan` and `--tailscale` belong to `up`.
 
 With no API token, any client that reaches the port can run inference on the
 account. Set `FRAMERIZE_SERVER_TOKEN` to require a bearer token; the pairing
