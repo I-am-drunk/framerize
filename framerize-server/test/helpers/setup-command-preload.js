@@ -4,6 +4,7 @@ import { readFile, writeFile } from 'node:fs/promises';
 import { createServer } from 'node:http';
 import { syncBuiltinESMExports } from 'node:module';
 import { join } from 'node:path';
+import { PassThrough } from 'node:stream';
 
 const state = { running: false, enabled: false, calls: [] };
 let server;
@@ -40,6 +41,26 @@ async function command(program, args) {
   return { code: 0, stdout: '' };
 }
 
+childProcess.spawn = (program, args) => {
+  const child = new EventEmitter();
+  child.stdout = new PassThrough();
+  child.stderr = new PassThrough();
+  child.kill = () => false;
+  child.unref = () => child;
+  command(program, args).then(async result => {
+    await save();
+    child.stdout.end(result.stdout);
+    child.stderr.end();
+    child.emit('exit', result.code, null);
+    child.emit('close', result.code, null);
+  }).catch(error => {
+    child.stdout.end();
+    child.stderr.end();
+    child.emit('error', error);
+    child.emit('close', 1, null);
+  });
+  return child;
+};
 childProcess.execFile = (program, args, options, callback) => {
   const child = new EventEmitter();
   child.kill = () => false;

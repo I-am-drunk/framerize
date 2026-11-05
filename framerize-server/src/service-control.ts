@@ -1,6 +1,6 @@
 // Service activation and rollback adapted from T3 Code cli/up.ts and
 // cloud/bootService.ts at 5a906583fed3fa41dc806f2a19bd9d095537ed3e. MIT, T3 Tools Inc.
-import { execFile } from 'node:child_process';
+import { execFile, spawn } from 'node:child_process';
 import { mkdir, readFile, rename, rm, writeFile } from 'node:fs/promises';
 import { dirname, join, resolve } from 'node:path';
 import { randomUUID } from 'node:crypto';
@@ -15,21 +15,98 @@ export function rollbackError(original: unknown, failures: readonly unknown[]): 
 }
 export type StepRunner = (command: string, args: readonly string[], signal?: AbortSignal) =>
   Promise<{ code: number; stdout: string }>;
-export const runStep: StepRunner = (command, args, signal) => new Promise(resolve => {
+
+async function waitForCommandGroup(group: number): Promise<void> {
+  const deadline = Date.now() + 1000;
+  for (;;) {
+    const remaining = deadline - Date.now();
+    if (remaining <= 0) throw new Error('The command process group did not stop.');
+    const states = await new Promise<string>((resolve, reject) => {
+      execFile('/bin/ps', ['-A', '-o', 'pgid=,stat='], {
+        timeout: Math.min(500, remaining), maxBuffer: 1024 * 1024, encoding: 'utf8',
+      }, (error, stdout) => error ? reject(error) : resolve(stdout));
+    });
+    const running = states.split('\n').some(line => {
+      const entry = /^\s*(\d+)\s+(\S+)/.exec(line);
+      return entry && Number(entry[1]) === group && !/^[ZX]/.test(entry[2]!);
+    });
+    if (!running) return;
+    await new Promise(resolve => setTimeout(resolve, 20));
+  }
+}
+
+export const runStep: StepRunner = (command, args, signal) => new Promise((resolve, reject) => {
   if (signal?.aborted) { resolve({ code: 1, stdout: '' }); return; }
-  let result = { code: 1, stdout: '' };
-  const child = execFile(command, [...args], {
-    timeout: 120_000, maxBuffer: 256 * 1024, windowsHide: true, ...(signal ? { signal } : {}),
-  }, (error, stdout) => { result = { code: error ? 1 : 0, stdout: String(stdout) }; });
-  const kill = () => { child.kill('SIGKILL'); };
-  let timer = setTimeout(kill, 121_000).unref();
-  const abort = () => { clearTimeout(timer); timer = setTimeout(kill, 1000).unref(); };
+  const output: Buffer[] = [];
+  let stdoutBytes = 0;
+  let stderrBytes = 0;
+  let stopping: Promise<void> | undefined;
+  let forced = false;
+  const child = spawn(command, [...args], {
+    stdio: ['ignore', 'pipe', 'pipe'], windowsHide: true,
+    detached: process.platform !== 'win32',
+  });
+  const stop = (): void => {
+    forced = true;
+    if (stopping) return;
+    stopping = new Promise<void>((done, rejectStop) => {
+      const fail = (cause: unknown): void => rejectStop(new ServerSetupError(
+        'Could not stop service command processes. Some may still be running.', { cause }));
+      const send = (kind: NodeJS.Signals): boolean => {
+        try {
+          if (process.platform !== 'win32' && child.pid) return process.kill(-child.pid, kind);
+          return child.kill(kind);
+        } catch (error) {
+          if ((error as NodeJS.ErrnoException).code !== 'ESRCH') {
+            fail(error);
+          }
+          return false;
+        }
+      };
+      if (!send('SIGTERM')) { done(); return; }
+      setTimeout(async () => {
+        if (send('SIGKILL') && process.platform !== 'win32' && child.pid) {
+          try { await waitForCommandGroup(child.pid); }
+          catch (error) { fail(error); return; }
+        }
+        done();
+      }, 1000);
+    });
+    void stopping.catch(error => {
+      clearTimeout(timer);
+      signal?.removeEventListener('abort', abort);
+      child.stdout?.destroy();
+      child.stderr?.destroy();
+      child.unref();
+      reject(error);
+    });
+  };
+  child.stdout.on('data', (chunk: Buffer) => {
+    const remaining = Math.max(0, 256 * 1024 - stdoutBytes);
+    if (remaining) output.push(chunk.subarray(0, remaining));
+    stdoutBytes += chunk.length;
+    if (stdoutBytes > 256 * 1024) stop();
+  });
+  child.stderr.on('data', (chunk: Buffer) => {
+    stderrBytes += chunk.length;
+    if (stderrBytes > 256 * 1024) stop();
+  });
+  child.stdout.once('error', stop);
+  child.stderr.once('error', stop);
+  child.once('error', stop);
+  const timer = setTimeout(stop, 120_000).unref();
+  const abort = stop;
   signal?.addEventListener('abort', abort, { once: true });
   if (signal?.aborted) abort();
-  child.once('close', () => {
+  child.once('exit', (code, exitSignal) => {
+    if (code !== 0 || exitSignal) stop();
+  });
+  child.once('close', code => {
     clearTimeout(timer);
     signal?.removeEventListener('abort', abort);
-    resolve(result);
+    void (stopping ?? Promise.resolve()).then(() => {
+      resolve({ code: forced || code !== 0 ? 1 : 0, stdout: Buffer.concat(output).toString('utf8') });
+    }, reject);
   });
 });
 

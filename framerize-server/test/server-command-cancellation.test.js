@@ -24,16 +24,16 @@ async function bounded(promise) {
 for (const delayed of [false, true]) test(`cancelled command closes with ${delayed ? 'delayed' : 'ignored'} SIGTERM`, {
   timeout: 6000, skip: process.platform === 'win32' && 'Requires catchable POSIX signals',
 }, async t => {
-  const original = childProcess.execFile;
+  const original = childProcess.spawn;
   const controller = new AbortController();
   let child, closed, port, didClose = false;
   const ready = Promise.withResolvers();
-  childProcess.execFile = (...args) => {
+  childProcess.spawn = (...args) => {
     child = original(...args);
     closed = new Promise(resolve => child.once('close', () => { didClose = true; resolve(); }));
     let output = '';
-    child.stdout.setEncoding('utf8').on('data', chunk => {
-      output += chunk;
+    child.stdout.on('data', chunk => {
+      output += chunk.toString('utf8');
       if (output.includes('\n')) ready.resolve(Number(output.trim()));
     });
     child.once('error', () => {});
@@ -41,7 +41,7 @@ for (const delayed of [false, true]) test(`cancelled command closes with ${delay
   };
   syncBuiltinESMExports();
   t.after(async () => {
-    childProcess.execFile = original;
+    childProcess.spawn = original;
     syncBuiltinESMExports();
     controller.abort();
     if (child?.exitCode === null && child.signalCode === null) child.kill('SIGKILL');
