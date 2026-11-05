@@ -63,8 +63,20 @@ test('persistent Windows sharing failures stop within a bounded number of attemp
     throw Object.assign(new Error('Synthetic persistent sharing violation'), { code: 'EPERM' });
   });
   await assert.rejects(windows.saveConfigFile(f.profile, config), { code: 'profile_write' });
-  assert.ok(f.calls() > 1 && f.calls() <= 6);
+  assert.equal(f.calls(), 6);
   assert.equal(await fs.readFile(f.profile, 'utf8'), 'previous profile');
+  assert.deepEqual(await fs.readdir(f.root), ['profile.json']);
+});
+
+test('replacement succeeds on the last Windows retry', async t => {
+  const f = await fixture(t, async (attempt, rename, args, profile) => {
+    assert.equal(await fs.readFile(profile, 'utf8'), 'previous profile');
+    if (attempt < 6) throw Object.assign(new Error('Synthetic sharing violation'), { code: 'EBUSY' });
+    return rename(...args);
+  });
+  await windows.saveConfigFile(f.profile, config);
+  assert.equal(f.calls(), 6);
+  assert.equal(JSON.parse(await fs.readFile(f.profile, 'utf8')).remote, config.remote);
   assert.deepEqual(await fs.readdir(f.root), ['profile.json']);
 });
 
