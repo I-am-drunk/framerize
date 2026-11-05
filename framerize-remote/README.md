@@ -26,7 +26,8 @@ The npm package named `frm` belongs to another project. This command comes
 from `framerize-remote`.
 
 Install either `framerize` or `framerize-remote` in a global npm prefix.
-Both own `frm` and `framerize`, so uninstall the other package before switching.
+Both own `frm` and `framerize`. Before switching, run `frm service uninstall`
+if you installed its service, then uninstall the other npm package.
 Both Node libraries can share an application with `npm install --bin-links=false`.
 
 The package bundles the Core listener. It has no runtime dependencies and
