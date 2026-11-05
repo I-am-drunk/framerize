@@ -1,7 +1,8 @@
 import { spawn } from 'node:child_process';
 import type { ClientCommand } from './clients.js';
 
-// Windows quoting adapted from T3 Code packages/shared/src/shell.ts escapeWindowsShellArg at 5a906583 (MIT).
+// Windows quoting and shim dispatch adapted from T3 Code packages/shared/src/shell.ts
+// escapeWindowsShellArg and resolveSpawnCommand at 5a906583 (MIT).
 const WINDOWS_SHELL_META = /([()\][%!^"`<>&|;, *?])/g;
 
 export function escapeWindowsShellArg(arg: string): string {
@@ -27,6 +28,22 @@ export interface ProcessRunner {
 const CAPTURE_TIMEOUT_MS = 5000;
 const CAPTURE_MAX_BYTES = 64 * 1024;
 
+function stopCapture(child: ReturnType<typeof spawn>, platform: NodeJS.Platform, launch: typeof spawn): void {
+  if (!child.pid) { child.kill('SIGKILL'); return; }
+  if (platform !== 'win32') {
+    try { process.kill(-child.pid, 'SIGKILL'); }
+    catch { child.kill('SIGKILL'); }
+    return;
+  }
+  try {
+    const killer = launch('taskkill', ['/PID', String(child.pid), '/T', '/F'],
+      { stdio: 'ignore', windowsHide: true, shell: false });
+    killer.once('error', () => { child.kill('SIGKILL'); });
+    killer.once('close', code => { if (code !== 0) child.kill('SIGKILL'); });
+    killer.unref();
+  } catch { child.kill('SIGKILL'); }
+}
+
 /** Real process boundary. Tests inject a ProcessRunner instead. */
 export function nodeRunner(platform: NodeJS.Platform = process.platform, launch: typeof spawn = spawn): ProcessRunner {
   return {
@@ -50,21 +67,34 @@ export function nodeRunner(platform: NodeJS.Platform = process.platform, launch:
       return new Promise(resolve => {
         let child: ReturnType<typeof spawn>;
         try { child = launch(plan.file, plan.args, { env: { ...env, ...command.env }, shell: plan.shell,
-          stdio: ['ignore', 'pipe', 'ignore'], windowsHide: true }); }
+          stdio: ['ignore', 'pipe', 'ignore'], windowsHide: true, detached: platform !== 'win32' }); }
         catch { resolve(null); return; }
         const chunks: Buffer[] = [];
         let total = 0;
-        let failed = false;
-        const fail = (): void => { failed = true; child.kill('SIGKILL'); };
+        let settled = false;
+        const finish = (value: string | null): void => {
+          if (settled) return;
+          settled = true;
+          clearTimeout(timer);
+          resolve(value);
+        };
+        const fail = (): void => {
+          if (settled) return;
+          finish(null);
+          child.stdout?.destroy();
+          stopCapture(child, platform, launch);
+          child.unref();
+        };
         const timer = setTimeout(fail, CAPTURE_TIMEOUT_MS);
         child.stdout?.on('data', (data: Buffer) => {
+          if (settled) return;
           total += data.length;
           if (total > CAPTURE_MAX_BYTES) fail(); else chunks.push(data);
         });
-        child.once('error', () => { failed = true; });
+        child.on('error', fail);
+        child.stdout?.on('error', fail);
         child.once('close', code => {
-          clearTimeout(timer);
-          resolve(failed || code !== 0 ? null : Buffer.concat(chunks).toString('utf8'));
+          finish(code !== 0 ? null : Buffer.concat(chunks).toString('utf8'));
         });
       });
     },

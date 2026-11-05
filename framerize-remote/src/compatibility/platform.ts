@@ -1,3 +1,5 @@
+// PATH extension defaults, command candidates and quote stripping adapted from T3 Code
+// packages/shared/src/shell.ts at 5a906583 (MIT).
 import { accessSync, constants, statSync } from 'node:fs';
 import { posix, win32 } from 'node:path';
 

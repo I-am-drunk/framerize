@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import { mkdir, readFile, rename, rm, writeFile } from 'node:fs/promises';
+import { lstat, mkdir, readFile, realpath, rename, rm, writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { claudeEnv, type RemoteTarget } from './configure.js';
 
@@ -16,6 +16,21 @@ interface WriteRecord { readonly settingsPath: string; readonly written: Written
 const digest = (value: string): string => createHash('sha256').update(value).digest('hex');
 
 export class SettingsError extends Error {}
+
+async function settingsDestination(path: string): Promise<string> {
+  try { return await realpath(path); }
+  catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== 'ENOENT') {
+      throw new SettingsError('Claude settings could not be resolved.');
+    }
+    const entry = await lstat(path).catch((statError: NodeJS.ErrnoException) => {
+      if (statError.code !== 'ENOENT') throw new SettingsError('Claude settings could not be read.');
+      return undefined;
+    });
+    if (entry?.isSymbolicLink()) throw new SettingsError('Claude settings link has no target.');
+    return path;
+  }
+}
 
 async function readSettings(path: string): Promise<Settings | undefined> {
   let text: string;
@@ -61,6 +76,7 @@ function ours(record: WriteRecord | undefined, key: (typeof MANAGED_KEYS)[number
 
 /** Sets only the managed env keys and keeps every other setting. Values Framerize did not write stay. */
 export async function writeClaudeSettings(settingsPath: string, stateDir: string, target: RemoteTarget): Promise<void> {
+  settingsPath = await settingsDestination(settingsPath);
   const settings = await readSettings(settingsPath) ?? {};
   const env = { ...(settings.env ?? {}) };
   const record = await readRecord(stateDir);
@@ -81,15 +97,16 @@ export type UndoResult = 'restored' | 'not_configured' | 'changed_since';
 export async function undoClaudeSettings(stateDir: string): Promise<UndoResult> {
   const record = await readRecord(stateDir);
   if (!record) return 'not_configured';
-  const settings = await readSettings(record.settingsPath);
+  const settingsPath = await settingsDestination(record.settingsPath);
+  const settings = await readSettings(settingsPath);
   const env = { ...(settings?.env ?? {}) };
   const changed = MANAGED_KEYS.some(key => env[key] !== undefined && !ours(record, key, env[key]));
   if (settings && !changed) {
     for (const key of MANAGED_KEYS) delete env[key];
     const { env: _previous, ...rest } = settings;
     const next = Object.keys(env).length > 0 ? { ...rest, env } : rest;
-    await writeAtomic(record.settingsPath, `${JSON.stringify(next, null, 2)}\n`);
+    await writeAtomic(settingsPath, `${JSON.stringify(next, null, 2)}\n`);
   }
   await rm(recordPath(stateDir), { force: true });
-  return changed ? 'changed_since' : 'restored';
+  return !settings ? 'not_configured' : changed ? 'changed_since' : 'restored';
 }
