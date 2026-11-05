@@ -7,14 +7,19 @@ import { createConnection } from 'node:net';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { build } from 'esbuild';
 
+const packageRoot = process.env.FRAMERIZE_REMOTE_PACKAGE_ROOT;
+const guard = new URL('./helpers/client-signal-preload.mjs', import.meta.url).href;
 const sourceRoot = resolve(process.env.FRAMERIZE_REMOTE_SOURCE_ROOT
   ?? fileURLToPath(new URL('../', import.meta.url)));
-const compiled = await build({ entryPoints: [join(sourceRoot, 'src/compatibility/index.ts')],
-  bundle: true, platform: 'node', format: 'esm', write: false });
-const runtime = compiled.outputFiles[0].contents;
-console.log(`Source bundle SHA256 ${createHash('sha256').update(runtime).digest('hex')}`);
+let runtime;
+if (!packageRoot) {
+  const { build } = await import('esbuild');
+  const compiled = await build({ entryPoints: [join(sourceRoot, 'src/compatibility/index.ts')],
+    bundle: true, platform: 'node', format: 'esm', write: false });
+  runtime = compiled.outputFiles[0].contents;
+  console.log(`Source bundle SHA256 ${createHash('sha256').update(runtime).digest('hex')}`);
+}
 
 async function bounded(promise, message, milliseconds = 2000) {
   let timer;
@@ -53,7 +58,7 @@ process.disconnect();
 `;
 
 for (const signal of ['SIGINT', 'SIGTERM']) {
-  test(`ordinary client launch forwards wrapper-only ${signal} without a terminal`,
+  test(`${packageRoot ? 'installed frm' : 'source'} client forwards wrapper-only ${signal} without a terminal`,
     { skip: process.platform === 'win32', timeout: 6000 }, async context => {
       const directory = await mkdtemp(join(tmpdir(), 'frm-client-launch-signal-'));
       let wrapper, closed, clientPid, clientClosed = false, port;
@@ -77,9 +82,12 @@ for (const signal of ['SIGINT', 'SIGTERM']) {
       });
       const bin = join(directory, 'bin');
       await mkdir(bin);
-      await writeFile(join(directory, 'runtime.mjs'), runtime);
-      await writeFile(join(directory, 'wrapper.mjs'), wrapperSource);
-      const profile = join(directory, 'profile.json'), original = '{"synthetic":"unchanged"}\n';
+      if (runtime) {
+        await writeFile(join(directory, 'runtime.mjs'), runtime);
+        await writeFile(join(directory, 'wrapper.mjs'), wrapperSource);
+      }
+      const profile = join(directory, 'framerize-remote.json');
+      const original = JSON.stringify({ remote: 'http://127.0.0.1:9', port: 8788 });
       await writeFile(profile, original);
       await writeFile(join(bin, 'codex'), `#!${process.execPath}
 const listener = require('node:net').createServer(socket => socket.end());
@@ -89,9 +97,14 @@ listener.listen(0, '127.0.0.1', () => {
 `, { mode: 0o700 });
       const ready = Promise.withResolvers();
       let stdout = '', stderr = '', pendingLine = '', clientExit;
-      wrapper = spawn(process.execPath, [join(directory, 'wrapper.mjs')], {
+      const command = packageRoot
+        ? ['--import', guard, resolve(packageRoot, 'bin/frm.js'), 'client', 'codex', '--no-input']
+        : [join(directory, 'wrapper.mjs')];
+      wrapper = spawn(process.execPath, command, {
         cwd: directory, detached: true, stdio: ['ignore', 'pipe', 'pipe', 'ipc'],
         env: { HOME: directory, USERPROFILE: directory, PATH: bin,
+          FRM_HOME: directory, FRM_TEST_CLIENT: join(bin, 'codex'),
+          FRM_TEST_SIGNALS: join(directory, 'signals.jsonl'),
           TMPDIR: directory, TMP: directory, TEMP: directory, NODE_DISABLE_COMPILE_CACHE: '1' },
       });
       closed = new Promise((resolve, reject) => {
@@ -129,6 +142,12 @@ listener.listen(0, '127.0.0.1', () => {
       assert.deepEqual(observation, { code: 1, signal: null });
       assert.equal(clientClosed, true);
       assert.equal(afterSignal, 'ECONNREFUSED');
+      if (packageRoot) {
+        const events = (await readFile(join(directory, 'signals.jsonl'), 'utf8')).trim().split('\n').map(JSON.parse);
+        assert.deepEqual(events.filter(event => event.kind === 'forward'), [{ kind: 'forward', signal }]);
+        assert.deepEqual(events.filter(event => event.kind === 'closed'),
+          [{ kind: 'closed', code: clientExit.code, signal: clientExit.signal }]);
+      }
       assert.ok(stdout.includes('"kind":"ready"'));
     });
 }
