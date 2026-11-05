@@ -3,6 +3,7 @@ import { codexBaseUrl, claudeBaseUrl, launchCommand } from './configure.js';
 import { confirm, defaultRealPath, EXIT, lookupDeps, type ClientSetupDeps } from './deps.js';
 import { checkVersion } from './latest.js';
 import { conflictText, inspectClaudeSettings, withSettingsOverride } from './conflicts.js';
+import { claudeLocalSettingsPath } from './localSettings.js';
 import { readText, versionLine } from './versions.js';
 import { installCommand } from './install.js';
 import { planUpdate } from './maintenance.js';
@@ -165,9 +166,12 @@ export async function runClient(argv: readonly string[], deps: ClientSetupDeps):
   if (typeof executable === 'number') return executable;
   let launch = launchCommand(options.client, executable, deps.target, options.passthrough);
   if (options.client === 'claude') {
+    const cwd = deps.cwd ?? process.cwd();
+    const localPath = await claudeLocalSettingsPath(deps, cwd);
     const settings = await inspectClaudeSettings(deps.read ?? readText, { platform: deps.platform,
-      env: deps.env, userPath: claudeSettingsPath(deps.env, deps.home), cwd: deps.cwd ?? process.cwd(),
+      env: deps.env, userPath: claudeSettingsPath(deps.env, deps.home), cwd, localPath,
       expected: launch.env ?? {} });
+    deps.signal?.throwIfAborted();
     if (settings.blocking.length > 0) {
       deps.io.stderr(conflictText(settings.blocking));
       return EXIT.failed;

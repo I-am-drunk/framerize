@@ -35,6 +35,8 @@ export interface ClientSetupDeps {
   readonly read?: ReadText;
   /** Directory whose project `.claude/` settings a launch would load. */
   readonly cwd?: string;
+  /** Owner UID of a settings path, or null when absent or unreadable. */
+  readonly fileOwner?: (path: string) => Promise<number | null>;
 }
 
 export const EXIT = { ok: 0, failed: 1, usage: 2, needsConsent: 3 } as const;
