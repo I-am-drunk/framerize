@@ -163,6 +163,8 @@ lookup does not start an update.
 These signals also stop an installer or updater that is already running.
 A cancelled standalone install or update exits with the same cancellation
 diagnostic. Files already changed by the installer or updater remain changed.
+On Linux and macOS, cancellation requires `/bin/ps` to find child processes.
+Installers and updaters keep the current terminal session for their prompts.
 
 The prompt after an interactive `frm up` checks both clients. It offers an
 install for a missing client, and an update only when a newer release is

@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
 import { EventEmitter, getEventListeners } from 'node:events';
-import { mkdtemp, readFile, rm } from 'node:fs/promises';
+import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { createConnection } from 'node:net';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -65,15 +65,18 @@ function updaterScript(mode, state) {
   const child = `
     const fs = require('node:fs');
     const listener = require('node:net').createServer(socket => socket.end());
-    process.on('SIGTERM', () => { ${mode === 'graceful'
-      ? 'setTimeout(() => listener.close(() => process.exit(0)), 100);' : ''} });
+    process.on('SIGTERM', () => { ${mode.includes('graceful')
+      ? `setTimeout(() => listener.close(() => {
+          fs.writeFileSync(${JSON.stringify(state + '.graceful')}, 'closed');
+          process.exit(0);
+        }), 100);` : ''} });
     listener.listen(0, '127.0.0.1', () => {
       const state = ${JSON.stringify(state)};
       fs.writeFileSync(state + '.tmp', JSON.stringify({ pid: process.pid, port: listener.address().port }));
       fs.renameSync(state + '.tmp', state);
     });
   `;
-  if (mode !== 'descendant') return child;
+  if (!mode.startsWith('descendant')) return child;
   return `
     require('node:child_process').spawn(process.execPath, ['-e', ${JSON.stringify(child)}], { stdio: 'ignore' });
     process.on('SIGTERM', () => process.exit(0));
@@ -96,8 +99,9 @@ async function ownedFixture(context) {
     const errors = [];
     const attempt = async action => { try { await action(); } catch (error) { errors.push(error); } };
     await attempt(async () => {
-      if (fixture.child?.pid) {
-        try { process.kill(-fixture.child.pid, 'SIGKILL'); }
+      for (const pid of new Set([fixture.child?.pid, fixture.state?.pid])) {
+        if (!pid) continue;
+        try { process.kill(pid, 'SIGKILL'); }
         catch (error) { if (error.code !== 'ESRCH') throw error; }
       }
     });
@@ -109,9 +113,9 @@ async function ownedFixture(context) {
   return fixture;
 }
 
-for (const mode of ['graceful', 'stubborn', 'descendant']) {
+for (const mode of ['graceful', 'stubborn', 'descendant', 'descendant-graceful']) {
   test(`cancelled client command closes its ${mode} process before settling`, {
-    timeout: 6000, skip: process.platform === 'win32' && 'POSIX process group fixture',
+    timeout: 6000, skip: process.platform === 'win32' && 'POSIX process tree fixture',
   }, async context => {
     const fixture = await ownedFixture(context);
     const controller = new AbortController();
@@ -119,12 +123,13 @@ for (const mode of ['graceful', 'stubborn', 'descendant']) {
       childEnv, controller.signal);
     fixture.state = await readState(fixture.statePath);
     assert.equal(await portState(fixture.state.port), 'open');
-    if (mode === 'descendant') assert.notEqual(fixture.state.pid, fixture.child.pid);
+    if (mode.startsWith('descendant')) assert.notEqual(fixture.state.pid, fixture.child.pid);
     controller.abort();
     assert.equal(await bounded(pending, 'Cancelled updater did not settle'), 1);
     assert.equal(fixture.wasClosed, true);
     assert.equal(fixture.child.signalCode, mode === 'stubborn' ? 'SIGKILL' : null);
     await portCloses(fixture.state.port);
+    if (mode.includes('graceful')) assert.equal(await readFile(fixture.statePath + '.graceful', 'utf8'), 'closed');
     assert.deepEqual(getEventListeners(controller.signal, 'abort'), []);
   });
 }
@@ -134,6 +139,55 @@ test('an already cancelled client command never spawns', async () => {
   controller.abort();
   const runner = nodeRunner(process.platform, () => assert.fail('Unexpected spawn'));
   assert.equal(await runner.run(command(''), {}, controller.signal), 1);
+});
+
+test('cancellable maintenance can open its controlling terminal', {
+  timeout: 8000, skip: !['linux', 'darwin'].includes(process.platform) && 'POSIX terminal fixture',
+}, async context => {
+  const root = await mkdtemp(join(tmpdir(), 'client-terminal-'));
+  const pids = join(root, 'pids'), state = join(root, 'state');
+  let terminal, closed;
+  context.after(async () => {
+    terminal?.kill('SIGKILL');
+    for (const pid of (await readFile(pids, 'utf8').catch(() => '')).trim().split('\n').map(Number)) {
+      if (pid > 0) try { process.kill(pid, 'SIGKILL'); } catch (error) { if (error.code !== 'ESRCH') throw error; }
+    }
+    if (closed) await bounded(closed.catch(() => {}), 'Terminal cleanup timed out');
+    await rm(root, { recursive: true, force: true });
+  });
+  await writeFile(join(root, 'runner.mjs'), compiled.outputFiles[0].contents);
+  const probe = join(root, 'probe.mjs');
+  await writeFile(probe, `
+    import { spawn } from 'node:child_process';
+    import { appendFileSync, writeFileSync } from 'node:fs';
+    import { nodeRunner } from './runner.mjs';
+    writeFileSync(${JSON.stringify(pids)}, process.pid + '\\n');
+    const runner = nodeRunner(process.platform, (...args) => {
+      const child = spawn(...args);
+      appendFileSync(${JSON.stringify(pids)}, child.pid + '\\n');
+      return child;
+    });
+    process.exitCode = await runner.run(${JSON.stringify(command(`
+      const fs = require('node:fs');
+      const fd = fs.openSync('/dev/tty', 'r+');
+      fs.writeFileSync(${JSON.stringify(state)}, 'controlling terminal opened');
+      fs.closeSync(fd);
+    `))}, process.env, new AbortController().signal);
+  `);
+  const quote = value => `'${value.replaceAll("'", "'\\''")}'`;
+  const args = process.platform === 'darwin' ? ['-q', '/dev/null', process.execPath, probe]
+    : ['-q', '-e', '-c', `${quote(process.execPath)} ${quote(probe)}`, '/dev/null'];
+  terminal = spawn('/usr/bin/script', args, { cwd: root, env: { ...childEnv, TERM: 'xterm' } });
+  let output = '';
+  for (const stream of [terminal.stdout, terminal.stderr]) {
+    stream.on('data', chunk => { output = (output + chunk).slice(-65536); });
+  }
+  closed = new Promise((resolve, reject) => {
+    terminal.once('error', reject);
+    terminal.once('close', resolve);
+  });
+  assert.equal(await bounded(closed, 'Terminal command did not close'), 0, output);
+  assert.equal(await readFile(state, 'utf8'), 'controlling terminal opened');
 });
 
 test('standalone installation owns cancellation and removes its handlers', async () => {
@@ -165,6 +219,22 @@ test('a completed command keeps its exit code and releases its abort listener', 
   const code = await nodeRunner().run(command('process.exit(7)'), childEnv, controller.signal);
   assert.equal(code, 7);
   assert.deepEqual(getEventListeners(controller.signal, 'abort'), []);
+});
+
+test('an interactive client launch does not receive maintenance cancellation', async () => {
+  const controller = new AbortController();
+  let launched = false;
+  const code = await runClient(['codex'], {
+    platform: 'linux', env: { PATH: '/synthetic/bin' }, home: '/synthetic/home',
+    stateDir: '/synthetic/state', target: { origin: 'http://127.0.0.1:8788' },
+    signal: controller.signal, probe: () => true, io: { stdout() {}, stderr() {} },
+    runner: {
+      async run(_command, _env, signal) { launched = true; assert.equal(signal, undefined); return 7; },
+      async capture() { assert.fail('An interactive launch does not check versions'); },
+    },
+  });
+  assert.equal(code, 7);
+  assert.equal(launched, true);
 });
 
 test('simulated Windows cancellation waits for both the child and taskkill', async () => {

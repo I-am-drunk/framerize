@@ -102,6 +102,10 @@ under the same MIT License.
   tests the Windows branch.
   Passing setup cancellation through version lookups and release-body reads
   is also Framerize code.
+  Cancellation of running installers and updaters is Framerize code. POSIX
+  commands retain their terminal session; bounded `/bin/ps` snapshots identify
+  their descendants for SIGTERM and SIGKILL after a 500 ms grace period.
+  Windows uses bounded `taskkill /T /F` and waits for command closure.
 
 `test/tailscale.test.mjs` predates these adaptations. Its spawn-failure,
 deadline and stderr-diagnostic cases cover the same behaviors as

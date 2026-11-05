@@ -97,6 +97,7 @@ const reject = operation => {
   throw new Error('Unexpected external operation in synthetic updater fixture');
 };
 const launch = processes.spawn;
+const execFile = processes.execFile;
 processes.spawn = (file, args, options) => {
   if (file !== ${JSON.stringify(executable)} || args.length !== 1
     || !['--version', 'update'].includes(args[0])) return reject('spawn');
@@ -106,7 +107,15 @@ processes.spawn = (file, args, options) => {
   return child;
 };
 for (const method of ['spawnSync', 'exec', 'execSync', 'execFile', 'execFileSync', 'fork']) {
-  processes[method] = () => reject(method);
+  processes[method] = (...args) => {
+    if (method === 'execFile' && args[0] === '/bin/ps'
+      && JSON.stringify(args[1]) === JSON.stringify(['-A', '-o', 'pid=,ppid='])
+      && args[2]?.timeout === 1000 && args[2]?.killSignal === 'SIGKILL') {
+      record({event: 'process-snapshot'});
+      return execFile(...args);
+    }
+    return reject(method);
+  };
 }
 let fetched = false;
 globalThis.fetch = async url => {

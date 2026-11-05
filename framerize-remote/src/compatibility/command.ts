@@ -175,5 +175,5 @@ export async function runClient(argv: readonly string[], deps: ClientSetupDeps):
     // Command-line settings outrank user and project files, so a foreign base URL cannot win.
     if (settings.overrideBaseUrl) launch = withSettingsOverride(launch, claudeBaseUrl(deps.target.origin));
   }
-  return deps.runner.run(launch, launchEnv(options.client, deps.env), deps.signal);
+  return deps.runner.run(launch, launchEnv(options.client, deps.env));
 }
