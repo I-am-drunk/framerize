@@ -173,7 +173,8 @@ export async function setUp(input: string | undefined, io: CliIo, options: UpOpt
  */
 async function startService(status: ServiceStatus, profile: PersistedConfig,
   options: UpOptions): Promise<UpResult['service']> {
-  const free = () => checkLocalPort(profile.host ?? CONFIG_DEFAULTS.host, profile.port ?? CONFIG_DEFAULTS.port);
+  const free = () => checkLocalPort(profile.host ?? CONFIG_DEFAULTS.host,
+    profile.port ?? CONFIG_DEFAULTS.port, options.signal);
   if (!status.current || !status.running) return installService(options.service, free);
   await controlService(options.service, 'stop');
   await free();

@@ -42,7 +42,8 @@ Claude Code or Codex. `frm up --json` prints the result and asks nothing.
 
 `up` checks that the managed service has started its local API before reporting
 success. Before startup completes, Ctrl+C cancels the pending check or service
-command. If setup fails or is cancelled, `up` attempts to restore the previous
+command. A pending hostname lookup does not delay rollback.
+If setup fails or is cancelled, `up` attempts to restore the previous
 profile and service state. A previously stopped service stays stopped. If
 restoration fails, the error includes the original failure and reports that
 restoration is incomplete. If the profile cannot be restored, `up` does not restart

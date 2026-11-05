@@ -6,13 +6,27 @@ import { SERVE_PID_HEADER } from './cmdRun.js';
 import { RemoteDiagnosticError } from './diagnostics.js';
 
 /** Fails when another listener holds the port; binds exclusively and closes at once. */
-export async function checkLocalPort(host: string, port: number): Promise<void> {
+export async function checkLocalPort(host: string, port: number, signal?: AbortSignal): Promise<void> {
+  if (signal?.aborted) throw new RemoteDiagnosticError('aborted');
   await new Promise<void>((resolve, reject) => {
     const probe = createServer().unref();
+    const finish = (error?: Error | null): void => {
+      signal?.removeEventListener('abort', abort);
+      if (signal?.aborted) reject(new RemoteDiagnosticError('aborted'));
+      else if (error) reject(error);
+      else resolve();
+    };
+    const abort = (): void => { probe.close(() => finish()); };
     probe.once('error', (error: NodeJS.ErrnoException) => {
-      reject(new RemoteDiagnosticError(error.code === 'EADDRINUSE' ? 'service_port_busy' : 'listen_failed'));
+      finish(new RemoteDiagnosticError(error.code === 'EADDRINUSE' ? 'service_port_busy' : 'listen_failed'));
     });
-    probe.listen({ host, port, exclusive: true }, () => probe.close((error) => error ? reject(error) : resolve()));
+    signal?.addEventListener('abort', abort, { once: true });
+    try {
+      probe.listen({ host, port, exclusive: true }, () => probe.close(finish));
+    } catch (error) {
+      signal?.removeEventListener('abort', abort);
+      reject(error);
+    }
   });
 }
 
