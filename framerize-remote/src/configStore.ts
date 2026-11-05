@@ -1,4 +1,5 @@
-import { mkdir, mkdtemp, open, readFile, rename, rm } from 'node:fs/promises';
+import { constants } from 'node:fs';
+import { mkdir, mkdtemp, open, rename, rm } from 'node:fs/promises';
 import { dirname, join, resolve } from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
 import { RemoteDiagnosticError } from './diagnostics.js';
@@ -14,9 +15,17 @@ function absoluteReference(reference: CredentialReference, base: string): Creden
   return reference.kind === 'file' ? { kind: 'file', path: resolve(base, reference.path) } : { ...reference };
 }
 
+export async function readConfigText(path: string): Promise<string> {
+  const handle = await open(path, constants.O_RDONLY | constants.O_NONBLOCK | constants.O_NOCTTY);
+  try {
+    if (!(await handle.stat()).isFile()) throw new Error();
+    return await handle.readFile('utf8');
+  } finally { await handle.close(); }
+}
+
 export async function loadConfigFile(path: string): Promise<RemoteConfig> {
   let text: string;
-  try { text = await readFile(path, 'utf8'); }
+  try { text = await readConfigText(path); }
   catch (error) {
     const code = (error as NodeJS.ErrnoException).code === 'ENOENT' ? 'profile_missing' : 'profile_invalid';
     throw new RemoteDiagnosticError(code, 'no configuration found; run `frm setup` first');
