@@ -25,7 +25,7 @@ function deps({ installed = [native], files = {}, releases = {}, answers = [], v
     runner: { async run(command) { runs.push(command); return 0; },
       async capture(command) { return command.args[0] === '--version' ? version : null; } },
     fetch: async url => { fetched.push(url); return releases[url] ?? null; },
-    read: async path => files[path] ?? null,
+    read: async path => files[path.replaceAll('\\', '/')] ?? null,
     ...(answers ? { prompt: async () => answers.shift() ?? null } : {}),
   } };
 }
@@ -87,7 +87,8 @@ for (const [name, path, settings, key] of [
     const h = deps({ files: { [path]: JSON.stringify(settings) } });
     assert.equal(await setup.runClient(['claude'], h.deps), setup.EXIT.failed);
     assert.equal(h.runs.length, 0);
-    assert.match(h.err.join(''), new RegExp(`${path.replaceAll('.', '\\.')}: ${key.replaceAll('.', '\\.')}`));
+    assert.match(h.err.join('').replaceAll('\\', '/'),
+      new RegExp(`${path.replaceAll('.', '\\.')}: ${key.replaceAll('.', '\\.')}`));
     assert.ok(!/synthetic-other|corp\.example|key\.sh/.test(h.err.join('')));
   });
 }

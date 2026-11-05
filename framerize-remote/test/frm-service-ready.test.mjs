@@ -131,6 +131,7 @@ test('a captured real frm serve child is recognized by its own PID and released 
     { code: 'service_not_ready' });
   assert.equal(await ready.waitForServiceListener({ host: '127.0.0.1', port, service: running(child.pid), timeoutMs: 8000 }), child.pid);
   child.kill('SIGTERM');
-  assert.deepEqual(await closed, { code: 0, signal: null });
+  assert.deepEqual(await closed, process.platform === 'win32'
+    ? { code: null, signal: 'SIGTERM' } : { code: 0, signal: null });
   await ready.checkLocalPort('127.0.0.1', port);
 });

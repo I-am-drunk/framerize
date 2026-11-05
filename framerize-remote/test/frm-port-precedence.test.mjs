@@ -109,7 +109,7 @@ test('serve --port replaces an invalid FRM_PORT and closes its real listener',
     assert.equal(await health(port), 200);
     assert.deepEqual(calls, ['/ready']);
     child.kill('SIGTERM');
-    assert.deepEqual(await bounded(closed), [0, null]);
+    assert.deepEqual(await bounded(closed), process.platform === 'win32' ? [null, 'SIGTERM'] : [0, null]);
     await assert.rejects(health(port), { code: 'ECONNREFUSED' });
     const entries = await readdir(root, { recursive: true, withFileTypes: true });
     assert.ok(entries.every(entry => entry.isDirectory()));
