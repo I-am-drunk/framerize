@@ -1,34 +1,48 @@
 # Framerize
 
-Framerize serves an inference API backed by Framer accounts. Server runs on
-the machine that holds the accounts. Remote, the `frm` command, runs on each
-client machine and forwards requests to Server.
+Framerize serves an inference API backed by Framer accounts. Server, the
+`framerize` command, runs on the machine that holds the accounts. Remote,
+the `frm` command, runs on each client machine and forwards requests to Server.
 
 | Run this | Where | Default address |
 | --- | --- | --- |
-| [Server](framerize-server/README.md) | Machine with the account | `127.0.0.1:8789` |
-| [Remote](framerize-remote/README.md) | Client machine | `127.0.0.1:8788` |
+| [`framerize`](framerize-server/README.md) | Machine with the account | `127.0.0.1:8789` |
+| [`frm`](framerize-remote/README.md) | Client machine | `127.0.0.1:8788` |
 
 Server holds the accounts and Castle. Remote holds neither. Both use the
 HTTP listener in [Core](framerize-core/README.md).
 
-`main` is the development branch. No revision is published to npm, and
-`npx framerize-remote` does not install this source. Live provider
-compatibility is unverified. Use the source commands below.
+`main` is the development branch. Build and install its local npm archives
+as described below. Live provider compatibility remains unverified.
 
-## 1. Build the source
+## 1. Install the commands
 
-Use Node.js 22.12 or newer. On each machine, from the repository root:
+Use Node.js 22.12 or newer. Build the development packages once from the
+repository root, then copy the needed archive to each machine:
 
 ```sh
 npm ci --ignore-scripts --no-audit --no-fund
 npm run build
+npm pack ./framerize-server --ignore-scripts
+npm pack --workspace=framerize-remote --ignore-scripts
 ```
 
-For this source build, run commands from the repository root:
+On the Server machine:
 
-- Use `node framerize-server/bin/framerize-server.js` wherever a guide says `framerize-server`.
-- Use `node framerize-remote/bin/frm.js` wherever a guide says `frm`.
+```sh
+npm install --global --ignore-scripts ./framerize-server-0.1.0.tgz
+```
+
+On each client machine:
+
+```sh
+npm install --global --ignore-scripts ./framerize-remote-0.2.0.tgz
+```
+
+The packages install `framerize` for Server and `frm` for Remote. npm creates
+the command links in its global prefix. On Linux and macOS, that prefix's
+`bin` directory must be on `PATH`; on Windows, the prefix itself must be on
+`PATH`. Run `npm prefix -g` to find it. Both commands work outside the checkout.
 
 ## 2. Start Server
 
@@ -46,7 +60,7 @@ also covers sessions read from an environment variable or file.
 ```sh
 FRAMERIZE_SERVER_BACKEND=framer \
 FRAMERIZE_SERVER_ACCOUNTS=/srv/framerize/accounts.json \
-node framerize-server/bin/framerize-server.js up --lan
+framerize up --lan
 ```
 
 `up` saves the settings, starts Server as a background service on Linux or
@@ -58,7 +72,7 @@ To run in the foreground on any platform, enable the same LAN filter with:
 FRAMERIZE_SERVER_BACKEND=framer \
 FRAMERIZE_SERVER_ACCOUNTS=/srv/framerize/accounts.json \
 FRAMERIZE_SERVER_LAN=true \
-node framerize-server/bin/framerize-server.js serve
+framerize serve
 ```
 
 `--lan` and `--tailscale` belong to `up`; `serve` does not accept those flags.
@@ -72,10 +86,10 @@ lists every variable.
 ## 3. Pair Remote on the client machine
 
 For a background Server, pass the link that `up` printed to `frm`. Run
-`framerize-server pair` on the Server machine to print it again.
+`framerize pair` on the Server machine to print it again.
 
 ```sh
-node framerize-remote/bin/frm.js 'http://192.168.1.20:8789/pair#token=...'
+frm 'http://192.168.1.20:8789/pair#token=...'
 ```
 
 `frm` saves the Server origin and any token from the link in
