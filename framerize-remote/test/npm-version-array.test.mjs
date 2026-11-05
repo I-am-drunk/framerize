@@ -2,9 +2,9 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { fileURLToPath } from 'node:url';
 import { build } from 'esbuild';
-import { join } from 'node:path';
+import { posix } from 'node:path';
 
-const npmPath = join('/synthetic/bin', 'npm');
+const npmPath = posix.join('/synthetic/bin', 'npm');
 
 async function loadSource(name) {
   const compiled = await build({
