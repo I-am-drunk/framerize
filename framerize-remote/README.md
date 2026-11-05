@@ -72,6 +72,8 @@ variables for one run; nothing is saved:
 
 If readiness fails, `serve` exits without opening a listener. Use `frm check`
 after fixing the address or token.
+Ctrl+C or SIGTERM during listener startup closes Remote even if its hostname
+lookup is still pending. A late lookup result cannot reopen the listener.
 
 Remote removes the local client's `Authorization` header before forwarding.
 It sends the server token instead, when one is configured.

@@ -60,11 +60,18 @@ export function createInstance(options: InstanceOptions): FramerizeInstance {
   function listen(): Promise<AddressInfo> {
     if (closing) return Promise.reject(new HttpError('server_closing'));
     listening ??= new Promise((resolve, reject) => {
-      const cleanup = () => { server.off('error', failed); server.off('listening', ready); };
+      const cleanup = () => {
+        server.off('error', failed); server.off('listening', ready); server.off('close', stopped);
+      };
       const failed = () => { cleanup(); reject(new Error('Instance listen failed')); };
-      const ready = () => { cleanup(); resolve(server.address() as AddressInfo); };
+      const stopped = () => { cleanup(); reject(new HttpError('server_closing')); };
+      const ready = () => {
+        if (closing) { stopped(); return; }
+        cleanup(); resolve(server.address() as AddressInfo);
+      };
       server.once('error', failed);
       server.once('listening', ready);
+      server.once('close', stopped);
       try { server.listen(config.port, config.host); } catch { failed(); }
     });
     return listening;
@@ -75,8 +82,9 @@ export function createInstance(options: InstanceOptions): FramerizeInstance {
     closed = Promise.resolve().then(async () => {
       for (const controller of active) controller.abort(new HttpError('server_closing'));
       for (const socket of sockets) socket.destroy();
-      await listening?.catch(() => {});
+      const pendingListen = listening?.catch(() => {});
       await new Promise<void>((resolve) => server.close(() => resolve()));
+      await pendingListen;
       const controller = new AbortController();
       await bounded(() => Promise.resolve().then(() => config.backend.close()),
         controller, config.shutdownTimeoutMs, new HttpError('server_closing'))

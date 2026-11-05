@@ -287,6 +287,11 @@ await app.listen();
 await app.close();
 ```
 
+Calling `app.close()` during startup rejects the pending `app.listen()` promise
+with code `server_closing` and message `Server is closing`. Handle that rejection
+when cancelling startup. A pending hostname lookup may finish later, but it
+cannot open the closed listener.
+
 The provider implements `forward({ path, body, headers, signal })` and returns
 `{ status, headers, body }`. Request bodies are async iterables of Buffers;
 response bodies may be synchronous or asynchronous iterables. Request

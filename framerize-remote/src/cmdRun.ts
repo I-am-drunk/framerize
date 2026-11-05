@@ -77,7 +77,16 @@ export async function startServe(
     instance.server.prependListener('request', (request, response) => {
       if (request.url === '/health') response.setHeader(SERVE_PID_HEADER, String(process.pid));
     });
-    const info = await instance.listen().catch(() => { throw new RemoteDiagnosticError('listen_failed'); });
+    const cancelListen = (): void => { void instance.close().catch(() => {}); };
+    signal.addEventListener('abort', cancelListen, { once: true });
+    let info: Awaited<ReturnType<typeof instance.listen>>;
+    try {
+      signal.throwIfAborted();
+      info = await instance.listen();
+    } catch {
+      signal.throwIfAborted();
+      throw new RemoteDiagnosticError('listen_failed');
+    } finally { signal.removeEventListener('abort', cancelListen); }
     signal.throwIfAborted();
     return { address: { host: config.host, port: info.port }, close };
   } catch (error) {

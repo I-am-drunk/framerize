@@ -24,6 +24,11 @@ only after `listen()`, on an ephemeral loopback port by default. Set `host` and
 `port` explicitly in each application's validated configuration. The instance
 owns the supplied backend and calls its `close()` exactly once.
 
+Calling `close()` during startup rejects the pending `listen()` with
+`Server is closing` and closes the backend without waiting for hostname
+resolution. A late lookup result cannot open the listener. This does not
+cancel the operating system's underlying DNS work.
+
 `authentication` defaults to `'required'`. Every route except `/health` then
 needs `Authorization: Bearer <token>`. With `token: null` and the default,
 those routes always return 401. Set `authentication: 'none'` with `token: null`
