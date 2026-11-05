@@ -18,7 +18,7 @@ const setupArgs = ['setup', '--remote', 'https://server.invalid',
 const expectedDiagnostic = {
   error: 'profile_home_invalid', code: 'profile_home_invalid',
   message: 'FRM_HOME, or FRAMERIZE_REMOTE_HOME when FRM_HOME is unset, must be an absolute directory path without control characters.',
-  next: 'Set FRM_HOME to an absolute directory without control characters, unset both home variables to use the default, or pass --config FILE.',
+  next: 'Set FRM_HOME to an absolute directory without control characters, or unset both home variables to use the default.',
 };
 const invalidHomes = [
   ['empty', () => ''],
