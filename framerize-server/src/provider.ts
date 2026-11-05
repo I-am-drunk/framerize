@@ -71,7 +71,9 @@ function selectedHeaders(headers: Readonly<Record<string, unknown>> | undefined,
   names: readonly string[]): Record<string, string> {
   const entries = Object.entries(headers ?? {}).map(([name, value]) => [name.toLowerCase(), value]);
   const normalized: Record<string, unknown> = Object.fromEntries(entries);
-  const connection = String(normalized.connection ?? '').toLowerCase().split(',').map((name) => name.trim());
+  const connection = entries.filter(([name]) => name === 'connection')
+    .flatMap(([, value]) => String(value ?? '').toLowerCase().split(','))
+    .map((name) => name.trim());
   return Object.fromEntries(names.filter((name) => typeof normalized[name] === 'string'
     && (name !== 'x-should-retry' || normalized[name] === 'false')
     && !connection.includes(name)).map((name) => [name, normalized[name] as string]));
