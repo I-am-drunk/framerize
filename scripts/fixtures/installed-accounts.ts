@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { execFile, execFileSync } from 'node:child_process';
+import { execFile, spawnSync } from 'node:child_process';
 import { mkdtempSync, readFileSync, rmSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 import { promisify } from 'node:util';
@@ -16,11 +16,13 @@ export async function verifyAccountManagement(consumer: string, env: NodeJS.Proc
   let server: Awaited<ReturnType<typeof startInstalledSavedServer>> | undefined;
   let remote: Awaited<ReturnType<typeof startInstalledSavedRemote>> | undefined;
   const run = (args: string[], input = '', extra: NodeJS.ProcessEnv = {}) => {
-    const text = execFileSync(process.execPath, [cli, ...args], { cwd: consumer,
+    const result = spawnSync(process.execPath, [cli, ...args], { cwd: consumer,
       env: { ...runtimeEnv, ...extra },
       input, encoding: 'utf8', timeout: 5000 });
-    output.push(text);
-    return text;
+    output.push(result.stdout ?? '', result.stderr ?? '');
+    assert.ifError(result.error);
+    assert.equal(result.status, 0, result.stderr);
+    return result.stdout;
   };
   const list = () => JSON.parse(run(['accounts', 'list', '--json']));
   try {
