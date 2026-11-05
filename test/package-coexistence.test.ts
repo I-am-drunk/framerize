@@ -40,7 +40,7 @@ assert.equal(process.env.UPSTREAM_TOKEN, undefined);
 assert.equal(process.env.HTTP_PROXY, undefined);
 ${probe}
 console.log(process.argv.includes('version') ? '0.0.1'
-  : ${JSON.stringify(server ? 'Server' : 'frm --server-token-env')});
+  : ${JSON.stringify(server ? 'Server' : 'frm connect [LINK] --server-token-env')});
 `,
   };
   if (legacyExecutable) files[legacyExecutable] = files[executable]!;

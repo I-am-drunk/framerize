@@ -184,6 +184,10 @@ export function checkPackageCoexistence(tarballs: readonly string[]) {
       if (manifest.name === 'framerize-remote') {
         assert.equal(runNode([executable, 'version']).trim(), manifest.version);
         assert.match(runNode([executable, 'setup', '--help']), /--server-token-env/);
+        assert.match(exec([command, 'connect', '--help']), /frm connect \[LINK\]/);
+        if (executables[manifest.name]) {
+          assert.match(npx([manifest.name, 'connect', '--help']), /frm connect \[LINK\]/);
+        }
       } else runNode([executable, 'check', '--host', '127.0.0.1', '--upstream', 'http://127.0.0.1:1']);
       assert.equal(hash(file), sha256, 'input tarball changed during verification');
       results.push({ name: manifest.name, version: manifest.version,
