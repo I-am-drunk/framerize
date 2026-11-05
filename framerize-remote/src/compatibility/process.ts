@@ -2,6 +2,7 @@ import { spawn } from 'node:child_process';
 import { closeSync, openSync } from 'node:fs';
 import type { Readable, Writable } from 'node:stream';
 import type { ClientCommand } from './clients.js';
+import { ClientCleanupError } from '../diagnostics.js';
 
 // Windows quoting and shim dispatch adapted from T3 Code packages/shared/src/shell.ts
 // escapeWindowsShellArg and resolveSpawnCommand at 5a906583 (MIT).
@@ -67,7 +68,7 @@ async function stopCommandGroup(group: number): Promise<void> {
   send('SIGTERM');
   await new Promise(resolve => setTimeout(resolve, COMMAND_STOP_GRACE_MS));
   send('SIGKILL');
-  if (failures.length) throw new AggregateError(failures, 'Could not stop the client process group.');
+  if (failures.length) throw new ClientCleanupError(failures);
 }
 
 function stopCapture(child: ReturnType<typeof spawn>, platform: NodeJS.Platform, launch: typeof spawn,

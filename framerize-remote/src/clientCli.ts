@@ -3,7 +3,7 @@ import { dirname } from 'node:path';
 import type { CliIo } from './cli.js';
 import { loadRunConfig } from './configStore.js';
 import { loadCredential } from './credentials.js';
-import { RemoteDiagnosticError } from './diagnostics.js';
+import { ClientCleanupError, RemoteDiagnosticError } from './diagnostics.js';
 import { profilePath } from './profilePaths.js';
 import { CLIENT_HELP, nodeRunner, offerClients, parseClientOptions, runClient,
   type ClientSetupDeps, type RemoteTarget } from './compatibility/index.js';
@@ -79,6 +79,7 @@ export async function offerClientSetup(configPath: string, io: CliIo, env: NodeJ
       ? ', adding --config FILE for this profile.' : '.'}\n`);
     if (custom) io.stdout(`Profile file: ${configPath}\n`);
   } catch (error) {
+    if (error instanceof ClientCleanupError) throw error;
     if (cancellation?.aborted || (error instanceof Error && error.name === 'AbortError')) return 'cancelled';
     throw error;
   }

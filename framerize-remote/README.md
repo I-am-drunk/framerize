@@ -167,6 +167,8 @@ Installers and updaters keep the current terminal session for their prompts.
 On Linux and macOS, cancellation stops their process group, including
 descendants that stay in that group. Descendants that create a separate
 process group are outside this cleanup.
+If stopping the group fails, `frm` reports `client_cleanup_failed`. Check
+for installer or updater processes that are still running before retrying.
 
 The prompt after an interactive `frm up` checks both clients. It offers an
 install for a missing client, and an update only when a newer release is

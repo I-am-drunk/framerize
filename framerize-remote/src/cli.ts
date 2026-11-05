@@ -3,7 +3,7 @@ import { runSetup, type Ask } from './cmdSetup.js';
 import { runCheck, startServe, StartupCleanupError, StartupReadinessError, type ServeHandle } from './cmdRun.js';
 import { HELP, SETUP_HELP, SERVE_HELP, VERSION } from './present.js';
 import { profilePath } from './profilePaths.js';
-import { diagnostic, diagnosticText, RemoteDiagnosticError } from './diagnostics.js';
+import { ClientCleanupError, diagnostic, diagnosticText, RemoteDiagnosticError } from './diagnostics.js';
 import { LISTEN_SPEC, parseListenOptions, type ListenOverrides } from './listenOptions.js';
 import { isLoopbackHost } from './hostPolicy.js';
 import { offerClientSetup } from './clientCli.js';
@@ -130,6 +130,7 @@ export async function serve(configPath: string, io: CliIo, json: boolean,
     stoppedCleanly = true;
     return 0;
   } catch (error) {
+    if (error instanceof ClientCleanupError) throw error;
     if (controller.signal.aborted && !(error instanceof StartupCleanupError)) {
       stoppedCleanly = true;
       return 0;

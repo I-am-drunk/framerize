@@ -38,6 +38,8 @@ const messages = {
   malformed_response: ['The remote returned invalid readiness data.', 'Check the server readiness endpoint.'],
   incompatible_response: ['The remote readiness contract is incompatible.', 'Use compatible Remote and server versions.'],
   aborted: ['The command was cancelled.', 'Run the command again to retry.'],
+  client_cleanup_failed: ['The client command could not stop all of its processes.',
+    'Check for installer or updater processes that are still running before retrying.'],
   configuration_unavailable: ['The remote configuration is unavailable.', 'Check the server configuration.'],
   credentials_unavailable: ['The remote provider credentials are unavailable.', 'Check credentials on the server.'],
   upstream_unavailable: ['The remote upstream is unavailable.', 'Check the provider connection on the server.'],
@@ -53,7 +55,7 @@ export function diagnostic(code: DiagnosticCode) {
 
 export function diagnosticText(code: DiagnosticCode): string {
   const detail = diagnostic(code);
-  const message = code === 'aborted' || code === 'cleanup_failed'
+  const message = code === 'aborted' || code === 'cleanup_failed' || code === 'client_cleanup_failed'
     || code === 'command_arguments' || code.startsWith('service_')
     ? detail.message : `Not ready: ${detail.message}`;
   return `${message}\nNext: ${detail.next}`;
@@ -70,6 +72,13 @@ export function commandFailure(error: unknown, json: boolean): string | undefine
 export class RemoteDiagnosticError extends Error {
   constructor(readonly code: DiagnosticCode, message: string = messages[code][0]) {
     super(message);
+  }
+}
+
+export class ClientCleanupError extends RemoteDiagnosticError {
+  constructor(failures: readonly unknown[]) {
+    super('client_cleanup_failed');
+    this.cause = new AggregateError(failures, this.message);
   }
 }
 

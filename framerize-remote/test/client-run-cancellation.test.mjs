@@ -145,7 +145,7 @@ test('an already cancelled client command never spawns', async () => {
 });
 
 test('cancellable maintenance can open its controlling terminal', {
-  timeout: 8000, skip: !['linux', 'darwin'].includes(process.platform) && 'POSIX terminal fixture',
+  timeout: 8000, skip: process.platform !== 'linux' && 'Linux script accepts a piped stdin',
 }, async context => {
   const root = await mkdtemp(join(tmpdir(), 'client-terminal-'));
   const pids = join(root, 'pids'), state = join(root, 'state');
@@ -178,8 +178,7 @@ test('cancellable maintenance can open its controlling terminal', {
     `))}, process.env, new AbortController().signal);
   `);
   const quote = value => `'${value.replaceAll("'", "'\\''")}'`;
-  const args = process.platform === 'darwin' ? ['-q', '/dev/null', process.execPath, probe]
-    : ['-q', '-e', '-c', `${quote(process.execPath)} ${quote(probe)}`, '/dev/null'];
+  const args = ['-q', '-e', '-c', `${quote(process.execPath)} ${quote(probe)}`, '/dev/null'];
   terminal = spawn('/usr/bin/script', args, { cwd: root, env: { ...childEnv, TERM: 'xterm' } });
   let output = '';
   for (const stream of [terminal.stdout, terminal.stderr]) {
@@ -284,7 +283,7 @@ test('cancelling an offered installer suppresses failure output and the next cli
 });
 
 test('terminal cancellation closes a reparented descendant before the terminal owner exits', {
-  timeout: 10000, skip: !['linux', 'darwin'].includes(process.platform) && 'POSIX terminal fixture',
+  timeout: 10000, skip: process.platform !== 'linux' && 'Linux script accepts a piped stdin',
 }, async context => {
   const root = await mkdtemp(join(tmpdir(), 'client-terminal-tree-'));
   const pids = join(root, 'pids'), statePath = join(root, 'state.json');
@@ -372,8 +371,7 @@ test('terminal cancellation closes a reparented descendant before the terminal o
   `);
   const owner = join(root, 'owner.mjs');
   const quote = value => `'${value.replaceAll("'", "'\\''")}'`;
-  const args = process.platform === 'darwin' ? ['-q', '/dev/null', process.execPath, owner]
-    : ['-q', '-e', '-c', `${quote(process.execPath)} ${quote(owner)}`, '/dev/null'];
+  const args = ['-q', '-e', '-c', `${quote(process.execPath)} ${quote(owner)}`, '/dev/null'];
   terminal = spawn('/usr/bin/script', args, {
     cwd: root, env: { ...childEnv, TERM: 'xterm', FRM_TERMINAL_ROOT: root },
   });
