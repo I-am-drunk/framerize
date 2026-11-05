@@ -64,7 +64,7 @@ function isMise(paths: readonly string[]): boolean {
     .test(normalizeCommandPath(path)));
 }
 
-/** Chooses the updater that owns an installed client, following T3's ownership order. */
+/** Uses the canonical install owner before interpreting native or Bun launcher aliases. */
 export function planUpdate(client: ClientName, origin: InstallOrigin): UpdatePlan {
   const paths = [origin.resolvedPath, origin.realPath];
   const npmPackage = CLIENTS[client].npmPackage;
@@ -77,6 +77,8 @@ export function planUpdate(client: ClientName, origin: InstallOrigin): UpdatePla
       return manual({ kind: 'chocolatey' }, 'choco upgrade claude-code');
     }
   }
+  const cask = homebrewCaskFromCommandPath(origin.realPath);
+  if (cask) return manual({ kind: 'homebrew', cask }, `brew upgrade --cask ${cask}`);
   const npmPrefix = npmGlobalPrefixFromCommandPath(origin.realPath, npmPackage);
   if (client === 'claude' && paths.some(isNativeClaude) && !npmPrefix && !isMise(paths)) {
     return run({ kind: 'native' }, origin.resolvedPath, ['update']);
@@ -89,7 +91,5 @@ export function planUpdate(client: ClientName, origin: InstallOrigin): UpdatePla
     return run({ kind: 'npm', prefix: npmPrefix }, 'npm', ['install', '-g', '--prefix', npmPrefix, `--allow-scripts=${npmPackage}`, `${npmPackage}@latest`]);
   }
   if (isMise(paths)) return manual({ kind: 'mise' }, 'Update the version pinned in your mise configuration.');
-  const cask = homebrewCaskFromCommandPath(origin.realPath);
-  if (cask) return manual({ kind: 'homebrew', cask }, `brew upgrade --cask ${cask}`);
   return manual({ kind: 'unknown' }, `Follow ${CLIENTS[client].docs} for the method that installed ${origin.resolvedPath}.`);
 }
