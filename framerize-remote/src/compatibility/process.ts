@@ -198,15 +198,16 @@ export function nodeRunner(platform: NodeJS.Platform = process.platform, launch:
     run(command, env, signal) {
       if (signal) return runCancellable(command, env, signal, platform, launch);
       const plan = spawnPlan(command, platform);
+      const terminalSignals = platform === 'win32' || hasControllingTerminal();
       return new Promise((resolve, reject) => {
         const child = launch(plan.file, plan.args, { env: { ...env, ...command.env }, shell: plan.shell,
           stdio: 'inherit', windowsHide: false });
-        // Ctrl+C reaches the child through the terminal; the parent waits for it to exit.
+        // Terminal SIGINT already reaches the foreground child; other callers must forward it.
         const forward = (signal: NodeJS.Signals): void => { child.kill(signal); };
-        const ignore = (): void => {};
-        process.on('SIGINT', ignore);
+        const interrupt = (): void => { if (!terminalSignals) child.kill('SIGINT'); };
+        process.on('SIGINT', interrupt);
         process.on('SIGTERM', forward);
-        const done = (): void => { process.off('SIGINT', ignore); process.off('SIGTERM', forward); };
+        const done = (): void => { process.off('SIGINT', interrupt); process.off('SIGTERM', forward); };
         child.once('error', error => { done(); reject(error); });
         child.once('close', (code, signal) => { done(); resolve(code ?? (signal ? 1 : 0)); });
       });
