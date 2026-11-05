@@ -34,7 +34,8 @@ test('configuration defaults to no token and supports explicit token environment
   const config = loadConfig({ serverTokenEnv: 'FIXTURE_SERVER_TOKEN' },
     { FIXTURE_SERVER_TOKEN: 'from-environment' });
   assert.equal(config.serverToken, 'from-environment');
-  assert.equal(loadConfig({ serverTokenEnv: 'MISSING_FIXTURE_TOKEN' }, {}).serverToken, '');
+  assert.throws(() => loadConfig({ serverTokenEnv: 'MISSING_FIXTURE_TOKEN' }, {}),
+    { name: 'ConfigurationError', message: 'Invalid server token' });
 });
 
 test('configuration rejects the removed total request deadline', () => {

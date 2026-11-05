@@ -2,6 +2,51 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { loadConfig, readServerToken } from '../dist/config.js';
 
+test('explicit token variables must resolve while the default remains optional', () => {
+  assert.equal(loadConfig({}, {}).serverToken, '');
+  assert.equal(loadConfig({ serverTokenEnv: '' }, {}).serverToken, '');
+  for (const token of [undefined, '']) {
+    const env = { SYNTHETIC_TOKEN: token };
+    assert.throws(() => loadConfig({ serverTokenEnv: 'SYNTHETIC_TOKEN' }, env),
+      { name: 'ConfigurationError', message: 'Invalid server token' });
+    assert.throws(() => loadConfig({}, { ...env, FRAMERIZE_SERVER_TOKEN_ENV: 'SYNTHETIC_TOKEN' }),
+      { name: 'ConfigurationError', message: 'Invalid server token' });
+  }
+});
+
+test('explicit token sources override environment-selected alternatives', () => {
+  const env = { FRAMERIZE_SERVER_TOKEN_FILE: '/unused/token', CHOSEN: 'synthetic-chosen' };
+  const named = loadConfig({ serverTokenEnv: 'CHOSEN' }, env);
+  assert.equal(named.serverToken, 'synthetic-chosen');
+  assert.equal(named.serverTokenFile, '');
+  const direct = loadConfig({ serverToken: 'synthetic-direct' }, env);
+  assert.equal(direct.serverToken, 'synthetic-direct');
+  assert.equal(direct.serverTokenFile, '');
+  const file = loadConfig({ serverTokenFile: '/chosen/token' }, { FRAMERIZE_SERVER_TOKEN_ENV: 'MISSING' });
+  assert.equal(file.serverTokenFile, '/chosen/token');
+  assert.equal(file.serverToken, '');
+});
+
+test('resolved token configurations can be validated again', () => {
+  for (const values of [{}, { serverToken: 'synthetic-inline' },
+    { serverTokenEnv: 'SYNTHETIC_TOKEN' }, { serverTokenFile: '/chosen/token' }]) {
+    const first = loadConfig(values, { SYNTHETIC_TOKEN: 'synthetic-named' });
+    const second = loadConfig(first, { FRAMERIZE_SERVER_TOKEN: 'unused' });
+    assert.equal(second.serverToken, first.serverToken);
+    assert.equal(second.serverTokenFile, first.serverTokenFile);
+  }
+});
+
+test('equally explicit token sources are rejected', () => {
+  const both = { serverTokenEnv: 'SYNTHETIC_TOKEN', serverTokenFile: '/unused/token' };
+  assert.throws(() => loadConfig(both, { SYNTHETIC_TOKEN: 'synthetic-token' }),
+    { name: 'ConfigurationError', message: 'Invalid server credential references' });
+  assert.throws(() => loadConfig({}, {
+    FRAMERIZE_SERVER_TOKEN_ENV: both.serverTokenEnv,
+    FRAMERIZE_SERVER_TOKEN_FILE: both.serverTokenFile, SYNTHETIC_TOKEN: 'synthetic-token',
+  }), { name: 'ConfigurationError', message: 'Invalid server credential references' });
+});
+
 test('agents can configure every Server limit through environment variables', () => {
   const options = [
     ['maxBodyBytes', 'FRAMERIZE_SERVER_MAX_BODY_BYTES', 2048],

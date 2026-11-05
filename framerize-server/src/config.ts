@@ -63,6 +63,11 @@ export function loadConfig(values: unknown = {}, env: Readonly<Record<string, st
   for (const [name, variable] of Object.entries(ENVIRONMENT)) {
     if (!Object.hasOwn(input, name) && env[variable] !== undefined) selected[name] = env[variable];
   }
+  const explicitToken = input.serverToken !== undefined && input.serverToken !== null;
+  if (explicitToken || Object.hasOwn(input, 'serverTokenEnv') || Object.hasOwn(input, 'serverTokenFile')) {
+    delete selected.serverTokenEnv;
+    delete selected.serverTokenFile;
+  }
   const label = (name: string) => Object.hasOwn(selected, name) ? ENVIRONMENT[name as keyof typeof ENVIRONMENT] : name;
   const config: Record<string, unknown> = { ...DEFAULTS, ...selected, ...input };
   for (const name of ['port', 'maxBodyBytes', 'headersTimeoutMs', 'inferenceTimeoutMs', 'idleTimeoutMs',
@@ -109,9 +114,15 @@ export function loadConfig(values: unknown = {}, env: Readonly<Record<string, st
     if (!['http:', 'https:'].includes(url.protocol) || url.username || url.password || url.search || url.hash) invalid(label('upstream'));
     config.upstream = url.href;
   }
+  const namedToken = Boolean(config.serverTokenEnv)
+    && (Object.hasOwn(input, 'serverTokenEnv') || Object.hasOwn(selected, 'serverTokenEnv'));
+  if (config.serverTokenFile && (namedToken || input.serverToken)) {
+    invalid('server credential references');
+  }
   const token = input.serverToken ?? (config.serverTokenFile ? '' : env[config.serverTokenEnv as string] ?? '');
   if (typeof token !== 'string' || (token && !/^[A-Za-z0-9._~+/-]+=*$/.test(token))) invalid('server token');
-  if (input.serverToken && config.serverTokenFile) invalid('server credential references');
+  if (namedToken && !explicitToken && !token) invalid('server token');
+  if (config.serverTokenFile || explicitToken) config.serverTokenEnv = '';
   Object.defineProperty(config, 'serverToken', { value: token, enumerable: false });
   return Object.freeze(config) as unknown as ServerConfig;
 }
