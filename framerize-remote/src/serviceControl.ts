@@ -165,7 +165,7 @@ export async function installService(context: ServiceContext,
   const plan = servicePlan(context);
   const unit = await readUnit(manager.unitPath);
   if (unit !== undefined && !servesHome(unit, context.home)) throw new RemoteDiagnosticError('service_other_home');
-  if (unit !== undefined) await runSteps(context, manager.stop.map((step) => ({ ...step, optional: true })));
+  if (unit !== undefined) await runSteps(context, manager.stop);
   await beforeStart();
   checkCancelled(context);
   try {

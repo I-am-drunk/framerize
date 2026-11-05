@@ -68,7 +68,10 @@ export async function run(argv: readonly string[], io: CliIo): Promise<number> {
       io.stdout(json ? `${JSON.stringify({ saved: true })}\n` : 'Profile saved.\n');
       if (passthrough.includes('--start')) return serve(configPath, io, json, overrides, true);
       if (!json) {
-        const offer = await offerClientSetup(configPath, io, process.env, undefined, controller.signal);
+        const clientEnv = { ...process.env };
+        if (overrides.host !== undefined) delete clientEnv.FRM_HOST;
+        if (overrides.port !== undefined) delete clientEnv.FRM_PORT;
+        const offer = await offerClientSetup(configPath, io, clientEnv, undefined, controller.signal);
         if (offer === 'cancelled' || controller.signal.aborted) throw new RemoteDiagnosticError('aborted');
         io.stdout('Next: frm serve\n');
       }
