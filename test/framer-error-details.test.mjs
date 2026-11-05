@@ -6,9 +6,9 @@ import { gzipSync } from 'node:zlib';
 import { pathToFileURL } from 'node:url';
 
 const serverRoot = process.env.FRAMERIZE_SERVER_PACKAGE_ROOT
-  ? pathToFileURL(`${process.env.FRAMERIZE_SERVER_PACKAGE_ROOT}/`) : new URL('../', import.meta.url);
+  ? pathToFileURL(`${process.env.FRAMERIZE_SERVER_PACKAGE_ROOT}/`) : new URL('../framerize-server/', import.meta.url);
 const remoteRoot = process.env.FRAMERIZE_REMOTE_PACKAGE_ROOT
-  ? pathToFileURL(`${process.env.FRAMERIZE_REMOTE_PACKAGE_ROOT}/`) : new URL('../../framerize-remote/', import.meta.url);
+  ? pathToFileURL(`${process.env.FRAMERIZE_REMOTE_PACKAGE_ROOT}/`) : new URL('../framerize-remote/', import.meta.url);
 const { createFramerBackend } = await import(new URL('dist/framer-backend.js', serverRoot));
 const { createFramerAuth } = await import(new URL('dist/framer-auth.js', serverRoot));
 const { createServer } = await import(new URL('dist/server.js', serverRoot));
