@@ -34,5 +34,6 @@ under the same MIT License:
 - `.github/workflows/ci.yml` adapts the `changes` job and the required `Check`
   job's skip rule. The existing source, package and server workflows remain
   the gate implementations, unchanged apart from their triggers.
-- `test/ci-changes.test.mjs` adapts the inert-docs and full-selection cases
-  from `scripts/check-changed.test.ts`.
+- `test/ci-changes.test.mjs` adapts the inert-docs case from
+  `scripts/check-changed.test.ts`. Its dependency, full-selection and `Check`
+  cases are Framerize tests of the adapted logic.

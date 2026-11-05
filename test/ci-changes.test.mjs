@@ -1,5 +1,5 @@
-// Cases adapted from T3 Code scripts/check-changed.test.ts at 5a906583 (MIT):
-// inert docs, dependents of a changed package and fail-open selection.
+// The inert-docs assertion adapts T3 Code scripts/check-changed.test.ts at 5a906583 (MIT).
+// Dependency selection, full fallback and Check results are project-specific tests.
 import assert from 'node:assert/strict';
 import { createRequire } from 'node:module';
 import { readFileSync } from 'node:fs';
