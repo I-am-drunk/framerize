@@ -64,6 +64,8 @@ function endpoint(value: string): URL {
   try { url = new URL(value); } catch { throw new ConfigurationError('Invalid upstream URL'); }
   if (!['http:', 'https:'].includes(url.protocol) || url.username || url.password
       || url.search || url.hash) throw new ConfigurationError('Invalid upstream URL');
+  url.search = '';
+  url.hash = '';
   return url;
 }
 
