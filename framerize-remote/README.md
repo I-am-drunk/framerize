@@ -114,6 +114,7 @@ still be running; inspect them before retrying. If cleanup fails during
 rollback, the output includes this warning alongside the original failure
 and the rollback failure. Commands have a two-minute
 deadline, and status probes have five seconds.
+
 Remote never configures Tailscale Serve or Funnel. Server's `up --tailscale`
 publishes the route, and its pairing link then carries the HTTPS origin.
 
