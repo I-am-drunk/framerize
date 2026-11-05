@@ -1,6 +1,8 @@
 // The restart and rollback cases adapt T3 Code apps/server/src/cli/up.test.ts at 5a906583 (MIT, T3 Tools Inc.).
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import dns from 'node:dns';
+import { syncBuiltinESMExports } from 'node:module';
 import { createServer } from 'node:http';
 import { mkdir, mkdtemp, readFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -86,6 +88,67 @@ async function fixture(context, { requireToken = 'synthetic-pair+/=', ready = tr
 
 const pairLink = (origin, token) => `${origin}/pair#${new URLSearchParams([['token', token]])}`;
 const serviceChanges = commands => commands.filter(command => !/ (is-|show-|show )/.test(command));
+
+async function bounded(promise, milliseconds = 3000) {
+  let timer;
+  try {
+    return await Promise.race([promise, new Promise((_, reject) => {
+      timer = setTimeout(() => reject(new Error('Operation did not settle')), milliseconds);
+    })]);
+  } finally { clearTimeout(timer); }
+}
+
+const optionalBytes = path => readFile(path).catch(error => {
+  if (error.code === 'ENOENT') return undefined;
+  throw error;
+});
+
+for (const existing of [false, true]) test(`port lookup cancellation restores ${existing ? 'existing' : 'new'} setup`, {
+  timeout: 8000,
+}, async context => {
+  const { origin, options, control, commands, root } = await fixture(context, { requireToken: null });
+  if (existing) await setUp(origin, quiet, options);
+  const unit = join(root, '.config/systemd/user/frm.service');
+  const prior = { profile: await optionalBytes(options.configPath), unit: await optionalBytes(unit) };
+  const controller = new AbortController();
+  const reached = Promise.withResolvers();
+  const original = dns.lookup;
+  const hostname = 'pending-port.synthetic.invalid';
+  let release, pending, observed, finalResult;
+  dns.lookup = (host, settings, callback) => {
+    if (host !== hostname) return original(host, settings, callback);
+    const done = typeof settings === 'function' ? settings : callback;
+    release = () => done(null, settings?.all ? [{ address: '127.0.0.1', family: 4 }] : '127.0.0.1', 4);
+    reached.resolve();
+  };
+  syncBuiltinESMExports();
+  try {
+    pending = setUp(origin, quiet, { ...options, signal: controller.signal,
+      env: { ...options.env, FRM_HOST: hostname } })
+      .then(value => ({ value }), error => ({ error }));
+    await bounded(Promise.race([reached.promise, pending.then(() => {
+      throw new Error('Setup finished before the synthetic lookup');
+    })]));
+    controller.abort();
+    const outcome = await bounded(pending, 750).catch(() => undefined);
+    observed = { outcome, profile: await optionalBytes(options.configPath),
+      unit: await optionalBytes(unit), active: control.active, commandCount: commands.length };
+  } finally {
+    dns.lookup = original;
+    syncBuiltinESMExports();
+    release?.();
+    if (pending) finalResult = await bounded(pending);
+  }
+  assert.equal(finalResult.error?.code, 'aborted');
+  assert.deepEqual(await optionalBytes(options.configPath), prior.profile);
+  assert.deepEqual(await optionalBytes(unit), prior.unit);
+  assert.equal(control.active, existing);
+  assert.equal(observed.outcome?.error?.code, 'aborted', 'setup must settle before DNS is released');
+  assert.deepEqual(observed.profile, prior.profile);
+  assert.deepEqual(observed.unit, prior.unit);
+  assert.equal(observed.active, existing);
+  assert.equal(commands.length, observed.commandCount, 'late DNS must not change service state');
+});
 
 test('cancelled setup does not write a profile or run service commands', async context => {
   const { origin, options, commands } = await fixture(context, { requireToken: null });
