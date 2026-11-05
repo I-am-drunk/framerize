@@ -20,8 +20,17 @@ export interface ServiceManager {
   readonly restart: readonly ServiceStep[];
   readonly deactivate: readonly ServiceStep[];
   readonly finalize: readonly ServiceStep[];
-  readonly probes: { readonly enabled?: ServiceStep; readonly active: ServiceStep };
+  /** Re-enables startup without starting; launchd has no separate step. */
+  readonly enable?: readonly ServiceStep[];
+  readonly probes: { readonly enabled?: ServiceStep; readonly active: ServiceStep; readonly pid: ServiceStep };
+  /** The main PID in `probes.pid` output, or undefined while the service is not running. */
+  readonly mainPid: (output: string) => number | undefined;
 }
+
+const positive = (value: string | undefined): number | undefined => {
+  const pid = Number(value);
+  return Number.isSafeInteger(pid) && pid > 0 ? pid : undefined;
+};
 
 const systemctl = (step: string, ...args: string[]): ServiceStep =>
   ({ step, command: 'systemctl', args: ['--user', ...args] });
@@ -37,8 +46,11 @@ function systemdManager(unitDir: string): ServiceManager {
     restart: [systemctl('restarting the service', 'restart', SERVICE_UNIT_FILE)],
     deactivate: [systemctl('stopping the service', 'disable', '--now', SERVICE_UNIT_FILE)],
     finalize: [reload],
+    enable: [systemctl('enabling the service', 'enable', SERVICE_UNIT_FILE)],
     probes: { enabled: systemctl('checking the service', 'is-enabled', SERVICE_UNIT_FILE),
-      active: systemctl('checking the service', 'is-active', SERVICE_UNIT_FILE) },
+      active: systemctl('checking the service', 'is-active', SERVICE_UNIT_FILE),
+      pid: systemctl('reading the service process', 'show', SERVICE_UNIT_FILE, '--property=MainPID') },
+    mainPid: (output) => positive(/^MainPID=(\d+)$/m.exec(output)?.[1]),
   };
 }
 
@@ -57,7 +69,9 @@ function launchdManager(homeDir: string, uid: number): ServiceManager {
     start: [bootstrap], stop: [bootout],
     restart: [{ step: 'restarting the service', command: 'launchctl', args: ['kickstart', '-k', target] }],
     deactivate: [bootout], finalize: [],
-    probes: { active: { step: 'checking the service', command: 'launchctl', args: ['print', target] } },
+    probes: { active: { step: 'checking the service', command: 'launchctl', args: ['print', target] },
+      pid: { step: 'reading the service process', command: 'launchctl', args: ['print', target] } },
+    mainPid: (output) => positive(/^\s*pid = (\d+)\s*$/m.exec(output)?.[1]),
   };
 }
 

@@ -39,6 +39,8 @@ export interface ServiceStatus {
   readonly supported: boolean;
   readonly installed: boolean;
   readonly running: boolean;
+  /** Starts at login or boot; always true for launchd, which has no separate enable state. */
+  readonly enabled: boolean;
   readonly current: boolean;
   readonly otherHome: boolean;
   readonly unitPath: string;
@@ -147,7 +149,9 @@ async function requireServiceProfile(home: string): Promise<void> {
   }
 }
 
-export async function installService(context: ServiceContext): Promise<'installed' | 'updated'> {
+/** `beforeStart` runs after any old service stops and before activation, such as a port check. */
+export async function installService(context: ServiceContext,
+  beforeStart: () => Promise<void> = async () => {}): Promise<'installed' | 'updated'> {
   const manager = requireManager(context);
   await requireServiceProfile(context.home);
   await requireServicePrerequisites(context);
@@ -155,6 +159,7 @@ export async function installService(context: ServiceContext): Promise<'installe
   const unit = await readUnit(manager.unitPath);
   if (unit !== undefined && !servesHome(unit, context.home)) throw new RemoteDiagnosticError('service_other_home');
   if (unit !== undefined) await runSteps(context, manager.stop.map((step) => ({ ...step, optional: true })));
+  await beforeStart();
   try {
     await mkdir(dirname(manager.unitPath), { recursive: true });
     await mkdir(context.home, { recursive: true, mode: 0o700 });
@@ -192,13 +197,55 @@ export async function uninstallService(context: ServiceContext): Promise<'remove
 export async function serviceStatus(context: ServiceContext): Promise<ServiceStatus> {
   const manager = selectServiceManager(context.host);
   const logPath = servicePlan(context).logPath;
-  if (!manager) return { supported: false, installed: false, running: false, current: false, otherHome: false, unitPath: '', logPath };
+  if (!manager) return { supported: false, installed: false, running: false, enabled: false, current: false,
+    otherHome: false, unitPath: '', logPath };
   const unit = await readUnit(manager.unitPath);
   const base = { supported: true, unitPath: manager.unitPath, logPath };
-  if (unit === undefined) return { ...base, installed: false, running: false, current: false, otherHome: false };
+  if (unit === undefined) return { ...base, installed: false, running: false, enabled: false, current: false, otherHome: false };
   const ours = servesHome(unit, context.home);
   const [enabled, running] = await Promise.all([manager.probes.enabled === undefined || succeeds(context, manager.probes.enabled),
     succeeds(context, manager.probes.active)]);
   const current = ours && enabled && unit === render(manager, context, servicePlan(context));
-  return { ...base, installed: true, running, current, otherHome: !ours };
+  return { ...base, installed: true, running, enabled, current, otherHome: !ours };
+}
+
+/** The service manager's main PID for this FRM_HOME's unit, or undefined when it has none. */
+export async function serviceMainPid(context: ServiceContext): Promise<number | undefined> {
+  const manager = requireManager(context);
+  const step = manager.probes.pid;
+  const result = await (context.run ?? probeStep)(step.command, step.args).catch(() => undefined);
+  return result?.code === 0 ? manager.mainPid(result.stdout) : undefined;
+}
+
+/** The unit bytes and activation `frm up` found, so a failed change can put them back. */
+export interface ServiceSnapshot {
+  readonly unit: string | undefined;
+  readonly enabled: boolean;
+  readonly running: boolean;
+}
+
+export async function snapshotService(context: ServiceContext): Promise<ServiceSnapshot> {
+  const manager = requireManager(context);
+  const unit = await readUnit(manager.unitPath);
+  if (unit === undefined) return { unit, enabled: false, running: false };
+  const status = await serviceStatus(context);
+  return { unit, enabled: status.enabled, running: status.running };
+}
+
+/**
+ * Puts the unit and its activation back as `snapshot` found them, as the Server's restoreService
+ * does: a new unit is removed, a stopped service stays stopped, and only a running one is started.
+ */
+export async function restoreService(context: ServiceContext, snapshot: ServiceSnapshot): Promise<void> {
+  const manager = requireManager(context);
+  const optional = (steps: readonly ServiceStep[]) => steps.map((step) => ({ ...step, optional: true }));
+  await runSteps(context, optional(snapshot.unit === undefined || !snapshot.enabled ? manager.deactivate : manager.stop));
+  try {
+    if (snapshot.unit === undefined) await rm(manager.unitPath, { force: true });
+    else await writeFile(manager.unitPath, snapshot.unit, { mode: 0o600 });
+  } catch { throw new RemoteDiagnosticError('service_failed', 'restoring the service unit'); }
+  await runSteps(context, manager.finalize);
+  if (snapshot.unit === undefined) return;
+  if (snapshot.enabled && manager.enable) await runSteps(context, manager.enable);
+  if (snapshot.running) await runSteps(context, manager.start);
 }

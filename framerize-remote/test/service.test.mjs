@@ -58,7 +58,7 @@ test('installs, reports current state, controls and uninstalls on Linux', async 
   assert.deepEqual(commands, ['systemctl --user show-environment', 'loginctl show-user 501 --property=Linger --value',
     'systemctl --user daemon-reload', 'systemctl --user enable frm.service', 'systemctl --user restart frm.service']);
   assert.deepEqual(await service.serviceStatus(target), { supported: true, installed: true, running: true,
-    current: true, otherHome: false, unitPath, logPath: join(home, 'frm-service.log') });
+    enabled: true, current: true, otherHome: false, unitPath, logPath: join(home, 'frm-service.log') });
   for (const action of ['stop', 'start', 'restart']) assert.equal(await service.controlService(target, action), 'done');
   commands.length = 0;
   assert.equal(await service.uninstallService(target), 'removed');
@@ -165,4 +165,24 @@ test('macOS install runs no systemd or loginctl prerequisite commands', async co
   const { commands, context: target } = await harness(context, 'darwin');
   assert.equal(await service.installService(target), 'installed');
   assert.equal(commands.some(command => /^(systemctl|loginctl) /.test(command)), false);
+});
+
+test('restoreService removes a new unit, and restores a stopped one without starting it', async context => {
+  const { root, commands, control, context: target } = await harness(context);
+  const unitPath = join(root, '.config', 'systemd', 'user', 'frm.service');
+  const fresh = await service.snapshotService(target);
+  await service.installService(target);
+  await service.restoreService(target, fresh);
+  await assert.rejects(readFile(unitPath), { code: 'ENOENT' });
+  await service.installService(target);
+  await service.controlService(target, 'stop');
+  const stopped = await service.snapshotService(target);
+  assert.deepEqual({ enabled: stopped.enabled, running: stopped.running }, { enabled: true, running: false });
+  await writeFile(unitPath, 'changed');
+  commands.length = 0;
+  await service.restoreService(target, stopped);
+  assert.equal(await readFile(unitPath, 'utf8'), stopped.unit);
+  assert.equal(control.active, false);
+  assert.deepEqual(commands, ['systemctl --user stop frm.service', 'systemctl --user daemon-reload',
+    'systemctl --user enable frm.service']);
 });

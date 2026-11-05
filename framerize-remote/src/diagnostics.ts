@@ -18,6 +18,8 @@ const messages = {
   service_linger: ['Lingering is disabled, so the frm service would stop when your last login session ends.', 'Run `sudo loginctl enable-linger "$(id -un)"`, then run frm up again as your normal user.'],
   service_linger_unavailable: ['Cannot check whether this user can run services after logout.', 'Run `loginctl show-user "$(id -un)" --property=Linger` and check that systemd-logind is available.'],
   service_failed: ['The background service command failed.', 'Run frm service status and check the service log.'],
+  service_port_busy: ['Another program already listens on the local API port.', 'Stop that program, or run frm up again with FRM_PORT set to a free port.'],
+  service_not_ready: ['The frm service did not start its local API.', 'Run frm service status and check frm-service.log in FRM_HOME.'],
   service_other_home: ['The installed frm service serves another FRM_HOME.', 'Set FRM_HOME to that directory, or run frm service uninstall from there first.'],
   service_env_token: ['The background service cannot read tokens from your shell environment.', 'Run frm up with the pairing link, which saves the server token in the profile, or save token files with frm setup.'],
   profile_invalid: ['The saved profile is invalid or unreadable.', 'Repair the profile or run framerize-remote setup --help.'],

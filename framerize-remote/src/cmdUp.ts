@@ -11,12 +11,16 @@ import { FRM_LOCAL_TOKEN, FRM_SERVER_TOKEN, frmSettings } from './frmEnv.js';
 import { RemoteDiagnosticError, type DiagnosticCode } from './diagnostics.js';
 import { isPairingLink, parsePairingLink } from './pairingLink.js';
 import { parseRemoteEndpoint } from './remoteUrl.js';
-import { controlService, installService, requireServicePrerequisites, serviceStatus, type ServiceContext } from './serviceControl.js';
+import { controlService, installService, requireServicePrerequisites, restoreService, serviceMainPid, serviceStatus,
+  snapshotService, type ServiceContext, type ServiceSnapshot, type ServiceStatus } from './serviceControl.js';
+import { checkLocalPort, waitForServiceListener } from './serviceReadiness.js';
 
 export interface UpOptions {
   readonly configPath: string;
   readonly service: ServiceContext;
   readonly env: NodeJS.ProcessEnv;
+  /** Bound on waiting for the managed listener, default 15000 ms. */
+  readonly readyTimeoutMs?: number;
 }
 
 type Connection = { remote: string; token?: string | undefined; paired: boolean };
@@ -115,7 +119,7 @@ export async function setUp(input: string | undefined, io: CliIo, options: UpOpt
   const after = await readFile(options.configPath, 'utf8');
   const localApi = `http://${urlHost(profile.host ?? CONFIG_DEFAULTS.host)}:${profile.port}/v1`;
   const base = { remote: link.remote, paired: link.paired, localApi };
-  let wasRunning = false;
+  let snapshot: ServiceSnapshot | undefined;
   try {
     const notReady = await readiness(options.configPath, options.env);
     if (notReady) throw new RemoteDiagnosticError(notReady);
@@ -123,22 +127,44 @@ export async function setUp(input: string | undefined, io: CliIo, options: UpOpt
     if (!status.supported) return { ...base, ready: true, service: 'unavailable' };
     if (status.otherHome) throw new RemoteDiagnosticError('service_other_home');
     if (status.current && status.running) await requireServicePrerequisites(options.service);
-    wasRunning = status.installed && status.running;
-    if (!status.current || !status.running) {
-      return { ...base, ready: true, service: await installService(options.service) };
+    // A running service reads the profile only when it starts; an unchanged one must still answer.
+    if (status.current && status.running && after === before.text) {
+      await listener(profile, options);
+      return { ...base, ready: true, service: 'unchanged' };
     }
-    // A running service reads the profile only when it starts.
-    if (after === before.text) return { ...base, ready: true, service: 'unchanged' };
-    await controlService(options.service, 'restart');
-    return { ...base, ready: true, service: 'restarted' };
+    snapshot = await snapshotService(options.service);
+    const service = await startService(status, profile, options);
+    await listener(profile, options);
+    return { ...base, ready: true, service };
   } catch (error) {
     await restore(options.configPath, before.text).catch(() => {});
-    // A failed restart may still have started the service on the new profile, so restart it on the old one.
-    if (wasRunning && before.text !== undefined) {
-      await controlService(options.service, 'restart').catch(() => {});
-    }
+    if (snapshot) await restoreService(options.service, snapshot).catch(() => {});
     throw error;
   }
+}
+
+/**
+ * Installs or restarts the service with the port released and checked first, as the Server's
+ * reconcileService runs checkPort between stop and activation.
+ */
+async function startService(status: ServiceStatus, profile: PersistedConfig,
+  options: UpOptions): Promise<UpResult['service']> {
+  const free = () => checkLocalPort(profile.host ?? CONFIG_DEFAULTS.host, profile.port ?? CONFIG_DEFAULTS.port);
+  if (!status.current || !status.running) return installService(options.service, free);
+  await controlService(options.service, 'stop');
+  await free();
+  await controlService(options.service, 'start');
+  return 'restarted';
+}
+
+/** Returns only once the managed process itself answers on the saved host and port. */
+async function listener(profile: PersistedConfig, options: UpOptions): Promise<void> {
+  const host = urlHost(profile.host ?? CONFIG_DEFAULTS.host).replace(/^\[|\]$/g, '');
+  await waitForServiceListener({ host, port: profile.port ?? CONFIG_DEFAULTS.port,
+    service: async () => {
+      const [status, pid] = await Promise.all([serviceStatus(options.service), serviceMainPid(options.service)]);
+      return { running: status.running, pid };
+    }, ...(options.readyTimeoutMs ? { timeoutMs: options.readyTimeoutMs } : {}) });
 }
 
 /** Adapted from T3 `formatSetup` and `formatNextSteps`: what took effect, then one next step. */
