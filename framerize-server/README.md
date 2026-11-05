@@ -130,7 +130,7 @@ This forgets Server's saved route without deleting Tailscale's own Serve
 configuration. If you restore Tailscale later, remove the old Serve route
 before reusing its backend port.
 
-If the command reports "Invalid command or option", run `framerize-server --help`.
+If the command reports "Invalid command or option", run `framerize --help`.
 This covers unknown commands, unsupported options and missing option values.
 The diagnostic does not print the supplied arguments.
 
@@ -140,7 +140,7 @@ must be an integer from 0 to 65535. With `--backend framer`, also check the
 session in your [account JSON](docs/framer-backend.md#select-a-json-account).
 An inline session must be valid. A session variable must be set and valid, and
 a session file must be readable and valid. The variable can have any name.
-Run `framerize-server --help` for supported options. The diagnostic links to the
+Run `framerize --help` for supported options. The diagnostic links to the
 environment guide. It does not print configuration values.
 
 If startup reports "Account metadata file is unavailable or invalid", check
@@ -163,7 +163,7 @@ or underlying error. It does not identify a specific operating-system error.
 For the generic HTTP backend, name the upstream and its credential variable:
 
 ```sh
-npm --prefix framerize-server start -- --upstream https://inference.example.test --authorization-env INFERENCE_API_KEY
+framerize serve --upstream https://inference.example.test --authorization-env INFERENCE_API_KEY
 ```
 
 Installed packages already contain the listener bundle, compiled configuration
