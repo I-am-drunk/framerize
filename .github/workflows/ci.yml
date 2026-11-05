@@ -1,17 +1,84 @@
 name: ci
 
 on:
+  pull_request:
+  push:
+    branches: [main, 'restart/**']
   workflow_dispatch:
   workflow_call:
+    inputs:
+      skip_server:
+        description: Skip native server qualification
+        type: boolean
+        default: false
 
 permissions:
   contents: read
 
+concurrency:
+  group: ci-${{ github.event.pull_request.number || github.sha }}-${{ github.workflow }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
+  # Adapted from T3 Code's ci.yml at 5a906583 (MIT). .github/scripts/ci-changes.cjs
+  # maps changed files to packages and their dependents. Pushes, tags and manual
+  # runs keep every job. Detection fails open: an unresolved diff runs everything.
+  changes:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 5
+    outputs:
+      source: ${{ steps.detect.outputs.source }}
+      packages: ${{ steps.detect.outputs.packages }}
+      server: ${{ steps.detect.outputs.server }}
+    steps:
+      # Depth 2 brings the base commit the change is diffed against.
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+          fetch-depth: 2
+          sparse-checkout: |
+            /package.json
+            /*/package.json
+            /.github/scripts/ci-changes.cjs
+            /.github/actions/ci-changes/
+          sparse-checkout-cone-mode: false
+      - name: Detect affected jobs
+        id: detect
+        uses: ./.github/actions/ci-changes
+
   source:
+    needs: changes
+    if: needs.changes.outputs.source != 'false'
     uses: ./.github/workflows/core-ci.yml
     secrets: inherit
   packages:
-    needs: source
+    needs: [changes, source]
+    if: needs.changes.outputs.packages != 'false'
     uses: ./.github/workflows/package-coexistence.yml
     secrets: inherit
+  server:
+    needs: changes
+    if: needs.changes.outputs.server != 'false' && !inputs.skip_server
+    uses: ./.github/workflows/server-ci.yml
+    secrets: inherit
+
+  # Adapted from T3 Code's Check job. Require this job by name. It fails when a
+  # job fails or is cancelled, or skips without the gate that allows it.
+  # `always()` keeps a cancelled run from reporting a skipped success.
+  check:
+    name: Check
+    if: ${{ always() }}
+    needs: [changes, source, packages, server]
+    runs-on: ubuntu-22.04
+    timeout-minutes: 5
+    steps:
+      - name: Require every job to pass
+        env:
+          RESULTS: ${{ toJSON(needs) }}
+          SKIP_SERVER: ${{ inputs.skip_server == true }}
+        run: |
+          echo "$RESULTS" | jq -r 'to_entries[] | "\(.key): \(.value.result)"'
+          echo "$RESULTS" | jq -e --arg skip "$SKIP_SERVER" '.changes.outputs as $gates
+            | all(to_entries[]; .value.result == "success"
+              or (.value.result == "skipped" and ($gates[.key] == "false"
+                or (.key == "server" and $skip == "true"))))' > /dev/null

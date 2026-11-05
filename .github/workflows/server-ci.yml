@@ -1,11 +1,7 @@
 name: server-ci
 
 on:
-  pull_request:
-    paths: ['.gitattributes', 'framerize-server/**', 'framerize-core/**', 'scripts/build-server.ts', 'scripts/server-native-bundle.ts', 'scripts/package-archive.ts', 'scripts/native-account-smoke.ts', 'scripts/core-package-check.ts', 'scripts/fixtures/**', 'scripts/*framer-next*', 'test/framer-next.test.ts', 'test/server-*', 'package*.json', 'tsconfig*.json', '.github/workflows/server-ci.yml']
-  push:
-    branches: [main]
-    paths: ['.gitattributes', 'framerize-server/**', 'framerize-core/**', 'scripts/build-server.ts', 'scripts/server-native-bundle.ts', 'scripts/package-archive.ts', 'scripts/native-account-smoke.ts', 'scripts/core-package-check.ts', 'scripts/fixtures/**', 'scripts/*framer-next*', 'test/framer-next.test.ts', 'test/server-*', 'package*.json', 'tsconfig*.json', '.github/workflows/server-ci.yml']
+  workflow_call:
   workflow_dispatch:
 
 permissions:

@@ -9,7 +9,7 @@ const workflowPath = new URL('../.github/workflows/package-coexistence.yml', imp
 test('release requires source and package qualification without repacking or publishing', () => {
   const ci = readFileSync(new URL('../.github/workflows/ci.yml', import.meta.url), 'utf8');
   const release = readFileSync(new URL('../.github/workflows/release.yml', import.meta.url), 'utf8');
-  assert.match(ci, /needs: source/);
+  assert.match(section(ci, 'packages', 2), /^\s+needs: (?:source|\[[^\]\n]*\bsource\b[^\]\n]*\])$/m);
   assert.match(ci, /uses: \.\/\.github\/workflows\/package-coexistence.yml/);
   assert.match(release, /needs: qualify/);
   assert.match(release, /uses: \.\/\.github\/workflows\/ci.yml/);
@@ -18,16 +18,13 @@ test('release requires source and package qualification without repacking or pub
   assert.doesNotMatch(release, /npm (?:pack|publish)|build-binary|package-binary|contents: write/);
 });
 const requireBuiltin = createRequire(import.meta.url);
-test('source triggers cover build inputs and package workflow changes', () => {
+test('ci.yml selects the source and package gates from changed files', () => {
   const core = readFileSync(new URL('../.github/workflows/core-ci.yml', import.meta.url), 'utf8');
-  const pair = readFileSync(workflowPath, 'utf8');
-  for (const source of [core, pair]) {
-    for (const file of ['framerize-server/**',
-      'scripts/core-package-check.ts', '.github/workflows/ci.yml',
-      '.github/workflows/release.yml', '.github/workflows/package-coexistence.yml']) {
-      assert.equal(source.split(`      - '${file}'`).length - 1, 2, file);
-    }
-  }
+  const ci = readFileSync(new URL('../.github/workflows/ci.yml', import.meta.url), 'utf8');
+  for (const source of [core, readFileSync(workflowPath, 'utf8')]) validateEvents(source);
+  assert.match(ci, /^  pull_request:\n  push:\n    branches: \[main, 'restart\/\*\*'\]$/m);
+  assert.match(ci, /if: needs\.changes\.outputs\.source != 'false'\n    uses: \.\/\.github\/workflows\/core-ci\.yml/);
+  assert.match(ci, /if: needs\.changes\.outputs\.packages != 'false'\n    uses: \.\/\.github\/workflows\/package-coexistence\.yml/);
 });
 const digest = (bytes) => createHash('sha256').update(bytes).digest('hex');
 
@@ -268,15 +265,6 @@ test('actual final comparison rejects changed checkout, manifest, or payload', (
     fixture.put(path.join(fixture.input, fixture.packages[0].tarball), 'changed');
   }, /changed after verification/);
 });
-const requiredPaths = [
-  '.gitattributes', 'framerize-remote/**', 'framerize-server/**',
-  'framerize-core/**', 'scripts/build-server.ts', 'package*.json', 'tsconfig*.json',
-  'scripts/package-coexistence.ts', 'test/package-coexistence.test.ts',
-  'scripts/package-archive.ts', 'test/package-archive.test.ts',
-  '.github/workflows/package-coexistence.yml',
-  'test/package-coexistence-workflow.test.mjs',
-];
-
 function section(source, heading, indent = 0) {
   const lines = source.replace(/\r\n/g, '\n').split('\n');
   const start = lines.findIndex((line) => line === `${' '.repeat(indent)}${heading}:`);
@@ -286,19 +274,10 @@ function section(source, heading, indent = 0) {
   return lines.slice(start + 1, end < 0 ? undefined : end).join('\n');
 }
 
+// ci.yml owns push and pull_request; test/ci-changes.test.mjs covers path selection.
 function validateEvents(source) {
-  const events = section(source, 'on');
-  assert.match(events, /^  workflow_dispatch:/m);
-  for (const event of ['push', 'pull_request']) {
-    const body = section(events, event, 2);
-    const paths = section(body, 'paths', 4).split('\n')
-      .map((line) => line.trim().replace(/^-\s*['"]?|['"]$/g, ''));
-    for (const path of requiredPaths) assert.ok(paths.includes(path), `${event} omits ${path}`);
-    if (event === 'push') {
-      assert.match(body, /branches:[\s\S]*\bmain\b/);
-      assert.doesNotMatch(body, /\bbrowserless-node\b/);
-    }
-  }
+  const events = section(source, 'on').split('\n').map((line) => line.trimEnd()).filter(Boolean);
+  assert.deepEqual(events, ['  workflow_call:', '  workflow_dispatch:'], 'gate needs a separate trigger');
 }
 
 function validatePermissions(source) {
@@ -381,7 +360,7 @@ function validateExecution(source) {
     'GitHub blocks NODE_OPTIONS writes through GITHUB_ENV');
 }
 
-test('workflow covers both package trees and root verifier changes', () => {
+test('package workflow runs only when ci.yml or a maintainer selects it', () => {
   validateEvents(readFileSync(workflowPath, 'utf8'));
 });
 
@@ -457,28 +436,20 @@ test('workflow producer binding accepts a CRLF checkout', () => {
 });
 
 const eventFixture = `on:
-  push:
-    branches: [main]
-    paths:
-${requiredPaths.map((path) => `      - '${path}'`).join('\n')}
-  pull_request:
-    paths:
-${requiredPaths.map((path) => `      - '${path}'`).join('\n')}
+  workflow_call:
   workflow_dispatch:
 permissions:
   contents: read
 `;
 
-test('policy fixture rejects every omitted path for either event', () => {
+test('policy fixture rejects a gate with its own push or pull_request trigger', () => {
   validateEvents(eventFixture);
   validateEvents(eventFixture.replace(/\n/g, '\r\n'));
-  for (const path of requiredPaths) {
-    const line = `      - '${path}'\n`;
-    assert.throws(() => validateEvents(eventFixture.replace(line, '')), /push omits/);
-    const last = eventFixture.lastIndexOf(line);
-    assert.throws(() => validateEvents(eventFixture.slice(0, last)
-      + eventFixture.slice(last + line.length)), /pull_request omits/);
+  for (const extra of ['  push:\n    branches: [main]\n', '  pull_request:\n', '  pull_request_target:\n']) {
+    assert.throws(() => validateEvents(eventFixture.replace('  workflow_dispatch:\n', `  workflow_dispatch:\n${extra}`)),
+      /separate trigger/);
   }
+  assert.throws(() => validateEvents(eventFixture.replace('  workflow_call:\n', '')), /separate trigger/);
 });
 
 test('policy fixture rejects privileged permissions and trigger changes', () => {
@@ -487,7 +458,7 @@ test('policy fixture rejects privileged permissions and trigger changes', () => 
     assert.throws(() => validatePermissions(eventFixture.replace('  contents: read', change)));
   }
   assert.throws(() => validatePermissions(`${eventFixture}jobs:\n  extra:\n    permissions: write-all\n`));
-  assert.throws(() => validatePermissions(eventFixture.replace('pull_request:', 'pull_request_target:')));
+  assert.throws(() => validatePermissions(eventFixture.replace('workflow_call:', 'pull_request_target:')));
 });
 
 test('policy fixture rejects colliding, unsafe, or silently missing artifacts', () => {
