@@ -30,6 +30,23 @@ function windowsLookup(values) {
   } });
 }
 
+test('provider environment copies retain supplied values and saved fallbacks', async context => {
+  const directory = await mkdtemp(join(tmpdir(), 'server-env-enumeration-'));
+  context.after(() => rm(directory, { recursive: true, force: true }));
+  const path = join(directory, 'server.json');
+  const saved = JSON.stringify({ version: 1, config: { serverTokenEnv: 'SESSION' },
+    environment: { SESSION: 'synthetic_old', SAVED_ONLY: 'synthetic_fallback' } });
+  await writeFile(path, saved, { mode: 0o600 });
+  const values = { SeSsIoN: 'synthetic_current', UNRELATED: 'synthetic_other' };
+  const loaded = await api.configuredSettings(path, {}, windowsLookup(values));
+  assert.equal(loaded.config.serverToken, 'synthetic_current');
+  assert.deepEqual({ ...loaded.env }, { SESSION: 'synthetic_current',
+    SAVED_ONLY: 'synthetic_fallback', ...values });
+  assert.deepEqual(Object.fromEntries(Object.entries(loaded.env)), { ...loaded.env });
+  assert.deepEqual(values, { SeSsIoN: 'synthetic_current', UNRELATED: 'synthetic_other' });
+  assert.equal(await readFile(path, 'utf8'), saved);
+});
+
 test('saved environment names retain fallback and explicit undefined precedence', async context => {
   const directory = await mkdtemp(join(tmpdir(), 'server-env-fallback-'));
   context.after(() => rm(directory, { recursive: true, force: true }));

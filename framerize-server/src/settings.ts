@@ -48,12 +48,15 @@ export async function readSettings(path: string): Promise<SavedSettings> {
 export async function configuredSettings(path: string | undefined,
   values: Readonly<Record<string, unknown>>, env: Environment) {
   const saved = path ? await readSettings(path) : undefined;
-  const combinedEnv: Record<string, string | undefined> = Object.create(env);
-  for (const [name, value] of Object.entries(saved?.environment ?? {})) {
-    if (typeof env[name] !== 'string' && !Object.hasOwn(env, name)) {
-      Object.defineProperty(combinedEnv, name, { value, enumerable: true });
-    }
-  }
+  const combinedEnv = new Proxy({ ...saved?.environment, ...env }, {
+    get(target, name, receiver) {
+      if (typeof name === 'string') {
+        const value = env[name];
+        if (typeof value === 'string' || Object.hasOwn(env, name)) return value;
+      }
+      return Reflect.get(target, name, receiver);
+    },
+  });
   const defaults: Record<string, unknown> = { ...saved?.config };
   for (const [name, variable] of Object.entries(ENVIRONMENT)) {
     if (env[variable] !== undefined) delete defaults[name];
