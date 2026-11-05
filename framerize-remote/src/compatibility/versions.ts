@@ -65,6 +65,7 @@ export function parseNpmViewVersion(stdout: string | null): string | null {
   if (!stdout) return null;
   try {
     const value: unknown = JSON.parse(stdout.trim());
+    if (Array.isArray(value) && value.length !== 1) return null;
     const version = Array.isArray(value) ? value[0] : value;
     if (typeof version !== 'string') return null;
     const normalized = version.trim();
