@@ -31,7 +31,7 @@ async function command(program, args) {
     });
     state.running = true;
   }
-  if (args.includes('stop') && server) {
+  if ((args.includes('stop') || args.includes('disable') && args.includes('--now')) && server) {
     server.closeAllConnections();
     await new Promise(resolve => server.close(resolve));
     server = undefined;
