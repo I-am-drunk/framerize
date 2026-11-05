@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import childProcess, { spawn } from 'node:child_process';
 import { syncBuiltinESMExports } from 'node:module';
-import { once } from 'node:events';
+import { EventEmitter, once } from 'node:events';
 import { mkdtemp, mkdir, readFile, rm } from 'node:fs/promises';
 import { createServer as createHttpServer, request } from 'node:http';
 import { tmpdir } from 'node:os';
@@ -116,8 +116,13 @@ for (const token of [undefined, 'synthetic-pair+/=']) {
         return { code: 0, stdout: '' };
       }
       childProcess.execFile = (program, args, options, callback) => {
-        command(program, args).then(result => callback(result.code ? new Error('inactive') : null,
-          result.stdout), error => callback(error, ''));
+        const commandChild = new EventEmitter();
+        commandChild.kill = () => false;
+        command(program, args).then(result => {
+          callback(result.code ? new Error('inactive') : null, result.stdout);
+          commandChild.emit('close', result.code, null);
+        }, error => { callback(error, ''); commandChild.emit('close', 1, null); });
+        return commandChild;
       };
       syncBuiltinESMExports();
       process.env = env;

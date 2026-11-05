@@ -14,18 +14,36 @@ export type StepRunner = (command: string, args: readonly string[], signal?: Abo
 /** Must exceed systemd TimeoutStopSec and launchd ExitTimeOut (both 90s) to avoid shutdown races. */
 const STEP_TIMEOUT_MS = 120_000;
 
-export const runStep: StepRunner = (command, args, signal) => new Promise((done) => {
-  execFile(command, [...args], { timeout: STEP_TIMEOUT_MS, windowsHide: true, maxBuffer: 256 * 1024,
-    ...(signal ? { signal } : {}) },
-    (error, stdout) => done({ code: error ? (typeof error.code === 'number' ? error.code : 1) : 0, stdout: String(stdout) }));
-});
+function executeStep(command: string, args: readonly string[], timeout: number,
+  maxBuffer: number, signal?: AbortSignal): ReturnType<StepRunner> {
+  return new Promise((done) => {
+    if (signal?.aborted) { done({ code: 1, stdout: '' }); return; }
+    let result = { code: 1, stdout: '' };
+    const child = execFile(command, [...args], { timeout, windowsHide: true, maxBuffer,
+      ...(signal ? { signal } : {}) }, (error, stdout) => {
+      result = { code: error ? (typeof error.code === 'number' ? error.code : 1) : 0, stdout: String(stdout) };
+    });
+    const kill = (): void => { child.kill('SIGKILL'); };
+    let termination = setTimeout(kill, timeout + 1000).unref();
+    const abort = (): void => {
+      clearTimeout(termination);
+      termination = setTimeout(kill, 1000).unref();
+    };
+    signal?.addEventListener('abort', abort, { once: true });
+    if (signal?.aborted) abort();
+    // execFile invokes its callback before close on abort. Rollback must wait for close.
+    child.once('close', () => {
+      clearTimeout(termination);
+      signal?.removeEventListener('abort', abort);
+      done(result);
+    });
+  });
+}
+
+export const runStep: StepRunner = (command, args, signal) => executeStep(command, args, STEP_TIMEOUT_MS, 256 * 1024, signal);
 
 /** T3's status probes use a 5 s deadline rather than the 120 s step deadline. */
-const probeStep: StepRunner = (command, args, signal) => new Promise((done) => {
-  execFile(command, [...args], { timeout: 5_000, windowsHide: true, maxBuffer: 64 * 1024,
-    ...(signal ? { signal } : {}) },
-    (error, stdout) => done({ code: error ? (typeof error.code === 'number' ? error.code : 1) : 0, stdout: String(stdout) }));
-});
+const probeStep: StepRunner = (command, args, signal) => executeStep(command, args, 5_000, 64 * 1024, signal);
 
 export interface ServiceContext {
   readonly host: ServiceHost;

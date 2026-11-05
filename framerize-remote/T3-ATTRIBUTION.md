@@ -58,6 +58,8 @@ under the same MIT License.
   additions. Rollback runs after cancellation and preserves the previous unit's
   enabled and running state. Their cases are in `test/frm-up.test.mjs`,
   `test/frm-up-arguments.test.mjs` and `test/frm-service-ready.test.mjs`.
+  Waiting for a cancelled service command to close before rollback, and force
+  stopping that command after a one-second grace period, are Framerize additions.
 - `src/hostClassification.ts` copies `packages/shared/src/hostClassification.ts`
   (`29648b45`) through `isPrivateNetworkHost`. The favicon classification
   after it is omitted. `src/remoteUrl.ts` uses it to allow plain HTTP to
