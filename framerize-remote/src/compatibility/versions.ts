@@ -77,7 +77,7 @@ export function parseHomebrewCaskVersion(stdout: string | null): string | null {
 
 /** First x.y.z in `--version` output, such as `2.1.300 (Claude Code)` or `codex-cli 0.170.0`. */
 export function parseInstalledVersion(stdout: string | null): string | null {
-  return /\b(\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?)\b/.exec(stdout ?? '')?.[1] ?? null;
+  return /\b(\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?)(?![\w.-])/.exec(stdout ?? '')?.[1] ?? null;
 }
 
 export const isNativeVersion = (text: string | null): text is string => NATIVE_VERSION.test(text?.trim() ?? '');
