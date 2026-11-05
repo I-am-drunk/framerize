@@ -59,6 +59,7 @@ export function sendRequest(request: RawRequest): Promise<RawResponse> {
       });
       outgoing.maxHeadersCount = 0;
       outgoing.on('error', onError);
+      outgoing.once('close', () => { if (!message) fail('connection_failed'); });
       outgoing.setTimeout(request.idleTimeoutMs, () => fail('idle_timeout'));
       connectTimer = setTimeout(() => fail('headers_timeout'), request.connectTimeoutMs ?? request.headersTimeoutMs);
       outgoing.once('socket', (socket) => {
