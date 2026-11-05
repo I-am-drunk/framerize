@@ -264,7 +264,7 @@ async function configureFramer(store: StorePaths, values: Record<string, string>
   const list = choices.map((account, index) => `${index + 1}. ${account.id}`).join('\n');
   const fallback = selectedAccount(store) ?? (choices.length === 1 ? String(choices[0]!.id) : '');
   const answer = values.accountId ?? await asked(`${list}\nAccount number or id${fallback ? ` (${fallback})` : ''}: `);
-  const index = answer && /^\d+$/.test(answer) ? Number(answer) - 1 : -1;
+  const index = values.accountId === undefined && answer && /^\d+$/.test(answer) ? Number(answer) - 1 : -1;
   const id = String(choices[index]?.id ?? (answer || fallback));
   if (!id) throw new AccountCommandError('Choose an account with --account-id');
   return select(store, raw.accounts, id, json, deps);

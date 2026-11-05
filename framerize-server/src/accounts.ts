@@ -4,6 +4,8 @@ import { constants } from 'node:fs';
 import { dirname, isAbsolute, resolve } from 'node:path';
 import { AccountFileError, AccountSelectionError, ConfigurationError } from './errors.js';
 
+export const ACCOUNT_FILE_MAX_BYTES = 1024 * 1024;
+
 export interface AccountMetadata {
   readonly id: string;
   readonly enabled?: boolean;
@@ -51,15 +53,15 @@ export async function readAccountText(path: string, allowMissing = false): Promi
       throw error;
     }
     const info = await file.stat();
-    if (!info.isFile() || info.size > 1024 * 1024) throw new Error();
-    const buffer = Buffer.alloc(1024 * 1024 + 1);
+    if (!info.isFile() || info.size > ACCOUNT_FILE_MAX_BYTES) throw new Error();
+    const buffer = Buffer.alloc(ACCOUNT_FILE_MAX_BYTES + 1);
     let length = 0;
     while (length < buffer.length) {
       const { bytesRead } = await file.read(buffer, length, buffer.length - length, null);
       if (!bytesRead) break;
       length += bytesRead;
     }
-    if (length > 1024 * 1024) throw new Error();
+    if (length > ACCOUNT_FILE_MAX_BYTES) throw new Error();
     return new TextDecoder('utf-8', { fatal: true }).decode(buffer.subarray(0, length));
   } catch { throw new ConfigurationError('Account metadata unavailable'); }
   finally { await file?.close(); }

@@ -1,7 +1,7 @@
 // Account file edits and saved selection for the accounts and configure commands.
 import { access, rm } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
-import { parseAccountList, readAccountText, type AccountMetadata } from './accounts.js';
+import { ACCOUNT_FILE_MAX_BYTES, parseAccountList, readAccountText, type AccountMetadata } from './accounts.js';
 import { AccountCommandError, AccountFileError, ConfigurationError } from './errors.js';
 import { loadConfig } from './config.js';
 import { readSettings, serverHome, type SavedSettings } from './settings.js';
@@ -60,8 +60,12 @@ export async function writeAccounts(path: string, accounts: readonly RawAccount[
   signal?: AbortSignal): Promise<void> {
   try { parseAccountList(accounts, path); }
   catch (error) { throw error instanceof ConfigurationError ? new AccountCommandError(error.message) : error; }
+  const text = `${JSON.stringify(accounts, null, 2)}\n`;
+  if (Buffer.byteLength(text, 'utf8') > ACCOUNT_FILE_MAX_BYTES) {
+    throw new AccountCommandError('Account file would exceed the 1 MiB limit');
+  }
   signal?.throwIfAborted();
-  await writeAtomic(path, `${JSON.stringify(accounts, null, 2)}\n`);
+  await writeAtomic(path, text);
 }
 
 // Puts back the exact bytes read earlier, or removes a file this command created.
@@ -90,6 +94,8 @@ export async function saveSettings(store: StorePaths, change: Readonly<Record<st
 }
 
 export function selectedAccount(store: StorePaths): string | undefined {
-  const { backend, accountId } = store.saved?.config ?? {};
-  return backend === 'framer' && typeof accountId === 'string' && accountId ? accountId : undefined;
+  const { backend, accountId, accountsFile } = store.saved?.config ?? {};
+  return backend === 'framer' && typeof accountsFile === 'string'
+    && resolve(accountsFile) === store.accounts && typeof accountId === 'string' && accountId
+    ? accountId : undefined;
 }
