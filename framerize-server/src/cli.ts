@@ -73,10 +73,17 @@ const FLAGS = new Set(['config', 'backend', 'account-id', 'framer-origin', 'upst
 async function terminalAsk(question: string, signal?: AbortSignal): Promise<string> {
   const { createInterface } = await import('node:readline/promises');
   signal?.throwIfAborted();
+  const closed = new AbortController();
+  const cancellation = signal ? AbortSignal.any([signal, closed.signal]) : closed.signal;
   const input = createInterface({ input: process.stdin, output: process.stderr });
-  try { return await input.question(question, { signal }); }
-  catch (error) { signal?.throwIfAborted(); throw error; }
-  finally { input.close(); }
+  const onClose = () => closed.abort(new ServerSetupError('Server setup was cancelled.'));
+  input.once('close', onClose);
+  try { return await input.question(question, { signal: cancellation }); }
+  catch (error) { cancellation.throwIfAborted(); throw error; }
+  finally {
+    input.off('close', onClose);
+    input.close();
+  }
 }
 
 export function parseArgs(argv: readonly string[]): ParsedArgs {
