@@ -40,10 +40,16 @@ Running `frm` with no command and no saved profile does the same in a terminal:
 it asks for a link or address. In a terminal, `up` then offers to set up
 Claude Code or Codex. `frm up --json` prints the result and asks nothing.
 
-If readiness or the service step fails, `up` restores the previous profile and
-restarts a service that was running before. Rerunning `up` with unchanged
-settings leaves a running service alone. Where no service manager is available,
-`up` saves the profile and asks you to keep `frm serve` running.
+`up` checks that the managed service has started its local API before reporting
+success. Before startup completes, Ctrl+C cancels the pending check or service
+command. If setup fails or is cancelled, `up` attempts to restore the previous
+profile and service state. A previously stopped service stays stopped. If
+restoration fails, the error includes the original failure and reports that
+restoration is incomplete. If the profile cannot be restored, `up` does not restart
+the service with changed settings.
+Rerunning `up` with unchanged settings checks the running service without restarting
+it. Where no service manager is available, `up` saves the profile and asks you to
+keep `frm serve` running.
 
 `FRM_REMOTE`, `FRM_HOST` and `FRM_PORT` apply to `up`. A saved port `0` becomes
 8788, because the service needs a fixed port. `FRM_SERVER_TOKEN` and

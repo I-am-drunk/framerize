@@ -53,6 +53,11 @@ under the same MIT License.
   restart and rollback cases from `apps/server/src/cli/up.test.ts` (`10fb3b42`).
   Repairing lingering for an unchanged running service without a restart is
   a Framerize addition, with its own case in `test/frm-up.test.mjs`.
+  The local port check, matching listener and service process IDs, cancellation
+  through setup, and reporting both setup and rollback failures are Framerize
+  additions. Rollback runs after cancellation and preserves the previous unit's
+  enabled and running state. Their cases are in `test/frm-up.test.mjs`,
+  `test/frm-up-arguments.test.mjs` and `test/frm-service-ready.test.mjs`.
 - `src/hostClassification.ts` copies `packages/shared/src/hostClassification.ts`
   (`29648b45`) through `isPrivateNetworkHost`. The favicon classification
   after it is omitted. `src/remoteUrl.ts` uses it to allow plain HTTP to

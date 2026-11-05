@@ -76,6 +76,7 @@ export async function waitForServiceListener(wait: ListenerWait): Promise<number
     ...(wait.signal ? [wait.signal] : [])]);
   while (!deadline.aborted) {
     const [listener, service] = await Promise.all([healthPid(wait.host, wait.port, deadline), wait.service()]);
+    if (deadline.aborted) break;
     // A unit that stopped after a successful start command failed; waiting longer cannot help.
     if (!service.running) throw new RemoteDiagnosticError('service_failed', 'the service stopped after it started');
     if (listener !== undefined && listener === service.pid) return listener;

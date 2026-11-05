@@ -9,19 +9,21 @@ import { RemoteDiagnosticError } from './diagnostics.js';
 import { selectServiceManager, type ServiceHost, type ServiceManager, type ServiceStep } from './serviceManager.js';
 import { renderServicePlist, renderServiceUnit, serviceHomeOf, type ServicePlan } from './serviceUnits.js';
 
-export type StepRunner = (command: string, args: readonly string[]) => Promise<{ code: number; stdout: string }>;
+export type StepRunner = (command: string, args: readonly string[], signal?: AbortSignal) => Promise<{ code: number; stdout: string }>;
 
 /** Must exceed systemd TimeoutStopSec and launchd ExitTimeOut (both 90s) to avoid shutdown races. */
 const STEP_TIMEOUT_MS = 120_000;
 
-export const runStep: StepRunner = (command, args) => new Promise((done) => {
-  execFile(command, [...args], { timeout: STEP_TIMEOUT_MS, windowsHide: true, maxBuffer: 256 * 1024 },
+export const runStep: StepRunner = (command, args, signal) => new Promise((done) => {
+  execFile(command, [...args], { timeout: STEP_TIMEOUT_MS, windowsHide: true, maxBuffer: 256 * 1024,
+    ...(signal ? { signal } : {}) },
     (error, stdout) => done({ code: error ? (typeof error.code === 'number' ? error.code : 1) : 0, stdout: String(stdout) }));
 });
 
 /** T3's status probes use a 5 s deadline rather than the 120 s step deadline. */
-const probeStep: StepRunner = (command, args) => new Promise((done) => {
-  execFile(command, [...args], { timeout: 5_000, windowsHide: true, maxBuffer: 64 * 1024 },
+const probeStep: StepRunner = (command, args, signal) => new Promise((done) => {
+  execFile(command, [...args], { timeout: 5_000, windowsHide: true, maxBuffer: 64 * 1024,
+    ...(signal ? { signal } : {}) },
     (error, stdout) => done({ code: error ? (typeof error.code === 'number' ? error.code : 1) : 0, stdout: String(stdout) }));
 });
 
@@ -33,6 +35,11 @@ export interface ServiceContext {
   readonly program: readonly string[];
   readonly environmentPath: string;
   readonly run?: StepRunner;
+  readonly signal?: AbortSignal;
+}
+
+function checkCancelled(context: ServiceContext): void {
+  if (context.signal?.aborted) throw new RemoteDiagnosticError('aborted');
 }
 
 export interface ServiceStatus {
@@ -73,10 +80,12 @@ export class ServicePrerequisiteError extends RemoteDiagnosticError {
 
 /** Adapted from T3 `readSystemdProblems(false)`: the user manager and lingering, with a 5 s probe each. */
 async function readSystemdProblems(context: ServiceContext): Promise<ServiceProblem[]> {
+  checkCancelled(context);
   const uid = context.host.uid;
-  const probe = (command: string, args: string[]) => (context.run ?? probeStep)(command, args).catch(() => undefined);
+  const probe = (command: string, args: string[]) => (context.run ?? probeStep)(command, args, context.signal).catch(() => undefined);
   const [manager, linger] = await Promise.all([probe('systemctl', ['--user', 'show-environment']),
     probe('loginctl', ['show-user', ...(uid === undefined ? [] : [String(uid)]), '--property=Linger', '--value'])]);
+  checkCancelled(context);
   const problems: ServiceProblem[] = [];
   if (manager?.code !== 0) problems.push('user-manager-unavailable');
   const lingering = linger?.code === 0 ? linger.stdout.trim() : '';
@@ -96,7 +105,8 @@ export async function requireServicePrerequisites(context: ServiceContext): Prom
   if (!problems.includes('linger-disabled')) return;
   const uid = context.host.uid;
   const enabled = await (context.run ?? runStep)('loginctl',
-    ['enable-linger', '--no-ask-password', ...(uid === undefined ? [] : [String(uid)])]).catch(() => undefined);
+    ['enable-linger', '--no-ask-password', ...(uid === undefined ? [] : [String(uid)])], context.signal).catch(() => undefined);
+  checkCancelled(context);
   if (enabled?.code !== 0) throw new ServicePrerequisiteError('linger-disabled');
   const remaining = await readSystemdProblems(context);
   if (remaining[0]) throw new ServicePrerequisiteError(remaining[0]);
@@ -119,13 +129,18 @@ function render(manager: ServiceManager, context: ServiceContext, plan: ServiceP
 
 async function runSteps(context: ServiceContext, steps: readonly ServiceStep[]): Promise<void> {
   for (const entry of steps) {
-    const result = await (context.run ?? runStep)(entry.command, entry.args);
+    checkCancelled(context);
+    const result = await (context.run ?? runStep)(entry.command, entry.args, context.signal);
+    checkCancelled(context);
     if (result.code !== 0 && entry.optional !== true) throw new RemoteDiagnosticError('service_failed', entry.step);
   }
 }
 
 async function succeeds(context: ServiceContext, step: ServiceStep | undefined): Promise<boolean> {
-  return step !== undefined && (await (context.run ?? runStep)(step.command, step.args)).code === 0;
+  checkCancelled(context);
+  const succeeded = step !== undefined && (await (context.run ?? probeStep)(step.command, step.args, context.signal)).code === 0;
+  checkCancelled(context);
+  return succeeded;
 }
 
 async function readUnit(path: string): Promise<string | undefined> {
@@ -160,6 +175,7 @@ export async function installService(context: ServiceContext,
   if (unit !== undefined && !servesHome(unit, context.home)) throw new RemoteDiagnosticError('service_other_home');
   if (unit !== undefined) await runSteps(context, manager.stop.map((step) => ({ ...step, optional: true })));
   await beforeStart();
+  checkCancelled(context);
   try {
     await mkdir(dirname(manager.unitPath), { recursive: true });
     await mkdir(context.home, { recursive: true, mode: 0o700 });
@@ -213,7 +229,8 @@ export async function serviceStatus(context: ServiceContext): Promise<ServiceSta
 export async function serviceMainPid(context: ServiceContext): Promise<number | undefined> {
   const manager = requireManager(context);
   const step = manager.probes.pid;
-  const result = await (context.run ?? probeStep)(step.command, step.args).catch(() => undefined);
+  const result = await (context.run ?? probeStep)(step.command, step.args, context.signal).catch(() => undefined);
+  checkCancelled(context);
   return result?.code === 0 ? manager.mainPid(result.stdout) : undefined;
 }
 

@@ -20,6 +20,7 @@ const messages = {
   service_failed: ['The background service command failed.', 'Run frm service status and check the service log.'],
   service_port_busy: ['Another program already listens on the local API port.', 'Stop that program, or run frm up again with FRM_PORT set to a free port.'],
   service_not_ready: ['The frm service did not start its local API.', 'Run frm service status and check frm-service.log in FRM_HOME.'],
+  service_rollback_failed: ['Setup failed and the previous profile or service state could not be fully restored.', 'Check the profile in FRM_HOME and run frm service status before retrying frm up.'],
   service_other_home: ['The installed frm service serves another FRM_HOME.', 'Set FRM_HOME to that directory, or run frm service uninstall from there first.'],
   service_env_token: ['The background service cannot read tokens from your shell environment.', 'Run frm up with the pairing link, which saves the server token in the profile, or save token files with frm setup.'],
   profile_invalid: ['The saved profile is invalid or unreadable.', 'Repair the profile or run framerize-remote setup --help.'],
@@ -36,7 +37,7 @@ const messages = {
   response_too_large: ['The remote readiness response exceeds its limit.', 'Check that the origin points to a Framerize server.'],
   malformed_response: ['The remote returned invalid readiness data.', 'Check the server readiness endpoint.'],
   incompatible_response: ['The remote readiness contract is incompatible.', 'Use compatible Remote and server versions.'],
-  aborted: ['The readiness check was cancelled.', 'Run framerize-remote check to try again.'],
+  aborted: ['The command was cancelled.', 'Run the command again to retry.'],
   configuration_unavailable: ['The remote configuration is unavailable.', 'Check the server configuration.'],
   credentials_unavailable: ['The remote provider credentials are unavailable.', 'Check credentials on the server.'],
   upstream_unavailable: ['The remote upstream is unavailable.', 'Check the provider connection on the server.'],
@@ -59,13 +60,24 @@ export function diagnosticText(code: DiagnosticCode): string {
 
 export function commandFailure(error: unknown, json: boolean): string | undefined {
   if (!(error instanceof RemoteDiagnosticError)) return undefined;
-  return json ? JSON.stringify({ error: error.code, ...diagnostic(error.code) })
-    : diagnosticText(error.code);
+  const setup = error instanceof SetupRollbackError ? diagnostic(error.setupCode) : undefined;
+  return json ? JSON.stringify({ error: error.code, ...diagnostic(error.code), ...(setup ? { setup } : {}) })
+    : `${setup ? `Original failure: ${setup.message}\n` : ''}${diagnosticText(error.code)}`;
 }
 
 export class RemoteDiagnosticError extends Error {
   constructor(readonly code: DiagnosticCode, message: string = messages[code][0]) {
     super(message);
+  }
+}
+
+export class SetupRollbackError extends RemoteDiagnosticError {
+  readonly setupCode: DiagnosticCode;
+
+  constructor(error: unknown, failures: readonly unknown[]) {
+    super('service_rollback_failed');
+    this.setupCode = error instanceof RemoteDiagnosticError ? error.code : 'service_failed';
+    this.cause = new AggregateError([error, ...failures], this.message);
   }
 }
 

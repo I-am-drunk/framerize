@@ -8,7 +8,7 @@ import { CONFIG_DEFAULTS, parsePersisted, type PersistedConfig } from './config.
 import { saveConfigFile } from './configStore.js';
 import { validate, type CredentialReference } from './credentials.js';
 import { FRM_LOCAL_TOKEN, FRM_SERVER_TOKEN, frmSettings } from './frmEnv.js';
-import { RemoteDiagnosticError, type DiagnosticCode } from './diagnostics.js';
+import { RemoteDiagnosticError, SetupRollbackError, type DiagnosticCode } from './diagnostics.js';
 import { isPairingLink, parsePairingLink } from './pairingLink.js';
 import { parseRemoteEndpoint } from './remoteUrl.js';
 import { controlService, installService, requireServicePrerequisites, restoreService, serviceMainPid, serviceStatus,
@@ -21,15 +21,16 @@ export interface UpOptions {
   readonly env: NodeJS.ProcessEnv;
   /** Bound on waiting for the managed listener, default 15000 ms. */
   readonly readyTimeoutMs?: number;
+  readonly signal?: AbortSignal;
 }
 
 type Connection = { remote: string; token?: string | undefined; paired: boolean };
 
 /** A pairing link, a server origin, FRM_REMOTE, the saved remote, or one terminal question. */
 async function connection(input: string | undefined, saved: PersistedConfig | undefined,
-  io: CliIo, env: NodeJS.ProcessEnv): Promise<Connection> {
+  io: CliIo, env: NodeJS.ProcessEnv, signal?: AbortSignal): Promise<Connection> {
   let value = input ?? (env.FRM_REMOTE || undefined) ?? saved?.remote;
-  if (value === undefined && io.ask) value = (await io.ask('Pairing link or server address: ')).trim();
+  if (value === undefined && io.ask) value = (await io.ask('Pairing link or server address: ', signal)).trim();
   if (!value) throw new RemoteDiagnosticError('remote_required');
   if (!isPairingLink(value)) {
     try { parseRemoteEndpoint(value, saved?.allowInsecureRemote === true); }
@@ -101,45 +102,68 @@ export interface UpResult {
 }
 
 /** Readiness through the saved profile, before any service change, as T3 checks before reconciling. */
-async function readiness(configPath: string, env: NodeJS.ProcessEnv): Promise<DiagnosticCode | undefined> {
+async function readiness(configPath: string, env: NodeJS.ProcessEnv, signal?: AbortSignal): Promise<DiagnosticCode | undefined> {
   // Only the saved profile counts: FRM_* values were already resolved into it.
   const clean = Object.fromEntries(Object.entries(env)
     .filter(([name]) => !/^FRM_(REMOTE|HOST|PORT|SERVER_TOKEN|LOCAL_TOKEN)$/.test(name)));
-  const result = await runCheck(configPath, true, clean);
+  const result = await runCheck(configPath, true, clean, false, signal);
   if (result.exitCode === 0) return undefined;
   const code: unknown = (JSON.parse(result.text) as { diagnostic?: { code?: unknown } }).diagnostic?.code;
   return typeof code === 'string' ? code as DiagnosticCode : 'upstream_unavailable';
 }
 
 export async function setUp(input: string | undefined, io: CliIo, options: UpOptions): Promise<UpResult> {
+  const signal = options.signal ?? options.service.signal;
+  const active = (): void => { if (signal?.aborted) throw new RemoteDiagnosticError('aborted'); };
+  active();
+  if (signal) options = { ...options, signal, service: { ...options.service, signal } };
   const before = await readSaved(options.configPath);
-  const link = await connection(input, before.config, io, options.env);
+  const link = await connection(input, before.config, io, options.env, signal);
+  active();
   const profile = nextProfile(before.config, link, options.env);
-  await saveConfigFile(options.configPath, profile);
-  const after = await readFile(options.configPath, 'utf8');
   const localApi = `http://${urlHost(profile.host ?? CONFIG_DEFAULTS.host)}:${profile.port}/v1`;
   const base = { remote: link.remote, paired: link.paired, localApi };
   let snapshot: ServiceSnapshot | undefined;
   try {
-    const notReady = await readiness(options.configPath, options.env);
+    await saveConfigFile(options.configPath, profile);
+    const after = await readFile(options.configPath, 'utf8');
+    active();
+    const notReady = await readiness(options.configPath, options.env, signal);
+    active();
     if (notReady) throw new RemoteDiagnosticError(notReady);
     const status = await serviceStatus(options.service);
+    active();
     if (!status.supported) return { ...base, ready: true, service: 'unavailable' };
     if (status.otherHome) throw new RemoteDiagnosticError('service_other_home');
     if (status.current && status.running) await requireServicePrerequisites(options.service);
     // A running service reads the profile only when it starts; an unchanged one must still answer.
     if (status.current && status.running && after === before.text) {
       await listener(profile, options);
+      active();
       return { ...base, ready: true, service: 'unchanged' };
     }
     snapshot = await snapshotService(options.service);
+    active();
     const service = await startService(status, profile, options);
     await listener(profile, options);
+    active();
     return { ...base, ready: true, service };
   } catch (error) {
-    await restore(options.configPath, before.text).catch(() => {});
-    if (snapshot) await restoreService(options.service, snapshot).catch(() => {});
-    throw error;
+    const failure = signal?.aborted ? new RemoteDiagnosticError('aborted') : error;
+    const failures: unknown[] = [];
+    let profileRestored = true;
+    await restore(options.configPath, before.text).catch((restoreError: unknown) => {
+      profileRestored = false;
+      failures.push(restoreError);
+    });
+    // Cancellation stops setup, but rollback must still be allowed to clean up.
+    const { signal: _signal, ...rollbackService } = options.service;
+    if (snapshot) {
+      await restoreService(rollbackService, profileRestored ? snapshot : { ...snapshot, running: false })
+        .catch((restoreError: unknown) => { failures.push(restoreError); });
+    }
+    if (failures.length) throw new SetupRollbackError(failure, failures);
+    throw failure;
   }
 }
 
@@ -164,7 +188,8 @@ async function listener(profile: PersistedConfig, options: UpOptions): Promise<v
     service: async () => {
       const [status, pid] = await Promise.all([serviceStatus(options.service), serviceMainPid(options.service)]);
       return { running: status.running, pid };
-    }, ...(options.readyTimeoutMs ? { timeoutMs: options.readyTimeoutMs } : {}) });
+    }, ...(options.readyTimeoutMs ? { timeoutMs: options.readyTimeoutMs } : {}),
+    ...(options.signal ? { signal: options.signal } : {}) });
 }
 
 /** Adapted from T3 `formatSetup` and `formatNextSteps`: what took effect, then one next step. */

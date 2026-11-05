@@ -30,7 +30,7 @@ function optionalReference(key: 'serverToken' | 'localToken', env: unknown, file
 }
 
 /** Asks one question in a terminal. Absent when stdin or stdout is not a terminal. */
-export type Ask = (question: string) => Promise<string>;
+export type Ask = (question: string, signal?: AbortSignal) => Promise<string>;
 
 export async function runSetup(argv: readonly string[], configPath: string,
   env: NodeJS.ProcessEnv = process.env, ask?: Ask): Promise<string> {

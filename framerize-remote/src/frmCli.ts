@@ -1,11 +1,11 @@
 import { access } from 'node:fs/promises';
 import { run, serve, type CliIo } from './cli.js';
-import { RemoteDiagnosticError } from './diagnostics.js';
+import { RemoteDiagnosticError, SetupRollbackError } from './diagnostics.js';
 import { FRM_HELP } from './present.js';
 import { profilePath } from './profilePaths.js';
 import { offerClientSetup, runClientCommand } from './clientCli.js';
 import { parseArgs } from './cliArgs.js';
-import { formatUp, setUp } from './cmdUp.js';
+import { formatUp, setUp, type UpResult } from './cmdUp.js';
 import { isPairingLink } from './pairingLink.js';
 import { runService, serviceContext } from './serviceCli.js';
 
@@ -14,6 +14,31 @@ const UP_SPEC = { json: 'boolean' } as const;
 export interface FrmOptions {
   /** The foreground command a service runs, such as `[node, bin/frm.js]`. */
   readonly program: readonly string[];
+}
+
+async function runUp(input: string | undefined, io: CliIo, env: NodeJS.ProcessEnv,
+  program: readonly string[], json = false): Promise<UpResult> {
+  const configPath = profilePath(undefined, env);
+  const controller = new AbortController();
+  const stop = (): void => controller.abort();
+  process.on('SIGINT', stop);
+  process.on('SIGTERM', stop);
+  try {
+    const result = await setUp(input, io, { configPath, env, signal: controller.signal,
+      service: serviceContext([...program, 'serve'], env) });
+    if (controller.signal.aborted) throw new RemoteDiagnosticError('aborted');
+    io.stdout(json ? `${JSON.stringify(result)}\n` : formatUp(result));
+    if (!json) await offerClientSetup(configPath, io, env, undefined, controller.signal);
+    if (controller.signal.aborted) throw new RemoteDiagnosticError('aborted');
+    return result;
+  } catch (error) {
+    if (!(error instanceof SetupRollbackError) && (controller.signal.aborted
+      || (error instanceof Error && error.name === 'AbortError'))) throw new RemoteDiagnosticError('aborted');
+    throw error;
+  } finally {
+    process.off('SIGINT', stop);
+    process.off('SIGTERM', stop);
+  }
 }
 
 /**
@@ -25,9 +50,7 @@ async function start(io: CliIo, env: NodeJS.ProcessEnv, program: readonly string
   const saved = await access(configPath).then(() => true, () => false);
   if (saved || env.FRM_REMOTE) return serve(configPath, io, false);
   if (!io.ask) throw new RemoteDiagnosticError('remote_required');
-  const result = await setUp(undefined, io, { configPath, env, service: serviceContext([...program, 'serve'], env) });
-  io.stdout(formatUp(result));
-  await offerClientSetup(configPath, io, env);
+  const result = await runUp(undefined, io, env, program);
   return result.service === 'unavailable' ? serve(configPath, io, false) : 0;
 }
 
@@ -46,10 +69,7 @@ export async function runFrm(argv: readonly string[], io: CliIo, options: FrmOpt
       throw new RemoteDiagnosticError('command_arguments');
     }
     const link = links[0];
-    const result = await setUp(link, io, { configPath: profilePath(undefined, env), env,
-      service: serviceContext([...options.program, 'serve'], env) });
-    io.stdout(flags.json === true ? `${JSON.stringify(result)}\n` : formatUp(result));
-    if (!flags.json) await offerClientSetup(profilePath(undefined, env), io, env);
+    await runUp(link, io, env, options.program, flags.json === true);
     return 0;
   }
   return run(argv, io);

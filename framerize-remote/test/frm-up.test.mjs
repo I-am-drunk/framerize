@@ -2,7 +2,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createServer } from 'node:http';
-import { mkdtemp, readFile, rm } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -86,6 +86,95 @@ async function fixture(context, { requireToken = 'synthetic-pair+/=', ready = tr
 
 const pairLink = (origin, token) => `${origin}/pair#${new URLSearchParams([['token', token]])}`;
 const serviceChanges = commands => commands.filter(command => !/ (is-|show-|show )/.test(command));
+
+test('cancelled setup does not write a profile or run service commands', async context => {
+  const { origin, options, commands } = await fixture(context, { requireToken: null });
+  const controller = new AbortController();
+  controller.abort();
+  await assert.rejects(setUp(origin, quiet, { ...options, signal: controller.signal }), { code: 'aborted' });
+  await assert.rejects(readFile(options.configPath), { code: 'ENOENT' });
+  assert.deepEqual(commands, []);
+});
+
+test('cancelling a service command permits uncancelled rollback', async context => {
+  const { origin, options, control, root } = await fixture(context, { requireToken: null });
+  const controller = new AbortController();
+  const original = options.service.run;
+  options.service.run = async (command, args, signal) => {
+    assert.equal(signal, controller.signal.aborted ? undefined : controller.signal);
+    const result = await original(command, args);
+    if (args.includes('restart')) {
+      await new Promise(resolve => {
+        signal.addEventListener('abort', resolve, { once: true });
+        queueMicrotask(() => controller.abort());
+      });
+    }
+    return result;
+  };
+  await assert.rejects(setUp(origin, quiet, { ...options, signal: controller.signal }), { code: 'aborted' });
+  assert.equal(control.active, false);
+  await assert.rejects(readFile(options.configPath), { code: 'ENOENT' });
+  await assert.rejects(readFile(join(root, '.config/systemd/user/frm.service')), { code: 'ENOENT' });
+});
+
+test('a failed rollback retains the setup failure and reports incomplete restoration', async context => {
+  const { origin, options, control } = await fixture(context, { requireToken: null });
+  control.listens = false;
+  const original = options.service.run;
+  options.service.run = async (command, args) => {
+    const result = await original(command, args);
+    if (args.includes('--property=MainPID')) control.fail = 'systemctl --user daemon-reload';
+    return result;
+  };
+  await assert.rejects(setUp(origin, quiet, { ...options, readyTimeoutMs: 50 }), error => {
+    assert.equal(error.code, 'service_rollback_failed');
+    assert.equal(error.setupCode, 'service_not_ready');
+    assert.equal(error.cause.errors.length, 2);
+    return true;
+  });
+  assert.equal(control.active, false);
+});
+
+test('failed profile restoration does not restart the service with changed settings', async context => {
+  const { origin, options, control } = await fixture(context, { requireToken: null });
+  await setUp(origin, quiet, options);
+  options.env.FRM_LOCAL_TOKEN = 'synthetic-new-local-token';
+  control.listens = false;
+  const original = options.service.run;
+  let replaced = false;
+  options.service.run = async (command, args, signal) => {
+    const result = await original(command, args, signal);
+    if (!replaced && args.includes('--property=MainPID')) {
+      replaced = true;
+      await rm(options.configPath);
+      await mkdir(options.configPath);
+    }
+    return result;
+  };
+  await assert.rejects(setUp(origin, quiet, { ...options, readyTimeoutMs: 50 }), error => {
+    assert.equal(error.code, 'service_rollback_failed');
+    assert.equal(error.setupCode, 'service_not_ready');
+    assert.equal(error.cause.errors.length, 2);
+    return true;
+  });
+  assert.equal(control.active, false);
+});
+
+test('cancelling the managed listener wait restores the new profile and service', async context => {
+  const { origin, options, control, root } = await fixture(context, { requireToken: null });
+  const controller = new AbortController();
+  control.listens = false;
+  const original = options.service.run;
+  options.service.run = async (command, args) => {
+    const result = await original(command, args);
+    if (args.includes('--property=MainPID')) controller.abort();
+    return result;
+  };
+  await assert.rejects(setUp(origin, quiet, { ...options, signal: controller.signal }), { code: 'aborted' });
+  await assert.rejects(readFile(options.configPath), { code: 'ENOENT' });
+  await assert.rejects(readFile(join(root, '.config/systemd/user/frm.service')), { code: 'ENOENT' });
+  assert.equal(control.active, false);
+});
 
 test('setup rejects a service that is inactive after its start command succeeds', async context => {
   const { origin, options, control } = await fixture(context, { requireToken: null });

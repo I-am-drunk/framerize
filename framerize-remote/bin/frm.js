@@ -4,9 +4,12 @@ import { runFrm, commandFailure } from '../dist/index.js';
 
 const json = process.argv.includes('--json');
 const terminal = Boolean(process.stdin.isTTY && process.stdout.isTTY);
-const ask = terminal ? async (question) => {
+const ask = terminal ? async (question, signal) => {
   const prompt = createInterface({ input: process.stdin, output: process.stdout });
-  try { return await prompt.question(question); } finally { prompt.close(); }
+  const controller = new AbortController();
+  prompt.once('SIGINT', () => controller.abort());
+  const cancellation = signal ? AbortSignal.any([signal, controller.signal]) : controller.signal;
+  try { return await prompt.question(question, { signal: cancellation }); } finally { prompt.close(); }
 } : undefined;
 
 runFrm(process.argv.slice(2), {
