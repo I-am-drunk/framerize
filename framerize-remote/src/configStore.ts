@@ -18,7 +18,7 @@ export async function loadConfigFile(path: string): Promise<RemoteConfig> {
   try { text = await readFile(path, 'utf8'); }
   catch (error) {
     const code = (error as NodeJS.ErrnoException).code === 'ENOENT' ? 'profile_missing' : 'profile_invalid';
-    throw new RemoteDiagnosticError(code, 'no configuration found; run `framerize-remote setup` first');
+    throw new RemoteDiagnosticError(code, 'no configuration found; run `frm setup` first');
   }
   let json: unknown;
   try { json = JSON.parse(text); }

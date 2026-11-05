@@ -80,7 +80,7 @@ for (const [command, args] of [['check', ['--config', '--json']], ['serve', ['--
       assert.doesNotMatch(result.stderr, /setup_arguments/);
       if (args.includes('--json')) assert.equal(JSON.parse(result.stderr).error, 'command_arguments');
       else assert.match(result.stderr, /^The command options are invalid, incomplete or repeated\.\n/);
-      assert.match(result.stderr, /Run framerize-remote help for supported commands and options\./);
+      assert.match(result.stderr, /Run frm help for supported commands and options\./);
     } finally { await rm(root, { recursive: true, force: true }); }
   });
 }

@@ -42,14 +42,14 @@ for (const [name, args] of invalid) {
     assert.deepEqual(JSON.parse(result.stderr), {
       event: 'server.failed',
       message: 'Invalid command or option.',
-      next: 'Run framerize-server --help for supported commands and options.',
+      next: 'Run framerize --help for supported commands and options.',
     });
   });
 }
 
 test('real CLI provides help without startup', context => {
   const result = launch(context, ['--help'], 0);
-  assert.match(result.stdout, /Usage: framerize-server \[serve\|check\|up\|pair\|status\|service\]/);
+  assert.match(result.stdout, /Usage: framerize \[serve\|check\|up\|pair\|status\|service\]/);
   assert.equal(result.stderr, '');
 });
 

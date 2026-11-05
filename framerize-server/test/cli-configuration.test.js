@@ -33,7 +33,7 @@ function launch(state, args, env = {}, file = launcher) {
 
 const diagnostic = {
   event: 'server.failed', message: 'Server configuration is invalid.',
-  next: 'Check option values, FRAMERIZE_SERVER_* settings and account session references. Run framerize-server --help for options. Environment guide: https://github.com/I-am-drunk/framerize/blob/main/framerize-server/docs/environment.md.',
+  next: 'Check option values, FRAMERIZE_SERVER_* settings and account session references. Run framerize --help for options. Environment guide: https://github.com/I-am-drunk/framerize/blob/main/framerize-server/docs/environment.md.',
 };
 
 const invalid = [

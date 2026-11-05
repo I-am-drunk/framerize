@@ -60,14 +60,14 @@ Check options:
 
 Tailscale status is advisory. It does not prove remote reachability.
 
-Run \`framerize-remote setup --help\` or \`framerize-remote serve --help\` for options.
+Run \`frm setup --help\` or \`frm serve --help\` for options.
 `;
 
 export function readinessLine(result: BackendReadiness): { ok: boolean; text: string } {
   if (result === true) return { ok: true, text: 'Remote readiness passed.' };
   const reasons = { upstream_unavailable: 'remote upstream unavailable',
     credentials_unavailable: 'remote credentials unavailable', configuration_unavailable: 'remote configuration unavailable' };
-  return { ok: false, text: `Not ready: ${reasons[result.reason]}.\nNext: check the server, then run framerize-remote check.` };
+  return { ok: false, text: `Not ready: ${reasons[result.reason]}.\nNext: check the server, then run frm check.` };
 }
 
 export const FRM_HELP = `frm ${VERSION}
