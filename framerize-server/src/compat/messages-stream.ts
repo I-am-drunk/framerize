@@ -16,6 +16,12 @@ export function* messagesStream(reply: Record<string, unknown>): Generator<Buffe
     if (block.type === 'text') {
       start.text = '';
       deltas.push({ type: 'text_delta', text: block.text });
+      if (Array.isArray(block.citations)) {
+        start.citations = [];
+        for (const citation of block.citations) {
+          deltas.push({ type: 'citations_delta', citation });
+        }
+      }
     } else if (block.type === 'tool_use' || block.type === 'server_tool_use') {
       start.input = {};
       deltas.push({ type: 'input_json_delta', partial_json: JSON.stringify(block.input) });
