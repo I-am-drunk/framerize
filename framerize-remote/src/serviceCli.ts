@@ -2,6 +2,7 @@ import { homedir, userInfo } from 'node:os';
 import { dirname } from 'node:path';
 import type { CliIo } from './cli.js';
 import { parseArgs } from './cliArgs.js';
+import { RemoteDiagnosticError, ServiceCommandCleanupError } from './diagnostics.js';
 import { profileHome } from './profilePaths.js';
 import { controlService, installService, serviceStatus, uninstallService,
   type ServiceContext } from './serviceControl.js';
@@ -31,11 +32,11 @@ function formatStatus(status: Awaited<ReturnType<typeof serviceStatus>>): string
 
 const SKIPPED = 'The installed service runs another FRM_HOME, so it was not changed. Set FRM_HOME to that directory.\n';
 
-export async function runService(argv: readonly string[], io: CliIo,
-  options: { program: readonly string[]; env: NodeJS.ProcessEnv }): Promise<number> {
+async function serviceCommand(argv: readonly string[], io: CliIo,
+  options: { program: readonly string[]; env: NodeJS.ProcessEnv; signal: AbortSignal }): Promise<number> {
   const [action, ...rest] = argv;
   const { options: flags } = parseArgs(rest, HOME_SPEC);
-  const service = serviceContext(options.program, options.env);
+  const service = { ...serviceContext(options.program, options.env), signal: options.signal };
   const say = (text: string, value: Record<string, unknown>): number => {
     io.stdout(flags.json === true ? `${JSON.stringify(value)}\n` : text);
     return 0;
@@ -60,4 +61,23 @@ export async function runService(argv: readonly string[], io: CliIo,
   }
   io.stderr('Usage: frm service install|status|start|stop|restart|uninstall\n');
   return 2;
+}
+
+export async function runService(argv: readonly string[], io: CliIo,
+  options: { program: readonly string[]; env: NodeJS.ProcessEnv }): Promise<number> {
+  const controller = new AbortController();
+  const stop = (): void => controller.abort();
+  process.on('SIGINT', stop);
+  process.on('SIGTERM', stop);
+  try {
+    return await serviceCommand(argv, io, { ...options, signal: controller.signal });
+  } catch (error) {
+    if (controller.signal.aborted && !(error instanceof ServiceCommandCleanupError)) {
+      throw new RemoteDiagnosticError('aborted');
+    }
+    throw error;
+  } finally {
+    process.off('SIGINT', stop);
+    process.off('SIGTERM', stop);
+  }
 }

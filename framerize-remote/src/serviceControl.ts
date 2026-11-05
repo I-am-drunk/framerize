@@ -1,11 +1,11 @@
 // Adapted from T3 Code apps/server/src/cloud/bootService.ts at 5a906583 (MIT, T3 Tools Inc.):
 // install, restart, uninstall, status, runStep, readSystemdProblems and requireSystemdPrerequisites.
 // The pinned runtime, update handoff, downgrade and memory protection are omitted.
-import { execFile } from 'node:child_process';
 import { mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { dirname, join, resolve } from 'node:path';
 import { loadConfigFile } from './configStore.js';
 import { RemoteDiagnosticError } from './diagnostics.js';
+import { executeServiceCommand as executeStep, unavailableCommand, waitForServiceCommands } from './serviceCommand.js';
 import { selectServiceManager, type ServiceHost, type ServiceManager, type ServiceStep } from './serviceManager.js';
 import { renderServicePlist, renderServiceUnit, serviceHomeOf, type ServicePlan } from './serviceUnits.js';
 
@@ -13,32 +13,6 @@ export type StepRunner = (command: string, args: readonly string[], signal?: Abo
 
 /** Must exceed systemd TimeoutStopSec and launchd ExitTimeOut (both 90s) to avoid shutdown races. */
 const STEP_TIMEOUT_MS = 120_000;
-
-function executeStep(command: string, args: readonly string[], timeout: number,
-  maxBuffer: number, signal?: AbortSignal): ReturnType<StepRunner> {
-  return new Promise((done) => {
-    if (signal?.aborted) { done({ code: 1, stdout: '' }); return; }
-    let result = { code: 1, stdout: '' };
-    const child = execFile(command, [...args], { timeout, windowsHide: true, maxBuffer,
-      ...(signal ? { signal } : {}) }, (error, stdout) => {
-      result = { code: error ? (typeof error.code === 'number' ? error.code : 1) : 0, stdout: String(stdout) };
-    });
-    const kill = (): void => { child.kill('SIGKILL'); };
-    let termination = setTimeout(kill, timeout + 1000).unref();
-    const abort = (): void => {
-      clearTimeout(termination);
-      termination = setTimeout(kill, 1000).unref();
-    };
-    signal?.addEventListener('abort', abort, { once: true });
-    if (signal?.aborted) abort();
-    // execFile invokes its callback before close on abort. Rollback must wait for close.
-    child.once('close', () => {
-      clearTimeout(termination);
-      signal?.removeEventListener('abort', abort);
-      done(result);
-    });
-  });
-}
 
 export const runStep: StepRunner = (command, args, signal) => executeStep(command, args, STEP_TIMEOUT_MS, 256 * 1024, signal);
 
@@ -100,8 +74,8 @@ export class ServicePrerequisiteError extends RemoteDiagnosticError {
 async function readSystemdProblems(context: ServiceContext): Promise<ServiceProblem[]> {
   checkCancelled(context);
   const uid = context.host.uid;
-  const probe = (command: string, args: string[]) => (context.run ?? probeStep)(command, args, context.signal).catch(() => undefined);
-  const [manager, linger] = await Promise.all([probe('systemctl', ['--user', 'show-environment']),
+  const probe = (command: string, args: string[]) => (context.run ?? probeStep)(command, args, context.signal).catch(unavailableCommand);
+  const [manager, linger] = await waitForServiceCommands([probe('systemctl', ['--user', 'show-environment']),
     probe('loginctl', ['show-user', ...(uid === undefined ? [] : [String(uid)]), '--property=Linger', '--value'])]);
   checkCancelled(context);
   const problems: ServiceProblem[] = [];
@@ -123,7 +97,7 @@ export async function requireServicePrerequisites(context: ServiceContext): Prom
   if (!problems.includes('linger-disabled')) return;
   const uid = context.host.uid;
   const enabled = await (context.run ?? runStep)('loginctl',
-    ['enable-linger', '--no-ask-password', ...(uid === undefined ? [] : [String(uid)])], context.signal).catch(() => undefined);
+    ['enable-linger', '--no-ask-password', ...(uid === undefined ? [] : [String(uid)])], context.signal).catch(unavailableCommand);
   checkCancelled(context);
   if (enabled?.code !== 0) throw new ServicePrerequisiteError('linger-disabled');
   const remaining = await readSystemdProblems(context);
@@ -237,7 +211,7 @@ export async function serviceStatus(context: ServiceContext): Promise<ServiceSta
   const base = { supported: true, unitPath: manager.unitPath, logPath };
   if (unit === undefined) return { ...base, installed: false, running: false, enabled: false, current: false, otherHome: false };
   const ours = servesHome(unit, context.home);
-  const [enabled, running] = await Promise.all([manager.probes.enabled === undefined || succeeds(context, manager.probes.enabled),
+  const [enabled, running] = await waitForServiceCommands([manager.probes.enabled === undefined || succeeds(context, manager.probes.enabled),
     succeeds(context, manager.probes.active)]);
   const current = ours && enabled && unit === render(manager, context, servicePlan(context));
   return { ...base, installed: true, running, enabled, current, otherHome: !ours };
@@ -247,7 +221,7 @@ export async function serviceStatus(context: ServiceContext): Promise<ServiceSta
 export async function serviceMainPid(context: ServiceContext): Promise<number | undefined> {
   const manager = requireManager(context);
   const step = manager.probes.pid;
-  const result = await (context.run ?? probeStep)(step.command, step.args, context.signal).catch(() => undefined);
+  const result = await (context.run ?? probeStep)(step.command, step.args, context.signal).catch(unavailableCommand);
   checkCancelled(context);
   return result?.code === 0 ? manager.mainPid(result.stdout) : undefined;
 }

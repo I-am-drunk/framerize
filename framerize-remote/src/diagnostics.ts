@@ -18,6 +18,8 @@ const messages = {
   service_linger: ['Lingering is disabled, so the frm service would stop when your last login session ends.', 'Run `sudo loginctl enable-linger "$(id -un)"`, then run frm up again as your normal user.'],
   service_linger_unavailable: ['Cannot check whether this user can run services after logout.', 'Run `loginctl show-user "$(id -un)" --property=Linger` and check that systemd-logind is available.'],
   service_failed: ['The background service command failed.', 'Run frm service status and check the service log.'],
+  service_cleanup_failed: ['Could not stop background service command processes. Some may still be running.',
+    'Inspect the service manager and its command processes before retrying frm up or frm service.'],
   service_port_busy: ['Another program already listens on the local API port.', 'Stop that program, or run frm up again with FRM_PORT set to a free port.'],
   service_not_ready: ['The frm service did not start its local API.', 'Run frm service status and check frm-service.log in FRM_HOME.'],
   service_rollback_failed: ['Setup failed and the previous profile or service state could not be fully restored.', 'Check the profile in FRM_HOME and run frm service status before retrying frm up.'],
@@ -68,8 +70,12 @@ export function commandFailure(error: unknown, json: boolean): string | undefine
   if (error instanceof Error && error.name === 'AbortError') error = new RemoteDiagnosticError('aborted');
   if (!(error instanceof RemoteDiagnosticError)) return undefined;
   const setup = error instanceof SetupRollbackError ? diagnostic(error.setupCode) : undefined;
-  return json ? JSON.stringify({ error: error.code, ...diagnostic(error.code), ...(setup ? { setup } : {}) })
-    : `${setup ? `Original failure: ${setup.message}\n` : ''}${diagnosticText(error.code)}`;
+  const cleanup = error instanceof SetupRollbackError && error.cleanupCode
+    ? diagnostic(error.cleanupCode) : undefined;
+  return json ? JSON.stringify({ error: error.code, ...diagnostic(error.code),
+    ...(setup ? { setup } : {}), ...(cleanup ? { cleanup } : {}) })
+    : `${setup ? `Original failure: ${setup.message}\n` : ''}${diagnosticText(error.code)}`
+      + (cleanup ? `\n${diagnosticText(cleanup.code)}` : '');
 }
 
 export class RemoteDiagnosticError extends Error {
@@ -85,12 +91,22 @@ export class ClientCleanupError extends RemoteDiagnosticError {
   }
 }
 
+export class ServiceCommandCleanupError extends RemoteDiagnosticError {
+  constructor(cause: unknown) {
+    super('service_cleanup_failed');
+    this.cause = cause;
+  }
+}
+
 export class SetupRollbackError extends RemoteDiagnosticError {
   readonly setupCode: DiagnosticCode;
+  readonly cleanupCode: DiagnosticCode | undefined;
 
   constructor(error: unknown, failures: readonly unknown[]) {
     super('service_rollback_failed');
     this.setupCode = error instanceof RemoteDiagnosticError ? error.code : 'service_failed';
+    this.cleanupCode = failures.some(failure => failure instanceof ServiceCommandCleanupError)
+      ? 'service_cleanup_failed' : undefined;
     this.cause = new AggregateError([error, ...failures], this.message);
   }
 }

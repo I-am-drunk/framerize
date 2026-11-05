@@ -48,13 +48,13 @@ for (const behavior of ['delayed', 'ignore']) {
       const script = join(root, 'service.mjs');
       const args = [script, behavior];
       const controller = new AbortController();
-      const originalExecFile = childProcess.execFile;
+      const originalSpawn = childProcess.spawn;
       const ready = Promise.withResolvers();
       let child, closed, port, settled, exitObserved = false, closeObserved = false;
       let invocations = 0;
       const running = () => child && child.exitCode === null && child.signalCode === null;
       context.after(async () => {
-        childProcess.execFile = originalExecFile;
+        childProcess.spawn = originalSpawn;
         syncBuiltinESMExports();
         try {
           controller.abort();
@@ -83,11 +83,11 @@ server.listen(0, '127.0.0.1', () => {
   process.stdout.write(JSON.stringify({ pid: process.pid, port: server.address().port }) + '\\n');
 });
 `, { mode: 0o600 });
-      childProcess.execFile = (command, suppliedArgs, options, callback) => {
+      childProcess.spawn = (command, suppliedArgs, options) => {
         assert.equal(command, process.execPath, 'Only the synthetic Node child may run');
         assert.deepEqual(suppliedArgs, args);
         assert.equal(++invocations, 1, 'Only one child may be created');
-        child = originalExecFile(command, suppliedArgs, options, callback);
+        child = originalSpawn(command, suppliedArgs, options);
         child.once('exit', () => { exitObserved = true; });
         closed = new Promise(resolve => child.once('close', (code, signal) => {
           closeObserved = true;
@@ -95,8 +95,8 @@ server.listen(0, '127.0.0.1', () => {
         }));
         child.once('error', ready.reject);
         let output = '';
-        child.stdout.setEncoding('utf8').on('data', chunk => {
-          output += chunk;
+        child.stdout.on('data', chunk => {
+          output += chunk.toString('utf8');
           if (!output.includes('\n')) return;
           try { ready.resolve(JSON.parse(output.split('\n')[0])); }
           catch (error) { ready.reject(error); }
