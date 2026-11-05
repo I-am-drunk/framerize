@@ -10,7 +10,7 @@ import { fileURLToPath } from 'node:url';
 const execute = promisify(execFile);
 const packageRoot = resolve(process.env.FRAMERIZE_REMOTE_PACKAGE_ROOT
   ?? fileURLToPath(new URL('../', import.meta.url)));
-const guard = fileURLToPath(new URL('./helpers/settings-cli-preload.mjs', import.meta.url));
+const guard = new URL('./helpers/settings-cli-preload.mjs', import.meta.url).href;
 
 test('CLI keeps undo usable across working directories and settings targets', { timeout: 15000 }, async t => {
   const root = await realpath(await mkdtemp(join(tmpdir(), 'frm-settings-cli-')));
@@ -39,7 +39,8 @@ test('CLI keeps undo usable across working directories and settings targets', { 
   };
   const firstFile = join(first, 'config/settings.json'), secondFile = join(second, 'config/settings.json');
   const recordPath = join(state, 'claude-settings.json');
-  assert.equal((await invoke(first, '--persist')).code, 0);
+  const firstPersist = await invoke(first, '--persist');
+  assert.equal(firstPersist.code, 0, firstPersist.stderr);
   const saved = await readFile(firstFile, 'utf8'), record = await readFile(recordPath, 'utf8');
   assert.equal(JSON.parse(record).settingsPath, firstFile);
   const refused = await invoke(second, '--persist');
@@ -53,7 +54,8 @@ test('CLI keeps undo usable across working directories and settings targets', { 
   assert.match(undone.stdout, /Removed the Remote values/);
   assert.deepEqual(JSON.parse(await readFile(firstFile, 'utf8')), {});
   await assert.rejects(readFile(recordPath), { code: 'ENOENT' });
-  assert.equal((await invoke(second, '--persist')).code, 0);
+  const secondPersist = await invoke(second, '--persist');
+  assert.equal(secondPersist.code, 0, secondPersist.stderr);
   assert.equal(JSON.parse(await readFile(secondFile, 'utf8')).env.ANTHROPIC_AUTH_TOKEN, token);
   const undoneSecond = await invoke(first, '--undo');
   assert.equal(undoneSecond.code, 0, undoneSecond.stderr);
