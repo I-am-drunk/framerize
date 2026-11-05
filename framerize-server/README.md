@@ -25,6 +25,11 @@ If the command reports "Invalid command or option", run `framerize-server --help
 This covers unknown commands, unsupported options and missing option values.
 The diagnostic does not print the supplied arguments.
 
+If startup reports "Server configuration is invalid", check option values and
+the [supported environment settings](docs/environment.md). For example, `--port`
+must be an integer from 0 to 65535. Run `framerize-server --help` for supported
+options. This diagnostic does not print configuration values or credentials.
+
 If startup reports "Account metadata file is unavailable or invalid", check
 `--accounts-file`, read permissions, and the
 [JSON account format](docs/framer-backend.md#select-a-json-account).

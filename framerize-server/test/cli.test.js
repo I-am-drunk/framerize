@@ -213,7 +213,7 @@ test('provider rejection after cancellation stops cleanly, but cleanup failure r
   }
 });
 
-test('actual launcher reports constant fatal output without echoing bad input', context => {
+test('actual launcher reports configuration guidance without echoing bad input', context => {
   const root = mkdtempSync(join(tmpdir(), 'server-cli-fatal-'));
   context.after(() => rmSync(root, { recursive: true, force: true }));
   const launcher = fileURLToPath(new URL('../bin/framerize-server.js', import.meta.url));
@@ -225,7 +225,8 @@ test('actual launcher reports constant fatal output without echoing bad input', 
   assert.equal(result.status, 1);
   assert.equal(result.stdout, '');
   assert.deepEqual(JSON.parse(result.stderr), {
-    event: 'server.failed', message: 'Server failed to start or stop',
+    event: 'server.failed', message: 'Server configuration is invalid.',
+    next: 'Check option values and FRAMERIZE_SERVER_* settings. Run framerize-server --help for supported options.',
   });
   assert.doesNotMatch(result.stderr, /synthetic-canary/);
 });
