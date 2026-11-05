@@ -41,7 +41,23 @@ export async function runClientCommand(argv: readonly string[], io: CliIo,
   }
   const path = profilePath(options.config, env);
   const target = options.undo ? { origin: 'http://127.0.0.1:8788' } : undefined;
-  return runClient(argv, await clientDependencies(path, io, env, target));
+  if (!options.check && !options.update) {
+    return runClient(argv, await clientDependencies(path, io, env, target));
+  }
+  const controller = new AbortController();
+  const stop = (): void => controller.abort();
+  process.on('SIGINT', stop);
+  process.on('SIGTERM', stop);
+  try {
+    const deps = await clientDependencies(path, io, env, target);
+    controller.signal.throwIfAborted();
+    const result = await runClient(argv, { ...deps, signal: controller.signal });
+    controller.signal.throwIfAborted();
+    return result;
+  } finally {
+    process.off('SIGINT', stop);
+    process.off('SIGTERM', stop);
+  }
 }
 
 export async function offerClientSetup(configPath: string, io: CliIo, env: NodeJS.ProcessEnv,

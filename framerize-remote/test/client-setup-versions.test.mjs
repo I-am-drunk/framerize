@@ -101,3 +101,33 @@ test('values the launch already sets and unreadable files do not block', async (
   assert.equal(await setup.runClient(['claude'], h.deps), 0);
   assert.deepEqual(h.runs[0].args, []);
 });
+
+test('cancelling a release lookup prevents a consented standalone update', async () => {
+  const h = deps(), controller = new AbortController();
+  h.deps.signal = controller.signal;
+  h.deps.fetch = async () => { controller.abort(); return '2.1.301'; };
+  await assert.rejects(setup.runClient(['claude', '--update', '--no-input'], h.deps), { name: 'AbortError' });
+  assert.deepEqual(h.runs, []);
+  assert.deepEqual(h.out, []);
+  assert.deepEqual(h.err, []);
+});
+
+test('the standalone update confirmation receives cancellation', { timeout: 2000 }, async () => {
+  const h = deps({ releases: { [latestUrl('latest')]: '2.1.301' } });
+  const controller = new AbortController(), reached = Promise.withResolvers();
+  let received, release;
+  h.deps.signal = controller.signal;
+  h.deps.prompt = (_question, signal) => new Promise((resolve, reject) => {
+    received = signal;
+    release = () => resolve('no');
+    signal?.addEventListener('abort', () => reject(signal.reason), { once: true });
+    reached.resolve();
+  });
+  const pending = setup.runClient(['claude', '--update'], h.deps);
+  await reached.promise;
+  controller.abort();
+  release();
+  await assert.rejects(pending, { name: 'AbortError' });
+  assert.equal(received, controller.signal);
+  assert.deepEqual(h.runs, []);
+});
