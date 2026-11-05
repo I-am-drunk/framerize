@@ -69,7 +69,7 @@ The CLI creates its own minter from the packaged Castle runtime:
 ```sh
 FRAMERIZE_SERVER_BACKEND=framer \
 FRAMERIZE_SERVER_ACCOUNTS=/srv/framerize/accounts.json \
-framerize-server serve
+framerize serve
 ```
 
 `FRAMERIZE_SERVER_ACCOUNT` or `--account-id` selects one of several enabled

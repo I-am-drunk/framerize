@@ -35,7 +35,7 @@ test('help exits before configuration or provider creation', async () => {
     get env() { throw new Error('must not read environment'); },
     createProvider() { throw new Error('must not create a provider'); },
   }), 0);
-  assert.match(read(), /Usage: framerize-server/);
+  assert.match(read(), /Usage: framerize \[/);
 });
 
 for (const failListen of [false, true]) {

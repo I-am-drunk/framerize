@@ -22,7 +22,9 @@ export async function bundleServerArchive(bytes: Buffer, expected: { name: strin
   assert.equal(manifest.name, expected.name);
   assert.equal(manifest.version, expected.version);
   assert.equal(manifest.private, true);
-  assert.deepEqual(manifest.bin, { 'framerize-server': './bin/framerize-server.js' });
+  assert.deepEqual(manifest.bin, {
+    framerize: './bin/framerize-server.js', 'framerize-server': './bin/framerize-server.js',
+  });
   for (const field of ['dependencies', 'optionalDependencies', 'peerDependencies']) {
     assert.equal(Object.keys(manifest[field] ?? {}).length, 0, 'Unexpected runtime dependencies');
   }

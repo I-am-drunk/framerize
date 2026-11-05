@@ -34,7 +34,7 @@ export interface CliDependencies {
 }
 
 const HELP = `Server
-Usage: framerize-server [serve|check|up|pair|status|service] [options]
+Usage: framerize [serve|check|up|pair|status|service] [options]
   up                            Save settings, start the service, and print a pairing link
   pair                          Print a link for frm to use on another machine
   status --json                 Show service state for agents

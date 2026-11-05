@@ -6,7 +6,7 @@ export interface PairingLink {
 }
 
 /**
- * Parses `<origin>/pair#token=<URLSearchParams-encoded token>` from `framerize-server pair`.
+ * Parses `<origin>/pair#token=<URLSearchParams-encoded token>` from `framerize pair`.
  * The fragment mirrors T3 Code's buildPairingUrl, so the token never reaches request logs.
  * The token is decoded exactly; `frm up` checks the bearer grammar before saving it.
  */

@@ -49,7 +49,7 @@ function fixture(t) {
       './account-backend': './dist/account-backend.js',
       './startup-access': './dist/startup-access.js',
     },
-    bin: { 'framerize-server': './bin/framerize-server.js' },
+    bin: { framerize: './bin/framerize-server.js', 'framerize-server': './bin/framerize-server.js' },
   };
   writeFileSync(path.join(root, 'package.json'), JSON.stringify(manifest));
   return { root, manifest, save: () => writeFileSync(path.join(root, 'package.json'), JSON.stringify(manifest)) };
@@ -73,7 +73,7 @@ test('public packages and extra package entries are rejected', (t) => {
     [{ files: ['bin', ...generated.map((name) => `dist/${name}`),
       ...notices, 'dist/extra'] }, 'Unexpected server package files'],
     [{ exports: { '.': './src/server.js' } }, 'Unexpected server package exports'],
-    [{ bin: { 'framerize-server': './bin/framerize-server.js', extra: './bin/extra.js' } }, 'Unexpected server package executable'],
+    [{ bin: { framerize: './bin/framerize-server.js', 'framerize-server': './bin/framerize-server.js', extra: './bin/extra.js' } }, 'Unexpected server package executable'],
     [{ dependencies: { example: '1.0.0' } }, 'Unexpected runtime dependencies'],
     [{ optionalDependencies: { example: '1.0.0' } }, 'Unexpected runtime dependencies'],
     [{ peerDependencies: { example: '1.0.0' } }, 'Unexpected runtime dependencies'],

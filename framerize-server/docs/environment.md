@@ -31,7 +31,7 @@ It must be an absolute path. `up` writes `server.json` and `server.log` there.
 
 ## Saved settings
 
-`framerize-server up` saves the resolved configuration to
+`framerize up` saves the resolved configuration to
 `FRAMERIZE_SERVER_HOME/server.json`, mode 0600. The background service starts
 `serve --config` with that file. It also records the current values of the
 token variable, the upstream credential variable and any account session

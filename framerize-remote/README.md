@@ -7,9 +7,10 @@ Server. It runs no inference and holds no accounts, Castle or browser state.
 Remote runs the shared Core listener. Server owns the accounts, provider
 integration and Castle. The older `framerize-remote` command remains available.
 
-## Build from source
+## Install the development package
 
-Remote is not published to npm. From the repository root:
+The `framerize-remote` package is not published to npm yet. Build and install
+a local npm archive from the repository root:
 
 ```sh
 npm ci --ignore-scripts
@@ -18,13 +19,19 @@ npm pack --workspace=framerize-remote --ignore-scripts
 npm install -g ./framerize-remote-0.2.0.tgz --ignore-scripts
 ```
 
+This installs the `frm` command. npm places its command links in the global
+prefix. If `frm` is not found, use `npm prefix -g` to locate it and add its
+`bin` directory to `PATH` on Linux or macOS, or the prefix itself on Windows.
+The npm package named `frm` belongs to another project. This command comes
+from `framerize-remote`.
+
 The package bundles the Core listener. It has no runtime dependencies and
 needs no compiler or development checkout.
 TypeScript consumers need Node type declarations in their own development tools.
 
 ## First run
 
-Copy the link that `framerize-server up` or `framerize-server pair` printed:
+Copy the link that `framerize up` or `framerize pair` printed:
 
 ```sh
 frm 'http://192.168.1.20:8789/pair#token=...'

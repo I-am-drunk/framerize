@@ -7,10 +7,10 @@ import { AccountFileError, AccountSelectionError, CliUsageError, ConfigurationEr
 run().then((code) => { process.exitCode = code; }).catch(error => {
   const detail = error instanceof ServerSetupError ? {
     message: error.message,
-    next: 'Run framerize-server status --json or inspect server.log in FRAMERIZE_SERVER_HOME.',
+    next: 'Run framerize status --json or inspect server.log in FRAMERIZE_SERVER_HOME.',
   } : error instanceof CliUsageError ? {
     message: 'Invalid command or option.',
-    next: 'Run framerize-server --help for supported commands and options.',
+    next: 'Run framerize --help for supported commands and options.',
   } : error instanceof ServerTokenFileError ? {
     message: 'Server token file is unavailable or invalid.',
     next: 'Check --server-token-file, its contents and permissions. On Unix, use chmod 600.',
@@ -25,7 +25,7 @@ run().then((code) => { process.exitCode = code; }).catch(error => {
     next: 'Check --host or FRAMERIZE_SERVER_HOST and --port or FRAMERIZE_SERVER_PORT. Use an available local address and port.',
   } : error instanceof ConfigurationError ? {
     message: 'Server configuration is invalid.',
-    next: 'Check option values, FRAMERIZE_SERVER_* settings and account session references. Run framerize-server --help for options. Environment guide: https://github.com/I-am-drunk/framerize/blob/main/framerize-server/docs/environment.md.',
+    next: 'Check option values, FRAMERIZE_SERVER_* settings and account session references. Run framerize --help for options. Environment guide: https://github.com/I-am-drunk/framerize/blob/main/framerize-server/docs/environment.md.',
   } : { message: 'Server failed to start or stop' };
   process.stderr.write(`${JSON.stringify({ event: 'server.failed', ...detail })}\n`);
   process.exitCode = 1;

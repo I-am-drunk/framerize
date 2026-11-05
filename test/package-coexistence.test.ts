@@ -18,7 +18,7 @@ function fixture(context: TestContext, name: string,
   const server = name === 'framerize-server';
   const files: Record<string, string> = {
     'package.json': JSON.stringify({ name, version: '0.0.1', type: 'module',
-      bin: { [server ? name : 'frm']: `./${executable}` },
+      bin: { [server ? 'framerize' : 'frm']: `./${executable}` },
       exports: { '.': './src/server.js',
         ...(server ? { './config': './src/config.js', './accounts': './src/accounts.js', './logger': './src/logger.js',
           './provider': './src/provider.js' } : {}) }, ...overrides }),
@@ -103,6 +103,22 @@ test('installs frm with a legacy alias and a canonical launcher filename', conte
   });
   const server = fixture(context, 'framerize-server');
   assert.equal(checkPackageCoexistence([remote, server]).packages.length, 2);
+});
+
+test('installs canonical framerize alongside its Server alias and frm', context => {
+  const remote = fixture(context, 'framerize-remote');
+  const server = fixture(context, 'framerize-server', {
+    bin: { framerize: './bin/framerize-server.js', 'framerize-server': './bin/framerize-server.js' },
+  });
+  assert.equal(checkPackageCoexistence([remote, server]).packages.length, 2);
+});
+
+test('requires canonical framerize even when the Server alias exists', context => {
+  const remote = fixture(context, 'framerize-remote');
+  const server = fixture(context, 'framerize-server', {
+    bin: { 'framerize-server': './bin/framerize-server.js' },
+  });
+  assert.throws(() => checkPackageCoexistence([remote, server]), /unexpected executable name/);
 });
 
 test('requires the canonical frm command even when the legacy alias exists', context => {

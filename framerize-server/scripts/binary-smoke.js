@@ -134,7 +134,7 @@ try {
   }
   const options = { cwd: directory, env: environment, encoding: 'utf8', timeout: 5000,
     stdio: ['ignore', 'pipe', 'pipe'] };
-  assert.match(execFileSync(executable, ['--help'], options), /Usage: framerize-server/);
+  assert.match(execFileSync(executable, ['--help'], options), /Usage: framerize \[/);
   assert.equal(execFileSync(executable, ['check'], options), '');
   await new Promise((resolve, reject) => {
     upstream.once('error', reject);

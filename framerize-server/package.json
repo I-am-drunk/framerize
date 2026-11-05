@@ -8,6 +8,7 @@
     "node": ">=22.12"
   },
   "bin": {
+    "framerize": "./bin/framerize-server.js",
     "framerize-server": "./bin/framerize-server.js"
   },
   "exports": {

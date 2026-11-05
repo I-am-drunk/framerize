@@ -30,7 +30,9 @@ assert.deepEqual(manifest.exports, {
   './account-backend': './dist/account-backend.js',
   './startup-access': './dist/startup-access.js',
 }, 'Unexpected server package exports');
-assert.deepEqual(manifest.bin, { 'framerize-server': './bin/framerize-server.js' },
+assert.deepEqual(manifest.bin, {
+  framerize: './bin/framerize-server.js', 'framerize-server': './bin/framerize-server.js',
+},
   'Unexpected server package executable');
 for (const field of ['dependencies', 'optionalDependencies', 'peerDependencies']) {
   assert.deepEqual(Object.keys(manifest[field] ?? {}), [], 'Unexpected runtime dependencies');

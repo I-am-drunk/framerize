@@ -40,7 +40,7 @@ export async function checkNativeServer(executable: string, remoteArchive: strin
     }
     const isolated = { ...env, PATH: '' };
     assert.match(execFileSync(binary, ['--help'], { cwd: native, env: isolated, encoding: 'utf8', timeout: 5000 }),
-      /Usage: framerize-server/);
+      /Usage: framerize \[/);
     scenario = await createScenario();
     server = await startInstalledServer(native, isolated, scenario.url, binary);
     remote = await startInstalledRemote(consumer, env, server.url);

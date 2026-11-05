@@ -68,7 +68,7 @@ test('actual launcher reports argument errors with actionable, redacted diagnost
       FRAMERIZE_REMOTE_HOME: join(root, 'profile') },
   });
   const message = 'The command options are invalid, incomplete or repeated.';
-  const next = 'Run framerize-remote help for supported commands and options.';
+  const next = 'Run frm help for supported commands and options.';
   for (const command of ['check', 'serve']) {
     const cases = [
       ['unknown option', ['--synthetic-argument-canary']],

@@ -1,7 +1,8 @@
 # Server
 
-Server is the `framerize-server` package: a Node.js HTTP inference API with no
-runtime dependencies. It holds the provider accounts and the Castle runtime.
+Server is the `framerize-server` package and its `framerize` command: a Node.js
+HTTP inference API with no runtime dependencies. It holds the provider accounts
+and the Castle runtime. The `framerize-server` command remains an alias.
 Requires Node.js 22.12 or newer. The npm package is private and has no publish script.
 
 The HTTP listener is the shared TypeScript Core, bundled as `dist/core.js`.
@@ -13,7 +14,7 @@ tree. A small Node launcher remains in `bin/`. The account backend uses the
 packaged Castle runtime and its TypeScript encoder.
 Live provider compatibility is unverified.
 
-## Run
+## Install and run
 
 From the repository root, with an accounts file as described in
 [account configuration](docs/framer-backend.md#select-a-json-account):
@@ -21,10 +22,16 @@ From the repository root, with an accounts file as described in
 ```sh
 npm ci --ignore-scripts
 npm run build
+npm pack ./framerize-server --ignore-scripts
+npm install --global --ignore-scripts ./framerize-server-0.1.0.tgz
 FRAMERIZE_SERVER_BACKEND=framer \
 FRAMERIZE_SERVER_ACCOUNTS=/srv/framerize/accounts.json \
-node framerize-server/bin/framerize-server.js serve
+framerize serve
 ```
+
+See [command installation](../README.md#1-install-the-commands) for PATH setup
+and installation on another machine. The installed commands need Node.js,
+but do not need the source checkout or a compiler.
 
 The server listens on `127.0.0.1:8789`. Without an API token, clients need no
 `Authorization` header. Set `FRAMERIZE_SERVER_TOKEN` to require one.
@@ -41,7 +48,7 @@ prints a pairing link with a terminal QR code:
 ```sh
 FRAMERIZE_SERVER_BACKEND=framer \
 FRAMERIZE_SERVER_ACCOUNTS=/srv/framerize/accounts.json \
-node framerize-server/bin/framerize-server.js up --lan
+framerize up --lan
 ```
 
 On first setup, choose one access mode. In a terminal, `up` asks.
@@ -110,20 +117,20 @@ uninstall and `up --no-tailscale` refuse and change nothing. Reconnect
 Tailscale, then retry.
 
 If Tailscale was deliberately removed and cannot be restored, use the same
-`FRAMERIZE_SERVER_HOME` and run these commands from the repository root:
+`FRAMERIZE_SERVER_HOME` for these steps:
 
-1. Run `node framerize-server/bin/framerize-server.js service stop`.
+1. Run `framerize service stop`.
 2. Back up `server.json` in `FRAMERIZE_SERVER_HOME`, which defaults to
    `~/.framerize-server`. Keep the file and its backup private with mode `0600`.
 3. Remove only the top-level `access` property from the JSON. Preserve
    `version`, `config` and `environment`, and save valid JSON with mode `0600`.
-4. Run `node framerize-server/bin/framerize-server.js service uninstall`.
+4. Run `framerize service uninstall`.
 
 This forgets Server's saved route without deleting Tailscale's own Serve
 configuration. If you restore Tailscale later, remove the old Serve route
 before reusing its backend port.
 
-If the command reports "Invalid command or option", run `framerize-server --help`.
+If the command reports "Invalid command or option", run `framerize --help`.
 This covers unknown commands, unsupported options and missing option values.
 The diagnostic does not print the supplied arguments.
 
@@ -133,7 +140,7 @@ must be an integer from 0 to 65535. With `--backend framer`, also check the
 session in your [account JSON](docs/framer-backend.md#select-a-json-account).
 An inline session must be valid. A session variable must be set and valid, and
 a session file must be readable and valid. The variable can have any name.
-Run `framerize-server --help` for supported options. The diagnostic links to the
+Run `framerize --help` for supported options. The diagnostic links to the
 environment guide. It does not print configuration values.
 
 If startup reports "Account metadata file is unavailable or invalid", check
@@ -156,7 +163,7 @@ or underlying error. It does not identify a specific operating-system error.
 For the generic HTTP backend, name the upstream and its credential variable:
 
 ```sh
-npm --prefix framerize-server start -- --upstream https://inference.example.test --authorization-env INFERENCE_API_KEY
+framerize serve --upstream https://inference.example.test --authorization-env INFERENCE_API_KEY
 ```
 
 Installed packages already contain the listener bundle, compiled configuration
@@ -183,8 +190,8 @@ Release builds still require a clean committed checkout and source-bound manifes
 
 The server binds to `127.0.0.1:8789` by default. Use `--host` and `--port` to change
 the listener. A reverse proxy must provide TLS for remote clients. Run
-`npm --prefix framerize-server start -- --help` for every supported option. Run
-`node framerize-server/bin/framerize-server.js check` to validate configuration without contacting an upstream.
+`framerize --help` for every supported option. Run
+`framerize check` to validate configuration without contacting an upstream.
 
 `--server-token-file` reads the API token from a regular file of at most
 16 KiB. On Unix, group and other permission bits must be unset. The token is read
