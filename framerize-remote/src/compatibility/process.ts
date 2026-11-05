@@ -2,7 +2,7 @@ import { spawn } from 'node:child_process';
 import { closeSync, openSync } from 'node:fs';
 import type { Readable, Writable } from 'node:stream';
 import type { ClientCommand } from './clients.js';
-import { ClientCleanupError } from '../diagnostics.js';
+import { ClientCleanupError, RemoteDiagnosticError } from '../diagnostics.js';
 
 // Windows quoting and shim dispatch adapted from T3 Code packages/shared/src/shell.ts
 // escapeWindowsShellArg and resolveSpawnCommand at 5a906583 (MIT).
@@ -143,7 +143,7 @@ function runCancellable(command: ClientCommand, env: NodeJS.ProcessEnv, signal: 
       const parsed = Number(groupText.trim());
       if (!/^[1-9]\d*\n$/.test(groupText) || !Number.isSafeInteger(parsed)
         || parsed <= 1 || parsed === process.pid || parsed === child.pid) {
-        stopError = new Error('Could not identify the client process group.');
+        stopError = new RemoteDiagnosticError('client_start_failed', 'Could not identify the client process group.');
         groupChannel?.destroy();
         cancel();
         return;
@@ -155,7 +155,10 @@ function runCancellable(command: ClientCommand, env: NodeJS.ProcessEnv, signal: 
       if (cancelled || signal.aborted) { cancel(); stopGroup(); }
       else decide(true);
     });
-    const failGroup = (error: Error): void => { stopError = error; cancel(); };
+    const failGroup = (error: Error): void => {
+      stopError = new RemoteDiagnosticError('client_start_failed', error.message);
+      cancel();
+    };
     groupChannel?.once('error', failGroup);
     control?.once('error', failGroup);
     groupChannel?.once('end', () => {
@@ -173,7 +176,7 @@ function runCancellable(command: ClientCommand, env: NodeJS.ProcessEnv, signal: 
     };
     child.once('error', async error => {
       await treeStopped;
-      if (finish()) reject(stopError ?? error);
+      if (finish()) reject(stopError ?? new RemoteDiagnosticError('client_start_failed', error.message));
     });
     child.once('close', async (code, exitSignal) => {
       await treeStopped;

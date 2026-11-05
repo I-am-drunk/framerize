@@ -14,10 +14,12 @@ import { fileURLToPath } from 'node:url';
 import { build } from 'esbuild';
 
 const compiled = await build({
-  entryPoints: [fileURLToPath(new URL('../src/compatibility/index.ts', import.meta.url))],
+  stdin: { resolveDir: fileURLToPath(new URL('../', import.meta.url)), loader: 'ts',
+    contents: `export * from './src/compatibility/index.ts';
+      export { commandFailure } from './src/diagnostics.ts';` },
   bundle: true, platform: 'node', format: 'esm', write: false,
 });
-const { nodeRunner, offerClients, runClient } = await import(
+const { nodeRunner, offerClients, runClient, commandFailure } = await import(
   `data:text/javascript;base64,${Buffer.from(compiled.outputFiles[0].contents).toString('base64')}`);
 const childEnv = { NODE_DISABLE_COMPILE_CACHE: '1',
   ...(process.env.SystemRoot ? { SystemRoot: process.env.SystemRoot } : {}) };
@@ -136,6 +138,22 @@ for (const mode of ['graceful', 'stubborn', 'descendant', 'descendant-graceful']
     assert.deepEqual(getEventListeners(controller.signal, 'abort'), []);
   });
 }
+
+test('a failed installer spawn keeps the startup diagnostic', async context => {
+  const fixture = terminalStartupFixture(context), controller = new AbortController();
+  const pending = fixture.runner.run(command(''), {}, controller.signal);
+  const checked = assert.rejects(pending, error => {
+    assert.equal(error.code, 'client_start_failed');
+    assert.match(commandFailure(error, false), /^The client installer or updater could not start\./);
+    return true;
+  });
+  fixture.child.emit('error', Object.assign(new Error('Synthetic spawn failure'), { code: 'ENOENT' }));
+  await checked;
+  assert.equal(fixture.decision(), '');
+  assert.equal(fixture.group.destroyed, true);
+  assert.equal(fixture.control.destroyed, true);
+  assert.deepEqual(getEventListeners(controller.signal, 'abort'), []);
+});
 
 test('an already cancelled client command never spawns', async () => {
   const controller = new AbortController();
@@ -412,20 +430,29 @@ function terminalStartupFixture(context) {
   let decision = '';
   control.on('data', chunk => { decision += chunk; });
   const runner = nodeRunner('linux', () => child);
-  return { runner, group, control, kills, decision: () => decision };
+  return { runner, child, group, control, kills, decision: () => decision };
 }
 
-for (const mode of ['cancelled', 'silent', 'invalid']) {
+for (const mode of ['cancelled', 'silent', 'invalid', 'closed', 'broken']) {
   test(`a ${mode} terminal startup closes without running the installer`, async context => {
     const fixture = terminalStartupFixture(context), controller = new AbortController();
     const pending = fixture.runner.run(command(''), {}, controller.signal);
     if (mode === 'cancelled') controller.abort();
     else if (mode === 'invalid') fixture.group.write(process.pid + '\n');
+    else if (mode === 'closed') fixture.group.emit('end');
+    else if (mode === 'broken') fixture.group.emit('error', new Error('Synthetic channel failure'));
     else context.mock.timers.tick(5000);
     context.mock.timers.tick(500);
     if (mode === 'cancelled') assert.equal(await pending, 1);
-    else await assert.rejects(pending, mode === 'invalid'
-      ? /Could not identify the client process group/ : /did not start in time/);
+    else await assert.rejects(pending, error => {
+      assert.equal(error.code, 'client_start_failed');
+      assert.match(error.message, { invalid: /Could not identify the client process group/,
+        silent: /did not start in time/, closed: /did not report its identity/,
+        broken: /Synthetic channel failure/ }[mode]);
+      assert.match(commandFailure(error, false), /^The client installer or updater could not start\.\nNext: Retry from a foreground terminal\./);
+      assert.equal(JSON.parse(commandFailure(error, true)).error, 'client_start_failed');
+      return true;
+    });
     assert.equal(fixture.decision(), 'stop\n');
     assert.deepEqual(fixture.kills, ['SIGKILL']);
     assert.equal(fixture.group.destroyed, true);

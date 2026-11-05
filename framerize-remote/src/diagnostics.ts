@@ -38,6 +38,8 @@ const messages = {
   malformed_response: ['The remote returned invalid readiness data.', 'Check the server readiness endpoint.'],
   incompatible_response: ['The remote readiness contract is incompatible.', 'Use compatible Remote and server versions.'],
   aborted: ['The command was cancelled.', 'Run the command again to retry.'],
+  client_start_failed: ['The client installer or updater could not start.',
+    'Retry from a foreground terminal. If it still fails, run the client installer or updater directly.'],
   client_cleanup_failed: ['The client command could not stop all of its processes.',
     'Check for installer or updater processes that are still running before retrying.'],
   configuration_unavailable: ['The remote configuration is unavailable.', 'Check the server configuration.'],
@@ -56,6 +58,7 @@ export function diagnostic(code: DiagnosticCode) {
 export function diagnosticText(code: DiagnosticCode): string {
   const detail = diagnostic(code);
   const message = code === 'aborted' || code === 'cleanup_failed' || code === 'client_cleanup_failed'
+    || code === 'client_start_failed'
     || code === 'command_arguments' || code.startsWith('service_')
     ? detail.message : `Not ready: ${detail.message}`;
   return `${message}\nNext: ${detail.next}`;

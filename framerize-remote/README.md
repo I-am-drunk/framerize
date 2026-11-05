@@ -164,11 +164,15 @@ These signals also stop an installer or updater that is already running.
 A cancelled standalone install or update exits with the same cancellation
 diagnostic. Files already changed by the installer or updater remain changed.
 Installers and updaters keep the current terminal session for their prompts.
+For shell installers and updaters in a terminal, Ctrl+C cancels with SIGTERM
+followed by SIGKILL after 500 ms. Their SIGINT traps may not run.
 On Linux and macOS, cancellation stops their process group, including
 descendants that stay in that group. Descendants that create a separate
 process group are outside this cleanup.
 If stopping the group fails, `frm` reports `client_cleanup_failed`. Check
 for installer or updater processes that are still running before retrying.
+If the command cannot start, `client_start_failed` advises retrying from a
+foreground terminal or running the client installer or updater directly.
 
 The prompt after an interactive `frm up` checks both clients. It offers an
 install for a missing client, and an update only when a newer release is
