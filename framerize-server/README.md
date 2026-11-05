@@ -94,6 +94,10 @@ for unit path, log path, process ID and match details. `service start`,
 Tailscale route that `up` added and clears the saved Tailscale access. It
 keeps the rest of `server.json`. If another application has replaced that
 route, uninstall leaves the route and the service in place and reports failure.
+Removing a saved route needs Tailscale, because Server first checks that the
+route is still its own. If Tailscale cannot report its status or routes,
+uninstall and `up --no-tailscale` refuse and change nothing. Reconnect
+Tailscale, then retry.
 
 If the command reports "Invalid command or option", run `framerize-server --help`.
 This covers unknown commands, unsupported options and missing option values.
@@ -180,7 +184,8 @@ Readiness returns API version 1, `status: "ready"`, and capabilities
 `credentials_unavailable`, or `upstream_unavailable`. Readiness performs no
 inference or account discovery. No endpoint exposes account metadata.
 Every `/ready` response from `createServer` carries `x-framerize-server-pid`
-with the server's process ID. `up` uses it to confirm which process answered.
+with the server's process ID, including 401 replies to unauthenticated
+requests. `up` uses it to confirm which process answered.
 
 With a token configured, authentication failures return 401 and
 `{"error":{"type":"authentication_error","code":"unauthorized","message":"Authentication required"}}`.
