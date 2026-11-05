@@ -180,7 +180,9 @@ async function configureAndPair(command: string | undefined, action: string | un
   const explicitPath = values.config !== undefined;
   delete values.config;
   const env = dependencies.env ?? process.env;
-  if (command !== 'pair' && !exists) await chooseAccess(flags, values, env, dependencies.ask);
+  // configure and accounts select save server.json without an access choice; up still asks once.
+  const chosen = exists && Object.hasOwn((await readSettings(path)).config, 'privateNetworkOnly');
+  if (command !== 'pair' && !chosen) await chooseAccess(flags, values, env, dependencies.ask);
   if (values.privateNetworkOnly !== undefined && values.host === undefined && env.FRAMERIZE_SERVER_HOST === undefined) {
     values.host = values.privateNetworkOnly === 'true' ? '0.0.0.0' : '127.0.0.1';
   }

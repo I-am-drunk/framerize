@@ -7,6 +7,11 @@ The upstream license text is in `T3-LICENSE`.
 
 ## Adapted files
 
+- `src/account-cli.ts` adapts the record formatting of
+  `apps/server/src/cliAuthFormat.ts` at fbe5df2d4b: JSON lists without
+  credentials and one indented human block per record. The terminal check
+  needing both stdin and stdout follows `interactiveTerminal` in `cli/up.ts`.
+  Account editing, hidden session entry and saved selection are Framerize additions.
 - `src/browser-login.ts` adapts T3 Code at commit fbe5df2d.
   `apps/server/src/htmlRender/headlessChrome.ts` supplies the debugging pipe
   on file descriptors 3 and 4, NUL-delimited messages, temporary profile,

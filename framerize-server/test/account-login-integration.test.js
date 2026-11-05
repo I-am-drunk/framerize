@@ -16,6 +16,17 @@ async function fixture(t) {
     settings: () => readFile(join(home, 'server.json'), 'utf8') };
 }
 
+test('the account menu signs in and selects without editing JSON', async t => {
+  const f = await fixture(t);
+  const answers = ['login', 'personal', 'project-personal'];
+  assert.equal(await runAccountsCommand([], { ...f.deps,
+    ask: async () => answers.shift(), login: async () => 'session=synthetic-menu-login' }), 0);
+  assert.equal(JSON.parse(await f.settings()).config.accountId, 'personal');
+  assert.equal(JSON.parse(await f.accounts())[0].session, 'session=synthetic-menu-login');
+  assert.doesNotMatch(f.output(), /synthetic-menu-login/);
+  assert.equal(answers.length, 0);
+});
+
 test('an invalid project is rejected before opening the browser or writing an account', async t => {
   const f = await fixture(t);
   let calls = 0;
