@@ -38,9 +38,10 @@ export async function runSetup(argv: readonly string[], configPath: string,
   try { parsed = parseArgs(argv, SETUP_SPEC); }
   catch { throw new RemoteDiagnosticError('setup_arguments'); }
   const { options } = parsed;
-  const frm = frmSettings(env);
+  const flags = parseListenOptions(options);
+  const frm = frmSettings(flags.port === undefined ? env : { ...env, FRM_PORT: undefined });
   const listen = { ...(frm.host ? { host: frm.host } : {}), ...(frm.port !== undefined ? { port: frm.port } : {}),
-    ...parseListenOptions(options) };
+    ...flags };
   const inferenceTimeout = options['inference-timeout-ms'];
   if (typeof inferenceTimeout === 'string' && !/^\d+$/.test(inferenceTimeout)) {
     throw new RemoteDiagnosticError('inference_invalid', 'invalid inference timeout');
