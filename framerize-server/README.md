@@ -104,6 +104,20 @@ route is still its own. If Tailscale cannot report its status or routes,
 uninstall and `up --no-tailscale` refuse and change nothing. Reconnect
 Tailscale, then retry.
 
+If Tailscale was deliberately removed and cannot be restored, use the same
+`FRAMERIZE_SERVER_HOME` and run these commands from the repository root:
+
+1. Run `node framerize-server/bin/framerize-server.js service stop`.
+2. Back up `server.json` in `FRAMERIZE_SERVER_HOME`, which defaults to
+   `~/.framerize-server`. Keep the file and its backup private with mode `0600`.
+3. Remove only the top-level `access` property from the JSON. Preserve
+   `version`, `config` and `environment`, and save valid JSON with mode `0600`.
+4. Run `node framerize-server/bin/framerize-server.js service uninstall`.
+
+This forgets Server's saved route without deleting Tailscale's own Serve
+configuration. If you restore Tailscale later, remove the old Serve route
+before reusing its backend port.
+
 If the command reports "Invalid command or option", run `framerize-server --help`.
 This covers unknown commands, unsupported options and missing option values.
 The diagnostic does not print the supplied arguments.

@@ -54,6 +54,7 @@ test('installed custom routes use the account server and Remote without a worksp
     let scenario: Awaited<ReturnType<typeof createCustomScenario>> | undefined;
     let server: Awaited<ReturnType<typeof startInstalledAccountServer>> | undefined;
     let remote: Awaited<ReturnType<typeof startInstalledRemote>> | undefined;
+    const failures: unknown[] = [];
     try {
       mkdirSync(consumer);
       writeFileSync(join(root, 'user.npmrc'), '');
@@ -78,10 +79,20 @@ test('installed custom routes use the account server and Remote without a worksp
       context.diagnostic(JSON.stringify({ node: process.version, packages,
         completedToolRoundTrips: 4, streamedToolRoundTrips: 4, invalidReplies: 4, cancelled: scenario.state.cancelled,
         providerPosts: scenario.state.inference, builtInMinter: true }));
+    } catch (error) {
+      failures.push(error);
     } finally {
       const cleanup = await Promise.allSettled([remote?.close(), server?.close(), scenario?.close()]);
-      rmSync(root, { recursive: true, force: true });
-      for (const result of cleanup) if (result.status === 'rejected') throw result.reason;
+      for (const result of cleanup) {
+        if (result.status === 'rejected' && !failures.includes(result.reason)) failures.push(result.reason);
+      }
+      try { rmSync(root, { recursive: true, force: true }); }
+      catch (error) { failures.push(error); }
+      if (failures.length) {
+        context.diagnostic(JSON.stringify({ serverOutput: server?.output(), remoteOutput: remote?.output() }));
+        if (failures.length === 1) throw failures[0];
+        throw new AggregateError(failures, 'Installed custom-route test and cleanup failed');
+      }
     }
     await assertTransportClosed(resources);
   });
